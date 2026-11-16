@@ -249,8 +249,8 @@ class GestureLogic(unittest.TestCase):
     def test_sheet_release_collapses_low_or_flung_down_and_steps_up_on_an_upward_fling(self):
         """Below 25% or a downward fling collapses (30% while composing); an upward fling goes to the next stop."""
         pre = js_const(
-            "SHEET_F"
-        )  # the statement that also declares SHEET_MIN_F, SHEET_CLOSE_F and SHEET_COMPOSE_FRACTION
+            "SHEET_FRACTIONS"
+        )  # the statement that also declares SHEET_MIN_FRACTION, SHEET_CLOSE_FRACTION and SHEET_COMPOSE_FRACTION
         got = self.run_js(
             ["sheetRelease"],
             "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"
@@ -322,10 +322,10 @@ class NavLogic(unittest.TestCase):
     and what the phone's [본문 3/25 ▾] says."""
 
     def run_js(self, names, expr, lang="ko"):
-        """Evaluate expr (JSON) with the named shipped functions and the viewer's tr/tl in lang."""
+        """Evaluate expr (JSON) with the named shipped functions and the viewer's translate/translateTemplate in lang."""
         js = "\n".join(
             ["var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False))]
-            + [extract_js_fn(n) for n in ["tr", "tl"] + names]
+            + [extract_js_fn(n) for n in ["translate", "translateTemplate"] + names]
             + ["console.log(JSON.stringify(%s));" % expr]
         )
         return node_or_skip(self, js)
@@ -367,7 +367,7 @@ class NavLogic(unittest.TestCase):
         144%, half 50%; 100 before a scale is known."""
         got = self.run_js(
             ["zoomPercent"],
-            "(globalThis.PT_PX=96/72,[zoomPercent(96/72),zoomPercent(96/72*1.2),zoomPercent(96/72*1.44),zoomPercent(96/72/2),zoomPercent(1),"
+            "(globalThis.POINT_PX=96/72,[zoomPercent(96/72),zoomPercent(96/72*1.2),zoomPercent(96/72*1.44),zoomPercent(96/72/2),zoomPercent(1),"
             "zoomPercent(0)])",
         )
         self.assertEqual(got, [100, 120, 144, 50, 75, 100])
@@ -477,8 +477,8 @@ class StatusLogic(unittest.TestCase):
             js = "\n".join(
                 [
                     "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
-                    extract_js_fn("tr"),
-                    extract_js_fn("tl"),
+                    extract_js_fn("translate"),
+                    extract_js_fn("translateTemplate"),
                     extract_js_fn("statusSplit"),
                     extract_js_fn("statusText"),
                     "const C=%s; const o={}; for(const k in C)o[k]=[statusText(C[k],'long'),statusText(C[k],'short')];"
@@ -1444,20 +1444,20 @@ class FoldOverlay(ViewerBase):
         and waits for the page width."""
         page = self.view(FOLD)
         cdp = self.cdp(page)
-        w0 = page.evaluate("pageWidth(ptMax(),K)")
+        w0 = page.evaluate("pageWidth(widestPagePoints(),PAGE_SCALE)")
         at = "(()=>{const a=zoomAnchor(300,400);return [a.pg.id,+a.fx.toFixed(3),+a.fy.toFixed(3)];})()"
         before = page.evaluate(at)
         page.clock.install()
         clock_still(page)  # performance.now() and the long-press timer stand still
         self.tap(cdp, 300, 400)
         self.tap(cdp, 300, 400)
-        page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)<=2", arg=w0 * 2, timeout=10000)
+        page.wait_for_function("w=>Math.abs(pageWidth(widestPagePoints(),PAGE_SCALE)-w)<=2", arg=w0 * 2, timeout=10000)
         after = page.evaluate(at)
         self.assertEqual(after[0], before[0])
         self.assertAlmostEqual(after[1], before[1], delta=0.01)
         self.tap(cdp, 300, 400)
         self.tap(cdp, 300, 400)
-        page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)<=2", arg=w0, timeout=10000)
+        page.wait_for_function("w=>Math.abs(pageWidth(widestPagePoints(),PAGE_SCALE)-w)<=2", arg=w0, timeout=10000)
         self.assertFalse(page.evaluate("ZOOMED"))
 
     def test_back_gesture_closes_the_overlay_first_without_leaving(self):
@@ -1619,10 +1619,10 @@ class PhoneSheet(ViewerBase):
         a pull down."""
         page = self.view(PHONE)
         cdp = self.cdp(page)
-        page.evaluate("openNavSheet()")
+        page.evaluate("openNavigationSheet()")
         self.tap(cdp, 190, 100)
         page.wait_for_function("!document.querySelector('#nav-sheet').open")
-        page.evaluate("openNavSheet()")
+        page.evaluate("openNavigationSheet()")
         r = page.locator("#nav-sheet").bounding_box()
         self.swipe(cdp, 190, r["y"] + 20, 190, r["y"] + 20 + r["height"] * 0.6, steps=10, dt=0.02)
         page.wait_for_function("!document.querySelector('#nav-sheet').open")
@@ -1914,7 +1914,7 @@ class LayoutNotPointer(ViewerBase):
     def test_a_mouse_at_mid_width_gets_the_compact_card_and_the_more_sheet(self):
         """1000x800 with a mouse: the head's '#N · L… · N쪽' link, the icon row without [보기], [더보기] on the bottom edge."""
         page = self.view(MOUSE_MID)
-        self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')&&!MQ_COARSE.matches"))
+        self.assertTrue(page.evaluate("document.body.classList.contains('lay-mid')&&!COARSE_POINTER_QUERY.matches"))
         pid = page.evaluate("PINS[0].id")
         page.evaluate("id=>{setSide(true); OPEN_CARDS.add(id); drawPins();}", pid)
         settle(page)
@@ -2373,7 +2373,7 @@ class PhoneComposer(ViewerBase):
 
     def compose(self, page):
         """A touch selection through the real pick path (the computed answer overlaps the open pin at L4-L5)."""
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
 
@@ -2452,7 +2452,7 @@ class BottomActionRow(ViewerBase):
 
     def compose(self, page):
         """A touch selection through the real pick path; waits for the composer."""
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
 
@@ -2472,7 +2472,7 @@ class BottomActionRow(ViewerBase):
             with self.subTest(w=w):
                 page = self.view(phone(w, h), prefs=SECTIONS_SHUT)
                 self.compose(page)
-                page.evaluate("setSheetF(1)")
+                page.evaluate("setSheetFraction(1)")
                 settle(page)
                 f = page.evaluate(FOOTERS)
                 self.assertTrue(f["fits"], f)  # the case the owner met: no scrolling, room under the list
@@ -2638,7 +2638,7 @@ class RangeLadderAndCaption(ViewerBase):
 
     def compose(self, page):
         """A touch selection through the real pick path; waits for the composer."""
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
 
@@ -2727,7 +2727,7 @@ class ComposerSamePass(ViewerBase):
 
     def compose(self, page):
         """A touch selection through the real pick path; waits for the composer."""
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
 
@@ -2871,7 +2871,7 @@ class SegmentedControl(ViewerBase):
 
     def compose(self, page):
         """A touch selection through the real pick path; waits for the composer."""
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
 
@@ -2887,7 +2887,7 @@ class SegmentedControl(ViewerBase):
         page.evaluate("()=>{cancelEdit(); cancelSelection(true); openMore();}")
         settle(page)
         out.append(("more", page.evaluate(SEGMENTS, "#more")))
-        page.evaluate("()=>{document.querySelector('#more').close(); openNavSheet();}")
+        page.evaluate("()=>{document.querySelector('#more').close(); openNavigationSheet();}")
         settle(page)
         out.append(("nav", page.evaluate(SEGMENTS, "#nav-sheet")))
         page.evaluate("document.querySelector('#nav-sheet').close()")
@@ -2922,7 +2922,7 @@ class SegmentedControl(ViewerBase):
         page.evaluate("openMore()")
         settle(page)
         self.assertEqual(page.evaluate(MISSES_44, "#more .seg button"), [])
-        page.evaluate("()=>{document.querySelector('#more').close(); openNavSheet();}")
+        page.evaluate("()=>{document.querySelector('#more').close(); openNavigationSheet();}")
         settle(page)
         self.assertEqual(page.evaluate(MISSES_44, "#nav-sheet .seg button"), [])
 
@@ -3084,7 +3084,7 @@ class RangeExcerpt(ViewerBase):
 
     def compose(self, page):
         """A touch selection through the real pick path (the paragraph L1-L40 of the fixture); waits for the composer."""
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
 
@@ -3501,7 +3501,7 @@ class MidChrome(ViewerBase):
         """A landscape phone with its notch on the right: the panel's buttons sat in the 47px inset (#c-copy at x 788-832)."""
         page = self.view(FOLD)
         self.cdp(page).send("Emulation.setSafeAreaInsetsOverride", {"insets": {"right": 47}})
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
         out = page.evaluate(
@@ -3541,7 +3541,7 @@ TWO_FRAMES = "() => new Promise(r => requestAnimationFrame(() => requestAnimatio
 COUNT_BANDS = """() => {const band = () => [...document.body.classList].find(c => c.startsWith('band-')); let last = band(); window.__bands = [];
   new MutationObserver(() => {const b = band(); if (b !== last) {window.__bands.push(b); last = b;}}).observe(document.body, {attributes: true, attributeFilter: ['class']});}"""
 # Gives the note the focus in the task that ends the band's settle wait, ahead of that timer's own check of the focus. The timer is
-# the band's own (the one BAND_T holds, still pending), and window.__settleFocus records whether the wait had not yet taken the
+# the band's own (the one BAND_TIMER holds, still pending), and window.__settleFocus records whether the wait had not yet taken the
 # window (bandStale: the settled input is still the old size) and which element has the focus then. The focus has to come from
 # inside the page: a call from the test needs a round trip, and on a slow machine that outlasts the 200ms wait, the band has
 # changed by then and the note's focus holds nothing. It is the expiry and not the start of the wait that is hooked: a rotation
@@ -3551,7 +3551,7 @@ FOCUS_NOTE_AS_THE_SETTLE_WAIT_ENDS = """() => {
   const set = window.setTimeout; window.__settleFocus = null;
   window.setTimeout = function (fn, ms, ...args) {
     const id = set.call(window, function () {
-      if (id === BAND_T && !window.__settleFocus) {
+      if (id === BAND_TIMER && !window.__settleFocus) {
         const unsettled = bandStale(); document.querySelector('#note').focus();
         window.__settleFocus = {unsettled, focused: document.activeElement.id};
       }
@@ -3567,7 +3567,7 @@ class TouchLayoutBands(ViewerBase):
 
     def compose(self, page):
         """A touch selection through the real pick path; waits for the composer."""
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
 
@@ -3822,7 +3822,7 @@ class TouchLayoutBands(ViewerBase):
             with self.subTest(w=w, h=h):
                 page = self.view({"viewport": {"width": w, "height": h}})
                 self.assertEqual(page.evaluate(BODY_BANDS), bands)
-                self.assertFalse(page.evaluate("MQ_COARSE.matches"))
+                self.assertFalse(page.evaluate("COARSE_POINTER_QUERY.matches"))
                 if (w, h) == (640, 900):
                     self.assertFalse(page.evaluate("SIDE_OPEN"))
                     self.assertFalse(page.is_visible("#doc-nav"))
@@ -3943,7 +3943,8 @@ class TouchLayoutBands(ViewerBase):
         self.assertEqual(page.evaluate("window.__settleFocus"), {"unsettled": True, "focused": "note"})
         settle(page)
         self.assertEqual(
-            page.evaluate("[BAND, window.__bands, BAND_T, document.activeElement.id]"), ["tablet-sheet", [], 0, "note"]
+            page.evaluate("[BAND, window.__bands, BAND_TIMER, document.activeElement.id]"),
+            ["tablet-sheet", [], 0, "note"],
         )
         page.evaluate("document.activeElement.blur()")
         page.wait_for_function("BAND==='mid-side'")
@@ -4045,13 +4046,13 @@ class TouchLayoutBands(ViewerBase):
         self.assertLess(right, hit)
 
     def test_fit_width_on_a_wide_touch_screen_keeps_the_page_clear_of_both_handles(self):
-        """1440x900 touch: [폭 맞춤] (fitW) fitted 32px less than the width and the 48px padding, leaving the page 2px over the
+        """1440x900 touch: [폭 맞춤] (fitToWidth) fitted 32px less than the width and the 48px padding, leaving the page 2px over the
         panel handle's hit; the fit now leaves exactly the padding. Also with the outline open and with the panel collapsed
         to its rail at the screen's edge."""
         for name, prefs in (("plain", {}), ("outline", {"outlineClosed": False}), ("rail", {"sideClosed": True})):
             with self.subTest(case=name):
                 page = self.view(touch_device(1440, 900), prefs=prefs)
-                page.evaluate("fitW()")
+                page.evaluate("fitToWidth()")
                 settle(page)
                 right, hit, left, ohit = self.page_clear_of_grip(page)
                 self.assertLess(right, hit)
@@ -4066,7 +4067,9 @@ class TouchLayoutBands(ViewerBase):
         """1024x768 touch at 300%, scrolled fully right: the right padding was not part of the scroll extent, so the page's
         edge came flush with the scroller under the handle's hit. The padding now counts."""
         page = self.view(touch_device(1024, 768))
-        page.evaluate("()=>{zoomTo(K*3); const L=document.querySelector('#left'); L.scrollLeft=L.scrollWidth;}")
+        page.evaluate(
+            "()=>{zoomTo(PAGE_SCALE*3); const L=document.querySelector('#left'); L.scrollLeft=L.scrollWidth;}"
+        )
         settle(page)
         right, hit, _, _ = self.page_clear_of_grip(page)
         self.assertLess(right, hit)
@@ -4107,7 +4110,7 @@ class TouchLayoutBands(ViewerBase):
         cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": False})
         page.wait_for_function("BAND==='wide'")
         settle(page)
-        self.assertFalse(page.evaluate("MQ_COARSE.matches"))
+        self.assertFalse(page.evaluate("COARSE_POINTER_QUERY.matches"))
         cdp.send("Emulation.setTouchEmulationEnabled", {"enabled": True, "maxTouchPoints": 5})
         page.wait_for_function("BAND==='mid-side'")
         settle(page)
@@ -4322,7 +4325,7 @@ SHEETS = (
     ),
     (
         "#nav-sheet",
-        "openNavSheet()",
+        "openNavigationSheet()",
         [
             ["#nav-sheet-h", "ink"],
             ["#ns-view", "box"],
@@ -4581,7 +4584,7 @@ class WideSafeArea(ViewerBase):
         page = self.view(TAB_WIDE)
         self.assertTrue(page.evaluate("document.body.classList.contains('lay-wide')"))
         self.cdp(page).send("Emulation.setSafeAreaInsetsOverride", {"insets": self.INSETS})
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
         out = page.evaluate(
@@ -4660,7 +4663,7 @@ class DesktopMisc(ViewerBase):
     def test_an_outside_click_closes_help_and_the_documents_menu_like_the_others(self):
         """[더보기] and the Trash closed on a backdrop click; help and the documents menu (now the navigation sheet) do too."""
         page = self.view(DESK)
-        for opener, dlg in (("openHelp()", "#help"), ("openNavSheet()", "#nav-sheet")):
+        for opener, dlg in (("openHelp()", "#help"), ("openNavigationSheet()", "#nav-sheet")):
             with self.subTest(dialog=dlg):
                 page.evaluate(opener)
                 page.mouse.click(8, 8)
@@ -4669,7 +4672,7 @@ class DesktopMisc(ViewerBase):
     def test_desktop_hit_targets_are_at_least_24px(self):
         """WCAG 2.5.8: each control answers a click anywhere in a 24x24 box around its center (visual size unchanged)."""
         page = self.view(DESK)
-        page.evaluate("SEC.done=true; drawPins()")
+        page.evaluate("SECTION_OPEN.done=true; drawPins()")
         bad = page.evaluate("""() => {
           const sel = 'button,[data-act],[role=button],[data-copy],.mark [data-act=mark-jump]';
           const out = [];
@@ -4780,7 +4783,7 @@ MORE = """() => {const q = s => document.querySelector(s), colour = v => {const 
     gone: [!!q('#m-done'), !!q('#m-jump')]};}"""
 # The fullest bar the width budget plans for: 123 open pins, 12 awaiting review and a draft dot (UX spec §V4 폭 예산).
 FULL_BAR = """() => {document.querySelector('#side-n').textContent = '123'; const p = document.querySelector('#side-rv');
-  p.hidden = false; p.innerHTML = ic('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;
+  p.hidden = false; p.innerHTML = lucideIcon('eye') + '12'; document.querySelector('#btn-side .c-dot').hidden = false;
   const r = document.querySelector('#btn-rv'); r.hidden = false; r.querySelector('.rv-c').textContent = '12'; fitBarWords();}"""
 
 
@@ -5359,7 +5362,7 @@ class BarAndSheets(ViewerBase):
         self.long_press_pick(self.cdp(page), page)
         page.fill("#note", "펼치기 전 메모")
         page.evaluate("document.activeElement.blur()")
-        page.evaluate("openNavSheet()")
+        page.evaluate("openNavigationSheet()")
         settle(page)
         spot = page.evaluate("topAnchor().page")
         page.set_viewport_size({"width": 884, "height": 1104})
@@ -5462,7 +5465,7 @@ class BarAndSheets(ViewerBase):
         it, against the print size (96/72 px a point) - the fitted phone page's share of it, then 1.44 times that after two
         steps."""
         page = self.more_view(BAR_PHONES[0])
-        fit = page.evaluate("fitK()/PT_PX*100")
+        fit = page.evaluate("fitScale()/POINT_PX*100")
         self.assertEqual(page.inner_text("#m-zoom"), "%d%%" % round(fit))
         for _ in range(2):
             page.click("#more [data-act=zoom-in]")
@@ -5719,7 +5722,7 @@ class PageList(ViewerBase):
 # The four sheets and dialogs, by the function that opens each, and its element.
 OPENERS = (
     ("openMore()", "#more"),
-    ("openNavSheet()", "#nav-sheet"),
+    ("openNavigationSheet()", "#nav-sheet"),
     ("openHelp()", "#help"),
     ("openTrash()", "#trash"),
 )
@@ -5897,7 +5900,7 @@ class TouchFieldsAnswer44(ViewerBase):
         """411x908: the navigation sheet's page field and outline search; 820x1180: the page list's field once the nav
         bar's page count opens it, and the outline overlay's search."""
         page = self.view(phone(411, 908))
-        page.evaluate("openNavSheet()")
+        page.evaluate("openNavigationSheet()")
         settle(page)
         self.assertEqual(page.evaluate(MISSES_44, "#ns-page-in,#ns-outline-search"), [])
         page = self.view(phone(820, 1180, 2))
@@ -5959,7 +5962,7 @@ class SheetCloseFocus(ViewerBase):
         the focus back with no outline (it was solid); the same after help, which gives it back to [본문 1/2 ▾] too."""
         page = self.view(phone(411, 908), init=NO_PNG_CHIP)
         cdp = self.cdp(page)
-        for opener, sheet in (("openNavSheet()", "nav-sheet"), ("openHelp()", "help")):
+        for opener, sheet in (("openNavigationSheet()", "nav-sheet"), ("openHelp()", "help")):
             with self.subTest(sheet=sheet):
                 page.keyboard.press("Shift")
                 self.press_off_the_controls(page, cdp)
@@ -5971,7 +5974,7 @@ class SheetCloseFocus(ViewerBase):
         page = self.view(phone(411, 908), init=NO_PNG_CHIP)
         self.press_off_the_controls(page, self.cdp(page))
         page.keyboard.press("Tab")
-        self.assertEqual(self.given_back(page, "openNavSheet()", "nav-sheet"), ["btn-pos", "solid"])
+        self.assertEqual(self.given_back(page, "openNavigationSheet()", "nav-sheet"), ["btn-pos", "solid"])
 
     def test_a_tapped_text_field_keeps_its_ring(self):
         """411x908: the note field tapped after a pick keeps its ring - it shows where the typing goes."""
@@ -6034,7 +6037,7 @@ class SourceAlwaysWraps(ViewerBase):
         for device in (phone(411, 908), DESK):
             with self.subTest(width=device["viewport"]["width"]):
                 page = self.view(device)
-                page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+                page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
                 page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
                 settle(page)
                 page.click('#c-levels [data-level="raw"]')
@@ -6490,7 +6493,7 @@ class DesktopGrid(ViewerBase):
     def lines(self, device, lang="ko"):
         """DESK_LINES on device in lang, with the panel open, a review chip in the meta and the composer open on a pick."""
         page = self.view(device, lang=lang, init=NO_PNG_CHIP)
-        page.evaluate("()=>{LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
         settle(page)
         return page.evaluate(DESK_LINES)
@@ -6618,7 +6621,7 @@ class DesktopGrid(ViewerBase):
                     ),
                     [],
                 )
-                page.evaluate("()=>{LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+                page.evaluate("()=>{LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
                 page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
                 settle(page)
                 self.assertEqual(
@@ -6856,7 +6859,9 @@ class SymmetryAudit(ViewerBase):
         Pretendard, are within 0.75px (1 to 2.6px apart as line boxes, 7px for help) - what remains is how far each Hangul
         word reaches past its cap height and its baseline, which differs by word and size (0 to 0.7px measured), not their
         placement."""
-        cases = [(phone(411, 908), 2.625, o) for o in ("openMore()", "openNavSheet()", "openHelp()", "openTrash()")]
+        cases = [
+            (phone(411, 908), 2.625, o) for o in ("openMore()", "openNavigationSheet()", "openHelp()", "openTrash()")
+        ]
         cases += [(phone(1180, 820, 2), 2, "openMore()")]
         cases += [
             (dict(MOUSE_WIDE, device_scale_factor=2), 2, o)
@@ -6898,7 +6903,7 @@ class SymmetryAudit(ViewerBase):
             with self.subTest(w=device["viewport"]["width"]):
                 page = self.view(device)
                 page.evaluate(
-                    "()=>{LAST_PTR=matchMedia('(pointer:coarse)').matches?'touch':'mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}"
+                    "()=>{LAST_POINTER=matchMedia('(pointer:coarse)').matches?'touch':'mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}"
                 )
                 page.wait_for_function("COMPOSE.current&&!COMPOSE.picking")
                 settle(page)
@@ -7066,9 +7071,9 @@ class HangulInkInClippingBoxes(ViewerBase):
         """411x908: the select mode's bar and the heads of [더보기] (the instance's name, which ellipsizes), the navigation
         sheet, help and the Trash keep their words' ink ([더보기]'s name lost its top or foot)."""
         for opener, sels, words in (
-            ("setSelMode(true)", ["#sel-bar"], set()),
+            ("setSelectMode(true)", ["#sel-bar"], set()),
             ("openMore()", ["#more .more-head"], {"논문"}),
-            ("openNavSheet()", ["#nav-sheet .ns-head"], set()),
+            ("openNavigationSheet()", ["#nav-sheet .ns-head"], set()),
             ("openHelp()", ["#help .ns-head"], set()),
             ("openTrash()", ["#trash .ns-head"], set()),
         ):
@@ -7085,7 +7090,7 @@ class HangulInkInClippingBoxes(ViewerBase):
             "undoNote(NOTICE_PLACE.ROW,'핀 #9 완료',{label:'되돌리기',fn:()=>{}},{pin:9,sec:'open',life:NOTICE_LIFE.STICKY});"
             "undoNote(NOTICE_PLACE.CARD,'답글 보냄',{label:'되돌리기',fn:()=>{}},{pin:OPEN_ALL[0].id,life:NOTICE_LIFE.STICKY});"
             "undoNote(NOTICE_PLACE.CHIP,'핀 #1 저장됨',{label:'되돌리기',fn:()=>{}},"
-            "{pin:OPEN_ALL[0].id,label:tr('저장됨'),life:NOTICE_LIFE.STICKY});"
+            "{pin:OPEN_ALL[0].id,label:translate('저장됨'),life:NOTICE_LIFE.STICKY});"
         )
         cut = self.cut_ink(phone(411, 908), ["#list .nt", "#list .pin", ".mark .nt-chip"], opener=opener)
         self.assert_whole(cut, set())
@@ -7264,12 +7269,12 @@ class SelectModeBar(ViewerBase):
                 for full in (False, True) if w >= 600 else (False,):
                     with self.subTest(w=w, lang=lang, full=full):
                         if full:
-                            page.evaluate("setSelMode(false)")
+                            page.evaluate("setSelectMode(false)")
                             page.evaluate(FULL_BAR)
                             settle(page)
                         chip = "['#btn-side','#btn-rv'].map(s=>Math.round(document.querySelector(s).getBoundingClientRect().width*100)/100)"
                         off = (page.evaluate(BAR_IDS), page.evaluate(chip))
-                        page.evaluate("setSelMode(true)")
+                        page.evaluate("setSelectMode(true)")
                         settle(page)
                         on = (page.evaluate(BAR_IDS), page.evaluate(chip))
                         self.assertEqual((off[0]["step"], off[1]), (on[0]["step"], on[1]))
@@ -7292,14 +7297,14 @@ class SelectModeBar(ViewerBase):
                 s = page.evaluate(SEL_STATE)
                 self.assertEqual(s["top"], 0, s)
                 self.assertGreaterEqual(s["page"][1] - s["bar"][3], 8, s)
-                page.evaluate("setSelMode(false)")
+                page.evaluate("setSelectMode(false)")
                 settle(page)
                 self.assertAlmostEqual(page.evaluate(SEL_STATE)["page"][1], before["page"][1], delta=0.5)
                 page.evaluate("document.querySelector('#left').scrollTop=300")
                 settle(page)
                 y0 = page.evaluate(SEL_STATE)["page"][1]
                 for on in ("true", "false"):
-                    page.evaluate("setSelMode(%s)" % on)
+                    page.evaluate("setSelectMode(%s)" % on)
                     settle(page)
                     self.assertAlmostEqual(page.evaluate(SEL_STATE)["page"][1], y0, delta=1, msg=on)
 
@@ -7313,7 +7318,7 @@ class SelectModeBar(ViewerBase):
             for dark in (False, True):
                 with self.subTest(w=device["viewport"]["width"], dark=dark):
                     page = self.view(device, dark=dark)
-                    page.evaluate("setSelMode(true)")
+                    page.evaluate("setSelectMode(true)")
                     settle(page)
                     g = page.evaluate(SEL_PARTS)
                     bar, area, tile, icon, text, end = (g[k] for k in ("bar", "area", "tile", "icon", "text", "end"))
@@ -7464,7 +7469,9 @@ class ClickOffCancelsSelection(ViewerBase):
                 page.locator("#note").fill("남을 메모")
                 page.evaluate("window.__old = COMPOSE.box")
                 if cdp is not None:
-                    page.evaluate("setSelMode(true)")  # the mode's bar moves the page down: look for the spot after it
+                    page.evaluate(
+                        "setSelectMode(true)"
+                    )  # the mode's bar moves the page down: look for the spot after it
                     settle(page)
                 x, y = self.blank(page)
                 if cdp is None:
@@ -7526,12 +7533,12 @@ class ClickOffCancelsSelection(ViewerBase):
         page = self.view(FOLD)
         cdp = self.select(page, FOLD)
         x, y = self.blank(page)
-        w0 = page.evaluate("pageWidth(ptMax(),K)")
+        w0 = page.evaluate("pageWidth(widestPagePoints(),PAGE_SCALE)")
         page.clock.install()
         clock_still(page)  # performance.now() and the timers stand still
         self.tap(cdp, x, y)
         self.tap(cdp, x, y)
-        page.wait_for_function("w=>Math.abs(pageWidth(ptMax(),K)-w)>2", arg=w0, timeout=10000)
+        page.wait_for_function("w=>Math.abs(pageWidth(widestPagePoints(),PAGE_SCALE)-w)>2", arg=w0, timeout=10000)
         page.clock.run_for(2000)  # every timer the two taps left runs now
         self.assertTrue(page.evaluate(HAS_SELECTION))
         x, y = self.blank(page)

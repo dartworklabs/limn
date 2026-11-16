@@ -164,7 +164,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("renderOverlapBanner"),
                 extract_js_fn("overlapShort"),
                 "let LAYOUT=LAYOUT_MODE.WIDE;",
-                extract_js_fn("lvOf"),
+                extract_js_fn("levelOf"),
                 extract_js_fn("useLevel"),
                 r"""
             const out=[];
@@ -212,7 +212,7 @@ class FrontendLogic(unittest.TestCase):
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
             const BUILD={timer:null,error:null,lastSeq:3,booted:false,inflight:null};
             // 여러 문서(§Multiple documents) 전역 — 단일 문서 뷰어와 같은 값
-            const DOC='main', SWITCHSEQ=0, DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function dq(u){return u;}
+            const DOC='main', SWITCHSEQ=0, DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function withDocQuery(u){return u;}
             """,
                 extract_js_fn("buildChipText"),
                 extract_js_fn("pullSuffix"),
@@ -577,7 +577,7 @@ class FrontendStructure(unittest.TestCase):
         body = extract_js_fn("drawPins")
         # droppedListed = listDropped() (current document or all documents)
         self.assertIn(sq("droppedListed.filter(pin=>!PURGING.has(pin.id)).length"), sq(body))
-        self.assertIn(sq("tl('휴지통 {n}',{n:trashCount})"), sq(body))
+        self.assertIn(sq("translateTemplate('휴지통 {n}',{n:trashCount})"), sq(body))
         self.assertIn(sq("if($('#trash').open)drawTrash();"), sq(body))
         self.assertIn("map(droppedCard)", extract_js_fn("drawTrash"))
 
@@ -764,16 +764,19 @@ class FrontendMobileStructure(unittest.TestCase):
         """A pick focuses a note field only after a mouse drag (the popover's by the box while it is open, else the
         composer's), never on touch, and hover/focus tooltips stay off on touch and on devices without hover."""
         self.assertIn(
-            sq("if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus("), sq(js_fn_body("pick"))
+            sq("if(LAST_POINTER==='mouse')(isSelectionPopoverOpen()?SELECTION_POPOVER_FIELD:$('#note')).focus("),
+            sq(js_fn_body("pick")),
         )
         self.assertIn(
-            sq("if(touchRecent()||MQ_NOHOVER.matches)return; const target=event.target; armTip("),
+            sq("if(touchRecent()||NO_HOVER_QUERY.matches)return; const target=event.target; armTip("),
             SCRIPT_SQ,
         )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
         # unless the keyboard moved the focus (test_viewer_tips.TipKeyboard). The card as a whole gets no tooltip.
         self.assertIn(
-            sq("||(!keyInput()&&(touchRecent()||MQ_NOHOVER.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}"),
+            sq(
+                "||(!keyInput()&&(touchRecent()||NO_HOVER_QUERY.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}"
+            ),
             SCRIPT_SQ,
         )
         self.assertNotIn("data-doc=\"'+esc(pdoc(p))+'\" data-tip=\"'+tip+'\"", sq(extract_js_fn("card")))
@@ -799,48 +802,48 @@ class FrontendVector(unittest.TestCase):
 
     def test_loads_vendored_pdfjs_same_origin_with_version(self):
         self.assertNotIn("__PDFJS_VERSION__", HTML)
-        self.assertIn(sq("const PDFJS_V='%s'" % viewer_assemble.PDFJS_VERSION), SCRIPT_SQ)
-        self.assertIn(sq("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)"), SCRIPT_SQ)
-        self.assertIn(sq("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V"), SCRIPT_SQ)
+        self.assertIn(sq("const PDFJS_VERSION='%s'" % viewer_assemble.PDFJS_VERSION), SCRIPT_SQ)
+        self.assertIn(sq("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_VERSION)"), SCRIPT_SQ)
+        self.assertIn(sq("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_VERSION"), SCRIPT_SQ)
         for cdn in ("cdn.jsdelivr", "unpkg.com", "cdnjs", "mozilla.github.io/pdf.js/build"):
             self.assertNotIn(cdn, HTML)  # runs only inside the tailnet — no external CDN
         self.assertIn(sq("isEvalSupported:false"), SCRIPT_SQ)
         self.assertIn(sq("useWasm:false"), SCRIPT_SQ)  # wasm isn't in vendor (vendor/pdfjs/README.md)
 
     def test_pdf_is_the_screen_build(self):
-        body = self.fn("vecOpen")
+        body = self.fn("openVectorDocument")
         self.assertIn("'/pdf?build='+encodeURIComponent(build)", body)
         self.assertIn("build=META.pages_build", body)
         self.assertIn("doc.numPages!==pageCount", body)  # not used if the page count differs
         # close the old document after a rebuild. PDFDocumentProxy has no destroy (observed: 'old.destroy is not a function').
-        self.assertIn("vecClose(old)", body)
-        self.assertIn("doc.loadingTask.destroy()", self.fn("vecClose"))
-        self.assertNotRegex(HTML, r"\b(doc|old|VEC\.doc)\.destroy\(")
+        self.assertIn("closeVectorDocument(old)", body)
+        self.assertIn("doc.loadingTask.destroy()", self.fn("closeVectorDocument"))
+        self.assertNotRegex(HTML, r"\b(doc|old|VECTOR_PDF\.doc)\.destroy\(")
 
     def test_stale_doc_detached_before_awaiting_new_pdf(self):
-        # on a cache miss from a different document/rebuild, VEC.doc is left empty until the fetch
+        # on a cache miss from a different document/rebuild, VECTOR_PDF.doc is left empty until the fetch
         # finishes — so a runDrawJob queued in the meantime by IntersectionObserver can't touch the old
         # PDFDocumentProxy with a now-wrong page number (cross-document contamination, or getting stuck
         # on PNG via 'Invalid page request').
-        body = self.fn("vecOpen")
+        body = self.fn("openVectorDocument")
         i_if = body.index("if(!doc){")
-        i_null = body.index("VEC.doc=null")
+        i_null = body.index("VECTOR_PDF.doc=null")
         i_fetch = body.index("await fetch(")
         self.assertLess(i_if, i_null)
         self.assertLess(i_null, i_fetch)
-        self.assertIn("if(previousDoc&&!isVectorCached(previousDoc))vecClose(previousDoc)", body)
-        # old might already be null (cleared above) — vecClose(null) must not be called without a null guard
-        self.assertIn("if(old&&old!==doc&&!isVectorCached(old))vecClose(old)", body)
+        self.assertIn("if(previousDoc&&!isVectorCached(previousDoc))closeVectorDocument(previousDoc)", body)
+        # old might already be null (cleared above) — closeVectorDocument(null) must not be called without a null guard
+        self.assertIn("if(old&&old!==doc&&!isVectorCached(old))closeVectorDocument(old)", body)
 
     def test_fallback_to_png_on_any_failure(self):
-        boot = self.fn("vecBoot")
-        self.assertIn(sq("catch(error){VEC.lib=null; vecFail("), sq(boot))
-        self.assertIn("vecFail('PDF 를 벡터로 열지 못했습니다'", self.fn("vecOpen"))
+        boot = self.fn("bootVector")
+        self.assertIn(sq("catch(error){VECTOR_PDF.lib=null; failVector("), sq(boot))
+        self.assertIn("failVector('PDF 를 벡터로 열지 못했습니다'", self.fn("openVectorDocument"))
         run = self.fn("runDrawJob")
         self.assertIn("RenderingCancelledException", run)  # a cancellation is not a failure
-        self.assertIn("vecFail('쪽을 그리지 못했습니다'", run)
-        fail = self.fn("vecFail")
-        self.assertIn("vecReleaseAll()", fail)  # removing the canvas reveals the PNG underneath
+        self.assertIn("failVector('쪽을 그리지 못했습니다'", run)
+        fail = self.fn("failVector")
+        self.assertIn("releaseAllVectorPages()", fail)  # removing the canvas reveals the PNG underneath
         self.assertIn("$('#vec-chip')", fail)
         self.assertIn('id="vec-chip" class="badge badge-warning" hidden', HTML)
         self.assertIn('<img loading="lazy"', HTML)  # PNG remains as the first paint / fallback
@@ -849,16 +852,16 @@ class FrontendVector(unittest.TestCase):
         self.assertIn(".pg>canvas{position:absolute;display:block;pointer-events:none}", css)  # .pg receives the drag
 
     def test_visible_pages_only_and_release(self):
-        obs = self.fn("vecObserve")
+        obs = self.fn("observeVectorPages")
         self.assertIn("new IntersectionObserver(", obs)
-        self.assertIn("root:$('#left'),rootMargin:VEC_KEEP", obs)
+        self.assertIn("root:$('#left'),rootMargin:VECTOR_KEEP_MARGIN", obs)
         self.assertIn("releasePageCanvases(pageNumber)", obs)
         self.assertIn(sq("canvas.width=0; canvas.height=0"), sq(self.fn("dropCanvas")))
-        self.assertIn("vecObserve()", self.fn("buildDoc"))
+        self.assertIn("observeVectorPages()", self.fn("buildDoc"))
         ref = self.fn("refreshDoc")
-        self.assertIn("vecReleaseAll()", ref)  # canvases drawn from the old PDF are removed
-        self.assertIn("vecOpen()", ref)  # reopen the PDF from the new build
-        self.assertIn("vecInvalidate()", self.fn("setK"))  # redraw when the zoom changes
+        self.assertIn("releaseAllVectorPages()", ref)  # canvases drawn from the old PDF are removed
+        self.assertIn("openVectorDocument()", ref)  # reopen the PDF from the new build
+        self.assertIn("invalidateVectorDraws()", self.fn("setScale"))  # redraw when the zoom changes
 
     def test_no_text_layer(self):
         """No text-selection layer is drawn over a page - a drag there is a region selection. The page's text is read
@@ -880,10 +883,10 @@ class FrontendVectorLogic(unittest.TestCase):
     def test_backing_size_is_css_times_k_until_the_pixel_cap(self):
         js = "\n".join(
             [
-                extract_js_fn("vecTarget"),
+                extract_js_fn("canvasBackingTarget"),
                 "const cap=16777216; const out=[];",
                 "for(const [cw,ch,k] of [[898,1270,2],[370,523,2.6],[1796,2540,2],[3592,5080,2],[4490,6350,2]]){",
-                "  const t=vecTarget(cw,ch,k,cap); out.push([t.bw,t.bh,t.capped,t.bw*t.bh<=cap,+(t.bw/(cw*k)).toFixed(3)]);}",
+                "  const t=canvasBackingTarget(cw,ch,k,cap); out.push([t.bw,t.bh,t.capped,t.bw*t.bh<=cap,+(t.bw/(cw*k)).toFixed(3)]);}",
                 "console.log(JSON.stringify(out));",
             ]
         )
@@ -897,47 +900,47 @@ class FrontendVectorLogic(unittest.TestCase):
             self.assertTrue(row[3])
 
     def test_vecopen_stale_doc_not_touched_while_new_pdf_is_fetching(self):
-        """The observed case: vecOpen() is called for a new 27-page document while VEC.doc still points at the old
-        one-page document. VEC.doc is null before the fetch finishes, so nextDrawJob() pulls no work, and nothing queued
-        in the meantime calls the old doc.getPage (which throws here); the search hooks vecOpen() calls are stubbed."""
+        """The observed case: openVectorDocument() is called for a new 27-page document while VECTOR_PDF.doc still points at the old
+        one-page document. VECTOR_PDF.doc is null before the fetch finishes, so nextDrawJob() pulls no work, and nothing queued
+        in the meantime calls the old doc.getPage (which throws here); the search hooks openVectorDocument() calls are stubbed."""
         js = "\n".join(
             [
                 "const VECTOR_CACHE_MAX=3;",
                 extract_js_fn("vectorCacheKey"),
                 extract_js_fn("cacheVectorDocument"),
                 extract_js_fn("isVectorCached"),
-                extract_js_fn("vecForget"),
-                extract_js_fn("vecClose"),
-                extract_js_fn("vecCancel"),
+                extract_js_fn("forgetVectorDocument"),
+                extract_js_fn("closeVectorDocument"),
+                extract_js_fn("cancelVectorDraw"),
                 extract_js_fn("nextDrawJob"),
-                extract_js_fn("vecOpen"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                extract_js_fn("openVectorDocument"),
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 r"""
             function $(sel){return {hidden:false};}
-            function dq(u){return u;}
-            function vecSchedule(){}
+            function withDocQuery(u){return u;}
+            function scheduleVectorDraw(){}
             function loadOutline(){}
             function outlineForget(){}
             function searchClear(){}
             function searchOffer(){}
-            function vecFail(msg){throw new Error('vecFail: '+msg);}
+            function failVector(msg){throw new Error('failVector: '+msg);}
             global.document={getElementById:(id)=>({})};
 
             let oldClosed=false;
             const oldDoc={numPages:1, loadingTask:{destroy(){oldClosed=true;}},
               getPage(){throw new Error('옛(다른 문서/옛 빌드) doc.getPage 가 불렸다');}};
-            const VEC={lib:null, doc:oldDoc, build:'old', gen:0, failed:null, tDoc:0,
+            const VECTOR_PDF={lib:null, doc:oldDoc, build:'old', gen:0, failed:null, tDoc:0,
               st:new Map(), cur:null, cache:new Map(), near:new Set([2])};
             const DOC='doc1';
             const META={pages_build:'new', pages:new Array(27).fill(0), built_at:'v2'};
 
             let resolveFetch, resolveGetDoc;
             global.fetch=function(){return new Promise(res=>{resolveFetch=res;});};
-            VEC.lib={getDocument(){return {promise:new Promise(res=>{resolveGetDoc=res;})};}};
+            VECTOR_PDF.lib={getDocument(){return {promise:new Promise(res=>{resolveGetDoc=res;})};}};
 
-            const p=vecOpen();
+            const p=openVectorDocument();
             const results={};
-            results.docNulledBeforeFetch=(VEC.doc===null);
+            results.docNulledBeforeFetch=(VECTOR_PDF.doc===null);
             results.oldClosedImmediately=oldClosed;
             results.noJobWhileDocNull=(nextDrawJob()===null);
 
@@ -945,7 +948,7 @@ class FrontendVectorLogic(unittest.TestCase):
             setTimeout(()=>{
               resolveGetDoc({numPages:27, loadingTask:{destroy(){}}});
               p.then(()=>{
-                results.newDocInstalled=(VEC.doc&&VEC.doc.numPages===27);
+                results.newDocInstalled=(VECTOR_PDF.doc&&VECTOR_PDF.doc.numPages===27);
                 console.log(JSON.stringify(results));
               }).catch(e=>{results.error=String(e); console.log(JSON.stringify(results));});
             },10);
@@ -980,10 +983,10 @@ class FrontendZoom(unittest.TestCase):
     """Guard the inputs, bounds, and anchors used by PDF area zoom controls."""
 
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
-        # a Markdown document's text zooms with the browser (isMdDoc): the wheel is left alone there
+        # a Markdown document's text zooms with the browser (isMarkdownDoc): the wheel is left alone there
         self.assertIn(
             sq(
-                "pdfArea.addEventListener('wheel',event=>{if(!(event.ctrlKey||event.metaKey)||isMdDoc())return; event.preventDefault();"
+                "pdfArea.addEventListener('wheel',event=>{if(!(event.ctrlKey||event.metaKey)||isMarkdownDoc())return; event.preventDefault();"
             ),
             SCRIPT_SQ,
         )
@@ -991,21 +994,21 @@ class FrontendZoom(unittest.TestCase):
         i = SCRIPT_SQ.index(sq("pdfArea.addEventListener('wheel'"))
         # PDF area only — sidebar wheel scrolling is left alone
         self.assertIn(sq("const pdfArea=$('#left')"), SCRIPT_SQ[i - 500 : i])
-        self.assertIn(sq("zoomTo(K*factor,wheelPoint[0],wheelPoint[1])"), SCRIPT_SQ)  # anchored to the pointer
+        self.assertIn(sq("zoomTo(PAGE_SCALE*factor,wheelPoint[0],wheelPoint[1])"), SCRIPT_SQ)  # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
         for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
             self.assertIn(sq("pdfArea.addEventListener('%s'" % ev), SCRIPT_SQ)
         blk = sq(js_call("pdfArea.addEventListener('touchstart'"))
         self.assertIn("event.touches.length!==2", blk)
-        self.assertIn("cancelDrag();cancelLP();", blk)  # a pinch discards the in-progress selection/long-press
+        self.assertIn("cancelDrag();cancelLongPress();", blk)  # a pinch discards the in-progress selection/long-press
         self.assertIn("{passive:false}", blk)
 
     def test_keyboard_zoom_skips_inputs(self):
         """Only modifier shortcuts outside fields reach the visible PDF's controller."""
         body = sq(js_listener_body("document", "keydown", "inField"))
         self.assertIn(
-            "if((event.ctrlKey||event.metaKey)&&!event.altKey&&!inField&&!isMdDoc()){const zoomAction=zoomKey(event);",
+            "if((event.ctrlKey||event.metaKey)&&!event.altKey&&!inField&&!isMarkdownDoc()){const zoomAction=zoomKey(event);",
             body,
         )
         self.assertIn("event.preventDefault();zoomVisiblePdf(zoomAction)", body)
@@ -1015,12 +1018,12 @@ class FrontendZoom(unittest.TestCase):
         """The scale is bounded by the fitted width and the print size of the widest page, and a zoom keeps the point
         under the pointer (anchor taken before the scale changes, restored after)."""
         self.assertIn(sq("const ZOOM_MIN=0.5,ZOOM_MAX=5"), SCRIPT_SQ)
-        setk = sq(js_fn_body("setK"))
-        self.assertIn("widthBounds(fitWidth(),widest*PT_PX)", setk)
+        setk = sq(js_fn_body("setScale"))
+        self.assertIn("widthBounds(fitWidth(),widest*POINT_PX)", setk)
         self.assertNotIn("2200", setk)
         zt = sq(js_fn_body("zoomTo"))
-        self.assertLess(zt.index("zoomAnchor(clientX,clientY)"), zt.index("setK(scale)"))
-        self.assertLess(zt.index("setK(scale)"), zt.index("zoomRestore(anchor)"))
+        self.assertLess(zt.index("zoomAnchor(clientX,clientY)"), zt.index("setScale(scale)"))
+        self.assertLess(zt.index("setScale(scale)"), zt.index("zoomRestore(anchor)"))
 
 
 class FrontendZoomLogic(unittest.TestCase):
@@ -1251,14 +1254,14 @@ class FrontendMobileLogic(unittest.TestCase):
             const props={}; let active=null;
             const document={documentElement:{clientHeight:915,style:{setProperty:(k,v)=>{props[k]=v;},getPropertyValue:k=>props[k]||''}},
                             get activeElement(){return active;}};
-            const MQ_COARSE={matches:true}; const window={visualViewport:null};
+            const COARSE_POINTER_QUERY={matches:true}; const window={visualViewport:null};
             const $=()=>({contains:()=>false}); function requestAnimationFrame(f){f();}
             """,
                 extract_js_fn("onViewport"),
                 r"""
             const out=[];
             for(const [h,s,coarse] of [[400,1,true],[457.5,2,true],[875,1,true],[400,1,false],[915,1,true]]){
-              window.visualViewport={height:h,scale:s}; MQ_COARSE.matches=coarse; onViewport(); out.push([props['--kb'],props['--vvh']]);}
+              window.visualViewport={height:h,scale:s}; COARSE_POINTER_QUERY.matches=coarse; onViewport(); out.push([props['--kb'],props['--vvh']]);}
             console.log(JSON.stringify(out));
             """,
             ]
@@ -1275,18 +1278,18 @@ class FrontendMobileLogic(unittest.TestCase):
             [
                 js_esc(),
                 r"""
-            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d'}; const EDITOR={current:null,saving:false}; let  PINS=[];
+            const TIP_TEXT={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d'}; const EDITOR={current:null,saving:false}; let  PINS=[];
             const OPEN_CARDS=new Set([2]);
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function claimLabel(){return '';} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
-            let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), MQ_COARSE={matches:true};
+            let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), COARSE_POINTER_QUERY={matches:true};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
             function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
-            function isMdPin(){return false;}   // ...and are on a document with pages (md-surface.js)
+            function isMarkdownPin(){return false;}   // ...and are on a document with pages (md-surface.js)
             """,
-                extract_js_fn("rng"),
+                extract_js_fn("lineRange"),
                 extract_js_fn("multiDoc"),
                 extract_js_fn("pdoc"),
                 extract_js_fn("isRegion"),
@@ -1297,9 +1300,9 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("isFrac"),
                 extract_js_fn("hasMark"),
                 extract_js_fn("pinPlace"),
-                extract_js_fn("elLost"),
-                extract_js_fn("elLostTag"),
-                extract_js_fn("figRegionBadge"),
+                extract_js_fn("isElementLost"),
+                extract_js_fn("lostElementTag"),
+                extract_js_fn("figureRegionBadge"),
                 extract_js_fn("isFigureKind"),
                 extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)
                 extract_js_fn("cardQuote"),
@@ -1373,12 +1376,12 @@ class FrontendPanelWidthLogic(unittest.TestCase):
             [
                 extract_js_fn("levelName"),
                 extract_js_fn("levelLabel"),
-                extract_js_fn("rng"),
+                extract_js_fn("lineRange"),
                 r"""
             const A=[{level:'para',label:'문단'},{level:'env',label:'환경 abstract',env:'abstract'},
                      {level:'env2',label:'환경 frontmatter (바깥)',env:'frontmatter'}];
             const B=[{level:'env',label:'환경 itemize',env:'itemize'},{level:'env2',label:'환경 itemize (바깥)',env:'itemize'}];
-            console.log(JSON.stringify([A.map(l=>levelName(l,A)),B.map(l=>levelName(l,B)),rng(159,159),rng(155,173)]));""",
+            console.log(JSON.stringify([A.map(l=>levelName(l,A)),B.map(l=>levelName(l,B)),lineRange(159,159),lineRange(155,173)]));""",
             ]
         )
         self.assertEqual(
@@ -1397,7 +1400,7 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         drag. A rung without a score (a figure's map) keeps the pick's."""
         js = "\n".join(
             [
-                extract_js_fn("lvOf"),
+                extract_js_fn("levelOf"),
                 extract_js_fn("useLevel"),
                 "const o={score:1,levels:[{level:'raw',lo:4,hi:4,snippet:'',score:0},{level:'env',lo:1,hi:4,snippet:'',score:1},"
                 "{level:'el',lo:2,hi:2,snippet:''}]};useLevel(o,'raw');const a=o.score;useLevel(o,'env');const b=o.score;"
@@ -1485,7 +1488,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("relayout()", side)
         body = sq(js_fn_body("relayout"))
         # the panel width must be settled first for the page width to match
-        self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))
+        self.assertLess(body.index("applySideWidth()"), body.index("autoFitWidth()"))
         # ResizeObserver doesn't re-fit every frame while dragging
         self.assertIn(sq("!document.body.classList.contains('resizing'))scheduleRelayout()"), SCRIPT_SQ)
         self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", HTML)
@@ -1506,7 +1509,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
         self.assertIn(sq("case 'size-preset':sizePreset(Number(control.dataset.i))"), SCRIPT_SQ)
-        self.assertIn(sq("renderSizeSeg(); placeMore(); showSheet(sheet)"), SCRIPT_SQ)
+        self.assertIn(sq("renderSizeSegment(); placeMore(); showSheet(sheet)"), SCRIPT_SQ)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
         right = HTML[HTML.index('<div id="right">') : HTML.index('<div id="tip"')]
@@ -1851,7 +1854,7 @@ class FrontendNotices(unittest.TestCase):
         for sel, d in self.rules(r"\.nt\b"):
             self.assertFalse([k for k in d if k.startswith("border-left")], sel)
         for kind, icon in (("OK", "circle-check"), ("WARN", "triangle-alert"), ("ERR", "circle-x"), ("INFO", "info")):
-            self.assertIn(sq("[NOTICE_KIND.%s]:()=>ic('%s')" % (kind, icon)), SCRIPT_SQ)
+            self.assertIn(sq("[NOTICE_KIND.%s]:()=>lucideIcon('%s')" % (kind, icon)), SCRIPT_SQ)
         for kind, color in (("err", "destructive"), ("warn", "warning"), ("ok", "success")):
             self.assertIn(".nt-banner.nk-%s{border-color:color-mix(in srgb,var(--%s)" % (kind, color), self.css)
 
@@ -1992,7 +1995,7 @@ class FrontendSemanticAudit(unittest.TestCase):
 
     def test_long_messages_clamp_and_identity_marks(self):
         self.assertIn(".msg-t.clamp{display:-webkit-box;-webkit-line-clamp:6;", self.css)
-        self.assertIn('data-act="msg-more"', extract_js_fn("msgBody"))
+        self.assertIn('data-act="msg-more"', extract_js_fn("messageBody"))
         agent = run_node(
             "\n".join(
                 [js_esc(), js_icons(), extract_js_fn("isAgent"), extract_js_fn("avatar")]
@@ -2000,7 +2003,7 @@ class FrontendSemanticAudit(unittest.TestCase):
             )
         )
         self.assertTrue(agent.startswith('<span class="av i agent" aria-hidden="true"><svg class="ic ic-bot"'), agent)
-        self.assertIn("(나)", extract_js_fn("msgHtml"))
+        self.assertIn("(나)", extract_js_fn("messageHtml"))
         self.assertIn("(나)", extract_js_fn("whoWhen"))  # the first comment's and every timeline entry's head
 
     def test_touch_targets_in_archive_rows(self):
@@ -2012,21 +2015,21 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn(".th-n{min-height:var(--hit);min-width:var(--hit);", coarse)
 
     def test_review_count_labels_scope_and_filter_is_compact(self):
-        self.assertIn(sq("' '+tl('(이 문서 {n})',{n:here})"), sq(extract_js_fn("updateReviewCount")))
+        self.assertIn(sq("' '+translateTemplate('(이 문서 {n})',{n:here})"), sq(extract_js_fn("updateReviewCount")))
         body = extract_js_fn("drawPins")
         self.assertIn(
             sq(
-                "setHtml(mentionFilter,html`${ic('at-sign')}${mentioningMe.length}`); mentionFilter.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:mentioningMe.length}));"
+                "setHtml(mentionFilter,html`${lucideIcon('at-sign')}${mentioningMe.length}`); mentionFilter.setAttribute('aria-label',translateTemplate('나를 부른 핀 {n}',{n:mentioningMe.length}));"
             ),
             sq(body),
         )
 
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
         """The guide line's buttons are one group at its right that never shrinks ([원고로], and [확인] for a pin awaiting
-        review); revTargetActs draws them."""
+        review); drawPinGuideActions draws them."""
         self.assertIn("#revision-pin .rp-acts{display:flex;gap:var(--space-2);flex:none;margin-left:auto}", self.css)
-        self.assertIn('data-act="rev-back"', extract_js_fn("revTargetActs"))
-        self.assertIn(sq("if(fromManuscript)REV.back=back"), sq(extract_js_fn("showChange")))
+        self.assertIn('data-act="rev-back"', extract_js_fn("drawPinGuideActions"))
+        self.assertIn(sq("if(fromManuscript)REVISION_VIEW.back=back"), sq(extract_js_fn("showChange")))
         self.assertIn("case 'rev-back':", HTML)
 
     def test_the_source_diff_always_wraps(self):
@@ -2049,7 +2052,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
         # if the pin's range line isn't in the diff and only nearby lines changed, don't say "the highlighted line is the pin's range" (there is no highlighted line).
         self.assertIn(sq("target.near=!first&&target.hit"), sq(extract_js_fn("highlightPinLines")))
-        self.assertIn(sq("target.near?'핀 범위 줄 자체는 바뀌지 않았고", True), sq(extract_js_fn("revTargetNote")))
+        self.assertIn(sq("target.near?'핀 범위 줄 자체는 바뀌지 않았고", True), sq(extract_js_fn("drawPinGuide")))
 
     def test_references_share_one_link_style_and_pending_looks_pending(self):
         # one consistent link style (QA 2026-09-24): #number, line range, page N, and in-text #12 all share
@@ -2454,7 +2457,7 @@ class HtmlTemplateStructure(unittest.TestCase):
         self.assertIn(
             sq(
                 "document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)"
-                "+' · '+tl('열린 {n}',{n:PINS.length})"
+                "+' · '+translateTemplate('열린 {n}',{n:PINS.length})"
             ),
             sq(extract_js_fn("docTitle")),
         )
@@ -2542,7 +2545,7 @@ class FrontendDocs(unittest.TestCase):
     def test_revision_async_result_is_ignored_after_doc_commit_or_view_change(self):
         js = "\n".join(
             [
-                "let DOC='ms'; const REV={seq:8,commit:'abc'};",
+                "let DOC='ms'; const REVISION_VIEW={seq:8,commit:'abc'};",
                 "const document={body:{classList:{contains:x=>x==='revision-open'}}};",
                 extract_js_fn("revisionCurrent"),
                 r"""
@@ -2622,7 +2625,7 @@ class FrontendDocs(unittest.TestCase):
                 extract_js_fn("renderRevisionDiff"),
                 extract_js_fn("renderRevisionFile"),
                 r"""
-            const REV={whole:'+from first\n+from second',files:[
+            const REVISION_VIEW={whole:'+from first\n+from second',files:[
               {text:'+from first'}, {text:'+from second'}]};
             const nodes={'#revision-file':{value:'1'},'#revision-diff':{innerHTML:''}};
             function $(selector){return nodes[selector];}
@@ -2645,12 +2648,12 @@ class FrontendDocs(unittest.TestCase):
             const location={hash:''};
             """,
                 extract_js_fn("docInfo"),
-                extract_js_fn("dq"),
+                extract_js_fn("withDocQuery"),
                 extract_js_fn("hashDoc"),
                 extract_js_fn("initialDoc"),
                 r"""
             const out=[];
-            out.push(dq('/api/meta'), dq('/api/meta?light=1'), dq('/pdf?build=x','rr'));
+            out.push(withDocQuery('/api/meta'), withDocQuery('/api/meta?light=1'), withDocQuery('/pdf?build=x','rr'));
             location.hash='#doc=rr'; out.push(initialDoc());
             location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
             location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
@@ -2678,14 +2681,14 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn(sq("const VECTOR_CACHE_MAX=3;"), SCRIPT_SQ)
         put = extract_js_fn("cacheVectorDocument")
         self.assertIn(sq("while(cache.size>VECTOR_CACHE_MAX)"), sq(put))
-        self.assertIn("vecClose(cachedDoc)", put)
+        self.assertIn("closeVectorDocument(cachedDoc)", put)
         sw = JS_UPDATE_STUBS + extract_js_fn("switchDoc")
         self.assertIn("saveView();", sw)
         self.assertIn("setHash(doc)", sw)
         self.assertIn(sq("savePrefs({lastDoc:doc})"), sq(sw))
         show = extract_js_fn("showDoc")
         self.assertIn("restoreView(view)", show)
-        self.assertIn("vecOpen()", show)
+        self.assertIn("openVectorDocument()", show)
 
     def test_cross_doc_card_actions_switch_first(self):
         self.assertIn(sq("function jumpPin(id){if(viaDoc(id,jumpPin))return;"), SCRIPT_SQ)
@@ -2725,8 +2728,8 @@ class FrontendDocs(unittest.TestCase):
 
 
 def js_tooltips() -> str:
-    """The viewer's tooltip table (`const T` in core.js) as the page declares it, for harnesses whose functions read T.x."""
-    return js_const("T")
+    """The viewer's tooltip table (`const TIP_TEXT` in core.js) as the page declares it, for harnesses whose functions read TIP_TEXT.x."""
+    return js_const("TIP_TEXT")
 
 
 def js_via_limits() -> str:
@@ -2841,7 +2844,7 @@ class FrontendFigure(unittest.TestCase):
                     self.assertRegex(extract_js_fn(fn), r"buildsFromSource\(|isFigureKind\(")
         self.assertIn(
             sq(
-                "isFigureKind(entry.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''"
+                "isFigureKind(entry.kind)?' · '+translate('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''"
             ),
             sq(extract_js_fn("docTip")),
         )
@@ -2928,7 +2931,7 @@ class FrontendFigure(unittest.TestCase):
         its element itself."""
         self.node()
         js = "\n".join(
-            [extract_js_fn("elName"), extract_js_fn("elementPathText")]
+            [extract_js_fn("elementName"), extract_js_fn("elementPathText")]
             + [
                 r"""
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월'},root={id:'B2',path:['B2']};
@@ -2949,7 +2952,7 @@ class FrontendFigure(unittest.TestCase):
         its id."""
         self.node()
         js = "\n".join(
-            [extract_js_fn("elName"), extract_js_fn("elementPathText")]
+            [extract_js_fn("elementName"), extract_js_fn("elementPathText")]
             + [
                 r"""
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월'},root={id:'B2',path:['B2']};
@@ -2986,11 +2989,11 @@ class FrontendFigure(unittest.TestCase):
             + [
                 extract_js_fn(n)
                 for n in (
-                    "lvOf",
+                    "levelOf",
                     "currentRung",
-                    "rng",
+                    "lineRange",
                     "levelLabel",
-                    "elName",
+                    "elementName",
                     "levelName",
                     "rungLines",
                     "rungTip",
@@ -3023,7 +3026,10 @@ class FrontendFigure(unittest.TestCase):
         line, no box is no error."""
         self.node()
         js = "\n".join(
-            [extract_js_fn(n) for n in ("isFrac", "elName", "elementPathText", "drawBox", "snapBox", "renderElement")]
+            [
+                extract_js_fn(n)
+                for n in ("isFrac", "elementName", "elementPathText", "drawBox", "snapBox", "renderElement")
+            ]
             + [
                 r"""
             function pendingBadgeSide(){}   // the badge's side needs the page on screen (markBadgeRoom); not this test's
@@ -3057,7 +3063,7 @@ class FrontendFigure(unittest.TestCase):
         keep the element; a rung without an element (a LaTeX rung) leaves the element as it was."""
         self.node()
         js = "\n".join(
-            [extract_js_fn("lvOf"), extract_js_fn("useLevel"), extract_js_fn("setLines")]
+            [extract_js_fn("levelOf"), extract_js_fn("useLevel"), extract_js_fn("setLines")]
             + [
                 r"""
             const cell={id:'c'},strip={id:'s'};
@@ -3090,7 +3096,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertLess(parts.index("js/figure.ts"), parts.index("js/composer.ts"))
 
     def test_a_figure_region_is_named_by_what_the_map_found_and_a_view_only_region_keeps_its_name(self):
-        """figRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element
+        """figureRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element
         (map unreadable) reads '영역', each with its own tooltip; off a figure document without an element there is no
         figure badge, so the caller's '보기 전용' stays."""
         self.node()
@@ -3098,9 +3104,9 @@ class FrontendFigure(unittest.TestCase):
             [
                 js_i18n("ko"),
                 js_tooltips(),
-                extract_js_fn("figRegionBadge"),
-                "console.log(JSON.stringify([figRegionBadge({id:'x',path:['x']},true),figRegionBadge(null,true),"
-                "figRegionBadge(null,false)]));",
+                extract_js_fn("figureRegionBadge"),
+                "console.log(JSON.stringify([figureRegionBadge({id:'x',path:['x']},true),figureRegionBadge(null,true),"
+                "figureRegionBadge(null,false)]));",
             ]
         )
         with_el, figure, off = json.loads(run_node(js))
@@ -3109,14 +3115,14 @@ class FrontendFigure(unittest.TestCase):
         self.assertEqual(figure["t"], "영역")
         self.assertIn("그림 지도를 읽지 못해", figure["tip"])
         self.assertIsNone(off)
-        self.assertIn("figRegionBadge(selection.el,", extract_js_fn("renderRegionComposer"))
+        self.assertIn("figureRegionBadge(selection.el,", extract_js_fn("renderRegionComposer"))
 
     def test_a_figure_pins_mark_goes_to_its_element_and_otherwise_where_it_was_pinned(self):
-        """pinPlace uses the server's mark on mark_page when both are well formed, else the pin's page and frac; elLost
+        """pinPlace uses the server's mark on mark_page when both are well formed, else the pin's page and frac; isElementLost
         is true only for el_sync 'lost'."""
         self.node()
         js = "\n".join(
-            [extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "elLost")]
+            [extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "isElementLost")]
             + [
                 r"""
             const P=[{page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.55,0.2,0.07,0.12],mark_page:2,el_sync:'moved'},
@@ -3124,7 +3130,7 @@ class FrontendFigure(unittest.TestCase):
                      {page:3,frac:[0.2,0.2,0.2,0.2]},
                      {page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.5,0.5],mark_page:1},
                      {page:1,frac:[0.1,0.1,0.1,0.1],mark:[0.5,0.5,0.1,0.1],mark_page:0}];
-            console.log(JSON.stringify(P.map(p=>[pinPlace(p),elLost(p)])));"""
+            console.log(JSON.stringify(P.map(p=>[pinPlace(p),isElementLost(p)])));"""
             ]
         )
         pinned = {"page": 1, "frac": [0.1, 0.1, 0.1, 0.1]}
@@ -3151,9 +3157,9 @@ class FrontendFigure(unittest.TestCase):
                         js_esc(),
                         js_icons(),
                         js_tooltips(),
-                        extract_js_fn("elLost"),
-                        extract_js_fn("elLostTag"),
-                        "console.log(JSON.stringify([String(elLostTag({el_sync:'lost'})),elLostTag({el_sync:'moved'}),elLostTag({})]));",
+                        extract_js_fn("isElementLost"),
+                        extract_js_fn("lostElementTag"),
+                        "console.log(JSON.stringify([String(lostElementTag({el_sync:'lost'})),lostElementTag({el_sync:'moved'}),lostElementTag({})]));",
                     ]
                 )
                 tag, moved, plain = json.loads(run_node(js))
@@ -3221,18 +3227,20 @@ class FrontendFigure(unittest.TestCase):
         m = extract_js_fn("marks")
         self.assertIn(sq("const at=pinPlace(pin),page=document.getElementById('p'+at.page);"), sq(m))
         self.assertIn(sq("if(!page||!isFrac(at.frac))return;"), sq(m))
-        self.assertIn(sq("const est=isEstimated(pin)&&!hasMark(pin),lost=pin.stale||elLost(pin);"), sq(m))
+        self.assertIn(sq("const est=isEstimated(pin)&&!hasMark(pin),lost=pin.stale||isElementLost(pin);"), sq(m))
         c = extract_js_fn("card")
         # the open and the review card's N쪽, and compact's one head link '#N · L… · N쪽' (input diagnosis U5)
         self.assertEqual(sq(c).count("pinPlace(pin).page"), 1)  # one page label for both cards' links
         self.assertEqual(
-            sq(c).count(sq("tl('{page}쪽',{page:at})")), 1
+            sq(c).count(sq("translateTemplate('{page}쪽',{page:at})")), 1
         )  # ... none for a Markdown pin, which has no page
-        self.assertEqual(sq(c).count(sq("pin.stale||elLost(pin)?CARD_DOT.LOST")), 1)  # one status dot for both cards
-        self.assertIn(sq("const lostBadge=elLostTag(pin); if(lostBadge)tags.push(lostBadge);"), sq(c))
-        self.assertIn(sq("figRegionBadge(pin.el,isFigureKind((docInfo(pdoc(pin))||{}).kind))"), sq(c))
+        self.assertEqual(
+            sq(c).count(sq("pin.stale||isElementLost(pin)?CARD_DOT.LOST")), 1
+        )  # one status dot for both cards
+        self.assertIn(sq("const lostBadge=lostElementTag(pin); if(lostBadge)tags.push(lostBadge);"), sq(c))
+        self.assertIn(sq("figureRegionBadge(pin.el,isFigureKind((docInfo(pdoc(pin))||{}).kind))"), sq(c))
         self.assertIn("arrivePage(pinPlace(pin).page)", extract_js_fn("jumpPin"))  # its page now, by its figure
-        self.assertIn("pin.el_sync===EL_SYNC.LOST", sq(JS_UPDATE_STUBS + extract_js_fn("notePinChanges")))
+        self.assertIn("pin.el_sync===ELEMENT_SYNC.LOST", sq(JS_UPDATE_STUBS + extract_js_fn("notePinChanges")))
 
     def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
         """A `via` this page does not know is named as it came, in a tooltip that claims no method and no meaning for the
@@ -3285,7 +3293,7 @@ class FrontendFigure(unittest.TestCase):
                 r"""
             const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict.js)
-            const isMdDoc=()=>false;   // and it has pages (md-surface.js)
+            const isMarkdownDoc=()=>false;   // and it has pages (md-surface.js)
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -3298,7 +3306,7 @@ class FrontendFigure(unittest.TestCase):
                         "isFrac",
                         "hasMark",
                         "pinPlace",
-                        "elLost",
+                        "isElementLost",
                         "isEstimated",
                         "pinState",
                         "pdoc",
@@ -3347,7 +3355,7 @@ class FrontendFigure(unittest.TestCase):
                         const BUILD={timer:null,error:null,lastSeq:0,booted:true,inflight:null};
                         const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(), META_BY=new Map();
                         const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
-                        const dq=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
+                        const withDocQuery=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
                         const api=async()=>REPLY; const refreshDoc=async()=>{};
                         const lineNote=(m,k)=>SAID.push([m,k]); const switchDoc=()=>{}; const drawDocTabs=()=>{};
                         const DOCS=[{key:'b',name:'Fig B',kind:%s}]; const docInfo=k=>DOCS.find(d=>d.key===k)||null;"""
@@ -3377,7 +3385,10 @@ class FrontendFigure(unittest.TestCase):
                 js_esc(),
                 js_markup(),
                 js_tooltips(),
-                *[extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "isRegion", "locCopy", "rng", "arcLoc")],
+                *[
+                    extract_js_fn(n)
+                    for n in ("isFrac", "hasMark", "pinPlace", "isRegion", "locCopy", "lineRange", "arcLoc")
+                ],
                 r"""
             const moved={kind:'region',pdf:'fig.pdf',name:'fig.pdf',page:1,frac:[0.1,0.1,0.2,0.2],mark:[0.3,0.4,0.1,0.05],mark_page:2};
             const home={kind:'region',pdf:'fig.pdf',name:'fig.pdf',page:1,frac:[0.1,0.1,0.2,0.2]};
@@ -3522,14 +3533,14 @@ class FrontendFigure(unittest.TestCase):
         save = sq(save)
         self.assertLess(
             save.index(sq(region)),
-            save.index(sq("figureFields(body,selection.elSel,isRegion(selection)?null:figRung(selection));")),
+            save.index(sq("figureFields(body,selection.elSel,isRegion(selection)?null:figureRung(selection));")),
         )
         rp = sq(extract_js_fn("applyRepick"))
         self.assertLess(
             rp.index("if(isRegion(candidate))loc="),
-            rp.index(sq("figureFields(loc,repickEl(candidate),isRegion(candidate)||!level.el?null:level);")),
+            rp.index(sq("figureFields(loc,repickElement(candidate),isRegion(candidate)||!level.el?null:level);")),
         )
-        self.assertIn(sq("snapBox(repick.box,repickEl(candidate));"), sq(extract_js_fn("bannerCompare")))
+        self.assertIn(sq("snapBox(repick.box,repickElement(candidate));"), sq(extract_js_fn("bannerCompare")))
         self.assertIn(sq("region:!!EDITOR.current.region"), sq(extract_js_fn("startRepick")))
         self.assertIn(sq("pinEl:pin.el||null"), sq(extract_js_fn("openEdit")))
         self.assertIn(sq("(!card.pinEl&&(card.scope||null)!==(card.orig.scope||null))"), sq(extract_js_fn("saveEdit")))
@@ -3547,13 +3558,13 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn(n)
                 for n in (
                     "isRegion",
-                    "lvOf",
+                    "levelOf",
                     "levelLabel",
                     "isFrac",
                     "drawBox",
                     "snapBox",
-                    "repickEl",
-                    "rng",
+                    "repickElement",
+                    "lineRange",
                     "bannerCompare",
                 )
             ]
@@ -3562,7 +3573,7 @@ class FrontendFigure(unittest.TestCase):
             const out=[]; let REPICK;
             function banner(h){out.push(/data-act="rp-apply"/.test(h)?'apply':'banner');}
             function bannerRepick(err){out.push(['again',err]);} function scopeLabel(){return '';}
-            function mdSelMark(){} function mdSelShown(){return null;}   // the Markdown surface's candidate mark (md-surface.js)
+            function markChosenLines(){} function shownChoice(){return null;}   // the Markdown surface's candidate mark (md-surface.js)
             const region={kind:'region',page:1,frac:[0.2,0.2,0.1,0.1],pdf:'x.pdf',quote:''};
             const line={file:'/f.py',page:1,lo:20,hi:30,default_level:'el',
               levels:[{level:'el',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}}]};
@@ -3708,7 +3719,7 @@ class FrontendIcons(unittest.TestCase):
         h = HTML
         self.assertNotIn("{{ic:", h)
         self.assertNotIn("__LUCIDE_JSON__", h)
-        used = set(re.findall(r"ic\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
+        used = set(re.findall(r"lucideIcon\('([a-z0-9-]+)'\)", h)) | set(re.findall(r'class="ic ic-([a-z0-9-]+)"', h))
         used |= set(re.findall(r"'(chevron-(?:up|down|left|right))'", h))
         self.assertEqual(used - set(viewer_assemble.LUCIDE), set())
         self.assertEqual(set(viewer_assemble.LUCIDE) - used, set())
@@ -3722,7 +3733,7 @@ class FrontendIcons(unittest.TestCase):
             self.skipTest("node not available")
         js = (
             js_icons()
-            + "\nconsole.log(JSON.stringify(['check','clock','x','nope'].map(n=>{const h=ic(n); return h instanceof Html&&h.text;})));"
+            + "\nconsole.log(JSON.stringify(['check','clock','x','nope'].map(n=>{const h=lucideIcon(n); return h instanceof Html&&h.text;})));"
         )
         self.assertEqual(
             json.loads(run_node(js)),
@@ -3757,11 +3768,11 @@ class FrontendArchive(unittest.TestCase):
             [
                 js_esc(),
                 r"""
-            const T={loc:'l',reply:'y',restore:'s',purge:'u',n:'n',change:'c'}; let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main';
+            const TIP_TEXT={loc:'l',reply:'y',restore:'s',purge:'u',n:'n',change:'c'}; let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main';
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             """,
                 js_icons(),
-                extract_js_fn("rng"),
+                extract_js_fn("lineRange"),
                 extract_js_fn("multiDoc"),
                 extract_js_fn("pdoc"),
                 extract_js_fn("isRegion"),
@@ -3829,8 +3840,8 @@ class FrontendArchive(unittest.TestCase):
         out = self.run_rows(r"""
             const dash=String(doneCard({id:1,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'-'}));
             const real=String(doneCard({id:2,file:'/m.tex',name:'m.tex',lo:1,hi:1,page:1,done:true,done_at:'2026-09-23 08:05:00',close_ref:'PR #9'}));
-            const evDash=String(msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'-'}));
-            const evReal=String(msgHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'abc1234'}));
+            const evDash=String(messageHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'-'}));
+            const evReal=String(messageHtml({id:1,by:{name:'에이전트'},at:'2026-09-23 08:05:00',text:'답',ev:'close',ref:'abc1234'}));
             console.log(JSON.stringify([/arc-ref/.test(dash), /arc-ref/.test(real), /PR #9/.test(real),
               / · -</.test(evDash), evDash.includes(' · -'), evReal.includes(' · abc1234')]));
             """)
@@ -3858,17 +3869,17 @@ class FrontendArchive(unittest.TestCase):
               setAttribute(k,v){this.attrs[k]=v;},getAttribute(k){return this.attrs[k];}};}
             el('done-toggle','done-list'); el('done-list');
             const document={getElementById:id=>els[id]||null};
-            const SEC_DEFAULT={open:true,review:true,done:false}; let SEC={open:true,review:true,done:false};
-            const SEC_SEEN={open:null,review:null,done:new Set([1,2])}; const SECTION_NAME_ID={open:'list-h',review:'review-h',done:'done-h'};
+            const SECTION_OPEN_DEFAULT={open:true,review:true,done:false}; let SECTION_OPEN={open:true,review:true,done:false};
+            const SECTION_SEEN={open:null,review:null,done:new Set([1,2])}; const SECTION_NAME_ID={open:'list-h',review:'review-h',done:'done-h'};
             """,
-                extract_js_fn("secNewCount"),
+                extract_js_fn("countNewInSection"),
                 extract_js_fn("drawSectionHead"),
                 r"""
             const strip=s=>s.replace(/<svg.*?<\/svg>/g,'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
             const out=[]; const b=els['done-toggle'];
             drawSectionHead('done','완료',[1,2,3],[1,2,3,4]); out.push([strip(b.innerHTML),b.attrs['aria-expanded'],els['done-list'].hidden,/ic-chevron-right/.test(b.innerHTML)]);
-            SEC.done=true; drawSectionHead('done','완료',[1,2,3],[1,2,3,4]); out.push([strip(b.innerHTML),b.attrs['aria-expanded'],els['done-list'].hidden,/ic-chevron-down/.test(b.innerHTML)]);
-            SEC.done=false; drawSectionHead('done','완료',[1,2,3,4,5],[1,2,3,4,5]); out.push([strip(b.innerHTML)]);
+            SECTION_OPEN.done=true; drawSectionHead('done','완료',[1,2,3],[1,2,3,4]); out.push([strip(b.innerHTML),b.attrs['aria-expanded'],els['done-list'].hidden,/ic-chevron-down/.test(b.innerHTML)]);
+            SECTION_OPEN.done=false; drawSectionHead('done','완료',[1,2,3,4,5],[1,2,3,4,5]); out.push([strip(b.innerHTML)]);
             console.log(JSON.stringify(out));""",
             ]
         )
@@ -3892,10 +3903,13 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn("case 'arc-toggle':", h)
         body = extract_js_fn("drawPins")
         self.assertIn(
-            sq("drawSectionHead('done',tr('완료'),doneListed.map(pin=>pin.id),DONE_ALL.map(pin=>pin.id))"), sq(body)
+            sq("drawSectionHead('done',translate('완료'),doneListed.map(pin=>pin.id),DONE_ALL.map(pin=>pin.id))"),
+            sq(body),
         )
         self.assertIn(
-            sq("drawSectionHead('review',tr('검토 대기'),reviewShown.map(pin=>pin.id),REVIEW_ALL.map(pin=>pin.id))"),
+            sq(
+                "drawSectionHead('review',translate('검토 대기'),reviewShown.map(pin=>pin.id),REVIEW_ALL.map(pin=>pin.id))"
+            ),
             sq(body),
         )
         self.assertIn("doneListed.slice().reverse().map(doneCard)", body)
@@ -3922,13 +3936,16 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn(sq("${claimed?' claimed':''}"), sq(body))
         self.assertIn(
             sq(
-                "stDot(inReview?CARD_DOT.REVIEW:pin.stale||elLost(pin)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)"
+                "stateDot(inReview?CARD_DOT.REVIEW:pin.stale||isElementLost(pin)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)"
             ),
             sq(body),
         )
-        self.assertIn(sq("tl('상태: {name}',{name:tr(CARD_STATE_NAME[state])})"), sq(extract_js_fn("stDot")))
-        self.assertIn('role="img" aria-label="${label}"', extract_js_fn("stDot"))  # not distinguished by color alone
-        self.assertIn("${ic('rotate-ccw')}다시 열림", body)
+        self.assertIn(
+            sq("translateTemplate('상태: {name}',{name:translate(CARD_STATE_NAME[state])})"),
+            sq(extract_js_fn("stateDot")),
+        )
+        self.assertIn('role="img" aria-label="${label}"', extract_js_fn("stateDot"))  # not distinguished by color alone
+        self.assertIn("${lucideIcon('rotate-ccw')}다시 열림", body)
         self.assertIn(".arc-row+.arc-row{border-top:1px solid var(--border)}", css)
 
 
@@ -4101,31 +4118,31 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         """The real pick()/savePin() and the pending-save functions under node with stand-ins for the page (the message
         homes do nothing), then extra_body; returns the script."""
         stub = r"""
-            const MQ_COARSE={matches:false}; const IS_MAC=false;
+            const COARSE_POINTER_QUERY={matches:false}; const IS_MAC=false;
             function el(){return {hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
               scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}};}
             const els={}; const $=s=>(els[s]=els[s]||el());
             let PICKSEQ=0,REPICK=null; const COMPOSE={current:null,box:null,saving:false,picking:false,pendingSave:false,dismissedOverlap:null};
             const document={querySelectorAll:()=>[$('#btn-save')]};
-            let LAYOUT='wide', LAST_PTR='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
+            let LAYOUT='wide', LAST_POINTER='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (verdict.js)
             function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline.js)
             var OFF={idem:false};   // a server that knows no write by its key: the save carries none
-            function isMdDoc(){return false;}
+            function isMarkdownDoc(){return false;}
             function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
             function setBusy(){} function renderComposer(){} function overlapsFor(){return [];} function applySide(){}
             function selectionSnapshot(){return null;} function restoreSelection(){} let MID_OVERLAY=false; function relayout(){}
             function saveDraftSoon(){} function syncDraft(){} function savedDraftSnapshot(){return null;}
             function restoredDraftOwns(){return false;} function clearSavedDraft(){}
             async function loadPins(){} function useLevel(){} function isRegion(){return false;} function kindFor(){return 'line';}
-            function figureFields(b){return b;} function figRung(){return null;}
+            function figureFields(b){return b;} function figureRung(){return null;}
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
-            async function refreshDoc(){} function setSide(){} function setSelMode(){} function dropPin(){}
+            async function refreshDoc(){} function setSide(){} function setSelectMode(){} function dropPin(){}
             function endTopic(){} function undoNote(){return null;} function settleChip(){} function endNotice(){} const BANNERS=new Map();
-            function closeSelPop(){} function drawSelPop(){} function selPopOpen(){return false;}   // the note popover by the box (sel-popover.js)
-            const SG={on:false,text:'',base:null}; let META=null; function suggestClear(){} function suggestPending(){return false;}
+            function closeSelectionPopover(){} function drawSelectionPopover(){} function isSelectionPopoverOpen(){return false;}   // the note popover by the box (sel-popover.js)
+            const SUGGEST_DRAFT={on:false,text:'',base:null}; let META=null; function suggestClear(){} function suggestPending(){return false;}
             function suggestOff(){return null;} function suggestForSave(){return null;}   // no suggested edit (suggest.js)
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
             function api(url){apiCalls.push(url);
@@ -4140,7 +4157,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 js_markup(),
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
-                extract_js_fn("saveBtnLabel"),
+                extract_js_fn("saveButtonLabel"),
                 extract_js_fn("togglePendingSave"),
                 extract_js_fn("clearPendingSave"),
                 extract_js_fn("composeOwns"),
@@ -4173,7 +4190,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               out.curSetBeforeSave = !!COMPOSE.current || out.pinCallsAfterResolve>0;
               pinResolve({data:{id:42}});
               await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
-              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel().text;
+              out.btnLabelRestored = els['#btn-save'].innerHTML===saveButtonLabel().text;
               console.log(JSON.stringify(out));
             })();
             """)
@@ -4225,7 +4242,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               out.queued = COMPOSE.pendingSave;
               savePin();   // 같은 버튼을 다시 누르면 대기를 취소(토글)
               out.canceled = COMPOSE.pendingSave===false;
-              out.btnLabelRestored = els['#btn-save'].innerHTML===saveBtnLabel().text;
+              out.btnLabelRestored = els['#btn-save'].innerHTML===saveButtonLabel().text;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p;
@@ -4625,9 +4642,9 @@ class FrontendThread(unittest.TestCase):
 
     def test_messages_escape_and_events_read_as_history(self):
         out = self.run_js(r"""
-            const a=String(msgHtml({id:1,by:{name:'<b>x</b>'},at:'2026-09-24 10:00:00',text:'<img src=x onerror=1>'}));
-            const b=String(msgHtml({id:2,by:{name:'로컬/에이전트'},at:'2026-09-24 10:05:00',text:'고쳤다',ev:'close',ref:'PR #9'}));
-            const c=String(msgHtml({id:3,by:{name:'S'},at:'2026-09-24 10:06:00',text:'',ev:'confirm'}));
+            const a=String(messageHtml({id:1,by:{name:'<b>x</b>'},at:'2026-09-24 10:00:00',text:'<img src=x onerror=1>'}));
+            const b=String(messageHtml({id:2,by:{name:'로컬/에이전트'},at:'2026-09-24 10:05:00',text:'고쳤다',ev:'close',ref:'PR #9'}));
+            const c=String(messageHtml({id:3,by:{name:'S'},at:'2026-09-24 10:06:00',text:'',ev:'confirm'}));
             console.log(JSON.stringify([/&lt;img/.test(a),!/<img/.test(a),/&lt;b&gt;x/.test(a),/class="msg ev ev-close"/.test(b),
               /닫음 · PR #9/.test(b),/>고쳤다</.test(b),/>확인</.test(c),!/msg-t/.test(c),/09-24 10:05/.test(b)]));
             """)
@@ -4645,7 +4662,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn(sq("if(isQuestion(pin))tags.unshift("), sq(body))
         self.assertIn('data-act="reply-open"', body)
         self.assertIn(sq("threadHtml(pin,LAYOUT===LAYOUT_MODE.WIDE)"), sq(body))
-        self.assertIn("ic('message-square')", body)
+        self.assertIn("lucideIcon('message-square')", body)
 
     def test_reply_editor_survives_redraw_and_save_sends_kind(self):
         """The reply box survives list redraws, Esc closes it first, and a save sends the pin kind."""
@@ -4654,8 +4671,10 @@ class FrontendThread(unittest.TestCase):
         self.assertIn("replyField.focus()", dp)
         self.assertIn(sq("body.kind_req=out.kind;"), sq(extract_js_fn("savePin")))
         self.assertIn(sq("kind:KIND_NEW,"), sq(extract_js_fn("composeAsk")))
-        self.assertIn("setKind(KIND_REQ.FIX)", extract_js_fn("cancelSelection"))
-        self.assertIn(sq("KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요'"), sq(extract_js_fn("setKind")))
+        self.assertIn("setKind(REQUEST_KIND.FIX)", extract_js_fn("cancelSelection"))
+        self.assertIn(
+            sq("KIND_NEW===REQUEST_KIND.QUESTION?'무엇이 궁금한지 적어 주세요'"), sq(extract_js_fn("setKind"))
+        )
         self.assertIn(
             sq("if(REPLY){event.preventDefault();closeReply();return;}"), SCRIPT_SQ
         )  # Esc closes the input field first
@@ -4696,18 +4715,18 @@ class FrontendReview(unittest.TestCase):
             [
                 js_esc(),
                 r"""
-            const T={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',reply:'y'};
+            const TIP_TEXT={stale:'s',n:'n',loc:'l',view:'v',edit:'e',close:'c',drop:'d',review:'r',confirm:'k',reply:'y'};
             let  PINS=[], META={me:{login:'bob@example.com',name:'Bob Park',role:'editor'}}; const EDITOR={current:null,saving:false};
             const OPEN_CARDS=new Set();
             function viaTag(){return null;} function relBadge(){return null;} function claimActive(){return false;}
             function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
-            const THREAD_OPEN=new Set(), MQ_COARSE={matches:false};
+            const THREAD_OPEN=new Set(), COARSE_POINTER_QUERY={matches:false};
             function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
             function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
-            function isMdPin(){return false;}   // ...and are on a document with pages (md-surface.js)
+            function isMarkdownPin(){return false;}   // ...and are on a document with pages (md-surface.js)
             """,
-                extract_js_fn("rng"),
+                extract_js_fn("lineRange"),
                 extract_js_fn("multiDoc"),
                 extract_js_fn("pdoc"),
                 extract_js_fn("isRegion"),
@@ -4723,9 +4742,9 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("isFrac"),
                 extract_js_fn("hasMark"),
                 extract_js_fn("pinPlace"),
-                extract_js_fn("elLost"),
-                extract_js_fn("elLostTag"),
-                extract_js_fn("figRegionBadge"),
+                extract_js_fn("isElementLost"),
+                extract_js_fn("lostElementTag"),
+                extract_js_fn("figureRegionBadge"),
                 extract_js_fn("isFigureKind"),
                 extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)
                 extract_js_fn("cardQuote"),
@@ -4852,7 +4871,7 @@ class FrontendChangeView(unittest.TestCase):
 
     def test_wiring(self):
         """[변경 보기] is wired from the cards to showChange, a pin's commit opens in the source diff, and the comparison
-        PDF is requested only for a commit or range (revKey) not yet loaded in that format."""
+        PDF is requested only for a commit or range (revisionKey) not yet loaded in that format."""
         h = HTML
         self.assertIn('data-act="change"', extract_js_fn("doneCard"))
         self.assertIn('data-act="change"', extract_js_fn("card"))
@@ -4861,7 +4880,7 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn(sq("showRevision(pick.id,DIFF_FORMAT.SOURCE)"), sq(extract_js_fn("loadRevisions")))
         fmt = extract_js_fn("setRevisionFormat")
         # the comparison PDF is only built while viewing that format
-        self.assertIn(sq("REV.pdfCommit!==revKey()"), sq(fmt))
+        self.assertIn(sq("REVISION_VIEW.pdfCommit!==revisionKey()"), sq(fmt))
         css = h[h.index("<style>") : h.index("</style>")]
         self.assertIn("body.revision-open #revision-view{display:block}", css)  # it opens even on a folded fold device
 
@@ -4879,15 +4898,16 @@ class FrontendChangeView(unittest.TestCase):
             '<button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden', h
         )
         self.assertIn(sq("case 'revision-other':toggleRevisionOther();break;"), SCRIPT_SQ)
-        self.assertIn(sq("case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;"), SCRIPT_SQ)
+        self.assertIn(sq("case 'revision-whole':setRevisionWhole(!COMPARISON_SCOPE.whole);break;"), SCRIPT_SQ)
         src = extract_js_fn("loadRevisionSource")
         self.assertIn(sq("'&pin='+pinTarget.id"), sq(src))  # a pin's view asks for its scope; plain browsing does not
         self.assertIn(sq("answer.scope.mode===SCOPE_MODE.PIN"), sq(src))
         pdf = extract_js_fn("loadRevisionPdf")
-        self.assertIn(sq("!REV_SCOPE.whole&&!REV_SCOPE.fallback?target.id:null"), sq(pdf))
-        self.assertIn(sq("REV_SCOPE.fallback=true"), sq(pdf))  # a subset that does not compile falls back once
+        self.assertIn(sq("!COMPARISON_SCOPE.whole&&!COMPARISON_SCOPE.fallback?target.id:null"), sq(pdf))
+        self.assertIn(sq("COMPARISON_SCOPE.fallback=true"), sq(pdf))  # a subset that does not compile falls back once
         self.assertIn(
-            sq("REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false"), sq(extract_js_fn("showRevision"))
+            sq("COMPARISON_SCOPE.whole=COMPARISON_SCOPE.partial=COMPARISON_SCOPE.fallback=false"),
+            sq(extract_js_fn("showRevision")),
         )
         css = h[h.index("<style>") : h.index("</style>")]
         # the folded diff shares every source-diff rule (its selector first, so the existing strings stay whole)
@@ -4915,9 +4935,9 @@ class FrontendMentions(unittest.TestCase):
             let META={me:{login:'s@example.com',name:'Bob Park'}};
             function threadOf(p){return Array.isArray(p&&p.thread)?p.thread:[];}
             const PINSET={12:1,3:1}; function findAnyPin(id){return PINSET[id]?{id}:null;} let DROPPED=[{id:40}];
-            function tr(s){return s;}
+            function translate(s){return s;}
             const KIND_NEW='fix'; function appendTarget(){return null;}   // no overlapped pin on offer
-            const document={activeElement:null};   // nothing has the focus: a row drawn again has none to keep (segKeep)
+            const document={activeElement:null};   // nothing has the focus: a row drawn again has none to keep (keepSegmentFocus)
             """,
             ]
             + [
@@ -4947,13 +4967,13 @@ class FrontendMentions(unittest.TestCase):
                     "nameShared",
                     "personLabel",
                     "assigneeRowHtml",
-                    "segReveal",
+                    "revealSegment",
                     "fadeSegmentEdges",
                     "offeredWords",
                     "shownWords",
-                    "segFocusAt",
-                    "segKeep",
-                    "segRove",
+                    "segmentFocusAt",
+                    "keepSegmentFocus",
+                    "roveSegment",
                     "mentionPreview",
                     "renderAssignNew",
                     "editNote",
@@ -5108,7 +5128,7 @@ class FrontendMentions(unittest.TestCase):
         self.assertEqual(h.count('</textarea><div class="m-preview" aria-live="polite" hidden></div>'), 2)
         body = extract_js_fn("mentionPreview")
         self.assertIn("등록된 사람이 아님", body)
-        self.assertIn("${ic('at-sign')}알림</span>", body)
+        self.assertIn("${lucideIcon('at-sign')}알림</span>", body)
         css = h[h.index("<style>") : h.index("</style>")]
         self.assertRegex(
             css, r"\.mention\{color:var\(--primary\);font-weight:600;background:color-mix\(in srgb,var\(--primary\) 12%"
@@ -5215,7 +5235,7 @@ class FrontendMentionPopPlacement(unittest.TestCase):
             self.assertIn(sel, fn)
 
 
-# The viewer functions mentionPreview() reaches (besides esc/ic/tr and the DOM), pulled from the served page.
+# The viewer functions mentionPreview() reaches (besides esc/lucideIcon/translate and the DOM), pulled from the served page.
 MENTION_PREVIEW_FNS = (
     "peopleName",
     "mentionAfterWord",
@@ -5361,10 +5381,10 @@ class FrontendQuestionHint(unittest.TestCase):
         # clicking it switches — same as the existing kind action
         self.assertIn('data-act="kind" data-kind="question"', html)
         self.assertIn('data-act="e-kind" data-kind="question"', html)
-        qh = extract_js_fn("qHint")
+        qh = extract_js_fn("syncQuestionHint")
         self.assertNotIn("setKind", qh)  # only suggests
         self.assertNotIn("kind_req=", qh)
-        self.assertIn(sq("kind===KIND_REQ.QUESTION"), sq(qh))  # hidden if it's already a question
+        self.assertIn(sq("kind===REQUEST_KIND.QUESTION"), sq(qh))  # hidden if it's already a question
 
 
 class FrontendNotify(unittest.TestCase):
@@ -5571,7 +5591,9 @@ class ViewerMarkup(unittest.TestCase):
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
         self.assertIn(
-            sq("actions:event.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]"),
+            sq(
+                "actions:event.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:translate('되살리기')}]:[]"
+            ),
             sq(extract_js_fn("notifyShow")),
         )
         self.assertIn(sq("e.action==='restore'"), sq(SW_JS))
@@ -5663,12 +5685,12 @@ class ViewerFunctions(unittest.TestCase):
     def test_section_state_defaults_and_new_count(self):
         js = "\n".join(
             [
-                "const SEC_DEFAULT={open:true,review:true,done:false};",
+                "const SECTION_OPEN_DEFAULT={open:true,review:true,done:false};",
                 extract_js_fn("readSectionsExpanded"),
-                extract_js_fn("secNewCount"),
+                extract_js_fn("countNewInSection"),
                 r"""
             console.log(JSON.stringify([readSectionsExpanded(undefined), readSectionsExpanded({done:true}), readSectionsExpanded({open:false,x:1,review:'no'}),
-              secNewCount(new Set([1,2]),[1,2,3,4]), secNewCount(new Set([1,2]),[2]), secNewCount(null,[1])]));""",
+              countNewInSection(new Set([1,2]),[1,2,3,4]), countNewInSection(new Set([1,2]),[2]), countNewInSection(null,[1])]));""",
             ]
         )
         self.assertEqual(
@@ -5809,11 +5831,11 @@ class ViewerFunctions2(unittest.TestCase):
                 js_icons(),
                 js_esc(),
                 r"""
-            const T={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
+            const TIP_TEXT={loc:'l',restore:'s',purge:'u'}; let SHOW_ALL=false,DOCS=[],DOC='main',DEFAULT_DOC='main',META=null; const ARC_OPEN=new Set();
             function docInfo(){return null;} function authorTip(){return 'tip';} function who(a){return a?a.name:'';}
             function relSpan(s,cls,tip){return html`<span class="rt ${cls}">7시간 전</span>`;} function fmtText(t){return html`${t}`;}
             const TRASH_DAYS=30;""",
-                extract_js_fn("rng"),
+                extract_js_fn("lineRange"),
                 extract_js_fn("multiDoc"),
                 extract_js_fn("pdoc"),
                 extract_js_fn("isRegion"),

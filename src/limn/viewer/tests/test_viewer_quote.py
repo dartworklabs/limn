@@ -78,7 +78,7 @@ class QuoteLine(BrowserBase):
     def pick_with(self, page, quote, pointer="mouse"):
         """Answer the next pick with quote and select through the real pick path with pointer; wait for the composer."""
         self.PICK = {"quote": quote}
-        page.evaluate("p=>{LAST_PTR=p; pick({page:1,x0:10,y0:10,x1:200,y1:60});}", pointer)
+        page.evaluate("p=>{LAST_POINTER=p; pick({page:1,x0:10,y0:10,x1:200,y1:60});}", pointer)
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
         settle(page)
         return page.evaluate(GEOMETRY)
@@ -129,7 +129,7 @@ class QuoteLine(BrowserBase):
         """A region answer already shows '영역 글자: …' in the source: no second line of the same text."""
         page = self.open(0, **DESK)
         self.PICK = {"kind": "region", "view_only": True, "lo": None, "hi": None, "file": None, "quote": "Region text"}
-        page.evaluate("()=>{LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
         settle(page)
         self.assertIsNone(page.evaluate(GEOMETRY)["quote"])

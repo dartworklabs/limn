@@ -32,7 +32,7 @@ VIEWPORT = {"width": 1440, "height": 1500}
 # What the page must have drawn before a test acts: the document read and its first page element.
 DRAWN = "typeof META!=='undefined'&&!!META&&!!META.pages&&META.pages.length>0&&!!document.getElementById('p1')"
 CONTROLLED = "!!(navigator.serviceWorker&&navigator.serviceWorker.controller)"
-PDF_OPEN = "typeof VEC!=='undefined'&&!!VEC&&!!VEC.doc"
+PDF_OPEN = "typeof VECTOR_PDF!=='undefined'&&!!VECTOR_PDF&&!!VECTOR_PDF.doc"
 
 
 def two_page_pdf(words: str) -> bytes:
@@ -287,13 +287,13 @@ class LiveTab:
         )
 
     def read_url(self, path):
-        """The address the viewer asks for path with, for the document on screen (dq: /api/meta -> /api/meta?doc=main)."""
-        return self.page.evaluate("path => dq(path)", path)
+        """The address the viewer asks for path with, for the document on screen (withDocQuery: /api/meta -> /api/meta?doc=main)."""
+        return self.page.evaluate("path => withDocQuery(path)", path)
 
     def stored(self, url):
         """The answer stored for a document read of url, as the page asks it with or without the document's name, or None."""
         return self.page.evaluate(
-            "async url => (await offStashed(url, null)) || (await offStashed(dq(url), null))", url
+            "async url => (await offStashed(url, null)) || (await offStashed(withDocQuery(url), null))", url
         )
 
     def stored_stash(self, url, data, status=200):

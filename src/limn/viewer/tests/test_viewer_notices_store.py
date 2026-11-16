@@ -48,7 +48,7 @@ const ELS={}; const $=s=>ELS[s]||(ELS[s]=stub());
 const BODY=new Set();
 const document={body:{classList:{add:c=>BODY.add(c),remove:c=>BODY.delete(c),contains:c=>BODY.has(c)}},querySelectorAll:()=>[],addEventListener(){},contains:()=>false};
 const window={addEventListener(){}};
-let SIDE_OPEN=false,STATUS_TOP=0; const SEC={},T={undo:'되돌리기'};
+let SIDE_OPEN=false,STATUS_TOP=0; const SECTION_OPEN={},TIP_TEXT={undo:'되돌리기'};
 function announce(){} function drawOffer(){} function drawBanners(){} function syncSaveButton(){}
 const NOTICES=new Map(),LINE=[],BANNERS=new Map(),DEFERRED=new Set(),GROUPS=new Map(); let NOTICE_SEQ=0,LINE_HOVER=false,LAST_POINTER_AT=null,DIGEST=null;
 function drawStatus(){lineVisible(LINE.length>0);}
@@ -256,7 +256,8 @@ class StoreFlows(NoticePage, BrowserBase):
         )  # newest first (§목록 순서): the later pin is drawn first, the earlier last
         page = self.view("desktop", init=SEEN + ";" + COUNT_CONFIRMS, n_open=10)
         page.evaluate(
-            "setSide(true); SEC.review=true; OPEN_CARDS.add(%d); OPEN_CARDS.add(%d); drawPins()" % (first, second)
+            "setSide(true); SECTION_OPEN.review=true; OPEN_CARDS.add(%d); OPEN_CARDS.add(%d); drawPins()"
+            % (first, second)
         )
         page.evaluate("(()=>{const l=document.getElementById('list'); l.scrollTop=l.scrollHeight;})()")
         settle(page)

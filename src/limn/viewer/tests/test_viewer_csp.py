@@ -52,7 +52,7 @@ def two_page_pdf(first: tuple[int, int]) -> bytes:
 # Resolves once the page has drawn every page of the document on screen with PDF.js, or fails after the timeout - a
 # promise the page itself resolves, so nothing is evaluated by Playwright's polling (which an enforced policy refuses).
 DRAWN = """key => new Promise((resolve, reject) => {
-  const done = () => DOC === key && META && VEC.doc && document.querySelectorAll('#doc .pg.drawn').length === META.pages.length;
+  const done = () => DOC === key && META && VECTOR_PDF.doc && document.querySelectorAll('#doc .pg.drawn').length === META.pages.length;
   const t0 = performance.now();
   (function poll() {
     if (done()) return resolve(document.querySelectorAll('#doc .pg.drawn').length);
@@ -65,11 +65,11 @@ DRAWN = """key => new Promise((resolve, reject) => {
 # this origin, in a module worker from this origin - ADR-0026): its column with a heading, a table row and a line span, and no
 # limit hit - or fails after the timeout. Like DRAWN, the page resolves it; nothing is evaluated by Playwright's polling.
 MD_DRAWN = """key => new Promise((resolve, reject) => {
-  const done = () => DOC === key && MD.shown === key && !MD.job && document.querySelector('article#md h1') &&
+  const done = () => DOC === key && MARKDOWN_VIEW.shown === key && !MARKDOWN_VIEW.job && document.querySelector('article#md h1') &&
     document.querySelector('#md tr[data-lo]') && document.querySelector('#md [data-line]');
   const t0 = performance.now();
   (function poll() {
-    if (done()) return resolve([MD.limit, document.querySelectorAll('#md [data-line]').length]);
+    if (done()) return resolve([MARKDOWN_VIEW.limit, document.querySelectorAll('#md [data-line]').length]);
     if (performance.now() - t0 > 15000) return reject(new Error('not drawn: ' + key));
     requestAnimationFrame(poll);
   })();

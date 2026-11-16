@@ -240,11 +240,11 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
         self.assertEqual(page.evaluate(HEIGHTS), [], "lines that stand at another height than they are drawn at")
 
     def test_a_window_made_only_shorter_keeps_far_a_views_height_away(self):
-        """A desktop with a saved scale made 300px shorter: the scale stays (autoW), so no line is fitted again, and the
+        """A desktop with a saved scale made 300px shorter: the scale stays (autoFitWidth), so no line is fitted again, and the
         observer's margin still follows the PDF area's new height - a line is far a view's height away, not the old
         one's."""
         page = self.on_fig()
-        page.evaluate("setK(K, true)")  # a saved scale: a new window size keeps it
+        page.evaluate("setScale(PAGE_SCALE, true)")  # a saved scale: a new window size keeps it
         settle(page)
         self.assertIsNotNone(page.evaluate("savedScale()"))
         margin = "() => [document.querySelector('#left').clientHeight, FAR_OBSERVER.rootMargin]"

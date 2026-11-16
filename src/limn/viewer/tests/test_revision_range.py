@@ -166,7 +166,7 @@ class PickerBase(BrowserBase):
             page.locator("#nav-sheet [data-mode=revisions]").click()
         else:
             page.click("#view-revisions")
-        page.wait_for_function("REV.rowsDoc===DOC&&REV.commit!==''", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.rowsDoc===DOC&&REVISION_VIEW.commit!==''", timeout=15000)
         page.wait_for_selector("#revision-commits .rc-row", timeout=15000)
         return page
 
@@ -206,7 +206,10 @@ class RangePicker(PickerBase):
         page = self.changes(self.open(0))
         self.assertFalse(self.segment(page, "last").is_visible())
         self.assertEqual(self.segment(page, "one").get_attribute("aria-checked"), "true")
-        self.assertEqual(page.evaluate("[REV.commit,REV.base,REV.format]"), [self.commits[-1], "", "pdf"])
+        self.assertEqual(
+            page.evaluate("[REVISION_VIEW.commit,REVISION_VIEW.base,REVISION_VIEW.format]"),
+            [self.commits[-1], "", "pdf"],
+        )
         self.assertEqual(page.locator("#revision-commits .rc-row").count(), 8)
         top = page.locator("#revision-commits .rc-row").first.inner_text()
         self.assertIn("Change 7", top)
@@ -220,12 +223,14 @@ class RangePicker(PickerBase):
         page = self.open(0, init=self.seen_script(self.commits[4]))
         page.on("request", lambda r: urls.append(r.url))
         self.changes(page)
-        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.seenState==='ok'", timeout=15000)
         last = self.segment(page, "last")
         self.assertEqual(last.get_attribute("aria-checked"), "true")
         self.assertIn("3", last.inner_text())
-        page.wait_for_function("REV.sourceCommit&&REV.format==='source'", timeout=15000)
-        self.assertEqual(page.evaluate("[REV.commit,REV.base]"), [self.commits[-1], self.commits[4]])
+        page.wait_for_function("REVISION_VIEW.sourceCommit&&REVISION_VIEW.format==='source'", timeout=15000)
+        self.assertEqual(
+            page.evaluate("[REVISION_VIEW.commit,REVISION_VIEW.base]"), [self.commits[-1], self.commits[4]]
+        )
         diff = page.inner_text("#revision-diff")
         self.assertIn("Change 7", diff)
         self.assertIn("Change 5", diff)
@@ -240,19 +245,25 @@ class RangePicker(PickerBase):
     def test_a_row_press_ranges_from_it_to_now_and_this_commit_only_narrows(self):
         """From [마지막으로 본 뒤], pressing c2 compares c2's parent to the newest; pressing c5 then ends the range at c5;
         [이 커밋만] shows c2 alone; [변경 PDF] then builds that commit's comparison. A range paints its rows when the server's
-        answer names them (paintedIds), so each count waits for REV.rangeIds, not only for the request to be set."""
+        answer names them (paintedIds), so each count waits for REVISION_VIEW.rangeIds, not only for the request to be set."""
         page = self.changes(self.open(0, init=self.seen_script(self.commits[4])))
         page.locator("#revision-commits .rc-row[data-commit='%s']" % self.commits[2]).click()
-        page.wait_for_function("REV.base===%s&&REV.rangeIds" % json.dumps(self.commits[1]), timeout=15000)
-        self.assertEqual(page.evaluate("REV.commit"), self.commits[-1])
+        page.wait_for_function(
+            "REVISION_VIEW.base===%s&&REVISION_VIEW.rangeIds" % json.dumps(self.commits[1]), timeout=15000
+        )
+        self.assertEqual(page.evaluate("REVISION_VIEW.commit"), self.commits[-1])
         self.assertEqual(self.segment(page, "from").get_attribute("aria-checked"), "true")
         self.assertEqual(page.locator("#revision-commits .rc-row.in").count(), 6)
         page.locator("#revision-commits .rc-row[data-commit='%s']" % self.commits[5]).click()
-        page.wait_for_function("REV.commit===%s&&REV.rangeIds" % json.dumps(self.commits[5]), timeout=15000)
-        self.assertEqual(page.evaluate("REV.base"), self.commits[1])
+        page.wait_for_function(
+            "REVISION_VIEW.commit===%s&&REVISION_VIEW.rangeIds" % json.dumps(self.commits[5]), timeout=15000
+        )
+        self.assertEqual(page.evaluate("REVISION_VIEW.base"), self.commits[1])
         self.assertEqual(page.locator("#revision-commits .rc-row.in").count(), 4)
         self.segment(page, "one").click()
-        page.wait_for_function("REV.commit===%s&&REV.base===''" % json.dumps(self.commits[2]), timeout=15000)
+        page.wait_for_function(
+            "REVISION_VIEW.commit===%s&&REVISION_VIEW.base===''" % json.dumps(self.commits[2]), timeout=15000
+        )
         page.click("#revision-pdf-tab")
         page.wait_for_selector('.revision-page[data-state="ready"] canvas', timeout=15000)
 
@@ -274,10 +285,12 @@ class RangePicker(PickerBase):
         self.git("-c", "user.name=Alice Kim", "-c", "user.email=a@example.com", "commit", "-qam", "Change 8")
         newest = self.git("rev-parse", "HEAD")
         self.changes(page)
-        page.wait_for_function("REV.commit===%s&&REV.seenState==='ok'" % json.dumps(newest), timeout=15000)
+        page.wait_for_function(
+            "REVISION_VIEW.commit===%s&&REVISION_VIEW.seenState==='ok'" % json.dumps(newest), timeout=15000
+        )
         self.assertEqual(self.segment(page, "last").get_attribute("aria-checked"), "true")
         self.assertIn("1", self.segment(page, "last").inner_text())
-        self.assertEqual(page.evaluate("REV.base"), self.commits[-1])
+        self.assertEqual(page.evaluate("REVISION_VIEW.base"), self.commits[-1])
 
     def stored_seen(self, page) -> str:
         """The last-seen commit this browser holds for the document."""
@@ -297,9 +310,9 @@ class RangePicker(PickerBase):
         seen = self.commits[-1]
         self.commit_more(34)
         page = self.changes(self.open(0, init=self.seen_script(seen)))
-        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.seenState==='ok'", timeout=15000)
         self.assertIn("34", self.segment(page, "last").inner_text())
-        self.assertEqual(page.evaluate("[REV.base,REV.commit]"), [seen, self.commits[-1]])
+        self.assertEqual(page.evaluate("[REVISION_VIEW.base,REVISION_VIEW.commit]"), [seen, self.commits[-1]])
         self.assertEqual(page.locator("#revision-commits .rc-row.new").count(), 30)
         page.click("#view-manuscript")
         self.assertEqual(self.stored_seen(page), self.commits[-1])
@@ -308,12 +321,12 @@ class RangePicker(PickerBase):
         """A last-seen commit the server cannot find (rewritten history): the segment says so and cannot be pressed,
         the newest commit opens alone, and leaving then records the newest."""
         page = self.changes(self.open(0, init=self.seen_script("0" * 40)))
-        page.wait_for_function("REV.seenState==='gone'&&REV.base===''", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.seenState==='gone'&&REVISION_VIEW.base===''", timeout=15000)
         last = self.segment(page, "last")
         self.assertTrue(last.is_visible())
         self.assertTrue(last.is_disabled())
         self.assertIn("기록한 커밋을 찾을 수 없음", last.inner_text())
-        self.assertEqual(page.evaluate("REV.commit"), self.commits[-1])
+        self.assertEqual(page.evaluate("REVISION_VIEW.commit"), self.commits[-1])
         page.click("#view-manuscript")
         self.assertEqual(self.stored_seen(page), self.commits[-1])
 
@@ -322,7 +335,7 @@ class RangePicker(PickerBase):
         so (not "not found") and cannot be pressed, and leaving keeps the record."""
         with mock.patch.object(revisions, "REVISION_HISTORY_MAX", 5):
             page = self.changes(self.open(0, init=self.seen_script(self.commits[1])))
-            page.wait_for_function("REV.seenState==='old'", timeout=15000)
+            page.wait_for_function("REVISION_VIEW.seenState==='old'", timeout=15000)
             last = self.segment(page, "last")
             self.assertTrue(last.is_disabled())
             self.assertIn("기록한 커밋이 최근 500개보다 오래됨", last.inner_text())
@@ -343,7 +356,7 @@ class RangePicker(PickerBase):
 
         page.route("**/api/revision-diff*", fail_ranges)
         self.changes(page)
-        page.wait_for_function("REV.seenState==='error'", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.seenState==='error'", timeout=15000)
         page.click("#view-manuscript")
         self.assertEqual(self.stored_seen(page), self.commits[4])
 
@@ -356,12 +369,15 @@ class RangePicker(PickerBase):
             "request", lambda r: posts.append(r.url) if r.method == "POST" and "/api/revision-build" in r.url else None
         )
         self.changes(page)
-        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.seenState==='ok'", timeout=15000)
         page.click("#revision-pdf-tab")
         page.wait_for_selector('.revision-page[data-state="ready"] canvas', timeout=15000)
         self.assertEqual(len(posts), 1)
         page.evaluate("loadRevisions()")
-        page.wait_for_function("REV.rowsDoc===DOC&&REV.format==='source'&&REV.sourceCommit!==''", timeout=15000)
+        page.wait_for_function(
+            "REVISION_VIEW.rowsDoc===DOC&&REVISION_VIEW.format==='source'&&REVISION_VIEW.sourceCommit!==''",
+            timeout=15000,
+        )
         page.wait_for_timeout(500)
         self.assertEqual(len(posts), 1, posts)
 
@@ -386,7 +402,7 @@ class RangePicker(PickerBase):
         page = self.open(0, init=self.seen_script(self.commits[4]))
         answered = self.busy_answers(page, 2)
         self.changes(page)
-        page.wait_for_function("REV.seenState==='ok'", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.seenState==='ok'", timeout=15000)
         page.click("#revision-pdf-tab")
         page.wait_for_function("()=>/앞선 비교 PDF/.test($('#revision-status').textContent)", timeout=15000)
         page.wait_for_selector('.revision-page[data-state="ready"] canvas', timeout=15000)
@@ -401,7 +417,7 @@ class RangePicker(PickerBase):
         self.changes(page)
         page.wait_for_function("()=>/앞선 비교 PDF/.test($('#revision-status').textContent)", timeout=15000)
         page.click("#revision-source-tab")
-        page.wait_for_function("REV.format==='source'", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.format==='source'", timeout=15000)
         left = len(answered)
         nothing_follows(page, 1500)
         self.assertEqual(len(answered), left)
@@ -509,7 +525,9 @@ class MergedPicker(PickerBase):
         page = self.changes(self.open(0))
         self.segment(page, "from").click()
         page.locator("#revision-commits .rc-row[data-commit='%s']" % self.sha["S1"]).click()
-        page.wait_for_function("REV.base===%s&&REV.rangeIds" % json.dumps(self.sha["root"]), timeout=15000)
+        page.wait_for_function(
+            "REVISION_VIEW.base===%s&&REVISION_VIEW.rangeIds" % json.dumps(self.sha["root"]), timeout=15000
+        )
         self.assertEqual(self.painted(page), self.compared(self.sha["root"], self.sha["B7"]))
 
     def test_the_first_commit_paints_only_itself(self):
@@ -517,14 +535,16 @@ class MergedPicker(PickerBase):
         page = self.changes(self.open(0))
         self.segment(page, "from").click()
         page.locator("#revision-commits .rc-row[data-commit='%s']" % self.sha["root"]).click()
-        page.wait_for_function("REV.commit===%s&&REV.base===''" % json.dumps(self.sha["root"]), timeout=15000)
+        page.wait_for_function(
+            "REVISION_VIEW.commit===%s&&REVISION_VIEW.base===''" % json.dumps(self.sha["root"]), timeout=15000
+        )
         self.assertEqual(self.painted(page), {self.sha["root"]})
 
     def test_since_last_seen_counts_what_a_merge_brought(self):
         """Last seen at B6, then the side line was merged and B7 pushed: N is every commit the range compares (the
         merged line, the merge and B7), and those are the rows painted and marked new."""
         page = self.changes(self.open(0, init=self.seen_script(self.sha["B6"])))
-        page.wait_for_function("REV.seenState==='ok'&&REV.rangeIds", timeout=15000)
+        page.wait_for_function("REVISION_VIEW.seenState==='ok'&&REVISION_VIEW.rangeIds", timeout=15000)
         want = self.compared(self.sha["B6"], self.sha["B7"])
         self.assertIn(str(len(want)), self.segment(page, "last").inner_text())
         self.assertEqual(self.painted(page), want)
@@ -584,5 +604,7 @@ class OldSidePin(PickerBase):
         """[변경 보기] of the pin opens B5 (via its hash), not the newest commit that touched the line."""
         page = self.open(0)
         page.evaluate("showChange(%d)" % self.pin)
-        page.wait_for_function("REV.target&&REV.target.commit", timeout=15000)
-        self.assertEqual(page.evaluate("[REV.target.commit,REV.target.via]"), [self.sha["B5"], "sha"])
+        page.wait_for_function("REVISION_VIEW.target&&REVISION_VIEW.target.commit", timeout=15000)
+        self.assertEqual(
+            page.evaluate("[REVISION_VIEW.target.commit,REVISION_VIEW.target.via]"), [self.sha["B5"], "sha"]
+        )

@@ -9,7 +9,7 @@ in-process server (BrowserBase) and check what a person sees and what the server
   is not another origin's http(s), mailto or an in-document heading are inert, and no request leaves the viewer;
 - picks: a click or tap on a block, a drag over lines, a line that cannot be told inside a block, a table row, a heading;
   the ladder (lines, block, section), the save with no page, frac or pdf_build, the marks and badges, the outline;
-- the limits (MD_LIMITS): each fixture of the spec's table gives a drawn document or the plain source-line view within the
+- the limits (MARKDOWN_LIMITS): each fixture of the spec's table gives a drawn document or the plain source-line view within the
   time limit, the elements under the limit, and every source line in the view or the notice saying why not;
 - the IME rule on the surface's keys and on a redraw; the page-only controls hidden; the changes view's source diff.
 
@@ -44,7 +44,9 @@ from helpers_figure import BUILD1, viewer_build
 from helpers_outline import outline_pdf
 
 # Resolves when the Markdown document on screen is drawn (a document, the line view or a notice) and no parse is in flight.
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
+DRAWN = (
+    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
+)
 # DRAWN with the source on screen, drawn or as the line view: a notice (a read that failed, a limit) is drawn too, and
 # a wait that must see the document waits for this.
 SHOWN = DRAWN + "&&!document.querySelector('#md.md-note')&&!!document.querySelector('#md [data-line],#md [data-lo]')"
@@ -168,11 +170,11 @@ class MarkdownBase(BrowserBase):
         return page
 
     def redraw(self, page, timeout=20000):
-        """Draw the document again (mdBuild) and wait until that draw is on screen. A redraw keeps the old drawing in #md
+        """Draw the document again (buildMarkdownDoc) and wait until that draw is on screen. A redraw keeps the old drawing in #md
         while it reads the source and parses it, and DRAWN already holds for that old drawing: waiting on DRAWN alone let a
         check read the previous source's drawing whenever the read was slow (a limit case read the limit of the case before it).
         Every draw puts a new #md in #doc (showDocumentNode), so the wait is for an #md other than the one on screen before."""
-        page.evaluate("window.__mdBefore=document.querySelector('#md'); mdBuild()")
+        page.evaluate("window.__mdBefore=document.querySelector('#md'); buildMarkdownDoc()")
         page.wait_for_function("document.querySelector('#md')!==window.__mdBefore&&" + DRAWN, timeout=timeout)
 
     def line_el(self, page, n):
@@ -267,7 +269,7 @@ class Drawing(MarkdownBase):
         self.write(body)
         page = self.open_md()
         lines = server_lines(self.md)
-        self.assertEqual(page.evaluate("MD.lines.length"), len(lines))
+        self.assertEqual(page.evaluate("MARKDOWN_VIEW.lines.length"), len(lines))
         got = page.evaluate(
             "[...document.querySelectorAll('#md [data-line],#md [data-lo]')].map(e=>[+(e.dataset.line||e.dataset.lo),+(e.dataset.line||e.dataset.hi),e.textContent])"
         )
@@ -307,7 +309,7 @@ class Drawing(MarkdownBase):
         """The LaTeX manuscript's pages replace the column and the column comes back, at the line it was read at."""
         page = self.open_md()
         page.evaluate("document.querySelector('#md [data-kind=table]').scrollIntoView({block:'start'})")
-        page.wait_for_function("MD.at>=%d" % fixture_line("## 표"), timeout=5000)
+        page.wait_for_function("MARKDOWN_VIEW.at>=%d" % fixture_line("## 표"), timeout=5000)
         page.evaluate("switchDoc('ms')")
         page.wait_for_function(
             "DOC==='ms'&&document.querySelectorAll('#doc .pg').length===2&&!document.querySelector('#md')",
@@ -560,8 +562,8 @@ class FromAnotherDocument(MarkdownBase):
         page = self.open_md()
         page.wait_for_function("!!window.__pinVec.lib", timeout=10000)
         page.evaluate(
-            "(()=>{window.__vo=[]; window.__lo=[]; const v=vecOpen,o=loadOutline;"
-            " window.vecOpen=()=>{const p=v(); window.__vo.push(p); return p;};"
+            "(()=>{window.__vo=[]; window.__lo=[]; const v=openVectorDocument,o=loadOutline;"
+            " window.openVectorDocument=()=>{const p=v(); window.__vo.push(p); return p;};"
             " window.loadOutline=(d,g)=>{const p=o(d,g); window.__lo.push(p); return p;};})()"
         )
         held = self.hold_routes(page, "/pdf?")
@@ -570,7 +572,7 @@ class FromAnotherDocument(MarkdownBase):
         self.assertEqual(len(held), 1)
         page.evaluate("switchDoc('nt')")
         page.wait_for_function(SHOWN + "&&DOC==='nt'", timeout=10000)
-        heads = page.evaluate("MD.heads.map(h=>h.title)")
+        heads = page.evaluate("MARKDOWN_VIEW.heads.map(h=>h.title)")
         self.assertEqual(page.evaluate("OUTLINE_ENTRIES.map(e=>e.title)"), heads)
         for r in held:
             self.forward(r)
@@ -996,7 +998,7 @@ class Picking(MarkdownBase):
         self.assertEqual((rec["lo"], rec["hi"], rec["scope"], rec["kind"]), (3, item, "lines", "lines"))
 
     def test_a_drag_over_a_pins_badge_quotes_only_the_documents_text(self):
-        """A pin's badge layer stands between the blocks (in line order, mdMarks): a drag from the paragraph into the pinned
+        """A pin's badge layer stands between the blocks (in line order, drawPinMarks): a drag from the paragraph into the pinned
         list item crosses it, and the quote is the document's text without the badge's number."""
         item = fixture_line("첫째 항목")
         self.save_via_api(item, item)
@@ -1114,8 +1116,8 @@ class EditingAndSuggestions(MarkdownBase):
         page.click("#c-levels [data-act=level][data-level=raw]")
         page.wait_for_function("COMPOSE.current.scope==='raw'&&COMPOSE.current.lo===4", timeout=5000)
         page.click("#c-sg-tg")
-        page.wait_for_function("SG.on&&SG.base", timeout=5000)
-        self.assertEqual(page.evaluate("SG.base"), "문단 둘째 줄에 **굵은 글**과 `코드`가 있다.")
+        page.wait_for_function("SUGGEST_DRAFT.on&&SUGGEST_DRAFT.base", timeout=5000)
+        self.assertEqual(page.evaluate("SUGGEST_DRAFT.base"), "문단 둘째 줄에 **굵은 글**과 `코드`가 있다.")
         page.fill("#c-sg-text", "문단 둘째 줄에 **굵은 글**과 `코드`가 함께 있다.")
         self.save(page, "제안")
         rec = records(ps.APP.C.state)[-1]
@@ -1201,11 +1203,11 @@ class Redrawing(MarkdownBase):
         page.focus("#md-probe")
         cdp = page.context.new_cdp_session(page)
         cdp.send("Input.imeSetComposition", {"text": "가", "selectionStart": 1, "selectionEnd": 1})
-        page.evaluate("mdBuild()")
+        page.evaluate("buildMarkdownDoc()")
         settle(page)
-        self.assertTrue(page.evaluate("MD.waiting&&!!document.getElementById('md-probe')"))
+        self.assertTrue(page.evaluate("MARKDOWN_VIEW.waiting&&!!document.getElementById('md-probe')"))
         cdp.send("Input.insertText", {"text": "가"})
-        page.wait_for_function("!MD.waiting&&!document.getElementById('md-probe')&&" + SHOWN, timeout=8000)
+        page.wait_for_function("!MARKDOWN_VIEW.waiting&&!document.getElementById('md-probe')&&" + SHOWN, timeout=8000)
 
     def test_a_note_composing_in_the_composer_keeps_its_text_across_a_redraw(self):
         """The composer is outside the document: a redraw while its note composes leaves the note's text, focus and
@@ -1215,8 +1217,8 @@ class Redrawing(MarkdownBase):
         page.focus("#note")
         cdp = page.context.new_cdp_session(page)
         cdp.send("Input.imeSetComposition", {"text": "고", "selectionStart": 1, "selectionEnd": 1})
-        page.evaluate("mdBuild()")
-        page.wait_for_function("!MD.waiting&&" + SHOWN, timeout=8000)
+        page.evaluate("buildMarkdownDoc()")
+        page.wait_for_function("!MARKDOWN_VIEW.waiting&&" + SHOWN, timeout=8000)
         cdp.send("Input.insertText", {"text": "고"})
         self.assertEqual(
             page.evaluate("[document.activeElement.id,document.getElementById('note').value]"), ["note", "고"]
@@ -1254,7 +1256,7 @@ LIMIT_CASES = {
     "too many elements": ("![a](b)" * 61_000 + "\n", "elements"),
     # Front matter and display math (ADR-0032): every line of theirs is an element, counted with the rest. Near the line
     # view's limit they are drawn; with the emphasis after them the document is over the element limit and is shown as lines.
-    # The display math here is far past MD_LIMITS.tex, so it is its characters, a line each (ADR-0039) - handed to KaTeX whole
+    # The display math here is far past MARKDOWN_LIMITS.tex, so it is its characters, a line each (ADR-0039) - handed to KaTeX whole
     # it held the page for seconds; the longest formula that is drawn is the last fixture.
     "front matter near the line limit": ("---\n" + "k: v\n" * 45_000 + "---\n", "drawn"),
     "display math near the line limit": ("$$\n" + "x\n" * 45_000 + "$$\n", "drawn"),
@@ -1279,7 +1281,7 @@ class Limits(MarkdownBase):
         """The screen after a draw: the elements under the limit, and every source line in a data-line or data-lo..hi, or
         the line view's head line naming its limit."""
         got = page.evaluate(
-            "({limit:MD.limit,els:document.querySelectorAll('#md *').length,"
+            "({limit:MARKDOWN_VIEW.limit,els:document.querySelectorAll('#md *').length,"
             "lines:[...document.querySelectorAll('#md [data-line]')].map(e=>+e.dataset.line),"
             "ranges:[...document.querySelectorAll('#md [data-lo]')].map(e=>[+e.dataset.lo,+e.dataset.hi]),"
             "head:(document.querySelector('#md .md-limit')||{}).textContent||''})"
@@ -1318,29 +1320,29 @@ class Limits(MarkdownBase):
         yield inside one stops the older draw - only the newer one is shown."""
         page = self.open_md()
         page.evaluate(
-            "(()=>{const y=mdYield,s=showDocumentNode; window.mdYield=()=>{const w=window.__md; w.y.push(MD.els);"
-            "if(w.race&&w.y.length===w.race){w.race=0; mdBuild();} return y();};"
+            "(()=>{const y=yieldToBrowser,s=showDocumentNode; window.yieldToBrowser=()=>{const w=window.__md; w.y.push(MARKDOWN_VIEW.els);"
+            "if(w.race&&w.y.length===w.race){w.race=0; buildMarkdownDoc();} return y();};"
             "window.showDocumentNode=n=>{window.__md.shown.push(n.dataset.limit||'drawn'); return s(n);};})()"
         )
-        chunk = page.evaluate("MD_LIMITS.chunk")
+        chunk = page.evaluate("MARKDOWN_LIMITS.chunk")
         cases = {"inline": "*x* " * 30_000 + "\n", "code": "```\n" + "x\n" * 30_000 + "```\n"}
         for name, text in cases.items():
             with self.subTest(name=name):
                 self.write(text)
-                page.evaluate("window.__md={y:[],shown:[],race:0}; mdBuild()")
+                page.evaluate("window.__md={y:[],shown:[],race:0}; buildMarkdownDoc()")
                 page.wait_for_function("window.__md.shown.length>0&&" + SHOWN, timeout=20000)
                 y = page.evaluate("window.__md.y")
                 self.assertEqual(page.evaluate("window.__md.shown"), ["drawn"])
                 self.assertGreater(len(y), 10)
                 gaps = [b - a for a, b in zip([0, *y[:-1]], y, strict=True)]
                 self.assertLessEqual(max(gaps), 2 * chunk, gaps[:5])
-                page.evaluate("window.__md={y:[],shown:[],race:5}; mdBuild()")
+                page.evaluate("window.__md={y:[],shown:[],race:5}; buildMarkdownDoc()")
                 page.wait_for_function("window.__md.shown.length>0&&" + SHOWN, timeout=20000)
                 settle(page)
                 self.assertEqual(page.evaluate("[window.__md.race,window.__md.shown]"), [0, ["drawn"]])
 
     def test_a_parse_past_the_time_limit_is_stopped_and_the_lines_are_shown(self):
-        """A parse that never answers (the module made to hang) is stopped at MD_LIMITS.ms: the line view says so, and the
+        """A parse that never answers (the module made to hang) is stopped at MARKDOWN_LIMITS.ms: the line view says so, and the
         next draw starts a fresh worker."""
         # The stand-in has what the worker's mdParser calls (block.ruler.before and inline.ruler.before, for its own rules) and
         # a parse that hangs.
@@ -1355,8 +1357,10 @@ class Limits(MarkdownBase):
 
         self.hang = True
         page.route("**/vendor/markdown-it/**", module)
-        page.evaluate("stopMarkdownParse(null); MD.worker&&MD.worker.terminate(); MD.worker=null; mdBuild()")
-        page.wait_for_function("MD.limit==='time'&&" + DRAWN, timeout=15000)
+        page.evaluate(
+            "stopMarkdownParse(null); MARKDOWN_VIEW.worker&&MARKDOWN_VIEW.worker.terminate(); MARKDOWN_VIEW.worker=null; buildMarkdownDoc()"
+        )
+        page.wait_for_function("MARKDOWN_VIEW.limit==='time'&&" + DRAWN, timeout=15000)
         self.assertIn("2초", page.evaluate("document.querySelector('#md .md-limit').textContent"))
         self.assertEqual(
             page.evaluate("[...document.querySelectorAll('#md [data-line]')].map(e=>e.textContent)"),
@@ -1368,8 +1372,10 @@ class Limits(MarkdownBase):
         """The module failing to load (404) leaves the line view with its own head line."""
         page = self.open(0)
         page.route("**/vendor/markdown-it/**", lambda r: r.fulfill(status=404, body=b"no"))
-        page.evaluate("stopMarkdownParse(null); MD.worker&&MD.worker.terminate(); MD.worker=null; mdBuild()")
-        page.wait_for_function("MD.limit==='load'&&" + DRAWN, timeout=15000)
+        page.evaluate(
+            "stopMarkdownParse(null); MARKDOWN_VIEW.worker&&MARKDOWN_VIEW.worker.terminate(); MARKDOWN_VIEW.worker=null; buildMarkdownDoc()"
+        )
+        page.wait_for_function("MARKDOWN_VIEW.limit==='load'&&" + DRAWN, timeout=15000)
         self.assertIn("파서를 불러오지 못해", page.evaluate("document.querySelector('#md .md-limit').textContent"))
 
     def test_the_byte_limit_is_a_notice_with_the_size(self):
@@ -1377,12 +1383,12 @@ class Limits(MarkdownBase):
         with its size and the limit; the pins list stays."""
         page = self.open_md()
         self.write(b"a" * (1024 * 1024 - 1) + b"\n")
-        page.evaluate("mdBuild()")
+        page.evaluate("buildMarkdownDoc()")
         page.wait_for_function(SHOWN + "&&document.querySelector('#md').textContent.length>=1024*1024-1", timeout=20000)
-        self.assertNotEqual(page.evaluate("MD.limit"), "bytes")
+        self.assertNotEqual(page.evaluate("MARKDOWN_VIEW.limit"), "bytes")
         self.write(b"a" * (1024 * 1024) + b"\n")
-        page.evaluate("mdBuild()")
-        page.wait_for_function("MD.limit==='bytes'&&" + DRAWN, timeout=20000)
+        page.evaluate("buildMarkdownDoc()")
+        page.wait_for_function("MARKDOWN_VIEW.limit==='bytes'&&" + DRAWN, timeout=20000)
         self.assertEqual(
             page.evaluate("document.querySelector('#md').textContent"), "이 문서는 1 MiB라 그리지 않습니다(한도 1 MiB)"
         )
@@ -1392,8 +1398,8 @@ class Limits(MarkdownBase):
         draws: the notice names the count and the limit."""
         page = self.open_md()
         self.write("가\n" * 60_001)
-        page.evaluate("mdBuild()")
-        page.wait_for_function("MD.limit==='lines'&&" + DRAWN, timeout=20000)
+        page.evaluate("buildMarkdownDoc()")
+        page.wait_for_function("MARKDOWN_VIEW.limit==='lines'&&" + DRAWN, timeout=20000)
         self.assertEqual(
             page.evaluate("document.querySelector('#md').textContent"),
             "이 문서는 원문이 60,001줄이라 그리지 않습니다(한도 50,000줄)",
@@ -1576,7 +1582,7 @@ class PageWords(MarkdownBase):
         )
         self.assertEqual(style, ["none", "normal", True])
         self.write("본문만 있다.\n")
-        page.evaluate("mdBuild()")
+        page.evaluate("buildMarkdownDoc()")
         page.wait_for_function(
             "!document.getElementById('md').textContent.includes('시험 문서')&&" + DRAWN, timeout=8000
         )
@@ -1631,13 +1637,15 @@ class ChangesView(MarkdownBase):
         page = self.open_md()
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
         until(
-            page, "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered [data-mdc=mod]')", 15
+            page,
+            "REVISION_VIEW.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered [data-mdc=mod]')",
+            15,
         )
         self.assertTrue(page.evaluate("document.getElementById('revision-pdf-tab').hidden"))
         page.click("#revision-source-tab")
         until(
             page,
-            "REV.format===DIFF_FORMAT.SOURCE&&!document.getElementById('revision-source').hidden&&REV.sourceCommit",
+            "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&!document.getElementById('revision-source').hidden&&REVISION_VIEW.sourceCommit",
             15,
         )
         self.assertIn("문단 셋째 줄을 바꿨다.", page.evaluate("document.getElementById('revision-source').textContent"))
@@ -1873,7 +1881,7 @@ class ReadingSpot(MarkdownBase):
         settle(page)
         self.write("\n".join(self.MD_TEXT.split("\n")[:220]) + "\n")
         page.evaluate("pollLightOnce()")
-        until(page, "MD.lines.length <= 221")
+        until(page, "MARKDOWN_VIEW.lines.length <= 221")
         settle(page)
         page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
         settle(page)
@@ -1935,7 +1943,7 @@ class Accessibility(MarkdownBase):
         page = self.open_md(4)
         got = page.evaluate(
             "[...document.querySelectorAll('#md .md-badge')].map(b=>{const p=PINS.find(x=>x.id===+b.dataset.id),"
-            "e=mdLeaves(p.lo,p.lo)[0],links=[...document.querySelectorAll('#md a,#md [role=link]')].filter(a=>a.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING);"
+            "e=lineLeaves(p.lo,p.lo)[0],links=[...document.querySelectorAll('#md a,#md [role=link]')].filter(a=>a.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING);"
             "return [p.lo,!!(b.compareDocumentPosition(e)&Node.DOCUMENT_POSITION_FOLLOWING),"
             "links.every(a=>a.compareDocumentPosition(b)&Node.DOCUMENT_POSITION_FOLLOWING),"
             "Math.abs(b.getBoundingClientRect().top-e.getBoundingClientRect().top)<2];})"
@@ -1955,7 +1963,7 @@ class Accessibility(MarkdownBase):
         """An outline entry is named by its heading alone - not the dot that stands for no number, nor the line label -
         and the line is its description."""
         page = self.open_md()
-        i = page.evaluate("MD.heads.findIndex(h=>h.title==='목록')")
+        i = page.evaluate("MARKDOWN_VIEW.heads.findIndex(h=>h.title==='목록')")
         role, name, desc = ax(page, "#outline-items button[data-index='%d']" % i)
         self.assertEqual((role, name), ("button", "목록"))
         self.assertIn(str(fixture_line("## 목록")), desc or "")
@@ -2017,7 +2025,7 @@ class HiddenHeading(MarkdownBase):
         rung = page.evaluate(
             "(()=>{const b=document.querySelector('#c-levels button[data-level=section]');"
             "return b&&{text:b.textContent,label:b.getAttribute('aria-label'),desc:b.getAttribute('aria-description')||b.dataset.tip||'',"
-            "raw:[b.textContent,b.getAttribute('aria-label'),b.getAttribute('aria-description')||'',b.dataset.tip||''].some(t=>CC_ANY.test(t))};})()"
+            "raw:[b.textContent,b.getAttribute('aria-label'),b.getAttribute('aria-description')||'',b.dataset.tip||''].some(t=>ANY_HIDDEN.test(t))};})()"
         )
         self.assertIsNotNone(rung)
         self.assertIn("head⟨U+202E⟩abc", rung["text"])

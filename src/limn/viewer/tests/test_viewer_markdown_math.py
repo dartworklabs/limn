@@ -14,8 +14,8 @@ Math class refuses the bundle and holds the undrawn side of the same document (A
   pin is md:math over the block's lines, and the formula over a line end is saved over both of its lines (D4);
 - Policy: the sent page policy names no new source and admits no inline style (D7) - a violation would fail any browser
   test here through the autouse no_csp_violation fixture;
-- Budget: three thousand formulas pass MD_LIMITS.elements and the document falls back to the source-line view (D6);
-- Long: a formula whose TeX is at MD_LIMITS.tex characters is drawn and one a character longer stays as its characters,
+- Budget: three thousand formulas pass MARKDOWN_LIMITS.elements and the document falls back to the source-line view (D6);
+- Long: a formula whose TeX is at MARKDOWN_LIMITS.tex characters is drawn and one a character longer stays as its characters,
   line by line, while the formulas around it are drawn (ADR-0039);
 - Quiet: a document without math asks for neither the module nor the stylesheet (D1);
 - Compare: a render context that does not draw math draws none, whatever the document view did (D3);
@@ -36,7 +36,9 @@ from helpers import ps, req
 from helpers_browser import VIEWPORTS, BrowserBase, settle
 from helpers_figure import BUILD1, viewer_build
 
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
+DRAWN = (
+    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
+)
 # The renderer has answered: it is ready, or it is off for good (ADR-0036 D2).
 SETTLED = "typeof TEX_RENDERER!=='undefined'&&TEX_RENDERER.state!=='none'"
 ORIGIN = "http://viewer.test"
@@ -180,7 +182,7 @@ class Drawn(MathBase):
     def test_the_formulas_that_are_not_drawn_keep_every_character(self):
         """ADR-0036 D2: TeX KaTeX refuses and a formula holding a character that hides or reorders text stay as their
         source characters in the code face, on their own lines - as they were before this renderer, the hidden character
-        in its box. Mutation: drop the CC_ANY test from drawTexBox -> the reordering character is drawn away and its box is
+        in its box. Mutation: drop the ANY_HIDDEN test from drawTexBox -> the reordering character is drawn away and its box is
         gone, fails."""
         page = self.open_md()
         self.assertEqual(
@@ -353,7 +355,7 @@ class Budget(MathBase):
     MD_TEXT = "# 많은 수식\n\n" + ("".join("$x_{%d}$ " % i for i in range(20)) + "\n\n") * 150
 
     def test_three_thousand_formulas_pass_the_limit_and_fall_back_to_the_source_lines(self):
-        """Three thousand formulas are past MD_LIMITS.elements (60,000): the document becomes the
+        """Three thousand formulas are past MARKDOWN_LIMITS.elements (60,000): the document becomes the
         plain source-line view with every source line in it, and says which limit it hit, as a document of too many
         elements already did. Mutation: leave the drawn elements out of the count in drawTexBox -> the document is drawn
         past the limit, fails."""
@@ -366,9 +368,7 @@ class Budget(MathBase):
         )
 
 
-TEX_LIMIT = (
-    10_000  # MD_LIMITS.tex (docs/handbook/viewer.md §한도와 원문 줄 보기): the characters of one drawn formula's TeX
-)
+TEX_LIMIT = 10_000  # MARKDOWN_LIMITS.tex (docs/handbook/viewer.md §한도와 원문 줄 보기): the characters of one drawn formula's TeX
 
 
 def text_tex(n: int) -> str:
@@ -377,7 +377,7 @@ def text_tex(n: int) -> str:
 
 
 class Long(MathBase):
-    """One formula's TeX is drawn up to MD_LIMITS.tex characters (ADR-0039)."""
+    """One formula's TeX is drawn up to MARKDOWN_LIMITS.tex characters (ADR-0039)."""
 
     AT = "$$" + text_tex(TEX_LIMIT) + "$$"  # line 3: a display formula whose TeX is exactly at the limit
     OVER = "$$" + text_tex(TEX_LIMIT + 1) + "$$"  # line 5: one character longer
@@ -395,7 +395,7 @@ class Long(MathBase):
         each a line that can be chosen; the short formula after them is drawn, and the document is not the line view.
         Mutation: drop the length test from drawTexBox -> all five are drawn, fails."""
         page = self.open_md()
-        self.assertEqual(page.evaluate("MD_LIMITS.tex"), TEX_LIMIT)
+        self.assertEqual(page.evaluate("MARKDOWN_LIMITS.tex"), TEX_LIMIT)
         self.assertEqual(page.evaluate(BOXES), [[self.AT, [3, 3], "DIV"], ["$t^*$", self.LAST, "CODE"]])
         self.assertEqual(page.evaluate("renderContextOf(document.querySelector('#md')).tex"), 2)
         blocks = page.evaluate(
@@ -440,7 +440,7 @@ class Quiet(MathBase):
         return super().route(route)
 
     def test_neither_the_module_nor_the_stylesheet_is_asked_for(self):
-        """Mutation: ask for the renderer whatever the document holds (drop the hasMath test in mdBuild) -> two
+        """Mutation: ask for the renderer whatever the document holds (drop the hasMath test in buildMarkdownDoc) -> two
         requests, fails."""
         page = self.open(0)
         page.wait_for_function(DRAWN, timeout=20000)
@@ -522,13 +522,13 @@ class Compare(MathBase):
     """A render context that does not draw math draws none (ADR-0036 D3)."""
 
     def test_a_context_of_its_own_keeps_the_source_characters(self):
-        """The rendered compare builds each side with mdRx, whose tex is null: its block keys and its word diff read the
-        drawn text, and a formula's TeX is what a reader compares between two revisions. Mutation: give mdRx a count
+        """The rendered compare builds each side with newRenderContext, whose tex is null: its block keys and its word diff read the
+        drawn text, and a formula's TeX is what a reader compares between two revisions. Mutation: give newRenderContext a count
         instead of null -> the compare draws formulas and the display math block has no lines to compare, fails."""
         page = self.open_md()
         self.assertGreater(page.evaluate("document.querySelectorAll('#md .md-tex').length"), 0)
         got = page.evaluate(
-            "(()=>{const cx=mdRx(['$x$']);"
+            "(()=>{const cx=newRenderContext(['$x$']);"
             "return {tex:cx.tex,box:drawTexBox('code','md-math md-tex','$x$','x',false,cx),els:cx.els};})()"
         )
         self.assertEqual(got, {"tex": None, "box": None, "els": 0})

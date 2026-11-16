@@ -29,7 +29,7 @@ var NOTICE_KIND={OK:'ok',WARN:'warn',ERR:'err',INFO:'info'},NOTICE_LIFE={TIMER:'
 var SOURCE={};   // the source of each document as the server would read it now: {<doc>: [lines]}
 var SERVER_IDEM,META_DOWN=false,META_ASKED=0;   // what the server says it can do when asked (undefined: says nothing new)
 var KNOWN={},PROBES=[];   // the pins the server has by key ({<idem>: id}, or 'down'), and the keys it was asked about
-function dq(u,k){return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
+function withDocQuery(u,k){return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function offAll(){return Promise.resolve(QUEUE.slice());}
 function offDel(id){QUEUE=QUEUE.filter(function(r){return r.id!==id;}); return Promise.resolve(true);}
 function offHas(id){return Promise.resolve(QUEUE.some(function(r){return r.id===id;}));}
@@ -41,8 +41,8 @@ function offlineNow(){return POLL_FAILS>=2;}
 function isMe(a){return a==='me';}
 function pdoc(p){return p.doc||DEFAULT_DOC;}
 function errText(d){return d&&d.error?String(d.error):'';}
-function tr(s){return s;}
-function tl(s,p){return s.replace(/\{(\w+)\}/g,function(_,k){return String(p[k]);});}
+function translate(s){return s;}
+function translateTemplate(s,p){return s.replace(/\{(\w+)\}/g,function(_,k){return String(p[k]);});}
 function lineNote(msg,kind){NOTES.push({msg:msg,kind:kind}); return {n:NOTES.length};}
 var WRITTEN=[];
 function loadPins(){LOADS++; OPEN_ALL=OPEN_ALL.concat(WRITTEN.splice(0,WRITTEN.length)); return Promise.resolve(true);}
@@ -147,7 +147,7 @@ class OfflineQueueSend(unittest.TestCase):
         element (id, path, part, box), the element's box as the pin's own, and - where the default rung is the
         element's - its kind. A pin without it has nothing to follow when the element moves."""
         figure = "\n".join(
-            extract_js_fn(name) for name in ("isFrac", "elementForSave", "elementKind", "figureFields", "lvOf")
+            extract_js_fn(name) for name in ("isFrac", "elementForSave", "elementKind", "figureFields", "levelOf")
         )
         got = json.loads(
             run_node(
@@ -748,7 +748,7 @@ var POLL_FAILS=0,LAST_PINS_REVISION='r1',SAID=[],ENDED=[];
 var OFF={boot:false,saidStale:false,staleNote:null};
 var navigator={onLine:true};
 var NOTICE_KIND={WARN:'warn'};
-function tr(s){return s;} function tl(s){return s;}
+function translate(s){return s;} function translateTemplate(s){return s;}
 function sourceOk(){} function apiFailed(o,why){SAID.push(why);}
 function lineNote(msg){const n={n:1,msg:msg}; return n;}
 function endNotice(n){ENDED.push(n.msg);}
@@ -1348,7 +1348,7 @@ function poll(){offlineFollowSeen({doc:'main',kind:SERVER.main.kind,pages_build:
 """
 
 FOLLOW_FUNCTIONS = (
-    "dq",
+    "withDocQuery",
     "offlineDocFiles",
     "offKeptSet",
     "offSeenIn",
@@ -2054,11 +2054,11 @@ class OfflineKeys(unittest.TestCase):
         self.assertEqual((got["same"], got["kept"], got["none"]), (True, True, ""))
 
     def test_a_documents_files_are_the_addresses_the_viewer_asks_for(self):
-        """A copy is found again by its address, so these must be the ones vecOpen and pageSrc build (pdf-open.js,
+        """A copy is found again by its address, so these must be the ones openVectorDocument and pageSrc build (pdf-open.js,
         pages.js) for that document: the PDF with its build and built_at, each page under its build, both with ?doc=."""
         js = "\n".join(
             [
-                extract_js_fn("dq"),
+                extract_js_fn("withDocQuery"),
                 extract_js_fn("offlineDocFiles"),
                 """
                 var DOC='ms';

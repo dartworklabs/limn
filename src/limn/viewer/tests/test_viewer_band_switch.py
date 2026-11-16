@@ -99,7 +99,9 @@ class BandBase(BrowserBase):
     def resize(self, page, size, band):
         """The window at size and the band settled on band (a touch window waits for it), all moves over."""
         page.set_viewport_size(size)
-        page.wait_for_function("([w,b])=>innerWidth===w&&BAND_IN.w===w&&!BAND_T&&BAND===b", arg=[size["width"], band])
+        page.wait_for_function(
+            "([w,b])=>innerWidth===w&&BAND_IN.w===w&&!BAND_TIMER&&BAND===b", arg=[size["width"], band]
+        )
         settle(page)
         page.evaluate(RESTED)
         settle(page)
@@ -199,7 +201,7 @@ class LinesFollowTheWindow(BandBase):
         self.check(self.on(DESK_TOUCH, **TOUCH))
 
     def test_a_saved_zoom_does_not_keep_the_lines_beside_the_pages_after_the_band_settles(self):
-        """With a zoom saved the settling's re-fit leaves the scale alone (autoW), so nothing in it looks at the room again:
+        """With a zoom saved the settling's re-fit leaves the scale alone (autoFitWidth), so nothing in it looks at the room again:
         the settling's own look (bandSettle) moves the lines."""
         page = self.on(DESK_TOUCH, **TOUCH)
         page.evaluate("actualSize()")

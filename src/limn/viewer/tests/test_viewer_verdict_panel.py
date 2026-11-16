@@ -281,7 +281,7 @@ class Panel(PanelBase):
         view) has no room to read: the lines stay as they are."""
         page = self.on()
         self.assertTrue(page.evaluate(SHAPE)["beside"])
-        page.evaluate("zoomTo(K*1.6)")
+        page.evaluate("zoomTo(PAGE_SCALE*1.6)")
         settle(page)
         self.assertLess(page.evaluate(ROOM), 0)
         got = page.evaluate(SHAPE)
@@ -1235,7 +1235,7 @@ class ReasonFieldStill(ReasonFieldKeys):
         sideways), Space +715, Shift+Space -715 with the field gone, and Home and End on Linux -1671 and +9684 with the
         field gone. Firefox moved only the caret."""
         page = self.on(viewport={"width": 1440, "height": 900})
-        page.evaluate("zoomTo(K*1.6)")
+        page.evaluate("zoomTo(PAGE_SCALE*1.6)")
         settle(page)
         self.reason(page, 2)
         page.keyboard.type("가나")
@@ -1452,7 +1452,7 @@ class ReasonFieldLong(ReasonFieldKeys):
         either way. The field wraps its lines and has no width to scroll, so Chromium gave them to the area: 40px sideways
         at any height of the field."""
         page = self.on(viewport={"width": 1440, "height": 900})
-        page.evaluate("zoomTo(K*1.6)")
+        page.evaluate("zoomTo(PAGE_SCALE*1.6)")
         settle(page)
         self.long_reason(page, 2)
         self.held_edit = []
@@ -1612,7 +1612,9 @@ class TheLinesMove(PanelBase):
         page.evaluate("()=>{document.querySelector('#left').scrollTop=0;}")
         settle(page)
         self.assertEqual(
-            page.evaluate("()=>[MQ_COARSE.matches, topAnchor(readingDepth(document.querySelector('#left'))).page]"),
+            page.evaluate(
+                "()=>[COARSE_POINTER_QUERY.matches, topAnchor(readingDepth(document.querySelector('#left'))).page]"
+            ),
             [True, 2],
         )
         got = page.evaluate(
@@ -2882,7 +2884,7 @@ class MixedWidths(PanelBase):
         the widest page's block took the column past the area, every page moving right under the panel."""
         page = self.on()
         self.assertEqual(page.evaluate("META.pages.map(p=>Math.round(p.pt_w))"), [612, 396, 792, 612, 504, 612, 612])
-        self.assertGreaterEqual(page.evaluate("innerW()-pageWidth(commonPageWidth(),K)"), 360)
+        self.assertGreaterEqual(page.evaluate("pdfAreaInnerWidth()-pageWidth(commonPageWidth(),PAGE_SCALE)"), 360)
         self.assertLess(page.evaluate(ROOM), 328)
         self.assertFalse(page.evaluate(SHAPE)["beside"])
         page.evaluate("setSide(false)")

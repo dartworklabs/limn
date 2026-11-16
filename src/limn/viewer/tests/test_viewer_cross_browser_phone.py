@@ -64,7 +64,7 @@ class PhoneLineFlows:
         page.evaluate("k=>switchDoc(k)", "fig")
         page.wait_for_function("k=>DOC===k&&META&&META.doc===k&&document.querySelector('#p2')", arg="fig")
         page.evaluate("setSide(false)")
-        page.evaluate("()=>{setK(K*2.5,false); ZOOMED=true;}")
+        page.evaluate("()=>{setScale(PAGE_SCALE*2.5,false); ZOOMED=true;}")
         settle(page)
         page.evaluate(
             "()=>{const L=document.querySelector('#left'); L.scrollTop+=document.getElementById('p2').getBoundingClientRect().top-L.getBoundingClientRect().top;}"

@@ -22,13 +22,13 @@ class DocumentVisitActions(unittest.TestCase):
                 """
                 let DOC='main',SWITCHSEQ=0,NAVGEN=0,META=null,COMPOSE={current:null},REPICK=null; const EDITOR={current:null,saving:false};
                 let OPEN_ALL=[{id:7,doc:'other',file:'m.tex',lo:1,hi:1,page:1}],REVIEW_ALL=[],DONE_ALL=[];
-                let LAYOUT='wide',modeCalls=0;const REV={back:null,target:null};
+                let LAYOUT='wide',modeCalls=0;const REVISION_VIEW={back:null,target:null};
                 const VIEW_BY=new Map(),META_BY=new Map([
                   ['other',{pages:[],pages_build:'same'}],['third',{pages:[],pages_build:'same'}]]);
                 const document={body:{classList:{contains(){return false;}}}};
                 function $(s){return {hidden:true};}
                 function docInfo(k){return k==='other'||k==='third';}
-                function pdoc(p){return p.doc;} function dq(path,k){return path+'?doc='+k;}
+                function pdoc(p){return p.doc;} function withDocQuery(path,k){return path+'?doc='+k;}
                 function saveView(){} function searchLeave(){} function parkDraft(){} function openDraftDoc(){} function restoreDraft(){}
                 function cancelRepick(){} function cancelSelection(){}
                 function editDirty(){return false;} function cancelEdit(){}
@@ -79,7 +79,7 @@ class DocumentVisitActions(unittest.TestCase):
               await switchDoc('third');await switchDoc('other');
               firstOtherResolve({data:{pages:[],pages_build:'same'}});
               await old;
-              console.log(JSON.stringify({doc:DOC,target:REV.target,back:REV.back,modeCalls}));
+              console.log(JSON.stringify({doc:DOC,target:REVISION_VIEW.target,back:REVISION_VIEW.back,modeCalls}));
             })();
             """,
         )

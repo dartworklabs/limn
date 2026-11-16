@@ -83,7 +83,7 @@ class NoticePage:
 
     def compose(self, page, note):
         """A selection on page 1 with note typed in, its draft stored."""
-        page.evaluate("LAST_PTR='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
+        page.evaluate("LAST_POINTER='mouse'; pick({page:1,x0:10,y0:10,x1:200,y1:60})")
         page.wait_for_function("COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
         page.fill("#note", note)
         page.wait_for_function("DRAFT.timer===0", timeout=8000)

@@ -186,7 +186,7 @@ class SelectionPopover(PopoverDrag, BrowserBase):
         self.assertEqual(g["side"], "below")
         self.assertAlmostEqual(g["pop"]["top"], g["box"]["bottom"] + 8, delta=1)
         self.assertAlmostEqual(g["pop"]["left"], g["box"]["left"], delta=1)
-        self.assertEqual(g["loc"], "main.tex " + page.evaluate("rng(COMPOSE.current.lo,COMPOSE.current.hi)"))
+        self.assertEqual(g["loc"], "main.tex " + page.evaluate("lineRange(COMPOSE.current.lo,COMPOSE.current.hi)"))
         self.assertEqual(page.evaluate("document.activeElement.closest('#sel-pop')!==null"), True)
 
     def test_the_note_is_one_value_with_the_composer_both_ways(self):
@@ -287,7 +287,7 @@ class SelectionPopover(PopoverDrag, BrowserBase):
             if g[what]:
                 self.assertFalse(overlaps(g["pop"], g[what]), what)
         page = self.open(0, **DESK)
-        page.evaluate("setSelMode(true)")
+        page.evaluate("setSelectMode(true)")
         settle(page)
         bar = page.evaluate(GEOMETRY)["bar"]
         self.assertIsNotNone(bar)
@@ -319,7 +319,7 @@ class SelectionPopover(PopoverDrag, BrowserBase):
     def test_a_touch_pick_keeps_the_composer_alone(self):
         """Phone: the sheet's composer is the place to write; no popover."""
         page = self.open(0, **PHONE)
-        page.evaluate("()=>{LAST_PTR='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
+        page.evaluate("()=>{LAST_POINTER='touch'; pick({page:1,x0:10,y0:10,x1:200,y1:60});}")
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
         settle(page)
         self.assertIsNone(page.evaluate(GEOMETRY)["pop"])

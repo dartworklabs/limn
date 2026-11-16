@@ -306,7 +306,7 @@ class CardContextBrowser(CardFixture):
         # GET serves saved positions (ADR-0028); the independent upkeep saves the lost anchor first.
         ps.APP.assembly.pins.startup.maintain()
         page = self.show_cards(4, PHONE)
-        page.evaluate("toggleSec('review', true)")
+        page.evaluate("toggleSection('review', true)")
         settle(page)
         for pid, folded, unfolded in (
             (other, "담당 Bob Park", "담당 Bob Park"),

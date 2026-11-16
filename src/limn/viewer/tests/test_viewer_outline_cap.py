@@ -339,7 +339,7 @@ class MetaTitled:
 LOAD_TREE = """async ([tree, pages]) => {
   const items = rows => rows.map(([title, page, kids]) => ({title, dest: [page], items: items(kids)}));
   const doc = {numPages: pages, getOutline: async () => items(tree), getDestination: async () => null, getPageIndex: async () => 0};
-  VEC.doc = doc; await loadOutline(doc, ++VEC.gen);
+  VECTOR_PDF.doc = doc; await loadOutline(doc, ++VECTOR_PDF.gen);
   return [OUTLINE_ENTRIES.length, OUTLINE_CUT];
 }"""
 # What each outline list holds: its rows, and its last line when that is the note on unread entries (null when it is a row).
@@ -473,7 +473,7 @@ class LongOutline(OutlineBase):
               const doc = {numPages: 2, getOutline: async () => rows,
                 getDestination: async () => {throw new Error('no such destination');},
                 getPageIndex: async () => {throw new Error('no such page');}};
-              VEC.doc = doc; await loadOutline(doc, ++VEC.gen);
+              VECTOR_PDF.doc = doc; await loadOutline(doc, ++VECTOR_PDF.gen);
               return [OUTLINE_ENTRIES.length, OUTLINE_CUT, OUTLINE_ENTRIES[0].title, OUTLINE_ENTRIES.at(-1).title];}"""
         )
         self.assertEqual(got, [CAP, 0, "root", "after"])
@@ -487,9 +487,9 @@ class LongOutline(OutlineBase):
               let asked = 0;
               const rows = Array.from({length: 2000}, (_, i) => ({title: 't' + i, dest: [{num: i, gen: 0}], items: []}));
               const doc = {numPages: 2, getOutline: async () => rows, getDestination: async () => null,
-                getPageIndex: async () => {if (++asked === 1) VEC.gen++; return 0;}};
+                getPageIndex: async () => {if (++asked === 1) VECTOR_PDF.gen++; return 0;}};
               const before = [OUTLINE_ENTRIES, OUTLINE_CUT];
-              VEC.doc = doc; await loadOutline(doc, ++VEC.gen);
+              VECTOR_PDF.doc = doc; await loadOutline(doc, ++VECTOR_PDF.gen);
               return {asked, kept: OUTLINE_ENTRIES === before[0] && OUTLINE_CUT === before[1]};}"""
         )
         self.assertEqual(got, {"asked": 100, "kept": True})
@@ -503,7 +503,7 @@ class LongOutline(OutlineBase):
               let n = {title: 'deep', dest: [0], items: []};
               for (let d = 0; d < 6; d++) n = {title: 'group' + d, dest: null, items: [n]};
               const doc = {numPages: 2, getOutline: async () => [n], getDestination: async () => null, getPageIndex: async () => 0};
-              VEC.doc = doc; await loadOutline(doc, ++VEC.gen);
+              VECTOR_PDF.doc = doc; await loadOutline(doc, ++VECTOR_PDF.gen);
               return [OUTLINE_ENTRIES.length, OUTLINE_CUT, document.querySelector('#ns-outline').hidden];}"""
         )
         self.assertEqual(got, [0, 1, False])

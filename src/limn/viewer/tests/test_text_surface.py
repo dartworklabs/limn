@@ -42,12 +42,12 @@ BIB = ["@article{a,", "  title = {T},", "}", "", "@book{b,", "  title = {U},", "
 
 def served_parts() -> str:
     """The two modules exactly as the page's script serves them (each module's code is in the script byte for byte, its
-    types, import and export statements taken out), after the markup module ccHtml builds with and md-surface.js's mdSnippet,
+    types, import and export statements taken out), after the markup module markHiddenHtml builds with and md-surface.js's lineSnippet,
     which a rung's snippet comes from."""
     parts = [module_code(text) for text in module_texts([VIEWER / name for name in PARTS])]
     for name, text in zip(PARTS, parts, strict=True):
         assert text in HTML, name  # the build joins the modules' code byte for byte (tools/build_viewer.mjs)
-    return "\n".join([js_esc(), js_markup(), extract_js_fn("mdSnippet"), *parts])
+    return "\n".join([js_esc(), js_markup(), extract_js_fn("lineSnippet"), *parts])
 
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
@@ -143,8 +143,8 @@ class TextSurfacePure(unittest.TestCase):
         """The indent rung's label is '블록 · ' and at most twelve characters of the header, a hidden character's name
         whole (never cut inside it, never the raw character); a header of twelve or fewer characters is not cut."""
         got = self.run_js(
-            "(()=>{globalThis.MD={lines:['def \\u202echeck(x):','    return x','def ok():','    pass']};"
-            "return [txLevels({lo:1,hi:1}),txLevels({lo:3,hi:3})].map(ls=>ls.find(l=>l.level==='indent').label);})()"
+            "(()=>{globalThis.MARKDOWN_VIEW={lines:['def \\u202echeck(x):','    return x','def ok():','    pass']};"
+            "return [textLevels({lo:1,hi:1}),textLevels({lo:3,hi:3})].map(ls=>ls.find(l=>l.level==='indent').label);})()"
         )
         self.assertEqual(got, ["블록 · def ⟨U+202E⟩…", "블록 · def ok():"])
         self.assertNotIn("‮", "".join(got))
@@ -152,17 +152,18 @@ class TextSurfacePure(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class HiddenCharacters(unittest.TestCase):
-    """The repertoire (HIDDEN_RANGES), its exceptions (isKeptInSequence) and its forms (ccPlain, ccClip, ccHtml,
-    ccAdded), under node."""
+    """The repertoire (HIDDEN_RANGES), its exceptions (isKeptInSequence) and its forms (markHiddenPlain, clipMarkedText, markHiddenHtml,
+    countAddedHidden), under node."""
 
     def run_js(self, body: str):
         """Evaluate body (an expression) with the served parts; its JSON value."""
         return json.loads(run_node(served_parts() + "\nconsole.log(JSON.stringify(%s));" % body))
 
     def names(self, cases):
-        """For each [text, first] the names of the characters ccFind marks."""
+        """For each [text, first] the names of the characters findHidden marks."""
         return self.run_js(
-            "%s.map(([s,f])=>ccFind(s,f).map(c=>ccName(c.ch.codePointAt(0))))" % json.dumps(cases, ensure_ascii=False)
+            "%s.map(([s,f])=>findHidden(s,f).map(c=>hiddenName(c.ch.codePointAt(0))))"
+            % json.dumps(cases, ensure_ascii=False)
         )
 
     def test_the_repertoire_is_the_unicode_properties_it_names(self):
@@ -258,11 +259,11 @@ class HiddenCharacters(unittest.TestCase):
         )
 
     def test_the_plain_form_names_each_character_and_the_clip_never_cuts_a_name(self):
-        """ccPlain puts each name in angle brackets; ccClip counts a name whole, adds '…' only when it cut, and never splits
+        """markHiddenPlain puts each name in angle brackets; clipMarkedText counts a name whole, adds '…' only when it cut, and never splits
         a surrogate pair."""
         got = self.run_js(
-            "[ccPlain('if a\\u202e b'),ccClip('\\u202eabcdefghijklmnop',12),ccClip('abcdefghij\\u202ek',12),ccClip('short',12),"
-            "ccClip('\\u{1F600}'.repeat(14),12),ccClip('abcdefghijkl',12)]"
+            "[markHiddenPlain('if a\\u202e b'),clipMarkedText('\\u202eabcdefghijklmnop',12),clipMarkedText('abcdefghij\\u202ek',12),clipMarkedText('short',12),"
+            "clipMarkedText('\\u{1F600}'.repeat(14),12),clipMarkedText('abcdefghijkl',12)]"
         )
         self.assertEqual(
             got,
@@ -277,9 +278,9 @@ class HiddenCharacters(unittest.TestCase):
         )
 
     def test_the_markup_keeps_the_character_inside_its_isolating_box(self):
-        """ccHtml escapes the text and puts each marked character in a .sr-only child of a .cc box named by it - as its code
+        """markHiddenHtml escapes the text and puts each marked character in a .sr-only child of a .cc box named by it - as its code
         point (data-cp) for setHtml to put in as text, never raw in the markup, where the HTML parser loses a NUL or a CR."""
-        got = self.run_js("[ccHtml('<b>\\u202e&').text,ccHtml('a\\u0000b\\rc').text]")
+        got = self.run_js("[markHiddenHtml('<b>\\u202e&').text,markHiddenHtml('a\\u0000b\\rc').text]")
         self.assertEqual(
             got,
             [
@@ -293,8 +294,8 @@ class HiddenCharacters(unittest.TestCase):
         """Per name, the text's count less the base's, in the order the text first has them; kept sequences count
         nothing."""
         got = self.run_js(
-            "[ccAdded('a\\u202eb\\nc\\u200b\\u202e','a\\u202eb\\nc'),ccAdded('x\\u202e','x\\u202e'),"
-            "ccAdded('\\u{1F468}\\u200d\\u{1F469}',''),ccAdded('x\\u{E0041}\\u{E0041}','x')]"
+            "[countAddedHidden('a\\u202eb\\nc\\u200b\\u202e','a\\u202eb\\nc'),countAddedHidden('x\\u202e','x\\u202e'),"
+            "countAddedHidden('\\u{1F468}\\u200d\\u{1F469}',''),countAddedHidden('x\\u{E0041}\\u{E0041}','x')]"
         )
         self.assertEqual(got, [[["U+202E", 1], ["U+200B", 1]], [], [], [["U+E0041", 2]]])
 

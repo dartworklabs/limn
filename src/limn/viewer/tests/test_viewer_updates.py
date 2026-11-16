@@ -120,18 +120,18 @@ class PureRules(unittest.TestCase):
         snapshot's highest is #50. #80, deleted too, is restored with its number: it is no new pin; #101, made after, is.
         Mutation: start from the snapshot's highest only -> #80 is said as new, fails."""
         got = node_json(
-            ["freshPins", "updNewPins"],
+            ["freshPins", "noteNewPins"],
             """const META={me:{login:'me'}},UPDATE_STATE={top:null},GROUPS=new Map(),said=[]; let pin=100;
             function seenPin(){return pin;} function setSeenPin(n){if(pin<n)pin=n;} function announceNewPins(ps){said.push(ps.map(p=>p.id));}
             const p=(id,login)=>({id,author:{login}}),rows=[...Array(50)].map((_,i)=>p(i+1,'bob'));
-            updNewPins(rows); updNewPins([...rows,p(80,'bob')]); updNewPins([...rows,p(80,'bob'),p(101,'bob')]);
+            noteNewPins(rows); noteNewPins([...rows,p(80,'bob')]); noteNewPins([...rows,p(80,'bob'),p(101,'bob')]);
             console.log(JSON.stringify({said,top:UPDATE_STATE.top,pin}));""",
         )
         self.assertEqual(got, {"said": [[101]], "top": 101, "pin": 100})
 
     def test_a_first_draw_asks_again_and_one_version_is_read_once(self):
         """A first visit: the boot's check of source version 100 is reading the history when the source changes to 200
-        and the visit's first draw shows it (updSourceRedrawn with no lines before). That check gives up (its version is
+        and the visit's first draw shows it (compareRedrawnSource with no lines before). That check gives up (its version is
         no longer the one on screen) and the draw asks again, so version 200 is what this device has seen - not nothing,
         which would take the next change for a first visit and say nothing of it. Two checks of one version at once read
         the history once - and when the check that was out gives up (its document's meta could not be read), it asks again
@@ -139,16 +139,16 @@ class PureRules(unittest.TestCase):
         -> nothing is recorded, fails; drop the in-flight check -> the history is read twice, fails; drop the asking again
         -> the version is never recorded, fails."""
         got = node_json(
-            ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate", "updSourceRedrawn"],
+            ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate", "compareRedrawnSource"],
             """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map(),lines:new Map()}; let META=null,rec=null,state=null,reads=0,go=null;
             function rendersInBrowser(kind){return kind==='md';} function shownDocState(){return state;} function seenDoc(){return rec;}
-            function setSeenDoc(k,r){rec=r;} function dq(u){return u;} let down=0;
+            function setSeenDoc(k,r){rec=r;} function withDocQuery(u){return u;} let down=0;
             async function api(){if(down>0){down--; throw new Error('the light meta failed');} return {data:{pages_build:'p2',head:'',stale_build:false}};}
             function docUpdateView(){} function groupNote(){} let gate=true;
             async function docRows(){reads++; if(gate)await new Promise(r=>{const was=go; go=()=>{if(was)was(); r();};}); return [];}
             (async()=>{const out={};
               state={ver:'src:100',name:'노트',kind:'md'}; const boot=checkDocUpdate('nt',{});
-              state={ver:'src:200',name:'노트',kind:'md'}; updSourceRedrawn('nt',null,['새 줄']);
+              state={ver:'src:200',name:'노트',kind:'md'}; compareRedrawnSource('nt',null,['새 줄']);
               await new Promise(r=>setTimeout(r,0)); go(); await boot; for(let i=0;i<5;i++)await new Promise(r=>setTimeout(r,0));   // the draw's check, not awaited by it
               out.first=[rec&&rec.ver,reads];
               rec=null; reads=0; go=null; const a=checkDocUpdate('nt',{}),b=checkDocUpdate('nt',{});
@@ -174,7 +174,7 @@ class PureRules(unittest.TestCase):
             ["pullRequestOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
             """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[]; let META=null,rec=null,fail=0,reads=0,gate=false,go=null;
             function rendersInBrowser(k){return k==='md';} function shownDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
-            function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function dq(u){return u;}
+            function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function withDocQuery(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){} function forgetUpdate(){}
             function groupNote(g,d){said.push({n:d.commits.n,unknown:d.commits.unknown,history:d.history});}
             const B={id:'bbbb2222',subject:'Fix the axis (#13)',author:'Bob Park',time:'t'},A={id:'aaaa1111',subject:'Initial',author:'A',time:'t'};
@@ -202,7 +202,7 @@ class PureRules(unittest.TestCase):
             ["pullRequestOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
             """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[],forgot=[]; let META=null,rec=null,go=null;
             function rendersInBrowser(k){return k==='md';} function shownDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
-            function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function dq(u){return u;}
+            function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;} function withDocQuery(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){} function forgetUpdate(k){forgot.push(k);}
             function groupNote(g,d){said.push(d.ver);}
             async function docRows(){await new Promise(r=>{go=r;}); return null;}
@@ -238,7 +238,7 @@ class PureRules(unittest.TestCase):
             """let SEEN_MEM=null; const M=new Map(); const localStorage={getItem:k=>M.has(k)?M.get(k):null,setItem:(k,v)=>M.set(k,String(v))};
             const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[],forgot=[]; let META=null,meanwhile=null;
             function rendersInBrowser(k){return k==='md';} function shownDocState(){return {ver:'src:200',name:'노트',kind:'md'};}
-            function dq(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
+            function withDocQuery(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
             function forgetUpdate(k){forgot.push(k);} function groupNote(g,d){said.push(d.ver);}
             const A={id:'aaaa1111',subject:'Initial',author:'A',time:'t'};
             async function docRows(){const rows=[A]; if(meanwhile){meanwhile(); meanwhile=null;} return rows;}   // another tab writes before the answer lands
@@ -272,7 +272,7 @@ class PureRules(unittest.TestCase):
             ["pullRequestOf", "describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
             """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[]; let META=null,rec=null,state=null,ROWS=[];
             function rendersInBrowser(){return false;} function shownDocState(){return state;} function seenDoc(){return rec;}
-            function setSeenDoc(k,r){rec=r;} async function docRows(){return ROWS;} function dq(u){return u;}
+            function setSeenDoc(k,r){rec=r;} async function docRows(){return ROWS;} function withDocQuery(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
             function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,top:d.top,unknown:d.commits.unknown});}
             const C=(id,subject)=>({id,subject,author:'Bob Park',time:'t'});
@@ -302,7 +302,7 @@ class PureRules(unittest.TestCase):
             ["describeCommits", "shownRows", "docBuild", "verAfter", "checkDocUpdate"],
             """const DOC='nt',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()},said=[]; let META=null,rec=null,state=null,reads=0;
             function rendersInBrowser(k){return k==='md';} function shownDocState(){return state;} function seenDoc(){return rec;}
-            function setSeenDoc(k,r){rec=r;} async function docRows(){reads++; return [];} function dq(u){return u;}
+            function setSeenDoc(k,r){rec=r;} async function docRows(){reads++; return [];} function withDocQuery(u){return u;}
             async function api(){throw new Error('not asked');} function docUpdateView(){}
             function groupNote(g,d){said.push(d.ver);}
             const check=async(k,s)=>{reads=0; said.length=0; state=s; await checkDocUpdate(k,{}); return [said.slice(),reads,rec.ver];};
@@ -334,7 +334,7 @@ class PureRules(unittest.TestCase):
             """const DOC='ms',META_BY=new Map(),GROUPS=new Map(),UPDATE_STATE={checking:new Map()}; let META=null,rec=null,later=null,said=[],forgot=[];
             function rendersInBrowser(){return false;} function seenDoc(){return rec;} function setSeenDoc(k,r){rec=r;}
             function shownDocState(){return {ver:'build:pages-20261105120000',name:'본문',kind:'tex'};}
-            function dq(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
+            function withDocQuery(u){return u;} async function api(){throw new Error('not asked');} function docUpdateView(){}
             function forgetUpdate(k){forgot.push(k);}
             function groupNote(g,d){said.push({n:d.commits.n,prs:d.commits.prs,seenRev:d.seenRev,top:d.top});}
             const C=(id,subject)=>({id,subject,author:'Bob Park',time:'t'});
@@ -478,7 +478,7 @@ const said=()=>LINE.map(n=>n.title+(n.desc?' — '+n.desc:''));
 """
 # The document update message's view and what redraws it, for the store tests (with what the view itself calls).
 UPDATE_VIEW_FNS = [
-    "docUpdateView", "updPinMoved", "updSourceRedrawn", "lineChanges", "josaName", "isFigureKind", "isViewOnlyKind",
+    "docUpdateView", "countPinMove", "compareRedrawnSource", "lineChanges", "josaName", "isFigureKind", "isViewOnlyKind",
 ]  # fmt: skip
 GROUP_CONSTS = ("NOTICE_MS", "NOTICE_HOLD_MAX", "LINE_MAX", "DIGEST_MAX_MS")
 
@@ -656,8 +656,8 @@ class Grouping(unittest.TestCase):
     def test_a_pin_moved_while_the_documents_change_is_gathered_or_folded_is_said_in_it(self):
         """The note's update message (the real docUpdateView) is gathered on a return, then folded in a gathered line
         beside another group's: a pin of the note moving meanwhile is counted for that message and not said on its own
-        (updPinMoved returns true) - and the message says it once the gathering ends ('핀 1개 줄 이동') or [펼치기] puts it
-        on the line ('핀 2개 줄 이동'). The same for the places a redraw counts (updSourceRedrawn: a return to the note
+        (countPinMove returns true) - and the message says it once the gathering ends ('핀 1개 줄 이동') or [펼치기] puts it
+        on the line ('핀 2개 줄 이동'). The same for the places a redraw counts (compareRedrawnSource: a return to the note
         while its message is folded). Mutation: refresh the message only when it stands on the line -> the move and the
         places are in no message, fails."""
         got = self.run_store(
@@ -665,20 +665,20 @@ class Grouping(unittest.TestCase):
             + """
             const DOC='nt',UPDATE_STATE={moved:new Map(),lines:new Map(),seenAt:new Map(),expect:0,expectAt:0},LINE_DIFF_MAX=500,out={};
             function pdoc(p){return p.doc;} function switchDoc(){} function goToNextChange(){} function openUpdateRange(){} function docUpdateSeen(){}
-            function updMarks(){} function seenDoc(){return null;} function shownDocState(){return null;} function checkDocUpdate(){}
+            function tintChangedLines(){} function seenDoc(){return null;} function shownDocState(){return null;} function checkDocUpdate(){}
             const data={key:'nt',name:'노트',kind:'md',ver:'src:200',seenRev:'a',top:'b',history:true,
               commits:{n:1,more:false,prs:[12],authors:['Bob Park'],subject:'서론 다듬기',time:'',top:'b',unknown:false}};
             const kv=g=>({msg:'#'+g.ids.join(', #')+' 완료',kind:NOTICE_KIND.OK,act:null,o:{brief:'완료 '+g.ids.length}});
             digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null);
-            out.held=updPinMoved({id:5,doc:'nt'},false); digestEnd(); out.gathered=said();
+            out.held=countPinMove({id:5,doc:'nt'},false); digestEnd(); out.gathered=said();
             LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPDATE_STATE.moved.clear(); tick(9000);
             digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null); groupNote('done',{ids:[4]},kv,null); digestEnd();
-            out.foldedHeld=[updPinMoved({id:5,doc:'nt'},false),updPinMoved({id:6,doc:'nt'},false)];
+            out.foldedHeld=[countPinMove({id:5,doc:'nt'},false),countPinMove({id:6,doc:'nt'},false)];
             noticeAct(LINE.find(n=>n.items).n); out.folded=said().sort();
             LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); UPDATE_STATE.moved.clear(); tick(9000);
             UPDATE_STATE.lines.set('nt',{base:['a','b','c'],ranges:[{lo:1,hi:1}],at:-1});
             digestBegin('지난 방문 뒤'); groupNote('upd:nt',data,docUpdateView,null); groupNote('done',{ids:[7]},kv,null); digestEnd();
-            updSourceRedrawn('nt',null,['A','b','C']); out.places=said(); noticeAct(LINE.find(n=>n.items).n); out.unfolded=said().sort();
+            compareRedrawnSource('nt',null,['A','b','C']); out.places=said(); noticeAct(LINE.find(n=>n.items).n); out.unfolded=said().sort();
             console.log(JSON.stringify(out));"""
         )
         self.assertTrue(got["held"])
@@ -821,7 +821,7 @@ class UpdateFlows(BrowserBase):
         self.nt, self.ms = docs
         viewer_build(self.ms, BUILD1)
 
-    DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md [data-line],#md [data-lo]')"
+    DRAWN = "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md [data-line],#md [data-lo]')"
 
     def view(self, init=SEEN):
         page = self.open(0, init=init, **SCREENS["desktop"])
@@ -882,7 +882,7 @@ class UpdateFlows(BrowserBase):
             self.md.write_text(text, encoding="utf-8")
             expire_src_mtime(self.nt)
             self.poll(page)
-            until(page, "MD.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n")))
+            until(page, "MARKDOWN_VIEW.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n")))
             settle(page)
 
         page = self.view()
@@ -919,7 +919,9 @@ class UpdateFlows(BrowserBase):
             settle(page)
 
         def drawn(text):
-            until(page, "MD.shown==='nt'&&MD.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n")))
+            until(
+                page, "MARKDOWN_VIEW.shown==='nt'&&MARKDOWN_VIEW.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n"))
+            )
             settle(page)
 
         page = self.view()
@@ -966,7 +968,9 @@ class UpdateFlows(BrowserBase):
             expire_src_mtime(self.nt)
 
         def drawn(page, text):
-            return page.evaluate("MD.shown==='nt'&&MD.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n")))
+            return page.evaluate(
+                "MARKDOWN_VIEW.shown==='nt'&&MARKDOWN_VIEW.lines.join('\\n')===%s" % json.dumps(text.rstrip("\n"))
+            )
 
         a = self.view()
         until(a, "!!seenDoc('nt')&&!!seenDoc('ms')&&LIGHT_INFLIGHT===null")
@@ -992,7 +996,7 @@ class UpdateFlows(BrowserBase):
         b.evaluate("pollLight()")
         until(b, "LINE.some(n=>n.group==='upd:nt')")
         b.evaluate("noticeClose(LINE.find(n=>n.group==='upd:nt').n)")
-        self.assertEqual(a.evaluate("seenDoc('nt').ver"), b.evaluate("'src:'+MD.mtime"))
+        self.assertEqual(a.evaluate("seenDoc('nt').ver"), b.evaluate("'src:'+MARKDOWN_VIEW.mtime"))
         self.assertFalse(a.evaluate("LINE.some(n=>n.group==='upd:nt')"))
         held[0].fallback()
         settle(a)
@@ -1185,7 +1189,7 @@ class UpdateFlows(BrowserBase):
         more and a build at the newest push B off the first page of rows the list reads: the range is still A → B.
         Mutation: keep a range only when its start is among the rows read -> the view moves to the newest commit alone,
         fails. The view is first opened for a pin: the message's [변경 보기] drops that pin and shows its own range.
-        Mutation: keep REV.target in openUpdateRange -> the pin's commit shows again, fails."""
+        Mutation: keep REVISION_VIEW.target in openUpdateRange -> the pin's commit shows again, fails."""
         env = dict(
             os.environ,
             GIT_AUTHOR_NAME="Alice",
@@ -1232,14 +1236,23 @@ class UpdateFlows(BrowserBase):
         page.evaluate("loadPins()")
         until(page, "OPEN_ALL.some(p=>p.id===%d)" % pid)
         page.evaluate("showChange(%d)" % pid)
-        until(page, "document.body.classList.contains('revision-open')&&!!REV.target&&REV.rowsDoc==='ms'&&!!REV.commit")
+        until(
+            page,
+            "document.body.classList.contains('revision-open')&&!!REVISION_VIEW.target&&REVISION_VIEW.rowsDoc==='ms'&&!!REVISION_VIEW.commit",
+        )
         page.evaluate("noticeAct(LINE.find(n=>n.group==='upd:ms').n)")
-        until(page, "!REV.target&&!!REV.range&&REV.range.base===%s&&!!REV.commit" % json.dumps(a))
+        until(
+            page,
+            "!REVISION_VIEW.target&&!!REVISION_VIEW.range&&REVISION_VIEW.range.base===%s&&!!REVISION_VIEW.commit"
+            % json.dumps(a),
+        )
         self.assertTrue(page.evaluate("$('#revision-pin').hidden"))
-        got = page.evaluate("[REV.rows[0].id,REV.commit,REV.base,REV.range.start,REV.range.end]")
+        got = page.evaluate(
+            "[REVISION_VIEW.rows[0].id,REVISION_VIEW.commit,REVISION_VIEW.base,REVISION_VIEW.range.start,REVISION_VIEW.range.end]"
+        )
         self.assertEqual(got, [c, b, a, b, b])
         settle(page)
-        self.assertEqual(page.evaluate("REV.rangeIds"), [b])
+        self.assertEqual(page.evaluate("REVISION_VIEW.rangeIds"), [b])
         self.main.write_text(self.main.read_text() + "\n% The conclusion\n")
         os.utime(self.main, (mt + 20, mt + 20))
         git("commit", "-q", "-am", "Write the conclusion (#14)")
@@ -1249,9 +1262,13 @@ class UpdateFlows(BrowserBase):
         (self.ms.dir / "built_src_mtime.txt").write_text(str(mt + 10))
         expire_src_mtime(self.ms)
         page.evaluate("refreshDoc()")
-        until(page, "META.pages_build==='pages-20261105200000'&&REV.rows.length>0&&REV.rows[0].id===%s" % json.dumps(d))
+        until(
+            page,
+            "META.pages_build==='pages-20261105200000'&&REVISION_VIEW.rows.length>0&&REVISION_VIEW.rows[0].id===%s"
+            % json.dumps(d),
+        )
         settle(page)
-        got = page.evaluate("[REV.commit,REV.base,REV.range.end,REV.rangeIds]")
+        got = page.evaluate("[REVISION_VIEW.commit,REVISION_VIEW.base,REVISION_VIEW.range.end,REVISION_VIEW.rangeIds]")
         self.assertEqual(got, [b, a, b, [b]])
         for i in range(31):  # past REVISION_PAGE (30): B and the range's start leave the first page of rows read
             self.main.write_text(self.main.read_text() + "\n%% Note %d\n" % i)
@@ -1263,10 +1280,14 @@ class UpdateFlows(BrowserBase):
         os.utime(self.main, (mt + 30, mt + 30))
         expire_src_mtime(self.ms)
         page.evaluate("refreshDoc()")
-        until(page, "META.pages_build==='pages-20261105210000'&&REV.rows.length>0&&REV.rows[0].id===%s" % json.dumps(e))
+        until(
+            page,
+            "META.pages_build==='pages-20261105210000'&&REVISION_VIEW.rows.length>0&&REVISION_VIEW.rows[0].id===%s"
+            % json.dumps(e),
+        )
         settle(page)
-        self.assertFalse(page.evaluate("REV.rows.some(r=>r.id===%s)" % json.dumps(b)))
-        got = page.evaluate("[REV.commit,REV.base,REV.range.end,REV.rangeIds]")
+        self.assertFalse(page.evaluate("REVISION_VIEW.rows.some(r=>r.id===%s)" % json.dumps(b)))
+        got = page.evaluate("[REVISION_VIEW.commit,REVISION_VIEW.base,REVISION_VIEW.range.end,REVISION_VIEW.rangeIds]")
         self.assertEqual(got, [b, a, b, [b]])
 
     def test_an_event_that_grows_takes_its_pin_out_of_a_list_batch_said_between(self):

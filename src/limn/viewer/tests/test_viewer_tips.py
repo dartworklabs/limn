@@ -128,7 +128,7 @@ class TipBase(BrowserBase):
 
     def compose(self, page, pointer="mouse"):
         """A pick through the real path, made with pointer; waits for the composer."""
-        page.evaluate("p=>{LAST_PTR=p; pick({page:1,x0:10,y0:10,x1:200,y1:60});}", pointer)
+        page.evaluate("p=>{LAST_POINTER=p; pick({page:1,x0:10,y0:10,x1:200,y1:60});}", pointer)
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
         settle(page)
 

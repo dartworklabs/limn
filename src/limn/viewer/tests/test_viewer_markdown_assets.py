@@ -67,7 +67,9 @@ from helpers_browser import BrowserBase, booted, settle, watch_idle
 from helpers_csp import add_test_style
 from helpers_figure import BUILD1, viewer_build
 
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
+DRAWN = (
+    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
+)
 # Every tree image on screen has loaded or failed (a failed one is replaced by its alt text).
 PICS_DONE = "[...document.querySelectorAll('#md .md-pic img')].every(i=>i.complete)"
 # Holds the page's animation frames from window.__framesHeld on - as a renderer too busy to paint holds them - until
@@ -100,7 +102,7 @@ PANE_AT_REST = (
 # Where the first element of source line n is in the document pane, in px from 30% down it (where [보기] puts a line).
 AT_DEPTH = (
     "(n=>{const r=document.querySelector('#left').getBoundingClientRect();"
-    " return mdLeaves(n,n)[0].getBoundingClientRect().top-(r.top+r.height*0.30);})"
+    " return lineLeaves(n,n)[0].getBoundingClientRect().top-(r.top+r.height*0.30);})"
 )
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="40" onload="fetch(\'/svg-onload\')">'
@@ -167,17 +169,17 @@ LONG = (
 INPUT_SEEN = (
     "(()=>{const L=document.querySelector('#left'); window.__seen=null;"
     " for(const t of ['keydown','wheel','pointerdown'])"
-    "  addEventListener(t,()=>{if(window.__seen)return; window.__seen={top:L.scrollTop,goTo:!!MD.goTo};"
+    "  addEventListener(t,()=>{if(window.__seen)return; window.__seen={top:L.scrollTop,goTo:!!MARKDOWN_VIEW.goTo};"
     "   requestAnimationFrame(()=>{window.__seen.next=L.scrollTop;});},{capture:true,passive:true});})()"
 )
 # Where the heading '설치' is in the document pane, in px from the pane's top.
 SETUP_TOP = (
-    "(()=>{const h=MD.heads.find(x=>x.title==='설치'),L=document.querySelector('#left');"
+    "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='설치'),L=document.querySelector('#left');"
     " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
 )
 # Where the heading '읽는 곳' is in the document pane, in px from the pane's top.
 HEADING_TOP = (
-    "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+    "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
     " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
 )
 
@@ -360,7 +362,7 @@ class ReadingSpot(AssetsBase):
         add_test_style(page, "#left,#left *{overflow-anchor:none}")
         settle(page)
         top = page.evaluate(
-            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
             " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;"
             " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
         )
@@ -373,7 +375,7 @@ class ReadingSpot(AssetsBase):
         page.wait_for_function(PICS_DONE + "&&!!document.querySelector('#md .md-pic-ok')", timeout=8000)
         settle(page)
         after = page.evaluate(
-            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
             " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
         )
         self.assertAlmostEqual(after, top, delta=2)
@@ -413,7 +415,7 @@ class ReadingSpotChangedImage(AssetsBase):
             page.wait_for_timeout(50)
         settle(page)
         top = page.evaluate(
-            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
             " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;"
             " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
         )
@@ -444,10 +446,10 @@ NEAR = (
     + "![멀리](img/far.png)\n\n끝.\n"
 )
 # Where '## 읽는 곳' and the near image are in the document pane, in px from the pane's top.
-NEAR_TOP = "(()=>{const L=document.querySelector('#left').getBoundingClientRect().top,h=MD.heads.find(x=>x.title==='읽는 곳');return h.el.getBoundingClientRect().top-L;})()"
+NEAR_TOP = "(()=>{const L=document.querySelector('#left').getBoundingClientRect().top,h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳');return h.el.getBoundingClientRect().top-L;})()"
 NEAR_IMG = "document.querySelector(\"#md .md-pic[data-path='notes/img/near.png'] img\")"
 # One check now, whatever the last one's time: how many images it gave a new address, and how many requests it made.
-CHECK = "(async()=>{IMAGE_CHECK.last=-Infinity; const a=IMAGE_CHECK.asked,n=await mdPicCheck(); return [n,IMAGE_CHECK.asked-a];})()"
+CHECK = "(async()=>{IMAGE_CHECK.last=-Infinity; const a=IMAGE_CHECK.asked,n=await checkTreeImages(); return [n,IMAGE_CHECK.asked-a];})()"
 
 
 class ChangedOnDisk(AssetsBase):
@@ -477,13 +479,13 @@ class ChangedOnDisk(AssetsBase):
         check finds the tag learned when it loaded (noteShownTag) and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
         its address with &v=<its new tag>, and the heading stays where it was in the pane, to 2px (the browser's scroll
         anchoring off, as in ReadingSpot). A check of the unchanged image gives no new address. A redraw (the source
-        edited) draws the new picture again, at its new address. Mutations: drop the light poll's mdPicCheck (polling.js)
+        edited) draws the new picture again, at its new address. Mutations: drop the light poll's checkTreeImages (polling.js)
         -> the image never changes, fails; draw a redraw's image at assetUrl instead of imageUrl -> the old picture
         comes back, fails."""
         page = self.open_md()
         add_test_style(page, "#left,#left *{overflow-anchor:none}")
         page.evaluate(
-            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
             " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;})()"
         )
         until(page, NEAR_IMG + ".complete&&" + NEAR_IMG + ".naturalHeight===300")
@@ -515,7 +517,7 @@ class ChangedOnDisk(AssetsBase):
         plan = self.src / "notes" / "plan.md"
         plan.write_text(plan.read_text(encoding="utf-8") + "\n더한 줄.\n", encoding="utf-8")
         page.evaluate("void pollLight()")
-        until(page, "MD.lines.some(l=>l==='더한 줄.')&&" + DRAWN, 10)
+        until(page, "MARKDOWN_VIEW.lines.some(l=>l==='더한 줄.')&&" + DRAWN, 10)
 
     def test_a_check_asks_only_images_near_the_area_a_few_at_a_time_and_not_too_often(self):
         """far.png, loaded by a scroll to the end and then far below the area again, is not asked; near.png is, one request
@@ -530,7 +532,7 @@ class ChangedOnDisk(AssetsBase):
         far = "document.querySelector(\"#md .md-pic[data-path='notes/img/far.png'] img\")"
         until(page, far + ".complete&&" + far + ".naturalWidth===50")
         page.evaluate(
-            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
             " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;})()"
         )
         until(page, NEAR_IMG + ".complete&&" + NEAR_IMG + ".naturalHeight===300")
@@ -541,7 +543,9 @@ class ChangedOnDisk(AssetsBase):
         self.assertEqual(len(asked), 1)
         self.assertTrue(all("near.png" in a for a in asked), asked)
         self.assertEqual(
-            page.evaluate("(async()=>{const a=IMAGE_CHECK.asked; await mdPicCheck(); return IMAGE_CHECK.asked-a;})()"),
+            page.evaluate(
+                "(async()=>{const a=IMAGE_CHECK.asked; await checkTreeImages(); return IMAGE_CHECK.asked-a;})()"
+            ),
             0,
         )
         self.assertEqual(page.evaluate(CHECK), [0, 1])
@@ -589,7 +593,7 @@ class ChangedOnDiskFirefox(ChangedOnDisk):
 
 # Room above an image, the image, and below it about one and a half document areas of paragraphs: read 200px before the
 # document's end, the image stands wholly above the area and within one area's height of it - near enough for a check to
-# ask it again (mdPicCheck), from the very end too - and once it is 880px shorter the pane's end is above that offset.
+# ask it again (checkTreeImages), from the very end too - and once it is 880px shorter the pane's end is above that offset.
 END_NEAR = (
     "# 끝 가까이\n\n"
     + "".join("위 %d 의 문단.\n\n" % i for i in range(1, 30))
@@ -604,7 +608,7 @@ class ShrinkNearTheEnd(AssetsBase):
     """An image above the reading line that gets shorter near the document's end: the browser cuts the pane's offset back
     to its new end, which is the layout's doing and no scroll - the text being read stays. A move made just before it, its
     frame not come (the page's frames held): End still ends at the end, and a pin's [보기] and [바뀐 곳] keep their line
-    where the jump put it. The image is rewritten smaller on disk and a check shows it (mdPicCheck, as ChangedOnDisk), the
+    where the jump put it. The image is rewritten smaller on disk and a check shows it (checkTreeImages, as ChangedOnDisk), the
     browser's scroll anchoring off as in ReadingSpot - Chromium's and Firefox's alone would cut nothing (they keep the
     text by moving the offset), and a browser without it (WebKit) is what this stands in for."""
 
@@ -632,7 +636,7 @@ class ShrinkNearTheEnd(AssetsBase):
         )
         settle(page)
         self.assertTrue(150 < page.evaluate(FROM_END) < 250)
-        self.assertTrue(page.evaluate("MD.spot.frac>0&&MD.spot.frac<1"))
+        self.assertTrue(page.evaluate("MARKDOWN_VIEW.spot.frac>0&&MARKDOWN_VIEW.spot.frac<1"))
         pane = page.evaluate("(r=>[r.top,r.height])(document.querySelector('#left').getBoundingClientRect())")
         bottom = page.evaluate(SHRINK_IMG + ".getBoundingClientRect().bottom")
         self.assertLess(bottom, pane[0])
@@ -642,7 +646,7 @@ class ShrinkNearTheEnd(AssetsBase):
     def shrink(self, page):
         """shrink.png rewritten 200x20, a check asked now; once the image stands at its new size (onImageLoad has run)."""
         (self.src / "notes" / "img" / "shrink.png").write_bytes(blank_png(200, 20))
-        page.evaluate("IMAGE_CHECK.last=-Infinity; void mdPicCheck()")
+        page.evaluate("IMAGE_CHECK.last=-Infinity; void checkTreeImages()")
         until(page, SHRINK_IMG + ".naturalHeight===20&&" + SHRINK_IMG + ".getAttribute('height')==='20'", 10)
 
     def test_an_image_that_shrinks_near_the_end_leaves_the_text_in_place(self):
@@ -683,7 +687,7 @@ class ShrinkNearTheEnd(AssetsBase):
         page.keyboard.press("End")
         until(page, FROM_END + "<1")
         # the key's scroll is not read yet
-        self.assertNotEqual(page.evaluate("MD.spot.line"), page.evaluate(TOP_LINE)[0])
+        self.assertNotEqual(page.evaluate("MARKDOWN_VIEW.spot.line"), page.evaluate(TOP_LINE)[0])
         self.shrink(page)
         self.assertAlmostEqual(page.evaluate(FROM_END), 0, delta=1)
         page.evaluate("window.__framesGo()")
@@ -691,10 +695,10 @@ class ShrinkNearTheEnd(AssetsBase):
         self.assertAlmostEqual(page.evaluate(FROM_END), 0, delta=1)
 
     def test_a_pins_jump_just_before_the_shrink_keeps_the_pins_line_where_the_jump_put_it(self):
-        """A pin on the document's last paragraph, its [보기] with the frames held (jumpPin -> mdJump): the jump puts the
+        """A pin on the document's last paragraph, its [보기] with the frames held (jumpPin -> jumpToPinLines): the jump puts the
         pin's line 30% down the area, some 70px before the end, and the image shrinks before the scroll's frame - the
         browser cuts the offset back to the new end. The pin's line stands where the jump put it, to 2px, also once the
-        frames run. Mutations: neither the read where the jump lands (mdShowLines) nor the check before the change
+        frames run. Mutations: neither the read where the jump lands (showLines) nor the check before the change
         (refreshMovedSpot) -> the spot read before the jump is put back, the line 160px below, fails, and either alone holds
         it; neither an aspect ratio held (sizeImage) nor the cut check -> the offset is cut before the load and read as
         the jump's, the line 367px off, fails, and either alone holds it."""
@@ -713,7 +717,7 @@ class ShrinkNearTheEnd(AssetsBase):
         the area, and the image shrinks before the scroll's frame. The line stands where the jump put it, to 2px, also
         once the frames run. The changed place is set on the page (UPDATE_STATE.lines) as a redraw that found it sets it: what is
         read here is the jump, not how a change is found (test_viewer_updates.py). Mutations as for the pin's [보기]:
-        neither the read in mdShowLines nor refreshMovedSpot -> 160px, fails; neither an aspect ratio held nor the cut check
+        neither the read in showLines nor refreshMovedSpot -> 160px, fails; neither an aspect ratio held nor the cut check
         -> 58px, fails."""
         page = self.read_near_the_end(init=FRAMES_HELD)
         page.evaluate(
@@ -765,7 +769,9 @@ TOP_SHARE = (
     "r=e.getBoundingClientRect(); return [+(e.dataset.line||e.dataset.lo),(t-r.top)/r.height,r.height];})()"
 )
 # How far down #md the reading spot's element starts, in px.
-SPOT_IN_MD = "MD.spot.el.getBoundingClientRect().top-document.querySelector('#md').getBoundingClientRect().top"
+SPOT_IN_MD = (
+    "MARKDOWN_VIEW.spot.el.getBoundingClientRect().top-document.querySelector('#md').getBoundingClientRect().top"
+)
 # The pane's scroll offset, in px.
 PANE_TOP = "document.querySelector('#left').scrollTop"
 
@@ -789,12 +795,12 @@ def answer_the_image(test, page, check):
 def home_before_the_frame(test, page):
     """The page's frames held: Home pressed with the focus on the document area (as a search or a link leaves it), the pane
     at its top and its scroll not read yet - the spot still the line read before."""
-    line = page.evaluate("MD.spot.line")
+    line = page.evaluate("MARKDOWN_VIEW.spot.line")
     test.assertGreater(line, 0)
     page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
     page.keyboard.press("Home")
     until(page, PANE_TOP + "===0")
-    test.assertEqual(page.evaluate("MD.spot.line"), line)
+    test.assertEqual(page.evaluate("MARKDOWN_VIEW.spot.line"), line)
 
 
 class FontSwap(AssetsBase):
@@ -851,7 +857,7 @@ class FontSwap(AssetsBase):
         page.evaluate("new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)))")
         before = page.evaluate(TOP_SHARE)
         self.assertTrue(150 < page.evaluate(FROM_END) < 250)
-        self.assertEqual(page.evaluate("MD.spot.line"), before[0])
+        self.assertEqual(page.evaluate("MARKDOWN_VIEW.spot.line"), before[0])
         self.assertTrue(0.2 < before[1] < 0.8)
         self.assertGreater(before[0], line_of(self.PLAN, "Short 1."))
         return page, before
@@ -868,7 +874,7 @@ class FontSwap(AssetsBase):
         until(page, "document.fonts.status==='loaded'", 10)
         until(page, FROM_END + "<1")
         self.assertNotEqual(page.evaluate(TOP_SHARE)[0], before[0])
-        self.assertEqual(page.evaluate("MD.spot.line"), before[0])
+        self.assertEqual(page.evaluate("MARKDOWN_VIEW.spot.line"), before[0])
 
     def let_the_image_go(self, page, before):
         """tall.png answered before any frame (its box from 8rem to 900px): the line read before the font is back at the
@@ -963,7 +969,7 @@ HTML_RUN = (
 
 
 class HtmlRunToggle(AssetsBase):
-    """A run of raw HTML blocks opened or closed (mdHtmlRun) below the reading line: #md gets some 1,600px taller or
+    """A run of raw HTML blocks opened or closed (toggleHtmlRun) below the reading line: #md gets some 1,600px taller or
     shorter at the same width and the pane's offset stays, so no scroll's frame reads the spot again. Home is then
     pressed before any frame (the page's frames held) and tall.png, above the line read before, loads: the pane stays at
     the top. The browser's scroll anchoring is left as it is."""
@@ -1010,7 +1016,7 @@ class HtmlRunToggle(AssetsBase):
         settle(page)
         top, height, line = page.evaluate(
             "[document.querySelector('#left').scrollTop,document.querySelector('#md').getBoundingClientRect().height,"
-            "MD.spot.line]"
+            "MARKDOWN_VIEW.spot.line]"
         )
         self.assertGreater(top, 0)
         self.assertLess(line, line_of(HTML_RUN, "<div>raw 1<"))
@@ -1025,7 +1031,7 @@ class HtmlRunToggle(AssetsBase):
             abs(page.evaluate("document.querySelector('#md').getBoundingClientRect().height") - height), 1000
         )
         self.assertEqual(page.evaluate(PANE_TOP), top)
-        self.assertEqual(page.evaluate("MD.spot.line"), line)
+        self.assertEqual(page.evaluate("MARKDOWN_VIEW.spot.line"), line)
         page.evaluate("window.__framesHeld=true")
         home_before_the_frame(self, page)
         answer_the_image(self, page, lambda: self.assertAlmostEqual(page.evaluate(PANE_TOP), 0, delta=1))
@@ -1038,8 +1044,8 @@ class HtmlRunToggleFirefox(HtmlRunToggle):
 
 
 class ErrorOnAJumpThenEnd(AssetsBase):
-    """An image that fails during a jump to a heading (mdGoHeading) - its file broken on disk, found by the page's check
-    (mdPicCheck) - gives way to its alt text and makes the document some 2,800px shorter, cutting the pane's offset back to
+    """An image that fails during a jump to a heading (goToHeading) - its file broken on disk, found by the page's check
+    (checkTreeImages) - gives way to its alt text and makes the document some 2,800px shorter, cutting the pane's offset back to
     the new end. End is then pressed, and another image's held answer let go before any frame (the page's frames held):
     the pane stays at the end. Found by the review of #435's third round."""
 
@@ -1073,9 +1079,9 @@ class ErrorOnAJumpThenEnd(AssetsBase):
         settle(page)
         before = page.evaluate("document.querySelector('#left').scrollHeight")
         (img / "shrink.png").write_bytes(blank_png(200, 3000)[:33])  # a PNG cut short: the browser cannot draw it
-        page.evaluate("window.__framesHeld=true; IMAGE_CHECK.last=-Infinity; mdGoHeading(0); void mdPicCheck()")
+        page.evaluate("window.__framesHeld=true; IMAGE_CHECK.last=-Infinity; goToHeading(0); void checkTreeImages()")
         until(page, "!document.querySelector('#md .md-pic[data-path=\"notes/img/shrink.png\"]')")
-        self.assertTrue(page.evaluate("!!MD.goTo"), "the jump had ended before the image failed")
+        self.assertTrue(page.evaluate("!!MARKDOWN_VIEW.goTo"), "the jump had ended before the image failed")
         self.assertGreater(before - page.evaluate("document.querySelector('#left').scrollHeight"), 2000)
         # End meets the jump's smooth scroll however far the engine and the runner have taken it - only asked for, moving
         # (Chromium here, and Firefox on CI: run 42148218919, before #441) or at rest: the key ends it where it stands
@@ -1083,7 +1089,7 @@ class ErrorOnAJumpThenEnd(AssetsBase):
         page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
         page.keyboard.press("End")
         until(page, FROM_END + "<1")
-        self.assertFalse(page.evaluate("!!MD.goTo"), "End did not end the jump")
+        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"), "End did not end the jump")
         self.hold_late = False
         self.holding = True  # answer_the_image lets go of the held late.png
         answer_the_image(self, page, lambda: self.assertAlmostEqual(page.evaluate(FROM_END), 0, delta=2))
@@ -1159,7 +1165,7 @@ class HeadingJump(AssetsBase):
         page = self.open_md()
         page.evaluate(
             "window.__far=0; document.addEventListener('load',e=>{if(e.target.tagName!=='IMG'||DOC!=='gd')return;"
-            " const h=MD.heads.find(x=>x.title==='설치'),L=document.querySelector('#left');"
+            " const h=MARKDOWN_VIEW.heads.find(x=>x.title==='설치'),L=document.querySelector('#left');"
             " if(h)__far=Math.max(__far,Math.abs(h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-8));},true)"
         )
         self.holding = True
@@ -1200,12 +1206,12 @@ class HeadingJump(AssetsBase):
         self.holding = True
         page.locator("#md a.md-doclink").first.click()
         until(page, "DOC==='gd'&&" + DRAWN, 20)
-        until(page, "!!MD.goTo")
+        until(page, "!!MARKDOWN_VIEW.goTo")
         page.evaluate("document.activeElement&&document.activeElement.blur()")
         self.assertTrue(page.evaluate("document.activeElement===document.body"))
         page.keyboard.press("Home")
         until(page, "document.querySelector('#left').scrollTop===0")
-        self.assertFalse(page.evaluate("!!MD.goTo"))
+        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
         for _ in range(10):
             page.wait_for_timeout(60)
             held, self.hold[:] = list(self.hold), []
@@ -1255,7 +1261,7 @@ class HeadingJump(AssetsBase):
         page.locator("#md a.md-doclink").first.click()
         until(page, "DOC==='gd'&&" + DRAWN, 20)
         until(
-            page, "!!MD.goTo&&document.querySelector('#left').scrollTop>200"
+            page, "!!MARKDOWN_VIEW.goTo&&document.querySelector('#left').scrollTop>200"
         )  # on its way, its spot read below the top
         page.evaluate("document.activeElement&&document.activeElement.blur(); window.__framesHeld=true")
         if on_the_way:
@@ -1265,10 +1271,14 @@ class HeadingJump(AssetsBase):
             for r in held:
                 answer(r)
             until(page, "window.__picDone>=%d" % pictures(held))
-            self.assertTrue(page.evaluate("!!MD.goTo"))  # still on its way: the frame that would land it is held
+            self.assertTrue(
+                page.evaluate("!!MARKDOWN_VIEW.goTo")
+            )  # still on its way: the frame that would land it is held
         page.keyboard.press("Home")
         until(page, "document.querySelector('#left').scrollTop===0")
-        self.assertTrue(page.evaluate("!MD.goTo&&!!MD.spot&&!!MD.spot.el"))  # the key's scroll is not read yet
+        self.assertTrue(
+            page.evaluate("!MARKDOWN_VIEW.goTo&&!!MARKDOWN_VIEW.spot&&!!MARKDOWN_VIEW.spot.el")
+        )  # the key's scroll is not read yet
         held, self.hold[:] = list(self.hold), []
         self.assertTrue(held)
         page.evaluate("window.__picDone=0")
@@ -1293,7 +1303,7 @@ class HeadingJump(AssetsBase):
         page = self.open_md()
         self.holding = True
         page.locator("#md a.md-doclink").first.click()
-        until(page, "DOC==='gd'&&" + DRAWN + "&&!!MD.goTo", 20)
+        until(page, "DOC==='gd'&&" + DRAWN + "&&!!MARKDOWN_VIEW.goTo", 20)
         page.evaluate("document.activeElement&&document.activeElement.blur()")
         page.keyboard.press("Home")
         for _ in range(10):
@@ -1302,14 +1312,14 @@ class HeadingJump(AssetsBase):
             for r in held:
                 r.fulfill(**self.answer(r.request))
         settle(page)
-        self.assertFalse(page.evaluate("!!MD.goTo"))
+        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
         self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
 
 
 class InputEndsAGlide(AssetsBase):
     """A heading jump whose smooth scroll is moving - seen moving, not only asked for - ends where the person's input found
     the pane: a scroll key, a wheel, a press on the pane. The scroll does not go on to the heading afterwards (#441: in
-    Firefox, whose compositor runs that scroll, each input ended the jump (MD.goTo) but not its scroll, which came to rest
+    Firefox, whose compositor runs that scroll, each input ended the jump (MARKDOWN_VIEW.goTo) but not its scroll, which came to rest
     at the heading - with the key's or the wheel's own step added to it). The jump goes 9,000px down, and Firefox's smooth
     scroll is slowed (InputEndsAGlideFirefox), so the input comes while it is still far from the heading however slow the
     runner; each test checks that it did (the input's own event read the pane first, INPUT_SEEN)."""
@@ -1321,9 +1331,9 @@ class InputEndsAGlide(AssetsBase):
         where the jump is going (headingScrollTop)."""
         page = self.open_md()
         page.evaluate(INPUT_SEEN)
-        page.evaluate("mdGoHeading(MD.heads.findIndex(h=>h.title==='아래'))")
-        until(page, "!!MD.goTo&&document.querySelector('#left').scrollTop>0")
-        return page, page.evaluate("headingScrollTop(MD.heads.find(h=>h.title==='아래').el)")
+        page.evaluate("goToHeading(MARKDOWN_VIEW.heads.findIndex(h=>h.title==='아래'))")
+        until(page, "!!MARKDOWN_VIEW.goTo&&document.querySelector('#left').scrollTop>0")
+        return page, page.evaluate("headingScrollTop(MARKDOWN_VIEW.heads.find(h=>h.title==='아래').el)")
 
     def ends_where_seen(self, page, dest, step, delta, base="top"):
         """The input came while the jump was in flight, far from its heading; the jump is over, and the pane comes to rest
@@ -1338,7 +1348,7 @@ class InputEndsAGlide(AssetsBase):
         self.assertTrue(seen and seen["goTo"], seen)  # the input met the jump in flight
         self.assertGreater(dest - seen["top"], 1000, seen)  # still far from its heading
         self.assertIn(base, seen, seen)  # 'next' needs its frame to have run
-        self.assertFalse(page.evaluate("!!MD.goTo"))
+        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
         self.assertTrue(rest["still"], rest)
         self.assertAlmostEqual(rest["top"], seen[base] + step, delta=delta, msg="the jump went on to %s" % dest)
 
@@ -1402,7 +1412,7 @@ class InputEndsAGlide(AssetsBase):
             "(()=>{const L=document.querySelector('#left'),own=L.scrollTo,out={}; let w=[];"
             " L.scrollTo=function(a){own.call(L,a); w.push(L.scrollTop);};"
             " for(const [k,t] of [['top',0],['end',L.scrollHeight-L.clientHeight]]){"
-            "  L.scrollTop=t; w=[]; MD.goTo={el:MD.heads[1].el,doc:DOC}; stopHeadingJump(); out[k]=[L.scrollTop,w];}"
+            "  L.scrollTop=t; w=[]; MARKDOWN_VIEW.goTo={el:MARKDOWN_VIEW.heads[1].el,doc:DOC}; stopHeadingJump(); out[k]=[L.scrollTop,w];}"
             " L.scrollTo=own; return out;})()"
         )
         self.assertGreater(got["end"][0], 1000)
@@ -1412,10 +1422,10 @@ class InputEndsAGlide(AssetsBase):
 
 
 # The jump to heading '아래' set off and the pane read in the same task: where it stands at once, where the jump goes
-# (headingScrollTop), and whether the jump is still in flight (MD.goTo).
+# (headingScrollTop), and whether the jump is still in flight (MARKDOWN_VIEW.goTo).
 GO_LOW_NOW = (
-    "(()=>{const L=document.querySelector('#left'),i=MD.heads.findIndex(h=>h.title==='아래'),to=headingScrollTop(MD.heads[i].el);"
-    " mdGoHeading(i); return {now:L.scrollTop,to,flying:!!MD.goTo};})()"
+    "(()=>{const L=document.querySelector('#left'),i=MARKDOWN_VIEW.heads.findIndex(h=>h.title==='아래'),to=headingScrollTop(MARKDOWN_VIEW.heads[i].el);"
+    " goToHeading(i); return {now:L.scrollTop,to,flying:!!MARKDOWN_VIEW.goTo};})()"
 )
 
 
@@ -1449,7 +1459,7 @@ class MotionSetLiveHeading(AssetsBase):
                     rest = page.evaluate(PANE_AT_REST)
                     self.assertTrue(rest["still"], rest)
                     self.assertAlmostEqual(rest["top"], got["to"], delta=1)
-                    self.assertFalse(page.evaluate("!!MD.goTo"))
+                    self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
             page.context.close()
 
 
@@ -1550,7 +1560,7 @@ class DocumentLinks(AssetsBase):
         page.wait_for_timeout(600)
         settle(page)
         self.assertEqual(
-            page.evaluate("[DOC,MD.shown,location.hash.replace(/^.*doc=/,''),history.length]"),
+            page.evaluate("[DOC,MARKDOWN_VIEW.shown,location.hash.replace(/^.*doc=/,''),history.length]"),
             ["nt", "nt", "nt", depth + 1],
         )
         page.go_forward()
@@ -1583,7 +1593,7 @@ class DocumentLinks(AssetsBase):
         page.wait_for_timeout(600)
         settle(page)
         self.assertEqual(
-            page.evaluate("[DOC,MD.shown,location.hash.replace(/^.*doc=/,''),history.length]"),
+            page.evaluate("[DOC,MARKDOWN_VIEW.shown,location.hash.replace(/^.*doc=/,''),history.length]"),
             ["nt", "nt", "nt", depth + 1],
         )
         page.go_forward()
@@ -1633,7 +1643,9 @@ class LinksUnderTheBackLayer(AssetsBase):
         page.go_back()
         until(page, "!SIDE_OPEN&&!BACK")
         settle(page)
-        self.assertEqual(page.evaluate("[DOC,MD.shown,location.hash.replace(/^.*doc=/,'')]"), ["gd", "gd", "gd"])
+        self.assertEqual(
+            page.evaluate("[DOC,MARKDOWN_VIEW.shown,location.hash.replace(/^.*doc=/,'')]"), ["gd", "gd", "gd"]
+        )
 
 
 def listen(test, handler) -> int:
@@ -1836,7 +1848,7 @@ HIDDEN = "# 계획\n\n![가%s나](img/g%sone.png)\n\n[안내의 설치](../docs/
 # A text document whose lines look like an image and a link of Markdown.
 TODO_TEXT = "할 일\n![막대](img/chart.png)\n[안내](../docs/guide.md#설치)\n"
 TOP_OF = (
-    "(t=>{const h=MD.heads.find(x=>x.title===t),L=document.querySelector('#left');"
+    "(t=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title===t),L=document.querySelector('#left');"
     " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})"
 )
 
@@ -1854,7 +1866,7 @@ def rest(page, timeout: float = 15.0):
 
 
 class OneReadingSpot(AssetsBase):
-    """An image's load and #409's reading spot are one model (putSpotBack puts back what readSpot read, as mdSpotKeep does
+    """An image's load and #409's reading spot are one model (putSpotBack puts back what readSpot read, as keepReadingSpot does
     after a reflow): an image that loads while the column is hidden under the changes view leaves the text in place too."""
 
     PLAN = TALL
@@ -1863,14 +1875,14 @@ class OneReadingSpot(AssetsBase):
         """The image's answer is held; the reading line is put on '## 읽는 곳'; the changes view is opened (the column is
         hidden, nothing can be measured) and the image (900px, far more than its 8rem place) arrives meanwhile. Back on the
         text at the same width, the heading is where it was, to 2px: the load marks the spot to be put back once the column
-        is shown (again) - put back while hidden it moves nothing, and at the same width mdSpotKeep would keep nothing."""
+        is shown (again) - put back while hidden it moves nothing, and at the same width keepReadingSpot would keep nothing."""
         self.holding = True
         page = self.open(0)
         until(page, DRAWN, 20)
         add_test_style(page, "#left,#left *{overflow-anchor:none}")
         settle(page)
         top = page.evaluate(
-            "(()=>{const h=MD.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
+            "(()=>{const h=MARKDOWN_VIEW.heads.find(x=>x.title==='읽는 곳'),L=document.querySelector('#left');"
             " L.scrollTop+=h.el.getBoundingClientRect().top-L.getBoundingClientRect().top-40;"
             " return h.el.getBoundingClientRect().top-L.getBoundingClientRect().top;})()"
         )
@@ -1905,7 +1917,7 @@ class OneReadingSpot(AssetsBase):
         settle(page)
         place = (
             "[...document.querySelectorAll('#md .md-badge')].map(b=>{const p=PINS.find(x=>x.id===+b.dataset.id),"
-            "e=mdLeaves(p.lo,p.lo)[0],box=b.parentElement;"
+            "e=lineLeaves(p.lo,p.lo)[0],box=b.parentElement;"
             " return [p.lo,box.nextElementSibling===topBlockOf(document.querySelector('#md'),e),"
             "Math.round(b.getBoundingClientRect().top-e.getBoundingClientRect().top)];})"
         )
@@ -1925,7 +1937,7 @@ class OneReadingSpot(AssetsBase):
 
 
 class JumpAcrossReflow(AssetsBase):
-    """A heading jump in flight is not cut short by the column's reflow: #409's mdSpotKeep would put back the reading spot
+    """A heading jump in flight is not cut short by the column's reflow: #409's keepReadingSpot would put back the reading spot
     the scroll was passing; it lets the jump go on to its heading's new place instead (goOnToHeading)."""
 
     PLAN = FAR_ANCHOR
@@ -1939,16 +1951,18 @@ class JumpAcrossReflow(AssetsBase):
         until(page, DRAWN, 20)
         page.evaluate("document.querySelector('#left').scrollTop=300")
         settle(page)
-        self.assertTrue(page.evaluate("SIDE_OPEN&&scrollMotion()==='smooth'&&!!MD.spot&&!!MD.spot.el"))
+        self.assertTrue(
+            page.evaluate("SIDE_OPEN&&scrollMotion()==='smooth'&&!!MARKDOWN_VIEW.spot&&!!MARKDOWN_VIEW.spot.el")
+        )
         w0 = page.evaluate("document.querySelector('#md').getBoundingClientRect().width")
         page.evaluate("document.querySelector('#md a.md-anchor').click()")
         until(page, "document.querySelector('#left').scrollTop>1300")
-        self.assertTrue(page.evaluate("!!MD.goTo"))
+        self.assertTrue(page.evaluate("!!MARKDOWN_VIEW.goTo"))
         page.evaluate("document.getElementById('btn-side').click()")
         rest(page)
         self.assertGreater(page.evaluate("document.querySelector('#md').getBoundingClientRect().width"), w0 + 50)
         self.assertAlmostEqual(page.evaluate(TOP_OF + "('끝')"), 8, delta=3)
-        self.assertFalse(page.evaluate("!!MD.goTo"))
+        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
 
 
 # An image at the top, the reading line below it, and far below that a sentence the browser's find in page goes to.
@@ -2004,7 +2018,7 @@ class FindBeforeTheFrame(AssetsBase):
             page.evaluate(self.REVEAL)
         found = until(page, "(t=>t>0&&t<%d&&t)(%s)" % (pane[1] - 40, FOUND_TOP))
         # the find's scroll is not read yet
-        self.assertTrue(page.evaluate("MD.spot.line===%d" % read))
+        self.assertTrue(page.evaluate("MARKDOWN_VIEW.spot.line===%d" % read))
         self.holding = False
         page.evaluate("window.__picDone=0")
         for r in self.hold:
@@ -2032,11 +2046,11 @@ class JumpThenReflow(AssetsBase):
 
     def test_a_reflow_right_after_a_pins_jump_keeps_the_pins_line_in_view(self):
         """A pin on '끝 문단.', far below; reading at the top of a 1440px window, the page's frames held, its [보기]
-        (jumpPin -> mdJump) puts the line 30% down the area; the window is then narrowed to 1000px before any frame, the
-        column narrower and its long paragraphs taking more lines (mdSpotKeep from the column's ResizeObserver). The line
+        (jumpPin -> jumpToPinLines) puts the line 30% down the area; the window is then narrowed to 1000px before any frame, the
+        column narrower and its long paragraphs taking more lines (keepReadingSpot from the column's ResizeObserver). The line
         at the area's top is the one the jump put there, and the pin's line is on screen, also once the frames run. No
         image changes here, so refreshMovedSpot has no say: the read where the jump lands alone holds it. Mutation: no read in
-        mdShowLines -> the reflow puts back the spot read before the jump, the very top, fails."""
+        showLines -> the reflow puts back the spot read before the jump, the very top, fails."""
         n = line_of(FAR_ANCHOR, "끝 문단.")
         body = json.dumps(
             {"doc": "nt", "file": str(self.src / "notes" / "plan.md"), "lo": n, "hi": n, "note": "끝"}
@@ -2055,11 +2069,12 @@ class JumpThenReflow(AssetsBase):
         page.set_viewport_size({"width": 1000, "height": 900})
         until(
             page,
-            "(w=>w<%d&&MD.spot.w===w)(document.querySelector('#md').getBoundingClientRect().width)" % (w0 - 50),
+            "(w=>w<%d&&MARKDOWN_VIEW.spot.w===w)(document.querySelector('#md').getBoundingClientRect().width)"
+            % (w0 - 50),
         )
         self.assertEqual(page.evaluate(TOP_LINE)[0], top)
         seen = (
-            "(n=>{const r=document.querySelector('#left').getBoundingClientRect(),e=mdLeaves(n,n)[0].getBoundingClientRect();"
+            "(n=>{const r=document.querySelector('#left').getBoundingClientRect(),e=lineLeaves(n,n)[0].getBoundingClientRect();"
             " return e.top>=r.top&&e.bottom<=r.bottom;})(%d)" % n
         )
         self.assertTrue(page.evaluate(seen))
@@ -2077,7 +2092,7 @@ class JumpThenReflowFirefox(JumpThenReflow):
 
 class HiddenCharsInTips(AssetsBase):
     """A tip that shows a source's text again - an image's path, a link's '#…', both decoded once - names its hidden
-    characters (ccPlain, ADR-0029 D5); the alt text is drawn text, as the paragraph around it is (no marking yet)."""
+    characters (markHiddenPlain, ADR-0029 D5); the alt text is drawn text, as the paragraph around it is (no marking yet)."""
 
     PLAN = HIDDEN
 
@@ -2111,7 +2126,7 @@ class FocusAfterALink(AssetsBase):
         page.locator("#md a.md-doclink[data-doc='gd']").focus()
         page.keyboard.press("Enter")
         until(page, "DOC==='gd'&&" + DRAWN, 20)
-        until(page, "document.activeElement===MD.heads.find(x=>x.title==='설치').el")
+        until(page, "document.activeElement===MARKDOWN_VIEW.heads.find(x=>x.title==='설치').el")
         page.keyboard.press("Tab")
         self.assertTrue(page.evaluate("document.activeElement.matches('#md a.md-doclink[data-doc=nt]')"))
 
@@ -2126,7 +2141,7 @@ class FocusAfterALink(AssetsBase):
         settle(page)
         got = page.evaluate(
             "[document.querySelectorAll('#md img,#md a,#md .md-pic,#md .md-img').length,"
-            " document.querySelector('#md').textContent.includes('![막대](img/chart.png)'), MD.headTo,"
+            " document.querySelector('#md').textContent.includes('![막대](img/chart.png)'), MARKDOWN_VIEW.headTo,"
             " document.activeElement===document.getElementById('left')]"
         )
         self.assertEqual(got, [0, True, None, True])

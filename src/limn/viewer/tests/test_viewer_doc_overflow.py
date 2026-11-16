@@ -60,7 +60,7 @@ FEW = [MANY[0], MANY[2], MANY[5], MANY[10]]  # four short names: every bar has r
 FIVE = [MANY[0], MANY[2], MANY[5], MANY[7], MANY[10]]  # five short names: the crowded 1300px desktop has room for them
 BUILD = "pages-20260926100000"
 LABEL = "조류 관측 논문 2026"  # the instance's name: wide enough that a squeezed bar would shorten it
-PDF_READY = "typeof VEC!=='undefined'&&!!VEC.doc&&!VEC.pumping&&!VEC.cur"  # the PDF on screen is open and drawn
+PDF_READY = "typeof VECTOR_PDF!=='undefined'&&!!VECTOR_PDF.doc&&!VECTOR_PDF.pumping&&!VECTOR_PDF.cur"  # the PDF on screen is open and drawn
 # The viewports with a nav bar (the fixed list's tablets, foldables and desktop) and the phones, which have none.
 BARS = {k: v for k, v in VIEWPORTS.items() if not k.startswith(("phone", "fold outer"))}
 PHONES = {k: v for k, v in VIEWPORTS.items() if k.startswith(("phone", "fold outer"))}

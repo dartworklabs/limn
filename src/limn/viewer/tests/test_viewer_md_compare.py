@@ -36,11 +36,13 @@ def note(intro, item="", cell="대상 누적", row="", pic="v1", moved=False):
     return "# 노트\n\n" + intro + "\n\n" + (TERMS + "\n" + body if moved else body + "\n" + TERMS)
 
 
-DRAWN = "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')&&!MD.job"
-COMPARED = (
-    "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-frame')&&MDC.key===revKey()"
+DRAWN = (
+    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
 )
-SOURCED = "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()&&!!REV.target"
+COMPARED = "REVISION_VIEW.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-frame')&&RENDERED_COMPARE.key===revisionKey()"
+SOURCED = (
+    "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()&&!!REVISION_VIEW.target"
+)
 
 
 class CompareBase(BrowserBase):
@@ -245,17 +247,17 @@ class RangeDisplay(CompareBase):
 
     def test_a_range_keeps_the_rendered_compare_and_paints_its_commits(self):
         """Every kind at once; the list paints the range's commits (the source diff's answer read beside the compare) and
-        the status line says the range's commits and files with the blocks it changed. Mutation: leave REV.rangeN out of
+        the status line says the range's commits and files with the blocks it changed. Mutation: leave REVISION_VIEW.rangeN out of
         sayCompareStatus (the two ends only) -> the line has no '커밋 4개', fails."""
         page = self.open_compare()
         page.evaluate("setRevisionRange(RANGE_MODE.FROM)")
         page.locator("#revision-commits .rc-row").nth(3).click()
-        until(page, COMPARED + "&&!!REV.base&&REV.rangeIds!==null&&!!REV.rangeN", 15)
+        until(page, COMPARED + "&&!!REVISION_VIEW.base&&REVISION_VIEW.rangeIds!==null&&!!REVISION_VIEW.rangeN", 15)
         settle(page)
         kinds = sorted({k for k, _, _ in self.marks(page)})
         self.assertEqual(kinds, ["del", "ins", "mod", "move"])
         self.assertEqual(page.evaluate("document.querySelectorAll('#revision-commits .rc-row.in').length"), 4)
-        self.assertEqual(page.evaluate("REV.format"), "rendered")
+        self.assertEqual(page.evaluate("REVISION_VIEW.format"), "rendered")
         status = page.evaluate("document.getElementById('revision-status').textContent")
         self.assertIn("커밋 4개 · 파일 1개", status)
         self.assertIn("바뀐 블록", status)
@@ -287,10 +289,10 @@ class PinBlocks(CompareBase):
         DIFF_FORMAT.RENDERED in loadRevisions (the PoC's A) -> the format is rendered and the source diff never loads,
         fails."""
         page = self.pin_view(self.table_pin())
-        self.assertEqual(page.evaluate("REV.commit"), self.c[2])
+        self.assertEqual(page.evaluate("REVISION_VIEW.commit"), self.c[2])
         got = page.evaluate(
             "(()=>{const r=document.getElementById('revision-rendered-tab'),s=document.getElementById('revision-source-tab');"
-            "return {format:REV.format,mode:REV.scope&&REV.scope.mode,other:!document.getElementById('revision-other-toggle').hidden,"
+            "return {format:REVISION_VIEW.format,mode:REVISION_VIEW.scope&&REVISION_VIEW.scope.mode,other:!document.getElementById('revision-other-toggle').hidden,"
             "rendered:[r.hidden,r.getAttribute('aria-pressed'),r.nextElementSibling===s],source:s.getAttribute('aria-pressed'),"
             "drawn:!!document.querySelector('#revision-rendered .mdc-frame'),pane:document.getElementById('revision-rendered').hidden};})()"
         )
@@ -322,7 +324,7 @@ class PinBlocks(CompareBase):
         self.assertIn("보라 테두리", guide)
         self.assertIn("그린 비교는 커밋 전체입니다", guide)
         page.click("#revision-source-tab")
-        until(page, "REV.format===DIFF_FORMAT.SOURCE", 5)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE", 5)
         self.assertNotIn("그린 비교는", page.evaluate("document.getElementById('revision-pin').textContent"))
 
 
@@ -334,7 +336,7 @@ class Layout(CompareBase):
         page = self.open_compare(viewport={"width": 344, "height": 882}, is_mobile=True, has_touch=True)
         page.evaluate("setRevisionRange(RANGE_MODE.FROM)")
         page.locator("#revision-commits .rc-row").nth(3).click()
-        until(page, COMPARED + "&&!!REV.base", 15)
+        until(page, COMPARED + "&&!!REVISION_VIEW.base", 15)
         settle(page)
         widths = page.evaluate(
             "[document.documentElement.scrollWidth,document.documentElement.clientWidth,"
@@ -567,7 +569,7 @@ class HiddenFrontMath(OneNote):
             "const words=s=>q(s).map(e=>{const c=e.cloneNode(true);c.querySelectorAll('.sr-only').forEach(x=>x.remove());return c.textContent;});"
             "return {front:[q('.md-front[data-mdc=mod]').length,words('.md-front del.mdc-w'),words('.md-front ins.mdc-w')],"
             "boxes:[q('p del.mdc-w .cc').map(e=>e.dataset.cc),q('p ins.mdc-w .cc').map(e=>e.dataset.cc)],"
-            "names:[ccName(0x200b),ccName(0x2060)],"
+            "names:[hiddenName(0x200b),hiddenName(0x2060)],"
             "math:[q('pre.md-math-block[data-mdc=mod]').length,words('pre.md-math-block del.mdc-w'),words('pre.md-math-block ins.mdc-w')],"
             "code:q('[data-mdc]').map(e=>e.dataset.changeReason||'')[3],"
             "notice:q('.mdc-info').map(e=>e.textContent).join('|')};})()"
@@ -602,12 +604,18 @@ class SidePastLimit(OneNote):
 
     def test_a_side_past_one_mebibyte_sends_the_reader_to_the_source_diff(self):
         """The new side is source_too_large: the pane holds a status note naming its size and the limit, and its [소스 diff
-        보기] opens the source diff. Mutation: let mdcShow draw a side without lines as an empty document (skip its
+        보기] opens the source diff. Mutation: let showRenderedCompare draw a side without lines as an empty document (skip its
         reason) -> no note, fails."""
         page = self.open(0)
-        until(page, "typeof MD!=='undefined'&&MD.shown===DOC&&!!document.querySelector('#md')", 20)
+        until(
+            page, "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')", 20
+        )
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
-        until(page, "REV.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-note')", 15)
+        until(
+            page,
+            "REVISION_VIEW.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-note')",
+            15,
+        )
         note = page.locator("#revision-rendered .mdc-note")
         self.assertEqual(note.get_attribute("role"), "status")
         text = note.text_content()
@@ -615,7 +623,7 @@ class SidePastLimit(OneNote):
         self.assertIn("한도 1 MiB", text)
         self.assertIn("그려 비교하지 않습니다", page.locator("#revision-rendered").aria_snapshot())
         note.get_by_role("button", name="소스 diff 보기").click()
-        until(page, "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()", 15)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()", 15)
         self.assertEqual(
             page.evaluate("document.getElementById('revision-source-tab').getAttribute('aria-pressed')"), "true"
         )
@@ -646,7 +654,7 @@ class TabsAndFocus(CompareBase):
         self.assertEqual(page.locator("#revision-status").get_attribute("role"), "status")
         source.focus()
         page.keyboard.press("Enter")
-        until(page, "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()", 15)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()", 15)
         self.assertEqual(page.evaluate("document.activeElement&&document.activeElement.id"), "revision-source-tab")
         rendered.focus()
         page.keyboard.press("Enter")
@@ -666,26 +674,33 @@ class BuildPauses(OneNote):
 
     def test_the_compare_builds_with_its_own_context_and_pauses_like_the_document_view(self):
         """Both sides are built with a render context of their own: the document view's lines, element count, headings
-        and marked count are what they were, and the build yields to the browser every MD_LIMITS.chunk units of work
-        (thousands of units per side, so several pauses). Mutations: build the sides with MD as their context in
-        buildSide -> MD's headings and count change, fails; drain mdRender without a yield -> no pause, fails."""
+        and marked count are what they were, and the build yields to the browser every MARKDOWN_LIMITS.chunk units of work
+        (thousands of units per side, so several pauses). Mutations: build the sides with MARKDOWN_VIEW as their context in
+        buildSide -> MARKDOWN_VIEW's headings and count change, fails; drain renderTokens without a yield -> no pause, fails."""
         page = self.open(0)
         until(page, DRAWN, 20)
         settle(page)
         before = page.evaluate(
-            "(()=>{window.__keep={lines:MD.lines,heads:MD.heads,head:MD.heads[0].el};"
-            "return [MD.lines.length,MD.els,MD.marked,MD.heads.length,MD.bom];})()"
+            "(()=>{window.__keep={lines:MARKDOWN_VIEW.lines,heads:MARKDOWN_VIEW.heads,head:MARKDOWN_VIEW.heads[0].el};"
+            "return [MARKDOWN_VIEW.lines.length,MARKDOWN_VIEW.els,MARKDOWN_VIEW.marked,MARKDOWN_VIEW.heads.length,MARKDOWN_VIEW.bom];})()"
         )
-        page.evaluate("(()=>{const y=mdYield;window.__n=0;window.mdYield=()=>{window.__n++;return y();};})()")
+        page.evaluate(
+            "(()=>{const y=yieldToBrowser;window.__n=0;window.yieldToBrowser=()=>{window.__n++;return y();};})()"
+        )
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
         until(page, COMPARED, 30)
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "P")])
         self.assertGreaterEqual(page.evaluate("window.__n"), 6)
-        self.assertEqual(page.evaluate("[MD.lines.length,MD.els,MD.marked,MD.heads.length,MD.bom]"), before)
+        self.assertEqual(
+            page.evaluate(
+                "[MARKDOWN_VIEW.lines.length,MARKDOWN_VIEW.els,MARKDOWN_VIEW.marked,MARKDOWN_VIEW.heads.length,MARKDOWN_VIEW.bom]"
+            ),
+            before,
+        )
         # the very arrays and heading the document view drew, still in article#md - not a side's like them
         self.assertEqual(
             page.evaluate(
-                "[MD.lines===__keep.lines,MD.heads===__keep.heads,MD.heads[0].el===__keep.head,!!MD.heads[0].el.closest('#md')]"
+                "[MARKDOWN_VIEW.lines===__keep.lines,MARKDOWN_VIEW.heads===__keep.heads,MARKDOWN_VIEW.heads[0].el===__keep.head,!!MARKDOWN_VIEW.heads[0].el.closest('#md')]"
             ),
             [True, True, True, True],
         )
@@ -1005,19 +1020,23 @@ class UpdateMessageRange(CompareBase):
     def opened(self, page, shown):
         """The view once the message's range is shown in format shown: [format, rendered pane hidden, source pane hidden,
         [그린 비교] pressed, [소스 diff] pressed]."""
-        ends = "REV.base===%s&&REV.commit===%s" % (json.dumps(self.c[2]), json.dumps(self.c[4]))
-        until(page, (COMPARED if shown == "rendered" else SOURCED.replace("&&!!REV.target", "")) + "&&" + ends, 15)
+        ends = "REVISION_VIEW.base===%s&&REVISION_VIEW.commit===%s" % (json.dumps(self.c[2]), json.dumps(self.c[4]))
+        until(
+            page,
+            (COMPARED if shown == "rendered" else SOURCED.replace("&&!!REVISION_VIEW.target", "")) + "&&" + ends,
+            15,
+        )
         settle(page)
         return page.evaluate(
-            "[REV.format,document.getElementById('revision-rendered').hidden,document.getElementById('revision-source').hidden,"
+            "[REVISION_VIEW.format,document.getElementById('revision-rendered').hidden,document.getElementById('revision-source').hidden,"
             "document.getElementById('revision-rendered-tab').getAttribute('aria-pressed'),"
             "document.getElementById('revision-source-tab').getAttribute('aria-pressed')]"
         )
 
     def test_from_the_document_the_messages_commits_open_in_the_rendered_compare(self):
         """From the document view: the range is drawn and compared - the picture's commit and the moved section, nothing
-        else. Mutation: open the message's range in the source diff (REV.format=DIFF_FORMAT.SOURCE before showRange in
-        loadRevisions' REV.want branch, the rule §새 소식 used to state) -> fails."""
+        else. Mutation: open the message's range in the source diff (REVISION_VIEW.format=DIFF_FORMAT.SOURCE before showRange in
+        loadRevisions' REVISION_VIEW.want branch, the rule §새 소식 used to state) -> fails."""
         page = self.open(0, init=self.seen())
         until(page, DRAWN, 20)
         self.press_message(page)
@@ -1035,6 +1054,6 @@ class UpdateMessageRange(CompareBase):
         open a Markdown range in [그린 비교] whatever the tab (showRange) -> fails."""
         page = self.open_compare(init=self.seen())
         page.click("#revision-source-tab")
-        until(page, "REV.format===DIFF_FORMAT.SOURCE&&REV.sourceCommit===revKey()", 15)
+        until(page, "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()", 15)
         self.press_message(page)
         self.assertEqual(self.opened(page, "source"), ["source", True, False, "false", "true"])

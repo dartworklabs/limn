@@ -52,7 +52,7 @@ class SheetDrag(BrowserBase):
             device["is_mobile"] = True  # Firefox has no such mode
         page = self.open(1, init=KB, **device)
         page.tap("#btn-side")
-        page.evaluate("setSheetF(0.64)")
+        page.evaluate("setSheetFraction(0.64)")
         settle(page)
         if kb:
             page.evaluate("n => __setKb(n)", kb)
@@ -121,7 +121,7 @@ class GrabberRelease(SheetDrag):
         846 (under 25%), the sheet closes. Mutation: the kept height (shown + 0.5px) judged instead -> the fling skips to
         64% and the slow release comes back at 30%, fails (found in review)."""
         page = self.sheet(TABLET)
-        page.evaluate("setSheetF(0.3)")
+        page.evaluate("setSheetFraction(0.3)")
         settle(page)
         # samples 10ms apart, however the moves arrive: the release reads as a fling
         page.evaluate(
@@ -160,11 +160,11 @@ class ListPullRelease(SheetDrag):
         """The list at its top pulled down by a finger lowers the sheet (pullDown); let go slowly, every 9px of pull from
         40px to 130px, the sheet keeps the whole pixel it was held at."""
         page = self.sheet(TABLET)
-        page.evaluate("setSheetF(1)")
+        page.evaluate("setSheetFraction(1)")
         settle(page)
         cdp = page.context.new_cdp_session(page)
         for pull in range(40, 131, 9):
-            page.evaluate("setSheetF(1)")
+            page.evaluate("setSheetFraction(1)")
             settle(page)
             y = page.locator("#list").bounding_box()["y"] + 40
             finger = Finger(cdp).down(TABLET[0] / 2, y).glide(TABLET[0] / 2, y + pull, 8)

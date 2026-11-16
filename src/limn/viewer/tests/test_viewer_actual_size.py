@@ -82,10 +82,10 @@ class ScaleLogic:
     """Shared node runner for the pure scale helpers."""
 
     def run_js(self, names, expr):
-        """Evaluate expr (JSON) with the named shipped functions and PT_PX defined."""
+        """Evaluate expr (JSON) with the named shipped functions and POINT_PX defined."""
         node_or_skip(self)
         js = "\n".join(
-            ["const PT_PX=96/72;"] + [extract_js_fn(n) for n in names] + ["console.log(JSON.stringify(%s));" % expr]
+            ["const POINT_PX=96/72;"] + [extract_js_fn(n) for n in names] + ["console.log(JSON.stringify(%s));" % expr]
         )
         return json.loads(run_node(js))
 
@@ -97,7 +97,7 @@ class PageScaleLogic(ScaleLogic, unittest.TestCase):
         """pageWidth(pt_w, k): rounded to whole px and never 0 - a one-column figure (252pt) is drawn at 336px and a
         two-column one (522pt) at 696px at print size."""
         got = self.run_js(
-            ["pageWidth"], "[pageWidth(522,PT_PX),pageWidth(252,PT_PX),pageWidth(612,1.5),pageWidth(0.2,1)]"
+            ["pageWidth"], "[pageWidth(522,POINT_PX),pageWidth(252,POINT_PX),pageWidth(612,1.5),pageWidth(0.2,1)]"
         )
         self.assertEqual(got, [696, 336, 918, 1])
 
@@ -177,7 +177,7 @@ class ActualSize(BrowserBase):
         until a person zooms."""
         self.size_figure((1100, 700), (525, 900))
         page = self.on("fig")
-        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX, places=6)
         pages = page.evaluate(PAGES)
         self.assertEqual([p["w"] for p in pages], [704, 336])
         self.assertAlmostEqual(pages[0]["mid"], pages[1]["mid"], delta=1)
@@ -190,7 +190,7 @@ class ActualSize(BrowserBase):
         width."""
         page = self.on("fig")
         fit = page.evaluate("fitWidth()")
-        self.assertAlmostEqual(page.evaluate("K"), fit / 1152, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), fit / 1152, places=6)
         pages = page.evaluate(PAGES)
         self.assertEqual([p["w"] for p in pages], [round(fit), round(612 * fit / 1152)])
         self.assertEqual(self.zoom_figure(page), "%d%%" % round(fit / 1152 / PT_PX * 100))
@@ -200,7 +200,7 @@ class ActualSize(BrowserBase):
         a phone, fit-width is the fitted width, and a zoom step is 1.2 times it - the widths the single page width W
         gave - with every page as wide as the first. The desktop keeps that width in pinPrefs.w as before."""
         page = self.on("ms")
-        old = page.evaluate("Math.round(Math.min(innerW(),900))")
+        old = page.evaluate("Math.round(Math.min(pdfAreaInnerWidth(),900))")
         self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {old})
         page.click("#btn-fit")
         fit = page.evaluate("Math.round(fitWidth())")
@@ -209,7 +209,7 @@ class ActualSize(BrowserBase):
         page.click("#btn-zoom-in")
         self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {round(fit * 1.2)})
         phone = self.on("ms", **PHONE)
-        inner = phone.evaluate("Math.round(innerW())")
+        inner = phone.evaluate("Math.round(pdfAreaInnerWidth())")
         self.assertEqual({p["w"] for p in phone.evaluate(PAGES)}, {inner})
         self.assertNotIn("w", phone.evaluate("prefs()"))
 
@@ -224,7 +224,7 @@ class ActualSize(BrowserBase):
           return {text: b.textContent.trim(), pressed: b.getAttribute('aria-pressed'), name: b.getAttribute('aria-label'),
             tip: b.dataset.tip, w: b.getBoundingClientRect().width};}"""
         before = page.evaluate(look)
-        pct = "%d%%" % page.evaluate("zoomPercent(K)")
+        pct = "%d%%" % page.evaluate("zoomPercent(PAGE_SCALE)")
         self.assertNotEqual(pct, "100%")
         self.assertEqual(before["text"], pct)
         self.assertEqual(before["pressed"], "false")
@@ -232,7 +232,7 @@ class ActualSize(BrowserBase):
         self.assertIn("지금 " + pct, before["tip"])
         self.assertEqual(self.zoom_figure(page), pct)
         page.click("#btn-actual")
-        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX, places=6)
         self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {816})
         after = page.evaluate(look)
         self.assertEqual((after["text"], after["pressed"]), ("100%", "true"))
@@ -242,10 +242,10 @@ class ActualSize(BrowserBase):
         page.click("#btn-zoom-in")
         self.assertEqual(page.evaluate(look)["pressed"], "false")
         page.click("#btn-fit")
-        k = page.evaluate("K")
+        k = page.evaluate("PAGE_SCALE")
         page.evaluate("document.activeElement&&document.activeElement.blur()")
         page.keyboard.press("Control+1")
-        self.assertEqual(page.evaluate("K"), k)
+        self.assertEqual(page.evaluate("PAGE_SCALE"), k)
         # The figure: [100%] keeps figZoom 1 and leaves the manuscript's w alone.
         self.size_figure((1100, 700), (525, 900))
         page.evaluate("async()=>await switchDoc('fig')")
@@ -258,7 +258,7 @@ class ActualSize(BrowserBase):
         page.click("#btn-zoom-out")
         page.reload()
         page.wait_for_function("typeof LIGHT_TIMER!=='undefined'&&LIGHT_TIMER!==null&&DOC==='fig'")
-        self.assertAlmostEqual(page.evaluate("K"), PT_PX / 1.2, places=3)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX / 1.2, places=3)
         page.evaluate("async()=>await switchDoc('ms')")
         page.wait_for_function("DOC==='ms'&&document.querySelector('#p2')")
         self.assertEqual({p["w"] for p in page.evaluate(PAGES)}, {w})
@@ -266,7 +266,7 @@ class ActualSize(BrowserBase):
     def test_the_zoom_button_speaks_english(self):
         """In English the zoom button's name and tip say the same in English, with the zoom now."""
         page = self.open(0, lang="en", init=NO_COACH, **DESKTOP)
-        pct = "%d%%" % page.evaluate("zoomPercent(K)")
+        pct = "%d%%" % page.evaluate("zoomPercent(PAGE_SCALE)")
         got = page.evaluate(
             "[document.querySelector('#btn-actual').getAttribute('aria-label'),"
             "document.querySelector('#btn-actual').dataset.tip]"
@@ -282,12 +282,12 @@ class ActualSize(BrowserBase):
         page = self.on("fig")
         fit = page.evaluate("fitWidth()")
         self.assertTrue(704 <= fit < 896, fit)
-        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX, places=6)
         self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [704, 896, 704])
         side = "(()=>{const L=document.querySelector('#left');return L.scrollWidth-L.clientWidth;})()"
         self.assertGreater(page.evaluate(side), 0)
         page.click("#btn-fit")
-        self.assertAlmostEqual(page.evaluate("K"), fit / 672, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), fit / 672, places=6)
         self.assertEqual(page.evaluate(side), 0)
 
     def test_a_fitted_page_never_scrolls_sideways(self):
@@ -312,7 +312,7 @@ class ActualSize(BrowserBase):
         self.size_figure((150, 150), (150, 300))
         page = self.on("fig")
         page.click("#btn-actual")
-        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX, places=6)
         self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [96, 96])
         self.assertEqual(page.evaluate("document.querySelector('#btn-actual').textContent.trim()"), "100%")
 
@@ -325,7 +325,7 @@ class ActualSize(BrowserBase):
         page = self.on(
             "fig", init="if(!sessionStorage.getItem('seeded')){sessionStorage.setItem('seeded','1');" + legacy + "}"
         )
-        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX, places=6)
         self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [704, 336])
         prefs = page.evaluate("prefs()")
         self.assertEqual(prefs["w"], 900)
@@ -347,8 +347,8 @@ class ActualSize(BrowserBase):
                 if opens:
                     self.assertEqual(page.inner_text("#m-zoom"), opens)
                 else:
-                    fit = page.evaluate("fitK()")
-                    self.assertAlmostEqual(page.evaluate("K"), fit, places=6)
+                    fit = page.evaluate("fitScale()")
+                    self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), fit, places=6)
                     self.assertEqual(page.inner_text("#m-zoom"), "%d%%" % round(fit / PT_PX * 100))
                 row = page.evaluate("""() => {const b = document.querySelector('#m-actual'), f = document.querySelector('#more [data-act=fit]');
                   const r = b.getBoundingClientRect(), a = getComputedStyle(b, '::after');
@@ -359,7 +359,7 @@ class ActualSize(BrowserBase):
                 if device.get("has_touch"):
                     self.assertGreaterEqual(min(max(row["w"], row["hit"][0]), max(row["h"], row["hit"][1])), 44)
                 page.click("#m-actual")
-                self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+                self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX, places=6)
                 self.assertEqual(page.inner_text("#m-zoom"), "100%")
                 self.assertEqual([p["w"] for p in page.evaluate(PAGES)], [704, 336])
 
@@ -397,7 +397,7 @@ class ActualSize(BrowserBase):
         )
         pages = page.evaluate(PAGES)
         self.assertEqual(pages[0]["w"], round(page.evaluate("fitWidth()")))
-        self.assertEqual(pages[1]["w"], round(252 * page.evaluate("K")))
+        self.assertEqual(pages[1]["w"], round(252 * page.evaluate("PAGE_SCALE")))
         self.assertAlmostEqual(pages[0]["mid"], pages[1]["mid"], delta=1)
         lines = page.evaluate("[...document.querySelectorAll('#doc .pv')].map(l=>l.getBoundingClientRect().width)")
         self.assertEqual([round(v) for v in lines], [round(p["w"]) for p in pages])
@@ -415,13 +415,13 @@ class ActualSize(BrowserBase):
         )
         at = "p=>{const a=zoomAnchor(p[0],p[1]);return [a.pg.id,+a.fx.toFixed(3),+a.fy.toFixed(3)];}"
         before = page.evaluate(at, p2)
-        page.evaluate("p=>zoomTo(K*2.5,p[0],p[1])", p2)
+        page.evaluate("p=>zoomTo(PAGE_SCALE*2.5,p[0],p[1])", p2)
         after = page.evaluate(at, p2)
         self.assertEqual(after[0], "p2")
         self.assertAlmostEqual(after[1], before[1], delta=0.01)
         self.assertAlmostEqual(after[2], before[2], delta=0.01)
         lines = page.evaluate("[...document.querySelectorAll('#doc .pv')].map(l=>l.getBoundingClientRect().width)")
-        self.assertEqual([round(v) for v in lines], [round(page.evaluate("innerW()"))] * 2)
+        self.assertEqual([round(v) for v in lines], [round(page.evaluate("pdfAreaInnerWidth()"))] * 2)
         # Scrolled to the right end of the zoomed wide page, the jump to the narrow page brings it into view.
         page.evaluate("()=>{const L=document.querySelector('#left');L.scrollLeft=L.scrollWidth;L.scrollTop=0;}")
         page.evaluate("goPage(2)")
@@ -456,7 +456,7 @@ class ActualSize(BrowserBase):
         page.evaluate("async()=>await refreshDoc()")
         settle(page)
         self.assertEqual(page.evaluate("META.pages_build"), helpers_figure.BUILD2)
-        self.assertAlmostEqual(page.evaluate("K"), PT_PX, places=6)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), PT_PX, places=6)
         self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [704, 704])
 
     def drawn_again_under_the_changes_view(self, device, width):
@@ -466,7 +466,7 @@ class ActualSize(BrowserBase):
         self.size_figure((1100, 700), (525, 900))
         page = self.on("fig", **device)
         page.evaluate("w=>zoomTo(w/528)", width)
-        k = page.evaluate("K")
+        k = page.evaluate("PAGE_SCALE")
         self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [width, round(252 * k)])
         page.evaluate("""() => {const L = document.querySelector('#left'), p = document.getElementById('p2').getBoundingClientRect();
           L.scrollTop += p.top - L.getBoundingClientRect().top + 0.3 * p.height;}""")
@@ -483,13 +483,13 @@ class ActualSize(BrowserBase):
         page.evaluate("async()=>await refreshDoc()")
         settle(page)
         self.assertEqual(page.evaluate("META.pages_build"), helpers_figure.BUILD2)
-        self.assertEqual(page.evaluate("K"), k)
+        self.assertEqual(page.evaluate("PAGE_SCALE"), k)
         widths = page.evaluate("[...document.querySelectorAll('#doc .pg')].map(p=>parseFloat(p.style.width))")
         self.assertEqual(widths, [round(600 * k), round(528 * k)])
         page.evaluate("setViewMode(VIEW_MODE.MANUSCRIPT)")
         page.wait_for_function("document.querySelector('#left').getClientRects().length>0")
         settle(page)
-        self.assertAlmostEqual(page.evaluate("K"), k, places=9)
+        self.assertAlmostEqual(page.evaluate("PAGE_SCALE"), k, places=9)
         self.assertEqual([round(p["w"]) for p in page.evaluate(PAGES)], [round(600 * k), round(528 * k)])
         back = page.evaluate("topAnchor()")
         self.assertEqual(back["page"], 2, back)
@@ -532,7 +532,7 @@ class ActualSize(BrowserBase):
         ).record["id"]
         page = self.on("fig", **PHONE)
         page.evaluate("document.getElementById('p2').scrollIntoView({block:'center'})")
-        page.evaluate("setSelMode(true)")
+        page.evaluate("setSelectMode(true)")
         settle(page)
         at = page.evaluate("""() => {const p = document.getElementById('p2').getBoundingClientRect(),
           b = document.querySelector('#p2 .mark-jump').getBoundingClientRect(); const x = p.left + 4, y = b.top + b.height / 2;
@@ -586,7 +586,7 @@ class ActualSize(BrowserBase):
         box too small to be one is a click) and leaves the page as it was. Leaves the clock paused and the select mode on;
         returns the pointer's CDP session."""
         page.evaluate("document.getElementById('p2').scrollIntoView({block:'center'})")
-        page.evaluate("setSelMode(true)")
+        page.evaluate("setSelectMode(true)")
         settle(page)
         at = self.badge_at(page, pid)
         self.assertTrue(at["on"], "the press point is not on the badge's press area: %s" % at)
@@ -673,7 +673,7 @@ class ActualSize(BrowserBase):
                     page = self.on("fig", **device)
                     page.evaluate("document.getElementById('p2').scrollIntoView({block:'center'})")
                     if select:
-                        page.evaluate("setSelMode(true)")
+                        page.evaluate("setSelectMode(true)")
                         settle(page)
                     b = page.locator("#p2 .mark-jump").bounding_box()
                     x, y = b["x"] + b["width"] / 2, b["y"] + b["height"] / 2
@@ -698,7 +698,7 @@ class ActualSize(BrowserBase):
         (self.fig.dir / helpers_figure.BUILD1 / self.fig.pdf_name).write_bytes(sized_pdf([(528, 336), (252, 432)]))
         page = self.on("fig", viewport={"width": 1400, "height": 900}, device_scale_factor=2)
         page.wait_for_function("document.querySelectorAll('#doc .pg.drawn').length===2", timeout=15000)
-        page.evaluate("zoomTo(fitK()*5)")
+        page.evaluate("zoomTo(fitScale()*5)")
         cover = """n => {const pg = document.getElementById('p' + n), L = document.querySelector('#left'), dt = pg.querySelector('canvas.dt');
           const vb = pg.querySelector('canvas.vb'); if (!dt || !vb) return null; const r = pg.getBoundingClientRect(), l = L.getBoundingClientRect(),
           d = dt.getBoundingClientRect(); const vis = [Math.max(r.left, l.left), Math.max(r.top, l.top), Math.min(r.right, l.left + L.clientWidth),

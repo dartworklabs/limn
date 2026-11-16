@@ -1,4 +1,4 @@
-"""The viewer writes HTML only as Html from html`` or ic(), and only through setHtml() (docs/handbook/viewer.md §마크업 만들기).
+"""The viewer writes HTML only as Html from html`` or lucideIcon(), and only through setHtml() (docs/handbook/viewer.md §마크업 만들기).
 
 Two halves. Behavior: html`` keeps its literal parts and escapes every value that is not Html, so text a person or a
 PDF wrote (a note, a name, an outline heading) never becomes markup; setHtml() refuses anything else. Source: the parts
@@ -118,8 +118,10 @@ class MarkupValues(unittest.TestCase):
         self.assertEqual(out, '<b title="%s">%s</b>' % (attr, attr))
 
     def test_html_and_icons_go_in_as_markup_and_arrays_join(self):
-        """Html (an inner html``, an ic()) stays markup; an array joins its items by the same rules."""
-        out = run_markup("console.log(JSON.stringify(html`<ul>${['a<',html`<li>b</li>`]}</ul>${ic('x')}`.text));")
+        """Html (an inner html``, an lucideIcon()) stays markup; an array joins its items by the same rules."""
+        out = run_markup(
+            "console.log(JSON.stringify(html`<ul>${['a<',html`<li>b</li>`]}</ul>${lucideIcon('x')}`.text));"
+        )
         self.assertTrue(out.startswith('<ul>a&lt;<li>b</li></ul><svg class="ic ic-x"'), out)
 
     def test_null_and_undefined_are_nothing_but_false_and_zero_are_text(self):
@@ -133,7 +135,7 @@ class MarkupValues(unittest.TestCase):
             "const r=f=>{try{f();return 'ok';}catch(e){return e.constructor.name;}};"
             "const el={innerHTML:''};"
             "console.log(JSON.stringify([r(()=>html('<b>x</b>')), r(()=>setHtml(el,'<b>x</b>')),"
-            "r(()=>setHtml(el,{text:'<b>x</b>'})), r(()=>setHtml(el,html`<i>${'<'}</i>`)), el.innerHTML, ic('nope').text]));"
+            "r(()=>setHtml(el,{text:'<b>x</b>'})), r(()=>setHtml(el,html`<i>${'<'}</i>`)), el.innerHTML, lucideIcon('nope').text]));"
         )
         self.assertEqual(out, ["TypeError", "TypeError", "TypeError", "ok", "<i>&lt;</i>", ""])
 

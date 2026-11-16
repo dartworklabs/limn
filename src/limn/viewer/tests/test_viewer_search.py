@@ -818,7 +818,7 @@ CROWDED = {
 }
 
 # Until the PDF is open and no page is being drawn: the search reads the open document's text.
-PDF_READY = "typeof VEC!=='undefined'&&!!VEC.doc&&!VEC.pumping&&!VEC.cur"
+PDF_READY = "typeof VECTOR_PDF!=='undefined'&&!!VECTOR_PDF.doc&&!VECTOR_PDF.pumping&&!VECTOR_PDF.cur"
 # The count once every page has been read: 'n/m' and nothing after it.
 COUNTED = "/^\\d+\\/\\d+$/.test(document.querySelector('#search-count').textContent)"
 # The count while pages are still to be read: 'n/m…'.
@@ -897,7 +897,7 @@ INK_MID = """async ([b64, dpr, boxes]) => {const img = await createImageBitmap(n
 # Makes PDF.js hand out each page's text only when the test lets it (window.__text.open(n) or .all()), and counts the
 # requests: __text.asked lists the pages whose text was asked for, in order; __text.fail(n) makes page n's next request
 # reject. Installed on the open document, so it lasts for that build; each page is gated once, however often it is got.
-TEXT_GATE = """() => {const doc = VEC.doc, get = doc.getPage.bind(doc), T = window.__text = {asked: [], held: new Map(), free: false, bad: new Set()};
+TEXT_GATE = """() => {const doc = VECTOR_PDF.doc, get = doc.getPage.bind(doc), T = window.__text = {asked: [], held: new Map(), free: false, bad: new Set()};
   T.open = n => {const go = T.held.get(n); if (go) {T.held.delete(n); go();}}; T.all = () => {T.free = true; [...T.held.keys()].forEach(T.open);};
   T.fail = n => T.bad.add(n);
   doc.getPage = async n => {const p = await get(n); if (p.__gated) return p; p.__gated = true; const text = p.getTextContent.bind(p);
@@ -1146,12 +1146,12 @@ class SearchFinds(SearchBase):
         page = self.view()
         line = "y => {const g = document.getElementById('p3'), r = g.getBoundingClientRect(); return r.top + g.clientTop + (792 - y) / 792 * g.clientHeight;}"
         page.evaluate(
-            "line => {const L = document.querySelector('#left'), a = selPopArea(), at = eval(line); L.scrollTop += at(676 - 3) - (selPopArea().bottom - 14);}",
+            "line => {const L = document.querySelector('#left'), a = popoverFreeArea(), at = eval(line); L.scrollTop += at(676 - 3) - (popoverFreeArea().bottom - 14);}",
             line,
         )
         settle(page)
         where = page.evaluate(
-            "line => {const at = eval(line); return [at(676 - 3), at(661 - 3), selPopArea().bottom];}", line
+            "line => {const at = eval(line); return [at(676 - 3), at(661 - 3), popoverFreeArea().bottom];}", line
         )
         self.assertLess(where[0], where[2] - 8)  # the first line shows ...
         self.assertGreater(where[1], where[2])  # ... and the second does not
@@ -1193,18 +1193,18 @@ class SearchFinds(SearchBase):
         drawing is done the pages are read and the count ends at 1/7.
 
         No outcome on screen tells a reader that waits from one that has not started, so this reads the page's own
-        state: VEC.pumping (set here as the drawing loop sets it) and the requests PDF.js gets for text (TEXT_GATE).
+        state: VECTOR_PDF.pumping (set here as the drawing loop sets it) and the requests PDF.js gets for text (TEXT_GATE).
         The 400ms is a bounded wait for something that must not happen: reading the three pages takes a few ms."""
         page = self.view()
         page.evaluate(TEXT_GATE)
-        page.evaluate("window.__text.all(); VEC.pumping=true")
+        page.evaluate("window.__text.all(); VECTOR_PDF.pumping=true")
         page.click("#search-q")
         page.keyboard.type("tide")
         page.wait_for_function(COUNTING)
         page.wait_for_timeout(400)
         self.assertEqual(page.evaluate("window.__text.asked"), [])
         self.assertEqual(self.count(page), "0/0…")
-        page.evaluate("VEC.pumping=false")
+        page.evaluate("VECTOR_PDF.pumping=false")
         page.wait_for_function(COUNTED, timeout=8000)
         self.assertEqual(self.count(page), "1/7")
         self.assertEqual(sorted(page.evaluate("window.__text.asked")), [1, 2, 3])
@@ -1469,7 +1469,7 @@ class SearchKeys(SearchBase):
         self.assertEqual(page.input_value("#sel-pop textarea"), "초안 메모")
         self.assertEqual(page.input_value("#note"), "초안 메모")
         box = page.evaluate(
-            "(()=>{const b=document.querySelector('.pg .sel').getBoundingClientRect(),a=selPopArea(); return [b.top>=a.top,b.bottom<=a.bottom];})()"
+            "(()=>{const b=document.querySelector('.pg .sel').getBoundingClientRect(),a=popoverFreeArea(); return [b.top>=a.top,b.bottom<=a.bottom];})()"
         )
         self.assertEqual(box, [True, True])  # the selection box is on screen with it
 

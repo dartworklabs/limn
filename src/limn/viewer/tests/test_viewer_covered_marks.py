@@ -335,7 +335,7 @@ class CoveredMarksSeen(BrowserBase):
             with self.subTest(sheet=f):
                 page = self.open_device(touch(768, 1024))
                 page.tap("#btn-side")
-                page.evaluate("f => setSheetF(f)", f)
+                page.evaluate("f => setSheetFraction(f)", f)
                 settle(page)
                 ahead, back = self.walks(page)
                 self.assert_all_seen(ahead, least=10)
@@ -357,7 +357,7 @@ class CoveredMarksSeen(BrowserBase):
                 self.assertLessEqual(tip, sheet)  # over the badge, not over the sheet or its status line
         page = self.open_device(touch(768, 1024))
         page.tap("#btn-side")
-        page.evaluate("setSheetF(0.64)")
+        page.evaluate("setSheetFraction(0.64)")
         settle(page)
         g = page.locator("#sheet-grip").bounding_box()
         x, y = g["x"] + g["width"] / 2, g["y"] + g["height"] / 2
@@ -412,7 +412,7 @@ class CoveredMarksSeen(BrowserBase):
                     page.click("#btn-side")
                 else:
                     page.tap("#btn-side")
-                    page.evaluate("f => setSheetF(f)", f)
+                    page.evaluate("f => setSheetFraction(f)", f)
                 settle(page)
                 self.assertTrue(page.evaluate("SIDE_OPEN"))
                 page.evaluate("document.querySelector('#left').scrollTop = 0")
@@ -434,7 +434,7 @@ class CoveredMarksSeen(BrowserBase):
         from the panel, the pages at their end, rests first on the last badge a scroll brings out, seen."""
         page = self.open_device(touch(768, 1024))
         page.tap("#btn-side")
-        page.evaluate("setSheetF(0.64)")
+        page.evaluate("setSheetFraction(0.64)")
         settle(page)
         reach = page.evaluate(REACHABLE)
         self.assertTrue(any(reach) and not all(reach), reach)
@@ -537,7 +537,7 @@ class CoveredMarksSeen(BrowserBase):
         s = self.walk_to(page, lambda m: m["y"] > 200)
         page.wait_for_timeout(450)
         self.assertTrue(page.evaluate(SEEN)["tip"])
-        page.evaluate("setSheetF(1)")
+        page.evaluate("setSheetFraction(1)")
         settle(page)
         page.wait_for_timeout(450)
         under = page.evaluate(SEEN)

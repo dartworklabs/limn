@@ -48,7 +48,7 @@ STATE = """() => {const q = s => document.querySelector(s), shown = e => !!e && 
   return {switch: shown(q('#c-sg-tg')), on: q('#c-sg-tg').getAttribute('aria-checked'), why: shown(q('#c-sg-why')) ? q('#c-sg-why').textContent : null,
     editor: shown(q('#c-sg-text')), text: q('#c-sg-text').value, readOnly: q('#c-sg-text').readOnly,
     line: shown(line) ? line.querySelector('span').textContent : null, act: act ? act.textContent : null,
-    cur: shown(q('#c-sg-cur')), base: SG.base, range: COMPOSE.current && [COMPOSE.current.lo, COMPOSE.current.hi]};}"""
+    cur: shown(q('#c-sg-cur')), base: SUGGEST_DRAFT.base, range: COMPOSE.current && [COMPOSE.current.lo, COMPOSE.current.hi]};}"""
 # A card's suggestion as drawn: its badge (text, warning look), its diff rows (class, number, line) and the fold button.
 CARD = """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), b = c.querySelector('.sg-badge'), f = c.querySelector('.sg-foot button');
   const shown = e => !!e && e.getClientRects().length > 0;
@@ -296,7 +296,7 @@ class SuggestBase(BrowserBase):
 
     def compose(self, page, pointer="mouse"):
         """A pick through the real path (its default rung: the paragraph, lines 4-5); waits for the composer."""
-        page.evaluate("p=>{LAST_PTR=p; pick({page:1,x0:10,y0:10,x1:200,y1:60});}", pointer)
+        page.evaluate("p=>{LAST_POINTER=p; pick({page:1,x0:10,y0:10,x1:200,y1:60});}", pointer)
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
         settle(page)
 
@@ -445,7 +445,7 @@ class SuggestComposer(SuggestBase):
         page.keyboard.press("Escape")
         settle(page)
         self.assertTrue(page.evaluate("document.querySelector('#composer').hidden"))
-        self.assertEqual(page.evaluate("[SG.on, SG.text]"), [False, ""])
+        self.assertEqual(page.evaluate("[SUGGEST_DRAFT.on, SUGGEST_DRAFT.text]"), [False, ""])
         page.click('#status [data-act="notice-act"]')
         settle(page)
         s = page.evaluate(STATE)
@@ -528,7 +528,7 @@ class SuggestSave(SuggestBase):
             with self.subTest(edit=edit, off=off):
                 self.compose(page)
                 page.fill("#note", "메모")
-                if not page.evaluate("SG.on"):
+                if not page.evaluate("SUGGEST_DRAFT.on"):
                     self.switch_on(page)
                 if edit:
                     page.fill("#c-sg-text", NEW)
@@ -564,7 +564,7 @@ class SuggestSave(SuggestBase):
         self.assertIn("Second line, changed.", page.inner_text("#c-sg-cur"))
         page.click('.nt-banner [data-act="notice-act"]')
         settle(page)
-        self.assertEqual(page.evaluate("SG.base"), "First line of the paragraph.\nSecond line, changed.")
+        self.assertEqual(page.evaluate("SUGGEST_DRAFT.base"), "First line of the paragraph.\nSecond line, changed.")
         page.click("#btn-save")
         page.wait_for_function("OPEN_ALL.length===1")
         (p,) = self.records()
@@ -702,7 +702,9 @@ class SuggestCard(SuggestBase):
         ps.APP.pin_lifecycle.close_pin(
             other, post_authority(store, actor(ALICE), "close", other), CloseRequest(reply="됨")
         )
-        page.evaluate("id=>{loadPins(); SEC.review=true; SEC.done=true; ARC_OPEN.add('o:'+id);}", other)
+        page.evaluate(
+            "id=>{loadPins(); SECTION_OPEN.review=true; SECTION_OPEN.done=true; ARC_OPEN.add('o:'+id);}", other
+        )
         settle(page)
         page.evaluate("drawPins()")
         settle(page)

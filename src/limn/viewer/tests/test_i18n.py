@@ -1,7 +1,7 @@
 """Viewer UI language: the English message table (src/limn/viewer/ui_en.json) and its wiring.
 
 The Korean strings in the HTML template are the source. In English mode the viewer swaps every string
-found in the table, and composed strings go through tl() with a parameterised key ('{n}쪽'). The agent
+found in the table, and composed strings go through translateTemplate() with a parameterised key ('{n}쪽'). The agent
 contract (pins.md, API) is not translated.
 """
 
@@ -137,9 +137,9 @@ def first_arg(src, i):
 
 
 def composed_keys(html):
-    """Korean string literals passed (directly or through a ?: choice) as the key of tl() or tr() in the viewer script."""
+    """Korean string literals passed (directly or through a ?: choice) as the key of translateTemplate() or translate() in the viewer script."""
     keys = set()
-    for m in re.finditer(r"(?<![\w.$])t[lr]\(", html):
+    for m in re.finditer(r"(?<![\w.$])(?:translate|translateTemplate)\(", html):
         for lm in LIT.finditer(first_arg(html, m.end() - 1)):
             k = lm.group(1) if lm.group(1) is not None else lm.group(2)
             k = k.replace("\\'", "'").replace("\\\\", "\\")
@@ -192,9 +192,9 @@ class MessageTable(unittest.TestCase):
         self.assertEqual(sorted(k for k in used if k not in UI_EN), [])
 
     def test_every_tooltip_text_has_a_translation(self):
-        """The tooltip table T (core.js) reaches the screen through tr(T.x), which composed_keys() cannot see: every text
+        """The tooltip table TIP_TEXT (core.js) reaches the screen through translate(TIP_TEXT.x), which composed_keys() cannot see: every text
         in it has an English entry, so a new tooltip is never left in Korean."""
-        table = js_const("T")
+        table = js_const("TIP_TEXT")
         texts = [re.sub(r"\\(.)", r"\1", m.group(2)) for m in ENTRY.finditer(table)]
         self.assertGreater(len(texts), 20)
         self.assertEqual(sorted(t for t in texts if t not in UI_EN), [])
@@ -209,7 +209,7 @@ class MessageTable(unittest.TestCase):
     def test_every_static_ui_string_has_a_translation(self):
         html = page_for("A-DEMO", "#2563eb")
 
-        def covered(s):  # same lookup as trMsg(): the whole string, else each part around ' — ' or ' · '
+        def covered(s):  # same lookup as translateMessage(): the whole string, else each part around ' — ' or ' · '
             if s in UI_EN:
                 return True
             for sep in (" — ", " · "):
@@ -266,7 +266,9 @@ class Wiring(unittest.TestCase):
         quotes what people wrote (options.literal: notifyShow, another document's name); boot starts the translator first; the
         language segment says which language it switches to."""
         for fn in ("lineNote", "bannerNote"):
-            self.assertIn(sq("msg:options.literal?String(message):trMsg(message)"), sq(extract_js_fn(fn)), fn)
+            self.assertIn(
+                sq("msg:options.literal?String(message):translateMessage(message)"), sq(extract_js_fn(fn)), fn
+            )
         self.assertIn(sq("async function boot(){i18nStart();"), SCRIPT_SQ)
         self.assertIn('id="m-lang"', HTML)
         self.assertIn(
@@ -373,17 +375,17 @@ class BrowserLanguage(ChromiumTestCase):
 
 
 class ComposedMessages(unittest.TestCase):
-    """tl(): Korean template in ko, the table's English template (or plural form) in en."""
+    """translateTemplate(): Korean template in ko, the table's English template (or plural form) in en."""
 
     def run_js(self, lang, body):
-        """Run the viewer's real tr/tl under node in lang; the JSON of body."""
+        """Run the viewer's real translate/translateTemplate under node in lang; the JSON of body."""
         if not shutil.which("node"):
             self.skipTest("node not available")
         js = "\n".join(
             [
                 "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
-                extract_js_fn("tr"),
-                extract_js_fn("tl"),
+                extract_js_fn("translate"),
+                extract_js_fn("translateTemplate"),
                 "console.log(JSON.stringify(%s));" % body,
             ]
         )
@@ -392,17 +394,17 @@ class ComposedMessages(unittest.TestCase):
     def test_korean_fills_the_key_itself(self):
         out = self.run_js(
             "ko",
-            "[tl('{n}쪽',{n:1}),tl('{n}쪽',{n:25}),tl('{name}님 확인 필요',{name:'Bob'}),tl('검토 대기 {n}',{n:6}),"
-            "tl('#{id}{p} 같은 범위',{id:4,p:'와'}),tr('완료'),tl('없는 키 {x}',{x:1})]",
+            "[translateTemplate('{n}쪽',{n:1}),translateTemplate('{n}쪽',{n:25}),translateTemplate('{name}님 확인 필요',{name:'Bob'}),translateTemplate('검토 대기 {n}',{n:6}),"
+            "translateTemplate('#{id}{p} 같은 범위',{id:4,p:'와'}),translate('완료'),translateTemplate('없는 키 {x}',{x:1})]",
         )
         self.assertEqual(out, ["1쪽", "25쪽", "Bob님 확인 필요", "검토 대기 6", "#4와 같은 범위", "완료", "없는 키 1"])
 
     def test_english_uses_templates_and_plurals(self):
         out = self.run_js(
             "en",
-            "[tl('{n}쪽',{n:1}),tl('{n}쪽',{n:25}),tl('{page}쪽',{page:3}),tl('{name}님 확인 필요',{name:'Bob'}),"
-            "tl('{n}시간 전',{n:22}),tl('{n}일 전',{n:1}),tl('이전 {n}건 보기',{n:2}),tl('#{id}{p} 같은 범위',{id:4,p:'와'}),"
-            "tr('완료'),tl('없는 키 {x}',{x:1})]",
+            "[translateTemplate('{n}쪽',{n:1}),translateTemplate('{n}쪽',{n:25}),translateTemplate('{page}쪽',{page:3}),translateTemplate('{name}님 확인 필요',{name:'Bob'}),"
+            "translateTemplate('{n}시간 전',{n:22}),translateTemplate('{n}일 전',{n:1}),translateTemplate('이전 {n}건 보기',{n:2}),translateTemplate('#{id}{p} 같은 범위',{id:4,p:'와'}),"
+            "translate('완료'),translateTemplate('없는 키 {x}',{x:1})]",
         )
         self.assertEqual(
             out,
@@ -429,10 +431,10 @@ def pick_warning_sentences():
 
 class PickWarnings(unittest.TestCase):
     """The pick's `warn` is a Korean UI hint (not an error body) that the server composes from up to three sentences.
-    warnText() shows it in English by matching each sentence to its template in PICK_WARNS and filling it via tl()."""
+    warnText() shows it in English by matching each sentence to its template in PICK_WARNS and filling it via translateTemplate()."""
 
     def run_js(self, lang, body):
-        """Run the viewer's real tr/tl/warnText (and its PICK_WARNS table) under node in lang; the JSON of body."""
+        """Run the viewer's real translate/translateTemplate/warnText (and its PICK_WARNS table) under node in lang; the JSON of body."""
         if not shutil.which("node"):
             self.skipTest("node not available")
         table = js_const("PICK_WARNS")
@@ -440,8 +442,8 @@ class PickWarnings(unittest.TestCase):
             [
                 "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
                 table,
-                extract_js_fn("tr"),
-                extract_js_fn("tl"),
+                extract_js_fn("translate"),
+                extract_js_fn("translateTemplate"),
                 extract_js_fn("warnText"),
                 "console.log(JSON.stringify(%s));" % body,
             ]
@@ -744,7 +746,7 @@ class EnglishChrome(ChromiumTestCase):
         preview, its thread and its author. The translator rewrote every text node that matched the table, so the tabs read
         '본문 · Figure · …' (UX audit P6, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때)."""
         page, pin = self.open_with_ui_words()
-        page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openNavSheet();}", pin["id"])
+        page.evaluate("id=>{OPEN_CARDS.add(id); drawPins(); openNavigationSheet();}", pin["id"])
         settle(page)
         got = page.evaluate(
             """id => {const c = document.querySelector('.pin[data-id="' + id + '"]'), t = s => (c.querySelector(s) || {}).textContent;

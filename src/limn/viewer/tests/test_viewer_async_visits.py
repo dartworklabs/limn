@@ -20,7 +20,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         """A rebuild started on A cannot hide B's error or poll B when its POST finishes late."""
         js = "\n".join(
             [
-                extract_js_fn("dq"),
+                extract_js_fn("withDocQuery"),
                 extract_js_fn("rebuild"),
                 """
                 let DOC='a',SWITCHSEQ=1; const BUILD={inflight:null};
@@ -48,12 +48,12 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=1;
                 const lost={hidden:true};
                 let fail;
-                function dq(path){return path;}function notifyQuery(){return '';}
+                function withDocQuery(path){return path;}function notifyQuery(){return '';}
                 function api(){return new Promise((resolve,reject)=>{fail=reject;});}
                 function $(name){return lost;}
                 (async()=>{
@@ -70,7 +70,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         """A rebuild waiting for an earlier build poll cannot poll a document opened meanwhile."""
         js = "\n".join(
             [
-                extract_js_fn("dq"),
+                extract_js_fn("withDocQuery"),
                 extract_js_fn("rebuild"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -95,12 +95,12 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=2;
                 const lost={hidden:false};
                 let finish;
-                function dq(path){return path;}function notifyQuery(){return '';}
+                function withDocQuery(path){return path;}function notifyQuery(){return '';}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 function $(name){return lost;}
                 function notifyHandle(){}
@@ -139,11 +139,11 @@ class VisitLocalContinuations(unittest.TestCase):
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
                 let KIND_NEW='fix',PINS=[],removes=0,clears=0,drafts=0,loads=0,drops=0,restores=0;
-                const SEC_SEEN={open:new Set()},ASSIGN_NEW={v:'agent'};
+                const SECTION_SEEN={open:new Set()},ASSIGN_NEW={v:'agent'};
                 let finish,undo;
                 function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
                 const document={querySelectorAll:()=>[$('#btn-save')]};
-                function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figRung(){return null;}
+                function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figureRung(){return null;}
                 function mentionHints(){return [];}function renderAssignNew(){}
                 function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
                 function selectionSnapshot(){return {};}
@@ -153,11 +153,11 @@ class VisitLocalContinuations(unittest.TestCase):
                 function restoreSelection(){restores++;}
                 function dropPin(){drops++;}
                 function focusRun(){return {away:()=>false,stop(){}};}   // a retry's own focus watch (notices.js)
-                function tl(s){return s;}function tr(s){return s;}const BANNERS=new Map();function endNotice(){}
+                function translateTemplate(s){return s;}function translate(s){return s;}const BANNERS=new Map();function endNotice(){}
                 function undoNote(place,msg,act){undo=act.fn;return null;}function settleChip(){}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
-                const SG={on:false,text:'',base:null}; let META=null;   // no suggested edit (suggest.js)
+                const SUGGEST_DRAFT={on:false,text:'',base:null}; let META=null;   // no suggested edit (suggest.js)
                 function suggestOff(){return null;} function suggestForSave(){return null;} function suggestPending(){return false;}
                 """,
                 scenario,
@@ -255,10 +255,10 @@ class VisitLocalContinuations(unittest.TestCase):
                 function cancelSelection(){cleared++;COMPOSE.current=null;}
                 function syncDraft(){} function savedDraftSnapshot(){return null;}
                 function restoredDraftOwns(){return false;} function clearSavedDraft(){}
-                function undoNote(){said++;return null;}function settleChip(){}function tl(s){return s;}function tr(s){return s;}
+                function undoNote(){said++;return null;}function settleChip(){}function translateTemplate(s){return s;}function translate(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function undoAppend(){} function mentionHints(){return [];}
-                const SG={on:false,text:'',base:null}; function suggestPending(){return false;}   // no suggested edit (suggest.js)
+                const SUGGEST_DRAFT={on:false,text:'',base:null}; function suggestPending(){return false;}   // no suggested edit (suggest.js)
                 (async()=>{
                   const old=appendToPin(7,'new');COMPOSE.current={doc:'a',newSelection:true};
                   COMPOSE.box={remove(){removed++;}};
@@ -309,7 +309,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const pending={};let loads=0;
                 function pdoc(p){return p.doc;}
                 function drawPins(){}function marks(){}function markMine(){}function findAnyPin(){return null;}function sourceOk(){}const DROPPED=[];
-                function tl(s){return s;}function undoNote(){}function quietNote(){}function restorePin(){}function $(){return {};}function drawnBefore(){return null;}
+                function translateTemplate(s){return s;}function undoNote(){}function quietNote(){}function restorePin(){}function $(){return {};}function drawnBefore(){return null;}
                 function api(url){const id=Number(url.split('/')[3]);return new Promise((resolve,reject)=>{pending[id]={resolve,reject};});}
                 function loadPins(){loads++;return Promise.resolve(false);}
                 (async()=>{
@@ -343,7 +343,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
                 function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
-                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function tl(s){return s;}
+                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function translateTemplate(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
@@ -405,7 +405,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
                 function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
-                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function tl(s){return s;}
+                function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function translateTemplate(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
@@ -425,14 +425,14 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("applyRepick"),
-                extract_js_fn("rng"),
+                extract_js_fn("lineRange"),
                 """
                 let DOC='a',SWITCHSEQ=1;
                 const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};
                 let REPICK=prior,finish,loads=0,said=0,cancels=0,snips=0;
                 const EDITOR={current:{id:1,base_rev:1,orig:{lo:1,hi:1}},saving:false};
-                function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}function pinPlace(p){return {page:p.page};}
-                function tl(s){return s;}function quietNote(){said++;}function bannerNote(){said++;}
+                function levelOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickElement(){return null;}function pinPlace(p){return {page:p.page};}
+                function translateTemplate(s){return s;}function quietNote(){said++;}function bannerNote(){said++;}
                 function cancelRepick(){cancels++;REPICK=null;}
                 function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -465,13 +465,13 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("hasMark"),
                         extract_js_fn("pinPlace"),
                         extract_js_fn("applyRepick"),
-                        extract_js_fn("rng"),
+                        extract_js_fn("lineRange"),
                         """
                         let DOC='a',SWITCHSEQ=1;
                         let REPICK={id:1,cand:{page:1,kind:'region',frac:[0,0,1,1]}};
                         const EDITOR={current:null,saving:false}; const SAID=[];
-                        function lvOf(){return null;}function isRegion(){return true;}function figureFields(b){return b;}function repickEl(){return null;}
-                        function tl(s,v){return s.replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]);}function quietNote(m){SAID.push(m);}
+                        function levelOf(){return null;}function isRegion(){return true;}function figureFields(b){return b;}function repickElement(){return null;}
+                        function translateTemplate(s,v){return s.replace(/\\{(\\w+)\\}/g,(m,k)=>v[k]);}function quietNote(m){SAID.push(m);}
                         function cancelRepick(){REPICK=null;}function editSnip(){}function loadPins(){return Promise.resolve();}
                         function api(){return Promise.resolve({status:200,data:{pin:PIN}});}
                         (async()=>{await applyRepick(); console.log(JSON.stringify(SAID));})();
@@ -492,15 +492,15 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("captureVisit"),
                         extract_js_fn("currentVisit"),
                         extract_js_fn("applyRepick"),
-                        extract_js_fn("rng"),
+                        extract_js_fn("lineRange"),
                         """
                         let DOC='a',SWITCHSEQ=1;
                         const prior={id:1,cand:{file:'a.tex',page:1,lo:2,hi:3,kind:'line'}};
                         let REPICK=prior,finish,loads=0,said=0,cancels=0,snips=0;
                         const card={id:1,base_rev:1,lo:1,hi:1,orig:{lo:1,hi:1}};
                         const EDITOR={current:card,saving:false};
-                        function lvOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickEl(){return null;}function pinPlace(p){return {page:p.page};}
-                        function tl(s){return s;}function quietNote(){said++;}function bannerNote(){said++;}
+                        function levelOf(){return null;}function isRegion(){return false;}function figureFields(b){return b;}function repickElement(){return null;}function pinPlace(p){return {page:p.page};}
+                        function translateTemplate(s){return s;}function quietNote(){said++;}function bannerNote(){said++;}
                         function cancelRepick(){cancels++;REPICK=null;}
                         function editSnip(){snips++;}function loadPins(){loads++;return Promise.resolve();}
                         function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -538,7 +538,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 let DOC='a',SWITCHSEQ=1,SNIPPET_TIMER=null; const COMPOSE={current:{doc:'a',file:'a.tex',lo:1,hi:1,snippet:'old'}}; const EDITOR={current:null,saving:false};
                 let fire,finish,renders=0;
                 function clearTimeout(){}function setTimeout(fn){fire=fn;return 1;}
-                function dq(path){return path;}function api(){return new Promise(resolve=>{finish=resolve;});}
+                function withDocQuery(path){return path;}function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
                   const prior=COMPOSE.current;refetchSnip(prior,()=>{renders++;});
                   const request=fire();DOC='b';SWITCHSEQ++;COMPOSE.current={doc:'b',file:'b.tex',lo:1,hi:1,snippet:'new'};
@@ -564,7 +564,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const EDITOR={current:card,saving:false};
                 let fire,finish,renders=0;
                 function clearTimeout(){}function setTimeout(fn){fire=fn;return 1;}
-                function dq(path){return path;}
+                function withDocQuery(path){return path;}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
                 (async()=>{
                   refetchSnip(card,()=>{renders++;});const request=fire();
@@ -580,7 +580,7 @@ class VisitLocalContinuations(unittest.TestCase):
     def test_revision_import_finishing_after_switch_does_not_start_pdf(self):
         """A late PDF.js module import cannot attach a loading task to another document's revision view."""
         source, n = re.subn(
-            r"await import\(\s*'/vendor/pdfjs/pdf\.min\.mjs\?v='\s*\+\s*PDFJS_V\s*\)",
+            r"await import\(\s*'/vendor/pdfjs/pdf\.min\.mjs\?v='\s*\+\s*PDFJS_VERSION\s*\)",
             "await delayedImport()",
             extract_js_fn("loadRevisionPdf"),
         )
@@ -590,24 +590,24 @@ class VisitLocalContinuations(unittest.TestCase):
                 source,
                 extract_js_fn("revisionStart"),
                 """
-                let DOC='a';const REV={seq:1,commit:'head',target:null};
-                const REV_SCOPE={whole:false,fallback:false},REV_PDF={loading:null};
-                const VEC={lib:null},PDFJS_V='test';
+                let DOC='a';const REVISION_VIEW={seq:1,commit:'head',target:null};
+                const COMPARISON_SCOPE={whole:false,fallback:false},COMPARISON_PDF={loading:null};
+                const VECTOR_PDF={lib:null},PDFJS_VERSION='test';
                 let finishImport,opened=0;
                 const statusBox={textContent:''},warningBox={hidden:true,open:false,querySelector(){return {textContent:''};}};
                 function $(name){return name==='#revision-status'?statusBox:warningBox;}
                 function revisionPinFor(){return null;}
-                function revisionCurrent(seq,k,id){return seq===REV.seq&&k===DOC&&id===REV.commit;}
+                function revisionCurrent(seq,k,id){return seq===REVISION_VIEW.seq&&k===DOC&&id===REVISION_VIEW.commit;}
                 function api(){return Promise.resolve({data:{state:'ready',head:'head',warnings:[]}});}
-                function dq(path){return path;}
+                function withDocQuery(path){return path;}
                 function fetch(){return Promise.resolve({ok:true,arrayBuffer:()=>Promise.resolve(new ArrayBuffer(1))});}
                 function delayedImport(){return new Promise(resolve=>{finishImport=resolve;});}
                 (async()=>{
                   const old=loadRevisionPdf('head',1,'a');
                   for(let i=0;i<8&&!finishImport;i++)await Promise.resolve();
-                  DOC='b';REV.seq++;
+                  DOC='b';REVISION_VIEW.seq++;
                   finishImport({GlobalWorkerOptions:{},getDocument(){opened++;return {promise:Promise.resolve({})};}});
-                  await old;console.log(JSON.stringify({opened,loading:REV_PDF.loading}));
+                  await old;console.log(JSON.stringify({opened,loading:COMPARISON_PDF.loading}));
                 })();
                 """,
             ]

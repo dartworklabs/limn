@@ -53,7 +53,7 @@ LADDER_TEX = (
 # Each rung of LADDER_TEX's ladder at line 5 and the lines it sets.
 RUNGS = {"raw": (5, 5), "para": (4, 6), "env": (3, 9)}
 # The description box: [armed - the element it waits to show for is the focused one, shown, its text].
-TIP = """[tipEl !== null && tipEl === document.activeElement, !document.querySelector('#tip').hidden,
+TIP = """[armedTipElement !== null && armedTipElement === document.activeElement, !document.querySelector('#tip').hidden,
   document.querySelector('#tip').textContent]"""
 # Narrows the scroll box (a selector) to its widest word and 24px: its words overflow it, and each fits it whole. The
 # assignee row draws its box anew on every pick, so the row around it is narrowed by as much.
@@ -435,7 +435,7 @@ class SegmentKeys(BrowserBase):
         heights = {"0": 0.45, "1": 0.64, "2": 1}
 
         def drawn(i):
-            self.assertEqual(page.evaluate("sheetF()"), heights[i])
+            self.assertEqual(page.evaluate("sheetFraction()"), heights[i])
             self.assertEqual(
                 page.evaluate("getComputedStyle(document.documentElement).getPropertyValue('--sheet-f')"),
                 str(heights[i]),

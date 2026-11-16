@@ -121,7 +121,7 @@ class SettleWaitsForPdfJs(BrowserBase):
         self.assertEqual(len(held), 1)
         self.route(held[0])
         settle(page)
-        self.assertTrue(page.evaluate("VEC.lib!==null"))
+        self.assertTrue(page.evaluate("VECTOR_PDF.lib!==null"))
 
 
 class BrowserOpenWaitsForPins(BrowserBase):
@@ -1265,7 +1265,7 @@ class RevisionPins(BrowserBase):
         page = self._page = self.open(0, lang=lang, **DEVICES[device])
         page.evaluate("showChange(%d)" % pid)
         page.wait_for_function(
-            "REV.sourceCommit&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
+            "REVISION_VIEW.sourceCommit&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
         )
         settle(page)
         return page
@@ -1403,7 +1403,7 @@ class ScopedViewer(RevisionPins):
         self.assertFalse(self.visible(page, "#revision-whole"))
         self.assertEqual(self.builds[-1], (self.solo, ()))
         page.click("#revision-source-tab")
-        page.wait_for_function("REV.sourceCommit===%s" % json.dumps(self.solo), timeout=15000)
+        page.wait_for_function("REVISION_VIEW.sourceCommit===%s" % json.dumps(self.solo), timeout=15000)
         self.assertIn("reworded", page.inner_text("#revision-diff"))
         self.assertFalse(self.visible(page, "#revision-other-toggle"))
         seen = [u for u in urls if "/api/revision-" in u and self.solo in u]
@@ -1418,7 +1418,8 @@ class ScopedViewer(RevisionPins):
         self.assertEqual(len(self.builds[-1][1]), 1)
         page.click("#revision-source-tab")
         page.wait_for_function(
-            "REV.sourceCommit===%s&&!document.getElementById('revision-other-toggle').hidden" % json.dumps(self.fix),
+            "REVISION_VIEW.sourceCommit===%s&&!document.getElementById('revision-other-toggle').hidden"
+            % json.dumps(self.fix),
             timeout=15000,
         )
         self.assertNotIn("pears", page.inner_text("#revision-diff"))
@@ -1458,7 +1459,7 @@ class ReviewInChanges(RevisionPins):
         page = self._page = self.open(0, lang=lang, init=COUNT_CONFIRMS, **REVIEW_SCREENS[screen])
         page.evaluate("showChange(%d)" % pid)
         page.wait_for_function(
-            "REV.sourceCommit&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
+            "REVISION_VIEW.sourceCommit&&document.querySelectorAll('#revision-diff .rd-line').length>0", timeout=15000
         )
         settle(page)
         return page
@@ -1505,7 +1506,7 @@ class ReviewInChanges(RevisionPins):
                 page.click(btn)
                 page.wait_for_function("!document.body.classList.contains('revision-open')")
                 page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
-                page.evaluate("setSide(true); SEC.review=true; drawPins()")
+                page.evaluate("setSide(true); SECTION_OPEN.review=true; drawPins()")
                 self.assertFalse(self.reviewing(page, self.p2))
                 self.assertEqual(page.evaluate("CONFIRMS"), [])
                 page.click(":is(.nt,#status) [data-act=notice-act]:has-text('%s')" % TXT["ko"]["undo"])
@@ -1556,7 +1557,7 @@ class ReviewInChanges(RevisionPins):
         """The card's [확인] is the same deferred send: the card leaves at once, nothing is sent while its undo is up. If
         someone reopened the pin meanwhile (a person's reply), the send answers 409 and the viewer says so."""
         page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
-        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
+        page.evaluate("setSide(true); SECTION_OPEN.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
         settle(page)
         page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
         page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
@@ -1576,7 +1577,7 @@ class ReviewInChanges(RevisionPins):
         the send answers 409 conflict, the viewer says so, and the pin stays awaiting review with the new close."""
         self.shown_close_long_ago(self.p1)
         page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
-        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
+        page.evaluate("setSide(true); SECTION_OPEN.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
         settle(page)
         page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
         page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
@@ -1597,7 +1598,7 @@ class ReviewInChanges(RevisionPins):
         not "closed again - look and confirm" (the pin has no [확인] any more), and nothing is confirmed."""
         self.shown_close_long_ago(self.p1)
         page = self._page = self.open(0, init=COUNT_CONFIRMS, **REVIEW_SCREENS["desktop"])
-        page.evaluate("setSide(true); SEC.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
+        page.evaluate("setSide(true); SECTION_OPEN.review=true; OPEN_CARDS.add(%d); drawPins()" % self.p1)
         settle(page)
         page.click('#sec-review [data-id="%d"] [data-act=confirm]' % self.p1)
         page.wait_for_selector(":is(.nt,#status):has-text('%s')" % TXT["ko"]["undo"])
@@ -1926,7 +1927,7 @@ class FigureDocuments(BrowserBase):
         for lang, word in (("ko", "그림"), ("en", "Figure")):
             with self.subTest(lang=lang):
                 page = self.open(0, lang=lang, init=self.NO_COACH, **DEVICES["phone"])
-                page.evaluate("openNavSheet()")
+                page.evaluate("openNavigationSheet()")
                 page.wait_for_selector("#nav-sheet[open] .dm-item", timeout=8000)
                 marks = page.eval_on_selector_all(
                     "#ns-docs-list .dm-item",
@@ -2130,7 +2131,7 @@ class FigureDocuments(BrowserBase):
         )
         page.click("#c-path")  # the flash is read at once: it runs 1.2 s and then takes its class away
         inside = page.evaluate(
-            """() => { const a = selPopArea(), r = document.querySelector('#doc .sel').getBoundingClientRect();
+            """() => { const a = popoverFreeArea(), r = document.querySelector('#doc .sel').getBoundingClientRect();
               return [r.top >= a.top - 1 && r.bottom <= a.bottom + 1, document.querySelector('#doc .sel').classList.contains('flash')]; }"""
         )
         self.assertEqual(inside, [True, True])
@@ -2145,7 +2146,7 @@ class FigureDocuments(BrowserBase):
     def test_tapping_the_element_path_on_a_phone_flashes_the_box(self):
         """On touch nothing hovers: a tap on the path (its press area is 44px, the .hit utility) flashes the pending box."""
         page = self.open_fig(**DEVICES["phone"])
-        page.evaluate("setSelMode(true)")
+        page.evaluate("setSelectMode(true)")
         self.drag_touch(page, helpers_figure.CELL_DRAG)
         self.assertEqual(page.evaluate("getComputedStyle(document.getElementById('c-path'), '::after').height"), "44px")
         page.tap("#c-path")
@@ -2187,7 +2188,7 @@ class FigureDocuments(BrowserBase):
                 page = self.open_fig(viewport={"width": 1400, "height": 850}, device_scale_factor=dpr)
                 self.drag(page, helpers_figure.CELL_DRAG)
                 self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
-                page.evaluate("zoomTo(fitK()*3)")
+                page.evaluate("zoomTo(fitScale()*3)")
                 settle(page)
                 self.assertGreater(page.evaluate("document.getElementById('p1').clientWidth"), 2000)
                 self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
@@ -2218,7 +2219,7 @@ class FigureDocuments(BrowserBase):
     def test_a_select_mode_finger_drag_on_a_phone_snaps_like_a_mouse_drag(self):
         """[선택] on, one finger drags across the cell on a phone: the map chooses the cell and the box snaps to it."""
         page = self.open_fig(**DEVICES["phone"])
-        page.evaluate("setSelMode(true)")
+        page.evaluate("setSelectMode(true)")
         self.drag_touch(page, helpers_figure.CELL_DRAG)
         self.assertEqual(page.evaluate("COMPOSE.current.elSel&&COMPOSE.current.elSel.id"), helpers_figure.CELL_ID)
         self.assert_box(page, "#doc .sel", 1, helpers_figure.JULY)
@@ -2602,7 +2603,7 @@ class FigureOverlay(BrowserBase):
                 self.assertFalse(self.shown(page, sel))
         self.assertTrue(self.shown(page, "#revision-list"))
         self.assertFalse(page.evaluate("document.getElementById('revision-pdf-tab').hidden"))
-        self.assertEqual(page.evaluate("[REV.format,REV.overlay]"), ["pdf", None])
+        self.assertEqual(page.evaluate("[REVISION_VIEW.format,REVISION_VIEW.overlay]"), ["pdf", None])
 
     def test_view_changes_on_a_figure_pin_opens_the_overlay_at_its_page(self):
         """[변경 보기] of a pin the agent closed on the figure's page 2 opens the overlay with page 2 at the top of the
@@ -2618,7 +2619,7 @@ class FigureOverlay(BrowserBase):
         page.evaluate("id=>showChange(id)", pid)
         page.wait_for_function("document.querySelectorAll('#revision-overlay .ov-page').length===2", timeout=8000)
         settle(page)
-        self.assertEqual(page.evaluate("REV.format"), "overlay")
+        self.assertEqual(page.evaluate("REVISION_VIEW.format"), "overlay")
         top = page.evaluate(
             """()=>{const p=document.querySelector('#revision-overlay .ov-page[data-page="2"]').getBoundingClientRect(),
             o=document.getElementById('revision-overlay').getBoundingClientRect();return [p.top,o.top,o.bottom];}"""
