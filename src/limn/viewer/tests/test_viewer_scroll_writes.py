@@ -71,7 +71,7 @@ OTHERS = {
     ("pins/flow-list.ts", "jumpToCard"): 1,
     ("pins/flow-list.ts", "lazyCards"): 1,
     ("pins/flow-list.ts", "setListOrder"): 1,
-    ("pins/input-mentions.ts", "mentionPlace"): 1,
+    ("composer/input-mentions.ts", "mentionPlace"): 1,
     ("platform/notices.ts", "bannerNote"): 1,
     ("offline/view.ts", "offUiReveal"): 1,
     ("pdf/view-outline.ts", "outlineFollow"): 1,

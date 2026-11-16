@@ -539,6 +539,10 @@ function setEditAssignee(card: EditCard, assignee: EditCard['assignee']) {
 function setEditRequestKind(card: EditCard, kind: EditCard['kind_req']) {
   card.kind_req = kind;
 }
+// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
+function topPinId() {
+  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
+}
 
 export {
   setComposeCurrent,
@@ -640,4 +644,5 @@ export {
   showsSourceLines,
   COMPOSE,
   EDITOR,
+  topPinId,
 };

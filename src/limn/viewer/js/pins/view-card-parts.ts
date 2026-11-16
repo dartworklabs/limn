@@ -9,7 +9,7 @@ import { isMarkdownPin } from '../markdown/view.ts';
 import { quoteInner, shownQuote } from '../composer/flow-pick.ts';
 import { relSpan, stampSpan } from './view-cards.ts';
 import { drawPins } from './flow-list.ts';
-import { nameShared, personLabel } from './input-mentions.ts';
+import { nameShared, personLabel, mentionAfterWord } from '../composer/input-mentions.ts';
 import type { Html } from '../platform/markup.ts';
 import { $$ } from '../platform/dom.ts';
 import {
@@ -26,6 +26,7 @@ import { pinState, lineRange } from '../app/rules-pins.ts';
 import { who, peopleName, meLogin, isMe } from '../app/state-people.ts';
 import { FAILED_AVATARS, avatar } from '../app/view-people.ts';
 import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
+import { QUOTE_OPEN } from '../composer/view-text.ts';
 
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
@@ -341,19 +342,6 @@ function mentionTokensOf(logins) {
   });
   return out.sort((left, right) => right.t.length - left.t.length || left.k - right.k);
 } // for a tie in text length, full name > login > first word
-// Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
-// letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
-// character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
-function mentionAfterWord(text, index) {
-  if (index <= 0) return false;
-  const lowUnit = text.charCodeAt(index - 1),
-    highUnit = index > 1 ? text.charCodeAt(index - 2) : 0;
-  const before =
-    lowUnit >= 0xdc00 && lowUnit <= 0xdfff && highUnit >= 0xd800 && highUnit <= 0xdbff
-      ? text.slice(index - 2, index)
-      : text[index - 1];
-  return /^[\p{L}\p{N}._-]$/u.test(before);
-}
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -452,8 +440,6 @@ function hasRef(value) {
   return !!value && String(value).trim() !== '' && String(value).trim() !== '-';
 }
 const EVENT_LABEL = { close: '닫음', reopen: '다시 엶', confirm: '확인', assign: '담당 바꿈' };
-// The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
-const QUOTE_OPEN = new Set();
 // A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner),
 // folded to one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
 function cardQuote(pin: Pin): Html | null {
@@ -542,7 +528,6 @@ function threadHtml(pin: Pin, wide) {
 }
 export {
   MESSAGE_OPEN,
-  QUOTE_OPEN,
   addressedTag,
   assigneeOf,
   authorTip,
@@ -559,7 +544,6 @@ export {
   josaToward,
   locCopy,
   locText,
-  mentionAfterWord,
   mentionsMe,
   messageBody,
   messageHtml,

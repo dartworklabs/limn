@@ -27,6 +27,7 @@ import {
   COMPOSE,
   EDITOR,
   setComposeRetryVerdict,
+  topPinId,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
@@ -113,7 +114,7 @@ import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
 import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/flow-actions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
-import { $, $$, typingNow, searchToPage } from '../platform/dom.ts';
+import { $, $$, typingNow, searchToPage, TABBABLE, isTabStop } from '../platform/dom.ts';
 import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE, PIN_STATE, ROLE, VERDICT_PLACE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
@@ -1129,10 +1130,6 @@ function currentVerdictOn(doc: string | null, page: number): Pin | null {
     if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
   });
   return best;
-}
-// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
-function topPinId() {
-  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
 }
 // A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
 // answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a
@@ -3383,27 +3380,6 @@ function findStopInView(at: number): HTMLElement | null {
   }
   return null;
 }
-// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading
-// page's line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first
-// page's line (or the last page's), whose focus would scroll the document there. Only a Tab across the pages' edge is
-// taken - from the last stop before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab,
-// from the first after it (the panel's) - and that stop is found by walking out from the area to the nearest one
-// (findEdgeStop), a few elements, so a Tab outside the pages never reads every focusable element of the document and
-// whether it shows.
-const TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
-// Whether an element is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert
-// or hidden part.
-function isTabStop(x: Element | null): x is HTMLElement {
-  return (
-    x instanceof HTMLElement &&
-    x.matches(TABBABLE) &&
-    x.tabIndex >= 0 &&
-    !(x as HTMLButtonElement).disabled &&
-    x.getClientRects().length > 0 &&
-    !x.closest('[inert],[hidden]') &&
-    getComputedStyle(x).visibility !== 'hidden'
-  );
-}
 // The nearest Tab stop outside the PDF area on one side of it - the last before it, or (after) the first after it - or
 // null. Walks out from the area element by element and passes a part that is not drawn (display: none, hidden, inert)
 // whole.
@@ -3558,7 +3534,6 @@ export {
   KEYED_PAGE,
   KEY_SAVE_OUT,
   READING_LINE_PAGE,
-  TABBABLE,
   LINE_TEXT,
   canVerdict,
   drawPageVerdicts,
@@ -3588,8 +3563,6 @@ export {
   verdictStateWord,
   stickReadingLine,
   stickSoon,
-  isTabStop,
-  topPinId,
   renderVerdictRow,
   sizePageLines,
   fitWrappedWords,

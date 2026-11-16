@@ -21,9 +21,9 @@ declare class CloseWatcher {
 }
 
 // Fields the viewer keeps on its own elements: a card's flash timers (pins/flow-list.ts), a note field's @-tags picked from the @-list
-// (pins/input-mentions.ts: the logins, and each one's place in the text with the text and the logins it was worked out for), the field
+// (composer/input-mentions.ts: the logins, and each one's place in the text with the text and the logins it was worked out for), the field
 // whose text a field mirrors and which keeps its @-tags (composer/view-selection-popover.ts: the note popover's field mirrors the composer's
-// note; pins/input-mentions.ts mentionModel), a copy control's own content and timer while it says '복사됨' (platform/api.ts copiedMark), a page
+// note; composer/input-mentions.ts mentionModel), a copy control's own content and timer while it says '복사됨' (platform/api.ts copiedMark), a page
 // verdict line's timer for its pressed word's context (verdict/flow-line.ts showPressedHint).
 interface HTMLElement {
   _curT?: ReturnType<typeof setTimeout>;
@@ -38,7 +38,7 @@ interface HTMLElement {
   _copiedT?: ReturnType<typeof setTimeout>;
 }
 
-// An @-tag picked from the @-list (pins/input-mentions.ts): whom it names, where its '@name' starts in the text, and that '@name'.
+// An @-tag picked from the @-list (composer/input-mentions.ts): whom it names, where its '@name' starts in the text, and that '@name'.
 interface MentionTag {
   login: string;
   at: number;

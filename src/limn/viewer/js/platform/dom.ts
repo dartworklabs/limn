@@ -43,5 +43,26 @@ function focusHold(target: HTMLElement) {
   }
   target.focus({ preventScroll: true });
 }
+// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading
+// page's line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first
+// page's line (or the last page's), whose focus would scroll the document there. Only a Tab across the pages' edge is
+// taken - from the last stop before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab,
+// from the first after it (the panel's) - and that stop is found by walking out from the area to the nearest one
+// (findEdgeStop), a few elements, so a Tab outside the pages never reads every focusable element of the document and
+// whether it shows.
+const TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
+// Whether an element is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert
+// or hidden part.
+function isTabStop(x: Element | null): x is HTMLElement {
+  return (
+    x instanceof HTMLElement &&
+    x.matches(TABBABLE) &&
+    x.tabIndex >= 0 &&
+    !(x as HTMLButtonElement).disabled &&
+    x.getClientRects().length > 0 &&
+    !x.closest('[inert],[hidden]') &&
+    getComputedStyle(x).visibility !== 'hidden'
+  );
+}
 
-export { $, $$, ICONS, esc, typingNow, searchToPage, focusFell, focusHold };
+export { $, $$, ICONS, esc, typingNow, searchToPage, focusFell, focusHold, TABBABLE, isTabStop };

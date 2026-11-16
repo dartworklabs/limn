@@ -10,18 +10,30 @@
 import { KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, imeKey, imeTail, EDITOR } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { revealSegment } from '../composer/view-levels.ts';
-import { appendTarget, syncQuestionHint } from '../composer/flow-pick.ts';
-import { saveDraftSoon } from '../composer/flow-draft.ts';
-import { mentionAfterWord } from './view-card-parts.ts';
-import { renderReplyOutcome } from './flow-reply.ts';
-import { autoGrow, editNote } from './flow-edit.ts';
+import { revealSegment } from './view-levels.ts';
+import { appendTarget, syncQuestionHint } from './flow-pick.ts';
+import { saveDraftSoon } from './flow-draft.ts';
 import type { Html } from '../platform/markup.ts';
 import { $ } from '../platform/dom.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { ASSIGNEE_AGENT, SAVE_MODE } from '../app/rules-tables.ts';
 import { meLogin, peopleName } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
+import { autoGrow, editNote } from './view-text.ts';
+import { pinFields } from './state-seams.ts';
+// Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
+// letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
+// character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
+function mentionAfterWord(text, index) {
+  if (index <= 0) return false;
+  const lowUnit = text.charCodeAt(index - 1),
+    highUnit = index > 1 ? text.charCodeAt(index - 2) : 0;
+  const before =
+    lowUnit >= 0xdc00 && lowUnit <= 0xdfff && highUnit >= 0xd800 && highUnit <= 0xdbff
+      ? text.slice(index - 2, index)
+      : text[index - 1];
+  return /^[\p{L}\p{N}._-]$/u.test(before);
+}
 
 const MENTION = {
   ta: null as HTMLTextAreaElement | null,
@@ -613,7 +625,7 @@ function mentionApply(index) {
   } // the composer's row draws its preview line too
   mentionPreview(model);
   if (model.classList.contains('e-note')) renderAssignEdit();
-  else if (model.classList.contains('r-text')) renderReplyOutcome();
+  else if (model.classList.contains('r-text')) pinFields().drawReplyOutcome();
 }
 const isMentionField = (target) =>
   !!target &&
@@ -644,7 +656,7 @@ document.addEventListener('input', (event) => {
     renderAssignEdit();
     if (EDITOR.current)
       syncQuestionHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
-  } else if (field.classList.contains('r-text')) renderReplyOutcome();
+  } else if (field.classList.contains('r-text')) pinFields().drawReplyOutcome();
 });
 window.addEventListener(
   'keydown',
@@ -709,4 +721,5 @@ export {
   personLabel,
   renderAssignEdit,
   renderAssignNew,
+  mentionAfterWord,
 };

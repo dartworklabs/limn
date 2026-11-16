@@ -16,6 +16,7 @@ import {
   setComposePendingSave,
   setComposeRetryVerdict,
   setComposeSaving,
+  topPinId,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
@@ -52,19 +53,7 @@ import {
   selectionSnapshot,
 } from './flow-pick.ts';
 import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
-import { OFF, offlineKey, offlineQueueSave } from '../offline/flow.ts';
-import {
-  figureShort,
-  figureVerdictBody,
-  figureVerdictRoot,
-  topPinId,
-  renderVerdictRow,
-  verdictDropped,
-  verdictUndo,
-} from '../verdict/flow-line.ts';
-import { loadPins } from '../pins/flow-list.ts';
-import { dropPin } from '../pins/flow-actions.ts';
-import { assignOutcome, composeAsk, mentionHints } from '../pins/input-mentions.ts';
+import { assignOutcome, composeAsk, mentionHints } from './input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { REQUEST_KIND, SAVE_MODE } from '../app/rules-tables.ts';
@@ -72,6 +61,7 @@ import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
+import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.
@@ -80,7 +70,7 @@ async function appendToPin(id, text) {
   if (COMPOSE.saving || viewerBlocked()) return;
   const prior = PINS.find((pin) => pin.id === id);
   if (!prior) {
-    await loadPins();
+    await composerPins().load();
     return;
   }
   setComposeSaving(true);
@@ -113,7 +103,7 @@ async function appendToPin(id, text) {
         null,
         { source: 'POST /api/pins/' + id + '/edit append' },
       );
-      await loadPins();
+      await composerPins().load();
       return;
     }
     const closed = composeOwns(selection, box, visit, fields) || restoredDraftOwns(draft);
@@ -133,7 +123,7 @@ async function appendToPin(id, text) {
       { label: '되돌리기', wait: true, fn: () => undoAppend(id, priorNote, data.pin.rev) },
       { pin: id, pending: true, label: translate('덧붙임') },
     );
-    await loadPins();
+    await composerPins().load();
     settleChip(chip);
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to that pin's mark
   } catch (error) {
@@ -152,7 +142,7 @@ function syncComposeSaveButtons() {
     document.querySelectorAll('[data-act="overlap-append"]').forEach((button) => {
       (button as HTMLButtonElement).disabled = true;
     });
-  renderVerdictRow();
+  composerVerdict().drawRow();
 } // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card
 // shows it. Resolves with whether it went back (its chip waits for it, noticeAct).
@@ -169,7 +159,7 @@ async function undoAppend(id: number, note: string, revision: number): Promise<b
     ok = true;
     quietNote(translateTemplate('#{id} 메모를 되돌렸습니다', { id }));
   } catch (error) {}
-  await loadPins();
+  await composerPins().load();
   return ok;
 }
 // The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
@@ -331,7 +321,7 @@ async function savePin(verdict?: string) {
     }
     let kept = false;
     try {
-      kept = await offlineQueueSave(selection, note, out, hints);
+      kept = await composerQueue().save(selection, note, out, hints);
     } finally {
       done();
     }
@@ -353,13 +343,13 @@ async function savePin(verdict?: string) {
   // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
   // of failing here (below).
   const plain = !verdict && !suggestion;
-  if (plain && OFF.idem) body.idem = offlineKey();
+  if (plain && composerQueue().keyed()) body.idem = composerQueue().key();
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
     // On a figure document the verdict is the figure's, whatever element the selection names (verdict/flow-line.ts
     // figureVerdictBody).
-    const figureBody = figureVerdictBody(selection);
+    const figureBody = composerVerdict().figureBody(selection);
     if (figureBody)
       body = Object.assign(
         figureBody,
@@ -394,7 +384,7 @@ async function savePin(verdict?: string) {
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict,
       // newer than any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시
       // 저장] would make it twice.
-      await loadPins();
+      await composerPins().load();
       const got = OPEN_ALL.find(
         (pin) =>
           pin.id > top &&
@@ -415,7 +405,7 @@ async function savePin(verdict?: string) {
           plain &&
           failure &&
           failure.name === 'AbortError' &&
-          (await offlineQueueSave(selection, note, out, hints, { idem: body.idem as string | undefined, top }))
+          (await composerQueue().save(selection, note, out, hints, { idem: body.idem as string | undefined, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
           if (failed && failed.save) endNotice(failed, false);
@@ -465,10 +455,10 @@ async function savePin(verdict?: string) {
     const after = cleared || restored ? focusClosed() : null;
     if (SECTION_SEEN.open) SECTION_SEEN.open.add(id); // my own new pin is never 'new' on a collapsed header
     const undo: (run?: NoticeRun) => Promise<boolean> = verdict
-      ? verdictUndo(id)
+      ? composerVerdict().undo(id)
       : async (run) => {
           const mine = run ? null : focusRun(),
-            ok = await dropPin(id, true, undo);
+            ok = await composerPins().drop(id, true, undo);
           if (mine) mine.stop();
           // A late answer whose person has moved on brings the composer back without the focus: noticeAct's run for the
           // chip's [되돌리기], this run's own watch for a failure's [다시 시도].
@@ -486,12 +476,12 @@ async function savePin(verdict?: string) {
           return ok;
         };
     const word = verdict ? verdictLabel(verdict) : '',
-      figureRoot = verdict ? figureVerdictRoot(selection) : null; // a figure's verdict names the figure
+      figureRoot = verdict ? composerVerdict().figureRoot(selection) : null; // a figure's verdict names the figure
     const said = figureRoot
       ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
           id,
           word: word,
-          target: figureShort(selection.page, figureRoot),
+          target: composerVerdict().figureShort(selection.page, figureRoot),
         })
       : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
     const chip = verdict
@@ -511,13 +501,13 @@ async function savePin(verdict?: string) {
           { label: '되돌리기', wait: true, fn: undo },
           { pin: id, pending: true, label: translate('저장됨') },
         );
-    await loadPins();
+    await composerPins().load();
     settleChip(chip);
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to the new pin's mark
   } catch (error) {
     if (verdict) {
       if (COMPOSE.intent === intent) setComposeRetryVerdict({ key: verdict, sel: selection, gen: intent });
-      else verdictDropped();
+      else composerVerdict().dropped();
     }
   } finally {
     // [다시 저장] saves this verdict again, or the banner says it was dropped

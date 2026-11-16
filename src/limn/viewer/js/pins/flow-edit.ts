@@ -21,7 +21,7 @@ import {
 import { syncQuestionHint } from '../composer/flow-pick.ts';
 import { assigneeOf, isQuestion } from './view-card-parts.ts';
 import { drawPins, jumpPin, loadPins } from './flow-list.ts';
-import { mentionHints, mentionPreview, renderAssignEdit } from './input-mentions.ts';
+import { mentionHints, mentionPreview, renderAssignEdit } from '../composer/input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { REQUEST_KIND, PIN_STATE } from '../app/rules-tables.ts';
@@ -29,6 +29,7 @@ import { pinState, verdictOf } from '../app/rules-pins.ts';
 import { peopleName } from '../app/state-people.ts';
 import { withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
+import { editNote, autoGrow } from '../composer/view-text.ts';
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
@@ -52,10 +53,6 @@ function editFields(card) {
 function syncEditSaveButton() {
   const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
   if (button) (button as HTMLButtonElement).disabled = EDITOR.saving;
-}
-// The note field of an edit card (openEdit puts exactly one in every card).
-function editNote(card: EditCard): HTMLTextAreaElement {
-  return card.el.querySelector('.e-note') as HTMLTextAreaElement;
 }
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card
 // markup, records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element)
@@ -163,11 +160,6 @@ function editDirty() {
     card.assignee !== card.orig.assignee ||
     suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
   );
-}
-function autoGrow(field) {
-  field.style.height = 'auto';
-  const lineHeight = 20;
-  field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';
 }
 document.addEventListener('input', (event) => {
   const target = event.target as HTMLElement;
@@ -505,4 +497,4 @@ function editSuggestRefused(card: EditCard, data: any) {
     { source: 'POST /api/pins/' + card.id + '/edit edit' },
   );
 }
-export { autoGrow, cancelEdit, editDirty, editNote, editSnip, openEdit, renderEdit, saveEdit };
+export { cancelEdit, editDirty, editSnip, openEdit, renderEdit, saveEdit };

@@ -22,12 +22,12 @@ import { drawBox, newBox, pendingBadge, revealBox } from '../pdf/input-selection
 import { relevelForLineView } from '../markdown/view.ts';
 import { SUGGEST_DRAFT, suggestClear, suggestCopy } from './flow-suggest.ts';
 import { cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind } from './flow-pick.ts';
-import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
-import { autoGrow } from '../pins/flow-edit.ts';
+import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
+import { autoGrow } from './view-text.ts';
 const DRAFT = {
   timer: 0 as ReturnType<typeof setTimeout> | 0,
   ready: false,

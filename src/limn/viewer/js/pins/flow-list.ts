@@ -71,13 +71,12 @@ import { pendingBadgeSide } from '../pdf/input-selection.ts';
 import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts';
 import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
 import { recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
-import { drawPageVerdicts, jumpToPageLine, isShownOnLine } from '../verdict/flow-line.ts';
 import { mentionsMe } from './view-card-parts.ts';
 import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './view-cards.ts';
 import { drawReviewPick } from './flow-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
 import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
-import { renderAssignNew } from './input-mentions.ts';
+import { renderAssignNew } from '../composer/input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { editDirty, renderEdit } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
@@ -91,6 +90,7 @@ import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
 import { notePinChanges, noteReviewChanges } from './flow-changes.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { markBadgeRoom, markBadgeIn, markHitSides } from '../pdf/view-badges.ts';
+import { pinVerdicts } from './state-seams.ts';
 
 async function loadPeople() {
   try {
@@ -1066,7 +1066,7 @@ function marks() {
     return;
   } // the Markdown surface marks its lines (markdown/view.ts)
   $$('.mark').forEach((mark) => mark.remove());
-  drawPageVerdicts();
+  pinVerdicts().drawLines();
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated
   // to an open pin's overlap/editing). A figure pin is drawn where the server found its element in this build (see
   // pinPlace), and a found element is no estimate.
@@ -1074,7 +1074,7 @@ function marks() {
     const at = pinPlace(pin),
       page = document.getElementById('p' + at.page);
     if (!page || !isFrac(at.frac)) return;
-    if (isShownOnLine(pin)) return;
+    if (pinVerdicts().shownOnLine(pin)) return;
     const est = isEstimated(pin) && !hasMark(pin),
       lost = pin.stale || isElementLost(pin);
     const mark = document.createElement('div');
@@ -1235,7 +1235,7 @@ function jumpPin(id) {
     return;
   }
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
-  if (jumpToPageLine(id)) return; // a pin its page verdict line shows: the line
+  if (pinVerdicts().jumpToLine(id)) return; // a pin its page verdict line shows: the line
   marksShow(); // the way to a mark shows the marks (pins/input-hide-marks.ts)
   // collapsed first so the sheet doesn't cover the page, then measured
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);

@@ -16,7 +16,6 @@ import { canConfirmReview } from '../documents/view-meta.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { suggestBadge } from '../composer/flow-suggest.ts';
-import { verdictBadge, verdictOldMarker, verdictTarget } from '../verdict/flow-line.ts';
 import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from './view-card-parts.ts';
 import { drawPins, jumpToCard, listReview, loadPins, marks, orderPins } from './flow-list.ts';
 import { CONFIRMING, CONFIRMING_PIN } from './flow-actions.ts';
@@ -27,6 +26,7 @@ import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
 import { markMine } from './flow-changes.ts';
+import { pinVerdicts } from './state-seams.ts';
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
 // close with none). null while the section shows cards.
@@ -76,9 +76,9 @@ function resultRow(pin: Pin): Html {
   const at = pinPlace(pin).page,
     page = typeof at === 'number' && !isMarkdownPin(pin) ? translateTemplate('{page}쪽', { page: at }) : '';
   const tags = [
-    verdictBadge(pin),
-    verdictOldMarker(pin),
-    verdictTarget(pin),
+    pinVerdicts().badge(pin),
+    pinVerdicts().oldMarker(pin),
+    pinVerdicts().target(pin),
     isQuestion(pin)
       ? html`<span class="badge badge-question" data-tip="${TIP_TEXT.question}">${lucideIcon('circle-question-mark')}${translate('질문')}</span>`
       : null,

@@ -14,12 +14,12 @@ import { findAnyPin } from '../revisions/flow.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
 import { renderOverlapBanner } from './flow-pick.ts';
 import { saveDraftSoon } from './flow-draft.ts';
-import { renderVerdictRow } from '../verdict/flow-line.ts';
 import type { Html } from '../platform/markup.ts';
 import { $ } from '../platform/dom.ts';
 import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
+import { composerVerdict } from './state-seams.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;
@@ -509,7 +509,7 @@ function renderSuggest(selection: Selection) {
   };
   drawSuggest(SUGGEST_DRAFT, selection, off, composerSuggestElements(), false, undefined);
   suggestFollow(SUGGEST_DRAFT, selection, off, owns, redraw);
-  renderVerdictRow(); // [제안 수정] on turns the verdict buttons off
+  composerVerdict().drawRow(); // [제안 수정] on turns the verdict buttons off
   if (BAND === LAYOUT_BAND.TABLET_SHEET) applySheet();
 }
 // Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead

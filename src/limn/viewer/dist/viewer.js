@@ -742,6 +742,10 @@ function setEditAssignee(card, assignee) {
 function setEditRequestKind(card, kind) {
   card.kind_req = kind;
 }
+// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
+function topPinId() {
+  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
+}
 
 // ------------------------------------------------ People
 // Who a login is (a name, an agent or a human) and whether it is the viewer themself, read from the page's shared
@@ -832,6 +836,27 @@ function focusHold(target) {
     target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
   }
   target.focus({ preventScroll: true });
+}
+// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading
+// page's line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first
+// page's line (or the last page's), whose focus would scroll the document there. Only a Tab across the pages' edge is
+// taken - from the last stop before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab,
+// from the first after it (the panel's) - and that stop is found by walking out from the area to the nearest one
+// (findEdgeStop), a few elements, so a Tab outside the pages never reads every focusable element of the document and
+// whether it shows.
+const TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
+// Whether an element is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert
+// or hidden part.
+function isTabStop(x) {
+  return (
+    x instanceof HTMLElement &&
+    x.matches(TABBABLE) &&
+    x.tabIndex >= 0 &&
+    !(x).disabled &&
+    x.getClientRects().length > 0 &&
+    !x.closest('[inert],[hidden]') &&
+    getComputedStyle(x).visibility !== 'hidden'
+  );
 }
 
 // -------------------------------------- Markup: html``, lucideIcon() and setHtml(), the one way the viewer writes HTML
@@ -3788,7 +3813,7 @@ function segmentFocusAt(group) {
   return shownWords(group).indexOf(document.activeElement);
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note
-// (pins/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a
+// (composer/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a
 // pick that leaves the excerpt short of lines draws it again once more when they come back, composer/view-excerpt.ts
 // excerptFetch) and [더보기]'s size on every pick and relayout (layout/flow-panel-size.ts renderSizeSegment). The word
 // with the focus goes with the old words, and the focus would land on the body: an arrow's walk would end there, as
@@ -6945,6 +6970,27 @@ function setLastSrcMtime(value) {
 // judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
 function offlineNow() {
   return POLL_FAILS >= 2 || navigator.onLine === false;
+}
+
+// ------------------------------------------------ What the pin list asks the verdicts
+// A verdict is a pin and is drawn as one; what only a verdict adds to a card, a result row and the marks on the pages -
+// its badge, its figure, the mark of a verdict a newer one replaced, the page line that shows it - is the verdict
+// feature's (verdict/flow-line.ts), which the pin list may not import (docs/handbook/viewer.md §모듈 경계). So it is a
+// seam here: an interface for what the pin list asks, a registration function and an accessor. js/main.ts registers
+// it once, at its top level before boot() runs (no code that runs while the script loads reaches it), and the pin list
+// calls the registered function at the point, with the arguments and in the order it called the verdict function
+// directly. The accessor called before its registration throws, naming the seam.
+
+// What a verdict pin adds to the pin list's drawing and jumping.
+let PIN_VERDICTS = null;
+// Registers what a verdict adds to the pin list; js/main.ts calls it once.
+function setPinVerdicts(verdicts) {
+  PIN_VERDICTS = verdicts;
+}
+// The registered verdict part; throws before setPinVerdicts() has run.
+function pinVerdicts() {
+  if (!PIN_VERDICTS) throw new Error('setPinVerdicts() has not run: the pin list has no verdicts to draw');
+  return PIN_VERDICTS;
 }
 
 // --------------------------------------- Pins changed elsewhere: what the status line says between two list refreshes
@@ -15897,6 +15943,68 @@ function useLevel(owner, key) {
   if (rung.el) owner.elSel = rung.el;
 }
 
+// ------------------------------------------------ What the composer asks the features above it
+// The composer makes a pin from a selection; the verdict row it shows and the verdict a save may carry, the pin list a
+// save is followed by, the queue a save goes into while cut off, and the edit card and reply that share its text tools
+// are the features above (verdict, pins, offline). The composer may not import them (docs/handbook/viewer.md §모듈
+// 경계), so each need is a seam here: an interface for what the composer asks, a registration function and an
+// accessor. js/main.ts registers every seam once, at its top level before boot() runs (no code that runs while the
+// script loads reaches one), and the composer calls the registered function at the point, with the arguments and in
+// the order it called the feature function directly. An accessor called before its registration throws, naming the
+// seam.
+
+// The verdict's part of the composer (verdict/flow-line.ts): the row of verdict words under the note, and what a save
+// that carries a verdict does differently.
+let COMPOSER_VERDICT = null;
+// Registers the verdict's part of the composer; js/main.ts calls it once.
+function setComposerVerdict(verdict) {
+  COMPOSER_VERDICT = verdict;
+}
+// The registered verdict part; throws before setComposerVerdict() has run.
+function composerVerdict() {
+  if (!COMPOSER_VERDICT) throw new Error('setComposerVerdict() has not run: the composer has no verdict row');
+  return COMPOSER_VERDICT;
+}
+
+// The pin list a save changes (pins/flow-list.ts, pins/flow-actions.ts): read again after a save, an append or a move,
+// and a saved pin taken back by its [되돌리기].
+let COMPOSER_PINS = null;
+// Registers the pin list a save changes; js/main.ts calls it once.
+function setComposerPins(pins) {
+  COMPOSER_PINS = pins;
+}
+// The registered pin list; throws before setComposerPins() has run.
+function composerPins() {
+  if (!COMPOSER_PINS) throw new Error('setComposerPins() has not run: the composer has no pin list to save into');
+  return COMPOSER_PINS;
+}
+
+// The queue a pin is kept in while cut off (offline/flow.ts): a selection made without the server, a save kept for
+// later, and the key a plain save goes with.
+let COMPOSER_QUEUE = null;
+// Registers the queue; js/main.ts calls it once.
+function setComposerQueue(queue) {
+  COMPOSER_QUEUE = queue;
+}
+// The registered queue; throws before setComposerQueue() has run.
+function composerQueue() {
+  if (!COMPOSER_QUEUE) throw new Error('setComposerQueue() has not run: the composer has no queue for a pin cut off');
+  return COMPOSER_QUEUE;
+}
+
+// A pin's own fields that use the composer's text tools (pins/flow-edit.ts, pins/flow-reply.ts): the open edit card,
+// whose excerpt, place and @-tags the composer's code changes, and the reply box's outcome line.
+let PIN_FIELDS = null;
+// Registers the edit card and the reply box; js/main.ts calls it once.
+function setPinFields(fields) {
+  PIN_FIELDS = fields;
+}
+// The registered edit card and reply box; throws before setPinFields() has run.
+function pinFields() {
+  if (!PIN_FIELDS) throw new Error('setPinFields() has not run: the composer has no edit card or reply to draw');
+  return PIN_FIELDS;
+}
+
 // ------------------------------------------------ Range levels
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
@@ -16269,7 +16377,7 @@ async function excerptFetch(owner) {
 // Redraws the panel the owner belongs to (the composer's selection or the open edit card); a stale owner draws nothing.
 function excerptRedraw(owner) {
   if (owner === COMPOSE.current) renderComposer();
-  else if (owner === EDITOR.current) renderEdit();
+  else if (owner === EDITOR.current) pinFields().drawEdit();
 }
 // The owner's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
 function excerptBox(owner) {
@@ -21772,7 +21880,7 @@ function renderSuggest(selection) {
   };
   drawSuggest(SUGGEST_DRAFT, selection, off, composerSuggestElements(), false, undefined);
   suggestFollow(SUGGEST_DRAFT, selection, off, owns, redraw);
-  renderVerdictRow(); // [제안 수정] on turns the verdict buttons off
+  composerVerdict().drawRow(); // [제안 수정] on turns the verdict buttons off
   if (BAND === LAYOUT_BAND.TABLET_SHEET) applySheet();
 }
 // Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
@@ -21987,7 +22095,7 @@ async function pick(region) {
     $('#c-err').hidden = true;
     $('#c-body').hidden = false;
     // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
-    renderVerdictRow();
+    composerVerdict().drawRow();
     setSide(true);
     applySide(); // a collapsed panel opens for a new selection in every layout (wide included)
     // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
@@ -22027,7 +22135,7 @@ async function pick(region) {
     // (offline/flow.ts).
     const failure = error;
     if (!repick && !(failure && failure.status) && !isMarkdownDoc()) {
-      void offlinePick(region);
+      void composerQueue().pick(region);
       return;
     }
     if (repick) {
@@ -22098,7 +22206,7 @@ async function pick(region) {
   selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
   // re-fetched - loadPins recomputes overlap too.
-  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) loadPins();
+  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) composerPins().load();
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
@@ -22380,7 +22488,7 @@ function drawComposerQuote(selection) {
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet
 // collapses (the body comes forward again). The composer panel's pin kind (fix request / question). Reverts to fix
 // request on save or discard (the default for the next pin). The kind says what the note is, not who handles it: the
-// assignee does not follow it (pins/input-mentions.ts).
+// assignee does not follow it (composer/input-mentions.ts).
 function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
@@ -22395,7 +22503,7 @@ function setKind(kind) {
   $('#note').placeholder =
     KIND_NEW === REQUEST_KIND.QUESTION ? '무엇이 궁금한지 적어 주세요' : '메모: 여기를 어떻게 고칠지 (비워도 됩니다)';
   syncQuestionHint($('#c-qhint'), $('#note').value, KIND_NEW);
-  renderVerdictRow();
+  composerVerdict().drawRow();
 } // a question takes no verdict
 // A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
 // ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
@@ -22825,7 +22933,7 @@ async function appendToPin(id, text) {
   if (COMPOSE.saving || viewerBlocked()) return;
   const prior = PINS.find((pin) => pin.id === id);
   if (!prior) {
-    await loadPins();
+    await composerPins().load();
     return;
   }
   setComposeSaving(true);
@@ -22858,7 +22966,7 @@ async function appendToPin(id, text) {
         null,
         { source: 'POST /api/pins/' + id + '/edit append' },
       );
-      await loadPins();
+      await composerPins().load();
       return;
     }
     const closed = composeOwns(selection, box, visit, fields) || restoredDraftOwns(draft);
@@ -22878,7 +22986,7 @@ async function appendToPin(id, text) {
       { label: '되돌리기', wait: true, fn: () => undoAppend(id, priorNote, data.pin.rev) },
       { pin: id, pending: true, label: translate('덧붙임') },
     );
-    await loadPins();
+    await composerPins().load();
     settleChip(chip);
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to that pin's mark
   } catch (error) {
@@ -22897,7 +23005,7 @@ function syncComposeSaveButtons() {
     document.querySelectorAll('[data-act="overlap-append"]').forEach((button) => {
       (button).disabled = true;
     });
-  renderVerdictRow();
+  composerVerdict().drawRow();
 } // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card
 // shows it. Resolves with whether it went back (its chip waits for it, noticeAct).
@@ -22914,7 +23022,7 @@ async function undoAppend(id, note, revision) {
     ok = true;
     quietNote(translateTemplate('#{id} 메모를 되돌렸습니다', { id }));
   } catch (error) {}
-  await loadPins();
+  await composerPins().load();
   return ok;
 }
 // The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
@@ -23076,7 +23184,7 @@ async function savePin(verdict) {
     }
     let kept = false;
     try {
-      kept = await offlineQueueSave(selection, note, out, hints);
+      kept = await composerQueue().save(selection, note, out, hints);
     } finally {
       done();
     }
@@ -23098,13 +23206,13 @@ async function savePin(verdict) {
   // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
   // of failing here (below).
   const plain = !verdict && !suggestion;
-  if (plain && OFF.idem) body.idem = offlineKey();
+  if (plain && composerQueue().keyed()) body.idem = composerQueue().key();
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
     // On a figure document the verdict is the figure's, whatever element the selection names (verdict/flow-line.ts
     // figureVerdictBody).
-    const figureBody = figureVerdictBody(selection);
+    const figureBody = composerVerdict().figureBody(selection);
     if (figureBody)
       body = Object.assign(
         figureBody,
@@ -23139,7 +23247,7 @@ async function savePin(verdict) {
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict,
       // newer than any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시
       // 저장] would make it twice.
-      await loadPins();
+      await composerPins().load();
       const got = OPEN_ALL.find(
         (pin) =>
           pin.id > top &&
@@ -23160,7 +23268,7 @@ async function savePin(verdict) {
           plain &&
           failure &&
           failure.name === 'AbortError' &&
-          (await offlineQueueSave(selection, note, out, hints, { idem: body.idem, top }))
+          (await composerQueue().save(selection, note, out, hints, { idem: body.idem, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
           if (failed && failed.save) endNotice(failed, false);
@@ -23210,10 +23318,10 @@ async function savePin(verdict) {
     const after = cleared || restored ? focusClosed() : null;
     if (SECTION_SEEN.open) SECTION_SEEN.open.add(id); // my own new pin is never 'new' on a collapsed header
     const undo = verdict
-      ? verdictUndo(id)
+      ? composerVerdict().undo(id)
       : async (run) => {
           const mine = run ? null : focusRun(),
-            ok = await dropPin(id, true, undo);
+            ok = await composerPins().drop(id, true, undo);
           if (mine) mine.stop();
           // A late answer whose person has moved on brings the composer back without the focus: noticeAct's run for the
           // chip's [되돌리기], this run's own watch for a failure's [다시 시도].
@@ -23231,12 +23339,12 @@ async function savePin(verdict) {
           return ok;
         };
     const word = verdict ? verdictLabel(verdict) : '',
-      figureRoot = verdict ? figureVerdictRoot(selection) : null; // a figure's verdict names the figure
+      figureRoot = verdict ? composerVerdict().figureRoot(selection) : null; // a figure's verdict names the figure
     const said = figureRoot
       ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
           id,
           word: word,
-          target: figureShort(selection.page, figureRoot),
+          target: composerVerdict().figureShort(selection.page, figureRoot),
         })
       : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
     const chip = verdict
@@ -23256,13 +23364,13 @@ async function savePin(verdict) {
           { label: '되돌리기', wait: true, fn: undo },
           { pin: id, pending: true, label: translate('저장됨') },
         );
-    await loadPins();
+    await composerPins().load();
     settleChip(chip);
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to the new pin's mark
   } catch (error) {
     if (verdict) {
       if (COMPOSE.intent === intent) setComposeRetryVerdict({ key: verdict, sel: selection, gen: intent });
-      else verdictDropped();
+      else composerVerdict().dropped();
     }
   } finally {
     // [다시 저장] saves this verdict again, or the banner says it was dropped
@@ -26503,10 +26611,6 @@ function currentVerdictOn(doc, page) {
   });
   return best;
 }
-// The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
-function topPinId() {
-  return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
-}
 // A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
 // answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a
 // duplicate).
@@ -28755,27 +28859,6 @@ function findStopInView(at) {
       : null;
   }
   return null;
-}
-// Tab into the pages from outside them - the outline, the section strip, the panel by Shift+Tab - goes to the reading
-// page's line too (its first control; its last by Shift+Tab), else to the PDF area: the DOM's next stop is the first
-// page's line (or the last page's), whose focus would scroll the document there. Only a Tab across the pages' edge is
-// taken - from the last stop before the PDF area (the section strip's page button, where it shows) or, by Shift+Tab,
-// from the first after it (the panel's) - and that stop is found by walking out from the area to the nearest one
-// (findEdgeStop), a few elements, so a Tab outside the pages never reads every focusable element of the document and
-// whether it shows.
-const TABBABLE = 'a[href],button,input,select,textarea,summary,[tabindex]';
-// Whether an element is a stop of the Tab order now: focusable by Tab, enabled, drawn, not hidden and not in an inert
-// or hidden part.
-function isTabStop(x) {
-  return (
-    x instanceof HTMLElement &&
-    x.matches(TABBABLE) &&
-    x.tabIndex >= 0 &&
-    !(x).disabled &&
-    x.getClientRects().length > 0 &&
-    !x.closest('[inert],[hidden]') &&
-    getComputedStyle(x).visibility !== 'hidden'
-  );
 }
 // The nearest Tab stop outside the PDF area on one side of it - the last before it, or (after) the first after it - or
 // null. Walks out from the area element by element and passes a part that is not drawn (display: none, hidden, inert)
@@ -32105,7 +32188,7 @@ function setBuildReadingPage(value) {
 // location, a note field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the
 // composer's note - one value, edited from either place - and [저장] and Ctrl/⌘+Enter take savePin(), the composer's
 // own path, so the saved chip with its undo and every rule of §알림 자리 hold unchanged. '@' in the field offers the
-// composer's @-list by the field; a pick's tag is kept on the composer's note (pins/input-mentions.ts mentionModel).
+// composer's @-list by the field; a pick's tag is kept on the composer's note (composer/input-mentions.ts mentionModel).
 // [자세히 →] hands over to the composer in the panel, which keeps the kind, the range and the overlap. Esc and a short
 // click off the box cancel the selection as they do without it; a press on the popover is a press inside the box
 // (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
@@ -32212,7 +32295,7 @@ function placeSelectionPopover() {
 }
 // One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft
 // follow), and what is typed in the composer shows here (a name picked there from the @-list too:
-// pins/input-mentions.ts mentionMirror).
+// composer/input-mentions.ts mentionMirror).
 SELECTION_POPOVER_FIELD.addEventListener('input', () => {
   const noteField = $('#note');
   noteField.value = SELECTION_POPOVER_FIELD.value;
@@ -32251,6 +32334,22 @@ function avatar(person) {
   return person.pic && !FAILED_AVATARS.has(person.pic)
     ? html`<img class="av" src="${person.pic}" alt="" referrerpolicy="no-referrer" data-ini="${initial}">`
     : html`<span class="av i" aria-hidden="true"><span class="av-l">${initial}</span></span>`;
+}
+
+// ------------------------------------------------ The text fields a pin is written in
+// The composer's note, an edit card's note and a reply share these: the field's height follows its text, and a card's
+// quote line stays open across redraws.
+// The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
+const QUOTE_OPEN = new Set();
+// The note field of an edit card (openEdit puts exactly one in every card).
+function editNote(card) {
+  return card.el.querySelector('.e-note');
+}
+// Grows a note or reply field with its text, from three lines to twelve.
+function autoGrow(field) {
+  field.style.height = 'auto';
+  const lineHeight = 20;
+  field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';
 }
 
 /** Native pin-card markup, including participant text, state badges and threads.
@@ -32567,19 +32666,6 @@ function mentionTokensOf(logins) {
   });
   return out.sort((left, right) => right.t.length - left.t.length || left.k - right.k);
 } // for a tie in text length, full name > login > first word
-// Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
-// letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
-// character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
-function mentionAfterWord(text, index) {
-  if (index <= 0) return false;
-  const lowUnit = text.charCodeAt(index - 1),
-    highUnit = index > 1 ? text.charCodeAt(index - 2) : 0;
-  const before =
-    lowUnit >= 0xdc00 && lowUnit <= 0xdfff && highUnit >= 0xd800 && highUnit <= 0xdbff
-      ? text.slice(index - 2, index)
-      : text[index - 1];
-  return /^[\p{L}\p{N}._-]$/u.test(before);
-}
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
@@ -32678,8 +32764,6 @@ function hasRef(value) {
   return !!value && String(value).trim() !== '' && String(value).trim() !== '-';
 }
 const EVENT_LABEL = { close: '닫음', reopen: '다시 엶', confirm: '확인', assign: '담당 바꿈' };
-// The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
-const QUOTE_OPEN = new Set();
 // A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner),
 // folded to one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
 function cardQuote(pin) {
@@ -32772,7 +32856,7 @@ function threadHtml(pin, wide) {
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access. */
 function card(pin) {
-  pin = dropPageLineOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict/flow-line.ts)
+  pin = pinVerdicts().dropOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict/flow-line.ts)
   const loc = 'L' + pin.lo + '-L' + pin.hi,
     name =
       pin.name ||
@@ -32846,8 +32930,8 @@ function card(pin) {
   // on a line of its own, cut to one line (.sum-note). A superseded verdict says so folded too: its badge, '이전 판정 ·
   // #4로 대체됨', then '메모 있음' when it has a note (shown when opened). A row that does not clip, so the '#4' link
   // answers its whole touch area (.sum-vd, responsive.css).
-  const oldMarker = verdictOldMarker(pin),
-    targetTag = verdictTarget(pin),
+  const oldMarker = pinVerdicts().oldMarker(pin),
+    targetTag = pinVerdicts().target(pin),
     isVerdict = !!verdictOf(pin),
     hasNote = oldMarker && pin.note ? html`<span class="sum-has">${translate('메모 있음')}</span>` : '';
   const why =
@@ -32856,7 +32940,7 @@ function card(pin) {
       : '';
   // It starts with when the note was written, the short form: a folded card has no comment head to say so.
   const noteTime = pin.at ? stampSpan(pin.at, STAMP_FORM.SHORT, 'sum-t') : '';
-  const sum = html`<div class="sum${isVerdict ? ' sum-vd' : ''}" translate="no" data-act="card-toggle">${noteTime}${isVerdict ? html`${verdictBadge(pin)}${oldMarker}${targetTag}${hasNote}${why}` : first ? fmtText(first, pin.mentions) : noNote}</div>`;
+  const sum = html`<div class="sum${isVerdict ? ' sum-vd' : ''}" translate="no" data-act="card-toggle">${noteTime}${isVerdict ? html`${pinVerdicts().badge(pin)}${oldMarker}${targetTag}${hasNote}${why}` : first ? fmtText(first, pin.mentions) : noNote}</div>`;
   if (isRegion(pin)) {
     // a figure region: element without code, or map unreadable
     const regionBadge = figureRegionBadge(pin.el, isFigureKind((docInfo(pdoc(pin)) || {}).kind));
@@ -32870,7 +32954,7 @@ function card(pin) {
     tags.unshift(
       html`<span class="badge badge-question" data-tip="${TIP_TEXT.question}">${lucideIcon('circle-question-mark')}질문</span>`,
     );
-  const verdictTag = verdictBadge(pin);
+  const verdictTag = pinVerdicts().badge(pin);
   if (targetTag) tags.unshift(targetTag);
   if (oldMarker) tags.unshift(oldMarker);
   // '판정 채택' in the question badge's place, then '이전 판정 · #4로 대체됨', then the figure it is about
@@ -33154,13 +33238,13 @@ function doneCard(pin) {
   const thread = threadOpen
     ? html`<div class="arc-thread"><div class="thread">${entries.map((entry, index) => messageHtml(entry, pin.id + ':' + index))}${replying ? html`<div class="reply-slot"></div>` : ''}</div></div>`
     : '';
-  const oldMarker = verdictOldMarker(pin),
-    targetTag = verdictTarget(pin),
+  const oldMarker = pinVerdicts().oldMarker(pin),
+    targetTag = pinVerdicts().target(pin),
     numberTag = html`${lucideIcon('check')}<span class="n" data-tip="완료한 핀 번호">#${pin.id}</span>`;
-  const where = html`${docChip(pin)}${!oldMarker ? html`${verdictBadge(pin)}${targetTag}` : ''}${arcLoc(pin)}${ref}${relSpan(pin.done_at, 'arc-t', translateTemplate('닫은 사람 {name} · 닫은 시각', { name: who(pin.closed_by) || translate('기록 전') }))}`;
+  const where = html`${docChip(pin)}${!oldMarker ? html`${pinVerdicts().badge(pin)}${targetTag}` : ''}${arcLoc(pin)}${ref}${relSpan(pin.done_at, 'arc-t', translateTemplate('닫은 사람 {name} · 닫은 시각', { name: who(pin.closed_by) || translate('기록 전') }))}`;
   const replyButton = html`<span class="sp"></span><button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="${TIP_TEXT.reply}">답글</button>`;
   return html`<div class="arc-row done" data-id="${pin.id}" data-doc="${pdoc(pin)}" data-tip="${authorTip(pin)}">\
-${oldMarker ? html`<div class="arc-l1"><span class="arc-head">${numberTag}${verdictBadge(pin)}${oldMarker}${targetTag}</span>${replyButton}</div><div class="arc-l1b">${where}</div>` : html`<div class="arc-l1">${numberTag}${where}${replyButton}</div>`}\
+${oldMarker ? html`<div class="arc-l1"><span class="arc-head">${numberTag}${pinVerdicts().badge(pin)}${oldMarker}${targetTag}</span>${replyButton}</div><div class="arc-l1b">${where}</div>` : html`<div class="arc-l1">${numberTag}${where}${replyButton}</div>`}\
 <div class="arc-l2">${reply}${originalToggle}<button class="arc-orig-t b-change" data-act="change" data-tip="${TIP_TEXT.change}">변경 보기</button>${threadToggle}</div>${original}${thread}</div>`;
 }
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged,
@@ -33397,9 +33481,9 @@ function resultRow(pin) {
   const at = pinPlace(pin).page,
     page = typeof at === 'number' && !isMarkdownPin(pin) ? translateTemplate('{page}쪽', { page: at }) : '';
   const tags = [
-    verdictBadge(pin),
-    verdictOldMarker(pin),
-    verdictTarget(pin),
+    pinVerdicts().badge(pin),
+    pinVerdicts().oldMarker(pin),
+    pinVerdicts().target(pin),
     isQuestion(pin)
       ? html`<span class="badge badge-question" data-tip="${TIP_TEXT.question}">${lucideIcon('circle-question-mark')}${translate('질문')}</span>`
       : null,
@@ -34782,7 +34866,7 @@ function marks() {
     return;
   } // the Markdown surface marks its lines (markdown/view.ts)
   $$('.mark').forEach((mark) => mark.remove());
-  drawPageVerdicts();
+  pinVerdicts().drawLines();
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated
   // to an open pin's overlap/editing). A figure pin is drawn where the server found its element in this build (see
   // pinPlace), and a found element is no estimate.
@@ -34790,7 +34874,7 @@ function marks() {
     const at = pinPlace(pin),
       page = document.getElementById('p' + at.page);
     if (!page || !isFrac(at.frac)) return;
-    if (isShownOnLine(pin)) return;
+    if (pinVerdicts().shownOnLine(pin)) return;
     const est = isEstimated(pin) && !hasMark(pin),
       lost = pin.stale || isElementLost(pin);
     const mark = document.createElement('div');
@@ -34951,7 +35035,7 @@ function jumpPin(id) {
     return;
   }
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
-  if (jumpToPageLine(id)) return; // a pin its page verdict line shows: the line
+  if (pinVerdicts().jumpToLine(id)) return; // a pin its page verdict line shows: the line
   marksShow(); // the way to a mark shows the marks (pins/input-hide-marks.ts)
   // collapsed first so the sheet doesn't cover the page, then measured
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
@@ -35454,6 +35538,19 @@ async function unclaimPin(id) {
 // composer/view-selection-popover.ts) offers the same list, and its tags are kept on the field it mirrors, which sends
 // them (mentionModel). There is no external notification. The open @-list: its field, the '@word' it was drawn for
 // (where its '@' is, q the letters after it), its people and the highlighted row.
+// Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
+// letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
+// character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
+function mentionAfterWord(text, index) {
+  if (index <= 0) return false;
+  const lowUnit = text.charCodeAt(index - 1),
+    highUnit = index > 1 ? text.charCodeAt(index - 2) : 0;
+  const before =
+    lowUnit >= 0xdc00 && lowUnit <= 0xdfff && highUnit >= 0xd800 && highUnit <= 0xdbff
+      ? text.slice(index - 2, index)
+      : text[index - 1];
+  return /^[\p{L}\p{N}._-]$/u.test(before);
+}
 
 const MENTION = {
   ta: null,
@@ -36036,7 +36133,7 @@ function mentionApply(index) {
   } // the composer's row draws its preview line too
   mentionPreview(model);
   if (model.classList.contains('e-note')) renderAssignEdit();
-  else if (model.classList.contains('r-text')) renderReplyOutcome();
+  else if (model.classList.contains('r-text')) pinFields().drawReplyOutcome();
 }
 const isMentionField = (target) =>
   !!target &&
@@ -36067,7 +36164,7 @@ document.addEventListener('input', (event) => {
     renderAssignEdit();
     if (EDITOR.current)
       syncQuestionHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
-  } else if (field.classList.contains('r-text')) renderReplyOutcome();
+  } else if (field.classList.contains('r-text')) pinFields().drawReplyOutcome();
 });
 window.addEventListener(
   'keydown',
@@ -36401,10 +36498,6 @@ function syncEditSaveButton() {
   const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
   if (button) (button).disabled = EDITOR.saving;
 }
-// The note field of an edit card (openEdit puts exactly one in every card).
-function editNote(card) {
-  return card.el.querySelector('.e-note');
-}
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card
 // markup, records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element)
 // and loads the snippet and range ladder. An edit already open on that pin is left as it is.
@@ -36511,11 +36604,6 @@ function editDirty() {
     card.assignee !== card.orig.assignee ||
     suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
   );
-}
-function autoGrow(field) {
-  field.style.height = 'auto';
-  const lineHeight = 20;
-  field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';
 }
 document.addEventListener('input', (event) => {
   const target = event.target;
@@ -36989,7 +37077,7 @@ async function applyRepick() {
       );
       if (EDITOR.current === editing && editing && data.pin) editing.base_rev = data.pin.rev;
       if (currentVisit(visit) && REPICK === repick) cancelRepick();
-      await loadPins();
+      await composerPins().load();
       return;
     }
     const pin = data.pin;
@@ -37009,7 +37097,7 @@ async function applyRepick() {
       editing.orig.lo = pin.lo;
       editing.orig.hi = pin.hi;
       editing.orig.scope = pin.scope || null;
-      editSnip(true);
+      pinFields().snipEdit(true);
     }
     quietNote(
       translateTemplate('핀 #{id} 위치를 {where} 로 바꿨습니다', {
@@ -37019,7 +37107,7 @@ async function applyRepick() {
           : lineRange(pin.lo, pin.hi),
       }),
     );
-    await loadPins();
+    await composerPins().load();
   } catch (error) {}
 }
 
@@ -37359,6 +37447,29 @@ setPageChanges({ setMode: setViewMode });
 setTextSurface({ build: buildTextView, levels: textLevels });
 setLinePick({ compare: bannerCompare, setBusy, renderComposer, renderVerdictRow });
 setLineMarks({ draw: marks });
+// The composer's seams (composer/state-seams.ts) and the pin list's (pins/state-seams.ts): the verdict row and the
+// verdict a save carries, the pin list a save changes, the queue a save goes into while cut off, the edit card and the
+// reply that share the composer's text tools, and what a verdict adds to the pin list.
+setComposerVerdict({
+  drawRow: renderVerdictRow,
+  figureBody: figureVerdictBody,
+  figureRoot: figureVerdictRoot,
+  figureShort,
+  undo: verdictUndo,
+  dropped: verdictDropped,
+});
+setComposerPins({ load: loadPins, drop: dropPin });
+setComposerQueue({ pick: offlinePick, save: offlineQueueSave, keyed: () => OFF.idem, key: offlineKey });
+setPinFields({ drawEdit: renderEdit, snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
+setPinVerdicts({
+  badge: verdictBadge,
+  target: verdictTarget,
+  oldMarker: verdictOldMarker,
+  dropOverlaps: dropPageLineOverlaps,
+  drawLines: drawPageVerdicts,
+  shownOnLine: isShownOnLine,
+  jumpToLine: jumpToPageLine,
+});
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

@@ -24,14 +24,13 @@ import { kindFor, levelLabel, scopeLabel } from './view-levels.ts';
 import { figureFields, pinPlace, repickElement, snapBox } from '../pdf/view-figure.ts';
 import { markChosenLines, shownChoice } from '../markdown/view.ts';
 import { cancelSelection } from './flow-pick.ts';
-import { loadPins } from '../pins/flow-list.ts';
-import { editSnip } from '../pins/flow-edit.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isRegion } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
+import { composerPins, pinFields } from './state-seams.ts';
 function banner(markup) {
   const bannerBox = $('#banner');
   setHtml(bannerBox, markup);
@@ -176,7 +175,7 @@ async function applyRepick() {
       );
       if (EDITOR.current === editing && editing && data.pin) editing.base_rev = data.pin.rev;
       if (currentVisit(visit) && REPICK === repick) cancelRepick();
-      await loadPins();
+      await composerPins().load();
       return;
     }
     const pin = data.pin;
@@ -196,7 +195,7 @@ async function applyRepick() {
       editing.orig.lo = pin.lo;
       editing.orig.hi = pin.hi;
       editing.orig.scope = pin.scope || null;
-      editSnip(true);
+      pinFields().snipEdit(true);
     }
     quietNote(
       translateTemplate('핀 #{id} 위치를 {where} 로 바꿨습니다', {
@@ -206,7 +205,7 @@ async function applyRepick() {
           : lineRange(pin.lo as number, pin.hi as number),
       }),
     );
-    await loadPins();
+    await composerPins().load();
   } catch (error) {}
 }
 export { applyRepick, banner, bannerCompare, bannerRepick, cancelRepick, startRepick };
