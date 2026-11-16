@@ -7,17 +7,7 @@
 // queue is replayed in the order it was written: each record's own coordinates go to POST /api/pick with the build they
 // were drawn on, and its answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never
 // dropped.
-import {
-  DEFAULT_DOC,
-  DOC,
-  DOCS,
-  LAST_POINTER,
-  META,
-  OPEN_ALL,
-  PICKSEQ,
-  rendersInBrowser,
-  setSnipOpen,
-} from '../app/state.ts';
+import { DEFAULT_DOC, DOC, DOCS, META, OPEN_ALL, PICKSEQ, rendersInBrowser, setSnipOpen } from '../app/state.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { API_WAIT, api, setApiOut } from '../platform/api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/notices.ts';
@@ -39,6 +29,7 @@ import { $ } from '../platform/dom.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
+import { LAST_POINTER } from '../platform/tooltip.ts';
 const OFF_DB = 'limnOffline',
   OFF_STORE = 'pins',
   OFF_STATE = 'state',

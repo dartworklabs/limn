@@ -10,9 +10,8 @@
 // (components.css). Off is this page's state only (never stored): a reload shows every mark. Only the marks go. The
 // pins, the cards, the page verdict lines and the selection box are as they were.
 import { lineNote, quietNote, sourceOk } from '../platform/notices.ts';
-import { searchToPage } from '../pdf/flow.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, searchToPage } from '../platform/dom.ts';
 const MARKS = { off: false, held: null as { code: string; at: number } | null };
 const MARKS_HOLD_MS = 350; // a press this long is a look, not a switch
 const MARKS_SOURCE = 'marks-off'; // the status line's one reminder (sourceEntry)

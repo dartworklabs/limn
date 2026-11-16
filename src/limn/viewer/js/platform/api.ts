@@ -26,8 +26,37 @@
 import { html, lucideIcon, setHtml } from './markup.ts';
 import { errText, translateTemplate, translate } from './i18n.ts';
 import { bannerNote, lineNote, quietNote, sourceOk } from './notices.ts';
-import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from '../offline/flow.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './tables.ts';
+// The copies kept for reading while cut off (offline/flow.ts): a document read's key, whether a stored answer may
+// serve, the stored answer, saying once how old it is, the connection back, keeping an answer. Platform knows no
+// feature, so this is a seam: js/main.ts registers it once, before boot() runs (no code that runs while the script loads
+// sends a request), and api() calls it at the point, with the arguments and in the order it calls the offline code. A
+// request before the registration throws, naming the seam.
+// url and options are api()'s own, as its caller gave them.
+interface RequestFallback {
+  /** The key a read of url is kept under, null for a request that is not kept. */
+  readKey(url: unknown, options: unknown): string | null;
+  /** Whether a stored answer may serve a read now (this visit's first reads, or a connection known to be gone). */
+  mayServe(): boolean;
+  /** The stored answer for url, or null. */
+  stashed(url: unknown, options: unknown): Promise<{ data: unknown; status: number; at: number } | null>;
+  /** Says once per visit that the screen was read at `at`, before the connection went. */
+  staleSaid(at: number): void;
+  /** The connection answered again. */
+  back(): void;
+  /** Keeps a read's answer for a later visit with no network. */
+  stash(url: unknown, data: unknown, status: number, options: unknown): void;
+}
+let REQUEST_FALLBACK: RequestFallback | null = null;
+// Registers the copies kept for reading while cut off; js/main.ts calls it once.
+function setRequestFallback(fallback: RequestFallback) {
+  REQUEST_FALLBACK = fallback;
+}
+// The registered fallback; throws before setRequestFallback() has run.
+function requestFallback(): RequestFallback {
+  if (!REQUEST_FALLBACK) throw new Error('setRequestFallback() has not run: api() has no copies to fall back on');
+  return REQUEST_FALLBACK;
+}
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
 async function api(url, options): Promise<{ status: number; data: any }> {
@@ -41,11 +70,11 @@ async function api(url, options): Promise<{ status: number; data: any }> {
     init.body = JSON.stringify(options.body);
     init.headers['Content-Type'] = 'application/json';
   }
-  const read = !!offReadKey(url, options);
-  if (read && API_OUT && offlineMayServe()) {
-    const kept = await offStashed(url, options);
+  const read = !!requestFallback().readKey(url, options);
+  if (read && API_OUT && requestFallback().mayServe()) {
+    const kept = await requestFallback().stashed(url, options);
     if (kept) {
-      offStaleSaid(kept.at);
+      requestFallback().staleSaid(kept.at);
       sourceOk(options.source);
       return { status: kept.status, data: kept.data };
     }
@@ -89,9 +118,9 @@ async function api(url, options): Promise<{ status: number; data: any }> {
     throw err;
   }
   sourceOk(options.source);
-  offlineBack();
+  requestFallback().back();
   // a document read the server answered is kept for a later visit with no network
-  offStash(url, body, response.status, options);
+  requestFallback().stash(url, body, response.status, options);
   return { status: response.status, data: body };
 }
 // A request that got no answer - refused by the network, or ended at its wait.
@@ -101,9 +130,9 @@ async function api(url, options): Promise<{ status: number; data: any }> {
 // connected fail.
 async function apiUnanswered(url: string, options: any, error: unknown): Promise<{ status: number; data: any }> {
   if (!(options.signal && options.signal.aborted)) API_OUT = true; // ended by its caller is not unanswered
-  const kept = offlineMayServe() ? await offStashed(url, options) : null;
+  const kept = requestFallback().mayServe() ? await requestFallback().stashed(url, options) : null;
   if (kept) {
-    offStaleSaid(kept.at);
+    requestFallback().staleSaid(kept.at);
     sourceOk(options.source);
     return { status: kept.status, data: kept.data };
   }
@@ -169,4 +198,4 @@ function setApiOut<Value extends typeof API_OUT>(value: Value): Value {
   API_OUT = value;
   return value;
 }
-export { API_OUT, API_WAIT, api, apiFailed, copyText, setApiOut };
+export { API_OUT, API_WAIT, api, apiFailed, copyText, setApiOut, setRequestFallback };

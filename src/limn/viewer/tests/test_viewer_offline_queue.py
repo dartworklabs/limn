@@ -12,7 +12,7 @@ import unittest
 from pathlib import Path
 
 import helpers_js
-from helpers import extract_js_fn, run_node
+from helpers import extract_js_fn, js_seam_wired, run_node
 
 # The page scope a pulled offline function reads: the queue (an array standing in for IndexedDB), the server (api), the
 # list the dedup judgment reads, and the messages. Every call is recorded so a test can say what went out and in which order.
@@ -785,7 +785,8 @@ class StoredReadsServe(unittest.TestCase):
 
     def _run(self, scenario):
         names = ("offlineNow", "offlineMayServe", "offStaleSaid", "offlineBack", "apiUnanswered", "api")
-        return json.loads(run_node("\n".join([SERVE_SCOPE, *(extract_js_fn(n) for n in names), scenario])))
+        wired = js_seam_wired("setRequestFallback", late=True)
+        return json.loads(run_node("\n".join([SERVE_SCOPE, *(extract_js_fn(n) for n in names), wired, scenario])))
 
     def test_a_read_that_fails_while_connected_is_a_failure(self):
         """After the first reads, with the light poll answering: the failure is said, not papered over."""

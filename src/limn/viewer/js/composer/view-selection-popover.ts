@@ -7,7 +7,7 @@
 // [자세히 →] hands over to the composer in the panel, which keeps the kind, the range and the overlap. Esc and a short
 // click off the box cancel the selection as they do without it; a press on the popover is a press inside the box
 // (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
-import { KIND_NEW, LAST_POINTER, LAYOUT, REPICK } from '../app/state.ts';
+import { KIND_NEW, LAYOUT, REPICK } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { syncQuestionHint, COMPOSE } from './flow-pick.ts';
@@ -18,6 +18,7 @@ import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { isRegion } from '../documents/state.ts';
+import { LAST_POINTER } from '../platform/tooltip.ts';
 const SELECTION_POPOVER = $('#sel-pop'),
   SELECTION_POPOVER_FIELD = SELECTION_POPOVER.querySelector('textarea') as HTMLTextAreaElement,
   SELECTION_POPOVER_GAP = 8;

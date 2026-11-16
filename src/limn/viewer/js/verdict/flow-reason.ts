@@ -39,7 +39,6 @@ import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platfo
 import { api } from '../platform/api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { searchToPage } from '../pdf/flow.ts';
 import {
   SAVING_LINES,
   KEYED_PAGE,
@@ -66,7 +65,7 @@ import {
 import { IS_BESIDE_PAGES, bringPage, redrawOnBesideChange } from './view-panel.ts';
 import { PINS_APPLIED_SEQ, gotoPinRef, loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
-import { $, typingNow } from '../platform/dom.ts';
+import { $, typingNow, searchToPage } from '../platform/dom.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, verdictLabel, viewerBlocked } from '../documents/state.ts';

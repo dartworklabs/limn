@@ -11,21 +11,99 @@
 // - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule
 //   2).
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
-import { REPLY, REVIEW_ALL, SIDE_OPEN } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from './markup.ts';
 import { translate, translateMessage, TIP_TEXT } from './i18n.ts';
 import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
-import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from '../documents/view-status.ts';
-import { searchToPage } from '../pdf/flow.ts';
-import { saveButtonLabel } from '../composer/flow-save.ts';
-import { READING_LINE_PAGE, pageVerdictsOn } from '../verdict/flow-line.ts';
-import { focusLine, isReasonField } from '../verdict/flow-reason.ts';
-import { dropBareDayLines, placeRow } from '../pins/flow-list.ts';
 import type { Html } from './markup.ts';
 import { EVENT_TYPE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from './tables.ts';
-import { $ } from './dom.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
+import { $, searchToPage } from './dom.ts';
+
+// What a message reads from, or draws into, a feature: the status line, the pin panel, the focus a message's action
+// gives back, the composer's save button. Platform knows no feature, so each is a seam: js/main.ts registers it once,
+// before boot() runs (no code that runs while the script loads reaches one), and each call goes to the registered
+// function at the point, with the arguments and in the order the message code calls it. A call before the registration
+// throws, naming the seam.
+// The status line (documents/view-status.ts).
+interface NoticeStatusLine {
+  /** The number of the message the line shows on top, 0 when none. */
+  top(): number;
+  /** Draws the line again. */
+  draw(): void;
+  /** Sets the signature of the item last drawn on the line ('' forgets it, so the next draw announces again). */
+  setSignature(signature: string): void;
+  /** Opens or closes the line's '+N' list. */
+  toggleList(): void;
+}
+let NOTICE_STATUS_LINE: NoticeStatusLine | null = null;
+// Registers the status line; js/main.ts calls it once.
+function setNoticeStatusLine(line: NoticeStatusLine) {
+  NOTICE_STATUS_LINE = line;
+}
+// The registered status line; throws before setNoticeStatusLine() has run.
+function noticeStatusLine(): NoticeStatusLine {
+  if (!NOTICE_STATUS_LINE) throw new Error('setNoticeStatusLine() has not run: notices have no status line');
+  return NOTICE_STATUS_LINE;
+}
+// The pin panel (layout's open state, the pin list's rows).
+interface NoticePanel {
+  /** Whether the side panel is open. */
+  sideOpen(): boolean;
+  /** The pins of the review section, as the list last drew them. */
+  reviewPins(): Pin[];
+  /** Puts a message's row among the cards of box where its pin would stand. */
+  placeRow(box: HTMLElement, notice: Notice, row: HTMLElement): void;
+  /** Takes away the day lines that no longer head a card or a row. */
+  dropBareDayLines(): void;
+}
+let NOTICE_PANEL: NoticePanel | null = null;
+// Registers the pin panel; js/main.ts calls it once.
+function setNoticePanel(panel: NoticePanel) {
+  NOTICE_PANEL = panel;
+}
+// The registered pin panel; throws before setNoticePanel() has run.
+function noticePanel(): NoticePanel {
+  if (!NOTICE_PANEL) throw new Error('setNoticePanel() has not run: notices have no pin panel');
+  return NOTICE_PANEL;
+}
+// Where the focus goes back to after a message's action (noticeFocusBack), and the field a press must not take it from.
+interface NoticeFocus {
+  /** Whether an edit card or a reply box is open (the focus stays with it). */
+  fieldOpen(): boolean;
+  /** Whether the document on screen draws page verdict lines. */
+  pageLinesOn(): boolean;
+  /** The page whose verdict line is the reading line. */
+  readingLinePage(): number;
+  /** Puts the focus on the verdict line of page; false when that line has no control to take it. */
+  focusLine(page: number): boolean;
+  /** Whether target is a verdict's reason field. */
+  isReasonField(target: unknown): boolean;
+}
+let NOTICE_FOCUS: NoticeFocus | null = null;
+// Registers where the focus goes back to; js/main.ts calls it once.
+function setNoticeFocus(focus: NoticeFocus) {
+  NOTICE_FOCUS = focus;
+}
+// Where the focus goes back to, as registered; throws before setNoticeFocus() has run.
+function focusAfterNotice(): NoticeFocus {
+  if (!NOTICE_FOCUS) throw new Error('setNoticeFocus() has not run: notices cannot give the focus back');
+  return NOTICE_FOCUS;
+}
+// The composer's save button (composer/flow-save.ts), whose words follow its banner.
+interface NoticeComposer {
+  /** The save button's label for the banner now standing. */
+  saveButtonLabel(): Html;
+}
+let NOTICE_COMPOSER: NoticeComposer | null = null;
+// Registers the composer's save button; js/main.ts calls it once.
+function setNoticeComposer(composer: NoticeComposer) {
+  NOTICE_COMPOSER = composer;
+}
+// The registered composer; throws before setNoticeComposer() has run.
+function noticeComposer(): NoticeComposer {
+  if (!NOTICE_COMPOSER) throw new Error('setNoticeComposer() has not run: notices have no save button');
+  return NOTICE_COMPOSER;
+}
 
 // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
 const NOTICE_MS = 6000;
@@ -208,7 +286,7 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
     place: NOTICE_PLACE.LINE,
     pending: false,
     alert: kind === NOTICE_KIND.ERR || !!options.alert,
-    dot: noticeDot(options.dot || '', SIDE_OPEN),
+    dot: noticeDot(options.dot || '', noticePanel().sideOpen()),
   });
   if (notice.back) LINE.push(notice);
   else if (notice.group) LINE.splice(newsSlot(), 0, notice);
@@ -216,10 +294,10 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
   else LINE.unshift(notice);
   lineCap();
   if (notice.dot) document.body.classList.add('dot-' + notice.dot);
-  drawStatus();
+  noticeStatusLine().draw();
   armNotice(notice);
   if (notice.alert) announce(noticeText(notice), true);
-  else if (STATUS_TOP !== notice.n && !notice.quiet) announce(noticeText(notice));
+  else if (noticeStatusLine().top() !== notice.n && !notice.quiet) announce(noticeText(notice));
   return notice;
 }
 // The line's cap (rule 2): it keeps LINE_MAX messages besides its undos and what must stay (keep: a document's update,
@@ -273,7 +351,11 @@ function bannerNote(
   options?: Partial<Notice>,
 ): Notice | null {
   options = options || {};
-  const screen = { sideOpen: SIDE_OPEN, trashOpen: $('#trash').open, composerOpen: !$('#composer').hidden },
+  const screen = {
+      sideOpen: noticePanel().sideOpen(),
+      trashOpen: $('#trash').open,
+      composerOpen: !$('#composer').hidden,
+    },
     shownHost = bannerHost(host, screen);
   if (!bannerShown(shownHost, screen))
     return lineNote(message, kind, act, {
@@ -318,7 +400,7 @@ function undoNote(place: string, message: string, act: NoticeAct, options: Parti
     life = options.life || NOTICE_LIFE.TIMER;
   if (
     !offerSeen(place, {
-      sideOpen: SIDE_OPEN,
+      sideOpen: noticePanel().sideOpen(),
       secOpen: !options.sec || !!SECTION_OPEN[options.sec],
       trashOpen: $('#trash').open,
     })
@@ -494,14 +576,14 @@ function endNotice(notice: Notice, acted: boolean, seen?: boolean) {
   }
   if (notice.place === NOTICE_PLACE.BANNER && BANNERS.get(notice.host) === notice) BANNERS.delete(notice.host);
   if (notice.el) notice.el.remove();
-  if (notice.place === NOTICE_PLACE.ROW) dropBareDayLines(); // a day line drawn for this row alone goes with it
+  if (notice.place === NOTICE_PLACE.ROW) noticePanel().dropBareDayLines(); // a day line drawn for this row alone goes with it
   if (acted || seen)
     noticeDots(notice).forEach((dot) => {
       if (!dotHeld(dot)) document.body.classList.remove('dot-' + dot);
     });
   const group = notice.group ? GROUPS.get(notice.group) : undefined;
   if (group && group.n === notice) GROUPS.delete(notice.group);
-  if (notice.place === NOTICE_PLACE.LINE) drawStatus();
+  if (notice.place === NOTICE_PLACE.LINE) noticeStatusLine().draw();
   if (notice.place === NOTICE_PLACE.BANNER) {
     syncSaveButton();
     tipFollow();
@@ -545,9 +627,9 @@ function noticeFocusBack(notice: Notice, anyDoc?: boolean): () => void {
     page = line ? Number(line.dataset.page) || 0 : 0;
   return () => {
     const nowFocused = document.activeElement;
-    if (!own || (nowFocused && nowFocused !== document.body) || EDITOR.current || REPLY) return;
-    const lines = !!pageVerdictsOn();
-    if (lines ? !focusLine(page || READING_LINE_PAGE) : anyDoc) searchToPage();
+    if (!own || (nowFocused && nowFocused !== document.body) || focusAfterNotice().fieldOpen()) return;
+    const lines = focusAfterNotice().pageLinesOn();
+    if (lines ? !focusAfterNotice().focusLine(page || focusAfterNotice().readingLinePage()) : anyDoc) searchToPage();
   };
 }
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
@@ -659,7 +741,7 @@ function noticeLate(notice: Notice, action: NoticeAct) {
     if (lateNotice) {
       lateNotice.title = what;
       lateNotice.desc = '';
-      drawStatus();
+      noticeStatusLine().draw();
     }
     return;
   } // lineNote cuts at ' · '
@@ -669,9 +751,9 @@ function noticeLate(notice: Notice, action: NoticeAct) {
   notice.quiet = false;
   LINE.splice(index, 1);
   LINE.unshift(notice);
-  drawStatus();
+  noticeStatusLine().draw();
   if (notice.alert) announce(noticeText(notice), true);
-  else if (STATUS_TOP !== notice.n) announce(noticeText(notice));
+  else if (noticeStatusLine().top() !== notice.n) announce(noticeText(notice));
 } // as lineNote reads one out
 // A press on a message's action does not take the focus from the reason field being typed in: its button goes with the
 // message, and the keys typed next would be verdict keys.
@@ -683,7 +765,7 @@ document.addEventListener(
       !!target &&
       !!target.closest &&
       !!target.closest('[data-act="notice-act"]') &&
-      isReasonField(document.activeElement)
+      focusAfterNotice().isReasonField(document.activeElement)
     )
       event.preventDefault();
   },
@@ -749,7 +831,9 @@ function reviewNewsStale(keys: string[], inReview: number[]): boolean {
 // still under way (DIGEST) - and [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line
 // or gathered holds it (dotHeld).
 function dropStaleReview() {
-  const ids = REVIEW_ALL.map((pin) => pin.id);
+  const ids = noticePanel()
+    .reviewPins()
+    .map((pin) => pin.id);
   LINE.slice().forEach((notice) => {
     if (reviewNewsStale(notice.keys, ids)) endNotice(notice, false, true);
   });
@@ -998,7 +1082,7 @@ function regroup(
   if (options.onEnd) notice.onEnd = options.onEnd;
   if (options.life) notice.life = options.life;
   notice.back = !!options.back;
-  const dot = noticeDot(options.dot || '', SIDE_OPEN);
+  const dot = noticeDot(options.dot || '', noticePanel().sideOpen());
   if (dot) {
     notice.dot = dot;
     document.body.classList.add('dot-' + dot);
@@ -1008,11 +1092,11 @@ function regroup(
     LINE.splice(index, 1);
     LINE.splice(newsSlot(), 0, notice);
   }
-  setStatusSig('');
-  drawStatus();
+  noticeStatusLine().setSignature('');
+  noticeStatusLine().draw();
   if (still) return;
   armNotice(notice);
-  if (!same && !options.quiet && STATUS_TOP !== notice.n) announce(noticeText(notice));
+  if (!same && !options.quiet && noticeStatusLine().top() !== notice.n) announce(noticeText(notice));
 }
 
 // ---------------- Gathering while a person was away (docs/handbook/viewer.md §새 소식)
@@ -1066,7 +1150,7 @@ function digestHold(
   if (dup.skip) return true;
   dup.drop.forEach((group) => gatheredLess(group, keys));
   digest.items.set(options.group, [message, kind, act, options]);
-  const dot = noticeDot(options.dot || '', SIDE_OPEN);
+  const dot = noticeDot(options.dot || '', noticePanel().sideOpen());
   if (dot) document.body.classList.add('dot-' + dot);
   return true;
 }
@@ -1114,7 +1198,7 @@ function digestNote(title: string, items: any[][]) {
       fn: () => {
         const all = notice ? notice.items || [] : [];
         all.forEach((item) => digestReplay(item, false));
-        if (all.length > 1 && !$('#status-list').open) toggleStatusList();
+        if (all.length > 1 && !$('#status-list').open) noticeStatusLine().toggleList();
       },
     },
     {
@@ -1169,9 +1253,11 @@ function digestTake(group: string): boolean {
   }
   return false;
 }
-// The chips the gathered messages mark (digestNote's dots): each one's dot once. Pure but for SIDE_OPEN.
+// The chips the gathered messages mark (digestNote's dots): each one's dot once. Pure but for the panel's open state.
 function digestDots(items: any[][]): string[] {
-  return [...new Set(items.map((item) => noticeDot((item[3] || {}).dot || '', SIDE_OPEN)).filter(Boolean))];
+  return [
+    ...new Set(items.map((item) => noticeDot((item[3] || {}).dot || '', noticePanel().sideOpen())).filter(Boolean)),
+  ];
 }
 // A gathered line says what it holds now (digestTake, foldedLess, foldedGone): each brief once with how many, and the
 // dots of those alone - one left stays a gathered line naming it - or, holding nothing more, it goes (nothing it held
@@ -1189,8 +1275,8 @@ function digestRetitle(notice: Notice) {
   );
   notice.title = title;
   notice.desc = description;
-  setStatusSig('');
-  drawStatus();
+  noticeStatusLine().setSignature('');
+  noticeStatusLine().draw();
 }
 
 // A CLICK message - a passing notice that is not an undo (a restored draft's [버리기]) - lasts until the next press
@@ -1311,7 +1397,7 @@ function syncSaveButton() {
   if ((button.dataset.retry === '1') !== retry) {
     if (retry) button.dataset.retry = '1';
     else delete button.dataset.retry;
-    setHtml(button, saveButtonLabel());
+    setHtml(button, noticeComposer().saveButtonLabel());
   }
 }
 // A composer's banner belongs to its selection: when the composer closes (saved, cancelled), it goes with it.
@@ -1343,7 +1429,7 @@ function drawOffers(focus?: HTMLElement | null) {
       const element = noticeElement(notice, 'nt-row'),
         slot = box.querySelector('.nt-slot[data-slot="' + notice.n + '"]');
       if (slot) slot.replaceWith(element);
-      else if (element.parentElement !== box) placeRow(box, notice, element);
+      else if (element.parentElement !== box) noticePanel().placeRow(box, notice, element);
     } // one standing since the last draw has its place
     else if (notice.place === NOTICE_PLACE.CARD) {
       const card = document.querySelector(
@@ -1593,6 +1679,10 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) flushDeferred();
 });
 export {
+  setNoticeComposer,
+  setNoticeFocus,
+  setNoticePanel,
+  setNoticeStatusLine,
   BANNERS,
   DIGEST,
   GROUPS,

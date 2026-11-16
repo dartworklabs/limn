@@ -156,6 +156,56 @@ def js_const(name: str) -> str:
     return helpers_js.declaration_source(HTML, name)
 
 
+# A seam of platform (docs/handbook/viewer.md §모듈 경계): `let STORE: Kind | null = null;`, `function setKind(x: Kind)`
+# that stores x, and the accessor `function kind(): Kind` that returns it or throws. js/main.ts registers each.
+_SEAM_SETTER = re.compile(r"^function (set\w+)\((\w+): (\w+)\) \{\n  (\w+) = \2;\n\}", re.M)
+
+
+@dataclasses.dataclass(frozen=True)
+class Seam:
+    """One platform seam: its module (under js/), registration function, interface, store and accessor."""
+
+    module: str
+    setter: str
+    interface: str
+    store: str
+    accessor: str
+
+
+def platform_seams() -> list[Seam]:
+    """Every seam the platform modules declare, read from their source by the shape above (a setter storing its one
+    argument of an interface type declared in the same module, and the accessor answering that interface)."""
+    out = []
+    for path in sorted((VIEWER / "js" / "platform").glob("*.ts")):
+        src = path.read_text(encoding="utf-8")
+        for m in _SEAM_SETTER.finditer(src):
+            setter, _, interface, store = m.groups()
+            if not re.search(r"^interface %s \{" % interface, src, re.M):
+                continue
+            accessor = re.search(r"^function (\w+)\(\): %s \{" % interface, src, re.M)
+            assert accessor, "%s: %s has no accessor" % (path.name, setter)
+            out.append(Seam("platform/" + path.name, setter, interface, store, accessor.group(1)))
+    return out
+
+
+def js_seam(setter: str) -> str:
+    """A platform seam as the page has it: its store, its registration function and its accessor, for a node harness
+    that runs a platform function calling it. The harness registers it (js_seam_wired, or its own call)."""
+    seam = next(s for s in platform_seams() if s.setter == setter)
+    return "\n".join([js_const(seam.store), extract_js_fn(seam.setter), extract_js_fn(seam.accessor)])
+
+
+def js_seam_wired(setter: str, late: bool = False) -> str:
+    """js_seam(setter) followed by js/main.ts's own registration of it, as served. With late, each member named by a bare
+    function name calls that name when it is called, not when it is registered, so a harness may define (or redefine)
+    the function after this text - the members still call the harness's function by the name main.ts gives."""
+    call = js_call(setter + "({")
+    if late:
+        call = re.sub(r"(?<=[{,\s])(\w+): ([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1: (...a) => \2(...a)", call)
+        call = re.sub(r"(?<=[{,])(\s+)([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1\2: (...a) => \2(...a)", call)
+    return js_seam(setter) + "\n" + call + ";"
+
+
 def js_fn_body(name: str) -> str:
     """The text between the braces of the page's top-level function NAME, as written (helpers_js.function_body)."""
     return helpers_js.function_body(HTML, name)

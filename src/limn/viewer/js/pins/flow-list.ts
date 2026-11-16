@@ -58,7 +58,7 @@ import {
   noticeSeen,
   offersIn,
 } from '../platform/notices.ts';
-import { TIP_AT, hideTip, keyInput, armedTipElement } from '../platform/tooltip.ts';
+import { TIP_AT, hideTip, keyInput, armedTipElement, MARK_HIDDEN } from '../platform/tooltip.ts';
 import { drawDocTabs, multiDoc } from '../documents/view-tabs.ts';
 import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
@@ -958,7 +958,6 @@ function markShift(
   }
   return best;
 }
-const MARK_HIDDEN = new WeakSet() as WeakSet<Element>;
 function markCoverSkip() {
   const pane = $('#left');
   if (!pane) return;
@@ -1355,7 +1354,6 @@ $('#pins').addEventListener('mouseout', (event) => {
   });
 });
 export {
-  MARK_HIDDEN,
   PINS_APPLIED_SEQ,
   cardNeighbour,
   drawPins,

@@ -19,7 +19,7 @@ import { relayout, setSide } from '../layout/flow.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER_BOX, placeSelectionPopover, popoverFreeArea } from '../composer/view-selection-popover.ts';
 import { topAnchor } from '../documents/flow-rebuild.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 
@@ -1192,14 +1192,6 @@ function searchBringBack(to: HTMLElement) {
     placeSelectionPopover();
   } else if ($('#composer').contains(to)) to.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
-// Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab
-// stop and draws no ring (search.css).
-function searchToPage() {
-  const pdfArea = $('#left');
-  pdfArea.tabIndex = -1;
-  pdfArea.addEventListener('blur', () => pdfArea.removeAttribute('tabindex'), { once: true });
-  pdfArea.focus({ preventScroll: true });
-}
 // Esc, [검색 닫기] and leaving the manuscript: the query and its hits go and the field folds away. back moves the focus
 // out of the closed field: to what had it before the field was entered if that is still on screen - the note popover or
 // the composer is brought back into view for it - else to the PDF's scroller; with nothing remembered, to the control
@@ -1332,15 +1324,4 @@ new MutationObserver(() => requestAnimationFrame(searchFit)).observe($('#status'
   attributeFilter: ['hidden'],
 });
 document.fonts.addEventListener('loadingdone', searchFit);
-export {
-  SEARCH,
-  pageText,
-  searchClear,
-  searchClose,
-  searchFit,
-  searchGo,
-  searchLeave,
-  searchOffer,
-  searchOpen,
-  searchToPage,
-};
+export { SEARCH, pageText, searchClear, searchClose, searchFit, searchGo, searchLeave, searchOffer, searchOpen };

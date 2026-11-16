@@ -1,7 +1,20 @@
 // ------------------------------------------------ Tooltip
-import { LAST_POINTER, LAST_TOUCH_AT, setLastPointer, setLastTouchAt } from '../app/state.ts';
-import { MARK_HIDDEN } from '../pins/flow-list.ts';
 import { $, typingNow } from './dom.ts';
+let LAST_POINTER = 'mouse',
+  LAST_TOUCH_AT = 0;
+// Sets LAST_POINTER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setLastPointer<Value extends typeof LAST_POINTER>(value: Value): Value {
+  LAST_POINTER = value;
+  return value;
+}
+// Sets LAST_TOUCH_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setLastTouchAt<Value extends typeof LAST_TOUCH_AT>(value: Value): Value {
+  LAST_TOUCH_AT = value;
+  return value;
+}
+// The elements whose tooltip does not show: pin mark badges a cover is over (pins/flow-list.ts markCoverSkip keeps it).
+const MARK_HIDDEN = new WeakSet() as WeakSet<Element>;
+
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
 // mouseover, which would leave the description stuck over the list. Only long-press is used.
 const NO_HOVER_QUERY = matchMedia('(hover:none)');
@@ -54,7 +67,7 @@ function tipFollow() {
 }
 // Shows an element's description over it. The box is translate="no": a description is already in the UI language (the
 // translator rewrote the attribute, or the code drew it with translate()), and one that quotes a note ('#38 · 완료')
-// must not be rewritten again. A mark badge a cover is over now (pins/flow-list.ts MARK_HIDDEN, markCoverSkip) shows
+// must not be rewritten again. A mark badge a cover is over now (MARK_HIDDEN, pins/flow-list.ts markCoverSkip) shows
 // none: it would float over the cover.
 function showTip(element) {
   if (MARK_HIDDEN.has(element)) return;
@@ -476,4 +489,9 @@ export {
   armedTipElement,
   tipFollow,
   NO_HOVER_QUERY,
+  LAST_POINTER,
+  LAST_TOUCH_AT,
+  setLastPointer,
+  setLastTouchAt,
+  MARK_HIDDEN,
 };
