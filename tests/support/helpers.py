@@ -71,8 +71,23 @@ assert len(SCRIPT_ELEMENT.findall(PAGE)) == 1, "the page must load its script on
 HTML = SCRIPT_ELEMENT.sub(lambda _: "<script>" + SCRIPT + "</script>", PAGE)
 UI_EN = VIEWER_FILES.messages
 SW_JS = VIEWER_FILES.service_worker
-# The script as sq() reads it, for the tests that look for a piece of code in it.
-SCRIPT_SQ = helpers_js.squash(SCRIPT)
+
+
+@functools.lru_cache(maxsize=1)
+def _script_sq() -> str:
+    """The script as sq() reads it."""
+    return helpers_js.squash(SCRIPT)
+
+
+def __getattr__(name: str) -> str:
+    """SCRIPT_SQ, the script as sq() reads it, for the tests that look for a piece of code in it. It is read on first
+    use and not at import: squashing the whole script takes long enough to matter to a child process that imports this
+    module inside a deadline (limn.web.tests.fatal_process_support), and such a child never reads it."""
+    if name == "SCRIPT_SQ":
+        return _script_sq()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 # The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
 # Read from core.ts as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
 # reads as the script does, and no node is needed to import this module.
