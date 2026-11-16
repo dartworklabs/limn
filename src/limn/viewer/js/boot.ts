@@ -1,6 +1,7 @@
 // ------------------------------------------------ Document
-// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, this tab's kept draft, the first-visit
-// hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was one.
+// Starts the viewer: language, theme and layout, the document list and meta, pages, pins, this tab's kept draft, the
+// first-visit hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was
+// one.
 import {
   $,
   DOC,
@@ -46,25 +47,25 @@ import { loadPins } from './list.ts';
 import { isHuman } from './reply.ts';
 async function boot() {
   i18nStart();
-  // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below rewrites the
-  // hash to #doc=<key> on an instance with several documents, which used to lose pin= (0.2.1 and earlier).
+  // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below
+  // rewrites the hash to #doc=<key> on an instance with several documents, which would lose pin=.
   const link = takeLinkHash();
   applyTheme();
   applyLayout();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   setHtml($('#btn-save'), saveBtnLabel());
-  await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline.js)
+  await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline.ts)
   await loadDocs();
   setDoc(initialDoc());
   try {
     setMeta((await api(dq('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
-  } catch (e) {
+  } catch (error) {
     return;
   }
   if (META.doc) setDoc(META.doc);
   META_BY.set(DOC, META);
   loadViews();
-  const v = VIEW_BY.get(DOC);
+  const view = VIEW_BY.get(DOC);
   if (multiDoc()) {
     setHash(DOC);
     savePrefs({ lastDoc: DOC });
@@ -74,12 +75,12 @@ async function boot() {
   drawMeta();
   applySideWidth();
   applyOutlineState();
-  const hadW = applyViewWidth(v);
+  const hadWidth = applyViewWidth(view);
   buildDoc();
-  if (!hadW) autoW();
+  if (!hadWidth) autoW();
   vecBoot();
   const pinsLoaded = await loadPins();
-  restoreView(v);
+  restoreView(view);
   drawDocTabs();
   updateSectionStrip();
   restoreDraft(); // the page count is there before the first scroll (mid shows it in the nav bar)
@@ -95,48 +96,51 @@ async function boot() {
           : '끌면 그 줄을, 누르면 그 블록을 고릅니다',
     );
   else if (MQ_COARSE.matches) coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
-  else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요'); // first-time mouse users had no hint how to pin (the PDF also shows a crosshair)
+  // a mouse user's first hint how to pin (the PDF also shows a crosshair)
+  else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if (pinsLoaded) {
     setLastPinsRev(META.pins_rev);
     setLastSrcMtime(META.src_sig || META.src_mtime);
   }
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0; // the build count this tab has already "seen"
-  (META.docs || []).forEach((d) => DOC_SEQ.set(d.key, d.build_seq));
+  // the build count this tab has already "seen"
+  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
+  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();
   offlineBoot();
-  checkDocsSeen(); // what changed since this device last saw each document (updates.js)
+  checkDocsSeen(); // what changed since this device last saw each document (updates.ts)
   if (DIGEST) pollLight().finally(() => digestSoon(DIGEST_TAIL_MS)); // the events addressed to me since the last visit
   drawNotify();
   if (prefs().notify && notifySupported() && notifyPerm() === 'granted') notifyRegister();
   if (link.pin) openPinFromLink(link.doc || DOC, link.pin, link.restore);
 }
-function builtAtEpoch(s) {
-  const t = Date.parse(String(s || '').replace(' ', 'T'));
-  return isNaN(t) ? null : t / 1000;
+function builtAtEpoch(builtAt) {
+  const parsed = Date.parse(String(builtAt || '').replace(' ', 'T'));
+  return isNaN(parsed) ? null : parsed / 1000;
 }
-// The "manuscript modified" badge - judged only from numbers the server provides (stale_build, src_age_s), independent of the browser's clock/timezone.
-// Only a legacy response with no stale_build falls back to comparing src_mtime/build_src_mtime (both server epochs).
-function updateStaleBadge(m) {
+// The "manuscript modified" badge - judged only from numbers the server provides (stale_build, src_age_s), independent
+// of the browser's clock/timezone. Only a legacy response with no stale_build falls back to comparing
+// src_mtime/build_src_mtime (both server epochs).
+function updateStaleBadge(meta) {
   const badge = $('#meta-stale'),
-    btn = $('#btn-rebuild');
+    rebuildButton = $('#btn-rebuild');
   let stale;
-  if (typeof m.stale_build === 'boolean') stale = m.stale_build;
+  if (typeof meta.stale_build === 'boolean') stale = meta.stale_build;
   else {
-    const ref = typeof m.build_src_mtime === 'number' ? m.build_src_mtime : builtAtEpoch(META && META.built_at);
-    stale = ref != null && typeof m.src_mtime === 'number' && m.src_mtime > ref + 2;
+    const ref = typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META && META.built_at);
+    stale = ref != null && typeof meta.src_mtime === 'number' && meta.src_mtime > ref + 2;
   }
   if (!stale) {
     badge.hidden = true;
-    btn.classList.remove('btn-default');
+    rebuildButton.classList.remove('btn-default');
     return;
   }
-  const age = typeof m.src_age_s === 'number' ? m.src_age_s : Date.now() / 1000 - m.src_mtime;
-  const mins = Math.max(0, Math.round(age / 60));
+  const age = typeof meta.src_age_s === 'number' ? meta.src_age_s : Date.now() / 1000 - meta.src_mtime;
+  const minutes = Math.max(0, Math.round(age / 60));
   badge.hidden = false;
-  badge.textContent = tl('원고 수정됨 · {n}분 전', { n: mins });
-  btn.classList.add('btn-default');
+  badge.textContent = tl('원고 수정됨 · {n}분 전', { n: minutes });
+  rebuildButton.classList.add('btn-default');
 }
 const SYNC_REASON = {
   not_git: 'Git 저장소가 아닙니다',
@@ -151,36 +155,40 @@ const SYNC_REASON = {
   building: '다른 PDF 빌드가 진행 중입니다',
   build_failed: '새 원고의 PDF 빌드가 실패했습니다',
 };
-// The main sync badge (--git-pull) from a meta's `sync` {state, reason}: hidden when off or current, a warning when blocked or
-// failed. It also keeps s for the status line (STATUS_SYNC), which words the same state on compact bands.
-function updateSyncBadge(s) {
-  setStatusSync(s || null);
-  const b = $('#meta-sync');
-  if (!b) return;
-  if (!s || s.state === SYNC_STATE.DISABLED || s.state === SYNC_STATE.CURRENT) {
-    b.hidden = true;
+// The main sync badge (--git-pull) from a meta's `sync` {state, reason}: hidden when off or current, a warning when
+// blocked or failed. It also keeps the sync for the status line (STATUS_SYNC), which words the same state on compact
+// bands.
+function updateSyncBadge(sync) {
+  setStatusSync(sync || null);
+  const badge = $('#meta-sync');
+  if (!badge) return;
+  if (!sync || sync.state === SYNC_STATE.DISABLED || sync.state === SYNC_STATE.CURRENT) {
+    badge.hidden = true;
     return;
   }
-  b.hidden = false;
-  b.classList.toggle('badge-warning', s.state === SYNC_STATE.BLOCKED || s.state === SYNC_STATE.ERROR);
-  const reason = tr(SYNC_REASON[s.reason] || s.reason || '');
-  b.textContent = tr(
-    s.state === SYNC_STATE.UPDATING
+  badge.hidden = false;
+  badge.classList.toggle('badge-warning', sync.state === SYNC_STATE.BLOCKED || sync.state === SYNC_STATE.ERROR);
+  const reason = tr(SYNC_REASON[sync.reason] || sync.reason || '');
+  badge.textContent = tr(
+    sync.state === SYNC_STATE.UPDATING
       ? '최신 main PDF 반영 중'
-      : s.state === SYNC_STATE.UPDATED
+      : sync.state === SYNC_STATE.UPDATED
         ? '최신 main 반영됨'
-        : s.state === SYNC_STATE.DEFERRED
+        : sync.state === SYNC_STATE.DEFERRED
           ? '빌드 뒤 main 확인'
-          : s.state === SYNC_STATE.CHECKING
+          : sync.state === SYNC_STATE.CHECKING
             ? 'main 확인 중'
             : 'main 동기화 확인 필요',
   );
-  b.dataset.tip = reason ? b.textContent + ' · ' + reason + ' · ' + tr('기존 PDF가 보일 수 있습니다') : b.textContent;
+  badge.dataset.tip = reason
+    ? badge.textContent + ' · ' + reason + ' · ' + tr('기존 PDF가 보일 수 있습니다')
+    : badge.textContent;
 }
 function isViewer() {
   return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.VIEWER);
 }
-// An agent identity (role agent): it neither deletes nor restores a verdict pin (D16, 403 verdict_human), so it is offered neither.
+// An agent identity (role agent): it neither deletes nor restores a verdict pin (D16, 403 verdict_human), so it is
+// offered neither.
 function isAgentRole() {
   return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.AGENT);
 }
@@ -196,31 +204,35 @@ function confirmAccessText() {
       : '에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요',
   );
 }
-// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it, in a banner
-// over the composer while one is open, else on top of the panel (bannerHost).
+// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it, in a
+// banner over the composer while one is open, else on top of the panel (bannerHost).
 function viewerBlocked() {
   if (!isViewer()) return false;
   bannerNote(undefined, '보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다', NOTICE_KIND.WARN);
   return true;
 }
 // Paints the header and the info line from META (the document on screen): names, page count, commit, build time, who is
-// signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document builds
-// from source. Reads META only and sends nothing.
+// signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document
+// builds from source. Reads META only and sends nothing.
 function drawMeta() {
-  document.body.classList.toggle('no-rebuild', !buildsFromSource(META.kind)); // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
-  document.body.classList.toggle('fig-doc', isFigureKind(META.kind)); // a figure document's marks are a frame with no tint (components.css)
+  // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
+  document.body.classList.toggle('no-rebuild', !buildsFromSource(META.kind));
+  // a figure document's marks are a frame with no tint (components.css)
+  document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
   document.body.classList.toggle('md-surface', isMdDoc());
   mdHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
-  $('#left').setAttribute('aria-label', tr(isMdDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽')); // the document area's name says what it holds
+  // the document area's name says what it holds
+  $('#left').setAttribute('aria-label', tr(isMdDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽'));
   document.body.classList.toggle('role-viewer', isViewer());
   $('#m-download').disabled = !META.pages_build || isMdDoc(); // no build on screen, no PDF to save
-  // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' · ').
+  // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' ·
+  // ').
   $('#meta-main').textContent = META.main;
   $('#meta-main').dataset.tip = tr(isMdDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
-  const tx = isMdDoc() && isTextDoc(); // a text document's form is 텍스트 (text-surface.js)
-  $('#meta-pages').textContent = tx ? tr('텍스트') : isMdDoc() ? 'Markdown' : tl('{n}쪽', { n: META.pages.length });
+  const isText = isMdDoc() && isTextDoc(); // a text document's form is 텍스트 (text-surface.ts)
+  $('#meta-pages').textContent = isText ? tr('텍스트') : isMdDoc() ? 'Markdown' : tl('{n}쪽', { n: META.pages.length });
   $('#meta-pages').dataset.tip = tr(
-    tx
+    isText
       ? '브라우저가 원문 줄을 그대로 보이는 문서 형식'
       : isMdDoc()
         ? '브라우저가 원문에서 그리는 문서 형식'
@@ -246,26 +258,27 @@ function drawMeta() {
   $('#help-pins-md').textContent = META.pins_md || '';
   setHtml($('#more-info'), moreInfo(META, me));
 }
-// [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time · me. Each
-// piece keeps its words together and the lines break only between pieces; a piece longer than the line (a long file name)
-// breaks after / . _ - (<wbr>), never cut - it was one line cut at '…', its rest only in a 500ms long-press tip (UX audit P4.2).
-// The words are the viewer's (tr/tl), the names the user's: #more-info is translate="no".
-function moreInfo(m, me) {
-  const built = String(m.built_at || '')
+// [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time
+// · me. Each piece keeps its words together and the lines break only between pieces; a piece longer than the line (a
+// long file name) breaks after / . _ - (<wbr>), never cut at '…' with its rest only in a long-press tip. The words are
+// the viewer's (tr/tl), the names the user's: #more-info is translate="no".
+function moreInfo(meta, me) {
+  const built = String(meta.built_at || '')
     .slice(5, 16)
     .replace('T', ' ');
-  const piece = (t) =>
-    html`<span class="mc">${String(t)
+  const piece = (text) =>
+    html`<span class="mc">${String(text)
       .split(/([/._-])/)
-      .map((s, i) => (i % 2 ? html`${s}<wbr>` : s))}</span>`;
-  const line = (a) => a.filter(Boolean).map((t, i) => (i ? html` · ${piece(t)}` : piece(t)));
-  return html`${line([m.main, tl('{n}쪽', { n: m.pages.length }), commitShown(m.head)])}<br>${line([built && built !== '?' ? built + ' ' + tr('빌드') : '', tl('나: {name}', { name: who(me) })])}`;
+      .map((part, index) => (index % 2 ? html`${part}<wbr>` : part))}</span>`;
+  const line = (texts) => texts.filter(Boolean).map((text, index) => (index ? html` · ${piece(text)}` : piece(text)));
+  return html`${line([meta.main, tl('{n}쪽', { n: meta.pages.length }), commitShown(meta.head)])}<br>${line([built && built !== '?' ? built + ' ' + tr('빌드') : '', tl('나: {name}', { name: who(me) })])}`;
 }
-// The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing before
-// the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'. Pure.
-function commitShown(h) {
-  const s = String(h == null ? '' : h).trim();
-  return s === '-' || s === '?' ? '' : s;
+// The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing
+// before the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'.
+// Pure.
+function commitShown(head) {
+  const text = String(head == null ? '' : head).trim();
+  return text === '-' || text === '?' ? '' : text;
 }
 export {
   SYNC_REASON,

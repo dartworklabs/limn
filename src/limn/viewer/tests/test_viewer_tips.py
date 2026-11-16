@@ -1,6 +1,6 @@
 """Explanations (data-tip) for the keyboard and screen readers (docs/handbook/viewer.md §설명과 접근성).
 
-- ``TipDescriptionLogic`` runs tipDescText under node: what an explanation adds to a control's name.
+- ``TipDescriptionLogic`` runs descriptionBeyondName under node: what an explanation adds to a control's name.
 - ``TipDescriptions`` drives the real viewer and reads Chrome's accessibility tree, which is what a screen reader is
   given: a focusable control's explanation is its description, without its name again, in the screen's language, and
   it follows the explanation when that changes.
@@ -91,14 +91,14 @@ class TipDescriptionLogic(unittest.TestCase):
         Bob Park' for '담당 Bob Park'), and a name with regular-expression characters is matched as written."""
         got = json.loads(
             run_node(
-                extract_js_fn("tipDescText")
+                extract_js_fn("descriptionBeyondName")
                 + r"""
-            console.log(JSON.stringify([tipDescText('상태: 열림', '상태: 열림'), tipDescText('폭 맞춤: PDF 쪽 폭을 맞춥니다', '폭 맞춤'),
-              tipDescText('#3 · 메모 첫 줄', '#3'), tipDescText('Fit width — fits the page', ' Fit width '),
-              tipDescText('지금 빌드의 그림을 보입니다', '지금 빌드'), tipDescText('바꿀 글을\n  직접 씁니다', '제안 수정'),
-              tipDescText('', '완료'), tipDescText('설명', ''),
-              tipDescText('담당: Bob Park — 에이전트는 이 핀을 건너뜁니다', '담당 Bob Park'), tipDescText('담당: 나', '담당 나'),
-              tipDescText('a.b (x)? · 설명', 'a.b (x)?')]));"""
+            console.log(JSON.stringify([descriptionBeyondName('상태: 열림', '상태: 열림'), descriptionBeyondName('폭 맞춤: PDF 쪽 폭을 맞춥니다', '폭 맞춤'),
+              descriptionBeyondName('#3 · 메모 첫 줄', '#3'), descriptionBeyondName('Fit width — fits the page', ' Fit width '),
+              descriptionBeyondName('지금 빌드의 그림을 보입니다', '지금 빌드'), descriptionBeyondName('바꿀 글을\n  직접 씁니다', '제안 수정'),
+              descriptionBeyondName('', '완료'), descriptionBeyondName('설명', ''),
+              descriptionBeyondName('담당: Bob Park — 에이전트는 이 핀을 건너뜁니다', '담당 Bob Park'), descriptionBeyondName('담당: 나', '담당 나'),
+              descriptionBeyondName('a.b (x)? · 설명', 'a.b (x)?')]));"""
             )
         )
         self.assertEqual(

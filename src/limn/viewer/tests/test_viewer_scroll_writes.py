@@ -53,7 +53,7 @@ GLIDES = {("verdict.ts", "glideInto"): 1, ("verdict.ts", "glideTo"): 1}
 OTHERS = {
     ("cards.ts", "openTrash"): 1,
     ("composer.ts", "pick"): 3,
-    ("doc-switch.ts", "navSheetFit"): 6,
+    ("doc-switch.ts", "fitNavigationSheet"): 6,
     ("doc-tabs.ts", "<top>"): 3,
     ("doc-tabs.ts", "openDocMenu"): 1,
     ("excerpt.ts", "applyRange"): 1,

@@ -263,13 +263,15 @@ class Wiring(unittest.TestCase):
 
     def test_messages_boot_and_switch_are_wired(self):
         """A status-line message and a banner translate their text when made, unless the caller already did and it
-        quotes what people wrote (o.literal: notifyShow, another document's name); boot starts the translator first; the
+        quotes what people wrote (options.literal: notifyShow, another document's name); boot starts the translator first; the
         language segment says which language it switches to."""
         for fn in ("lineNote", "bannerNote"):
-            self.assertIn(sq("msg:o.literal?String(msg):trMsg(msg)"), sq(extract_js_fn(fn)), fn)
+            self.assertIn(sq("msg:options.literal?String(message):trMsg(message)"), sq(extract_js_fn(fn)), fn)
         self.assertIn(sq("async function boot(){i18nStart();"), SCRIPT_SQ)
         self.assertIn('id="m-lang"', HTML)
-        self.assertIn(sq("case 'lang':switchLang(a.dataset.lang);break;"), SCRIPT_SQ)  # the segment says which language
+        self.assertIn(
+            sq("case 'lang':switchLang(control.dataset.lang);break;"), SCRIPT_SQ
+        )  # the segment says which language
 
 
 class BrowserLanguage(ChromiumTestCase):

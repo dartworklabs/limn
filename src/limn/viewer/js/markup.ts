@@ -1,6 +1,6 @@
-// ------------------------------------------------ Markup: html``, ic() and setHtml(), the one way the viewer writes HTML
-// docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so a
-// note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
+// ---------------------------------------------- Markup: html``, ic() and setHtml(), the one way the viewer writes HTML
+// docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so
+// a note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
 // and ic()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds every part to both.
 import { ICONS, esc } from './core.ts';
 
@@ -29,39 +29,41 @@ function html(parts: TemplateStringsArray, ...values: unknown[]): Html {
 }
 
 // The markup one html`` value stands for (see html()).
-function htmlValue(v) {
-  if (v instanceof Html) return v.text;
-  if (Array.isArray(v)) return v.map(htmlValue).join('');
-  if (v == null) return '';
-  return esc(v);
+function htmlValue(value) {
+  if (value instanceof Html) return value.text;
+  if (Array.isArray(value)) return value.map(htmlValue).join('');
+  if (value == null) return '';
+  return esc(value);
 }
 
-// The Lucide icon n as an inline <svg> (same shape as the server's icon_svg(); CSS sets its size through .ic), or
-// empty Html when the bundled table has no such icon. n is a name from this code, never user text.
-function ic(n) {
-  const b = ICONS[n];
+// The Lucide icon `name` as an inline <svg> (same shape as the server's icon_svg(); CSS sets its size through .ic), or
+// empty Html when the bundled table has no such icon. `name` comes from this code, never from user text.
+function ic(name) {
+  const shapes = ICONS[name];
   return new Html(
-    b
+    shapes
       ? '<svg class="ic ic-' +
-          n +
+          name +
           '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">' +
-          b +
+          shapes +
           '</svg>'
       : '',
   );
 }
 
-// Replaces el's children with markup. Throws a TypeError for anything but Html, so a string built by hand cannot
-// reach the page through here. An empty element of the markup with data-cp (a code point in hex: ccHtml's box) then gets that
-// character as its text through the DOM, which keeps what the HTML parser would drop or change (a NUL, a CR).
-function setHtml(el, markup) {
+// Replaces an element's children with markup. Throws a TypeError for anything but Html, so a string built by hand
+// cannot reach the page through here. An empty element of the markup with data-cp (a code point in hex: ccHtml's box)
+// then gets that character as its text through the DOM, which keeps what the HTML parser would drop or change (a NUL, a
+// CR).
+function setHtml(element, markup) {
   if (!(markup instanceof Html)) throw new TypeError('setHtml takes Html from html`` or ic()');
-  el.innerHTML = markup.text;
+  element.innerHTML = markup.text;
   if (!markup.text.includes(' data-cp="')) return; // most markup has no box: no query
-  for (const k of el.querySelectorAll('[data-cp]')) {
-    const c = parseInt(k.getAttribute('data-cp') || '', 16);
-    k.removeAttribute('data-cp');
-    if (c >= 0 && c <= 0x10ffff && !(c >= 0xd800 && c <= 0xdfff)) k.textContent = String.fromCodePoint(c);
+  for (const box of element.querySelectorAll('[data-cp]')) {
+    const codePoint = parseInt(box.getAttribute('data-cp') || '', 16);
+    box.removeAttribute('data-cp');
+    if (codePoint >= 0 && codePoint <= 0x10ffff && !(codePoint >= 0xd800 && codePoint <= 0xdfff))
+      box.textContent = String.fromCodePoint(codePoint);
   }
 }
 export { Html, html, ic, setHtml };

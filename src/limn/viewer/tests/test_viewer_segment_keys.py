@@ -671,7 +671,7 @@ class SegmentKeys(BrowserBase):
         """A mouse press on the 2px gap between two rungs of the edit card's and the composer's ladder gives the focus to
         the chosen rung, not to the ladder's scroll box (tabindex -1) - so the next Tab goes on to the card's next control,
         as from a rung. From the focused box Firefox's Tab began again at the page's start (#nav-toc-toggle; found in
-        review). Mutation: no segBoxFocus -> the box keeps the focus, and in Firefox Tab leaves the card, fails."""
+        review). Mutation: no passLadderBoxFocus -> the box keeps the focus, and in Firefox Tab leaves the card, fails."""
         self.main.write_text(LADDER_TEX, encoding="utf-8")
         for ladder, holder in ((".e-levels", ".edit"), ("#c-levels", "#composer")):
             with self.subTest(ladder=ladder):

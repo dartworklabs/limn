@@ -27,7 +27,7 @@ from helpers_notices import COUNT_CONFIRMS, SEEN, WATCH_ALERTS, NoticePage, node
 
 # The store's functions, pulled from the served page as written, and the constants they read.
 STORE_FNS = [
-    "msgSplit", "noticeDupe", "noticeDot", "makeNotice", "lineNote", "endNotice", "noticeText", "armNotice",
+    "splitMessage", "noticeDupe", "noticeDot", "makeNotice", "lineNote", "endNotice", "noticeText", "armNotice",
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverIn", "lineHoverOut", "lineVisible", "noticeAct",
     "noticeClose", "noticeFocusBack", "deferred", "deferredNote", "undoNote", "offerSeen", "sourceEntry", "sourceOk",
     "flushDeferred", "isUndo", "lineCap", "sameWords", "realMove", "digestHold", "noticeDots", "holdsDot", "newsDupe",
@@ -49,8 +49,8 @@ const BODY=new Set();
 const document={body:{classList:{add:c=>BODY.add(c),remove:c=>BODY.delete(c),contains:c=>BODY.has(c)}},querySelectorAll:()=>[],addEventListener(){},contains:()=>false};
 const window={addEventListener(){}};
 let SIDE_OPEN=false,STATUS_TOP=0; const SEC={},T={undo:'되돌리기'};
-function announce(){} function drawOffer(){} function drawBanners(){} function syncSaveBtn(){}
-const NOTICES=new Map(),LINE=[],BANNERS=new Map(),DEFERRED=new Set(),GROUPS=new Map(); let NOTICE_SEQ=0,LINE_HOVER=false,PT_LAST=null,DIGEST=null;
+function announce(){} function drawOffer(){} function drawBanners(){} function syncSaveButton(){}
+const NOTICES=new Map(),LINE=[],BANNERS=new Map(),DEFERRED=new Set(),GROUPS=new Map(); let NOTICE_SEQ=0,LINE_HOVER=false,LAST_POINTER_AT=null,DIGEST=null;
 function drawStatus(){lineVisible(LINE.length>0);}
 """
 
@@ -62,10 +62,10 @@ function drawStatus(){lineVisible(LINE.length>0);}
 MODEL_RUN = r"""
 function rng(seed){return ()=>{seed=seed+0x6D2B79F5|0; let t=Math.imul(seed^seed>>>15,1|seed); t=t+Math.imul(t^t>>>7,61|t)^t; return ((t^t>>>14)>>>0)/4294967296;};}
 const bad=[],OPS=['undo','undo','error','error','info','ok','press','dismiss','move','still','out','hide','pagehide','tick','tick','tick'];
-// A mouse move over the line as the page sees it: its listener runs, then the page notes the position (PT_LAST).
-const over=(x,y,dx)=>{lineHoverIn({pointerType:'mouse',movementX:dx,movementY:0,clientX:x,clientY:y}); PT_LAST={x,y};};
+// A mouse move over the line as the page sees it: its listener runs, then the page notes the position (LAST_POINTER_AT).
+const over=(x,y,dx)=>{lineHoverIn({pointerType:'mouse',movementX:dx,movementY:0,clientX:x,clientY:y}); LAST_POINTER_AT={x,y};};
 for(let s=1;s<=SEEDS;s++){
-  NOTICES.clear(); LINE.length=0; BANNERS.clear(); DEFERRED.clear(); Q.length=0; BODY.clear(); NOW=0; LINE_HOVER=false; PT_LAST=null;
+  NOTICES.clear(); LINE.length=0; BANNERS.clear(); DEFERRED.clear(); Q.length=0; BODY.clear(); NOW=0; LINE_HOVER=false; LAST_POINTER_AT=null;
   const R=rng(s),pick=a=>a[Math.floor(R()*a.length)],undos=[]; let free=false;
   const note=(k,what)=>{if(bad.length<20)bad.push([s,k,what]);};
   for(let k=0;k<STEPS;k++){const op=pick(OPS);
@@ -79,7 +79,7 @@ for(let s=1;s<=SEEDS;s++){
     else if(op==='press'){const u=[...NOTICES.values()].filter(n=>n.gone&&n.act); if(u.length)noticeAct(pick(u).n);}
     else if(op==='dismiss'){const all=[...NOTICES.values()]; if(all.length){free=true; noticeClose(pick(all).n); free=false;}}
     else if(op==='move')over(100+Math.floor(R()*80),20,3);   // a real movement over the line: it holds
-    else if(op==='still'){const p=PT_LAST||{x:100,y:20},was=LINE_HOVER; over(p.x,p.y,0);   // the line drawn under a resting pointer
+    else if(op==='still'){const p=LAST_POINTER_AT||{x:100,y:20},was=LINE_HOVER; over(p.x,p.y,0);   // the line drawn under a resting pointer
       if(!was&&LINE_HOVER)note(k,'a resting pointer started a hold');}
     else if(op==='out')lineHoverOut();
     else if(op==='hide'){lineVisible(false); if(LINE_HOVER||LINE.some(n=>n.held))note(k,'a pause survived the line hiding');}

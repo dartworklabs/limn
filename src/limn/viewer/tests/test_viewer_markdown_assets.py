@@ -709,15 +709,15 @@ class ShrinkNearTheEnd(AssetsBase):
         self.at_the_jumps_depth_after_the_shrink(page)
 
     def test_the_changed_place_just_before_the_shrink_stays_where_the_jump_put_it(self):
-        """[바뀐 곳] of a change on the document's last paragraph, with the frames held (updGoNext): its line goes 30% down
+        """[바뀐 곳] of a change on the document's last paragraph, with the frames held (goToNextChange): its line goes 30% down
         the area, and the image shrinks before the scroll's frame. The line stands where the jump put it, to 2px, also
-        once the frames run. The changed place is set on the page (UPD.lines) as a redraw that found it sets it: what is
+        once the frames run. The changed place is set on the page (UPDATE_STATE.lines) as a redraw that found it sets it: what is
         read here is the jump, not how a change is found (test_viewer_updates.py). Mutations as for the pin's [보기]:
         neither the read in mdShowLines nor refreshMovedSpot -> 160px, fails; neither an aspect ratio held nor the cut check
         -> 58px, fails."""
         page = self.read_near_the_end(init=FRAMES_HELD)
         page.evaluate(
-            "window.__framesHeld=true; UPD.lines.set('nt',{base:[],ranges:[{lo:%d,hi:%d}],at:-1}); updGoNext('nt')"
+            "window.__framesHeld=true; UPDATE_STATE.lines.set('nt',{base:[],ranges:[{lo:%d,hi:%d}],at:-1}); goToNextChange('nt')"
             % (LAST_LINE, LAST_LINE)
         )
         self.at_the_jumps_depth_after_the_shrink(page)
