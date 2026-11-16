@@ -25,7 +25,7 @@ SHOWS = {
     ("figure.ts", "showElementBox"): 1,
     ("list.ts", "jumpPin"): 1,
     ("list.ts", "markReveal"): 1,
-    ("md-surface.ts", "mdGoOn"): 1,
+    ("md-surface.ts", "goOnToHeading"): 1,
     ("md-surface.ts", "mdShowLines"): 1,
     ("search.ts", "searchBringBack"): 3,
     ("search.ts", "searchReveal"): 2,
@@ -38,8 +38,8 @@ SHOWS = {
 KEEPS = {
     ("doc-switch.ts", "restoreView"): 1,
     ("layout.ts", "setSelMode"): 1,
-    ("md-surface.ts", "mdGoStop"): 2,
-    ("md-surface.ts", "mdRestore"): 2,
+    ("md-surface.ts", "stopHeadingJump"): 2,
+    ("md-surface.ts", "restoreReadingAnchor"): 2,
     ("md-surface.ts", "mdSpotKeep"): 2,
     ("pages.ts", "fitW"): 1,
     ("pages.ts", "zoomRestore"): 2,
@@ -63,9 +63,9 @@ OTHERS = {
     ("layout.ts", "noteRowInView"): 1,
     ("layout.ts", "onViewport"): 1,
     ("levels.ts", "segReveal"): 3,
-    ("md-compare.ts", "mdcGo"): 1,
+    ("md-compare.ts", "goToChangeGroup"): 1,
     ("offline.ts", "offlinePick"): 1,
-    ("md-surface.ts", "mdPick"): 2,
+    ("md-surface.ts", "pickLines"): 2,
     ("list.ts", "gotoPinRef"): 1,
     ("list.ts", "gotoReview"): 1,
     ("list.ts", "jumpToCard"): 1,
@@ -82,7 +82,7 @@ OTHERS = {
     ("review-pick.ts", "rvPick"): 1,
     ("revision-zoom.ts", "mountRevisionPdf"): 1,
     ("revision-zoom.ts", "restoreRevisionAnchor"): 2,
-    ("revisions.ts", "revHighlight"): 1,
+    ("revisions.ts", "highlightPinLines"): 1,
     ("revisions.ts", "scrollOverlayTo"): 1,
     ("verdict-panel.ts", "revealFocused"): 2,
 }
@@ -130,7 +130,7 @@ class ScrollWrites(unittest.TestCase):
         """Every scripted scroll's behavior is at once ('auto', 'instant') or scrollMotion() - itself or through armGlide,
         which returns it - read at the scroll, never a smooth one fixed in the code or a value kept from load: a reduced
         motion setting changed with the page open reaches every scroll (#418). The CSS sets no smooth scroll-behavior,
-        which a script's 'auto' would follow. Mutation: mdcGo's literal 'smooth' (before #418), or a const read at load,
+        which a script's 'auto' would follow. Mutation: goToChangeGroup's literal 'smooth' (before #418), or a const read at load,
         fails."""
         allowed = ("'auto'", "'instant'", "scrollMotion()", "armGlide(", "land?'auto':scrollMotion()")
         paths = sorted(JS.glob("*.ts"))

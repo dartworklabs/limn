@@ -40,7 +40,7 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md hr{border:0;border-top:1px solid var(--border-strong);margin:var(--space-6) 0}
 .md a{color:var(--primary);text-decoration:underline;cursor:pointer}
 .md .md-rel{text-decoration:underline dotted var(--muted-foreground);text-underline-offset:3px;cursor:help}   /* a link that does not open: dotted, in a colour of 3:1 or more, never a link's solid primary */
-/* An image of the manuscript tree (md-surface.js mdImage, GET /api/asset): as wide as it is, never wider than the column. Until
+/* An image of the manuscript tree (md-surface.js drawImage, GET /api/asset): as wide as it is, never wider than the column. Until
    its size is known it keeps a 12rem x 8rem place, so lazy loading has a box to watch; once loaded it takes its own size (the
    viewer puts the reading spot back). On the dark card a light plate stays behind it, so a figure's dark ink on a transparent
    ground stays legible. A paragraph that is just one image (md-fig) stands it on its own line. A pin or the chosen lines on an
@@ -48,9 +48,9 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md .md-pic{display:inline-block;max-width:100%;vertical-align:middle;line-height:0}
 .md .md-pic img{display:block;max-width:100%;height:auto;border-radius:var(--radius-sm);background:var(--image-plate)}
 .md .md-pic:not(.md-pic-ok) img{width:12rem;height:8rem;background:var(--muted)}
-/* A loaded image's box keeps the ratio of the size its load gave it (md-surface.js mdPicSize, --md-pic-r), not that of the
+/* A loaded image's box keeps the ratio of the size its load gave it (md-surface.js sizeImage, --md-pic-r), not that of the
    picture it shows: a new picture under the same box (a check's new address, a size an earlier load learned) changes it only
-   when its load is handled, where the reading spot is made sure of first (mdSpotFresh). Unset: the picture's own. */
+   when its load is handled, where the reading spot is made sure of first (refreshMovedSpot). Unset: the picture's own. */
 .md .md-pic.md-pic-ok img{aspect-ratio:var(--md-pic-r,auto)}
 .md .md-fig .md-pic{display:block;width:fit-content;margin:var(--space-1) 0}
 .md .md-pin .md-pic img{outline:3px solid var(--status-open);outline-offset:2px}
@@ -59,7 +59,7 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md .md-sel .md-pic img{outline:2px solid var(--primary);outline-offset:2px}
 .md .md-img{display:inline-block;padding:0 var(--space-1);border:1px dashed var(--border-strong);border-radius:var(--radius-sm);color:var(--muted-foreground);font-size:var(--text-lg)}
 /* Raw HTML is never drawn: a block is a muted placeholder that keeps its lines (it takes pins), an inline tag shows as code.
-   Two or more blocks in a row are one closed run (md-surface.js mdHtmlRunEl): a button that opens it, its blocks inside. */
+   Two or more blocks in a row are one closed run (md-surface.js htmlRunElement): a button that opens it, its blocks inside. */
 .md .md-html-run{margin:0 0 var(--space-3)}
 .md .md-html-sum{display:flex;width:100%;justify-content:flex-start;align-items:center;gap:var(--space-2);padding:var(--space-2) var(--space-3);border:1px dashed var(--border-strong);
   border-radius:var(--radius);background:transparent;color:var(--muted-foreground);font-size:var(--text-base);font-weight:600;text-align:left;cursor:pointer}
@@ -81,13 +81,13 @@ body.md-surface #left{touch-action:pan-x pan-y pinch-zoom}
 .md code.md-math{padding:0;background:none;border-radius:0;overflow-wrap:break-word}
 .md pre.md-math-block,.md pre.md-math-block .ln{white-space:pre-wrap;overflow-wrap:anywhere}
 /* Math drawn by the bundled KaTeX (ADR-0036): the box the renderer drew into (.md-tex) carries the source TeX on data-tex,
-   so a pin's quote is still the manuscript's (md-surface.js mdRangeText). An inline formula sits on the sentence's own size
+   so a pin's quote is still the manuscript's (md-surface.js rangeText). An inline formula sits on the sentence's own size
    and face, KaTeX's stylesheet setting the math face inside it, so '$…$' no longer reads in the code face. Display math is a
    block on the paragraph's rhythm with no code box - the formula is the block - and a formula too wide for a phone scrolls
    inside its own block rather than widening the column. The MathML copy KaTeX keeps beside the glyphs for a screen reader
    stands in a clipped 1px box: it is left out of a selection, so copying a formula by hand does not take its text twice. */
 .md code.md-math.md-tex{font-family:inherit;font-size:inherit}
-/* Only a drawn formula wider than the column (mdTexFit): it scrolls inside itself instead of reaching past the screen,
+/* Only a drawn formula wider than the column (fitWideFormulas): it scrolls inside itself instead of reaching past the screen,
    where the page would put it out of reach. Such a box sits on its bottom edge, so the rule is never given to one that fits. */
 .md code.md-math.md-tex.md-tex-wide{display:inline-block;max-width:100%;overflow-x:auto;overflow-y:hidden;vertical-align:bottom}
 .md .md-math-block.md-tex{margin:0 0 var(--space-3);overflow-x:auto;overflow-y:hidden}

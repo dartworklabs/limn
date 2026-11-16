@@ -3,7 +3,7 @@ common subsequence of two block lists, which blocks are one block changed in pla
 document's changes open in.
 
 The production part js/md-compare.js runs under node whole, as the page serves it, so every constant the rules read is
-the served one. Units are plain objects with the fields mdcUnits gives (tag, key, text, pics, lo, hi). The browser
+the served one. Units are plain objects with the fields compareUnits gives (tag, key, text, pics, lo, hi). The browser
 behaviour - drawing both sides, the marks, the layouts, a pin's blocks - is test_viewer_md_compare.py.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_md_compare.py
@@ -26,7 +26,7 @@ def served() -> str:
 
 
 def unit(tag, text, pics="", refs="", shape=None, box="", alts="", grp=None):
-    """A unit as mdcUnits makes it, for a block of tag showing text (and pictures, link targets), its inline structure
+    """A unit as compareUnits makes it, for a block of tag showing text (and pictures, link targets), its inline structure
     shape (the text when it has none), the kinds of the boxes it sits in (box) and which boxes they are (grp: one name
     per box, outermost first; none given, as many as box names, each its own), and its images' alt texts."""
     shape = text if shape is None else shape
@@ -53,19 +53,21 @@ TERMS = "체크포인트는 대상 데이터가 한 달 늘 때마다 다시 학
 
 @unittest.skipUnless(shutil.which("node"), "node is not installed")
 class CompareRules(unittest.TestCase):
-    """mdcLcs, mdcOps and revisionFormatFor under node."""
+    """commonSubsequence, blockOps and revisionFormatFor under node."""
 
     def run_js(self, body: str):
         """Evaluate body (an expression) with the served part; its JSON value."""
         return json.loads(run_node(served() + "\nconsole.log(JSON.stringify(%s));" % body))
 
     def ops(self, old, new):
-        """mdcOps of two unit lists as [t, a, b] rows."""
-        return self.run_js("mdcOps(%s,%s).map(o=>[o.t,o.a,o.b])" % (json.dumps(old), json.dumps(new)))
+        """blockOps of two unit lists as [t, a, b] rows."""
+        return self.run_js("blockOps(%s,%s).map(o=>[o.t,o.a,o.b])" % (json.dumps(old), json.dumps(new)))
 
     def test_the_common_subsequence_takes_its_ends_first_and_deletes_before_it_adds(self):
         """Equal ends are matched first; inside a gap the deletions come before the insertions."""
-        got = self.run_js("mdcLcs(['a','b','c','d'],['a','x','c','y','d'],(x,y)=>x===y).map(o=>o.t+o.a+':'+o.b)")
+        got = self.run_js(
+            "commonSubsequence(['a','b','c','d'],['a','x','c','y','d'],(x,y)=>x===y).map(o=>o.t+o.a+':'+o.b)"
+        )
         self.assertEqual(got, ["eq0:0", "del1:-1", "ins-1:1", "eq2:2", "ins-1:3", "eq3:4"])
 
     def test_a_rewritten_paragraph_is_changed_in_place_and_an_added_item_is_added(self):
@@ -115,7 +117,7 @@ class CompareRules(unittest.TestCase):
 
     def test_the_same_words_with_another_structure_are_one_block_changed_and_say_what_changed(self):
         """Bold where the words were plain, a paragraph out of a quote, a list renumbered, an image's new alt text, a table
-        cell aligned the other way: the keys differ, so each is one block changed in place (not kept as it was), and mdcWhy
+        cell aligned the other way: the keys differ, so each is one block changed in place (not kept as it was), and changeReason
         names what changed - a cell whose formatting changed with its alignment is the formatting."""
         td = "\u0002td{al}\u0003가는 조건\u0002/td\u0003\u0002td\u0003{v}\u0002/td\u0003"
         cases = [
@@ -144,7 +146,7 @@ class CompareRules(unittest.TestCase):
                 self.assertEqual(
                     self.ops([old, unit("P", "끝")], [new, unit("P", "끝")]), [["mod", 0, 0], ["eq", 1, 1]]
                 )
-            whys.append(self.run_js("mdcWhy(%s,%s)" % (json.dumps(old), json.dumps(new))))
+            whys.append(self.run_js("changeReason(%s,%s)" % (json.dumps(old), json.dumps(new))))
         self.assertEqual(
             whys,
             [
@@ -157,18 +159,18 @@ class CompareRules(unittest.TestCase):
             ],
         )
         self.assertEqual(
-            self.run_js("mdcWhy(%s,%s)" % (json.dumps(unit("P", INTRO)), json.dumps(unit("P", INTRO2)))), ""
+            self.run_js("changeReason(%s,%s)" % (json.dumps(unit("P", INTRO)), json.dumps(unit("P", INTRO2)))), ""
         )
 
     def test_a_box_split_or_joined_between_kept_blocks_marks_both_of_them(self):
         """Two kept blocks that shared a box and now sit in two boxes of the same kind - one quote become two, a list cut
         in two by another bullet, a list cut in three - are blocks changed in place whose ops say 'split'; the other way
-        round, 'merge'; mdcWhy says so, after a change of their own. One list on both sides (every bullet changed), an
+        round, 'merge'; changeReason says so, after a change of their own. One list on both sides (every bullet changed), an
         item added at its top, a paragraph put between two items (the split is that paragraph's), a block that left the
         quote (its own change) and two tables joined or one split (a table's boxes are not regrouped: its header row says
-        it) mark nothing more; two quotes that each hold a table, joined, say so. Mutations: drop mdcRegroup -> the
+        it) mark nothing more; two quotes that each hold a table, joined, say so. Mutations: drop markRegroups -> the
         splits stay eq, fails; leave out what was added between -> the items beside the paragraph are split, fails;
-        regroup every box (MDC_REGROUP matching any tag) -> the tables' rows are joined and split, fails."""
+        regroup every box (REGROUP_BOX_TAGS matching any tag) -> the tables' rows are joined and split, fails."""
         q, li, t, qt = "BLOCKQUOTE", "UL", "TABLE>TBODY", "BLOCKQUOTE>TABLE>TBODY"
         alpha, beta, gamma = "알파 문단이다", "베타 문단이다", "감마 문단이다"
         cases = [
@@ -253,12 +255,14 @@ class CompareRules(unittest.TestCase):
         ]
         for old, new, want in cases:
             with self.subTest(old=[u["grp"] for u in old], new=[u["grp"] for u in new]):
-                got = self.run_js("mdcOps(%s,%s).map(o=>[o.t,o.a,o.b,o.how||[]])" % (json.dumps(old), json.dumps(new)))
+                got = self.run_js(
+                    "blockOps(%s,%s).map(o=>[o.t,o.a,o.b,o.how||[]])" % (json.dumps(old), json.dumps(new))
+                )
                 self.assertEqual(got, want)
         same, bold = unit("P", alpha), unit("P", alpha, shape="\u0002strong\u0003" + alpha + "\u0002/strong\u0003")
         self.assertEqual(
             self.run_js(
-                "[mdcWhy(%s,%s,['split']),mdcWhy(%s,%s,['merge']),mdcWhy(%s,%s,['split','merge'])]"
+                "[changeReason(%s,%s,['split']),changeReason(%s,%s,['merge']),changeReason(%s,%s,['split','merge'])]"
                 % tuple(json.dumps(x) for x in (same, same, same, bold, same, same))
             ),
             [
@@ -269,16 +273,16 @@ class CompareRules(unittest.TestCase):
         )
 
     def test_a_code_blocks_key_holds_its_body_and_language(self):
-        """mdcShape of a code block (a stand-in PRE with the renderer's .ln lines and data-lang) is its language and its
+        """inlineShape of a code block (a stand-in PRE with the renderer's .ln lines and data-lang) is its language and its
         lines as they are: return 1; and return 2; in one place are one block changed in place, not the same block; an
-        indent or the language alone changes it too, and mdcWhy says which. The same code is the same block."""
+        indent or the language alone changes it too, and changeReason says which. The same code is the same block."""
 
         def code(lang, *lines):
             stub = "{tagName:'PRE',dataset:{lang:%s},querySelectorAll:()=>%s.map(t=>({textContent:t+'\\n'}))}" % (
                 json.dumps(lang),
                 json.dumps(list(lines)),
             )
-            shape = self.run_js("mdcShape(%s,'PRE')" % stub)
+            shape = self.run_js("inlineShape(%s,'PRE')" % stub)
             return unit("PRE", " ".join(" ".join(lines).split()), shape=shape)
 
         one, two = code("js", "function f() {", "  return 1;", "}"), code("js", "function f() {", "  return 2;", "}")
@@ -288,7 +292,7 @@ class CompareRules(unittest.TestCase):
         self.assertEqual(self.ops([one, end], [dict(one), end]), [["eq", 0, 0], ["eq", 1, 1]])
         flat, py = code("js", "function f() {", "return 1;", "}"), code("python", "function f() {", "  return 1;", "}")
         self.assertEqual(
-            [self.run_js("mdcWhy(%s,%s)" % (json.dumps(one), json.dumps(x))) for x in (two, flat, py)],
+            [self.run_js("changeReason(%s,%s)" % (json.dumps(one), json.dumps(x))) for x in (two, flat, py)],
             ["", "코드의 공백·들여쓰기가 바뀜", "코드 언어가 바뀜"],
         )
         self.assertEqual(self.ops([one, end], [py, end]), [["mod", 0, 0], ["eq", 1, 1]])
@@ -298,15 +302,15 @@ class CompareRules(unittest.TestCase):
         # A language or a line holding the old separator characters cannot make two blocks read alike.
         a, b = code("py", "x\u00030\u0003"), code("py\u00031\u0003x")
         self.assertNotEqual(a["key"], b["key"])
-        self.assertEqual(self.run_js("mdcLang(%s)" % json.dumps(b["shape"])), "py\u00031\u0003x")
+        self.assertEqual(self.run_js("shapeLanguage(%s)" % json.dumps(b["shape"])), "py\u00031\u0003x")
 
     def test_git_lines_are_turned_into_the_sides_screen_lines(self):
         """A side whose line 3 holds a form feed and line 5 a U+2028 ([[1,1],[4,5],[6,8]] from the server): git's lines
         4 and 6-7 are the screen's 5 and 8-9; without a map the numbers are the same."""
         got = self.run_js(
-            "[mdcGitRange([[1,1],[4,5],[6,8]],10,[4,4]),mdcGitRange([[1,1],[4,5],[6,8]],10,[3,3]),"
-            "mdcGitRange([[1,1],[4,5],[6,8]],10,[6,7]),mdcGitRange([[1,1],[4,5],[6,8]],10,[7,9]),"
-            "mdcGitRange(undefined,10,[4,4]),mdcGitRange([[1,1],[4,6]],5,[3,3]),mdcGitRange([[1,1],[2,3]],2,[1,1])]"
+            "[gitToScreenRange([[1,1],[4,5],[6,8]],10,[4,4]),gitToScreenRange([[1,1],[4,5],[6,8]],10,[3,3]),"
+            "gitToScreenRange([[1,1],[4,5],[6,8]],10,[6,7]),gitToScreenRange([[1,1],[4,5],[6,8]],10,[7,9]),"
+            "gitToScreenRange(undefined,10,[4,4]),gitToScreenRange([[1,1],[4,6]],5,[3,3]),gitToScreenRange([[1,1],[2,3]],2,[1,1])]"
         )
         # the last two: the server's end pair (git's count + 1 at the screen's + 1) gives the last git line its every
         # screen line - first/(empty)/A\f\fB is git's 3 lines and the screen's 5; A\u2028B is git's 1 and the screen's 2
@@ -321,7 +325,7 @@ class CompareRules(unittest.TestCase):
             "(()=>{const u=(t,i,w)=>({tag:'P',text:w?t+i+' 가'+i+' 나'+i+' 다'+i:t+i+' '+t+'가'+i+' '+t+'나'+i,"
             "pics:'',shape:'',box:'',alts:'',key:t+i,lo:0,hi:0});"
             "const o=[],nn=[]; for(let i=0;i<%d;i++){o.push(u('old',i,%s)); nn.push(u('new',i,%s));}"
-            "const t0=Date.now(),b=mdcBudget(),ops=mdcOps(o,nn,b);"
+            "const t0=Date.now(),b=newCompareBudget(),ops=blockOps(o,nn,b);"
             "return [Date.now()-t0,b.left<=0,[...new Set(ops.map(x=>x.t))].sort(),ops.length];})()"
         )
         for n, alike in ((8000, "true"), (2000, "false")):

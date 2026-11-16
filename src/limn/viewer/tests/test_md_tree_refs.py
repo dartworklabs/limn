@@ -1,6 +1,6 @@
 """The Markdown surface's tree references (docs/adr/0030-markdown-tree-images-and-document-links.md): a relative path resolved
-against the document's own path (mdRelPath), what an image's source loads (mdImgPath), what a link may do (mdTarget) and the
-only address an image is fetched from (mdAssetUrl).
+against the document's own path (treePath), what an image's source loads (imageSource), what a link may do (linkAction) and the
+only address an image is fetched from (assetUrl).
 
 The served functions run under node, on hrefs as the vendored markdown-it hands them over (it percent-encodes a link's
 destination), so the rules see what the viewer sees. The browser behaviour - images drawn and kept in place, a link to another
@@ -33,7 +33,7 @@ DOCS = [
     {"key": "ms", "name": "본문", "path": "paper/main.tex"},
 ]
 
-# ref (as written in docs/guide.md) -> mdRelPath's answer: [path, frag], 'out', 'bad' or None (no relative reference).
+# ref (as written in docs/guide.md) -> treePath's answer: [path, frag], 'out', 'bad' or None (no relative reference).
 REL = {
     "img/a.png": ["docs/img/a.png", ""],
     "./img/a.png": ["docs/img/a.png", ""],
@@ -66,7 +66,7 @@ REL = {
     "C:foo.png": None,
 }
 
-# src -> mdImgPath's answer: a tree path, or why it is not loaded.
+# src -> imageSource's answer: a tree path, or why it is not loaded.
 IMG = {
     "img/chart.png": "docs/img/chart.png",
     "../figures/photo.JPG": "figures/photo.JPG",
@@ -84,7 +84,7 @@ IMG = {
     "ftp://example.org/a.png": "other",
 }
 
-# href -> mdTarget's open value (and, for a document, its key and heading).
+# href -> linkAction's open value (and, for a document, its key and heading).
 TARGET = {
     "../README.md": ["doc", "rd", ""],
     "../notes/plan.md#일정": ["doc", "pl", "일정"],
@@ -106,7 +106,7 @@ TARGET = {
 
 
 class TreeReferenceRules(unittest.TestCase):
-    """mdRelPath, mdImgPath, mdTarget and mdAssetUrl, as served."""
+    """treePath, imageSource, linkAction and assetUrl, as served."""
 
     def setUp(self):
         """Skip without node, unless LIMN_TEST_REQUIRE_NODE=1 makes that a failure."""
@@ -118,13 +118,22 @@ class TreeReferenceRules(unittest.TestCase):
     def node(self, body: str):
         """body run with the served functions and `md` (the vendored markdown-it as the parse worker configures it); `out`
         is the answer, as JSON."""
-        fns = ("mdHostKey", "mdSameOrigin", "mdIpv6", "mdLoopback", "mdHref", "mdRelPath", "mdIsImg", "mdImgPath")
+        fns = (
+            "hostKey",
+            "isSameOrigin",
+            "ipv6Groups",
+            "isLoopbackHost",
+            "linkHref",
+            "treePath",
+            "isImagePath",
+            "imageSource",
+        )
         js = "\n".join(
             [
                 *(extract_js_fn(f) for f in fns),
-                extract_js_fn("mdTarget"),
-                extract_js_fn("mdAssetUrl"),
-                "const MD_IMG_EXT=['png','jpg','jpeg','gif','webp','svg'];",
+                extract_js_fn("linkAction"),
+                extract_js_fn("assetUrl"),
+                "const IMAGE_SUFFIXES=['png','jpg','jpeg','gif','webp','svg'];",
                 "const {pathToFileURL}=require('node:url');",
                 "(async()=>{const MarkdownIt=(await import(pathToFileURL(%s).href)).default;" % json.dumps(str(BUNDLE)),
                 "const md=MarkdownIt({html:true,linkify:false,typographer:false,maxNesting:20}); let out=null;",
@@ -139,39 +148,39 @@ class TreeReferenceRules(unittest.TestCase):
         the root is out; a dot-named part, a backslash, a control character or a broken escape is bad; anything with a
         scheme, '//host', '#…' alone or nothing is no relative reference."""
         got = self.node(
-            "out=Object.fromEntries(%s.map(h=>{const r=mdRelPath(h,%s); return [h,r===null?null:r.out?'out':r.bad?'bad':[r.path,r.frag]];}));"
+            "out=Object.fromEntries(%s.map(h=>{const r=treePath(h,%s); return [h,r===null?null:r.out?'out':r.bad?'bad':[r.path,r.frag]];}));"
             % (json.dumps(list(REL), ensure_ascii=False), json.dumps(BASE))
         )
         self.assertEqual(got, REL)
 
     def test_a_document_outside_the_tree_resolves_nothing_inside_it(self):
         """With no tree path for the document (it lies outside --manuscript), every relative reference is out."""
-        got = self.node("out=['img/a.png','../README.md','/x.png'].map(h=>mdRelPath(h,null));")
+        got = self.node("out=['img/a.png','../README.md','/x.png'].map(h=>treePath(h,null));")
         self.assertEqual(got, [{"out": True}] * 3)
 
     def test_an_image_loads_only_from_the_tree_with_an_image_suffix(self):
         """A tree path with one of the served suffixes loads; remote, data:, out of the tree, another type or another
         scheme says why it does not."""
         got = self.node(
-            "out=Object.fromEntries(%s.map(h=>{const r=mdImgPath(h,%s); return [h,r.path||r.why];}));"
+            "out=Object.fromEntries(%s.map(h=>{const r=imageSource(h,%s); return [h,r.path||r.why];}));"
             % (json.dumps(list(IMG)), json.dumps(BASE))
         )
         self.assertEqual(got, IMG)
 
     def test_the_viewers_image_suffixes_are_the_servers(self):
-        """The suffixes mdImgPath loads are the ones GET /api/asset serves - the served constant, read from the file."""
+        """The suffixes imageSource loads are the ones GET /api/asset serves - the served constant, read from the file."""
         src = helpers_js.module_text(Path(limn.__file__).resolve().parent / "viewer" / "js" / "md-surface.ts")
-        init = helpers_js.statement_init(helpers_js.module_declaration(src, "MD_IMG_EXT"), "MD_IMG_EXT")
+        init = helpers_js.statement_init(helpers_js.module_declaration(src, "IMAGE_SUFFIXES"), "IMAGE_SUFFIXES")
         self.assertTrue(init.startswith("Object.freeze("), init)
         exts = re.findall(r"'([^']+)'", init)
         self.assertEqual({"." + e for e in exts}, set(ASSET_TYPES))
 
     def test_a_link_opens_a_registered_document_an_image_or_nothing(self):
         """A relative link to a registered document's path is that document (with its heading); to an image of the tree,
-        that image in a new tab; to another file of the tree or out of it, nothing - and every absolute link is mdHref's
+        that image in a new tab; to another file of the tree or out of it, nothing - and every absolute link is linkHref's
         verdict as before (the viewer's own origin and loopback stay inert)."""
         got = self.node(
-            "out=Object.fromEntries(%s.map(h=>{const r=mdTarget(h,%s,%s,%s);"
+            "out=Object.fromEntries(%s.map(h=>{const r=linkAction(h,%s,%s,%s);"
             " return [h,r.open==='doc'?[r.open,r.key,r.id]:r.open?[r.open]:[null,r.why]];}));"
             % (json.dumps(list(TARGET), ensure_ascii=False), json.dumps(ORIGIN), json.dumps(BASE), json.dumps(DOCS))
         )
@@ -184,7 +193,7 @@ class TreeReferenceRules(unittest.TestCase):
         got = self.node(
             "const kids=md.parse(%s,{}).flatMap(t=>t.children||[]);"
             "const img=kids.find(c=>c.type==='image').attrGet('src'),a=kids.find(c=>c.type==='link_open').attrGet('href');"
-            "out=[img,mdImgPath(img,%s),a,mdRelPath(a,%s)];"
+            "out=[img,imageSource(img,%s),a,treePath(a,%s)];"
             % (json.dumps(src, ensure_ascii=False), json.dumps(BASE), json.dumps(BASE))
         )
         self.assertIn("%", got[0])
@@ -193,10 +202,10 @@ class TreeReferenceRules(unittest.TestCase):
         self.assertEqual(got[3], {"path": "notes/계획 노트.md", "frag": "다음 일"})
 
     def test_the_image_address_is_built_from_the_checked_path_and_is_one_the_server_takes(self):
-        """mdAssetUrl is always this origin's /api/asset with the document and the path percent-encoded whole, and every path
-        mdImgPath loads is one the server's asset_path takes as it is."""
+        """assetUrl is always this origin's /api/asset with the document and the path percent-encoded whole, and every path
+        imageSource loads is one the server's asset_path takes as it is."""
         got = self.node(
-            "out=%s.map(h=>{const r=mdImgPath(h,%s); return r.path?[r.path,mdAssetUrl('gd',r.path)]:null;}).filter(Boolean);"
+            "out=%s.map(h=>{const r=imageSource(h,%s); return r.path?[r.path,assetUrl('gd',r.path)]:null;}).filter(Boolean);"
             % (json.dumps(list(IMG)), json.dumps(BASE))
         )
         self.assertTrue(got)

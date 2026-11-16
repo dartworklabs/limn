@@ -549,7 +549,7 @@ class Redrawing(PickBase):
         page = self.open_tx()
         page.evaluate("document.querySelector(\"#md [data-line='120']\").scrollIntoView({block:'start'})")
         settle(page)
-        before = page.evaluate("mdReadingLine()")
+        before = page.evaluate("readingLine()")
         self.assertGreater(before, 100)
         self.write(self.TEXT.replace("line_150 = 150", "line_150 = 'changed'"))
         page.evaluate("pollLightOnce()")
@@ -557,7 +557,7 @@ class Redrawing(PickBase):
             "document.querySelector(\"#md [data-line='150']\").textContent.includes(\"'changed'\")", timeout=8000
         )
         settle(page)
-        self.assertLessEqual(abs(page.evaluate("mdReadingLine()") - before), 1)
+        self.assertLessEqual(abs(page.evaluate("readingLine()") - before), 1)
 
 
 def ax_name(page, selector):
@@ -670,7 +670,7 @@ TABLET_PORTRAIT = {"viewport": {"width": 673, "height": 841}, "is_mobile": True,
 
 
 class ReadingSpot(TextBase):
-    """The text surface draws through the Markdown surface's column (#md, mdShow), so a change of its width keeps the line at
+    """The text surface draws through the Markdown surface's column (#md, showDocumentNode), so a change of its width keeps the line at
     the top of the document area as a Markdown document does (mdSpotKeep, #409): its long lines wrap differently at every
     width, and the scroll offset alone would stand on other lines."""
 

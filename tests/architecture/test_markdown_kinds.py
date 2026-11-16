@@ -1,6 +1,6 @@
 """Every Markdown pin kind the viewer stores is taught where agents and readers look for it.
 
-The viewer saves a Markdown block pin as kind `md:<block>`, the block kinds being md-surface.js's MD_BLOCK_KINDS
+The viewer saves a Markdown block pin as kind `md:<block>`, the block kinds being md-surface.js's BLOCK_KINDS
 (docs/adr/0025-html-document-surface.md D3; `front` and `math` from docs/adr/0032-markdown-front-matter.md D4, D9), and a
 section pin as `md:section`. The server takes any string, so nothing else stops a new block kind from reaching agents
 unexplained: this test keeps the agent contract (docs/handbook/api.md: the Markdown pins' value list and the record
@@ -26,10 +26,10 @@ TAUGHT = (
 
 
 def stored_kinds() -> list[str]:
-    """md:<block> for every block kind of MD_BLOCK_KINDS in md-surface.js, then md:section."""
+    """md:<block> for every block kind of BLOCK_KINDS in md-surface.js, then md:section."""
     src = helpers_js.module_text(SURFACE)
-    init = helpers_js.statement_init(helpers_js.module_declaration(src, "MD_BLOCK_KINDS"), "MD_BLOCK_KINDS")
-    assert init.startswith("["), "md-surface.js has no MD_BLOCK_KINDS list"
+    init = helpers_js.statement_init(helpers_js.module_declaration(src, "BLOCK_KINDS"), "BLOCK_KINDS")
+    assert init.startswith("["), "md-surface.js has no BLOCK_KINDS list"
     return ["md:" + k for k in re.findall(r"'([a-z]+)'", init)] + ["md:section"]
 
 
