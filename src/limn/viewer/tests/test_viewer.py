@@ -49,6 +49,7 @@ from helpers import (
     ps,
     rec_for,
     run_node,
+    script_page_for,
 )
 from helpers_browser import ChromiumTestCase
 
@@ -4260,7 +4261,7 @@ class FrontendResponsiveBrowser(ChromiumTestCase):
     def setUpClass(cls):
         """Start Chromium and build the viewer page (boot() off) once for the class."""
         super().setUpClass()
-        cls.html = page_for("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
+        cls.html = script_page_for("Long-DemoPaper1", "#2563eb").replace("\nboot();", "\n")
 
     def open_viewer(self, width, touch=False, preferences=None, height=900):
         """The viewer page (boot() off) at width x height, touch or mouse, with pinPrefs preferences and three blank pages."""

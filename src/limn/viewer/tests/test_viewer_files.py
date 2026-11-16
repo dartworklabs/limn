@@ -1,11 +1,11 @@
-"""The viewer's source lives in src/limn/viewer as build-free files the server inlines into one page.
+"""The viewer's source lives in src/limn/viewer as files the server puts together into a page and its script.
 
-index.html carries one __APP_CSS__ and one __APP_JS__ marker. parts.txt lists, per marker and in page order, the part
-files under css/ and js/; the server joins each list byte for byte into the marker's place, so the stylesheet is one
-<style> and the script one classic <script> sharing a single scope - no bundler, no module loader. GET / must stay a
-single response, byte for byte what the parts joined in that order produce. The page's inline scripts must parse:
-node --check runs on each of them (skipped without node, required where LIMN_TEST_REQUIRE_NODE=1, as in CI). The
-notification service worker is its own file, served at GET /sw.js (ServiceWorkerRoute).
+parts.txt lists, per section and in order, the part files under css/ and js/. index.html carries one __APP_CSS__ marker,
+where the server joins the stylesheet parts byte for byte into its one <style>; the script parts are joined the same way
+into the one classic script GET /viewer.js serves (ViewerScriptRoute), which the page loads from this origin. The page's
+inline scripts and the served script must parse: node --check runs on each of them (skipped without node, required
+where LIMN_TEST_REQUIRE_NODE=1, as in CI). The notification service worker is its own file, served at GET /sw.js
+(ServiceWorkerRoute).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_files.py
 """
@@ -20,7 +20,7 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import HTML, SW_JS, VIEWER, Base, page_for, req, split_resp, viewer_text
+from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, viewer_text
 from helpers_js import inline_scripts
 
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
@@ -37,15 +37,14 @@ def part_line(line: int, directory: Path = VIEWER) -> str:
     return "after the last part"
 
 
-def script_errors(page: str, directory: Path = VIEWER) -> list[str] | None:
-    """node --check on every inline script of page as a classic script: the error text of each that fails ([] = all
-    parse), led by the part file and line for the main (last) script. None when node is not installed. Each script is
-    written to a .cjs file so node never reads it as an ES module."""
+def script_errors(scripts: list[str], directory: Path = VIEWER) -> list[str] | None:
+    """node --check on every script of scripts as a classic script: the error text of each that fails ([] = all parse),
+    led by the part file and line for the viewer's own script (the last one). None when node is not installed. Each
+    script is written to a .cjs file so node never reads it as an ES module."""
     node = shutil.which("node")
     if not node:
         return None
     errors = []
-    scripts = inline_scripts(page)
     with tempfile.TemporaryDirectory() as d:
         for i, js in enumerate(scripts):
             path = Path(d) / ("script-%d.cjs" % i)
@@ -53,7 +52,7 @@ def script_errors(page: str, directory: Path = VIEWER) -> list[str] | None:
             r = subprocess.run([node, "--check", str(path)], capture_output=True, text=True, timeout=30, check=False)
             if r.returncode == 0:
                 continue
-            where = "inline script %d" % i
+            where = "script %d" % i
             at = re.match(r".*?" + re.escape(path.name) + r":(\d+)", r.stderr.strip())  # node may print the real path
             if at and i == len(scripts) - 1:
                 where += " at " + part_line(int(at.group(1)), directory)
@@ -92,10 +91,12 @@ class ViewerFiles(unittest.TestCase):
                 self.assertTrue((VIEWER / name).read_text(encoding="utf-8").endswith("\n"), name)
 
     def test_each_marker_appears_once_in_the_page_and_never_in_the_parts(self):
-        """A marker inside CSS or JS would be replaced twice or leak into the page."""
+        """A marker inside CSS or JS would be replaced twice or leak into the page; the script's marker is not in the
+        page at all (the page loads the script from this origin)."""
         page = (VIEWER / "index.html").read_text(encoding="utf-8")
         for marker in assemble.VIEWER_MARKERS:
-            self.assertEqual(page.count(marker), 1, marker)
+            self.assertEqual(page.count(marker), 1 if marker in assemble.PAGE_MARKERS else 0, marker)
+        self.assertEqual(page.count('<script src="/viewer.js?v=__VIEWER_JS_KEY__"></script>'), 1)
         for names in assemble.viewer_manifest(VIEWER).values():
             for name in names:
                 text = (VIEWER / name).read_text(encoding="utf-8")
@@ -103,25 +104,29 @@ class ViewerFiles(unittest.TestCase):
                     self.assertNotIn(marker, text, (marker, name))
 
     def test_assembled_page_is_the_parts_joined_in_manifest_order(self):
-        """load_viewer_html() is index.html with each marker replaced by its parts joined in the listed order -
-        nothing added between or around them - and the served template keeps no marker."""
-        expected = (VIEWER / "index.html").read_text(encoding="utf-8")
-        for marker in assemble.VIEWER_MARKERS:
-            expected = expected.replace(marker, viewer_text(marker))
+        """load_viewer_html() is index.html with the stylesheet marker replaced by its parts joined in the listed order,
+        and load_viewer_script() the script parts joined the same way - nothing added between or around them - and
+        neither the served template nor the served script keeps a marker."""
+        expected = (
+            (VIEWER / "index.html").read_text(encoding="utf-8").replace("__APP_CSS__", viewer_text("__APP_CSS__"))
+        )
         self.assertEqual(assemble.load_viewer_html(VIEWER), expected)
+        self.assertEqual(assemble.load_viewer_script(VIEWER), viewer_text("__APP_JS__"))
         self.assertNotIn("__APP_", HTML)
 
     def test_a_missing_marker_is_a_packaging_error_at_load(self):
-        """A template without its marker fails loudly instead of serving a page without its script."""
-        with tempfile.TemporaryDirectory() as d:
-            broken = Path(d)
-            (broken / "index.html").write_text("<style>__APP_CSS__</style><script></script>", encoding="utf-8")
-            (broken / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n", encoding="utf-8")
-            for name, text in (("css/a.css", "body{}\n"), ("js/a.js", "boot();\n")):
-                (broken / name).parent.mkdir(exist_ok=True)
-                (broken / name).write_text(text, encoding="utf-8")
-            with self.assertRaises(ValueError):
-                assemble.load_viewer_html(broken)
+        """A template without its stylesheet marker, or with the script's marker still in it, fails loudly instead of
+        serving a page without its style or with a hole for a script it no longer inlines."""
+        for page in ("<style></style><script></script>", "<style>__APP_CSS__</style><script>__APP_JS__</script>"):
+            with self.subTest(page=page), tempfile.TemporaryDirectory() as d:
+                broken = Path(d)
+                (broken / "index.html").write_text(page, encoding="utf-8")
+                (broken / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n", encoding="utf-8")
+                for name, text in (("css/a.css", "body{}\n"), ("js/a.js", "boot();\n")):
+                    (broken / name).parent.mkdir(exist_ok=True)
+                    (broken / name).write_text(text, encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    assemble.load_viewer_html(broken)
 
     def test_a_malformed_manifest_is_a_packaging_error_at_load(self):
         """The manifest decides what the page contains, so any line it cannot place fails at import: a part before
@@ -157,7 +162,8 @@ class ViewerFiles(unittest.TestCase):
 
 
 class ViewerScriptParses(unittest.TestCase):
-    """The served page's inline scripts are valid JavaScript (node --check), whatever the part files look like alone."""
+    """The served page's inline scripts and its script are valid JavaScript (node --check), whatever the part files look
+    like alone."""
 
     def setUp(self):
         """Skip without node, unless LIMN_TEST_REQUIRE_NODE=1 (CI), where a missing node is a failure."""
@@ -167,15 +173,15 @@ class ViewerScriptParses(unittest.TestCase):
             self.fail("node is required (LIMN_TEST_REQUIRE_NODE=1) but not installed")
         self.skipTest("node is not installed")
 
-    def test_every_inline_script_of_the_served_page_parses(self):
-        """The page GET / serves - parts joined and every placeholder filled - has three inline scripts (two in the
-        head: theme and language; the main one at the end of the body), and node parses each as a classic script."""
+    def test_every_script_of_the_served_page_parses(self):
+        """The page GET / serves has two inline scripts (in the head: theme and language), and the script it loads (GET
+        /viewer.js: the parts joined, every placeholder filled) is the viewer's; node parses each as a classic script."""
         page = page_for("Paper", "#2563eb")
         scripts = inline_scripts(page)
-        self.assertEqual(len(scripts), 3)
+        self.assertEqual(len(scripts), 2)
         unfilled = re.split(r"__[A-Z_]+__", viewer_text("__APP_JS__"))[0]  # the parts up to their first placeholder
-        self.assertIn(unfilled[:200], scripts[-1])
-        self.assertEqual(script_errors(page), [])
+        self.assertTrue(SCRIPT.startswith(unfilled))
+        self.assertEqual(script_errors([*scripts, SCRIPT]), [])
 
     def test_a_syntax_error_planted_in_one_part_fails_the_check_and_names_the_part(self):
         """The check sees through the split: one bad line at the top of a part in the middle of the list is a
@@ -184,11 +190,11 @@ class ViewerScriptParses(unittest.TestCase):
         with tempfile.TemporaryDirectory() as d:
             copy = Path(d) / "viewer"
             shutil.copytree(VIEWER, copy)
-            self.assertEqual(script_errors(assemble.load_viewer_html(copy), copy), [])
+            self.assertEqual(script_errors([assemble.load_viewer_script(copy)], copy), [])
             names = assemble.viewer_manifest(copy)["__APP_JS__"]
             victim = names[len(names) // 2]
             (copy / victim).write_text("const = 1;\n" + (copy / victim).read_text(encoding="utf-8"), encoding="utf-8")
-            errors = script_errors(assemble.load_viewer_html(copy), copy)
+            errors = script_errors([assemble.load_viewer_script(copy)], copy)
             self.assertEqual(len(errors), 1, errors)
             self.assertIn("SyntaxError", errors[0])
             self.assertIn(" at %s:1:" % victim, errors[0])
@@ -204,6 +210,29 @@ class ViewerScriptParses(unittest.TestCase):
             check=False,
         )
         self.assertEqual(r.returncode, 0, r.stderr)
+
+
+class ViewerScriptRoute(Base):
+    """GET /viewer.js serves the page's script: JavaScript, revalidated, host-checked, the very text the page's key names."""
+
+    def get(self, path, headers=None):
+        code, h, raw = split_resp(self.talk(req("GET", path, headers=headers)))
+        return code, h, raw
+
+    def test_the_script_route_serves_the_script_the_page_names(self):
+        """The page loads /viewer.js?v=<key> once; that URL answers the filled script whose key it is, as JavaScript that
+        the browser asks again on every load (as it did when the script came inside the page), with a policy that only
+        forbids framing. Another host is refused as for any GET."""
+        page = page_for("Paper", "#2563eb")
+        key = assemble.script_key(VIEWER_FILES.script)
+        self.assertEqual(page.count('<script src="/viewer.js?v=%s"></script>' % key), 1)
+        code, h, raw = self.get("/viewer.js?v=" + key)
+        self.assertEqual(code, 200)
+        self.assertEqual(h["content-type"], "text/javascript; charset=utf-8")
+        self.assertEqual(h["cache-control"], "no-cache")
+        self.assertEqual(h["content-security-policy"], "frame-ancestors 'none'")
+        self.assertEqual(raw.decode("utf-8"), VIEWER_FILES.script)
+        self.assertEqual(self.get("/viewer.js", {"Host": "evil.example"})[0], 403)
 
 
 class ServiceWorkerRoute(Base):

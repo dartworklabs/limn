@@ -6,7 +6,8 @@
 // static file, this build's PDF or its page images is kept. A copy answers only when the network fails, so an online
 // visit never reads a stale screen. `/api/*` is neither kept nor answered from a copy - a stale pin list must never
 // read as the current one. A navigation the network refuses is answered with the kept page: the viewer is one HTML
-// string with every part inlined (viewer/assemble.py), so one entry serves every document and query.
+// page for every document and query (viewer/assemble.py), so one entry serves them all, and the script it loads
+// (/viewer.js?v=<key>) is kept under its own address like any other static file.
 const CACHE = 'limn-offline-v1';
 const SHELL = '/';
 self.addEventListener('install', () => self.skipWaiting());
@@ -28,8 +29,8 @@ function cacheable(url) {
 function docFile(url) {
   return url.pathname === '/pdf' || url.pathname.startsWith('/pages/');
 }
-// Whether this answer is the viewer page itself. The page is one HTML string with every part inlined, and the document
-// it is asked for rides in the query (?doc=), so every such answer is kept under the one shell key - a copy taken by
+// Whether this answer is the viewer page itself. The page is the same HTML for every document - the document it is
+// asked for rides in the query (?doc=), so every such answer is kept under the one shell key - a copy taken by
 // [오프라인으로 받기] on `/?doc=ms` is then what a later navigation to `/` or to another document is answered with.
 function isShell(request, response) {
   if (request.mode === 'navigate') return true;

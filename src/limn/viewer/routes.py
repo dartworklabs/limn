@@ -91,8 +91,12 @@ def _vendor(app: ViewerShellApp, library: VendorLibrary, path: str, name: str) -
 
 
 def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
-    """Serve the viewer shell, its icons, version, service worker, Markdown parse worker, or a bundled PDF.js, markdown-it,
-    KaTeX or Pretendard file (_vendor); None for a path that is not one of them.
+    """Serve the viewer shell, its script, icons, version, service worker, Markdown parse worker, or a bundled PDF.js,
+    markdown-it, KaTeX or Pretendard file (_vendor); None for a path that is not one of them.
+
+    GET /viewer.js answers the page's script (assemble.viewer_script), revalidated on every load like the page it came in
+    before; the page names it with its content key (?v=), so a page kept for offline reading finds the script it was
+    served with.
 
     An ICON_ROUTES path answers the run's vendored icon file unchanged, publicly cacheable for a day. The page's links
     carry a content key (?v=), so a new drawing gets a new URL there; only those linked URLs are busted - the bare
@@ -111,6 +115,11 @@ def get(request: GetRequest, app: ViewerShellApp) -> Reply | None:
         return json_reply({"name": app.APP_NAME, "version": app.app_version()})
     if path == "/sw.js":
         return Reply(200, app.viewer().service_worker.encode(), "text/javascript; charset=utf-8", "no-cache")
+    if path == "/viewer.js":
+        script = app.viewer().script
+        if not script:
+            raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+        return Reply(200, script.encode(), "text/javascript; charset=utf-8", "no-cache")
     if path == "/md-parse.mjs":
         worker = app.viewer().md_worker
         if not worker:

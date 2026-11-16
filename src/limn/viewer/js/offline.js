@@ -177,7 +177,7 @@ async function offlineAskDown(){const sw='serviceWorker' in navigator?navigator.
     ch.port1.onmessage=e=>{clearTimeout(t); res(e.data);}; try{sw.postMessage({type:'down'},[ch.port2]);}catch(e){clearTimeout(t); res(null);}});
   if(r&&r.down===true)API_OUT=true;}
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
-// (the inlined shell leaves only the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
+// (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
 /** @returns {string[]} */
 function offlineUrls(){const out=new Set([location.pathname+location.search]);

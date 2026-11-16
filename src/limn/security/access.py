@@ -653,6 +653,7 @@ READ_PATHS = frozenset(
         "/api/version",
         "/sw.js",
         "/md-parse.mjs",
+        "/viewer.js",
         "/api/build",
         "/pdf",
         "/api/revisions",

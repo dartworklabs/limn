@@ -210,9 +210,10 @@ class VendorKatex(Base):
         self.assertEqual(self.get(path, {"Origin": "https://evil.example"})[0], 403)
 
     def test_the_page_names_the_vendored_version_and_asks_for_nothing_else(self):
-        """The page's own script imports the module and links the stylesheet at this version, from this origin, and no
-        other katex URL is in it - the fonts come from the stylesheet."""
-        page = assemble.read_viewer().template
+        """The page's own script (GET /viewer.js) imports the module and links the stylesheet at this version, from this
+        origin, and no other katex URL is in it or the page - the fonts come from the stylesheet."""
+        files = assemble.read_viewer()
+        page = files.template + files.script
         self.assertNotIn("__KATEX_VERSION__", page)
         self.assertEqual(
             sorted(set(re.findall(r"/vendor/katex/[A-Za-z0-9_.-]+", page))),

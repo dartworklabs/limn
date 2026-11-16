@@ -43,6 +43,7 @@ from helpers import (
     page_for,
     run_config,
     run_node,
+    script_page_for,
     serve_viewer,
     shut_wr,
 )
@@ -66,7 +67,7 @@ UI_ATTRS = ("data-tip", "aria-label", "title", "placeholder")
 def static_ui_strings(html):
     """Korean text nodes and UI attributes of the static markup (body up to the first <script>). Text inside a
     translate="no" element is not UI to translate (the language segment's own names, a label) and is left out."""
-    body = html[html.index("<body") : html.index("<script>", html.index("<body"))]
+    body = html[html.index("<body") : html.index("<script", html.index("<body"))]
     found = set()
     void = {"input", "br", "wbr", "img", "meta", "link", "hr", "source"}
 
@@ -235,7 +236,8 @@ class Wiring(unittest.TestCase):
     """The assembled viewer embeds safe translations and chooses a language consistently."""
 
     def test_table_is_embedded_and_script_safe(self):
-        html = page_for("A-DEMO", "#2563eb")
+        """The message table is in the script the page loads, filled, and written so that no string closes a script."""
+        html = script_page_for("A-DEMO", "#2563eb")
         self.assertNotIn("__UI_EN_JSON__", html)
         # build_html fills placeholders; keys must not contain them
         self.assertFalse([k for k in UI_EN if "__" in k])
@@ -274,7 +276,7 @@ class BrowserLanguage(ChromiumTestCase):
     def setUpClass(cls):
         """Start Chromium and build the viewer page (boot() off) once for the class."""
         super().setUpClass()
-        cls.html = page_for("A-DEMO", "#2563eb").replace("\nboot();", "\n")
+        cls.html = script_page_for("A-DEMO", "#2563eb").replace("\nboot();", "\n")
 
     def open(self, query, locale, html=None, saved=None):
         """The page (html, else the class's) at http://viewer.test/<query> in a browser of locale, with limnLang saved
@@ -334,10 +336,10 @@ class BrowserLanguage(ChromiumTestCase):
     def test_the_instance_default_beats_the_browser_and_loses_to_the_saved_choice(self):
         """--ui-lang en on a Korean phone with nothing saved: English. The same with Korean saved on the device: Korean.
         Without --ui-lang the browser decides as before (test_browser_language_decides_without_a_choice)."""
-        html = page_for("A-DEMO", "#2563eb", "en").replace("\nboot();", "\n")
+        html = script_page_for("A-DEMO", "#2563eb", "en").replace("\nboot();", "\n")
         self.assertEqual(self.open("", "ko-KR", html).evaluate("LANG"), "en")
         self.assertEqual(self.open("", "ko-KR", html, saved="ko").evaluate("LANG"), "ko")
-        html = page_for("A-DEMO", "#2563eb", "ko").replace("\nboot();", "\n")
+        html = script_page_for("A-DEMO", "#2563eb", "ko").replace("\nboot();", "\n")
         self.assertEqual(self.open("", "en-US", html).evaluate("LANG"), "ko")
 
     def test_a_refused_page_reopens_once_in_the_saved_language(self):
