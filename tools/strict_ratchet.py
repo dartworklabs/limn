@@ -7,7 +7,8 @@ meet all of them yet:
 - tsc-strict: `tsc -p tsconfig.strict.json` - the full TypeScript `strict` set (noImplicitAny and the rest) on top of
   tsconfig.json, which itself must stay clean (npm run typecheck).
 - eslint: every rule eslint.config.mjs turns on (no any, no type assertion, no write to another module's state, no
-  confusing global, an exhaustive switch over a closed union), per rule.
+  confusing global, an exhaustive switch over a closed union, a declared name of whole words, a comment with no
+  history - limn/plain-names and limn/no-history-comment, tools/viewer-names.json), per rule.
 - boundaries: tools/check_viewer_boundaries.mjs - import cycles, feature dependencies ALLOWED does not list, platform
   importing a feature, role rules, modules not yet in their feature folder - per rule.
 

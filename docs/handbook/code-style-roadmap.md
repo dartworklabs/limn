@@ -22,7 +22,7 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 ## R4 기계적 규칙은 도구가 집행
 
-설정의 정본은 [`pyproject.toml`](../../pyproject.toml)의 Ruff·basedpyright 절과 [`tools/check_fitness.py`](../../tools/check_fitness.py)의 역할 표, 실행과 합격 기준은 [verification.md](verification.md) §8·9·11이다. Ruff는 프로덕션의 공개 docstring 누락과 테스트 모듈·클래스의 누락을 검사한다. private 도우미와 테스트 함수·메서드의 누락 및 docstring 내용은 현재 리뷰에서 확인한다. 뷰어는 TypeScript로 쓰고, §9의 `tsc`·ESLint·모듈 경계 검사와 줄기만 하는 기준선, 소스 가드와 브라우저 테스트로 확인한다([viewer.md](viewer.md) §타입 검사). 규칙 하나의 주인은 도구 하나다. 타입은 basedpyright, 모듈의 역할과 그 규칙은 적합성 검사(§R11), 기능 사이의 import는 경계 검사가 맡는다.
+설정의 정본은 [`pyproject.toml`](../../pyproject.toml)의 Ruff·basedpyright 절과 [`tools/check_fitness.py`](../../tools/check_fitness.py)의 역할 표, 실행과 합격 기준은 [verification.md](verification.md) §8·9·11이다. Ruff는 프로덕션의 공개 docstring 누락과 테스트 모듈·클래스의 누락을 검사한다. private 도우미와 테스트 함수·메서드의 누락 및 docstring 내용은 현재 리뷰에서 확인한다. 뷰어는 TypeScript로 쓰고, §9의 `tsc`·ESLint·모듈 경계 검사와 줄기만 하는 기준선, 소스 가드와 브라우저 테스트로 확인한다([viewer.md](viewer.md) §타입 검사). 뷰어의 이름과 주석은 §R12가 정한다. 규칙 하나의 주인은 도구 하나다. 타입은 basedpyright, 모듈의 역할과 그 규칙은 적합성 검사(§R11), 기능 사이의 import는 경계 검사가 맡는다.
 
 `E501`은 포매터가 코드 줄을 정리하므로 끈다. `UP030`–`UP032`는 계약 메시지의 포매팅 바이트를, `UP042`는 enum 문자열 결과를 보존하려고 끈다. `server.py`의 `E402`는 파일 경로 실행 전에 `sys.path`를 준비해야 해서 예외다. `tools/handbook-publish/`와 번들 vendor 코드는 외부 소유라 검사 대상에서 뺐다. 테스트 함수·메서드의 docstring 누락 규칙은 기존 누락이 많아 테스트 경로에서 제외한다. 새로 쓰거나 고친 테스트는 §R9를 따른다.
 
@@ -112,6 +112,10 @@ basedpyright는 `all`에서 네 규칙만 끈다. `reportImplicitOverride`는 `@
 - **기준선.** 규칙이 들어올 때 있던 위반은 최상위 패키지마다 파일 하나인 `tools/fitness-baseline/<슬라이스>.json`(루트 파일은 `root.json`)에 모듈별·규칙별 수로 있다. 수가 오르면 실패하고, 내려가도 `--update`로 기준선을 내릴 때까지 실패한다. `--update`는 수를 올리지 않는다. 모듈을 옮길 때는 `--rename OLD=NEW`로 그 수를 옮기며, 새 이름의 역할이 새로 보는 규칙의 위반은 옮겨 오지 않으므로 먼저 고친다.
 
 결정의 경위는 [ADR-0041](../adr/0041-strict-backend-fitness-gates.md) D2–D5다.
+
+## R12 뷰어의 이름은 온전한 낱말이고 주석에는 이력이 없다
+
+뷰어 모듈(`src/limn/viewer/js/*.ts`)의 선언한 이름은 온전한 낱말이다. 낱말은 세 글자 이상이거나 `tools/viewer-names.json`의 허용 목록에 있는 두 글자 이하의 말이고, 허용 목록이 이 규칙의 유일한 예외다. 약어 목록의 낱말(`sel`·`msg`·`btn`·`vec` 등)은 길이와 상관없이 쓰지 않는다. 주석은 코드가 지금 무엇을 왜 하는지 쓰고, 릴리스 번호·이슈와 PR 번호·날짜 도장 같은 이력은 담지 않는다. 이력은 PR과 CHANGELOG에 있고, 현재 규칙은 Handbook 절과 ADR 번호로 가리킨다. 두 규칙은 ESLint 지역 규칙(`limn/plain-names`·`limn/no-history-comment`)이고 줄기만 하는 기준선이 센다(§R4). 규칙의 정의와 목록은 [viewer.md](viewer.md) §이름과 주석, 결정의 경위는 [ADR-0044](../adr/0044-viewer-name-and-comment-gates.md)다.
 
 ## 경계 집행과 검증의 한계
 

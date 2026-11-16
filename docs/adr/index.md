@@ -47,6 +47,7 @@
 | [ADR-0041](0041-strict-backend-fitness-gates.md) | 백엔드의 구조 적합성을 파일 이름과 더 엄격한 타입 검사로 자동 집행한다 | basedpyright(`all`, Linux·macOS, 줄기만 하는 기준선)가 mypy를 대신하고, 모듈의 역할은 파일 이름과 경로가 정하며 `tools/check_fitness.py` 가 역할마다 import·I/O·`isinstance`·`limn.web`·원시 타입 규칙과 `cast`·무시 주석·`assert_never` 없는 와일드카드 금지를 슬라이스별 기준선으로 집행한다 | 승인됨 (2026-11-16) | — | — |
 | [ADR-0042](0042-viewer-es-modules.md) | 뷰어 JS를 ES 모듈로 나누고 번들러로 지은 한 파일을 저장소에 둔다 | 뷰어 JS를 명시적 import/export의 ES 모듈로 바꾸고, Rollup(고정 판)이 `parts.txt` 순서 그대로 이은 고전 스크립트 한 파일(`viewer/dist/viewer.js`)을 커밋해 같은 출처 `GET /viewer.js`로 내보내며(설치에는 Node가 필요 없다), TypeScript `strict`·타입 정보 ESLint·모듈 경계 검사를 파일별로 줄기만 하는 기준선과 함께 건다. UI 프레임워크는 들이지 않고 페이지 정책은 넓히지 않는다 | 승인됨 (2026-11-16) | 부분 대체: [ADR-0001](0001-blueprint.md)의 "프론트엔드 빌드 도구 도입" 기각 중 번들러 부분, 불변식 2의 번들러·모듈 로더 문구 | — |
 | [ADR-0043](0043-viewer-typescript.md) | 뷰어 모듈을 TypeScript로 쓰고, 빌드가 타입만 걷어 낸다 | 뷰어 모듈 57개를 지울 수 있는 문법만 쓰는 TypeScript(`js/*.ts`)로 바꾸고, 타입은 `tsc --noEmit`(TypeScript 7)이 검사하며, 빌드는 고정한 TypeScript 파서로 타입만 지운 글을 Rollup에 넘긴다(주석·배치는 그대로, 문법을 낮추지 않음). ESLint의 탈출구 규칙은 TypeScript의 것으로 바꾸고 검사 수준은 낮추지 않는다 | 제안 | 부분 대체: [ADR-0042](0042-viewer-es-modules.md) D7의 "JS 원본에 `checkJs`, 타입은 JSDoc"과 §대안의 "`.ts` 원본" 기각, D2의 빌드에 타입 걷기를 더함 | — |
+| [ADR-0044](0044-viewer-name-and-comment-gates.md) | 뷰어의 약어 이름과 이력 주석을 줄기만 하는 기준선으로 막는다 | ESLint 지역 규칙 `limn/plain-names`(선언한 이름의 낱말은 세 글자 이상이거나 `tools/viewer-names.json`의 허용 목록에 있고 약어 목록에 없다)와 `limn/no-history-comment`(주석에 릴리스 번호·이슈 번호·날짜 도장이 없다)를 파일별 줄기만 하는 기준선에 건다. 이미 있는 위반은 기능별 정리에서 줄인다 | 제안 | — | — |
 
 ## 읽는 법
 
