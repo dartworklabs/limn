@@ -14,13 +14,8 @@ import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
 import { placeChips } from '../platform/notices.ts';
-import { setViewMode } from '../revisions/flow.ts';
 import { OUTLINE_PICK_GAP, spotTop } from './view-outline.ts';
 import { invalidateVectorDraws, observeVectorPages } from './view-draw.ts';
-import { MARKDOWN_VIEW, buildMarkdownDoc } from '../markdown/view.ts';
-import { sizePageLines } from '../verdict/flow-line.ts';
-import { restoreReasonFocus, holdReasonFocus } from '../verdict/flow-reason.ts';
-import { markBadgeSides, marks } from '../pins/flow-list.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
@@ -37,6 +32,8 @@ import {
   glideTo,
   scrollTopFor,
 } from '../layout/flow-scroll.ts';
+import { pageChanges, pageMarkdown, pageMarks, pageVerdicts } from './state-seams.ts';
+
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {
@@ -93,16 +90,16 @@ function buildDoc() {
   // A document the browser draws from its source has no pages (markdown/view.ts).
   if (isMarkdownDoc()) {
     setComposeBox(null);
-    buildMarkdownDoc();
+    pageMarkdown().build();
     return;
   }
-  MARKDOWN_VIEW.gen++;
-  MARKDOWN_VIEW.shown = '';
+  pageMarkdown().drawn().gen++;
+  pageMarkdown().drawn().shown = '';
   // A draw of the Markdown surface still on its way stops here.
   document.body.classList.remove('md-surface');
   // A focus in the reason popover comes back with the pages (restoreReasonFocus).
   const doc = $('#doc'),
-    focus = holdReasonFocus();
+    focus = pageVerdicts().holdReasonFocus();
   doc.replaceChildren();
   setComposeBox(null);
   META.pages.forEach((page, index) => {
@@ -124,10 +121,10 @@ function buildDoc() {
     doc.appendChild(wrapper);
   });
   pageWidthVars();
-  marks();
+  pageMarks().draw();
   observeVectorPages();
   drawZoom();
-  restoreReasonFocus(focus);
+  pageVerdicts().restoreReasonFocus(focus);
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the
 // pages would look too small. The scale is never saved in compact (mid/narrow) - so a width fit for a folded screen
@@ -157,8 +154,8 @@ function setScale(scale, save?) {
   setPageScale(Math.min(bounds[1], Math.max(bounds[0], scale * widest)) / widest);
   SCALE_UNBOUNDED = false;
   sizePages();
-  markBadgeSides();
-  sizePageLines();
+  pageMarks().placeBadges();
+  pageVerdicts().sizeLines();
   placeChips();
   if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
   invalidateVectorDraws();
@@ -285,7 +282,7 @@ function fitWidth() {
 function autoFitWidth() {
   if (!$('#left').getClientRects().length) return;
   if (LAYOUT !== LAYOUT_MODE.WIDE ? !ZOOMED : savedScale() === null) setScale(defaultScale(), false);
-  else markBadgeSides();
+  else pageMarks().placeBadges();
 }
 // The page number stands outside a page (.no-out) where a wider page leaves room left of it - a page centred under one
 // at least the number's width and 8px wider on each side - and in the page's corner otherwise: on the widest pages, and
@@ -462,7 +459,7 @@ function goSheetPage() {
   const page = clampPage($('#ns-page-in').value, META && META.pages ? META.pages.length : 0);
   if (page === null) return;
   $('#nav-sheet').close();
-  if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
+  if (document.body.classList.contains('revision-open')) pageChanges().setMode(VIEW_MODE.MANUSCRIPT);
   goPage(page);
 }
 $('#ns-page-in').addEventListener('keydown', (event) => {

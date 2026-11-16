@@ -124,7 +124,7 @@ import {
   verdictLabel,
   docKindOf,
   viewerBlocked,
-  isMarkdownDoc,
+  pageVerdictsOn,
 } from '../documents/state.ts';
 import {
   arrivalWatch,
@@ -142,13 +142,6 @@ import {
 } from '../layout/flow-scroll.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
-// The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
-// document or a view-only PDF): the words, else null.
-function pageVerdictsOn(): DocVerdicts | null {
-  if (isMarkdownDoc()) return null;
-  const verdicts = docVerdicts();
-  return verdicts && verdicts.page ? verdicts : null;
-} // a Markdown document has no pages
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict() {
   const role = META && META.me && META.me.role;
@@ -3606,5 +3599,4 @@ export {
   verdictPress,
   verdictTarget,
   verdictUndo,
-  pageVerdictsOn,
 };

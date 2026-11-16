@@ -3,18 +3,17 @@ import { BAND, DOC, META, REDUCED_MOTION_QUERY, imeKey, isFigureKind, scrollMoti
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { setViewMode } from '../revisions/flow.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
 import { goPage, jumpOnItsWay } from './view-pages.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
-import { goToHeading, updateMarkdownStrip } from '../markdown/view.ts';
-import { popoverFreeArea } from '../composer/view-selection-popover.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from '../documents/state.ts';
 import { topAnchor } from '../layout/flow.ts';
 import { arrivalWatch, glideTo } from '../layout/flow-scroll.ts';
+import { popoverFreeArea } from './view-area.ts';
+import { pageChanges, pageMarkdown } from './state-seams.ts';
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
 // Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
@@ -653,7 +652,7 @@ const OUTLINE_PICK_GAP = 8;
 function pickOutline(index) {
   // A heading of the Markdown surface.
   if (isMarkdownDoc()) {
-    goToHeading(index);
+    pageMarkdown().goToHeading(index);
     return;
   }
   const entry = OUTLINE_ENTRIES[index];
@@ -664,7 +663,7 @@ function pickOutline(index) {
   outlinePickWait();
   markOutline();
   updateSectionStrip();
-  setViewMode('manuscript');
+  pageChanges().setMode('manuscript');
   const top = outlinePickTop(entry);
   if (top === null) {
     goPage(entry.page);
@@ -735,7 +734,7 @@ function readingDepth(pane) {
 function updateSectionStrip() {
   // The Markdown surface's strip and position button.
   if (isMarkdownDoc()) {
-    updateMarkdownStrip();
+    pageMarkdown().updateStrip();
     return;
   }
   const pdfArea = $('#left'),

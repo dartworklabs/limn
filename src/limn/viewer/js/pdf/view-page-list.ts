@@ -7,14 +7,13 @@ import { DOC, META, COARSE_POINTER_QUERY, buildsFromSource, imeKey, isFigureKind
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { setViewMode } from '../revisions/flow.ts';
 import { clampPage, goPage } from './view-pages.ts';
 import { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, outlineOnScreen } from './view-outline.ts';
-import { pageVerdictPins, pageVerdictsOn } from '../verdict/flow-line.ts';
 import { $ } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
-import { docInfo, verdictLabel } from '../documents/state.ts';
+import { docInfo, verdictLabel, pageVerdictsOn } from '../documents/state.ts';
+import { pageChanges, pageVerdicts } from './state-seams.ts';
 
 // The names a row shows for each of pageTotal pages, index 0 for page 1: the top-level headings that start on the page
 // joined with ' · ' ('1 Introduction · 2 Related work'), else the one the page continues ('… 2 Related work'); ''
@@ -79,7 +78,7 @@ function pageCount() {
 // verdicts at a glance.
 function pageRowsHtml(pageTotal, currentPage) {
   const names = pageNames(pageTotal),
-    verdictPins = pageVerdictsOn() ? pageVerdictPins() : null;
+    verdictPins = pageVerdictsOn() ? pageVerdicts().pagePins() : null;
   return html`${Array.from({ length: pageTotal }, (_, index) => {
     const page = index + 1,
       on = page === currentPage,
@@ -202,7 +201,7 @@ function togglePageList(from) {
 // leaves the changes view for the manuscript, and scrolls to the page.
 function goListedPage(page) {
   closePageList(true);
-  if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
+  if (document.body.classList.contains('revision-open')) pageChanges().setMode(VIEW_MODE.MANUSCRIPT);
   goPage(page);
 }
 // The phone's navigation sheet: its page rows under the page field, scrolled to the current page (openNavigationSheet).

@@ -163,6 +163,8 @@ import {
   showLines,
   showMarkdownHint,
   keepReadingSpot,
+  goToHeading,
+  updateMarkdownStrip,
 } from './markdown/view.ts';
 import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
@@ -174,6 +176,8 @@ import {
   setKind,
   toggleQuote,
   cancelSelection,
+  pick,
+  setBusy,
 } from './composer/flow-pick.ts';
 import { saveDraftSoon, restoreDraft, parkDraft, openDraftDoc } from './composer/flow-draft.ts';
 import { appendToPin, savePin, saveButtonLabel } from './composer/flow-save.ts';
@@ -195,13 +199,30 @@ import {
   undoFromLine,
   verdictPress,
   READING_LINE_PAGE,
-  pageVerdictsOn,
   pageUnderReadingLine,
   stickSoon,
+  sizePageLines,
+  pageVerdictPins,
+  renderVerdictRow,
 } from './verdict/flow-line.ts';
-import { actOnReason, focusLine, isReasonField, isComposingNow, afterComposition } from './verdict/flow-reason.ts';
+import {
+  actOnReason,
+  focusLine,
+  isReasonField,
+  isComposingNow,
+  afterComposition,
+  holdReasonFocus,
+  restoreReasonFocus,
+} from './verdict/flow-reason.ts';
 import { goToSummaryPage, setBuildReadingPage } from './verdict/view-panel.ts';
-import { handPopoverToComposer } from './composer/view-selection-popover.ts';
+import {
+  handPopoverToComposer,
+  openSelectionPopover,
+  isSelectionPopoverOpen,
+  SELECTION_POPOVER,
+  SELECTION_POPOVER_BOX,
+  placeSelectionPopover,
+} from './composer/view-selection-popover.ts';
 import { MESSAGE_OPEN } from './pins/view-card-parts.ts';
 import { ARC_OPEN, openTrash } from './pins/view-cards.ts';
 import { REVIEW_PICK, confirmTicked, setReviewPicking, goToReviewCard } from './pins/flow-review-pick.ts';
@@ -222,19 +243,20 @@ import {
   marks,
   fitBarWords,
   updateReviewCount,
+  markBadgeSides,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty } from './pins/flow-edit.ts';
-import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
+import { applyRepick, cancelRepick, startRepick, bannerCompare } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
-import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc } from './documents/state.ts';
+import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc, pageVerdictsOn } from './documents/state.ts';
 import { useLevel } from './documents/rules.ts';
 import { setHtml } from './platform/markup.ts';
 import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
@@ -250,6 +272,9 @@ import {
   setPinNotifications,
   setVerdictHold,
 } from './documents/state-seams.ts';
+import { setLineMarks, setLinePick, setTextSurface } from './markdown/state-seams.ts';
+import { buildTextView, textLevels } from './text/view.ts';
+import { setPageChanges, setPageMarkdown, setPageMarks, setPageSelection, setPageVerdicts } from './pdf/state-seams.ts';
 import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } from './documents/flow-polling.ts';
 import { drawMeta } from './documents/view-meta.ts';
 
@@ -356,6 +381,29 @@ setFrameHost({
   searchOpen: () => SEARCH.open,
   setHash,
 });
+// The seams the page surface calls the features above it through (pdf/state-seams.ts).
+setPageMarks({ draw: marks, placeBadges: markBadgeSides });
+setPageVerdicts({ holdReasonFocus, restoreReasonFocus, sizeLines: sizePageLines, pagePins: pageVerdictPins });
+setPageSelection({
+  pick,
+  discard: discardSelection,
+  openPopover: openSelectionPopover,
+  popoverOpen: isSelectionPopoverOpen,
+  popover: () => SELECTION_POPOVER,
+  popoverBox: () => SELECTION_POPOVER_BOX,
+  placePopover: placeSelectionPopover,
+});
+setPageMarkdown({
+  drawn: () => MARKDOWN_VIEW,
+  build: buildMarkdownDoc,
+  goToHeading,
+  updateStrip: updateMarkdownStrip,
+});
+setPageChanges({ setMode: setViewMode });
+// The seams the Markdown surface calls the features above it through (markdown/state-seams.ts).
+setTextSurface({ build: buildTextView, levels: textLevels });
+setLinePick({ compare: bannerCompare, setBusy, renderComposer, renderVerdictRow });
+setLineMarks({ draw: marks });
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

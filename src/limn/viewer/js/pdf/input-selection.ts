@@ -23,14 +23,14 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { SWALLOW_CLICK, setSwallowClick } from '../platform/tooltip.ts';
 import { fitScale, zoomTo } from './view-pages.ts';
-import { discardSelection, pick } from '../composer/flow-pick.ts';
-import { SELECTION_POPOVER, openSelectionPopover, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
-import { markBadgeIn, markBadgeRoom } from '../pins/flow-list.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { LONGPRESS_MS } from '../layout/input.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
+import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
+import { pageSelection } from './state-seams.ts';
+
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;
@@ -293,7 +293,7 @@ function pressOutsideSelection(event) {
   const inside = [
     ...document.querySelectorAll('.mark'),
     ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i')] : []),
-    ...(isSelectionPopoverOpen() ? [SELECTION_POPOVER] : []),
+    ...(pageSelection().popoverOpen() ? [pageSelection().popover()] : []),
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
 }
@@ -312,7 +312,7 @@ $('#left').addEventListener('pointerdown', (event) => {
 // Cancels the selection the press began on, if it is still the one open and still the thing to close.
 function clickOffNow(box) {
   if (!selectionOpen() || COMPOSE.box !== box) return;
-  discardSelection();
+  pageSelection().discard();
   // The panel may move under the click that follows.
   setSwallowClick(Date.now() + 400);
 }
@@ -393,7 +393,7 @@ function finishRect(pageElement, box: HTMLElement, startX, startY, x, y) {
   const page = +pageElement.dataset.page,
     pageInfo = META.pages[page - 1],
     repick = !!REPICK;
-  pick({
+  pageSelection().pick({
     page,
     x0: Math.min(startX, x) * pageInfo.pt_w,
     y0: Math.min(startY, y) * pageInfo.pt_h,
@@ -404,7 +404,7 @@ function finishRect(pageElement, box: HTMLElement, startX, startY, x, y) {
     doc: DOC || undefined,
   });
   // A mouse drag's note popover (composer/view-selection-popover.ts); pick() has opened the composer.
-  if (!repick) openSelectionPopover(box);
+  if (!repick) pageSelection().openPopover(box);
   return true;
 }
 // If the sheet or panel covers the selection box, the body scrolls up until the box is visible (compact only; with

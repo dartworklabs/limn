@@ -38,7 +38,6 @@ import {
   stickSoon,
   isTabStop,
   fitWrappedWords,
-  pageVerdictsOn,
 } from './flow-line.ts';
 import {
   REASON_SESSION,
@@ -53,7 +52,7 @@ import {
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
-import { verdictLabel } from '../documents/state.ts';
+import { verdictLabel, pageVerdictsOn } from '../documents/state.ts';
 import {
   arrivalWatch,
   LAST_SCROLL_AT,
