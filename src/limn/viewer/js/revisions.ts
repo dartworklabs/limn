@@ -1,12 +1,14 @@
-// One changes-view visit owns the selected commit, source text and request sequence. overlay is a figure document's two
-// builds from /api/revisions (null for any other document), side the one its overlay shows, history whether it has commits.
-// Issue #188: base is a range's old side ('' for one commit against its first parent); rows the loaded commits (newest
-// first, REVISION_PAGE a page) of rowsDoc, more whether older ones remain; range the quick range and its ends (RevRange);
-// seen this browser's last-seen commit of the document, seenState what the server said of it (SEEN_STATE), seenN how many
-// commits it compares with the newest and seenIds which (the server's count, never the list's positions); rangeIds the
-// commits the shown range compares (the server's commit_ids; null until it answers), rangeBase its old side; listOpen
-// whether the phone shows every loaded row; rangeLine the range's summary for the status line, and rangeN its commit and file
-// counts (the rendered compare's status line takes them, md-compare.js sayCompareStatus).
+// ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
+// REV: one changes-view visit owns the selected commit, source text and request sequence (seq). overlay is a figure
+// document's two builds from /api/revisions (null for any other document), side the one its overlay shows, history
+// whether it has commits. base is a range's old side ('' for one commit against its first parent); rows the loaded
+// commits (newest first, REVISION_PAGE a page) of rowsDoc, more whether older ones remain; range the quick range and
+// its ends (RevRange); seen this browser's last-seen commit of the document, seenState what the server said of it
+// (SEEN_STATE), seenN how many commits it compares with the newest and seenIds which (the server's count, never the
+// list's positions); rangeIds the commits the shown range compares (the server's commit_ids; null until it answers),
+// rangeBase its old side; listOpen whether the phone shows every loaded row; rangeLine the range's summary for the
+// status line, and rangeN its commit and file counts (the rendered compare's status line takes them, md-compare.ts
+// sayCompareStatus).
 import {
   $,
   $$,
@@ -89,10 +91,14 @@ const REV = {
   want: null as { base: string; top: string } | null,
 };
 const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
-const REVISION_RECENT = 12; // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
+// the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
+const REVISION_RECENT = 12;
 const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
-// v0.3 (docs/handbook/viewer.md §변경 보기): a pin's view of a commit. REV.scope is the source diff's scope object
-// ({mode:'pin'|'commit', source, hunks, other, ...}); REV_PDF holds the comparison PDF's toggle - whole commit or only this pin.
+// A pin's view of a commit (docs/handbook/viewer.md §변경 보기). REV.scope is the source diff's scope object
+// ({mode:'pin'|'commit', source, hunks, other, ...}). REV_SCOPE is the comparison PDF's toggle - the whole commit or
+// only this pin's hunks (whole), whether the pin owns only part of the commit (partial), whether the pin-only build
+// failed and the whole commit is shown instead (fallback). REV_PDF holds the loaded comparison PDF, its loading task,
+// its observer and its render tasks.
 const REV_SCOPE = { whole: false, partial: false, fallback: false };
 const REV_PDF = {
   doc: null as any,
@@ -115,7 +121,8 @@ function revisionFiles(patch) {
 }
 // A patch as Html of numbered lines (file, hunk, add, del, context, meta). The code itself is the manuscript's text, so
 // it is translate="no"; the lines are text, each character that would hide or reorder a line in its box (ccHtml) - a
-// change a person reviews never reads as another text. The CR a CRLF file's line ends in is that line end, not text: left out.
+// change a person reviews never reads as another text. The CR a CRLF file's line ends in is that line end, not text: it
+// is left out.
 function renderRevisionDiff(patch) {
   const lines = String(patch || '').split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
@@ -161,7 +168,8 @@ function renderRevisionFile() {
     renderRevisionDiff(choice === 'all' ? REV.whole : (REV.files[index] && REV.files[index].text) || REV.whole),
   );
 }
-// The rest of the commit, folded under one control (v0.3). Hidden when the pin owns the whole commit or the view is not a pin's.
+// The rest of the commit, folded under one control. Hidden when the pin owns the whole commit or the view is not a
+// pin's.
 function drawRevisionOther(scope) {
   const toggle = $('#revision-other-toggle'),
     rest = $('#revision-other');
@@ -186,7 +194,8 @@ function toggleRevisionOther() {
   rest.hidden = !open;
   if (open && !rest.firstChild) setHtml(rest, renderRevisionDiff(REV.other));
 }
-// [커밋 전체 비교]: shown only for the PDF of a pin that owns part of the commit, and not after a fallback (there is nothing to switch to).
+// [커밋 전체 비교]: shown only for the PDF of a pin that owns part of the commit, and not after a fallback (there is
+// nothing to switch to).
 function syncRevisionWhole() {
   const button = $('#revision-whole');
   button.hidden = !(
@@ -198,8 +207,8 @@ function syncRevisionWhole() {
   button.setAttribute('aria-pressed', String(REV_SCOPE.whole));
 }
 // The pin whose hunks a commit's view is scoped to: only the commit picked for the pin ([변경 보기]); any other commit
-// chosen in the list is shown whole (review M1 - another commit's lines are not this pin's), and so is a range (#188:
-// pin scoping and ranges do not combine yet; the server refuses pin with base).
+// chosen in the list is shown whole (another commit's lines are not this pin's), and so is a range (pin scoping and
+// ranges do not combine; the server refuses pin with base).
 function revisionPinFor(id) {
   const target = REV.target;
   return target && !target.region && target.commit && id === target.commit && !REV.base ? target : null;
@@ -215,7 +224,7 @@ function setRevisionWhole(on) {
 function revisionCurrent(seq, docKey, id) {
   return seq === REV.seq && docKey === DOC && id === REV.commit && document.body.classList.contains('revision-open');
 }
-/** Release comparison rendering and PDF.js resources on visit or scope change. */
+// Releases the comparison's rendering and PDF.js resources on a new visit or a change of scope.
 function clearRevisionPdf() {
   disposeRevisionZoom();
   if (REV_PDF.observer) {
@@ -237,17 +246,17 @@ function clearRevisionPdf() {
   REV_PDF.doc = null;
   $('#revision-pdf').replaceChildren();
 }
-// The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when asked; a
-// document drawn from Markdown (drawn) its rendered compare otherwise; the source diff always for another document with no
-// comparison PDF (source: one the browser draws, a text document); otherwise a figure document's overlay of two builds, and a
-// LaTeX document's comparison PDF - never the overlay. Pure.
+// The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when
+// asked; a document drawn from Markdown (drawn) its rendered compare otherwise; the source diff always for another
+// document with no comparison PDF (source: one the browser draws, a text document); otherwise a figure document's
+// overlay of two builds, and a LaTeX document's comparison PDF - never the overlay. Pure.
 function revisionFormatFor(asked, figure, source, drawn) {
   if (asked === DIFF_FORMAT.SOURCE) return DIFF_FORMAT.SOURCE;
   if (drawn && !figure) return DIFF_FORMAT.RENDERED;
   return source && !figure ? DIFF_FORMAT.SOURCE : figure ? DIFF_FORMAT.OVERLAY : DIFF_FORMAT.PDF;
 }
-// Shows REV.format: the pressed tab, the pane, [이전 | 지금] with the overlay, and the overlay's status line on a figure
-// document (its source diff has none). Loads nothing.
+// Shows REV.format: the pressed tab, the pane, [이전 | 지금] with the overlay, and the overlay's status line on a
+// figure document (its source diff has none). Loads nothing.
 function drawRevisionFormat() {
   $('#revision-pdf-tab').setAttribute('aria-pressed', String(REV.format === DIFF_FORMAT.PDF));
   $('#revision-overlay-tab').setAttribute('aria-pressed', String(REV.format === DIFF_FORMAT.OVERLAY));
@@ -262,7 +271,7 @@ function drawRevisionFormat() {
   if (REV.overlay)
     $('#revision-status').textContent = REV.format === DIFF_FORMAT.OVERLAY ? overlayStatus(REV.overlay) : '';
 }
-/** Switch formats while retaining comparison scale for the selected commit. */
+// Switches the format shown, keeping the comparison's scale for the selected commit.
 function setRevisionFormat(format) {
   REV.format = revisionFormatFor(format, !!REV.overlay, isMdDoc(), mdcDrawn());
   drawRevisionFormat();
@@ -277,7 +286,8 @@ function setRevisionFormat(format) {
     loadRevisionSource(REV.commit, REV.seq, DOC);
   if (REV.format === DIFF_FORMAT.SOURCE && REV.base && REV.sourceCommit === revKey())
     $('#revision-status').textContent = REV.rangeLine;
-  // The comparison PDF is only built when that format is actually viewed - [변경 보기] and a range go straight to the source diff, so neither wastes a latexdiff build.
+  // The comparison PDF is built only when that format is viewed - [변경 보기] and a range go straight to the source
+  // diff, so neither spends a latexdiff build.
   if (REV.format === DIFF_FORMAT.PDF && REV.commit && REV.pdfCommit !== revKey()) {
     REV.pdfCommit = revKey();
     $('#revision-status').textContent = '비교 PDF 상태를 확인하는 중입니다.';
@@ -289,13 +299,15 @@ function setRevisionFormat(format) {
   if (REV.format === DIFF_FORMAT.OVERLAY && REV.target) scrollOverlayTo(REV.target.page);
   if (REV.target) revTargetNote();
 }
-// Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position button
-// ([변경사항 ▾] in the changes view) follow; leaving the changes view forgets the pin it was opened for and redraws the pages.
-// The mark badges' press areas are measured again as the pages show (markHitSides: marks drawn meanwhile had no boxes).
+// Shows the manuscript or the changes view: the nav bar's tabs, the navigation sheet's switch and the phone's position
+// button ([변경사항 ▾] in the changes view) follow; leaving the changes view forgets the pin it was opened for and
+// redraws the pages. The mark badges' press areas are measured again as the pages show (markHitSides: marks drawn
+// meanwhile had no boxes).
 function setViewMode(mode) {
   const revisions = mode === VIEW_MODE.REVISIONS;
   if (!revisions && document.body.classList.contains('revision-open')) leaveRevisions();
-  if (revisions && !document.body.classList.contains('revision-open')) keepSpot(); // the pages are still drawn: the spot the way back returns to
+  // the pages are still drawn: keep the spot the way back returns to
+  if (revisions && !document.body.classList.contains('revision-open')) keepSpot();
   document.body.classList.toggle('revision-open', revisions);
   $('#view-manuscript').setAttribute('aria-pressed', String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed', String(revisions));
@@ -320,11 +332,11 @@ function setViewMode(mode) {
   drawPos();
   searchOffer(); // the changes view has no search
 }
-// Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, no recent commit, or
-// more history files than the server names one by one: reason too_many_files) the one reason line stays and the unusable
-// [변경 PDF] [소스 diff] and the comparison note are hidden; a pin's guide line stays.
-// A figure document's answer carries its two builds (overlay): its [겹쳐 보기] takes the place of [변경 PDF] and opens first,
-// with or without history; its [소스 diff] shows only with history.
+// Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, no recent
+// commit, or more history files than the server names one by one: reason too_many_files) the one reason line stays and
+// the unusable [변경 PDF] [소스 diff] and the comparison note are hidden; a pin's guide line stays. A figure document's
+// answer carries its two builds (overlay): its [겹쳐 보기] takes the place of [변경 PDF] and opens first, with or
+// without history; its [소스 diff] shows only with history.
 async function loadRevisions() {
   const seq = ++REV.seq,
     docKey = DOC,
@@ -359,7 +371,9 @@ async function loadRevisions() {
   setRevisionOverlay(data.overlay || null);
   const isFigure = !!REV.overlay;
   REV.format = revisionFormatFor(REV.format, isFigure, isMdDoc(), mdcDrawn());
-  drawRevisionFormat(); // a LaTeX document after a figure leaves the overlay; a Markdown one opens its rendered compare, a text one its source diff
+  // a LaTeX document after a figure leaves the overlay; a Markdown one opens its rendered compare, a text one its
+  // source diff
+  drawRevisionFormat();
   $('#revision-controls').hidden = !REV.history && !isFigure;
   $('#revision-note').hidden = !REV.history;
   $('#revision-pdf-tab').hidden = isFigure || isMdDoc();
@@ -393,8 +407,8 @@ async function loadRevisions() {
   }
   list.hidden = true;
   list.textContent = '';
-  // A pin's commit is picked by the server's rule over the same window (api.md §두 커밋 사이): a hash anywhere in it, a PR
-  // number or the lines in its first rows.
+  // A pin's commit is picked by the server's rule over the same window (api.md §두 커밋 사이): a hash anywhere in it, a
+  // PR number or the lines in its first rows.
   if (target) {
     if (REV.seenState === SEEN_STATE.PENDING) resolveSeen(docKey || '', rows[0].id);
     const pick = await pickRevisionFor(target, seq, docKey);
@@ -403,17 +417,19 @@ async function loadRevisions() {
     target.via = pick.via;
     target.hit = pick.hit;
     REV.range = { mode: RANGE_MODE.ONE, start: pick.id, end: pick.id, endSet: false };
-    // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the source
-    // diff, and a Markdown pin's own hunks too - its [그린 비교] beside it compares the whole commit (ADR-0031 D6)
+    // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the
+    // source diff, and a Markdown pin's own hunks too - its [그린 비교] beside it compares the whole commit (ADR-0031
+    // D6)
     if (isFigure) showRevision(pick.id, DIFF_FORMAT.OVERLAY);
     else showRevision(pick.id, DIFF_FORMAT.SOURCE);
     drawRange();
     return;
   }
-  // Opened by a document's update message (updates.js openUpdateRange): the commits it named - after the last seen one (base)
-  // up to the newest it named (top; the newest row without one) - as a range in the source diff, the list painting what the
-  // server says the range holds. Commits above top (the checkout ahead of the shown build, one come since) stay out, also
-  // when the list is read again for a new build: the range keeps the message's base and its end (endSet).
+  // Opened by a document's update message (updates.ts openUpdateRange): the commits it named - after the last seen one
+  // (base) up to the newest it named (top; the newest row without one) - as a range in the source diff, the list
+  // painting what the server says the range holds. Commits above top (the checkout ahead of the shown build, one come
+  // since) stay out, also when the list is read again for a new build: the range keeps the message's base and its end
+  // (endSet).
   const want = REV.want;
   REV.want = null;
   if (want && want.base && !isFigure) {
@@ -435,10 +451,10 @@ async function loadRevisions() {
     }
   }
   // The same document read again while the view is open (a new build) keeps the range shown, moved to the newest commit
-  // unless its end was chosen (endSet: pressed, or named by an update message); a range comes back in its source diff, so a
-  // new build never starts its comparison PDF (only [변경 PDF] does).
-  // A message's range is its base and end, whatever page of rows is read: thirty newer commits push its start off the
-  // first page, and the server still compares them while they are in its history window (else its refusal shows).
+  // unless its end was chosen (endSet: pressed, or named by an update message); a range comes back in its source diff,
+  // so a new build never starts its comparison PDF (only [변경 PDF] does). A message's range is its base and end,
+  // whatever page of rows is read: thirty newer commits push its start off the first page, and the server still
+  // compares them while they are in its history window (else its refusal shows).
   const held = !!kept && kept.mode === RANGE_MODE.FROM && !!kept.base && kept.endSet;
   if (again && (held || rows.some((row) => row.id === kept.start))) {
     if (REV.seenState === SEEN_STATE.OK && kept.mode !== RANGE_MODE.LAST) resolveSeen(docKey || '', rows[0].id);
@@ -455,14 +471,16 @@ async function loadRevisions() {
   showRevision(id, isFigure ? DIFF_FORMAT.OVERLAY : undefined);
   drawRange();
 }
-// ------------------------------------------------ Comparing two commits (issue #188, docs/handbook/viewer.md §변경 보기)
-// The quick range [마지막으로 본 뒤 N | 이 커밋부터 | 이 커밋만] (#revision-range) and the commit list that stays on screen
-// (#revision-commits). The rules below are pure functions of the loaded rows (newest first); showRange() shows their request.
-// What is painted and counted comes from the server's range answer (commit_ids, commits): a range follows ancestry, which the
-// list's positions do not show (a merged line, a base on another line, a pull that merged older commits).
+// ------------------------------------------------ Comparing two commits (docs/handbook/viewer.md §변경 보기)
+// The quick range [마지막으로 본 뒤 N | 이 커밋부터 | 이 커밋만] (#revision-range) and the commit list that stays on
+// screen (#revision-commits). The rules below are pure functions of the loaded rows (newest first); showRange() shows
+// their request. What is painted and counted comes from the server's range answer (commit_ids, commits): a range
+// follows ancestry, which the list's positions do not show (a merged line, a base on another line, a pull that merged
+// older commits).
 
-/** The range after a row press (id): in [이 커밋만] that commit alone; otherwise that commit to the newest - except that, right
- * after such a press, a newer row ends the range there, and the start pressed again is that commit alone. Pure. */
+// The range after a row press (id): in [이 커밋만] that commit alone; otherwise that commit to the newest - except
+// that, right after such a press, a newer row ends the range there, and the start pressed again is that commit alone.
+// Pure.
 function rangePress(rows: { id: string }[], range: RevRange, id: string): RevRange {
   const at = (commit) => rows.findIndex((row) => row.id === commit),
     newest = rows.length ? rows[0].id : id;
@@ -473,18 +491,18 @@ function rangePress(rows: { id: string }[], range: RevRange, id: string): RevRan
     return { mode: RANGE_MODE.FROM, start: range.start, end: id, endSet: true };
   return { mode: RANGE_MODE.FROM, start: id, end: newest, endSet: false };
 }
-/** The range after a segment press: [마지막으로 본 뒤] the last-seen commit to the newest; [이 커밋부터] the commit in focus to
- * the newest; [이 커밋만] the commit in focus alone (the newest after [마지막으로 본 뒤]). Pure. */
+// The range after a segment press: [마지막으로 본 뒤] the last-seen commit to the newest; [이 커밋부터] the commit in
+// focus to the newest; [이 커밋만] the commit in focus alone (the newest after [마지막으로 본 뒤]). Pure.
 function rangeMode(rows: { id: string }[], range: RevRange, mode: string, seen: RevSeen | null): RevRange {
   const newest = rows.length ? rows[0].id : range.end;
   if (mode === RANGE_MODE.LAST) return { mode, start: newest, end: newest, endSet: false };
   const focus = range.mode === RANGE_MODE.LAST && mode === RANGE_MODE.ONE ? range.end : range.start;
   return { mode, start: focus, end: mode === RANGE_MODE.FROM ? newest : focus, endSet: false };
 }
-/** What a range asks the server: {commit, base}, base '' for one commit against its first parent. [마지막으로 본 뒤] compares
- * the last-seen commit with the newest; [이 커밋부터] the start's first parent with the end - a start that is the end, or a
- * root commit (no parent), is that commit alone - or, for the range an update message opened, its base (the last seen
- * commit, rg.base) with the end. Pure. */
+// What a range asks the server: {commit, base}, base '' for one commit against its first parent. [마지막으로 본 뒤]
+// compares the last-seen commit with the newest; [이 커밋부터] the start's first parent with the end - a start that is
+// the end, or a root commit (no parent), is that commit alone - or, for the range an update message opened, its base
+// (the last seen commit, range.base) with the end. Pure.
 function rangeRequest(
   rows: { id: string; parents: string[] }[],
   range: RevRange,
@@ -498,14 +516,14 @@ function rangeRequest(
     ? { commit: range.end, base: start.parents[0] }
     : { commit: range.start, base: '' };
 }
-/** The commits the list paints for request req: one commit itself; a range the commits the server's answer names (ids,
- * its commit_ids), none while that answer is unknown. Pure. */
+// The commits the list paints for a request: one commit itself; a range the commits the server's answer names (ids, its
+// commit_ids), none while that answer is unknown. Pure.
 function paintedIds(request: { commit: string; base: string }, ids: string[] | null): string[] {
   return request.base ? (ids || []).slice() : [request.commit];
 }
-/** The rows of merged lines: those between a merge and its first parent, when that parent is loaded. Pages come in ancestry
- * order (the server's --topo-order), so a merged line's commits sit right below their merge; a merge whose first parent is
- * not loaded marks nothing. Pure. */
+// The rows of merged lines: those between a merge and its first parent, when that parent is loaded. Pages come in
+// ancestry order (the server's --topo-order), so a merged line's commits sit right below their merge; a merge whose
+// first parent is not loaded marks nothing. Pure.
 function sideRows(rows: { id: string; parents: string[] }[]): Set<string> {
   const out = new Set<string>();
   rows.forEach((row, index) => {
@@ -519,10 +537,10 @@ function sideRows(rows: { id: string; parents: string[] }[]): Set<string> {
 function revKey() {
   return REV.base ? REV.base + '..' + REV.commit : REV.commit;
 }
-// Shows range rg: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is built
-// only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format undefined:
-// the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps the tab shown,
-// for a range too: its rendered compare builds nothing (md-compare.js).
+// Shows a range: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is
+// built only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format
+// undefined: the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps
+// the tab shown, for a range too: its rendered compare builds nothing (md-compare.ts).
 function showRange(range: RevRange, format?: string) {
   REV.range = range;
   const request = rangeRequest(REV.rows, range, REV.seen);
@@ -542,9 +560,9 @@ function setRevisionRange(mode) {
   if (!REV.rows.length || mode === REV.range.mode) return;
   showRange(rangeMode(REV.rows, REV.range, mode, REV.seen));
 }
-// Draws the quick range: the pressed segment, and [마지막으로 본 뒤 N] - hidden without a record of this document in this
-// browser; N is the server's count ('…' while it is asked); not pressable when nothing is new (N = 0) or the record could not
-// be read; a record the history no longer has says so (SEEN_STATE.GONE). Then the list.
+// Draws the quick range: the pressed segment, and [마지막으로 본 뒤 N] - hidden without a record of this document in
+// this browser; N is the server's count ('…' while it is asked); not pressable when nothing is new (N = 0) or the
+// record could not be read; a record the history no longer has says so (SEEN_STATE.GONE). Then the list.
 function drawRange() {
   const rows = REV.rows,
     range = REV.range,
@@ -572,7 +590,7 @@ function drawRange() {
     if (count)
       count.textContent = seenState === SEEN_STATE.OK ? String(REV.seenN) : seenState === SEEN_STATE.PENDING ? '…' : '';
   }
-  segRove($('#revision-range')); // the group's one Tab stop is the range now chosen (events.js)
+  segRove($('#revision-range')); // the group's one Tab stop is the range now chosen (events.ts)
   renderCommitList();
 }
 // A commit's time as the list shows it: MM-DD HH:MM of its ISO commit time (the committer's own clock), else its date.
@@ -582,11 +600,12 @@ function rowWhen(row: RevisionRow) {
     ? time.slice(5, 10) + ' ' + time.slice(11, 16)
     : String(row.date || '');
 }
-// The commit list (#revision-commits): a row per loaded commit with its subject, author, time and short hash; a merged line's
-// rows indented under their merge (sideRows). The commits the shown comparison covers (paintedIds - the server's, never the
-// rows' positions) ride the rail, the first and last of them bold, its old side (left out) a hollow dot; the commits the
-// server counts since the last-seen one are marked new, with a line above the last-seen row saying where reading stopped.
-// The phone shows REVISION_PHONE_ROWS rows until [더 보기]; [더 보기] then reads the next page while the server has more.
+// The commit list (#revision-commits): a row per loaded commit with its subject, author, time and short hash; a merged
+// line's rows indented under their merge (sideRows). The commits the shown comparison covers (paintedIds - the
+// server's, never the rows' positions) ride the rail, the first and last of them bold, its old side (left out) a hollow
+// dot; the commits the server counts since the last-seen one are marked new, with a line above the last-seen row saying
+// where reading stopped. The phone shows REVISION_PHONE_ROWS rows until [더 보기]; [더 보기] then reads the next page
+// while the server has more.
 function renderCommitList() {
   const box = $('#revision-commits'),
     rows = REV.rows,
@@ -645,7 +664,8 @@ ${more ? html`<button id="revision-more" class="btn-ghost" data-act="revision-mo
     if (again) again.focus();
   }
 }
-// [더 보기]: the phone's first press shows every loaded row; after that (and on a wide screen) the next page of the history.
+// [더 보기]: the phone's first press shows every loaded row; after that (and on a wide screen) the next page of the
+// history.
 async function moreRevisions() {
   if (LAYOUT === LAYOUT_MODE.NARROW && !REV.listOpen && REV.rows.length > REVISION_PHONE_ROWS) {
     REV.listOpen = true;
@@ -656,8 +676,8 @@ async function moreRevisions() {
   REV.listOpen = true;
   if (await moreRows(DOC || '', REVISION_PAGE)) renderCommitList();
 }
-// Reads the next page (up to limit rows) of document k's window onto REV.rows; whether it did. Nothing when the list is
-// another document's or was replaced meanwhile.
+// Reads the next page (up to limit rows) of document docKey's window onto REV.rows; whether it did. Nothing when the
+// list is another document's or was replaced meanwhile.
 async function moreRows(docKey: string, limit: number) {
   if (!REV.more || !REV.rows.length) return false;
   const last = REV.rows[REV.rows.length - 1].id;
@@ -680,8 +700,8 @@ async function moreRows(docKey: string, limit: number) {
 }
 // ------------------------------------------------ The last-seen commit (docs/handbook/viewer.md §변경 보기)
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
-// browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the newest,
-// or that it is no longer in the history. A record is never overwritten until the server has answered for it.
+// browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the
+// newest, or that it is no longer in the history. A record is never overwritten until the server has answered for it.
 function readSeenRecords(): Record<string, RevSeen> {
   try {
     const stored = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
@@ -694,17 +714,18 @@ function seenRecordOf(docKey: string): RevSeen | null {
   const record = readSeenRecords()[docKey];
   return record && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
 }
-// Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask about.
+// Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask
+// about.
 function openSeen(seen: RevSeen | null, rows: RevisionRow[]) {
   REV.seen = seen;
   REV.seenIds = new Set();
   REV.seenN = 0;
   REV.seenState = !seen ? SEEN_STATE.NONE : rows.length && rows[0].id === seen.id ? SEEN_STATE.OK : SEEN_STATE.PENDING;
 }
-// The server's answer for the last-seen range (seen..newest): its count and commits, or why it has none. A refusal that says
-// the commit is not in this document's history (or shares none with it) is a record the history no longer has; base_too_old
-// is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure leaves the record
-// unread, and so kept.
+// The server's answer for the last-seen range (seen..newest): its count and commits, or why it has none. A refusal that
+// says the commit is not in this document's history (or shares none with it) is a record the history no longer has;
+// base_too_old is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure
+// leaves the record unread, and so kept.
 /** @param answer the /api/revision-diff answer with base */
 function seenAnswered(answer: any) {
   REV.seenState = SEEN_STATE.OK;
@@ -721,7 +742,8 @@ function seenFailed(error: unknown) {
         ? SEEN_STATE.GONE
         : SEEN_STATE.ERROR;
 }
-// Asks the server about the last-seen commit when the view does not open on its range (a pin's [변경 보기], a figure's overlay).
+// Asks the server about the last-seen commit when the view does not open on its range (a pin's [변경 보기], a figure's
+// overlay).
 async function resolveSeen(docKey: string, newest: string) {
   const seen = REV.seen;
   if (!seen) return;
@@ -738,11 +760,10 @@ async function resolveSeen(docKey: string, newest: string) {
   }
   if (docKey === DOC && REV.seen === seen) drawRange();
 }
-// Leaving the changes view (to the manuscript, another document, or closing the page): once the server has answered for the
-// record (or there was none), the document's newest loaded commit becomes its last-seen one, with this moment as MM-DD HH:MM.
-// A record still being asked about, one the server could not answer for, or one older than the window (still in the
-// history, so not to be lost) is kept. The list is forgotten, so coming back
-// starts afresh.
+// Leaving the changes view (to the manuscript, another document, or closing the page): once the server has answered for
+// the record (or there was none), the document's newest loaded commit becomes its last-seen one, with this moment as
+// MM-DD HH:MM. A record still being asked about, one the server could not answer for, or one older than the window
+// (still in the history, so not to be lost) is kept. The list is forgotten, so coming back starts afresh.
 function leaveRevisions() {
   const docKey = REV.rowsDoc,
     top = REV.rows[0];
@@ -764,9 +785,9 @@ function leaveRevisions() {
 addEventListener('pagehide', () => {
   if (document.body.classList.contains('revision-open')) leaveRevisions();
 });
-/** A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its
- * comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the source
- * diff). */
+// A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its
+// comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the
+// source diff).
 async function showRevision(id: string, format?: string, base?: string) {
   RZ.ratio = 1;
   ++REV.seq;
@@ -793,14 +814,15 @@ async function showRevision(id: string, format?: string, base?: string) {
   setRevisionFormat(format || (REV.overlay ? REV.format : DIFF_FORMAT.PDF));
 }
 // ------------------------------------------------ A figure document's overlay (docs/handbook/viewer.md §변경 보기)
-// A figure has no comparison PDF: its changes view lays the previous build's page images over the current ones, page by page in
-// one box, and [이전 | 지금] (#revision-side) shows one of the two at a time. The images are the page routes' own
-// (/pages/<build>/<file>); the two builds come with /api/revisions.
+// A figure has no comparison PDF: its changes view lays the previous build's page images over the current ones, page by
+// page in one box, and [이전 | 지금] (#revision-side) shows one of the two at a time. The images are the page routes'
+// own (/pages/<build>/<file>); the two builds come with /api/revisions.
 
-/** The overlay's pages: each page of the build on screen paired with the same page of the previous build, as the box that
- * holds both ({page, ratio, pt} - pt its width in points) and each image's name and share of that box in percent ({name, w,
- * h}; null when that build has no such page). The box is as wide and as tall as the larger of the two, and each image keeps
- * its own size from the top left, so a figure that grew or shrank is never stretched to the other. Pure. */
+// The overlay's pages: each page of the build on screen paired with the same page of the previous build, as the box
+// that holds both ({page, ratio, pt} - pt its width in points) and each image's name and share of that box in percent
+// ({name, w, h}; null when that build has no such page). The box is as wide and as tall as the larger of the two, and
+// each image keeps its own size from the top left, so a figure that grew or shrank is never stretched to the other.
+// Pure.
 function overlayPages(overlay: RevisionOverlay) {
   const current = overlay.pages || [],
     previous = overlay.prev_pages || [],
@@ -834,8 +856,8 @@ function overlayPages(overlay: RevisionOverlay) {
   }
   return out;
 }
-// A build as a person reads it: a page folder name pages-<YYYYmmddHHMMSS>[-<n>] as 'MM-DD HH:MM:SS', with ' (n)' for a second
-// build in the same second; any other name as it is. Pure.
+// A build as a person reads it: a page folder name pages-<YYYYmmddHHMMSS>[-<n>] as 'MM-DD HH:MM:SS', with ' (n)' for a
+// second build in the same second; any other name as it is. Pure.
 function buildStamp(name) {
   const text = String(name || ''),
     match = /^pages-\d{4}(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:-(\d+))?$/.exec(text);
@@ -861,16 +883,18 @@ function overlayStatus(overlay: RevisionOverlay) {
     n: Math.max(overlay.pages.length, overlay.prev_pages.length),
   });
 }
-// Takes a document's two builds from /api/revisions (null: not a figure document) and draws them anew, the current one shown.
+// Takes a document's two builds from /api/revisions (null: not a figure document) and draws them anew, the current one
+// shown.
 function setRevisionOverlay(overlay: RevisionOverlay | null) {
   REV.overlay = overlay;
   REV.side = OVERLAY_SIDE.CUR;
   renderRevisionOverlay();
   drawRevisionSide();
 }
-// Draws the overlay's pages (overlayPages) into #revision-overlay: per page a box holding the current build's image and the
-// previous build's, each at its share of the box; a build without that page has a line saying so in its place. The boxes
-// keep their sizes on paper relative to each other (--ov-share) and the widest is at most its print size (--ov-cap).
+// Draws the overlay's pages (overlayPages) into #revision-overlay: per page a box holding the current build's image and
+// the previous build's, each at its share of the box; a build without that page has a line saying so in its place. The
+// boxes keep their sizes on paper relative to each other (--ov-share) and the widest is at most its print size
+// (--ov-cap).
 function renderRevisionOverlay() {
   const overlay = REV.overlay,
     box = $('#revision-overlay');
@@ -917,7 +941,7 @@ function drawRevisionSide() {
     button.classList.toggle('on', on);
     button.disabled = none && button.dataset.side === OVERLAY_SIDE.PREV;
   }
-  segRove($('#revision-side')); // the group's one Tab stop is the side now chosen (events.js)
+  segRove($('#revision-side')); // the group's one Tab stop is the side now chosen (events.ts)
   $('#revision-overlay').dataset.side = REV.side;
 }
 // Shows the previous build's pages (side PREV, when there is one) or the current build's.
@@ -925,7 +949,7 @@ function setRevisionSide(side) {
   REV.side = side === OVERLAY_SIDE.PREV && REV.overlay && REV.overlay.prev_build ? OVERLAY_SIDE.PREV : OVERLAY_SIDE.CUR;
   drawRevisionSide();
 }
-// Brings page n of the overlay to the top of its view, once it is laid out ([변경 보기] of a pin on that page).
+// Brings that page of the overlay to the top of its view, once it is laid out ([변경 보기] of a pin on that page).
 function scrollOverlayTo(page) {
   requestAnimationFrame(() => {
     const box = $('#revision-overlay'),
@@ -961,7 +985,7 @@ async function loadRevisionSource(id, seq, docKey) {
       if (REV.range.mode === RANGE_MODE.LAST && REV.seen && base === REV.seen.id) seenAnswered(answer);
       drawRange();
     }
-    // v0.3: a pin's own hunks when it owns part of the commit; otherwise the whole commit exactly as before
+    // a pin's own hunks when it owns part of the commit; otherwise the whole commit
     const pinScope = answer.scope && answer.scope.mode === SCOPE_MODE.PIN ? answer.scope : null;
     REV.scope = answer.scope || null;
     if (pinScope) {
@@ -1009,9 +1033,9 @@ async function loadRevisionSource(id, seq, docKey) {
     }
   }
 }
-// A range's summary on the status line (its source diff): the two ends, the commits and files in it, the merge base when the
-// base was on another line, and a warning when the range is wide enough for its comparison PDF to fail (more than 60
-// manuscript files, or a diff cut at the server's limit). @param r the /api/revision-diff answer with base
+// A range's summary on the status line (its source diff): the two ends, the commits and files in it, the merge base
+// when the base was on another line, and a warning when the range is wide enough for its comparison PDF to fail (more
+// than 60 manuscript files, or a diff cut at the server's limit). answer: the /api/revision-diff answer with base.
 function rangeSummary(answer) {
   const files = Array.isArray(answer.files) ? answer.files : [];
   let summary = tl('{base} → {head} · 커밋 {commits}개 · 파일 {files}개', {
@@ -1025,13 +1049,15 @@ function rangeSummary(answer) {
   if (files.length > 60 || answer.truncated) summary += ' · ' + tr('범위가 넓어 비교 PDF가 실패할 수 있습니다');
   return summary;
 }
-// ------------------------------------------------ [변경 보기] (docs/handbook/viewer.md §변경 보기): opens the changes tab from an awaiting-review/done pin.
-// Commit selection: the commit hash (7+ characters) in the close-time reference (ref) > a commit whose subject contains the reference's PR number
-// ('(#236)'/'pull request #236') > among the last 12 commits, the most recent one that touched the pin's file/lines (+-5 lines) > the most recent commit.
-// Line matching exists only for the source diff - a line whose new-side line number falls within the pin's range is highlighted and scrolled to.
-// The comparison PDF (latexdiff) has no SyncTeX mapping, so it only moves to roughly the pin's page.
-// The commit a close reference names among revs (the window's rows, in order) - the server's _ref_commit rule: a 7-40 digit
-// hash in every row, a PR number only in the first `recent` rows (REVISION_RECENT; a #N deeper is another PR's). Pure.
+// ------------------------------------------------ [변경 보기] (docs/handbook/viewer.md §변경 보기)
+// Opens the changes tab from a pin awaiting review or done. The commit chosen: the commit hash (7+ characters) in the
+// close-time reference (ref) > a commit whose subject holds the reference's PR number ('(#236)'/'pull request #236') >
+// among the last REVISION_RECENT commits, the most recent one that touched the pin's file and lines (+-5 lines) > the
+// most recent commit. Line matching exists only for the source diff - a line whose new-side line number falls within
+// the pin's range is highlighted and scrolled to. The comparison PDF (latexdiff) has no SyncTeX mapping, so it only
+// moves to near the pin's page. The commit a close reference names among rows (the window's rows, in order) - the
+// server's _ref_commit rule: a 7-40 digit hash in every row, a PR number only in the first `recent` rows
+// (REVISION_RECENT; a '#N' deeper is another PR's). Pure.
 function matchRevision(ref: unknown, rows: { id: string; subject?: string }[], recent?: number) {
   const text = String(ref || '');
   for (const match of text.matchAll(/\b[0-9a-f]{7,40}\b/g)) {
@@ -1074,9 +1100,9 @@ function touchesPin(files, target, slack?) {
   slack = slack == null ? 5 : slack;
   return hunkRanges(files[index].text).some(([start, end]) => end >= target.lo - slack && start <= target.hi + slack);
 }
-// A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows reads
-// further pages until found or the window ends, as the server resolves it), else the most recent of the first REVISION_RECENT
-// rows that touched the pin's lines, else the newest.
+// A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows
+// reads further pages until found or the window ends, as the server resolves it), else the most recent of the first
+// REVISION_RECENT rows that touched the pin's lines, else the newest.
 async function pickRevisionFor(target, seq, docKey): Promise<{ id: string; via: string; tok?: string; hit?: boolean }> {
   let match = matchRevision(target.ref, REV.rows, REVISION_RECENT);
   while (
@@ -1107,7 +1133,8 @@ async function pickRevisionFor(target, seq, docKey): Promise<{ id: string; via: 
   }
   return { id: recent[0].id, via: 'latest' };
 }
-/** Explain the shown change and review access for the current pin, retaining the existing source/PDF scope guidance. */
+// The guide line (#revision-pin) for the pin the view was opened for: which commit it shows and why, what the format
+// shown can say of the pin's lines (message, when given, in their place), and the review access this person lacks.
 function revTargetNote(message?) {
   const target = REV.target,
     box = $('#revision-pin');
@@ -1164,11 +1191,11 @@ function revTargetNote(message?) {
   box.hidden = false;
   revTargetActs();
 }
-// The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this person may confirm
-// (a person with write access, not a view-only region pin), the card's [확인] - the same data-act="confirm" and confirmPin(), soft for the
-// author as on the card. On the phone and tablet sheet they sit in the thumb row (#revision-acts) right above the status line
-// and the tool bar; in the other bands at the guide line's right. Redrawn on a band change and whenever the pin lists change.
-/** Draw the current pin's navigation and human-only confirmation controls in the changes guide or compact action row. */
+// The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this
+// person may confirm (a person with write access, not a view-only region pin), the card's [확인] - the same
+// data-act="confirm" and confirmPin(), soft for the author as on the card. On the phone and tablet sheet they sit in
+// the thumb row (#revision-acts) right above the status line and the tool bar; in the other bands at the guide line's
+// right. Redrawn on a band change and whenever the pin lists change.
 function revTargetActs() {
   const target = REV.target,
     row = $('#revision-acts'),
@@ -1209,7 +1236,8 @@ function highlightPinLines(target) {
     }
   });
   target.hit = !!first || touchesPin(REV.files, target, 5);
-  target.near = !first && target.hit; // when only a neighboring line changed, it's never described as "the highlighted line" (there is none)
+  // when only a neighbouring line changed, the guide never speaks of "the highlighted line": there is none
+  target.near = !first && target.hit;
   if (!first) {
     const fileIndex = pinFileIndex(REV.files, target.file);
     if (fileIndex < 0) target.hit = false;
@@ -1248,7 +1276,7 @@ function revBack() {
   setViewMode(VIEW_MODE.MANUSCRIPT);
   if (back && back !== DOC && docInfo(back)) switchDoc(back);
 }
-// Opens a pin's change view only for the document visit that initiated the switch.
+// Opens a pin's changes view, only for the document visit that started the switch to its document.
 async function showChange(id) {
   const pin = findAnyPin(id);
   if (!pin) return;
@@ -1283,10 +1311,13 @@ async function showChange(id) {
   if (document.body.classList.contains('revision-open')) loadRevisions();
   else setViewMode(VIEW_MODE.REVISIONS);
 }
-const REVISION_BUSY_WAITS = 240; // times a comparison asks again, a second apart, for the one before it: past latexdiff's and latexmk's limits together
-// Asks for the comparison. A document builds one at a time, and opening this view starts the newest commit's: a press on another
-// commit while it runs is answered busy, and waits for it here, saying so, instead of stopping on that answer. Null: the view
-// moved on while it waited; leaving for the source diff stops the waiting too, and coming back asks again (REV.pdfCommit).
+// times a comparison asks again, a second apart, for the one before it: past latexdiff's and latexmk's limits together
+const REVISION_BUSY_WAITS = 240;
+// Asks for the comparison. A document builds one at a time, and opening this view starts the newest commit's: a press
+// on another commit while it runs is answered busy, and waits for it here, saying so, instead of stopping on that
+// answer. Null: the view moved on while it waited; leaving for the source diff stops the waiting too, and coming back
+// asks again (REV.pdfCommit). The waiting line is cleared only while it still says this wait's words, never another
+// comparison's.
 async function revisionStart(body: Record<string, unknown>, seq: number, docKey: string, id: string) {
   const box = $('#revision-status'),
     waiting = tr('앞선 비교 PDF가 끝나는 대로 이 비교 PDF를 만듭니다. 원고와 핀은 그대로 사용할 수 있습니다.');
@@ -1296,7 +1327,7 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
     REV.pdfCommit = '';
     if (box.textContent === waiting) box.textContent = '';
     return true;
-  }; // its own line, not this one's promise
+  };
   for (let waits = 0; ; waits++) {
     try {
       return (await api('/api/revision-build', { method: 'POST', body, what: '비교 PDF 만들기', silent: true })).data;
@@ -1310,13 +1341,14 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
     }
   }
 }
-// Start or read the comparison PDF for this revision; late responses and module imports cannot attach to another view.
-/** Load one comparison visit; mounting owns zoomable page geometry. */
+// Starts or reads the comparison PDF of commit id for one visit: a late answer or module import never attaches to
+// another view (revisionCurrent after every wait). mountRevisionPdf then owns the zoomable page geometry.
 async function loadRevisionPdf(id, seq, docKey) {
   const statusBox = $('#revision-status'),
     warningBox = $('#revision-warning'),
     target = REV.target;
-  // v0.3: for a pin, the comparison is old + only that pin's hunks unless [커밋 전체 비교] is on or that build already failed
+  // for a pin, the comparison is the old side plus only that pin's hunks, unless [커밋 전체 비교] is on or that build
+  // already failed
   const pin = target && revisionPinFor(id) && !REV_SCOPE.whole && !REV_SCOPE.fallback ? target.id : null,
     base = REV.base,
     query = pin ? '&pin=' + pin : base ? '&base=' + encodeURIComponent(base) : '';

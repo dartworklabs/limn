@@ -1,21 +1,24 @@
-// ------------------------------------------------ The text surface (ADR-0029, docs/superpowers/specs/2026-11-05-text-documents.md)
-// A text document (showsSourceLines: kind "text" - plain text or source code) is drawn in the browser as the Markdown surface's
-// documents are (md-surface.js: GET /api/source, the reading spot, marks, badges, picks, the composer), but it is never parsed:
-// every server line is one line span (data-line), numbered in the gutter by CSS, in a monospace column that wraps.
+// ------------------------------------------------ The text surface (docs/handbook/viewer.md §텍스트 화면, ADR-0029)
+// A text document (showsSourceLines: kind "text" - plain text or source code) is drawn in the browser as the Markdown
+// surface's documents are (md-surface.ts: GET /api/source, the reading spot, marks, badges, picks, the composer), but
+// it is never parsed: every server line is one line span (data-line), numbered in the gutter by CSS, in a monospace
+// column that wraps.
 // - The DOM is built with createElement and textContent only, within the Markdown surface's limits (MD_LIMITS): over
-//   MD_LIMITS.lines lines there is no view but its notice; the elements drawn - one per line, two per marked character -
-//   stay under MD_LIMITS.elements, and past it the view is the names view (each marked character's name as plain text, one
-//   element per line); a yield to the browser after every MD_LIMITS.chunk units of work (a line, a character of the
-//   repertoire), within a long line too, and a newer draw (stale) drops the build at each yield.
+//   MD_LIMITS.lines lines there is no view but its notice; the elements drawn - one per line, two per marked character
+//   - stay under MD_LIMITS.elements, and past it the view is the names view (each marked character's name as plain
+//   text, one element per line); a yield to the browser after every MD_LIMITS.chunk units of work (a line, a character
+//   of the repertoire), within a long line too, and a newer draw (stale) drops the build at each yield.
 // - Nothing in the text is a link, an image or markup: it is only ever text.
-// - A character that would hide or reorder text (the repertoire of hidden-chars.js) stays in the text, so a copy keeps it,
-//   inside an isolating span that shows its name (ccBox); a line of the view never reads in another order than its source. A
-//   notice above the lines counts them. Another notice names the line ends the server split on that are not LF or CRLF
-//   (/api/source line_ends): Limn numbers lines past them as str.splitlines() does, an editor that counts LF alone does not.
-// - A wrapped line's continuation hangs under its indentation, rounded down to a tab stop (hangColumns), so a tab still lands on the
-//   same stop as in an editor whose tabs are TAB_COLUMNS columns wide.
-// - The ladder is: the chosen lines -> the paragraph between blank lines (para, or the paragraphs the lines meet: blocks, saved
-//   as lines) -> the indented block the lines head or stand in (indent). txLevels reads the server's lines alone.
+// - A character that would hide or reorder text (the repertoire of hidden-chars.ts) stays in the text, so a copy keeps
+//   it, inside an isolating span that shows its name (ccBox); a line of the view never reads in another order than its
+//   source. A notice above the lines counts them. Another notice names the line ends the server split on that are not
+//   LF or CRLF (/api/source line_ends): Limn numbers lines past them as str.splitlines() does, an editor that counts LF
+//   alone does not.
+// - A wrapped line's continuation hangs under its indentation, rounded down to a tab stop (hangColumns), so a tab lands
+//   on the same stop as in an editor whose tabs are TAB_COLUMNS columns wide.
+// - The ladder is: the chosen lines -> the paragraph between blank lines (para, or the paragraphs the lines meet:
+//   blocks, saved as lines) -> the indented block the lines head or stand in (indent). txLevels reads the server's
+//   lines alone.
 import { $, MD_LIMIT, META, showsSourceLines } from './core.ts';
 import { html, setHtml } from './markup.ts';
 import { ccBox, ccClip, ccName, ccScan } from './hidden-chars.ts';
@@ -29,7 +32,8 @@ function isTextDoc() {
   return !!META && showsSourceLines(META.kind);
 }
 // ---------------- Lines, columns and blocks: pure but for tl/tr
-// The columns a line's leading whitespace spans, tabs to the next multiple of tab, or -1 for a blank line (only whitespace).
+// The columns a line's leading whitespace spans, a tab to the next multiple of tab, or -1 for a blank line (only
+// whitespace).
 function indentColumns(line: string, tab?: number) {
   const tabWidth = tab || TAB_COLUMNS;
   let columns = 0;
@@ -40,15 +44,16 @@ function indentColumns(line: string, tab?: number) {
   }
   return -1;
 }
-// How far a wrapped line's continuation hangs, in columns, at most MAX_HANG_COLUMNS: its indentation, rounded down to a tab stop when
-// the line holds a tab - the first line then starts on a stop, so each tab lands where it does in an editor.
+// How far a wrapped line's continuation hangs, in columns, at most MAX_HANG_COLUMNS: its indentation, rounded down to a
+// tab stop when the line holds a tab - the first line then starts on a stop, so each tab lands where it does in an
+// editor.
 function hangColumns(line: string) {
   const columns = indentColumns(line);
   if (columns <= 0) return 0;
   return Math.min(MAX_HANG_COLUMNS, String(line).includes('\t') ? columns - (columns % TAB_COLUMNS) : columns);
 }
-// The paragraph of lines lo..hi (1-based, inclusive): the lines widened to the blank lines around them, and how many
-// paragraphs - runs of non-blank lines - they meet. null when lo..hi holds only blank lines.
+// The paragraph of lines first..last (1-based, inclusive): the lines widened to the blank lines around them, and how
+// many paragraphs - runs of non-blank lines - they meet. null when first..last holds only blank lines.
 function paragraphAround(lines: string[], first: number, last: number) {
   const blank = (line: number) => !String(lines[line - 1] || '').trim();
   let start = first,
@@ -68,15 +73,16 @@ function paragraphAround(lines: string[], first: number, last: number) {
   return { lo: start, hi: end, n: count };
 }
 // A line that closes the block above it at the header's own depth, and so belongs to it: one that starts with a closing
-// bracket ('}', ')', ']', as '} else {' or '});'), or whose statement is a closing word alone - a shell's fi, done or esac,
-// Ruby's, Lua's, Julia's or MATLAB's end - followed by nothing, ';', ',', ')', a shell redirection or pipe ('done < list'), or
-// a comment. A call or an assignment of a name spelt so ('done()', 'end = 3', 'done.append(x)') is no closer.
+// bracket ('}', ')', ']', as '} else {' or '});'), or whose statement is a closing word alone - a shell's fi, done or
+// esac, Ruby's, Lua's, Julia's or MATLAB's end - followed by nothing, ';', ',', ')', a shell redirection or pipe ('done
+// < list'), or a comment. A call or an assignment of a name spelt so ('done()', 'end = 3', 'done.append(x)') is no
+// closer.
 const BLOCK_CLOSER = /^(?:[\]\)}]|(?:end|fi|done|esac)\s*(?:$|[;,)<>|&]|#|--|%|\/\/))/;
-// The indented block of lines lo..hi: the block they head when the next non-blank line below is deeper than they are, else the
-// block they stand in, under the nearest line above that is shallower than they are. It runs from its header to the last line
-// before the next non-blank line no deeper than the header, taking that line too when it closes the block (BLOCK_CLOSER), less
-// trailing blank lines. {lo,hi,title} - title is the header's text - or null when no such header is found (an unindented
-// paragraph of prose, a file's top level).
+// The indented block of lines first..last: the block they head when the next non-blank line below is deeper than they
+// are, else the block they stand in, under the nearest line above that is shallower than they are. It runs from its
+// header to the last line before the next non-blank line no deeper than the header, taking that line too when it closes
+// the block (BLOCK_CLOSER), less trailing blank lines. {lo,hi,title} - title is the header's text - or null when no
+// such header is found (an unindented paragraph of prose, a file's top level).
 function indentBlockAround(lines: string[], first: number, last: number) {
   const indentOf = (line: number) => indentColumns(String(lines[line - 1] || ''));
   let shallowest = Infinity;
@@ -112,9 +118,10 @@ function indentBlockAround(lines: string[], first: number, last: number) {
   if (end < last) end = last;
   return { lo: header, hi: end, title: String(lines[header - 1] || '').trim() };
 }
-// The ladder for lines r of the text on screen: the chosen lines, then their paragraph (or the paragraphs they meet, saved as
-// lines) and their indented block, the shorter first; a rung with the range of one before it merges into that one (as markdownLevels
-// does). Array.prototype.sort is stable, so rungs of one length keep that order.
+// The ladder for lines range of the text on screen: the chosen lines, then their paragraph (or the paragraphs they
+// meet, saved as lines) and their indented block, the shorter of the two first; a rung with the range of one before it
+// merges into that one (as markdownLevels does). Array.prototype.sort is stable, so rungs of one length keep that
+// order.
 function txLevels(range: { lo: number; hi: number }) {
   const rungs = [] as any[],
     lines = MD.lines;
@@ -139,8 +146,10 @@ function txLevels(range: { lo: number; hi: number }) {
   const paragraph = paragraphAround(lines, range.lo, range.hi);
   if (paragraph && paragraph.n > 1)
     add('blocks', tl('문단 {n}개', { n: paragraph.n }), paragraph.lo, paragraph.hi, 'txparas');
-  else if (paragraph) add('para', '문단', paragraph.lo, paragraph.hi, 'txpara'); // T.txpara: no % comment rule here
+  // T.txpara: a text document's paragraph has no % comment rule
+  else if (paragraph) add('para', '문단', paragraph.lo, paragraph.hi, 'txpara');
   const block = indentBlockAround(lines, range.lo, range.hi);
+  // the header's hidden characters by name (ccClip)
   if (block)
     add(
       'indent',
@@ -148,13 +157,13 @@ function txLevels(range: { lo: number; hi: number }) {
       Math.min(block.lo, range.lo),
       Math.max(block.hi, range.hi),
       null,
-    ); // the header's hidden characters by name (ccClip)
+    );
   const [raw, ...wider] = rungs;
   wider.sort((left, right) => left.n - right.n);
   return [raw, ...wider];
-} // widening: the smaller of the paragraph and the block first
+}
 // ---------------- Drawing
-// Line n's span (ln its text): the hang of its continuation (hangColumns) through CSSOM, no text yet.
+// The span of line number line (text its text): the hang of its continuation (hangColumns) through CSSOM, no text yet.
 function textLineSpan(text: string, line: number) {
   const span = document.createElement('span');
   span.className = 'ln';
@@ -163,24 +172,26 @@ function textLineSpan(text: string, line: number) {
   if (hang) span.style.setProperty('--hang', String(hang));
   return span;
 }
-// Builds article#md for the text document on screen from MD.lines (srcLines): each line's text, each marked character in its
-// box (ccBox), the text ending in "\n" so that a selection's text keeps its line ends. Within MD_LIMITS (the header above):
-// past MD_LIMITS.elements it gives the names view instead; null when a newer draw came (stale) at a yield.
-// ends: /api/source's line_ends.
+// Builds article#md for the text document on screen from MD.lines (srcLines): each line's text, each marked character
+// in its box (ccBox), the text ending in "\n" so that a selection's text keeps its line ends. Within MD_LIMITS (the
+// header above): past MD_LIMITS.elements it gives the names view instead; null when a newer draw came (stale) at a
+// yield. ends: /api/source's line_ends.
 async function txView(stale: () => boolean, ends: Record<string, number> | undefined): Promise<HTMLElement | null> {
   const drawn = await srcLines(textLineSpan, 'tx-src', stale);
   if (!drawn) return null;
   if (drawn.names) return textArticle(drawn.body, ends, txNamesText(drawn.marked), MD_LIMIT.ELEMENTS);
   return textArticle(drawn.body, ends, drawn.marked ? txMarksText(drawn.marked) : '', null);
 }
-// The source lines on screen (MD.lines) as line spans in a new div of class cls - span(ln, n) makes line n's span, empty - for
-// the text surface (txView) and the Markdown surface's line view (lineView). Each marked character (hidden-chars.js) is its
-// box (ccBox) while the elements drawn stay within MD_LIMITS.elements: one a line, two a box, counted on every line, not only
-// on a box (plain lines after a line of boxes). Past it, the names form: each line one span whose text has every marked
-// character as its name in angle brackets ('⟨U+200B⟩', ccPlain's form) - one element a line, never a raw character that
-// reorders the line; a copy of it gives the names, not the characters (txNamesText says so). A yield to the browser after
-// every MD_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked (how
-// many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield.
+// The source lines on screen (MD.lines) as line spans in a new div of class className - span(text, line) makes the
+// empty span of line number line - for the text surface (txView) and the Markdown surface's line view (lineView). Each
+// marked character (hidden-chars.ts) is its box (ccBox) while the elements drawn stay within MD_LIMITS.elements: one a
+// line, two a box, counted on every line, not only on a box (plain lines after a line of boxes). Past it, the names
+// form: each line one span whose text has every marked character as its name in angle brackets ('⟨U+200B⟩', ccPlain's
+// form) - one element a line, never a raw character that reorders the line; a copy of it gives the names, not the
+// characters (txNamesText says so). A yield to the browser after every MD_LIMITS.chunk units of work (a line, a
+// character of the repertoire), within a long line too. -> {body, marked (how many characters it marked), names (the
+// names form)}, or null when a newer draw came (stale) at a yield. The names form has no limit to pass, so the loop
+// always returns from it.
 async function srcLines(
   span: (text: string, line: number) => HTMLElement,
   className: string,
@@ -233,8 +244,8 @@ async function srcLines(
     if (!over) return { body, marked, names };
   }
   return null;
-} // never reached: the names form has no limit to pass
-// What the notice above the lines says of the characters marked: n boxes, or the names form for n of them.
+}
+// What the notice above the lines says of the characters marked: count boxes, or the names form for count of them.
 function txMarksText(count: number) {
   return tl('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다', { n: mdCount(count) });
 }
@@ -244,8 +255,9 @@ function txNamesText(count: number) {
     { n: mdCount(count), max: mdCount(MD_LIMITS.elements) },
   );
 }
-// A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied with it, in
-// the viewer's words and so in the screen's language. A Markdown document's notice is the same element (renderDocument, lineView).
+// A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied
+// with it, in the viewer's words and so in the screen's language. A Markdown document's notice is the same element
+// (renderDocument, lineView).
 function txNote(kind: string, text: string) {
   const notice = document.createElement('div');
   notice.className = 'md-limit tx-note';
@@ -255,14 +267,14 @@ function txNote(kind: string, text: string) {
   notice.lang = document.documentElement.lang;
   return notice;
 }
-// article#md round the lines (body): the notices above them - what was marked (marks, '' for none) and the line ends that are
-// not LF or CRLF (lineEndsText) - and the limit the view hit (limit, its data-limit; null for none).
+// article#md round the lines (body): the notices above them - what was marked (marks, '' for none) and the line ends
+// that are not LF or CRLF (lineEndsText) - and the limit the view hit (limit, its data-limit; null for none).
 function textArticle(body: HTMLElement, ends: Record<string, number> | undefined, marks: string, limit: string | null) {
   const root = document.createElement('article');
   root.className = 'md tx';
   root.id = 'md';
   root.setAttribute('translate', 'no');
-  root.lang = ''; // as renderDocument's: the text's language is not known
+  root.lang = ''; // the text's language is not known, as for renderDocument's article
   if (limit) root.dataset.limit = limit;
   root.style.setProperty('--gut', String(String(MD.lines.length).length + 1));
   for (const [kind, text] of [
@@ -273,9 +285,9 @@ function textArticle(body: HTMLElement, ends: Record<string, number> | undefined
   root.appendChild(body);
   return root;
 }
-// The notice for the line ends of the source that are not LF or CRLF (ends: {name: count}, /api/source line_ends - 'U+000C',
-// 'U+2028', a lone CR as 'U+000D'), or '' when there are none. Limn numbers lines past them; an editor or git that counts LF
-// alone does not, and a copy joins the lines with LF.
+// The notice for the line ends of the source that are not LF or CRLF (ends: {name: count}, /api/source line_ends -
+// 'U+000C', 'U+2028', a lone CR as 'U+000D'), or '' when there are none. Limn numbers lines past them; an editor or git
+// that counts LF alone does not, and a copy joins the lines with LF.
 function lineEndsText(ends: Record<string, number> | undefined) {
   const oddEnds = Object.entries(ends || {}).filter(
     ([name, count]) => /^U\+[0-9A-F]{4,6}$/.test(name) && Number(count) > 0,

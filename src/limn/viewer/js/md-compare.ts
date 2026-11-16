@@ -1,19 +1,15 @@
-// ------------------------------------------------ The rendered compare of a Markdown document ([그린 비교], the changes view)
-// docs/handbook/viewer.md §변경 보기, ADR-0031. The document's own file on the two sides the source diff compares
-// (GET /api/revision-source: the commit's first parent and the commit, or a range's old side and its commit) is parsed in a
-// worker of its own and drawn by the Markdown surface's renderer (mdRender) with a render context of its own per side (mdRx),
-// pausing for the browser as the document view does; the two drawn documents are then compared block by block (a paragraph,
-// a heading, a list item's own text, a table row, a code block, display math, the front matter, a rule, a raw HTML
-// placeholder): a block the other side has as it is, one changed in place (its words marked), one added, one taken out, one
-// moved. One column: the new side, with the taken-out blocks put back where they were. Nothing here picks, pins or follows an
-// in-document link: the view reads. Images are the manuscript tree's files of now (GET /api/asset, as the Markdown surface
-// draws them) on both sides - the old side's own image files are not read; a line above the compare says so whenever a side
-// has one. A character that would hide or reorder text stays in its box (drawText) on both sides, and a changed one is a
-// changed word.
-// MDC: the compare on screen (key: revKey() it was drawn for), its parse worker and job, the change groups in order (stops,
-// each the blocks of one change) and the one the navigator is at, the drawn column (root) and the observer that lays its
-// gutter chips out again when its width changes, the status line it said (line) and what it counted (said: the answer and
-// the counts, so a range's line can take the source diff's commit and file counts once they come).
+// ------------------------------------------------ The rendered compare of a Markdown document ([그린 비교])
+// The changes view's rendered compare (docs/handbook/viewer.md §변경 보기, ADR-0031). The document's own file on the
+// two sides the source diff compares (GET /api/revision-source: the commit's first parent and the commit, or a range's
+// old side and its commit) is parsed in a worker of its own and drawn by the Markdown surface's renderer (mdRender)
+// with a render context of its own per side (mdRx), pausing for the browser as the document view does; the two drawn
+// documents are then compared block by block (a paragraph, a heading, a list item's own text, a table row, a code
+// block, display math, the front matter, a rule, a raw HTML placeholder): a block the other side has as it is, one
+// changed in place (its words marked), one added, one taken out, one moved. One column: the new side, with the
+// taken-out blocks put back where they were. Nothing here picks, pins or follows an in-document link: the view reads.
+// Images are the manuscript tree's files of now (GET /api/asset, as the Markdown surface draws them) on both sides -
+// the old side's own image files are not read; a line above the compare says so whenever a side has one. A character
+// that would hide or reorder text stays in its box (drawText) on both sides, and a changed one is a changed word.
 import { $, DIFF_FORMAT, LAYOUT, LAYOUT_MODE, MD_LIMIT, SCOPE_MODE, SCOPE_SOURCE, scrollMotion } from './core.ts';
 import { html, setHtml } from './markup.ts';
 import { ccHtml, ccPlain } from './hidden-chars.ts';
@@ -35,6 +31,11 @@ import {
   mdYield,
 } from './md-surface.ts';
 import { isTextDoc, txMarksText } from './text-surface.ts';
+// MDC: the compare on screen (key: revKey() it was drawn for), its parse worker and job, the change groups in order
+// (stops, each the blocks of one change) and the one the navigator is at, the drawn column (root) and the observer that
+// lays its gutter chips out again when its width changes (ro), the status line it said (line) and what it counted
+// (said: the answer and the counts, so a range's line can take the source diff's commit and file counts once they
+// come).
 const MDC = {
   seq: 0,
   key: '',
@@ -47,16 +48,19 @@ const MDC = {
   line: '',
   said: null as { r: any; c: { ins: number; del: number; mod: number; move: number } | null } | null,
 };
-const MAX_DIFF_CELLS = 4e6; // the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
-// The most steps one compare spends matching (every subsequence's table cells) and pairing (the words of each pair of blocks it
-// weighs): past it no more blocks are paired and no more words marked - what is left is added and taken out as it is, at once.
+// the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
+const MAX_DIFF_CELLS = 4e6;
+// The most steps one compare spends matching (every subsequence's table cells) and pairing (the words of each pair of
+// blocks it weighs): past it no more blocks are paired and no more words marked - what is left is added and taken out
+// as it is, at once.
 const COMPARE_WORK_STEPS = 8e6;
 const UNIT_SELECTOR = 'p,h1,h2,h3,h4,h5,h6,pre,tr,hr,li,.md-html,.md-html-run,.md-front';
-// The boxes markRegroups looks at, a split or a join of which the two kept blocks beside it show: a quote, a list, a list item.
+// The boxes markRegroups looks at, a split or a join of which the two kept blocks beside it show: a quote, a list, a
+// list item.
 const REGROUP_BOX_TAGS = /^(?:BLOCKQUOTE|UL|OL|LI)$/;
 const CHIP_WORDS = { ins: '더함', del: '뺌', mod: '고침', move: '옮김' };
-// Whether the document on screen is drawn from Markdown (the rendered compare's documents): a text document shows its lines
-// as they are, and its source diff is that already.
+// Whether the document on screen is drawn from Markdown (the rendered compare's documents): a text document shows its
+// lines as they are, and its source diff is that already.
 function mdcDrawn() {
   return isMdDoc() && !isTextDoc();
 }
@@ -105,12 +109,12 @@ function stopSideParse(answer: any) {
   }
   job.resolve(answer);
 }
-// One side drawn with the Markdown surface's renderer (mdRender) into a root of its own, with a render context of its own
-// (mdRx: its lines, its element count, its marked characters, its headings - the document view's MD is never touched), with
-// a yield to the browser whenever mdRender pauses (every MD_LIMITS.chunk units of work, as the document view builds) and
-// live() asked after each: null past MD_LIMITS.elements, or once live() is false (a newer compare). Ids go (a heading's: the
-// surface keeps them), and an in-document heading or another document is a word here, so the view never leaves for the
-// manuscript.
+// One side drawn with the Markdown surface's renderer (mdRender) into a root of its own, with a render context of its
+// own (mdRx: its lines, its element count, its marked characters, its headings - the document view's MD is never
+// touched), with a yield to the browser whenever mdRender pauses (every MD_LIMITS.chunk units of work, as the document
+// view builds) and live() asked after each: null past MD_LIMITS.elements, or once live() is false (a newer compare).
+// Ids go (a heading's: the surface keeps them), and an in-document heading or another document is a word here, so the
+// view never leaves for the manuscript.
 async function buildSide(tokens: any[], lines: string[], live: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('div'),
     context = mdRx(lines);
@@ -152,23 +156,23 @@ type CompareUnit = {
   lo: number;
   hi: number;
 };
-// Whether element e is a block another unit stands for: a list, a nested paragraph or code, a quote, a table - a tight list
-// item's own text leaves these out.
+// Whether element is a block another unit stands for: a list, a nested paragraph or code, a quote, a table - a tight
+// list item's own text leaves these out.
 function isNestedBlock(element: Element) {
   return /^(UL|OL|P|PRE|BLOCKQUOTE|TABLE|DIV|H[1-6]|HR)$/.test(element.tagName);
 }
-// Whether element e inside unit el is part of the unit's own content: for a list item, nothing between them is a nested
-// block (isNestedBlock) - its nested list, a quote or a table in it are units of their own, wherever they sit below it. The one
-// boundary of a list item's text (unitText), its structure (inlineShape), its words (unitWords), its images, links and alt texts
-// (unitReferences, compareUnits) and its marked links (markChangedLinks). Pure over the DOM.
+// Whether element, inside unit, is part of the unit's own content: for a list item, nothing between them is a nested
+// block (isNestedBlock) - its nested list, a quote or a table in it are units of their own, wherever they sit below it.
+// The one boundary of a list item's text (unitText), its structure (inlineShape), its words (unitWords), its images,
+// links and alt texts (unitReferences, compareUnits) and its marked links (markChangedLinks). Pure over the DOM.
 function isOwnPart(unit: HTMLElement, element: Element) {
   if (unit.tagName !== 'LI') return true;
   for (let ancestor = element as Element | null; ancestor && ancestor !== unit; ancestor = ancestor.parentElement)
     if (isNestedBlock(ancestor)) return false;
   return true;
 }
-// Whether element e (one UNIT_SELECTOR matches) is a unit: not a loose list item (its paragraphs are units of their own), not a raw
-// HTML block inside a run (the run is one), not the code box of the front matter (the front matter is one).
+// Whether element (one UNIT_SELECTOR matches) is a unit: not a loose list item (its paragraphs are units of their own),
+// not a raw HTML block inside a run (the run is one), not the code box of the front matter (the front matter is one).
 function isCompareUnit(element: Element) {
   return (
     !(element.tagName === 'LI' && [...element.children].some((child) => child.tagName === 'P')) &&
@@ -176,8 +180,8 @@ function isCompareUnit(element: Element) {
     !(element.tagName === 'PRE' && element.closest('.md-front'))
   );
 }
-// A unit's kind as its tag: display math (MATH) and the front matter (FRONT) apart from a code block and a raw HTML block, so
-// none of them pairs with another. Pure over the DOM.
+// A unit's kind as its tag: display math (MATH) and the front matter (FRONT) apart from a code block and a raw HTML
+// block, so none of them pairs with another. Pure over the DOM.
 function unitTag(unit: HTMLElement) {
   return unit.classList.contains('md-front')
     ? 'FRONT'
@@ -185,8 +189,8 @@ function unitTag(unit: HTMLElement) {
       ? 'MATH'
       : unit.tagName;
 }
-// Whether a unit of tag is a block of lines (a code block, display math, the front matter): its lines, spaces and all, are its
-// words. Pure.
+// Whether a unit of that tag is a block of lines (a code block, display math, the front matter): its lines, spaces and
+// all, are its words. Pure.
 function isLinedTag(tag: string) {
   return tag === 'PRE' || tag === 'MATH' || tag === 'FRONT';
 }
@@ -194,18 +198,19 @@ function isLinedTag(tag: string) {
 function blockLines(unit: HTMLElement) {
   return [...unit.querySelectorAll('.ln')].map((line) => String(line.textContent || '').replace(/\n$/, ''));
 }
-// The comparable blocks of a drawn side, in document order (pure over the DOM): every paragraph, heading, code block, display
-// math, front matter, table row, rule and raw HTML placeholder, and a list item whose text is its own (a tight list's). A
-// raw HTML run is one unit. Each has its tag, its key, its text, its source lines, the parts of its key that are not words
-// and the very boxes it sits in (grp: its box elements, outermost first - which quote, which list, markRegroups).
-// The key is everything the block shows: its text with its inline structure (shape: emphasis, code, links, images with their
-// alt text, a hidden character's box with the character, a table cell's alignment), the boxes it sits in (box: a quote, a
-// list - a numbered one with its first number), its images' tree paths and its links' targets. So the same words in bold, out
-// of a quote, in a list renumbered or in a column aligned the other way are another block - changed in place, as are an
-// image's new alt text, a link's new target and a hidden character put in or taken out. What the renderer adds that shows
-// nothing is not in it (inlineShape): the line spans, the copies of an emphasis or a link it opens again after a line break
-// inside it, an inline formula's code box per source line - a paragraph rewrapped, inside bold, a link or a formula too, is
-// the same block. An alt text is compared with its white space folded, as it is drawn.
+// The comparable blocks of a drawn side, in document order (pure over the DOM): every paragraph, heading, code block,
+// display math, front matter, table row, rule and raw HTML placeholder, and a list item whose text is its own (a tight
+// list's). A raw HTML run is one unit. Each has its tag, its key, its text, its source lines, the parts of its key that
+// are not words and the very boxes it sits in (grp: its box elements, outermost first - which quote, which list,
+// markRegroups). The key is everything the block shows: its text with its inline structure (shape: emphasis, code,
+// links, images with their alt text, a hidden character's box with the character, a table cell's alignment), the boxes
+// it sits in (box: a quote, a list - a numbered one with its first number), its images' tree paths and its links'
+// targets. So the same words in bold, out of a quote, in a list renumbered or in a column aligned the other way are
+// another block - changed in place, as are an image's new alt text, a link's new target and a hidden character put in
+// or taken out. What the renderer adds that shows nothing is not in it (inlineShape): the line spans, the copies of an
+// emphasis or a link it opens again after a line break inside it, an inline formula's code box per source line - a
+// paragraph rewrapped, inside bold, a link or a formula too, is the same block. An alt text is compared with its white
+// space folded, as it is drawn.
 function compareUnits(root: HTMLElement): CompareUnit[] {
   const out = [] as CompareUnit[];
   for (const match of root.querySelectorAll(UNIT_SELECTOR)) {
@@ -241,34 +246,36 @@ function compareUnits(root: HTMLElement): CompareUnit[] {
   }
   return out;
 }
-// The boxes unit el sits in below the drawn root, outermost first: the elements. Pure over the DOM.
+// The boxes a unit sits in below the drawn root, outermost first: the elements. Pure over the DOM.
 function boxElements(unit: HTMLElement, root: HTMLElement): Element[] {
   const out: HTMLElement[] = [];
   for (let ancestor = unit.parentElement; ancestor && ancestor !== root; ancestor = ancestor.parentElement)
     out.unshift(ancestor);
   return out;
 }
-// Those boxes (boxElements) as one string: each box's tag, a numbered list's with the number it starts at (OL5). Pure over the DOM.
+// Those boxes (boxElements) as one string: each box's tag, a numbered list's with the number it starts at (OL5). Pure
+// over the DOM.
 function boxKinds(boxes: Element[]) {
   return boxes.map((box) => (box.tagName === 'OL' ? 'OL' + (box.getAttribute('start') || '1') : box.tagName)).join('>');
 }
-// The name an inline element goes by in a block's structure (inlineShape) and a word's place (unitWords): its tag, and for code
-// its kind too (inline math and an inline HTML tag are code boxes of their own). Pure over the DOM.
+// The name an inline element goes by in a block's structure (inlineShape) and a word's place (unitWords): its tag, and
+// for code its kind too (inline math and an inline HTML tag are code boxes of their own). Pure over the DOM.
 function inlineName(element: Element) {
   return (
     element.tagName.toLowerCase() + (element.tagName === 'CODE' && element.className ? '.' + element.className : '')
   );
 }
-// A unit's inline structure as one string: its text, whitespace folded, with every inline element around its part as a mark
-// (<strong>…</strong>, <code.md-math>…</code.md-math>, an image as <img alt>, a hidden character's box as <cc char>, a table
-// cell with its alignment as <td right>), a list item's nested blocks and the screen reader's words left out. What the
-// renderer adds and nothing shows is no structure: the line spans it puts round each source line, the shallow copies of the
-// emphasis and links open at a line break that it opens again on the next line's span (drawInline), and the code box it draws
-// for each source line of an inline formula (math_inline, one per line) - an emphasis or a link that starts right where one
-// of the same kind and target ends is one run (isReopenedRun), and so is a formula's piece after the last one's, white space alone
-// between them. So a paragraph wrapped on other lines, inside bold, a link or a formula too, reads the same. A link's copy
-// goes in cont (when given), so it is not counted twice (unitReferences). A block of lines' shape is its language (a code block's
-// fence's info word) and its lines exactly as they are (linedShape). Pure over the DOM but for cont.
+// A unit's inline structure as one string: its text, whitespace folded, with every inline element around its part as a
+// mark (<strong>…</strong>, <code.md-math>…</code.md-math>, an image as <img alt>, a hidden character's box as <cc
+// char>, a table cell with its alignment as <td right>), a list item's nested blocks and the screen reader's words left
+// out. What the renderer adds and nothing shows is no structure: the line spans it puts round each source line, the
+// shallow copies of the emphasis and links open at a line break that it opens again on the next line's span
+// (drawInline), and the code box it draws for each source line of an inline formula (math_inline, one per line) - an
+// emphasis or a link that starts right where one of the same kind and target ends is one run (isReopenedRun), and so is
+// a formula's piece after the last one's, white space alone between them. So a paragraph wrapped on other lines, inside
+// bold, a link or a formula too, reads the same. A link's copy goes in reopened (when given), so it is not counted
+// twice (unitReferences). A block of lines' shape is its language (a code block's fence's info word) and its lines
+// exactly as they are (linedShape). Pure over the DOM but for reopened.
 function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
   if (isLinedTag(tag)) return linedShape(tag === 'PRE' ? unit.dataset.lang || '' : '', blockLines(unit));
   const out = [] as (string | { t: string; to: string })[];
@@ -297,7 +304,8 @@ function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
       const to = isReopenedRun(element) ? '\u0001' + linkTarget(element) : name === 'code.md-math' ? '' : null;
       let lastAt = out.length - 1;
       if (name === 'code.md-math')
-        while (lastAt >= 0 && typeof out[lastAt] === 'string' && !/\S/.test(out[lastAt] as string)) lastAt--; // a formula's pieces: one line end apart
+        // a formula's pieces: one line end apart
+        while (lastAt >= 0 && typeof out[lastAt] === 'string' && !/\S/.test(out[lastAt] as string)) lastAt--;
       const last = out[lastAt];
       if (to !== null && typeof last === 'object' && last.t === name && last.to === to) {
         out.splice(lastAt, 1);
@@ -321,8 +329,8 @@ function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
     .replace(/\s+/g, ' ')
     .trim();
 }
-// Whether inline element e is one the renderer opens again after a line break inside it (drawInline's stack): an emphasis, a
-// strikethrough, a link - an inert one (.md-rel) too. Pure over the DOM.
+// Whether an inline element is one the renderer opens again after a line break inside it (drawInline's stack): an
+// emphasis, a strikethrough, a link - an inert one (.md-rel) too. Pure over the DOM.
 function isReopenedRun(element: HTMLElement) {
   return (
     /^(STRONG|EM|S|A)$/.test(element.tagName) || (element.tagName === 'SPAN' && element.classList.contains('md-rel'))
@@ -332,10 +340,10 @@ function isReopenedRun(element: HTMLElement) {
 function linkTarget(element: HTMLElement) {
   return element.dataset.tipUrl || element.getAttribute('href') || element.dataset.anchor || '';
 }
-// A block of lines' inline structure: its language (a code block's fence's info word, '' for any other) and its lines, spaces
-// and all, serialized without ambiguity (JSON after a marker no other shape starts with) - so a code block whose body or
-// language changed is another block, an empty fence ([]) is not one holding a blank line (['']), and no character in a
-// language or a line can make two different blocks read alike. Pure.
+// A block of lines' inline structure: its language (a code block's fence's info word, '' for any other) and its lines,
+// spaces and all, serialized without ambiguity (JSON after a marker no other shape starts with) - so a code block whose
+// body or language changed is another block, an empty fence ([]) is not one holding a blank line (['']), and no
+// character in a language or a line can make two different blocks read alike. Pure.
 function linedShape(lang: string, lines: string[]) {
   return '\u0002pre\u0003' + JSON.stringify([lang, lines]);
 }
@@ -348,8 +356,8 @@ function shapeLanguage(shape: string) {
     return '';
   }
 }
-// What changed in a block changed in place, beyond the words marked in it: its own change (ownChangeReason), then the boxes split
-// or joined at it (how, markRegroups's) - '' when only its words changed (the marked words say what). Pure.
+// What changed in a block changed in place, beyond the words marked in it: its own change (ownChangeReason), then the
+// boxes split or joined at it (how, markRegroups's) - '' when only its words changed (the marked words say what). Pure.
 function changeReason(oldUnit: CompareUnit, newUnit: CompareUnit, how?: string[]) {
   const box = (how || []).map((change) =>
     change === 'split' ? tr('인용·목록이 둘로 갈라짐') : tr('인용·목록이 하나로 합쳐짐'),
@@ -357,8 +365,8 @@ function changeReason(oldUnit: CompareUnit, newUnit: CompareUnit, how?: string[]
   return [ownChangeReason(oldUnit, newUnit), ...box].filter(Boolean).join(' · ');
 }
 // What changed in a block changed in place whose text stayed: its inline structure, an image's alt text, a table cell's
-// alignment, the list numbering, the boxes it sits in, a block of lines' language or spaces - '' when its words changed (the
-// marked words say what). Pure.
+// alignment, the list numbering, the boxes it sits in, a block of lines' language or spaces - '' when its words changed
+// (the marked words say what). Pure.
 function ownChangeReason(oldUnit: CompareUnit, newUnit: CompareUnit) {
   if (oldUnit.text !== newUnit.text) return '';
   if (oldUnit.alts !== newUnit.alts) return tr('그림 대체 글이 바뀜');
@@ -380,8 +388,8 @@ function ownChangeReason(oldUnit: CompareUnit, newUnit: CompareUnit) {
 function unalignedShape(shape: string) {
   return shape.replace(/(\u0002t[dh]) (?:left|right|center)\u0003/g, '$1\u0003');
 }
-// A unit's own text: a table row's cells joined with ' | ', a list item's without its nested blocks, a block of lines' lines,
-// whitespace folded; a hidden character is in it (its box keeps it for the screen reader).
+// A unit's own text: a table row's cells joined with ' | ', a list item's without its nested blocks, a block of lines'
+// lines, whitespace folded; a hidden character is in it (its box keeps it for the screen reader).
 function unitText(unit: HTMLElement, tag: string) {
   if (unit.tagName === 'TR')
     return [...unit.children].map((cell) => (cell.textContent || '').replace(/\s+/g, ' ').trim()).join(' | ');
@@ -396,9 +404,10 @@ function unitText(unit: HTMLElement, tag: string) {
   walk(unit);
   return text.replace(/\s+/g, ' ').trim();
 }
-// What a unit's images (sel '.md-pic,.md-img': tree path or alt text) or links (their targets) point at, in order - its own
-// (isOwnPart: not those of a quote, a table or a list nested in a list item, which are in those blocks' keys); a link the
-// renderer opened again after a line break inside it (skip, from inlineShape) is the link before it, not counted again.
+// What a unit's images (selector '.md-pic,.md-img': tree path or alt text) or links (their targets) point at, in order
+// - its own (isOwnPart: not those of a quote, a table or a list nested in a list item, which are in those blocks'
+// keys); a link the renderer opened again after a line break inside it (skip, from inlineShape) is the link before it,
+// not counted again.
 function unitReferences(unit: HTMLElement, selector: string, skip?: Set<Element>) {
   const out: string[] = [];
   for (const match of unit.querySelectorAll(selector)) {
@@ -421,10 +430,11 @@ type CompareBudget = { left: number };
 function newCompareBudget(): CompareBudget {
   return { left: COMPARE_WORK_STEPS };
 }
-// The longest common subsequence of a and b (eq tests two items) as ops in order - {t:'eq',a,b}, {t:'del',a}, {t:'ins',b} -
-// its common ends taken first, and within each gap the deletions before the insertions. Its table's cells are spent from
-// budget (when given); past MAX_DIFF_CELLS or what the budget has left the middle is all deleted and inserted (never a wrong
-// match) and the budget is spent out, so the compare pairs nothing more. Pure but for the budget.
+// The longest common subsequence of left and right (same tests two items) as ops in order - {t:'eq',a,b}, {t:'del',a},
+// {t:'ins',b} - its common ends taken first, and within each gap the deletions before the insertions. Its table's cells
+// are spent from budget (when given); past MAX_DIFF_CELLS or what the budget has left the middle is all deleted and
+// inserted (never a wrong match) and the budget is spent out, so the compare pairs nothing more. Pure but for the
+// budget.
 function commonSubsequence<Item>(
   left: Item[],
   right: Item[],
@@ -482,8 +492,8 @@ function commonSubsequence<Item>(
 function wordsOfText(text: string) {
   return String(text).match(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu) || [];
 }
-// How alike two texts are, from their words (wordsOfText, found once per block however many blocks it is weighed against):
-// twice the words they share over all their words (1 for two empty texts). Pure.
+// How alike two texts are, from their words (wordsOfText, found once per block however many blocks it is weighed
+// against): twice the words they share over all their words (1 for two empty texts). Pure.
 function wordLikeness(left: string[], right: string[]) {
   if (!left.length && !right.length) return 1;
   const counts = new Map();
@@ -498,14 +508,18 @@ function wordLikeness(left: string[], right: string[]) {
   }
   return (2 * shared) / (left.length + right.length);
 }
-const PAIR_LIKENESS = 0.4; // the likeness above which a taken-out block and an added one of the same kind in one gap are one block changed in place
-const MOVE_MIN_CHARS = 6; // the fewest characters a block taken out and an identical one added elsewhere need to count as one moved block
-// The block ops of two sides (pure over the units, but for the budget): commonSubsequence over the keys, then in each gap between
-// unchanged blocks a block taken out and a block added of the same tag, alike enough and in order, become one block changed
-// in place ({t:'mod'}); then a block taken out and an identical one added anywhere else are one block moved ({t:'from'} where
-// it was, {t:'to'} where it is now). A heading moves at any length, any other block from MOVE_MIN_CHARS characters. Weighing a
-// pair spends its words from budget; once it is spent no more pairs are weighed - the rest stay taken out and added. Last, two
-// kept blocks a quote or list split or joined between are changed in place too (markRegroups, their ops' how).
+// the likeness above which a taken-out block and an added one of the same kind in one gap are one block changed in
+// place
+const PAIR_LIKENESS = 0.4;
+// the fewest characters a block taken out and an identical one added elsewhere need to count as one moved block
+const MOVE_MIN_CHARS = 6;
+// The block ops of two sides (pure over the units, but for the budget): commonSubsequence over the keys, then in each
+// gap between unchanged blocks a block taken out and a block added of the same tag, alike enough and in order, become
+// one block changed in place ({t:'mod'}); then a block taken out and an identical one added anywhere else are one block
+// moved ({t:'from'} where it was, {t:'to'} where it is now). A heading moves at any length, any other block from
+// MOVE_MIN_CHARS characters. Weighing a pair spends its words from budget; once it is spent no more pairs are weighed -
+// the rest stay taken out and added. Last, two kept blocks a quote or list split or joined between are changed in place
+// too (markRegroups, their ops' how).
 function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: CompareBudget) {
   budget = budget || newCompareBudget();
   const raw = commonSubsequence(oldUnits, newUnits, (left, right) => left.key === right.key, budget),
@@ -597,17 +611,18 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
   markRegroups(oldUnits, newUnits, out);
   return out;
 }
-// The boxes split or joined between blocks kept on both sides (eq, mod) that come one after the other among those kept: two
-// that shared a box on one side and not on the other while each still sits in boxes of the same kinds - one quote become
-// two (a blank line between its paragraphs), a list cut in two by another bullet (- then *), two quotes or lists joined
-// into one. No key can say it: a key holds the kinds of a block's boxes, never where a box begins or ends, so an item added
-// at a list's top changes no other item. A split that a block added or moved in between makes, standing in neither of
-// their boxes (a paragraph put between two items), is that block's own change: nothing more is marked. Both blocks of a
-// split or a join become blocks changed in place (an eq op a mod) whose op says how ('split', 'merge'; changeReason). Only the
-// quote and list boxes count (REGROUP_BOX_TAGS): the words name those, and they are the boxes that split or join with no block
-// changing. A table cannot: the second of two tables starts with a header row of its own, so a split or a join adds,
-// takes out or changes that row (th cells for td), and that row says it - two tables joined are not "quotes or lists".
-// Pure over the units' boxes (grp: which boxes, by identity; box: their kinds, one for each) but for the ops it marks.
+// The boxes split or joined between blocks kept on both sides (eq, mod) that come one after the other among those kept:
+// two that shared a box on one side and not on the other while each still sits in boxes of the same kinds - one quote
+// become two (a blank line between its paragraphs), a list cut in two by another bullet (- then *), two quotes or lists
+// joined into one. No key can say it: a key holds the kinds of a block's boxes, never where a box begins or ends, so an
+// item added at a list's top changes no other item. A split that a block added or moved in between makes, standing in
+// neither of their boxes (a paragraph put between two items), is that block's own change: nothing more is marked. Both
+// blocks of a split or a join become blocks changed in place (an eq op a mod) whose op says how ('split', 'merge';
+// changeReason). Only the quote and list boxes count (REGROUP_BOX_TAGS): the words name those, and they are the boxes
+// that split or join with no block changing. A table cannot: the second of two tables starts with a header row of its
+// own, so a split or a join adds, takes out or changes that row (th cells for td), and that row says it - two tables
+// joined are not "quotes or lists". Pure over the units' boxes (grp: which boxes, by identity; box: their kinds, one
+// for each) but for the ops it marks.
 function markRegroups(
   oldUnits: CompareUnit[],
   newUnits: CompareUnit[],
@@ -637,7 +652,7 @@ function markRegroups(
       depth++;
     return depth;
   };
-  // the kinds of a unit's d outermost quote and list boxes, null when it sits in fewer
+  // the kinds of a unit's depth outermost quote and list boxes, null when it sits in fewer
   const kinds = (unit: CompareUnit, depth: number) => {
     const boxes = own(unit);
     return boxes.length >= depth
@@ -680,9 +695,10 @@ function markRegroups(
   }
 }
 // ---------------- Marking words inside a block changed in place
-// A word of a unit: a run of a text node (node, s..e), or a whole element (el) - a hidden character's box, or in a block of
-// lines one line. w is what it reads (a box's character, a line's text), f the inline elements it sits in below the unit (so a
-// word that only became bold is another word), sp whether white space came before it (so taken-out words put back keep it).
+// A word of a unit: a run of a text node (node, s..e: its start and end offsets), or a whole element (el) - a hidden
+// character's box, or in a block of lines one line. w is what it reads (a box's character, a line's text), f the inline
+// elements it sits in below the unit (so a word that only became bold is another word), sp whether white space came
+// before it (so taken-out words put back keep it).
 type CompareWord = {
   node: Text | null;
   el: HTMLElement | null;
@@ -692,8 +708,8 @@ type CompareWord = {
   f: string;
   sp: boolean;
 };
-// The words of a unit as they sit in its DOM (a list item's own text only); a block of lines' lines are its words. Pure over
-// the DOM.
+// The words of a unit as they sit in its DOM (a list item's own text only); a block of lines' lines are its words. Pure
+// over the DOM.
 function unitWords(unit: HTMLElement): CompareWord[] {
   const out = [] as CompareWord[];
   let spaced = false;
@@ -752,11 +768,12 @@ function unitWords(unit: HTMLElement): CompareWord[] {
   walk(unit, '');
   return out;
 }
-// Marks the words of a block changed in place: the added words of the new block (ins), and the taken-out words of the old one
-// put back into it where they were, struck through (del) - text with its hidden characters boxed again (wordMark). A word in a
-// text node is wrapped where it is; a hidden character's box is wrapped whole; a line of a block of lines has its content
-// wrapped, and a taken-out line comes back as a line of its own. Edits in a text node run from its end to its start, so the
-// offsets still to come stay right. Past the compare's budget the block stays marked as changed with no words marked.
+// Marks the words of a block changed in place: the added words of the new block (ins), and the taken-out words of the
+// old one put back into it where they were, struck through (del) - text with its hidden characters boxed again
+// (wordMark). A word in a text node is wrapped where it is; a hidden character's box is wrapped whole; a line of a
+// block of lines has its content wrapped, and a taken-out line comes back as a line of its own. Edits in a text node
+// run from its end to its start, so the offsets still to come stay right. Past the compare's budget the block stays
+// marked as changed with no words marked.
 function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: CompareBudget) {
   if (budget && budget.left <= 0) return;
   const oldWords = unitWords(oldUnit),
@@ -782,9 +799,9 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     }
   };
   let gone = [] as CompareWord[];
-  // the taken-out words before new word bAt (or after the last one), as one struck-through run: a block of lines' as lines of
-  // their own; other words with the white space they had between them, and a space after the run when the word it goes
-  // before has one before it (before the run when it goes after the last word and had one before it)
+  // the taken-out words before new word newAt (or after the last one), as one struck-through run: a block of lines' as
+  // lines of their own; other words with the white space they had between them, and a space after the run when the word
+  // it goes before has one before it (before the run when it goes after the last word and had one before it)
   const flushGone = (newAt: number) => {
     if (!gone.length) return;
     const at = newWords[newAt],
@@ -878,9 +895,9 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     wrap.el.insertBefore(wrapper, lineEnd);
   }
 }
-// A link of a block changed in place whose target the other side's block does not have: marked like an added (new side) or a
-// taken-out word (old side), its tip saying the target changed - a link's words can stay while where it goes changes. A list
-// item's own links only (isOwnPart): a nested block's are that block's.
+// A link of a block changed in place whose target the other side's block does not have: marked like an added (new side)
+// or a taken-out word (old side), its tip saying the target changed - a link's words can stay while where it goes
+// changes. A list item's own links only (isOwnPart): a nested block's are that block's.
 function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
   const selector = 'a,.md-rel,[data-anchor]',
     to = (link: Element) => {
@@ -903,7 +920,8 @@ function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
     if (target && !newTargets.has(target)) link.classList.add('mdc-wl-del');
   }
 }
-// A word mark (ins, del) holding text, each character that would hide or reorder it in its box (ccHtml), as the drawn text has.
+// A word mark (ins, del) holding text, each character that would hide or reorder it in its box (ccHtml), as the drawn
+// text has.
 function wordMark(tag: string, text: string) {
   const mark = document.createElement(tag);
   mark.className = 'mdc-w';
@@ -911,8 +929,9 @@ function wordMark(tag: string, text: string) {
   return mark;
 }
 // ---------------- Laying the marks
-// Marks unit element el as a change of kind (ins, del, mod, move): its tint and, for a screen reader, the kind before its text.
-// why, for a block changed in place whose words stayed, says what did change - read with the kind and shown as its tip.
+// Marks a unit's element as a change of kind (ins, del, mod, move): its tint and, for a screen reader, the kind before
+// its text. why, for a block changed in place whose words stayed, says what did change - read with the kind and shown
+// as its tip.
 function markUnit(unit: HTMLElement, kind: string, why?: string) {
   unit.classList.add('mdc-' + kind);
   unit.dataset.mdc = kind;
@@ -931,9 +950,10 @@ function markUnit(unit: HTMLElement, kind: string, why?: string) {
     if (cell) cell.prepend(spoken);
   } else if (unit.tagName !== 'HR') unit.prepend(spoken);
 }
-// The element a taken-out list item leaves behind in one column: its own text, without the nested blocks (units of their own,
-// put back into it when they are taken out too, placeTakenOut). Its own nodes are moved, never copied: an image keeps the load and
-// error handlers the renderer gave it (drawImage), so it gets its size or falls back to its alt text as in the document view.
+// The element a taken-out list item leaves behind in one column: its own text, without the nested blocks (units of
+// their own, put back into it when they are taken out too, placeTakenOut). Its own nodes are moved, never copied: an
+// image keeps the load and error handlers the renderer gave it (drawImage), so it gets its size or falls back to its
+// alt text as in the document view.
 function ownElement(unit: CompareUnit) {
   if (unit.el.tagName !== 'LI') return unit.el;
   const copy = unit.el.cloneNode(false) as HTMLElement;
@@ -945,10 +965,11 @@ function parentBoxTag(element: Element, root: Element) {
   const parent = element.parentElement;
   return !parent || parent === root ? 'root' : parent.tagName;
 }
-// The boxes of the two sides that stand for each other: an old element -> the new side's elements that stand for it. A block
-// kept as it was or changed in place stands for its old self, and so does each box it sits in for the old block's box at the
-// same height while their tags agree (pairBoxes); a block taken out, a moved block's old place and the shallow copy of a box made
-// for them stand for what they were put back for (placeTakenOut). A moved block's new place stands for nothing on the old side.
+// The boxes of the two sides that stand for each other: an old element -> the new side's elements that stand for it. A
+// block kept as it was or changed in place stands for its old self, and so does each box it sits in for the old block's
+// box at the same height while their tags agree (pairBoxes); a block taken out, a moved block's old place and the
+// shallow copy of a box made for them stand for what they were put back for (placeTakenOut). A moved block's new place
+// stands for nothing on the old side.
 type StandIns = Map<Element, Element[]>;
 function standFor(boxes: StandIns, oldBox: Element, newBox: Element) {
   const standIns = boxes.get(oldBox);
@@ -969,19 +990,20 @@ function pairBoxes(
   )
     standFor(boxes, oldBox, newBox);
 }
-// The child of box that holds e (e itself, or the box's child it sits in), or null when e is not inside box.
+// The child of box that holds element (element itself, or the box's child it sits in), or null when element is not
+// inside box.
 function childHolding(element: Element, box: Element) {
   let child = element as Element | null;
   while (child && child.parentElement !== box) child = child.parentElement;
   return child;
 }
-// Puts el - a block taken out of the old side (its old place: ref, in oroot), or a moved block's old place - into the new side's
-// root, inside the very boxes ref sat in: the nearest of ref's old boxes that something on the new side stands for (boxes; the
-// column when none) - of those, the one prev (the last block laid) or else next (the next new block) is in - takes it, inside
-// shallow copies of the boxes between (a deleted item's nested list, a deleted table's body), right after the part of it that
-// holds prev, else before the part that holds next, else at its end. A box is judged by what it stands for, never by its tag
-// alone: a nested list is not the list around it, and a list item's paragraph does not join the item before it. Returns el, the
-// next block's prev.
+// Puts block - a block taken out of the old side (its old place: oldPlace, in oldRoot), or a moved block's old place -
+// into the new side's root, inside the very boxes oldPlace sat in: the nearest of oldPlace's old boxes that something
+// on the new side stands for (boxes; the column when none) - of those, the one previous (the last block laid) or else
+// next (the next new block) is in - takes it, inside shallow copies of the boxes between (a deleted item's nested list,
+// a deleted table's body), right after the part of it that holds previous, else before the part that holds next, else
+// at its end. A box is judged by what it stands for, never by its tag alone: a nested list is not the list around it,
+// and a list item's paragraph does not join the item before it. Returns block, the next block's previous.
 function placeTakenOut(
   block: HTMLElement,
   oldPlace: HTMLElement,
@@ -1037,8 +1059,8 @@ function movedPlaceLine(unit: CompareUnit, to: CompareUnit) {
   return line;
 }
 // ---------------- The column
-// The new side, with each block taken out put back where it was (struck through), each moved block's old place a slim line,
-// the words of a block changed in place marked inside it. Returns the column.
+// The new side, with each block taken out put back where it was (struck through), each moved block's old place a slim
+// line, the words of a block changed in place marked inside it. Returns the column.
 function layColumn(
   oldRoot: HTMLElement,
   newRoot: HTMLElement,
@@ -1058,7 +1080,7 @@ function layColumn(
   const boxes = new Map() as StandIns;
   for (const operation of ops)
     if (operation.t === 'eq' || operation.t === 'mod')
-      pairBoxes(boxes, oldUnits[operation.a].el, newUnits[operation.b].el, oldRoot, newRoot); // before anything moves
+      pairBoxes(boxes, oldUnits[operation.a].el, newUnits[operation.b].el, oldRoot, newRoot); // before any block moves
   ops.forEach((operation, index) => {
     if (operation.t === 'eq') {
       previous = newUnits[operation.b].el;
@@ -1119,8 +1141,8 @@ function layColumn(
   });
   return newRoot;
 }
-// The gutter chips: each marked block's kind as a word at its first line, in the column's left gutter (a layer of the column,
-// laid out again when its width changes). Not read aloud: the block itself carries its kind (markUnit).
+// The gutter chips: each marked block's kind as a word at its first line, in the column's left gutter (a layer of the
+// column, laid out again when its width changes). Not read aloud: the block itself carries its kind (markUnit).
 function layGutterChips() {
   const root = MDC.root;
   if (!root) return;
@@ -1152,19 +1174,20 @@ function layGutterChips() {
   }
   root.appendChild(layer);
 }
-// The unit elements of a drawn side in document order, as compareUnits takes them (and a moved block's old place, ghosts).
+// The unit elements of a drawn side in document order, as compareUnits takes them (and a moved block's old place,
+// ghosts).
 function unitElements(root: HTMLElement, ghosts: boolean): HTMLElement[] {
   return [...root.querySelectorAll(UNIT_SELECTOR + (ghosts ? ',.mdc-ghost' : ''))]
     .map((node) => node as HTMLElement)
     .filter(isCompareUnit);
 }
 // ---------------- Showing a compare
-// Git's lines [a,b] of a side (counted on LF alone, as a hunk counts them) as the screen's lines of that side (the side's
-// lines, str.splitlines() - a form feed, a lone CR, U+2028 end a line there and not for git). map is the side's
-// git_line_starts from GET /api/revision-source: [git line, screen line] pairs from which on git line g starts on screen line
-// s + (g - g0), absent when the two agree - the last pair the line after the last git line, after the last screen line,
-// when the last git line holds several; n the side's line count. Line a's first screen line to the last before line b+1's.
-// Pure.
+// Git's lines [first, last] of a side (counted on LF alone, as a hunk counts them) as the screen's lines of that side
+// (the side's lines, str.splitlines() - a form feed, a lone CR, U+2028 end a line there and not for git). map is the
+// side's git_line_starts from GET /api/revision-source: [fromGit, fromScreen] pairs from which on git line gitLine
+// starts on screen line fromScreen + (gitLine - fromGit), absent when the two agree - the last pair the line after the
+// last git line, after the last screen line, when the last git line holds several; lineCount the side's line count.
+// first's first screen line to the last before last + 1's. Pure.
 function gitToScreenRange(map: number[][] | null | undefined, lineCount: number, range: number[]): number[] {
   const [first, last] = range;
   if (!map || !map.length) return [first, last];
@@ -1179,8 +1202,8 @@ function gitToScreenRange(map: number[][] | null | undefined, lineCount: number,
   const firstScreen = at(first);
   return [firstScreen, Math.max(firstScreen, lineCount ? Math.min(lineCount, at(last + 1) - 1) : at(last + 1) - 1)];
 }
-// The change groups in order: runs of marked blocks (a moved block's old place too) with nothing unchanged between them. The
-// navigator steps through them.
+// The change groups in order: runs of marked blocks (a moved block's old place too) with nothing unchanged between
+// them. The navigator steps through them.
 function changeGroups(root: HTMLElement) {
   const stops = [] as HTMLElement[][];
   let group = null as HTMLElement[] | null;
@@ -1196,7 +1219,8 @@ function changeGroups(root: HTMLElement) {
   }
   return stops;
 }
-// The navigator (#revision-nav): where it is among the change groups, and its buttons pressed only where there is a next one.
+// The navigator (#revision-nav): where it is among the change groups, and its buttons pressed only where there is a
+// next one.
 function mdcDrawNav() {
   const count = MDC.stops.length,
     box = $('#revision-nav');
@@ -1209,7 +1233,8 @@ function mdcDrawNav() {
   ($('#mdc-prev') as HTMLButtonElement).disabled = MDC.at <= 0;
   ($('#mdc-next') as HTMLButtonElement).disabled = MDC.at >= count - 1;
 }
-// Goes to change group i: brings its first block to a third of the pane's height and, with ring, rings the group for a moment.
+// Goes to change group index: brings its first block to a third of the pane's height and, with ring, rings the group
+// for a moment.
 function goToChangeGroup(index: number, ring?: boolean) {
   const group = MDC.stops[index];
   if (!group) return;
@@ -1274,8 +1299,9 @@ function sideFailureText(side: any, which: string) {
       return tl('{side}을 읽지 못했습니다', { side: which });
   }
 }
-// Parses and draws one side's lines (null: the file is not on that side - an empty document), as the document view draws a
-// document: a NUL in the source is not parsed (MD_LIMIT.NUL). {root} or {why}; {root:null,why:''} once live() is false.
+// Parses and draws one side's lines (null: the file is not on that side - an empty document), as the document view
+// draws a document: a NUL in the source is not parsed (MD_LIMIT.NUL). {root} or {why}; {root:null,why:''} once live()
+// is false.
 async function drawSide(
   lines: string[] | null,
   live: () => boolean,
@@ -1288,9 +1314,9 @@ async function drawSide(
   const root = await buildSide(parsed.tokens, lines, live);
   return root ? { root } : { root: null, why: live() ? mdLimitText(MD_LIMIT.ELEMENTS) : '' };
 }
-// Shows the rendered compare of commit id (from base for a range) in #revision-rendered, for the visit seq of document k: reads
-// both sides, draws and compares them, lays them out in one column, rings a pin's blocks when the view was opened for one
-// ([변경 보기], then [그린 비교]), and says on the status line what changed.
+// Shows the rendered compare of commit id (from base for a range) in #revision-rendered, for the visit seq of document
+// docKey: reads both sides, draws and compares them, lays them out in one column, rings a pin's blocks when the view
+// was opened for one ([변경 보기], then [그린 비교]), and says on the status line what changed.
 async function mdcShow(id: string, base: string, seq: number, docKey: string | null) {
   const pane = $('#revision-rendered'),
     key = revKey(),
@@ -1370,7 +1396,8 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
     else if (operation.t === 'mod') counts.mod++;
     else if (operation.t === 'to') counts.move++;
   }
-  const pics = !!(oldSide.root.querySelector('.md-pic') || newSide.root.querySelector('.md-pic')); // before the layout moves the old side's blocks
+  // read before the layout moves the old side's blocks
+  const pics = !!(oldSide.root.querySelector('.md-pic') || newSide.root.querySelector('.md-pic'));
   const view = layColumn(oldSide.root, newSide.root, oldUnits, newUnits, ops, budget);
   MDC.root = view;
   const head = document.createElement('div');
@@ -1382,12 +1409,13 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
   );
   const frame = document.createElement('div');
   frame.className = 'mdc-frame';
-  // read and seen: the old side's images are not its own (D8 of ADR-0031) - a plain line, never the hidden legend's
+  // read and seen: the old side's images are not its own (ADR-0031 D8) - a plain line, never the hidden legend's
   if (pics)
     frame.appendChild(
       compareInfoLine(tr('그림은 두 판 모두 지금 원고 트리의 파일입니다 — 옛 판의 그림 파일은 읽지 않습니다.'), false),
     );
-  // the characters drawn in their boxes in the column (the new side and the blocks and words put back): the document view's notice
+  // the characters drawn in their boxes in the column (the new side and the blocks and words put back): the document
+  // view's notice
   const boxes = view.querySelectorAll('.cc').length;
   if (boxes) frame.appendChild(compareInfoLine(txMarksText(boxes), false));
   if (budget.left <= 0)
@@ -1432,7 +1460,8 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
   });
   if (REV.target) revTargetNote();
 }
-// A line above the compare: a status, read when it comes, unless status is false - then a standing note, read in its place.
+// A line above the compare: a status, read when it comes, unless status is false - then a standing note, read in its
+// place.
 function compareInfoLine(text: string, status?: boolean) {
   const line = document.createElement('div');
   line.className = 'mdc-info';
@@ -1440,8 +1469,9 @@ function compareInfoLine(text: string, status?: boolean) {
   line.textContent = text;
   return line;
 }
-// The status line of a compare: its two sides - a range's with the commits and files its source diff counted (REV.rangeN,
-// once that answer is in) - and what changed. Kept (MDC.said) so the range's counts can join it when they come (mdcRestatus).
+// The status line of a compare: its two sides - a range's with the commits and files its source diff counted
+// (REV.rangeN, once that answer is in) - and what changed. Kept (MDC.said) so the range's counts can join it when they
+// come (mdcRestatus).
 function sayCompareStatus(answer: any, counts: { ins: number; del: number; mod: number; move: number } | null) {
   MDC.said = { r: answer, c: counts };
   const ends =
@@ -1477,18 +1507,19 @@ function sayCompareStatus(answer: any, counts: { ins: number; del: number; mod: 
 function mdcRestatus() {
   if (MDC.said && MDC.key === revKey()) sayCompareStatus(MDC.said.r, MDC.said.c);
 }
-// The pin the view was opened for ([변경 보기], then [그린 비교]): its blocks on the new side - those whose lines meet the
-// pin's own changes (the server's hunks of the pin, scope) or else its lines - ringed in the review colour, the changed ones
-// first. The compare is the whole commit's (ADR-0031 D6: the pin-only side is a later step), so when the pin owns part of it
-// the line says so and points at [소스 diff], which shows the pin's hunks alone. Returns the change group to open at (-1:
-// none), and leaves on the pin the line the guide says (tg.mdcMsg).
+// The pin the view was opened for ([변경 보기], then [그린 비교]): its blocks on the new side - those whose lines meet
+// the pin's own changes (the server's hunks of the pin, scope) or else its lines - ringed in the review colour, the
+// changed ones first. The compare is the whole commit's (ADR-0031 D6: it has no pin-only side), so when the pin owns
+// part of it the line says so and points at [소스 diff], which shows the pin's hunks alone. Returns the change group to
+// open at (-1: none), and leaves on the pin the line the guide says (pinTarget.mdcMsg).
 /** @param side the new side GET /api/revision-source gave */
 function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: CompareUnit[], side: any) {
   const target = REV.target;
   if (target && !pinTarget) target.mdcMsg = tl('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다', { id: target.id });
   if (!pinTarget) return -1;
-  // the pin's own hunks when it owns part of the commit; every hunk when it owns all of it; else its lines as they are now. A
-  // hunk counts git's lines (LF only); the blocks count the screen's (the side's lines): gitToScreenRange turns one into the other
+  // the pin's own hunks when it owns part of the commit; every hunk when it owns all of it; else its lines as they are
+  // now. A hunk counts git's lines (LF only); the blocks count the screen's (the side's lines): gitToScreenRange turns
+  // one into the other
   const firstLine = pinTarget.lo || 0,
     map = side && side.git_line_starts,
     lineCount = side && side.lines ? side.lines.length : 0,

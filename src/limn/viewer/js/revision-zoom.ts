@@ -5,10 +5,12 @@ import { ZOOM_STEP } from './pages.ts';
 import { VEC_PIX_CAP } from './pdf-open.ts';
 import { vecTarget } from './pdf-draw.ts';
 import { wheelFactor } from './zoom.ts';
-/** Comparison-only geometry and rendering; no manuscript preference writes.
- *
- *
- */
+// ------------------------------------------------ The comparison PDF's zoom (docs/handbook/viewer.md §변경 보기)
+// The changes view's own page geometry, zoom and rendering: its ratio is the comparison's alone, and nothing here
+// writes the manuscript's zoom or any other preference. RZ: the ratio, the fit width and pane height it was laid out
+// at, the generation stale work compares against (gen), the generation a paint runs for (busy), the frame a paint waits
+// on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a layout (anchor)
+// and the reset of the gesture state (resetInput).
 type RevisionPage = {
   el: HTMLElement;
   page: any;
@@ -132,8 +134,9 @@ function resizeRevisionPdf() {
   layoutRevisionPdf(anchor);
 }
 
-/** Resize all page boxes before restoring the anchor; redraw at the new width. The widest page takes the zoomed width and
- * every other page its own share of it, so pages keep their sizes on paper relative to each other, as the manuscript's do. */
+// Resize all page boxes before restoring the anchor; redraw at the new width. The widest page takes the zoomed width
+// and every other page its own share of it, so pages keep their sizes on paper relative to each other, as the
+// manuscript's do.
 function layoutRevisionPdf(anchor) {
   if (!revisionPdfActive()) return;
   const box = $('#revision-pdf'),
@@ -383,7 +386,8 @@ async function paintRevisionPdf() {
     'scroll',
     () => {
       if (revisionPdfActive()) {
-        // Resize may clamp scroll before its observer runs; retain the previous reading point until layout handles it.
+        // A resize may clamp the scroll before its observer runs: the reading point read before stays until the layout
+        // handles it.
         if (Math.abs(revisionFitWidth() - RZ.fit) <= 0.5 && box.clientHeight === RZ.height)
           RZ.anchor = revisionAnchor();
         scheduleRevisionPaint();
