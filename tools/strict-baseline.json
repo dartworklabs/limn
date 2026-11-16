@@ -103,8 +103,9 @@
       "src/limn/viewer/js/revisions/input.ts": 7,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 49,
       "src/limn/viewer/js/text/view.ts": 1,
-      "src/limn/viewer/js/verdict/flow-line.ts": 91,
+      "src/limn/viewer/js/verdict/flow-line.ts": 87,
       "src/limn/viewer/js/verdict/flow-reason.ts": 47,
+      "src/limn/viewer/js/verdict/view-far-lines.ts": 4,
       "src/limn/viewer/js/verdict/view-panel.ts": 16,
       "src/limn/viewer/js/verdict/view-pins.ts": 5
     },
@@ -197,8 +198,9 @@
       "src/limn/viewer/js/revisions/input.ts": 7,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 23,
       "src/limn/viewer/js/text/view.ts": 5,
-      "src/limn/viewer/js/verdict/flow-line.ts": 52,
+      "src/limn/viewer/js/verdict/flow-line.ts": 51,
       "src/limn/viewer/js/verdict/flow-reason.ts": 31,
+      "src/limn/viewer/js/verdict/view-far-lines.ts": 1,
       "src/limn/viewer/js/verdict/view-panel.ts": 8
     },
     "@typescript-eslint/no-unsafe-assignment": {
@@ -267,8 +269,9 @@
       "src/limn/viewer/js/revisions/input.ts": 25,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 42,
       "src/limn/viewer/js/text/view.ts": 4,
-      "src/limn/viewer/js/verdict/flow-line.ts": 91,
+      "src/limn/viewer/js/verdict/flow-line.ts": 87,
       "src/limn/viewer/js/verdict/flow-reason.ts": 64,
+      "src/limn/viewer/js/verdict/view-far-lines.ts": 4,
       "src/limn/viewer/js/verdict/view-panel.ts": 9,
       "src/limn/viewer/js/verdict/view-pins.ts": 3
     },
@@ -406,8 +409,9 @@
       "src/limn/viewer/js/revisions/input.ts": 104,
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 119,
       "src/limn/viewer/js/text/view.ts": 7,
-      "src/limn/viewer/js/verdict/flow-line.ts": 195,
+      "src/limn/viewer/js/verdict/flow-line.ts": 194,
       "src/limn/viewer/js/verdict/flow-reason.ts": 111,
+      "src/limn/viewer/js/verdict/view-far-lines.ts": 1,
       "src/limn/viewer/js/verdict/view-panel.ts": 28,
       "src/limn/viewer/js/verdict/view-pins.ts": 3
     },

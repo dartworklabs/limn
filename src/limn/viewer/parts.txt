@@ -100,6 +100,7 @@ js/composer/flow-save.ts               # saving a pin, appending to one, the que
 js/offline/flow.ts                     # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
 js/offline/view.ts                     # the queued pins on screen: their marks on the page, their rows in the panel
 js/verdict/view-pins.ts                # a verdict pin as the lists draw it: what it is about, its order among one target's verdicts, its badges
+js/verdict/view-far-lines.ts           # the page verdict lines far from the view, which the browser skips until they come near
 js/verdict/flow-line.ts                # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
 js/verdict/flow-reason.ts              # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
 js/verdict/view-panel.ts               # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
