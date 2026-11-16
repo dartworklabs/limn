@@ -1003,7 +1003,7 @@ class PanelEdges(PanelBase):
     def release_never_comes(self, name, code):
         """As above, but the Enter's keyup never comes while the field keeps the focus (an input method may keep the
         release); name and code: what the browser says of the key the input method takes (ime_key_down), code '' also
-        for the one handed on. On the page's clock the lines stay beside the pages until core.js IME_HOLD_MS has passed
+        for the one handed on. On the page's clock the lines stay beside the pages until app/state.ts IME_HOLD_MS has passed
         with no event of that key - 1 ms short of it they are there - and move at it, at once: the field under the page
         has the focus and '묶이는 이유', nothing written. Held until that key's release, the lines stayed beside the pages
         for good; let go at the bound with nothing looking again then, they waited for the next drawing."""
@@ -2098,7 +2098,7 @@ class StatusLineAction(PanelBase):
 
 
 LINE_TEXT = "()=>{const s=document.querySelector('#status'),t=s&&s.querySelector('.st-tx'); return s&&!s.hidden&&t?t.textContent:'';}"
-# The messages that say an answer is late (one of an action's, notices.js noticeLate), and the failures said, anywhere.
+# The messages that say an answer is late (one of an action's, platform/notices.ts noticeLate), and the failures said, anywhere.
 LATE = "()=>[...NOTICES.values()].filter(n=>/의 답이 늦습니다|: no answer yet/.test(n.title)).map(n=>n.title+(n.desc?' · '+n.desc:''))"
 ERRORS = "()=>[...NOTICES.values()].filter(n=>n.kind===NOTICE_KIND.ERR).length"
 # The status line's width, and how far left of the text box's visible end (less an ellipsis) the text's first p characters

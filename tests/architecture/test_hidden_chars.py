@@ -1,6 +1,6 @@
 """The viewer and pins.md name the same characters as hiding or reordering text (ADR-0029 D5, D7).
 
-The viewer marks them wherever it shows a source's or a suggestion's text (src/limn/viewer/js/hidden-chars.ts
+The viewer marks them wherever it shows a source's or a suggestion's text (src/limn/viewer/js/platform/hidden-chars.ts
 HIDDEN_RANGES), and pins.md flags a suggestion that adds one to its base (limn.pins.suggestion.HIDDEN_RANGES). The two
 languages keep their own copy of the table; this test keeps the copies equal, and checks the Python one over every code
 point, so a character the person is warned about is the one the agent is told to confirm.
@@ -16,7 +16,7 @@ from limn.pins.suggestion import HIDDEN_RANGES, Suggestion, hidden_added
 
 from helpers_js import module_code, module_text
 
-PART = Path(__file__).resolve().parents[2] / "src" / "limn" / "viewer" / "js" / "hidden-chars.ts"
+PART = Path(__file__).resolve().parents[2] / "src" / "limn" / "viewer" / "js" / "platform" / "hidden-chars.ts"
 
 
 class HiddenCharacterTables(unittest.TestCase):

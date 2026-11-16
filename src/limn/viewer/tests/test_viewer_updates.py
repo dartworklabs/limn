@@ -1,4 +1,4 @@
-"""What came while a person was viewing (docs/handbook/viewer.md §새 소식, js/updates.js, notices.js groupNote and the gathering).
+"""What came while a person was viewing (docs/handbook/viewer.md §새 소식, js/documents/flow-updates.ts, platform/notices.ts groupNote and the gathering).
 
 The pure rules - the changed lines of a redrawn source, the commits a document's update names and their PR numbers, others'
 new pins, the gathered line, how long a person was away, the status item of a newer Limn - run under node with the served
@@ -42,7 +42,7 @@ def node_json(names, body, lang="ko"):
 
 
 class PureRules(unittest.TestCase):
-    """The decisions of updates.js and of the status item it adds, under node."""
+    """The decisions of documents/flow-updates.ts and of the status item it adds, under node."""
 
     def setUp(self):
         node_or_skip(self)

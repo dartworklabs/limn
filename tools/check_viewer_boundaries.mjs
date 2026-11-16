@@ -5,8 +5,7 @@
 //   js/<feature>/<role>.ts or js/<feature>/<role>-<topic>.ts   a module of a feature
 //   js/platform/<name>.ts                                      a shared mechanism (feature platform, role lib)
 //   js/main.ts                                                 the entry point (feature entry, role main)
-// The 57 modules the conversion left flat (js/<name>.ts) are not in place yet: LEGACY below says their feature and
-// role instead, and each counts once as `unplaced` until it moves. A flat module LEGACY does not name is an error.
+// A module anywhere else (flat in js/, deeper, or in a folder that is not a feature) has no place: the check fails.
 //
 // The rules, over every import of every module listed in parts.txt (__APP_JS__):
 //   cycle               the import closes a cycle of modules (its target reaches the importer again)
@@ -16,16 +15,15 @@
 //   role                a rules module imports anything but rules of its feature or platform; a state or api module
 //                       anything but rules or state of its feature, app's shared state or platform; any module
 //                       imports the entry point
-//   unplaced            the module is a LEGACY flat file, not in its feature folder
 // These count per importing module (per imported module for the import rules). tools/strict_ratchet.py holds every
 // count to tools/strict-baseline.json, which only goes down: a new violation fails, and so does a count that fell
 // without the baseline being lowered. A mistake in the tables here (an unknown feature or role, an ALLOWED direction
-// without a reason, two directions between one pair, a cycle among the ALLOWED directions, a LEGACY entry for a file
-// that is gone) fails the check outright.
+// without a reason, two directions between one pair, a cycle among the ALLOWED directions, a module with no place)
+// fails the check outright.
 //
 // Run: node tools/check_viewer_boundaries.mjs          (the violations, by rule and module)
 //      node tools/check_viewer_boundaries.mjs --json   ({rule: {module path: count}} for the ratchet)
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAst } from 'rollup/parseAst';
@@ -49,7 +47,7 @@ export const ROLES = {
 /** The features, bottom to top, and what each owns. Platform and entry are not features but the two ends. */
 export const FEATURES = {
   platform: 'business-agnostic mechanisms: DOM markup, messages and language, requests, preferences, notices, tooltips',
-  app: "the page's shared state and the closed value tables (core.js), until each value moves to the feature that owns it",
+  app: "the page's shared state and the closed value tables (app/state.ts), until each value moves to the feature that owns it",
   layout: 'the frame: widths, the panel and sheet, their gestures',
   documents: 'which document is open, its meta and builds, the status line, switching and refreshing',
   pdf: "a PDF document's pages: opening, drawing, zoom, outline, page list, search, selection",
@@ -108,68 +106,7 @@ export const ALLOWED = [
   ['entry', ANY, 'the entry point wires every feature: the click and key dispatch call each feature'],
 ];
 
-// The flat modules not yet in their feature folder: [feature, role], from what each does (parts.txt says it in a line).
-export const LEGACY = {
-  'js/core.ts': ['app', 'state'],
-  'js/markup.ts': ['platform', 'lib'],
-  'js/hidden-chars.ts': ['platform', 'lib'],
-  'js/i18n.ts': ['platform', 'lib'],
-  'js/prefs.ts': ['platform', 'lib'],
-  'js/api.ts': ['platform', 'lib'],
-  'js/notices.ts': ['platform', 'lib'],
-  'js/tooltip.ts': ['platform', 'lib'],
-  'js/doc-tabs.ts': ['documents', 'view'],
-  'js/revisions.ts': ['revisions', 'flow'],
-  'js/doc-switch.ts': ['documents', 'flow'],
-  'js/boot.ts': ['documents', 'flow'],
-  'js/polling.ts': ['documents', 'api'],
-  'js/notify.ts': ['documents', 'flow'],
-  'js/build-chip.ts': ['documents', 'view'],
-  'js/updates.ts': ['documents', 'flow'],
-  'js/status.ts': ['documents', 'view'],
-  'js/panel-size.ts': ['layout', 'state'],
-  'js/pages.ts': ['pdf', 'view'],
-  'js/pdf-open.ts': ['pdf', 'api'],
-  'js/outline.ts': ['pdf', 'view'],
-  'js/page-list.ts': ['pdf', 'view'],
-  'js/pdf-draw.ts': ['pdf', 'view'],
-  'js/search.ts': ['pdf', 'flow'],
-  'js/revision-zoom.ts': ['revisions', 'input'],
-  'js/zoom.ts': ['pdf', 'input'],
-  'js/layout.ts': ['layout', 'flow'],
-  'js/gestures.ts': ['layout', 'input'],
-  'js/selection.ts': ['pdf', 'input'],
-  'js/levels.ts': ['composer', 'view'],
-  'js/excerpt.ts': ['composer', 'view'],
-  'js/figure.ts': ['pdf', 'view'],
-  'js/md-surface.ts': ['markdown', 'view'],
-  'js/text-surface.ts': ['text', 'view'],
-  'js/md-compare.ts': ['revisions', 'view'],
-  'js/suggest.ts': ['composer', 'flow'],
-  'js/composer.ts': ['composer', 'flow'],
-  'js/draft.ts': ['composer', 'state'],
-  'js/save.ts': ['composer', 'api'],
-  'js/offline.ts': ['offline', 'api'],
-  'js/offline-ui.ts': ['offline', 'view'],
-  'js/verdict.ts': ['verdict', 'flow'],
-  'js/verdict-reason.ts': ['verdict', 'flow'],
-  'js/verdict-panel.ts': ['verdict', 'view'],
-  'js/sel-popover.ts': ['composer', 'view'],
-  'js/card-parts.ts': ['pins', 'view'],
-  'js/cards.ts': ['pins', 'view'],
-  'js/review-pick.ts': ['pins', 'flow'],
-  'js/list.ts': ['pins', 'flow'],
-  'js/marks-hide.ts': ['pins', 'input'],
-  'js/actions.ts': ['pins', 'api'],
-  'js/mentions.ts': ['pins', 'input'],
-  'js/reply.ts': ['pins', 'flow'],
-  'js/edit.ts': ['pins', 'flow'],
-  'js/repick.ts': ['composer', 'flow'],
-  'js/rebuild.ts': ['documents', 'flow'],
-  'js/events.ts': ['entry', 'main'],
-};
-
-export const RULES = ['cycle', 'feature-dependency', 'platform-isolation', 'role', 'unplaced'];
+export const RULES = ['cycle', 'feature-dependency', 'platform-isolation', 'role'];
 
 /** The modules parts.txt lists under __APP_JS__, as viewer-relative paths, in order. */
 export function listedModules(viewer = VIEWER) {
@@ -188,29 +125,26 @@ export function listedModules(viewer = VIEWER) {
 }
 
 /**
- * The feature and role of a module path, from its place or, for a flat module, from legacy; null for a flat module
- * legacy does not name.
+ * The feature and role of a module path, from its place; null for a path that is no place.
  * @param {string} path a viewer-relative path such as js/pins/view-cards.ts
- * @param {Record<string, string[]>} legacy
- * @returns {{feature: string, role: string, placed: boolean} | null}
+ * @returns {{feature: string, role: string} | null}
  */
-export function placeOf(path, legacy = LEGACY) {
+export function placeOf(path) {
   const parts = path.split('/');
-  if (parts.length === 2 && parts[1] === 'main.ts') return { feature: 'entry', role: 'main', placed: true };
-  if (parts.length === 3 && parts[1] === 'platform') return { feature: 'platform', role: 'lib', placed: true };
-  if (parts.length === 3) {
-    const role = parts[2].replace(/\.ts$/, '').split('-')[0];
-    return { feature: parts[1], role, placed: true };
+  if (parts[0] !== 'js') return null;
+  if (parts.length === 2 && parts[1] === 'main.ts') return { feature: 'entry', role: 'main' };
+  if (parts.length === 3 && parts[1] === 'platform') return { feature: 'platform', role: 'lib' };
+  if (parts.length === 3 && parts[2].endsWith('.ts')) {
+    return { feature: parts[1], role: parts[2].replace(/\.ts$/, '').split('-')[0] };
   }
-  const known = legacy[path];
-  return known ? { feature: known[0], role: known[1], placed: false } : null;
+  return null;
 }
 
 /**
  * The tables' own mistakes, as messages ([] when they are sound).
- * @param {{allowed: string[][], legacy: Record<string, string[]>, modules: string[], viewer: string}} t
+ * @param {{allowed: string[][], modules: string[]}} t
  */
-export function tableErrors({ allowed, legacy, modules, viewer }) {
+export function tableErrors({ allowed, modules }) {
   const errors = [];
   const features = new Set(Object.keys(FEATURES));
   const pairs = new Set();
@@ -238,15 +172,12 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
     stack.delete(f);
   };
   for (const f of next.keys()) visit(f);
-  for (const [path, [feature, role]] of Object.entries(legacy)) {
-    if (!features.has(feature) || !(role in ROLES))
-      errors.push(`LEGACY ${path}: unknown feature or role ${feature}/${role}`);
-    if (!existsSync(join(viewer, path))) errors.push(`LEGACY ${path}: no such file - take its line out`);
-  }
   for (const path of modules) {
-    const place = placeOf(path, legacy);
+    const place = placeOf(path);
     if (!place) {
-      errors.push(`${path}: a flat module LEGACY does not name - put it in js/<feature>/<role>.ts`);
+      errors.push(
+        `${path}: no place - put it in js/<feature>/<role>.ts, js/<feature>/<role>-<topic>.ts, js/platform/<name>.ts or js/main.ts`,
+      );
       continue;
     }
     if (!features.has(place.feature)) errors.push(`${path}: unknown feature ${place.feature}`);
@@ -337,16 +268,15 @@ function components(graph) {
  * modules import, each with the platform modules on the way.
  * @param {Map<string, string[]>} graph
  * @param {string} start
- * @param {Record<string, string[]>} legacy
  * @returns {Array<[string, string[]]>}
  */
-function reachedThroughPlatform(graph, start, legacy) {
+function reachedThroughPlatform(graph, start) {
   const out = [],
     seen = new Set([start]),
     queue = [[start, []]];
   while (queue.length) {
     const [module, via] = queue.shift();
-    const place = placeOf(module, legacy);
+    const place = placeOf(module);
     if (!place) continue;
     if (place.feature !== 'platform') {
       out.push([module, via]);
@@ -365,30 +295,29 @@ function reachedThroughPlatform(graph, start, legacy) {
 /**
  * Every violation of graph, as [rule, importing module, message].
  * @param {Map<string, string[]>} graph
- * @param {{allowed?: string[][], legacy?: Record<string, string[]>}} [tables]
+ * @param {{allowed?: string[][]}} [tables]
  * @returns {Array<[string, string, string]>}
  */
-export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
+export function violations(graph, { allowed = ALLOWED } = {}) {
   const out = [];
   const comp = components(graph);
   const may = (from, to) =>
     from === to || to === 'platform' || allowed.some(([a, b]) => (a === ANY || a === from) && (b === ANY || b === to));
   for (const [path, targets] of graph) {
-    const place = placeOf(path, legacy);
+    const place = placeOf(path);
     if (!place) continue;
-    if (!place.placed) out.push(['unplaced', path, `${path} belongs in js/${place.feature}/${place.role}.ts (LEGACY)`]);
     for (const target of targets) {
-      const to = placeOf(target, legacy);
+      const to = placeOf(target);
       if (!to) continue;
       if (comp.get(target) === comp.get(path)) out.push(['cycle', path, `${path} -> ${target} closes a cycle`]);
       if (place.feature === 'platform') {
         // Paths count, not only direct imports: a platform module that reaches a feature through other platform
         // modules depends on it as much as the one that imports it.
-        for (const [reached, via] of reachedThroughPlatform(graph, target, legacy)) {
+        for (const [reached, via] of reachedThroughPlatform(graph, target)) {
           out.push([
             'platform-isolation',
             path,
-            `${path} (platform) reaches ${reached} (${placeOf(reached, legacy).feature})${via.length ? ' through ' + via.join(' -> ') : ''}`,
+            `${path} (platform) reaches ${reached} (${placeOf(reached).feature})${via.length ? ' through ' + via.join(' -> ') : ''}`,
           ]);
         }
       } else if (!may(place.feature, to.feature)) {
@@ -437,7 +366,7 @@ export function counts(found) {
 
 function main(argv) {
   const modules = listedModules();
-  const errors = tableErrors({ allowed: ALLOWED, legacy: LEGACY, modules, viewer: VIEWER });
+  const errors = tableErrors({ allowed: ALLOWED, modules });
   if (errors.length) {
     for (const e of errors) console.error(e);
     return 2;

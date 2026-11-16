@@ -34,9 +34,9 @@ class RepickRequestLifetime(unittest.TestCase):
                 function docInfo(k){return k==='other';}
                 function withDocQuery(path,k){return path+'?doc='+k;}
                 function clearPendingSave(){COMPOSE.pendingSave=false;clears++;} function applySide(){} function applySheet(){} function translateTemplate(s){return s;}
-                function saveDraftSoon(){} function endTopic(){} function renderVerdictRow(){}   // the verdict row (verdict.js)
-                function closeSelectionPopover(){} function drawSelectionPopover(){} function isSelectionPopoverOpen(){return false;}   // the note popover by the box (sel-popover.js)
-                function markChosenLines(){} function shownChoice(){return null;}   // the chosen lines on the Markdown surface (md-surface.js)
+                function saveDraftSoon(){} function endTopic(){} function renderVerdictRow(){}   // the verdict row (verdict/flow-line.ts)
+                function closeSelectionPopover(){} function drawSelectionPopover(){} function isSelectionPopoverOpen(){return false;}   // the note popover by the box (composer/view-selection-popover.ts)
+                function markChosenLines(){} function shownChoice(){return null;}   // the chosen lines on the Markdown surface (markdown/view.ts)
                 function errText(d){return d.error;}
                 function levelOf(){return null;} function isRegion(){return false;}
                 function scopeLabel(){return '';} function levelLabel(){return '';}
@@ -53,9 +53,9 @@ class RepickRequestLifetime(unittest.TestCase):
                 extract_js_fn("cancelRepick"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("startRepick"),
-                JS_OFFLINE_STUBS + extract_js_fn("pick"),  # connected: a new selection asks the server (offline.js)
+                JS_OFFLINE_STUBS + extract_js_fn("pick"),  # connected: a new selection asks the server (offline/api.ts)
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 scenario,
             ]
         )

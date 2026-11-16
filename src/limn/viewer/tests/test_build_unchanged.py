@@ -21,12 +21,12 @@ UNCHANGED = {"ko": "변경 없음", "en": "No changes"}
 
 
 def transient_ms() -> str:
-    """The viewer's `const STATUS_TRANSIENT_MS=...;` (status.js) as the page declares it."""
+    """The viewer's `const STATUS_TRANSIENT_MS=...;` (documents/view-status.ts) as the page declares it."""
     return js_const("STATUS_TRANSIENT_MS")
 
 
 def tooltip_table() -> str:
-    """The viewer's `const TIP_TEXT={...};` (core.js) as the page declares it."""
+    """The viewer's `const TIP_TEXT={...};` (app/state.ts) as the page declares it."""
     return js_const("TIP_TEXT")
 
 

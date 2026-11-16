@@ -218,7 +218,7 @@ MONO_FALLBACK = (
     "s.replaceSync(':root:root{--font-sans:\"Pretendard Variable\",monospace}');"
     "document.adoptedStyleSheets=[...document.adoptedStyleSheets,s];});"
 )
-# What the viewer measured from text: the sheet bar's step and [더보기]'s foot ink line (layout.js fitBarWords, footInk).
+# What the viewer measured from text: the sheet bar's step and [더보기]'s foot ink line (layout/flow.ts fitBarWords, footInk).
 MEASURED = """() => {const f = document.querySelector('#more-foot').style;
   return {bar: ['bar-sel-icon', 'bar-snug', 'bar-tight'].filter(c => document.querySelector('#bar1').classList.contains(c)),
     foot: ['--ink-word', '--ink-ver', '--help-chev'].map(k => f.getPropertyValue(k))};}"""

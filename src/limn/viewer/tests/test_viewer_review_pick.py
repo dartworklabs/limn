@@ -913,10 +913,10 @@ class ReviewPickOutcome(unittest.TestCase):
 
 
 def open_review_pick():
-    """The code of review-pick.ts, its types taken out (helpers_js.module_text)."""
+    """The code of pins/flow-review-pick.ts, its types taken out (helpers_js.module_text)."""
     from pathlib import Path
 
-    return helpers_js.module_text(Path(__file__).resolve().parents[1] / "js" / "review-pick.ts")
+    return helpers_js.module_text(Path(__file__).resolve().parents[1] / "js" / "pins" / "flow-review-pick.ts")
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""The queue of pins made while cut off, and how it is sent (js/offline.js).
+"""The queue of pins made while cut off, and how it is sent (js/offline/api.ts).
 
 The served functions are pulled and run under node with the queue and the server stubbed, so what these tests exercise
 is the shipped code. What they protect is the one promise of the feature: a kept pin is dropped only once its pin is on
@@ -17,7 +17,7 @@ from helpers import extract_js_fn, run_node
 # The page scope a pulled offline function reads: the queue (an array standing in for IndexedDB), the server (api), the
 # list the dedup judgment reads, and the messages. Every call is recorded so a test can say what went out and in which order.
 SCOPE = r"""
-var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000};   // api.js: how long a request waits (the real waits are test_viewer_offline_live's)
+var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000};   // platform/api.ts: how long a request waits (the real waits are test_viewer_offline_live's)
 var POLL_FAILS=0,DEFAULT_DOC='main',DOC='main',META={label:'inst',pages_build:'pages-20261114T090000',pages:[],built_at:'t'};
 var OFF_STATE='state',OFF_WROTE='wrote',OFF_WROTE_MAX=500,STATE=new Map();
 function offIn(store,mode,fn){const s={put:function(v){STATE.set(v.key,v); return {};},
@@ -560,7 +560,7 @@ function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); retur
 
 
 class StoredAnswers(unittest.TestCase):
-    """What may be stored for a reopened tab, and what may be served from the store (offline.js offStash/offStashed).
+    """What may be stored for a reopened tab, and what may be served from the store (offline/api.ts offStash/offStashed).
 
     api() hands its caller the answers it says it expects without throwing, and a read may expect a refusal: a Markdown
     document past the drawing limit answers 413 with its reason. Such an answer is not the document. Stored, the next
@@ -755,7 +755,7 @@ function endNotice(n){ENDED.push(n.msg);}
 function offStash(){}
 // The store holds one good answer to the pin read.
 function offStashed(url){return Promise.resolve(url==='/api/pins?all=1'?{data:['stored'],status:200,at:0}:null);}
-var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;   // api.js's own, beside api()
+var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;   // platform/api.ts's own, beside api()
 function offReadKey(url,o){return (!o||!o.method||o.method==='GET')&&url==='/api/pins?all=1'?url:null;}   // the one read with a store here
 // What fetch does: 'down' rejects as a lost connection does, 'up' answers, 'mute' neither - the request waits until
 // its signal ends it, and for ever if it was given none (a tailnet with no internet behind it), 'half' answers with a
@@ -772,7 +772,7 @@ function read(){return api('/api/pins?all=1',{what:'핀 읽기'}).then(function(
 
 
 class StoredReadsServe(unittest.TestCase):
-    """When a stored answer may stand in for a read the network refused (api.js, offline.js offlineMayServe).
+    """When a stored answer may stand in for a read the network refused (platform/api.ts, offline/api.ts offlineMayServe).
 
     Answered from the store whenever a read failed, a failure while the viewer was connected read as a success: the
     pin list stayed stale with no '핀 읽기 실패' and nothing asked again, and a Markdown source's note and its re-ask
@@ -871,7 +871,7 @@ class StoredReadsServe(unittest.TestCase):
 
 
 class OfflineQuote(unittest.TestCase):
-    """The words a drag made with no network lies on, read from the PDF already open (offline.js quoteIn)."""
+    """The words a drag made with no network lies on, read from the PDF already open (offline/api.ts quoteIn)."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -921,7 +921,7 @@ function mdrec(id,lo,text){return {id:id,v:1,label:'inst',doc:'notes',build:'',p
 
 class LinePins(unittest.TestCase):
     """A Markdown or text document's kept pin: its lines are its place, and they are written where they read the same
-    now (offline.js linesWhere, offlinePlaceLines). Without this such a pin had no box to pick with and was always held."""
+    now (offline/api.ts linesWhere, offlinePlaceLines). Without this such a pin had no box to pick with and was always held."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -1080,7 +1080,7 @@ class KeyedSend(unittest.TestCase):
 
     def test_a_key_the_server_does_not_know_takes_the_attempt_mark_off(self):
         """The server says no pin was made by this key, and the place is gone too: the record is held, and it is no
-        longer one that may be on the server - which is what lets [다시 찍기] take it back (offline-ui.js)."""
+        longer one that may be on the server - which is what lets [다시 찍기] take it back (offline/view.ts)."""
         got = self._run(
             """
             OFF.idem=true;
@@ -1262,15 +1262,15 @@ class KeyedSend(unittest.TestCase):
 
 
 def _shipped_const(name):
-    """The line of offline.js declaring name - the constants a pulled function reads, as shipped."""
-    src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline.ts")
+    """The line of offline/api.ts declaring name - the constants a pulled function reads, as shipped."""
+    src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline" / "api.ts")
     return helpers_js.module_declaration(src, name)
 
 
 # The page scope the follow runs in: the kept record and the queue (stand-ins for the state store and the pins store), the
 # worker's cache, the server (meta per document, holds) and the clock. LOG says what went out, in order.
 FOLLOW_SCOPE = r"""
-var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000};   // api.js: how long a request waits (the real waits are test_viewer_offline_live's)
+var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000};   // platform/api.ts: how long a request waits (the real waits are test_viewer_offline_live's)
 var NOW=1800000000000; Date.now=function(){return NOW;};
 var ONLINE=true; function offlineNow(){return !ONLINE;}
 var DOC='main',OFF_STATE='state';
@@ -1370,7 +1370,7 @@ FOLLOW_FUNCTIONS = (
 
 
 class KeptCopyFollows(unittest.TestCase):
-    """A kept copy keeps itself current while connected (offline.js offlineFollow, docs/handbook/viewer.md
+    """A kept copy keeps itself current while connected (offline/api.ts offlineFollow, docs/handbook/viewer.md
     §끊긴 채 보기와 핀 쌓기 '스스로 최신으로').
 
     What it protects: a person who pressed [오프라인으로 받기] once flies with the build the server is on, held - without
@@ -1912,7 +1912,7 @@ class WorkerDrop(unittest.TestCase):
 
 
 class KeptRecord(unittest.TestCase):
-    """The pure rules the follow stands on (offline.js offFree, offKeptWith, offBehind)."""
+    """The pure rules the follow stands on (offline/api.ts offFree, offKeptWith, offBehind)."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -1997,7 +1997,7 @@ class KeptRecord(unittest.TestCase):
 
 
 class OfflineKeys(unittest.TestCase):
-    """The key a kept pin is sent with (offline.js offlineKey), and the files a document needs (offlineDocFiles)."""
+    """The key a kept pin is sent with (offline/api.ts offlineKey), and the files a document needs (offlineDocFiles)."""
 
     def setUp(self):
         if not shutil.which("node"):
@@ -2054,8 +2054,8 @@ class OfflineKeys(unittest.TestCase):
         self.assertEqual((got["same"], got["kept"], got["none"]), (True, True, ""))
 
     def test_a_documents_files_are_the_addresses_the_viewer_asks_for(self):
-        """A copy is found again by its address, so these must be the ones openVectorDocument and pageSrc build (pdf-open.js,
-        pages.js) for that document: the PDF with its build and built_at, each page under its build, both with ?doc=."""
+        """A copy is found again by its address, so these must be the ones openVectorDocument and pageSrc build (pdf/api.ts,
+        pdf/view-pages.ts) for that document: the PDF with its build and built_at, each page under its build, both with ?doc=."""
         js = "\n".join(
             [
                 extract_js_fn("withDocQuery"),
@@ -2080,7 +2080,7 @@ class OfflineKeys(unittest.TestCase):
 
 
 class StoredReads(unittest.TestCase):
-    """Which reads are stored for a reopened tab with no network (offline.js OFF_READS).
+    """Which reads are stored for a reopened tab with no network (offline/api.ts OFF_READS).
 
     A tab the phone discarded comes back with no network and is drawn from the stored answers. loadPins() reads twice
     and applies neither snapshot unless both answered, so a read left out of the list does not merely go missing - it
@@ -2088,8 +2088,8 @@ class StoredReads(unittest.TestCase):
     """
 
     def off_reads(self):
-        """The paths offline.js stores, read from the shipped source."""
-        src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline.ts")
+        """The paths offline/api.ts stores, read from the shipped source."""
+        src = helpers_js.module_text(Path(__file__).resolve().parent.parent / "js" / "offline" / "api.ts")
         try:
             init = helpers_js.statement_init(helpers_js.module_declaration(src, "OFF_READS"), "OFF_READS")
         except (LookupError, ValueError):

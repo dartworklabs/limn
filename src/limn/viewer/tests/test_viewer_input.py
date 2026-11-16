@@ -671,7 +671,7 @@ class ViewerBase(BrowserBase):
 
     def tap(self, cdp, x, y):
         """A short tap: down and up go out together. Sent one by one, a busy machine held the finger down past the tool bar's
-        press tip (tooltip.js), and a press that showed its tip swallows its click, so the tap did nothing."""
+        press tip (platform/tooltip.ts), and a press that showed its tip swallows its click, so the tap did nothing."""
         cdp.page.touchscreen.tap(x, y)
 
     @staticmethod

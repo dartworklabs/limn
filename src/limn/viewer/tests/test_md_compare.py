@@ -2,7 +2,7 @@
 common subsequence of two block lists, which blocks are one block changed in place, which moved, and the format a
 document's changes open in.
 
-The production part js/md-compare.js runs under node whole, as the page serves it, so every constant the rules read is
+The production part js/revisions/view-rendered-compare.ts runs under node whole, as the page serves it, so every constant the rules read is
 the served one. Units are plain objects with the fields compareUnits gives (tag, key, text, pics, lo, hi). The browser
 behaviour - drawing both sides, the marks, the layouts, a pin's blocks - is test_viewer_md_compare.py.
 
@@ -18,9 +18,9 @@ from helpers_js import module_code, module_text
 
 
 def served() -> str:
-    """js/md-compare.ts exactly as the page's script serves it (its types, import and export statements taken out), after
-    revisionFormatFor (revisions.js)."""
-    part = module_code(module_text(VIEWER / "js" / "md-compare.ts"))
+    """js/revisions/view-rendered-compare.ts exactly as the page's script serves it (its types, import and export statements taken out), after
+    revisionFormatFor (revisions/flow.ts)."""
+    part = module_code(module_text(VIEWER / "js" / "revisions" / "view-rendered-compare.ts"))
     assert part in HTML  # the build joins the modules' code byte for byte (tools/build_viewer.mjs)
     return extract_js_fn("revisionFormatFor") + "\n" + part
 

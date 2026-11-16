@@ -4,7 +4,7 @@ The composer's [제안 수정] switch and its editor, what a save sends and the 
 undo, a card's badge and line diff - with the line over it when the agent will not apply it - and the edit card that changes
 or removes a suggestion.
 
-- ``SuggestLogic`` runs the pure decisions of suggest.js under node.
+- ``SuggestLogic`` runs the pure decisions of composer/flow-suggest.ts under node.
 - ``SuggestFit`` holds the editor's fit on the touch sheets: the location line above the focused field with the keyboard
   up, and the tablet sheet's lift for an open editor (never saved, ended by switching off, saving or cancelling).
 - The browser classes drive the real viewer against the in-process server (helpers_browser.BrowserBase; /api/pick is
@@ -593,7 +593,7 @@ class SuggestCard(SuggestBase):
     def test_a_hidden_character_it_adds_is_marked_in_its_diff_and_the_editor_warns(self):
         """A LaTeX suggestion that adds an override and a tag (a supplementary character): the card's added row shows each
         in its box, the removed and common rows none; a draft that adds one turns the line under the editor to the warning
-        that names it - every document kind is marked alike (hidden-chars.js)."""
+        that names it - every document kind is marked alike (platform/hidden-chars.ts)."""
         self.add(note="", suggest={"base": PARA, "text": "First\u202e line.\U000e0041\nSecond line of the paragraph."})
         page = self.view(n_open=1)
         rows = page.evaluate(
@@ -1040,7 +1040,7 @@ class SuggestReadOnlyKeys(SuggestBase):
         page.click("#c-sg-tg")
         page.wait_for_function("()=>{const f=document.querySelector('#c-sg-text'); return !!f&&f.readOnly;}")
         page.focus("#c-sg-text")
-        # The sheet brings a focused field into view 350ms after the focus (layout.js, keepFieldInView). The read is held,
+        # The sheet brings a focused field into view 350ms after the focus (layout/flow.ts, keepFieldInView). The read is held,
         # so settle() would wait on it until its limit; this waits that one timer out instead.
         page.wait_for_timeout(500)
         page.evaluate("()=>{const R=document.querySelector('#right'); R.scrollTop=(R.scrollHeight-R.clientHeight)/2;}")

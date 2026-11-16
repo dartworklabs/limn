@@ -173,7 +173,7 @@ VIEWER_DIR = Path(__file__).resolve().parents[1]
 # and the refusal page (limn.web.errors).
 PAGE_SOURCES = [
     VIEWER_DIR / "index.html",
-    *sorted((VIEWER_DIR / "js").glob("*.ts")),
+    *sorted((VIEWER_DIR / "js").rglob("*.ts")),
     VIEWER_DIR / "assemble.py",
     VIEWER_DIR.parent / "web" / "errors.py",
 ]

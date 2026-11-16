@@ -29,7 +29,7 @@ A = actor(ALICE)
 
 
 class PureRules(unittest.TestCase):
-    """The decisions of notices.js and of the places that call it, run under node with the served functions."""
+    """The decisions of platform/notices.ts and of the places that call it, run under node with the served functions."""
 
     def setUp(self):
         """Skip without node."""

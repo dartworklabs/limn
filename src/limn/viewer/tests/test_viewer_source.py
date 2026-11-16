@@ -4,7 +4,7 @@ comments, and the closed-set tables the viewer compares states against.
 The parts under src/limn/viewer/js share one classic-script scope (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때), so a
 function nothing calls, a function declared twice, or a statement pasted after a `//` comment all parse and silently do
 the wrong thing. tests/support/helpers_js.py tokenizes the parts (strings, template literals, regexes, comments), which is what
-makes these checks exact. The closed sets (core.js: PIN_STATE, BUILD_STATE, ...) carry values that come from the API,
+makes these checks exact. The closed sets (app/state.ts: PIN_STATE, BUILD_STATE, ...) carry values that come from the API,
 so each is compared with the server's own Literal, tuple or producer (docs/handbook/viewer.md §닫힌 값 표).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_source.py
@@ -273,13 +273,13 @@ class DeadAndDoubledFunctions(unittest.TestCase):
         self.assertEqual(sorted(self.unreferenced(part_sources())), sorted(ENTRY_POINTS))
 
     def test_a_call_lost_to_a_comment_is_caught(self):
-        """The mentions.js accident planted again: with the call turned into comment text, mentionBadSettled is
+        """The pins/input-mentions.ts accident planted again: with the call turned into comment text, mentionBadSettled is
         reported as unreferenced."""
         sources = part_sources()
-        src = sources["js/mentions.ts"]
+        src = sources["js/pins/input-mentions.ts"]
         call = re.search(r"\n\s*(scan\.bad\s*=\s*mentionBadSettled\([^;]*\);)", src)
         self.assertIsNotNone(call)
-        sources["js/mentions.ts"] = src.replace(
+        sources["js/pins/input-mentions.ts"] = src.replace(
             call.group(0), " // the same hints " + " ".join(call.group(1).split()), 1
         )
         self.assertIn("mentionBadSettled", self.unreferenced(sources))
@@ -452,7 +452,7 @@ def raw_state_reads(sources: dict[str, str]) -> list[str]:
 
 
 class ClosedSets(unittest.TestCase):
-    """The frozen tables in core.js hold every value the viewer compares a state, status or mode against."""
+    """The frozen tables in app/state.ts hold every value the viewer compares a state, status or mode against."""
 
     def test_core_declares_exactly_the_known_sets(self):
         """A new table is classed here as the server's (and compared) or the viewer's own; none goes unchecked."""
@@ -476,8 +476,8 @@ class ClosedSets(unittest.TestCase):
         TABLE.MEMBER the parts name is a member of that table, and a planted misspelling is caught."""
         self.assertEqual(unknown_members(part_sources()), [])
         planted = dict(part_sources())
-        planted["js/list.ts"] += "const X=PIN_STATE.REVEIW;\n"
-        self.assertEqual(unknown_members(planted), ["js/list.ts: PIN_STATE.REVEIW"])
+        planted["js/pins/flow-list.ts"] += "const X=PIN_STATE.REVEIW;\n"
+        self.assertEqual(unknown_members(planted), ["js/pins/flow-list.ts: PIN_STATE.REVEIW"])
 
     def test_markup_values_are_members(self):
         """The changes view's tabs, the view switch and the composer's kind buttons send their data-* value into code
@@ -494,14 +494,16 @@ class ClosedSets(unittest.TestCase):
         one reading, PIN_STATE the one spelling. Both kinds of slip, planted, are caught."""
         self.assertEqual(raw_state_reads(part_sources()), [])
         planted = dict(part_sources())
-        planted["js/list.ts"] += "const a=PINS.filter(p=>!p.done),b=pinState(PINS[0])==='review';\n"
-        self.assertEqual(raw_state_reads(planted), ["js/list.ts: p.done", "js/list.ts: pinState(...)==='review'"])
+        planted["js/pins/flow-list.ts"] += "const a=PINS.filter(p=>!p.done),b=pinState(PINS[0])==='review';\n"
+        self.assertEqual(
+            raw_state_reads(planted), ["js/pins/flow-list.ts: p.done", "js/pins/flow-list.ts: pinState(...)==='review'"]
+        )
 
     def test_band_mode_maps_every_band_and_only_the_bands_to_a_layout_mode(self):
-        """BAND_MODE (core.js) gives LAYOUT for the band in use: its keys are exactly LAYOUT_BAND's members and its values
+        """BAND_MODE (app/state.ts) gives LAYOUT for the band in use: its keys are exactly LAYOUT_BAND's members and its values
         LAYOUT_MODE's, so a band added to one table without the other fails here, not on a device."""
         node_or_skip(self)
-        src = helpers_js.module_text(VIEWER / "js" / "core.ts")
+        src = helpers_js.module_text(VIEWER / "js" / "app" / "state.ts")
         line = helpers_js.module_declaration(src, "BAND_MODE")
         js = (
             helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, line)

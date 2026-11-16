@@ -36,60 +36,60 @@ css/text-surface.css    # the text surface: a text document's monospace lines, t
 css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column, block and word marks, gutter chips
 
 __APP_JS__
-js/core.ts              # DOM helpers, icons, shared state and its setters, the tooltip texts (TIP_TEXT)
-js/markup.ts            # html``, lucideIcon() and setHtml(): markup with every value escaped, and its one sink
-js/hidden-chars.ts      # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
-js/i18n.ts              # UI language: translate/translateTemplate/translateMessage, API error and pick warning text, the English observer
-js/prefs.ts             # per-device preferences (pinPrefs), list-section state, theme
-js/api.ts               # api() and how a failed request is said, copy
-js/notices.ts           # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends
-js/tooltip.ts           # hover/focus tooltips, the touch long-press tooltip, explanations for screen readers
-js/doc-tabs.ts          # several documents: the list, tabs and links
-js/revisions.ts         # the changes view: source diff, comparison PDF, [변경 보기] from a pin
-js/doc-switch.ts        # the documents sheet, remembered view positions, switching documents
-js/boot.ts              # boot() and the header: meta, stale and sync badges, viewer role
-js/polling.ts           # meta polling, other documents' builds, status-line messages for pins changed elsewhere
-js/notify.ts            # browser notifications and pin links (#doc=&pin=)
-js/build-chip.ts        # build progress polling and its chip
-js/updates.ts           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
-js/status.ts            # the status line: its items, text, progress bar and place per band
-js/panel-size.ts        # outline width, panel width and sheet height, their presets
-js/pages.ts             # the page elements, page width and zoom steps, page jump
-js/pdf-open.ts          # PDF.js: loading, the document cache, opening the current build
-js/outline.ts           # the PDF outline and the section strip
-js/page-list.ts         # the page list: the page counts' popover and the navigation sheet's page rows
-js/pdf-draw.ts          # PDF.js: canvases, what to draw next, rendering pages
-js/search.ts            # in-document text search: reading page text, matching, the field per layout, hit boxes
-js/revision-zoom.ts     # Comparison PDF geometry, rendering and input
-js/zoom.ts              # PDF-area zoom input: Ctrl+wheel, pinch, keys
-js/layout.ts            # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
-js/gestures.ts          # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
-js/selection.ts         # drag and quick selection on the PDF, double-tap zoom
-js/levels.ts            # the range ladder, line nudges, source snippets, the location-confidence badge
-js/excerpt.ts           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
-js/figure.ts            # figure documents: the chosen element's box and path
-js/md-surface.ts        # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
-js/text-surface.ts      # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
-js/md-compare.ts        # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
-js/suggest.ts           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
-js/composer.ts          # pick() and the composer: overlap banner, kind, question hint, discard and restore
-js/draft.ts             # the composer draft kept per tab (sessionStorage)
-js/save.ts              # saving a pin, appending to one, the queued save
-js/offline.ts           # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
-js/offline-ui.ts        # the queued pins on screen: their marks on the page, their rows in the panel
-js/verdict.ts           # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
-js/verdict-reason.ts    # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
-js/verdict-panel.ts     # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
-js/sel-popover.ts       # the note popover by the selection box (mouse layouts)
-js/card-parts.ts        # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
-js/cards.ts             # the open and review card, archive and Trash rows, the Trash dialog
-js/review-pick.ts       # confirming several pins awaiting review from their result rows (ADR-0035)
-js/list.ts              # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
-js/marks-hide.ts        # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
-js/actions.ts           # close, confirm, reopen, drop, purge, restore, unclaim
-js/mentions.ts          # @-tag autocomplete, preview and the assignee choice
-js/reply.ts             # the reply box and its outcome line
-js/edit.ts              # the edit card
-js/repick.ts            # re-placing a pin's location
-js/rebuild.ts           # view anchors, refreshing the document, the build error panel, rebuild
-js/events.ts            # help dialog, the click and key dispatch, and the call to boot()
+js/app/state.ts                        # DOM helpers, icons, shared state and its setters, the tooltip texts (TIP_TEXT)
+js/platform/markup.ts                  # html``, lucideIcon() and setHtml(): markup with every value escaped, and its one sink
+js/platform/hidden-chars.ts            # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
+js/platform/i18n.ts                    # UI language: translate/translateTemplate/translateMessage, API error and pick warning text, the English observer
+js/platform/prefs.ts                   # per-device preferences (pinPrefs), list-section state, theme
+js/platform/api.ts                     # api() and how a failed request is said, copy
+js/platform/notices.ts                 # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends
+js/platform/tooltip.ts                 # hover/focus tooltips, the touch long-press tooltip, explanations for screen readers
+js/documents/view-tabs.ts              # several documents: the list, tabs and links
+js/revisions/flow.ts                   # the changes view: source diff, comparison PDF, [변경 보기] from a pin
+js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents
+js/documents/flow-boot.ts              # boot() and the header: meta, stale and sync badges, viewer role
+js/documents/api.ts                    # meta polling, other documents' builds, status-line messages for pins changed elsewhere
+js/documents/flow-notification.ts      # browser notifications and pin links (#doc=&pin=)
+js/documents/view-build-chip.ts        # build progress polling and its chip
+js/documents/flow-updates.ts           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
+js/documents/view-status.ts            # the status line: its items, text, progress bar and place per band
+js/layout/state.ts                     # outline width, panel width and sheet height, their presets
+js/pdf/view-pages.ts                   # the page elements, page width and zoom steps, page jump
+js/pdf/api.ts                          # PDF.js: loading, the document cache, opening the current build
+js/pdf/view-outline.ts                 # the PDF outline and the section strip
+js/pdf/view-page-list.ts               # the page list: the page counts' popover and the navigation sheet's page rows
+js/pdf/view-draw.ts                    # PDF.js: canvases, what to draw next, rendering pages
+js/pdf/flow.ts                         # in-document text search: reading page text, matching, the field per layout, hit boxes
+js/revisions/input.ts                  # Comparison PDF geometry, rendering and input
+js/pdf/input-zoom.ts                   # PDF-area zoom input: Ctrl+wheel, pinch, keys
+js/layout/flow.ts                      # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
+js/layout/input.ts                     # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
+js/pdf/input-selection.ts              # drag and quick selection on the PDF, double-tap zoom
+js/composer/view-levels.ts             # the range ladder, line nudges, source snippets, the location-confidence badge
+js/composer/view-excerpt.ts            # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
+js/pdf/view-figure.ts                  # figure documents: the chosen element's box and path
+js/markdown/view.ts                    # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
+js/text/view.ts                        # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
+js/revisions/view-rendered-compare.ts  # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
+js/composer/flow-suggest.ts            # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
+js/composer/flow-pick.ts               # pick() and the composer: overlap banner, kind, question hint, discard and restore
+js/composer/state.ts                   # the composer draft kept per tab (sessionStorage)
+js/composer/api.ts                     # saving a pin, appending to one, the queued save
+js/offline/api.ts                      # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
+js/offline/view.ts                     # the queued pins on screen: their marks on the page, their rows in the panel
+js/verdict/flow-line.ts                # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
+js/verdict/flow-reason.ts              # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
+js/verdict/view-panel.ts               # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
+js/composer/view-selection-popover.ts  # the note popover by the selection box (mouse layouts)
+js/pins/view-card-parts.ts             # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
+js/pins/view-cards.ts                  # the open and review card, archive and Trash rows, the Trash dialog
+js/pins/flow-review-pick.ts            # confirming several pins awaiting review from their result rows (ADR-0035)
+js/pins/flow-list.ts                   # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
+js/pins/input-hide-marks.ts            # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
+js/pins/api.ts                         # close, confirm, reopen, drop, purge, restore, unclaim
+js/pins/input-mentions.ts              # @-tag autocomplete, preview and the assignee choice
+js/pins/flow-reply.ts                  # the reply box and its outcome line
+js/pins/flow-edit.ts                   # the edit card
+js/composer/flow-repick.ts             # re-placing a pin's location
+js/documents/flow-rebuild.ts           # view anchors, refreshing the document, the build error panel, rebuild
+js/main.ts                             # help dialog, the click and key dispatch, and the call to boot()

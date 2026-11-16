@@ -479,7 +479,7 @@ class ChangedOnDisk(AssetsBase):
         check finds the tag learned when it loaded (noteShownTag) and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
         its address with &v=<its new tag>, and the heading stays where it was in the pane, to 2px (the browser's scroll
         anchoring off, as in ReadingSpot). A check of the unchanged image gives no new address. A redraw (the source
-        edited) draws the new picture again, at its new address. Mutations: drop the light poll's checkTreeImages (polling.js)
+        edited) draws the new picture again, at its new address. Mutations: drop the light poll's checkTreeImages (documents/api.ts)
         -> the image never changes, fails; draw a redraw's image at assetUrl instead of imageUrl -> the old picture
         comes back, fails."""
         page = self.open_md()
@@ -1190,7 +1190,7 @@ class HeadingJump(AssetsBase):
     # Home with the focus on the page body scrolls the pane on the Linux hosts CI runs; on macOS it scrolls nothing at
     # all (measured twice: #left stayed where the jump left it), so this test's premise - the pane back at its top -
     # cannot hold there. Only that premise is lost: the jump is dropped by the key's own keydown and not by the scroll
-    # it causes (js/md-surface.js), so "the key ends the asked jump and the images let go later do not move the pane"
+    # it causes (js/markdown/view.ts), so "the key ends the asked jump and the images let go later do not move the pane"
     # is still read on every host by the test right below, which asserts no scroll of its own. The viewer promises no
     # scrolling for this key - it only reads one the browser did - so there is nothing to fix in the pane; issue #448
     # collects what these host keys do differently on macOS. (Issue #414 was the other half, a field's keys reaching
@@ -1433,7 +1433,7 @@ class MotionSetLiveHeading(AssetsBase):
     """prefers-reduced-motion changed while the viewer is open (#418) reaches the next heading jump: with the setting on
     the pane stands at the heading before the call returns and the jump is over there (goOnToHeading, then endLandedJump in the
     same call - the reading spot read once, no jump left in flight for an input to stop, stopHeadingJump); with it off the jump
-    glides and lands on a later frame. The viewer read the setting once, at load (core.js's SMOOTH, before #418)."""
+    glides and lands on a later frame. The viewer read the setting once, at load (app/state.ts's SMOOTH, before #418)."""
 
     PLAN = LONG
 
@@ -1612,7 +1612,7 @@ class DocumentLinks(AssetsBase):
         self.assertTrue(page.evaluate("location.hash").endswith("doc=gd"))
 
 
-# The phone of the back-layer test, and the page without CloseWatcher: the layer is then one history entry (gestures.js armBack).
+# The phone of the back-layer test, and the page without CloseWatcher: the layer is then one history entry (layout/input.ts armBack).
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
 NO_CLOSE_WATCHER = "delete window.CloseWatcher;"
 

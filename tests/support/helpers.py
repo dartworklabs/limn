@@ -88,15 +88,15 @@ def __getattr__(name: str) -> str:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-# The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
-# Read from core.ts as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
+# The viewer's closed-set tables (app/state.ts: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
+# Read from app/state.ts as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
 # reads as the script does, and no node is needed to import this module.
-VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.ts").read_text(encoding="utf-8"))
+VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "app" / "state.ts").read_text(encoding="utf-8"))
 
 
 def extract_js_fn(name: str) -> str:
     """The served page's top-level 'function NAME(...){...}' (with its 'async', if any), exactly as written, preceded by
-    the closed-set tables it names (PIN_STATE, LOCAL_LOGIN, ... from core.js) as `var` declarations.
+    the closed-set tables it names (PIN_STATE, LOCAL_LOGIN, ... from app/state.ts) as `var` declarations.
 
     Running the real source pulled this way through node lets a regression test verify the served code, not a copy the
     test pasted. The declaration is found by tokens (helpers_js), so braces, quotes and '//' inside strings, regexes
@@ -107,10 +107,10 @@ def extract_js_fn(name: str) -> str:
     return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + helpers_js.setter_prelude(HTML, fn) + fn
 
 
-# Stand-ins for the hooks of the viewer's update messages (js/updates.js; notices.js groupNote and the gathering) for a node
+# Stand-ins for the hooks of the viewer's update messages (js/documents/flow-updates.ts; platform/notices.ts groupNote and the gathering) for a node
 # harness that pulls a function calling them: a group says its view at once through the harness's own lineNote, the gathering
 # and the update checks do nothing. var and function declarations, so a harness may take it more than once.
-# api.js's waits, for a node harness that pulls a function passing one to a stubbed api() (the light poll, pick()).
+# platform/api.ts's waits, for a node harness that pulls a function passing one to a stubbed api() (the light poll, pick()).
 JS_API_WAIT = "var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;\n"
 
 JS_UPDATE_STUBS = (
@@ -125,7 +125,7 @@ function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.
 )
 
 
-# Stand-ins for the hooks of the offline pin queue (js/offline.js) for a node harness that pulls a function calling
+# Stand-ins for the hooks of the offline pin queue (js/offline/api.ts) for a node harness that pulls a function calling
 # them - api(), savePin(), pick(), boot(), the light poll: the connection is there, nothing is queued, no answer is
 # stored and none is served from the store. var and function declarations, so a harness may take it more than once and
 # one that tests the queue itself declares the real functions after it.
@@ -136,7 +136,7 @@ function offlinePick(){return Promise.resolve();} function offlineQueueSave(){re
 function offStash(){} function offStashed(){return Promise.resolve(null);} function offStaleSaid(){}
 function offlineMayServe(){return false;} function offlineBack(){}
 function offReadKey(){return null;} function offlineKey(){return 'key-0123456789abcdef';} function offlineAskDown(){return Promise.resolve();}
-// api.js's own, beside api(): how long a request waits, whether the last one went unanswered, and what an unanswered
+// platform/api.ts's own, beside api(): how long a request waits, whether the last one went unanswered, and what an unanswered
 // one does (here: it is said and thrown - nothing is stored to answer it).
 var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;
 function apiUnanswered(url,o,e){API_OUT=true; if(!o.silent&&!o.quietUnreached)apiFailed(o,translate('서버에 닿지 않습니다'),true); return Promise.reject(e);}
@@ -179,15 +179,15 @@ def sq(js: str, fragment: bool = False) -> str:
 
 
 def js_markup() -> str:
-    """The viewer's markup module (js/markup.ts: Html, html``, lucideIcon(), setHtml()) as served (helpers_js.module_text, module_code), for node harnesses that
+    """The viewer's markup module (js/platform/markup.ts: Html, html``, lucideIcon(), setHtml()) as served (helpers_js.module_text, module_code), for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""
-    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "markup.ts"))
+    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "platform" / "markup.ts"))
 
 
 def js_hidden_chars() -> str:
-    """The viewer's hidden-character module (js/hidden-chars.ts: the repertoire, markHiddenHtml, markHiddenPlain, ...) as served (module_text, module_code), for
+    """The viewer's hidden-character module (js/platform/hidden-chars.ts: the repertoire, markHiddenHtml, markHiddenPlain, ...) as served (module_text, module_code), for
     node harnesses that run a function showing a source's or a suggestion's text. markHiddenHtml needs js_markup() and js_esc()."""
-    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "hidden-chars.ts"))
+    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "platform" / "hidden-chars.ts"))
 
 
 def js_icons() -> str:

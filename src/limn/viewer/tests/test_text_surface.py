@@ -3,7 +3,7 @@ document's lines, the hang of a wrapped line, the closing line of an indented bl
 name and which sequences keep theirs (docs/adr/0029-text-documents.md D3, D5, D7;
 docs/superpowers/specs/2026-11-05-text-documents.md §결정 5).
 
-The production parts js/hidden-chars.js and js/text-surface.js run under node whole, as the page serves them, so every
+The production parts js/platform/hidden-chars.ts and js/text/view.ts run under node whole, as the page serves them, so every
 constant and table the rules read is the served one (no copy here). The browser behaviour - the DOM, the limits, picks,
 marks, the composer - is test_viewer_text.py.
 
@@ -17,7 +17,7 @@ import unittest
 from helpers import HTML, VIEWER, extract_js_fn, js_esc, js_markup, run_node
 from helpers_js import module_code, module_texts
 
-PARTS = ("js/hidden-chars.ts", "js/text-surface.ts")
+PARTS = ("js/platform/hidden-chars.ts", "js/text/view.ts")
 
 PY = [
     "import os",  # 1
@@ -42,7 +42,7 @@ BIB = ["@article{a,", "  title = {T},", "}", "", "@book{b,", "  title = {U},", "
 
 def served_parts() -> str:
     """The two modules exactly as the page's script serves them (each module's code is in the script byte for byte, its
-    types, import and export statements taken out), after the markup module markHiddenHtml builds with and md-surface.js's lineSnippet,
+    types, import and export statements taken out), after the markup module markHiddenHtml builds with and markdown/view.ts's lineSnippet,
     which a rung's snippet comes from."""
     parts = [module_code(text) for text in module_texts([VIEWER / name for name in PARTS])]
     for name, text in zip(PARTS, parts, strict=True):

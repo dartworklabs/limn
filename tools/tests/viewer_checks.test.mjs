@@ -13,10 +13,9 @@ import tseslint from 'typescript-eslint';
 import { importGraph, placeOf, tableErrors, violations } from '../check_viewer_boundaries.mjs';
 import { limnRules } from '../../eslint.config.mjs';
 
-const NONE = {};
 /** The rules found for a graph given as {module: [imports]}, with these tables. */
-const rulesOf = (graph, allowed = [], legacy = NONE) =>
-  violations(new Map(Object.entries(graph)), { allowed, legacy }).map(([rule, path]) => `${rule} ${path}`);
+const rulesOf = (graph, allowed = []) =>
+  violations(new Map(Object.entries(graph)), { allowed }).map(([rule, path]) => `${rule} ${path}`);
 
 test('an import inside one feature passes', () => {
   assert.deepEqual(rulesOf({ 'js/pins/view-cards.ts': ['js/pins/state.ts'], 'js/pins/state.ts': [] }), []);
@@ -66,27 +65,24 @@ test("a rules module importing another feature's code is refused, its surface in
   );
 });
 
-test('nothing imports the entry point, and a flat module counts as unplaced', () => {
-  const legacy = { 'js/old.ts': ['pins', 'flow'] };
-  assert.deepEqual(rulesOf({ 'js/old.ts': ['js/main.ts'], 'js/main.ts': [] }, [], legacy).sort(), [
-    'feature-dependency js/old.ts',
-    'role js/old.ts',
-    'unplaced js/old.ts',
+test('nothing imports the entry point', () => {
+  assert.deepEqual(rulesOf({ 'js/pins/flow.ts': ['js/main.ts'], 'js/main.ts': [] }, []).sort(), [
+    'feature-dependency js/pins/flow.ts',
+    'role js/pins/flow.ts',
   ]);
 });
 
-test('the path says feature and role; a flat file says them only through LEGACY', () => {
-  assert.deepEqual(placeOf('js/pins/view-cards.ts', NONE), { feature: 'pins', role: 'view', placed: true });
-  assert.deepEqual(placeOf('js/platform/markup.ts', NONE), { feature: 'platform', role: 'lib', placed: true });
-  assert.deepEqual(placeOf('js/main.ts', NONE), { feature: 'entry', role: 'main', placed: true });
-  assert.equal(placeOf('js/new.ts', NONE), null);
+test('the path says feature and role; a path that is no place says nothing', () => {
+  assert.deepEqual(placeOf('js/pins/view-cards.ts'), { feature: 'pins', role: 'view' });
+  assert.deepEqual(placeOf('js/platform/markup.ts'), { feature: 'platform', role: 'lib' });
+  assert.deepEqual(placeOf('js/main.ts'), { feature: 'entry', role: 'main' });
+  assert.equal(placeOf('js/new.ts'), null);
+  assert.equal(placeOf('js/pins/deeper/view.ts'), null);
+  assert.equal(placeOf('js/pins/view.js'), null);
 });
 
 test('a mistake in the tables fails the check itself', () => {
-  const viewer = mkdtempSync(join(tmpdir(), 'limn-boundaries-'));
-  mkdirSync(join(viewer, 'js'));
-  writeFileSync(join(viewer, 'js', 'kept.ts'), '');
-  const base = { allowed: [], legacy: { 'js/kept.ts': ['pins', 'view'] }, modules: ['js/kept.ts'], viewer };
+  const base = { allowed: [], modules: ['js/pins/view.ts'] };
   assert.deepEqual(tableErrors(base), []);
   const errors = tableErrors({
     ...base,
@@ -97,16 +93,15 @@ test('a mistake in the tables fails the check itself', () => {
       ['layout', 'pins', 'r'],
       ['nope', 'pdf', 'r'],
     ],
-    legacy: { ...base.legacy, 'js/gone.ts': ['pins', 'view'], 'js/odd.ts': ['pins', 'lib'] },
-    modules: ['js/kept.ts', 'js/new.ts', 'js/pins/painter.ts', 'js/pins/lib.ts'],
+    modules: ['js/pins/view.ts', 'js/new.ts', 'js/pins/deeper/view.ts', 'js/pins/painter.ts', 'js/pins/lib.ts'],
   });
   for (const expected of [
     'ALLOWED lists both pdf -> pins and pins -> pdf',
     'ALLOWED pdf -> layout has no reason',
     'ALLOWED has a cycle through',
     'ALLOWED names an unknown feature: nope -> pdf',
-    'LEGACY js/gone.ts: no such file',
-    'js/new.ts: a flat module LEGACY does not name',
+    'js/new.ts: no place',
+    'js/pins/deeper/view.ts: no place',
     'js/pins/painter.ts: unknown role painter',
     'js/pins/lib.ts: role lib does not belong in pins',
   ]) {
@@ -170,14 +165,14 @@ test('a JSDoc type in a .ts file is refused; the words of a JSDoc comment pass',
 });
 
 test("a write through another module's binding is refused; a local of the same name and a read pass", () => {
-  assert.deepEqual(lintTs("import { OFF } from './offline.ts';\nOFF.n=1;\nOFF.n++;\ndelete OFF.k;\n"), [
+  assert.deepEqual(lintTs("import { OFF } from './state.ts';\nOFF.n=1;\nOFF.n++;\ndelete OFF.k;\n"), [
     'limn/no-imported-state-write',
     'limn/no-imported-state-write',
     'limn/no-imported-state-write',
   ]);
   assert.deepEqual(
     lintTs(
-      "import { OFF } from './offline.ts';\nfunction f(OFF: { n: number }){OFF.n=1;}\nf({ n: 0 });\nconst n=OFF.n;\nexport { n };\n",
+      "import { OFF } from './state.ts';\nfunction f(OFF: { n: number }){OFF.n=1;}\nf({ n: 0 });\nconst n=OFF.n;\nexport { n };\n",
     ),
     [],
   );
@@ -185,7 +180,7 @@ test("a write through another module's binding is refused; a local of the same n
 
 test("a write through another module's binding is refused through a type assertion too", () => {
   assert.deepEqual(
-    lintTs("import { OFF } from './offline.ts';\n(OFF as { n: number }).n = 1;\nOFF!.n++;\n(<any>OFF).k = 2;\n"),
+    lintTs("import { OFF } from './state.ts';\n(OFF as { n: number }).n = 1;\nOFF!.n++;\n(<any>OFF).k = 2;\n"),
     ['limn/no-imported-state-write', 'limn/no-imported-state-write', 'limn/no-imported-state-write'],
   );
 });

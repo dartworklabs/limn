@@ -24,7 +24,7 @@
     "strictNullChecks": true
   },
   "include": [
-    "src/limn/viewer/js/*.ts",
+    "src/limn/viewer/js/**/*.ts",
     "src/limn/viewer/types/*.d.ts"
   ]
 }

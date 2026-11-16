@@ -251,7 +251,7 @@ class LiveTab:
         return self.page.evaluate("META.pages_build")
 
     def kept(self):
-        """The kept record (offline.js OFF_KEPT): what each document keeps ({docs: {key: {build, ...}}}) and the old builds
+        """The kept record (offline/api.ts OFF_KEPT): what each document keeps ({docs: {key: {build, ...}}}) and the old builds
         not dropped yet ({old: [{doc, build, ...}]}); None for an instance never kept."""
         return self.page.evaluate("async () => await offKept()")
 
@@ -352,7 +352,7 @@ class LiveTab:
         )
 
     def waits(self, **ms):
-        """How long this page's requests wait for an answer (api.js API_WAIT: POLL, READ, PICK, SAVE, SEND), in ms."""
+        """How long this page's requests wait for an answer (platform/api.ts API_WAIT: POLL, READ, PICK, SAVE, SEND), in ms."""
         self.page.evaluate("w => { Object.assign(API_WAIT, w); }", ms)
 
     def lost(self):

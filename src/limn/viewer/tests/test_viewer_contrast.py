@@ -360,13 +360,19 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
         TEXT,
         "the Markdown surface's line while its source is read, and its notice past the byte or line limit",
     ),
-    ".cc": (TEXT, "a hidden character's name box (hidden-chars.js): no text the walk opens holds such a character"),
+    ".cc": (
+        TEXT,
+        "a hidden character's name box (platform/hidden-chars.ts): no text the walk opens holds such a character",
+    ),
     ".md.tx .ln::before": (TEXT, "a text document's line numbers: the walk opens no text document"),
     ".md .tx-note": (
         TEXT,
         "the notices above a text or Markdown document's lines: the walk opens neither surface's notices",
     ),
-    ".mdc-legend": (TEXT, "the rendered compare's legend (md-compare.js): the walk opens no Markdown changes view"),
+    ".mdc-legend": (
+        TEXT,
+        "the rendered compare's legend (revisions/view-rendered-compare.ts): the walk opens no Markdown changes view",
+    ),
     ".mdc-info": (TEXT, "the rendered compare's notes above it: the walk opens no Markdown changes view"),
     ".mdc-doc .mdc-ghost": (
         TEXT,
@@ -983,7 +989,7 @@ class ContrastWalk(BrowserBase):
             self.no_pins = False
 
     def scene_queue(self):
-        """The pins kept while cut off (js/offline-ui.js): their marks on the page, one waiting and one held, and their
+        """The pins kept while cut off (js/offline/view.ts): their marks on the page, one waiting and one held, and their
         rows in the panel - a waiting one, a held one with its reason, one drawn on another PDF, one with no note, and
         one on a page the document does not have, whose place is words and no link."""
         page = self.open(0, **DEVICES[self.device])

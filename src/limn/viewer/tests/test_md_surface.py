@@ -263,7 +263,7 @@ def served_global(name: str) -> str:
     """JS that puts the initialiser of the served page's top-level `const NAME=...;` on globalThis under that name.
 
     A pulled function reads such a table from the page's shared scope, which a node harness lacks; helpers.extract_js_fn
-    brings only core.js's closed sets along, and this one is md-surface.js's. On globalThis (not a `var` inside the
+    brings only app/state.ts's closed sets along, and this one is markdown/view.ts's. On globalThis (not a `var` inside the
     harness's own function) so the pulled top-level function resolves it. Raises for a name the page does not declare."""
     try:
         init = helpers_js.declaration_init(HTML, name)
@@ -296,7 +296,7 @@ PARSE_TIMES = (
 
 def worker_node(body: str, *fns: str):
     """body run under node with the worker's rules (worker_rules), `md` (mdParser(20), the parser the viewer uses), `base`
-    (the vendored markdown-it as the viewer configured it before these rules), the served md-surface.js functions fns and
+    (the vendored markdown-it as the viewer configured it before these rules), the served markdown/view.ts functions fns and
     `out`, whose JSON is the answer."""
     js = "\n".join(
         [

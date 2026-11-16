@@ -150,7 +150,7 @@ class FrontendLogic(unittest.TestCase):
             const $=s=>box;
             const COMPOSE={current:null,dismissedOverlap:null}; let PINS=[{id:5,file:'/m.tex',lo:405,hi:406}];
             const esc=s=>String(s); function renderAssignNew(){}   // the row and the line that follow the notice
-            function suggestPending(){return false;}   // no suggested edit is being written (suggest.js)
+            function suggestPending(){return false;}   // no suggested edit is being written (composer/flow-suggest.ts)
             """,
                 js_markup(),
                 extract_js_fn("rangeRelation"),
@@ -251,7 +251,7 @@ class FrontendLogic(unittest.TestCase):
         out = json.loads(run_node(js))
         self.assertEqual(out["boot"], {"calls": 1, "said": [], "panels": ["ok_errors"], "refreshes": 0})
         self.assertTrue(out["same"])
-        # a build this tab did not ask for is the document's update (updates.js checkDocUpdate), not the 6 s answer
+        # a build this tab did not ask for is the document's update (documents/flow-updates.ts checkDocUpdate), not the 6 s answer
         self.assertEqual(out["burst"], {"calls": 1, "said": [], "refreshes": 1, "updates": 1})
         self.assertEqual(out["again"], {"calls": 2, "said": [], "refreshes": 1, "updates": 1})
         self.assertEqual(out["hidden"], 2)
@@ -570,7 +570,7 @@ class FrontendStructure(unittest.TestCase):
         applied = JS_UPDATE_STUBS + extract_js_fn("applyPinLists")
         self.assertIn(
             "setDropped(dropped)", applied
-        )  # DROPPED is core.js's: list.js changes it through its setter (ADR-0042 D1)
+        )  # DROPPED is app/state.ts's: pins/flow-list.ts changes it through its setter (ADR-0042 D1)
         self.assertIn(sq("notePinChanges(openBefore,rows,dropped)"), sq(applied))
 
     def test_draw_pins_counts_the_trash(self):
@@ -865,12 +865,12 @@ class FrontendVector(unittest.TestCase):
 
     def test_no_text_layer(self):
         """No text-selection layer is drawn over a page - a drag there is a region selection. The page's text is read
-        in one place only (search.js pageText): for the in-document search, which draws boxes and no text, and for the
-        words of a selection made with no network (offline.js offlineQuote)."""
+        in one place only (pdf/flow.ts pageText): for the in-document search, which draws boxes and no text, and for the
+        words of a selection made with no network (offline/api.ts offlineQuote)."""
         for s in ("TextLayer", "textLayer"):
             self.assertNotIn(s, HTML)
         self.assertEqual(HTML.count(".getTextContent("), 1)
-        self.assertIn(".getTextContent(", (PKG / "viewer" / "js" / "search.ts").read_text(encoding="utf-8"))
+        self.assertIn(".getTextContent(", (PKG / "viewer" / "js" / "pdf" / "flow.ts").read_text(encoding="utf-8"))
 
 
 class FrontendVectorLogic(unittest.TestCase):
@@ -914,7 +914,7 @@ class FrontendVectorLogic(unittest.TestCase):
                 extract_js_fn("cancelVectorDraw"),
                 extract_js_fn("nextDrawJob"),
                 extract_js_fn("openVectorDocument"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 r"""
             function $(sel){return {hidden:false};}
             function withDocQuery(u){return u;}
@@ -1213,7 +1213,7 @@ class FrontendMobileLogic(unittest.TestCase):
         """A quick selection sends about one text line around the point on a manuscript page (+-7 % x +-0.6 %), and a
         point on a figure document: +-0.4 % of the page width by +-0.4 % of its height, a rectangle on a page that is
         not square (here 400 x 600); both are clamped to the page at every corner. The half-widths are the page's own
-        (selection.js), not numbers this test repeats."""
+        (pdf/input-selection.ts), not numbers this test repeats."""
         consts = js_const("clampUnit") + js_const("LONGPRESS_MS")
         js = "\n".join(
             [
@@ -1285,9 +1285,9 @@ class FrontendMobileLogic(unittest.TestCase):
             function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main'; function docInfo(){return null;}
             let LAYOUT='mid', REPLY=null, META=null; const THREAD_OPEN=new Set(), COARSE_POINTER_QUERY={matches:true};
-            function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
-            function isMarkdownPin(){return false;}   // ...and are on a document with pages (md-surface.js)
+            function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (composer/flow-suggest.ts)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict/flow-line.ts)
+            function isMarkdownPin(){return false;}   // ...and are on a document with pages (markdown/view.ts)
             """,
                 extract_js_fn("lineRange"),
                 extract_js_fn("multiDoc"),
@@ -1821,7 +1821,7 @@ class FrontendDesignTokens(unittest.TestCase):
 
 
 # ---------------------------------------------------------------- messages in context — docs/handbook/viewer.md §알림 자리
-# Issue #167: there is no toast. A message is drawn where it happened (notices.js): a banner, an undo row or note, a chip on
+# Issue #167: there is no toast. A message is drawn where it happened (platform/notices.ts): a banner, an undo row or note, a chip on
 # a mark, the status line. The floating toast box, its stack and its placement code are gone.
 class FrontendNotices(unittest.TestCase):
     """Guard that no toast or first-visit chip is left in the page and that the messages keep one look."""
@@ -2488,7 +2488,7 @@ class FrontendDocs(unittest.TestCase):
 
     def test_selector_views_and_outline_are_in_pdf_area(self):
         self.assertIn('<select id="doc-select" aria-label="문서 선택">', HTML)
-        # no Tab stop of its own (doc-tabs.js)
+        # no Tab stop of its own (documents/view-tabs.ts)
         self.assertIn('<div id="doc-links" role="group" aria-label="문서 선택" tabindex="-1">', HTML)
         self.assertIn('id="view-manuscript" data-act="view-mode"', HTML)
         self.assertIn('id="view-revisions" data-act="view-mode"', HTML)
@@ -2728,12 +2728,12 @@ class FrontendDocs(unittest.TestCase):
 
 
 def js_tooltips() -> str:
-    """The viewer's tooltip table (`const TIP_TEXT` in core.js) as the page declares it, for harnesses whose functions read TIP_TEXT.x."""
+    """The viewer's tooltip table (`const TIP_TEXT` in app/state.ts) as the page declares it, for harnesses whose functions read TIP_TEXT.x."""
     return js_const("TIP_TEXT")
 
 
 def js_via_limits() -> str:
-    """The location-confidence thresholds viaTag() reads (`const VIA_HIDE=...` in levels.js) and mapSure(), which reads them."""
+    """The location-confidence thresholds viaTag() reads (`const VIA_HIDE=...` in composer/view-levels.ts) and mapSure(), which reads them."""
     return js_const("VIA_HIDE") + "\n" + extract_js_fn("mapSure")
 
 
@@ -3079,7 +3079,7 @@ class FrontendFigure(unittest.TestCase):
 
     def test_the_composer_shows_the_element_from_the_pick_without_asking_again(self):
         """The location line has a path slot before the lines; both composer branches draw the element; a pick selects
-        its element, a rung its rung's; the element code sends no request; figure.js sits between the ladder and the
+        its element, a rung its rung's; the element code sends no request; pdf/view-figure.ts sits between the ladder and the
         composer parts."""
         self.assertIn(
             '<div class="c-loc-main"><span id="c-path" class="hit" role="button" tabindex="0" data-act="el-show" hidden></span><span id="c-loc"',
@@ -3092,8 +3092,8 @@ class FrontendFigure(unittest.TestCase):
         for fn in ("elementPathText", "snapBox", "renderElement"):
             self.assertNotIn("api(", extract_js_fn(fn), fn)
         parts = (PKG / "viewer" / "parts.txt").read_text(encoding="utf-8")
-        self.assertLess(parts.index("js/levels.ts"), parts.index("js/figure.ts"))
-        self.assertLess(parts.index("js/figure.ts"), parts.index("js/composer.ts"))
+        self.assertLess(parts.index("js/composer/view-levels.ts"), parts.index("js/pdf/view-figure.ts"))
+        self.assertLess(parts.index("js/pdf/view-figure.ts"), parts.index("js/composer/flow-pick.ts"))
 
     def test_a_figure_region_is_named_by_what_the_map_found_and_a_view_only_region_keeps_its_name(self):
         """figureRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element
@@ -3292,8 +3292,8 @@ class FrontendFigure(unittest.TestCase):
             [
                 r"""
             const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
-            const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict.js)
-            const isMarkdownDoc=()=>false;   // and it has pages (md-surface.js)
+            const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict/flow-line.ts)
+            const isMarkdownDoc=()=>false;   // and it has pages (markdown/view.ts)
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -3573,7 +3573,7 @@ class FrontendFigure(unittest.TestCase):
             const out=[]; let REPICK;
             function banner(h){out.push(/data-act="rp-apply"/.test(h)?'apply':'banner');}
             function bannerRepick(err){out.push(['again',err]);} function scopeLabel(){return '';}
-            function markChosenLines(){} function shownChoice(){return null;}   // the Markdown surface's candidate mark (md-surface.js)
+            function markChosenLines(){} function shownChoice(){return null;}   // the Markdown surface's candidate mark (markdown/view.ts)
             const region={kind:'region',page:1,frac:[0.2,0.2,0.1,0.1],pdf:'x.pdf',quote:''};
             const line={file:'/f.py',page:1,lo:20,hi:30,default_level:'el',
               levels:[{level:'el',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}}]};
@@ -3779,8 +3779,8 @@ class FrontendArchive(unittest.TestCase):
                 extract_js_fn("locCopy"),
                 extract_js_fn("docChip"),
                 "const ARC_OPEN=new Set(); let LAYOUT='wide', REPLY=null, META=null; const THREAD_OPEN=new Set(); function avatar(){return '';}",
-                "function suggestView(){return null;}",  # these pins carry no suggested edit (suggest.js)
-                "function verdictBadge(){return null;} function verdictOldMarker(){return null;} function verdictTarget(){return null;} function verdictOf(){return null;}",  # ...and no verdict (verdict.js)
+                "function suggestView(){return null;}",  # these pins carry no suggested edit (composer/flow-suggest.ts)
+                "function verdictBadge(){return null;} function verdictOldMarker(){return null;} function verdictTarget(){return null;} function verdictOf(){return null;}",  # ...and no verdict (verdict/flow-line.ts)
                 extract_js_fn("arcTime"),
                 extract_js_fn("arcLoc"),
                 extract_js_fn("arcLine"),
@@ -4127,8 +4127,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let LAYOUT='wide', LAST_POINTER='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
-            function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (verdict.js)
-            function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline.js)
+            function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (verdict/flow-line.ts)
+            function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline/api.ts)
             var OFF={idem:false};   // a server that knows no write by its key: the save carries none
             function isMarkdownDoc(){return false;}
             function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
@@ -4141,9 +4141,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             function banner(){} function bannerRepick(){} function bannerCompare(){} function revealBox(){}
             async function refreshDoc(){} function setSide(){} function setSelectMode(){} function dropPin(){}
             function endTopic(){} function undoNote(){return null;} function settleChip(){} function endNotice(){} const BANNERS=new Map();
-            function closeSelectionPopover(){} function drawSelectionPopover(){} function isSelectionPopoverOpen(){return false;}   // the note popover by the box (sel-popover.js)
+            function closeSelectionPopover(){} function drawSelectionPopover(){} function isSelectionPopoverOpen(){return false;}   // the note popover by the box (composer/view-selection-popover.ts)
             const SUGGEST_DRAFT={on:false,text:'',base:null}; let META=null; function suggestClear(){} function suggestPending(){return false;}
-            function suggestOff(){return null;} function suggestForSave(){return null;}   // no suggested edit (suggest.js)
+            function suggestOff(){return null;} function suggestForSave(){return null;}   // no suggested edit (composer/flow-suggest.ts)
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
             function api(url){apiCalls.push(url);
               if(url==='/api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
@@ -4163,7 +4163,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
-                "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
+                "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
                 JS_API_WAIT + extract_js_fn("pick"),
@@ -4722,9 +4722,9 @@ class FrontendReview(unittest.TestCase):
             function authorTip(){return 'tip';} function who(a){return a?(a.name||a.login):'';} function avatar(){return '';}
             let SHOW_ALL=false, DOCS=[], DOC='main', DEFAULT_DOC='main', LAYOUT='wide', REPLY=null; function docInfo(){return null;}
             const THREAD_OPEN=new Set(), COARSE_POINTER_QUERY={matches:false};
-            function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (suggest.js)
-            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict.js)
-            function isMarkdownPin(){return false;}   // ...and are on a document with pages (md-surface.js)
+            function suggestBadge(){return null;} function suggestView(){return null;}   // these pins carry no suggested edit (composer/flow-suggest.ts)
+            function verdictOf(){return null;} function verdictBadge(){return null;} function dropPageLineOverlaps(p){return p;} function verdictOldMarker(){return null;} function verdictTarget(){return null;}   // ...and no verdict (verdict/flow-line.ts)
+            function isMarkdownPin(){return false;}   // ...and are on a document with pages (markdown/view.ts)
             """,
                 extract_js_fn("lineRange"),
                 extract_js_fn("multiDoc"),
@@ -4820,7 +4820,7 @@ class FrontendReview(unittest.TestCase):
         self.assertIn('data-act="reply-flip"', body)
         self.assertIn(
             sq("setReply({id,flip:false,toggle:null,el:createReplyBox(pin)})"), sq(extract_js_fn("openReply"))
-        )  # through core.js's setter (ADR-0042 D1)
+        )  # through app/state.ts's setter (ADR-0042 D1)
 
 
 # ---------------------------------------------------------------- [변경 보기] (docs/handbook/viewer.md §변경 보기)
@@ -5846,7 +5846,7 @@ class ViewerFunctions2(unittest.TestCase):
                 extract_js_fn("trashDaysLeft"),
                 extract_js_fn("isOwner"),
                 extract_js_fn("isViewer"),
-                "function verdictOf(){return null;}",  # an ordinary pin (verdict.js): its [되살리기] whatever the role
+                "function verdictOf(){return null;}",  # an ordinary pin (verdict/flow-line.ts): its [되살리기] whatever the role
                 extract_js_fn("droppedCard"),
                 r"""
             const h=String(droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60}));
