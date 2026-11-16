@@ -30,13 +30,13 @@ import {
   setSelmodeState,
   setSideOpen,
   setZoomed,
+  COMPOSE,
+  EDITOR,
 } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
 import { lineNote, noticeSeen } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { REVISION_VIEW, renderCommitList, drawPinGuideActions } from '../revisions/flow.ts';
-import { placeStatus } from '../documents/view-status.ts';
 import {
   SHEET_KEPT,
   SIDE_SHOWN,
@@ -46,19 +46,74 @@ import {
   renderSizeSegment,
   setSheetKept,
 } from './flow-panel-size.ts';
-import { autoFitWidth, drawZoom } from '../pdf/view-pages.ts';
-import { updateSectionStrip } from '../pdf/view-outline.ts';
-import { SEARCH } from '../pdf/flow.ts';
 import { syncBackLayer } from './input.ts';
-import { keepReadingSpot } from '../markdown/view.ts';
-import { renderComposer, COMPOSE } from '../composer/flow-pick.ts';
-import { stickSoon } from '../verdict/flow-line.ts';
-import { drawPins, fitBarWords, updateReviewCount } from '../pins/flow-list.ts';
-import { restoreAnchor, syncBuildErrChip, topAnchor } from '../documents/flow-rebuild.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, typingNow } from '../platform/dom.ts';
+import { $, typingNow, $$ } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
+
+// What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
+// registers them before boot() runs (no code that runs while the script loads lays out the page), and the frame calls
+// each at the point, with the arguments and in the order it called the feature code directly. A call before the
+// registration throws, naming the seam.
+// The steps of a relayout a feature acts on, in the order relayout() takes them. Several features hear of a relayout,
+// so this is a list: at each step every listener that has the step is called, in the order they were registered.
+interface RelayoutListener {
+  /** applyLayout() changed the layout, and a document is open. */
+  layoutChanged?(): void;
+  /** The panel's and the outline's widths are applied. */
+  widthsApplied?(): void;
+  /** The reading area is back at its anchor. */
+  anchorRestored?(): void;
+  /** The tooltip is down, and the composer holds a selection. */
+  selectionHeld?(): void;
+  /** The top bar is stuck to its place. */
+  barStuck?(): void;
+  /** The field with the focus is kept in view; the last step. */
+  fieldKeptInView?(): void;
+}
+const RELAYOUT_LISTENERS: RelayoutListener[] = [];
+// Adds a listener to the steps of a relayout; js/main.ts calls it, in the order the steps' feature calls ran.
+function onRelayout(listener: RelayoutListener) {
+  RELAYOUT_LISTENERS.push(listener);
+}
+// The registered listeners; throws before onRelayout() has run.
+function relayoutListeners(): RelayoutListener[] {
+  if (!RELAYOUT_LISTENERS.length) throw new Error('onRelayout() has not run: no feature hears of a relayout');
+  return RELAYOUT_LISTENERS;
+}
+// The parts of the frame features draw or know: the status line's place and the build error chip (documents), the
+// changes view's guide and commit list (revisions), the pin counts and the bar's words (pins), the reading line's stick
+// (verdict), the zoom in [더보기] and the search (pdf), the address's #doc= (documents).
+interface FrameHost {
+  /** Puts the status line in its place for the band. */
+  placeStatus(): void;
+  /** Draws the changes view's pin guide and commit list again, those it shows. */
+  drawChangesView(): void;
+  /** Draws the pin and review counts on the panel's toggles. */
+  updateReviewCount(): void;
+  /** Shows or hides the build error chip. */
+  syncBuildErrorChip(): void;
+  /** Sticks the page verdict line again soon. */
+  stickSoon(): void;
+  /** Draws the zoom percent in [더보기]. */
+  drawZoom(): void;
+  /** Fits the bar's words to its room. */
+  fitBarWords(): void;
+  /** Whether the search is open. */
+  searchOpen(): boolean;
+  /** Puts #doc=<doc> in the address. */
+  setHash(doc: string): void;
+}
+let FRAME_HOST: FrameHost | null = null;
+// Registers the frame's host; js/main.ts calls it once.
+function setFrameHost(host: FrameHost) {
+  FRAME_HOST = host;
+}
+// The registered host; throws before setFrameHost() has run.
+function frameHost(): FrameHost {
+  if (!FRAME_HOST) throw new Error('setFrameHost() has not run: the frame has no features to ask');
+  return FRAME_HOST;
+}
 // The band for a width x height CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the
 // width only: phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch
 // reads the height and the orientation too, first match wins: under 600px wide a phone at any height; under 480px high
@@ -142,13 +197,12 @@ function applyLayout() {
   const keep = placeBarTools();
   applySide();
   stickTop();
-  placeStatus();
+  frameHost().placeStatus();
   if ($('#more').open) {
     renderSizeSegment();
     placeMore();
   }
-  if (REVISION_VIEW.target) drawPinGuideActions();
-  if (REVISION_VIEW.rows.length) renderCommitList();
+  frameHost().drawChangesView();
   // From the sheet straight to wide the bar shows only once applySide has drawn the panel: the focus goes back now.
   if (keep && document.activeElement !== keep) keep.focus({ preventScroll: true });
   return true;
@@ -232,9 +286,9 @@ function applySide() {
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
-  updateReviewCount();
+  frameHost().updateReviewCount();
   syncBackLayer();
-  syncBuildErrChip();
+  frameHost().syncBuildErrorChip();
 }
 // The open handle's hint (the markup's, translated by translate()).
 const GRIP_TIP = $('#grip').dataset.tip;
@@ -353,20 +407,21 @@ function coachSideCollapsed() {
 // browser, at its own: keepReadingSpot), the composer, the stuck heads and the section strip - and keeps a panel text
 // field that has focus in view (the keyboard or the short band's hidden top row moves it).
 function relayout() {
+  const listeners = relayoutListeners();
   const anchor = topAnchor(),
     changed = applyLayout();
-  if (changed && META) drawPins();
+  if (changed && META) for (const listener of listeners) listener.layoutChanged?.();
   applySideWidth();
   applyOutlineState();
-  autoFitWidth();
+  for (const listener of listeners) listener.widthsApplied?.();
   restoreAnchor(anchor);
-  keepReadingSpot();
+  for (const listener of listeners) listener.anchorRestored?.();
   hideTip();
-  if (COMPOSE.current) renderComposer();
+  if (COMPOSE.current) for (const listener of listeners) listener.selectionHeld?.();
   stickTop();
-  updateSectionStrip();
+  for (const listener of listeners) listener.barStuck?.();
   keepFieldInView();
-  fitBarWords();
+  for (const listener of listeners) listener.fieldKeptInView?.();
 }
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1,
 // which holds the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list
@@ -429,7 +484,7 @@ function bandSettle() {
   if (step === BAND_STEP.WAIT) {
     BAND_TIMER = setTimeout(() => {
       BAND_TIMER = 0;
-      stickSoon();
+      frameHost().stickSoon();
       if (typingNow()) return;
       setBandIn(bandInput());
       refit();
@@ -778,7 +833,7 @@ function openMore() {
   const sheet = $('#more');
   if (sheet.open) return;
   hideTip();
-  drawZoom();
+  frameHost().drawZoom();
   renderSizeSegment();
   placeMore();
   showSheet(sheet);
@@ -876,7 +931,7 @@ function headInk() {
 // What was measured from text in the meantime - the sheet bar's steps (fitBarWords) and an open sheet's ink line
 // (footInk, headInk) - is measured again each time a load finishes.
 document.fonts.addEventListener('loadingdone', () => {
-  fitBarWords();
+  frameHost().fitBarWords();
   if ($('#more').open) footInk();
   if ($('#help').open) headInk();
 });
@@ -901,11 +956,55 @@ for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
 $('#nav-sheet').addEventListener('close', () => {
   const button = $('#btn-pos');
   // Its search row has put the focus in the search field.
-  if (SEARCH.open) return;
+  if (frameHost().searchOpen()) return;
   if (button.getClientRects().length) button.focus({ preventScroll: true });
 });
+function topAnchor(offset?) {
+  const scroller = $('#left'),
+    scrollerTop = scroller.getBoundingClientRect().top,
+    top = scrollerTop + (offset || 0),
+    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
+    edge = offset ? 0 : 1;
+  for (const pageElement of $$('.pg')) {
+    const rect = pageElement.getBoundingClientRect();
+    if (rect.bottom > top + edge)
+      return {
+        page: +pageElement.dataset.page,
+        frac: Math.max(0, (top - rect.top) / rect.height),
+        gap: Math.max(0, rect.top - top),
+        atTop,
+        y: rect.top - scrollerTop,
+        h: rect.height,
+      };
+  }
+  return null;
+}
+// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without
+// it a spot between two pages would put the page's top on the edge, as much as that space off. On a touch screen -
+// where the select mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin,
+// or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
+// is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
+// of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
+// would stop a long glide part way.
+function restoreAnchor(anchor) {
+  if (!anchor) return;
+  const scroller = $('#left');
+  if (anchor.atTop) {
+    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
+    return;
+  }
+  const pageElement = document.getElementById('p' + anchor.page);
+  if (!pageElement) return;
+  const rect = pageElement.getBoundingClientRect(),
+    scrollerTop = scroller.getBoundingClientRect().top;
+  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
+  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
+}
 
 export {
+  onRelayout,
+  setFrameHost,
+  frameHost,
   BAND_TIMER,
   SLIDE_MS,
   applyLayout,
@@ -925,4 +1024,6 @@ export {
   setSide,
   showSheet,
   toggleSide,
+  topAnchor,
+  restoreAnchor,
 };

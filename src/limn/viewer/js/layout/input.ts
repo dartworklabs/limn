@@ -18,7 +18,6 @@ import {
   SIDE_OPEN,
 } from '../app/state.ts';
 import { SWALLOW_CLICK, endPress, hideTip, setSwallowClick } from '../platform/tooltip.ts';
-import { setHash } from '../documents/view-tabs.ts';
 import {
   SHEET_CLOSE_FRACTION,
   SHEET_FRACTIONS,
@@ -52,10 +51,12 @@ import {
   relayout,
   setSide,
   toggleSide,
+  frameHost,
 } from './flow.ts';
-import { LONGPRESS_MS } from '../pdf/input-selection.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
+const LONGPRESS_MS = 450;
+
 (function () {
   const grip = $('#grip');
   let drag = null as {
@@ -692,7 +693,7 @@ function closeTopLayer() {
 window.addEventListener('popstate', () => {
   const ours = BACK_SKIP || (BACK && BACK.kind === 'history');
   if (!ours) return;
-  if (DOC) setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
+  if (DOC) frameHost().setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
   if (BACK_SKIP) {
     BACK_SKIP = false;
     return;
@@ -708,4 +709,4 @@ window.addEventListener('popstate', () => {
   closeTopLayer();
 });
 
-export { BACK, BACK_SKIP, syncBackLayer };
+export { BACK, BACK_SKIP, syncBackLayer, LONGPRESS_MS };

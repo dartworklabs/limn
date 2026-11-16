@@ -9,9 +9,8 @@
 import { BAND, LAYOUT, COARSE_POINTER_QUERY, OUTLINE_MID_OPEN, SIDE_OPEN, setOutlineMidOpen } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
-import { gripAria, outlineOverlay, panelField, relayout, setSide } from './flow.ts';
+import { gripAria, outlineOverlay, panelField, relayout, setSide, restoreAnchor, topAnchor } from './flow.ts';
 import { syncBackLayer } from './input.ts';
-import { restoreAnchor, topAnchor } from '../documents/flow-rebuild.ts';
 import { $ } from '../platform/dom.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';

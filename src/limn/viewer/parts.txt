@@ -63,6 +63,7 @@ js/documents/view-build-chip.ts        # build progress polling and its chip
 js/documents/flow-updates.ts           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
 js/documents/view-status.ts            # the status line: its items, text, progress bar and place per band
 js/layout/flow-panel-size.ts           # outline width, panel width and sheet height, their presets
+js/layout/flow-scroll.ts               # scrolling the reading area: a jump's target, its glide, the hand's scroll, the arrival watch
 js/pdf/view-pages.ts                   # the page elements, page width and zoom steps, page jump
 js/pdf/flow-open.ts                    # PDF.js: loading, the document cache, opening the current build
 js/pdf/view-outline.ts                 # the PDF outline and the section strip
@@ -82,6 +83,7 @@ js/markdown/view.ts                    # the Markdown surface: drawing a documen
 js/text/view.ts                        # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
 js/revisions/view-rendered-compare.ts  # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
 js/composer/flow-suggest.ts            # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
+js/platform/composition.ts             # whether an input method's composition is open: the element it is in, kept by three listeners
 js/composer/flow-pick.ts               # pick() and the composer: overlap banner, kind, question hint, discard and restore
 js/composer/flow-draft.ts              # the composer draft kept per tab (sessionStorage)
 js/composer/flow-save.ts               # saving a pin, appending to one, the queued save

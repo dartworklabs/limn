@@ -3,14 +3,14 @@
 // with one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's
 // first or last line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer
 // and the edit card draw the same excerpt.
-import { SNIP_OPEN } from '../app/state.ts';
+import { SNIP_OPEN, COMPOSE, EDITOR, setComposeIntent } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { refetchSnip } from './view-levels.ts';
-import { recomputeOverlap, renderComposer, COMPOSE } from './flow-pick.ts';
-import { renderEdit, EDITOR } from '../pins/flow-edit.ts';
+import { recomputeOverlap, renderComposer } from './flow-pick.ts';
+import { renderEdit } from '../pins/flow-edit.ts';
 import { $ } from '../platform/dom.ts';
 import { withDocQuery, isRegion } from '../documents/state.ts';
 
@@ -210,7 +210,7 @@ function applyRange(owner, range, anchor) {
     topBefore = rowBefore && rowBefore.getBoundingClientRect().top;
   setLines(owner, first, last);
   if (owner === COMPOSE.current) {
-    COMPOSE.intent++;
+    setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
   }
   excerptRedraw(owner);

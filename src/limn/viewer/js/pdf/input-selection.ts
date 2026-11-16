@@ -5,19 +5,32 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-import { DOC, PAGE_SCALE, LAYOUT, META, REPICK, REPLY, SELMODE, SIDE_OPEN, isFigureKind } from '../app/state.ts';
+import {
+  DOC,
+  PAGE_SCALE,
+  LAYOUT,
+  META,
+  REPICK,
+  REPLY,
+  SELMODE,
+  SIDE_OPEN,
+  isFigureKind,
+  COMPOSE,
+  EDITOR,
+  setComposeBox,
+} from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { SWALLOW_CLICK, setSwallowClick } from '../platform/tooltip.ts';
 import { fitScale, zoomTo } from './view-pages.ts';
-import { discardSelection, pick, COMPOSE } from '../composer/flow-pick.ts';
-import { endJumpForScroll } from '../verdict/flow-line.ts';
+import { discardSelection, pick } from '../composer/flow-pick.ts';
 import { SELECTION_POPOVER, openSelectionPopover, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { markBadgeIn, markBadgeRoom } from '../pins/flow-list.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
+import { LONGPRESS_MS } from '../layout/input.ts';
+import { endJumpForScroll } from '../layout/flow-scroll.ts';
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;
@@ -31,8 +44,7 @@ let DRAG = null as {
   } | null,
   LONG_PRESS = null as { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
-const LONGPRESS_MS = 450,
-  TAP_SLOP = 8,
+const TAP_SLOP = 8,
   QUICK_HALF_WIDTH = 0.07,
   QUICK_HALF_HEIGHT = 0.006,
   QUICK_FIGURE_HALF = 0.004;
@@ -360,7 +372,7 @@ function quickBox(x, y, figure) {
 // Turns a drawn rectangle into a selection and asks the server for its lines. Returns false, drawing nothing and
 // removing the box, when the rectangle is smaller than a drag (under 0.4% of the page in both directions) - a click,
 // not a selection.
-function finishRect(pageElement, box, startX, startY, x, y) {
+function finishRect(pageElement, box: HTMLElement, startX, startY, x, y) {
   const width = Math.abs(x - startX),
     height = Math.abs(y - startY);
   if (width < 0.004 && height < 0.004) {
@@ -375,7 +387,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     pendingBadge(box, '새 위치');
   } else {
     if (COMPOSE.box) COMPOSE.box.remove();
-    COMPOSE.box = box;
+    setComposeBox(box);
     pendingBadge(box, '새 핀');
   }
   const page = +pageElement.dataset.page,
@@ -421,14 +433,4 @@ function selectionRoom(): { top: number; bottom: number } {
     bottom,
   };
 }
-export {
-  LONGPRESS_MS,
-  cancelDrag,
-  cancelLongPress,
-  drawBox,
-  newBox,
-  pendingBadge,
-  pendingBadgeSide,
-  revealBox,
-  selectionRoom,
-};
+export { cancelDrag, cancelLongPress, drawBox, newBox, pendingBadge, pendingBadgeSide, revealBox, selectionRoom };

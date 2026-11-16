@@ -47,6 +47,11 @@ import {
   setPickseq,
   setSnipOpen,
   showsSourceLines,
+  COMPOSE,
+  setComposeCurrent,
+  setComposeDismissedOverlap,
+  setComposeIntent,
+  setComposePicking,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import {
@@ -87,16 +92,18 @@ import {
   textNotice,
   buildTextView,
 } from '../text/view.ts';
-import { focusFell, focusHold, imeOpen, renderComposer, setBusy, COMPOSE } from '../composer/flow-pick.ts';
-import { endJumpForScroll, renderVerdictRow } from '../verdict/flow-line.ts';
+import { renderComposer, setBusy } from '../composer/flow-pick.ts';
+import { imeOpen } from '../platform/composition.ts';
+import { renderVerdictRow } from '../verdict/flow-line.ts';
 import { marks } from '../pins/flow-list.ts';
 import { bannerCompare } from '../composer/flow-repick.ts';
 import { NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, focusFell, focusHold } from '../platform/dom.ts';
 import { LAYOUT_MODE, MARKDOWN_LIMIT, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, lineRange, overlapsFor } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isTextDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
 import { levelOf, useLevel } from '../documents/rules.ts';
+import { endJumpForScroll } from '../layout/flow-scroll.ts';
 const MARKDOWN_LIMITS = Object.freeze({
   nesting: 20,
   blocks: 30000,
@@ -2352,9 +2359,9 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   }
   endTopic(NOTICE_TOPIC.PICK);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
-  COMPOSE.picking = false;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  setComposePicking(false);
   selection.scope = null;
   selection.elSel = null;
   useLevel(selection, defaultLevel);
@@ -2364,7 +2371,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   $('#c-body').hidden = false;
   setSide(true);
   applySide();
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   setSnipOpen(false);
   renderComposer();

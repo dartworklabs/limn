@@ -67,7 +67,7 @@ LINE = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"
   return {text: t.replace(/·/g, ' · ').replace(/\\s+/g, ' ').trim(), pin: l.dataset.pin || null, cancel: c ? Number(c.dataset.ref) : null,
     words: [...l.querySelectorAll('button.vd-b')].map(b => b.textContent), tips: [...l.querySelectorAll('button.vd-b')].map(b => b.dataset.tip)};}"""
 # A smooth scroll of the PDF area to page 2's top that the viewer did not start (no jump of its own, so its guard judges the
-# scroll by the hand's last touch: verdict/flow-line.ts isAutoScrolling), held open: the browser's end of it (scrollend) is kept from
+# scroll by the hand's last touch: layout/flow-scroll.ts isAutoScrolling), held open: the browser's end of it (scrollend) is kept from
 # the viewer and counted until glide_let_go hands it on. The browser's glide is over in about half a second, and a test that
 # looked or pressed its key one round trip after starting it found it over on a loaded runner: IS_GLIDING read false, or was
 # never seen true (#423). Run with the page's clock standing still (clock_still), so that the guard's own lapse - a second

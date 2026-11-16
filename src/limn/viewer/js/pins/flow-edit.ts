@@ -1,6 +1,5 @@
 // ------------------------------------------------ Edit
-// The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-import { PINS, rendersInBrowser } from '../app/state.ts';
+import { PINS, rendersInBrowser, EDITOR, setEditorCurrent, setEditorSaving } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
@@ -30,7 +29,6 @@ import { pinState, verdictOf } from '../app/rules-pins.ts';
 import { peopleName } from '../app/state-people.ts';
 import { withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
-const EDITOR = { current: null as EditCard | null, saving: false };
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
@@ -100,7 +98,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   noteField._mentions = new Set(pin.mentions || []);
   autoGrow(noteField);
   mentionPreview(noteField);
-  EDITOR.current = {
+  const card: EditCard = {
     id,
     el: cardElement,
     base_rev: pin.rev || 0,
@@ -137,7 +135,8 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
     kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
     sg: suggestOfPin(pin),
   };
-  if (EDITOR.current.region) cardElement.classList.add('region');
+  setEditorCurrent(card);
+  if (card.region) cardElement.classList.add('region');
   // a verdict pin keeps its verdict and target (D3): only the note and the assignee are edited
   if (verdictOf(pin)) cardElement.classList.add('verdict');
   drawPins();
@@ -266,7 +265,7 @@ function renderEdit() {
   }
 }
 function cancelEdit() {
-  EDITOR.current = null;
+  setEditorCurrent(null);
   drawPins();
 }
 // Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note and its
@@ -337,7 +336,7 @@ async function saveEdit() {
   }
   const fields = editFields(card),
     hints = mentionHints(editNote(card));
-  EDITOR.saving = true;
+  setEditorSaving(true);
   syncEditSaveButton();
   try {
     const { status, data } = await api('/api/pins/' + card.id + '/edit', {
@@ -423,7 +422,7 @@ async function saveEdit() {
     if (editorOwns(card)) {
       card.theirs = null;
       card.overwrite = false;
-      if (editFields(card) === fields) EDITOR.current = null;
+      if (editFields(card) === fields) setEditorCurrent(null);
       else {
         const pin = data.pin;
         card.base_rev = pin.rev;
@@ -443,7 +442,7 @@ async function saveEdit() {
     await loadPins();
   } catch (error) {
   } finally {
-    EDITOR.saving = false;
+    setEditorSaving(false);
     syncEditSaveButton();
   }
 }
@@ -506,4 +505,4 @@ function editSuggestRefused(card: EditCard, data: any) {
     { source: 'POST /api/pins/' + card.id + '/edit edit' },
   );
 }
-export { EDITOR, autoGrow, cancelEdit, editDirty, editNote, editSnip, openEdit, renderEdit, saveEdit };
+export { autoGrow, cancelEdit, editDirty, editNote, editSnip, openEdit, renderEdit, saveEdit };

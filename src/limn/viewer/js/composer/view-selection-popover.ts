@@ -7,10 +7,10 @@
 // [자세히 →] hands over to the composer in the panel, which keeps the kind, the range and the overlap. Esc and a short
 // click off the box cancel the selection as they do without it; a press on the popover is a press inside the box
 // (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
-import { KIND_NEW, LAYOUT, REPICK } from '../app/state.ts';
+import { KIND_NEW, LAYOUT, REPICK, COMPOSE } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { applySide, setSide } from '../layout/flow.ts';
-import { syncQuestionHint, COMPOSE } from './flow-pick.ts';
+import { syncQuestionHint } from './flow-pick.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import { MENTION, mentionClose, mentionEdited, mentionPlace, renderAssignNew } from '../pins/input-mentions.ts';
 import { autoGrow } from '../pins/flow-edit.ts';

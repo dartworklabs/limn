@@ -5,16 +5,16 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { setViewMode } from '../revisions/flow.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
-import { arrivalWatch, goPage, jumpOnItsWay } from './view-pages.ts';
+import { goPage, jumpOnItsWay } from './view-pages.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
 import { goToHeading, updateMarkdownStrip } from '../markdown/view.ts';
-import { glideTo } from '../verdict/flow-line.ts';
 import { popoverFreeArea } from '../composer/view-selection-popover.ts';
-import { topAnchor } from '../documents/flow-rebuild.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from '../documents/state.ts';
+import { topAnchor } from '../layout/flow.ts';
+import { arrivalWatch, glideTo } from '../layout/flow-scroll.ts';
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
 // Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).

@@ -5,13 +5,23 @@
 // restores it (restoreDraft). Saving clears it; a discard clears it once its undo window is over (DRAFT.holds has that
 // document's undo). Only this tab sees it. The tab owns the debounce timer and the active document's draft key; a
 // discard's undo holds its own document's key.
-import { DOC, KIND_NEW, LAYOUT, META, setSnipOpen } from '../app/state.ts';
+import {
+  DOC,
+  KIND_NEW,
+  LAYOUT,
+  META,
+  setSnipOpen,
+  COMPOSE,
+  setComposeBox,
+  setComposeCurrent,
+  setComposeIntent,
+} from '../app/state.ts';
 import { NOTICES, lineNote } from '../platform/notices.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { drawBox, newBox, pendingBadge, revealBox } from '../pdf/input-selection.ts';
 import { relevelForLineView } from '../markdown/view.ts';
 import { SUGGEST_DRAFT, suggestClear, suggestCopy } from './flow-suggest.ts';
-import { cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind, COMPOSE } from './flow-pick.ts';
+import { cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind } from './flow-pick.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
 import { autoGrow } from '../pins/flow-edit.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
@@ -211,7 +221,7 @@ function restoreDraft() {
   autoGrow(noteField);
   if (picked) saveDraftSoon();
   if (how === 'full') {
-    const keptPick = record.cur,
+    const keptPick: Selection = record.cur,
       page = document.getElementById('p' + keptPick.page);
     if (page && Array.isArray(keptPick.frac)) {
       const box = newBox(page),
@@ -219,10 +229,10 @@ function restoreDraft() {
       drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
       box.classList.add('pending');
       pendingBadge(box, '새 핀');
-      COMPOSE.box = box;
+      setComposeBox(box);
     }
-    COMPOSE.current = keptPick;
-    COMPOSE.intent++;
+    setComposeCurrent(keptPick);
+    setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
     setSnipOpen(false);
     $('#c-err').hidden = true;

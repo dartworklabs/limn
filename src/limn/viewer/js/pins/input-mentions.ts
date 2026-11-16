@@ -7,7 +7,7 @@
 // composer/view-selection-popover.ts) offers the same list, and its tags are kept on the field it mirrors, which sends
 // them (mentionModel). There is no external notification. The open @-list: its field, the '@word' it was drawn for
 // (where its '@' is, q the letters after it), its people and the highlighted row.
-import { KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, imeKey, imeTail } from '../app/state.ts';
+import { KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, imeKey, imeTail, EDITOR } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { revealSegment } from '../composer/view-levels.ts';
@@ -15,7 +15,7 @@ import { appendTarget, syncQuestionHint } from '../composer/flow-pick.ts';
 import { saveDraftSoon } from '../composer/flow-draft.ts';
 import { mentionAfterWord } from './view-card-parts.ts';
 import { renderReplyOutcome } from './flow-reply.ts';
-import { autoGrow, editNote, EDITOR } from './flow-edit.ts';
+import { autoGrow, editNote } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
 import { $ } from '../platform/dom.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';

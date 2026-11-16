@@ -681,6 +681,67 @@ function setZoomed(value) {
   ZOOMED = value;
   return value;
 }
+// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
+// counter every change to what the composer asks bumps (setComposeIntent) - a new, cleared or restored selection (pick,
+// cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
+// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
+// was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
+// unchanged (savePin).
+const COMPOSE = {
+  current: null,
+  box: null,
+  picking: false,
+  pendingSave: false,
+  saving: false,
+  dismissedOverlap: null,
+  intent: 0,
+  retryVerdict: null,
+};
+// The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
+const EDITOR = { current: null, saving: false };
+// Each sets one field of COMPOSE or EDITOR, which this module declares, for another module that changes it (ADR-0042
+// D1): the assignment the caller wrote, nothing more.
+function setComposeCurrent(value) {
+  COMPOSE.current = value;
+}
+function setComposeBox(value) {
+  COMPOSE.box = value;
+}
+function setComposePicking(value) {
+  COMPOSE.picking = value;
+}
+function setComposePendingSave(value) {
+  COMPOSE.pendingSave = value;
+}
+function setComposeSaving(value) {
+  COMPOSE.saving = value;
+}
+function setComposeDismissedOverlap(value) {
+  COMPOSE.dismissedOverlap = value;
+}
+function setComposeIntent(value) {
+  COMPOSE.intent = value;
+}
+function setComposeRetryVerdict(value) {
+  COMPOSE.retryVerdict = value;
+}
+// Sets the overlapping pins of selection (the composer's current one, COMPOSE.current).
+function setSelectionOverlaps(selection, overlaps) {
+  selection.overlaps = overlaps;
+}
+function setEditorCurrent(value) {
+  EDITOR.current = value;
+}
+function setEditorSaving(value) {
+  EDITOR.saving = value;
+}
+// Sets the assignee and the requested kind of card (the open edit card, EDITOR.current).
+function setEditAssignee(card, assignee) {
+  card.assignee = assignee;
+}
+function setEditRequestKind(card, kind) {
+  card.kind_req = kind;
+}
 
 // ------------------------------------------------ People
 // Who a login is (a name, an agent or a human) and whether it is the viewer themself, read from the page's shared
@@ -758,6 +819,19 @@ function searchToPage() {
   pdfArea.tabIndex = -1;
   pdfArea.addEventListener('blur', () => pdfArea.removeAttribute('tabindex'), { once: true });
   pdfArea.focus({ preventScroll: true });
+}
+function focusFell() {
+  const focused = document.activeElement;
+  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
+}
+// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
+// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
+function focusHold(target) {
+  if (!target.hasAttribute('tabindex')) {
+    target.tabIndex = -1;
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+  }
+  target.focus({ preventScroll: true });
 }
 
 // -------------------------------------- Markup: html``, lucideIcon() and setHtml(), the one way the viewer writes HTML
@@ -9445,6 +9519,197 @@ function setSheetKept(value) {
   return value;
 }
 
+// ------------------------------------------------ Scrolling the reading area: jumps, glides and arrival
+// A jump's target and the glide that takes the pages there, the scroll a hand made, and the watch that lands a jump
+// where it says once the pages rest (arrivalWatch); every surface and the pin list jump through these.
+// The pages rest on a jump's place within this (a glide ends on or next to its pixel).
+const FIGURE_REST_PX = 2;
+// Every jump of the PDF area - a page, an outline entry's place, a card's [보기]; each glide starts this watch with its
+// place, a function that measures it now - lands where it says once the pages rest. The glide's place is reckoned at
+// its start, and the layout can still move under it: a save's list reload redraws hundreds of lines and stalls the
+// glide past its guard (JUMP_TARGET lapses after a second), which gives scroll anchoring back, and the anchoring's
+// adjustment can leave the figure tens to hundreds of pixels off; a line fitted on the way moves the pages after it,
+// and a glide may not be written to (letLineBlocks). So each time the pages come to rest - after ARRIVAL_REST_MS
+// without a scroll, the glide guard down - it measures the place again and glides the rest (glideTo: the guard and the
+// held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest that found nothing to do:
+// each correction counts the window again from its own rest, which is always measured. A window counted from the first
+// rest would close on a correction stopped on its way, whose guard lapses up to two seconds later, and leave the figure
+// short by what remains. It only settles what nobody asked for: anything the person does meanwhile - a press, a key, a
+// wheel or a touch anywhere, a window resize - lets it go (arrivalLetGo), for that starts a move of its own (a card's
+// mark, a search hit, a zoom, another page) the watch must not undo; so do the person's scroll (HAND_ON_PAGES), another
+// document and the pages not shown. A script that scrolls to show something lets it go too, with no input before it
+// (endJumpForScroll: a search hit landing as the PDF's text is read, in the middle of a jump); a script that only keeps
+// what is on screen does not, and may stop the glide: the place moved with it, and the settling goes on. A scroll by
+// anything else, once the pages have rested at the place, lets it go at that rest: the place stayed and the pages left
+// it, which is no layout's doing (at). A new jump replaces it. An instant jump needs no watch: nothing is on its way
+// when a pass comes, and the pass keeps the view itself.
+const ARRIVAL_REST_MS = 120,
+  ARRIVAL_SETTLE_MS = 2000,
+  ARRIVAL_FIXES = 3;
+let ARRIVAL = null,
+  ARRIVAL_TIMER = 0;
+/** @param place - the scrollTop the jump goes to, measured now; null once it is gone */
+function arrivalWatch(place) {
+  ARRIVAL = { place, hand: HAND_SCROLL_AT, doc: DOC, fixes: 0, until: 0, at: null };
+  arrivalSoon();
+}
+// Measures again at the next rest: ARRIVAL_REST_MS from now, unless another scroll comes first.
+function arrivalSoon() {
+  clearTimeout(ARRIVAL_TIMER);
+  ARRIVAL_TIMER = setTimeout(arrivalSettle, ARRIVAL_REST_MS);
+}
+// Ends the watch: the person or a script has started a move of its own.
+function arrivalLetGo() {
+  if (!ARRIVAL) return;
+  ARRIVAL = null;
+  clearTimeout(ARRIVAL_TIMER);
+}
+// The watch at a rest: lets go, waits for the glide, records the pages at the place, or glides the rest.
+function arrivalSettle() {
+  const arrival = ARRIVAL,
+    pdfArea = $('#left');
+  if (!arrival) return;
+  if (arrival.hand !== HAND_SCROLL_AT || arrival.doc !== DOC || !pdfArea.getClientRects().length) {
+    ARRIVAL = null;
+    return;
+  }
+  // Still on its way.
+  if (JUMP_TARGET !== null || isAutoScrolling()) {
+    arrivalSoon();
+    return;
+  }
+  const now = performance.now();
+  if (!arrival.until) arrival.until = now + ARRIVAL_SETTLE_MS;
+  else if (now > arrival.until) {
+    ARRIVAL = null;
+    return;
+  }
+  const place = arrival.place();
+  if (place === null) {
+    ARRIVAL = null;
+    return;
+  }
+  const to = Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, place));
+  if (Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX) {
+    arrival.at = to;
+    return;
+  }
+  if (arrival.fixes >= ARRIVAL_FIXES || (arrival.at !== null && Math.abs(arrival.at - to) <= FIGURE_REST_PX)) {
+    ARRIVAL = null;
+    return;
+  }
+  arrival.fixes++;
+  arrival.until = 0;
+  arrival.at = null;
+  glideTo(to);
+  arrivalSoon();
+}
+// Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is
+// scrolling
+// - from a scroll event to its scrollend (where the browser has none, 160ms after the last scroll) - and no wheel,
+//   touch,
+// press or scrolling key of the person's came in the 500ms before it began. While it glides the page under the reading
+// line is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past. A scroll
+// the person makes goes on acting at once; an instant jump ends at once.
+let LAST_SCROLL_AT = 0,
+  HAND_SCROLL_AT = 0,
+  IS_GLIDING = false,
+  JUMP_TARGET = null;
+const HAND_ON_PAGES = () => {
+  HAND_SCROLL_AT = performance.now();
+  IS_GLIDING = false;
+  setJumpTarget(null);
+}; // the person takes the pages over
+// A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document -
+// so a jump on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No
+// input need come before: a search hit lands when the PDF's text has been read. A write that only keeps what is on
+// screen across a layout change does not come here (restoreAnchor, letLineBlocks, setSelectMode, zoomRestore,
+// settleBesideTurn): it moves with the place, so the settling stays right. test_viewer_scroll_writes.py holds the list:
+// a new scripted scroll has to be put in it. Given what it shows as a place, the pages settle there when a glide was on
+// its way: the write stops it a frame or two late.
+function endJumpForScroll(place) {
+  arrivalLetGo();
+  if (JUMP_TARGET === null) return;
+  setJumpTarget(null);
+  IS_GLIDING = false;
+  if (place) arrivalWatch(place);
+}
+// Sets where a jump is going (JUMP_TARGET, null when none), and while it goes holds the PDF area's scroll anchoring off
+// (#left.pv-glide, frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way
+// the lines are drawn again as each page passes under the reading line, so on a phone a long jump would rest short of
+// its page. The glide's place is reckoned at its start and nothing above it changes size on the way (the lines keep
+// their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime. A jump that does
+// not end at its place - the browser stopped it short, a document switch or a rebuild took the pages over, a late
+// scroll end of an earlier scroll came instead of its own - is let go once the pages have been still for a second, as
+// the guard lets it go (isAutoScrolling): the hold is never left on, which would take anchoring from a line changing
+// height above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not
+// wait it out.
+let JUMP_TIMER = 0;
+function setJumpTarget(target) {
+  JUMP_TARGET = target;
+  $('#left').classList.toggle('pv-glide', target !== null);
+  clearTimeout(JUMP_TIMER);
+  if (target !== null) JUMP_TIMER = setTimeout(lapseJump, 1100);
+}
+function lapseJump() {
+  if (JUMP_TARGET === null) return;
+  if (performance.now() - LAST_SCROLL_AT >= 1000) setJumpTarget(null);
+  else JUMP_TIMER = setTimeout(lapseJump, 1100);
+}
+const HAS_SCROLLEND = 'onscrollend' in window;
+function isAutoScrolling() {
+  return IS_GLIDING && performance.now() - LAST_SCROLL_AT < (HAS_SCROLLEND ? 1000 : 160);
+}
+// Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from
+// now, not from its first scroll event a frame later, in which a digit would act on the page being left, and whatever
+// the hand did just before - a recent wheel would make the guard take the jump for the person's own scroll. Nothing to
+// glide (reduced motion, or already there): no guard, no scroll event would end it. Returns how the jump's scroll goes
+// (scrollMotion, read once here, so the guard and the scroll agree).
+/** @param to - the scrollTop it goes to */
+function armGlide(to) {
+  const area = $('#left'),
+    top = Math.max(0, Math.min(area.scrollHeight - area.clientHeight, to)),
+    how = scrollMotion();
+  if (how === 'smooth' && Math.abs(top - area.scrollTop) > 1) {
+    setJumpTarget(top);
+    IS_GLIDING = true;
+    LAST_SCROLL_AT = performance.now();
+  } else if (JUMP_TARGET !== null) {
+    setJumpTarget(null);
+    IS_GLIDING = false;
+  } // this scroll replaces a glide in flight (reduced motion turned on during it): its guard goes with it
+  return how;
+}
+function glideTo(top) {
+  $('#left').scrollTo({ top, behavior: armGlide(top) });
+}
+/** The scrollTop that brings an element to the top of the PDF area, or its middle to the area's middle (center). */
+function scrollTopFor(element, block) {
+  const area = $('#left'),
+    rect = element.getBoundingClientRect(),
+    areaRect = area.getBoundingClientRect();
+  return (
+    area.scrollTop +
+    (block === 'center'
+      ? rect.top + rect.height / 2 - (areaRect.top + area.clientTop + area.clientHeight / 2)
+      : rect.top - areaRect.top - area.clientTop)
+  );
+}
+function glideInto(element, block) {
+  element.scrollIntoView({ behavior: armGlide(scrollTopFor(element, block)), block: block || 'start' });
+}
+
+// JUMP_TARGET: the scrollTop a jump is going to
+
+// Set IS_GLIDING and LAST_SCROLL_AT, which this module declares, for the scroll listeners of verdict/flow-line.ts:
+// the assignment each made, nothing more.
+function setGliding(value) {
+  IS_GLIDING = value;
+}
+function setLastScrollAt(value) {
+  LAST_SCROLL_AT = value;
+}
+
 // ------------------------------------------------ PDF pages: their boxes, scale and zoom, and arriving at one
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
@@ -9501,7 +9766,7 @@ function pageWidth(ptw, scale) {
 function buildDoc() {
   // A document the browser draws from its source has no pages (markdown/view.ts).
   if (isMarkdownDoc()) {
-    COMPOSE.box = null;
+    setComposeBox(null);
     buildMarkdownDoc();
     return;
   }
@@ -9513,7 +9778,7 @@ function buildDoc() {
   const doc = $('#doc'),
     focus = holdReasonFocus();
   doc.replaceChildren();
-  COMPOSE.box = null;
+  setComposeBox(null);
   META.pages.forEach((page, index) => {
     const pageBox = document.createElement('div');
     pageBox.className = 'pg';
@@ -9810,91 +10075,9 @@ function arrivePage(pageNumber) {
 }
 // The points of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element.
 const FIGURE_ROOM_POINTS = 24;
-// The pages rest on a jump's place within this (a glide ends on or next to its pixel).
-const FIGURE_REST_PX = 2;
-// Every jump of the PDF area - a page, an outline entry's place, a card's [보기]; each glide starts this watch with its
-// place, a function that measures it now - lands where it says once the pages rest. The glide's place is reckoned at
-// its start, and the layout can still move under it: a save's list reload redraws hundreds of lines and stalls the
-// glide past its guard (JUMP_TARGET lapses after a second), which gives scroll anchoring back, and the anchoring's
-// adjustment can leave the figure tens to hundreds of pixels off; a line fitted on the way moves the pages after it,
-// and a glide may not be written to (letLineBlocks). So each time the pages come to rest - after ARRIVAL_REST_MS
-// without a scroll, the glide guard down - it measures the place again and glides the rest (glideTo: the guard and the
-// held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest that found nothing to do:
-// each correction counts the window again from its own rest, which is always measured. A window counted from the first
-// rest would close on a correction stopped on its way, whose guard lapses up to two seconds later, and leave the figure
-// short by what remains. It only settles what nobody asked for: anything the person does meanwhile - a press, a key, a
-// wheel or a touch anywhere, a window resize - lets it go (arrivalLetGo), for that starts a move of its own (a card's
-// mark, a search hit, a zoom, another page) the watch must not undo; so do the person's scroll (HAND_ON_PAGES), another
-// document and the pages not shown. A script that scrolls to show something lets it go too, with no input before it
-// (endJumpForScroll: a search hit landing as the PDF's text is read, in the middle of a jump); a script that only keeps
-// what is on screen does not, and may stop the glide: the place moved with it, and the settling goes on. A scroll by
-// anything else, once the pages have rested at the place, lets it go at that rest: the place stayed and the pages left
-// it, which is no layout's doing (at). A new jump replaces it. An instant jump needs no watch: nothing is on its way
-// when a pass comes, and the pass keeps the view itself.
-const ARRIVAL_REST_MS = 120,
-  ARRIVAL_SETTLE_MS = 2000,
-  ARRIVAL_FIXES = 3;
-let ARRIVAL = null,
-  ARRIVAL_TIMER = 0;
-/** @param place - the scrollTop the jump goes to, measured now; null once it is gone */
-function arrivalWatch(place) {
-  ARRIVAL = { place, hand: HAND_SCROLL_AT, doc: DOC, fixes: 0, until: 0, at: null };
-  arrivalSoon();
-}
-// Measures again at the next rest: ARRIVAL_REST_MS from now, unless another scroll comes first.
-function arrivalSoon() {
-  clearTimeout(ARRIVAL_TIMER);
-  ARRIVAL_TIMER = setTimeout(arrivalSettle, ARRIVAL_REST_MS);
-}
-// Ends the watch: the person or a script has started a move of its own.
-function arrivalLetGo() {
-  if (!ARRIVAL) return;
-  ARRIVAL = null;
-  clearTimeout(ARRIVAL_TIMER);
-}
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
   addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
 addEventListener('resize', arrivalLetGo);
-// The watch at a rest: lets go, waits for the glide, records the pages at the place, or glides the rest.
-function arrivalSettle() {
-  const arrival = ARRIVAL,
-    pdfArea = $('#left');
-  if (!arrival) return;
-  if (arrival.hand !== HAND_SCROLL_AT || arrival.doc !== DOC || !pdfArea.getClientRects().length) {
-    ARRIVAL = null;
-    return;
-  }
-  // Still on its way.
-  if (JUMP_TARGET !== null || isAutoScrolling()) {
-    arrivalSoon();
-    return;
-  }
-  const now = performance.now();
-  if (!arrival.until) arrival.until = now + ARRIVAL_SETTLE_MS;
-  else if (now > arrival.until) {
-    ARRIVAL = null;
-    return;
-  }
-  const place = arrival.place();
-  if (place === null) {
-    ARRIVAL = null;
-    return;
-  }
-  const to = Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, place));
-  if (Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX) {
-    arrival.at = to;
-    return;
-  }
-  if (arrival.fixes >= ARRIVAL_FIXES || (arrival.at !== null && Math.abs(arrival.at - to) <= FIGURE_REST_PX)) {
-    ARRIVAL = null;
-    return;
-  }
-  arrival.fixes++;
-  arrival.until = 0;
-  arrival.at = null;
-  glideTo(to);
-  arrivalSoon();
-}
 // Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its
 // watch has neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no
 // rest while either holds, however long: a busy machine's frames come late. An outline pick waits on this before it
@@ -13560,6 +13743,36 @@ function wheelFactor(deltaY, mode) {
 // sheet, collapsed by default. If the band changes partway through a collapse/expand or a rotation, the page width is
 // re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the
 // page, so they fall back into place automatically once the page width is fit.
+
+// What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
+// registers them before boot() runs (no code that runs while the script loads lays out the page), and the frame calls
+// each at the point, with the arguments and in the order it called the feature code directly. A call before the
+// registration throws, naming the seam.
+// The steps of a relayout a feature acts on, in the order relayout() takes them. Several features hear of a relayout,
+// so this is a list: at each step every listener that has the step is called, in the order they were registered.
+const RELAYOUT_LISTENERS = [];
+// Adds a listener to the steps of a relayout; js/main.ts calls it, in the order the steps' feature calls ran.
+function onRelayout(listener) {
+  RELAYOUT_LISTENERS.push(listener);
+}
+// The registered listeners; throws before onRelayout() has run.
+function relayoutListeners() {
+  if (!RELAYOUT_LISTENERS.length) throw new Error('onRelayout() has not run: no feature hears of a relayout');
+  return RELAYOUT_LISTENERS;
+}
+// The parts of the frame features draw or know: the status line's place and the build error chip (documents), the
+// changes view's guide and commit list (revisions), the pin counts and the bar's words (pins), the reading line's stick
+// (verdict), the zoom in [더보기] and the search (pdf), the address's #doc= (documents).
+let FRAME_HOST = null;
+// Registers the frame's host; js/main.ts calls it once.
+function setFrameHost(host) {
+  FRAME_HOST = host;
+}
+// The registered host; throws before setFrameHost() has run.
+function frameHost() {
+  if (!FRAME_HOST) throw new Error('setFrameHost() has not run: the frame has no features to ask');
+  return FRAME_HOST;
+}
 // The band for a width x height CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the
 // width only: phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch
 // reads the height and the orientation too, first match wins: under 600px wide a phone at any height; under 480px high
@@ -13643,13 +13856,12 @@ function applyLayout() {
   const keep = placeBarTools();
   applySide();
   stickTop();
-  placeStatus();
+  frameHost().placeStatus();
   if ($('#more').open) {
     renderSizeSegment();
     placeMore();
   }
-  if (REVISION_VIEW.target) drawPinGuideActions();
-  if (REVISION_VIEW.rows.length) renderCommitList();
+  frameHost().drawChangesView();
   // From the sheet straight to wide the bar shows only once applySide has drawn the panel: the focus goes back now.
   if (keep && document.activeElement !== keep) keep.focus({ preventScroll: true });
   return true;
@@ -13733,9 +13945,9 @@ function applySide() {
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
-  updateReviewCount();
+  frameHost().updateReviewCount();
   syncBackLayer();
-  syncBuildErrChip();
+  frameHost().syncBuildErrorChip();
 }
 // The open handle's hint (the markup's, translated by translate()).
 const GRIP_TIP = $('#grip').dataset.tip;
@@ -13854,20 +14066,21 @@ function coachSideCollapsed() {
 // browser, at its own: keepReadingSpot), the composer, the stuck heads and the section strip - and keeps a panel text
 // field that has focus in view (the keyboard or the short band's hidden top row moves it).
 function relayout() {
+  const listeners = relayoutListeners();
   const anchor = topAnchor(),
     changed = applyLayout();
-  if (changed && META) drawPins();
+  if (changed && META) for (const listener of listeners) listener.layoutChanged?.();
   applySideWidth();
   applyOutlineState();
-  autoFitWidth();
+  for (const listener of listeners) listener.widthsApplied?.();
   restoreAnchor(anchor);
-  keepReadingSpot();
+  for (const listener of listeners) listener.anchorRestored?.();
   hideTip();
-  if (COMPOSE.current) renderComposer();
+  if (COMPOSE.current) for (const listener of listeners) listener.selectionHeld?.();
   stickTop();
-  updateSectionStrip();
+  for (const listener of listeners) listener.barStuck?.();
   keepFieldInView();
-  fitBarWords();
+  for (const listener of listeners) listener.fieldKeptInView?.();
 }
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1,
 // which holds the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list
@@ -13930,7 +14143,7 @@ function bandSettle() {
   if (step === BAND_STEP.WAIT) {
     BAND_TIMER = setTimeout(() => {
       BAND_TIMER = 0;
-      stickSoon();
+      frameHost().stickSoon();
       if (typingNow()) return;
       setBandIn(bandInput());
       refit();
@@ -14279,7 +14492,7 @@ function openMore() {
   const sheet = $('#more');
   if (sheet.open) return;
   hideTip();
-  drawZoom();
+  frameHost().drawZoom();
   renderSizeSegment();
   placeMore();
   showSheet(sheet);
@@ -14377,7 +14590,7 @@ function headInk() {
 // What was measured from text in the meantime - the sheet bar's steps (fitBarWords) and an open sheet's ink line
 // (footInk, headInk) - is measured again each time a load finishes.
 document.fonts.addEventListener('loadingdone', () => {
-  fitBarWords();
+  frameHost().fitBarWords();
   if ($('#more').open) footInk();
   if ($('#help').open) headInk();
 });
@@ -14402,9 +14615,50 @@ for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
 $('#nav-sheet').addEventListener('close', () => {
   const button = $('#btn-pos');
   // Its search row has put the focus in the search field.
-  if (SEARCH.open) return;
+  if (frameHost().searchOpen()) return;
   if (button.getClientRects().length) button.focus({ preventScroll: true });
 });
+function topAnchor(offset) {
+  const scroller = $('#left'),
+    scrollerTop = scroller.getBoundingClientRect().top,
+    top = scrollerTop + (offset || 0),
+    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
+    edge = offset ? 0 : 1;
+  for (const pageElement of $$('.pg')) {
+    const rect = pageElement.getBoundingClientRect();
+    if (rect.bottom > top + edge)
+      return {
+        page: +pageElement.dataset.page,
+        frac: Math.max(0, (top - rect.top) / rect.height),
+        gap: Math.max(0, rect.top - top),
+        atTop,
+        y: rect.top - scrollerTop,
+        h: rect.height,
+      };
+  }
+  return null;
+}
+// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without
+// it a spot between two pages would put the page's top on the edge, as much as that space off. On a touch screen -
+// where the select mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin,
+// or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
+// is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
+// of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
+// would stop a long glide part way.
+function restoreAnchor(anchor) {
+  if (!anchor) return;
+  const scroller = $('#left');
+  if (anchor.atTop) {
+    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
+    return;
+  }
+  const pageElement = document.getElementById('p' + anchor.page);
+  if (!pageElement) return;
+  const rect = pageElement.getBoundingClientRect(),
+    scrollerTop = scroller.getBoundingClientRect().top;
+  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
+  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
+}
 
 // Panel width handle - mouse, touch and pen all share one Pointer Events path. The handle has touch-action:none, so
 // dragging it never fights browser scrolling, and setPointerCapture keeps tracking it even outside the handle. While
@@ -14415,6 +14669,8 @@ $('#nav-sheet').addEventListener('close', () => {
 // A collapsed wide panel leaves the handle as a 6px rail at the right edge: dragging it left past half the minimum
 // opens the panel at the minimum and then follows; a double-click (a tap on touch) opens it at the saved width. A tap
 // on an open handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
+const LONGPRESS_MS = 450;
+
 (function () {
   const grip = $('#grip');
   let drag = null;
@@ -15026,7 +15282,7 @@ function closeTopLayer() {
 window.addEventListener('popstate', () => {
   const ours = BACK_SKIP || (BACK && BACK.kind === 'history');
   if (!ours) return;
-  if (DOC) setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
+  if (DOC) frameHost().setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
   if (BACK_SKIP) {
     BACK_SKIP = false;
     return;
@@ -15052,8 +15308,7 @@ window.addEventListener('popstate', () => {
 let DRAG = null,
   LONG_PRESS = null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
-const LONGPRESS_MS = 450,
-  TAP_SLOP = 8,
+const TAP_SLOP = 8,
   QUICK_HALF_WIDTH = 0.07,
   QUICK_HALF_HEIGHT = 0.006,
   QUICK_FIGURE_HALF = 0.004;
@@ -15396,7 +15651,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     pendingBadge(box, '새 위치');
   } else {
     if (COMPOSE.box) COMPOSE.box.remove();
-    COMPOSE.box = box;
+    setComposeBox(box);
     pendingBadge(box, '새 핀');
   }
   const page = +pageElement.dataset.page,
@@ -15942,7 +16197,7 @@ function applyRange(owner, range, anchor) {
     topBefore = rowBefore && rowBefore.getBoundingClientRect().top;
   setLines(owner, first, last);
   if (owner === COMPOSE.current) {
-    COMPOSE.intent++;
+    setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
   }
   excerptRedraw(owner);
@@ -18368,9 +18623,9 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   }
   endTopic(NOTICE_TOPIC.PICK);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
-  COMPOSE.picking = false;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  setComposePicking(false);
   selection.scope = null;
   selection.elSel = null;
   useLevel(selection, defaultLevel);
@@ -18380,7 +18635,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   $('#c-body').hidden = false;
   setSide(true);
   applySide();
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   setSnipOpen(false);
   renderComposer();
@@ -21389,7 +21644,7 @@ function suggestAct(control, act) {
   if (act === 'sg-toggle') {
     owner.sg.on = !owner.sg.on;
     owner.sg.current = null;
-    if (owner.sg === SUGGEST_DRAFT) COMPOSE.intent++;
+    if (owner.sg === SUGGEST_DRAFT) setComposeIntent(COMPOSE.intent + 1);
     owner.redraw();
     return;
   } // the composer's switch ends a failed verdict save's retry
@@ -21415,23 +21670,43 @@ document.addEventListener('input', (event) => {
   owner.redraw();
 });
 
+// ------------------------------------------------ Input method composition
+// Whether an input method's composition is open (imeOpen): the element it is open in, kept by three listeners.
+// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is
+// over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
+// compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
+// the moment it is asked.
+let COMPOSITION_ELEMENT = null;
+addEventListener(
+  'compositionstart',
+  (event) => {
+    COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
+  },
+  true,
+);
+addEventListener(
+  'compositionend',
+  (event) => {
+    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
+  },
+  true,
+);
+addEventListener(
+  'focusout',
+  (event) => {
+    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
+  },
+  true,
+);
+function imeOpen() {
+  const composing = COMPOSITION_ELEMENT,
+    focused = document.activeElement;
+  if (composing && (!composing.isConnected || !(focused === composing || (focused && composing.contains(focused)))))
+    COMPOSITION_ELEMENT = null;
+  return !!COMPOSITION_ELEMENT;
+}
+
 // ------------------------------------------------ composer
-// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
-// counter every change to what the composer asks bumps (COMPOSE.intent++) - a new, cleared or restored selection (pick,
-// cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
-// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
-// was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
-// unchanged (savePin).
-const COMPOSE = {
-  current: null,
-  box: null,
-  picking: false,
-  pendingSave: false,
-  saving: false,
-  dismissedOverlap: null,
-  intent: 0,
-  retryVerdict: null,
-};
 
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
@@ -21477,11 +21752,11 @@ async function pick(region) {
   if (repick) {
     banner(html`<span>되짚는 중…</span>`);
   } else {
-    COMPOSE.current = null;
-    COMPOSE.intent++;
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
     $('#composer').hidden = false;
     setBusy(true);
-    COMPOSE.picking = true;
+    setComposePicking(true);
     $('#c-err').hidden = true;
     $('#c-body').hidden = false;
     // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
@@ -21517,7 +21792,7 @@ async function pick(region) {
     if (seq !== PICKSEQ) return;
     setBusy(false);
     if (!repick) {
-      COMPOSE.picking = false;
+      setComposePicking(false);
       clearPendingSave();
     }
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
@@ -21533,7 +21808,7 @@ async function pick(region) {
     } else {
       if (COMPOSE.box) {
         COMPOSE.box.remove();
-        COMPOSE.box = null;
+        setComposeBox(null);
       }
       if (!COMPOSE.current) {
         $('#composer').hidden = true;
@@ -21545,7 +21820,7 @@ async function pick(region) {
   }
   if (seq !== PICKSEQ) return;
   setBusy(false);
-  if (!repick) COMPOSE.picking = false;
+  if (!repick) setComposePicking(false);
   if (answer.error) {
     if (answer.pdf_build_gone) {
       try {
@@ -21557,7 +21832,7 @@ async function pick(region) {
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
         COMPOSE.box.remove();
-        COMPOSE.box = null;
+        setComposeBox(null);
       }
     }
     if (repick) {
@@ -21565,8 +21840,8 @@ async function pick(region) {
       return;
     }
     // A failed pick never carries out a pending save - only the error panel is shown, so a save never fails silently.
-    COMPOSE.current = null;
-    COMPOSE.intent++;
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
     clearPendingSave();
     $('#c-err').textContent = errText(answer);
     $('#c-err').hidden = false;
@@ -21580,8 +21855,8 @@ async function pick(region) {
     return;
   }
   const selection = answer;
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
   selection.scope = null;
   selection.elSel = answer.el || null;
   if (!isRegion(answer)) {
@@ -21592,7 +21867,7 @@ async function pick(region) {
     }
   }
   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
   // re-fetched - loadPins recomputes overlap too.
@@ -21652,7 +21927,7 @@ function overlapText(rel, id) {
 // the relationship, and reset on a fresh drag (pick), so one press never silences it for every later selection.
 
 function recomputeOverlap() {
-  if (COMPOSE.current) COMPOSE.current.overlaps = overlapsFor(COMPOSE.current, PINS);
+  if (COMPOSE.current) setSelectionOverlaps(COMPOSE.current, overlapsFor(COMPOSE.current, PINS));
 }
 // The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
 // or null without one, and once the author chose [따로 저장] for it.
@@ -21883,7 +22158,7 @@ function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
-  if (KIND_NEW !== was) COMPOSE.intent++; // a failed verdict save's retry is for the intent it was pressed with
+  if (KIND_NEW !== was) setComposeIntent(COMPOSE.intent + 1); // a failed verdict save's retry is for the intent it was pressed with
   $$('#c-kind button').forEach((button) => {
     const on = button.dataset.kind === KIND_NEW;
     button.classList.toggle('on', on);
@@ -21920,17 +22195,17 @@ function cancelSelection(clearNote) {
   if (REPICK) cancelRepick();
   closeSelectionPopover();
   markChosenLines(null);
-  COMPOSE.current = null;
-  COMPOSE.intent++;
+  setComposeCurrent(null);
+  setComposeIntent(COMPOSE.intent + 1);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.picking = false;
+  setComposePicking(false);
   clearPendingSave();
   if (COMPOSE.box) {
     COMPOSE.box.remove();
-    COMPOSE.box = null;
+    setComposeBox(null);
   }
   saveDraftSoon();
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   setBusy(false);
   $('#composer').hidden = true;
   if (clearNote) {
@@ -21987,13 +22262,13 @@ function restoreSelection(snapshot, focus) {
     return true;
   }
   if (COMPOSE.box) COMPOSE.box.remove();
-  COMPOSE.box = null;
+  setComposeBox(null);
   if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {
-    COMPOSE.box = snapshot.box;
+    setComposeBox(snapshot.box);
     snapshot.page.appendChild(snapshot.box);
   }
-  COMPOSE.current = snapshot.cur;
-  COMPOSE.intent++;
+  setComposeCurrent(snapshot.cur);
+  setComposeIntent(COMPOSE.intent + 1);
   recomputeOverlap();
   setSnipOpen(false);
   $('#c-err').hidden = true;
@@ -22011,43 +22286,6 @@ function restoreSelection(snapshot, focus) {
 // focusPlace checks against: this visit and the composer's intent, read just after the composer closed.
 function focusClosed() {
   return { visit: captureVisit(), intent: COMPOSE.intent };
-}
-// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is
-// over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
-// compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
-// the moment it is asked.
-let COMPOSITION_ELEMENT = null;
-addEventListener(
-  'compositionstart',
-  (event) => {
-    COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
-  },
-  true,
-);
-addEventListener(
-  'compositionend',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-addEventListener(
-  'focusout',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-function imeOpen() {
-  const composing = COMPOSITION_ELEMENT,
-    focused = document.activeElement;
-  if (composing && (!composing.isConnected || !(focused === composing || (focused && composing.contains(focused)))))
-    COMPOSITION_ELEMENT = null;
-  return !!COMPOSITION_ELEMENT;
-}
-function focusFell() {
-  const focused = document.activeElement;
-  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
 }
 // Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so
 // the next Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved
@@ -22080,15 +22318,6 @@ function focusPlace(
     } else if (typeof selection.page === 'number') at = document.getElementById('p' + selection.page);
   }
   focusHold(at && at.getClientRects().length ? at : $('#left'));
-}
-// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
-// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
-function focusHold(target) {
-  if (!target.hasAttribute('tabindex')) {
-    target.tabIndex = -1;
-    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
-  }
-  target.focus({ preventScroll: true });
 }
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or
 // its suggested edit an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its
@@ -22322,10 +22551,10 @@ function restoreDraft() {
       drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
       box.classList.add('pending');
       pendingBadge(box, '새 핀');
-      COMPOSE.box = box;
+      setComposeBox(box);
     }
-    COMPOSE.current = keptPick;
-    COMPOSE.intent++;
+    setComposeCurrent(keptPick);
+    setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
     setSnipOpen(false);
     $('#c-err').hidden = true;
@@ -22372,7 +22601,7 @@ async function appendToPin(id, text) {
     await loadPins();
     return;
   }
-  COMPOSE.saving = true;
+  setComposeSaving(true);
   syncComposeSaveButtons();
   const visit = captureVisit(),
     selection = COMPOSE.current,
@@ -22407,7 +22636,7 @@ async function appendToPin(id, text) {
     }
     const closed = composeOwns(selection, box, visit, fields) || restoredDraftOwns(draft);
     if (composeOwns(selection, box, visit, fields)) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -22427,7 +22656,7 @@ async function appendToPin(id, text) {
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to that pin's mark
   } catch (error) {
   } finally {
-    COMPOSE.saving = false;
+    setComposeSaving(false);
     syncComposeSaveButtons();
   }
 }
@@ -22480,14 +22709,14 @@ function togglePendingSave() {
     clearPendingSave();
     return;
   }
-  COMPOSE.pendingSave = true;
+  setComposePendingSave(true);
   const button = $('#btn-save');
   button.dataset.pending = '1';
   setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
 }
 function clearPendingSave() {
   if (!COMPOSE.pendingSave) return;
-  COMPOSE.pendingSave = false;
+  setComposePendingSave(false);
   const button = $('#btn-save');
   delete button.dataset.pending;
   setHtml(button, saveButtonLabel());
@@ -22519,7 +22748,7 @@ async function savePin(verdict) {
     if (COMPOSE.picking) togglePendingSave();
     return;
   } // pick hasn't finished yet - queue it (toggle) or cancel the pending save
-  COMPOSE.saving = true;
+  setComposeSaving(true);
   const visit = captureVisit();
   syncComposeSaveButtons();
   const selection = COMPOSE.current,
@@ -22532,7 +22761,7 @@ async function savePin(verdict) {
   // retry at all (the catch).
   const intent = COMPOSE.intent,
     retry = COMPOSE.retryVerdict;
-  COMPOSE.retryVerdict = null;
+  setComposeRetryVerdict(null);
   if (
     verdict === undefined &&
     retry &&
@@ -22591,7 +22820,7 @@ async function savePin(verdict) {
   // the same selection twice, under two keys, and reconnecting would write two pins.
   if ((selection).offline || offlineNow()) {
     const done = () => {
-      COMPOSE.saving = false;
+      setComposeSaving(false);
       syncComposeSaveButtons();
     };
     if (verdict) {
@@ -22625,7 +22854,7 @@ async function savePin(verdict) {
       done();
     }
     if (kept) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -22711,7 +22940,7 @@ async function savePin(verdict) {
           const cleared = composeOwns(selection, box, visit, fields),
             restored = restoredDraftOwns(draft);
           if (cleared) {
-            COMPOSE.box = null;
+            setComposeBox(null);
             cancelSelection(true);
             if (box) box.remove();
             syncDraft();
@@ -22741,7 +22970,7 @@ async function savePin(verdict) {
     const cleared = composeOwns(selection, box, visit, fields),
       restored = restoredDraftOwns(draft);
     if (cleared) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -22805,12 +23034,12 @@ async function savePin(verdict) {
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to the new pin's mark
   } catch (error) {
     if (verdict) {
-      if (COMPOSE.intent === intent) COMPOSE.retryVerdict = { key: verdict, sel: selection, gen: intent };
+      if (COMPOSE.intent === intent) setComposeRetryVerdict({ key: verdict, sel: selection, gen: intent });
       else verdictDropped();
     }
   } finally {
     // [다시 저장] saves this verdict again, or the banner says it was dropped
-    COMPOSE.saving = false;
+    setComposeSaving(false);
     syncComposeSaveButtons();
   }
 }
@@ -23925,10 +24154,10 @@ async function offlinePick(drag) {
     n_lines: 0,
     default_level: null,
   };
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
-  COMPOSE.picking = false;
-  COMPOSE.dismissedOverlap = null;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  setComposePicking(false);
+  setComposeDismissedOverlap(null);
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
@@ -25792,7 +26021,7 @@ if (typeof ResizeObserver !== 'undefined') {
 function dropStaleRetry() {
   const retry = COMPOSE.retryVerdict;
   if (!retry || retry.gen === COMPOSE.intent) return;
-  COMPOSE.retryVerdict = null;
+  setComposeRetryVerdict(null);
   verdictDropped();
 }
 // The composer's failed-save banner when the verdict it was for is not asked for any more - dropped after the failure,
@@ -28157,58 +28386,6 @@ function verdictKey(event) {
   verdictPress(button, 'key');
 }
 addEventListener('keydown', verdictKey);
-// Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is
-// scrolling
-// - from a scroll event to its scrollend (where the browser has none, 160ms after the last scroll) - and no wheel,
-//   touch,
-// press or scrolling key of the person's came in the 500ms before it began. While it glides the page under the reading
-// line is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past. A scroll
-// the person makes goes on acting at once; an instant jump ends at once.
-let LAST_SCROLL_AT = 0,
-  HAND_SCROLL_AT = 0,
-  IS_GLIDING = false,
-  JUMP_TARGET = null; // JUMP_TARGET: the scrollTop a jump is going to
-const HAND_ON_PAGES = () => {
-  HAND_SCROLL_AT = performance.now();
-  IS_GLIDING = false;
-  setJumpTarget(null);
-}; // the person takes the pages over
-// A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document -
-// so a jump on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No
-// input need come before: a search hit lands when the PDF's text has been read. A write that only keeps what is on
-// screen across a layout change does not come here (restoreAnchor, letLineBlocks, setSelectMode, zoomRestore,
-// settleBesideTurn): it moves with the place, so the settling stays right. test_viewer_scroll_writes.py holds the list:
-// a new scripted scroll has to be put in it. Given what it shows as a place, the pages settle there when a glide was on
-// its way: the write stops it a frame or two late.
-function endJumpForScroll(place) {
-  arrivalLetGo();
-  if (JUMP_TARGET === null) return;
-  setJumpTarget(null);
-  IS_GLIDING = false;
-  if (place) arrivalWatch(place);
-}
-// Sets where a jump is going (JUMP_TARGET, null when none), and while it goes holds the PDF area's scroll anchoring off
-// (#left.pv-glide, frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way
-// the lines are drawn again as each page passes under the reading line, so on a phone a long jump would rest short of
-// its page. The glide's place is reckoned at its start and nothing above it changes size on the way (the lines keep
-// their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime. A jump that does
-// not end at its place - the browser stopped it short, a document switch or a rebuild took the pages over, a late
-// scroll end of an earlier scroll came instead of its own - is let go once the pages have been still for a second, as
-// the guard lets it go (isAutoScrolling): the hold is never left on, which would take anchoring from a line changing
-// height above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not
-// wait it out.
-let JUMP_TIMER = 0;
-function setJumpTarget(target) {
-  JUMP_TARGET = target;
-  $('#left').classList.toggle('pv-glide', target !== null);
-  clearTimeout(JUMP_TIMER);
-  if (target !== null) JUMP_TIMER = setTimeout(lapseJump, 1100);
-}
-function lapseJump() {
-  if (JUMP_TARGET === null) return;
-  if (performance.now() - LAST_SCROLL_AT >= 1000) setJumpTarget(null);
-  else JUMP_TIMER = setTimeout(lapseJump, 1100);
-}
 for (const eventType of ['wheel', 'touchstart', 'touchmove', 'pointerdown'])
   $('#left').addEventListener(eventType, HAND_ON_PAGES, { passive: true, capture: true });
 $('#left').addEventListener(
@@ -28240,14 +28417,13 @@ addEventListener(
   },
   true,
 );
-const HAS_SCROLLEND = 'onscrollend' in window;
 $('#left').addEventListener(
   'scroll',
   () => {
     const now = performance.now();
     if (JUMP_TARGET !== null && now - LAST_SCROLL_AT > 1000) setJumpTarget(null); // a jump that never got there
-    if (JUMP_TARGET === null && now - LAST_SCROLL_AT > 200) IS_GLIDING = now - HAND_SCROLL_AT > 500;
-    LAST_SCROLL_AT = now;
+    if (JUMP_TARGET === null && now - LAST_SCROLL_AT > 200) setGliding(now - HAND_SCROLL_AT > 500);
+    setLastScrollAt(now);
   },
   { passive: true },
 ); // a new run of scrolling decides, unless a jump said what it is
@@ -28256,49 +28432,8 @@ $('#left').addEventListener(
 $('#left').addEventListener('scrollend', () => {
   if (JUMP_TARGET !== null && Math.abs($('#left').scrollTop - JUMP_TARGET) > 2) return;
   setJumpTarget(null);
-  IS_GLIDING = false;
+  setGliding(false);
 });
-function isAutoScrolling() {
-  return IS_GLIDING && performance.now() - LAST_SCROLL_AT < (HAS_SCROLLEND ? 1000 : 160);
-}
-// Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from
-// now, not from its first scroll event a frame later, in which a digit would act on the page being left, and whatever
-// the hand did just before - a recent wheel would make the guard take the jump for the person's own scroll. Nothing to
-// glide (reduced motion, or already there): no guard, no scroll event would end it. Returns how the jump's scroll goes
-// (scrollMotion, read once here, so the guard and the scroll agree).
-/** @param to - the scrollTop it goes to */
-function armGlide(to) {
-  const area = $('#left'),
-    top = Math.max(0, Math.min(area.scrollHeight - area.clientHeight, to)),
-    how = scrollMotion();
-  if (how === 'smooth' && Math.abs(top - area.scrollTop) > 1) {
-    setJumpTarget(top);
-    IS_GLIDING = true;
-    LAST_SCROLL_AT = performance.now();
-  } else if (JUMP_TARGET !== null) {
-    setJumpTarget(null);
-    IS_GLIDING = false;
-  } // this scroll replaces a glide in flight (reduced motion turned on during it): its guard goes with it
-  return how;
-}
-function glideTo(top) {
-  $('#left').scrollTo({ top, behavior: armGlide(top) });
-}
-/** The scrollTop that brings an element to the top of the PDF area, or its middle to the area's middle (center). */
-function scrollTopFor(element, block) {
-  const area = $('#left'),
-    rect = element.getBoundingClientRect(),
-    areaRect = area.getBoundingClientRect();
-  return (
-    area.scrollTop +
-    (block === 'center'
-      ? rect.top + rect.height / 2 - (areaRect.top + area.clientTop + area.clientHeight / 2)
-      : rect.top - areaRect.top - area.clientTop)
-  );
-}
-function glideInto(element, block) {
-  element.scrollIntoView({ behavior: armGlide(scrollTopFor(element, block)), block: block || 'start' });
-}
 // Said once while the pages glide: the key was not taken, press it again once they rest.
 function sayGliding() {
   lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다', NOTICE_KIND.INFO, null, {
@@ -33546,7 +33681,7 @@ function applyPinLists(rows, dropped, lists) {
         null,
         { dot: NOTICE_DOT.SIDE },
       );
-      EDITOR.current = null;
+      setEditorCurrent(null);
     }
   }
   const replyBox = REPLY;
@@ -35013,7 +35148,7 @@ async function dropPin(
     lost = false;
   setOpenAll(OPEN_ALL.filter((pin) => pin.id !== id));
   setPins(PINS.filter((pin) => pin.id !== id));
-  if (EDITOR.current && EDITOR.current.id === id) EDITOR.current = null;
+  if (EDITOR.current && EDITOR.current.id === id) setEditorCurrent(null);
   drawPins();
   marks();
   // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
@@ -36114,8 +36249,6 @@ function sendReply() {
 }
 
 // ------------------------------------------------ Edit
-// The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-const EDITOR = { current: null, saving: false };
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
@@ -36185,7 +36318,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   noteField._mentions = new Set(pin.mentions || []);
   autoGrow(noteField);
   mentionPreview(noteField);
-  EDITOR.current = {
+  const card = {
     id,
     el: cardElement,
     base_rev: pin.rev || 0,
@@ -36222,7 +36355,8 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
     kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
     sg: suggestOfPin(pin),
   };
-  if (EDITOR.current.region) cardElement.classList.add('region');
+  setEditorCurrent(card);
+  if (card.region) cardElement.classList.add('region');
   // a verdict pin keeps its verdict and target (D3): only the note and the assignee are edited
   if (verdictOf(pin)) cardElement.classList.add('verdict');
   drawPins();
@@ -36351,7 +36485,7 @@ function renderEdit() {
   }
 }
 function cancelEdit() {
-  EDITOR.current = null;
+  setEditorCurrent(null);
   drawPins();
 }
 // Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note and its
@@ -36411,7 +36545,7 @@ async function saveEdit() {
   }
   const fields = editFields(card),
     hints = mentionHints(editNote(card));
-  EDITOR.saving = true;
+  setEditorSaving(true);
   syncEditSaveButton();
   try {
     const { status, data } = await api('/api/pins/' + card.id + '/edit', {
@@ -36497,7 +36631,7 @@ async function saveEdit() {
     if (editorOwns(card)) {
       card.theirs = null;
       card.overwrite = false;
-      if (editFields(card) === fields) EDITOR.current = null;
+      if (editFields(card) === fields) setEditorCurrent(null);
       else {
         const pin = data.pin;
         card.base_rev = pin.rev;
@@ -36517,7 +36651,7 @@ async function saveEdit() {
     await loadPins();
   } catch (error) {
   } finally {
-    EDITOR.saving = false;
+    setEditorSaving(false);
     syncEditSaveButton();
   }
 }
@@ -36768,47 +36902,6 @@ async function applyRepick() {
 // the keys and the panel name the page that line is on while any of it is. gap: with the edge in the space above that
 // page (frac 0), how far under it the page's top stands. y and h: where that page's top stood under the scroller's top
 // and its height, so restoreAnchor can tell a re-fit that moved nothing.
-function topAnchor(offset) {
-  const scroller = $('#left'),
-    scrollerTop = scroller.getBoundingClientRect().top,
-    top = scrollerTop + (offset || 0),
-    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
-    edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
-    const rect = pageElement.getBoundingClientRect();
-    if (rect.bottom > top + edge)
-      return {
-        page: +pageElement.dataset.page,
-        frac: Math.max(0, (top - rect.top) / rect.height),
-        gap: Math.max(0, rect.top - top),
-        atTop,
-        y: rect.top - scrollerTop,
-        h: rect.height,
-      };
-  }
-  return null;
-}
-// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without
-// it a spot between two pages would put the page's top on the edge, as much as that space off. On a touch screen -
-// where the select mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin,
-// or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
-// is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
-// of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
-// would stop a long glide part way.
-function restoreAnchor(anchor) {
-  if (!anchor) return;
-  const scroller = $('#left');
-  if (anchor.atTop) {
-    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
-    return;
-  }
-  const pageElement = document.getElementById('p' + anchor.page);
-  if (!pageElement) return;
-  const rect = pageElement.getBoundingClientRect(),
-    scrollerTop = scroller.getBoundingClientRect().top;
-  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
-  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
-}
 // The manuscript's reading spot (topAnchor) at the moment the changes view hid it, with its document, kept for the way
 // back: while it is hidden there is no spot to read, and a build that changes the pages' sizes meanwhile (refreshDoc)
 // moves the scroll offset the column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts
@@ -37095,6 +37188,26 @@ setVerdictHold({
   afterComposition,
 });
 setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
+// The frame's seams: the features that act on the steps of a relayout, in the order those steps' calls ran (the pin
+// list first, then the pages, the Markdown surface, the composer), and the parts of the frame features draw.
+onRelayout({ layoutChanged: drawPins, fieldKeptInView: fitBarWords });
+onRelayout({ widthsApplied: autoFitWidth, barStuck: updateSectionStrip });
+onRelayout({ anchorRestored: keepReadingSpot });
+onRelayout({ selectionHeld: renderComposer });
+setFrameHost({
+  placeStatus,
+  drawChangesView: () => {
+    if (REVISION_VIEW.target) drawPinGuideActions();
+    if (REVISION_VIEW.rows.length) renderCommitList();
+  },
+  updateReviewCount,
+  syncBuildErrorChip: syncBuildErrChip,
+  stickSoon,
+  drawZoom,
+  fitBarWords,
+  searchOpen: () => SEARCH.open,
+  setHash,
+});
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
@@ -37271,7 +37384,7 @@ document.addEventListener('click', (event) => {
       break;
     }
     case 'overlap-separate':
-      COMPOSE.dismissedOverlap = control.dataset.key || null;
+      setComposeDismissedOverlap(control.dataset.key || null);
       renderOverlapBanner();
       break;
     case 'copy-cur':
@@ -37303,7 +37416,7 @@ document.addEventListener('click', (event) => {
       if (!draft) break;
       useLevel(draft, control.dataset.level);
       if (!inEdit) {
-        COMPOSE.intent++;
+        setComposeIntent(COMPOSE.intent + 1);
         recomputeOverlap();
       }
       inEdit ? renderEdit() : renderComposer();
@@ -37440,7 +37553,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'assign-edit':
       if (EDITOR.current) {
-        EDITOR.current.assignee = control.dataset.v || 'agent';
+        setEditAssignee(EDITOR.current, control.dataset.v || 'agent');
         renderAssignEdit();
       }
       break;
@@ -37497,8 +37610,10 @@ document.addEventListener('click', (event) => {
     }
     case 'e-kind':
       if (EDITOR.current) {
-        EDITOR.current.kind_req =
-          control.dataset.kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX;
+        setEditRequestKind(
+          EDITOR.current,
+          control.dataset.kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
+        );
         renderEdit();
       }
       break;

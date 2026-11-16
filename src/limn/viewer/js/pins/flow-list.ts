@@ -33,6 +33,9 @@ import {
   setPins,
   setReviewAll,
   setShowAll,
+  COMPOSE,
+  EDITOR,
+  setEditorCurrent,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
@@ -68,8 +71,8 @@ import { applySide, setSide } from '../layout/flow.ts';
 import { pendingBadgeSide } from '../pdf/input-selection.ts';
 import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts';
 import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
-import { recomputeOverlap, renderOverlapBanner, COMPOSE } from '../composer/flow-pick.ts';
-import { drawPageVerdicts, jumpToPageLine, endJumpForScroll, isShownOnLine } from '../verdict/flow-line.ts';
+import { recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
+import { drawPageVerdicts, jumpToPageLine, isShownOnLine } from '../verdict/flow-line.ts';
 import { mentionsMe } from './view-card-parts.ts';
 import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './view-cards.ts';
 import { drawReviewPick } from './flow-review-pick.ts';
@@ -77,7 +80,7 @@ import { marksShow } from './input-hide-marks.ts';
 import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
 import { renderAssignNew } from './input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
-import { editDirty, renderEdit, EDITOR } from './flow-edit.ts';
+import { editDirty, renderEdit } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
 import { LIST_ORDER, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
@@ -87,6 +90,7 @@ import { pinState } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
 import { notePinChanges, noteReviewChanges } from './flow-changes.ts';
+import { endJumpForScroll } from '../layout/flow-scroll.ts';
 
 async function loadPeople() {
   try {
@@ -165,7 +169,7 @@ function applyPinLists(rows, dropped, lists) {
         null,
         { dot: NOTICE_DOT.SIDE },
       );
-      EDITOR.current = null;
+      setEditorCurrent(null);
     }
   }
   const replyBox = REPLY;

@@ -6,12 +6,12 @@
 import { html, lucideIcon } from '../platform/markup.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { drawBox, pendingBadgeSide } from './input-selection.ts';
-import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { popoverFreeArea } from '../composer/view-selection-popover.ts';
 import { $ } from '../platform/dom.ts';
 import { ELEMENT_SYNC } from '../app/rules-tables.ts';
 import { levelOf } from '../documents/rules.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
+import { COMPOSE } from '../app/state.ts';
+import { endJumpForScroll } from '../layout/flow-scroll.ts';
 
 // Whether box is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
 function isFrac(box: unknown): box is number[] {

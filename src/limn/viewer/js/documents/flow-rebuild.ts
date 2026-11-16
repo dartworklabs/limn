@@ -5,17 +5,7 @@
 // the keys and the panel name the page that line is on while any of it is. gap: with the edge in the space above that
 // page (frac 0), how far under it the page's top stands. y and h: where that page's top stood under the scroller's top
 // and its height, so restoreAnchor can tell a re-fit that moved nothing.
-import {
-  BUILD_ERR_BY,
-  DOC,
-  META,
-  META_BY,
-  COARSE_POINTER_QUERY,
-  SIDE_OPEN,
-  SWITCHSEQ,
-  rendersInBrowser,
-  setMeta,
-} from '../app/state.ts';
+import { BUILD_ERR_BY, DOC, META, META_BY, SIDE_OPEN, SWITCHSEQ, rendersInBrowser, setMeta } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
@@ -27,47 +17,7 @@ import { $, $$ } from '../platform/dom.ts';
 import { BUILD_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
 import { changesView, documentPins, markdownSurface, pageSurface, verdictHold } from './state-seams.ts';
-function topAnchor(offset?) {
-  const scroller = $('#left'),
-    scrollerTop = scroller.getBoundingClientRect().top,
-    top = scrollerTop + (offset || 0),
-    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
-    edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
-    const rect = pageElement.getBoundingClientRect();
-    if (rect.bottom > top + edge)
-      return {
-        page: +pageElement.dataset.page,
-        frac: Math.max(0, (top - rect.top) / rect.height),
-        gap: Math.max(0, rect.top - top),
-        atTop,
-        y: rect.top - scrollerTop,
-        h: rect.height,
-      };
-  }
-  return null;
-}
-// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without
-// it a spot between two pages would put the page's top on the edge, as much as that space off. On a touch screen -
-// where the select mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin,
-// or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
-// is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
-// of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
-// would stop a long glide part way.
-function restoreAnchor(anchor) {
-  if (!anchor) return;
-  const scroller = $('#left');
-  if (anchor.atTop) {
-    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
-    return;
-  }
-  const pageElement = document.getElementById('p' + anchor.page);
-  if (!pageElement) return;
-  const rect = pageElement.getBoundingClientRect(),
-    scrollerTop = scroller.getBoundingClientRect().top;
-  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
-  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
-}
+import { topAnchor, restoreAnchor } from '../layout/flow.ts';
 // The manuscript's reading spot (topAnchor) at the moment the changes view hid it, with its document, kept for the way
 // back: while it is hidden there is no spot to read, and a build that changes the pages' sizes meanwhile (refreshDoc)
 // moves the scroll offset the column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts
@@ -268,15 +218,4 @@ function downloadPdf() {
   link.click();
   link.remove();
 }
-export {
-  downloadPdf,
-  hideBuildErr,
-  keepSpot,
-  rebuild,
-  refreshDoc,
-  restoreAnchor,
-  returnToSpot,
-  showBuildErr,
-  syncBuildErrChip,
-  topAnchor,
-};
+export { downloadPdf, hideBuildErr, keepSpot, rebuild, refreshDoc, returnToSpot, showBuildErr, syncBuildErrChip };

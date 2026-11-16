@@ -528,15 +528,17 @@ class FrontendStructure(unittest.TestCase):
 
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         body = sq(js_fn_body("pick"))
-        cur_idx = body.index("COMPOSE.current=selection;")
-        self.assertGreater(body.index("COMPOSE.dismissedOverlap=null"), cur_idx)
+        cur_idx = body.index("setComposeCurrent(selection);")
+        self.assertGreater(body.index("setComposeDismissedOverlap(null)"), cur_idx)
         self.assertGreater(body.index("selection.overlaps=overlapsFor(selection,PINS)"), cur_idx)
 
     def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
         # ...and only the composer's change counts as a new intent (a failed verdict save's retry is for the old one, savePin)
-        self.assertIn(sq("if(!inEdit){COMPOSE.intent++;recomputeOverlap();}"), sq(js_case_block("level")))
         self.assertIn(
-            sq("if(owner===COMPOSE.current){COMPOSE.intent++;recomputeOverlap();}"),
+            sq("if(!inEdit){setComposeIntent(COMPOSE.intent+1);recomputeOverlap();}"), sq(js_case_block("level"))
+        )
+        self.assertIn(
+            sq("if(owner===COMPOSE.current){setComposeIntent(COMPOSE.intent+1);recomputeOverlap();}"),
             sq(extract_js_fn("applyRange")),
         )
 
@@ -1214,7 +1216,7 @@ class FrontendMobileLogic(unittest.TestCase):
         point on a figure document: +-0.4 % of the page width by +-0.4 % of its height, a rectangle on a page that is
         not square (here 400 x 600); both are clamped to the page at every corner. The half-widths are the page's own
         (pdf/input-selection.ts), not numbers this test repeats."""
-        consts = js_const("clampUnit") + js_const("LONGPRESS_MS")
+        consts = js_const("clampUnit") + js_const("LONGPRESS_MS") + js_const("TAP_SLOP")
         js = "\n".join(
             [
                 consts,
@@ -1487,8 +1489,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("savePrefs({[sideKey()]:width})", side)
         self.assertIn("relayout()", side)
         body = sq(js_fn_body("relayout"))
-        # the panel width must be settled first for the page width to match
-        self.assertLess(body.index("applySideWidth()"), body.index("autoFitWidth()"))
+        # the panel width must be settled first for the page width to match: the pages fit once the widths are applied
+        self.assertLess(body.index("applySideWidth()"), body.index("widthsApplied"))
+        self.assertIn(sq("onRelayout({ widthsApplied: autoFitWidth"), SCRIPT_SQ)
         # ResizeObserver doesn't re-fit every frame while dragging
         self.assertIn(sq("!document.body.classList.contains('resizing'))scheduleRelayout()"), SCRIPT_SQ)
         self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", HTML)
@@ -4111,7 +4114,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertIn("clearPendingSave();", pick_body)
         self.assertRegex(
             sq(pick_body),
-            r"catch\(error\)\{if\(seq!==PICKSEQ\)return;setBusy\(false\);if\(!repick\)\{COMPOSE.picking=false;clearPendingSave\(\);\}",
+            r"catch\(error\)\{if\(seq!==PICKSEQ\)return;setBusy\(false\);if\(!repick\)\{setComposePicking\(false\);clearPendingSave\(\);\}",
         )
 
     def _harness(self, extra_body):

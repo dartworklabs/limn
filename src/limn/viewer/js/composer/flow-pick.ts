@@ -1,10 +1,4 @@
 // ------------------------------------------------ composer
-// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
-// counter every change to what the composer asks bumps (COMPOSE.intent++) - a new, cleared or restored selection (pick,
-// cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
-// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
-// was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
-// unchanged (savePin).
 import {
   DOC,
   KIND_NEW,
@@ -21,6 +15,14 @@ import {
   setKindNew,
   setPickseq,
   setSnipOpen,
+  COMPOSE,
+  EDITOR,
+  setComposeBox,
+  setComposeCurrent,
+  setComposeDismissedOverlap,
+  setComposeIntent,
+  setComposePicking,
+  setSelectionOverlaps,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
@@ -57,28 +59,19 @@ import {
 import { QUOTE_OPEN } from '../pins/view-card-parts.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
-import { autoGrow, EDITOR } from '../pins/flow-edit.ts';
+import { autoGrow } from '../pins/flow-edit.ts';
 import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, focusFell, focusHold } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE, RANGE_REL } from '../app/rules-tables.ts';
 import { lineRange, overlapsFor } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isRegion } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { useLevel } from '../documents/rules.ts';
-const COMPOSE = {
-  current: null as Selection | null,
-  box: null as HTMLElement | null,
-  picking: false,
-  pendingSave: false,
-  saving: false,
-  dismissedOverlap: null as string | null,
-  intent: 0,
-  retryVerdict: null as { key: string; sel: Selection; gen: number } | null,
-};
+import { imeOpen } from '../platform/composition.ts';
 
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
@@ -124,11 +117,11 @@ async function pick(region) {
   if (repick) {
     banner(html`<span>되짚는 중…</span>`);
   } else {
-    COMPOSE.current = null;
-    COMPOSE.intent++;
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
     $('#composer').hidden = false;
     setBusy(true);
-    COMPOSE.picking = true;
+    setComposePicking(true);
     $('#c-err').hidden = true;
     $('#c-body').hidden = false;
     // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
@@ -164,7 +157,7 @@ async function pick(region) {
     if (seq !== PICKSEQ) return;
     setBusy(false);
     if (!repick) {
-      COMPOSE.picking = false;
+      setComposePicking(false);
       clearPendingSave();
     }
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
@@ -180,7 +173,7 @@ async function pick(region) {
     } else {
       if (COMPOSE.box) {
         COMPOSE.box.remove();
-        COMPOSE.box = null;
+        setComposeBox(null);
       }
       if (!COMPOSE.current) {
         $('#composer').hidden = true;
@@ -192,7 +185,7 @@ async function pick(region) {
   }
   if (seq !== PICKSEQ) return;
   setBusy(false);
-  if (!repick) COMPOSE.picking = false;
+  if (!repick) setComposePicking(false);
   if (answer.error) {
     if (answer.pdf_build_gone) {
       try {
@@ -204,7 +197,7 @@ async function pick(region) {
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
         COMPOSE.box.remove();
-        COMPOSE.box = null;
+        setComposeBox(null);
       }
     }
     if (repick) {
@@ -212,8 +205,8 @@ async function pick(region) {
       return;
     }
     // A failed pick never carries out a pending save - only the error panel is shown, so a save never fails silently.
-    COMPOSE.current = null;
-    COMPOSE.intent++;
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
     clearPendingSave();
     $('#c-err').textContent = errText(answer);
     $('#c-err').hidden = false;
@@ -227,8 +220,8 @@ async function pick(region) {
     return;
   }
   const selection = answer as Selection;
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
   selection.scope = null;
   selection.elSel = answer.el || null;
   if (!isRegion(answer)) {
@@ -239,7 +232,7 @@ async function pick(region) {
     }
   }
   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
   // re-fetched - loadPins recomputes overlap too.
@@ -299,7 +292,7 @@ function overlapText(rel, id) {
 // the relationship, and reset on a fresh drag (pick), so one press never silences it for every later selection.
 
 function recomputeOverlap() {
-  if (COMPOSE.current) COMPOSE.current.overlaps = overlapsFor(COMPOSE.current, PINS);
+  if (COMPOSE.current) setSelectionOverlaps(COMPOSE.current, overlapsFor(COMPOSE.current, PINS));
 }
 // The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
 // or null without one, and once the author chose [따로 저장] for it.
@@ -530,7 +523,7 @@ function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
-  if (KIND_NEW !== was) COMPOSE.intent++; // a failed verdict save's retry is for the intent it was pressed with
+  if (KIND_NEW !== was) setComposeIntent(COMPOSE.intent + 1); // a failed verdict save's retry is for the intent it was pressed with
   $$('#c-kind button').forEach((button) => {
     const on = button.dataset.kind === KIND_NEW;
     button.classList.toggle('on', on);
@@ -567,17 +560,17 @@ function cancelSelection(clearNote) {
   if (REPICK) cancelRepick();
   closeSelectionPopover();
   markChosenLines(null);
-  COMPOSE.current = null;
-  COMPOSE.intent++;
+  setComposeCurrent(null);
+  setComposeIntent(COMPOSE.intent + 1);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.picking = false;
+  setComposePicking(false);
   clearPendingSave();
   if (COMPOSE.box) {
     COMPOSE.box.remove();
-    COMPOSE.box = null;
+    setComposeBox(null);
   }
   saveDraftSoon();
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   setBusy(false);
   $('#composer').hidden = true;
   if (clearNote) {
@@ -618,7 +611,7 @@ function selectionSnapshot() {
 // if its page is still there). Never over a newer selection - that one wins. When only the note can come back (the PDF
 // changed), the status line says so. Returns whether anything came back. focus false: the note field does not take the
 // focus (a late undo's answer, composer/flow-save.ts).
-function restoreSelection(snapshot, focus?: boolean) {
+function restoreSelection(snapshot: ReturnType<typeof selectionSnapshot>, focus?: boolean) {
   if (!snapshot || COMPOSE.current || COMPOSE.picking || REPICK || !$('#composer').hidden) return false;
   const noteField = $('#note');
   if (noteField.value) return false; // a note-only draft also belongs to the current document
@@ -634,13 +627,13 @@ function restoreSelection(snapshot, focus?: boolean) {
     return true;
   }
   if (COMPOSE.box) COMPOSE.box.remove();
-  COMPOSE.box = null;
+  setComposeBox(null);
   if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {
-    COMPOSE.box = snapshot.box;
+    setComposeBox(snapshot.box);
     snapshot.page.appendChild(snapshot.box);
   }
-  COMPOSE.current = snapshot.cur;
-  COMPOSE.intent++;
+  setComposeCurrent(snapshot.cur);
+  setComposeIntent(COMPOSE.intent + 1);
   recomputeOverlap();
   setSnipOpen(false);
   $('#c-err').hidden = true;
@@ -658,43 +651,6 @@ function restoreSelection(snapshot, focus?: boolean) {
 // focusPlace checks against: this visit and the composer's intent, read just after the composer closed.
 function focusClosed() {
   return { visit: captureVisit(), intent: COMPOSE.intent };
-}
-// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is
-// over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
-// compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
-// the moment it is asked.
-let COMPOSITION_ELEMENT = null as Element | null;
-addEventListener(
-  'compositionstart',
-  (event) => {
-    COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
-  },
-  true,
-);
-addEventListener(
-  'compositionend',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-addEventListener(
-  'focusout',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-function imeOpen() {
-  const composing = COMPOSITION_ELEMENT,
-    focused = document.activeElement;
-  if (composing && (!composing.isConnected || !(focused === composing || (focused && composing.contains(focused)))))
-    COMPOSITION_ELEMENT = null;
-  return !!COMPOSITION_ELEMENT;
-}
-function focusFell() {
-  const focused = document.activeElement;
-  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
 }
 // Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so
 // the next Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved
@@ -728,15 +684,6 @@ function focusPlace(
   }
   focusHold(at && at.getClientRects().length ? at : $('#left'));
 }
-// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
-// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
-function focusHold(target: HTMLElement) {
-  if (!target.hasAttribute('tabindex')) {
-    target.tabIndex = -1;
-    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
-  }
-  target.focus({ preventScroll: true });
-}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or
 // its suggested edit an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its
 // place, the composer, is gone), bringing back the selection, the note, the suggested edit and the box - an undo
@@ -767,10 +714,7 @@ export {
   composeOwns,
   discardSelection,
   focusClosed,
-  focusFell,
-  focusHold,
   focusPlace,
-  imeOpen,
   pick,
   syncQuestionHint,
   quoteInner,
@@ -783,5 +727,4 @@ export {
   setKind,
   shownQuote,
   toggleQuote,
-  COMPOSE,
 };

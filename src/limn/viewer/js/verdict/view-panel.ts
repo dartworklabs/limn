@@ -15,29 +15,24 @@ import { DOC, PAGE_SCALE, LAYOUT, META, isFigureKind } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { NOTICES, chipAway, drawChips } from '../platform/notices.ts';
-import { arrivalWatch, pdfAreaInnerWidth, pageWidth, widestPagePoints } from '../pdf/view-pages.ts';
+import { pdfAreaInnerWidth, pageWidth, widestPagePoints } from '../pdf/view-pages.ts';
 import { readingDepth } from '../pdf/view-outline.ts';
-import { BAND_TIMER } from '../layout/flow.ts';
+import { BAND_TIMER, topAnchor } from '../layout/flow.ts';
 import {
   CHIP_WATCH,
   READING_LINE_PAGE,
-  HAS_SCROLLEND,
-  LAST_SCROLL_AT,
   TABBABLE,
   LINE_TEXT,
   drawPageVerdicts,
   fillPageLine,
   pageTakesVerdict,
-  isAutoScrolling,
   noteCameFrom,
   canCancelVerdict,
   watchFarLines,
   pageLineName,
   keepFocusOnLine,
-  glideTo,
   pageUnderReadingLine,
   readingPageWithLine,
-  endJumpForScroll,
   verdictStateWord,
   stickReadingLine,
   stickSoon,
@@ -55,11 +50,18 @@ import {
   getDraft,
   setComposingField,
 } from './flow-reason.ts';
-import { topAnchor } from '../documents/flow-rebuild.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { verdictLabel } from '../documents/state.ts';
+import {
+  arrivalWatch,
+  LAST_SCROLL_AT,
+  HAS_SCROLLEND,
+  isAutoScrolling,
+  glideTo,
+  endJumpForScroll,
+} from '../layout/flow-scroll.ts';
 
 // The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
 // page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages

@@ -725,7 +725,13 @@ def module_code(src: str) -> str:
 
 # A setter the ES modules declare for a binding another module changes (ADR-0042 D1): `function setX(v){X=v; return v;}`,
 # in whatever layout (squash() reads it as the one line it would be).
-_SETTER = re.compile(r"function (set\w+)\((\w+)\)\{(\w+)=\2;return \2;\}")
+# A setter: it assigns its argument to the binding (and answers it), to a field of a module object
+# (`setComposeBox(value){COMPOSE.box=value;}`), or to a field of the object it is given (`setEditAssignee(card,a)`).
+_SETTER = re.compile(
+    r"function (set\w+)\((\w+)\)\{(\w+)=\2;return \2;\}"
+    r"|function set\w+\((\w+)\)\{\w+\.\w+=\4;\}"
+    r"|function set\w+\((\w+),(\w+)\)\{\5\.\w+=\6;\}"
+)
 
 
 def setter_prelude(page: str, js: str) -> str:

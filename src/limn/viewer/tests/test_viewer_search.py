@@ -3268,7 +3268,7 @@ PICK_HELD = """i => {
 }"""
 # Picks entry i in the outline, and in the scroll event that first shows page 7's top in the pane - half way from page 10
 # to page 5 - page 1 grows by 60px and the reading spot is put back (restoreAnchor), as a build landing in the middle of a
-# jump does: the write stops the glide there, and the jump's settling (pdf/view-pages.ts arrivalSettle) takes the pages on once the
+# jump does: the write stops the glide there, and the jump's settling (layout/flow-scroll.ts arrivalSettle) takes the pages on once the
 # glide guard is down. Given `growing`, the pages' column then changes height on every frame, below the pages on screen (a
 # far line drawn at its new height), until the guard has been down for twice the time a pick waits for the pages to move
 # (OUTLINE_PICK_SETTLE_MS): the settling waits for the column to keep still, so the pages rest on page 7 meanwhile.
@@ -3290,7 +3290,7 @@ PICK_STOPPED = """([i, growing]) => {
 
 class HitInAJump(SearchBase):
     """A search's first hit is shown when the PDF's text has been read as far as it, with no input before it, and that can be in
-    the middle of a jump the person started meanwhile (pdf/view-pages.ts arrivalSettle, endJumpForScroll)."""
+    the middle of a jump the person started meanwhile (layout/flow-scroll.ts arrivalSettle, endJumpForScroll)."""
 
     def setUp(self):
         """Fourteen long pages, so the jump from page 1 to page 14 is far."""

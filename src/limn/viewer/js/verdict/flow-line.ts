@@ -24,7 +24,9 @@ import {
   imeKey,
   isFigureKind,
   isViewOnlyKind,
-  scrollMotion,
+  COMPOSE,
+  EDITOR,
+  setComposeRetryVerdict,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
@@ -47,9 +49,9 @@ import {
 } from '../platform/notices.ts';
 import { SWALLOW_CLICK, hideTip } from '../platform/tooltip.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
+import { arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
 import { SCROLL_KEYS, readingDepth } from '../pdf/view-outline.ts';
-import { setSide } from '../layout/flow.ts';
+import { setSide, topAnchor } from '../layout/flow.ts';
 import { isElementLost, figureFields, isFrac, pinPlace } from '../pdf/view-figure.ts';
 import { SUGGEST_DRAFT } from '../composer/flow-suggest.ts';
 import { savePin } from '../composer/flow-save.ts';
@@ -109,7 +111,7 @@ import { claimActive, josaToward } from '../pins/view-card-parts.ts';
 import { relSpan } from '../pins/view-cards.ts';
 import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
 import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/flow-actions.ts';
-import { refreshDoc, topAnchor } from '../documents/flow-rebuild.ts';
+import { refreshDoc } from '../documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
 import { $, $$, typingNow, searchToPage } from '../platform/dom.ts';
 import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE, PIN_STATE, ROLE, VERDICT_PLACE } from '../app/rules-tables.ts';
@@ -124,8 +126,20 @@ import {
   viewerBlocked,
   isMarkdownDoc,
 } from '../documents/state.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
+import {
+  arrivalWatch,
+  LAST_SCROLL_AT,
+  HAND_SCROLL_AT,
+  JUMP_TARGET,
+  HAND_ON_PAGES,
+  endJumpForScroll,
+  setJumpTarget,
+  isAutoScrolling,
+  scrollTopFor,
+  glideInto,
+  setGliding,
+  setLastScrollAt,
+} from '../layout/flow-scroll.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
@@ -853,7 +867,7 @@ if (typeof ResizeObserver !== 'undefined') {
 function dropStaleRetry() {
   const retry = COMPOSE.retryVerdict;
   if (!retry || retry.gen === COMPOSE.intent) return;
-  COMPOSE.retryVerdict = null;
+  setComposeRetryVerdict(null);
   verdictDropped();
 }
 // The composer's failed-save banner when the verdict it was for is not asked for any more - dropped after the failure,
@@ -3226,58 +3240,6 @@ function verdictKey(event: KeyboardEvent) {
   verdictPress(button, 'key');
 }
 addEventListener('keydown', verdictKey);
-// Whether the pages are gliding where a jump sent them (the outline, the page list, a card's [보기]): the PDF area is
-// scrolling
-// - from a scroll event to its scrollend (where the browser has none, 160ms after the last scroll) - and no wheel,
-//   touch,
-// press or scrolling key of the person's came in the 500ms before it began. While it glides the page under the reading
-// line is one it passes, not the one asked for: a verdict key or Enter then would act on a page scrolled past. A scroll
-// the person makes goes on acting at once; an instant jump ends at once.
-let LAST_SCROLL_AT = 0,
-  HAND_SCROLL_AT = 0,
-  IS_GLIDING = false,
-  JUMP_TARGET = null as number | null; // JUMP_TARGET: the scrollTop a jump is going to
-const HAND_ON_PAGES = () => {
-  HAND_SCROLL_AT = performance.now();
-  IS_GLIDING = false;
-  setJumpTarget(null);
-}; // the person takes the pages over
-// A script is about to scroll the PDF area to show something - a search hit, a mark, a box, a line, another document -
-// so a jump on its way is over: its guard comes down, and its settling, which would glide the pages back, lets go. No
-// input need come before: a search hit lands when the PDF's text has been read. A write that only keeps what is on
-// screen across a layout change does not come here (restoreAnchor, letLineBlocks, setSelectMode, zoomRestore,
-// settleBesideTurn): it moves with the place, so the settling stays right. test_viewer_scroll_writes.py holds the list:
-// a new scripted scroll has to be put in it. Given what it shows as a place, the pages settle there when a glide was on
-// its way: the write stops it a frame or two late.
-function endJumpForScroll(place?: () => number | null) {
-  arrivalLetGo();
-  if (JUMP_TARGET === null) return;
-  setJumpTarget(null);
-  IS_GLIDING = false;
-  if (place) arrivalWatch(place);
-}
-// Sets where a jump is going (JUMP_TARGET, null when none), and while it goes holds the PDF area's scroll anchoring off
-// (#left.pv-glide, frame.css). WebKit ends a smooth scroll at any anchoring adjustment of its scroller, and on the way
-// the lines are drawn again as each page passes under the reading line, so on a phone a long jump would rest short of
-// its page. The glide's place is reckoned at its start and nothing above it changes size on the way (the lines keep
-// their heights, a far one its drawn one), so there is nothing for anchoring to keep in the meantime. A jump that does
-// not end at its place - the browser stopped it short, a document switch or a rebuild took the pages over, a late
-// scroll end of an earlier scroll came instead of its own - is let go once the pages have been still for a second, as
-// the guard lets it go (isAutoScrolling): the hold is never left on, which would take anchoring from a line changing
-// height above the view. Checked past settle()'s timer window (IDLE_TIMER_MS) so that a test waiting for quiet does not
-// wait it out.
-let JUMP_TIMER = 0;
-function setJumpTarget(target: number | null) {
-  JUMP_TARGET = target;
-  $('#left').classList.toggle('pv-glide', target !== null);
-  clearTimeout(JUMP_TIMER);
-  if (target !== null) JUMP_TIMER = setTimeout(lapseJump, 1100);
-}
-function lapseJump() {
-  if (JUMP_TARGET === null) return;
-  if (performance.now() - LAST_SCROLL_AT >= 1000) setJumpTarget(null);
-  else JUMP_TIMER = setTimeout(lapseJump, 1100);
-}
 for (const eventType of ['wheel', 'touchstart', 'touchmove', 'pointerdown'])
   $('#left').addEventListener(eventType, HAND_ON_PAGES, { passive: true, capture: true });
 $('#left').addEventListener(
@@ -3309,14 +3271,13 @@ addEventListener(
   },
   true,
 );
-const HAS_SCROLLEND = 'onscrollend' in window;
 $('#left').addEventListener(
   'scroll',
   () => {
     const now = performance.now();
     if (JUMP_TARGET !== null && now - LAST_SCROLL_AT > 1000) setJumpTarget(null); // a jump that never got there
-    if (JUMP_TARGET === null && now - LAST_SCROLL_AT > 200) IS_GLIDING = now - HAND_SCROLL_AT > 500;
-    LAST_SCROLL_AT = now;
+    if (JUMP_TARGET === null && now - LAST_SCROLL_AT > 200) setGliding(now - HAND_SCROLL_AT > 500);
+    setLastScrollAt(now);
   },
   { passive: true },
 ); // a new run of scrolling decides, unless a jump said what it is
@@ -3325,49 +3286,8 @@ $('#left').addEventListener(
 $('#left').addEventListener('scrollend', () => {
   if (JUMP_TARGET !== null && Math.abs($('#left').scrollTop - JUMP_TARGET) > 2) return;
   setJumpTarget(null);
-  IS_GLIDING = false;
+  setGliding(false);
 });
-function isAutoScrolling() {
-  return IS_GLIDING && performance.now() - LAST_SCROLL_AT < (HAS_SCROLLEND ? 1000 : 160);
-}
-// Every smooth jump of the PDF area starts here (a page, an outline entry's place, a card's [보기]): it is a glide from
-// now, not from its first scroll event a frame later, in which a digit would act on the page being left, and whatever
-// the hand did just before - a recent wheel would make the guard take the jump for the person's own scroll. Nothing to
-// glide (reduced motion, or already there): no guard, no scroll event would end it. Returns how the jump's scroll goes
-// (scrollMotion, read once here, so the guard and the scroll agree).
-/** @param to - the scrollTop it goes to */
-function armGlide(to: number): ScrollBehavior {
-  const area = $('#left'),
-    top = Math.max(0, Math.min(area.scrollHeight - area.clientHeight, to)),
-    how = scrollMotion();
-  if (how === 'smooth' && Math.abs(top - area.scrollTop) > 1) {
-    setJumpTarget(top);
-    IS_GLIDING = true;
-    LAST_SCROLL_AT = performance.now();
-  } else if (JUMP_TARGET !== null) {
-    setJumpTarget(null);
-    IS_GLIDING = false;
-  } // this scroll replaces a glide in flight (reduced motion turned on during it): its guard goes with it
-  return how;
-}
-function glideTo(top: number) {
-  $('#left').scrollTo({ top, behavior: armGlide(top) });
-}
-/** The scrollTop that brings an element to the top of the PDF area, or its middle to the area's middle (center). */
-function scrollTopFor(element: Element, block?: 'start' | 'center') {
-  const area = $('#left'),
-    rect = element.getBoundingClientRect(),
-    areaRect = area.getBoundingClientRect();
-  return (
-    area.scrollTop +
-    (block === 'center'
-      ? rect.top + rect.height / 2 - (areaRect.top + area.clientTop + area.clientHeight / 2)
-      : rect.top - areaRect.top - area.clientTop)
-  );
-}
-function glideInto(element: Element, block?: 'start' | 'center') {
-  element.scrollIntoView({ behavior: armGlide(scrollTopFor(element, block)), block: block || 'start' });
-}
 // Said once while the pages glide: the key was not taken, press it again once they rest.
 function sayGliding() {
   lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다', NOTICE_KIND.INFO, null, {
@@ -3642,13 +3562,9 @@ addEventListener('keydown', (event) => {
 export {
   SAVING_LINES,
   CHIP_WATCH,
-  JUMP_TARGET,
   KEYED_PAGE,
   KEY_SAVE_OUT,
   READING_LINE_PAGE,
-  HAS_SCROLLEND,
-  LAST_SCROLL_AT,
-  HAND_SCROLL_AT,
   TABBABLE,
   LINE_TEXT,
   canVerdict,
@@ -3662,7 +3578,6 @@ export {
   pageTargetOf,
   pageTargetShort,
   pageVerdictPins,
-  isAutoScrolling,
   noteCameFrom,
   canCancelVerdict,
   cancelLineVerdict,
@@ -3670,15 +3585,11 @@ export {
   watchFarLines,
   pageLineName,
   keepFocusOnLine,
-  glideInto,
-  glideTo,
-  scrollTopFor,
   undoFromLine,
   dropPageLineOverlaps,
   pageUnderReadingLine,
   readingPageWithLine,
   sayGliding,
-  endJumpForScroll,
   isShownOnLine,
   pageLineSlot,
   verdictStateWord,

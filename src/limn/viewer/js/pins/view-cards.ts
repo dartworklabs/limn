@@ -1,4 +1,4 @@
-import { DROPPED, LAYOUT, META, COARSE_POINTER_QUERY, OPEN_CARDS, REPLY, isFigureKind } from '../app/state.ts';
+import { DROPPED, LAYOUT, META, COARSE_POINTER_QUERY, OPEN_CARDS, REPLY, isFigureKind, EDITOR } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, translateMessage, TIP_TEXT, josa } from '../platform/i18n.ts';
 import { NOTICES, drawTrashOffers } from '../platform/notices.ts';
@@ -51,7 +51,6 @@ import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
 import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
-import { EDITOR } from './flow-edit.ts';
 
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;
