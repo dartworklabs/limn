@@ -1489,8 +1489,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("savePrefs({[sideKey()]:width})", side)
         self.assertIn("relayout()", side)
         body = sq(js_fn_body("relayout"))
-        # the panel width must be settled first for the page width to match
-        self.assertLess(body.index("applySideWidth()"), body.index("autoFitWidth()"))
+        # the panel width must be settled first for the page width to match: the pages fit once the widths are applied
+        self.assertLess(body.index("applySideWidth()"), body.index("widthsApplied"))
+        self.assertIn(sq("onRelayout({ widthsApplied: autoFitWidth"), SCRIPT_SQ)
         # ResizeObserver doesn't re-fit every frame while dragging
         self.assertIn(sq("!document.body.classList.contains('resizing'))scheduleRelayout()"), SCRIPT_SQ)
         self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", HTML)

@@ -158,38 +158,44 @@ def js_const(name: str) -> str:
 
 # A seam (docs/handbook/viewer.md §모듈 경계) - one a lower module calls the features above it through: `let STORE: Kind |
 # null = null;`, `function setKind(x: Kind)` that stores x, and the accessor `function kind(): Kind` that returns it or
-# throws. js/main.ts registers each.
+# throws; or a list of handlers: `const STORE: Kind[] = [];`, `function onKind(x: Kind)` that adds x, and the accessor
+# `function kinds(): Kind[]` that returns them or throws. js/main.ts registers each (a list once per handler).
 _SEAM_SETTER = re.compile(r"^function (set\w+)\((\w+): (\w+)\) \{\n  (\w+) = \2;\n\}", re.M)
+_SEAM_LIST = re.compile(r"^function (on\w+)\((\w+): (\w+)\) \{\n  (\w+)\.push\(\2\);\n\}", re.M)
 
 
 @dataclasses.dataclass(frozen=True)
 class Seam:
-    """One seam: its module (under js/), registration function, interface, store and accessor."""
+    """One seam: its module (under js/), registration function, interface, store and accessor, and whether it holds a
+    list of handlers (registered once per handler) or one registration."""
 
     module: str
     setter: str
     interface: str
     store: str
     accessor: str
+    listed: bool = False
 
 
 def viewer_seams() -> list[Seam]:
     """Every seam the viewer's modules declare (all but the entry point, which registers them), read from their source
-    by the shape above (a setter storing its one argument of an interface type declared in the same module, and the
-    accessor answering that interface)."""
+    by the shapes above (a registration function taking one argument of an interface type declared in the same module,
+    and the accessor answering that interface, or a list of it)."""
     out = []
     js = VIEWER / "js"
     for path in sorted(js.rglob("*.ts")):
         if path == js / "main.ts":
             continue
         src = path.read_text(encoding="utf-8")
-        for m in _SEAM_SETTER.finditer(src):
-            setter, _, interface, store = m.groups()
-            if not re.search(r"^interface %s \{" % interface, src, re.M):
-                continue
-            accessor = re.search(r"^function (\w+)\(\): %s \{" % interface, src, re.M)
-            assert accessor, "%s: %s has no accessor" % (path.name, setter)
-            out.append(Seam(path.relative_to(js).as_posix(), setter, interface, store, accessor.group(1)))
+        for pattern, listed in ((_SEAM_SETTER, False), (_SEAM_LIST, True)):
+            for m in pattern.finditer(src):
+                setter, _, interface, store = m.groups()
+                if not re.search(r"^interface %s \{" % interface, src, re.M):
+                    continue
+                answer = re.escape(interface + ("[]" if listed else ""))
+                accessor = re.search(r"^function (\w+)\(\): %s \{" % answer, src, re.M)
+                assert accessor, "%s: %s has no accessor" % (path.name, setter)
+                out.append(Seam(path.relative_to(js).as_posix(), setter, interface, store, accessor.group(1), listed))
     return out
 
 
@@ -205,15 +211,36 @@ def js_seam(setter: str) -> str:
     return "\n".join([js_const(seam.store), extract_js_fn(seam.setter), extract_js_fn(seam.accessor)])
 
 
+def js_registrations(setter: str) -> list[str]:
+    """js/main.ts's registrations of a seam, as served and in order: each top-level call `setter({...});`."""
+    out = []
+    for m in re.finditer(r"^%s\(\{" % re.escape(setter), SCRIPT, re.M):
+        depth, i = 0, m.start()
+        while True:
+            c = SCRIPT[i]
+            depth += c == "("
+            depth -= c == ")"
+            i += 1
+            if c == ")" and depth == 0:
+                break
+        out.append(SCRIPT[m.start() : i])
+    assert out, "js/main.ts does not register %s" % setter
+    return out
+
+
 def js_seam_wired(setter: str, late: bool = False) -> str:
-    """js_seam(setter) followed by js/main.ts's own registration of it, as served. With late, each member named by a bare
-    function name calls that name when it is called, not when it is registered, so a harness may define (or redefine)
-    the function after this text - the members still call the harness's function by the name main.ts gives."""
-    call = js_call(setter + "({")
+    """js_seam(setter) followed by js/main.ts's own registration of it (each, in order, for a list of handlers), as
+    served. With late, each member named by a bare function name calls that name when it is called, not when it is
+    registered, so a harness may define (or redefine) the function after this text - the members still call the
+    harness's function by the name main.ts gives."""
+    listed = next(s for s in viewer_seams() if s.setter == setter).listed
+    calls = js_registrations(setter) if listed else [js_call(setter + "({")]
     if late:
-        call = re.sub(r"(?<=[{,\s])(\w+): ([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1: (...a) => \2(...a)", call)
-        call = re.sub(r"(?<=[{,])(\s+)([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1\2: (...a) => \2(...a)", call)
-    return js_seam(setter) + "\n" + call + ";"
+        calls = [
+            re.sub(r"(?<=[{,\s])(\w+): ([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1: (...a) => \2(...a)", c) for c in calls
+        ]
+        calls = [re.sub(r"(?<=[{,])(\s+)([A-Za-z_$][\w$]*)(?=\s*[,}])", r"\1\2: (...a) => \2(...a)", c) for c in calls]
+    return js_seam(setter) + "\n" + "\n".join(c + ";" for c in calls)
 
 
 def js_seams_wired(module: str) -> str:

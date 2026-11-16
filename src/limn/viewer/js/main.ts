@@ -74,6 +74,8 @@ import {
   loadRevisions,
   showRevision,
   toggleRevisionOther,
+  drawPinGuideActions,
+  renderCommitList,
 } from './revisions/flow.ts';
 import {
   cycleDoc,
@@ -98,7 +100,14 @@ import {
 } from './pins/flow-notification.ts';
 import { BUILD, startBuildPolling } from './documents/view-build-chip.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
-import { drawStatus, statusWhy, toggleStatusList, STATUS_TOP, setStatusSig } from './documents/view-status.ts';
+import {
+  drawStatus,
+  statusWhy,
+  toggleStatusList,
+  STATUS_TOP,
+  setStatusSig,
+  placeStatus,
+} from './documents/view-status.ts';
 import { sizePreset, toggleOutline, applySideWidth, applyOutlineState } from './layout/flow-panel-size.ts';
 import {
   actualSize,
@@ -111,6 +120,7 @@ import {
   reapplyScale,
   startScale,
   widestPagePoints,
+  drawZoom,
 } from './pdf/view-pages.ts';
 import { pickOutline, updateSectionStrip, OUTLINE_ACTIVE_PAGE, markOutline } from './pdf/view-outline.ts';
 import {
@@ -121,7 +131,7 @@ import {
   revealPageRow,
   tipCutTitles,
 } from './pdf/view-page-list.ts';
-import { searchClose, searchGo, searchOpen, searchFit, searchLeave } from './pdf/flow.ts';
+import { searchClose, searchGo, searchOpen, searchFit, searchLeave, SEARCH } from './pdf/flow.ts';
 import { revisionPdfActive, revisionZoom } from './revisions/input.ts';
 import { zoomKey } from './pdf/input-zoom.ts';
 import {
@@ -135,6 +145,8 @@ import {
   toggleSide,
   applyLayout,
   coach,
+  onRelayout,
+  setFrameHost,
 } from './layout/flow.ts';
 import { applyRange, dropLine, widenTo } from './composer/view-excerpt.ts';
 import { showElementBox } from './pdf/view-figure.ts';
@@ -150,6 +162,7 @@ import {
   readingAnchor,
   showLines,
   showMarkdownHint,
+  keepReadingSpot,
 } from './markdown/view.ts';
 import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
@@ -184,6 +197,7 @@ import {
   READING_LINE_PAGE,
   pageVerdictsOn,
   pageUnderReadingLine,
+  stickSoon,
 } from './verdict/flow-line.ts';
 import { actOnReason, focusLine, isReasonField, isComposingNow, afterComposition } from './verdict/flow-reason.ts';
 import { goToSummaryPage, setBuildReadingPage } from './verdict/view-panel.ts';
@@ -206,6 +220,8 @@ import {
   dropBareDayLines,
   placeRow,
   marks,
+  fitBarWords,
+  updateReviewCount,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
@@ -213,7 +229,7 @@ import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './p
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
-import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './documents/flow-rebuild.ts';
+import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
@@ -320,6 +336,26 @@ setVerdictHold({
   afterComposition,
 });
 setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
+// The frame's seams: the features that act on the steps of a relayout, in the order those steps' calls ran (the pin
+// list first, then the pages, the Markdown surface, the composer), and the parts of the frame features draw.
+onRelayout({ layoutChanged: drawPins, fieldKeptInView: fitBarWords });
+onRelayout({ widthsApplied: autoFitWidth, barStuck: updateSectionStrip });
+onRelayout({ anchorRestored: keepReadingSpot });
+onRelayout({ selectionHeld: renderComposer });
+setFrameHost({
+  placeStatus,
+  drawChangesView: () => {
+    if (REVISION_VIEW.target) drawPinGuideActions();
+    if (REVISION_VIEW.rows.length) renderCommitList();
+  },
+  updateReviewCount,
+  syncBuildErrorChip: syncBuildErrChip,
+  stickSoon,
+  drawZoom,
+  fitBarWords,
+  searchOpen: () => SEARCH.open,
+  setHash,
+});
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

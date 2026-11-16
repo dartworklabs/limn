@@ -13743,6 +13743,36 @@ function wheelFactor(deltaY, mode) {
 // sheet, collapsed by default. If the band changes partway through a collapse/expand or a rotation, the page width is
 // re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the
 // page, so they fall back into place automatically once the page width is fit.
+
+// What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
+// registers them before boot() runs (no code that runs while the script loads lays out the page), and the frame calls
+// each at the point, with the arguments and in the order it called the feature code directly. A call before the
+// registration throws, naming the seam.
+// The steps of a relayout a feature acts on, in the order relayout() takes them. Several features hear of a relayout,
+// so this is a list: at each step every listener that has the step is called, in the order they were registered.
+const RELAYOUT_LISTENERS = [];
+// Adds a listener to the steps of a relayout; js/main.ts calls it, in the order the steps' feature calls ran.
+function onRelayout(listener) {
+  RELAYOUT_LISTENERS.push(listener);
+}
+// The registered listeners; throws before onRelayout() has run.
+function relayoutListeners() {
+  if (!RELAYOUT_LISTENERS.length) throw new Error('onRelayout() has not run: no feature hears of a relayout');
+  return RELAYOUT_LISTENERS;
+}
+// The parts of the frame features draw or know: the status line's place and the build error chip (documents), the
+// changes view's guide and commit list (revisions), the pin counts and the bar's words (pins), the reading line's stick
+// (verdict), the zoom in [더보기] and the search (pdf), the address's #doc= (documents).
+let FRAME_HOST = null;
+// Registers the frame's host; js/main.ts calls it once.
+function setFrameHost(host) {
+  FRAME_HOST = host;
+}
+// The registered host; throws before setFrameHost() has run.
+function frameHost() {
+  if (!FRAME_HOST) throw new Error('setFrameHost() has not run: the frame has no features to ask');
+  return FRAME_HOST;
+}
 // The band for a width x height CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the
 // width only: phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch
 // reads the height and the orientation too, first match wins: under 600px wide a phone at any height; under 480px high
@@ -13826,13 +13856,12 @@ function applyLayout() {
   const keep = placeBarTools();
   applySide();
   stickTop();
-  placeStatus();
+  frameHost().placeStatus();
   if ($('#more').open) {
     renderSizeSegment();
     placeMore();
   }
-  if (REVISION_VIEW.target) drawPinGuideActions();
-  if (REVISION_VIEW.rows.length) renderCommitList();
+  frameHost().drawChangesView();
   // From the sheet straight to wide the bar shows only once applySide has drawn the panel: the focus goes back now.
   if (keep && document.activeElement !== keep) keep.focus({ preventScroll: true });
   return true;
@@ -13916,9 +13945,9 @@ function applySide() {
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
-  updateReviewCount();
+  frameHost().updateReviewCount();
   syncBackLayer();
-  syncBuildErrChip();
+  frameHost().syncBuildErrorChip();
 }
 // The open handle's hint (the markup's, translated by translate()).
 const GRIP_TIP = $('#grip').dataset.tip;
@@ -14037,20 +14066,21 @@ function coachSideCollapsed() {
 // browser, at its own: keepReadingSpot), the composer, the stuck heads and the section strip - and keeps a panel text
 // field that has focus in view (the keyboard or the short band's hidden top row moves it).
 function relayout() {
+  const listeners = relayoutListeners();
   const anchor = topAnchor(),
     changed = applyLayout();
-  if (changed && META) drawPins();
+  if (changed && META) for (const listener of listeners) listener.layoutChanged?.();
   applySideWidth();
   applyOutlineState();
-  autoFitWidth();
+  for (const listener of listeners) listener.widthsApplied?.();
   restoreAnchor(anchor);
-  keepReadingSpot();
+  for (const listener of listeners) listener.anchorRestored?.();
   hideTip();
-  if (COMPOSE.current) renderComposer();
+  if (COMPOSE.current) for (const listener of listeners) listener.selectionHeld?.();
   stickTop();
-  updateSectionStrip();
+  for (const listener of listeners) listener.barStuck?.();
   keepFieldInView();
-  fitBarWords();
+  for (const listener of listeners) listener.fieldKeptInView?.();
 }
 // The height a list section header (sticky) sticks below. In compact, #right is the scroll box and the tool bar (#bar1,
 // which holds the sheet handle in narrow) is already stuck above it, so the header sticks below that. In wide, #list
@@ -14113,7 +14143,7 @@ function bandSettle() {
   if (step === BAND_STEP.WAIT) {
     BAND_TIMER = setTimeout(() => {
       BAND_TIMER = 0;
-      stickSoon();
+      frameHost().stickSoon();
       if (typingNow()) return;
       setBandIn(bandInput());
       refit();
@@ -14462,7 +14492,7 @@ function openMore() {
   const sheet = $('#more');
   if (sheet.open) return;
   hideTip();
-  drawZoom();
+  frameHost().drawZoom();
   renderSizeSegment();
   placeMore();
   showSheet(sheet);
@@ -14560,7 +14590,7 @@ function headInk() {
 // What was measured from text in the meantime - the sheet bar's steps (fitBarWords) and an open sheet's ink line
 // (footInk, headInk) - is measured again each time a load finishes.
 document.fonts.addEventListener('loadingdone', () => {
-  fitBarWords();
+  frameHost().fitBarWords();
   if ($('#more').open) footInk();
   if ($('#help').open) headInk();
 });
@@ -14585,7 +14615,7 @@ for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
 $('#nav-sheet').addEventListener('close', () => {
   const button = $('#btn-pos');
   // Its search row has put the focus in the search field.
-  if (SEARCH.open) return;
+  if (frameHost().searchOpen()) return;
   if (button.getClientRects().length) button.focus({ preventScroll: true });
 });
 function topAnchor(offset) {
@@ -15252,7 +15282,7 @@ function closeTopLayer() {
 window.addEventListener('popstate', () => {
   const ours = BACK_SKIP || (BACK && BACK.kind === 'history');
   if (!ours) return;
-  if (DOC) setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
+  if (DOC) frameHost().setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
   if (BACK_SKIP) {
     BACK_SKIP = false;
     return;
@@ -37158,6 +37188,26 @@ setVerdictHold({
   afterComposition,
 });
 setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
+// The frame's seams: the features that act on the steps of a relayout, in the order those steps' calls ran (the pin
+// list first, then the pages, the Markdown surface, the composer), and the parts of the frame features draw.
+onRelayout({ layoutChanged: drawPins, fieldKeptInView: fitBarWords });
+onRelayout({ widthsApplied: autoFitWidth, barStuck: updateSectionStrip });
+onRelayout({ anchorRestored: keepReadingSpot });
+onRelayout({ selectionHeld: renderComposer });
+setFrameHost({
+  placeStatus,
+  drawChangesView: () => {
+    if (REVISION_VIEW.target) drawPinGuideActions();
+    if (REVISION_VIEW.rows.length) renderCommitList();
+  },
+  updateReviewCount,
+  syncBuildErrorChip: syncBuildErrChip,
+  stickSoon,
+  drawZoom,
+  fitBarWords,
+  searchOpen: () => SEARCH.open,
+  setHash,
+});
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

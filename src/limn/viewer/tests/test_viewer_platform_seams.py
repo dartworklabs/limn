@@ -1,7 +1,8 @@
 """Platform's seams (docs/handbook/viewer.md §모듈 경계): platform knows no feature, so where a platform module reads
 from or calls into one, it declares a seam - a typed registration function, a store and an accessor - and js/main.ts
-registers every seam once, before boot() runs. A feature that calls the features above it does the same
-(documents/state-seams.ts; test_viewer_documents_seams.py holds what documents calls through them).
+registers every seam once (a list of handlers once per handler), before boot() runs. A feature that calls the features
+above it does the same (documents/state-seams.ts, whose calls test_viewer_documents_seams.py holds; layout/flow.ts,
+whose calls FrameSeams below holds).
 
 The tests hold the three promises a seam makes. The entry point wires every seam the viewer declares (read from the
 source, so a new seam cannot stay unwired), once, before boot(). An unregistered seam throws, naming itself, instead of
@@ -22,38 +23,45 @@ from helpers import (
     extract_js_fn,
     js_const,
     js_i18n,
+    js_registrations,
     js_seam,
     js_seam_wired,
     platform_seams,
     run_node,
     viewer_seams,
 )
+from helpers_browser import BrowserBase, settle
 from helpers_notices import node_or_skip
 
 MAIN = VIEWER / "js" / "main.ts"
 
 
 class Wiring(unittest.TestCase):
-    """js/main.ts registers every seam the viewer declares, once, before boot()."""
+    """js/main.ts registers every seam the viewer declares, once (a list of handlers once per handler), before boot()."""
 
     def test_the_platform_declares_its_seams(self):
         """The seams are found by their shape in platform's source - the list the other tests use is not empty, and
         each seam's store, setter and accessor are distinct names."""
         self.assertGreaterEqual(len(platform_seams()), 5)
         seams = viewer_seams()
+        self.assertGreaterEqual(len([s for s in seams if s.module.startswith("layout/")]), 2)
         for seam in seams:
             self.assertEqual(len({seam.setter, seam.store, seam.accessor}), 3, seam)
 
     def test_main_registers_every_seam_once_before_boot(self):
-        """Each seam's setter is called at the top level of js/main.ts exactly once, before its boot() call."""
+        """Each seam's setter is called at the top level of js/main.ts exactly once (a list's at least once), before its
+        boot() call."""
         src = MAIN.read_text(encoding="utf-8")
         boot = re.search(r"^boot\(\);$", src, re.M)
         self.assertIsNotNone(boot, "main.ts calls boot() at its top level")
         for seam in viewer_seams():
             with self.subTest(seam=seam.setter):
                 calls = [m.start() for m in re.finditer(r"^%s\(\{" % seam.setter, src, re.M)]
-                self.assertEqual(len(calls), 1, "%s is registered once at main.ts's top level" % seam.setter)
-                self.assertLess(calls[0], boot.start(), "%s is registered before boot()" % seam.setter)
+                if seam.listed:
+                    self.assertGreaterEqual(len(calls), 1, "%s is registered at main.ts's top level" % seam.setter)
+                else:
+                    self.assertEqual(len(calls), 1, "%s is registered once at main.ts's top level" % seam.setter)
+                self.assertLess(calls[-1], boot.start(), "%s is registered before boot()" % seam.setter)
 
     def test_no_other_module_registers_a_seam(self):
         """No module but js/main.ts registers a seam (a call of its setter with the registered object)."""
@@ -329,3 +337,164 @@ class NoticeSeams(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# The frame's own steps and the features' functions it reaches, as recording stand-ins under the names js/main.ts
+# registers and the frame calls; the page's elements are inert stand-ins (any property, any call).
+FRAME_SCOPE = r"""
+const LOG=[], rec=(name)=>(...a)=>{LOG.push(a.length?[name,...a]:[name]);};
+const ANY=new Proxy(function(){},{get:(t,k)=>k===Symbol.toPrimitive?()=>'':k==='length'?0:ANY,apply:()=>ANY,set:()=>true});
+const ELS={}; const $=s=>ELS[s]||ANY, $$=()=>[];
+const document={body:ANY,activeElement:null}; function setTimeout(fn){TIMERS.push(fn); return 1;} function clearTimeout(){}
+const TIMERS=[];
+let SIDE_OPEN=false, BAND=null, LAYOUT=null;
+let META={}, CHANGED=true, PINS=[], REVIEW_ALL=[], SIDE_SLIDE=null, SHEET_KEPT=false, REPICK=null, REPLY=null;
+const COMPOSE={current:{}}, EDITOR={current:null}, REVISION_VIEW={target:null,rows:[]}, SEARCH={open:false};
+for (const name of ['topAnchor','applySideWidth','applyOutlineState','restoreAnchor','hideTip','stickTop',
+  'keepFieldInView','drawPins','autoFitWidth','keepReadingSpot','renderComposer','updateSectionStrip','fitBarWords',
+  'gripAria','syncBackLayer','updateReviewCount','syncBuildErrChip','placeStatus','drawPinGuideActions',
+  'renderCommitList','stickSoon','drawZoom','renderSizeSegment','placeMore','showSheet','footInk','setHash',
+  'endSideSlide','setSheetKept','refit']) globalThis[name]=rec(name);
+function applyLayout(){LOG.push(['applyLayout']); return CHANGED;}
+function draftOpen(){return false;} function translate(t){return t;} function translateTemplate(t){return t;}
+"""
+
+
+class FrameSeams(unittest.TestCase):
+    """The frame calls the features through onRelayout and setFrameHost at the points, with the arguments and in the
+    order it called them directly - wired by js/main.ts's own registrations, so a listener or a member wired to the
+    wrong function, or registered in another order, fails here."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def run_frame(self, fns, body):
+        script = "\n".join(
+            [FRAME_SCOPE, js_seam_wired("onRelayout"), js_seam_wired("setFrameHost")]
+            + [extract_js_fn(n) for n in fns]
+            + [body, "console.log(JSON.stringify(LOG));"]
+        )
+        return json.loads(run_node(script))
+
+    def test_a_relayout_takes_its_steps_and_the_features_in_the_old_order(self):
+        """relayout(): the anchor, the layout, the pin list (the layout changed), the widths, the pages' fit, the anchor
+        back, the Markdown reading spot, the tooltip, the composer (a selection held), the bar stuck, the section strip,
+        the field in view, the bar's words - one after the other, as the direct calls ran."""
+        self.assertEqual(
+            [step[0] for step in self.run_frame(["relayout"], "relayout();")],
+            [
+                "topAnchor", "applyLayout", "drawPins", "applySideWidth", "applyOutlineState", "autoFitWidth",
+                "restoreAnchor", "keepReadingSpot", "hideTip", "renderComposer", "stickTop", "updateSectionStrip",
+                "keepFieldInView", "fitBarWords",
+            ],
+        )  # fmt: skip
+
+    def test_the_relayout_listeners_are_registered_in_the_order_of_their_first_step(self):
+        """js/main.ts registers each relayout listener in the order its first step comes in a relayout, so two
+        listeners of one step are called in the order their direct calls ran: the pin list, the pages, the Markdown
+        surface, the composer."""
+        source = (VIEWER / "js" / "layout" / "flow.ts").read_text(encoding="utf-8")
+        interface = re.search(r"interface RelayoutListener \{(.*?)\}", source, re.S).group(1)
+        steps = re.findall(r"(\w+)\?\(\)", interface)
+        firsts = [min(steps.index(m) for m in re.findall(r"(\w+):", call)) for call in js_registrations("onRelayout")]
+        self.assertEqual(firsts, sorted(firsts))
+        self.assertEqual(len(set(firsts)), len(firsts))
+
+    def test_a_relayout_keeps_its_guards(self):
+        """The pin list draws only when the layout changed and a document is open; the composer only while it holds a
+        selection."""
+        got = self.run_frame(
+            ["relayout"],
+            "CHANGED=false; COMPOSE.current=null; relayout(); LOG.push(['--']);CHANGED=true; META=null; relayout();",
+        )
+        names = [step[0] for step in got]
+        self.assertNotIn("drawPins", names)
+        self.assertNotIn("renderComposer", names)
+
+    def test_the_panels_toggles_ask_for_the_counts_then_the_chip(self):
+        """applySide(): the sheet let go (nothing is being written), the grip's names, the pin counts, the back layer, the
+        build error chip, in that order."""
+        got = [s[0] for s in self.run_frame(["applySide"], "ELS['#composer']={hidden:true}; applySide();")]
+        self.assertEqual(got, ["setSheetKept", "gripAria", "updateReviewCount", "syncBackLayer", "syncBuildErrChip"])
+
+    def test_a_new_layout_places_the_status_line_then_redraws_the_changes_view(self):
+        """applyLayout(): the bar's tools, the panel, the bar stuck, the status line's place, the open more sheet's
+        segment and place, then the changes view's pin guide and commit list - the status line and the changes view at
+        the points their direct calls had."""
+        body = (
+            "let BAND_IN={w:1200,h:800,coarse:false}, MID_OVERLAY=false; const BAND_MODE={x:'wide'};"
+            "function layoutFor(){return 'x';} function prefs(){return {};}"
+            "REVISION_VIEW.target={}; REVISION_VIEW.rows=[1]; LOG.push(['result', applyLayout()]);"
+        )
+        names = ["placeBarTools", "applySide", "setBand", "setLayout", "setMidOverlay", "setOutlineMidOpen",
+                 "setZoomed", "setSideOpen", "setBandIn"]  # fmt: skip
+        got = self.run_frame(["applyLayout"], "".join(f"var {n}=rec('{n}');" for n in names) + body)
+        tail = [s[0] for s in got][-9:]
+        self.assertEqual(
+            tail,
+            [
+                "placeBarTools", "applySide", "stickTop", "placeStatus", "renderSizeSegment", "placeMore",
+                "drawPinGuideActions", "renderCommitList", "result",
+            ],
+        )  # fmt: skip
+
+    def test_more_draws_the_zoom_after_the_tooltip_goes(self):
+        """openMore(): the tooltip goes, the zoom is drawn, then the size segment and the sheet's place."""
+        got = [s[0] for s in self.run_frame(["openMore"], "ELS['#more']={open:false}; openMore();")]
+        self.assertEqual(got[:4], ["hideTip", "drawZoom", "renderSizeSegment", "placeMore"])
+
+    def test_the_changes_view_draws_only_what_it_shows(self):
+        """The frame's drawChangesView keeps the two guards of the calls it stands for: the pin guide when the changes
+        view has a target, the commit list when it has rows."""
+        got = self.run_frame(
+            [],
+            "frameHost().drawChangesView(); LOG.push(['--']); REVISION_VIEW.target={}; REVISION_VIEW.rows=[1];"
+            "frameHost().drawChangesView();",
+        )
+        self.assertEqual([s[0] for s in got], ["--", "drawPinGuideActions", "renderCommitList"])
+
+    def test_a_settling_band_sticks_the_verdict_line_when_its_wait_ends(self):
+        """bandSettle(): a band still moving waits; when the wait ends the verdict line is stuck again first."""
+        body = (
+            "let BAND_IN={w:1,h:1,coarse:false}, BAND_TIMER=0; const BAND_SETTLE_MS=1;"
+            "function bandInput(){return {w:2,h:2,coarse:false};} function settleBand(){return BAND_STEP.WAIT;}"
+            "function typingNow(){return true;} bandSettle(); TIMERS[0]();"
+        )
+        got = self.run_frame(["bandSettle"], body)
+        self.assertEqual([s[0] for s in got], ["stickSoon"])
+
+    def test_the_hosts_members_are_the_features_functions(self):
+        """Each member js/main.ts gives the frame calls the feature function of its name, with the argument given."""
+        got = self.run_frame(
+            [],
+            "const h=frameHost(); h.placeStatus(); h.updateReviewCount(); h.syncBuildErrorChip(); h.stickSoon();"
+            "h.drawZoom(); h.fitBarWords(); h.setHash('b'); SEARCH.open=true; LOG.push(['searchOpen', h.searchOpen()]);",
+        )
+        self.assertEqual(
+            got,
+            [
+                ["placeStatus"], ["updateReviewCount"], ["syncBuildErrChip"], ["stickSoon"], ["drawZoom"],
+                ["fitBarWords"], ["setHash", "b"], ["searchOpen", True],
+            ],
+        )  # fmt: skip
+
+
+class FrameSeamsInTheBrowser(BrowserBase):
+    """The frame's seam calls on the real page where no other browser test walks them."""
+
+    CHIP = "()=>document.querySelector('#build-err-chip').hidden"
+
+    def test_the_build_error_chip_follows_the_panel_as_it_folds_and_opens(self):
+        """A failed build on the desktop: while the panel shows the error the chip is hidden; folding the panel
+        (Ctrl+\\) shows the chip, opening it again ([핀 N]) hides it - applySide asks the build error chip through the frame's
+        host each time."""
+        page = self.open(0)
+        page.evaluate("showBuildErr({state: 'fail', log_tail: 'x'})")
+        self.assertTrue(page.evaluate(self.CHIP))
+        page.keyboard.press("Control+Backslash")
+        settle(page)
+        self.assertEqual(page.evaluate("[SIDE_OPEN, document.querySelector('#build-err-chip').hidden]"), [False, False])
+        page.click("#nav-side")
+        settle(page)
+        self.assertEqual(page.evaluate("[SIDE_OPEN, document.querySelector('#build-err-chip').hidden]"), [True, True])
