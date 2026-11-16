@@ -38,12 +38,12 @@ SHOWS = {
 KEEPS = {
     ("documents/flow-switch.ts", "restoreView"): 1,
     ("layout/flow.ts", "setSelectMode"): 1,
+    ("layout/flow.ts", "restoreAnchor"): 2,
     ("markdown/view.ts", "stopHeadingJump"): 2,
     ("markdown/view.ts", "restoreReadingAnchor"): 2,
     ("markdown/view.ts", "keepReadingSpot"): 2,
     ("pdf/view-pages.ts", "fitToWidth"): 1,
     ("pdf/view-pages.ts", "zoomRestore"): 2,
-    ("documents/flow-rebuild.ts", "restoreAnchor"): 2,
     ("verdict/view-panel.ts", "settleBesideTurn"): 3,
     ("verdict/flow-line.ts", "letLineBlocks"): 1,
 }

@@ -759,6 +759,19 @@ function searchToPage() {
   pdfArea.addEventListener('blur', () => pdfArea.removeAttribute('tabindex'), { once: true });
   pdfArea.focus({ preventScroll: true });
 }
+function focusFell() {
+  const focused = document.activeElement;
+  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
+}
+// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
+// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
+function focusHold(target) {
+  if (!target.hasAttribute('tabindex')) {
+    target.tabIndex = -1;
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+  }
+  target.focus({ preventScroll: true });
+}
 
 // -------------------------------------- Markup: html``, lucideIcon() and setHtml(), the one way the viewer writes HTML
 // docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so
@@ -14405,6 +14418,47 @@ $('#nav-sheet').addEventListener('close', () => {
   if (SEARCH.open) return;
   if (button.getClientRects().length) button.focus({ preventScroll: true });
 });
+function topAnchor(offset) {
+  const scroller = $('#left'),
+    scrollerTop = scroller.getBoundingClientRect().top,
+    top = scrollerTop + (offset || 0),
+    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
+    edge = offset ? 0 : 1;
+  for (const pageElement of $$('.pg')) {
+    const rect = pageElement.getBoundingClientRect();
+    if (rect.bottom > top + edge)
+      return {
+        page: +pageElement.dataset.page,
+        frac: Math.max(0, (top - rect.top) / rect.height),
+        gap: Math.max(0, rect.top - top),
+        atTop,
+        y: rect.top - scrollerTop,
+        h: rect.height,
+      };
+  }
+  return null;
+}
+// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without
+// it a spot between two pages would put the page's top on the edge, as much as that space off. On a touch screen -
+// where the select mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin,
+// or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
+// is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
+// of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
+// would stop a long glide part way.
+function restoreAnchor(anchor) {
+  if (!anchor) return;
+  const scroller = $('#left');
+  if (anchor.atTop) {
+    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
+    return;
+  }
+  const pageElement = document.getElementById('p' + anchor.page);
+  if (!pageElement) return;
+  const rect = pageElement.getBoundingClientRect(),
+    scrollerTop = scroller.getBoundingClientRect().top;
+  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
+  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
+}
 
 // Panel width handle - mouse, touch and pen all share one Pointer Events path. The handle has touch-action:none, so
 // dragging it never fights browser scrolling, and setPointerCapture keeps tracking it even outside the handle. While
@@ -14415,6 +14469,8 @@ $('#nav-sheet').addEventListener('close', () => {
 // A collapsed wide panel leaves the handle as a 6px rail at the right edge: dragging it left past half the minimum
 // opens the panel at the minimum and then follows; a double-click (a tap on touch) opens it at the saved width. A tap
 // on an open handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
+const LONGPRESS_MS = 450;
+
 (function () {
   const grip = $('#grip');
   let drag = null;
@@ -15052,8 +15108,7 @@ window.addEventListener('popstate', () => {
 let DRAG = null,
   LONG_PRESS = null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
-const LONGPRESS_MS = 450,
-  TAP_SLOP = 8,
+const TAP_SLOP = 8,
   QUICK_HALF_WIDTH = 0.07,
   QUICK_HALF_HEIGHT = 0.006,
   QUICK_FIGURE_HALF = 0.004;
@@ -21415,6 +21470,42 @@ document.addEventListener('input', (event) => {
   owner.redraw();
 });
 
+// ------------------------------------------------ Input method composition
+// Whether an input method's composition is open (imeOpen): the element it is open in, kept by three listeners.
+// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is
+// over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
+// compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
+// the moment it is asked.
+let COMPOSITION_ELEMENT = null;
+addEventListener(
+  'compositionstart',
+  (event) => {
+    COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
+  },
+  true,
+);
+addEventListener(
+  'compositionend',
+  (event) => {
+    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
+  },
+  true,
+);
+addEventListener(
+  'focusout',
+  (event) => {
+    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
+  },
+  true,
+);
+function imeOpen() {
+  const composing = COMPOSITION_ELEMENT,
+    focused = document.activeElement;
+  if (composing && (!composing.isConnected || !(focused === composing || (focused && composing.contains(focused)))))
+    COMPOSITION_ELEMENT = null;
+  return !!COMPOSITION_ELEMENT;
+}
+
 // ------------------------------------------------ composer
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
 // counter every change to what the composer asks bumps (COMPOSE.intent++) - a new, cleared or restored selection (pick,
@@ -22012,43 +22103,6 @@ function restoreSelection(snapshot, focus) {
 function focusClosed() {
   return { visit: captureVisit(), intent: COMPOSE.intent };
 }
-// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is
-// over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
-// compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
-// the moment it is asked.
-let COMPOSITION_ELEMENT = null;
-addEventListener(
-  'compositionstart',
-  (event) => {
-    COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
-  },
-  true,
-);
-addEventListener(
-  'compositionend',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-addEventListener(
-  'focusout',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-function imeOpen() {
-  const composing = COMPOSITION_ELEMENT,
-    focused = document.activeElement;
-  if (composing && (!composing.isConnected || !(focused === composing || (focused && composing.contains(focused)))))
-    COMPOSITION_ELEMENT = null;
-  return !!COMPOSITION_ELEMENT;
-}
-function focusFell() {
-  const focused = document.activeElement;
-  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
-}
 // Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so
 // the next Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved
 // or appended to (id) - its badge on the Markdown surface, its mark on a PDF page, where the save chip's [되돌리기] is
@@ -22080,15 +22134,6 @@ function focusPlace(
     } else if (typeof selection.page === 'number') at = document.getElementById('p' + selection.page);
   }
   focusHold(at && at.getClientRects().length ? at : $('#left'));
-}
-// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
-// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
-function focusHold(target) {
-  if (!target.hasAttribute('tabindex')) {
-    target.tabIndex = -1;
-    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
-  }
-  target.focus({ preventScroll: true });
 }
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or
 // its suggested edit an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its
@@ -36768,47 +36813,6 @@ async function applyRepick() {
 // the keys and the panel name the page that line is on while any of it is. gap: with the edge in the space above that
 // page (frac 0), how far under it the page's top stands. y and h: where that page's top stood under the scroller's top
 // and its height, so restoreAnchor can tell a re-fit that moved nothing.
-function topAnchor(offset) {
-  const scroller = $('#left'),
-    scrollerTop = scroller.getBoundingClientRect().top,
-    top = scrollerTop + (offset || 0),
-    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
-    edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
-    const rect = pageElement.getBoundingClientRect();
-    if (rect.bottom > top + edge)
-      return {
-        page: +pageElement.dataset.page,
-        frac: Math.max(0, (top - rect.top) / rect.height),
-        gap: Math.max(0, rect.top - top),
-        atTop,
-        y: rect.top - scrollerTop,
-        h: rect.height,
-      };
-  }
-  return null;
-}
-// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without
-// it a spot between two pages would put the page's top on the edge, as much as that space off. On a touch screen -
-// where the select mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin,
-// or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
-// is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
-// of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
-// would stop a long glide part way.
-function restoreAnchor(anchor) {
-  if (!anchor) return;
-  const scroller = $('#left');
-  if (anchor.atTop) {
-    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
-    return;
-  }
-  const pageElement = document.getElementById('p' + anchor.page);
-  if (!pageElement) return;
-  const rect = pageElement.getBoundingClientRect(),
-    scrollerTop = scroller.getBoundingClientRect().top;
-  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
-  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
-}
 // The manuscript's reading spot (topAnchor) at the moment the changes view hid it, with its document, kept for the way
 // back: while it is hidden there is no spot to read, and a build that changes the pages' sizes meanwhile (refreshDoc)
 // moves the scroll offset the column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts

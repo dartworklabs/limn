@@ -18,6 +18,7 @@ import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
+import { LONGPRESS_MS } from '../layout/input.ts';
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;
@@ -31,8 +32,7 @@ let DRAG = null as {
   } | null,
   LONG_PRESS = null as { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
-const LONGPRESS_MS = 450,
-  TAP_SLOP = 8,
+const TAP_SLOP = 8,
   QUICK_HALF_WIDTH = 0.07,
   QUICK_HALF_HEIGHT = 0.006,
   QUICK_FIGURE_HALF = 0.004;
@@ -421,14 +421,4 @@ function selectionRoom(): { top: number; bottom: number } {
     bottom,
   };
 }
-export {
-  LONGPRESS_MS,
-  cancelDrag,
-  cancelLongPress,
-  drawBox,
-  newBox,
-  pendingBadge,
-  pendingBadgeSide,
-  revealBox,
-  selectionRoom,
-};
+export { cancelDrag, cancelLongPress, drawBox, newBox, pendingBadge, pendingBadgeSide, revealBox, selectionRoom };

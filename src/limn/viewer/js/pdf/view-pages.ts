@@ -19,11 +19,11 @@ import {
 } from '../verdict/flow-line.ts';
 import { restoreReasonFocus, holdReasonFocus } from '../verdict/flow-reason.ts';
 import { markBadgeSides, marks } from '../pins/flow-list.ts';
-import { restoreAnchor, topAnchor } from '../documents/flow-rebuild.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { COMPOSE } from '../composer/flow-pick.ts';
+import { restoreAnchor, topAnchor } from '../layout/flow.ts';
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {

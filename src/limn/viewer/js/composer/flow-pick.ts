@@ -62,13 +62,14 @@ import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, focusFell, focusHold } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE, RANGE_REL } from '../app/rules-tables.ts';
 import { lineRange, overlapsFor } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isRegion } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { useLevel } from '../documents/rules.ts';
+import { imeOpen } from '../platform/composition.ts';
 const COMPOSE = {
   current: null as Selection | null,
   box: null as HTMLElement | null,
@@ -659,43 +660,6 @@ function restoreSelection(snapshot, focus?: boolean) {
 function focusClosed() {
   return { visit: captureVisit(), intent: COMPOSE.intent };
 }
-// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is
-// over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
-// compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
-// the moment it is asked.
-let COMPOSITION_ELEMENT = null as Element | null;
-addEventListener(
-  'compositionstart',
-  (event) => {
-    COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
-  },
-  true,
-);
-addEventListener(
-  'compositionend',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-addEventListener(
-  'focusout',
-  (event) => {
-    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
-  },
-  true,
-);
-function imeOpen() {
-  const composing = COMPOSITION_ELEMENT,
-    focused = document.activeElement;
-  if (composing && (!composing.isConnected || !(focused === composing || (focused && composing.contains(focused)))))
-    COMPOSITION_ELEMENT = null;
-  return !!COMPOSITION_ELEMENT;
-}
-function focusFell() {
-  const focused = document.activeElement;
-  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
-}
 // Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so
 // the next Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved
 // or appended to (id) - its badge on the Markdown surface, its mark on a PDF page, where the save chip's [되돌리기] is
@@ -728,15 +692,6 @@ function focusPlace(
   }
   focusHold(at && at.getClientRects().length ? at : $('#left'));
 }
-// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
-// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
-function focusHold(target: HTMLElement) {
-  if (!target.hasAttribute('tabindex')) {
-    target.tabIndex = -1;
-    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
-  }
-  target.focus({ preventScroll: true });
-}
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or
 // its suggested edit an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its
 // place, the composer, is gone), bringing back the selection, the note, the suggested edit and the box - an undo
@@ -767,10 +722,7 @@ export {
   composeOwns,
   discardSelection,
   focusClosed,
-  focusFell,
-  focusHold,
   focusPlace,
-  imeOpen,
   pick,
   syncQuestionHint,
   quoteInner,

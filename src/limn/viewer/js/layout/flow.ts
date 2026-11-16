@@ -54,9 +54,9 @@ import { keepReadingSpot } from '../markdown/view.ts';
 import { renderComposer, COMPOSE } from '../composer/flow-pick.ts';
 import { stickSoon } from '../verdict/flow-line.ts';
 import { drawPins, fitBarWords, updateReviewCount } from '../pins/flow-list.ts';
-import { restoreAnchor, syncBuildErrChip, topAnchor } from '../documents/flow-rebuild.ts';
+import { syncBuildErrChip } from '../documents/flow-rebuild.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, typingNow } from '../platform/dom.ts';
+import { $, typingNow, $$ } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 // The band for a width x height CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the
@@ -904,6 +904,47 @@ $('#nav-sheet').addEventListener('close', () => {
   if (SEARCH.open) return;
   if (button.getClientRects().length) button.focus({ preventScroll: true });
 });
+function topAnchor(offset?) {
+  const scroller = $('#left'),
+    scrollerTop = scroller.getBoundingClientRect().top,
+    top = scrollerTop + (offset || 0),
+    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
+    edge = offset ? 0 : 1;
+  for (const pageElement of $$('.pg')) {
+    const rect = pageElement.getBoundingClientRect();
+    if (rect.bottom > top + edge)
+      return {
+        page: +pageElement.dataset.page,
+        frac: Math.max(0, (top - rect.top) / rect.height),
+        gap: Math.max(0, rect.top - top),
+        atTop,
+        y: rect.top - scrollerTop,
+        h: rect.height,
+      };
+  }
+  return null;
+}
+// Scrolls the PDF back to a reading spot from topAnchor() after a re-fit, with the space above its page (gap): without
+// it a spot between two pages would put the page's top on the edge, as much as that space off. On a touch screen -
+// where the select mode lives - a spot taken at the very top stays at the top, so the space above page 1 (its margin,
+// or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
+// is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
+// of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
+// would stop a long glide part way.
+function restoreAnchor(anchor) {
+  if (!anchor) return;
+  const scroller = $('#left');
+  if (anchor.atTop) {
+    if (scroller.scrollTop > 0) scroller.scrollTop = 0;
+    return;
+  }
+  const pageElement = document.getElementById('p' + anchor.page);
+  if (!pageElement) return;
+  const rect = pageElement.getBoundingClientRect(),
+    scrollerTop = scroller.getBoundingClientRect().top;
+  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
+  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
+}
 
 export {
   BAND_TIMER,
@@ -925,4 +966,6 @@ export {
   setSide,
   showSheet,
   toggleSide,
+  topAnchor,
+  restoreAnchor,
 };

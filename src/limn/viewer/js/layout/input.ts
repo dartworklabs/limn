@@ -53,9 +53,10 @@ import {
   setSide,
   toggleSide,
 } from './flow.ts';
-import { LONGPRESS_MS } from '../pdf/input-selection.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
+const LONGPRESS_MS = 450;
+
 (function () {
   const grip = $('#grip');
   let drag = null as {
@@ -708,4 +709,4 @@ window.addEventListener('popstate', () => {
   closeTopLayer();
 });
 
-export { BACK, BACK_SKIP, syncBackLayer };
+export { BACK, BACK_SKIP, syncBackLayer, LONGPRESS_MS };

@@ -1214,7 +1214,7 @@ class FrontendMobileLogic(unittest.TestCase):
         point on a figure document: +-0.4 % of the page width by +-0.4 % of its height, a rectangle on a page that is
         not square (here 400 x 600); both are clamped to the page at every corner. The half-widths are the page's own
         (pdf/input-selection.ts), not numbers this test repeats."""
-        consts = js_const("clampUnit") + js_const("LONGPRESS_MS")
+        consts = js_const("clampUnit") + js_const("LONGPRESS_MS") + js_const("TAP_SLOP")
         js = "\n".join(
             [
                 consts,

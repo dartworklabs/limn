@@ -30,5 +30,18 @@ function searchToPage() {
   pdfArea.addEventListener('blur', () => pdfArea.removeAttribute('tabindex'), { once: true });
   pdfArea.focus({ preventScroll: true });
 }
+function focusFell() {
+  const focused = document.activeElement;
+  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
+}
+// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
+// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
+function focusHold(target: HTMLElement) {
+  if (!target.hasAttribute('tabindex')) {
+    target.tabIndex = -1;
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
+  }
+  target.focus({ preventScroll: true });
+}
 
-export { $, $$, ICONS, esc, typingNow, searchToPage };
+export { $, $$, ICONS, esc, typingNow, searchToPage, focusFell, focusHold };

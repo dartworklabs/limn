@@ -17,7 +17,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { NOTICES, chipAway, drawChips } from '../platform/notices.ts';
 import { arrivalWatch, pdfAreaInnerWidth, pageWidth, widestPagePoints } from '../pdf/view-pages.ts';
 import { readingDepth } from '../pdf/view-outline.ts';
-import { BAND_TIMER } from '../layout/flow.ts';
+import { BAND_TIMER, topAnchor } from '../layout/flow.ts';
 import {
   CHIP_WATCH,
   READING_LINE_PAGE,
@@ -55,7 +55,6 @@ import {
   getDraft,
   setComposingField,
 } from './flow-reason.ts';
-import { topAnchor } from '../documents/flow-rebuild.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';

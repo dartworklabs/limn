@@ -15,10 +15,9 @@
 import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
-import { relayout, setSide } from '../layout/flow.ts';
+import { relayout, setSide, topAnchor } from '../layout/flow.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER_BOX, placeSelectionPopover, popoverFreeArea } from '../composer/view-selection-popover.ts';
-import { topAnchor } from '../documents/flow-rebuild.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
