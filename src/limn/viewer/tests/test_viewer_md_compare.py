@@ -246,7 +246,7 @@ class RangeDisplay(CompareBase):
     def test_a_range_keeps_the_rendered_compare_and_paints_its_commits(self):
         """Every kind at once; the list paints the range's commits (the source diff's answer read beside the compare) and
         the status line says the range's commits and files with the blocks it changed. Mutation: leave REV.rangeN out of
-        mdcStatus (the two ends only) -> the line has no '커밋 4개', fails."""
+        sayCompareStatus (the two ends only) -> the line has no '커밋 4개', fails."""
         page = self.open_compare()
         page.evaluate("setRevisionRange(RANGE_MODE.FROM)")
         page.locator("#revision-commits .rc-row").nth(3).click()
@@ -311,7 +311,7 @@ class PinBlocks(CompareBase):
     def test_its_rendered_compare_rings_the_pins_blocks_and_says_it_is_the_whole_commit(self):
         """[그린 비교]: the two table rows (one changed, one added) are ringed, the list item the same commit added is
         marked too (the whole commit), and the guide line says so and points back at [소스 diff]. Mutation: drop the
-        whole-commit sentence from mdcTarget -> fails."""
+        whole-commit sentence from ringPinBlocks -> fails."""
         page = self.pin_rendered(self.table_pin())
         rows = page.evaluate(
             "[...document.querySelectorAll('#revision-rendered .mdc-pin')].map(e=>[e.tagName,e.dataset.mdc])"
@@ -397,7 +397,7 @@ class SameWordsOtherStructure(OneNote):
             [(k, t) for k, t, _ in marks], [("mod", "P"), ("mod", "P"), ("mod", "LI"), ("mod", "LI"), ("mod", "P")]
         )
         whys = page.evaluate(
-            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
         )
         self.assertEqual(
             whys,
@@ -457,7 +457,7 @@ class CodeBody(OneNote):
         page = self.open_compare()
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "PRE")])
         self.assertEqual(
-            page.evaluate("document.querySelector('#revision-rendered pre[data-mdc]').dataset.mdcWhy"),
+            page.evaluate("document.querySelector('#revision-rendered pre[data-mdc]').dataset.changeReason"),
             "코드 언어가 바뀜",
         )
         self.show(page, self.c[1])
@@ -555,8 +555,8 @@ class HiddenFrontMath(OneNote):
         """Marks in order: the front matter (its title line taken out and added), the paragraph (the old character's box
         put back struck through, the new one's added), the display math (its line), the paragraph whose formula became
         code (the formatting changed); the hidden-character notice counts the two boxes. Mutations: leave the box out of
-        mdcShape and mdcToks (as the screen reader's words) -> the paragraph is the same block, fails; take .md-front out
-        of MDC_UNIT -> the front matter is not marked, fails; name code by its tag alone in mdcInl -> the last paragraph is
+        inlineShape and unitWords (as the screen reader's words) -> the paragraph is the same block, fails; take .md-front out
+        of UNIT_SELECTOR -> the front matter is not marked, fails; name code by its tag alone in inlineName -> the last paragraph is
         the same block, fails."""
         page = self.open_compare()
         self.assertEqual(
@@ -569,7 +569,7 @@ class HiddenFrontMath(OneNote):
             "boxes:[q('p del.mdc-w .cc').map(e=>e.dataset.cc),q('p ins.mdc-w .cc').map(e=>e.dataset.cc)],"
             "names:[ccName(0x200b),ccName(0x2060)],"
             "math:[q('pre.md-math-block[data-mdc=mod]').length,words('pre.md-math-block del.mdc-w'),words('pre.md-math-block ins.mdc-w')],"
-            "code:q('[data-mdc]').map(e=>e.dataset.mdcWhy||'')[3],"
+            "code:q('[data-mdc]').map(e=>e.dataset.changeReason||'')[3],"
             "notice:q('.mdc-info').map(e=>e.textContent).join('|')};})()"
         )
         self.assertEqual(got["front"], [1, ["title: 옛 제목\n"], ["title: 새 제목"]])
@@ -668,7 +668,7 @@ class BuildPauses(OneNote):
         """Both sides are built with a render context of their own: the document view's lines, element count, headings
         and marked count are what they were, and the build yields to the browser every MD_LIMITS.chunk units of work
         (thousands of units per side, so several pauses). Mutations: build the sides with MD as their context in
-        mdcBuild -> MD's headings and count change, fails; drain mdRender without a yield -> no pause, fails."""
+        buildSide -> MD's headings and count change, fails; drain mdRender without a yield -> no pause, fails."""
         page = self.open(0)
         until(page, DRAWN, 20)
         settle(page)
@@ -702,7 +702,7 @@ class Rewrapped(OneNote):
 
     def test_a_paragraph_wrapped_on_other_source_lines_is_the_same_block(self):
         """No block is marked and the compare says both versions draw the same (the exact change is in the source
-        diff). Mutation: count the renderer's line spans as structure in mdcShape -> the paragraph is changed in place,
+        diff). Mutation: count the renderer's line spans as structure in inlineShape -> the paragraph is changed in place,
         fails."""
         page = self.open_compare()
         self.assertEqual(self.marks(page), [])
@@ -725,7 +725,7 @@ class DeletedNestedList(OneNote):
     def test_a_deleted_item_keeps_its_nested_list_and_a_deleted_table_is_one_table(self):
         """The child is drawn in a list inside its deleted parent, one level down, not beside it; the loose list's deleted
         paragraph is an item of its own, not a second paragraph of the kept one; the deleted header row and body row are
-        one table. Mutation: judge a deleted block's box by the tag of its parent alone (mdcPlace before this change) ->
+        one table. Mutation: judge a deleted block's box by the tag of its parent alone (placeTakenOut before this change) ->
         the child is a sibling of its parent, the loose item's paragraph joins the item before it and the table is two,
         fails."""
         page = self.open_compare()
@@ -767,7 +767,7 @@ class DeletedListImage(OneNote):
 
     def test_a_deleted_list_items_image_loads_or_falls_back_as_in_the_document_view(self):
         """The image that loads gets its size (md-pic-ok), and the one the server does not give becomes its alt text
-        (.md-img), as the document view draws them (ADR-0031 D8). Mutation: deep-clone the item in mdcOwn (cloneNode(true)
+        (.md-img), as the document view draws them (ADR-0031 D8). Mutation: deep-clone the item in ownElement (cloneNode(true)
         drops the image's load and error handlers) -> the missing image stays an empty box, fails."""
         page = self.open_compare()
         want = [[True, ""], [False, "그림: 없는 설명"]]
@@ -798,8 +798,8 @@ class RewrappedInsideInline(OneNote):
         return [REWRAP_INLINE.format(s=" "), REWRAP_INLINE.format(s="\n")]
 
     def test_a_line_break_inside_formatting_or_a_link_is_the_same_block(self):
-        """No block is marked. Mutations: no merging of runs in mdcShape -> the bold, strikethrough, link and formula paragraphs
-        are changed in place, fails; count every link element's target in mdcRefs -> the link paragraph is, fails; merge
+        """No block is marked. Mutations: no merging of runs in inlineShape -> the bold, strikethrough, link and formula paragraphs
+        are changed in place, fails; count every link element's target in unitReferences -> the link paragraph is, fails; merge
         a formula's pieces only when nothing lies between (as an emphasis's) -> the formula's paragraph is, fails."""
         page = self.open_compare()
         self.assertEqual(self.marks(page), [])
@@ -817,12 +817,12 @@ class TableAlignment(OneNote):
 
     def test_a_columns_new_alignment_changes_its_rows_and_says_so(self):
         """Both rows are changed in place, each saying the alignment changed, no word marked. Mutation: leave the cell's
-        md-al-* class out of mdcShape -> both rows are the same, fails."""
+        md-al-* class out of inlineShape -> both rows are the same, fails."""
         page = self.open_compare()
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "TR"), ("mod", "TR")])
         self.assertEqual(
             page.evaluate(
-                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
             ),
             ["표 칸 정렬이 바뀜", "표 칸 정렬이 바뀜"],
         )
@@ -840,11 +840,11 @@ class AltRewrapped(OneNote):
 
     def test_an_alt_text_rewrapped_is_the_same_alt_text(self):
         """The paragraph is changed in place for its formatting, not for its alt text (drawn with its white space folded).
-        Mutation: compare the alt texts as written (no folding in mdcUnits) -> its tip says the alt text changed, fails."""
+        Mutation: compare the alt texts as written (no folding in compareUnits) -> its tip says the alt text changed, fails."""
         page = self.open_compare()
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "P")])
         self.assertEqual(
-            page.evaluate("document.querySelector('#revision-rendered [data-mdc]').dataset.mdcWhy"),
+            page.evaluate("document.querySelector('#revision-rendered [data-mdc]').dataset.changeReason"),
             "글자 모양(굵게·기울임·코드·링크)이 바뀜",
         )
 
@@ -879,10 +879,10 @@ class ChildBlockRefs(OneNote):
         """The image and the link belong to the quote's paragraph and the table's row: the paragraph is taken out and added
         (another image), the row is changed in place with its link marked, and both items stay as they were. Then the
         bold item is changed in place for its formatting, not for the alt text its quote's image got. Mutations: count a
-        list item's images and links up to the next list item (closest('li')) in mdcRefs -> the items are taken out and
+        list item's images and links up to the next list item (closest('li')) in unitReferences -> the items are taken out and
         added or changed, fails; take its alt texts the same way -> the bold item says its alt text changed, fails. The
         rewritten item is changed in place and its table's rows are taken out and added, no link marked as retargeted.
-        Mutation: mark every link below a list item in mdcLinkMarks -> the added row's link says its target changed,
+        Mutation: mark every link below a list item in markChangedLinks -> the added row's link says its target changed,
         fails."""
         page = self.open_compare()
         self.show(page, self.c[1])
@@ -897,7 +897,7 @@ class ChildBlockRefs(OneNote):
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "LI"), ("mod", "P")])
         self.assertEqual(
             page.evaluate(
-                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
             ),
             ["글자 모양(굵게·기울임·코드·링크)이 바뀜", "그림 대체 글이 바뀜"],
         )
@@ -921,14 +921,12 @@ class BoxesSplit(OneNote):
     def test_a_quote_or_list_split_in_two_or_joined_is_a_change_but_new_bullets_are_not(self):
         """Every bullet changed draws the same document: nothing is marked. The split marks the two paragraphs and the
         two items as changed in place, each saying the quote or list split in two, no word marked; the join says they
-        joined into one, in Korean and in English. Mutation: drop mdcRegroup from mdcOps -> the split and the join draw
+        joined into one, in Korean and in English. Mutation: drop markRegroups from blockOps -> the split and the join draw
         'the same', fails."""
         page = self.open_compare()
         self.assertEqual(self.marks(page), [])
         self.assertIn("두 판의 그린 문서가 같습니다", page.locator("#revision-rendered").text_content())
-        whys = (
-            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>[e.tagName,e.dataset.mdcWhy||''])"
-        )
+        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>[e.tagName,e.dataset.changeReason||''])"
         self.show(page, self.c[1])
         self.assertEqual([k for k, _, _ in self.marks(page)], ["mod"] * 4)
         split = "인용·목록이 둘로 갈라짐"
@@ -953,7 +951,7 @@ class BoxesSplitEnglish(BoxesSplit):
     def test_a_quote_or_list_split_in_two_or_joined_is_a_change_but_new_bullets_are_not(self):
         """The split and the join say so in English."""
         page = self.open_compare()
-        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
         self.show(page, self.c[1])
         self.assertEqual(page.evaluate(whys), ["A quote or list split in two"] * 4)
         self.show(page, self.c[2])
@@ -973,10 +971,10 @@ class TablesJoined(OneNote):
     def test_tables_joined_or_split_show_as_their_header_row_alone(self):
         """The split adds the second table's header row and the join takes it out: that row is the change, the body rows
         beside it are not marked, and nothing says a quote or list split or joined - a table's boxes are not regrouped
-        (mdcRegroup, MDC_REGROUP). Mutation: regroup every box (MDC_REGROUP matching any tag) -> the join marks both body
+        (markRegroups, REGROUP_BOX_TAGS). Mutation: regroup every box (REGROUP_BOX_TAGS matching any tag) -> the join marks both body
         rows changed in place, 'quotes or lists joined into one', and the split both, fails."""
         page = self.open_compare()
-        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
+        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
         self.assertEqual(self.marks(page), [["ins", "TR", "나"]])
         self.assertEqual(page.evaluate(whys), [""])
         self.show(page, self.c[1])

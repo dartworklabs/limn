@@ -36,7 +36,7 @@ docs/guide.md (gd) - and the LaTeX manuscript (ms):
   draws no image and no link;
 - a tree image rewritten on disk shows without a reload: the light poll asks the images near the document area again,
   one whose ETag moved on is loaded from a new address, the reading line stays, and a redraw keeps the new picture; the
-  check asks only images near the area, at most MD_PIC_CHECK.max of them, and not twice within MD_PIC_CHECK.gap
+  check asks only images near the area, at most IMAGE_CHECK.max of them, and not twice within IMAGE_CHECK.gap
   (ChangedOnDisk); on a real loopback listener, where the browser keeps its HTTP cache, the tag of the picture shown is
   read from the answer its <img> left there, and with nothing cached (the cache cleared, or off) a changed image still
   shows on the first check (ChangedOnDiskCached);
@@ -81,9 +81,9 @@ FRAMES_HELD = (
     "window.__framesGo=()=>{window.__framesHeld=false;const l=[...q.values()];q.clear();l.forEach(cb=>raf(cb));};"
     "for(const t of ['load','error'])document.addEventListener(t,e=>{if(e.target.tagName==='IMG')window.__picDone++;},true);})()"
 )
-# The line element at the document area's top (mdAt): its first line, and how far above the area's top it starts, in px.
+# The line element at the document area's top (lineElementAt): its first line, and how far above the area's top it starts, in px.
 TOP_LINE = (
-    "(()=>{const t=document.querySelector('#left').getBoundingClientRect().top,e=mdAt(mdLineEls(),t);"
+    "(()=>{const t=document.querySelector('#left').getBoundingClientRect().top,e=lineElementAt(lineElements(),t);"
     " return e?[+(e.dataset.line||e.dataset.lo),t-e.getBoundingClientRect().top]:[0,0];})()"
 )
 # How far the pane is from its end, in px.
@@ -197,7 +197,7 @@ def until(page, js: str, timeout: float = 8.0):
 
 def pictures(routes) -> int:
     """How many of the held routes are an <img>'s own asks - the loads or failures their answers bring
-    (window.__picDone) - and not the read of a loaded picture's tag (mdPicSeen's fetch of the same address)."""
+    (window.__picDone) - and not the read of a loaded picture's tag (noteShownTag's fetch of the same address)."""
     return sum(r.request.resource_type == "image" for r in routes)
 
 
@@ -353,7 +353,7 @@ class ReadingSpot(AssetsBase):
         """The asset answer is held; the reading line is put on '## 읽는 곳', far below the image's kept place; then the
         image (900px tall, far more than its 8rem place) arrives. The heading stays where it was in the pane, to 2px.
         The browser's own scroll anchoring is off (overflow-anchor: none), as in a browser without it: Chromium's alone
-        would hold the heading here and hide whether the viewer does (mdPicLoad)."""
+        would hold the heading here and hide whether the viewer does (onImageLoad)."""
         self.holding = True
         page = self.open(0)
         page.wait_for_function(DRAWN, timeout=20000)
@@ -387,14 +387,14 @@ class ReadingSpotChangedImage(AssetsBase):
     GUIDE = TALL_GUIDE
 
     def test_a_changed_image_drawn_at_its_known_size_does_not_move_the_text(self):
-        """nt loads notes/img/tall.png at 200x900, so its size is known (MD_PIC_SIZE); the file is then replaced by a
+        """nt loads notes/img/tall.png at 200x900, so its size is known (IMAGE_SIZES); the file is then replaced by a
         400x3600 image and gd, which shows the same image above its reading line, is opened: its box is drawn at the
         known 200x900. With the new answer held, the reading line is put on gd's '## 읽는 곳'; once the image arrives it
         takes its new size (400x3600), and the heading stays where it was in the pane, to 2px - drawn at the old size and
         left so, the image would grow to 200x1800 and push the heading 900px down. Scroll anchoring is off as in
         ReadingSpot."""
         page = self.open_md()
-        self.assertEqual(page.evaluate("(s=>s&&[s.w,s.h])(MD_PIC_SIZE.get('notes/img/tall.png'))"), [200, 900])
+        self.assertEqual(page.evaluate("(s=>s&&[s.w,s.h])(IMAGE_SIZES.get('notes/img/tall.png'))"), [200, 900])
         (self.src / "notes" / "img" / "tall.png").write_bytes(blank_png(400, 3600))
         add_test_style(page, "#left,#left *{overflow-anchor:none}")
         self.holding = True
@@ -427,7 +427,7 @@ class ReadingSpotChangedImage(AssetsBase):
         self.assertAlmostEqual(page.evaluate(HEADING_TOP), top, delta=2)
         self.assertEqual(
             page.evaluate(
-                "(i=>[i.getAttribute('width'),i.getAttribute('height'),MD_PIC_SIZE.get('notes/img/tall.png').h])"
+                "(i=>[i.getAttribute('width'),i.getAttribute('height'),IMAGE_SIZES.get('notes/img/tall.png').h])"
                 "(document.querySelector('#md .md-pic img'))"
             ),
             ["400", "3600", 3600],
@@ -447,12 +447,12 @@ NEAR = (
 NEAR_TOP = "(()=>{const L=document.querySelector('#left').getBoundingClientRect().top,h=MD.heads.find(x=>x.title==='읽는 곳');return h.el.getBoundingClientRect().top-L;})()"
 NEAR_IMG = "document.querySelector(\"#md .md-pic[data-path='notes/img/near.png'] img\")"
 # One check now, whatever the last one's time: how many images it gave a new address, and how many requests it made.
-CHECK = "(async()=>{MD_PIC_CHECK.last=-Infinity; const a=MD_PIC_CHECK.asked,n=await mdPicCheck(); return [n,MD_PIC_CHECK.asked-a];})()"
+CHECK = "(async()=>{IMAGE_CHECK.last=-Infinity; const a=IMAGE_CHECK.asked,n=await mdPicCheck(); return [n,IMAGE_CHECK.asked-a];})()"
 
 
 class ChangedOnDisk(AssetsBase):
     """A tree image rewritten on disk while its document is open shows without a reload, and the text stays in place.
-    Routed: the cache-only read of an image's tag when it loads (mdPicSeen) is answered by the route, from the server."""
+    Routed: the cache-only read of an image's tag when it loads (noteShownTag) is answered by the route, from the server."""
 
     PLAN = NEAR
 
@@ -474,11 +474,11 @@ class ChangedOnDisk(AssetsBase):
 
     def test_a_rewritten_image_shows_on_the_light_poll_and_the_reading_line_stays(self):
         """The reading line on '## 읽는 곳', the near image just above the document area (within one area's height); a first
-        check finds the tag learned when it loaded (mdPicSeen) and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
+        check finds the tag learned when it loaded (noteShownTag) and changes nothing. near.png is then rewritten 200x700 (400px taller); the light poll (pollLight) asks it again, loads it from
         its address with &v=<its new tag>, and the heading stays where it was in the pane, to 2px (the browser's scroll
         anchoring off, as in ReadingSpot). A check of the unchanged image gives no new address. A redraw (the source
         edited) draws the new picture again, at its new address. Mutations: drop the light poll's mdPicCheck (polling.js)
-        -> the image never changes, fails; draw a redraw's image at mdAssetUrl instead of mdPicUrl -> the old picture
+        -> the image never changes, fails; draw a redraw's image at assetUrl instead of imageUrl -> the old picture
         comes back, fails."""
         page = self.open_md()
         add_test_style(page, "#left,#left *{overflow-anchor:none}")
@@ -498,7 +498,7 @@ class ChangedOnDisk(AssetsBase):
         self.assertEqual(page.evaluate(CHECK), [0, 1])
         top = page.evaluate(NEAR_TOP)
         (self.src / "notes" / "img" / "near.png").write_bytes(blank_png(200, 700))
-        page.evaluate("MD_PIC_CHECK.last=-Infinity; void pollLight()")
+        page.evaluate("IMAGE_CHECK.last=-Infinity; void pollLight()")
         until(page, NEAR_IMG + ".naturalHeight===700", 10)
         settle(page)
         src = page.evaluate(NEAR_IMG + ".getAttribute('src')")
@@ -519,8 +519,8 @@ class ChangedOnDisk(AssetsBase):
 
     def test_a_check_asks_only_images_near_the_area_a_few_at_a_time_and_not_too_often(self):
         """far.png, loaded by a scroll to the end and then far below the area again, is not asked; near.png is, one request
-        a check (its shown tag is known since it loaded). A second check within MD_PIC_CHECK.gap asks
-        nothing. With nine images on screen, one check asks at most MD_PIC_CHECK.max of them, and the next check starts
+        a check (its shown tag is known since it loaded). A second check within IMAGE_CHECK.gap asks
+        nothing. With nine images on screen, one check asks at most IMAGE_CHECK.max of them, and the next check starts
         with the three it left, so two checks ask all nine. The requests counted are the ones the route saw. Mutations:
         drop the distance test -> far.png is asked, fails; drop the count bound -> all nine are asked, fails; drop the gap
         -> the second check asks again, fails; drop the least-recently-asked order -> the second check asks the same six,
@@ -541,9 +541,7 @@ class ChangedOnDisk(AssetsBase):
         self.assertEqual(len(asked), 1)
         self.assertTrue(all("near.png" in a for a in asked), asked)
         self.assertEqual(
-            page.evaluate(
-                "(async()=>{const a=MD_PIC_CHECK.asked; await mdPicCheck(); return MD_PIC_CHECK.asked-a;})()"
-            ),
+            page.evaluate("(async()=>{const a=IMAGE_CHECK.asked; await mdPicCheck(); return IMAGE_CHECK.asked-a;})()"),
             0,
         )
         self.assertEqual(page.evaluate(CHECK), [0, 1])
@@ -578,7 +576,7 @@ class ChangedOnDisk(AssetsBase):
         self.assertEqual(len(first | second), 9, (sorted(first), sorted(second)))
         # near.png, asked before the rewrite and no longer in the document, has no turn kept: the record is the nine
         self.assertEqual(
-            page.evaluate("[...MD_PIC_CHECK.at.get('nt').keys()].sort()"),
+            page.evaluate("[...IMAGE_CHECK.at.get('nt').keys()].sort()"),
             sorted("notes/img/s%d.png" % i for i in range(9)),
         )
 
@@ -629,7 +627,7 @@ class ShrinkNearTheEnd(AssetsBase):
         settle(page)
         page.evaluate(
             "(L=>{L.scrollTop=L.scrollHeight-L.clientHeight-200; const t=L.getBoundingClientRect().top,"
-            " r=mdAt(mdLineEls(),t).getBoundingClientRect(); L.scrollTop+=Math.round(r.top+r.height/2-t);})"
+            " r=lineElementAt(lineElements(),t).getBoundingClientRect(); L.scrollTop+=Math.round(r.top+r.height/2-t);})"
             "(document.querySelector('#left'))"
         )
         settle(page)
@@ -642,9 +640,9 @@ class ShrinkNearTheEnd(AssetsBase):
         return page
 
     def shrink(self, page):
-        """shrink.png rewritten 200x20, a check asked now; once the image stands at its new size (mdPicLoad has run)."""
+        """shrink.png rewritten 200x20, a check asked now; once the image stands at its new size (onImageLoad has run)."""
         (self.src / "notes" / "img" / "shrink.png").write_bytes(blank_png(200, 20))
-        page.evaluate("MD_PIC_CHECK.last=-Infinity; void mdPicCheck()")
+        page.evaluate("IMAGE_CHECK.last=-Infinity; void mdPicCheck()")
         until(page, SHRINK_IMG + ".naturalHeight===20&&" + SHRINK_IMG + ".getAttribute('height')==='20'", 10)
 
     def test_an_image_that_shrinks_near_the_end_leaves_the_text_in_place(self):
@@ -653,8 +651,8 @@ class ShrinkNearTheEnd(AssetsBase):
         layout's, so the spot read before is put back: the line at the area's top is the one read before, as far into it,
         to 2px, and the pane stands as far before the new end. Main passes this (it never compares offsets); it guards the
         fix's own hole, #433's first one: the cut taken for a move. Two things keep it apart, either alone enough: the box
-        takes the new picture's shape only in the handler, after the check before the change (mdPicSize), and that check
-        (mdSpotFresh) knows a cut - the offset read before beyond the pane's new end, the pane at that end. Mutation:
+        takes the new picture's shape only in the handler, after the check before the change (sizeImage), and that check
+        (refreshMovedSpot) knows a cut - the offset read before beyond the pane's new end, the pane at that end. Mutation:
         neither (no aspect ratio held, no cut check) -> at the load the offset is already cut, the check takes it for a
         move and reads the spot there, the top line L85 for L75, fails."""
         page = self.read_near_the_end()
@@ -673,9 +671,9 @@ class ShrinkNearTheEnd(AssetsBase):
         image shrinks. The pane stands elsewhere than where the spot was read, so the spot is read there before the image
         changes, and put back after: the pane stays at the end, also once the frames run. End's offset falls in the room
         below a line, past the element's end: the spot keeps those px too (past). The pane is at its end but the offset
-        read before is not beyond it - no cut - so End is a move. Mutations: no check before the change (mdSpotFresh) ->
+        read before is not beyond it - no cut - so End is a move. Mutations: no check before the change (refreshMovedSpot) ->
         the spot read before End is put back, 217px above the new end, fails; no past -> 8px above it, fails; the cut
-        told by the pane at its end alone -> End taken for a cut, 217px, fails; no aspect ratio held (mdPicSize) -> the
+        told by the pane at its end alone -> End taken for a cut, 217px, fails; no aspect ratio held (sizeImage) -> the
         box takes its new shape before the load, and its cut, beyond the offset read before End, is taken for the
         layout's and End goes back with it, 217px, fails."""
         page = self.read_near_the_end(init=FRAMES_HELD)
@@ -697,8 +695,8 @@ class ShrinkNearTheEnd(AssetsBase):
         pin's line 30% down the area, some 70px before the end, and the image shrinks before the scroll's frame - the
         browser cuts the offset back to the new end. The pin's line stands where the jump put it, to 2px, also once the
         frames run. Mutations: neither the read where the jump lands (mdShowLines) nor the check before the change
-        (mdSpotFresh) -> the spot read before the jump is put back, the line 160px below, fails, and either alone holds
-        it; neither an aspect ratio held (mdPicSize) nor the cut check -> the offset is cut before the load and read as
+        (refreshMovedSpot) -> the spot read before the jump is put back, the line 160px below, fails, and either alone holds
+        it; neither an aspect ratio held (sizeImage) nor the cut check -> the offset is cut before the load and read as
         the jump's, the line 367px off, fails, and either alone holds it."""
         body = json.dumps(
             {"doc": "nt", "file": str(self.src / "notes" / "plan.md"), "lo": LAST_LINE, "hi": LAST_LINE, "note": "끝"}
@@ -715,7 +713,7 @@ class ShrinkNearTheEnd(AssetsBase):
         the area, and the image shrinks before the scroll's frame. The line stands where the jump put it, to 2px, also
         once the frames run. The changed place is set on the page (UPD.lines) as a redraw that found it sets it: what is
         read here is the jump, not how a change is found (test_viewer_updates.py). Mutations as for the pin's [보기]:
-        neither the read in mdShowLines nor mdSpotFresh -> 160px, fails; neither an aspect ratio held nor the cut check
+        neither the read in mdShowLines nor refreshMovedSpot -> 160px, fails; neither an aspect ratio held nor the cut check
         -> 58px, fails."""
         page = self.read_near_the_end(init=FRAMES_HELD)
         page.evaluate(
@@ -763,7 +761,7 @@ LATE_FACE_BELOW = (
 # The line element at the document area's top: its first line, how far down it the top is as a share of its height (the
 # reading spot's frac), and that height in px.
 TOP_SHARE = (
-    "(()=>{const t=document.querySelector('#left').getBoundingClientRect().top,e=mdAt(mdLineEls(),t),"
+    "(()=>{const t=document.querySelector('#left').getBoundingClientRect().top,e=lineElementAt(lineElements(),t),"
     "r=e.getBoundingClientRect(); return [+(e.dataset.line||e.dataset.lo),(t-r.top)/r.height,r.height];})()"
 )
 # How far down #md the reading spot's element starts, in px.
@@ -846,7 +844,7 @@ class FontSwap(AssetsBase):
             page.wait_for_timeout(50)
         page.evaluate(
             "(L=>{L.scrollTop=L.scrollHeight-L.clientHeight-200; const t=L.getBoundingClientRect().top,"
-            " r=mdAt(mdLineEls(),t).getBoundingClientRect(); L.scrollTop+=Math.round(r.top+r.height/2-t);})"
+            " r=lineElementAt(lineElements(),t).getBoundingClientRect(); L.scrollTop+=Math.round(r.top+r.height/2-t);})"
             "(document.querySelector('#left'))"
         )
         # two frames: the scroll's has read the spot there
@@ -892,9 +890,9 @@ class FontSwapAbove(FontSwap):
 
     def test_an_image_after_a_fonts_reflow_above_puts_back_the_line_read_before_it(self):
         """The narrow paragraphs above get thousands of px shorter and the pane is cut back to the new end, some lines
-        on. tall.png then loads above: the check before its box changes (mdSpotFresh) finds the offset read before
+        on. tall.png then loads above: the check before its box changes (refreshMovedSpot) finds the offset read before
         beyond what the pane can scroll now and the pane at its end - the cut - and keeps the spot, and the put-back
-        after the change (mdSpotBack) brings that line back, as far down it, to 2px. Mutation: no cut check (the offset
+        after the change (putSpotBack) brings that line back, as far down it, to 2px. Mutation: no cut check (the offset
         compared alone, the branch before the fix) -> the cut offset is taken for a move and read, the top line five
         short paragraphs on (L127 for L117), fails; in Firefox with its own fallback face as well (the review's L123,
         frac 0.41 for 0.68)."""
@@ -954,7 +952,7 @@ class FontSwapBelowFirefox(FontSwapBelow):
     BROWSER_ENGINE = "firefox"
 
 
-# A tall image, twelve paragraphs, a run of twenty raw HTML blocks - one closed placeholder (mdHtmlRunEl), some 1,600px
+# A tall image, twelve paragraphs, a run of twenty raw HTML blocks - one closed placeholder (htmlRunElement), some 1,600px
 # taller open - and more paragraphs below it.
 HTML_RUN = (
     "# Fold\n\n![image](img/tall.png)\n\n"
@@ -975,7 +973,7 @@ class HtmlRunToggle(AssetsBase):
     @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_home_after_a_run_is_opened_is_not_undone_by_an_image(self):
         """The run opened, then Home and tall.png's load before any frame: the check before the image's change
-        (mdSpotFresh) finds the pane elsewhere than where the spot was read, and that offset not cut back to an end, so
+        (refreshMovedSpot) finds the pane elsewhere than where the spot was read, and that offset not cut back to an end, so
         it reads the spot at the top and the pane stays there. Mutation: the height check of the branch before (#md's
         height compared with the spot's: a height the page changed without reading the spot again taken for a web
         font's reflow) -> the spot read before Home is kept and put back, the pane 1,452px down, fails, in both engines;
@@ -1060,9 +1058,9 @@ class ErrorOnAJumpThenEnd(AssetsBase):
     def test_end_after_an_image_failed_on_a_jump_is_not_undone_by_the_next_image(self):
         """The pane 200px above its end; the heading jump starts and shrink.png fails on the way (the alt text in its place,
         the offset cut back to the shorter end); End; late.png loads: the pane is still at the end, before the frames run
-        and after. The failed image's handler reads the spot where the jump left the pane (mdPicMoved), so End is a move
+        and after. The failed image's handler reads the spot where the jump left the pane (afterImageChange), so End is a move
         from that spot, not the browser's cut. Mutation: no reading after an image's change during a jump (the image
-        handlers' mdSpotBack only when no jump) -> the spot keeps the offset read before the cut, End's offset is taken
+        handlers' putSpotBack only when no jump) -> the spot keeps the offset read before the cut, End's offset is taken
         for the cut, and late.png's load puts the pane back 200px above the end; fails in both engines."""
         img = self.src / "notes" / "img"
         (img / "late.png").write_bytes(blank_png(200, 900))
@@ -1075,13 +1073,13 @@ class ErrorOnAJumpThenEnd(AssetsBase):
         settle(page)
         before = page.evaluate("document.querySelector('#left').scrollHeight")
         (img / "shrink.png").write_bytes(blank_png(200, 3000)[:33])  # a PNG cut short: the browser cannot draw it
-        page.evaluate("window.__framesHeld=true; MD_PIC_CHECK.last=-Infinity; mdGoHeading(0); void mdPicCheck()")
+        page.evaluate("window.__framesHeld=true; IMAGE_CHECK.last=-Infinity; mdGoHeading(0); void mdPicCheck()")
         until(page, "!document.querySelector('#md .md-pic[data-path=\"notes/img/shrink.png\"]')")
         self.assertTrue(page.evaluate("!!MD.goTo"), "the jump had ended before the image failed")
         self.assertGreater(before - page.evaluate("document.querySelector('#left').scrollHeight"), 2000)
         # End meets the jump's smooth scroll however far the engine and the runner have taken it - only asked for, moving
         # (Chromium here, and Firefox on CI: run 42148218919, before #441) or at rest: the key ends it where it stands
-        # (mdGoStop) and End's own scroll goes on from there. A moving one is InputEndsAGlide's to hold.
+        # (stopHeadingJump) and End's own scroll goes on from there. A moving one is InputEndsAGlide's to hold.
         page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
         page.keyboard.press("End")
         until(page, FROM_END + "<1")
@@ -1097,11 +1095,11 @@ class ErrorOnAJumpThenEndFirefox(ErrorOnAJumpThenEnd):
     BROWSER_ENGINE = "firefox"
 
 
-MANY = 300  # more than MD_PIC_KEEP (256), the most entries the page's other image records keep
+MANY = 300  # more than IMAGE_MAP_LIMIT (256), the most entries the page's other image records keep
 
 
 class ManyImagesTakeTurns(AssetsBase):
-    """More tree images on screen than a bounded record would hold: the checks, MD_PIC_CHECK.max a time, still ask every
+    """More tree images on screen than a bounded record would hold: the checks, IMAGE_CHECK.max a time, still ask every
     one in turn."""
 
     PLAN = "# 여럿\n\n" + "".join("![%d](img/m%d.png)" % (i, i) for i in range(MANY)) + "\n"
@@ -1112,10 +1110,10 @@ class ManyImagesTakeTurns(AssetsBase):
             (self.src / "notes" / "img" / ("m%d.png" % i)).write_bytes(blank_png(10, 10))
 
     def test_every_one_of_three_hundred_visible_images_is_asked_once_in_fifty_checks(self):
-        """300 images of 10x10 in one paragraph, all inside the document area. The page's mdPicTag is wrapped to record
+        """300 images of 10x10 in one paragraph, all inside the document area. The page's fetchImageTag is wrapped to record
         the path of each check's request (cache 'no-cache'; the read of a loaded image's tag is 'only-if-cached'). Fifty
-        checks of six ask all 300, each once. Mutation: keep the turns in one map bounded to MD_PIC_KEEP entries
-        (mdPicKeep) -> past 256 the first images' turns are dropped, they count as never asked and are asked again, and
+        checks of six ask all 300, each once. Mutation: keep the turns in one map bounded to IMAGE_MAP_LIMIT entries
+        (keepRecent) -> past 256 the first images' turns are dropped, they count as never asked and are asked again, and
         the last ones never are, fails."""
         page = self.open(0)
         until(page, DRAWN, 20)
@@ -1135,7 +1133,7 @@ class ManyImagesTakeTurns(AssetsBase):
             MANY,
         )
         page.evaluate(
-            "(()=>{window.__asked=[]; const o=mdPicTag; mdPicTag=(u,c)=>{"
+            "(()=>{window.__asked=[]; const o=fetchImageTag; fetchImageTag=(u,c)=>{"
             "if(c==='no-cache')__asked.push(new URL(u,location.href).searchParams.get('path')); return o(u,c);};})()"
         )
         for _ in range(MANY // 6):
@@ -1222,21 +1220,21 @@ class HeadingJump(AssetsBase):
         key, so its scroll to the top is not read yet (the spot is still a line below the top) when the images let go
         load. The pane stands elsewhere than where the spot was read, so the spot is read there - the very top - before
         each image changes size, and put back after: the pane stays at the top, also once the frames run. Mutation: no
-        check before the change (mdSpotFresh) -> the loads take the pane back down to the line read before the key,
+        check before the change (refreshMovedSpot) -> the loads take the pane back down to the line read before the key,
         398-1,230px, fails. On a busy runner that was this class's flake (1,817px, 2,947px)."""
         self.home_before_the_frame(lambda r: r.fulfill(**self.answer(r.request)))
 
     @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_images_that_fail_before_the_keys_scroll_is_read_leave_the_pane_at_the_top(self):
-        """The same with images the server does not give: each becomes its alt text (mdPicError), which puts the spot
+        """The same with images the server does not give: each becomes its alt text (onImageError), which puts the spot
         back the same way. Same mutation -> fails."""
         self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""))
 
     @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_an_image_that_loads_on_the_jumps_way_leaves_home_at_the_top(self):
         """The Home of the tests above after one held image has loaded on the jump's way, the frames already held: the
-        jump goes on to its heading (mdGoOn) and nothing reads the spot after that change, so when the other images load
-        after Home the check before each (mdSpotFresh) has the column's height moved since the spot was read - and the
+        jump goes on to its heading (goOnToHeading) and nothing reads the spot after that change, so when the other images load
+        after Home the check before each (refreshMovedSpot) has the column's height moved since the spot was read - and the
         pane at its top, far from any end: the key's move. Mutation: the height check of the branch before (#md's height
         compared with the spot's) -> that change is taken for a font's reflow, the spot read before Home kept and put
         back, the pane 398-2,818px below the top, fails. Main and the branch before the height check pass it."""
@@ -1244,7 +1242,7 @@ class HeadingJump(AssetsBase):
 
     @unittest.skipIf(sys.platform == "darwin", "Home scrolls no pane on macOS: issue #448")
     def test_an_image_that_fails_on_the_jumps_way_leaves_home_at_the_top(self):
-        """The same with images the server does not give (mdPicError). Same mutation -> fails."""
+        """The same with images the server does not give (onImageError). Same mutation -> fails."""
         self.home_before_the_frame(lambda r: r.fulfill(status=404, body=""), on_the_way=1)
 
     def home_before_the_frame(self, answer, on_the_way=0):
@@ -1320,12 +1318,12 @@ class InputEndsAGlide(AssetsBase):
 
     def glide(self):
         """The viewer on LONG, the input watch installed, the jump to '아래' started and its scroll seen moving; the page and
-        where the jump is going (mdGoTop)."""
+        where the jump is going (headingScrollTop)."""
         page = self.open_md()
         page.evaluate(INPUT_SEEN)
         page.evaluate("mdGoHeading(MD.heads.findIndex(h=>h.title==='아래'))")
         until(page, "!!MD.goTo&&document.querySelector('#left').scrollTop>0")
-        return page, page.evaluate("mdGoTop(MD.heads.find(h=>h.title==='아래').el)")
+        return page, page.evaluate("headingScrollTop(MD.heads.find(h=>h.title==='아래').el)")
 
     def ends_where_seen(self, page, dest, step, delta, base="top"):
         """The input came while the jump was in flight, far from its heading; the jump is over, and the pane comes to rest
@@ -1347,7 +1345,7 @@ class InputEndsAGlide(AssetsBase):
     def test_a_scroll_key_ends_the_moving_scroll_where_the_key_found_the_pane(self):
         """ArrowDown with the focus on the document area: the pane comes to rest one key step (40-48px) below where the key
         found it. Before #441 Firefox's scroll went on to the heading and one step past it - the key's step added to the
-        scroll's destination. Mutation: the stop writes the pane's own offset (mdGoStop before #441) -> the same in
+        scroll's destination. Mutation: the stop writes the pane's own offset (stopHeadingJump before #441) -> the same in
         Firefox, 8,800px past the key, fails; Chromium passes either way (a write of its own offset ends its scroll)."""
         page, dest = self.glide()
         page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
@@ -1357,7 +1355,7 @@ class InputEndsAGlide(AssetsBase):
     def test_a_press_on_the_pane_ends_the_moving_scroll_there(self):
         """A mouse press on the document area beside the column - no scroll of its own, and nothing there to pick: the pane
         comes to rest where the press found it, to the pixel. Same mutation -> Firefox's scroll goes on to the heading,
-        fails. Mutation: no write back after the pixel off (mdGoStop) -> the pane rests a pixel from it, fails in both.
+        fails. Mutation: no write back after the pixel off (stopHeadingJump) -> the pane rests a pixel from it, fails in both.
 
         Read from the frame after the press, not the press itself: where the compositor runs the jump's scroll it
         commits one more frame after the stop's write and then holds there (macOS Chromium: 23px at the press, 42 at
@@ -1379,7 +1377,7 @@ class InputEndsAGlide(AssetsBase):
         the host gives it one. Same mutation -> Firefox's scroll goes on to the heading and 300px past it, fails.
 
         macOS Chromium gives it none: a wheel turned while a script's smooth scroll runs adds nothing to the pane, and
-        it is not the stop that eats it - with mdGoStop's write taken out entirely the pane still walks the jump's own
+        it is not the stop that eats it - with stopHeadingJump's write taken out entirely the pane still walks the jump's own
         offsets to the heading and those 300px never appear, while the same wheel with no jump in flight scrolls 0 to
         300 (measured, #448). So there the step is 0 and what this reads is that the jump ended where the wheel found
         the pane. It is that engine on that host: Firefox on the same machine takes the step (measured 368 from 68),
@@ -1404,7 +1402,7 @@ class InputEndsAGlide(AssetsBase):
             "(()=>{const L=document.querySelector('#left'),own=L.scrollTo,out={}; let w=[];"
             " L.scrollTo=function(a){own.call(L,a); w.push(L.scrollTop);};"
             " for(const [k,t] of [['top',0],['end',L.scrollHeight-L.clientHeight]]){"
-            "  L.scrollTop=t; w=[]; MD.goTo={el:MD.heads[1].el,doc:DOC}; mdGoStop(); out[k]=[L.scrollTop,w];}"
+            "  L.scrollTop=t; w=[]; MD.goTo={el:MD.heads[1].el,doc:DOC}; stopHeadingJump(); out[k]=[L.scrollTop,w];}"
             " L.scrollTo=own; return out;})()"
         )
         self.assertGreater(got["end"][0], 1000)
@@ -1414,17 +1412,17 @@ class InputEndsAGlide(AssetsBase):
 
 
 # The jump to heading '아래' set off and the pane read in the same task: where it stands at once, where the jump goes
-# (mdGoTop), and whether the jump is still in flight (MD.goTo).
+# (headingScrollTop), and whether the jump is still in flight (MD.goTo).
 GO_LOW_NOW = (
-    "(()=>{const L=document.querySelector('#left'),i=MD.heads.findIndex(h=>h.title==='아래'),to=mdGoTop(MD.heads[i].el);"
+    "(()=>{const L=document.querySelector('#left'),i=MD.heads.findIndex(h=>h.title==='아래'),to=headingScrollTop(MD.heads[i].el);"
     " mdGoHeading(i); return {now:L.scrollTop,to,flying:!!MD.goTo};})()"
 )
 
 
 class MotionSetLiveHeading(AssetsBase):
     """prefers-reduced-motion changed while the viewer is open (#418) reaches the next heading jump: with the setting on
-    the pane stands at the heading before the call returns and the jump is over there (mdGoOn, then mdGoLanded in the
-    same call - the reading spot read once, no jump left in flight for an input to stop, mdGoStop); with it off the jump
+    the pane stands at the heading before the call returns and the jump is over there (goOnToHeading, then endLandedJump in the
+    same call - the reading spot read once, no jump left in flight for an input to stop, stopHeadingJump); with it off the jump
     glides and lands on a later frame. The viewer read the setting once, at load (core.js's SMOOTH, before #418)."""
 
     PLAN = LONG
@@ -1670,7 +1668,7 @@ class ChangedOnDiskCached(AssetsBase):
 
     def open_live(self, cache_off: bool = False):
         """The viewer on nt from a real listener (no routing), its image drawn 120px wide, the light poll's own checks held
-        off (MD_PIC_CHECK.gap: only CHECK runs one) -> (page, context). cache_off: the browser's cache turned off (CDP
+        off (IMAGE_CHECK.gap: only CHECK runs one) -> (page, context). cache_off: the browser's cache turned off (CDP
         Network.setCacheDisabled, as DevTools' 'Disable cache') before the page loads; Chromium only."""
         set_config(ps, auth="local", local_user="reader")
         port = listen(self, ps.Handler)
@@ -1685,8 +1683,8 @@ class ChangedOnDiskCached(AssetsBase):
             cdp.send("Network.enable")
             cdp.send("Network.setCacheDisabled", {"cacheDisabled": True})
         page.goto("http://127.0.0.1:%d/?lang=ko" % port)
-        until(page, "typeof MD_PIC_CHECK!=='undefined'", 20)
-        page.evaluate("MD_PIC_CHECK.gap=Infinity")
+        until(page, "typeof IMAGE_CHECK!=='undefined'", 20)
+        page.evaluate("IMAGE_CHECK.gap=Infinity")
         until(page, DRAWN, 20)
         until(page, LIVE_W + "===120", 10)
         self.assertNotIn("&v=", page.evaluate(LIVE_IMG + ".getAttribute('src')"))
@@ -1705,12 +1703,12 @@ class ChangedOnDiskCached(AssetsBase):
 
     def test_an_unchanged_image_is_asked_once_and_not_moved(self):
         """Once live.png has loaded, the tag of the picture it shows is known from the answer its <img> left in the cache
-        (mdPicSeen): the first check asks the server once, finds the same tag and leaves the image at its address - no
-        second download. Mutation: drop mdPicSeen from mdPicLoad -> the shown tag is unknown, the check moves the image to
+        (noteShownTag): the first check asks the server once, finds the same tag and leaves the image at its address - no
+        second download. Mutation: drop noteShownTag from onImageLoad -> the shown tag is unknown, the check moves the image to
         a new address, fails."""
         page, _ = self.open_live()
         src = page.evaluate(LIVE_IMG + ".getAttribute('src')")
-        until(page, "MD_PIC_TAG.has(%s)" % json.dumps(src), 5)
+        until(page, "IMAGE_TAGS.has(%s)" % json.dumps(src), 5)
         self.assertEqual(page.evaluate(CHECK), [0, 1])
         self.assertEqual(page.evaluate(LIVE_IMG + ".getAttribute('src')"), src)
 
@@ -1722,7 +1720,7 @@ class ChangedOnDiskCached(AssetsBase):
         checks). Mutation: read the shown tag at the first check with cache:'force-cache' and no record at load (the code
         before) -> it stays 120px, fails."""
         page, context = self.open_live()
-        until(page, "MD_PIC_TAG.size===1", 5)
+        until(page, "IMAGE_TAGS.size===1", 5)
         context.new_cdp_session(page).send("Network.clearBrowserCache")
         (self.src / "notes" / "img" / "live.png").write_bytes(blank_png(230, 40))
         self.assertEqual(self.checks_until(page, 230), 1)
@@ -1732,9 +1730,9 @@ class ChangedOnDiskCached(AssetsBase):
         leaves no answer to read, so the shown tag is unknown. live.png rewritten 230px wide before the first check: that
         check does not take the server's tag for the shown one but moves the image to the tag's address, and the new
         picture shows; the next check, the tag now known, moves nothing. Mutation: take an unknown shown tag from the
-        server's answer (MD_PIC_TAG.get(url)||tag) -> it stays 120px, fails."""
+        server's answer (IMAGE_TAGS.get(url)||tag) -> it stays 120px, fails."""
         page, _ = self.open_live(cache_off=True)
-        # nothing cached to read (a cache-only read after mdPicSeen's own fails too), and so no shown tag known
+        # nothing cached to read (a cache-only read after noteShownTag's own fails too), and so no shown tag known
         self.assertEqual(
             page.evaluate(
                 "fetch("
@@ -1743,7 +1741,7 @@ class ChangedOnDiskCached(AssetsBase):
             ),
             0,
         )
-        self.assertEqual(page.evaluate("MD_PIC_TAG.size"), 0)
+        self.assertEqual(page.evaluate("IMAGE_TAGS.size"), 0)
         (self.src / "notes" / "img" / "live.png").write_bytes(blank_png(230, 40))
         self.assertEqual(self.checks_until(page, 230), 1)
         self.assertEqual(page.evaluate(CHECK), [0, 1])
@@ -1856,7 +1854,7 @@ def rest(page, timeout: float = 15.0):
 
 
 class OneReadingSpot(AssetsBase):
-    """An image's load and #409's reading spot are one model (mdSpotBack puts back what mdSpotRead read, as mdSpotKeep does
+    """An image's load and #409's reading spot are one model (putSpotBack puts back what readSpot read, as mdSpotKeep does
     after a reflow): an image that loads while the column is hidden under the changes view leaves the text in place too."""
 
     PLAN = TALL
@@ -1880,7 +1878,7 @@ class OneReadingSpot(AssetsBase):
         self.assertTrue(self.hold, "the image was never asked for")
         page.evaluate("setViewMode(VIEW_MODE.REVISIONS)")
         settle(page)
-        self.assertFalse(page.evaluate("mdColumnShown()"))
+        self.assertFalse(page.evaluate("isColumnShown()"))
         self.holding = False
         for r in self.hold:
             r.fulfill(**self.answer(r.request))
@@ -1908,7 +1906,7 @@ class OneReadingSpot(AssetsBase):
         place = (
             "[...document.querySelectorAll('#md .md-badge')].map(b=>{const p=PINS.find(x=>x.id===+b.dataset.id),"
             "e=mdLeaves(p.lo,p.lo)[0],box=b.parentElement;"
-            " return [p.lo,box.nextElementSibling===mdTopBlock(document.querySelector('#md'),e),"
+            " return [p.lo,box.nextElementSibling===topBlockOf(document.querySelector('#md'),e),"
             "Math.round(b.getBoundingClientRect().top-e.getBoundingClientRect().top)];})"
         )
         before = page.evaluate(place)
@@ -1928,7 +1926,7 @@ class OneReadingSpot(AssetsBase):
 
 class JumpAcrossReflow(AssetsBase):
     """A heading jump in flight is not cut short by the column's reflow: #409's mdSpotKeep would put back the reading spot
-    the scroll was passing; it lets the jump go on to its heading's new place instead (mdGoOn)."""
+    the scroll was passing; it lets the jump go on to its heading's new place instead (goOnToHeading)."""
 
     PLAN = FAR_ANCHOR
 
@@ -1982,7 +1980,7 @@ class FindBeforeTheFrame(AssetsBase):
         """The image's answer held, the reading line a little below its kept place (the browser's scroll anchoring off, as
         in ReadingSpot), the page's frames held: window.find() goes to a sentence some 2,500px below and the pane follows,
         its scroll not read yet. Then the image arrives, 900px for its 8rem place, above both: the found sentence stays
-        where find put it, to 2px, also once the frames run. Mutations: no check before the change (mdSpotFresh) -> the
+        where find put it, to 2px, also once the frames run. Mutations: no check before the change (refreshMovedSpot) -> the
         spot read before the find is put back, the sentence 2,700px off, fails; read the spot where the pane stands after
         the change instead (#433's first try) -> 772px off, the image's growth, fails; no px past a line's end in the spot
         (past) -> 6-7px off, fails."""
@@ -2037,7 +2035,7 @@ class JumpThenReflow(AssetsBase):
         (jumpPin -> mdJump) puts the line 30% down the area; the window is then narrowed to 1000px before any frame, the
         column narrower and its long paragraphs taking more lines (mdSpotKeep from the column's ResizeObserver). The line
         at the area's top is the one the jump put there, and the pin's line is on screen, also once the frames run. No
-        image changes here, so mdSpotFresh has no say: the read where the jump lands alone holds it. Mutation: no read in
+        image changes here, so refreshMovedSpot has no say: the read where the jump lands alone holds it. Mutation: no read in
         mdShowLines -> the reflow puts back the spot read before the jump, the very top, fails."""
         n = line_of(FAR_ANCHOR, "끝 문단.")
         body = json.dumps(

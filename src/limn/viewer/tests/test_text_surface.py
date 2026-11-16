@@ -59,9 +59,9 @@ class TextSurfacePure(unittest.TestCase):
         return json.loads(run_node(served_parts() + "\nconsole.log(JSON.stringify(%s));" % body))
 
     def blocks(self, lines, picks):
-        """txIndentBlock of lines for each [lo, hi] in picks, as [lo, hi] or None."""
+        """indentBlockAround of lines for each [lo, hi] in picks, as [lo, hi] or None."""
         got = self.run_js(
-            "%s.map(([a,b])=>{const r=txIndentBlock(%s,a,b); return r&&[r.lo,r.hi];})"
+            "%s.map(([a,b])=>{const r=indentBlockAround(%s,a,b); return r&&[r.lo,r.hi];})"
             % (json.dumps(picks), json.dumps(lines))
         )
         return [tuple(r) if r else None for r in got]
@@ -70,14 +70,14 @@ class TextSurfacePure(unittest.TestCase):
         """Tabs advance to the next multiple of four; a blank line has no indentation. The hang is the indentation,
         rounded down to a tab stop only on a line holding a tab, and at most sixteen."""
         got = self.run_js(
-            "['abc','  a','\\ta',' \\ta','   ','\\t\\t\\t\\t\\tx','      x'].map(l=>[txCols(l),txHang(l)])"
+            "['abc','  a','\\ta',' \\ta','   ','\\t\\t\\t\\t\\tx','      x'].map(l=>[indentColumns(l),hangColumns(l)])"
         )
         self.assertEqual(got, [[0, 0], [2, 2], [4, 4], [4, 4], [-1, 0], [20, 16], [6, 6]])
 
     def test_paragraph_widens_to_blank_lines_and_counts_runs(self):
         """A line's paragraph is its run of non-blank lines; a range over a blank line meets two."""
         lines = json.dumps(PY)
-        got = self.run_js("[[7,7],[2,2],[8,10],[16,16]].map(([a,b])=>txParagraph(%s,a,b))" % lines)
+        got = self.run_js("[[7,7],[2,2],[8,10],[16,16]].map(([a,b])=>paragraphAround(%s,a,b))" % lines)
         self.assertEqual(
             got, [{"lo": 6, "hi": 8, "n": 1}, None, {"lo": 6, "hi": 14, "n": 2}, {"lo": 16, "hi": 16, "n": 1}]
         )
@@ -87,7 +87,7 @@ class TextSurfacePure(unittest.TestCase):
         a top-level line that heads nothing has no block."""
         lines = json.dumps(PY)
         got = self.run_js(
-            "[[6,6],[7,7],[12,12],[11,11],[3,3],[1,1],[16,16]].map(([a,b])=>txIndentBlock(%s,a,b))" % lines
+            "[[6,6],[7,7],[12,12],[11,11],[3,3],[1,1],[16,16]].map(([a,b])=>indentBlockAround(%s,a,b))" % lines
         )
         self.assertEqual(
             got,
@@ -104,7 +104,7 @@ class TextSurfacePure(unittest.TestCase):
 
     def test_a_bib_entry_is_one_block(self):
         """An entry's first line heads its fields, and its closing brace at the header's depth belongs to it."""
-        got = self.run_js("[1,2].map(n=>txIndentBlock(%s,n,n))" % json.dumps(BIB))
+        got = self.run_js("[1,2].map(n=>indentBlockAround(%s,n,n))" % json.dumps(BIB))
         self.assertEqual(got, [{"lo": 1, "hi": 3, "title": "@article{a,"}] * 2)
 
     def test_a_call_or_assignment_spelt_like_a_closing_word_is_not_a_closing_line(self):

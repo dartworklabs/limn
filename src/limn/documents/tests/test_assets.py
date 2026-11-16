@@ -339,7 +339,7 @@ class AssetRoute(AccessBase):
 
     def test_a_version_the_viewer_adds_to_the_address_is_the_same_image(self):
         """The viewer gives an image rewritten on disk a new address, its path's with &v=<its new tag> (md-surface.js
-        mdPicUrl), so the page loads the new picture: the route reads only doc and path, and that address answers the
+        imageUrl), so the page loads the new picture: the route reads only doc and path, and that address answers the
         image, its tag and its 304 as the plain one does."""
         _, plain, body = self.raw("notes/img/a.png")
         code, hdrs, again = split_resp(talk_to(ps, req("GET", "/api/asset?doc=nt&path=notes%2Fimg%2Fa.png&v=0123abcd")))

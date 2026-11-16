@@ -13,7 +13,7 @@ in-process server (BrowserBase) and check what a person sees and what the server
   time limit, the elements under the limit, and every source line in the view or the notice saying why not;
 - the IME rule on the surface's keys and on a redraw; the page-only controls hidden; the changes view's source diff.
 
-The pure rules (mdInlineLines, mdHref) are in test_md_surface.py; the enforced page policy over this surface in
+The pure rules (inlineLines, linkHref) are in test_md_surface.py; the enforced page policy over this surface in
 test_viewer_csp.py.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_markdown.py
@@ -171,7 +171,7 @@ class MarkdownBase(BrowserBase):
         """Draw the document again (mdBuild) and wait until that draw is on screen. A redraw keeps the old drawing in #md
         while it reads the source and parses it, and DRAWN already holds for that old drawing: waiting on DRAWN alone let a
         check read the previous source's drawing whenever the read was slow (a limit case read the limit of the case before it).
-        Every draw puts a new #md in #doc (mdShow), so the wait is for an #md other than the one on screen before."""
+        Every draw puts a new #md in #doc (showDocumentNode), so the wait is for an #md other than the one on screen before."""
         page.evaluate("window.__mdBefore=document.querySelector('#md'); mdBuild()")
         page.wait_for_function("document.querySelector('#md')!==window.__mdBefore&&" + DRAWN, timeout=timeout)
 
@@ -316,7 +316,7 @@ class Drawing(MarkdownBase):
         self.assertFalse(page.evaluate("document.body.classList.contains('md-surface')"))
         page.evaluate("switchDoc('nt')")
         page.wait_for_function(DRAWN, timeout=10000)
-        self.assertGreaterEqual(page.evaluate("mdReadingLine()"), fixture_line("## 표") - 2)
+        self.assertGreaterEqual(page.evaluate("readingLine()"), fixture_line("## 표") - 2)
 
 
 # YAML front matter (ADR-0032): its '# 주석 줄' would be a heading, and the block a rule and a setext heading, if it were
@@ -431,7 +431,7 @@ class Math(MarkdownBase):
         self.assertEqual(page.evaluate("document.querySelectorAll('#md .md-tex').length"), 0)
         self.assertEqual(page.evaluate("document.querySelectorAll('#md .katex').length"), 0)
         self.assertEqual(page.evaluate("[...document.styleSheets].filter(s=>/katex/.test(s.href||'')).length"), 0)
-        self.assertEqual(page.evaluate("mdRxOf(document.querySelector('#md')).tex"), 0)
+        self.assertEqual(page.evaluate("renderContextOf(document.querySelector('#md')).tex"), 0)
 
     def test_math_shows_its_source_and_every_line_is_the_servers(self):
         """Each math span is a code-face element with its source text, delimiters included, and no emphasis takes a '*' or
@@ -809,23 +809,23 @@ class Picking(MarkdownBase):
         got = page.evaluate(
             "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='4']\");"
             "r.setStartBefore(md); r.setEnd(l.firstChild,1); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
-            "const ok=mdSelectionPick(null); return [ok,COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
+            "const ok=pickSelection(null); return [ok,COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
         )
         self.assertEqual(got, [True, 1, 4])
         page.evaluate("discardSelection()")
         outside = page.evaluate(
             "(()=>{const r=document.createRange(),c=document.getElementById('bar1');r.selectNodeContents(c);"
-            "const s=getSelection(); s.removeAllRanges(); s.addRange(r); return mdSelectionPick(null);})()"
+            "const s=getSelection(); s.removeAllRanges(); s.addRange(r); return pickSelection(null);})()"
         )
         self.assertFalse(outside)
         everything = page.evaluate(
-            "(()=>{const s=getSelection(); s.selectAllChildren(document.body); return [mdSelectionPick(null),!!COMPOSE.current];})()"
+            "(()=>{const s=getSelection(); s.selectAllChildren(document.body); return [pickSelection(null),!!COMPOSE.current];})()"
         )
         self.assertEqual(everything, [False, False])
         # From above the article to its very start: cut back, nothing of the document is left.
         empty = page.evaluate(
             "(()=>{const md=document.getElementById('md'),r=document.createRange();r.setStartBefore(md);r.setEnd(md,0);"
-            "const s=getSelection(); s.removeAllRanges(); s.addRange(r); return [mdSelectionPick(null),!!COMPOSE.current];})()"
+            "const s=getSelection(); s.removeAllRanges(); s.addRange(r); return [pickSelection(null),!!COMPOSE.current];})()"
         )
         self.assertEqual(empty, [False, False])
 
@@ -843,7 +843,7 @@ class Picking(MarkdownBase):
                 got = page.evaluate(
                     "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='1']\");"
                     "r.setStart(l.firstChild,0); r.setEndAfter(md); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
-                    "return [mdSelectionPick(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
+                    "return [pickSelection(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
                 )
                 self.assertEqual(got, [True, 1, hi])
                 page.evaluate("discardSelection()")
@@ -860,14 +860,14 @@ class Picking(MarkdownBase):
         into_first = page.evaluate(
             "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='1']\");"
             "r.setStartBefore(md); r.setEnd(l.firstChild,2); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
-            "return [mdSelectionPick(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
+            "return [pickSelection(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi];})()"
         )
         self.assertEqual(into_first, [True, 1, 1])
         page.evaluate("discardSelection()")
         through_end = page.evaluate(
             "(()=>{const md=document.getElementById('md'),r=document.createRange(),l=md.querySelector(\"[data-line='3']\");"
             "r.setStart(l.firstChild,0); r.setEndAfter(md); const s=getSelection(); s.removeAllRanges(); s.addRange(r);"
-            "return [mdSelectionPick(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi,"
+            "return [pickSelection(null),COMPOSE.current&&COMPOSE.current.lo,COMPOSE.current&&COMPOSE.current.hi,"
             "COMPOSE.current&&COMPOSE.current.quote];})()"
         )
         self.assertEqual(through_end, [True, 3, 5, "셋째 줄 마지막 문단."])
@@ -884,8 +884,8 @@ class Picking(MarkdownBase):
                 quote, want = page.evaluate(
                     "(()=>{const md=document.getElementById('md'),s=getSelection(),f=md.querySelector(\"[data-line='1']\");"
                     "const r=document.createRange(); r.setStart(f.firstChild,0); r.setEndAfter(md); s.removeAllRanges(); s.addRange(r);"
-                    "mdSelectionPick(null); const q=COMPOSE.current&&COMPOSE.current.quote;"
-                    "const els=mdLineEls(),e=els[els.length-1],r2=document.createRange(); r2.setStart(f.firstChild,0);"
+                    "pickSelection(null); const q=COMPOSE.current&&COMPOSE.current.quote;"
+                    "const els=lineElements(),e=els[els.length-1],r2=document.createRange(); r2.setStart(f.firstChild,0);"
                     "r2.setEnd(e,e.childNodes.length); s.removeAllRanges(); s.addRange(r2);"
                     "return [q,s.toString().replace(/\\s+/g,' ').trim().slice(0,160)];})()"
                 )
@@ -1130,13 +1130,13 @@ class Redrawing(MarkdownBase):
         """A change to notes.md reaches the screen within a light poll: the new text is drawn, the reading spot kept."""
         page = self.open_md()
         page.evaluate("document.querySelector('#md pre').scrollIntoView({block:'start'})")
-        before = page.evaluate("mdReadingLine()")
+        before = page.evaluate("readingLine()")
         self.write(FIXTURE.replace("문단 셋째 줄.", "문단 셋째 줄을 고쳤다."))
         page.evaluate("pollLightOnce()")
         page.wait_for_function(
             "document.querySelector('#md').textContent.includes('문단 셋째 줄을 고쳤다.')", timeout=8000
         )
-        self.assertLessEqual(abs(page.evaluate("mdReadingLine()") - before), 1)
+        self.assertLessEqual(abs(page.evaluate("readingLine()") - before), 1)
 
     def test_a_read_that_failed_is_asked_again_on_the_next_poll(self):
         """An edit whose source read fails once (the request aborted) leaves the notice; once reads answer again, the next
@@ -1318,9 +1318,9 @@ class Limits(MarkdownBase):
         yield inside one stops the older draw - only the newer one is shown."""
         page = self.open_md()
         page.evaluate(
-            "(()=>{const y=mdYield,s=mdShow; window.mdYield=()=>{const w=window.__md; w.y.push(MD.els);"
+            "(()=>{const y=mdYield,s=showDocumentNode; window.mdYield=()=>{const w=window.__md; w.y.push(MD.els);"
             "if(w.race&&w.y.length===w.race){w.race=0; mdBuild();} return y();};"
-            "window.mdShow=n=>{window.__md.shown.push(n.dataset.limit||'drawn'); return s(n);};})()"
+            "window.showDocumentNode=n=>{window.__md.shown.push(n.dataset.limit||'drawn'); return s(n);};})()"
         )
         chunk = page.evaluate("MD_LIMITS.chunk")
         cases = {"inline": "*x* " * 30_000 + "\n", "code": "```\n" + "x\n" * 30_000 + "```\n"}
@@ -1355,7 +1355,7 @@ class Limits(MarkdownBase):
 
         self.hang = True
         page.route("**/vendor/markdown-it/**", module)
-        page.evaluate("mdParseStop(null); MD.worker&&MD.worker.terminate(); MD.worker=null; mdBuild()")
+        page.evaluate("stopMarkdownParse(null); MD.worker&&MD.worker.terminate(); MD.worker=null; mdBuild()")
         page.wait_for_function("MD.limit==='time'&&" + DRAWN, timeout=15000)
         self.assertIn("2초", page.evaluate("document.querySelector('#md .md-limit').textContent"))
         self.assertEqual(
@@ -1368,7 +1368,7 @@ class Limits(MarkdownBase):
         """The module failing to load (404) leaves the line view with its own head line."""
         page = self.open(0)
         page.route("**/vendor/markdown-it/**", lambda r: r.fulfill(status=404, body=b"no"))
-        page.evaluate("mdParseStop(null); MD.worker&&MD.worker.terminate(); MD.worker=null; mdBuild()")
+        page.evaluate("stopMarkdownParse(null); MD.worker&&MD.worker.terminate(); MD.worker=null; mdBuild()")
         page.wait_for_function("MD.limit==='load'&&" + DRAWN, timeout=15000)
         self.assertIn("파서를 불러오지 못해", page.evaluate("document.querySelector('#md .md-limit').textContent"))
 

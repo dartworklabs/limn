@@ -2037,8 +2037,8 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
         self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
         # if the pin's range line isn't in the diff and only nearby lines changed, don't say "the highlighted line is the pin's range" (there is no highlighted line).
-        self.assertIn(sq("tg.near=!first&&tg.hit"), sq(extract_js_fn("revHighlight")))
-        self.assertIn(sq("tg.near?'핀 범위 줄 자체는 바뀌지 않았고", True), sq(extract_js_fn("revTargetNote")))
+        self.assertIn(sq("target.near=!first&&target.hit"), sq(extract_js_fn("highlightPinLines")))
+        self.assertIn(sq("target.near?'핀 범위 줄 자체는 바뀌지 않았고", True), sq(extract_js_fn("revTargetNote")))
 
     def test_references_share_one_link_style_and_pending_looks_pending(self):
         # one consistent link style (QA 2026-09-24): #number, line range, page N, and in-text #12 all share
@@ -4854,10 +4854,10 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn(sq("case 'revision-other':toggleRevisionOther();break;"), SCRIPT_SQ)
         self.assertIn(sq("case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;"), SCRIPT_SQ)
         src = extract_js_fn("loadRevisionSource")
-        self.assertIn(sq("'&pin='+tg0.id"), sq(src))  # a pin's view asks for its scope; plain browsing does not
-        self.assertIn(sq("r.scope.mode===SCOPE_MODE.PIN"), sq(src))
+        self.assertIn(sq("'&pin='+pinTarget.id"), sq(src))  # a pin's view asks for its scope; plain browsing does not
+        self.assertIn(sq("answer.scope.mode===SCOPE_MODE.PIN"), sq(src))
         pdf = extract_js_fn("loadRevisionPdf")
-        self.assertIn(sq("!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null"), sq(pdf))
+        self.assertIn(sq("!REV_SCOPE.whole&&!REV_SCOPE.fallback?target.id:null"), sq(pdf))
         self.assertIn(sq("REV_SCOPE.fallback=true"), sq(pdf))  # a subset that does not compile falls back once
         self.assertIn(
             sq("REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false"), sq(extract_js_fn("showRevision"))

@@ -1,30 +1,34 @@
-// ------------------------------------------------ The Markdown surface (docs/handbook/viewer.md §Markdown 화면, ADR-0025)
-// A document the browser draws from its source (rendersInBrowser: kind "markdown") has no pages. #doc holds one flowing column,
-// article#md, drawn here; the panel, the list, the composer and the cards are the same as on the PDF surface.
-// - GET /api/source answers the file as the server numbers it (str.splitlines(), already split, 1 MiB at most - over it 413
-//   source_too_large and no lines). The lines this screen shows are the server's lines by construction: they are joined with
-//   "\n" for the parser and never split again from raw bytes.
-// - markdown-it parses in a worker of its own (GET /md-parse.mjs, this origin - no blob: worker, ADR-0026), within MD_LIMITS:
-//   nesting, block and inline tokens there; elements while the DOM is built here, with a yield to the browser after every
-//   MD_LIMITS.chunk units of work (a token, an inline child, a code line) wherever they fall; the time the worker takes.
-//   Over any of them the screen is the plain source-line view (mdLineView), over MD_LIMITS.lines lines not even that, but a
-//   notice with the count and the limit (mdNotice). Pins, cards and the agent's paths stay as they are. One formula's TeX
-//   is drawn only up to MD_LIMITS.tex characters (mdTexBox): past it that formula alone stays as its characters.
-// - The DOM is built with createElement and textContent only: markdown-it's HTML renderer is never used, so the one innerHTML
-//   sink (markup.js setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder that keeps its lines, an
-//   inline tag shows as code. A character that would hide or reorder text (hidden-chars.js) stays in the drawn text inside its
-//   box (mdText), as on the text surface, and a notice above the document counts them. An image loads only when its source
-//   is a file of the manuscript tree with an image suffix, resolved against the document's own path (mdImgPath) and fetched
-//   from this origin's GET /api/asset (asked again on the light poll, mdPicCheck: one rewritten on disk shows without a
-//   reload); a remote or data: image, or one that leaves the tree, is its alt text (ADR-0030). A link opens only through the
-//   allowlist (mdTarget) - another origin's http(s), mailto, an in-document #heading, another registered document of this
-//   instance (by its path, with its #heading), an image of the tree in a new tab; anything else is inert text.
-// - Every block token's map becomes data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each source
-//   line gets its own span (data-line) only when the inline token's line breaks match its source's line ends (mdInlineLines);
-//   otherwise the whole run is one span with its range. A code block's content lines are its source lines one for one.
-// - A text selection (a mouse drag, a phone's long-press handles) becomes lines lo..hi; a tap or click on a block picks that
-//   block. The ladder is: the chosen lines -> the block -> the heading's section (mdLevels). Saving is the ordinary POST
-//   /api/pin, with no page, frac or pdf_build (the server drops them for this document anyway, ADR-0025 D2).
+// --------------------------------------------- The Markdown surface (docs/handbook/viewer.md §Markdown 화면, ADR-0025)
+// A document the browser draws from its source (rendersInBrowser: kind "markdown") has no pages. #doc holds one flowing
+// column, article#md, drawn here; the panel, the list, the composer and the cards are the same as on the PDF surface.
+// - GET /api/source answers the file as the server numbers it (str.splitlines(), already split, 1 MiB at most - over it
+//   413 source_too_large and no lines). The lines this screen shows are the server's lines by construction: they are
+//   joined with "\n" for the parser and never split again from raw bytes.
+// - markdown-it parses in a worker of its own (GET /md-parse.mjs, this origin - no blob: worker, ADR-0026), within
+//   MD_LIMITS: nesting, block and inline tokens there; elements while the DOM is built here, with a yield to the
+//   browser after every MD_LIMITS.chunk units of work (a token, an inline child, a code line) wherever they fall; the
+//   time the worker takes. Over any of them the screen is the plain source-line view (lineView), over MD_LIMITS.lines
+//   lines not even that, but a notice with the count and the limit (documentNotice). Pins, cards and the agent's paths
+//   stay as they are. One formula's TeX is drawn only up to MD_LIMITS.tex characters (drawTexBox): past it that formula
+//   alone stays as its characters.
+// - The DOM is built with createElement and textContent only: markdown-it's HTML renderer is never used, so the one
+//   innerHTML sink (markup.ts setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder that keeps
+//   its lines, an inline tag shows as code. A character that would hide or reorder text (hidden-chars.ts) stays in the
+//   drawn text inside its box (drawText), as on the text surface, and a notice above the document counts them. An image
+//   loads only when its source is a file of the manuscript tree with an image suffix, resolved against the document's
+//   own path (imageSource) and fetched from this origin's GET /api/asset (asked again on the light poll, mdPicCheck:
+//   one rewritten on disk shows without a reload); a remote or data: image, or one that leaves the tree, is its alt
+//   text (ADR-0030). A link opens only through the allowlist (linkAction) - another origin's http(s), mailto, an
+//   in-document #heading, another registered document of this instance (by its path, with its #heading), an image of
+//   the tree in a new tab; anything else is inert text.
+// - Every block token's map becomes data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each
+//   source line gets its own span (data-line) only when the inline token's line breaks match its source's line ends
+//   (inlineLines); otherwise the whole run is one span with its range. A code block's content lines are its source
+//   lines one for one.
+// - A text selection (a mouse drag, a phone's long-press handles) becomes lines lo..hi; a tap or click on a block picks
+//   that block. The ladder is: the chosen lines -> the block -> the heading's section (markdownLevels). Saving is the
+//   ordinary POST /api/pin, with no page, frac or pdf_build (the server drops them for this document anyway, ADR-0025
+//   D2).
 import {
   $,
   $$,
@@ -92,15 +96,16 @@ const MD_LIMITS = Object.freeze({
   chunk: 2000,
   tex: 10000,
 });
-// MD: the document drawn (doc, file, name), its source lines and the src_mtime they were read at (mtime: set only by a read
-// that answered, so the light poll, polling.js, sees a failed read as not done), the src_mtime a redraw was last asked for
-// (asked: the light poll asks once per change while that read is on its way, and a failed read clears it), the reading line
-// (at), the limit hit (limit), its headings, the worker and its parse in flight,
-// whether a redraw waits for a field (waiting), the elements built so far (els), the characters drawn in their boxes
-// (marked) and whether the next text drawn may be the file's first, its byte-order mark kept (bom, mdText), the document
-// #doc shows now (shown: '' for none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it is drawn (want) and the reading
-// spot as last read at the column's width and the pane's scroll offset then (spot, mdSpotRead: kept across a reflow and a
-// redraw while hidden, mdSpotKeep; top tells a pane moved since, mdSpotFresh).
+// MD: the document drawn (doc, file, name), its source lines and the src_mtime they were read at (mtime: set only by a
+// read that answered, so the light poll, polling.ts, sees a failed read as not done), the src_mtime a redraw was last
+// asked for (asked: the light poll asks once per change while that read is on its way, and a failed read clears it),
+// the reading line (at), the limit hit (limit), its headings, the worker and its parse in flight, whether a redraw
+// waits for a field (waiting), the elements built so far (els), the characters drawn in their boxes (marked) and
+// whether the next text drawn may be the file's first, its byte-order mark kept (bom, drawText), the document #doc
+// shows now (shown: '' for none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it
+// is drawn (want) and the reading spot as last read at the column's width and the pane's scroll offset then (spot,
+// readSpot: kept across a reflow and a redraw while hidden, mdSpotKeep; top tells a pane moved since,
+// refreshMovedSpot).
 const MD = {
   gen: 0,
   doc: '' as string | null,
@@ -113,7 +118,7 @@ const MD = {
   limit: null as string | null,
   heads: [] as { level: number; lo: number; el: HTMLElement; title: string; slug: string }[],
   worker: null as Worker | null,
-  job: null as { id: number; resolve: (r: any) => void; t: ReturnType<typeof setTimeout> } | null,
+  job: null as { id: number; resolve: (answer: any) => void; t: ReturnType<typeof setTimeout> } | null,
   seq: 0,
   waiting: false,
   els: 0,
@@ -136,134 +141,143 @@ const MD = {
     sel: boolean;
     again: boolean;
   } | null,
-  // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and the
-  // heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the reading spot)
+  // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and
+  // the heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the
+  // reading spot)
   headTo: null as { doc: string; id: string; seq: number } | null,
   goTo: null as { el: HTMLElement; doc: string | null } | null,
 };
-// A draw's render context (MdRx): the source lines it numbers its blocks from (lines), the elements built so far (els), the
-// characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its byte-order mark kept
-// (bom, mdText), the headings (heads), and how many formulas were drawn - a count to draw them on, null not to draw them
-// at all (tex, ADR-0036 D3: the rendered compare keeps the source characters, which its block keys and its word diff read).
-// The renderer reads and writes only these; the document view's context is MD
-// itself (mdRenderAll), and the rendered compare (md-compare.js) builds each side with a context of its own (mdRx).
-type MdHead = { level: number; lo: number; el: HTMLElement; title: string; slug: string };
-type MdRx = { lines: string[]; els: number; marked: number; bom: boolean; heads: MdHead[]; tex: number | null };
+// A draw's render context (RenderContext): the source lines it numbers its blocks from (lines), the elements built so
+// far (els), the characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its
+// byte-order mark kept (bom, drawText), the headings (heads), and how many formulas were drawn - a count to draw them
+// on, null not to draw them at all (tex, ADR-0036 D3: the rendered compare keeps the source characters, which its block
+// keys and its word diff read). The renderer reads and writes only these; the document view's context is MD itself
+// (renderDocument), and the rendered compare (md-compare.ts) builds each side with a context of its own (mdRx).
+type DrawnHeading = { level: number; lo: number; el: HTMLElement; title: string; slug: string };
+type RenderContext = {
+  lines: string[];
+  els: number;
+  marked: number;
+  bom: boolean;
+  heads: DrawnHeading[];
+  tex: number | null;
+};
 // A fresh render context for lines: nothing built, its first text the file's first, its math kept as characters.
-function mdRx(lines: string[]): MdRx {
+function mdRx(lines: string[]): RenderContext {
   return { lines, els: 0, marked: 0, bom: String(lines[0] || '').charCodeAt(0) === 0xfeff, heads: [], tex: null };
 }
-// The render context a drawn root was built with (the compare's sides, mdRxKeep); any other root is the document view's, MD.
-const MD_RX = new WeakMap() as WeakMap<Element, MdRx>;
-function mdRxKeep(root: Element, cx: MdRx) {
-  MD_RX.set(root, cx);
+// The render context a drawn root was built with (the compare's sides, mdRxKeep); any other root is the document
+// view's, MD.
+const ROOT_CONTEXTS = new WeakMap() as WeakMap<Element, RenderContext>;
+function mdRxKeep(root: Element, context: RenderContext) {
+  ROOT_CONTEXTS.set(root, context);
 }
-function mdRxOf(e: Element | null): MdRx {
-  const root = e && e.closest('.md');
-  return (root && MD_RX.get(root)) || MD;
+function renderContextOf(element: Element | null): RenderContext {
+  const root = element && element.closest('.md');
+  return (root && ROOT_CONTEXTS.get(root)) || MD;
 }
-// Whether the document on screen is drawn here (no pages), and whether pin p belongs to such a document of this instance.
+// Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
+// instance.
 function isMdDoc() {
   return !!META && rendersInBrowser(META.kind);
 }
-function isMdPin(p: Pin) {
-  const d = docInfo(pdoc(p));
-  return !!d && rendersInBrowser(d.kind);
+function isMdPin(pin: Pin) {
+  const entry = docInfo(pdoc(pin));
+  return !!entry && rendersInBrowser(entry.kind);
 }
 // ---------------- The parse worker
-// Parses text in the worker within MD_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MD_LIMIT), or null when a newer parse
-// took the worker over. The worker is started the first time and kept; one that runs past MD_LIMITS.ms, fails to load or is
-// taken over is stopped (terminate) and a new one starts next time.
-function mdParse(text: string): Promise<any> {
-  mdParseStop(null);
+// Parses text in the worker within MD_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MD_LIMIT), or null when a newer
+// parse took the worker over. The worker is started the first time and kept; one that runs past MD_LIMITS.ms, fails to
+// load or is taken over is stopped (terminate) and a new one starts next time.
+function parseMarkdown(text: string): Promise<any> {
+  stopMarkdownParse(null);
   return new Promise((resolve) => {
-    let w = MD.worker;
+    let worker = MD.worker;
     try {
-      if (!w) {
-        w = new Worker('/md-parse.mjs', { type: 'module' });
-        MD.worker = w;
-        w.onmessage = (e) => {
-          const j = MD.job;
-          if (!j || !e.data || e.data.id !== j.id) return;
-          clearTimeout(j.t);
+      if (!worker) {
+        worker = new Worker('/md-parse.mjs', { type: 'module' });
+        MD.worker = worker;
+        worker.onmessage = (message) => {
+          const job = MD.job;
+          if (!job || !message.data || message.data.id !== job.id) return;
+          clearTimeout(job.t);
           MD.job = null;
-          j.resolve(e.data);
+          job.resolve(message.data);
         };
-        w.onerror = (e) => {
-          e.preventDefault();
-          mdParseStop({ ok: false, limit: MD_LIMIT.LOAD });
+        worker.onerror = (event) => {
+          event.preventDefault();
+          stopMarkdownParse({ ok: false, limit: MD_LIMIT.LOAD });
         };
       }
-    } catch (e) {
+    } catch (error) {
       resolve({ ok: false, limit: MD_LIMIT.LOAD });
       return;
     }
     const id = ++MD.seq;
-    MD.job = { id, resolve, t: setTimeout(() => mdParseStop({ ok: false, limit: MD_LIMIT.TIME }), MD_LIMITS.ms) };
-    w.postMessage({
+    MD.job = { id, resolve, t: setTimeout(() => stopMarkdownParse({ ok: false, limit: MD_LIMIT.TIME }), MD_LIMITS.ms) };
+    worker.postMessage({
       id,
       text,
       limits: { nesting: MD_LIMITS.nesting, blocks: MD_LIMITS.blocks, inlines: MD_LIMITS.inlines },
     });
   });
 }
-// Ends the parse in flight, if any, with result r (null: taken over), and stops its worker.
-function mdParseStop(r) {
-  const j = MD.job;
-  if (!j) return;
+// Ends the parse in flight, if any, with answer (null: taken over), and stops its worker.
+function stopMarkdownParse(answer) {
+  const job = MD.job;
+  if (!job) return;
   MD.job = null;
-  clearTimeout(j.t);
+  clearTimeout(job.t);
   if (MD.worker) {
     MD.worker.terminate();
     MD.worker = null;
   }
-  j.resolve(r);
+  job.resolve(answer);
 }
 // ---------------- The TeX renderer (ADR-0036, docs/handbook/viewer.md §수식)
-const KATEX_V = '__KATEX_VERSION__';
-// MD_TEX: the vendored KaTeX module once the page has it (lib) and how far the one load got (state) - 'none' before it is
-// asked for, 'ready' with both the module and its stylesheet in, 'off' when either did not come. 'off' is final: the math
-// of every document then stays as its source characters, as it did before this renderer (ADR-0036 D2), and nothing is
-// asked for twice.
-const MD_TEX = { state: 'none' as 'none' | 'ready' | 'off', lib: null as any };
+const KATEX_VERSION = '__KATEX_VERSION__';
+// TEX_RENDERER: the vendored KaTeX module once the page has it (lib) and how far the one load got (state) - 'none'
+// before it is asked for, 'ready' with both the module and its stylesheet in, 'off' when either did not come. 'off' is
+// final: the math of every document then stays as its source characters (ADR-0036 D2), and nothing is asked for twice.
+const TEX_RENDERER = { state: 'none' as 'none' | 'ready' | 'off', lib: null as any };
 // The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
-const MD_TEX_CLOSE = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' } as Record<string, string>;
+const TEX_CLOSE = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' } as Record<string, string>;
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
 // (and a PDF or text document) asks for nothing.
-function mdTexWanted(tokens: any[]) {
-  for (const t of tokens) {
-    if (t.type === 'math_block') return true;
-    for (const c of t.children || []) if (c.type === 'math_inline') return true;
+function hasMath(tokens: any[]) {
+  for (const token of tokens) {
+    if (token.type === 'math_block') return true;
+    for (const child of token.children || []) if (child.type === 'math_inline') return true;
   }
   return false;
 }
-// The renderer, or null when it is not to be had. One attempt per page: the module from this origin (the page imports it,
-// never the parse worker - that one returns tokens and touches no DOM, architecture.md 불변식 9) and its stylesheet, both
-// with the bundle's version, so a cached copy never needs revalidating. Unstyled KaTeX markup is unreadable, so a
-// stylesheet that does not arrive counts as no renderer.
-async function mdTexReady(): Promise<any> {
-  if (MD_TEX.state !== 'none') return MD_TEX.lib;
-  MD_TEX.state = 'off';
-  let mod = null as any;
+// The renderer, or null when it is not to be had. One attempt per page: the module from this origin (the page imports
+// it, never the parse worker - that one returns tokens and touches no DOM, architecture.md 불변식 9) and its
+// stylesheet, both with the bundle's version, so a cached copy never needs revalidating. Unstyled KaTeX markup is
+// unreadable, so a stylesheet that does not arrive counts as no renderer.
+async function loadTexRenderer(): Promise<any> {
+  if (TEX_RENDERER.state !== 'none') return TEX_RENDERER.lib;
+  TEX_RENDERER.state = 'off';
+  let katexModule = null as any;
   try {
-    mod = await import('/vendor/katex/katex.mjs?v=' + KATEX_V);
-  } catch (e) {
+    katexModule = await import('/vendor/katex/katex.mjs?v=' + KATEX_VERSION);
+  } catch (error) {
     return null;
   }
-  const lib = mod && (mod.default || mod);
+  const lib = katexModule && (katexModule.default || katexModule);
   if (!lib || typeof lib.render !== 'function') return null;
-  if (!(await mdTexStyle())) return null;
-  MD_TEX.lib = lib;
-  MD_TEX.state = 'ready';
+  if (!(await loadTexStyle())) return null;
+  TEX_RENDERER.lib = lib;
+  TEX_RENDERER.state = 'ready';
   return lib;
 }
 // The stylesheet, added once; true once the browser has it. A link element pointing at this origin - never an inline
 // style element and never a style attribute, which the page policy admits neither of (viewer.md §페이지 정책).
-function mdTexStyle(): Promise<boolean> {
+function loadTexStyle(): Promise<boolean> {
   return new Promise((resolve) => {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
-    link.href = '/vendor/katex/katex.css?v=' + KATEX_V;
+    link.href = '/vendor/katex/katex.css?v=' + KATEX_VERSION;
     link.onload = () => resolve(true);
     link.onerror = () => {
       link.remove();
@@ -272,145 +286,149 @@ function mdTexStyle(): Promise<boolean> {
     document.head.appendChild(link);
   });
 }
-// The TeX of an inline formula, without its delimiters, or null when what is given is no formula. src is the text to read: a
-// token's own for a formula that fits one source line (the worker marks it info 'whole'), and the pieces put back together
-// for one it cut at a line end (info 'head' on the first piece, mdTexRun). A 'tail' piece is no TeX on its own and is never
-// read alone - its head draws the whole formula and passes it over (mdInline). Pure.
-function mdTexBody(c: any, src?: string): string | null {
-  const open = String(c.markup || ''),
-    close = MD_TEX_CLOSE[open] || '';
-  const s = src === undefined ? String(c.content || '') : src;
-  if ((c.info !== 'whole' && c.info !== 'head') || !close || s.length < open.length + close.length + 1) return null;
-  if (!s.startsWith(open) || !s.endsWith(close)) return null;
-  return s.slice(open.length, s.length - close.length);
+// The TeX of an inline formula, without its delimiters, or null when what is given is no formula. source is the text to
+// read: a token's own for a formula that fits one source line (the worker marks it info 'whole'), and the pieces put
+// back together for one it cut at a line end (info 'head' on the first piece, inlineTexRun). A 'tail' piece is no TeX
+// on its own and is never read alone - its head draws the whole formula and passes it over (drawInline). Pure.
+function inlineTexBody(piece: any, source?: string): string | null {
+  const open = String(piece.markup || ''),
+    close = TEX_CLOSE[open] || '';
+  const text = source === undefined ? String(piece.content || '') : source;
+  if ((piece.info !== 'whole' && piece.info !== 'head') || !close || text.length < open.length + close.length + 1)
+    return null;
+  if (!text.startsWith(open) || !text.endsWith(close)) return null;
+  return text.slice(open.length, text.length - close.length);
 }
 // One formula's source as written, starting at child `at` of an inline token: that piece, and - when the worker cut the
-// formula at a line end ('head') - every piece after it, joined by the line ends it was cut at. last is the index of the
-// formula's final piece, so the caller knows which children the one formula covers (at itself when nothing was cut). Pure.
-function mdTexRun(kids: any[], at: number): { src: string; last: number } {
-  const parts = [String(kids[at].content || '')];
-  let j = at + 1;
+// formula at a line end ('head') - every piece after it, joined by the line ends it was cut at. last is the index of
+// the formula's final piece, so the caller knows which children the one formula covers (at itself when nothing was
+// cut). Pure.
+function inlineTexRun(children: any[], at: number): { src: string; last: number } {
+  const parts = [String(children[at].content || '')];
+  let next = at + 1;
   while (
-    kids[at].info === 'head' &&
-    j + 1 < kids.length &&
-    kids[j].type === 'softbreak' &&
-    kids[j + 1].type === 'math_inline' &&
-    kids[j + 1].info === 'tail'
+    children[at].info === 'head' &&
+    next + 1 < children.length &&
+    children[next].type === 'softbreak' &&
+    children[next + 1].type === 'math_inline' &&
+    children[next + 1].info === 'tail'
   ) {
-    parts.push(String(kids[j + 1].content || ''));
-    j += 2;
+    parts.push(String(children[next + 1].content || ''));
+    next += 2;
   }
-  return { src: parts.join('\n'), last: j - 1 };
+  return { src: parts.join('\n'), last: next - 1 };
 }
 // The TeX of a display math block, without its delimiters, or null when its lines do not open and close one. Pure.
-function mdTexBlockBody(lines: string[]): string | null {
-  const s = lines.join('\n').replace(/\n+$/, '');
-  const open = s.startsWith('$$') ? '$$' : s.startsWith('\\[') ? '\\[' : '',
-    close = open ? MD_TEX_CLOSE[open] : '';
-  if (!open || !s.endsWith(close) || s.length < open.length + close.length + 1) return null;
-  return s.slice(open.length, s.length - close.length);
+function blockTexBody(lines: string[]): string | null {
+  const text = lines.join('\n').replace(/\n+$/, '');
+  const open = text.startsWith('$$') ? '$$' : text.startsWith('\\[') ? '\\[' : '',
+    close = open ? TEX_CLOSE[open] : '';
+  if (!open || !text.endsWith(close) || text.length < open.length + close.length + 1) return null;
+  return text.slice(open.length, text.length - close.length);
 }
-// A <tag class=cls> with the TeX of src drawn into it (tex: src without its delimiters) and src on data-tex, or null when
-// it is not drawn - then the caller shows src as characters, as it did before this renderer (ADR-0036 D2). Not drawn when:
-// there is no renderer; the context does not draw math (cx.tex null - the rendered compare keeps the source characters,
-// ADR-0036 D3); the TeX is not whole (tex null); the TeX is longer than MD_LIMITS.tex characters - KaTeX lays a formula out
-// in one call that cannot pause or be stopped, and past that length its time grows much faster than the formula (seconds
-// for one of 50,000 characters), which would hold the page still as no other part of the build may (ADR-0039); src holds a
-// character that hides or reorders text (CC_ANY, ADR-0029 D5) -
-// drawn glyphs could show neither it nor its box, so such a formula stays as its characters, each in its box; or KaTeX
-// refuses it (throwOnError, so a refusal never draws its own red markup and the style attribute that would carry its
-// colour). The element is built outside mdEl and counted - with everything KaTeX put in it - only once it is used, so a
-// refusal leaves the count where it was (ADR-0036 D6). trust false leaves \href, \url and \includegraphics as characters,
-// so no link or image of KaTeX's own gets past the viewer's allowlists; strict false draws a Korean word in math mode
-// instead of refusing it.
-function mdTexBox(
+// A <tag class=className> with the TeX of source drawn into it (tex: source without its delimiters) and source on
+// data-tex, or null when it is not drawn - then the caller shows source as characters (ADR-0036 D2). Not drawn when:
+// there is no renderer; the context does not draw math (context.tex null - the rendered compare keeps the source
+// characters, ADR-0036 D3); the TeX is not whole (tex null); the TeX is longer than MD_LIMITS.tex characters - KaTeX
+// lays a formula out in one call that cannot pause or be stopped, and past that length its time grows much faster than
+// the formula, which would hold the page still as no other part of the build may (ADR-0039); source holds a character
+// that hides or reorders text (CC_ANY, ADR-0029 D5) - drawn glyphs could show neither it nor its box, so such a formula
+// stays as its characters, each in its box; or KaTeX refuses it (throwOnError, so a refusal never draws its own red
+// markup and the style attribute that would carry its colour). The element is built outside countedElement and counted
+// - with everything KaTeX put in it - only once it is used, so a refusal leaves the count where it was (ADR-0036 D6).
+// trust false leaves \href, \url and \includegraphics as characters, so no link or image of KaTeX's own gets past the
+// viewer's allowlists; strict false draws a Korean word in math mode instead of refusing it.
+function drawTexBox(
   tag: string,
-  cls: string,
-  src: string,
+  className: string,
+  source: string,
   tex: string | null,
   display: boolean,
-  cx: MdRx,
+  context: RenderContext,
 ): HTMLElement | null {
   if (
-    cx.tex === null ||
-    MD_TEX.state !== 'ready' ||
+    context.tex === null ||
+    TEX_RENDERER.state !== 'ready' ||
     tex === null ||
     !tex.trim() ||
     tex.length > MD_LIMITS.tex ||
-    CC_ANY.test(src)
+    CC_ANY.test(source)
   )
     return null;
-  const el = document.createElement(tag);
+  const box = document.createElement(tag);
   try {
-    MD_TEX.lib.render(tex, el, { displayMode: display, throwOnError: true, strict: false, trust: false });
-  } catch (e) {
+    TEX_RENDERER.lib.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
+  } catch (error) {
     return null;
   }
-  el.className = cls;
-  el.dataset.tex = src;
-  cx.els += 1 + el.querySelectorAll('*').length;
-  cx.tex++;
-  if (cx.els > MD_LIMITS.elements) throw MD_OVER;
-  return el;
+  box.className = className;
+  box.dataset.tex = source;
+  context.els += 1 + box.querySelectorAll('*').length;
+  context.tex++;
+  if (context.els > MD_LIMITS.elements) throw MD_OVER;
+  return box;
 }
 // A drawn formula cannot be broken over lines: KaTeX lays it out as one inline-block. One wider than the column reaches
-// past the screen's edge, where the page's own rule (`body` does not scroll sideways) puts it out of reach - characters the
-// reader cannot get to, which is the one thing drawing must not cost. So after a build and after the column changes width,
-// the drawn inline formulas are measured and only those too wide are told to scroll inside themselves, as a display block
-// already does. The others are left alone: a box that scrolls sits on its bottom edge instead of the sentence's baseline,
-// which would lift every formula off its line. The measuring is batched - every class off, then every width read, then the
-// classes on - so the whole document costs two layouts, not two per formula. The width read is the drawn formula's own
-// (.katex, an inline-block), which does not change when the box around it starts scrolling: the pass settles at once.
-function mdTexFit() {
-  const md = $('#md');
-  if (!md || !MD.tex) return;
-  const boxes = [...md.querySelectorAll('code.md-math.md-tex')] as HTMLElement[];
+// past the screen's edge, where the page's own rule (`body` does not scroll sideways) puts it out of reach - characters
+// the reader cannot get to, which is the one thing drawing must not cost. So after a build and after the column changes
+// width, the drawn inline formulas are measured and only those too wide are told to scroll inside themselves, as a
+// display block already does. The others are left alone: a box that scrolls sits on its bottom edge instead of the
+// sentence's baseline, which would lift every formula off its line. The measuring is batched - every class off, then
+// every width read, then the classes on - so the whole document costs two layouts, not two per formula. The width read
+// is the drawn formula's own (.katex, an inline-block), which does not change when the box around it starts scrolling:
+// the pass settles at once.
+function fitWideFormulas() {
+  const column = $('#md');
+  if (!column || !MD.tex) return;
+  const boxes = [...column.querySelectorAll('code.md-math.md-tex')] as HTMLElement[];
   if (!boxes.length) return;
-  for (const e of boxes) e.classList.remove('md-tex-wide');
-  const wide = boxes.filter((e) => {
-    const b = (e.closest('p,li,td,th,blockquote') || md) as HTMLElement,
-      g = getComputedStyle(b);
-    const room = b.clientWidth - parseFloat(g.paddingLeft || '0') - parseFloat(g.paddingRight || '0'); // where the block's own text goes, not the column's padding box
-    return room > 0 && (e.querySelector('.katex') || e).getBoundingClientRect().width > room + 0.5;
+  for (const box of boxes) box.classList.remove('md-tex-wide');
+  const wide = boxes.filter((box) => {
+    const block = (box.closest('p,li,td,th,blockquote') || column) as HTMLElement,
+      style = getComputedStyle(block);
+    // where the block's own text goes, not the column's padding box
+    const room = block.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
+    return room > 0 && (box.querySelector('.katex') || box).getBoundingClientRect().width > room + 0.5;
   });
-  for (const e of wide) e.classList.add('md-tex-wide');
+  for (const box of wide) box.classList.add('md-tex-wide');
 }
 // ---------------- Drawing the document
-// A yield to the browser between chunks of the DOM build: a message, not a timer, so a test's frozen clock does not stop it.
+// A yield to the browser between chunks of the DOM build: a message, not a timer, so a test's frozen clock does not
+// stop it.
 function mdYield() {
-  return new Promise((r) => {
-    const c = new MessageChannel();
-    c.port1.onmessage = () => r(undefined);
-    c.port2.postMessage(0);
+  return new Promise((resolve) => {
+    const channel = new MessageChannel();
+    channel.port1.onmessage = () => resolve(undefined);
+    channel.port2.postMessage(0);
   });
 }
-// Whether a redraw would take a text field from under the person typing in it: a field inside #doc that is composing, or held
-// by the key that ended its composition (imeHeldIn, core.js §조합을 끝내는 키).
-function mdFieldBusy() {
-  const a = document.activeElement as HTMLElement | null,
+// Whether a redraw would take a text field from under the person typing in it: a field inside #doc that is composing,
+// or held by the key that ended its composition (imeHeldIn, core.ts §조합을 끝내는 키).
+function isFieldBusy() {
+  const active = document.activeElement as HTMLElement | null,
     held = imeHeldIn();
   const doc = $('#doc'),
-    inDoc = (n: any) => n instanceof Node && doc.contains(n);
-  return inDoc(held) || (!!a && inDoc(a) && a !== doc && MD_COMPOSING.has(a));
+    inDoc = (node: any) => node instanceof Node && doc.contains(node);
+  return inDoc(held) || (!!active && inDoc(active) && active !== doc && COMPOSING_FIELDS.has(active));
 }
-const MD_COMPOSING = new Set();
+const COMPOSING_FIELDS = new Set();
 document.addEventListener(
   'compositionstart',
-  (e) => {
-    MD_COMPOSING.add(e.target);
+  (event) => {
+    COMPOSING_FIELDS.add(event.target);
   },
   true,
 );
 document.addEventListener(
   'compositionend',
-  (e) => {
-    MD_COMPOSING.delete(e.target);
+  (event) => {
+    COMPOSING_FIELDS.delete(event.target);
   },
   true,
 );
 // Once that key lets its field go (IME_ON_FREE), a redraw that waited for it runs.
 IME_ON_FREE.push(() => {
-  if (MD.waiting && !mdFieldBusy()) {
+  if (MD.waiting && !isFieldBusy()) {
     MD.waiting = false;
     if (isMdDoc()) mdBuild();
   }
@@ -418,68 +436,72 @@ IME_ON_FREE.push(() => {
 document.addEventListener('compositionend', () => {
   if (MD.waiting)
     setTimeout(() => {
-      if (MD.waiting && !mdFieldBusy()) {
+      if (MD.waiting && !isFieldBusy()) {
         MD.waiting = false;
         if (isMdDoc()) mdBuild();
       }
     }, 0);
 });
-// Draws the document on screen into #doc (buildDoc's branch for a browser-drawn document): its source, parsed in the worker
-// and built here, or the line view or a notice when a limit is hit. A newer draw (another document, newer source) drops an
-// older one at each wait. A redraw that would take a field being typed in waits until the field is let go (mdFieldBusy).
+// Draws the document on screen into #doc (buildDoc's branch for a browser-drawn document): its source, parsed in the
+// worker and built here, or the line view or a notice when a limit is hit. A newer draw (another document, newer
+// source) drops an older one at each wait. A redraw that would take a field being typed in waits until the field is let
+// go (isFieldBusy).
 async function mdBuild() {
-  if (mdFieldBusy()) {
+  if (isFieldBusy()) {
     MD.waiting = true;
     return;
   }
-  const gen = ++MD.gen,
-    k = DOC,
-    stale = () => gen !== MD.gen || k !== DOC || !isMdDoc();
+  const generation = ++MD.gen,
+    docKey = DOC,
+    stale = () => generation !== MD.gen || docKey !== DOC || !isMdDoc();
   document.body.classList.add('md-surface');
   const doc = $('#doc');
-  if (MD.shown !== k || !doc.querySelector('#md')) {
+  if (MD.shown !== docKey || !doc.querySelector('#md')) {
     MD.shown = '';
     doc.replaceChildren(mdWait(tr('원문을 읽는 중입니다.')));
   }
-  let r;
+  let answer;
   try {
-    r = await api(dq('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
-  } catch (e) {
+    answer = await api(dq('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
+  } catch (error) {
     if (!stale()) {
       MD.asked = null;
       MD.mtime = null;
-      mdShow(mdNote(tr('원문을 읽지 못했습니다'), ''));
+      showDocumentNode(documentNotice(tr('원문을 읽지 못했습니다'), ''));
     }
     return;
-  } // not read: no read answers for this source now (MD.mtime too, or an unchanged source on a return to the document never matches again), so the next light poll asks again
+    // not read: no read answers for this source now (MD.mtime too, or an unchanged source on a return to the document
+    // never matches again), so the next light poll asks again
+  }
   if (stale()) return;
-  if (r.status === 413) {
+  if (answer.status === 413) {
     MD.lines = [];
     MD.heads = [];
     MD.mtime = MD.asked;
-    mdShow(
-      mdNote(
+    showDocumentNode(
+      documentNotice(
         tl('이 문서는 {size}라 그리지 않습니다(한도 {limit})', {
-          size: mdMiB(r.data.bytes),
-          limit: mdMiB(r.data.limit),
+          size: mdMiB(answer.data.bytes),
+          limit: mdMiB(answer.data.limit),
         }),
         MD_LIMIT.BYTES,
       ),
     );
     return;
   }
-  const src = r.data,
-    before = MD.doc === k && MD.mtime !== null && MD.mtime !== src.src_mtime ? MD.lines : null; // the lines this source replaces (updates.js)
-  MD.doc = k;
-  MD.mtime = src.src_mtime;
-  MD.file = String(src.file || '');
+  const source = answer.data,
+    // the lines this source replaces (updates.ts)
+    before = MD.doc === docKey && MD.mtime !== null && MD.mtime !== source.src_mtime ? MD.lines : null;
+  MD.doc = docKey;
+  MD.mtime = source.src_mtime;
+  MD.file = String(source.file || '');
   MD.name = MD.file.split('/').pop() || MD.file;
-  MD.lines = Array.isArray(src.lines) ? src.lines.map(String) : [];
+  MD.lines = Array.isArray(source.lines) ? source.lines.map(String) : [];
   if (isTextDoc()) {
-    MD.heads = []; // a text document is never parsed: its lines are its view (text-surface.js)
+    MD.heads = []; // a text document is never parsed: its lines are its view (text-surface.ts)
     if (MD.lines.length > MD_LIMITS.lines) {
-      mdShow(
-        mdNote(
+      showDocumentNode(
+        documentNotice(
           tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)', {
             lines: mdCount(MD.lines.length),
             limit: mdCount(MD_LIMITS.lines),
@@ -489,37 +511,39 @@ async function mdBuild() {
       );
       return;
     }
-    const view = await txView(stale, src.line_ends);
+    const view = await txView(stale, source.line_ends);
     if (view && !stale()) {
-      mdShow(view);
-      updSourceRedrawn(k || '', before, MD.lines);
+      showDocumentNode(view);
+      updSourceRedrawn(docKey || '', before, MD.lines);
     }
     return;
   }
-  // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to put
-  // it back by, so the document would read another character than its source has. The line view keeps it, in its box.
-  const res = MD.lines.some((l) => l.includes('\0'))
+  // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to
+  // put it back by, so the document would read another character than its source has. The line view keeps it, in its
+  // box.
+  const parsed = MD.lines.some((line) => line.includes('\0'))
     ? { ok: false, limit: MD_LIMIT.NUL }
-    : await mdParse(MD.lines.join('\n'));
-  if (stale() || !res) return;
+    : await parseMarkdown(MD.lines.join('\n'));
+  if (stale() || !parsed) return;
   let root = null as HTMLElement | null,
-    limit = res.ok ? null : String(res.limit || MD_LIMIT.ERROR);
-  // The TeX renderer is fetched before the build, which is synchronous once it starts (mdTexBox): only a document whose
-  // tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1, D2).
-  if (res.ok && mdTexWanted(res.tokens)) {
-    await mdTexReady();
+    limit = parsed.ok ? null : String(parsed.limit || MD_LIMIT.ERROR);
+  // The TeX renderer is fetched before the build, which is synchronous once it starts (drawTexBox): only a document
+  // whose tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1,
+  // D2).
+  if (parsed.ok && hasMath(parsed.tokens)) {
+    await loadTexRenderer();
     if (stale()) return;
   }
-  if (res.ok) {
-    root = await mdRenderAll(res.tokens, stale);
+  if (parsed.ok) {
+    root = await renderDocument(parsed.tokens, stale);
     if (stale()) return;
     if (!root) limit = MD_LIMIT.ELEMENTS;
   }
   if (!root) {
     MD.heads = [];
     if (MD.lines.length > MD_LIMITS.lines) {
-      mdShow(
-        mdNote(
+      showDocumentNode(
+        documentNotice(
           tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)', {
             lines: mdCount(MD.lines.length),
             limit: mdCount(MD_LIMITS.lines),
@@ -529,24 +553,24 @@ async function mdBuild() {
       );
       return;
     }
-    root = await mdLineView(limit as string, stale);
+    root = await lineView(limit as string, stale);
     if (!root || stale()) return;
   }
-  mdShow(root);
-  updSourceRedrawn(k || '', before, MD.lines);
+  showDocumentNode(root);
+  updSourceRedrawn(docKey || '', before, MD.lines);
 }
-// Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks, the
-// outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be measured: the
-// spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked to be put back on
-// that line's new element once the column is shown, at whatever width (mdSpotKeep).
-function mdShow(node: HTMLElement) {
+// Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks,
+// the outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be
+// measured: the spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked
+// to be put back on that line's new element once the column is shown, at whatever width (mdSpotKeep).
+function showDocumentNode(node: HTMLElement) {
   const want = MD.want,
-    shown = mdColumnShown();
+    shown = isColumnShown();
   MD.want = null;
   MD.limit = node.dataset.limit || null;
-  const a = shown ? want || (MD.shown === DOC ? mdAnchor() : null) : null;
+  const anchor = shown ? want || (MD.shown === DOC ? mdAnchor() : null) : null;
   if (!shown) {
-    const s = MD.spot;
+    const spot = MD.spot;
     if (want)
       MD.spot = {
         doc: DOC,
@@ -561,100 +585,116 @@ function mdShow(node: HTMLElement) {
         sel: false,
         again: true,
       };
-    else if (s && s.doc === DOC && MD.shown === DOC) {
-      s.el = null;
-      s.again = true;
+    else if (spot && spot.doc === DOC && MD.shown === DOC) {
+      spot.el = null;
+      spot.again = true;
     } else MD.spot = null;
   }
   $('#doc').replaceChildren(node);
   MD.shown = DOC;
-  mdTexFit();
-  mdRestore(a);
-  if (MD_RO) MD_RO.observe(node);
-  mdOutline();
+  fitWideFormulas();
+  restoreReadingAnchor(anchor);
+  if (COLUMN_OBSERVER) COLUMN_OBSERVER.observe(node);
+  drawOutline();
   marks();
   mdRelevel();
   mdSelMark(mdSelShown());
   mdStrip();
-  mdSpotRead(true);
+  readSpot(true);
   updMarks();
-  const j = MD.jumpTo;
+  const jump = MD.jumpTo;
   MD.jumpTo = null;
-  if (j && j.doc === DOC && j.seq === SWITCHSEQ) mdJump(j.id); // a jump asked before the draw (mdJump)
-  const h = MD.headTo;
-  if (h && h.doc === DOC) {
+  if (jump && jump.doc === DOC && jump.seq === SWITCHSEQ) mdJump(jump.id); // a jump asked before the draw (mdJump)
+  const heading = MD.headTo;
+  if (heading && heading.doc === DOC) {
     MD.headTo = null;
-    if (h.seq === SWITCHSEQ) mdGoLink(h.id);
+    if (heading.seq === SWITCHSEQ) goToLinkHeading(heading.id);
   }
 } // a link from another document (mdGoDoc)
-// The line view offers the chosen lines alone (mdLineView): a pick of this document whose ladder came from the drawn document
-// (a draft kept from before the parser failed) keeps its lines but takes the ladder a pick there gives - those lines, as lines.
+// The line view offers the chosen lines alone (lineView): a pick of this document whose ladder came from the drawn
+// document (a draft kept from before the parser failed) keeps its lines but takes the ladder a pick there gives - those
+// lines, as lines.
 function mdRelevel() {
-  const d = COMPOSE.current;
-  if (!d || REPICK || isRegion(d) || d.doc !== DOC || d.file !== MD.file || !$('#md.md-lines')) return;
-  if ((d.levels || []).every((l) => l.level === 'raw' && l.lo === d.lo && l.hi === d.hi)) return;
-  const r = { lo: d.lo as number, hi: d.hi as number };
-  d.levels = mdLevels(r, null, null);
-  d.raw_lo = r.lo;
-  d.raw_hi = r.hi;
-  d.default_level = 'raw';
-  useLevel(d, 'raw');
+  const selection = COMPOSE.current;
+  if (
+    !selection ||
+    REPICK ||
+    isRegion(selection) ||
+    selection.doc !== DOC ||
+    selection.file !== MD.file ||
+    !$('#md.md-lines')
+  )
+    return;
+  if (
+    (selection.levels || []).every(
+      (level) => level.level === 'raw' && level.lo === selection.lo && level.hi === selection.hi,
+    )
+  )
+    return;
+  const range = { lo: selection.lo as number, hi: selection.hi as number };
+  selection.levels = markdownLevels(range, null, null);
+  selection.raw_lo = range.lo;
+  selection.raw_hi = range.hi;
+  selection.default_level = 'raw';
+  useLevel(selection, 'raw');
   renderComposer();
 }
 function mdWait(text) {
-  const w = document.createElement('div');
-  w.className = 'md-wait dim';
-  w.textContent = text;
-  return w;
+  const line = document.createElement('div');
+  line.className = 'md-wait dim';
+  line.textContent = text;
+  return line;
 }
-// A notice in the document's place (a limit hit before anything could be drawn, or a source not read): data-limit names the limit.
-function mdNote(text: string, limit: string) {
-  const n = document.createElement('div');
-  n.className = 'md-note';
-  n.id = 'md';
-  n.setAttribute('role', 'status');
-  n.textContent = text;
-  if (limit) n.dataset.limit = limit;
-  return n;
+// A notice in the document's place (a limit hit before anything could be drawn, or a source not read): data-limit names
+// the limit.
+function documentNotice(text: string, limit: string) {
+  const notice = document.createElement('div');
+  notice.className = 'md-note';
+  notice.id = 'md';
+  notice.setAttribute('role', 'status');
+  notice.textContent = text;
+  if (limit) notice.dataset.limit = limit;
+  return notice;
 }
 // A size in MiB as the notices say it: '1.5 MiB', '1 MiB'.
-function mdMiB(b) {
-  const m = (+b || 0) / 1048576;
-  return (Math.round(m * 10) / 10).toLocaleString('en') + ' MiB';
+function mdMiB(bytes) {
+  const mebibytes = (+bytes || 0) / 1048576;
+  return (Math.round(mebibytes * 10) / 10).toLocaleString('en') + ' MiB';
 }
-function mdCount(n) {
-  return Number(n).toLocaleString('en');
+function mdCount(count) {
+  return Number(count).toLocaleString('en');
 }
-// The plain source-line view: every server line as a line span (data-line), numbered by CSS, under a line naming the limit
-// that was hit - each marked character in its box, or past MD_LIMITS.elements every one by its name (srcLines, as the text
-// surface draws its lines), with the notice that says which. Pins, the composer and suggested edits work as ever; the ladder
-// has the chosen lines only. null when a newer draw came (stale) while it was built.
-async function mdLineView(limit: string, stale: () => boolean): Promise<HTMLElement | null> {
-  const r = await srcLines(mdLineSpan, 'md-src', stale);
-  if (!r) return null;
+// The plain source-line view: every server line as a line span (data-line), numbered by CSS, under a line naming the
+// limit that was hit - each marked character in its box, or past MD_LIMITS.elements every one by its name (srcLines, as
+// the text surface draws its lines), with the notice that says which. Pins, the composer and suggested edits work as
+// ever; the ladder has the chosen lines only. null when a newer draw came (stale) while it was built.
+async function lineView(limit: string, stale: () => boolean): Promise<HTMLElement | null> {
+  const drawn = await srcLines(lineViewSpan, 'md-src', stale);
+  if (!drawn) return null;
   const root = document.createElement('article');
   root.className = 'md md-lines';
   root.id = 'md';
   root.dataset.limit = limit;
   root.setAttribute('translate', 'no');
-  root.lang = ''; // as mdRenderAll's
+  root.lang = ''; // as renderDocument's
   const head = document.createElement('div');
   head.className = 'md-limit';
   head.setAttribute('role', 'status');
   head.textContent = mdLimitText(limit);
   head.lang = document.documentElement.lang;
   root.appendChild(head); // the viewer's words, in the screen's language
-  MD.marked = r.marked;
-  if (r.marked) root.appendChild(txNote('marks', r.names ? txNamesText(r.marked) : txMarksText(r.marked)));
-  root.appendChild(r.body);
+  MD.marked = drawn.marked;
+  if (drawn.marked)
+    root.appendChild(txNote('marks', drawn.names ? txNamesText(drawn.marked) : txMarksText(drawn.marked)));
+  root.appendChild(drawn.body);
   return root;
 }
-// The line view's span for line n (srcLines fills it).
-function mdLineSpan(ln: string, n: number) {
-  const s = document.createElement('span');
-  s.className = 'ln';
-  s.dataset.line = String(n);
-  return s;
+// The line view's empty span of a line (srcLines fills it).
+function lineViewSpan(text: string, line: number) {
+  const span = document.createElement('span');
+  span.className = 'ln';
+  span.dataset.line = String(line);
+  return span;
 }
 // The line view's head line for limit (MD_LIMIT).
 function mdLimitText(limit) {
@@ -677,212 +717,227 @@ function mdLimitText(limit) {
       return tr('Markdown을 읽지 못해 원문 줄로 보입니다');
   }
 }
-// The elements that carry lines, in document order (line spans and blocks). Their tops never decrease in that order - a block
-// precedes what it holds and stands no lower - so the one at a height is found by halving (mdAt), never by measuring them all.
-function mdLineEls() {
-  const md = $('#md');
-  return md ? ([...md.querySelectorAll('[data-line],[data-lo]')] as HTMLElement[]) : [];
+// The elements that carry lines, in document order (line spans and blocks). Their tops never decrease in that order - a
+// block precedes what it holds and stands no lower - so the one at a height is found by halving (lineElementAt), never
+// by measuring them all.
+function lineElements() {
+  const column = $('#md');
+  return column ? ([...column.querySelectorAll('[data-line],[data-lo]')] as HTMLElement[]) : [];
 }
-// The last of els whose top is at or above y (viewport px), or null before the first. O(log n) measures.
-function mdAt(els: HTMLElement[], y: number) {
-  let lo = 0,
-    hi = els.length - 1,
+// The last of elements whose top is at or above y (viewport px), or null before the first. O(log n) measures.
+function lineElementAt(elements: HTMLElement[], y: number) {
+  let low = 0,
+    high = elements.length - 1,
     at = -1;
-  while (lo <= hi) {
-    const m = (lo + hi) >> 1;
-    if (els[m].getBoundingClientRect().top <= y) {
-      at = m;
-      lo = m + 1;
-    } else hi = m - 1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (elements[middle].getBoundingClientRect().top <= y) {
+      at = middle;
+      low = middle + 1;
+    } else high = middle - 1;
   }
-  return at < 0 ? null : els[at];
+  return at < 0 ? null : elements[at];
 }
-// The reading spot: the line span or block at the pane's top (mdAt), its first line and the px of it above that top.
+// The reading spot: the line span or block at the pane's top (lineElementAt), its first line and the px of it above
+// that top.
 function mdAnchor() {
-  const L = $('#left');
+  const pane = $('#left');
   if (!$('#md') || !MD.lines.length) return null;
-  const top = L.getBoundingClientRect().top,
-    e = mdAt(mdLineEls(), top);
-  return e
-    ? { line: +(e.dataset.line || e.dataset.lo || 0), off: top - e.getBoundingClientRect().top, top: L.scrollTop }
+  const top = pane.getBoundingClientRect().top,
+    element = lineElementAt(lineElements(), top);
+  return element
+    ? {
+        line: +(element.dataset.line || element.dataset.lo || 0),
+        off: top - element.getBoundingClientRect().top,
+        top: pane.scrollTop,
+      }
     : null;
 }
-function mdRestore(a) {
-  const L = $('#left');
-  if (!a) {
+function restoreReadingAnchor(anchor) {
+  const pane = $('#left');
+  if (!anchor) {
     return;
   }
-  const e = mdLeaves(a.line, a.line)[0];
-  if (!e) {
-    L.scrollTop = a.top;
+  const element = mdLeaves(anchor.line, anchor.line)[0];
+  if (!element) {
+    pane.scrollTop = anchor.top;
     return;
   }
-  L.scrollTop += e.getBoundingClientRect().top + a.off - L.getBoundingClientRect().top;
+  pane.scrollTop += element.getBoundingClientRect().top + anchor.off - pane.getBoundingClientRect().top;
 }
 // ---------------- The reading spot across a reflow (docs/handbook/viewer.md §그리기)
-// The column reflows the moment its width changes - a rotation, the panel collapsing beside it, a window resized, the outline
-// opening - and the scroll offset alone then stands on other lines (the top line went from L247 to L307). So the spot is read
-// while the width stands - on each scroll's frame and after each draw (mdSpotRead) - and put back once the width has moved
-// (mdSpotKeep): from relayout, and from the column's ResizeObserver, which runs after the layout and before the paint. A scroll
-// the reflow itself makes (an offset cut back to the new height) reads only after the spot is back.
-// Reads the spot now: the line element at the document area's top (mdAt) and how far down it the top is (frac, 0-1, and past:
-// the px below the element's end when the top falls in the room after it - the rest of a line's leading, a block's margin,
-// which no reflow changes; el null at the very top), the column's width and the pane's scroll offset (top), and whether the
-// chosen lines (.md-sel) are on screen. A read at a width that is not
-// the spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
-// While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before stays -
-// a redraw there too (mdShow) - for mdSpotKeep to put back once the column is shown again. A spot a hidden redraw left to be
-// put back (again) is not read over before that, even at its width: the scroll the column's showing makes is not the person's.
-function mdSpotRead(force?: boolean) {
-  const md = $('#md'),
-    L = $('#left');
-  if (!isMdDoc() || !md || MD.shown !== DOC) {
+// The column reflows the moment its width changes - a rotation, the panel collapsing beside it, a window resized, the
+// outline opening - and the scroll offset alone then stands on other lines (the top line moves by tens of lines). So
+// the spot is read while the width stands - on each scroll's frame and after each draw (readSpot) - and put back once
+// the width has moved (mdSpotKeep): from relayout, and from the column's ResizeObserver, which runs after the layout
+// and before the paint. A scroll the reflow itself makes (an offset cut back to the new height) reads only after the
+// spot is back. Reads the spot now: the line element at the document area's top (lineElementAt) and how far down it the
+// top is (frac, 0-1, and past: the px below the element's end when the top falls in the room after it - the rest of a
+// line's leading, a block's margin, which no reflow changes; el null at the very top), the column's width and the
+// pane's scroll offset (top), and whether the chosen lines (.md-sel) are on screen. A read at a width that is not the
+// spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
+// While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before
+// stays - a redraw there too (showDocumentNode) - for mdSpotKeep to put back once the column is shown again. A spot a
+// hidden redraw left to be put back (again) is not read over before that, even at its width: the scroll the column's
+// showing makes is not the person's.
+function readSpot(force?: boolean) {
+  const column = $('#md'),
+    pane = $('#left');
+  if (!isMdDoc() || !column || MD.shown !== DOC) {
     MD.spot = null;
     return;
   }
-  const s = MD.spot,
-    w = md.getBoundingClientRect().width;
-  if (!mdLaidOut(w)) return;
-  if (!force && s && s.doc === DOC && (s.w !== w || s.again)) return;
-  const top = L.getBoundingClientRect().top,
-    e = L.scrollTop > 0 ? mdAt(mdLineEls(), top) : null,
-    r = e && e.getBoundingClientRect(),
-    into = r ? top - r.top : 0;
+  const spot = MD.spot,
+    width = column.getBoundingClientRect().width;
+  if (!isColumnLaidOut(width)) return;
+  if (!force && spot && spot.doc === DOC && (spot.w !== width || spot.again)) return;
+  const top = pane.getBoundingClientRect().top,
+    element = pane.scrollTop > 0 ? lineElementAt(lineElements(), top) : null,
+    rect = element && element.getBoundingClientRect(),
+    into = rect ? top - rect.top : 0;
   MD.spot = {
     doc: DOC,
-    w,
-    top: L.scrollTop,
-    el: e,
-    line: e ? +(e.dataset.line || e.dataset.lo || 0) : 0,
-    key: e ? (e.dataset.line ? 'line' : 'lo') : '',
-    frac: r && r.height ? Math.min(1, Math.max(0, into / r.height)) : 0,
-    past: r ? Math.max(0, into - r.height) : 0,
+    w: width,
+    top: pane.scrollTop,
+    el: element,
+    line: element ? +(element.dataset.line || element.dataset.lo || 0) : 0,
+    key: element ? (element.dataset.line ? 'line' : 'lo') : '',
+    frac: rect && rect.height ? Math.min(1, Math.max(0, into / rect.height)) : 0,
+    past: rect ? Math.max(0, into - rect.height) : 0,
     off: null,
-    sel: mdSelSeen(),
+    sel: isChosenSeen(),
     again: false,
   };
 }
-// The element that stands for spot s's line now: its element if still drawn, else the one a redraw drew for that line - the
-// same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the line is gone,
-// the source got shorter - the nearest line kept before it (mdSpotNear). null: the very top.
-function mdSpotEl(s: NonNullable<typeof MD.spot>) {
-  if (s.el && s.el.isConnected) return s.el;
-  if (!s.line) return null;
-  const md = $('#md'),
-    k = s.key === 'lo' ? 'data-lo' : 'data-line',
-    e = (md && md.querySelector('[' + k + '="' + s.line + '"]')) as HTMLElement | null;
-  return e || mdLeaves(s.line, s.line)[0] || mdSpotNear(s.line);
+// The element that stands for the spot's line now: its element if still drawn, else the one a redraw drew for that line
+// - the same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the
+// line is gone, the source got shorter - the nearest line kept before it (nearestLineElement). null: the very top.
+function spotElement(spot: NonNullable<typeof MD.spot>) {
+  if (spot.el && spot.el.isConnected) return spot.el;
+  if (!spot.line) return null;
+  const column = $('#md'),
+    attribute = spot.key === 'lo' ? 'data-lo' : 'data-line',
+    element = (column && column.querySelector('[' + attribute + '="' + spot.line + '"]')) as HTMLElement | null;
+  return element || mdLeaves(spot.line, spot.line)[0] || nearestLineElement(spot.line);
 }
-// The last line element that starts at or before line n (mdLineEls are in document order, their first lines never going
-// back), or null when none does.
-function mdSpotNear(n: number) {
-  const els = mdLineEls();
+// The last line element that starts at or before line (lineElements are in document order, their first lines never
+// going back), or null when none does.
+function nearestLineElement(line: number) {
+  const elements = lineElements();
   let at = -1;
-  for (let i = 0; i < els.length; i++) {
-    if (+(els[i].dataset.line || els[i].dataset.lo || 0) > n) break;
+  for (let i = 0; i < elements.length; i++) {
+    if (+(elements[i].dataset.line || elements[i].dataset.lo || 0) > line) break;
     at = i;
   }
-  return at < 0 ? null : els[at];
+  return at < 0 ? null : elements[at];
 }
-// Whether element e carries line n: a line span of n, or a block whose lines lo..hi hold n.
-function mdCarries(e: HTMLElement, n: number) {
-  if (e.dataset.line) return +e.dataset.line === n;
-  const lo = +(e.dataset.lo || 0),
-    hi = +(e.dataset.hi || e.dataset.lo || 0);
-  return lo <= n && n <= hi;
+// Whether element carries line: a line span of it, or a block whose lines first..last hold it.
+function carriesLine(element: HTMLElement, line: number) {
+  if (element.dataset.line) return +element.dataset.line === line;
+  const first = +(element.dataset.lo || 0),
+    last = +(element.dataset.hi || element.dataset.lo || 0);
+  return first <= line && line <= last;
 }
-// Puts the spot back after the column's width moved: the same point of the same line element at the area's top (as far into
-// it, as far past its end; the very top stays the top), then - when the chosen lines were on screen - those lines back into view (revealBox, every layout), and
-// reads the spot at the new width. Nothing moves while the width is the spot's - unless the document was drawn again while
-// the column was hidden (again: the scroll offset then stands on other lines even at the same width) - nor while the column
-// is not laid out (mdLaidOut): the spot waits for the column's next width. A write is held under half a pixel. During a jump
-// to a heading (MD.goTo) the spot is only a point the scroll passes: the jump is aimed again at its heading instead (mdGoOn).
+// Puts the spot back after the column's width moved: the same point of the same line element at the area's top (as far
+// into it, as far past its end; the very top stays the top), then - when the chosen lines were on screen - those lines
+// back into view (revealBox, every layout), and reads the spot at the new width. Nothing moves while the width is the
+// spot's - unless the document was drawn again while the column was hidden (again: the scroll offset then stands on
+// other lines even at the same width) - nor while the column is not laid out (isColumnLaidOut): the spot waits for the
+// column's next width. A write is held under half a pixel. During a jump to a heading (MD.goTo) the spot is only a
+// point the scroll passes: the jump is aimed again at its heading instead (goOnToHeading).
 function mdSpotKeep() {
-  const s = MD.spot,
-    md = $('#md'),
-    L = $('#left');
-  if (!s || s.doc !== DOC || !md || !isMdDoc() || MD.shown !== DOC) return;
-  const w = md.getBoundingClientRect().width;
-  if ((w === s.w && !s.again) || !mdLaidOut(w)) return;
-  if (mdGoOn()) {
-    mdSpotRead(true);
+  const spot = MD.spot,
+    column = $('#md'),
+    pane = $('#left');
+  if (!spot || spot.doc !== DOC || !column || !isMdDoc() || MD.shown !== DOC) return;
+  const width = column.getBoundingClientRect().width;
+  if ((width === spot.w && !spot.again) || !isColumnLaidOut(width)) return;
+  if (goOnToHeading()) {
+    readSpot(true);
     return;
   } // a jump in flight goes on to its heading's new place: the spot is a point it passes
-  const e = mdSpotEl(s);
-  if (!e) {
-    if (L.scrollTop > 0) L.scrollTop = 0;
+  const element = spotElement(spot);
+  if (!element) {
+    if (pane.scrollTop > 0) pane.scrollTop = 0;
   } else {
-    const r = e.getBoundingClientRect(),
-      into = !s.line || mdCarries(e, s.line) ? (s.off !== null ? s.off : s.frac * r.height + s.past) : 0; // a nearer line kept: its top
-    const d = r.top + into - L.getBoundingClientRect().top;
-    if (Math.abs(d) >= 0.5) L.scrollTop += d;
+    const rect = element.getBoundingClientRect(),
+      into =
+        !spot.line || carriesLine(element, spot.line)
+          ? spot.off !== null
+            ? spot.off
+            : spot.frac * rect.height + spot.past
+          : 0; // a nearer line kept: its top
+    const drift = rect.top + into - pane.getBoundingClientRect().top;
+    if (Math.abs(drift) >= 0.5) pane.scrollTop += drift;
   }
-  if (s.sel) revealBox(document.querySelector('#md .md-sel') as HTMLElement | null, true);
-  mdSpotRead(true);
+  if (spot.sel) revealBox(document.querySelector('#md .md-sel') as HTMLElement | null, true);
+  readSpot(true);
 }
-// Something above the reading spot changed its height while the width stood - an image that got its size or gave way to its
-// alt text (mdPicLoad, mdPicError): the spot is put back as after a reflow (mdSpotKeep), one model for both. While the
-// column is hidden (under the changes view) nothing can be measured: the spot waits, marked again, for the column to be shown.
-// The spot put back is the one mdSpotFresh made sure of just before the change.
-function mdSpotBack() {
-  const s = MD.spot;
-  if (!s || s.doc !== DOC) return;
-  s.again = true;
+// Something above the reading spot changed its height while the width stood - an image that got its size or gave way to
+// its alt text (onImageLoad, onImageError): the spot is put back as after a reflow (mdSpotKeep), one model for both.
+// While the column is hidden (under the changes view) nothing can be measured: the spot waits, marked again, for the
+// column to be shown. The spot put back is the one refreshMovedSpot made sure of just before the change.
+function putSpotBack() {
+  const spot = MD.spot;
+  if (!spot || spot.doc !== DOC) return;
+  spot.again = true;
   mdSpotKeep();
 }
-// Just before the page changes the column's layout (an image's new size, mdPicLoad, mdPicError): when the pane stands
-// elsewhere than where the spot was read (top, to 1px), something has moved the pane since - a scroll whose frame has
-// not come (the pane's scroll listener reads on the frame, and on a renderer too busy to paint an image's load comes
-// first), the browser's find, a focus or another script, the browser's scroll anchoring after another change - and the
-// spot is read where the pane stands, so mdSpotBack does not undo that move. The image's own change comes after this
-// check (an image's box changes nowhere but in those handlers, mdPicSize), but a reflow at the same width may have come
-// before it - a web font swapped in, a run of HTML blocks opened or closed - and one that shortened the document may
-// have moved the offset itself: the browser cuts an offset the pane can no longer scroll to back to its new end. That
-// one cut, and no other offset, is not taken for a move: the offset read before beyond what the pane can scroll now (its
-// end, scrollHeight - clientHeight) and the pane standing at that end, to 1px. The spot read before is then kept for
-// mdSpotBack to put back across the reflow, as after a width's (mdSpotKeep); a move to the end made before the same
-// frame - End, or a scroll the cut then ate - goes back with it. Any other offset is a move, the cut's too once a move
-// took the pane from that end (Home after a font's reflow), whatever reflowed the column: told by the offset and the
-// scroll range alone, the check asks nothing of the page's other changes - whether they read the spot again after them.
-// An image's own change reads it after (mdSpotBack, or mdPicMoved during a heading jump), so the next image's check
-// starts from the layout this one left, and an End after a failed image shortened the document is not taken for a cut.
-// Not while the width moved (a reflow is mdSpotKeep's), nor while a redraw or a load under the hidden column waits
-// (again), nor while the column is not laid out (a hidden pane's offset reads 0).
-function mdSpotFresh() {
-  const s = MD.spot,
-    md = $('#md'),
-    L = $('#left');
-  if (!s || s.doc !== DOC || s.again || !md || !isMdDoc() || MD.shown !== DOC) return;
-  const w = md.getBoundingClientRect().width;
-  if (w !== s.w || !mdLaidOut(w)) return;
-  const end = L.scrollHeight - L.clientHeight;
-  if (s.top > end && L.scrollTop >= end - 1) return; // cut back to a shorter end
-  if (Math.abs(L.scrollTop - s.top) >= 1) mdSpotRead(true);
+// Just before the page changes the column's layout (an image's new size, onImageLoad, onImageError): when the pane
+// stands elsewhere than where the spot was read (top, to 1px), something has moved the pane since - a scroll whose
+// frame has not come (the pane's scroll listener reads on the frame, and on a renderer too busy to paint an image's
+// load comes first), the browser's find, a focus or another script, the browser's scroll anchoring after another change
+// - and the spot is read where the pane stands, so putSpotBack does not undo that move. The image's own change comes
+// after this check (an image's box changes nowhere but in those handlers, sizeImage), but a reflow at the same width
+// may have come before it - a web font swapped in, a run of HTML blocks opened or closed - and one that shortened the
+// document may have moved the offset itself: the browser cuts an offset the pane can no longer scroll to back to its
+// new end. That one cut, and no other offset, is not taken for a move: the offset read before beyond what the pane can
+// scroll now (its end, scrollHeight - clientHeight) and the pane standing at that end, to 1px. The spot read before is
+// then kept for putSpotBack to put back across the reflow, as after a width's (mdSpotKeep); a move to the end made
+// before the same frame - End, or a scroll the cut then ate - goes back with it. Any other offset is a move, the cut's
+// too once a move took the pane from that end (Home after a font's reflow), whatever reflowed the column: told by the
+// offset and the scroll range alone, the check asks nothing of the page's other changes - whether they read the spot
+// again after them. An image's own change reads it after (putSpotBack, or afterImageChange during a heading jump), so
+// the next image's check starts from the layout this one left, and an End after a failed image shortened the document
+// is not taken for a cut. Not while the width moved (a reflow is mdSpotKeep's), nor while a redraw or a load under the
+// hidden column waits (again), nor while the column is not laid out (a hidden pane's offset reads 0).
+function refreshMovedSpot() {
+  const spot = MD.spot,
+    column = $('#md'),
+    pane = $('#left');
+  if (!spot || spot.doc !== DOC || spot.again || !column || !isMdDoc() || MD.shown !== DOC) return;
+  const width = column.getBoundingClientRect().width;
+  if (width !== spot.w || !isColumnLaidOut(width)) return;
+  const end = pane.scrollHeight - pane.clientHeight;
+  if (spot.top > end && pane.scrollTop >= end - 1) return; // cut back to a shorter end
+  if (Math.abs(pane.scrollTop - spot.top) >= 1) readSpot(true);
 }
-// Whether the document column is laid out at width w (#md's): shown (#left has boxes - not under the changes view) and wider than 0.
-function mdLaidOut(w: number) {
-  return w > 0 && mdColumnShown();
+// Whether the document column is laid out at width (#md's): shown (#left has boxes - not under the changes view) and
+// wider than 0.
+function isColumnLaidOut(width: number) {
+  return width > 0 && isColumnShown();
 }
-function mdColumnShown() {
+function isColumnShown() {
   return $('#left').getClientRects().length > 0;
 }
 // Whether any of the chosen lines (.md-sel) stands in the part of the document area they can be seen in (selRoom).
-function mdSelSeen() {
-  const e = document.querySelector('#md .md-sel');
-  if (!e) return false;
-  const r = e.getBoundingClientRect(),
-    m = selRoom();
-  return r.bottom > m.top && r.top < m.bottom - 8;
+function isChosenSeen() {
+  const chosen = document.querySelector('#md .md-sel');
+  if (!chosen) return false;
+  const rect = chosen.getBoundingClientRect(),
+    room = selRoom();
+  return rect.bottom > room.top && rect.top < room.bottom - 8;
 }
-// Builds article#md from the worker's tokens (mdRender, with MD as its render context), with a yield to the browser and a
-// check for a newer draw whenever mdRender pauses, or null when the elements built pass MD_LIMITS.elements (stale(): a newer
-// draw - then whatever was built is dropped too).
-async function mdRenderAll(tokens: any[], stale: () => boolean): Promise<HTMLElement | null> {
+// Builds article#md from the worker's tokens (mdRender, with MD as its render context), with a yield to the browser and
+// a check for a newer draw whenever mdRender pauses, or null when the elements built pass MD_LIMITS.elements (stale():
+// a newer draw - then whatever was built is dropped too).
+async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('article');
   root.className = 'md';
   root.id = 'md';
   root.setAttribute('translate', 'no');
-  root.lang = ''; // the document's language is not known (docs/handbook/viewer.md §그리기): not the screen's (<html lang>)
+  // the document's language is not known (docs/handbook/viewer.md §그리기): not the screen's (<html lang>)
+  root.lang = '';
   MD.els = 0;
   MD.marked = 0;
   MD.tex = 0;
@@ -895,115 +950,126 @@ async function mdRenderAll(tokens: any[], stale: () => boolean): Promise<HTMLEle
       await mdYield();
       if (stale()) return null;
     }
-  } catch (e) {
-    if (e === MD_OVER) return null;
-    throw e;
+  } catch (error) {
+    if (error === MD_OVER) return null;
+    throw error;
   }
-  if (MD.marked) root.prepend(txNote('marks', txMarksText(MD.marked))); // the text surface's notice (text-surface.js), above the first block
+  // the text surface's notice (text-surface.ts), above the first block
+  if (MD.marked) root.prepend(txNote('marks', txMarksText(MD.marked)));
   return root;
 }
-// The DOM build as a generator that pauses after every MD_LIMITS.chunk units of work - a token, an inline child, a code line,
-// one block of a raw HTML run - counted on one counter (w, mdDue) wherever they fall: one paragraph of 120,000 inline tokens
-// or one code block of 30,000 lines pauses inside itself. Two or more raw HTML blocks in a row are one run (mdHtmlRunEl).
-// cx is the draw's render context (MdRx): its lines, its element count, its marked characters and its headings.
-function* mdRender(root: HTMLElement, tokens: any[], cx: MdRx): Generator<void, void, void> {
-  const r = mdRenderer(root, cx),
-    w = { n: 0 };
+// The DOM build as a generator that pauses after every MD_LIMITS.chunk units of work - a token, an inline child, a code
+// line, one block of a raw HTML run - counted on one counter (work, mdDue) wherever they fall: one paragraph of 120,000
+// inline tokens or one code block of 30,000 lines pauses inside itself. Two or more raw HTML blocks in a row are one
+// run (htmlRunElement). context is the draw's render context (RenderContext): its lines, its element count, its marked
+// characters and its headings.
+function* mdRender(root: HTMLElement, tokens: any[], context: RenderContext): Generator<void, void, void> {
+  const renderer = makeRenderer(root, context),
+    work = { n: 0 };
   for (let i = 0; i < tokens.length; i++) {
-    const t = tokens[i];
-    let j = i;
-    while (t.type === 'html_block' && tokens[j + 1] && tokens[j + 1].type === 'html_block') j++;
-    if (j > i) {
-      yield* r.run(tokens.slice(i, j + 1), w);
-      i = j;
-    } else yield* r.token(t, w);
-    if (mdDue(w)) yield;
+    const token = tokens[i];
+    let last = i;
+    while (token.type === 'html_block' && tokens[last + 1] && tokens[last + 1].type === 'html_block') last++;
+    if (last > i) {
+      yield* renderer.run(tokens.slice(i, last + 1), work);
+      i = last;
+    } else yield* renderer.token(token, work);
+    if (mdDue(work)) yield;
   }
 }
-// One unit of work on counter w: true when MD_LIMITS.chunk of them have been done since the last pause (and the count restarts).
-function mdDue(w: { n: number }) {
-  if (++w.n < MD_LIMITS.chunk) return false;
-  w.n = 0;
+// One unit of work on counter work: true when MD_LIMITS.chunk of them have been done since the last pause (and the
+// count restarts).
+function mdDue(work: { n: number }) {
+  if (++work.n < MD_LIMITS.chunk) return false;
+  work.n = 0;
   return true;
 }
-const MD_OVER = { over: true }; // thrown by mdEl past MD_LIMITS.elements
-// One element of the drawn document, counted against MD_LIMITS.elements on render context cx.
-function mdEl(tag: string, cx: MdRx): HTMLElement {
-  if (++cx.els > MD_LIMITS.elements) throw MD_OVER;
+const MD_OVER = { over: true }; // thrown by countedElement past MD_LIMITS.elements
+// One element of the drawn document, counted against MD_LIMITS.elements on the draw's render context.
+function countedElement(tag: string, context: RenderContext): HTMLElement {
+  if (++context.els > MD_LIMITS.elements) throw MD_OVER;
   return document.createElement(tag);
 }
-// ---------------- Characters that hide or reorder text in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
-// Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a link's,
-// inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through mdText, pausing with the
-// rest of the build (mdTextNow only for the placeholder's first line, 120 characters at most): a character of hidden-chars.js's repertoire stays in the text - a selection, a copy and a pin's quote
-// keep it - inside its box (ccBox), so no line reads in another order than its source; a box is two elements against
-// MD_LIMITS.elements (mdBox) and one unit of work (mdDue). A string with none of them, nearly every one, is one text node after
-// one native test (mdPlain). The byte-order mark that starts the file is kept as on the text surface (ccKept's first): line 1
-// is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the first text drawn (the render context's bom).
-// A marked character's box, counted on render context cx.
-function mdBox(ch: string, cx: MdRx): HTMLElement {
-  if ((cx.els += 2) > MD_LIMITS.elements) throw MD_OVER;
-  cx.marked++;
-  return ccBox(ch);
+// ---------------- Hidden characters in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
+// Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a
+// link's, inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through drawText,
+// pausing with the rest of the build (drawTextNow only for the placeholder's first line, 120 characters at most): a
+// character of hidden-chars.ts's repertoire stays in the text - a selection, a copy and a pin's quote keep it - inside
+// its box (ccBox), so no line reads in another order than its source; a box is two elements against MD_LIMITS.elements
+// (markedBox) and one unit of work (mdDue). A string with none of them, nearly every one, is one text node after one
+// native test (isPlainText). The byte-order mark that starts the file is kept as on the text surface (ccKept's first):
+// line 1 is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the first text drawn (the render
+// context's bom). A marked character's box, counted on the draw's render context.
+function markedBox(character: string, context: RenderContext): HTMLElement {
+  if ((context.els += 2) > MD_LIMITS.elements) throw MD_OVER;
+  context.marked++;
+  return ccBox(character);
 }
-// Whether s goes in as one text node: no character of the repertoire, nor a draw whose first text is still to come (cx.bom).
-function mdPlain(s: string, cx: MdRx) {
-  return !cx.bom && !CC_ANY.test(s);
+// Whether text goes in as one text node: no character of the repertoire, nor a draw whose first text is still to come
+// (context.bom).
+function isPlainText(text: string, context: RenderContext) {
+  return !context.bom && !CC_ANY.test(text);
 }
-// Text s into parent, each marked character in its box, pausing (w: mdRender's counter) after every MD_LIMITS.chunk units; w
-// null: no pause. cx is the draw's render context.
-function* mdText(parent: Node, s: string, w: { n: number } | null, cx: MdRx): Generator<void, void, void> {
-  const str = String(s),
-    first = cx.bom && str.charCodeAt(0) === 0xfeff;
-  cx.bom = false;
-  if (!CC_ANY.test(str)) {
-    if (str) parent.appendChild(document.createTextNode(str));
+// Text piece into parent, each marked character in its box, pausing (work: mdRender's counter) after every
+// MD_LIMITS.chunk units; work null: no pause. context is the draw's render context.
+function* drawText(
+  parent: Node,
+  piece: string,
+  work: { n: number } | null,
+  context: RenderContext,
+): Generator<void, void, void> {
+  const text = String(piece),
+    first = context.bom && text.charCodeAt(0) === 0xfeff;
+  context.bom = false;
+  if (!CC_ANY.test(text)) {
+    if (text) parent.appendChild(document.createTextNode(text));
     return;
   }
   let at = 0;
-  for (const c of ccScan(str, first)) {
-    if (w && mdDue(w)) yield;
-    if (!c) continue;
-    if (c.at > at) parent.appendChild(document.createTextNode(str.slice(at, c.at)));
-    parent.appendChild(mdBox(c.ch, cx));
-    at = c.at + c.ch.length;
+  for (const hidden of ccScan(text, first)) {
+    if (work && mdDue(work)) yield;
+    if (!hidden) continue;
+    if (hidden.at > at) parent.appendChild(document.createTextNode(text.slice(at, hidden.at)));
+    parent.appendChild(markedBox(hidden.ch, context));
+    at = hidden.at + hidden.ch.length;
   }
-  if (at < str.length) parent.appendChild(document.createTextNode(str.slice(at)));
+  if (at < text.length) parent.appendChild(document.createTextNode(text.slice(at)));
 }
-function mdTextNow(parent: Node, s: string, cx: MdRx) {
-  for (const pause of mdText(parent, s, null, cx)) void pause;
-} // w null: it never pauses
-// Text s into parent once the document is drawn (an image's alt text when it fails), counted on the render context of the
-// draw it is in (mdRxOf): boxes while MD_LIMITS.elements holds them, else the names as plain text (ccPlain).
-function mdTextLate(parent: Node, s: string, cx: MdRx) {
-  if (cx.els + 2 * ccFind(s).length > MD_LIMITS.elements) {
-    parent.appendChild(document.createTextNode(ccPlain(s)));
+function drawTextNow(parent: Node, piece: string, context: RenderContext) {
+  for (const pause of drawText(parent, piece, null, context)) void pause;
+} // work null: it never pauses
+// Text piece into parent once the document is drawn (an image's alt text when it fails), counted on the render context
+// of the draw it is in (renderContextOf): boxes while MD_LIMITS.elements holds them, else the names as plain text
+// (ccPlain).
+function drawTextLate(parent: Node, piece: string, context: RenderContext) {
+  if (context.els + 2 * ccFind(piece).length > MD_LIMITS.elements) {
+    parent.appendChild(document.createTextNode(ccPlain(piece)));
     return;
   }
-  mdTextNow(parent, s, cx);
+  drawTextNow(parent, piece, context);
 }
-function mdAttr(t: any, name: string): string | null {
-  const a = (t && t.attrs) || [];
-  for (const x of a) if (x[0] === name) return String(x[1]);
+function tokenAttribute(token: any, name: string): string | null {
+  const attributes = (token && token.attrs) || [];
+  for (const pair of attributes) if (pair[0] === name) return String(pair[1]);
   return null;
 }
-// The lines lo..hi of a block token's map, its trailing blank lines (of render context cx's lines) left out (a loose list
-// item's map runs over them).
-function mdSpan(t: any, cx: MdRx): { lo: number; hi: number } | null {
-  if (!t.map) return null;
-  let lo = t.map[0] + 1,
-    hi = Math.max(lo, t.map[1]);
-  while (hi > lo && !String(cx.lines[hi - 1] || '').trim()) hi--;
-  return { lo, hi };
+// The lines first..last of a block token's map, its trailing blank lines (of the render context's lines) left out (a
+// loose list item's map runs over them).
+function tokenLines(token: any, context: RenderContext): { lo: number; hi: number } | null {
+  if (!token.map) return null;
+  let first = token.map[0] + 1,
+    last = Math.max(first, token.map[1]);
+  while (last > first && !String(context.lines[last - 1] || '').trim()) last--;
+  return { lo: first, hi: last };
 }
-function mdMap(el: HTMLElement, t: any, kind: string, cx: MdRx) {
-  const s = mdSpan(t, cx);
-  if (!s) return;
-  el.dataset.lo = String(s.lo);
-  el.dataset.hi = String(s.hi);
-  el.dataset.kind = kind;
+function mapLines(element: HTMLElement, token: any, kind: string, context: RenderContext) {
+  const lines = tokenLines(token, context);
+  if (!lines) return;
+  element.dataset.lo = String(lines.lo);
+  element.dataset.hi = String(lines.hi);
+  element.dataset.kind = kind;
 }
-const MD_KIND = {
+const BLOCK_KIND = {
   paragraph_open: 'paragraph',
   heading_open: 'heading',
   bullet_list_open: 'list',
@@ -1013,118 +1079,125 @@ const MD_KIND = {
   table_open: 'table',
   tr_open: 'row',
 };
-// A renderer into root for markdown-it's token stream, one token at a time: block tokens nest by `nesting`, an inline token's
-// children are drawn by mdInline. A paragraph markdown-it hides (a tight list's) puts its text straight into the list item.
-function mdRenderer(root: HTMLElement, cx: MdRx) {
+// A renderer into root for markdown-it's token stream, one token at a time: block tokens nest by `nesting`, an inline
+// token's children are drawn by drawInline. A paragraph markdown-it hides (a tight list's) puts its text straight into
+// the list item.
+function makeRenderer(root: HTMLElement, context: RenderContext) {
   const stack = [root];
-  function* token(t: any, w: { n: number }): Generator<void, void, void> {
+  function* token(markdownToken: any, work: { n: number }): Generator<void, void, void> {
     const top = stack[stack.length - 1];
-    if (t.nesting === 1) {
-      if (t.hidden) {
+    if (markdownToken.nesting === 1) {
+      if (markdownToken.hidden) {
         stack.push(top);
         return;
       }
-      const tag = /^[a-z][a-z0-9]*$/.test(t.tag || '') ? t.tag : 'div',
-        el = mdEl(tag, cx),
-        kind = MD_KIND[t.type];
-      if (kind) mdMap(el, t, kind, cx);
-      if (t.type === 'ordered_list_open') {
-        const s = mdAttr(t, 'start');
-        if (s && /^\d{1,9}$/.test(s)) el.setAttribute('start', s);
+      const tag = /^[a-z][a-z0-9]*$/.test(markdownToken.tag || '') ? markdownToken.tag : 'div',
+        element = countedElement(tag, context),
+        kind = BLOCK_KIND[markdownToken.type];
+      if (kind) mapLines(element, markdownToken, kind, context);
+      if (markdownToken.type === 'ordered_list_open') {
+        const start = tokenAttribute(markdownToken, 'start');
+        if (start && /^\d{1,9}$/.test(start)) element.setAttribute('start', start);
       }
-      if (t.type === 'th_open' || t.type === 'td_open') {
-        const m = /^text-align:(left|right|center)$/.exec(mdAttr(t, 'style') || '');
-        if (m) el.classList.add('md-al-' + m[1]);
+      if (markdownToken.type === 'th_open' || markdownToken.type === 'td_open') {
+        const align = /^text-align:(left|right|center)$/.exec(tokenAttribute(markdownToken, 'style') || '');
+        if (align) element.classList.add('md-al-' + align[1]);
       }
-      if (t.type === 'heading_open' && t.map) {
-        el.id = 'md-h' + (t.map[0] + 1);
-        cx.heads.push({ level: +tag.slice(1) || 1, lo: t.map[0] + 1, el, title: '', slug: '' });
+      if (markdownToken.type === 'heading_open' && markdownToken.map) {
+        element.id = 'md-h' + (markdownToken.map[0] + 1);
+        context.heads.push({
+          level: +tag.slice(1) || 1,
+          lo: markdownToken.map[0] + 1,
+          el: element,
+          title: '',
+          slug: '',
+        });
       }
-      top.appendChild(el);
-      stack.push(el);
+      top.appendChild(element);
+      stack.push(element);
       return;
     }
-    if (t.nesting === -1) {
+    if (markdownToken.nesting === -1) {
       if (stack.length > 1) stack.pop();
       return;
     }
-    if (t.type === 'inline') {
-      yield* mdInline(t, top, w, cx);
-      const h = cx.heads[cx.heads.length - 1];
-      if (h && h.el === top) {
-        h.title = (top.textContent || '').trim();
-        h.slug = mdSlug(h.title);
+    if (markdownToken.type === 'inline') {
+      yield* drawInline(markdownToken, top, work, context);
+      const heading = context.heads[context.heads.length - 1];
+      if (heading && heading.el === top) {
+        heading.title = (top.textContent || '').trim();
+        heading.slug = headingSlug(heading.title);
       }
       if (top.tagName === 'P' && top.querySelectorAll('.md-pic').length === 1 && !(top.textContent || '').trim())
         top.classList.add('md-fig'); // a paragraph that is one image
       return;
     }
-    if (t.type === 'fence' || t.type === 'code_block') {
-      const pre = mdEl('pre', cx),
-        code = mdEl('code', cx);
-      mdMap(pre, t, 'code', cx);
-      const lang = String(t.info || '')
+    if (markdownToken.type === 'fence' || markdownToken.type === 'code_block') {
+      const pre = countedElement('pre', context),
+        code = countedElement('code', context);
+      mapLines(pre, markdownToken, 'code', context);
+      const lang = String(markdownToken.info || '')
         .trim()
         .split(/\s+/)[0];
       if (lang) pre.dataset.lang = lang.slice(0, 40);
-      const first = t.map ? t.map[0] + 1 + (t.type === 'fence' ? 1 : 0) : 0;
+      const first = markdownToken.map ? markdownToken.map[0] + 1 + (markdownToken.type === 'fence' ? 1 : 0) : 0;
       pre.appendChild(code);
       top.appendChild(pre);
-      const lines = t.content ? String(t.content).replace(/\n$/, '').split('\n') : [];
+      const lines = markdownToken.content ? String(markdownToken.content).replace(/\n$/, '').split('\n') : [];
       for (let i = 0; i < lines.length; i++) {
-        const s = mdEl('span', cx),
-          ln = lines[i];
-        s.className = 'ln';
-        if (first) s.dataset.line = String(first + i);
-        if (mdPlain(ln, cx)) s.textContent = ln + '\n';
+        const span = countedElement('span', context),
+          text = lines[i];
+        span.className = 'ln';
+        if (first) span.dataset.line = String(first + i);
+        if (isPlainText(text, context)) span.textContent = text + '\n';
         else {
-          yield* mdText(s, ln, w, cx);
-          s.appendChild(document.createTextNode('\n'));
+          yield* drawText(span, text, work, context);
+          span.appendChild(document.createTextNode('\n'));
         }
-        code.appendChild(s);
-        if (mdDue(w)) yield;
+        code.appendChild(span);
+        if (mdDue(work)) yield;
       }
       return;
     }
-    if (t.type === 'hr') {
-      const hr = mdEl('hr', cx);
-      mdMap(hr, t, 'rule', cx);
-      top.appendChild(hr);
+    if (markdownToken.type === 'hr') {
+      const rule = countedElement('hr', context);
+      mapLines(rule, markdownToken, 'rule', context);
+      top.appendChild(rule);
       return;
     }
-    if (t.type === 'front_matter') {
-      yield* mdFront(t, top, w, cx);
+    if (markdownToken.type === 'front_matter') {
+      yield* drawFrontMatter(markdownToken, top, work, context);
       return;
     }
-    if (t.type === 'math_block') {
-      yield* mdMath(t, top, w, cx);
+    if (markdownToken.type === 'math_block') {
+      yield* drawMathBlock(markdownToken, top, work, context);
       return;
     }
-    if (t.type === 'html_block') top.appendChild(mdHtmlBox(t, cx));
+    if (markdownToken.type === 'html_block') top.appendChild(htmlPlaceholder(markdownToken, context));
   }
-  // A run of raw HTML blocks in a row (mdHtmlRunEl), or each block on its own when one has no lines.
-  function* run(ts: any[], w: { n: number }): Generator<void, void, void> {
-    const spans = ts.map((x) => mdSpan(x, cx));
-    if (spans.some((s) => !s)) {
-      for (const t of ts) {
-        yield* token(t, w);
-        if (mdDue(w)) yield;
+  // A run of raw HTML blocks in a row (htmlRunElement), or each block on its own when one has no lines.
+  function* run(tokens: any[], work: { n: number }): Generator<void, void, void> {
+    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context));
+    if (spans.some((span) => !span)) {
+      for (const htmlToken of tokens) {
+        yield* token(htmlToken, work);
+        if (mdDue(work)) yield;
       }
       return;
     }
-    const el = mdHtmlRunEl(
-        ts.length,
+    const runElement = htmlRunElement(
+        tokens.length,
         (spans[0] as { lo: number; hi: number }).lo,
         (spans[spans.length - 1] as { lo: number; hi: number }).hi,
-        cx,
+        context,
       ),
-      body = el.lastChild as HTMLElement;
-    stack[stack.length - 1].appendChild(el);
-    for (const t of ts) {
-      const b = mdHtmlBox(t, cx);
-      mdHtmlHold(b, false);
-      body.appendChild(b);
-      if (mdDue(w)) yield;
+      body = runElement.lastChild as HTMLElement;
+    stack[stack.length - 1].appendChild(runElement);
+    for (const htmlToken of tokens) {
+      const placeholder = htmlPlaceholder(htmlToken, context);
+      holdHtmlLines(placeholder, false);
+      body.appendChild(placeholder);
+      if (mdDue(work)) yield;
     }
   }
   return { token, run };
@@ -1132,228 +1205,256 @@ function mdRenderer(root: HTMLElement, cx: MdRx) {
 // YAML front matter (the worker's front_matter token, mdFrontMatter in md-parse.mjs; ADR-0032): a box that carries the
 // block's lines, both '---' lines included (data-lo..hi, kind front - a block of its own, md:front), a head line in the
 // screen's language naming it, and its inner lines one span each (data-line) in a code box. The lines are the server's
-// (cx.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading: the
-// outline, the strip and the sections skip it.
-function* mdFront(t: any, top: HTMLElement, w: { n: number }, cx: MdRx): Generator<void, void, void> {
-  const box = mdEl('div', cx);
+// (context.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading:
+// the outline, the strip and the sections skip it.
+function* drawFrontMatter(
+  token: any,
+  top: HTMLElement,
+  work: { n: number },
+  context: RenderContext,
+): Generator<void, void, void> {
+  const box = countedElement('div', context);
   box.className = 'md-front';
-  mdMap(box, t, 'front', cx);
-  const s = mdSpan(t, cx),
-    lo = s ? s.lo + 1 : 0,
-    hi = s ? s.hi - 1 : -1;
-  const head = mdEl('div', cx);
+  mapLines(box, token, 'front', context);
+  const lines = tokenLines(token, context),
+    first = lines ? lines.lo + 1 : 0,
+    last = lines ? lines.hi - 1 : -1;
+  const head = countedElement('div', context);
   head.className = 'md-front-l';
   head.lang = document.documentElement.lang; // the viewer's words, in the screen's language
-  head.textContent = tl('머리 정보 · YAML {n}줄', { n: Math.max(0, hi - lo + 1) });
-  const pre = mdEl('pre', cx),
-    code = mdEl('code', cx);
+  head.textContent = tl('머리 정보 · YAML {n}줄', { n: Math.max(0, last - first + 1) });
+  const pre = countedElement('pre', context),
+    code = countedElement('code', context);
   pre.dataset.lang = 'yaml';
   pre.appendChild(code);
   box.append(head, pre);
   top.appendChild(box);
-  for (let n = lo; n <= hi; n++) {
-    const sp = mdEl('span', cx),
-      ln = String(cx.lines[n - 1] || '');
-    sp.className = 'ln';
-    sp.dataset.line = String(n);
-    if (mdPlain(ln, cx)) sp.textContent = ln + '\n';
+  for (let line = first; line <= last; line++) {
+    const span = countedElement('span', context),
+      text = String(context.lines[line - 1] || '');
+    span.className = 'ln';
+    span.dataset.line = String(line);
+    if (isPlainText(text, context)) span.textContent = text + '\n';
     else {
-      yield* mdText(sp, ln, w, cx);
-      sp.appendChild(document.createTextNode('\n'));
+      yield* drawText(span, text, work, context);
+      span.appendChild(document.createTextNode('\n'));
     } // hidden characters in their boxes, as a code line's
-    code.appendChild(sp);
-    if (mdDue(w)) yield;
+    code.appendChild(span);
+    if (mdDue(work)) yield;
   }
 }
 // Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032, ADR-0036): the block's lines
-// (data-lo..hi, kind math - a block of its own, md:math) either drawn by KaTeX in one box (mdTexBox, with the source TeX on
-// data-tex so a pin's quote is still the TeX, mdRangeText) or, when it is not drawn, its TeX as written in a code box with
-// each line, its delimiters included, one span (data-line), as a code block's. Drawn, the block is the smallest thing that
-// can be chosen in it - one line of it no longer can be (ADR-0036 D3). The lines are the token's (indentation and quote
-// markers left out).
-function* mdMath(t: any, top: HTMLElement, w: { n: number }, cx: MdRx): Generator<void, void, void> {
-  const first = t.map ? t.map[0] + 1 : 0,
-    lines = String(t.content || '').split('\n');
-  const box = mdTexBox('div', 'md-math-block md-tex', String(t.content || ''), mdTexBlockBody(lines), true, cx);
+// (data-lo..hi, kind math - a block of its own, md:math) either drawn by KaTeX in one box (drawTexBox, with the source
+// TeX on data-tex so a pin's quote is still the TeX, rangeText) or, when it is not drawn, its TeX as written in a code
+// box with each line, its delimiters included, one span (data-line), as a code block's. Drawn, the block is the
+// smallest thing that can be chosen in it - none of its lines can be chosen alone (ADR-0036 D3). The lines are the
+// token's (indentation and quote markers left out).
+function* drawMathBlock(
+  token: any,
+  top: HTMLElement,
+  work: { n: number },
+  context: RenderContext,
+): Generator<void, void, void> {
+  const first = token.map ? token.map[0] + 1 : 0,
+    lines = String(token.content || '').split('\n');
+  const box = drawTexBox(
+    'div',
+    'md-math-block md-tex',
+    String(token.content || ''),
+    blockTexBody(lines),
+    true,
+    context,
+  );
   if (box) {
-    mdMap(box, t, 'math', cx);
+    mapLines(box, token, 'math', context);
     top.appendChild(box);
     return;
   }
-  const pre = mdEl('pre', cx),
-    code = mdEl('code', cx);
+  const pre = countedElement('pre', context),
+    code = countedElement('code', context);
   pre.className = 'md-math-block';
-  mdMap(pre, t, 'math', cx);
+  mapLines(pre, token, 'math', context);
   pre.appendChild(code);
   top.appendChild(pre);
   for (let i = 0; i < lines.length; i++) {
-    const s = mdEl('span', cx),
-      ln = lines[i];
-    s.className = 'ln';
-    if (first) s.dataset.line = String(first + i);
-    if (mdPlain(ln, cx)) s.textContent = ln + '\n';
+    const span = countedElement('span', context),
+      text = lines[i];
+    span.className = 'ln';
+    if (first) span.dataset.line = String(first + i);
+    if (isPlainText(text, context)) span.textContent = text + '\n';
     else {
-      yield* mdText(s, ln, w, cx);
-      s.appendChild(document.createTextNode('\n'));
+      yield* drawText(span, text, work, context);
+      span.appendChild(document.createTextNode('\n'));
     } // hidden characters in their boxes, as a code line's
-    code.appendChild(s);
-    if (mdDue(w)) yield;
+    code.appendChild(span);
+    if (mdDue(work)) yield;
   }
 }
-// A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML itself.
-function mdHtmlBox(t: any, cx: MdRx): HTMLElement {
-  const box = mdEl('div', cx);
-  mdMap(box, t, 'html', cx);
+// A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML
+// itself.
+function htmlPlaceholder(token: any, context: RenderContext): HTMLElement {
+  const box = countedElement('div', context);
+  mapLines(box, token, 'html', context);
   box.className = 'md-html';
-  const sp = mdSpan(t, cx),
-    n = sp ? sp.hi - sp.lo + 1 : 0,
+  const lines = tokenLines(token, context),
+    count = lines ? lines.hi - lines.lo + 1 : 0,
     first =
-      String(t.content || '')
+      String(token.content || '')
         .split('\n')
-        .find((l) => l.trim()) || '';
-  const lab = mdEl('span', cx);
-  lab.className = 'md-html-l';
-  lab.textContent = tl('HTML {lines}줄 · 그리지 않습니다', { lines: n });
+        .find((line) => line.trim()) || '';
+  const label = countedElement('span', context);
+  label.className = 'md-html-l';
+  label.textContent = tl('HTML {lines}줄 · 그리지 않습니다', { lines: count });
   let head = '';
-  let k = 0;
-  for (const ch of first.trim()) {
-    if (++k > 120) break;
-    head += ch;
+  let taken = 0;
+  for (const character of first.trim()) {
+    if (++taken > 120) break;
+    head += character;
   } // 120 characters at most, never half of one
-  const code = mdEl('code', cx);
-  mdTextNow(code, head, cx);
-  box.append(lab, code);
+  const code = countedElement('code', context);
+  drawTextNow(code, head, context);
+  box.append(label, code);
   return box;
 }
-// Two or more raw HTML blocks in a row (a README's head of badges and pictures) are one placeholder, closed: a button naming
-// the blocks and their lines (HTML 블록 N개 · M줄) that opens it (mdHtmlRun), each block then its own placeholder that takes a
-// pin. Only what is on screen carries lines (data-lo/hi): closed, the run stands for all its lines as one HTML block; open, each
-// block for its own (mdHtmlHold keeps the other's in data-r-lo/hi). So the marks, the picks, the ladder and the reading line
-// read whatever is shown and nothing hidden.
-function mdHtmlRunEl(n: number, lo: number, hi: number, cx: MdRx): HTMLElement {
-  const el = mdEl('div', cx);
-  el.className = 'md-html-run';
-  el.dataset.rLo = String(lo);
-  el.dataset.rHi = String(hi);
-  el.dataset.kind = 'html';
-  mdHtmlHold(el, true);
-  const b = mdEl('button', cx) as HTMLButtonElement;
-  b.type = 'button';
-  b.className = 'md-html-sum';
-  b.dataset.act = 'md-html-run';
-  b.setAttribute('aria-expanded', 'false');
+// Two or more raw HTML blocks in a row (a README's head of badges and pictures) are one placeholder, closed: a button
+// naming the blocks and their lines (HTML 블록 N개 · M줄) that opens it (mdHtmlRun), each block then its own
+// placeholder that takes a pin. Only what is on screen carries lines (data-lo/hi): closed, the run stands for all its
+// lines as one HTML block; open, each block for its own (holdHtmlLines keeps the other's in data-r-lo/hi). So the
+// marks, the picks, the ladder and the reading line read whatever is shown and nothing hidden.
+function htmlRunElement(count: number, first: number, last: number, context: RenderContext): HTMLElement {
+  const run = countedElement('div', context);
+  run.className = 'md-html-run';
+  run.dataset.rLo = String(first);
+  run.dataset.rHi = String(last);
+  run.dataset.kind = 'html';
+  holdHtmlLines(run, true);
+  const button = countedElement('button', context) as HTMLButtonElement;
+  button.type = 'button';
+  button.className = 'md-html-sum';
+  button.dataset.act = 'md-html-run';
+  button.setAttribute('aria-expanded', 'false');
   setHtml(
-    b,
-    html`${ic('chevron-right')}<span>${tl('HTML 블록 {n}개 · {lines}줄 · 그리지 않습니다', { n, lines: hi - lo + 1 })}</span>`,
+    button,
+    html`${ic('chevron-right')}<span>${tl('HTML 블록 {n}개 · {lines}줄 · 그리지 않습니다', { n: count, lines: last - first + 1 })}</span>`,
   ); // the chevron turns down when open (CSS)
-  const body = mdEl('div', cx);
+  const body = countedElement('div', context);
   body.className = 'md-html-body';
   body.hidden = true;
-  el.append(b, body);
-  return el;
+  run.append(button, body);
+  return run;
 }
-// Shows (on) or hides (off) element e's lines: data-lo/hi from its kept data-r-lo/hi, or none.
-function mdHtmlHold(e: HTMLElement, on: boolean) {
-  if (!e.dataset.rLo) {
-    e.dataset.rLo = e.dataset.lo || '';
-    e.dataset.rHi = e.dataset.hi || '';
+// Shows (on) or hides (off) the element's lines: data-lo/hi from its kept data-r-lo/hi, or none.
+function holdHtmlLines(element: HTMLElement, on: boolean) {
+  if (!element.dataset.rLo) {
+    element.dataset.rLo = element.dataset.lo || '';
+    element.dataset.rHi = element.dataset.hi || '';
   }
   if (on) {
-    e.dataset.lo = e.dataset.rLo;
-    e.dataset.hi = e.dataset.rHi || '';
+    element.dataset.lo = element.dataset.rLo;
+    element.dataset.hi = element.dataset.rHi || '';
   } else {
-    delete e.dataset.lo;
-    delete e.dataset.hi;
+    delete element.dataset.lo;
+    delete element.dataset.hi;
   }
 }
-// Opens or closes the run of raw HTML blocks whose button btn is (data-act md-html-run), then draws the marks, the chosen lines
-// and the strip again over what is shown.
-function mdHtmlRun(btn: HTMLElement) {
-  const run = btn.closest('.md-html-run') as HTMLElement | null,
+// Opens or closes the run of raw HTML blocks whose button is button (data-act md-html-run), then draws the marks, the
+// chosen lines and the strip again over what is shown.
+function mdHtmlRun(button: HTMLElement) {
+  const run = button.closest('.md-html-run') as HTMLElement | null,
     body = run && (run.querySelector('.md-html-body') as HTMLElement | null);
   if (!run || !body) return;
-  const open = btn.getAttribute('aria-expanded') !== 'true';
-  mdHtmlHold(run, !open);
-  body.querySelectorAll('.md-html').forEach((e) => mdHtmlHold(e as HTMLElement, open));
+  const open = button.getAttribute('aria-expanded') !== 'true';
+  holdHtmlLines(run, !open);
+  body.querySelectorAll('.md-html').forEach((placeholder) => holdHtmlLines(placeholder as HTMLElement, open));
   body.hidden = !open;
-  btn.setAttribute('aria-expanded', String(open));
+  button.setAttribute('aria-expanded', String(open));
   mdMarks();
   mdSelMark(mdSelShown());
   mdStrip();
 }
 // ---------------- Rendered text -> source lines
-// The source line each child of inline token t starts on (pure): t's first line plus the line breaks (softbreak, hardbreak)
-// before the child. The children are flat - emphasis and links are open/close tokens among them - so a break inside one is
-// counted too. That names the right line only when every line end in t's source became such a break. A code span (it turns
-// the line end into a space), a raw HTML tag, a link's destination or title, a reference label or an image's alt text that runs
-// over a line end swallows it, and every child after it would be labelled one line early; markdown-it gives inline children no
-// source offsets to recover from that. So exact is true only when the breaks and the line ends of t.content are as many, and
-// then lines[i] is child i's line; otherwise the caller gives the whole token one range, lo..hi (its first to last line).
-function mdInlineLines(t: { map?: number[] | null; content?: string; children?: { type: string }[] | null }): {
+// The source line each child of an inline token starts on (pure): the token's first line plus the line breaks
+// (softbreak, hardbreak) before the child. The children are flat - emphasis and links are open/close tokens among them
+// - so a break inside one is counted too. That names the right line only when every line end in the token's source
+// became such a break. A code span (it turns the line end into a space), a raw HTML tag, a link's destination or title,
+// a reference label or an image's alt text that runs over a line end swallows it, and every child after it would be
+// labelled one line early; markdown-it gives inline children no source offsets to recover from that. So exact is true
+// only when the breaks and the line ends of token.content are as many, and then lines[i] is child i's line; otherwise
+// the caller gives the whole token one range, lo..hi (its first to last line).
+function inlineLines(token: { map?: number[] | null; content?: string; children?: { type: string }[] | null }): {
   exact: boolean;
   lo: number;
   hi: number;
   lines: number[];
 } {
-  const lo = t.map ? t.map[0] + 1 : 0,
-    ends = (String(t.content || '').match(/\n/g) || []).length;
-  let n = 0;
-  const lines = (t.children || []).map((c) => {
-    const at = lo + n;
-    if (c.type === 'softbreak' || c.type === 'hardbreak') n++;
+  const first = token.map ? token.map[0] + 1 : 0,
+    ends = (String(token.content || '').match(/\n/g) || []).length;
+  let breaks = 0;
+  const lines = (token.children || []).map((child) => {
+    const at = first + breaks;
+    if (child.type === 'softbreak' || child.type === 'hardbreak') breaks++;
     return at;
   });
-  return { exact: lo > 0 && n === ends, lo, hi: lo ? lo + ends : 0, lines };
+  return { exact: first > 0 && breaks === ends, lo: first, hi: first ? first + ends : 0, lines };
 }
-// An inline token's children into parent, its lines as mdInlineLines tells them. Exact: one span per source line (data-line);
-// a break inside emphasis or a link ends the open elements in the old line's span and opens shallow copies of them in the new
-// one, so the text after the break is under its own line. Not exact: one span with the token's whole range (data-lo/data-hi,
-// kind 'lines'), so a selection inside it takes all of those lines - never a wrong one, and never a suggestion's wrong base.
-// A table cell's inline token has no map: its span carries nothing and the row's range stands for it.
-function* mdInline(t: any, parent: HTMLElement, w: { n: number }, cx: MdRx): Generator<void, void, void> {
-  const m = mdInlineLines(t),
-    kids = t.children || [];
-  const mk = (line: number) => {
-    const s = mdEl('span', cx);
-    s.className = 'ln';
-    if (m.exact) s.dataset.line = String(line);
-    else if (m.lo) {
-      s.dataset.lo = String(m.lo);
-      s.dataset.hi = String(m.hi);
-      s.dataset.kind = 'lines';
+// An inline token's children into parent, its lines as inlineLines tells them. Exact: one span per source line
+// (data-line); a break inside emphasis or a link ends the open elements in the old line's span and opens shallow copies
+// of them in the new one, so the text after the break is under its own line. Not exact: one span with the token's whole
+// range (data-lo/data-hi, kind 'lines'), so a selection inside it takes all of those lines - never a wrong one, and
+// never a suggestion's wrong base. A table cell's inline token has no map: its span carries nothing and the row's range
+// stands for it.
+function* drawInline(
+  token: any,
+  parent: HTMLElement,
+  work: { n: number },
+  context: RenderContext,
+): Generator<void, void, void> {
+  const lineInfo = inlineLines(token),
+    children = token.children || [];
+  const makeLineSpan = (line: number) => {
+    const span = countedElement('span', context);
+    span.className = 'ln';
+    if (lineInfo.exact) span.dataset.line = String(line);
+    else if (lineInfo.lo) {
+      span.dataset.lo = String(lineInfo.lo);
+      span.dataset.hi = String(lineInfo.hi);
+      span.dataset.kind = 'lines';
     }
-    parent.appendChild(s);
-    return s;
+    parent.appendChild(span);
+    return span;
   };
-  let stack = [mk(m.lo)] as HTMLElement[];
-  // The pieces of a drawn formula still to pass over: its head drew all of them at once (mdTexRun), so they add nothing here.
+  let stack = [makeLineSpan(lineInfo.lo)] as HTMLElement[];
+  // The pieces of a drawn formula still to pass over: its head drew all of them at once (inlineTexRun), so they add
+  // nothing here.
   let skip = 0;
-  for (let i = 0; i < kids.length; i++) {
-    const c = kids[i],
+  for (let i = 0; i < children.length; i++) {
+    const child = children[i],
       top = stack[stack.length - 1];
-    switch (c.type) {
+    switch (child.type) {
       case 'text':
-        if (mdPlain(c.content, cx)) top.appendChild(document.createTextNode(c.content));
-        else yield* mdText(top, c.content, w, cx);
+        if (isPlainText(child.content, context)) top.appendChild(document.createTextNode(child.content));
+        else yield* drawText(top, child.content, work, context);
         break;
       case 'code_inline': {
-        const e = mdEl('code', cx);
-        top.appendChild(e);
-        yield* mdText(e, c.content, w, cx);
+        const element = countedElement('code', context);
+        top.appendChild(element);
+        yield* drawText(element, child.content, work, context);
         break;
       }
       case 'softbreak':
       case 'hardbreak':
-        // Inside a drawn formula the line end is already in the box's data-tex (mdInline's math_inline): writing it again
-        // would put it in the quote twice. The line still starts its own span, so what follows the formula is under it.
-        if (!skip) top.appendChild(c.type === 'hardbreak' ? mdEl('br', cx) : document.createTextNode('\n'));
-        if (m.exact) {
-          const next = [mk(m.lines[i] + 1)];
-          for (const e of stack.slice(1)) {
-            const k = e.cloneNode(false) as HTMLElement;
-            ++cx.els;
-            next[next.length - 1].appendChild(k);
-            next.push(k);
+        // Inside a drawn formula the line end is already in the box's data-tex (drawInline's math_inline): writing it
+        // again would put it in the quote twice. The line still starts its own span, so what follows the formula is
+        // under it.
+        if (!skip)
+          top.appendChild(child.type === 'hardbreak' ? countedElement('br', context) : document.createTextNode('\n'));
+        if (lineInfo.exact) {
+          const next = [makeLineSpan(lineInfo.lines[i] + 1)];
+          for (const open of stack.slice(1)) {
+            const copy = open.cloneNode(false) as HTMLElement;
+            ++context.els;
+            next[next.length - 1].appendChild(copy);
+            next.push(copy);
           }
           stack = next;
         }
@@ -1361,46 +1462,50 @@ function* mdInline(t: any, parent: HTMLElement, w: { n: number }, cx: MdRx): Gen
       case 'strong_open':
       case 'em_open':
       case 's_open': {
-        const e = mdEl(c.type === 'strong_open' ? 'strong' : c.type === 'em_open' ? 'em' : 's', cx);
-        top.appendChild(e);
-        stack.push(e);
+        const element = countedElement(
+          child.type === 'strong_open' ? 'strong' : child.type === 'em_open' ? 'em' : 's',
+          context,
+        );
+        top.appendChild(element);
+        stack.push(element);
         break;
       }
       case 'link_open': {
-        const e = mdLink(mdAttr(c, 'href'), cx);
-        top.appendChild(e);
-        stack.push(e);
+        const element = drawLink(tokenAttribute(child, 'href'), context);
+        top.appendChild(element);
+        stack.push(element);
         break;
       }
-      // Drawn by KaTeX in a box of its own (mdTexBox, its source TeX on data-tex for the quote), or its TeX as written,
-      // delimiters included (mdMathInline), hidden characters in their boxes; one token per source line when it is not drawn.
-      // A formula the worker cut at a line end is put back together (mdTexRun) and drawn once, in the line it starts in, and
-      // the pieces after it are passed over. Such a box carries the lines it covers itself (data-lo..hi, kind 'lines' - the
-      // formula is the run those lines could not be told apart in), so a pin on it keeps the source TeX for its quote and
-      // gets the formula's own lines for its range (ADR-0036 D3). Undrawn, every piece stays in the line it was written on.
+      // Drawn by KaTeX in a box of its own (drawTexBox, its source TeX on data-tex for the quote), or its TeX as
+      // written, delimiters included (mdMathInline), hidden characters in their boxes; one token per source line when
+      // it is not drawn. A formula the worker cut at a line end is put back together (inlineTexRun) and drawn once, in
+      // the line it starts in, and the pieces after it are passed over. Such a box carries the lines it covers itself
+      // (data-lo..hi, kind 'lines' - the formula is the run those lines could not be told apart in), so a pin on it
+      // keeps the source TeX for its quote and gets the formula's own lines for its range (ADR-0036 D3). Undrawn, every
+      // piece stays in the line it was written on.
       case 'math_inline': {
         if (skip) {
           skip--;
           break;
         }
-        const run = mdTexRun(kids, i),
-          drawn = mdTexBox('code', 'md-math md-tex', run.src, mdTexBody(c, run.src), false, cx);
+        const run = inlineTexRun(children, i),
+          drawn = drawTexBox('code', 'md-math md-tex', run.src, inlineTexBody(child, run.src), false, context);
         if (drawn) {
           top.appendChild(drawn);
           if (run.last > i) {
             skip = (run.last - i) / 2;
-            if (m.exact) {
-              drawn.dataset.lo = String(m.lines[i]);
-              drawn.dataset.hi = String(m.lines[run.last]);
+            if (lineInfo.exact) {
+              drawn.dataset.lo = String(lineInfo.lines[i]);
+              drawn.dataset.hi = String(lineInfo.lines[run.last]);
               drawn.dataset.kind = 'lines';
             }
           }
           break;
         }
-        const e = mdEl('code', cx);
-        e.className = 'md-math';
-        top.appendChild(e);
-        yield* mdText(e, c.content, w, cx);
+        const element = countedElement('code', context);
+        element.className = 'md-math';
+        top.appendChild(element);
+        yield* drawText(element, child.content, work, context);
         break;
       }
       case 'strong_close':
@@ -1410,186 +1515,193 @@ function* mdInline(t: any, parent: HTMLElement, w: { n: number }, cx: MdRx): Gen
         if (stack.length > 1) stack.pop();
         break;
       case 'image':
-        top.appendChild(yield* mdImage(c, w, cx));
+        top.appendChild(yield* drawImage(child, work, context));
         break;
       case 'html_inline': {
-        const e = mdEl('code', cx);
-        e.className = 'md-html-in';
-        top.appendChild(e);
-        yield* mdText(e, c.content, w, cx);
+        const element = countedElement('code', context);
+        element.className = 'md-html-in';
+        top.appendChild(element);
+        yield* drawText(element, child.content, work, context);
         break;
       }
       default:
-        if (c.content) yield* mdText(top, c.content, w, cx);
+        if (child.content) yield* drawText(top, child.content, work, context);
     }
-    if (mdDue(w)) yield;
+    if (mdDue(work)) yield;
   }
 }
 // ---------------- Links: the allowlist
-// What a link in the document may do (pure; origin is the viewer page's location.origin). Every link token comes here - an
-// ordinary link, an autolink, a reference link - and this allowlist is the gate. markdown-it's own validateLink is a denylist
-// (javascript:, vbscript:, file:, data: but data:image/gif|png|jpeg|webp) and lets ftp:, any custom scheme and those images
-// through, so it is not relied on.
+// What a link in the document may do (pure; origin is the viewer page's location.origin). Every link token comes here -
+// an ordinary link, an autolink, a reference link - and this allowlist is the gate. markdown-it's own validateLink is a
+// denylist (javascript:, vbscript:, file:, data: but data:image/gif|png|jpeg|webp) and lets ftp:, any custom scheme and
+// those images through, so it is not relied on.
 // - '#…' is an in-document heading: {open:'anchor', id}.
 // - mailto: is {open:'mail', href}.
-// - An absolute http(s) URL is {open:'web', href} when it names an origin other than the viewer's, no loopback host and no user or
-//   password. href is the URL as parsed here, so what the browser follows is what was checked: a raw 'https:/api/meta' would
-//   resolve against the page to the viewer's own origin, while parsed alone it is https://api/meta.
-// - Anything else is {open:null}, inert text with its target in the tip: a relative path, a scheme-relative '//host', another
-//   scheme, the viewer's own origin (Limn's API answers GETs with the reader's identity and some of them write - a full /api/meta
-//   re-syncs pins, / records the visit), a loopback host (on the server's machine that is Limn again, as the local agent).
-// Both checks compare hosts by one spelling (mdHostKey), the destination's and the viewer's alike: 'localhost.:18920' and
+// - An absolute http(s) URL is {open:'web', href} when it names an origin other than the viewer's, no loopback host and
+//   no user or password. href is the URL as parsed here, so what the browser follows is what was checked: a raw
+//   'https:/api/meta' would resolve against the page to the viewer's own origin, while parsed alone it is
+//   https://api/meta.
+// - Anything else is {open:null}, inert text with its target in the tip: a relative path, a scheme-relative '//host',
+//   another scheme, the viewer's own origin (Limn's API answers GETs with the reader's identity and some of them write
+//   - a full /api/meta re-syncs pins, / records the visit), a loopback host (on the server's machine that is Limn
+//   again, as the local agent).
+// Both checks compare hosts by one spelling (hostKey), the destination's and the viewer's alike: 'localhost.:18920' and
 // 'x.ts.net.:18020' are Limn again (its Host check reads a name with its trailing dots dropped), not another origin.
-function mdHref(raw: unknown, origin: string): { open: 'web' | 'mail' | 'anchor' | null; href: string; id?: string } {
-  const h = String(raw == null ? '' : raw).trim();
-  if (/^#[^#]*$/.test(h)) return { open: 'anchor', href: h, id: h.slice(1) };
-  if (!/^(https?|mailto):/i.test(h)) return { open: null, href: h };
-  let u;
+function linkHref(raw: unknown, origin: string): { open: 'web' | 'mail' | 'anchor' | null; href: string; id?: string } {
+  const text = String(raw == null ? '' : raw).trim();
+  if (/^#[^#]*$/.test(text)) return { open: 'anchor', href: text, id: text.slice(1) };
+  if (!/^(https?|mailto):/i.test(text)) return { open: null, href: text };
+  let url;
   try {
-    u = new URL(h);
-  } catch (e) {
-    return { open: null, href: h };
+    url = new URL(text);
+  } catch (error) {
+    return { open: null, href: text };
   }
-  if (u.protocol === 'mailto:') return { open: 'mail', href: u.href };
-  if (u.username || u.password || mdSameOrigin(u, origin) || mdLoopback(u.hostname)) return { open: null, href: h };
-  return { open: 'web', href: u.href };
+  if (url.protocol === 'mailto:') return { open: 'mail', href: url.href };
+  if (url.username || url.password || isSameOrigin(url, origin) || isLoopbackHost(url.hostname))
+    return { open: null, href: text };
+  return { open: 'web', href: url.href };
 }
-// A host's one spelling (URL.hostname, or a Host header's name): lower case, without IPv6 brackets or trailing dots. The URL
-// parser already folds case, full-width letters, percent escapes and every IPv4 spelling (127.1, 0x7f.1, 017700000001,
-// 2130706433, '127.0.0.1.') into dotted form, and IPv6 into its short hex form; the trailing dot of a name ('localhost.',
-// also from 'localhost%2e' or 'localhost。') it keeps. DNS reads 'name.' as 'name', and so does Limn's Host and Origin check
-// (security/access.py split_host, origin_ok: name.rstrip('.')): this rule is that one. Pure.
-function mdHostKey(host) {
+// A host's one spelling (URL.hostname, or a Host header's name): lower case, without IPv6 brackets or trailing dots.
+// The URL parser already folds case, full-width letters, percent escapes and every IPv4 spelling (127.1, 0x7f.1,
+// 017700000001, 2130706433, '127.0.0.1.') into dotted form, and IPv6 into its short hex form; the trailing dot of a
+// name ('localhost.', also from 'localhost%2e' or 'localhost。') it keeps. DNS reads 'name.' as 'name', and so does
+// Limn's Host and Origin check (security/access.py split_host, origin_ok: name.rstrip('.')): this rule is that one.
+// Pure.
+function hostKey(host) {
   return String(host == null ? '' : host)
     .toLowerCase()
     .replace(/^\[|\]$/g, '')
     .replace(/\.+$/, '');
 }
-// Whether URL u has the viewer page's origin (location.origin): scheme, host by one spelling (mdHostKey) and port (the URL
+// Whether url has the viewer page's origin (location.origin): scheme, host by one spelling (hostKey) and port (the URL
 // parser leaves a default port out of both). An origin that does not parse ('null') counts as the same: every link is
 // inert rather than one let through unchecked. Pure.
-function mdSameOrigin(u: URL, origin: string) {
-  let v;
+function isSameOrigin(url: URL, origin: string) {
+  let page;
   try {
-    v = new URL(origin);
-  } catch (e) {
+    page = new URL(origin);
+  } catch (error) {
     return true;
   }
-  return u.protocol === v.protocol && mdHostKey(u.hostname) === mdHostKey(v.hostname) && u.port === v.port;
+  return url.protocol === page.protocol && hostKey(url.hostname) === hostKey(page.hostname) && url.port === page.port;
 }
-// Whether a URL's host (URL.hostname) is this machine: localhost and *.localhost, 0.0.0.0/8 and 127.0.0.0/8, and in IPv6
-// :: and ::1 and an IPv4-mapped (::ffff:a.b.c.d) or -compatible (::a.b.c.d) address of those. Hosts are compared by
-// mdHostKey's spelling; the URL parser has put every address in one form (mdHostKey). A name a hosts file maps to loopback
-// (ip6-localhost, the machine's own name) is not listed: Limn's Host check admits only localhost, 127.0.0.1 and ::1 as
-// loopback and answers any other such name 403. Pure.
-function mdLoopback(host) {
-  const h = mdHostKey(host);
-  if (h === 'localhost' || h.endsWith('.localhost')) return true;
-  if (/^(127|0)\.\d+\.\d+\.\d+$/.test(h)) return true;
-  const g = mdIpv6(h);
-  if (!g) return false;
-  if (g.slice(0, 5).every((x) => x === 0) && (g[5] === 0xffff || g[5] === 0)) {
-    const o = g[6] >> 8;
-    return o === 127 || o === 0;
+// Whether a URL's host (URL.hostname) is this machine: localhost and *.localhost, 0.0.0.0/8 and 127.0.0.0/8, and in
+// IPv6 :: and ::1 and an IPv4-mapped (::ffff:a.b.c.d) or -compatible (::a.b.c.d) address of those. Hosts are compared
+// by hostKey's spelling; the URL parser has put every address in one form (hostKey). A name a hosts file maps to
+// loopback (ip6-localhost, the machine's own name) is not listed: Limn's Host check admits only localhost, 127.0.0.1
+// and ::1 as loopback and answers any other such name 403. Pure.
+function isLoopbackHost(host) {
+  const key = hostKey(host);
+  if (key === 'localhost' || key.endsWith('.localhost')) return true;
+  if (/^(127|0)\.\d+\.\d+\.\d+$/.test(key)) return true;
+  const groups = ipv6Groups(key);
+  if (!groups) return false;
+  if (groups.slice(0, 5).every((group) => group === 0) && (groups[5] === 0xffff || groups[5] === 0)) {
+    const highByte = groups[6] >> 8;
+    return highByte === 127 || highByte === 0;
   } // also :: and ::1
   return false;
 }
-// An IPv6 address in the URL parser's form (hex groups, one '::' at most, no brackets) -> its eight 16-bit groups; null for
-// anything else. Pure.
-function mdIpv6(h: string): number[] | null {
-  if (!/^[0-9a-f:]+$/.test(h) || !h.includes(':')) return null;
-  const parts = h.split('::');
+// An IPv6 address in the URL parser's form (hex groups, one '::' at most, no brackets) -> its eight 16-bit groups; null
+// for anything else. Pure.
+function ipv6Groups(host: string): number[] | null {
+  if (!/^[0-9a-f:]+$/.test(host) || !host.includes(':')) return null;
+  const parts = host.split('::');
   if (parts.length > 2) return null;
   const head = parts[0] ? parts[0].split(':') : [],
     tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
   const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
   if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null;
-  const g = [...head, ...Array(fill).fill('0'), ...tail];
-  if (g.some((x) => !/^[0-9a-f]{1,4}$/.test(x))) return null;
-  return g.map((x) => parseInt(x, 16));
+  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  if (groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
+  return groups.map((group) => parseInt(group, 16));
 }
 // ---------------- Relative references: the manuscript tree (ADR-0030)
-// A relative reference ref of the document whose file is at tree path base ('docs/guide.md'), resolved in the manuscript tree
-// (pure): {path, frag} - path tree-relative and normalized, frag the part after '#', both percent-decoded once (markdown-it
-// encodes a link's destination) - or {out:true} for one that climbs above the tree's root or a document outside the tree
-// (base null), {bad:true} for a dot-named part ('.git', '.env'), a backslash, a control character or an escape that does not
-// decode; null for no relative reference at all (a scheme, '//host', '#…' alone, nothing). A leading '/' is the tree's root,
-// as GitHub reads it in a repository; '?…' is dropped. The server checks again what it is asked (GET /api/asset).
-function mdRelPath(
-  ref: unknown,
+// A relative reference of the document whose file is at tree path base ('docs/guide.md'), resolved in the manuscript
+// tree (pure): {path, frag} - path tree-relative and normalized, frag the part after '#', both percent-decoded once
+// (markdown-it encodes a link's destination) - or {out:true} for one that climbs above the tree's root or a document
+// outside the tree (base null), {bad:true} for a dot-named part ('.git', '.env'), a backslash, a control character or
+// an escape that does not decode; null for no relative reference at all (a scheme, '//host', '#…' alone, nothing). A
+// leading '/' is the tree's root, as GitHub reads it in a repository; '?…' is dropped. The server checks again what it
+// is asked (GET /api/asset).
+function treePath(
+  reference: unknown,
   base: string | null,
 ):
   | { path: string; frag: string; out?: undefined; bad?: undefined }
   | { out: true; bad?: undefined; path?: undefined }
   | { bad: true; out?: undefined; path?: undefined }
   | null {
-  const h = String(ref == null ? '' : ref).trim();
-  if (!h || h.startsWith('#') || h.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(h)) return null;
-  const hash = h.indexOf('#'),
-    q = h.indexOf('?'),
-    end = Math.min(q < 0 ? h.length : q, hash < 0 ? h.length : hash);
-  let p = h.slice(0, end),
-    frag = hash < 0 ? '' : h.slice(hash + 1);
+  const text = String(reference == null ? '' : reference).trim();
+  if (!text || text.startsWith('#') || text.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(text)) return null;
+  const hash = text.indexOf('#'),
+    query = text.indexOf('?'),
+    end = Math.min(query < 0 ? text.length : query, hash < 0 ? text.length : hash);
+  let path = text.slice(0, end),
+    fragment = hash < 0 ? '' : text.slice(hash + 1);
   try {
-    p = decodeURIComponent(p);
-    frag = decodeURIComponent(frag);
-  } catch (e) {
+    path = decodeURIComponent(path);
+    fragment = decodeURIComponent(fragment);
+  } catch (error) {
     return { bad: true };
   }
-  if (!p) return null;
-  if (/[\\\x00-\x1f\x7f]/.test(p)) return { bad: true };
+  if (!path) return null;
+  if (/[\\\x00-\x1f\x7f]/.test(path)) return { bad: true };
   if (base == null) return { out: true };
-  const st = p.startsWith('/') ? [] : String(base).split('/').slice(0, -1);
-  for (const s of p.split('/')) {
-    if (!s || s === '.') continue;
-    if (s === '..') {
-      if (!st.length) return { out: true };
-      st.pop();
+  const parts = path.startsWith('/') ? [] : String(base).split('/').slice(0, -1);
+  for (const part of path.split('/')) {
+    if (!part || part === '.') continue;
+    if (part === '..') {
+      if (!parts.length) return { out: true };
+      parts.pop();
       continue;
     }
-    if (s.startsWith('.')) return { bad: true };
-    st.push(s);
+    if (part.startsWith('.')) return { bad: true };
+    parts.push(part);
   }
-  return st.length ? { path: st.join('/'), frag } : null;
+  return parts.length ? { path: parts.join('/'), frag: fragment } : null;
 }
-// The image suffixes GET /api/asset serves (limn.documents.assets.ASSET_TYPES), and whether tree path p has one. Pure.
-const MD_IMG_EXT = Object.freeze(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
-function mdIsImg(p: string) {
-  const m = /\.([A-Za-z0-9]+)$/.exec(p);
-  return !!m && MD_IMG_EXT.includes(m[1].toLowerCase());
+// The image suffixes GET /api/asset serves (limn.documents.assets.ASSET_TYPES), and whether a tree path has one. Pure.
+const IMAGE_SUFFIXES = Object.freeze(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg']);
+function isImagePath(path: string) {
+  const match = /\.([A-Za-z0-9]+)$/.exec(path);
+  return !!match && IMAGE_SUFFIXES.includes(match[1].toLowerCase());
 }
-// The tree path of the document on screen (its /api/docs path), or null when it lies outside the tree (the path is absolute).
-function mdBase() {
-  const d = docInfo(DOC),
-    p = d ? String(d.path || '') : '';
-  return p && !p.startsWith('/') ? p : null;
+// The tree path of the document on screen (its /api/docs path), or null when it lies outside the tree (the path is
+// absolute).
+function documentTreePath() {
+  const entry = docInfo(DOC),
+    path = entry ? String(entry.path || '') : '';
+  return path && !path.startsWith('/') ? path : null;
 }
-// The address an image of the tree loads from: this origin's read-only GET /api/asset, built here from the checked path and
-// never from the document's text. Pure.
-function mdAssetUrl(doc: string | null, path: string) {
+// The address an image of the tree loads from: this origin's read-only GET /api/asset, built here from the checked path
+// and never from the document's text. Pure.
+function assetUrl(doc: string | null, path: string) {
   return '/api/asset?doc=' + encodeURIComponent(String(doc || '')) + '&path=' + encodeURIComponent(path);
 }
-// What an image's source loads (pure, base as mdRelPath's): {path} for a file of the tree with an image suffix, or {why} -
-// 'remote' (http(s) or '//host': the third party would learn who opened the document, and when, from where), 'data' (the page
-// policy has no data: images), 'out' (above the tree's root, a dot-named part), 'type' (no image suffix), 'other' (any other
-// scheme, nothing).
-function mdImgPath(
+// What an image's source loads (pure, base as treePath's): {path} for a file of the tree with an image suffix, or {why}
+// - 'remote' (http(s) or '//host': the third party would learn who opened the document, and when, from where), 'data'
+// (the page policy has no data: images), 'out' (above the tree's root, a dot-named part), 'type' (no image suffix),
+// 'other' (any other scheme, nothing).
+function imageSource(
   raw: unknown,
   base: string | null,
 ): { path: string; why?: undefined } | { why: 'remote' | 'data' | 'out' | 'type' | 'other'; path?: undefined } {
-  const h = String(raw == null ? '' : raw).trim();
-  if (/^(https?:)?\/\//i.test(h)) return { why: 'remote' };
-  if (/^data:/i.test(h)) return { why: 'data' };
-  const r = mdRelPath(h, base);
-  if (!r) return { why: 'other' };
-  if (r.out || r.bad) return { why: 'out' };
-  return mdIsImg(r.path) ? { path: r.path } : { why: 'type' };
+  const text = String(raw == null ? '' : raw).trim();
+  if (/^(https?:)?\/\//i.test(text)) return { why: 'remote' };
+  if (/^data:/i.test(text)) return { why: 'data' };
+  const relative = treePath(text, base);
+  if (!relative) return { why: 'other' };
+  if (relative.out || relative.bad) return { why: 'out' };
+  return isImagePath(relative.path) ? { path: relative.path } : { why: 'type' };
 }
-// What a link may do (pure): mdHref's answer when it opens; else, for a relative reference that stays in the tree, another
-// registered document whose path it names ({open:'doc', key, id: its '#…', name}) or an image of the tree ({open:'asset',
-// href: its tree path, opened in a new tab through GET /api/asset); else inert ({open:null}) with why: 'out' (it leaves the
-// tree) or 'unregistered' (a file of the tree that is no document here) or '' (mdHref's own refusals).
-function mdTarget(
+// What a link may do (pure): linkHref's answer when it opens; else, for a relative reference that stays in the tree,
+// another registered document whose path it names ({open:'doc', key, id: its '#…', name}) or an image of the tree
+// ({open:'asset', href: its tree path, opened in a new tab through GET /api/asset); else inert ({open:null}) with why:
+// 'out' (it leaves the tree) or 'unregistered' (a file of the tree that is no document here) or '' (linkHref's own
+// refusals).
+function linkAction(
   raw: unknown,
   origin: string,
   base: string | null,
@@ -1602,108 +1714,120 @@ function mdTarget(
   name?: string;
   why?: string;
 } {
-  const r = mdHref(raw, origin);
-  if (r.open) return r;
-  const rel = mdRelPath(raw, base);
-  if (!rel) return { open: null, href: r.href, why: '' };
-  if (rel.out || rel.bad) return { open: null, href: r.href, why: 'out' };
-  const d = docs.find((x) => String(x.path || '') === rel.path);
-  if (d) return { open: 'doc', href: rel.path, key: d.key, id: rel.frag, name: String(d.name || d.key) };
-  if (mdIsImg(rel.path)) return { open: 'asset', href: rel.path };
-  return { open: null, href: r.href, why: 'unregistered' };
+  const plain = linkHref(raw, origin);
+  if (plain.open) return plain;
+  const reference = treePath(raw, base);
+  if (!reference) return { open: null, href: plain.href, why: '' };
+  if (reference.out || reference.bad) return { open: null, href: plain.href, why: 'out' };
+  const document = docs.find((entry) => String(entry.path || '') === reference.path);
+  if (document)
+    return {
+      open: 'doc',
+      href: reference.path,
+      key: document.key,
+      id: reference.frag,
+      name: String(document.name || document.key),
+    };
+  if (isImagePath(reference.path)) return { open: 'asset', href: reference.path };
+  return { open: null, href: plain.href, why: 'unregistered' };
 }
-// An image of the document (an inline image token c): a file of the tree is an <img> from GET /api/asset, lazily loaded, in a
-// box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned it
-// (MD_PIC_SIZE) - and once it loads the reading spot is put back (mdPicLoad), so an image above the reading line never moves
-// the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-function* mdImage(c: any, w: { n: number }, cx: MdRx): Generator<void, HTMLElement, void> {
-  const raw = String(mdAttr(c, 'src') || ''),
-    alt = String(c.content || mdAttr(c, 'alt') || ''),
-    r = mdImgPath(raw, mdBase());
-  if (r.path) {
-    const box = mdEl('span', cx),
-      img = mdEl('img', cx) as HTMLImageElement;
+// An image of the document (an inline image token): a file of the tree is an <img> from GET /api/asset, lazily loaded,
+// in a box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned
+// it (IMAGE_SIZES) - and once it loads the reading spot is put back (onImageLoad), so an image above the reading line
+// never moves the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
+function* drawImage(token: any, work: { n: number }, context: RenderContext): Generator<void, HTMLElement, void> {
+  const raw = String(tokenAttribute(token, 'src') || ''),
+    alt = String(token.content || tokenAttribute(token, 'alt') || ''),
+    place = imageSource(raw, documentTreePath());
+  if (place.path) {
+    const box = countedElement('span', context),
+      img = countedElement('img', context) as HTMLImageElement;
     box.className = 'md-pic';
-    box.dataset.path = r.path;
+    box.dataset.path = place.path;
     img.alt = alt;
     img.loading = 'lazy';
     img.decoding = 'async';
     img.draggable = false;
-    const known = MD_PIC_SIZE.get(r.path);
+    const known = IMAGE_SIZES.get(place.path);
     if (known) {
-      mdPicSize(img, known.w, known.h);
+      sizeImage(img, known.w, known.h);
       box.classList.add('md-pic-ok');
     }
-    img.addEventListener('load', mdPicLoad);
-    img.addEventListener('error', mdPicError);
-    img.src = mdPicUrl(DOC, r.path);
+    img.addEventListener('load', onImageLoad);
+    img.addEventListener('error', onImageError);
+    img.src = imageUrl(DOC, place.path);
     box.appendChild(img);
     return box;
   }
-  const e = mdEl('span', cx),
-    src = ccPlain(raw);
-  e.className = 'md-img';
-  e.append(tr('그림') + ': ');
-  yield* mdText(e, alt || raw, w, cx); // the alt text is drawn text, as the paragraph's, its marked characters in their boxes, pausing as it does
-  e.dataset.tip =
-    r.why === 'remote'
-      ? tl('원격 그림은 불러오지 않습니다 · {src}', { src })
-      : r.why === 'out'
-        ? tl('원고 밖의 그림은 불러오지 않습니다 · {src}', { src })
-        : tl('이 그림은 불러오지 않습니다 · {src}', { src });
-  e.dataset.tipUrl = src;
-  return e;
+  const fallback = countedElement('span', context),
+    shownSource = ccPlain(raw);
+  fallback.className = 'md-img';
+  fallback.append(tr('그림') + ': ');
+  // the alt text is drawn text, as the paragraph's, its marked characters in their boxes, pausing as it does
+  yield* drawText(fallback, alt || raw, work, context);
+  fallback.dataset.tip =
+    place.why === 'remote'
+      ? tl('원격 그림은 불러오지 않습니다 · {src}', { src: shownSource })
+      : place.why === 'out'
+        ? tl('원고 밖의 그림은 불러오지 않습니다 · {src}', { src: shownSource })
+        : tl('이 그림은 불러오지 않습니다 · {src}', { src: shownSource });
+  fallback.dataset.tipUrl = shownSource;
+  return fallback;
 }
-// The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps their places.
-const MD_PIC_SIZE = new Map() as Map<string, { w: number; h: number }>;
-// An image has loaded: its size is kept (MD_PIC_SIZE) and given to its box, and the reading spot (MD.spot, as mdSpotRead last
-// read it, or read again just before the change when the pane was moved since: mdSpotFresh) is put back (mdSpotBack) - only an image above it moves anything. During a jump to a heading (mdGoHeading) the spot is a
-// point the scroll passes on its way: the jump goes on to its heading's new place instead (mdGoOn, mdPicMoved). A box drawn at a size an earlier load learned is checked too:
-// the file may have changed since (a new size under the same path), and then it is resized and the spot put back as for a
-// first load. Only a size that held changes nothing. The marks follow through the column's ResizeObserver (MD_RO).
-function mdPicLoad(e: Event) {
-  const img = e.target as HTMLImageElement,
+// The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps
+// their places.
+const IMAGE_SIZES = new Map() as Map<string, { w: number; h: number }>;
+// An image has loaded: its size is kept (IMAGE_SIZES) and given to its box, and the reading spot (MD.spot, as readSpot
+// last read it, or read again just before the change when the pane was moved since: refreshMovedSpot) is put back
+// (putSpotBack) - only an image above it moves anything. During a jump to a heading (mdGoHeading) the spot is a point
+// the scroll passes on its way: the jump goes on to its heading's new place instead (goOnToHeading, afterImageChange).
+// A box drawn at a size an earlier load learned is checked too: the file may have changed since (a new size under the
+// same path), and then it is resized and the spot put back as for a first load. Only a size that held changes nothing.
+// The marks follow through the column's ResizeObserver (COLUMN_OBSERVER).
+function onImageLoad(event: Event) {
+  const img = event.target as HTMLImageElement,
     box = img.parentElement;
   if (!box) return;
-  void mdPicSeen(img.getAttribute('src') || '');
-  const w = img.naturalWidth,
-    h = img.naturalHeight,
+  void noteShownTag(img.getAttribute('src') || '');
+  const width = img.naturalWidth,
+    height = img.naturalHeight,
     path = box.dataset.path || '';
-  if (w && h) MD_PIC_SIZE.set(path, { w, h });
-  else MD_PIC_SIZE.delete(path);
+  if (width && height) IMAGE_SIZES.set(path, { w: width, h: height });
+  else IMAGE_SIZES.delete(path);
   if (
     box.classList.contains('md-pic-ok') &&
-    +(img.getAttribute('width') || 0) === w &&
-    +(img.getAttribute('height') || 0) === h
+    +(img.getAttribute('width') || 0) === width &&
+    +(img.getAttribute('height') || 0) === height
   )
     return;
   const here = box.isConnected && isMdDoc();
-  if (here) mdSpotFresh();
-  mdPicSize(img, w, h);
+  if (here) refreshMovedSpot();
+  sizeImage(img, width, height);
   box.classList.add('md-pic-ok');
-  if (here) mdPicMoved();
+  if (here) afterImageChange();
 }
-// After an image's box changed (mdPicLoad, mdPicError): the reading spot put back (mdSpotBack), or - during a jump to a
-// heading - the jump aimed again at its heading's new place (mdGoOn) and the spot read where the pane stands, in the
-// layout the change left. The spot's offset (top) is then the page's own after the change: an End or a scroll after it
-// is not taken for the browser's cut (mdSpotFresh) when the change shortened the document - a failed image's alt text
-// in place of its box - and the next image's check reads it where it stands.
-function mdPicMoved() {
-  if (mdGoOn()) mdSpotRead(true);
-  else mdSpotBack();
+// After an image's box changed (onImageLoad, onImageError): the reading spot put back (putSpotBack), or - during a jump
+// to a heading - the jump aimed again at its heading's new place (goOnToHeading) and the spot read where the pane
+// stands, in the layout the change left. The spot's offset (top) is then the page's own after the change: an End or a
+// scroll after it is not taken for the browser's cut (refreshMovedSpot) when the change shortened the document - a
+// failed image's alt text in place of its box - and the next image's check reads it where it stands.
+function afterImageChange() {
+  if (goOnToHeading()) readSpot(true);
+  else putSpotBack();
 }
-// Gives image img the size w x h (its natural size, from a load): its width and height attributes, and the aspect ratio its
-// box keeps (CSSOM --md-pic-r, md-surface.css). With height:auto the attributes alone give way to the ratio of whatever
-// picture the element shows (aspect-ratio: auto w / h), and the browser takes a new picture's ratio as soon as it knows its
-// size, before the load event: a box drawn at a size an earlier load learned, or given a new address by a check
-// (mdPicCheck), would change shape outside mdPicLoad - a document's end cut back before mdSpotFresh, which takes that cut
-// for the layout's and undoes with it a move to that end made before (End). Held to w / h, the box changes only here,
-// after the check. 0 x 0 (no natural size): none of the three.
-function mdPicSize(img: HTMLImageElement, w: number, h: number) {
-  if (w && h) {
-    img.width = w;
-    img.height = h;
-    img.style.setProperty('--md-pic-r', w + ' / ' + h);
+// Gives image img the size width x height (its natural size, from a load): its width and height attributes, and the
+// aspect ratio its box keeps (CSSOM --md-pic-r, md-surface.css). With height:auto the attributes alone give way to the
+// ratio of whatever picture the element shows (aspect-ratio: auto width / height), and the browser takes a new
+// picture's ratio as soon as it knows its size, before the load event: a box drawn at a size an earlier load learned,
+// or given a new address by a check (mdPicCheck), would change shape outside onImageLoad - a document's end cut back
+// before refreshMovedSpot, which takes that cut for the layout's and undoes with it a move to that end made before
+// (End). Held to width / height, the box changes only here, after the check. 0 x 0 (no natural size): none of the
+// three.
+function sizeImage(img: HTMLImageElement, width: number, height: number) {
+  if (width && height) {
+    img.width = width;
+    img.height = height;
+    img.style.setProperty('--md-pic-r', width + ' / ' + height);
     return;
   }
   img.removeAttribute('width');
@@ -1711,23 +1835,23 @@ function mdPicSize(img: HTMLImageElement, w: number, h: number) {
   img.style.removeProperty('--md-pic-r');
 }
 // ---------------- A tree image changed on disk (docs/handbook/viewer.md §그림)
-// The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so an image
-// rewritten on disk showed only after a reload, a redraw drawing the same address again. On the light poll (polling.js),
-// the tree images that have loaded on screen or within one document area's height of it - the nearest MD_PIC_CHECK.max of
-// them (among as near, the one asked longest ago first: more than that many on screen take turns), at most once every
-// MD_PIC_CHECK.gap ms, one request at a time - are asked again: fetch(…, {cache:'no-cache'})
-// revalidates with the tag the browser holds (an unchanged image is a stat and a 304 on the server, AssetTags) and reads
-// the ETag. An image whose tag moved on gets its address with &v=<the new tag> (the server reads only doc and path): one the
-// page has not decoded, so the browser loads the new picture, and the box keeps the reading spot as for any image that loads
-// (mdPicLoad -> mdSpotBack). The tag of the picture an address shows is read once that picture has loaded, from the answer
-// the <img> left in the browser's cache (mdPicSeen, cache:'only-if-cached': never the server). Without one - the cache was
-// cleared or is off, or the entry is gone - the shown tag is unknown, and the check does not take the server's tag for it
-// (that one may be of a newer file, and then no later check would differ): it moves the image once to the address of the
-// tag now, so what it shows is known from then on. The version is kept per document and path (MD_PIC_VER), so a redraw or
-// a return to the document draws the new picture too. No route, no field: only GET /api/asset.
-// at: for each document, tree path -> when a check last asked it, for the paths the document shows now (no other bound,
-// so no image's turn is ever forgotten while it is on the page).
-const MD_PIC_CHECK = {
+// The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so
+// without a check an image rewritten on disk would show only after a reload: a redraw draws the same address again. On
+// the light poll (polling.ts), the tree images that have loaded on screen or within one document area's height of it -
+// the nearest IMAGE_CHECK.max of them (among as near, the one asked longest ago first: more than that many on screen
+// take turns), at most once every IMAGE_CHECK.gap ms, one request at a time - are asked again: fetch(…,
+// {cache:'no-cache'}) revalidates with the tag the browser holds (an unchanged image is a stat and a 304 on the server,
+// AssetTags) and reads the ETag. An image whose tag moved on gets its address with &v=<the new tag> (the server reads
+// only doc and path): one the page has not decoded, so the browser loads the new picture, and the box keeps the reading
+// spot as for any image that loads (onImageLoad -> putSpotBack). The tag of the picture an address shows is read once
+// that picture has loaded, from the answer the <img> left in the browser's cache (noteShownTag, cache:'only-if-cached':
+// never the server). Without one - the cache was cleared or is off, or the entry is gone - the shown tag is unknown,
+// and the check does not take the server's tag for it (that one may be of a newer file, and then no later check would
+// differ): it moves the image once to the address of the tag now, so what it shows is known from then on. The version
+// is kept per document and path (IMAGE_VERSIONS), so a redraw or a return to the document draws the new picture too. No
+// route, no field: only GET /api/asset. at: for each document, tree path -> when a check last asked it, for the paths
+// the document shows now (no other bound, so no image's turn is ever forgotten while it is on the page).
+const IMAGE_CHECK = {
   max: 6,
   gap: 4000,
   last: -Infinity,
@@ -1735,81 +1859,88 @@ const MD_PIC_CHECK = {
   asked: 0,
   at: new Map() as Map<string, Map<string, number>>,
 };
-const MD_PIC_TAG = new Map() as Map<string, string>; // an address -> the ETag of the picture an image at it shows
-const MD_PIC_VER = new Map() as Map<string, string>; // doc + '\n' + tree path -> the version its address carries
-const MD_PIC_KEEP = 256; // the most entries either map keeps, the oldest dropped first
-// The address the tree image at path loads from now: mdAssetUrl's, with the version a check found (MD_PIC_VER).
-function mdPicUrl(doc: string | null, path: string) {
-  const v = MD_PIC_VER.get(String(doc || '') + '\n' + path);
-  return mdAssetUrl(doc, path) + (v ? '&v=' + encodeURIComponent(v) : '');
+const IMAGE_TAGS = new Map() as Map<string, string>; // an address -> the ETag of the picture an image at it shows
+const IMAGE_VERSIONS = new Map() as Map<string, string>; // doc + '\n' + tree path -> the version its address carries
+const IMAGE_MAP_LIMIT = 256; // the most entries either map keeps, the oldest dropped first
+// The address the tree image at path loads from now: assetUrl's, with the version a check found (IMAGE_VERSIONS).
+function imageUrl(doc: string | null, path: string) {
+  const version = IMAGE_VERSIONS.get(String(doc || '') + '\n' + path);
+  return assetUrl(doc, path) + (version ? '&v=' + encodeURIComponent(version) : '');
 }
-function mdPicKeep(map: Map<string, string>, k: string, v: string) {
-  map.delete(k);
-  map.set(k, v);
-  while (map.size > MD_PIC_KEEP) {
+function keepRecent(map: Map<string, string>, key: string, value: string) {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > IMAGE_MAP_LIMIT) {
     const first = map.keys().next().value;
     if (first === undefined) break;
     map.delete(first);
   }
 }
-// The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer, nothing cached for
-// 'only-if-cached'. Its body is not read.
-async function mdPicTag(url: string, cache: RequestCache): Promise<string> {
+// The ETag GET url answers with (cache: the fetch's cache mode), or '' for none - a refusal, no answer, nothing cached
+// for 'only-if-cached'. Its body is not read.
+async function fetchImageTag(url: string, cache: RequestCache): Promise<string> {
   try {
-    const r = await fetch(url, { cache, credentials: 'same-origin', mode: 'same-origin' }),
-      t = r.ok ? r.headers.get('ETag') || '' : '';
-    if (r.body) r.body.cancel().catch(() => {});
-    return t;
-  } catch (e) {
+    const response = await fetch(url, { cache, credentials: 'same-origin', mode: 'same-origin' }),
+      tag = response.ok ? response.headers.get('ETag') || '' : '';
+    if (response.body) response.body.cancel().catch(() => {});
+    return tag;
+  } catch (error) {
     return '';
   }
 }
-// A tree image has loaded from address url: the tag of the picture it shows, from the answer the <img> left in the cache,
-// unless a check already knows it (MD_PIC_TAG). Nothing cached: it stays unknown (mdPicCheck).
-async function mdPicSeen(url: string) {
-  if (!url || MD_PIC_TAG.has(url)) return;
-  const t = await mdPicTag(url, 'only-if-cached');
-  if (t && !MD_PIC_TAG.has(url)) mdPicKeep(MD_PIC_TAG, url, t);
+// A tree image has loaded from address url: the tag of the picture it shows, from the answer the <img> left in the
+// cache, unless a check already knows it (IMAGE_TAGS). Nothing cached: it stays unknown (mdPicCheck).
+async function noteShownTag(url: string) {
+  if (!url || IMAGE_TAGS.has(url)) return;
+  const tag = await fetchImageTag(url, 'only-if-cached');
+  if (tag && !IMAGE_TAGS.has(url)) keepRecent(IMAGE_TAGS, url, tag);
 }
 // One check of the tree images near the document area (the header above): how many were given a new address.
 async function mdPicCheck(): Promise<number> {
   const now = performance.now(),
-    k = DOC;
+    docKey = DOC;
   if (
-    MD_PIC_CHECK.busy ||
-    now - MD_PIC_CHECK.last < MD_PIC_CHECK.gap ||
+    IMAGE_CHECK.busy ||
+    now - IMAGE_CHECK.last < IMAGE_CHECK.gap ||
     !isMdDoc() ||
     isTextDoc() ||
-    MD.shown !== k ||
-    !mdColumnShown() ||
+    MD.shown !== docKey ||
+    !isColumnShown() ||
     document.hidden
   )
     return 0;
-  const lr = $('#left').getBoundingClientRect(),
+  const paneRect = $('#left').getBoundingClientRect(),
     near = [] as { img: HTMLImageElement; d: number }[],
     shown = new Set();
   for (const img of [...document.querySelectorAll('#md .md-pic img')] as HTMLImageElement[]) {
-    const p = img.parentElement && img.parentElement.dataset.path;
-    if (p) shown.add(p);
+    const path = img.parentElement && img.parentElement.dataset.path;
+    if (path) shown.add(path);
     if (!img.complete || !img.naturalWidth) continue;
-    const r = img.getBoundingClientRect(),
-      d = r.bottom < lr.top ? lr.top - r.bottom : r.top > lr.bottom ? r.top - lr.bottom : 0;
-    if (d <= lr.height) near.push({ img, d });
+    const rect = img.getBoundingClientRect(),
+      distance =
+        rect.bottom < paneRect.top
+          ? paneRect.top - rect.bottom
+          : rect.top > paneRect.bottom
+            ? rect.top - paneRect.bottom
+            : 0;
+    if (distance <= paneRect.height) near.push({ img, d: distance });
   }
-  let at = MD_PIC_CHECK.at.get(k || '');
+  let at = IMAGE_CHECK.at.get(docKey || '');
   if (!at) {
     at = new Map();
-    MD_PIC_CHECK.at.set(k || '', at);
+    IMAGE_CHECK.at.set(docKey || '', at);
   }
-  for (const p of [...at.keys()]) if (!shown.has(p)) at.delete(p); // an image no longer in the document has no turn to keep
+  // an image no longer in the document has no turn to keep
+  for (const path of [...at.keys()]) if (!shown.has(path)) at.delete(path);
   if (!near.length) return 0;
   // Nearest first; among images as near (every visible one is at 0) the one asked longest ago first, a never-asked one
   // before all, so past six visible images the checks take turns instead of asking the same six every time.
-  const asked = (i: HTMLImageElement) => at.get((i.parentElement && i.parentElement.dataset.path) || '') || 0;
-  near.sort((a, b) => a.d - b.d || asked(a.img) - asked(b.img));
-  MD_PIC_CHECK.busy = true;
-  MD_PIC_CHECK.last = now;
-  let n = 0,
+  const asked = (image: HTMLImageElement) =>
+    at.get((image.parentElement && image.parentElement.dataset.path) || '') || 0;
+  near.sort((left, right) => left.d - right.d || asked(left.img) - asked(right.img));
+  IMAGE_CHECK.busy = true;
+  IMAGE_CHECK.last = now;
+  let count = 0,
     moved = 0;
   const seen = new Set();
   try {
@@ -1817,162 +1948,166 @@ async function mdPicCheck(): Promise<number> {
       const box = img.parentElement,
         path = box && box.dataset.path,
         url = img.getAttribute('src') || '';
-      if (n >= MD_PIC_CHECK.max) break;
+      if (count >= IMAGE_CHECK.max) break;
       if (!path || !url || seen.has(path)) continue;
       seen.add(path);
-      n++;
+      count++;
       at.set(path, now);
-      const was = MD_PIC_TAG.get(url) || '';
-      MD_PIC_CHECK.asked++;
-      const tag = await mdPicTag(url, 'no-cache');
-      if (k !== DOC || MD.shown !== k) break; // another document since: its images are its own
+      const was = IMAGE_TAGS.get(url) || '';
+      IMAGE_CHECK.asked++;
+      const tag = await fetchImageTag(url, 'no-cache');
+      if (docKey !== DOC || MD.shown !== docKey) break; // another document since: its images are its own
       if (!tag) continue;
       if (tag === was) {
-        mdPicKeep(MD_PIC_TAG, url, was);
+        keepRecent(IMAGE_TAGS, url, was);
         continue;
       } // was '': what it shows is unknown, so it moves to the address of the tag now
-      mdPicKeep(MD_PIC_VER, k + '\n' + path, tag.replace(/^W\//, '').replace(/"/g, ''));
-      const next = mdPicUrl(k, path);
-      mdPicKeep(MD_PIC_TAG, next, tag);
+      keepRecent(IMAGE_VERSIONS, docKey + '\n' + path, tag.replace(/^W\//, '').replace(/"/g, ''));
+      const next = imageUrl(docKey, path);
+      keepRecent(IMAGE_TAGS, next, tag);
       if (next === url) continue; // unknown, but already at that tag's address: taken as showing it
-      for (const b of [...document.querySelectorAll('#md .md-pic')] as HTMLElement[])
-        if (b.dataset.path === path) {
-          const i = b.querySelector('img');
-          if (i && i.getAttribute('src') !== next) i.src = next;
+      for (const box of [...document.querySelectorAll('#md .md-pic')] as HTMLElement[])
+        if (box.dataset.path === path) {
+          const image = box.querySelector('img');
+          if (image && image.getAttribute('src') !== next) image.src = next;
         }
       moved++;
     }
   } finally {
-    MD_PIC_CHECK.busy = false;
+    IMAGE_CHECK.busy = false;
   }
   return moved;
 }
-// An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt text,
-// as for an image that is never loaded, saying so in the tip.
-function mdPicError(e: Event) {
-  const img = e.target as HTMLImageElement,
+// An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt
+// text, as for an image that is never loaded, saying so in the tip.
+function onImageError(event: Event) {
+  const img = event.target as HTMLImageElement,
     box = img.parentElement;
   if (!box || !box.isConnected) return;
-  const s = document.createElement('span'),
+  const fallback = document.createElement('span'),
     path = box.dataset.path || '';
-  s.className = 'md-img';
-  s.append(tr('그림') + ': ');
-  mdTextLate(s, img.alt || path, mdRxOf(box));
-  const src = ccPlain(path);
-  s.dataset.tip = tl('그림을 불러오지 못했습니다 · {src}', { src });
-  s.dataset.tipUrl = src;
+  fallback.className = 'md-img';
+  fallback.append(tr('그림') + ': ');
+  drawTextLate(fallback, img.alt || path, renderContextOf(box));
+  const plainPath = ccPlain(path);
+  fallback.dataset.tip = tl('그림을 불러오지 못했습니다 · {src}', { src: plainPath });
+  fallback.dataset.tipUrl = plainPath;
   const here = isMdDoc();
-  if (here) mdSpotFresh(); // the spot where the pane stands, before the alt text takes the box's place
-  box.replaceWith(s);
-  if (here) mdPicMoved();
+  if (here) refreshMovedSpot(); // the spot where the pane stands, before the alt text takes the box's place
+  box.replaceWith(fallback);
+  if (here) afterImageChange();
 }
-// Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a '#…'
-// decoded once, a document's name (ccPlain, hidden-chars.js, ADR-0029 D5); the drawn text, an alt text too, is the document's.
-// A link element for href (mdTarget): a web or mail link opens in a new tab without a referrer or opener; an in-document '#…'
-// goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking imeKey first); another
-// registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in a new tab from GET /api/asset;
-// anything else is inert text with its target, and why, in the tip.
-function mdLink(href: unknown, cx: MdRx): HTMLElement {
-  const r = mdTarget(href, location.origin, mdBase(), DOCS);
-  if (r.open === 'web' || r.open === 'mail') {
-    const a = mdEl('a', cx) as HTMLAnchorElement;
-    a.href = r.href;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    a.dataset.tip = a.dataset.tipUrl = ccPlain(r.href);
-    return a;
+// Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a
+// '#…' decoded once, a document's name (ccPlain, hidden-chars.ts, ADR-0029 D5); the drawn text, an alt text too, is the
+// document's. A link element for href (linkAction): a web or mail link opens in a new tab without a referrer or opener;
+// an in-document '#…' goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking
+// imeKey first); another registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in
+// a new tab from GET /api/asset; anything else is inert text with its target, and why, in the tip.
+function drawLink(href: unknown, context: RenderContext): HTMLElement {
+  const target = linkAction(href, location.origin, documentTreePath(), DOCS);
+  if (target.open === 'web' || target.open === 'mail') {
+    const link = countedElement('a', context) as HTMLAnchorElement;
+    link.href = target.href;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    link.dataset.tip = link.dataset.tipUrl = ccPlain(target.href);
+    return link;
   }
-  if (r.open === 'anchor') {
-    const a = mdEl('a', cx);
-    a.className = 'md-anchor';
-    a.dataset.act = 'md-anchor';
-    a.dataset.anchor = r.id || '';
-    a.setAttribute('role', 'link');
-    a.tabIndex = 0;
-    return a;
+  if (target.open === 'anchor') {
+    const link = countedElement('a', context);
+    link.className = 'md-anchor';
+    link.dataset.act = 'md-anchor';
+    link.dataset.anchor = target.id || '';
+    link.setAttribute('role', 'link');
+    link.tabIndex = 0;
+    return link;
   }
-  if (r.open === 'doc') {
-    const a = mdEl('a', cx);
-    a.className = 'md-doclink';
-    a.dataset.act = 'md-doc';
-    a.dataset.doc = r.key || '';
-    a.dataset.anchor = r.id || '';
-    a.setAttribute('role', 'link');
-    a.tabIndex = 0;
-    a.dataset.tip = tl('문서로 이동 · {name}', { name: ccPlain(r.name || '') }) + (r.id ? ' #' + ccPlain(r.id) : '');
-    a.dataset.tipUrl = ccPlain(r.href);
-    return a;
+  if (target.open === 'doc') {
+    const link = countedElement('a', context);
+    link.className = 'md-doclink';
+    link.dataset.act = 'md-doc';
+    link.dataset.doc = target.key || '';
+    link.dataset.anchor = target.id || '';
+    link.setAttribute('role', 'link');
+    link.tabIndex = 0;
+    link.dataset.tip =
+      tl('문서로 이동 · {name}', { name: ccPlain(target.name || '') }) + (target.id ? ' #' + ccPlain(target.id) : '');
+    link.dataset.tipUrl = ccPlain(target.href);
+    return link;
   }
-  if (r.open === 'asset') {
-    const a = mdEl('a', cx) as HTMLAnchorElement,
-      u = mdAssetUrl(DOC, r.href);
-    a.className = 'md-asset';
-    a.href = u;
-    a.target = '_blank';
-    a.rel = 'noopener noreferrer';
-    const path = ccPlain(r.href);
-    a.dataset.tip = tl('그림을 새 탭에서 엽니다 · {path}', { path });
-    a.dataset.tipUrl = path;
-    return a;
+  if (target.open === 'asset') {
+    const link = countedElement('a', context) as HTMLAnchorElement,
+      url = assetUrl(DOC, target.href);
+    link.className = 'md-asset';
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    const path = ccPlain(target.href);
+    link.dataset.tip = tl('그림을 새 탭에서 엽니다 · {path}', { path });
+    link.dataset.tipUrl = path;
+    return link;
   }
-  // A link that does not open: a disabled link to assistive technology, reachable by Tab (the focus shows its description, as
-  // a hover does), and a tap shows the description instead of picking the block (mdSelectionPick).
-  const shown = ccPlain(r.href),
-    s = mdEl('span', cx),
+  // A link that does not open: a disabled link to assistive technology, reachable by Tab (the focus shows its
+  // description, as a hover does), and a tap shows the description instead of picking the block (pickSelection).
+  const shown = ccPlain(target.href),
+    inert = countedElement('span', context),
     tip =
-      r.why === 'out'
+      target.why === 'out'
         ? tl('원고 밖을 가리켜 열지 않습니다 · {href}', { href: shown })
-        : r.why === 'unregistered'
+        : target.why === 'unregistered'
           ? tl('등록된 문서가 아니라 열지 않습니다 · {href}', { href: shown })
           : tl('이 링크는 열지 않습니다 · {href}', { href: shown });
-  s.className = 'md-rel';
-  s.dataset.tip = tip;
-  s.dataset.tipUrl = shown;
-  s.tabIndex = 0;
-  s.setAttribute('role', 'link');
-  s.setAttribute('aria-disabled', 'true');
-  s.setAttribute('aria-description', tip);
-  return s;
+  inert.className = 'md-rel';
+  inert.dataset.tip = tip;
+  inert.dataset.tipUrl = shown;
+  inert.tabIndex = 0;
+  inert.setAttribute('role', 'link');
+  inert.setAttribute('aria-disabled', 'true');
+  inert.setAttribute('aria-description', tip);
+  return inert;
 }
-// A link to another registered document (data-act md-doc): that document, at its '#heading' once it is drawn here (MD.headTo,
-// mdShow), with a history entry of its own - the browser's back returns to the document left through the hashchange switch
-// (doc-switch.js), and a back before the document has opened ends that switch (NAVGEN). While a back layer holds the entry on
-// top (a sheet on a phone, gestures.js) no entry is added, as a tab switch adds none; the layer's entry must stay the top one.
-// Followed again while the switch it started still waits for that document (a double click, switchPending), it adds no
-// second entry and starts no second switch: it only names the heading to go to.
-function mdGoDoc(a: HTMLElement) {
-  const k = String(a.dataset.doc || ''),
-    id = String(a.dataset.anchor || ''),
-    d = docInfo(k);
-  if (!d) return;
-  if (k === DOC) {
-    if (id) mdGoSlug(id);
+// A link to another registered document (data-act md-doc): that document, at its '#heading' once it is drawn here
+// (MD.headTo, showDocumentNode), with a history entry of its own - the browser's back returns to the document left
+// through the hashchange switch (doc-switch.ts), and a back before the document has opened ends that switch (NAVGEN).
+// While a back layer holds the entry on top (a sheet on a phone, gestures.ts) no entry is added, as a tab switch adds
+// none; the layer's entry must stay the top one. Followed again while the switch it started still waits for that
+// document (a double click, switchPending), it adds no second entry and starts no second switch: it only names the
+// heading to go to.
+function mdGoDoc(link: HTMLElement) {
+  const docKey = String(link.dataset.doc || ''),
+    id = String(link.dataset.anchor || ''),
+    entry = docInfo(docKey);
+  if (!entry) return;
+  if (docKey === DOC) {
+    if (id) goToSlug(id);
     return;
   }
-  if (!switchPending(k)) {
-    if (!BACK) history.pushState(null, '', location.pathname + location.search + '#doc=' + k);
-    void switchDoc(k);
+  if (!switchPending(docKey)) {
+    if (!BACK) history.pushState(null, '', location.pathname + location.search + '#doc=' + docKey);
+    void switchDoc(docKey);
   }
-  MD.headTo = rendersInBrowser(d.kind) ? { doc: k, id: showsSourceLines(d.kind) ? '' : id, seq: SWITCHSEQ } : null;
+  MD.headTo = rendersInBrowser(entry.kind)
+    ? { doc: docKey, id: showsSourceLines(entry.kind) ? '' : id, seq: SWITCHSEQ }
+    : null;
 } // a text document has no headings
-// The document a link of another one switched to is drawn (mdShow): it goes to the link's heading (mdGoSlug), and the focus,
-// which the link took away with the document it was in, goes there too - from the document area or the page's body
-// (focusFell), as a browser moves it to the fragment a link names - so a screen reader reads that heading and the next Tab
-// goes on from it, not from the document's first link. A focus put anywhere else since stays; so does one in a composer
-// that is open or being opened (a draft the switch brought back, typed into while the source was on its way), a pick on
-// its way, or an input method's composition - focusPlace's guards; a link without a heading (a text document has none)
-// leaves the focus on the document area.
-function mdGoLink(id: string) {
-  const i = id ? mdGoSlug(id) : -1,
-    L = $('#left');
+// The document a link of another one switched to is drawn (showDocumentNode): it goes to the link's heading (goToSlug),
+// and the focus, which the link took away with the document it was in, goes there too - from the document area or the
+// page's body (focusFell), as a browser moves it to the fragment a link names - so a screen reader reads that heading
+// and the next Tab goes on from it, not from the document's first link. A focus put anywhere else since stays; so does
+// one in a composer that is open or being opened (a draft the switch brought back, typed into while the source was on
+// its way), a pick on its way, or an input method's composition - focusPlace's guards; a link without a heading (a text
+// document has none) leaves the focus on the document area.
+function goToLinkHeading(id: string) {
+  const index = id ? goToSlug(id) : -1,
+    pane = $('#left');
   if (COMPOSE.current || COMPOSE.picking || !$('#composer').hidden || imeOpen()) return;
-  if (document.activeElement !== L && !focusFell()) return;
-  const h = MD.heads[i];
-  focusHold(h ? h.el : L);
+  if (document.activeElement !== pane && !focusFell()) return;
+  const heading = MD.heads[index];
+  focusHold(heading ? heading.el : pane);
 }
 // GitHub's heading slug: lower case, punctuation dropped, spaces to '-'. Pure.
-function mdSlug(s) {
-  return String(s)
+function headingSlug(title) {
+  return String(title)
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}\s_-]/gu, '')
@@ -1980,82 +2115,83 @@ function mdSlug(s) {
 }
 // An in-document link to '#id': the first heading whose slug is id (or id percent-decoded), as GitHub numbers repeats
 // (slug, slug-1, ...). Nothing when no heading has it.
-function mdGoAnchor(a: HTMLElement) {
-  mdGoSlug(String(a.dataset.anchor || ''));
+function mdGoAnchor(link: HTMLElement) {
+  goToSlug(String(link.dataset.anchor || ''));
 }
-function mdGoSlug(id: string): number {
+function goToSlug(id: string): number {
   let want = id;
   try {
     want = decodeURIComponent(want);
-  } catch (e) {}
+  } catch (error) {}
   want = want.toLowerCase();
   const seen = new Map();
   let at = -1;
-  MD.heads.forEach((h, i) => {
+  MD.heads.forEach((heading, index) => {
     if (at >= 0) return;
-    const n = seen.get(h.slug) || 0;
-    seen.set(h.slug, n + 1);
-    if ((n ? h.slug + '-' + n : h.slug) === want) at = i;
+    const repeats = seen.get(heading.slug) || 0;
+    seen.set(heading.slug, repeats + 1);
+    if ((repeats ? heading.slug + '-' + repeats : heading.slug) === want) at = index;
   });
   if (at >= 0) mdGoHeading(at);
   return at;
 }
 // ---------------- Picking: selection -> lines, and the ladder
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
-function mdRangeAt(node) {
-  const e = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
-  if (!e) return null;
-  const md = $('#md');
-  if (!md || !md.contains(e)) return null;
-  // The nearest carrier wins. A drawn formula that was cut at a line end sits inside the span of the line it starts in and
-  // carries the lines it covers itself (mdInline): those are the point's lines, not that one line's.
-  const near = e.closest('[data-line],[data-lo]') as HTMLElement | null;
-  if (near && md.contains(near)) {
-    const n = +(near.dataset.line || 0);
-    if (n) return { lo: n, hi: n };
+function linesAt(node) {
+  const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+  if (!element) return null;
+  const column = $('#md');
+  if (!column || !column.contains(element)) return null;
+  // The nearest carrier wins. A drawn formula that was cut at a line end sits inside the span of the line it starts in
+  // and carries the lines it covers itself (drawInline): those are the point's lines, not that one line's.
+  const near = element.closest('[data-line],[data-lo]') as HTMLElement | null;
+  if (near && column.contains(near)) {
+    const line = +(near.dataset.line || 0);
+    if (line) return { lo: line, hi: line };
     if (near.dataset.lo !== undefined) return { lo: +(near.dataset.lo || 0), hi: +(near.dataset.hi || 0) };
   }
-  const b = e.closest('[data-lo]') as HTMLElement | null;
-  return b && md.contains(b) ? { lo: +(b.dataset.lo || 0), hi: +(b.dataset.hi || 0) } : null;
+  const block = element.closest('[data-lo]') as HTMLElement | null;
+  return block && column.contains(block) ? { lo: +(block.dataset.lo || 0), hi: +(block.dataset.hi || 0) } : null;
 }
-// The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's paragraph's item or
-// quote, else its nearest
-// block (a run of text whose lines could not be told - kind 'lines', mdInline - stands for the block it is in).
-function mdBlockAt(node) {
-  const e = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
-  if (!e) return null;
-  let b = e.closest('#md [data-lo]') as HTMLElement | null;
-  if (b && b.dataset.kind === 'lines' && b.parentElement)
-    b = b.parentElement.closest('#md [data-lo]') as HTMLElement | null;
-  if (!b) return null;
-  if (b.dataset.kind === 'row') b = (b.closest('table[data-lo]') as HTMLElement | null) || b;
+// The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's
+// paragraph's item or quote, else its nearest block (a run of text whose lines could not be told - kind 'lines',
+// drawInline - stands for the block it is in).
+function blockAt(node) {
+  const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+  if (!element) return null;
+  let block = element.closest('#md [data-lo]') as HTMLElement | null;
+  if (block && block.dataset.kind === 'lines' && block.parentElement)
+    block = block.parentElement.closest('#md [data-lo]') as HTMLElement | null;
+  if (!block) return null;
+  if (block.dataset.kind === 'row') block = (block.closest('table[data-lo]') as HTMLElement | null) || block;
   else if (
-    b.dataset.kind === 'paragraph' &&
-    b.parentElement &&
-    /^(item|quote)$/.test(b.parentElement.dataset.kind || '')
+    block.dataset.kind === 'paragraph' &&
+    block.parentElement &&
+    /^(item|quote)$/.test(block.parentElement.dataset.kind || '')
   )
-    b = b.parentElement; // a list item's or a quote's own paragraph is that block
+    block = block.parentElement; // a list item's or a quote's own paragraph is that block
   // A heading or a rule is no block of its own (ADR-0025 D3's block kinds): the block it stands in, if any, is.
-  while (b && !MD_BLOCK_KINDS.includes(b.dataset.kind || ''))
-    b = b.parentElement ? (b.parentElement.closest('#md [data-lo]') as HTMLElement | null) : null;
-  return b;
+  while (block && !BLOCK_KINDS.includes(block.dataset.kind || ''))
+    block = block.parentElement ? (block.parentElement.closest('#md [data-lo]') as HTMLElement | null) : null;
+  return block;
 }
-// The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032) and their names on the ladder.
-const MD_BLOCK_KINDS = ['paragraph', 'item', 'table', 'code', 'quote', 'html', 'front', 'math'];
-const MD_BLOCK_SEL = MD_BLOCK_KINDS.map((k) => '[data-lo][data-kind="' + k + '"]').join(',');
-// The blocks lines lo..hi meet, outermost: each element of a block kind on screen whose lines meet lo..hi and that no other such
-// element meeting them holds (a quote's paragraphs are the quote; a list's items are each a block).
-function mdBlocksIn(lo, hi) {
-  const md = $('#md');
-  if (!md) return [];
-  const meets = (e: HTMLElement) => +(e.dataset.lo || 0) <= hi && +(e.dataset.hi || 0) >= lo;
-  return ([...md.querySelectorAll(MD_BLOCK_SEL)] as HTMLElement[]).filter((e) => {
-    if (!meets(e)) return false;
-    const up = (e.parentElement && e.parentElement.closest(MD_BLOCK_SEL)) as HTMLElement | null;
-    return !(up && md.contains(up) && meets(up));
+// The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032) and their names on
+// the ladder.
+const BLOCK_KINDS = ['paragraph', 'item', 'table', 'code', 'quote', 'html', 'front', 'math'];
+const BLOCK_SELECTOR = BLOCK_KINDS.map((kind) => '[data-lo][data-kind="' + kind + '"]').join(',');
+// The blocks lines first..last meet, outermost: each element of a block kind on screen whose lines meet first..last and
+// that no other such element meeting them holds (a quote's paragraphs are the quote; a list's items are each a block).
+function blocksMeeting(first, last) {
+  const column = $('#md');
+  if (!column) return [];
+  const meets = (element: HTMLElement) => +(element.dataset.lo || 0) <= last && +(element.dataset.hi || 0) >= first;
+  return ([...column.querySelectorAll(BLOCK_SELECTOR)] as HTMLElement[]).filter((element) => {
+    if (!meets(element)) return false;
+    const up = (element.parentElement && element.parentElement.closest(BLOCK_SELECTOR)) as HTMLElement | null;
+    return !(up && column.contains(up) && meets(up));
   });
 }
-const MD_BLOCK_LABEL = {
+const BLOCK_LABEL = {
   paragraph: '문단',
   item: '목록 항목',
   table: '표',
@@ -2065,116 +2201,133 @@ const MD_BLOCK_LABEL = {
   front: '머리 정보',
   math: '수식',
 };
-function mdSnippet(lo, hi) {
+function mdSnippet(first, last) {
   const out: string[] = [];
-  for (let n = lo; n <= Math.min(hi, lo + 79); n++)
-    out.push(String(n).padStart(5, ' ') + '  ' + (MD.lines[n - 1] || ''));
-  if (hi - lo + 1 > 80) out.push('      … ' + tl('{n}줄 더', { n: hi - lo + 1 - 80 }));
+  for (let line = first; line <= Math.min(last, first + 79); line++)
+    out.push(String(line).padStart(5, ' ') + '  ' + (MD.lines[line - 1] || ''));
+  if (last - first + 1 > 80) out.push('      … ' + tl('{n}줄 더', { n: last - first + 1 - 80 }));
   return out.join('\n');
 }
-// The section around lines lo..hi: from the nearest heading at or above lo to the line before the next heading of the same or a
-// higher level (the file's end when none), its trailing blank lines left out. null above the first heading, or when hi is past it.
-function mdSection(lo, hi) {
-  let h = null as { level: number; lo: number; title: string } | null;
-  for (const x of MD.heads) {
-    if (x.lo <= lo) h = x;
+// The section around lines first..last: from the nearest heading at or above first to the line before the next heading
+// of the same or a higher level (the file's end when none), its trailing blank lines left out. null above the first
+// heading, or when last is past it.
+function sectionAround(first, last) {
+  let heading = null as { level: number; lo: number; title: string } | null;
+  for (const head of MD.heads) {
+    if (head.lo <= first) heading = head;
     else break;
   }
-  if (!h) return null;
+  if (!heading) return null;
   let end = MD.lines.length;
-  for (const x of MD.heads) {
-    if (x.lo > h.lo && x.level <= h.level) {
-      end = x.lo - 1;
+  for (const head of MD.heads) {
+    if (head.lo > heading.lo && head.level <= heading.level) {
+      end = head.lo - 1;
       break;
     }
   }
-  while (end > h.lo && !String(MD.lines[end - 1] || '').trim()) end--;
-  if (end < hi) return null;
-  return { lo: h.lo, hi: end, title: h.title };
+  while (end > heading.lo && !String(MD.lines[end - 1] || '').trim()) end--;
+  if (end < last) return null;
+  return { lo: heading.lo, hi: end, title: heading.title };
 }
-// The ladder for lines r (a drag or a tap) and the blocks its start and end are in (mdBlockAt): the chosen lines, the block when
-// both ends are in one - else, when they meet two or more blocks (mdBlocksIn), those blocks whole ('블록 N개', level blocks:
-// saved as lines, kindFor) - and the heading's section; a rung with the range of one before it merges into that one. A block
-// rung carries its block kind as env (kindFor: md:<kind>). A tap (tapped) picks its block: when the block is no more than the
-// tapped lines (an HTML block, a one-line paragraph) its rung stands first and the chosen lines merge into it, so the pin is
-// md:<kind> as any other tapped block's - merged the other way, the tap's block was saved as lines.
-function mdLevels(r: { lo: number; hi: number }, b0: HTMLElement | null, b1: HTMLElement | null, tapped?: boolean) {
-  if (isTextDoc()) return txLevels(r); // a text document's rungs come from its lines alone
-  const ls = [] as any[];
-  const add = (level, label, lo, hi, env) => {
-    const same = ls.find((l) => l.lo === lo && l.hi === hi);
+// The ladder for lines range (a drag or a tap) and the blocks its start and end are in (startBlock, endBlock: blockAt):
+// the chosen lines, the block when both ends are in one - else, when they meet two or more blocks (blocksMeeting),
+// those blocks whole ('블록 N개', level blocks: saved as lines, kindFor) - and the heading's section; a rung with the
+// range of one before it merges into that one. A block rung carries its block kind as env (kindFor: md:<kind>). A tap
+// (tapped) picks its block: when the block is no more than the tapped lines (an HTML block, a one-line paragraph) its
+// rung stands first and the chosen lines merge into it, so the pin is md:<kind> as any other tapped block's - merged
+// the other way, the tap's block would be saved as lines.
+function markdownLevels(
+  range: { lo: number; hi: number },
+  startBlock: HTMLElement | null,
+  endBlock: HTMLElement | null,
+  tapped?: boolean,
+) {
+  if (isTextDoc()) return txLevels(range); // a text document's rungs come from its lines alone
+  const rungs = [] as any[];
+  const add = (level, label, first, last, env) => {
+    const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
     if (same) {
       (same.merged = same.merged || []).push(level);
       return;
     }
-    ls.push({ level, label, lo, hi, n: hi - lo + 1, snippet: mdSnippet(lo, hi), env: env || null });
+    rungs.push({
+      level,
+      label,
+      lo: first,
+      hi: last,
+      n: last - first + 1,
+      snippet: mdSnippet(first, last),
+      env: env || null,
+    });
   };
-  const k = b0 && b0 === b1 ? b0.dataset.kind || 'paragraph' : '',
-    blo = b0 ? Math.min(+(b0.dataset.lo || 0), r.lo) : 0,
-    bhi = b0 ? Math.max(+(b0.dataset.hi || 0), r.hi) : 0;
-  const blockFirst = !!(tapped && k && blo === r.lo && bhi === r.hi);
-  if (blockFirst) add('block', MD_BLOCK_LABEL[k] || '블록', blo, bhi, k);
-  add('raw', '고른 줄', r.lo, r.hi, null);
-  if (k) {
-    if (!blockFirst) add('block', MD_BLOCK_LABEL[k] || '블록', blo, bhi, k);
+  const kind = startBlock && startBlock === endBlock ? startBlock.dataset.kind || 'paragraph' : '',
+    blockStart = startBlock ? Math.min(+(startBlock.dataset.lo || 0), range.lo) : 0,
+    blockEnd = startBlock ? Math.max(+(startBlock.dataset.hi || 0), range.hi) : 0;
+  const blockFirst = !!(tapped && kind && blockStart === range.lo && blockEnd === range.hi);
+  if (blockFirst) add('block', BLOCK_LABEL[kind] || '블록', blockStart, blockEnd, kind);
+  add('raw', '고른 줄', range.lo, range.hi, null);
+  if (kind) {
+    if (!blockFirst) add('block', BLOCK_LABEL[kind] || '블록', blockStart, blockEnd, kind);
   } else {
-    const bs = mdBlocksIn(r.lo, r.hi);
-    if (bs.length > 1)
+    const blocks = blocksMeeting(range.lo, range.hi);
+    if (blocks.length > 1)
       add(
         'blocks',
-        tl('블록 {n}개', { n: bs.length }),
-        Math.min(r.lo, ...bs.map((e) => +(e.dataset.lo || 0))),
-        Math.max(r.hi, ...bs.map((e) => +(e.dataset.hi || 0))),
+        tl('블록 {n}개', { n: blocks.length }),
+        Math.min(range.lo, ...blocks.map((block) => +(block.dataset.lo || 0))),
+        Math.max(range.hi, ...blocks.map((block) => +(block.dataset.hi || 0))),
         null,
       );
   }
-  const s = mdSection(r.lo, r.hi);
-  if (s) add('section', tr('절') + ' · ' + ccClip(s.title, 18), s.lo, s.hi, null); // the heading's hidden characters by name (ccClip, ADR-0029 D5)
-  return ls;
+  const section = sectionAround(range.lo, range.hi);
+  // the heading's hidden characters by name (ccClip, ADR-0029 D5)
+  if (section) add('section', tr('절') + ' · ' + ccClip(section.title, 18), section.lo, section.hi, null);
+  return rungs;
 }
-// Fills the composer with lines r of the document on screen, as pick() does with a /api/pick answer; tapped: a tap picked a
-// block, so the block rung is the default (the section rung on a heading). During a re-place it is the candidate instead
-// (bannerCompare), with nothing else changed.
-function mdPick(r, b0, b1, quote, tapped) {
-  const levels = mdLevels(r, b0, b1, tapped),
-    q = String(quote || '')
+// Fills the composer with lines range of the document on screen, as pick() does with a /api/pick answer; tapped: a tap
+// picked a block, so the block rung is the default (the section rung on a heading). During a re-place it is the
+// candidate instead (bannerCompare), with nothing else changed.
+function pickLines(range, startBlock, endBlock, quote, tapped) {
+  const levels = markdownLevels(range, startBlock, endBlock, tapped),
+    quoted = String(quote || '')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 160);
-  const head = tapped && MD.heads.some((h) => h.lo === r.lo && h.lo === r.hi);
-  const def =
-    tapped && !isTextDoc() && lvOf({ levels }, head ? 'section' : 'block') ? (head ? 'section' : 'block') : 'raw'; // a tap on a text document picks its line
-  const sel = {
+  const head = tapped && MD.heads.some((heading) => heading.lo === range.lo && heading.lo === range.hi);
+  const defaultLevel =
+    // a tap on a text document picks its line
+    tapped && !isTextDoc() && lvOf({ levels }, head ? 'section' : 'block') ? (head ? 'section' : 'block') : 'raw';
+  const selection = {
     doc: DOC,
     file: MD.file,
     name: MD.name,
-    lo: r.lo,
-    hi: r.hi,
-    raw_lo: r.lo,
-    raw_hi: r.hi,
+    lo: range.lo,
+    hi: range.hi,
+    raw_lo: range.lo,
+    raw_hi: range.hi,
     kind: 'lines',
     score: null,
     warn: null,
-    snippet: mdSnippet(r.lo, r.hi),
+    snippet: mdSnippet(range.lo, range.hi),
     levels,
-    default_level: def,
+    default_level: defaultLevel,
     n_lines: MD.lines.length,
-    quote: q,
+    quote: quoted,
     overlaps: [],
   } as unknown as Selection;
   if (REPICK) {
-    REPICK.cand = sel;
+    REPICK.cand = selection;
     bannerCompare();
     return;
   }
   endTopic(NOTICE_TOPIC.PICK);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.current = sel;
+  COMPOSE.current = selection;
   COMPOSE.intent++;
   COMPOSE.picking = false;
-  sel.scope = null;
-  sel.elSel = null;
-  useLevel(sel, def);
+  selection.scope = null;
+  selection.elSel = null;
+  useLevel(selection, defaultLevel);
   $('#composer').hidden = false;
   setBusy(false);
   $('#c-err').hidden = true;
@@ -2182,92 +2335,101 @@ function mdPick(r, b0, b1, quote, tapped) {
   setSide(true);
   applySide();
   COMPOSE.dismissedOverlap = null;
-  sel.overlaps = overlapsFor(sel, PINS);
+  selection.overlaps = overlapsFor(selection, PINS);
   setSnipOpen(false);
   renderComposer();
   renderVerdictRow();
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
-  revealBox(document.querySelector('#md .md-sel') as HTMLElement | null); // the chosen lines out from under the sheet (compact), as a PDF box is
+  // the chosen lines out from under the sheet (compact), as a PDF box is
+  revealBox(document.querySelector('#md .md-sel') as HTMLElement | null);
   if (LAST_PTR === 'mouse') $('#note').focus({ preventScroll: true });
 }
-// The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (mdLevels), or none when the
-// document on screen is another or is not drawn (the line view, a notice) - the card then keeps the lines it has.
-function mdEditLevels(E: { doc?: string | null; lo?: number | null; hi?: number | null }) {
-  if (!isMdDoc() || E.doc !== DOC || typeof E.lo !== 'number' || typeof E.hi !== 'number') return null;
-  const a = mdLeaves(E.lo, E.lo)[0],
-    b = mdLeaves(E.hi, E.hi)[0];
-  if (!a && !b) return null;
-  const ls = mdLevels({ lo: E.lo, hi: E.hi }, a ? mdBlockAt(a) : null, b ? mdBlockAt(b) : null);
-  return ls.length > 1 ? ls : null;
+// The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (markdownLevels), or
+// none when the document on screen is another or is not drawn (the line view, a notice) - the card then keeps the lines
+// it has.
+function mdEditLevels(edit: { doc?: string | null; lo?: number | null; hi?: number | null }) {
+  if (!isMdDoc() || edit.doc !== DOC || typeof edit.lo !== 'number' || typeof edit.hi !== 'number') return null;
+  const first = mdLeaves(edit.lo, edit.lo)[0],
+    last = mdLeaves(edit.hi, edit.hi)[0];
+  if (!first && !last) return null;
+  const rungs = markdownLevels(
+    { lo: edit.lo, hi: edit.hi },
+    first ? blockAt(first) : null,
+    last ? blockAt(last) : null,
+  );
+  return rungs.length > 1 ? rungs : null;
 }
 // What the document marks as chosen: a re-place's candidate while there is one - the lines of the rung its banner names
 // (bannerCompare), as the PDF surface draws its box - else the composer's selection (null: nothing).
 function mdSelShown(): { file?: string; lo?: number | null; hi?: number | null; kind?: string } | null {
-  const c = REPICK && REPICK.cand;
-  if (!c) return COMPOSE.current;
-  const lv = lvOf(c, c.default_level) || c;
-  return { file: c.file, lo: lv.lo, hi: lv.hi, kind: c.kind };
+  const candidate = REPICK && REPICK.cand;
+  if (!candidate) return COMPOSE.current;
+  const level = lvOf(candidate, candidate.default_level) || candidate;
+  return { file: candidate.file, lo: level.lo, hi: level.hi, kind: candidate.kind };
 }
-// The chosen lines drawn on the document: their line spans and blocks get .md-sel (null clears), and the reading spot learns
-// whether they are on screen (mdSpotKeep brings them back after a reflow only then).
-function mdSelMark(d: { file?: string; lo?: number | null; hi?: number | null; kind?: string; pdf?: string } | null) {
-  $$('#md .md-sel').forEach((e) => e.classList.remove('md-sel'));
-  if (d && isMdDoc() && d.file === MD.file && !isRegion(d))
-    mdLeaves(d.lo as number, d.hi as number).forEach((e) => e.classList.add('md-sel'));
-  if (MD.spot && MD.spot.doc === DOC && mdColumnShown()) MD.spot.sel = mdSelSeen();
+// The chosen lines drawn on the document: their line spans and blocks get .md-sel (null clears), and the reading spot
+// learns whether they are on screen (mdSpotKeep brings them back after a reflow only then).
+function mdSelMark(
+  chosen: { file?: string; lo?: number | null; hi?: number | null; kind?: string; pdf?: string } | null,
+) {
+  $$('#md .md-sel').forEach((element) => element.classList.remove('md-sel'));
+  if (chosen && isMdDoc() && chosen.file === MD.file && !isRegion(chosen))
+    mdLeaves(chosen.lo as number, chosen.hi as number).forEach((element) => element.classList.add('md-sel'));
+  if (MD.spot && MD.spot.doc === DOC && isColumnShown()) MD.spot.sel = isChosenSeen();
 } // hidden, nothing is on screen: what was stays
-// The elements that stand for lines lo..hi: each line span in range, and each block in range that has no line spans of its own
-// and no smaller block in range (a rule, an HTML block) - the smallest things on screen that carry those lines. A table cell's
-// line stands for its row: the row is what is tinted, so a pinned row reads as one band.
-function mdLeaves(lo, hi) {
-  const md = $('#md');
-  if (!md) return [];
-  const lines = [...md.querySelectorAll('[data-line]')].filter((e) => {
-    const n = +((e as HTMLElement).dataset.line || 0);
-    return n >= lo && n <= hi;
+// The elements that stand for lines first..last: each line span in range, and each block in range that has no line
+// spans of its own and no smaller block in range (a rule, an HTML block) - the smallest things on screen that carry
+// those lines. A table cell's line stands for its row: the row is what is tinted, so a pinned row reads as one band.
+function mdLeaves(first, last) {
+  const column = $('#md');
+  if (!column) return [];
+  const lines = [...column.querySelectorAll('[data-line]')].filter((element) => {
+    const line = +((element as HTMLElement).dataset.line || 0);
+    return line >= first && line <= last;
   });
-  const blocks = [...md.querySelectorAll('[data-lo]')].filter((e) => {
-    const h = e as HTMLElement,
-      a = +(h.dataset.lo || 0),
-      b = +(h.dataset.hi || 0);
-    return a <= hi && b >= lo && !h.querySelector('[data-line],[data-lo]');
+  const blocks = [...column.querySelectorAll('[data-lo]')].filter((element) => {
+    const block = element as HTMLElement,
+      start = +(block.dataset.lo || 0),
+      end = +(block.dataset.hi || 0);
+    return start <= last && end >= first && !block.querySelector('[data-line],[data-lo]');
   });
   const out = new Set();
-  for (const e of [...lines, ...blocks]) {
-    const row = e.closest('tr[data-lo]');
-    out.add(row && md.contains(row) ? row : e);
+  for (const element of [...lines, ...blocks]) {
+    const row = element.closest('tr[data-lo]');
+    out.add(row && column.contains(row) ? row : element);
   }
   return [...out] as HTMLElement[];
 }
 // ---------------- Pins on the document
-// The marks of the pins on screen (marks()' branch): each pin's lines get .md-pin (review .rv, lost .st), and the first of them a
-// number badge in the left gutter that jumps to the card (data-act mark-jump, as on a PDF page). The badges are drawn in line
-// order, each layer just before the block of #md its line is in: Tab and a screen reader meet a badge where its line is -
-// appended at the column's end they came after the last link, in pin order (#1 L3, #2 L55, #4 L9). The badge's name and
-// description (its tip: '#1 · L3-L5 · <note>') are what marks the pinned lines for them, colour aside.
+// The marks of the pins on screen (marks()' branch): each pin's lines get .md-pin (review .rv, lost .st), and the first
+// of them a number badge in the left gutter that jumps to the card (data-act mark-jump, as on a PDF page). The badges
+// are drawn in line order, each layer just before the block of #md its line is in: Tab and a screen reader meet a badge
+// where its line is - appended at the column's end they would come after the last link, in pin order (#1 L3, #2 L55, #4
+// L9). The badge's name and description (its tip: '#1 · L3-L5 · <note>') are what marks the pinned lines for them,
+// colour aside.
 function mdMarks() {
-  const md = $('#md');
-  if (!md) return;
-  md.querySelectorAll('.md-badges').forEach((e) => e.remove());
-  md.querySelectorAll('.md-pin').forEach((e) => e.classList.remove('md-pin', 'rv', 'st'));
-  const pins = PINS.concat(REVIEW_ALL.filter((p) => pdoc(p) === DOC))
-    .filter((p) => !isRegion(p) && typeof p.lo === 'number' && typeof p.hi === 'number')
-    .sort((a, b) => (a.lo as number) - (b.lo as number) || a.id - b.id);
+  const column = $('#md');
+  if (!column) return;
+  column.querySelectorAll('.md-badges').forEach((element) => element.remove());
+  column.querySelectorAll('.md-pin').forEach((element) => element.classList.remove('md-pin', 'rv', 'st'));
+  const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
+    .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
+    .sort((left, right) => (left.lo as number) - (right.lo as number) || left.id - right.id);
   const rows = new Map() as Map<number, HTMLElement>,
-    top = md.getBoundingClientRect().top;
-  for (const p of pins) {
-    const leaves = mdLeaves(p.lo as number, p.hi as number);
+    top = column.getBoundingClientRect().top;
+  for (const pin of pins) {
+    const leaves = mdLeaves(pin.lo as number, pin.hi as number);
     if (!leaves.length) continue;
-    const rv = pinState(p) === PIN_STATE.REVIEW,
-      lost = !!p.stale;
-    leaves.forEach((e) => {
-      e.classList.add('md-pin');
-      if (rv) e.classList.add('rv');
-      if (lost) e.classList.add('st');
+    const inReview = pinState(pin) === PIN_STATE.REVIEW,
+      lost = !!pin.stale;
+    leaves.forEach((element) => {
+      element.classList.add('md-pin');
+      if (inReview) element.classList.add('rv');
+      if (lost) element.classList.add('st');
     });
-    // The badge stands in the column's left gutter at the height of the pin's first line (a layer of #md, never inside a
-    // paragraph, list or table, so it moves no text). Pins whose first lines share a height stack down.
+    // The badge stands in the column's left gutter at the height of the pin's first line (a layer of #md, never inside
+    // a paragraph, list or table, so it moves no text). Pins whose first lines share a height stack down.
     const y = Math.round(leaves[0].getBoundingClientRect().top - top);
     let box = rows.get(y);
     if (!box) {
@@ -2275,103 +2437,110 @@ function mdMarks() {
       box.className = 'md-badges';
       box.setAttribute('translate', 'no');
       box.style.top = y + 'px';
-      const at = mdTopBlock(md, leaves[0]);
-      ((at && at.parentElement) || md).insertBefore(box, at);
+      const at = topBlockOf(column, leaves[0]);
+      ((at && at.parentElement) || column).insertBefore(box, at);
       rows.set(y, box);
     }
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'md-badge' + (rv ? ' rv' : '') + (lost ? ' st' : '');
-    b.dataset.act = 'mark-jump';
-    b.dataset.id = String(p.id);
-    b.dataset.pin = String(p.id);
-    b.textContent = String(p.id);
-    b.setAttribute('aria-label', tl('핀 #{id} 카드로 이동', { id: p.id }));
-    const n = String(p.note || '')
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = 'md-badge' + (inReview ? ' rv' : '') + (lost ? ' st' : '');
+    badge.dataset.act = 'mark-jump';
+    badge.dataset.id = String(pin.id);
+    badge.dataset.pin = String(pin.id);
+    badge.textContent = String(pin.id);
+    badge.setAttribute('aria-label', tl('핀 #{id} 카드로 이동', { id: pin.id }));
+    const note = String(pin.note || '')
       .replace(/\s+/g, ' ')
       .trim();
-    b.dataset.tip =
+    badge.dataset.tip =
       '#' +
-      p.id +
+      pin.id +
       ' · ' +
-      rng(p.lo as number, p.hi as number) +
+      rng(pin.lo as number, pin.hi as number) +
       ' · ' +
-      (n ? (n.length > 60 ? n.slice(0, 60) + '…' : n) : tr('(메모 없음)'));
-    box.appendChild(b);
+      (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : tr('(메모 없음)'));
+    box.appendChild(badge);
   }
 }
-// The child of md that holds e (null: e is not inside it) - where a badge layer goes in the document's order, a child of #md
-// still, so it stands in the gutter as before and no block's text (a quote, a tap's block) takes its number. A text
-// document's lines are all one block (.tx-src, text-surface.js), so there the layer goes before e's line span itself, a
+// The child of column (#md) that holds element (null: element is not inside it) - where a badge layer goes in the
+// document's order, a child of #md still, so it stands in the gutter and no block's text (a quote, a tap's block) takes
+// its number. A text document's lines are all one block (.tx-src, text-surface.ts), so there the layer goes before
+// element's line span itself, a
 // sibling of the lines and in no line's text: before the whole text, every badge would be read before the first line.
-function mdTopBlock(md: HTMLElement, e: Element): Element | null {
-  let x = e as Element | null;
-  const tx = md.classList.contains('tx');
-  while (x && x.parentElement !== md && !(tx && x.parentElement && x.parentElement.classList.contains('tx-src')))
-    x = x.parentElement;
-  return x;
+function topBlockOf(column: HTMLElement, element: Element): Element | null {
+  let child = element as Element | null;
+  const isText = column.classList.contains('tx');
+  while (
+    child &&
+    child.parentElement !== column &&
+    !(isText && child.parentElement && child.parentElement.classList.contains('tx-src'))
+  )
+    child = child.parentElement;
+  return child;
 }
-// The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the paint
-// (mdSpotKeep), and the badges follow their lines.
-let MD_RO_T = 0;
-const MD_RO = window.ResizeObserver
+// The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the
+// paint (mdSpotKeep), and the badges follow their lines.
+let MARK_REDRAW_TIMER = 0;
+const COLUMN_OBSERVER = window.ResizeObserver
   ? new ResizeObserver(() => {
       mdSpotKeep();
-      clearTimeout(MD_RO_T);
-      MD_RO_T = setTimeout(() => {
+      clearTimeout(MARK_REDRAW_TIMER);
+      MARK_REDRAW_TIMER = setTimeout(() => {
         if (isMdDoc()) {
-          mdTexFit();
+          fitWideFormulas();
           mdMarks();
         }
       }, 120);
     })
   : null;
-// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch, mdShowLines). A jump asked before this
-// document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read and drawn - waits
-// for the draw (mdShow) of this visit; another switch drops it.
+// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch, mdShowLines). A jump asked
+// before this document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read
+// and drawn - waits for the draw (showDocumentNode) of this visit; another switch drops it.
 function mdJump(id) {
   if (MD.shown !== DOC || !$('#md')) {
     MD.jumpTo = { id, doc: DOC, seq: SWITCHSEQ };
     return;
   }
-  const p = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id);
-  if (!p || typeof p.lo !== 'number' || typeof p.hi !== 'number') return;
-  const leaves = mdLeaves(p.lo, p.hi);
+  const pin = PINS.find((candidate) => candidate.id === id) || REVIEW_ALL.find((candidate) => candidate.id === id);
+  if (!pin || typeof pin.lo !== 'number' || typeof pin.hi !== 'number') return;
+  const leaves = mdLeaves(pin.lo, pin.hi);
   if (leaves.length) mdShowLines(leaves);
 }
-// Scrolls the first of line elements els to the reading depth (30% down the document area) and flashes them - a pin's
-// [보기] (mdJump) and [바뀐 곳] (updGoNext, updates.js) - and reads the reading spot where that put the pane: the page's own
-// jump is over at once, so its place is the spot before the scroll's frame reads it (as a heading jump's once it lands,
-// mdGoLanded). A width that changes before that frame puts back the jump's place (mdSpotKeep), not the one read before it.
-function mdShowLines(els: HTMLElement[]) {
-  const L = $('#left'),
-    lr = L.getBoundingClientRect(),
-    r = els[0].getBoundingClientRect();
+// Scrolls the first of the line elements to the reading depth (30% down the document area) and flashes them - a pin's
+// [보기] (mdJump) and [바뀐 곳] (updGoNext, updates.ts) - and reads the reading spot where that put the pane: the
+// page's own jump is over at once, so its place is the spot before the scroll's frame reads it (as a heading jump's
+// once it lands, endLandedJump). A width that changes before that frame puts back the jump's place (mdSpotKeep), not
+// the one read before it.
+function mdShowLines(elements: HTMLElement[]) {
+  const pane = $('#left'),
+    paneRect = pane.getBoundingClientRect(),
+    rect = elements[0].getBoundingClientRect();
   endJumpForScroll();
-  L.scrollTop += r.top - (lr.top + lr.height * 0.3);
-  mdSpotRead(true);
-  els.forEach((e) => {
-    e.classList.remove('md-flash');
-    void e.offsetWidth;
-    e.classList.add('md-flash');
+  pane.scrollTop += rect.top - (paneRect.top + paneRect.height * 0.3);
+  readSpot(true);
+  elements.forEach((element) => {
+    element.classList.remove('md-flash');
+    void element.offsetWidth;
+    element.classList.add('md-flash');
   });
-  setTimeout(() => els.forEach((e) => e.classList.remove('md-flash')), 1200);
+  setTimeout(() => elements.forEach((element) => element.classList.remove('md-flash')), 1200);
 }
 // ---------------- Outline from headings, the strip and the position button
-// A heading as its outline row and the strip name it: plain text, its marked characters by name (ccClip, hidden-chars.js), at
-// most MD_HEAD_CLIP characters - the row and the strip cut it to one line anyway, and the name never reads in another order.
-const MD_HEAD_CLIP = 120;
-function mdOutline() {
+// A heading as its outline row and the strip name it: plain text, its marked characters by name (ccClip,
+// hidden-chars.ts), at most HEADING_CLIP characters - the row and the strip cut it to one line anyway, and the name
+// never reads in another order.
+const HEADING_CLIP = 120;
+function drawOutline() {
   setOutlineDoc(DOC);
   setOutlineBuild((META && META.pages_build) || '');
   setOutlineCut(0);
   setOutlineEntries(
-    MD.heads.map((h, i) => ({
-      title: ccClip(h.title, MD_HEAD_CLIP),
+    MD.heads.map((heading, index) => ({
+      title: ccClip(heading.title, HEADING_CLIP),
       number: '',
-      depth: Math.max(0, h.level - 1),
-      page: i + 1,
-      pageLabel: 'L' + h.lo,
+      depth: Math.max(0, heading.level - 1),
+      page: index + 1,
+      pageLabel: 'L' + heading.lo,
       frac: 0,
       up: -1,
     })),
@@ -2379,348 +2548,360 @@ function mdOutline() {
   setOutlineSelected(-1);
   renderOutline();
 }
-// The source line at the reading line (readingDepth under the pane's top): the last line span or block, in document order, whose
-// top is at or above it. 0 before the document is drawn.
-function mdReadingLine() {
-  const L = $('#left');
+// The source line at the reading line (readingDepth under the pane's top): the last line span or block, in document
+// order, whose top is at or above it. 0 before the document is drawn.
+function readingLine() {
+  const pane = $('#left');
   if (!$('#md')) return 0;
-  const e = mdAt(mdLineEls(), L.getBoundingClientRect().top + readingDepth(L));
-  return e ? +(e.dataset.line || e.dataset.lo || 0) : 0;
+  const element = lineElementAt(lineElements(), pane.getBoundingClientRect().top + readingDepth(pane));
+  return element ? +(element.dataset.line || element.dataset.lo || 0) : 0;
 }
-// The section strip and the phone's position button (updateSectionStrip's branch): the heading above the reading line is the
-// outline's current entry and the strip's title; the button reads [L<line>/<lines>].
+// The section strip and the phone's position button (updateSectionStrip's branch): the heading above the reading line
+// is the outline's current entry and the strip's title; the button reads [L<line>/<lines>].
 function mdStrip() {
   if (!isMdDoc()) return;
-  MD.at = mdReadingLine();
-  let i = -1;
-  MD.heads.forEach((h, j) => {
-    if (h.lo <= MD.at) i = j;
+  MD.at = readingLine();
+  let index = -1;
+  MD.heads.forEach((heading, at) => {
+    if (heading.lo <= MD.at) index = at;
   });
-  if (i !== OUTLINE_SELECTED) {
-    setOutlineSelected(i);
+  if (index !== OUTLINE_SELECTED) {
+    setOutlineSelected(index);
     markOutline();
   }
-  const h = MD.heads[i];
-  $('#section-current').textContent = h
-    ? ccClip(h.title, MD_HEAD_CLIP)
+  const heading = MD.heads[index];
+  // the heading's title; a text document, which has no headings, its file name; above the first heading, the start
+  $('#section-current').textContent = heading
+    ? ccClip(heading.title, HEADING_CLIP)
     : isTextDoc()
-      ? ccClip(MD.name, MD_HEAD_CLIP)
+      ? ccClip(MD.name, HEADING_CLIP)
       : tr('문서 처음');
   drawPos();
-} // a text document has no headings: its file   // above the first heading
-let MD_STRIP_F = 0;
+}
+let STRIP_FRAME = 0;
 $('#left').addEventListener(
   'scroll',
   () => {
-    if (!isMdDoc() || MD_STRIP_F) return;
-    MD_STRIP_F = requestAnimationFrame(() => {
-      MD_STRIP_F = 0;
-      mdGoLanded();
+    if (!isMdDoc() || STRIP_FRAME) return;
+    STRIP_FRAME = requestAnimationFrame(() => {
+      STRIP_FRAME = 0;
+      endLandedJump();
       mdStrip();
-      mdSpotRead();
+      readSpot();
     });
   },
   { passive: true },
 );
-// posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
-// known yet - with the document's name as posLabel puts it. Pure but for tl.
-function mdPosLabel(doc: string, line: number, n: number, multi: boolean, wide: boolean) {
+// posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is
+// not known yet - with the document's name as posLabel puts it. Pure but for tl.
+function mdPosLabel(doc: string, line: number, lineCount: number, multi: boolean, wide: boolean) {
   const name = multi && wide ? doc : '',
-    p = line || '–',
-    m = n || '–';
+    shownLine = line || '–',
+    shownCount = lineCount || '–';
   return {
     name,
-    pages: 'L' + p + '/' + m,
+    pages: 'L' + shownLine + '/' + shownCount,
     label: name
-      ? tl('이동 · {doc} · {line} / {lines}줄', { doc: name, line: p, lines: m })
-      : tl('이동 · {line} / {lines}줄', { line: p, lines: m }),
+      ? tl('이동 · {doc} · {line} / {lines}줄', { doc: name, line: shownLine, lines: shownCount })
+      : tl('이동 · {line} / {lines}줄', { line: shownLine, lines: shownCount }),
   };
 }
-// The empty list's help (#empty) speaks of dragging on the PDF; this document gets its own words, and a PDF document the page's
-// own back (kept as served).
-let MD_HINT_PDF = null as Node[] | null;
+// The empty list's help (#empty) speaks of dragging on the PDF; this document gets its own words, and a PDF document
+// the page's own back (kept as served).
+let PDF_HINT_NODES = null as Node[] | null;
 function mdHint() {
-  const e = $('#empty');
-  if (!e) return;
-  if (!MD_HINT_PDF) MD_HINT_PDF = [...e.childNodes].map((n) => n.cloneNode(true));
+  const help = $('#empty');
+  if (!help) return;
+  if (!PDF_HINT_NODES) PDF_HINT_NODES = [...help.childNodes].map((node) => node.cloneNode(true));
   if (!isMdDoc()) {
-    if (e.dataset.md) {
-      e.replaceChildren(...MD_HINT_PDF.map((n) => n.cloneNode(true)));
-      delete e.dataset.md;
+    if (help.dataset.md) {
+      help.replaceChildren(...PDF_HINT_NODES.map((node) => node.cloneNode(true)));
+      delete help.dataset.md;
     }
     return;
   }
   const want = isTextDoc() ? 'tx' : '1';
-  if (e.dataset.md === want) return;
-  e.dataset.md = want;
+  if (help.dataset.md === want) return;
+  help.dataset.md = want;
   if (want === 'tx') {
     txHint();
     return;
   } // a text document's own words (text-surface.js)
   setHtml(
-    e,
+    help,
     html`<span class="t-mouse">${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄을,')} <b>${tr('블록을 누르면')}</b> ${tr('그 블록을 고르고')}</span><span class="t-touch"><b>${tr('블록을 누르면')}</b> ${tr('그 블록을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
     ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`,
   );
 }
-// Goes to heading i: the pane scrolls (smoothly unless reduced motion is asked for) until the heading stands 8px under its top.
-// The jump is kept in flight (MD.goTo) until it lands there (mdGoLanded) or the person scrolls: an image that gets its size
-// on the way - a lazy one the scroll passes - moves the heading, and the jump goes on to its new place (mdGoOn).
-function mdGoHeading(i: number) {
-  const h = MD.heads[i];
-  if (!h) return;
-  setOutlineSelected(i);
+// Goes to heading index: the pane scrolls (smoothly unless reduced motion is asked for) until the heading stands 8px
+// under its top. The jump is kept in flight (MD.goTo) until it lands there (endLandedJump) or the person scrolls: an
+// image that gets its size on the way - a lazy one the scroll passes - moves the heading, and the jump goes on to its
+// new place (goOnToHeading).
+function mdGoHeading(index: number) {
+  const heading = MD.heads[index];
+  if (!heading) return;
+  setOutlineSelected(index);
   markOutline();
-  MD.goTo = { el: h.el, doc: DOC };
-  mdGoOn();
-  mdGoLanded();
+  MD.goTo = { el: heading.el, doc: DOC };
+  goOnToHeading();
+  endLandedJump();
 }
-// The scroll top that puts element el 8px under the pane's top, within what the pane can scroll.
-function mdGoTop(el: HTMLElement) {
-  const L = $('#left'),
-    t = L.scrollTop + el.getBoundingClientRect().top - L.getBoundingClientRect().top - 8;
-  return Math.max(0, Math.min(t, L.scrollHeight - L.clientHeight));
+// The scroll top that puts element 8px under the pane's top, within what the pane can scroll.
+function headingScrollTop(element: HTMLElement) {
+  const pane = $('#left'),
+    top = pane.scrollTop + element.getBoundingClientRect().top - pane.getBoundingClientRect().top - 8;
+  return Math.max(0, Math.min(top, pane.scrollHeight - pane.clientHeight));
 }
-// Scrolls on to the destination of the jump in flight, measured again; false when there is none (or its heading is gone).
-function mdGoOn() {
-  const g = MD.goTo;
-  if (!g) return false;
-  if (g.doc !== DOC || !g.el.isConnected) {
+// Scrolls on to the destination of the jump in flight, measured again; false when there is none (or its heading is
+// gone).
+function goOnToHeading() {
+  const jump = MD.goTo;
+  if (!jump) return false;
+  if (jump.doc !== DOC || !jump.el.isConnected) {
     MD.goTo = null;
     return false;
   }
   endJumpForScroll();
-  $('#left').scrollTo({ top: mdGoTop(g.el), behavior: scrollMotion() });
+  $('#left').scrollTo({ top: headingScrollTop(jump.el), behavior: scrollMotion() });
   return true;
 }
 // The jump in flight has landed when the pane stands at its destination: it ends, and that is the reading spot.
-function mdGoLanded() {
-  const g = MD.goTo;
-  if (!g) return;
-  if (g.doc !== DOC || !g.el.isConnected) {
+function endLandedJump() {
+  const jump = MD.goTo;
+  if (!jump) return;
+  if (jump.doc !== DOC || !jump.el.isConnected) {
     MD.goTo = null;
     return;
   }
-  if (Math.abs($('#left').scrollTop - mdGoTop(g.el)) <= 1) {
+  if (Math.abs($('#left').scrollTop - headingScrollTop(jump.el)) <= 1) {
     MD.goTo = null;
-    mdSpotRead(true);
+    readSpot(true);
   }
 }
-// The person scrolls (a wheel, a touch, a press on the pane or its scroll bar, a key): a jump in flight ends where it is -
-// its smooth scroll too, running or only asked for, so what the person's input does next starts from here. The pane's
-// offset is written a pixel off and back, in one task (nothing is drawn between) - down at the very top, up elsewhere,
-// so the first write moves at either end (Home's place, End's): a write of the offset it already has
-// does not end the scroll in Firefox, whose compositor (APZ) runs it - once that scroll has moved the pane, such a write
-// sends the compositor nothing, and the scroll went on to the heading with the key's or the wheel's own step added (#441).
+// The person scrolls (a wheel, a touch, a press on the pane or its scroll bar, a key): a jump in flight ends where it
+// is - its smooth scroll too, running or only asked for, so what the person's input does next starts from here. The
+// pane's offset is written a pixel off and back, in one task (nothing is drawn between) - down at the very top, up
+// elsewhere, so the first write moves at either end (Home's place, End's): a write of the offset it already has does
+// not end the scroll in Firefox, whose compositor (APZ) runs it - once that scroll has moved the pane, such a write
+// sends the compositor nothing, and the scroll would go on to the heading with the key's or the wheel's own step added.
 // A write that moves the offset ends it there, in every engine.
-function mdGoStop() {
+function stopHeadingJump() {
   if (!MD.goTo) return;
   MD.goTo = null;
-  const L = $('#left'),
-    t = L.scrollTop;
-  L.scrollTo({ top: t > 0 ? t - 1 : t + 1, behavior: 'instant' });
-  L.scrollTo({ top: t, behavior: 'instant' });
+  const pane = $('#left'),
+    top = pane.scrollTop;
+  pane.scrollTo({ top: top > 0 ? top - 1 : top + 1, behavior: 'instant' });
+  pane.scrollTo({ top: top, behavior: 'instant' });
 }
-for (const t of ['wheel', 'touchstart', 'pointerdown']) $('#left').addEventListener(t, mdGoStop, { passive: true });
-// A key scrolls the pane when nothing else has the focus or something in the pane has it - outline.js's scope (SCROLL_KEYS):
-// with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
-addEventListener('keydown', (e) => {
-  const a = document.activeElement;
-  if (SCROLL_KEYS.has(e.key) && (!a || a === document.body || $('#left').contains(a))) mdGoStop();
+for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
+  $('#left').addEventListener(eventType, stopHeadingJump, { passive: true });
+// A key scrolls the pane when nothing else has the focus or something in the pane has it - outline.ts's scope
+// (SCROLL_KEYS): with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
+addEventListener('keydown', (event) => {
+  const active = document.activeElement;
+  if (SCROLL_KEYS.has(event.key) && (!active || active === document.body || $('#left').contains(active)))
+    stopHeadingJump();
 });
 // ---------------- Input on the document
-// A mouse drag ends: the part of its text selection inside the document (mdDocPart) is the pick. A press without a selection (a click, a tap) picks the
-// block under it - not on a link, a badge or another control.
-function mdSelectionPick(tapTarget) {
-  const s = window.getSelection(),
-    md = $('#md');
-  if (!md || !md.matches('article')) return false;
-  if (s && !s.isCollapsed && s.rangeCount) {
-    const r0 = s.getRangeAt(0),
-      r = mdDocPart(r0, md);
-    if (!r) return false;
-    let a = mdRangeAt(r.startContainer),
-      b = mdRangeAt(r.endContainer);
-    if (!a || !b) return false;
-    // A selection that ends before any character of its last line (a triple click ends at the start of the next block) does
-    // not take that line: nothing of it is selected. An end mdDocPart cut back to the document's last element is no such end -
-    // the selection ran past that element, which may have no character of its own (a closing rule, an empty code block).
-    const cut = r !== r0 && !md.contains(r0.endContainer);
-    if (b.lo > a.hi && !cut && mdNothingOfEnd(r)) {
-      const prev = b.lo - 1;
-      b = { lo: Math.max(a.lo, prev), hi: Math.max(a.lo, prev) };
+// A mouse drag ends: the part of its text selection inside the document (documentPart) is the pick. A press without a
+// selection (a click, a tap) picks the block under it - not on a link, a badge or another control.
+function pickSelection(tapTarget) {
+  const selection = window.getSelection(),
+    column = $('#md');
+  if (!column || !column.matches('article')) return false;
+  if (selection && !selection.isCollapsed && selection.rangeCount) {
+    const selected = selection.getRangeAt(0),
+      range = documentPart(selected, column);
+    if (!range) return false;
+    let startLines = linesAt(range.startContainer),
+      endLines = linesAt(range.endContainer);
+    if (!startLines || !endLines) return false;
+    // A selection that ends before any character of its last line (a triple click ends at the start of the next block)
+    // does not take that line: nothing of it is selected. An end documentPart cut back to the document's last element
+    // is no such end - the selection ran past that element, which may have no character of its own (a closing rule, an
+    // empty code block).
+    const cut = range !== selected && !column.contains(selected.endContainer);
+    if (endLines.lo > startLines.hi && !cut && takesNothingOfEnd(range)) {
+      const before = endLines.lo - 1;
+      endLines = { lo: Math.max(startLines.lo, before), hi: Math.max(startLines.lo, before) };
     }
-    let lo = Math.min(a.lo, b.lo),
-      hi = Math.max(a.hi, b.hi);
-    while (hi > lo && !String(MD.lines[hi - 1] || '').trim()) hi--;
-    // A document that drew math reads its quote through mdRangeText, where each drawn formula gives back its source TeX;
-    // one that drew none reads the selection's own text, exactly as before (ADR-0036 D4).
-    mdPick(
-      { lo, hi },
-      mdBlockAt(r.startContainer),
-      mdBlockAt(r.endContainer),
-      r === r0 && !MD.tex ? s.toString() : mdRangeText(mdTexWiden(r)),
+    let first = Math.min(startLines.lo, endLines.lo),
+      last = Math.max(startLines.hi, endLines.hi);
+    while (last > first && !String(MD.lines[last - 1] || '').trim()) last--;
+    // A document that drew math reads its quote through rangeText, where each drawn formula gives back its source TeX;
+    // one that drew none reads the selection's own text (ADR-0036 D4).
+    pickLines(
+      { lo: first, hi: last },
+      blockAt(range.startContainer),
+      blockAt(range.endContainer),
+      range === selected && !MD.tex ? selection.toString() : rangeText(widenToFormulas(range)),
       false,
     );
     return true;
   }
   if (tapTarget) {
-    const t = tapTarget as Element;
-    const rel = t.closest('#md .md-rel') as HTMLElement | null;
-    if (rel && LAST_PTR !== 'mouse') {
-      mdRelTip(rel);
+    const target = tapTarget as Element;
+    const inertLink = target.closest('#md .md-rel') as HTMLElement | null;
+    if (inertLink && LAST_PTR !== 'mouse') {
+      showInertTip(inertLink);
       return true;
     } // a finger has no hover
-    if (t.closest('a,button,[data-act],.md-badges,.md-limit')) return false;
-    const b = t.closest('#md [data-lo],#md [data-line]') as HTMLElement | null;
-    if (!b) return false;
-    const head = MD.heads.find((h) => h.el === t.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'));
-    const r = head
+    if (target.closest('a,button,[data-act],.md-badges,.md-limit')) return false;
+    const carrier = target.closest('#md [data-lo],#md [data-line]') as HTMLElement | null;
+    if (!carrier) return false;
+    const head = MD.heads.find((heading) => heading.el === target.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'));
+    const lines = head
         ? { lo: head.lo, hi: head.lo }
-        : mdRangeAt(t) || { lo: +(b.dataset.lo || 0), hi: +(b.dataset.hi || 0) },
-      blk = mdBlockAt(t);
-    const said = blk && blk.dataset.kind === 'front' ? blk.querySelector('pre') : null; // the front matter's head line is the viewer's words, not the source's
-    mdPick(r, blk, blk, mdTextOf(said || blk || b), true);
+        : linesAt(target) || { lo: +(carrier.dataset.lo || 0), hi: +(carrier.dataset.hi || 0) },
+      block = blockAt(target);
+    // the front matter's head line is the viewer's words, not the source's
+    const said = block && block.dataset.kind === 'front' ? block.querySelector('pre') : null;
+    pickLines(lines, block, block, elementText(said || block || carrier), true);
     return true;
   }
   return false;
 }
-// The part of selection range r inside the document md: r itself when it lies inside; else r cut back to the document's first
-// and last line elements where it runs past them - a triple click on the last paragraph ends after the article, there being no
-// next block inside it to end at, and a drag may start above it. One end must be in the document: a selection with both ends
-// outside it (select-all, one made in the side panel) is no pick, as before - null, as for one that does not reach it or one
-// that, cut back, takes nothing of it (from above the document to its very start).
-function mdDocPart(r: Range, md: HTMLElement) {
-  if (md.contains(r.commonAncestorContainer)) return r;
-  if (!md.contains(r.startContainer) && !md.contains(r.endContainer)) return null;
-  const els = mdLineEls();
-  if (!els.length) return null;
-  // The start goes to the first element that carries lines and holds none of its own (a paragraph's first line span, not the
-  // paragraph: that would read as all its lines); the last element in document order is always such a leaf.
-  const first = els.find((e) => !e.querySelector('[data-line],[data-lo]')) || els[0];
-  const c = r.cloneRange();
-  if (!md.contains(r.startContainer)) c.setStart(first, 0);
-  if (!md.contains(r.endContainer)) {
-    const e = els[els.length - 1];
-    c.setEnd(e, e.childNodes.length);
+// The part of a selection's range inside the document column: the range itself when it lies inside; else the range cut
+// back to the document's first and last line elements where it runs past them - a triple click on the last paragraph
+// ends after the article, there being no next block inside it to end at, and a drag may start above it. One end must be
+// in the document: a selection with both ends outside it (select-all, one made in the side panel) is no pick - null, as
+// for one that does not reach it or one that, cut back, takes nothing of it (from above the document to its very
+// start).
+function documentPart(range: Range, column: HTMLElement) {
+  if (column.contains(range.commonAncestorContainer)) return range;
+  if (!column.contains(range.startContainer) && !column.contains(range.endContainer)) return null;
+  const elements = lineElements();
+  if (!elements.length) return null;
+  // The start goes to the first element that carries lines and holds none of its own (a paragraph's first line span,
+  // not the paragraph: that would read as all its lines); the last element in document order is always such a leaf.
+  const first = elements.find((element) => !element.querySelector('[data-line],[data-lo]')) || elements[0];
+  const part = range.cloneRange();
+  if (!column.contains(range.startContainer)) part.setStart(first, 0);
+  if (!column.contains(range.endContainer)) {
+    const last = elements[elements.length - 1];
+    part.setEnd(last, last.childNodes.length);
   }
-  return c.collapsed ? null : c;
+  return part.collapsed ? null : part;
 }
-// The text range r shows, as the selection's own toString gives it: its contents laid out once off screen, under the document's
-// own .md rules (an HTML placeholder's label and code stack as on screen), and read as innerText. A range's toString runs
-// blocks together ('First.Last.'), the renderer putting no whitespace between them; the selection itself is not touched, as
-// changing it would set off the touch screen's resting-selection pick again. The pin badges standing between blocks (mdMarks)
-// are the viewer's, not the document's text: they are left out.
-// A marked character's box (ccBox) gives its character, where it stands. innerText does not: Chromium reads the box's hidden
-// child, out of the line's flow, as a block of its own ('x\n\u202e\ny'), and Firefox drops a bidirectional control from
-// innerText altogether. So each box stands in the copy as U+FFF0 - a character of the repertoire, which the document's own
-// text therefore never holds raw - and gets its character back after.
-// A drawn formula (data-tex, ADR-0036 D4) goes the same way, as U+FFF1, and gets its source TeX back: innerText would read
-// the glyphs KaTeX drew (and the MathML copy beside them), and an agent looks for the TeX the manuscript holds. A formula
-// stands in a block or an inline slot as it did on screen, so the blocks around it still read apart.
-function mdRangeText(r: Range) {
+// The text a range shows, as the selection's own toString gives it: its contents laid out once off screen, under the
+// document's own .md rules (an HTML placeholder's label and code stack as on screen), and read as innerText. A range's
+// toString runs blocks together ('First.Last.'), the renderer putting no whitespace between them; the selection itself
+// is not touched, as changing it would set off the touch screen's resting-selection pick again. The pin badges standing
+// between blocks (mdMarks) are the viewer's, not the document's text: they are left out. A marked character's box
+// (ccBox) gives its character, where it stands. innerText does not: Chromium reads the box's hidden child, out of the
+// line's flow, as a block of its own ('x\n\u202e\ny'), and Firefox drops a bidirectional control from innerText
+// altogether. So each box stands in the copy as U+FFF0 - a character of the repertoire, which the document's own text
+// therefore never holds raw - and gets its character back after. A drawn formula (data-tex, ADR-0036 D4) goes the same
+// way, as U+FFF1, and gets its source TeX back: innerText would read the glyphs KaTeX drew (and the MathML copy beside
+// them), and an agent looks for the TeX the manuscript holds. A formula stands in a block or an inline slot as it did
+// on screen, so the blocks around it still read apart.
+function rangeText(range: Range) {
   const box = document.createElement('div'),
-    doc = document.createElement('div');
+    copy = document.createElement('div');
   box.className = 'sr-only';
   box.setAttribute('aria-hidden', 'true');
-  doc.className = 'md';
-  doc.append(r.cloneContents());
-  doc.querySelectorAll('.md-badges').forEach((e) => e.remove());
+  copy.className = 'md';
+  copy.append(range.cloneContents());
+  copy.querySelectorAll('.md-badges').forEach((element) => element.remove());
   const tex = [] as string[];
-  doc.querySelectorAll('[data-tex]').forEach((e) => {
-    tex.push(e.getAttribute('data-tex') || '');
-    const slot = document.createElement(e.classList.contains('md-math-block') ? 'div' : 'span');
+  copy.querySelectorAll('[data-tex]').forEach((element) => {
+    tex.push(element.getAttribute('data-tex') || '');
+    const slot = document.createElement(element.classList.contains('md-math-block') ? 'div' : 'span');
     slot.textContent = '\ufff1';
-    e.replaceWith(slot);
+    element.replaceWith(slot);
   });
   const kept = [] as string[];
-  doc.querySelectorAll('.cc').forEach((e) => {
-    kept.push(e.textContent || '');
-    e.replaceWith('\ufff0');
+  copy.querySelectorAll('.cc').forEach((element) => {
+    kept.push(element.textContent || '');
+    element.replaceWith('\ufff0');
   });
-  box.append(doc);
+  box.append(copy);
   document.body.append(box);
   try {
-    let i = 0,
-      j = 0;
-    return doc.innerText.replace(/[\ufff0\ufff1]/g, (m) => (m === '\ufff0' ? kept[i++] || '' : tex[j++] || ''));
+    let boxAt = 0,
+      texAt = 0;
+    return copy.innerText.replace(/[\ufff0\ufff1]/g, (found) =>
+      found === '\ufff0' ? kept[boxAt++] || '' : tex[texAt++] || '',
+    );
   } finally {
     box.remove();
   }
 }
-// Range r with either end inside a drawn formula moved out to that formula's edge - a clone, the selection itself is never
-// touched - so a selection that cuts into drawn math reads that formula whole, by its source TeX. r itself when neither end
-// is in one.
-function mdTexWiden(r: Range): Range {
-  const of = (n: Node | null) => {
-    const e = n && (n.nodeType === 1 ? (n as Element) : n.parentElement);
-    return e ? (e.closest('#md [data-tex]') as HTMLElement | null) : null;
+// The range with either end inside a drawn formula moved out to that formula's edge - a clone, the selection itself is
+// never touched - so a selection that cuts into drawn math reads that formula whole, by its source TeX. The range
+// itself when neither end is in one.
+function widenToFormulas(range: Range): Range {
+  const formulaAt = (node: Node | null) => {
+    const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+    return element ? (element.closest('#md [data-tex]') as HTMLElement | null) : null;
   };
-  const a = of(r.startContainer),
-    b = of(r.endContainer);
-  if (!a && !b) return r;
-  const c = r.cloneRange();
-  if (a) c.setStartBefore(a);
-  if (b) c.setEndAfter(b);
-  return c;
+  const startFormula = formulaAt(range.startContainer),
+    endFormula = formulaAt(range.endContainer);
+  if (!startFormula && !endFormula) return range;
+  const widened = range.cloneRange();
+  if (startFormula) widened.setStartBefore(startFormula);
+  if (endFormula) widened.setEndAfter(endFormula);
+  return widened;
 }
-// The text element el shows, as mdRangeText reads a range: a tap's quote. A drawn formula tapped whole is its source TeX -
-// selectNodeContents would leave the element itself, which carries data-tex, outside the range.
-function mdTextOf(el: Element) {
-  const tex = el instanceof HTMLElement ? el.dataset.tex : undefined;
+// The text an element shows, as rangeText reads a range: a tap's quote. A drawn formula tapped whole is its source TeX
+// - selectNodeContents would leave the element itself, which carries data-tex, outside the range.
+function elementText(element: Element) {
+  const tex = element instanceof HTMLElement ? element.dataset.tex : undefined;
   if (tex !== undefined) return tex;
-  const r = document.createRange();
-  r.selectNodeContents(el);
-  return mdRangeText(r);
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  return rangeText(range);
 }
 // Shows a link's description that does not open (a tap on it), until 4s pass or the next press.
-function mdRelTip(el: HTMLElement) {
-  showTip(el);
-  const txt = TIP.textContent;
+function showInertTip(element: HTMLElement) {
+  showTip(element);
+  const shown = TIP.textContent;
   setTimeout(() => {
-    if (!TIP.hidden && TIP.textContent === txt) hideTip();
+    if (!TIP.hidden && TIP.textContent === shown) hideTip();
   }, 4000);
 }
-// Whether range r takes no visible character of the line (or block) its end is in.
-function mdNothingOfEnd(r) {
-  const e = r.endContainer.nodeType === 1 ? (r.endContainer as Element) : r.endContainer.parentElement;
-  if (!e) return false;
-  const host = e.closest('[data-line]') || e.closest('[data-lo]');
+// Whether the range takes no visible character of the line (or block) its end is in.
+function takesNothingOfEnd(range) {
+  const element =
+    range.endContainer.nodeType === 1 ? (range.endContainer as Element) : range.endContainer.parentElement;
+  if (!element) return false;
+  const host = element.closest('[data-line]') || element.closest('[data-lo]');
   if (!host) return false;
   const head = document.createRange();
   head.setStart(host, 0);
-  head.setEnd(r.endContainer, r.endOffset);
+  head.setEnd(range.endContainer, range.endOffset);
   return !head.toString().trim();
 }
-// A release's pick waits one task, for the selection its press made, and it is that press's alone: once the next press is down (a
-// double or triple click's next press, which a busy page takes ahead of the timer) it does nothing - that press picks at its own
-// release. Run then, it took the new press's selection and the note field's focus took that selection away, so the click that
-// followed counted as a tap and chose the block. MD_PRESS counts the document's primary presses.
-let MD_PRESS = 0;
-$('#doc').addEventListener('mousedown', (e) => {
-  if (e.button === 0) MD_PRESS++;
+// A release's pick waits one task, for the selection its press made, and it is that press's alone: once the next press
+// is down (a double or triple click's next press, which a busy page takes ahead of the timer) it does nothing - that
+// press picks at its own release. Run then, it would take the new press's selection, the note field's focus would take
+// that selection away, and the click that follows would count as a tap and choose the block. PRESS_COUNT counts the
+// document's primary presses.
+let PRESS_COUNT = 0;
+$('#doc').addEventListener('mousedown', (event) => {
+  if (event.button === 0) PRESS_COUNT++;
 });
-$('#doc').addEventListener('mouseup', (e) => {
-  if (!isMdDoc() || e.button !== 0) return;
-  const press = MD_PRESS;
+$('#doc').addEventListener('mouseup', (event) => {
+  if (!isMdDoc() || event.button !== 0) return;
+  const press = PRESS_COUNT;
   setTimeout(() => {
-    if (press === MD_PRESS) mdSelectionPick(null);
+    if (press === PRESS_COUNT) pickSelection(null);
   }, 0);
 });
-$('#doc').addEventListener('click', (e) => {
+$('#doc').addEventListener('click', (event) => {
   if (!isMdDoc()) return;
-  const s = window.getSelection();
-  if (s && !s.isCollapsed) return;
-  mdSelectionPick(e.target);
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed) return;
+  pickSelection(event.target);
 });
 // A finger: the long-press handles make a selection with no mouseup; it is picked once it rests.
-let MD_SEL_T = 0;
+let SELECTION_TIMER = 0;
 document.addEventListener('selectionchange', () => {
   if (!isMdDoc() || !MQ_COARSE.matches) return;
-  clearTimeout(MD_SEL_T);
-  MD_SEL_T = setTimeout(() => {
-    const s = window.getSelection();
-    if (s && !s.isCollapsed) mdSelectionPick(null);
+  clearTimeout(SELECTION_TIMER);
+  SELECTION_TIMER = setTimeout(() => {
+    const selection = window.getSelection();
+    if (selection && !selection.isCollapsed) pickSelection(null);
   }, 500);
 });
 export {
