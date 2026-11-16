@@ -45,6 +45,8 @@ uv run python tools/check_boundaries.py
 uv run mypy
 uv run mypy --platform darwin
 npm ci --ignore-scripts && npm run typecheck
+npm run build:check
+npm test
 uv run python tools/strict_ratchet.py
 ```
 

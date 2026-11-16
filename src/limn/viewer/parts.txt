@@ -1,12 +1,14 @@
-# The viewer's stylesheet and script parts, in page order (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
+# The viewer's stylesheet parts and script modules, in order (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
 #
-# At import, load_viewer_html() in assemble.py joins the files listed under each marker, in this order and byte for
-# byte, and puts the result where index.html has that marker: the CSS parts become its one <style>, the JS parts its
-# one <script>. There is no build step, bundler or module loader. All JS parts share one classic-script scope, as the
-# single app.js did: a function declared in any part is visible to every part, but top-level code (a let or const, a
-# listener, an immediately run function) runs in this order, so it can only use the let/const names of the parts
-# above it (and its own). Keep this order. New code goes into the part for its responsibility; a new part needs a
-# line here.
+# __APP_CSS__: at startup, load_viewer_html() in assemble.py joins these files in this order, byte for byte, and puts the
+# result where index.html has the marker, its one <style>.
+# __APP_JS__: the viewer's ES modules, in the order their top-level code runs (a let or const, a listener, an immediately
+# run function). tools/build_viewer.mjs builds them with Rollup into dist/viewer.js, the one classic script the page
+# loads (GET /viewer.js): before Rollup reads a module it gives it a bare import of the module listed above it, so each
+# module runs after every module above it whatever they import from each other, and the build fails if the order it
+# joined is not this one. Top-level code can therefore use only the let/const names of the modules above (and its own).
+# Keep this order. New code goes into the module for its responsibility; a new module needs a line here and a place
+# (tools/check_viewer_boundaries.mjs, §모듈 경계). Rebuild with `npm run build` and commit dist/viewer.js.
 # tests/viewer/test_viewer_files.py checks that every file under css/ and js/ is listed exactly once.
 #
 # Format: a marker line starts its list; each following line is a path relative to this folder. "#" starts a comment.
@@ -34,7 +36,7 @@ css/text-surface.css    # the text surface: a text document's monospace lines, t
 css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column, block and word marks, gutter chips
 
 __APP_JS__
-js/core.js              # strict mode, DOM helpers, icons, shared state, the tooltip texts (T)
+js/core.js              # DOM helpers, icons, shared state and its setters, the tooltip texts (T)
 js/markup.js            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
 js/hidden-chars.js      # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
 js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
