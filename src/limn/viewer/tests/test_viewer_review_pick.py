@@ -364,7 +364,7 @@ class ReviewPickFlows(ReviewPickBase):
 
     def test_a_confirm_left_unanswered_holds_back_neither_the_others_nor_the_banner(self):
         """One confirm the network never answers, one that fails at once and one that goes through: the failed pin is back
-        in the list by the next list read, while the held one is still out; after RV_SEND_MS (15s, on the page's clock) the
+        in the list by the next list read, while the held one is still out; after CONFIRM_SEND_MS (15s, on the page's clock) the
         held one is given up, and one error banner names both as not sent and offers [다시 시도]."""
         self.unreached.add(self.p1)
         self.held.add(self.p2)
@@ -809,7 +809,7 @@ class ReviewPickLayout(ReviewPickBase):
 
 
 class ReviewPickOutcome(unittest.TestCase):
-    """rvOutcome and rvSaid under node with the real i18n: what each answer of one confirm means, and the banner for a
+    """confirmOutcome and confirmsBanner under node with the real i18n: what each answer of one confirm means, and the banner for a
     send whose confirms did not all go through."""
 
     def setUp(self):
@@ -820,14 +820,14 @@ class ReviewPickOutcome(unittest.TestCase):
             self.skipTest("node not available")
 
     def run_js(self, lang, expr):
-        """The JSON value of expr, run after the real rvOutcome, rvSaid, pinState and the i18n of lang."""
+        """The JSON value of expr, run after the real confirmOutcome, confirmsBanner, pinState and the i18n of lang."""
         js = "\n".join(
             [
                 js_i18n(lang),
                 extract_js_fn("pinState"),
-                helpers_js.module_declaration(open_review_pick(), "RV_OUT"),
-                extract_js_fn("rvOutcome"),
-                extract_js_fn("rvSaid"),
+                helpers_js.module_declaration(open_review_pick(), "CONFIRM_OUTCOME"),
+                extract_js_fn("confirmOutcome"),
+                extract_js_fn("confirmsBanner"),
                 "console.log(JSON.stringify(%s));" % expr,
             ]
         )
@@ -840,12 +840,12 @@ class ReviewPickOutcome(unittest.TestCase):
         [다시 시도] sends again."""
         got = self.run_js(
             "ko",
-            """[rvOutcome({status:200,data:{ok:true}}), rvOutcome({status:409,data:{error:'open'}}),
-              rvOutcome({status:409,data:{error:'conflict',pin:{state:'review'}}}),
-              rvOutcome({status:409,data:{error:'conflict',pin:{state:'done'}}}),
-              rvOutcome({status:409,data:{error:'conflict'}}), rvOutcome({status:200,data:{ok:false,pin:null}}),
-              rvOutcome({status:200,data:null}),
-              rvOutcome(null,{status:403,data:{error:'확인은 사람이 합니다'}}), rvOutcome(null,{})]""",
+            """[confirmOutcome({status:200,data:{ok:true}}), confirmOutcome({status:409,data:{error:'open'}}),
+              confirmOutcome({status:409,data:{error:'conflict',pin:{state:'review'}}}),
+              confirmOutcome({status:409,data:{error:'conflict',pin:{state:'done'}}}),
+              confirmOutcome({status:409,data:{error:'conflict'}}), confirmOutcome({status:200,data:{ok:false,pin:null}}),
+              confirmOutcome({status:200,data:null}),
+              confirmOutcome(null,{status:403,data:{error:'확인은 사람이 합니다'}}), confirmOutcome(null,{})]""",
         )
         self.assertEqual(
             got,
@@ -867,9 +867,9 @@ class ReviewPickOutcome(unittest.TestCase):
         a closed-again, reopened, gone or refused pin a warning, and pins only done by a person meanwhile an info."""
         got = self.run_js(
             "ko",
-            """[rvSaid([{id:1,out:'ok'},{id:2,out:'ok'}]),
-              rvSaid([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:3,out:'reopened'},{id:4,out:'unreached'}]),
-              rvSaid([{id:1,out:'ok'},{id:5,out:'refused',why:'거절'}]), rvSaid([{id:1,out:'ok'},{id:6,out:'done'}])]""",
+            """[confirmsBanner([{id:1,out:'ok'},{id:2,out:'ok'}]),
+              confirmsBanner([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:3,out:'reopened'},{id:4,out:'unreached'}]),
+              confirmsBanner([{id:1,out:'ok'},{id:5,out:'refused',why:'거절'}]), confirmsBanner([{id:1,out:'ok'},{id:6,out:'done'}])]""",
         )
         self.assertIsNone(got[0])
         self.assertEqual(
@@ -905,7 +905,7 @@ class ReviewPickOutcome(unittest.TestCase):
 
     def test_the_banner_reads_in_english(self):
         """The same banner in English through the table, with one dash: the banner shows what is before it as its title."""
-        got = self.run_js("en", "rvSaid([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:4,out:'unreached'}])")
+        got = self.run_js("en", "confirmsBanner([{id:1,out:'ok'},{id:2,out:'closed-again'},{id:4,out:'unreached'}])")
         self.assertEqual(
             got["msg"],
             "Confirmed 1 of 3 — #2 closed again (look at the new result, then confirm) · #4 not sent (the server could not be reached)",

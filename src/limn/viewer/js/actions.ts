@@ -1,6 +1,6 @@
-// [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with [되돌리기]
-// (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a banner on top
-// of the panel.
+// [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with
+// [되돌리기] (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a
+// banner on top of the panel.
 import {
   $,
   DOC,
@@ -43,8 +43,8 @@ import { drawTrash } from './cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './list.ts';
 import { EDITOR } from './edit.ts';
 async function closePin(id) {
-  const prev = drawnBefore($('#pins'), '.pin.card', id),
-    rec = OPEN_ALL.find((p) => p.id === id) || null;
+  const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
+    record = OPEN_ALL.find((pin) => pin.id === id) || null;
   try {
     const { data } = await api('/api/pins/' + id + '/close', {
       method: 'POST',
@@ -65,21 +65,22 @@ async function closePin(id) {
           { id },
         ),
         { label: '되돌리기', wait: true, fn: () => reopenPin(id) },
-        { pin: id, sec: 'open', prev, rec },
+        { pin: id, sec: 'open', prev: cardBefore, rec: record },
       );
     }
-  } catch (e) {}
+  } catch (error) {}
   await loadPins();
 }
-// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes view's guide
-// line call this one function. Like a reply it is a deferred send: the card leaves the review section at once (CONFIRMING keeps
-// it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기] for NOTICE_MS and the request
-// goes when that row does; the undo puts the card back with nothing sent. The request names the close the card showed
-// (done_at), so a pin reopened and closed again in between answers 409 'conflict' instead of confirming a result nobody looked
-// at; a 409 'open' means it was reopened and is still open (docs/handbook/api.md §검토 대기). Both are banners on top of the
-// review section (confirmConflict).
+// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
+// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
+// once (CONFIRMING keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
+// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
+// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
+// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
+// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
 const CONFIRMING = new Set();
-// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts them (verdict.js).
+// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
+// them (verdict.ts).
 const CONFIRMING_PIN = new Map() as Map<number, Pin>;
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
@@ -89,12 +90,13 @@ function confirmConflictText(id, pin) {
     ? tl('핀 #{id} 은 이미 완료로 닫혔습니다 — 확인할 것이 없습니다', { id })
     : tl('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요', { id });
 }
-// What kind of banner that 409 conflict is, by the same rule as its text: closed again is a WARN that still asks for a look
-// ([변경 보기]); already done by a person is INFO with nothing to do. Pure.
+// What kind of banner that 409 conflict is, by the same rule as its text: closed again is a WARN that still asks for a
+// look ([변경 보기]); already done by a person is INFO with nothing to do. Pure.
 function confirmConflictKind(pin: Pin | null | undefined): string {
   return pin && pinState(pin) !== PIN_STATE.REVIEW ? NOTICE_KIND.INFO : NOTICE_KIND.WARN;
 }
-// Says a confirm answered 409 'conflict' in a banner on top of the review section (confirmConflictText, confirmConflictKind).
+// Says a confirm answered 409 'conflict' in a banner on top of the review section (confirmConflictText,
+// confirmConflictKind).
 function confirmConflict(id: number, pin: Pin | null | undefined) {
   const kind = confirmConflictKind(pin);
   bannerNote(
@@ -106,15 +108,15 @@ function confirmConflict(id: number, pin: Pin | null | undefined) {
 }
 function confirmPin(id) {
   if (CONFIRMING.has(id)) return;
-  const at = REVIEW_ALL.findIndex((p) => p.id === id),
+  const at = REVIEW_ALL.findIndex((listed) => listed.id === id),
     pin = at < 0 ? null : REVIEW_ALL[at];
-  const prev = drawnBefore($('#review-pins'), '.pin.card', id);
+  const cardBefore = drawnBefore($('#review-pins'), '.pin.card', id);
   CONFIRMING.add(id);
   if (pin) CONFIRMING_PIN.set(id, pin);
-  setReviewAll(REVIEW_ALL.filter((p) => p.id !== id));
+  setReviewAll(REVIEW_ALL.filter((listed) => listed.id !== id));
   drawPins();
   marks();
-  const d = deferred(
+  const pendingConfirm = deferred(
     async () => {
       try {
         const { data } = await api('/api/pins/' + id + '/confirm', {
@@ -131,7 +133,7 @@ function confirmPin(id) {
         else if (!data.ok)
           bannerNote(NOTICE_HOST.REVIEW, tl('확인 실패 — 핀 #{id} 이 없습니다', { id }), NOTICE_KIND.ERR);
         else markMine(id);
-      } catch (e) {}
+      } catch (error) {}
       CONFIRMING.delete(id);
       CONFIRMING_PIN.delete(id);
       await loadPins();
@@ -143,23 +145,27 @@ function confirmPin(id) {
       const now = CONFIRMING_PIN.get(id);
       CONFIRMING.delete(id);
       CONFIRMING_PIN.delete(id);
-      if (now && !REVIEW_ALL.some((p) => p.id === id)) {
-        const i = Math.min(at, REVIEW_ALL.length);
-        setReviewAll([...REVIEW_ALL.slice(0, i), now, ...REVIEW_ALL.slice(i)]);
-      } else if (pin && !now && ![OPEN_ALL, REVIEW_ALL, DONE_ALL].some((l) => l.some((p) => p.id === id)))
+      if (now && !REVIEW_ALL.some((listed) => listed.id === id)) {
+        const index = Math.min(at, REVIEW_ALL.length);
+        setReviewAll([...REVIEW_ALL.slice(0, index), now, ...REVIEW_ALL.slice(index)]);
+      } else if (
+        pin &&
+        !now &&
+        ![OPEN_ALL, REVIEW_ALL, DONE_ALL].some((list) => list.some((listed) => listed.id === id))
+      )
         lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다', { id }), NOTICE_KIND.WARN);
       drawPins();
       marks();
     },
   );
-  deferredNote(d, NOTICE_PLACE.ROW, tl('핀 #{id} 확인 · 완료로 옮겼습니다', { id }), {
+  deferredNote(pendingConfirm, NOTICE_PLACE.ROW, tl('핀 #{id} 확인 · 완료로 옮겼습니다', { id }), {
     pin: id,
     sec: 'review',
-    prev,
+    prev: cardBefore,
     rec: pin,
   });
 }
-// Undo of [완료] (its row's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.
+// Undo of [완료] (its row's [되돌리기]). The viewer has no [다시 열기] button: a reply reopens by the server rule.
 // Silent: the card comes back. Resolves with whether the pin was reopened (the row waits for it, noticeAct).
 async function reopenPin(id: number): Promise<boolean> {
   let ok = false;
@@ -168,91 +174,93 @@ async function reopenPin(id: number): Promise<boolean> {
     ok = true;
     markMine(id);
     quietNote(tl('핀 #{id} 완료를 되돌렸습니다', { id }));
-  } catch (e) {}
+  } catch (error) {}
   await loadPins();
   return ok;
 }
-// [삭제] (a verdict pin's card: [지우기]) takes the pin off the list at once (no confirmation) and leaves a row in its place
-// with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's [되돌리기]:
-// silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so
-// the composer comes back too). o.say: the caller says the drop and offers its undo where it was pressed (a page line's
-// [판정 취소], verdict.js cancelLineVerdict), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
+// [삭제] (a verdict pin's card: [지우기]) takes the pin off the list at once (no confirmation) and leaves a row in its
+// place with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's
+// [되돌리기]: silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs
+// (the whole undo, so the composer comes back too). options.say: the caller says the drop and offers its undo where it
+// was pressed (a page line's [판정 취소], verdict.ts cancelLineVerdict), options.where is where a failure is said and
+// options.what what it names. Resolves with whether the pin was deleted.
 async function dropPin(
   id: number | null,
   undoSave: boolean,
   again?: () => unknown,
-  o?: { say?: () => void; where?: string; what?: string },
+  options?: { say?: () => void; where?: string; what?: string },
 ): Promise<boolean> {
   const was = OPEN_ALL,
     applied = PINS_APPLIED_SEQ,
-    prev = drawnBefore($('#pins'), '.pin.card', id),
-    rec = was.find((p) => p.id === id) || null;
+    cardBefore = drawnBefore($('#pins'), '.pin.card', id),
+    record = was.find((pin) => pin.id === id) || null;
   let ok = false,
     lost = false;
-  setOpenAll(OPEN_ALL.filter((p) => p.id !== id));
-  setPins(PINS.filter((p) => p.id !== id));
+  setOpenAll(OPEN_ALL.filter((pin) => pin.id !== id));
+  setPins(PINS.filter((pin) => pin.id !== id));
   if (EDITOR.current && EDITOR.current.id === id) EDITOR.current = null;
   drawPins();
   marks();
-  markMine(id); // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
-  const src = 'POST /api/pins/' + id + '/drop';
+  // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
+  markMine(id);
+  const source = 'POST /api/pins/' + id + '/drop';
   try {
     await api('/api/pins/' + id + '/drop', {
       method: 'POST',
-      what: (o && o.what) || '삭제',
-      where: (o && o.where) || NOTICE_HOST.LIST,
+      what: (options && options.what) || '삭제',
+      where: (options && options.where) || NOTICE_HOST.LIST,
       retry:
         again ||
         (() => {
-          dropPin(id, undoSave, undefined, o);
+          dropPin(id, undoSave, undefined, options);
         }),
     });
     ok = true;
-  } catch (e) {
-    const x = e as ApiError;
-    lost = !x || !x.status;
+  } catch (error) {
+    const failure = error as ApiError;
+    lost = !failure || !failure.status;
     if (PINS_APPLIED_SEQ === applied) {
-      const old = was.find((p) => p.id === id);
-      if (old && !OPEN_ALL.some((p) => p.id === id)) {
-        const next = was.slice(was.indexOf(old) + 1).find((p) => OPEN_ALL.some((x) => x.id === p.id));
-        const at = next ? OPEN_ALL.findIndex((p) => p.id === next.id) : OPEN_ALL.length;
+      const old = was.find((pin) => pin.id === id);
+      if (old && !OPEN_ALL.some((pin) => pin.id === id)) {
+        const next = was.slice(was.indexOf(old) + 1).find((pin) => OPEN_ALL.some((listed) => listed.id === pin.id));
+        const at = next ? OPEN_ALL.findIndex((pin) => pin.id === next.id) : OPEN_ALL.length;
         setOpenAll([...OPEN_ALL.slice(0, at), old, ...OPEN_ALL.slice(at)]);
-        setPins(OPEN_ALL.filter((p) => pdoc(p) === DOC));
+        setPins(OPEN_ALL.filter((pin) => pdoc(pin) === DOC));
         drawPins();
         marks();
       }
     }
   }
   await loadPins();
-  // An answer lost on the way back: the list says whether the pin went. If it did the drop is done - its failure and its
-  // [다시 시도] (which would find nothing to drop) go, and it is said as done.
-  if (!ok && lost && !findAnyPin(id) && DROPPED.some((x) => x.id === id)) {
+  // An answer lost on the way back: the list says whether the pin went. If it did the drop is done - its failure and
+  // its [다시 시도] (which would find nothing to drop) go, and it is said as done.
+  if (!ok && lost && !findAnyPin(id) && DROPPED.some((dropped) => dropped.id === id)) {
     ok = true;
-    sourceOk(src);
+    sourceOk(source);
   }
   if (ok) {
     markMine(id);
     if (undoSave) quietNote(tl('핀 #{id} 저장을 되돌렸습니다', { id }));
-    else if (o && o.say) o.say();
+    else if (options && options.say) options.say();
     else
       undoNote(
         NOTICE_PLACE.ROW,
         tl('핀 #{id} 삭제됨 · 휴지통에 30일 보관', { id }),
         { label: '되돌리기', wait: true, fn: () => restorePin(id) },
-        { pin: id, sec: 'open', prev, rec },
+        { pin: id, sec: 'open', prev: cardBefore, rec: record },
       );
   }
   return ok;
 }
-// [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out when that
-// row does (deferred, NOTICE_MS).
+// [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out
+// when that row does (deferred, NOTICE_MS).
 const PURGING = new Set();
 function purgePin(id) {
-  const prev = drawnBefore($('#trash-list'), '.arc-row', id);
+  const cardBefore = drawnBefore($('#trash-list'), '.arc-row', id);
   PURGING.add(id);
   drawTrash();
   drawPins();
-  const d = deferred(
+  const pendingPurge = deferred(
     async () => {
       try {
         await api('/api/pins/' + id + '/purge', {
@@ -261,7 +269,7 @@ function purgePin(id) {
           where: NOTICE_HOST.TRASH,
           keepalive: true,
         });
-      } catch (e) {}
+      } catch (error) {}
       PURGING.delete(id);
       await loadPins();
     },
@@ -271,12 +279,12 @@ function purgePin(id) {
       drawPins();
     },
   );
-  deferredNote(d, NOTICE_PLACE.TRASH, tl('핀 #{id} 영구 삭제', { id }), { pin: id, prev });
+  deferredNote(pendingPurge, NOTICE_PLACE.TRASH, tl('핀 #{id} 영구 삭제', { id }), { pin: id, prev: cardBefore });
 }
-// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is there.
-// Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure says itself
-// where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the request is answered,
-// before the list reload (trashRestore's bound is the request's).
+// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is
+// there. Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure
+// says itself where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the
+// request is answered, before the list reload (trashRestore's bound is the request's).
 async function restorePin(id: number | null, settled?: () => void): Promise<boolean> {
   let ok = false;
   try {
@@ -291,33 +299,34 @@ async function restorePin(id: number | null, settled?: () => void): Promise<bool
     ok = true;
     markMine(id);
     quietNote(tl('핀 #{id} 되살림', { id }));
-  } catch (e) {}
+  } catch (error) {}
   if (settled) settled();
   await loadPins();
   return ok;
 }
-// [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it without an
-// answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash while it is open, else
-// the list, else the status line - one title there, as noticeLate's), once per pin (its source). Closing the Trash takes it
-// out to where it can be seen, as the Trash's undo rows go to the status line. It goes when the request is answered - not
-// after the list reload, so a failure's banner, which takes its place, is never taken with it - and a focus on it (its [x])
-// goes to the row's [되살리기] (the reload then moves it on, trashRefocus), else into the Trash, else to the pages.
+// [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it
+// without an answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash
+// while it is open, else the list, else the status line - one title there, as noticeLate's), once per pin (its source).
+// Closing the Trash takes it out to where it can be seen, as the Trash's undo rows go to the status line. It goes when
+// the request is answered - not after the list reload, so a failure's banner, which takes its place, is never taken
+// with it - and a focus on it (its [x]) goes to the row's [되살리기] (the reload then moves it on, trashRefocus), else
+// into the Trash, else to the pages.
 async function trashRestore(id: number | null) {
-  const src = NOTICE_LATE_SRC + 'restore:' + id,
+  const source = NOTICE_LATE_SRC + 'restore:' + id,
     trash = $('#trash') as HTMLDialogElement;
   const say = () => {
-    const t = tr('되살리기의 답이 늦습니다') + ' · ' + tl('핀 #{id}', { id });
-    const m = bannerNote(NOTICE_HOST.LIST, t, NOTICE_KIND.WARN, null, { literal: true, source: src });
-    if (m && m.place === NOTICE_PLACE.LINE) {
-      m.title = t;
-      m.desc = '';
+    const text = tr('되살리기의 답이 늦습니다') + ' · ' + tl('핀 #{id}', { id });
+    const message = bannerNote(NOTICE_HOST.LIST, text, NOTICE_KIND.WARN, null, { literal: true, source: source });
+    if (message && message.place === NOTICE_PLACE.LINE) {
+      message.title = text;
+      message.desc = '';
       drawStatus();
     }
   };
   const out = () => {
-    const n = sourceEntry(src);
-    if (n && n.place === NOTICE_PLACE.BANNER && n.host === NOTICE_HOST.TRASH) {
-      endNotice(n, true);
+    const notice = sourceEntry(source);
+    if (notice && notice.place === NOTICE_PLACE.BANNER && notice.host === NOTICE_HOST.TRASH) {
+      endNotice(notice, true);
       say();
     }
   };
@@ -326,17 +335,17 @@ async function trashRestore(id: number | null) {
   await restorePin(id, () => {
     clearTimeout(wait);
     trash.removeEventListener('close', out);
-    const n = sourceEntry(src),
-      had = !!n && !!n.el && n.el.contains(document.activeElement);
-    sourceOk(src);
+    const notice = sourceEntry(source),
+      had = !!notice && !!notice.el && notice.el.contains(document.activeElement);
+    sourceOk(source);
     if (!had) return;
-    const L = $('#trash-list'),
-      b = trash.open
-        ? ((L.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
-            L.querySelector('[data-act="restore"]') ||
+    const trashList = $('#trash-list'),
+      target = trash.open
+        ? ((trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
+            trashList.querySelector('[data-act="restore"]') ||
             trash.querySelector('[data-act="trash-close"]')) as HTMLElement | null)
         : null;
-    if (b) b.focus();
+    if (target) target.focus();
     else searchToPage();
   });
 }
@@ -351,7 +360,7 @@ async function unclaimPin(id) {
     });
     markMine(id);
     quietNote(tl('핀 #{id} 처리 중 표시를 풀었습니다', { id }));
-  } catch (e) {}
+  } catch (error) {}
   await loadPins();
 }
 export {

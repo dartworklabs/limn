@@ -1,9 +1,10 @@
-// ------------------------------------------------ The composer draft, kept per tab (docs/handbook/viewer.md §패널 정리)
-// A draft - the composer's selection, box, note, kind, assignee and suggested edit, or a note waiting for the next pick - is written to
-// sessionStorage on every edit (debounced 300ms, flushed when the page hides) under draftKey(label, document), so leaving the
-// page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot restores it (restoreDraft). Saving
-// clears it; a discard clears it once its undo window is over (DRAFT.holds has that document's undo). Only this tab sees it.
-// The tab owns the debounce timer and the active document's draft key; a discard's undo holds its own document's key.
+// ----------------------------------------------- The composer draft, kept per tab (docs/handbook/viewer.md §패널 정리)
+// A draft - the composer's selection, box, note, kind, assignee and suggested edit, or a note waiting for the next pick
+// - is written to sessionStorage on every edit (debounced 300ms, flushed when the page hides) under draftKey(label,
+// document), so leaving the page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot
+// restores it (restoreDraft). Saving clears it; a discard clears it once its undo window is over (DRAFT.holds has that
+// document's undo). Only this tab sees it. The tab owns the debounce timer and the active document's draft key; a
+// discard's undo holds its own document's key.
 import {
   $,
   ASSIGNEE_AGENT,
@@ -37,7 +38,7 @@ function holdDraftUntil(note: Notice) {
   let value = null as string | null;
   try {
     if (DRAFT.key) value = sessionStorage.getItem(DRAFT.key);
-  } catch (e) {}
+  } catch (error) {}
   const held = { note, key: DRAFT.key, value };
   if (held.key) DRAFT.holds.set(held.key, held);
   note.gone = () => {
@@ -53,7 +54,7 @@ function holdDraftUntil(note: Notice) {
           sessionStorage.removeItem(held.key);
           if (DRAFT.key === held.key) DRAFT.key = null;
         }
-      } catch (e) {}
+      } catch (error) {}
     }
   };
 }
@@ -61,29 +62,29 @@ function holdDraftUntil(note: Notice) {
 function draftKey(label, doc) {
   return 'limnDraft:' + encodeURIComponent(label || '') + ':' + doc;
 }
-// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on this build,
-// 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null for nothing to keep,
-// another document, or another record version.
-function draftRestore(rec, doc, build) {
-  if (!rec || rec.v !== 1 || rec.doc !== doc) return null;
-  if (rec.cur && rec.build === build) return 'full';
-  return String(rec.note || '').trim() ? 'note' : null;
+// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
+// this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
+// for nothing to keep, another document, or another record version.
+function draftRestore(record, doc, build) {
+  if (!record || record.v !== 1 || record.doc !== doc) return null;
+  if (record.cur && record.build === build) return 'full';
+  return String(record.note || '').trim() ? 'note' : null;
 }
-// The draft on screen now, or null: the open composer (with its pick, or a note while the pick is still running) or a note
-// kept in the hidden composer for the next pick.
+// The draft on screen now, or null: the open composer (with its pick, or a note while the pick is still running) or a
+// note kept in the hidden composer for the next pick.
 function draftRecord() {
-  const n = $('#note'),
+  const noteField = $('#note'),
     open = !$('#composer').hidden,
-    note = n.value,
-    cur = open ? COMPOSE.current : null;
-  if (!cur && !note.trim()) return null;
+    note = noteField.value,
+    current = open ? COMPOSE.current : null;
+  if (!current && !note.trim()) return null;
   return {
     v: 1,
-    doc: (cur && cur.doc) || DOC,
-    build: (cur && cur.pdf_build) || (META && META.pages_build) || '',
-    cur,
+    doc: (current && current.doc) || DOC,
+    build: (current && current.pdf_build) || (META && META.pages_build) || '',
+    cur: current,
     note,
-    mentions: n._mentions ? Array.from(n._mentions) : [],
+    mentions: noteField._mentions ? Array.from(noteField._mentions) : [],
     kind: KIND_NEW,
     assign: { v: ASSIGN_NEW.v, touched: ASSIGN_NEW.touched },
     sg: suggestCopy(SG),
@@ -100,20 +101,20 @@ function syncDraft() {
   clearTimeout(DRAFT.timer);
   DRAFT.timer = 0;
   if (!DRAFT.ready || !META) return;
-  const rec = draftRecord();
+  const record = draftRecord();
   try {
-    if (rec) {
-      const k = draftKey(META.label, rec.doc);
-      DRAFT.holds.delete(k); // a newer draft replaces a discarded one
-      sessionStorage.setItem(k, JSON.stringify(rec));
-      DRAFT.key = k;
+    if (record) {
+      const key = draftKey(META.label, record.doc);
+      DRAFT.holds.delete(key); // a newer draft replaces a discarded one
+      sessionStorage.setItem(key, JSON.stringify(record));
+      DRAFT.key = key;
       return;
     }
     const held = DRAFT.holds.get(DRAFT.key);
     if (held && NOTICES.has(held.note.n)) return;
     if (DRAFT.key) sessionStorage.removeItem(DRAFT.key);
     DRAFT.key = null;
-  } catch (e) {}
+  } catch (error) {}
 }
 // Bind an in-flight pin save to the exact stored draft it sent; later documents and selections own their own records.
 function savedDraftSnapshot() {
@@ -121,40 +122,42 @@ function savedDraftSnapshot() {
   if (!DRAFT.key) return null;
   try {
     return { doc: DOC, key: DRAFT.key, value: sessionStorage.getItem(DRAFT.key) };
-  } catch (e) {
+  } catch (error) {
     return null;
   }
 }
-// A returned visit may clear the original draft only while its restored selection and every unsaved field still match the submitted record.
-function restoredDraftOwns(snap) {
+// A returned visit may clear the original draft only while its restored selection and every unsaved field still match
+// the submitted record.
+function restoredDraftOwns(snapshot) {
   const origin = DRAFT.origin;
   if (
-    !snap ||
-    !snap.value ||
+    !snapshot ||
+    !snapshot.value ||
     !origin ||
-    DOC !== snap.doc ||
-    DRAFT.key !== snap.key ||
-    origin.key !== snap.key ||
-    origin.value !== snap.value ||
+    DOC !== snapshot.doc ||
+    DRAFT.key !== snapshot.key ||
+    origin.key !== snapshot.key ||
+    origin.value !== snapshot.value ||
     origin.current !== COMPOSE.current
   )
     return false;
-  const rec = draftRecord();
-  if (!rec || JSON.stringify(rec) !== snap.value) return false;
+  const record = draftRecord();
+  if (!record || JSON.stringify(record) !== snapshot.value) return false;
   try {
-    return sessionStorage.getItem(snap.key) === snap.value;
-  } catch (e) {
+    return sessionStorage.getItem(snapshot.key) === snapshot.value;
+  } catch (error) {
     return false;
   }
 }
 // A successful save may discard its parked draft only while that record is unchanged and its document is away.
-function clearSavedDraft(snap) {
-  if (!snap || !snap.value || DOC === snap.doc) return;
+function clearSavedDraft(snapshot) {
+  if (!snapshot || !snapshot.value || DOC === snapshot.doc) return;
   try {
-    if (sessionStorage.getItem(snap.key) === snap.value) sessionStorage.removeItem(snap.key);
-  } catch (e) {}
+    if (sessionStorage.getItem(snapshot.key) === snapshot.value) sessionStorage.removeItem(snapshot.key);
+  } catch (error) {}
 }
-// Finish one document's draft before a switch; later debounce and pagehide callbacks must not write it under the next document.
+// Finish one document's draft before a switch; later debounce and pagehide callbacks must not write it under the next
+// document.
 function parkDraft() {
   syncDraft();
   clearTimeout(DRAFT.timer);
@@ -165,68 +168,68 @@ function parkDraft() {
 }
 // Start the next document with its own note and assignment before restoring any stored draft for it.
 function openDraftDoc() {
-  const n = $('#note');
-  n.value = '';
-  n._mentions = null;
+  const noteField = $('#note');
+  noteField.value = '';
+  noteField._mentions = null;
   ASSIGN_NEW.v = ASSIGNEE_AGENT;
   ASSIGN_NEW.touched = false;
   setKind(KIND_REQ.FIX);
   suggestClear();
   renderAssignNew();
-  autoGrow(n);
+  autoGrow(noteField);
   restoreDraft();
 }
 addEventListener('pagehide', syncDraft);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) syncDraft();
 });
-// Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the next
-// press elsewhere. A full restore redraws the box and opens a collapsed panel or sheet (not remembered); a note-only one leaves
-// the note in the note field for the next pick. [버리기] is the usual discard (a full draft gets its undo; the draft goes once
-// that window is over). A pick the person made on this document while the boot was still reading the pins (a Markdown
-// document is drawn before they come) is newer than the kept one and stays: only the kept note comes into it, when its field
-// is still empty, and the kept selection and suggested edit are dropped.
+// Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the
+// next press elsewhere. A full restore redraws the box and opens a collapsed panel or sheet (not remembered); a
+// note-only one leaves the note in the note field for the next pick. [버리기] is the usual discard (a full draft gets
+// its undo; the draft goes once that window is over). A pick the person made on this document while the boot was still
+// reading the pins (a Markdown document is drawn before they come) is newer than the kept one and stays: only the kept
+// note comes into it, when its field is still empty, and the kept selection and suggested edit are dropped.
 function restoreDraft() {
-  let rec = null as any,
+  let record = null as any,
     raw = null as string | null;
-  const k = META ? draftKey(META.label, DOC) : null;
+  const key = META ? draftKey(META.label, DOC) : null;
   DRAFT.origin = null;
   try {
-    raw = k ? sessionStorage.getItem(k) : null;
-    rec = JSON.parse(raw || 'null');
-  } catch (e) {
-    rec = null;
+    raw = key ? sessionStorage.getItem(key) : null;
+    record = JSON.parse(raw || 'null');
+  } catch (error) {
+    record = null;
   }
-  const kept = draftRestore(rec, DOC, META && META.pages_build),
+  const kept = draftRestore(record, DOC, META && META.pages_build),
     picked = !!COMPOSE.current && COMPOSE.current.doc === DOC;
-  const how = kept && picked ? (String(rec.note || '').trim() && !$('#note').value.trim() ? 'note' : null) : kept;
-  DRAFT.key = rec ? k : null;
+  const how = kept && picked ? (String(record.note || '').trim() && !$('#note').value.trim() ? 'note' : null) : kept;
+  DRAFT.key = record ? key : null;
   DRAFT.ready = true;
   if (!how) {
     syncDraft();
     return;
   }
-  const n = $('#note');
-  n.value = rec.note || '';
-  n._mentions = rec.mentions && rec.mentions.length ? new Set(rec.mentions) : null;
-  setKind(rec.kind);
-  Object.assign(ASSIGN_NEW, rec.assign || {});
-  if (rec.sg && !picked) Object.assign(SG, suggestCopy(rec.sg));
+  const noteField = $('#note');
+  noteField.value = record.note || '';
+  noteField._mentions = record.mentions && record.mentions.length ? new Set(record.mentions) : null;
+  setKind(record.kind);
+  Object.assign(ASSIGN_NEW, record.assign || {});
+  if (record.sg && !picked) Object.assign(SG, suggestCopy(record.sg));
   renderAssignNew();
-  autoGrow(n);
+  autoGrow(noteField);
   if (picked) saveDraftSoon();
   if (how === 'full') {
-    const c = rec.cur,
-      pg = document.getElementById('p' + c.page);
-    if (pg && Array.isArray(c.frac)) {
-      const b = newBox(pg),
-        f = c.frac;
-      drawBox(b, f[0], f[1], f[0] + f[2], f[1] + f[3]);
-      b.classList.add('pending');
-      pendingBadge(b, '새 핀');
-      COMPOSE.box = b;
+    const keptPick = record.cur,
+      page = document.getElementById('p' + keptPick.page);
+    if (page && Array.isArray(keptPick.frac)) {
+      const box = newBox(page),
+        frac = keptPick.frac;
+      drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
+      box.classList.add('pending');
+      pendingBadge(box, '새 핀');
+      COMPOSE.box = box;
     }
-    COMPOSE.current = c;
+    COMPOSE.current = keptPick;
     COMPOSE.intent++;
     recomputeOverlap();
     setSnipOpen(false);
@@ -234,7 +237,7 @@ function restoreDraft() {
     $('#c-body').hidden = false;
     $('#composer').hidden = false;
     renderComposer();
-    DRAFT.origin = { key: k, value: raw, current: c };
+    DRAFT.origin = { key: key, value: raw, current: keptPick };
     setSide(true);
     applySide();
     if (LAYOUT !== LAYOUT_MODE.WIDE) revealBox(COMPOSE.box);

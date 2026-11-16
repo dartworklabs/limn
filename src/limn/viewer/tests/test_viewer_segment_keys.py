@@ -611,7 +611,7 @@ class SegmentKeys(BrowserBase):
                 self.assertFalse(page.evaluate(TIP)[1])
                 page.unroute("**/api/snippet?*")
                 # the lines are read again, so the next rung waits on them too
-                page.evaluate("XP_LINES.delete(COMPOSE.current || EDITOR.current)")
+                page.evaluate("EXCERPT_LINES.delete(COMPOSE.current || EDITOR.current)")
                 release = hold_snippets(page)
                 page.keyboard.press("ArrowLeft")
                 rung = page.evaluate_handle("document.activeElement")

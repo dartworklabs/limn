@@ -535,7 +535,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("currentVisit"),
                 extract_js_fn("refetchSnip"),
                 """
-                let DOC='a',SWITCHSEQ=1,snipT=null; const COMPOSE={current:{doc:'a',file:'a.tex',lo:1,hi:1,snippet:'old'}}; const EDITOR={current:null,saving:false};
+                let DOC='a',SWITCHSEQ=1,SNIPPET_TIMER=null; const COMPOSE={current:{doc:'a',file:'a.tex',lo:1,hi:1,snippet:'old'}}; const EDITOR={current:null,saving:false};
                 let fire,finish,renders=0;
                 function clearTimeout(){}function setTimeout(fn){fire=fn;return 1;}
                 function dq(path){return path;}function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -558,7 +558,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("currentVisit"),
                 extract_js_fn("refetchSnip"),
                 """
-                let DOC='a',SWITCHSEQ=1,snipT=null;
+                let DOC='a',SWITCHSEQ=1,SNIPPET_TIMER=null;
                 const COMPOSE={current:null};
                 const card={doc:'a',file:'a.tex',lo:2,hi:3,snippet:'old'};
                 const EDITOR={current:card,saving:false};
