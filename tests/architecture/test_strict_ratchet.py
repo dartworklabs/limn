@@ -87,6 +87,42 @@ def test_every_check_and_rule_is_compared_and_a_new_rule_starts_at_zero():
     assert ratchet.compare_all(found, found) == []
 
 
+def test_the_naming_rules_are_held_per_file_and_only_go_down():
+    """limn/plain-names and limn/no-history-comment are counted per file like every other ESLint rule: a new
+    abbreviation or history comment (a count above the file's baseline, or in a file the baseline does not name) fails
+    and names the rule, and a burned-down count fails until the baseline is lowered."""
+    report = [
+        {
+            "filePath": str(ROOT / "src/limn/viewer/js/a.ts"),
+            "messages": [
+                {"ruleId": "limn/plain-names"},
+                {"ruleId": "limn/plain-names"},
+                {"ruleId": "limn/no-history-comment"},
+            ],
+        },
+        {"filePath": str(ROOT / "src/limn/viewer/js/b.ts"), "messages": [{"ruleId": "limn/plain-names"}]},
+    ]
+    found = {"tsc-strict": {}, "eslint": ratchet.eslint_counts(report), "boundaries": {}}
+    held = {
+        "eslint": {
+            "limn/plain-names": {"src/limn/viewer/js/a.ts": 2, "src/limn/viewer/js/b.ts": 1},
+            "limn/no-history-comment": {"src/limn/viewer/js/a.ts": 1},
+        }
+    }
+    assert ratchet.compare_all(found, held) == []
+    grown = {
+        "eslint": {**held["eslint"], "limn/plain-names": {"src/limn/viewer/js/a.ts": 1, "src/limn/viewer/js/b.ts": 1}}
+    }
+    assert ratchet.compare_all(found, grown) == [
+        "eslint limn/plain-names: src/limn/viewer/js/a.ts: 2 errors, baseline 1 - the new code must meet limn/plain-names"
+    ]
+    burned = {"eslint": {"limn/plain-names": {"src/limn/viewer/js/a.ts": 3, "src/limn/viewer/js/b.ts": 1}}}
+    assert ratchet.compare_all(found, burned) == [
+        "eslint limn/no-history-comment: src/limn/viewer/js/a.ts: 1 errors, baseline 0 - the new code must meet limn/no-history-comment",
+        "eslint limn/plain-names: src/limn/viewer/js/a.ts: 2 errors, baseline 3 - lower the baseline (--update)",
+    ]
+
+
 def test_the_baseline_lists_only_viewer_modules_with_violations():
     """The committed baseline holds the three checks, each naming viewer modules (.ts) only with positive counts (a rule
     leaves it once it is met)."""

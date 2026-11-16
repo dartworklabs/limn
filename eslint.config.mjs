@@ -11,9 +11,11 @@
 // came from an annotation, an untyped library or a JSON.parse. The escape hatches are typescript-eslint's rules: an
 // explicit any, a type assertion (`x as T`, `<T>x`), a non-null assertion (`x!`) and a @ts- directive. Two checks no
 // plugin makes are local rules (limnRules below): a write through another module's binding, and a JSDoc type, which
-// TypeScript does not read in a .ts file at all.
+// TypeScript does not read in a .ts file at all. Two more local rules keep the code readable
+// (docs/adr/0044-viewer-name-and-comment-gates.md): a declared name is whole words, and a comment carries no history.
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
+import { historyIn, loadNameLists, nameProblems } from './tools/viewer_naming.mjs';
 
 /** @typedef {import('eslint').Rule.RuleModule} RuleModule */
 
@@ -57,6 +59,102 @@ export const limnRules = {
             if (c.type !== 'Block' || !c.value.startsWith('*')) continue;
             if (jsdocTypes(c.value).length || /@(typedef|template|callback)\b/.test(c.value))
               context.report({ loc: c.loc, messageId: 'type' });
+          }
+        },
+      };
+    },
+  },
+  // A declared name is whole words (docs/handbook/viewer.md §이름과 주석): the words of `pvPress`, `PV_BUSY` or `c` are
+  // split off (camelCase, PascalCase, UPPER_SNAKE, digits) and each must be at least three letters, or on the short-word
+  // allow-list, and not on the deny list of known abbreviations (tools/viewer-names.json). It reports the declaration -
+  // a variable, function, parameter, class, type, type parameter or an import's own alias - once, never its uses, a
+  // property name or an object key, and an import that keeps the exporter's name (the exporter is where it is reported).
+  'plain-names': {
+    meta: {
+      type: 'suggestion',
+      messages: { name: '{{name}} is not whole words - {{problems}} (tools/viewer-names.json).' },
+      schema: [],
+    },
+    create(context) {
+      const lists = loadNameLists();
+      if (context.filename.endsWith('.d.ts')) return {}; // ambient declarations mirror the server's own field names
+      /** @param {any} def @returns {boolean} */
+      const isLoopIndex = (def) => {
+        const declaration = def.type === 'Variable' ? def.parent : null;
+        const loop = declaration && declaration.parent;
+        if (!loop) return false;
+        return (
+          (loop.type === 'ForStatement' && loop.init === declaration) ||
+          ((loop.type === 'ForInStatement' || loop.type === 'ForOfStatement') && loop.left === declaration)
+        );
+      };
+      return {
+        Program() {
+          /** @type {Set<unknown>} */
+          const seen = new Set();
+          for (const scope of context.sourceCode.scopeManager.scopes) {
+            for (const variable of scope.variables) {
+              const def = variable.defs[0];
+              if (!def || !def.name || seen.has(def.name)) continue;
+              seen.add(def.name);
+              // `import { a } from` names a binding the exporting module declares and is reported there; an alias
+              // (`import { a as b }`), a default or a namespace import names a new one.
+              if (def.node.type === 'ImportSpecifier' && def.node.imported.name === def.name.name) continue;
+              const problems = nameProblems(def.name.name, lists, isLoopIndex(def));
+              if (problems.length)
+                context.report({
+                  node: def.name,
+                  messageId: 'name',
+                  data: { name: def.name.name, problems: problems.join('; ') },
+                });
+            }
+          }
+        },
+      };
+    },
+  },
+  // A comment says what the code does and why, not how it came to be: a release number (0.4.34), an issue or pull
+  // request number (#418, issue #12) or a dated QA note (2026-09-24) belongs to the pull request and the CHANGELOG.
+  // One report per comment. A reference to an ADR or the Handbook points at a rule that holds now and is fine, as is
+  // an example in quotes ('#12') and an address or specification number (127.0.0.1, WCAG 3.2.2); see historyIn.
+  'no-history-comment': {
+    meta: {
+      type: 'suggestion',
+      messages: {
+        history:
+          'A comment carries no history ({{found}}): say what the code does now; the pull request and the CHANGELOG keep the rest.',
+      },
+      schema: [],
+    },
+    create(context) {
+      return {
+        Program() {
+          // A run of `//` lines is read as one text so a quote that spans lines is seen whole; each line is still
+          // judged, and reported, on its own.
+          const comments = context.sourceCode.getAllComments();
+          for (let first = 0; first < comments.length;) {
+            let last = first;
+            while (
+              comments[first].type === 'Line' &&
+              last + 1 < comments.length &&
+              comments[last + 1].type === 'Line' &&
+              comments[last + 1].loc.start.line === comments[last].loc.end.line + 1
+            )
+              last++;
+            const run = comments.slice(first, last + 1);
+            const text = run.map((c) => c.value).join('\n');
+            let from = 0;
+            for (const comment of run) {
+              const found = historyIn(text, from, from + comment.value.length + 1);
+              from += comment.value.length + 1;
+              if (found.length)
+                context.report({
+                  loc: comment.loc,
+                  messageId: 'history',
+                  data: { found: found.map((h) => `${h.kind} ${h.text}`).join(', ') },
+                });
+            }
+            first = last + 1;
           }
         },
       };
@@ -230,6 +328,9 @@ export default [
       ],
       // A type is written in the code, not in a JSDoc comment TypeScript ignores.
       'limn/no-jsdoc-type': 'error',
+      // Names are whole words, and a comment carries no history; both are held by the ratchet like the rest.
+      'limn/plain-names': 'error',
+      'limn/no-history-comment': 'error',
       // A switch over a closed union handles every member, and a default does not stand in for a missing one.
       '@typescript-eslint/switch-exhaustiveness-check': [
         'error',
