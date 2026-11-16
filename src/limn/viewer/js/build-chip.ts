@@ -1,14 +1,14 @@
-// ------------------------------------------------ Async build-progress chip (docs/handbook/build-sync.md §비동기 재빌드)
-// BUILD.timer only exists while a build is actually running - /api/build is never hit every second once there's
-// nothing to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
-// pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot.
-// A finished build is counted via build_seq (the server bumps it by 1 per build). BUILD.lastSeq is the value this tab
-// has already processed - processing (swapping the screen, saying so) happens exactly once per seq. Counting via the
-// started_at string or "was running ever observed" instead missed a build that finished within a 5-second gap, or
-// double-processed the same completion when a hidden tab came back via two paths at once (observed: said twice).
-// The active document visit owns one poll timer, request and completion baseline; the error panel follows that visit.
-// BUILD.cur is the running build's last /api/build answer (null when none runs): the status line reads its phase and seconds.
-// BUILD.unchanged is {pull} while the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
+// ---------------------------------------------- Async build-progress chip (docs/handbook/build-sync.md §비동기 재빌드)
+// BUILD.timer only exists while a build is actually running - /api/build is never hit every second once there's nothing
+// to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
+// pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot. A
+// finished build is counted via build_seq (the server bumps it by 1 per build). BUILD.lastSeq is the value this tab has
+// already processed - processing (swapping the screen, saying so) happens exactly once per seq. Neither the started_at
+// string nor "was running ever seen" can count: they miss a build that finishes within a 5-second gap, and process one
+// completion twice when a hidden tab comes back through two paths at once. The active document visit owns one poll
+// timer, request and completion baseline; the error panel follows that visit. BUILD.cur is the running build's last
+// /api/build answer (null when none runs): the status line reads its phase and seconds. BUILD.unchanged is {pull} while
+// the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
 import {
   $,
   BUILD_ERR_BY,
@@ -92,8 +92,9 @@ function pullSuffix(build) {
     );
   return '';
 }
-// Single-flight: if a request is already in flight, that same promise is returned instead of sending a new one (even if the
-// 1-second timer, visibilitychange, focus, and pollLight all call it together, /api/build only goes out once and completion is only processed once).
+// Single-flight: if a request is already in flight, that same promise is returned instead of sending a new one (even if
+// the 1-second timer, visibilitychange, focus, and pollLight all call it together, /api/build only goes out once and
+// completion is only processed once).
 function pollBuild() {
   if (document.hidden) return Promise.resolve(); // the request is never even sent while the tab is hidden
   if (BUILD.inflight) return BUILD.inflight;
@@ -102,12 +103,12 @@ function pollBuild() {
   });
   return BUILD.inflight;
 }
-// One /api/build poll for the document on screen: shows or hides the progress chip and the 1-second timer, and processes a
-// finished build exactly once per `seq` (refresh the pages; a success says so on the status line for NOTICE_MS, a failure or
-// LaTeX errors open the error panel, and the line's failure item and the chips keep it). A rebuild this tab asked for that kept
-// the pages (unchanged: true, the same seq) gets one "no changes" answer on the status line whose [그래도 빌드] forces a cold
-// rebuild (buildUnchanged). A reply that arrives after a document switch is dropped. Resolves with nothing and never throws; a
-// failed request is ignored (the next poll retries).
+// One /api/build poll for the document on screen: shows or hides the progress chip and the 1-second timer, and
+// processes a finished build exactly once per `seq` (refresh the pages; a success says so on the status line for
+// NOTICE_MS, a failure or LaTeX errors open the error panel, and the line's failure item and the chips keep it). A
+// rebuild this tab asked for that kept the pages (unchanged: true, the same seq) gets one "no changes" answer on the
+// status line whose [그래도 빌드] forces a cold rebuild (buildUnchanged). A reply that arrives after a document switch
+// is dropped. Resolves with nothing and never throws; a failed request is ignored (the next poll retries).
 async function pollBuildOnce() {
   let build;
   const visitDoc = DOC,
@@ -117,7 +118,8 @@ async function pollBuildOnce() {
   } catch (error) {
     return;
   }
-  if (visitDoc !== DOC || visit !== SWITCHSEQ) return; // showDoc queries again after a switch, including a return to this key
+  // showDoc queries again after a switch, including a return to this key
+  if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
   const chip = $('#build-chip');
   if (build.state === BUILD_STATE.RUNNING) {
     BUILD.cur = build;
@@ -144,8 +146,9 @@ async function pollBuildOnce() {
     BUILD.asked = false;
     buildUnchanged(build);
   } else if (seq !== BUILD.lastSeq) {
-    // This tab's own rebuild that pulled nothing new is an answer to it (the 6 s line below); any other new build on screen -
-    // a merge pulled, another session's rebuild, a figure or PDF that came again - is the document's update (updates.js).
+    // This tab's own rebuild that pulled nothing new is an answer to it (the 6 s line below); any other new build on
+    // screen - a merge pulled, another session's rebuild, a figure or PDF that came again - is the document's update
+    // (updates.ts).
     const mine = BUILD.asked && !(build.pull && build.pull.state === PULL_STATE.OK);
     BUILD.lastSeq = seq;
     BUILD.asked = false; // claimed before the await - so the same completion is never processed twice
@@ -171,10 +174,13 @@ async function pollBuildOnce() {
       BUILD.error = null;
       BUILD_ERR_BY.delete(visitDoc);
       hideBuildErr();
-    } else if (build.state === BUILD_STATE.OK_ERRORS || build.state === BUILD_STATE.FAIL) showBuildErr(build, true); // its panel opens and it is read out; the line and the chips keep the failure
-    if (build.state !== BUILD_STATE.FAIL) checkDocUpdate(visitDoc || '', { mine }); // a failed build left the pages as they were
+      // its panel opens and it is read out; the line and the chips keep the failure
+    } else if (build.state === BUILD_STATE.OK_ERRORS || build.state === BUILD_STATE.FAIL) showBuildErr(build, true);
+    // a failed build left the pages as they were
+    if (build.state !== BUILD_STATE.FAIL) checkDocUpdate(visitDoc || '', { mine });
   } else if (!booted && (build.state === BUILD_STATE.FAIL || build.state === BUILD_STATE.OK_ERRORS)) {
-    showBuildErr(build); // a freshly opened tab - a build that already failed just opens the panel/chip (leaves a way to look at it again)
+    // a freshly opened tab - a build that already failed just opens the panel/chip (leaves a way to look at it again)
+    showBuildErr(build);
   }
 }
 function startBuildPolling() {
@@ -182,6 +188,7 @@ function startBuildPolling() {
     if (!document.hidden) pollBuild();
   });
   window.addEventListener('focus', () => pollBuild());
-  pollBuild(); // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
+  // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
+  pollBuild();
 }
 export { BUILD, pollBuild, pullSuffix, resetBuildForDoc, startBuildPolling };

@@ -130,8 +130,8 @@ $('#help').addEventListener('close', () => {
 
 // ------------------------------------------------ Event delegation (no inline handlers)
 /** Route shared zoom controls to the visible PDF, leaving source views unchanged. */
-// [100%] is the manuscript's print size: the comparison PDF's zoom is against its fitted width, so the changes view hides the
-// control (responsive.css) and leaves it nothing to do.
+// [100%] is the manuscript's print size: the comparison PDF's zoom is against its fitted width, so the changes view
+// hides the control (responsive.css) and leaves it nothing to do.
 function zoomVisiblePdf(action) {
   if (document.body.classList.contains('revision-open')) {
     if (action !== 'actual') revisionZoom(action);
@@ -139,8 +139,8 @@ function zoomVisiblePdf(action) {
   else if (action === 'actual') actualSize();
   else zoom(action === 'in' ? 1 : -1);
 }
-// compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do (the card's
-// 44px links and chips keep their own action). wide cards are always open.
+// compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do
+// (the card's 44px links and chips keep their own action). wide cards are always open.
 function openTappedCard(target) {
   const card = target && target.closest && target.closest('.pin.card:not(.open):not(.editing)');
   if (!card || LAYOUT === LAYOUT_MODE.WIDE || target.closest('[data-copy],button,input,textarea')) return;
@@ -165,7 +165,8 @@ document.addEventListener('click', (event) => {
   const fromMore = !!control.closest('#more');
   if (fromMore && (control.dataset.close || control.dataset.act === 'help')) $('#more').close();
   if (control.closest('#status-list')) $('#status-list').close(); // a row's action folds the status list
-  if (control.dataset.close && control.closest('#nav-sheet')) $('#nav-sheet').close(); // a destination in the navigation sheet: go there, the sheet closes
+  // a destination in the navigation sheet: go there, the sheet closes
+  if (control.dataset.close && control.closest('#nav-sheet')) $('#nav-sheet').close();
   switch (control.dataset.act) {
     case 'side':
       toggleSide();
@@ -208,7 +209,7 @@ document.addEventListener('click', (event) => {
       break; // the status line's [그래도 빌드]: a cold build
     case 'offline-prepare':
       void offlinePrepare();
-      break; // [더보기]'s [오프라인으로 받기] (offline.js)
+      break; // [더보기]'s [오프라인으로 받기] (offline.ts)
     case 'offline-flush':
       void offlineFlush();
       break; // the status line's [지금 반영]: send the kept pins now
@@ -226,7 +227,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'marks-toggle':
       marksSet(!MARKS.off);
-      break; // [더보기]'s [핀 표시] switch (marks-hide.js)
+      break; // [더보기]'s [핀 표시] switch (marks-hide.ts)
     case 'theme':
       setTheme(control.dataset.theme);
       break;
@@ -252,13 +253,14 @@ document.addEventListener('click', (event) => {
     case 'verdict-save':
     case 'pv-save':
       verdictPress(control, event.detail === 0 ? 'kb' : undefined);
-      break; // a verdict word's button: the composer's row or a page verdict line (verdict.js)
+      break; // a verdict word's button: the composer's row or a page verdict line (verdict.ts)
     case 'pv-earlier':
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break;
     case 'pv-cancel':
       cancelLineVerdict(control);
-      break; // a page line's [판정 취소] on the person's own open verdict (verdict.js)
+      break; // a page line's [판정 취소] on the person's own open verdict (verdict.ts)
+    // a page line's reason and its popover (verdict-reason.ts)
     case 'pv-reason-open':
     case 'pv-reason-save':
     case 'pv-reason-clear':
@@ -270,10 +272,10 @@ document.addEventListener('click', (event) => {
       break;
     case 'pv-sum':
       goToSummaryPage(control);
-      break; // a page's summary beside the verdict panel brings that page to it (verdict-panel.js)
+      break; // a page's summary beside the verdict panel brings that page to it (verdict-panel.ts)
     case 'pv-undo':
       undoFromLine(control);
-      break; // a take-back's [되돌리기] on its line (verdict.js)   // a page line's reason and its popover (verdict-reason.js)
+      break; // a take-back's [되돌리기] on its line (verdict.ts)
     case 'pop-more':
       selPopMore();
       break; // the note popover by the box hands over to the composer in the panel
@@ -305,7 +307,7 @@ document.addEventListener('click', (event) => {
     case 'sg-reload':
     case 'sg-rebase':
       suggestAct(control, String(control.dataset.act));
-      break; // a suggested edit's switch and line (suggest.js)
+      break; // a suggested edit's switch and line (suggest.ts)
     case 'sg-fold': {
       const key = control.dataset.key;
       if (!key) break;
@@ -346,6 +348,9 @@ document.addEventListener('click', (event) => {
       openEdit(id);
       break;
     case 'doc': {
+      // inMenu is read before switchDoc(): for a cached document switchDoc finishes synchronously through drawDocTabs,
+      // which redraws the open #nav-sheet (drawDocsMenu) and detaches the control from the DOM. control.closest() after
+      // switchDoc would return null, leaving the sheet open and blocking the next tap on a tab.
       const inMenu = !!control.closest('#nav-sheet');
       if (control.closest('#doc-pop')) closeDocMenu(true);
       switchDoc(control.dataset.doc);
@@ -354,14 +359,10 @@ document.addEventListener('click', (event) => {
     }
     case 'el-show':
       showElementBox();
-      break; // the composer's element path: show the chosen element's box on the page (figure.js)
+      break; // the composer's element path: show the chosen element's box on the page (figure.ts)
     case 'doc-more':
       toggleDocMenu();
-      break; // [+N]: the documents popover (doc-tabs.js)
-    // ^ inMenu is determined before calling switchDoc() - for a cached document, switchDoc finishes synchronously
-    //   through drawDocTabs, and inside that it redraws the open #nav-sheet (drawDocsMenu), detaching a from the DOM.
-    //   Calling a.closest() after switchDoc would return null, leaving the sheet open and blocking the next tab
-    //   interaction (a touch regression).
+      break; // [+N]: the documents popover (doc-tabs.ts)
     case 'nav-sheet':
       openNavSheet();
       break;
@@ -439,7 +440,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'rv-card':
       if (id != null) rvToCard(id);
-      break; // confirming from result rows (review-pick.js)
+      break; // confirming from result rows (review-pick.ts)
     case 'list-order':
       setListOrder(control.dataset.order);
       break;
@@ -503,7 +504,8 @@ document.addEventListener('click', (event) => {
     case 'kind': {
       const fromHint = !!control.closest('#c-qhint');
       setKind(control.dataset.kind);
-      // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back to the memo.
+      // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back
+      // to the memo.
       if (fromHint) {
         const note = $('#note');
         note.focus({ preventScroll: true });
@@ -570,10 +572,10 @@ document.addEventListener('click', (event) => {
       break; // an in-document #heading link of the Markdown surface
     case 'md-doc':
       mdGoDoc(control);
-      break; // a link to another registered document (md-surface.js, ADR-0030)
+      break; // a link to another registered document (md-surface.ts, ADR-0030)
     case 'md-html-run':
       mdHtmlRun(control);
-      break; // a run of raw HTML blocks opens or closes (md-surface.js)
+      break; // a run of raw HTML blocks opens or closes (md-surface.ts)
     case 'repick':
       startRepick();
       break;
@@ -620,46 +622,46 @@ document.addEventListener('click', (event) => {
 });
 $('#doc-select').addEventListener('change', (event) => switchDoc(event.target.value));
 $('#revision-file').addEventListener('change', renderRevisionFile);
-// A segmented control is a radio group (docs/handbook/viewer.md §디자인 토큰과 컴포넌트): the whole group is one Tab stop, the
-// arrows move inside it and Home/End go to its ends. The one stop is a roving tabindex - the chosen word is the one Tab
-// reaches - set wherever a group is drawn or its choice changes (segRove), and the key that moves presses the word it moves
-// to, so the arrows and a click take the same path (issue #417). A key that lands on the word already chosen (Home on the
-// first when it is the one, an arrow round a group of one) only moves the focus: pressing a chosen word is no new choice.
-// A group whose choice changes the context (data-seg-manual in the markup: [더보기]'s language reopens the page, the phone's
-// navigation sheet [원고 | 변경사항] changes the view and closes the sheet) is walked without choosing, as tabs with manual
-// activation are (WCAG 3.2.2): the keys only move the focus, and Enter or Space - the word's own press - chooses. While the
-// focus walks such a group the stop goes with it, so Tab leaves from where the focus is in one step; when the focus leaves,
-// the stop goes back to the chosen word (segManualLeft).
+// A segmented control is a radio group (docs/handbook/viewer.md §디자인 토큰과 컴포넌트): the whole group is one Tab
+// stop, the arrows move inside it and Home/End go to its ends. The one stop is a roving tabindex - the chosen word is
+// the one Tab reaches - set wherever a group is drawn or its choice changes (segRove), and the key that moves presses
+// the word it moves to, so the arrows and a click take the same path. A key that lands on the word already chosen (Home
+// on the first when it is the one, an arrow round a group of one) only moves the focus: pressing a chosen word is no
+// new choice. A group whose choice changes the context (data-seg-manual in the markup: [더보기]'s language reopens the
+// page, the phone's navigation sheet [원고 | 변경사항] changes the view and closes the sheet) is walked without
+// choosing, as tabs with manual activation are (WCAG 3.2.2): the keys only move the focus, and Enter or Space - the
+// word's own press - chooses. While the focus walks such a group the stop goes with it, so Tab leaves from where the
+// focus is in one step; when the focus leaves, the stop goes back to the chosen word (leaveManualSegment).
 const SEGMENT_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
-/** The words of radio group g that can take the focus: neither disabled nor hidden. */
+/** The words of a radio group that can take the focus: neither disabled nor hidden. */
 function offeredWords(group: Element) {
   return ([...group.querySelectorAll('[role=radio]')] as HTMLButtonElement[]).filter(
     (word) => !word.disabled && !word.hidden,
   );
 }
-/** The words of g on offer that are laid out - the ones a key walks. */
+/** The words of a group on offer that are laid out - the ones a key walks. */
 function shownWords(group: Element) {
   return offeredWords(group).filter((word) => word.getClientRects().length);
 }
-/** Where the focus is among the words g shows (segShown), -1 when it is not on one of them. */
+/** Where the focus is among the words a group shows (shownWords), -1 when it is not on one of them. */
 function segFocusAt(group: Element) {
   return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
 }
-// Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.js assignSeg),
-// the range ladder with every range (levels.js drawLadder - a pick that leaves the excerpt short of lines draws it again
-// once more when they come back, excerpt.js excerptFetch) and [더보기]'s size on every pick and relayout (panel-size.js
-// renderSizeSeg). The word with the focus goes with the old words, and the focus would land on the body: an arrow's walk
-// ended there, as did Enter or Space on the chosen word, and the next Tab began again from the page's start. So each draw
-// notes where the focus was (segFocusAt) and gives it back to the word now in place i - the last when there are fewer - as
-// no new focus: a description shows only after a key (tooltip.js focusGivenBack). A group drawn away (no people left to
-// assign) has none, and the focus stays.
+// Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.ts
+// assignSeg), the range ladder with every range (levels.ts drawLadder - a pick that leaves the excerpt short of lines
+// draws it again once more when they come back, excerpt.ts excerptFetch) and [더보기]'s size on every pick and relayout
+// (panel-size.ts renderSizeSeg). The word with the focus goes with the old words, and the focus would land on the body:
+// an arrow's walk would end there, as would Enter or Space on the chosen word, and the next Tab would begin again from
+// the page's start. So each draw notes where the focus was (segFocusAt) and gives it back to the word now at `index` -
+// the last when there are fewer - as no new focus: a description shows only after a key (tooltip.ts focusGivenBack). A
+// group drawn away (no people left to assign) has none, and the focus stays.
 function segKeep(group: Element, index: number) {
   if (index < 0) return;
   const words = shownWords(group),
     word = words[Math.min(index, words.length - 1)];
   if (word) focusGivenBack(word);
 }
-/** Keep one Tab stop in radio group g: the chosen word, else the first one on offer. It reads the markup only, not the
+/** Keep one Tab stop in a radio group: the chosen word, else the first one on offer. It reads the markup only, not the
  * layout, so a group drawn while its panel is closed holds its one stop before it shows. */
 function segRove(group: Element | null) {
   if (!group) return;
@@ -667,7 +669,8 @@ function segRove(group: Element | null) {
     on = words.find((word) => word.getAttribute('aria-checked') === 'true') || words[0];
   for (const word of words) word.tabIndex = word === on ? 0 : -1;
 }
-for (const group of $$('[role=radiogroup]')) segRove(group); // the groups in the page's markup; a drawn one calls segRove itself
+// the groups in the page's markup; a drawn one calls segRove itself
+for (const group of $$('[role=radiogroup]')) segRove(group);
 document.addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   if (imeKey(event) || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -696,10 +699,12 @@ document.addEventListener('keydown', (event) => {
   } // the focus only
   word.tabIndex = 0;
   word.focus();
-  if (word.getAttribute('aria-checked') !== 'true') word.click(); // a group the press draws again keeps the focus (segKeep)
+  // a group the press draws again keeps the focus (segKeep)
+  if (word.getAttribute('aria-checked') !== 'true') word.click();
   segRove(group);
 });
-// The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come back to.
+// The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come
+// back to.
 function leaveManualSegment(event: FocusEvent) {
   const target = event.target as HTMLElement,
     group = target && target.closest ? target.closest('[role=radiogroup][data-seg-manual]') : null;
@@ -707,10 +712,11 @@ function leaveManualSegment(event: FocusEvent) {
   if (group && !(to && group.contains(to))) segRove(group);
 }
 document.addEventListener('focusout', leaveManualSegment);
-// A ladder's scroll box (.seg.lad) is no Tab stop (tabindex="-1": Firefox makes a box that overflows one of its own), but
-// a press on it - the gap between two words, its edge - still gives it the focus, and from a focused box with tabindex -1
-// Firefox's next Tab began again at the page's start. So the focus such a press gives the box goes on to the group's one
-// stop (segRove's word) as no new focus (focusGivenBack: no description), and Tab leaves from there, as from a word.
+// A ladder's scroll box (.seg.lad) is no Tab stop (tabindex="-1": Firefox makes a box that overflows one of its own),
+// but a press on it - the gap between two words, its edge - still gives it the focus, and from a focused box with
+// tabindex -1 Firefox's next Tab would begin again at the page's start. So the focus such a press gives the box goes on
+// to the group's one stop (segRove's word) as no new focus (focusGivenBack: no description), and Tab leaves from there,
+// as from a word.
 function passLadderBoxFocus(event: FocusEvent) {
   const box = event.target as HTMLElement;
   if (!box || !box.matches || !box.matches('.seg.lad[tabindex="-1"]')) return;
@@ -722,7 +728,7 @@ function passLadderBoxFocus(event: FocusEvent) {
 document.addEventListener('focusin', passLadderBoxFocus);
 
 document.addEventListener('keydown', (event) => {
-  if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (core.js)
+  if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (core.ts)
   const target = event.target as HTMLElement,
     inField =
       target &&
@@ -730,7 +736,8 @@ document.addEventListener('keydown', (event) => {
         target.tagName === 'INPUT' ||
         target.tagName === 'SELECT' ||
         target.isContentEditable);
-  // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input field.
+  // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input
+  // field.
   if ((event.ctrlKey || event.metaKey) && !event.altKey && !inField && !isMdDoc()) {
     const zoomAction = zoomKey(event); // a Markdown document's text zooms with the browser
     if (zoomAction) {
@@ -742,8 +749,9 @@ document.addEventListener('keydown', (event) => {
       return;
     }
   }
-  // Document switching (multiple documents): Ctrl+PgUp/PgDn is previous/next, Alt+1...9 is that index (e.code - Option+digit on Mac produces a different character).
-  // The selector uses default keyboard handling. Global shortcuts are never used inside an input field.
+  // Document switching (multiple documents): Ctrl+PgUp/PgDn is previous/next, Alt+1...9 is that index (event.code -
+  // Option+digit on Mac produces a different character). The selector uses default keyboard handling. Global shortcuts
+  // are never used inside an input field.
   if (multiDoc() && !inField) {
     if (event.ctrlKey && !event.altKey && !event.metaKey && (event.key === 'PageUp' || event.key === 'PageDown')) {
       event.preventDefault();
@@ -763,7 +771,8 @@ document.addEventListener('keydown', (event) => {
       return;
     }
   }
-  // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not inside a text field.
+  // Ctrl(Cmd)+\ opens and collapses the pin panel at every width (docs/handbook/viewer.md §패널 폭과 시트 높이) - not
+  // inside a text field.
   if (
     (event.ctrlKey || event.metaKey) &&
     !event.altKey &&
@@ -801,7 +810,8 @@ document.addEventListener('keydown', (event) => {
     copyText(target.dataset.copy, target);
     return;
   }
-  // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path as a click.
+  // A span with role=button (a card's #number) is also activated by Enter/Space - sent through the same data-act path
+  // as a click.
   if (
     (event.key === 'Enter' || event.key === ' ') &&
     target &&
@@ -835,7 +845,8 @@ document.addEventListener('keydown', (event) => {
         return;
       }
     }
-    // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's CloseWatcher).
+    // Each Esc closes the top thing only; a handled Esc is not also a close request (the back-gesture layer's
+    // CloseWatcher).
     if (outlineOverlay() && OUTLINE_MID_OPEN) {
       event.preventDefault();
       toggleOutline();
@@ -870,8 +881,8 @@ document.addEventListener('keydown', (event) => {
       event.preventDefault();
       rvPick(false);
       return;
-    } // the review section's pick, from inside it (review-pick.js)
-    // The 701-900px overlay panel covers the document: Esc collapses it (a selection above was cancelled first).
+    } // the review section's pick, from inside it (review-pick.ts)
+    // The 701-900px overlay panel covers the document: Esc collapses it (a selection above is cancelled first).
     if (LAYOUT === LAYOUT_MODE.MID && MID_OVERLAY && SIDE_OPEN) {
       event.preventDefault();
       setSide(false, true, true);

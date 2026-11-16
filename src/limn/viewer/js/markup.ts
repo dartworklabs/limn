@@ -1,6 +1,6 @@
-// ------------------------------------------------ Markup: html``, ic() and setHtml(), the one way the viewer writes HTML
-// docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so a
-// note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
+// ---------------------------------------------- Markup: html``, ic() and setHtml(), the one way the viewer writes HTML
+// docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so
+// a note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
 // and ic()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds every part to both.
 import { ICONS, esc } from './core.ts';
 
@@ -36,8 +36,8 @@ function htmlValue(value) {
   return esc(value);
 }
 
-// The Lucide icon n as an inline <svg> (same shape as the server's icon_svg(); CSS sets its size through .ic), or
-// empty Html when the bundled table has no such icon. n is a name from this code, never user text.
+// The Lucide icon `name` as an inline <svg> (same shape as the server's icon_svg(); CSS sets its size through .ic), or
+// empty Html when the bundled table has no such icon. `name` comes from this code, never from user text.
 function ic(name) {
   const shapes = ICONS[name];
   return new Html(
@@ -51,9 +51,10 @@ function ic(name) {
   );
 }
 
-// Replaces el's children with markup. Throws a TypeError for anything but Html, so a string built by hand cannot
-// reach the page through here. An empty element of the markup with data-cp (a code point in hex: ccHtml's box) then gets that
-// character as its text through the DOM, which keeps what the HTML parser would drop or change (a NUL, a CR).
+// Replaces an element's children with markup. Throws a TypeError for anything but Html, so a string built by hand
+// cannot reach the page through here. An empty element of the markup with data-cp (a code point in hex: ccHtml's box)
+// then gets that character as its text through the DOM, which keeps what the HTML parser would drop or change (a NUL, a
+// CR).
 function setHtml(element, markup) {
   if (!(markup instanceof Html)) throw new TypeError('setHtml takes Html from html`` or ic()');
   element.innerHTML = markup.text;

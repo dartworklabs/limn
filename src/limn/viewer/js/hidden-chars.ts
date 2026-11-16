@@ -1,19 +1,22 @@
-// ------------------------------------------------ Characters that hide or reorder text (ADR-0029 D5, docs/superpowers/specs/2026-11-05-text-documents.md §결정 5)
-// A bidirectional control can make a line read in another order than its source, and a zero-width, filler or control
-// character can make two texts look the same (Trojan Source, CVE-2021-42574). Every place that shows a source's or a
-// suggestion's text as it is - the text surface's lines, the excerpt under the ladder, a suggestion's diff, a rung's label -
-// marks them, for every document kind, with this one repertoire, in one of two forms:
-// - ccBox, ccHtml: the character stays in the text (a copy keeps it) inside an isolating span (.cc) that shows its name.
-// - ccPlain: its name in angle brackets ('⟨U+202E⟩'), where only plain text can go (a label, a tooltip, a fallback view).
-// The repertoire (CC_RANGES), by code point: Unicode's Default_Ignorable_Code_Point (the soft hyphen, the combining
-// grapheme joiner, the Hangul fillers, the Khmer inherent vowels, the Mongolian variation selectors and vowel separator, the
-// zero-width characters and bidirectional marks, the bidirectional embeddings, overrides and isolates, the word joiner and
-// invisible operators, the deprecated format characters, the variation selectors, the byte-order mark, the shorthand and
-// musical format controls, the tags), every C0 and C1 control but the tab and the line feed, the line and paragraph
-// separators and the interlinear annotation characters. limn.pins.suggestion.HIDDEN_RANGES holds the same table for pins.md; a test
-// ties the two and checks this one against the engine's own Unicode properties.
-// A character a legitimate sequence needs is left as it is (ccKept). Nothing else is: a tag sequence (a subdivision flag)
-// shows its tags by name.
+// ------------------------------------------------ Characters that hide or reorder text
+// (ADR-0029 D5, docs/superpowers/specs/2026-11-05-text-documents.md §결정 5) A bidirectional control can make a line
+// read in another order than its source, and a zero-width, filler or control character can make two texts look the same
+// (Trojan Source, CVE-2021-42574). Every place that shows a source's or a suggestion's text as it is - the text
+// surface's lines, the excerpt under the ladder, a suggestion's diff, a rung's label - marks them, for every document
+// kind, with this one repertoire, in one of two forms:
+// - ccBox, ccHtml: the character stays in the text (a copy keeps it) inside an isolating span (.cc) that shows its
+//   name.
+// - ccPlain: its name in angle brackets ('⟨U+202E⟩'), where only plain text can go (a label, a tooltip, a fallback
+//   view).
+// The repertoire (HIDDEN_RANGES), by code point: Unicode's Default_Ignorable_Code_Point (the soft hyphen, the combining
+// grapheme joiner, the Hangul fillers, the Khmer inherent vowels, the Mongolian variation selectors and vowel
+// separator, the zero-width characters and bidirectional marks, the bidirectional embeddings, overrides and isolates,
+// the word joiner and invisible operators, the deprecated format characters, the variation selectors, the byte-order
+// mark, the shorthand and musical format controls, the tags), every C0 and C1 control but the tab and the line feed,
+// the line and paragraph separators and the interlinear annotation characters. limn.pins.suggestion.HIDDEN_RANGES holds
+// the same table for pins.md; a test ties the two and checks this one against the engine's own Unicode properties. A
+// character a legitimate sequence needs is left as it is (isKeptInSequence). Nothing else is: a tag sequence (a
+// subdivision flag) shows its tags by name.
 import { html } from './markup.ts';
 import type { Html } from './markup.ts';
 
@@ -65,7 +68,8 @@ function ccName(codePoint: number) {
   if (codePoint === 0x7f) return '␡';
   return 'U+' + codePoint.toString(16).toUpperCase().padStart(4, '0');
 }
-// The code point just before index i of s (a surrogate pair whole), or -1 at its start; and the one at index i, or -1 past it.
+// The code point just before `index` of the text (a surrogate pair whole), or -1 at its start; and the one at `index`,
+// or -1 past it.
 function codePointBefore(text: string, index: number) {
   if (index <= 0) return -1;
   const low = text.charCodeAt(index - 1);
@@ -81,16 +85,17 @@ function codePointAtIndex(text: string, index: number) {
 function codePointMatches(codePoint: number, pattern: RegExp) {
   return codePoint >= 0 && pattern.test(String.fromCodePoint(codePoint));
 }
-// Whether the marked character c at index i of s is one a legitimate sequence needs, and so is left as it is - the
-// exceptions, each tested:
-// - a byte-order mark at the very start of a file (first: s is its line 1): the encoding's mark, not text;
-// - a zero-width non-joiner or joiner between two letters or marks of a script that joins with them (CC_JOINING);
-// - a zero-width joiner inside an emoji sequence: after a pictograph, a skin-tone modifier or VS16, before a pictograph;
+// Whether a marked character (codePoint) at `index` of the text is one a legitimate sequence needs, and so is left as
+// it is - the exceptions, each tested:
+// - a byte-order mark at the very start of a file (first: the text is its line 1): the encoding's mark, not text;
+// - a zero-width non-joiner or joiner between two letters or marks of a script that joins with them (JOINING_SCRIPT);
+// - a zero-width joiner inside an emoji sequence: after a pictograph, a skin-tone modifier or VS16, before a
+//   pictograph;
 // - VS15 or VS16 after a pictograph, and VS16 in a keycap ([#*0-9] U+FE0F U+20E3);
 // - a variation selector after a Han ideograph (an ideographic variation sequence, as in a Japanese name);
 // - a Mongolian free variation selector after a Mongolian letter;
-// - the Hangul choseong filler before a real jungseong, the jungseong filler after a real choseong (old Hangul written in
-//   conjoining jamo). The two fillers together, U+3164 and U+FFA0 are always marked: they draw nothing at all.
+// - the Hangul choseong filler before a real jungseong, the jungseong filler after a real choseong (old Hangul written
+//   in conjoining jamo). The two fillers together, U+3164 and U+FFA0 are always marked: they draw nothing at all.
 // Pure.
 function isKeptInSequence(text: string, index: number, codePoint: number, first: boolean) {
   const before = codePointBefore(text, index),
@@ -121,8 +126,9 @@ function isKeptInSequence(text: string, index: number, codePoint: number, first:
   if (codePoint === 0x1160) return (before >= 0x1100 && before < 0x115f) || (before >= 0xa960 && before <= 0xa97c);
   return false;
 }
-// Every character of s in the repertoire, in order: {at, ch} for one that is marked, null for one that is kept (ccKept) -
-// so a caller can count the work either costs and pause within a long line. first: s is line 1 of a file. A generator.
+// Every character of the input in the repertoire, in order: {at, ch} for one that is marked, null for one that is kept
+// (isKeptInSequence) - so a caller can count the work either costs and pause within a long line. first: the input is
+// line 1 of a file. A generator.
 function* ccScan(input: string, first?: boolean): Generator<{ at: number; ch: string } | null> {
   const text = String(input);
   if (!CC_ANY.test(text)) return; // most lines hold none: one native test
@@ -133,13 +139,14 @@ function* ccScan(input: string, first?: boolean): Generator<{ at: number; ch: st
     yield isKeptInSequence(text, match.index, codePoint, !!first) ? null : { at: match.index, ch: match[0] };
   }
 }
-// The marked characters of s, in order: [{at, ch}]. Pure.
+// The marked characters of the text, in order: [{at, ch}]. Pure.
 function ccFind(text: string, first?: boolean) {
   const out: { at: number; ch: string }[] = [];
   for (const marked of ccScan(text, first)) if (marked) out.push(marked);
   return out;
 }
-// s with each marked character as its name in angle brackets: plain text that never reads in another order than s. Pure.
+// The input with each marked character as its name in angle brackets: plain text that never reads in another order than
+// the input. Pure.
 function ccPlain(input: string, first?: boolean) {
   const text = String(input);
   let out = '',
@@ -150,8 +157,9 @@ function ccPlain(input: string, first?: boolean) {
   }
   return out + text.slice(at);
 }
-// s as plain text cut to at most max characters of what it shows, a marked character's name counted whole and never cut, with
-// '…' when it was cut. Reads no more of s than max + 2 characters (one past the cut keeps a joiner's context). Pure.
+// The text as plain text cut to at most max characters of what it shows, a marked character's name counted whole and
+// never cut, with '…' when it was cut. Reads no more of the text than max + 2 characters (one past the cut keeps a
+// joiner's context). Pure.
 function ccClip(text: string, max: number) {
   let head = '',
     read = 0;
@@ -176,8 +184,9 @@ function ccClip(text: string, max: number) {
   }
   return out;
 }
-// How many marked characters of each name text holds more than base: [[name, count]] by first appearance in text, [] when it
-// adds none - what a suggestion's draft puts in that its lines do not have. Each line is read on its own, as a diff shows it. Pure.
+// How many marked characters of each name `text` holds more than `base`: [[name, count]] by first appearance in `text`,
+// [] when it adds none - what a suggestion's draft puts in that its lines do not have. Each line is read on its own, as
+// a diff shows it. Pure.
 function ccAdded(text: string, base: string): [string, number][] {
   const count = (text: string) => {
     const counts = new Map();
@@ -197,8 +206,8 @@ function ccAdded(text: string, base: string): [string, number][] {
   }
   return out;
 }
-// A marked character ch as its box: an isolating span showing its name, the character itself in a .sr-only child - it takes no
-// room, and a copy of the text keeps it.
+// A marked character as its box: an isolating span showing its name, the character itself in a .sr-only child - it
+// takes no room, and a copy of the text keeps it.
 function ccBox(character: string): HTMLElement {
   const box = document.createElement('span');
   box.className = 'cc';
@@ -209,9 +218,9 @@ function ccBox(character: string): HTMLElement {
   box.append(characterSpan);
   return box;
 }
-// s as Html: its text, each marked character as its box (ccBox's markup) with the character not in the markup but as its code
-// point (data-cp), which setHtml puts in as text - the HTML parser drops a NUL and turns a CR into a line feed, so a box built
-// from markup would show ␀ and copy nothing. Pure.
+// The input as Html: its text, each marked character as its box (ccBox's markup) with the character not in the markup
+// but as its code point (data-cp), which setHtml puts in as text - the HTML parser drops a NUL and turns a CR into a
+// line feed, so a box built from markup would show ␀ and copy nothing. Pure.
 function ccHtml(input: string): Html {
   const text = String(input),
     out: (string | Html)[] = [];

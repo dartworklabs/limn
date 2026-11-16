@@ -1,6 +1,7 @@
-// ------------------------------------------------ Switching documents - the navigation sheet, remembered view positions (docs/handbook/domain.md §여러 문서)
-// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One document
-// leaves the section out - there is nothing to switch to.
+// ---------------- Switching documents - the navigation sheet, remembered view positions
+// (docs/handbook/domain.md §여러 문서)
+// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One
+// document leaves the section out - there is nothing to switch to.
 import {
   $,
   $$,
@@ -66,10 +67,11 @@ function drawDocsMenu() {
     })}`,
   );
 }
-// The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field with the
-// page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination - picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and
-// the outline's current section shows in the outline's own scroll while the rest keeps its place (navSheetReveal); the page field
-// gets no focus, so no keyboard covers the sheet.
+// The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field
+// with the page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination -
+// picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and the outline's current
+// section shows in the outline's own scroll while the rest keeps its place (revealSheetOutline); the page field gets no
+// focus, so no keyboard covers the sheet.
 function openNavSheet() {
   const sheet = $('#nav-sheet');
   if (sheet.open) return;
@@ -88,8 +90,9 @@ function openNavSheet() {
   tipCutTitles($('#ns-pages'));
   revealSheetOutline(sheet);
 }
-// The outline's current section in the open sheet d (docs/handbook/viewer.md §모바일 레이아웃): the sheet's outline is fitted around
-// its current row (navSheetFit). Nothing but the sheet and its list scroll, and the focus stays on the sheet.
+// The outline's current section in the open sheet (docs/handbook/viewer.md §모바일 레이아웃): the sheet's outline is
+// fitted around its current row (fitNavigationSheet). Nothing but the sheet and its list scroll, and the focus stays on
+// the sheet.
 function revealSheetOutline(sheet) {
   const rows = sheetOutlineRows(),
     current = $('#ns-outline-items').querySelector(':scope>.ol-active');
@@ -99,17 +102,19 @@ function revealSheetOutline(sheet) {
 function sheetOutlineRows(): HTMLElement[] {
   return [...$('#ns-outline-items').querySelectorAll(':scope>button')] as HTMLElement[];
 }
-let NAVIGATION_SHEET_HEIGHT = 0; // the open sheet's height as last fitted to the screen: a filter's fewer results keep it, so the top does not move
-/** Fits the open sheet d to its outline's row `at` (docs/handbook/viewer.md §모바일 레이아웃). The open sheet is a column whose top
- * part - the head with the search, the documents, the view and the page field - keeps its place: the page list and the outline's
- * rows share what is left, each showing whole rows (navSheetSpan, navSheetWindow) in a box exactly as tall as they are, so no row
- * is cut at a list's edge, under the outline's filter or at the foot. The page list keeps five rows around the current page while
- * the outline has three; short of that it gives up rows down to the current page's alone, then the outline down to one row, then
- * the page list goes (navSheetShare). The sheet takes its whole height once the outline is cut short, the rest under the list, so
- * its top stands where it stood on any page; a filter's results keep the height the sheet had (refit). Only where the documents
- * leave not even that (many documents on a small screen) does the sheet itself scroll, by whole parts, with the current row of the
- * documents (else the view) pinned under the head over what the step brought there (navSheetStep). Fitted again after a filter's
- * results (from the first, or the current section when the filter is emptied) and when the sheet's height changes. */
+// the open sheet's height as last fitted to the screen: a filter's fewer results keep it, so the top does not move
+let NAVIGATION_SHEET_HEIGHT = 0;
+/** Fits the open sheet to its outline's row `at` (docs/handbook/viewer.md §모바일 레이아웃). The open sheet is a column
+ * whose top part - the head with the search, the documents, the view and the page field - keeps its place: the page
+ * list and the outline's rows share what is left, each showing whole rows (rowsAround, outlineWindow) in a box exactly
+ * as tall as they are, so no row is cut at a list's edge, under the outline's filter or at the foot. The page list
+ * keeps five rows around the current page while the outline has three; short of that it gives up rows down to the
+ * current page's alone, then the outline down to one row, then the page list goes (shareSheetRoom). The sheet takes its
+ * whole height once the outline is cut short, the rest under the list, so its top stands where it stood on any page; a
+ * filter's results keep the height the sheet had (refit). Only where the documents leave not even that (many documents
+ * on a small screen) does the sheet itself scroll, by whole parts, with the current row of the documents (else the
+ * view) pinned under the head over what the step brought there (sheetScrollStep). Fitted again after a filter's results
+ * (from the first, or the current section when the filter is emptied) and when the sheet's height changes. */
 function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, refit: boolean = false) {
   const list = $('#ns-outline-items') as HTMLElement,
     outlineSection = $('#ns-outline') as HTMLElement;
@@ -149,7 +154,8 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
     geometry = show ? geoOf(list, rows.slice(from, current + reach + 1)) : [],
     index = current - from,
     last = geometry.length - 1;
-  const note = outlineSection.hidden || show ? 0 : list.offsetHeight; // no row to show - a filter found nothing: its note takes the outline's place
+  // no row to show - a filter found nothing: its note takes the outline's place
+  const note = outlineSection.hidden || show ? 0 : list.offsetHeight;
   // what the fixed part takes: the sheet with both lists folded away
   list.style.maxHeight = '0px';
   pages.style.display = 'none';
@@ -188,8 +194,8 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   }
   if (!refit) NAVIGATION_SHEET_HEIGHT = 0;
   if (!show) return;
-  // not even one outline row fits under the fixed part: the sheet scrolls as well, by whole parts, keeping the current page's row and
-  // the current outline row
+  // not even one outline row fits under the fixed part: the sheet scrolls as well, by whole parts, keeping the current
+  // page's row and the current outline row
   const pageRange = rowsAround(pageGeometry, currentPage, 1);
   if (pageRange) {
     pages.style.maxHeight = span(pageRange, pageGeometry) + 'px';
@@ -218,12 +224,14 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
     end: keep.matches('.dm-item') && keep.parentElement ? rectOf(keep.parentElement).bottom - top : Infinity,
   });
   if (by > need)
-    outlineSection.style.paddingBottom = parseFloat(getComputedStyle(outlineSection).paddingBottom) + by - need + 'px'; // padding: a margin collapses through the sheet's end
+    // padding: a margin collapses through the sheet's end
+    outlineSection.style.paddingBottom = parseFloat(getComputedStyle(outlineSection).paddingBottom) + by - need + 'px';
   sheet.scrollTop = by;
 }
-/** How the page list and the outline share the room under the sheet's fixed part (all heights in px): the most page rows, up to
- * `most`, that leave the outline three rows (three), then - short of that - one page row and the outline one (one), then no page
- * row; null when not even one outline row fits. pagesOf(m) is the height of m page rows around the current one. Pure. */
+/** How the page list and the outline share the room under the sheet's fixed part (all heights in px): the most page
+ * rows, up to `most`, that leave the outline three rows (three), then - short of that - one page row and the outline
+ * one (one), then no page row; null when not even one outline row fits. pagesOf(count) is the height of that many page
+ * rows around the current one. Pure. */
 function shareSheetRoom(
   room: number,
   pagesOf: (count: number) => number,
@@ -236,15 +244,16 @@ function shareSheetRoom(
   for (const count of [Math.min(1, most), 0]) if (room - pagesOf(count) >= one - 0.5) return { pages: count };
   return null;
 }
-/** The m rows of a list of equal rows around c (rows: their tops and bottoms, in order), as near the middle as the ends allow; null
- * for none. Pure. */
+/** The `count` rows of a list of equal rows around `current` (rows: their tops and bottoms, in order), as near the
+ * middle as the ends allow; null for none. Pure. */
 function rowsAround(rows: { top: number; bottom: number }[], current: number, count: number): [number, number] | null {
   if (count <= 0 || !rows.length) return null;
   const first = Math.max(0, Math.min(current - Math.floor((count - 1) / 2), rows.length - count));
   return [first, Math.min(rows.length - 1, first + count - 1)];
 }
-// The keyboard coming up or going changes the sheet's height (--vvh, layout.js, which runs first): the sheet is fitted again - at the
-// current section, or under a filter from the result at the top of the list - so no row is left cut at the new edges.
+// The keyboard coming up or going changes the sheet's height (--vvh, layout.ts, which runs first): the sheet is fitted
+// again - at the current section, or under a filter from the result at the top of the list - so no row is left cut at
+// the new edges.
 for (const target of [window.visualViewport, window])
   if (target)
     target.addEventListener('resize', () => {
@@ -267,17 +276,17 @@ for (const target of [window.visualViewport, window])
           );
         });
     });
-// The sheet's filter has drawn its list again (outline.js): fitted from the first result, keeping the sheet's height - or, emptied, back
-// at the current section.
+// The sheet's filter has drawn its list again (outline.ts): fitted from the first result, keeping the sheet's height -
+// or, emptied, back at the current section.
 function navSheetFiltered() {
   const sheet = $('#nav-sheet') as HTMLDialogElement;
   if (!sheet.open) return;
   if ($('#ns-outline-search').value.trim()) fitNavigationSheet(sheet, 0, false, true);
   else revealSheetOutline(sheet);
 }
-/** The outline rows the sheet shows (rows: their tops and bottoms in the list, in order; c: the row to show): the most whole rows
- * around c that fit in room, taken one at a time on the side that has fewer, so c stands near the middle - or, down, below c
- * first and above only when the list ends; c alone when no more fit. Pure. */
+/** The outline rows the sheet shows (rows: their tops and bottoms in the list, in order; current: the row to show): the
+ * most whole rows around `current` that fit in room, taken one at a time on the side that has fewer, so it stands near
+ * the middle - or, down, below it first and above only when the list ends; it alone when no more fit. Pure. */
 function outlineWindow(
   rows: { top: number; bottom: number }[],
   current: number,
@@ -294,12 +303,12 @@ function outlineWindow(
     else first--;
   }
 }
-/** How far the sheet scrolls when its top part leaves the outline too little (parts: their tops under the head with the sheet at its
- * top, ascending; need: how far it must go at least). Before the pinned row (pin: its top and height, and the end of what holds it)
- * reaches the head, a step stops on a part's top, so the head cuts none. Once it is pinned, a step stops where a part starts right
- * under it, and the parts between lie wholly behind it or the head; past what holds it, the pinned row has gone under the head and
- * a step stops on a part's top again. The least such step, in whole px since the sheet scrolls in them; the last part when there
- * is none. Pure. */
+/** How far the sheet scrolls when its top part leaves the outline too little (parts: their tops under the head with the
+ * sheet at its top, ascending; need: how far it must go at least). Before the pinned row (pin: its top and height, and
+ * the end of what holds it) reaches the head, a step stops on a part's top, so the head cuts none. Once it is pinned, a
+ * step stops where a part starts right under it, and the parts between lie wholly behind it or the head; past what
+ * holds it, the pinned row has gone under the head and a step stops on a part's top again. The least such step, in
+ * whole px since the sheet scrolls in them; the last part when there is none. Pure. */
 function sheetScrollStep(
   parts: number[],
   need: number,
@@ -325,11 +334,11 @@ function drawNavView() {
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  segRove($('#ns-view'));
-} // the group's one Tab stop is the view now chosen (events.js)
-// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with several
-// documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and '변경사항' in the
-// changes view - as {name, pages, label}; label is its accessible name. Pure but for tr/tl.
+  segRove($('#ns-view')); // the group's one Tab stop is the view now chosen (events.ts)
+}
+// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
+// several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
+// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for tr/tl.
 function posLabel(doc, page, pageCount, multi, wide, mode) {
   if (mode === VIEW_MODE.REVISIONS)
     return { name: '', pages: tr('변경사항'), label: tr('이동') + ' · ' + tr('변경사항') };
@@ -344,8 +353,9 @@ function posLabel(doc, page, pageCount, multi, wide, mode) {
       : tl('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
   };
 }
-// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when another
-// document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words are tr()'d here.
+// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when
+// another document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words
+// are tr()'d here.
 function drawPos() {
   const button = $('#btn-pos');
   if (!button) return;
@@ -354,7 +364,8 @@ function drawPos() {
     isRevisions = document.body.classList.contains('revision-open');
   const label =
     isMdDoc() && !isRevisions
-      ? mdPosLabel(shown ? shown.name : '', MD.at, MD.lines.length, multiDoc(), innerWidth >= 400) // a Markdown document has lines, not pages
+      ? // a Markdown document has lines, not pages
+        mdPosLabel(shown ? shown.name : '', MD.at, MD.lines.length, multiDoc(), innerWidth >= 400)
       : posLabel(
           shown ? shown.name : '',
           OUTLINE_ACTIVE_PAGE || 1,
@@ -371,7 +382,8 @@ function drawPos() {
   button.dataset.tip = tr('문서·보기·쪽·목차로 갑니다');
   $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
 }
-// Viewed position: page/fraction anchored at the top, page scale (K), whether zoomed manually in compact, horizontal scroll. Kept in sessionStorage so it survives a reload.
+// Viewed position: page/fraction anchored at the top, page scale (K), whether zoomed manually in compact, horizontal
+// scroll. Kept in sessionStorage so it survives a reload.
 function saveView() {
   if (!DOC || !META) return;
   if (isMdDoc()) {
@@ -409,8 +421,8 @@ function loadViews() {
       });
   } catch (error) {}
 }
-// A kept view's scale: its k, or - kept by a release that stored the page width - that width over the widest page m (points);
-// 0 when it has neither. Pure.
+// A kept view's scale: its k, or - for a view kept with the page width (w) instead - that width over the widest page
+// (points); 0 when it has neither. Pure.
 function viewScale(view, widest) {
   return typeof view.k === 'number' && view.k > 0
     ? view.k
@@ -418,9 +430,9 @@ function viewScale(view, widest) {
       ? view.w / widest
       : 0;
 }
-// The page scale is decided first (buildDoc sizes pages by K). Only a scale viewed in the same layout is restored - so a width fit
-// for a folded screen is never applied on desktop; without one the document starts at its saved or default scale (startK).
-// Returns whether a kept view decided it.
+// The page scale is decided first (buildDoc sizes pages by K). Only a scale viewed in the same layout is restored - so
+// a width fit for a folded screen is never applied on desktop; without one the document starts at its saved or default
+// scale (startK). Returns whether a kept view decided it.
 function applyViewWidth(view) {
   if (view && view.lay === LAYOUT && (LAYOUT === LAYOUT_MODE.WIDE || view.zoomed)) {
     const scale = viewScale(view, ptMax());
@@ -444,19 +456,20 @@ function restoreView(view) {
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }
 addEventListener('pagehide', saveView);
-// Switches documents. Remembers the current view and draft, then opens only the destination document's draft.
-// If a meta cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background, and pages are swapped only if the build changed.
-// A document that cannot be opened says so on the status line, with [다시 시도] when the server could not be reached.
-// A focus in the pages (a line's control, the PDF area) stays on the PDF area: the new pages take the focused element away,
-// and from nothing (body) the next Tab went to the first page's line and scrolled there.
-// A history traversal (the browser's back or forward) ends a switch still waiting for its document's meta (NAVGEN): the
-// address already names where the traversal went, so the late answer neither opens its document nor puts its hash on that
-// entry, and the document left keeps its draft. While it waits, SWITCH_TO names it (switchPending).
+// Switches documents. Remembers the current view and draft, then opens only the destination document's draft. If a meta
+// cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background,
+// and pages are swapped only if the build changed. A document that cannot be opened says so on the status line, with
+// [다시 시도] when the server could not be reached. A focus in the pages (a line's control, the PDF area) stays on the
+// PDF area: the new pages take the focused element away, and from nothing (body) the next Tab would go to the first
+// page's line and scroll there. A history traversal (the browser's back or forward) ends a switch still waiting for its
+// document's meta (NAVGEN): the address already names where the traversal went, so the late answer neither opens its
+// document nor puts its hash on that entry, and the document left keeps its draft. While it waits, SWITCH_TO names it
+// (switchPending).
 async function switchDoc(doc) {
   if (!doc || doc === DOC || !docInfo(doc)) return;
   const seq = setSwitchseq(SWITCHSEQ + 1),
     navigation = NAVGEN;
-  searchLeave(); // the search belongs to the document left (search.js)
+  searchLeave(); // the search belongs to the document left (search.ts)
   const active = document.activeElement,
     inPages = !!active && !!active.closest && !!active.closest('#left');
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
@@ -499,7 +512,7 @@ async function switchDoc(doc) {
   hideTip();
   showDoc(VIEW_BY.get(doc));
   openDraftDoc();
-  checkDocUpdate(doc, {}); // changed since this device last saw it (updates.js)
+  checkDocUpdate(doc, {}); // changed since this device last saw it (updates.ts)
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
     try {
@@ -518,13 +531,15 @@ async function switchDoc(doc) {
 }
 // The switch waiting for its document's meta (switchDoc), or null.
 let SWITCH_TO = null as { k: string; seq: number; nav: number } | null;
-// Whether a switch to document k is on its way and still the one that will open: the newest switch, no history traversal since.
+// Whether a switch to `doc` is on its way and still the one that will open: the newest switch, no history traversal
+// since.
 function switchPending(doc: string) {
   const pending = SWITCH_TO;
   return !!pending && pending.k === doc && pending.seq === SWITCHSEQ && pending.nav === NAVGEN;
 }
-// Redraws the screen from the current META (tab switching), including open and done rows from this document before the background refresh.
-// The build chip, error panel, and auto-polling baseline are switched to that document's values too.
+// Redraws the screen from the current META (tab switching), including open and done rows from this document before the
+// background refresh. The build chip, error panel, and auto-polling baseline are switched to that document's values
+// too.
 function showDoc(view) {
   endJumpForScroll();
   drawMeta();
@@ -560,11 +575,11 @@ function cycleDoc(step) {
   const index = DOCS.findIndex((entry) => entry.key === DOC);
   switchDoc(DOCS[(index + step + DOCS.length) % DOCS.length].key);
 }
-// Each history traversal is a new navigation generation (NAVGEN), also one back to the document on screen - except the back
-// layer's own entry (gestures.js: a back that closes a sheet, or the entry it pops itself), which leaves the documents alone.
-// This listener runs before the layer's, so BACK and BACK_SKIP still say whose entry it was. A traversal then shows the
-// document its address names (followHash): between two entries of the same address no hashchange comes, and the switch it
-// just ended must not leave the address naming one document over another on screen.
+// Each history traversal is a new navigation generation (NAVGEN), also one back to the document on screen - except the
+// back layer's own entry (gestures.ts: a back that closes a sheet, or the entry it pops itself), which leaves the
+// documents alone. This listener runs before the layer's, so BACK and BACK_SKIP still say whose entry it was. A
+// traversal then shows the document its address names (followHash): between two entries of the same address no
+// hashchange comes, and the switch it just ended must not leave the address naming one document over another on screen.
 window.addEventListener('popstate', () => {
   if (BACK_SKIP || (BACK && BACK.kind === 'history')) return;
   setNavgen(NAVGEN + 1);
@@ -576,7 +591,8 @@ function followHash() {
   const doc = hashDoc();
   if (doc && doc !== DOC && docInfo(doc) && !switchPending(doc)) switchDoc(doc);
 }
-// A #number/[보기]/[수정] on another document's pin: switches to that document, then calls then again (used by jumpPin/openEdit at the very top). Returns true if it switched.
+// A #number/[보기]/[수정] on another document's pin: switches to that document, then calls `then` again (used by
+// jumpPin/openEdit at the very top). Returns true if it switched.
 function viaDoc(id, then) {
   const pin = OPEN_ALL.find((x) => x.id === id);
   if (!pin || pdoc(pin) === DOC || !docInfo(pdoc(pin))) return false;

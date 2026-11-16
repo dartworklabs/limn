@@ -1,7 +1,7 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
-// Lucide icons (vendor/lucide/README.md), drawn by ic() in markup.js.
+// Lucide icons (vendor/lucide/README.md), drawn by ic() in markup.ts.
 const ICONS = __LUCIDE_JSON__;
 const esc = (text) =>
   String(text == null ? '' : text).replace(
@@ -11,22 +11,27 @@ const esc = (text) =>
   );
 const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
 // Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
-// applies to the next slide or scroll. The panel's slides are skipped, but thresholds and previews stay (§패널 폭과 시트 높이).
+// applies to the next slide or scroll. The panel's slides are skipped, but thresholds and previews stay (§패널 폭과
+// 시트 높이).
 const MQ_REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
-// How a scripted scroll moves - a jump of the pages, a heading, a card, a change group: smoothly, or at once ('auto': nothing
-// sets a smooth scroll-behavior, and responsive.css holds it auto) while reduced motion is asked for. Asked at each scroll:
-// read once at load (a const), a setting turned on later left every jump gliding and one turned off left them instant (#418).
+// How a scripted scroll moves - a jump of the pages, a heading, a card, a change group: smoothly, or at once ('auto':
+// nothing sets a smooth scroll-behavior, and responsive.css holds it auto) while reduced motion is asked for. Asked at
+// each scroll, never read once at load: a setting turned on later must stop every jump gliding, and one turned off must
+// let them glide again.
 function scrollMotion(): ScrollBehavior {
   return MQ_REDUCED.matches ? 'auto' : 'smooth';
 }
 const MQ = matchMedia('(prefers-color-scheme: light)');
-// Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is a
-// member of one frozen table here, never a string literal at the comparison. The first group comes from the server and
-// must equal its strings exactly (tests/viewer/test_viewer_source.py compares each table with the server's Literal or producer);
-// the second is the viewer's own. Free text (messages, reasons, DOM and key names) is not tabled.
-const PIN_STATE = Object.freeze({ OPEN: 'open', REVIEW: 'review', DONE: 'done' }); // a pin's `state` (pins.model.StateName); read it with pinState()
-const BUILD_STATE = Object.freeze({ IDLE: 'idle', RUNNING: 'running', OK: 'ok', OK_ERRORS: 'ok_errors', FAIL: 'fail' }); // GET /api/build `state`, meta `last_state`
-const PULL_STATE = Object.freeze({ OK: 'ok', UP_TO_DATE: 'up_to_date', SKIPPED: 'skipped', ERROR: 'error' }); // a build's `pull.state` (pull.pull_record)
+// Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is
+// a member of one frozen table here, never a string literal at the comparison. The first group comes from the server
+// and must equal its strings exactly (src/limn/viewer/tests/test_viewer_source.py compares each table with the server's
+// Literal or producer); the second is the viewer's own. Free text (messages, reasons, DOM and key names) is not tabled.
+// a pin's `state` (pins.model.StateName); read it with pinState()
+const PIN_STATE = Object.freeze({ OPEN: 'open', REVIEW: 'review', DONE: 'done' });
+// GET /api/build `state`, meta `last_state`
+const BUILD_STATE = Object.freeze({ IDLE: 'idle', RUNNING: 'running', OK: 'ok', OK_ERRORS: 'ok_errors', FAIL: 'fail' });
+// a build's `pull.state` (pull.pull_record)
+const PULL_STATE = Object.freeze({ OK: 'ok', UP_TO_DATE: 'up_to_date', SKIPPED: 'skipped', ERROR: 'error' });
 const SYNC_STATE = Object.freeze({
   DISABLED: 'disabled',
   CHECKING: 'checking',
@@ -37,13 +42,19 @@ const SYNC_STATE = Object.freeze({
   BLOCKED: 'blocked',
   ERROR: 'error',
 }); // meta `sync.state`
-const REVISION_STATE = Object.freeze({ IDLE: 'idle', RUNNING: 'running', READY: 'ready', ERROR: 'error' }); // a comparison PDF's status `state`
-const SCOPE_MODE = Object.freeze({ PIN: 'pin', COMMIT: 'commit' }); // a pin's change scope `mode` / a comparison's `scope` (scope.ScopeMode)
-const SCOPE_SOURCE = Object.freeze({ CHANGES: 'changes', INFERRED: 'inferred', NONE: 'none' }); // where a pin's change scope came from (scope.ScopeSource)
-const THREAD_EV = Object.freeze({ CLOSE: 'close', REOPEN: 'reopen', CONFIRM: 'confirm', ASSIGN: 'assign' }); // a thread record's `ev` (pins.model.ThreadEv)
-const RANGE_REL = Object.freeze({ EQUAL: 'equal', INSIDE: 'inside', CONTAINS: 'contains', PARTIAL: 'partial' }); // how two line ranges overlap (pins.position.selection_rel)
+// a comparison PDF's status `state`
+const REVISION_STATE = Object.freeze({ IDLE: 'idle', RUNNING: 'running', READY: 'ready', ERROR: 'error' });
+// a pin's change scope `mode` / a comparison's `scope` (scope.ScopeMode)
+const SCOPE_MODE = Object.freeze({ PIN: 'pin', COMMIT: 'commit' });
+// where a pin's change scope came from (scope.ScopeSource)
+const SCOPE_SOURCE = Object.freeze({ CHANGES: 'changes', INFERRED: 'inferred', NONE: 'none' });
+// a thread record's `ev` (pins.model.ThreadEv)
+const THREAD_EV = Object.freeze({ CLOSE: 'close', REOPEN: 'reopen', CONFIRM: 'confirm', ASSIGN: 'assign' });
+// how two line ranges overlap (pins.position.selection_rel)
+const RANGE_REL = Object.freeze({ EQUAL: 'equal', INSIDE: 'inside', CONTAINS: 'contains', PARTIAL: 'partial' });
 const KIND_REQ = Object.freeze({ FIX: 'fix', QUESTION: 'question' }); // a pin's `kind_req` (pins.model.KindReq)
-const ROLE = Object.freeze({ OWNER: 'owner', EDITOR: 'editor', VIEWER: 'viewer', AGENT: 'agent' }); // a person's `role` (access.ROLES)
+// a person's `role` (access.ROLES)
+const ROLE = Object.freeze({ OWNER: 'owner', EDITOR: 'editor', VIEWER: 'viewer', AGENT: 'agent' });
 const EVENT_TYPE = Object.freeze({
   MENTION: 'mention',
   REVIEW_REQUESTED: 'review_requested',
@@ -52,14 +63,22 @@ const EVENT_TYPE = Object.freeze({
   ASSIGNED: 'assigned',
   DROPPED: 'dropped',
 }); // an event's `type` (events.EventType)
-const VIA = Object.freeze({ SYNCTEX: 'synctex', TEXT: 'text', MAP: 'map' }); // how a pick traced its range: a pick's and a pin's `via` (limn.pins.location.mapping.Via)
-const DOC_KIND = Object.freeze({ TEX: 'tex', PDF: 'pdf', FIGURE: 'figure', MARKDOWN: 'markdown', TEXT: 'text' }); // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
-const EL_SYNC = Object.freeze({ OK: 'ok', MOVED: 'moved', LOST: 'lost' }); // where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
-const SUGGEST_STATE = Object.freeze({ READY: 'ready', CHANGED: 'changed', UNKNOWN: 'unknown' }); // whether a pin's suggested edit still fits its lines: a pin's `suggest_state` (limn.pins.suggestion.SuggestState)
-const SAVE_MODE = Object.freeze({ NEW: 'new', APPEND: 'append' }); // what a save of the composer's note does: a new pin, or the note joins the open pin the selection overlaps (assignOutcome)
+// how a pick traced its range: a pick's and a pin's `via` (limn.pins.location.mapping.Via)
+const VIA = Object.freeze({ SYNCTEX: 'synctex', TEXT: 'text', MAP: 'map' });
+// a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
+const DOC_KIND = Object.freeze({ TEX: 'tex', PDF: 'pdf', FIGURE: 'figure', MARKDOWN: 'markdown', TEXT: 'text' });
+// where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
+const EL_SYNC = Object.freeze({ OK: 'ok', MOVED: 'moved', LOST: 'lost' });
+// whether a pin's suggested edit still fits its lines: a pin's `suggest_state` (limn.pins.suggestion.SuggestState)
+const SUGGEST_STATE = Object.freeze({ READY: 'ready', CHANGED: 'changed', UNKNOWN: 'unknown' });
+// what a save of the composer's note does: a new pin, or the note joins the open pin the selection overlaps
+// (assignOutcome)
+const SAVE_MODE = Object.freeze({ NEW: 'new', APPEND: 'append' });
 const LOCAL_LOGIN = 'local',
-  ASSIGNEE_AGENT = 'agent'; // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
-const LAYOUT_MODE = Object.freeze({ WIDE: 'wide', MID: 'mid', NARROW: 'narrow' }); // LAYOUT, the band's mode (BAND_MODE)
+  // the identity-less local login (access.LOCAL_LOGIN); the assignee meaning "the agent" (pins.edit.ASSIGNEE_AGENT)
+  ASSIGNEE_AGENT = 'agent';
+// LAYOUT, the band's mode (BAND_MODE)
+const LAYOUT_MODE = Object.freeze({ WIDE: 'wide', MID: 'mid', NARROW: 'narrow' });
 const LAYOUT_BAND = Object.freeze({
   PHONE: 'phone',
   TABLET_SHEET: 'tablet-sheet',
@@ -68,12 +87,18 @@ const LAYOUT_BAND = Object.freeze({
   MID_SIDE: 'mid-side',
   WIDE: 'wide',
 }); // BAND, by window width, height and primary pointer (layoutFor)
-const BAND_STEP = Object.freeze({ KEEP: 'keep', WAIT: 'wait', SETTLE: 'settle' }); // what a new window observation does to the band (settleBand)
-const CARD_DOT = Object.freeze({ OPEN: 'open', CLAIMED: 'claimed', REVIEW: 'review', LOST: 'lost' }); // a card's status dot (stDot); also its CSS class
-const SUGGEST_OFF = Object.freeze({ PDF: 'pdf', FIGURE: 'figure', REGION: 'region', LONG: 'long' }); // why a selection or an edit card's range can carry no suggested edit (suggestOff)
-const DIFF_FORMAT = Object.freeze({ PDF: 'pdf', SOURCE: 'source', OVERLAY: 'overlay', RENDERED: 'rendered' }); // the changes view's tab (REVISION_FORMAT); index.html data-format
-const OVERLAY_SIDE = Object.freeze({ PREV: 'prev', CUR: 'cur' }); // which build a figure's overlay shows: the previous or the current one; index.html data-side
-const RANGE_MODE = Object.freeze({ LAST: 'last', FROM: 'from', ONE: 'one' }); // the changes view's quick range (#188): since last seen, from this commit, this commit only; index.html data-range
+// what a new window observation does to the band (settleBand)
+const BAND_STEP = Object.freeze({ KEEP: 'keep', WAIT: 'wait', SETTLE: 'settle' });
+// a card's status dot (stDot); also its CSS class
+const CARD_DOT = Object.freeze({ OPEN: 'open', CLAIMED: 'claimed', REVIEW: 'review', LOST: 'lost' });
+// why a selection or an edit card's range can carry no suggested edit (suggestOff)
+const SUGGEST_OFF = Object.freeze({ PDF: 'pdf', FIGURE: 'figure', REGION: 'region', LONG: 'long' });
+// the changes view's tab (REVISION_FORMAT); index.html data-format
+const DIFF_FORMAT = Object.freeze({ PDF: 'pdf', SOURCE: 'source', OVERLAY: 'overlay', RENDERED: 'rendered' });
+// which build a figure's overlay shows: the previous or the current one; index.html data-side
+const OVERLAY_SIDE = Object.freeze({ PREV: 'prev', CUR: 'cur' });
+// the changes view's quick range: since last seen, from this commit, this commit only; index.html data-range
+const RANGE_MODE = Object.freeze({ LAST: 'last', FROM: 'from', ONE: 'one' });
 const SEEN_STATE = Object.freeze({
   NONE: 'none',
   PENDING: 'pending',
@@ -81,8 +106,11 @@ const SEEN_STATE = Object.freeze({
   GONE: 'gone',
   OLD: 'old',
   ERROR: 'error',
-}); // what the server said of this browser's last-seen commit (#188): no record, asking, counted, not in the history, older than the window, could not answer
-const VIEW_MODE = Object.freeze({ MANUSCRIPT: 'manuscript', REVISIONS: 'revisions' }); // the manuscript or the changes view; index.html data-mode
+  // what the server said of this browser's last-seen commit: no record, asking, counted, not in the history, older than
+  // the window, could not answer
+});
+// the manuscript or the changes view; index.html data-mode
+const VIEW_MODE = Object.freeze({ MANUSCRIPT: 'manuscript', REVISIONS: 'revisions' });
 const UI_LANG = Object.freeze({ KO: 'ko', EN: 'en' }); // LANG
 const NOTIFY_STATE = Object.freeze({
   ON: 'on',
@@ -106,7 +134,8 @@ const STATUS_KIND = Object.freeze({
   SYNC: 'sync',
   PNG: 'png',
 }); // an item of the status line (statusList)
-const NOTICE_KIND = Object.freeze({ OK: 'ok', WARN: 'warn', ERR: 'err', INFO: 'info' }); // what a message reports (notices.js): its icon, colour and how it is read out
+// what a message reports (notices.ts): its icon, colour and how it is read out
+const NOTICE_KIND = Object.freeze({ OK: 'ok', WARN: 'warn', ERR: 'err', INFO: 'info' });
 const NOTICE_PLACE = Object.freeze({
   LINE: 'line',
   BANNER: 'banner',
@@ -114,7 +143,7 @@ const NOTICE_PLACE = Object.freeze({
   ROW: 'row',
   CARD: 'card',
   TRASH: 'trash',
-}); // where a message is drawn (notices.js)
+}); // where a message is drawn (notices.ts)
 const NOTICE_HOST = Object.freeze({
   COMPOSER: 'composer',
   LIST: 'list',
@@ -122,12 +151,18 @@ const NOTICE_HOST = Object.freeze({
   TRASH: 'trash',
   LINE: 'line',
 }); // a banner's panel or section; LINE puts an api() error on the status line
-const NOTICE_LIFE = Object.freeze({ STICKY: 'sticky', CLICK: 'click', TIMER: 'timer' }); // how long a message stays (armNotice)
-const NOTICE_DOT = Object.freeze({ SIDE: 'side', RV: 'rv' }); // the chip a background message marks, [핀 N] or [검토 M]; also the body class dot-<value>
-const NOTICE_TOPIC = Object.freeze({ PICK: 'pick', SIDE: 'side', OFFLINE: 'offline' }); // what a first-visit hint asks for (endTopic): a selection, the panel opened, a pin kept while cut off
-const VD_WHERE = Object.freeze({ COMPOSER: 'composer', PAGE: 'page' }); // where a verdict button is (verdict.js): the composer's verdict row or a page verdict line
-const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' }); // the pin list's order (orderPins); index.html data-order
-const STAMP_FORM = Object.freeze({ BOTH: 'both', SHORT: 'short', EDITED: 'edited' }); // what a comment's time says (stampText); a .rt's data-form
+// how long a message stays (armNotice)
+const NOTICE_LIFE = Object.freeze({ STICKY: 'sticky', CLICK: 'click', TIMER: 'timer' });
+// the chip a background message marks, [핀 N] or [검토 M]; also the body class dot-<value>
+const NOTICE_DOT = Object.freeze({ SIDE: 'side', RV: 'rv' });
+// what a first-visit hint asks for (endTopic): a selection, the panel opened, a pin kept while cut off
+const NOTICE_TOPIC = Object.freeze({ PICK: 'pick', SIDE: 'side', OFFLINE: 'offline' });
+// where a verdict button is (verdict.ts): the composer's verdict row or a page verdict line
+const VD_WHERE = Object.freeze({ COMPOSER: 'composer', PAGE: 'page' });
+// the pin list's order (orderPins); index.html data-order
+const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' });
+// what a comment's time says (stampText); a .rt's data-form
+const STAMP_FORM = Object.freeze({ BOTH: 'both', SHORT: 'short', EDITED: 'edited' });
 const MD_LIMIT = Object.freeze({
   BYTES: 'bytes',
   LINES: 'lines',
@@ -139,9 +174,10 @@ const MD_LIMIT = Object.freeze({
   LOAD: 'load',
   ERROR: 'error',
   NUL: 'nul',
-}); // the limit a Markdown document's drawing hit (md-surface.js, MD_LIMITS): #md's data-limit
-// Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar and the
-// action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that differs per band reads BAND.
+}); // the limit a Markdown document's drawing hit (md-surface.ts, MD_LIMITS): #md's data-limit
+// Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar
+// and the action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that
+// differs per band reads BAND.
 const BAND_MODE = Object.freeze({
   [LAYOUT_BAND.PHONE]: LAYOUT_MODE.NARROW,
   [LAYOUT_BAND.TABLET_SHEET]: LAYOUT_MODE.NARROW,
@@ -150,23 +186,24 @@ const BAND_MODE = Object.freeze({
   [LAYOUT_BAND.MID_SIDE]: LAYOUT_MODE.MID,
   [LAYOUT_BAND.WIDE]: LAYOUT_MODE.WIDE,
 });
-// Whether a document `kind` is a figure document (a figure set drawn by code, with its element map): the one place this is asked.
+// Whether a document `kind` is a figure document (a figure set drawn by code, with its element map): the one place this
+// is asked.
 function isFigureKind(kind) {
   return kind === DOC_KIND.FIGURE;
 }
-// Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw when their
-// files change, so they have no rebuild and word a finished build as a redraw.
+// Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw
+// when their files change, so they have no rebuild and word a finished build as a redraw.
 function buildsFromSource(kind) {
   return kind === DOC_KIND.TEX;
 }
 // Whether a document of this `kind` is drawn by the browser from its source (the server's renders_in_browser,
-// limn.runtime.documents.Doc.renders_in_browser): a Markdown one and a text one (ADR-0029). It has no pages - #doc holds its
-// column (md-surface.js) - and its line pins carry no page.
+// limn.runtime.documents.Doc.renders_in_browser): a Markdown one and a text one (ADR-0029). It has no pages - #doc
+// holds its column (md-surface.ts) - and its line pins carry no page.
 function rendersInBrowser(kind: string | undefined) {
   return kind === DOC_KIND.MARKDOWN || kind === DOC_KIND.TEXT;
 }
-// Whether a document drawn in the browser is shown line for line, as its source is, rather than parsed and drawn as Markdown: a
-// text document (plain text or source code, ADR-0029). The one place this is asked.
+// Whether a document drawn in the browser is shown line for line, as its source is, rather than parsed and drawn as
+// Markdown: a text document (plain text or source code, ADR-0029). The one place this is asked.
 function showsSourceLines(kind: string | undefined) {
   return kind === DOC_KIND.TEXT;
 }
@@ -175,76 +212,98 @@ function showsSourceLines(kind: string | undefined) {
 function isViewOnlyKind(kind: string | undefined) {
   return kind === DOC_KIND.PDF;
 }
-// The key that ends an input method's composition is the method's (docs/handbook/viewer.md §조합을 끝내는 키): it only ends the
-// composition, also held down. While a syllable composes the browser marks its keys (isComposing, keyCode 229). But
-// ibus-hangul on Linux ends the composition first and then hands the very Enter or Esc on as a plain keydown: keydown Process
-// (marked composing), compositionend, the committed text, keydown Enter (isComposing false), keyup Enter - one press, so both
-// keydowns carry its time. So when a key the input method took in that composition (marked composing, in its field) is down
-// - not up since - as the composition ends, the first keydown after that compositionend, in the field it ended in, no later
-// than IME_TAIL_MS after it, is that key; held, its repeats are that key too, until it comes up (imeTail). A composition that
-// no key ended (a click, the focus leaving, text put in at once - Playwright's Firefox types Hangul so) has none. Event times
-// are when the OS made the event, so a busy main thread does not stretch them: the handed-on keydown is a few ms before the
-// compositionend (Chromium stamps that one when it dispatches it) - 2-4 ms with ibus-hangul. The window leaves room for a
-// browser that stamps the two the other way round and for a coarse clock (a privacy setting rounds event times to as much
-// as 100 ms), and stays far under the time a person takes to press a key on purpose. A key is known by its physical key
-// (code) from its keydown to its keyup. Where the browser names none - no code, or 'Unidentified' (Android's on-screen
-// keyboards give key 'Unidentified' or 'Process', keyCode 229 and no code), which every such key shares - any keyup ends
-// it, and a repeat is known by its name (Enter, Escape). The input method hands its key on at once, and a key that comes up
-// while the page has no focus never reaches the page: so the field or the window losing the focus, the page hidden or left,
-// and a new composition forget all of it. A field taken out of the document under the focus (drawn anew in its place) is
-// not left: Chromium blurs it as it goes, Firefox does not, and the key goes on down where the focus now is (imeTail).
-// While that key is down its field stays (imeHeldIn): what waits for a composition to end - the pages built again, the
-// page lines moving - waits for it too and looks again when it is let go (IME_ON_FREE), so the key handed on and its
-// repeats land in the field that composed, not in one drawn anew as the viewer's. A release the page never gets with the
-// focus kept would hold it for good, so the hold is bounded: it lasts IME_HOLD_MS past that key's last keydown (handed on
-// or a repeat), and it ends - the key with it - at a keydown the input method does not take that is neither that key
-// handed on nor its repeat (another key: a held key repeats no more once another goes down; that key pressed anew: it was
-// up). Text put in ends neither: no text tells the input method's commit from other text. ibus-hangul ends the
-// composition with nothing in it and then puts the syllable in as text of its own, which Chromium stamps when it
-// dispatches it - after the page's handlers of the end, however long they take -, and a method may commit other text than
-// it showed, or in parts, or before the end. A key that brings more text ends it as above when the input method does not
-// take it, a new composition forgets it, and text with no such key (a paste from a menu, a letter the method puts in at
-// once) leaves the field to the bound. Past the bound the key is still the composition's: a keydown marked as its repeat
-// that comes later is not the viewer's and holds the field again. Read with imeKey. Registered here, in the first part, so
-// it sees every keydown before any handler does.
-// IME_HOLD_MS is longer than the delay before a held key's first repeat that the usual settings give - X's default
-// 660 ms, GNOME's 500 ms (its slider goes to 2 s), Windows' at most 1 s - so a held key keeps the field through it, and
-// longer than the 2 s within which Chromium marks a key's next keydown as a repeat at all: on Linux it gives a first
-// repeat later than that as a new press of the key (repeat false), which nothing tells from one, so that press and its
-// repeats are the viewer's, as a key held without an input method. A release that never came costs what waits at most
-// this long.
+// The key that ends an input method's composition is the method's (docs/handbook/viewer.md §조합을 끝내는 키): it only
+// ends the composition, also held down. While a syllable composes the browser marks its keys (isComposing, keyCode
+// 229). But ibus-hangul on Linux ends the composition first and then hands the very Enter or Esc on as a plain keydown:
+// keydown Process (marked composing), compositionend, the committed text, keydown Enter (isComposing false), keyup
+// Enter - one press, so both keydowns carry its time. So when a key the input method took in that composition (marked
+// composing, in its field) is down
+// - not up since - as the composition ends, the first keydown after that compositionend, in the field it ended in, no
+//   later
+// than IME_TAIL_MS after it, is that key; held, its repeats are that key too, until it comes up (imeTail). A
+// composition that no key ended (a click, the focus leaving, text put in at once - Playwright's Firefox types Hangul
+// so) has none. Event times are when the OS made the event, so a busy main thread does not stretch them: the handed-on
+// keydown is a few ms before the compositionend (Chromium stamps that one when it dispatches it) - 2-4 ms with
+// ibus-hangul. The window leaves room for a browser that stamps the two the other way round and for a coarse clock (a
+// privacy setting rounds event times to as much as 100 ms), and stays far under the time a person takes to press a key
+// on purpose. A key is known by its physical key (code) from its keydown to its keyup. Where the browser names none -
+// no code, or 'Unidentified' (Android's on-screen keyboards give key 'Unidentified' or 'Process', keyCode 229 and no
+// code), which every such key shares - any keyup ends it, and a repeat is known by its name (Enter, Escape). The input
+// method hands its key on at once, and a key that comes up while the page has no focus never reaches the page: so the
+// field or the window losing the focus, the page hidden or left, and a new composition forget all of it. A field taken
+// out of the document under the focus (drawn anew in its place) is not left: Chromium blurs it as it goes, Firefox does
+// not, and the key goes on down where the focus now is (imeTail). While that key is down its field stays (imeHeldIn):
+// what waits for a composition to end - the pages built again, the page lines moving - waits for it too and looks again
+// when it is let go (IME_ON_FREE), so the key handed on and its repeats land in the field that composed, not in one
+// drawn anew as the viewer's. A release the page never gets with the focus kept would hold it for good, so the hold is
+// bounded: it lasts IME_HOLD_MS past that key's last keydown (handed on or a repeat), and it ends - the key with it -
+// at a keydown the input method does not take that is neither that key handed on nor its repeat (another key: a held
+// key repeats no more once another goes down; that key pressed anew: it was up). Text put in ends neither: no text
+// tells the input method's commit from other text. ibus-hangul ends the composition with nothing in it and then puts
+// the syllable in as text of its own, which Chromium stamps when it dispatches it - after the page's handlers of the
+// end, however long they take -, and a method may commit other text than it showed, or in parts, or before the end. A
+// key that brings more text ends it as above when the input method does not take it, a new composition forgets it, and
+// text with no such key (a paste from a menu, a letter the method puts in at once) leaves the field to the bound. Past
+// the bound the key is still the composition's: a keydown marked as its repeat that comes later is not the viewer's and
+// holds the field again. Read with imeKey. Registered here, in the first part, so it sees every keydown before any
+// handler does. IME_HOLD_MS is longer than the delay before a held key's first repeat that the usual settings give -
+// X's default 660 ms, GNOME's 500 ms (its slider goes to 2 s), Windows' at most 1 s - so a held key keeps the field
+// through it, and longer than the 2 s within which Chromium marks a key's next keydown as a repeat at all: on Linux it
+// gives a first repeat later than that as a new press of the key (repeat false), which nothing tells from one, so that
+// press and its repeats are the viewer's, as a key held without an input method. A release that never came costs what
+// waits at most this long.
 const IME_TAIL_MS = 100,
   IME_HOLD_MS = 2500;
-/** The last key the input method took in the open composition (marked composing), not up since: its field, its physical key (imeCode) and its name (imeName); null when there is none. */
+/**
+ * The last key the input method took in the open composition (marked composing), not up since: its field, its physical
+ * key (imeCode) and its name (imeName); null when there is none.
+ */
 let IME_PRESSED: { el: EventTarget | null; code: string; name: string } | null = null;
-/** The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it (null until one comes). Ends with that key's keyup, another key, or what forgets it. */
+/**
+ * The last composition a key ended: its field, its time, that key - its physical key and its name, from the key the
+ * input method took and the keydown it handed on ('' where the browser named none) - and the first keydown after it
+ * (null until one comes). Ends with that key's keyup, another key, or what forgets it.
+ */
 let IME_END: { el: EventTarget | null; at: number; code: string; name: string; key: KeyboardEvent | null } | null =
   null;
-/** While this timer runs (not 0), IME_END's key holds its field (imeHeldIn): IME_HOLD_MS from that key's last keydown. */
+/**
+ * While this timer runs (not 0), IME_END's key holds its field (imeHeldIn): IME_HOLD_MS from that key's last keydown.
+ */
 let IME_HOLD_TIMER = 0;
-/** What looks again once that key lets its field go (imeFree): run after the event, so it reads the state the event left. */
+/**
+ * What looks again once that key lets its field go (imeFree): run after the event, so it reads the state the event
+ * left.
+ */
 const IME_ON_FREE: (() => void)[] = [];
-/** Key event e's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. */
+/** A key event's physical key (code); '' when the browser does not name it: no code, or 'Unidentified'. */
 function imeCode(event: KeyboardEvent) {
   const code = event.code;
   return code && code !== 'Unidentified' ? code : '';
 }
-/** Key event e's name (key); '' for a key the input method took ('Process') or one the browser does not name ('Unidentified'). */
+/**
+ * A key event's name (key); '' for a key the input method took ('Process') or one the browser does not name
+ * ('Unidentified').
+ */
 function imeName(event: KeyboardEvent) {
   const name = event.key;
   return name && name !== 'Process' && name !== 'Unidentified' ? name : '';
 }
-/** Whether keyup e may be key k's (IME_PRESSED, IME_END): the same physical key, or any where either has none. */
+/**
+ * Whether a keyup may be the pressed key's (IME_PRESSED, IME_END): the same physical key, or any where either has none.
+ */
 function imeUp(event: KeyboardEvent, pressed: { code: string }) {
   const code = imeCode(event);
   return !pressed.code || !code || code === pressed.code;
 }
-/** Whether keydown e repeats key k (IME_END) held down: the same physical key, or, where either has none, the same name. */
+/**
+ * Whether a keydown repeats the pressed key (IME_END) held down: the same physical key, or, where either has none, the
+ * same name.
+ */
 function imeRepeat(event: KeyboardEvent, pressed: { code: string; name: string }) {
   const code = imeCode(event);
   return event.repeat && (pressed.code && code ? code === pressed.code : !!pressed.name && event.key === pressed.name);
 }
-/** Whether el is a node taken out of the document. */
+/** Whether the target is a node taken out of the document. */
 function imeGone(target: EventTarget | null) {
   return target instanceof Node && !target.isConnected;
 }
@@ -294,8 +353,8 @@ addEventListener(
   },
   true,
 );
-// The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once the
-// task that blurred it is done, when a field drawn anew has taken its place.
+// The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once
+// the task that blurred it is done, when a field drawn anew has taken its place.
 addEventListener(
   'blur',
   (event) => {
@@ -313,9 +372,9 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) imeForget();
 });
 // The tail Esc's browser defaults are not the composition's either: it would empty a search field and close a sheet (a
-// modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in a
-// note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a text
-// box (the reason field, the @-list) its handler takes the newline away too (imeTail).
+// modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in
+// a note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a
+// text box (the reason field, the @-list) its handler takes the newline away too (imeTail).
 addEventListener(
   'keydown',
   (event) => {
@@ -338,20 +397,20 @@ addEventListener(
   },
   true,
 );
-/** Whether keydown e is the Enter or Esc that ended a composition (above): the first keydown after it, in its window, or a
- * repeat of that key while it is held - in the field the composition ended in, or wherever the focus went once that field
- * was taken out of the document. */
+/** Whether a keydown is the Enter or Esc that ended a composition (above): the first keydown after it, in its window,
+ * or a repeat of that key while it is held - in the field the composition ended in, or wherever the focus went once
+ * that field was taken out of the document. */
 function imeTail(event: KeyboardEvent) {
   const ended = IME_END;
   if (!ended || (event.key !== 'Enter' && event.key !== 'Escape') || (ended.el !== event.target && !imeGone(ended.el)))
     return false;
   return (ended.key === event && event.timeStamp - ended.at <= IME_TAIL_MS) || imeRepeat(event, ended);
 }
-/** The field a key ended a composition in while that key holds it (IME_END, IME_HOLD_T, above), else null. */
+/** The field a key ended a composition in while that key holds it (IME_END, IME_HOLD_TIMER, above), else null. */
 function imeHeldIn(): EventTarget | null {
   return IME_END && IME_HOLD_TIMER ? IME_END.el : null;
 }
-/** Whether keydown e is the input method's, not the viewer's: a key while it composes, or the key that ended its
+/** Whether a keydown is the input method's, not the viewer's: a key while it composes, or the key that ended its
  * composition (imeTail). Every key handler that acts on Enter or Esc in or near a text field asks this first. */
 function imeKey(event: KeyboardEvent) {
   return event.isComposing || event.keyCode === 229 || imeTail(event);
@@ -363,13 +422,17 @@ let META = null as unknown as Meta,
   DROPPED = [] as Pin[],
   REPICK = null as Repick | null,
   PICKSEQ = 0;
-// K: the scale of the document on screen, CSS px per PDF point (pages.js §page sizes); 0 until its first pages are built.
+// K: the scale of the document on screen, CSS px per PDF point (pages.ts §page sizes); 0 until its first pages are
+// built.
 let SNIP_OPEN = false,
   K = 0;
-// Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch selection mode,
-// ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to the screen width).
+// Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its
+// LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch
+// selection mode, ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to
+// the screen width).
 const MQ_COARSE = matchMedia('(pointer:coarse)');
-// A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sent a simulated mouseover and left the description stuck over the list (phone QA). Only long-press is used.
+// A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
+// mouseover, which would leave the description stuck over the list. Only long-press is used.
 const MQ_NOHOVER = matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN = false,
   MID_OVERLAY = false;
@@ -382,13 +445,15 @@ let LAYOUT = null as string | null,
   LAST_PTR = 'mouse',
   LAST_TOUCH_T = 0;
 const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
-// Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY = the open reply/reopen
-// input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in place when the list redraws), THREAD_OPEN = cards with the thread fully expanded,
-// REPLY_DRAFT = a closed input field's text and selected recipient hints ('reply:12').
+// Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
+// = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
+// place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
+// field's text and selected recipient hints ('reply:12').
 let KIND_NEW = KIND_REQ.FIX as string,
   REPLY = null as ReplyBox | null;
-// @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members + pin authors/actors), PEOPLE_KNOWN = that list
-// has arrived (until then no tag resolves, which says nothing about the note), MENTION_ONLY = viewing only "pins that called me".
+// @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members +
+// pin authors/actors), PEOPLE_KNOWN = that list has arrived (until then no tag resolves, which says nothing about the
+// note), MENTION_ONLY = viewing only "pins that called me".
 let PEOPLE = [] as PersonSeen[],
   PEOPLE_KNOWN = false,
   MENTION_ONLY = false;
@@ -397,10 +462,12 @@ const THREAD_OPEN = new Set();
 const REPLY_DRAFT: Map<string, ReplyDraft> = new Map();
 /** Latest reply visit for each pin, including visits closed empty or already sent. */
 const REPLY_VISITS: Map<number, number> = new Map();
-// Multiple documents (§Multiple documents, docs/handbook/domain.md §여러 문서): DOCS = the /api/docs list, DOC = the current document key, DEFAULT_DOC = the first
-// document that a legacy pin with no doc field belongs to. OPEN_ALL = open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at PINS).
-// META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom, BUILD_ERR_BY = per-document last build error,
-// DOC_SEQ = another document's finished-build count (used to notice a build that finished in the background).
+// Multiple documents (§Multiple documents, docs/handbook/domain.md §여러 문서): DOCS = the /api/docs list, DOC = the
+// current document key, DEFAULT_DOC = the first document that a legacy pin with no doc field belongs to. OPEN_ALL =
+// open pins across all documents (PINS is the subset for the current document - marks/overlap/editing only look at
+// PINS). META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom,
+// BUILD_ERR_BY = per-document last build error, DOC_SEQ = another document's finished-build count (it tells a build
+// that finished in the background).
 let DOCS = [] as DocEntry[],
   DOC = null as string | null,
   DEFAULT_DOC = 'main',
@@ -408,8 +475,8 @@ let DOCS = [] as DocEntry[],
   DONE_ALL = [] as Pin[],
   SHOW_ALL = false,
   SWITCHSEQ = 0;
-// NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document switch
-// still waiting when one happens opens nothing (switchDoc, doc-switch.js).
+// NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document
+// switch still waiting when one happens opens nothing (switchDoc, doc-switch.ts).
 let NAVGEN = 0;
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit() {
@@ -419,7 +486,8 @@ function captureVisit() {
 function currentVisit(visit) {
   return DOC === visit.doc && SWITCHSEQ === visit.seq;
 }
-// Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put into DONE_ALL - drawn separately from the done archive.
+// Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put
+// into DONE_ALL - drawn separately from the done archive.
 let REVIEW_ALL = [] as Pin[];
 const META_BY = new Map(),
   VIEW_BY = new Map(),
@@ -573,7 +641,8 @@ function setOpenAll<Value extends typeof OPEN_ALL>(value: Value): Value {
   OPEN_ALL = value;
   return value;
 }
-// Sets OUTLINE_MID_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+// Sets OUTLINE_MID_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
 function setOutlineMidOpen<Value extends typeof OUTLINE_MID_OPEN>(value: Value): Value {
   OUTLINE_MID_OPEN = value;
   return value;

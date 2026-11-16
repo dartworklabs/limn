@@ -1,11 +1,12 @@
-// ------------------------------------------------ The status line (docs/handbook/viewer.md §모바일 레이아웃, 상태는 한 줄이다)
-// One element, #status, shows one state at a time on every band, in the band's place (placeStatus): a 24px line on the phone
-// and tablet sheet's top edge (#status-dock, outside the sheet so its action can reach 44px up over the PDF), a short text in
-// the short band's top row and the middle of the mid action row (#status-slot), and on the desktop (wide) a line under the
-// status chips (#status-wide). The line is the compact face of those chips: whenever one of them changes (a MutationObserver
-// on #bar2) it is drawn again from the state they come from. It also carries the messages of notices.js (LINE): background
-// events, first-visit hints and an undo whose place has left the screen - the only items the desktop's line shows besides
-// a rebuild's 'no changes', a new Limn and the pins kept while cut off, since its chips say the rest (statusShown).
+// ---------------------------------------- The status line (docs/handbook/viewer.md §모바일 레이아웃, 상태는 한 줄이다)
+// One element, #status, shows one state at a time on every band, in the band's place (placeStatus): a 24px line on the
+// phone and tablet sheet's top edge (#status-dock, outside the sheet so its action can reach 44px up over the PDF), a
+// short text in the short band's top row and the middle of the mid action row (#status-slot), and on the desktop (wide)
+// a line under the status chips (#status-wide). The line is the compact face of those chips: whenever one of them
+// changes (a MutationObserver on #bar2) it is drawn again from the state they come from. It also carries the messages
+// of notices.ts (LINE): background events, first-visit hints and an undo whose place has left the screen - the only
+// items the desktop's line shows besides a rebuild's 'no changes', a new Limn and the pins kept while cut off, since
+// its chips say the rest (statusShown).
 import {
   $,
   BAND,
@@ -31,12 +32,14 @@ import { versionOutdated } from './updates.ts';
 import { OFF } from './offline.ts';
 let STATUS_SYNC = null as SyncStatus | null,
   STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
-let STATUS_TOP = 0; // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
-const STATUS_TRANSIENT_MS = 6000; // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
+// the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
+let STATUS_TOP = 0;
+// a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
+const STATUS_TRANSIENT_MS = 6000;
 
-// A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the field were
-// missing (GET /api/build `progress`: the pages drawn of the PDF's while a render runs, null otherwise, absent from an older
-// server; without it the bar does not know its end, docs/handbook/build-sync.md §진행 폴링). Pure.
+// A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the
+// field were missing (GET /api/build `progress`: the pages drawn of the PDF's while a render runs, null otherwise,
+// absent from an older server; without it the bar does not know its end, docs/handbook/build-sync.md §진행 폴링). Pure.
 function statusProgress(progress) {
   if (!progress || typeof progress !== 'object') return null;
   const { done, total } = progress;
@@ -45,18 +48,18 @@ function statusProgress(progress) {
     : null;
 }
 
-// The items the status line shows for s = {notices, build, buildErr, offline, sync, stale, png, canRebuild, unchanged}
-// (statusInput), highest priority first - errors before information (docs/handbook/viewer.md §알림 자리, rule 1): the line's
-// error messages (alert, or kind ERR), newest first (notices, notices.js LINE; act 'notice'); the last build failed or had
-// LaTeX errors; the connection is lost; the server runs another Limn than this page (outdated: its version, [새로 고침],
-// updates.js); the line's other messages, newest first; a build runs (rendering in the
-// page render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for STATUS_TRANSIENT_MS);
-// the PDF is older than its source - not while a build runs, which clears it, nor while the unchanged answer says the
-// rebuild found nothing new (the line would contradict itself); main sync is under way; the PDF shows as PNG. Each item is {kind, act} plus what
-// its text needs; act is the data-act of its one action, or null - [재빌드] and [그래도 빌드] (rebuild-force, a cold build)
-// only where canRebuild (a LaTeX document and a person who may build). The phase whose work can
-// be counted - the page render, whose progress field gives pages done of total - is looked up, not compared. Pure.
-// One item of the status line (statusList), by its kind.
+// The items the status line shows for an input {notices, build, buildErr, offline, sync, stale, png, canRebuild,
+// unchanged} (statusInput), highest priority first - errors before information (docs/handbook/viewer.md §알림 자리,
+// rule 1): the line's error messages (alert, or kind ERR), newest first (notices, notices.ts LINE; act 'notice'); the
+// last build failed or had LaTeX errors; the connection is lost; the server runs another Limn than this page (outdated:
+// its version, [새로 고침], updates.ts); the line's other messages, newest first; a build runs (rendering in the page
+// render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for
+// STATUS_TRANSIENT_MS); the PDF is older than its source - not while a build runs, which clears it, nor while the
+// unchanged answer says the rebuild found nothing new (the line would contradict itself); main sync is under way; the
+// PDF shows as PNG. Each item is {kind, act} plus what its text needs; act is the data-act of its one action, or null -
+// [재빌드] and [그래도 빌드] (rebuild-force, a cold build) only where canRebuild (a LaTeX document and a person who may
+// build). The phase whose work can be counted - the page render, whose progress field gives pages done of total - is
+// looked up, not compared. Pure. One item of the status line (statusList), by its kind.
 type StatusItem =
   | { kind: 'notice'; notice: Notice; act: string }
   | { kind: 'failed'; act: string }
@@ -131,10 +134,10 @@ function statusList(input) {
   if (input.png) out.push({ kind: STATUS_KIND.PNG, act: null });
   return out;
 }
-// The items a band's line shows of statusList's: all of them on the compact bands; on the desktop (wide) only the messages,
-// a rebuild's 'no changes', a new Limn and the pins kept while cut off - its status chips (#bar2) already show the build,
-// the connection, sync, staleness and PNG, but no chip counts the kept pins, so without them the desktop never said there
-// were any. Pure.
+// The items a band's line shows of statusList's: all of them on the compact bands; on the desktop (wide) only the
+// messages, a rebuild's 'no changes', a new Limn and the pins kept while cut off - its status chips (#bar2) already
+// show the build, the connection, sync, staleness and PNG, but no chip counts the kept pins, so the line is the one
+// place the desktop says there are any. Pure.
 function statusShown(list, wide) {
   return wide
     ? list.filter(
@@ -148,7 +151,8 @@ function statusShown(list, wide) {
 }
 
 // A filled template's text as [label, tail], cut at the template's first placeholder: the words before it (without the
-// separator) are the label, the rest - the numbers - the tail. tl('쪽 {done}/{total}',{done:3,total:9}) is ['쪽', ' 3/9'].
+// separator) are the label, the rest - the numbers - the tail. tl('쪽 {done}/{total}',{done:3,total:9}) is ['쪽', '
+// 3/9'].
 function statusSplit(key, values) {
   const template = tl(key, {}),
     brace = template.indexOf('{'),
@@ -157,8 +161,9 @@ function statusSplit(key, values) {
   return [head, full.slice(head.length)];
 }
 
-// The text of item in its long form (fit 'long') or its short one ('short'), as [label, tail]: the label is what a screen
-// reader hears when the item appears, the tail the seconds and pages that tick (drawn aria-hidden). Only tr/tl beyond itself.
+// The text of an item in its long form (fit 'long') or its short one ('short'), as [label, tail]: the label is what a
+// screen reader hears when the item appears, the tail the seconds and pages that tick (drawn aria-hidden). Only tr/tl
+// beyond itself.
 function statusText(item, fit) {
   const long = fit !== 'short';
   switch (item.kind) {
@@ -238,9 +243,9 @@ function statusText(item, fit) {
   return ['', ''];
 }
 
-// The leading mark of an item: a message's own (by its kind, notices.js noticeIcon), a warning triangle for a failure or
-// blocked sync, the lost-connection icon, a spinner while work runs (a check once main sync is applied), an 8px warning dot
-// for a stale PDF, the image icon for PNG.
+// The leading mark of an item: a message's own (by its kind, notices.ts noticeIcon), a warning triangle for a failure
+// or blocked sync, the lost-connection icon, a spinner while work runs (a check once main sync is applied), an 8px
+// warning dot for a stale PDF, the image icon for PNG.
 function statusIcon(item) {
   const kinds = STATUS_KIND;
   if (item.kind === kinds.NOTICE)
@@ -258,9 +263,9 @@ function statusIcon(item) {
   return html`<span class="st-ic"><i class="spin"></i></span>`;
 }
 
-// An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one. [그래도 빌드]
-// carries 0.4.5's tip on what a cold build is for, [이유] the reason itself (statusWhy). A message brings its own action and
-// [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap height.
+// An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one. [그래도
+// 빌드] carries the tip on what a cold build is for (T.buildanywaytip), [이유] the reason itself (statusWhy). A message
+// brings its own action and [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap height.
 function statusAct(item) {
   if (!item.act) return html``;
   if (item.kind === STATUS_KIND.NOTICE) return noticeButtons(item.notice, true);
@@ -290,9 +295,9 @@ function statusAct(item) {
   return html`<button class="btn-sm st-act ${item.act === 'rebuild' || reload ? 'btn-default' : 'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;
 }
 
-// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and the last
-// failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG - plus whether
-// this document and person may rebuild.
+// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and
+// the last failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG -
+// plus whether this document and person may rebuild.
 function statusInput() {
   return {
     notices: LINE,
@@ -310,9 +315,9 @@ function statusInput() {
   };
 }
 
-// The answer to this tab's rebuild that kept the pages (0.4.5: ok, unchanged, the same seq), with [그래도 빌드] for a cold
-// build: the status line says it on every band - the desktop's line under its chips too - for STATUS_TRANSIENT_MS, then shows
-// what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
+// The answer to this tab's rebuild that kept the pages (ok, unchanged, the same seq), with [그래도 빌드] for a cold
+// build: the status line says it on every band - the desktop's line under its chips too - for STATUS_TRANSIENT_MS, then
+// shows what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
 function buildUnchanged(build) {
   const mark = { pull: pullSuffix(build) };
   BUILD.unchanged = mark;
@@ -324,17 +329,17 @@ function buildUnchanged(build) {
   }, STATUS_TRANSIENT_MS);
 }
 
-// Draws the status line from statusInput() - the items the band shows (statusShown): the first item with its icon, its text
-// (the long form, the short one where the long does not fit and always in the short band's top row, then an ellipsis), '+N' for
-// the rest and its action (a message's and its [x]), and a 2px progress bar while a build runs - counted
-// when the build gives its progress, else one that does not know its end, all in .st-body, drawn again when the item, its
-// action or the count changes. The spoken label is a separate live node (.st-sr) that stays: every draw puts the item's label
-// there, and its text changes - and is read out - only when the label does, never for a redraw or the ticking numbers; an
-// alert (an error message, a warning whose banner had no place on screen, a failed build, a lost connection) is left out
-// there, as it was read out assertively when it came (lineNote, showBuildErr, pollLightOnce). A message whose button has the
-// keyboard focus keeps the line while the focus is on it, and a redraw puts the focus back on that button (statusFocus): a
-// new message never takes it from a [되돌리기] that is still there. Also the [⋯] row [PDF 재빌드]: off with '빌드 중' while a
-// build runs. body.has-status says a line is up (the sheet joins it).
+// Draws the status line from statusInput() - the items the band shows (statusShown): the first item with its icon, its
+// text (the long form, the short one where the long does not fit and always in the short band's top row, then an
+// ellipsis), '+N' for the rest and its action (a message's and its [x]), and a 2px progress bar while a build runs -
+// counted when the build gives its progress, else one that does not know its end, all in .st-body, drawn again when the
+// item, its action or the count changes. The spoken label is a separate live node (.st-sr) that stays: every draw puts
+// the item's label there, and its text changes - and is read out - only when the label does, never for a redraw or the
+// ticking numbers; an alert (an error message, a warning whose banner had no place on screen, a failed build, a lost
+// connection) is left out there, as it was read out assertively when it came (lineNote, showBuildErr, pollLightOnce). A
+// message whose button has the keyboard focus keeps the line while the focus is on it, and a redraw puts the focus back
+// on that button (statusFocus): a new message never takes it from a [되돌리기] that is still there. Also the [⋯] row
+// [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
     spoken = box.querySelector('.st-sr'),
@@ -377,7 +382,8 @@ function drawStatus() {
     '|' +
     (top.state || '') +
     '|' +
-    (top.notice ? top.notice.n + '|' + top.notice.kind : ''); // a message turned into a warning (noticeLate) takes its icon
+    // a message turned into a warning (noticeLate) takes its icon
+    (top.notice ? top.notice.n + '|' + top.notice.kind : '');
   if (sig !== STATUS_SIG) {
     STATUS_SIG = sig;
     const more =
@@ -392,11 +398,13 @@ function drawStatus() {
   const textSpan = box.querySelector('.st-tx'),
     long = statusText(top, 'long'),
     short = statusText(top, 'short');
-  textSpan.textContent = BAND === LAYOUT_BAND.SHORT ? short[0] + short[1] : long[0] + long[1]; // the short band's one row always takes the short text
+  // the short band's one row always takes the short text
+  textSpan.textContent = BAND === LAYOUT_BAND.SHORT ? short[0] + short[1] : long[0] + long[1];
   if (textSpan.scrollWidth > textSpan.clientWidth) textSpan.textContent = short[0] + short[1];
   const said = top.notice
     ? top.notice.alert
-    : top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE; // OUTDATED is read out politely here
+    : // OUTDATED is read out politely here
+      top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
   const say = said || (top.notice && top.notice.quiet) ? '' : long[0];
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
@@ -423,7 +431,8 @@ function statusFocus(): { act: string; n: string } | null {
     ? { act: active.dataset.act, n: active.dataset.n || '' }
     : null;
 }
-// Puts the focus back on the button f named (statusFocus) when a redraw replaced it: in the open '+N' list, else on the line.
+// Puts the focus back on the button `focused` names (statusFocus) when a redraw replaced it: in the open '+N' list,
+// else on the line.
 function refocusStatus(focused: { act: string; n: string } | null) {
   if (!focused) return;
   const active = document.activeElement;
@@ -440,9 +449,9 @@ $('#status').addEventListener('focusout', () =>
     if (!statusFocus()) drawStatus();
   }, 0),
 );
-// The '+N' list: every item as a 44px row with its long text and its action. A modal dialog over the line, so an outside tap,
-// Esc and the back gesture fold it like the sheets; a row's action folds it too. While it is open the line's undo windows
-// wait (notices.js lineHeld).
+// The '+N' list: every item as a 44px row with its long text and its action. A modal dialog over the line, so an
+// outside tap, Esc and the back gesture fold it like the sheets; a row's action folds it too. While it is open the
+// line's undo windows wait (notices.ts lineHeld).
 function drawStatusList(list) {
   setHtml(
     $('#status-list-rows'),
@@ -452,23 +461,23 @@ function drawStatusList(list) {
     })}`,
   );
 }
-// The sentence [이유] of blocked main sync explains: main sync is blocked, why (SYNC_REASON), and that the previous PDF may be
-// showing. Only tr/tl beyond its argument.
+// The sentence [이유] of blocked main sync explains: main sync is blocked, why (SYNC_REASON), and that the previous PDF
+// may be showing. Only tr/tl beyond its argument.
 function syncWhyText(sync: SyncStatus | null) {
   const reason = (sync && sync.reason) || '';
   return tr('main 동기화 막힘') + ' — ' + tr(SYNC_REASON[reason] || reason) + ' · ' + tr('기존 PDF가 보일 수 있습니다');
 }
-// [이유] of blocked main sync: its sentence (syncWhyText, also the button's description) shown right at the button - or,
-// pressed in the '+N' list, which has just folded, at the line - and read out.
+// [이유] of blocked main sync: its sentence (syncWhyText, also the button's description) shown right at the button -
+// or, pressed in the '+N' list, which has just folded, at the line - and read out.
 function statusWhy(button: HTMLElement) {
   const text = syncWhyText(STATUS_SYNC);
   showTipText(button.getClientRects().length ? button : $('#status'), text);
   announce(text);
 }
-// Opens the '+N' list beside the status line (placeStatusList), or folds it on a second press.
-// It is placed before it is shown: drawn (open) but not yet modal, so it can be measured, then shown as a modal there.
-// Shown first, the focus showModal gives its first row came where the list stood before it was placed, and on a phone
-// zoomed in on the line the view moved to that row - the line went out of sight.
+// Opens the '+N' list beside the status line (placeStatusList), or folds it on a second press. It is placed before it
+// is shown: drawn (open) but not yet modal, so it can be measured, then shown as a modal there. Shown first, the focus
+// showModal gives its first row would come where the list stood before it was placed, and on a phone zoomed in on the
+// line the view would move to that row and the line out of sight.
 function toggleStatusList() {
   const dialog = $('#status-list');
   if (dialog.open) {
@@ -483,11 +492,11 @@ function toggleStatusList() {
   dialog.showModal();
   holdLine();
 }
-// The list folded (Esc, an outside press, the back gesture, a row's action) and the focus is still in it, or nowhere: the
-// browser gives the focus back to the button that had it, '+N', but a message that came while the list was open drew the
-// line again and that button with it - the focus stayed on the folded list's row and fell to the page as it went from
-// view, and the next Tab started from the top. It goes to the line's '+N' now, else to the line's first control; a focus
-// the row's action put elsewhere stays.
+// The list folded (Esc, an outside press, the back gesture, a row's action) and the focus is still in it, or nowhere:
+// the browser gives the focus back to the button that had it, '+N', but a message that came while the list was open has
+// drawn the line again and that button with it - the focus would stay on the folded list's row and fall to the page as
+// it went from view, and the next Tab would start from the top. So it goes to the line's '+N', else to the line's first
+// control; a focus the row's action put elsewhere stays.
 $('#status-list').addEventListener('close', () => {
   const active = document.activeElement,
     line = $('#status');
@@ -495,29 +504,30 @@ $('#status-list').addEventListener('close', () => {
   const button = (line.querySelector('[data-act="status-more"]') || line.querySelector('button')) as HTMLElement | null;
   if (button) button.focus({ preventScroll: true });
 });
-// Which side of the status line the '+N' list opens on, for a list h px tall with room px free above and below the line
-// (to 8px off the edge of the window's visible part): its own side - over the line, or under it when the line is the short band's top row
-// (under) - where the whole list fits there, else the other side where it fits, else the side with more room, where the list
-// is cut to that room and scrolls. True for over the line. Pure.
+// Which side of the status line the '+N' list opens on, for a list `height` px tall with room px free above and below
+// the line (to 8px off the edge of the window's visible part): its own side - over the line, or under it when the line
+// is the short band's top row (under) - where the whole list fits there, else the other side where it fits, else the
+// side with more room, where the list is cut to that room and scrolls. True for over the line. Pure.
 function statusListUp(height: number, above: number, below: number, under: boolean) {
   if (height <= (under ? below : above)) return !under;
   if (height <= (under ? above : below)) return under;
   return above >= below;
 }
 // Puts the open '+N' list 4px off the status line on the side statusListUp picks, and lets it grow only to 8px off the
-// visible part's edge on that side (--sl-room); its rows scroll inside that. The list always opened over the line: on a
-// desktop the line sits under the status chips, about 114px from the top, and four rows over it put the first two above
-// the window (top -76px at 1400x850) with their [되돌리기] out of reach (#314). The room is counted in the part of the
-// window a person sees (visualViewport: a keyboard that does not resize the layout, a pinch zoom), not the whole
-// window, under which the lower rows stood behind such a keyboard. A line outside that part (a zoom panned away from
-// it) has the list at the part's near edge instead of beside it, where its rows were out of sight too, and at least a
-// row tall - but never taller than the visible part, and never past it: where a row is taller than the room on its side,
-// the list comes in from that edge over the line. A phone zoomed in to 2x with its sheet open opened a list one row
-// (695-916px) tall over a line 280px from the top, which ran 418-639px above the window, and the focus showModal gives its
-// first row moved the zoomed view to it (#322). The list's full height is its content's (scrollHeight, with its border),
-// read without undoing the cut, so a list scrolled down stays where it was. Placed again while it is open when its rows change (drawStatus: a new message,
-// one that leaves - a list opened over the line with two rows got more and kept scrolling in that room), when the
-// window or its visible part changes size or moves; a band change folds it (placeStatus).
+// visible part's edge on that side (--sl-room); its rows scroll inside that. Over the line is not always room enough:
+// on a desktop the line sits under the status chips, about 114px from the top, and four rows over it would put the
+// first two above the window (top -76px at 1400x850) with their [되돌리기] out of reach. The room is counted in the
+// part of the window a person sees (visualViewport: a keyboard that does not resize the layout, a pinch zoom), not the
+// whole window, under which the lower rows would stand behind such a keyboard. A line outside that part (a zoom panned
+// away from it) has the list at the part's near edge instead of beside it, where its rows would be out of sight too,
+// and at least a row tall - but never taller than the visible part, and never past it: where a row is taller than the
+// room on its side, the list comes in from that edge over the line. On a phone zoomed in to 2x with its sheet open, a
+// list one row (695-916px) tall over a line 280px from the top would run 418-639px above the window, and the focus
+// showModal gives its first row would move the zoomed view to it. The list's full height is its content's
+// (scrollHeight, with its border), read without undoing the cut, so a list scrolled down stays where it was. Placed
+// again while it is open when its rows change (drawStatus: a new message, one that leaves - a list opened over the line
+// with two rows that gets more keeps scrolling in that room), when the window or its visible part changes size or
+// moves; a band change folds it (placeStatus).
 function placeStatusList() {
   const dialog = $('#status-list');
   if (!dialog.open) return;
@@ -525,10 +535,11 @@ function placeStatusList() {
     viewTop = viewport ? viewport.offsetTop : 0,
     viewBottom = viewport ? viewTop + viewport.height : innerHeight,
     lineRect = $('#status').getBoundingClientRect();
-  // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and it
-  // reaches left from there: centred in the window it stood about 350px left of the line, over the PDF. Elsewhere the line
-  // spans the bar and the list is centred over it (responsive.css). Either box is then held 8px inside the visible part,
-  // narrowed to it where it is narrower: a phone zoomed in had the list run past both sides of what it showed.
+  // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and
+  // it reaches left from there: centred in the window it would stand about 350px left of the line, over the PDF.
+  // Elsewhere the line spans the bar and the list is centred over it (responsive.css). Either box is then held 8px
+  // inside the visible part, narrowed to it where it is narrower, so a phone zoomed in never has the list run past both
+  // sides of what it shows.
   const viewLeft = viewport ? viewport.offsetLeft : 0,
     viewRight = viewport ? viewLeft + viewport.width : innerWidth;
   dialog.style.left = '';
@@ -551,7 +562,8 @@ function placeStatusList() {
   dialog.style.left = Math.round(left) + 'px';
   dialog.style.right = Math.round(innerWidth - left - width) + 'px';
   const lineTop = Math.min(Math.max(lineRect.top, viewTop), viewBottom),
-    lineBottom = Math.min(Math.max(lineRect.bottom, viewTop), viewBottom); // the line's edges, held inside the visible part
+    // the line's edges, held inside the visible part
+    lineBottom = Math.min(Math.max(lineRect.bottom, viewTop), viewBottom);
   const above = lineTop - viewTop - 4 - 8,
     below = viewBottom - lineBottom - 4 - 8,
     height = dialog.scrollHeight + dialog.offsetHeight - dialog.clientHeight;
@@ -581,9 +593,9 @@ addEventListener('resize', placeStatusListSoon);
   }
 }
 
-// Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the view
-// switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus that was
-// inside it, then draws it. An open '+N' list folds: it was placed for the old band.
+// Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the
+// view switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus
+// that was inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus() {
   const line = $('#status'),
     active = document.activeElement as HTMLElement,

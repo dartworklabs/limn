@@ -1,12 +1,14 @@
-// ------------------------------------------------ Browser notifications (docs/handbook/viewer.md §브라우저 알림) - only while the tab is alive
-// Turned on per device (pinPrefs.notify). Notification.requestPermission() is only ever called from the [알림 켜기] click. The server
-// carries "events addressed to the current identity" in the 5-second poll (/api/meta?light=1&ev=<cursor>) - asked for by every
-// tab of a person, the switch on or off - and a tab says them on its status line; only with the switch on does a tab that is
-// not in front show them as system notifications (docs/handbook/viewer.md §새 소식). The cursor (pinNotifyCursor) is kept in
-// this browser's localStorage, so a reload or two tabs never announce the same event twice, and a visit days later says what
-// came since the last (at most the server's 20 newest). Display always goes through the service worker's showNotification() (Chrome on Android blocks new Notification()); tag is
-// the pin number, so the same pin collapses into one slot. If the tab is visible and focused, the status line says it instead.
-// This only works in a secure context (an https tailnet address, or http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
+// ------------------------ Browser notifications (docs/handbook/viewer.md §브라우저 알림) - only while the tab is alive
+// Turned on per device (pinPrefs.notify). Notification.requestPermission() is only ever called from the [알림 켜기]
+// click. The server carries "events addressed to the current identity" in the 5-second poll
+// (/api/meta?light=1&ev=<cursor>) - asked for by every tab of a person, the switch on or off - and a tab says them on
+// its status line; only with the switch on does a tab that is not in front show them as system notifications
+// (docs/handbook/viewer.md §새 소식). The cursor (pinNotifyCursor) is kept in this browser's localStorage, so a reload
+// or two tabs never announce the same event twice, and a visit days later says what came since the last (at most the
+// server's 20 newest). Display always goes through the service worker's showNotification() (Chrome on Android blocks
+// new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
+// focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
+// http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 import {
   $,
   DOC,
@@ -46,9 +48,9 @@ function notifyPerm() {
 function notifyOn() {
   return !!prefs().notify && notifySupported() && notifyPerm() === 'granted';
 }
-// The cursor this tab last set, kept in memory too: a browser whose storage refuses (a SecurityError on reading it, a full
-// quota on writing) still has one for this visit - the boot goes on, and an event is said once - and the newer of the two
-// is the cursor, so another tab's advance in storage counts as well.
+// The cursor this tab last set, kept in memory too: a browser whose storage refuses (a SecurityError on reading it, a
+// full quota on writing) still has one for this visit - the boot goes on, and an event is said once - and the newer of
+// the two is the cursor, so another tab's advance in storage counts as well.
 let NOTIFY_CURSOR_MEM = null as number | null;
 function notifyCursor(): number | null {
   let stored = NaN;
@@ -62,7 +64,8 @@ function setNotifyCursor(cursor: number) {
   const current = notifyCursor();
   if (current == null || cursor > current) putNotifyCursor(cursor);
 }
-// Puts the cursor at v, backwards too (the server's events started again): in memory and, where it may, in storage.
+// Puts the cursor at `cursor`, backwards too (the server's events started again): in memory and, where it may, in
+// storage.
 function putNotifyCursor(cursor: number) {
   NOTIFY_CURSOR_MEM = cursor;
   try {
@@ -74,7 +77,8 @@ function notifyQuery() {
   const cursor = notifyCursor();
   return cursor == null ? '' : '&ev=' + cursor;
 }
-// Picks what to notify about (a pure function): after the cursor, addressed to me (to), not my own doing. One per pin - mention > reopen > awaiting review > reply, ties go to the later one.
+// Picks what to notify about (a pure function): after the cursor, addressed to me (to), not my own doing. One per pin -
+// mention > reopen > awaiting review > reply, ties go to the later one.
 function pickNotifications(events, me, cursor) {
   const login = me && me.login;
   if (!login || login === LOCAL_LOGIN) return [];
@@ -113,10 +117,10 @@ function notifyText(event) {
     body,
   };
 }
-// Shows one event: a status-line message while this tab has focus, or with the switch off (the message waits on the line
-// for the person to come back), else a system notification. notifyText() already speaks
-// the UI language and quotes the document's name and the post, so the message is literal (a document named '그림' stays
-// '그림'). It marks [검토 M] for a review request and [핀 N] for the rest on this document (notifyDot).
+// Shows one event: a status-line message while this tab has focus, or with the switch off (the message waits on the
+// line for the person to come back), else a system notification. notifyText() already speaks the UI language and quotes
+// the document's name and the post, so the message is literal (a document named '그림' stays '그림'). It marks [검토 M]
+// for a review request and [핀 N] for the rest on this document (notifyDot).
 const NOTIFY_BRIEF = {
   mention: '나를 부름',
   review_requested: '검토 대기',
@@ -142,7 +146,8 @@ async function notifyShow(event) {
             href: undefined,
           }) as HTMLLinkElement
       ).href,
-      actions: event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: tr('되살리기') }] : [], // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
+      // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
+      actions: event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: tr('되살리기') }] : [],
       data: {
         pin: event.pin,
         doc: event.doc,
@@ -151,10 +156,10 @@ async function notifyShow(event) {
     });
   } catch (err) {}
 }
-// Event e on the status line: one message per kind of event however many pins it reaches (groupNote 'ev:<type>'), so an
-// agent closing twelve of my pins one by one is one message that grows. One pin says what its notification says, with
-// [열기] (a deleted one [되살리기], a viewer's [열기]); more say how many, their numbers and who, with [보기] for review
-// requests (the review section), the Trash for deleted ones, else [열기] on the newest.
+// An event on the status line: one message per kind of event however many pins it reaches (groupNote 'ev:<type>'), so
+// an agent closing twelve of my pins one by one is one message that grows. One pin says what its notification says,
+// with [열기] (a deleted one [되살리기], a viewer's [열기]); more say how many, their numbers and who, with [보기] for
+// review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
 function notifyLine(event: any) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
     evs: [...older.evs.filter((x: any) => x.pin !== newer.evs[0].pin), ...newer.evs],
@@ -209,8 +214,8 @@ function notifyLineView(group: { evs: any[] }) {
     },
   };
 }
-// The chip an event's message marks (a NOTICE_DOT, or ''): a review request [검토 M], which counts every document; anything
-// else on this document (here) [핀 N]; another document's nothing - its pins are not in this panel. Pure.
+// The chip an event's message marks (a NOTICE_DOT, or ''): a review request [검토 M], which counts every document;
+// anything else on this document (here) [핀 N]; another document's nothing - its pins are not in this panel. Pure.
 function notifyDot(type: string, here: boolean): string {
   return type === EVENT_TYPE.REVIEW_REQUESTED ? NOTICE_DOT.RV : here ? NOTICE_DOT.SIDE : '';
 }
@@ -226,7 +231,8 @@ function notifyHandle(meta) {
     if (meta.ev_seq < cursor) putNotifyCursor(meta.ev_seq);
     return;
   }
-  const list = pickNotifications(meta.events, META && META.me, notifyCursor()); // only what's after it, if another tab just advanced the cursor
+  // only what's after it, if another tab just advanced the cursor
+  const list = pickNotifications(meta.events, META && META.me, notifyCursor());
   const top = meta.events.reduce((highest, event) => Math.max(highest, event.seq || 0), cursor);
   setNotifyCursor(top);
   list.forEach(notifyShow);
@@ -240,8 +246,9 @@ async function notifyRegister() {
     return null;
   }
 }
-// A local identity (no tailnet login) never gets events from the server's events_since() at all (§@태그·사람·이벤트), so
-// notifications would never arrive - since getting browser permission wouldn't help, turning it on is blocked outright and the reason is shown.
+// A local identity (no tailnet login) never gets events from the server's events_since() at all (§@태그·사람·이벤트),
+// so notifications would never arrive - since getting browser permission wouldn't help, turning it on is blocked
+// outright and the reason is shown.
 function isLocalIdentity() {
   const me = META && META.me;
   return !me || !me.login || me.login === LOCAL_LOGIN;
@@ -253,10 +260,9 @@ function notifyState() {
   if (permission === 'denied') return NOTIFY_STATE.BLOCKED;
   return prefs().notify && permission === 'granted' ? NOTIFY_STATE.ON : NOTIFY_STATE.OFF;
 }
-// Draws the notification control for this device's state (notifyState): [더보기]'s switch - on every layout since the desktop's
-// bell went with its [⋯] (3b of the cross-resolution pass) - on only when on, and off and disabled where it cannot turn on
-// (blocked, unsupported, a local identity) with the reason on a line under it. The state is never in the switch's name
-// ('브라우저 알림').
+// Draws the notification control for this device's state (notifyState): [더보기]'s switch, the one notification control
+// on every layout - on only when on, and off and disabled where it cannot turn on (blocked, unsupported, a local
+// identity) with the reason on a line under it. The state is never in the switch's name ('브라우저 알림').
 function drawNotify() {
   const state = notifyState(),
     toggle = $('#m-notify');
@@ -283,10 +289,10 @@ function drawNotify() {
   whyLine.textContent = why;
   whyLine.hidden = !why;
 }
-// [더보기]'s notification switch: off when on; on (asking the browser's permission from within this press) when off. Where it
-// cannot turn on, the switch is disabled and the line under it (#m-notify-why) says why (drawNotify), so a press there changes
-// nothing; a permission not given says so on that line too (blocked: drawNotify's reason; no choice made: notifyWhy). Turning
-// it on or off is silent - the switch shows it - and read out.
+// [더보기]'s notification switch: off when on; on (asking the browser's permission from within this press) when off.
+// Where it cannot turn on, the switch is disabled and the line under it (#m-notify-why) says why (drawNotify), so a
+// press there changes nothing; a permission not given says so on that line too (blocked: drawNotify's reason; no choice
+// made: notifyWhy). Turning it on or off is silent - the switch shows it - and read out.
 async function notifyToggle() {
   const state = notifyState();
   if (state === NOTIFY_STATE.LOCAL || state === NOTIFY_STATE.UNSUPPORTED || state === NOTIFY_STATE.BLOCKED) {
@@ -330,23 +336,24 @@ function notifyWhy(text: string) {
   whyLine.hidden = false;
   announce(text);
 }
-// Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that document and opens that pin.
+// Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that
+// document and opens that pin.
 function hashPin() {
   const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash || '');
   return match ? +match[1] : null;
 }
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
-// reload never repeats it (a reload of an &act=restore link restored a pin someone had deleted again - PR #11 review).
+// reload never repeats it (a reload of an &act=restore link would restore again a pin someone has since deleted).
 function takeLinkHash() {
   const link = { pin: hashPin(), doc: hashDoc(), restore: /(?:^#|[#&])act=restore(?:&|$)/.test(location.hash || '') };
   if (link.pin)
     history.replaceState(history.state, '', location.pathname + location.search + (link.doc ? '#doc=' + link.doc : ''));
   return link;
 }
-// restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a viewer).
-// The list is read again first and the link goes on once it shows a snapshot asked for since then - its own read's, or a
-// newer read's that overtook it (the light poll the tab's return sets off) - and stops only when the read failed: an
-// earlier list could restore a pin from a Trash that no longer holds it.
+// restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a
+// viewer). The list is read again first and the link goes on once it shows a snapshot asked for since then - its own
+// read's, or a newer read's that overtook it (the light poll the tab's return sets off) - and stops only when the read
+// failed: an earlier list could restore a pin from a Trash that no longer holds it.
 async function openPinFromLink(doc, pin, restore?) {
   if (!pin) return;
   if (doc && doc !== DOC && docInfo(doc)) {

@@ -1,4 +1,4 @@
-// ------------------------------------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
+// ------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
 import {
   $,
   BUILD_STATE,
@@ -43,19 +43,22 @@ let LAST_PINS_REVISION = null as string | null,
   POLL_FAILS = 0,
   LIGHT_TIMER = undefined as ReturnType<typeof setInterval> | undefined,
   LIGHT_INFLIGHT = null as Promise<void> | null;
-// Single-flight: same pattern as pollBuild - even if visibilitychange/focus/the 5-second timer overlap and
-// call this together (e.g. focus returning at the same moment as a tab switch), /api/meta and loadPins only go out once (observed defect: overlapping calls fired loadPins 3 times).
+// Single-flight, the same pattern as pollBuild: when visibilitychange, focus and the 5-second timer call this together
+// (focus returning at the same moment as a tab switch), /api/meta and loadPins go out once - overlapping calls would
+// fire loadPins three times.
 function pollLight() {
-  if (document.hidden) return Promise.resolve(); // a heavy refresh (including redrawing the list) is never sent while the tab is hidden
+  // a heavy refresh (including redrawing the list) is never sent while the tab is hidden
+  if (document.hidden) return Promise.resolve();
   if (LIGHT_INFLIGHT) return LIGHT_INFLIGHT;
   LIGHT_INFLIGHT = pollLightOnce().finally(() => {
     LIGHT_INFLIGHT = null;
   });
   return LIGHT_INFLIGHT;
 }
-// While the tab is hidden, the list is never redrawn (observed defect: a hidden tab received no notifications at all), but if notifications
-// are on (notifyOn), a light (slow - the browser throttles it anyway) /api/meta?light=1 call is still made just to surface events as notifications.
-// This is a notification-only branch splitting off at the same point as pollLight's document.hidden bailout - it never touches the screen.
+// While the tab is hidden the list is never redrawn, but if notifications are on (notifyOn) a light /api/meta?light=1
+// call (slow - the browser throttles it anyway) is still made just to surface events as notifications, so a hidden tab
+// still gets them. This notification-only branch splits off at the same point as pollLight's document.hidden bailout -
+// it never touches the screen.
 let NOTIFY_HIDDEN_TIMER = undefined as ReturnType<typeof setInterval> | undefined,
   NOTIFY_HIDDEN_INFLIGHT = null as Promise<void> | null;
 const NOTIFY_HIDDEN_INTERVAL_MS = 20000;
@@ -78,7 +81,8 @@ async function pollHiddenNotifyOnce() {
   }
   if (document.hidden) notifyHandle(meta); // if the tab came back while waiting, normal polling has already handled it
 }
-// If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or notifications are turned off (avoids duplicate polling).
+// If the tab hides while notifications are on, the slow timer is started; it's stopped when the tab returns or
+// notifications are turned off (no duplicate polling).
 function syncHiddenNotifyTimer() {
   clearInterval(NOTIFY_HIDDEN_TIMER);
   NOTIFY_HIDDEN_TIMER = undefined;
@@ -87,10 +91,11 @@ function syncHiddenNotifyTimer() {
     NOTIFY_HIDDEN_TIMER = setInterval(pollHiddenNotify, NOTIFY_HIDDEN_INTERVAL_MS);
   }
 }
-// Applies connection and document status only to the visit that sent the request; notifications remain independent of document visits.
-// Back after AWAY_MS without an answer (the tab hidden, the device asleep, the connection lost), what this poll and the build
-// it may set going say is gathered into one message (notices.js digestBegin, docs/handbook/viewer.md §새 소식); a poll back
-// from that, or one every VERSION_EVERY_MS, asks which Limn the server runs (updates.js checkVersion).
+// Applies connection and document status only to the visit that sent the request; notifications remain independent of
+// document visits. Back after AWAY_MS without an answer (the tab hidden, the device asleep, the connection lost), what
+// this poll and the build it may set going say is gathered into one message (notices.ts digestBegin,
+// docs/handbook/viewer.md §새 소식); a poll back from that, or one every VERSION_EVERY_MS, asks which Limn the server
+// runs (updates.ts checkVersion).
 let LIGHT_OK_AT = 0;
 const AWAY_MS = 120000;
 async function pollLightOnce() {
@@ -102,7 +107,7 @@ async function pollLightOnce() {
     lost = POLL_FAILS >= 2;
   if (back) digestBegin(awayTitle(gap, lost));
   // The poll is what says the connection is gone, so it never waits on a server that does not answer (API_WAIT): one
-  // poll is out at a time, and a poll left waiting counted no failure for as long as the system let it wait.
+  // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
       await api(dq('/api/meta?light=1') + notifyQuery(), { what: '상태 확인', silent: true, wait: API_WAIT.POLL })
@@ -125,11 +130,13 @@ async function pollLightOnce() {
   POLL_FAILS = 0;
   $('#conn-lost').hidden = true;
   if (back || was > 0 || versionDue()) checkVersion();
-  if (was > 0 && OFF.n) void offlineFlush(); // the connection is back: the pins kept while it was gone are written (offline.js)
+  // the connection is back: the pins kept while it was gone are written (offline.ts)
+  if (was > 0 && OFF.n) void offlineFlush();
   updateStaleBadge(meta);
   updateSyncBadge(meta.sync);
   noteOtherDocs(meta.docs);
-  // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript changing shifts that document's pins' lines too.
+  // With multiple documents, re-read even if src_sig (per-document src_mtime) changed - another document's manuscript
+  // changing shifts that document's pins' lines too.
   const sig = meta.src_sig || meta.src_mtime;
   // A failed or superseded pin refresh has not observed this revision; retry it on the next light poll.
   const needsPins = LAST_PINS_REVISION === null || meta.pins_rev !== LAST_PINS_REVISION || sig !== LAST_SRC_MTIME;
@@ -137,29 +144,30 @@ async function pollLightOnce() {
     updExpect(sig !== LAST_SRC_MTIME); // its pins' moves wait for its update message
   const applied = !needsPins || (await loadPins());
   if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-  // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per change
-  // while that read is on its way (MD.asked), and again on the next poll if it failed (mdBuild clears MD.asked).
+  // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per
+  // change while that read is on its way (MD.asked), and again on the next poll if it failed (mdBuild clears MD.asked).
   if (isMdDoc() && meta.src_mtime !== MD.mtime && meta.src_mtime !== MD.asked) {
     MD.asked = meta.src_mtime;
     mdBuild();
-  } else if (isMdDoc()) void mdPicCheck(); // a tree image rewritten on disk shows without a reload (md-surface.js)
+  } else if (isMdDoc()) void mdPicCheck(); // a tree image rewritten on disk shows without a reload (md-surface.ts)
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;
     LAST_SRC_MTIME = sig;
   }
-  // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second poll only
-  // runs during that (or when this tab itself pressed rebuild()).
+  // A build started via curl by another session/agent is also caught through light meta's build.state - the 1-second
+  // poll only runs during that (or when this tab itself pressed rebuild()).
   if (meta.build && meta.build.state === BUILD_STATE.RUNNING && !BUILD.timer) pollBuild();
-  // If build_seq (number of finished builds) differs from what this tab has seen, it means a build started and finished entirely
-  // within a 5-second polling gap, never observed as "running" - the details are fetched to sync up the screen/banner/chip.
+  // If build_seq (number of finished builds) differs from what this tab has seen, it means a build started and finished
+  // entirely within a 5-second polling gap, never seen as "running" - the details are fetched to sync up the
+  // screen/banner/chip.
   else if (typeof meta.build_seq === 'number' && meta.build_seq !== BUILD.lastSeq) pollBuild();
   if (back) digestSoon(DIGEST_TAIL_MS);
 }
-// Reflects another document's staleness/in-progress build on its tab, and if that document's build finished in the background,
-// says so on the status line with [열기] - a success for NOTICE_MS, a failure until [x] - and drops the meta cache (a fresh page
-// when you switch back).
-// A finished build of another document - or a new source of another Markdown or text document - is its update: said as that
-// document's update message with [열기] (updates.js checkDocUpdate, docs/handbook/viewer.md §새 소식).
+// Reflects another document's staleness/in-progress build on its tab, and if that document's build finished in the
+// background, says so on the status line with [열기] - a success for NOTICE_MS, a failure until [x] - and drops the
+// meta cache (a fresh page when you switch back). A finished build of another document - or a new source of another
+// Markdown or text document - is its update: said as that document's update message with [열기] (updates.ts
+// checkDocUpdate, docs/handbook/viewer.md §새 소식).
 function noteOtherDocs(list) {
   if (!Array.isArray(list) || !list.length) return;
   let redraw = false;
@@ -204,9 +212,9 @@ function startLightPolling() {
   window.addEventListener('focus', () => pollLight());
   syncHiddenNotifyTimer(); // catches it right away if already hidden at boot (a rare case) and notifications are on
 }
-// This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s
-// A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins named
-// '<type>:<id>' leave data[field] - numbers or pins - and each of also beside them, or null when none is left. Pure.
+// A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
+// named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
+// Pure.
 function newsWithout(type: string, field: string, ...also: string[]): (group: any, keys: string[]) => any {
   return (group, keys) => {
     const keep = group[field].map((x: any) => !keys.includes(type + ':' + (typeof x === 'number' ? x : x.id)));
@@ -218,9 +226,11 @@ function newsWithout(type: string, field: string, ...also: string[]): (group: an
     return out;
   };
 }
-// notePinChanges never announces the same transition again - only the first notePinChanges judgment right after markMine(id) is swallowed
-// (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (e.g. a lost response), it's
-// given up on and subsequent values are announced normally. An action from another tab isn't in this map, so it's shown as usual.
+// This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s notePinChanges
+// never announces the same transition again: only the first notePinChanges judgment right after markMine(id) is
+// swallowed (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (a
+// lost response), it's given up on and later values are announced normally. An action from another tab isn't in this
+// map, so it's shown as usual.
 const MY_ACTIONS = new Map();
 function markMine(id) {
   MY_ACTIONS.set(id, Date.now() + 10000);
@@ -231,15 +241,16 @@ function consumeMine(id) {
   MY_ACTIONS.delete(id);
   return Date.now() <= until;
 }
-// Says on the status line what changed between two list refreshes (docs/handbook/viewer.md §알림 자리): pins sent to review
-// ([보기], a dot on [검토 M]), dropped ([되살리기]) or closed by someone else, and an open pin whose location or figure element
-// was lost or whose lines moved. What needs a look stays until [x] or its action and dots [핀 N]; passing news (closed
-// elsewhere, lines moved) goes after NOTICE_MS. An action this tab performed is swallowed (markMine).
+// Says on the status line what changed between two list refreshes (docs/handbook/viewer.md §알림 자리): pins sent to
+// review ([보기], a dot on [검토 M]), dropped ([되살리기]) or closed by someone else, and an open pin whose location or
+// figure element was lost or whose lines moved. What needs a look stays until [x] or its action and dots [핀 N];
+// passing news (closed elsewhere, lines moved) goes after NOTICE_MS. An action this tab performed is swallowed
+// (markMine).
 function notePinChanges(previous, listed, dropped) {
-  // prev is only the "open pins" this tab saw last time (PINS never holds done ones). d is every open+closed
-  // pin (all=1) from this GET - if an id that was in prev is also in d with done=true, it was completed; if it's
-  // not in d at all (neither open nor closed), it was dropped. The old implementation never distinguished the
-  // two and announced everything as "completed" - if a co-author deleted a pin, the author's screen showed "#N 이 완료되었습니다" (observed).
+  // previous is only the "open pins" this tab saw last time (PINS never holds done ones); listed is every open+closed
+  // pin (all=1) from this GET. An id of previous that is in listed with done=true was completed; one not in listed at
+  // all (neither open nor closed) was dropped. The two are told apart, so a pin a co-author deleted is never announced
+  // to its author as "#N 이 완료되었습니다".
   if (!previous || !previous.length) return;
   const byId = new Map<number, Pin>(previous.map((pin) => [pin.id, pin]));
   const known = new Map<number, Pin>((listed || []).map((pin) => [pin.id, pin]));
@@ -256,8 +267,8 @@ function notePinChanges(previous, listed, dropped) {
       if (!consumeMine(id)) droppedIds.push(id);
     }
   });
-  // Each kind of change is one message however many pins and polls it spans (groupNote): up to three pins by number, more
-  // as a count with the first numbers after it ('핀 12개가 완료되었습니다 — #3, #5, #8 외 9개').
+  // Each kind of change is one message however many pins and polls it spans (groupNote): up to three pins by number,
+  // more as a count with the first numbers after it ('핀 12개가 완료되었습니다 — #3, #5, #8 외 9개').
   const ids = (numbers: number[]) =>
     numbers
       .slice(0, 3)
@@ -343,7 +354,8 @@ function notePinChanges(previous, listed, dropped) {
         };
       }, // tl() spoke the UI language; the name is as written
       (older, newer) => {
-        const add = newer.ids.map((id, index) => index).filter((index) => !older.ids.includes(newer.ids[index])); // names stay beside their ids
+        // names stay beside their ids
+        const add = newer.ids.map((id, index) => index).filter((index) => !older.ids.includes(newer.ids[index]));
         return {
           ids: [...older.ids, ...add.map((index) => newer.ids[index])],
           names: [...older.names, ...add.map((index) => newer.names[index])],
@@ -427,11 +439,12 @@ function notePinChanges(previous, listed, dropped) {
     );
 }
 
-// Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until [x], with
-// a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
+// A pin's state: its `state`, else what its done and review flags say.
 function pinState(pin: Pin) {
   return (pin && pin.state) || (pin && pin.done ? (pin.review ? PIN_STATE.REVIEW : PIN_STATE.DONE) : PIN_STATE.OPEN);
 }
+// Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until
+// [x], with a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
 function noteReviewChanges(previous, listed) {
   if (!previous || !previous.length) return;
   const known = new Map<number, Pin>((listed || []).map((pin) => [pin.id, pin]));
@@ -498,7 +511,8 @@ function noteReviewChanges(previous, listed) {
       newsWithout(EVENT_TYPE.REOPENED, 'pins'),
     );
 }
-// Sets LAST_PINS_REV, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+// Sets LAST_PINS_REVISION, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
 function setLastPinsRev<Value extends typeof LAST_PINS_REVISION>(value: Value): Value {
   LAST_PINS_REVISION = value;
   return value;

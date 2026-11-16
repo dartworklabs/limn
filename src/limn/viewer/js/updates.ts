@@ -1,14 +1,15 @@
 // ------------------------------------------------ What came while you were viewing (docs/handbook/viewer.md §새 소식)
 // Said from reads the viewer already makes - no new field, no event type, nothing written on a GET (ADR-0027):
-// - a document changed (a merge the instance pulled, a push, a file edited where the instance serves it, a figure or PDF
-//   that came again): one message per document, '본문이 바뀌었습니다 — PR #12 서론 다듬기 · Bob Park · 핀 2개 줄 이동',
-//   with [변경 보기] (the changes view on exactly the new commits) or, on a Markdown or text document, [바뀐 곳] (the changed
-//   lines, tinted while the message stands). It stands until [x] or its action - only then is the change seen - and each
-//   later change of that document merges into it. What a person has seen is kept per device (localStorage limnSeen), so a
-//   reload, another document or a visit days later still says what changed since;
+// - a document changed (a merge the instance pulled, a push, a file edited where the instance serves it, a figure or
+//   PDF that came again): one message per document, '본문이 바뀌었습니다 — PR #12 서론 다듬기 · Bob Park · 핀 2개 줄
+//   이동', with [변경 보기] (the changes view on exactly the new commits) or, on a Markdown or text document, [바뀐 곳]
+//   (the changed lines, tinted while the message stands). It stands until [x] or its action - only then is the change
+//   seen - and each later change of that document merges into it. What a person has seen is kept per device
+//   (localStorage limnSeen), so a reload, another document or a visit days later still says what changed since;
 // - others' new pins (a co-author's, an agent's), one message per document, [보기];
-// - this page is older than the Limn the server runs now (GET /api/version): a status item with [새로 고침] (status.js);
-// - back after a while, what came meanwhile is said as one message (notices.js digestBegin, polling.js).
+// - this page is older than the Limn the server runs now (GET /api/version): a status item with [새로 고침]
+//   (status.ts);
+// - back after a while, what came meanwhile is said as one message (notices.ts digestBegin, polling.ts).
 import {
   $$,
   DOC,
@@ -46,14 +47,16 @@ const UPDATE_STATE = {
   top: null as number | null,
   checking: new Map() as Map<string, { ver: string; again: boolean }>,
 }; // document -> the check reading its history: its version, and whether a call left it to that check
-const UPDATE_EXPECT_MS = 120000; // after a source change is seen, how long its pins' moves wait for the document's update message
+// after a source change is seen, how long its pins' moves wait for the document's update message
+const UPDATE_EXPECT_MS = 120000;
 const DIGEST_TAIL_MS = 2500; // how long a gathering waits after its poll for the build and the update it set going
 const LINE_DIFF_MAX = 500; // edit steps the line comparison tries before calling the whole middle one changed place
 
 // ---------------- What a person has seen (localStorage limnSeen: {v, pin, docs:{<key>:{ver, rev}}})
-// ver names what a document showed (its build on screen, or a drawn document's source mtime), rev its newest commit then (''
-// without history); pin the highest pin number whose arrival was said. Another browser or device keeps its own. A browser
-// whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM) from the first refusal.
+// ver names what a document showed (its build on screen, or a drawn document's source mtime), rev its newest commit
+// then ('' without history); pin the highest pin number whose arrival was said. Another browser or device keeps its
+// own. A browser whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM)
+// from the first refusal.
 let SEEN_MEM = null as string | null;
 function seenStore(): { v?: number; pin?: number; docs?: Record<string, { ver: string; rev: string }> } {
   let raw = SEEN_MEM;
@@ -87,8 +90,9 @@ function seenDoc(doc: string): { ver: string; rev: string } | null {
   const record = (seenStore().docs || {})[doc];
   return record && typeof record.ver === 'string' ? { ver: record.ver, rev: String(record.rev || '') } : null;
 }
-// Records rec as what document k showed when seen - unless the record kept already names a later version (verAfter): another
-// tab of this browser saw a newer one meanwhile, and an old tab dismissing its older message never takes that back.
+// Records `record` as what `doc` showed when seen - unless the record kept already names a later version (verAfter):
+// another tab of this browser saw a newer one meanwhile, and an old tab dismissing its older message never takes that
+// back.
 function setSeenDoc(doc: string, record: { ver: string; rev: string }) {
   const all = seenStore(),
     was = (all.docs || {})[doc];
@@ -96,9 +100,9 @@ function setSeenDoc(doc: string, record: { ver: string; rev: string }) {
   all.docs = { ...(all.docs || {}), [doc]: record };
   seenSave(all);
 }
-// Whether version a (limnSeen's ver) is later than b: a drawn document's source mtime ('src:<seconds>') by its number, a
-// built one's build id ('build:pages-<YYYYMMDDHHMMSS>[-<n>]', the server's names) by its time and then its count. Versions
-// of different kinds are not ordered (false). Pure.
+// Whether `version` (limnSeen's ver) is later than `other`: a drawn document's source mtime ('src:<seconds>') by its
+// number, a built one's build id ('build:pages-<YYYYMMDDHHMMSS>[-<n>]', the server's names) by its time and then its
+// count. Versions of different kinds are not ordered (false). Pure.
 function verAfter(version: string, other: string): boolean {
   const sourcePattern = /^src:(.+)$/,
     buildPattern = /^build:pages(?:-(\d{14})(?:-(\d+))?)?$/,
@@ -114,7 +118,7 @@ function verAfter(version: string, other: string): boolean {
     ? versionTime > otherTime
     : Number(versionBuild[2] || 0) > Number(otherBuild[2] || 0);
 }
-// Whether this device was here before: it has a seen record or an event cursor (notify.js).
+// Whether this device was here before: it has a seen record or an event cursor (notify.ts).
 function visitedBefore() {
   return !!seenStore().v || notifyCursor() !== null;
 }
@@ -130,18 +134,19 @@ function setSeenPin(pin: number) {
 }
 
 // ---------------- Pure rules
-// The PR number a commit subject names: a merge commit's 'Merge pull request #12 …', a squash merge's '… (#12)'; 0 for none.
+// The PR number a commit subject names: a merge commit's 'Merge pull request #12 …', a squash merge's '… (#12)'; 0 for
+// none.
 function pullRequestOf(subject: unknown): number {
   const text = String(subject || ''),
     match = /^Merge pull request #(\d+)/.exec(text) || /\(#(\d+)\)\s*$/.exec(text);
   return match ? +match[1] : 0;
 }
-// The commits above the last seen one (seen: its id or a prefix) in rows (newest first, /api/revisions): how many (all of
-// them when seen is not among them: more), their PRs and authors, the newest one's subject without its '(#12)' - a merge
-// commit's own subject is passed over for the commit under it - and time, and the newest id (top). Nothing when there are
-// no rows (no history). unknown: which of them are new cannot be told - the rows are not known (null: what the shown build
-// carries is not known, shownRows) or no commit was known as seen ('') - so none is named, and top is the newest of the rows
-// known ('' for none). Pure.
+// The commits above the last seen one (seen: its id or a prefix) in rows (newest first, /api/revisions): how many (all
+// of them when seen is not among them: more), their PRs and authors, the newest one's subject without its '(#12)' - a
+// merge commit's own subject is passed over for the commit under it - and time, and the newest id (top). Nothing when
+// there are no rows (no history). unknown: which of them are new cannot be told - the rows are not known (null: what
+// the shown build carries is not known, shownRows) or no commit was known as seen ('') - so none is named, and top is
+// the newest of the rows known ('' for none). Pure.
 function describeCommits(rows: { id: string; subject: string; author?: string; time?: string }[] | null, seen: string) {
   const top = rows && rows.length ? rows[0].id : '',
     none = {
@@ -170,9 +175,10 @@ function describeCommits(rows: { id: string; subject: string; author?: string; t
     unknown: false,
   };
 }
-// Where the lines now (b) differ from the lines before (a): the changed lines of b as ranges {lo, hi} (1-based, in order); a
-// place where lines only went away is the line after it (the last line at the end). Common heads and tails are set aside, the
-// middle is compared line by line (Myers) up to max edit steps, past that the whole middle is one place. Pure.
+// Where the lines now (after) differ from the lines before: the changed lines of `after` as ranges {lo, hi} (1-based,
+// in order); a place where lines only went away is the line after it (the last line at the end). Common heads and tails
+// are set aside, the middle is compared line by line (Myers) up to max edit steps, past that the whole middle is one
+// place. Pure.
 function lineChanges(before: string[], after: string[], max: number): { lo: number; hi: number }[] {
   let head = 0;
   while (head < before.length && head < after.length && before[head] === after[head]) head++;
@@ -280,8 +286,8 @@ function awayTitle(ms: number, lost: boolean): string {
 }
 
 // ---------------- A document changed
-// The document k as it shows now - its name, kind and ver (what limnSeen keeps) - from its meta on screen or its entry in the
-// document list; null before it is known.
+// The document `doc` as it shows now - its name, kind and ver (what limnSeen keeps) - from its meta on screen or its
+// entry in the document list; null before it is known.
 function shownDocState(doc: string): { ver: string; name: string; kind: string } | null {
   const meta = doc === DOC ? META : META_BY.get(doc),
     entry = docInfo(doc),
@@ -289,7 +295,8 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
     source = (meta || entry) as any;
   if (!source) return null;
   // a drawn document on screen: its source as last read (MD.mtime), not the meta it was opened with; off screen: the
-  // document list's (noteOtherDocs keeps it fresh) - MD still holds the lines of one drawn before, as they were when left
+  // document list's (noteOtherDocs keeps it fresh) - MD still holds the lines of one drawn before, as they were when
+  // left
   const sourceTime =
     doc === DOC && MD.doc === doc && typeof MD.mtime === 'number'
       ? MD.mtime
@@ -305,7 +312,7 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
       : '';
   return ver ? { ver, name: (entry && entry.name) || (meta && meta.doc_name) || doc, kind } : null;
 }
-// Document k's commits, newest first ([] without history), or null when they could not be read.
+// A document's commits, newest first ([] without history), or null when they could not be read.
 async function docRows(doc: string): Promise<RevisionRow[] | null> {
   try {
     const answer = (
@@ -316,10 +323,10 @@ async function docRows(doc: string): Promise<RevisionRow[] | null> {
     return null;
   }
 }
-// What document k's shown build was made from, for a built one: the commit its pages came from (the meta's head, '' outside
-// git or unknown) and whether the checkout has moved past it (stale_build: its sources changed since); a drawn document shows
-// the checkout's source ({head:'', behind:false}). From the meta on screen or kept, else the document's light meta; null when
-// that shows another build than now's (a newer one came meanwhile) or cannot be read.
+// What a document's shown build was made from, for a built one: the commit its pages came from (the meta's head, ''
+// outside git or unknown) and whether the checkout has moved past it (stale_build: its sources changed since); a drawn
+// document shows the checkout's source ({head:'', behind:false}). From the meta on screen or kept, else the document's
+// light meta; null when that shows another build than now's (a newer one came meanwhile) or cannot be read.
 async function docBuild(
   doc: string,
   now: { ver: string; kind: string },
@@ -337,30 +344,30 @@ async function docBuild(
   const head = String(meta.head || '');
   return { head: /^[0-9a-f]{4,40}$/i.test(head) ? head : '', behind: !!meta.stale_build };
 }
-// The commits of a document that its shown build carries, of rows (its history from the checkout, newest first): from the
-// build's commit (head, a prefix will do) down when that is one of them; when it is not - the build's commit touched none of
-// the document's files - all of them, unless the build is behind the checkout (behind): then which of them it carries is not
-// known (null) - the reads say neither where the build's commit stands among them nor which of them it lacks, and a guess
-// would name a commit it had already as new. A drawn document: all. Pure.
+// The commits of a document that its shown build carries, of rows (its history from the checkout, newest first): from
+// the build's commit (head, a prefix will do) down when that is one of them; when it is not - the build's commit
+// touched none of the document's files - all of them, unless the build is behind the checkout (behind): then which of
+// them it carries is not known (null) - the reads say neither where the build's commit stands among them nor which of
+// them it lacks, and a guess would name a commit it had already as new. A drawn document: all. Pure.
 function shownRows(rows: RevisionRow[], head: string, behind: boolean): RevisionRow[] | null {
   const index = head ? rows.findIndex((row) => row.id.startsWith(head)) : -1;
   return index >= 0 ? rows.slice(index) : behind && rows.length ? null : rows;
 }
-// Whether document k changed since this device last saw it, and if so says so (docUpdateNote). The first visit of a document
-// on a device, and this tab's own rebuild that brought nothing new (ctx.mine), record what shows as seen - unless a change
-// not yet seen stands, which the rebuild then joins. What shows is the shown build's (docBuild): its commit, not the
-// checkout's newest - a checkout pulled ahead of the pages still has those commits to say when their build comes. When which
-// commits it carries is not known (shownRows), no commit is recorded (''): the next change then names none (describeCommits).
-// What shows being older than what this device has seen (verAfter) is no change: this tab has not caught up yet - a drawn
-// document come back to shows the lines it was left with until it draws its source again, whose change was said while it
-// was off screen - and the read that catches up has nothing new to say either. What this device has seen is read again once
-// the history has answered: another tab (limnSeen is shared) may have seen this version or a later one meanwhile - then
-// nothing is said, and what this tab kept for the change (its tinted lines, its counted moves) goes as if its message had
-// been seen (updForget) - or a version between the one read first and this one: the commits are counted from its commit.
-// Whether this is a first visit is decided again then: a record another tab made meanwhile of this version or a later one
-// stays - this answer may name an older commit - and one of an earlier version makes it a change to say. A history (or a
-// build) that could not be read is not known, never an empty one: the check gives up, records nothing and asks again for
-// the calls it stood for.
+// Whether a document changed since this device last saw it, and if so says so (docUpdateNote). The first visit of a
+// document on a device, and this tab's own rebuild that brought nothing new (context.mine), record what shows as seen -
+// unless a change not yet seen stands, which the rebuild then joins. What shows is the shown build's (docBuild): its
+// commit, not the checkout's newest - a checkout pulled ahead of the pages still has those commits to say when their
+// build comes. When which commits it carries is not known (shownRows), no commit is recorded (''): the next change then
+// names none (describeCommits). What shows being older than what this device has seen (verAfter) is no change: this tab
+// has not caught up yet - a drawn document come back to shows the lines it was left with until it draws its source
+// again, whose change was said while it was off screen - and the read that catches up has nothing new to say either.
+// What this device has seen is read again once the history has answered: another tab (limnSeen is shared) may have seen
+// this version or a later one meanwhile - then nothing is said, and what this tab kept for the change (its tinted
+// lines, its counted moves) goes as if its message had been seen (forgetUpdate) - or a version between the one read
+// first and this one: the commits are counted from its commit. Whether this is a first visit is decided again then: a
+// record another tab made meanwhile of this version or a later one stays - this answer may name an older commit - and
+// one of an earlier version makes it a change to say. A history (or a build) that could not be read is not known, never
+// an empty one: the check gives up, records nothing and asks again for the calls it stood for.
 async function checkDocUpdate(doc: string, context: { mine?: boolean }) {
   if (!doc) return;
   const now = shownDocState(doc);
@@ -370,8 +377,9 @@ async function checkDocUpdate(doc: string, context: { mine?: boolean }) {
   if (seen && ((seen.ver === now.ver && !open) || verAfter(seen.ver, now.ver))) return;
   const first = !seen || (!!context.mine && !open);
   if (seen && !first && seen.ver === now.ver) return;
-  // A check of this version is reading the history: it says it - and if it gives up (its reads failed, or another version
-  // came), it asks again for the calls it stood for (again), so no version is left unchecked by one that did not finish.
+  // A check of this version is reading the history: it says it - and if it gives up (its reads failed, or another
+  // version came), it asks again for the calls it stood for (again), so no version is left unchecked by one that did
+  // not finish.
   const out = UPDATE_STATE.checking.get(doc);
   if (!context.mine && out && out.ver === now.ver) {
     out.again = true;
@@ -441,12 +449,13 @@ function checkDocsSeen() {
     if (doc) checkDocUpdate(doc, {});
   });
 }
-// What document k's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its PR and
-// subject and author; several: how many, their PRs and authors; none named when which are new is not known), the places a
-// drawn document changed, the pins it moved or lost. Its action: [바뀐 곳] on a drawn document of this visit with places,
-// else [변경 보기] when there are commits (the changes view on just them, or as it opens when which are new is not known),
-// [열기] for another document - whose message stands behind this one's (back) - none otherwise. It is seen - limnSeen takes
-// it - once it goes by [x] or its action; a message pushed off the line is not seen and comes again on the next visit.
+// What a document's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its
+// PR and subject and author; several: how many, their PRs and authors; none named when which are new is not known), the
+// places a drawn document changed, the pins it moved or lost. Its action: [바뀐 곳] on a drawn document of this visit
+// with places, else [변경 보기] when there are commits (the changes view on just them, or as it opens when which are
+// new is not known), [열기] for another document - whose message stands behind this one's (back) - none otherwise. It
+// is seen - limnSeen takes it - once it goes by [x] or its action; a message pushed off the line is not seen and comes
+// again on the next visit.
 function docUpdateView(update: any) {
   const doc = update.key,
     commits = update.commits,
@@ -520,33 +529,35 @@ function docUpdateView(update: any) {
     },
   };
 }
-// Document k's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go
-// (updForget). A record of the message's own version is another tab's - the message is said only while the record names
-// an earlier one (checkDocUpdate) - and stays: that tab read the history too, perhaps after a commit this message missed.
+// A document's update message has been seen: limnSeen takes what it said, and its moved pins and changed lines go
+// (forgetUpdate). A record of the message's own version is another tab's - the message is said only while the record
+// names an earlier one (checkDocUpdate) - and stays: that tab read the history too, perhaps after a commit this message
+// missed.
 function docUpdateSeen(doc: string, update: any) {
   const was = seenDoc(doc);
   if (!was || was.ver !== update.ver) setSeenDoc(doc, { ver: update.ver, rev: update.top });
   forgetUpdate(doc);
 }
-// What this tab kept for a change of document k that is seen - its moved pins and its tinted lines - goes. Moves that come
+// What this tab kept for a seen change of a document - its moved pins and its tinted lines - goes. Moves that come
 // after this belong to no message that is due (updPinMoved).
 function forgetUpdate(doc: string) {
   UPDATE_STATE.moved.delete(doc);
   UPDATE_STATE.seenAt.set(doc, Date.now());
   if (UPDATE_STATE.lines.delete(doc)) updMarks();
 }
-// A source or a build is changing (polling.js): for UPD_EXPECT_MS its pins' moves wait for its document's update message.
-// fresh: a source changed now - the wait starts now, so a message seen before it does not end it (updPinMoved).
+// A source or a build is changing (polling.ts): for UPDATE_EXPECT_MS its pins' moves wait for its document's update
+// message. fresh: a source changed now - the wait starts now, so a message seen before it does not end it
+// (updPinMoved).
 function updExpect(fresh?: boolean) {
   const now = Date.now();
   if (fresh || UPDATE_STATE.expect < now) UPDATE_STATE.expectAt = now;
   UPDATE_STATE.expect = now + UPDATE_EXPECT_MS;
 }
-// Pin p moved its lines (lost: lost its place) - counted for its document's update message while that stands or is due, and
-// said there. Due: a change is awaited (updExpect) that this document's message has not been seen for since - after [x] on
-// that message a late move (a maintenance save of the moved place, ADR-0028) is said on its own, not taken into a message
-// that has gone. Returns whether a moved pin is said there (its own message is then left out); a lost pin is always said on
-// its own as well, for it asks for a new place.
+// A pin moved its lines (lost: lost its place) - counted for its document's update message while that stands or is due,
+// and said there. Due: a change is awaited (updExpect) that this document's message has not been seen for since - after
+// [x] on that message a late move (a maintenance save of the moved place, ADR-0028) is said on its own, not taken into
+// a message that has gone. Returns whether a moved pin is said there (its own message is then left out); a lost pin is
+// always said on its own as well, for it asks for a new place.
 function updPinMoved(pin: Pin, lost: boolean): boolean {
   const doc = pdoc(pin),
     group = GROUPS.get('upd:' + doc),
@@ -562,9 +573,9 @@ function updPinMoved(pin: Pin, lost: boolean): boolean {
   if (group) groupRedraw('upd:' + doc);
   return !lost;
 } // on the line, gathered or folded: it says the move there
-// The changes view on the commits the message named, on document k: its source diff of base (the last seen commit) → top
+// The changes view on the commits the message named, on `doc`: its source diff of base (the last seen commit) → top
 // (the newest it named - the shown build's, not the checkout's newest: a checkout ahead of the pages, or a commit come
-// since the message, is not in it), the list painting just them (revisions.js REV.want); without base, the view as it
+// since the message, is not in it), the list painting just them (revisions.ts REV.want); without base, the view as it
 // opens. Another document is switched to first.
 function openUpdateRange(doc: string, base: string, top?: string) {
   const go = () => {
@@ -585,13 +596,13 @@ function openUpdateRange(doc: string, base: string, top?: string) {
 }
 
 // ---------------- A drawn document's changed lines
-// The source of drawn document k was drawn (md-surface.js mdBuild); before: the lines it replaced on screen (null on the
-// visit's first draw). The lines that differ from the base - the lines before the change not yet seen began, kept while
-// its message stands - are tinted (md-upd) while that message stands, and the message says how many places and goes to
-// them. A later change before it is seen is compared with that base again, not with the lines just drawn, so a place changed
-// first stays tinted and counted beside the new one; a return to the document compares what it draws now. A change this
-// device has seen already - its message dismissed while the document was off screen, or in another tab - is no base: the
-// lines it drew are not compared, so no tint stands that no message would take away.
+// The source of drawn document `doc` was drawn (md-surface.ts mdBuild); before: the lines it replaced on screen (null
+// on the visit's first draw). The lines that differ from the base - the lines before the change not yet seen began,
+// kept while its message stands - are tinted (md-upd) while that message stands, and the message says how many places
+// and goes to them. A later change before it is seen is compared with that base again, not with the lines just drawn,
+// so a place changed first stays tinted and counted beside the new one; a return to the document compares what it draws
+// now. A change this device has seen already - its message dismissed while the document was off screen, or in another
+// tab - is no base: the lines it drew are not compared, so no tint stands that no message would take away.
 function updSourceRedrawn(doc: string, before: string[] | null, now: string[]) {
   const changed = UPDATE_STATE.lines.get(doc),
     seen = seenDoc(doc),
@@ -614,15 +625,15 @@ function updSourceRedrawn(doc: string, before: string[] | null, now: string[]) {
   }
   if (!same) groupRedraw('upd:' + doc);
 } // its message says the places, on the line, gathered or folded
-// Tints the changed lines of the document on screen (after every draw of it, md-surface.js mdShow), and only those.
+// Tints the changed lines of the document on screen (after every draw of it, md-surface.ts mdShow), and only those.
 function updMarks() {
   $$('#md .md-upd').forEach((line) => line.classList.remove('md-upd'));
   const changed = UPDATE_STATE.lines.get(DOC || '');
   if (!changed || !isMdDoc()) return;
   changed.ranges.forEach((range) => mdLeaves(range.lo, range.hi).forEach((line) => line.classList.add('md-upd')));
 }
-// [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's lines
-// (mdShowLines: the reading spot is read where it lands).
+// [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's
+// lines (mdShowLines: the reading spot is read where it lands).
 function goToNextChange(doc: string) {
   if (doc !== DOC) {
     switchDoc(doc);
@@ -637,13 +648,13 @@ function goToNextChange(doc: string) {
 }
 
 // ---------------- Others' new pins
-// Each pin snapshot (list.js applyPinLists): pins others made since the highest number this tab - or, on the first snapshot,
-// this device (limnSeen.pin) - had seen, one message per document. The first visit of a device says nothing.
+// Each pin snapshot (list.ts applyPinLists): pins others made since the highest number this tab - or, on the first
+// snapshot, this device (limnSeen.pin) - had seen, one message per document. The first visit of a device says nothing.
 function updNewPins(rows: Pin[]) {
   const me = (META && META.me && META.me.login) || '',
     max = (rows || []).reduce((highest, pin) => Math.max(highest, pin.id), 0);
-  // the highest this device has seen stands even when the pins above the list's highest were deleted since: one restored
-  // later keeps its number, and it is no new pin
+  // the highest this device has seen stands even when the pins above the list's highest were deleted since: one
+  // restored later keeps its number, and it is no new pin
   if (UPDATE_STATE.top === null) {
     const seen = seenPin();
     UPDATE_STATE.top = Math.max(max, seen === null ? 0 : seen);
@@ -693,9 +704,10 @@ function announceNewPins(pins: Pin[]) {
     ),
   );
 }
-// What a document's new-pins message says: one pin by its number, who made it, where and the start of its memo ('새 핀 #14 —
-// Bob Park · 3쪽 · 서론 첫 문장…', a verdict pin '새 판정 #15 — … · 채택'); more as a count with their numbers and makers.
-// Another document's names it ('부록에 새 핀 2개'). [보기] opens the first; on this document it marks [핀 N].
+// What a document's new-pins message says: one pin by its number, who made it, where and the start of its memo ('새 핀
+// #14 — Bob Park · 3쪽 · 서론 첫 문장…', a verdict pin '새 판정 #15 — … · 채택'); more as a count with their numbers
+// and makers. Another document's names it ('부록에 새 핀 2개'). [보기] opens the first; on this document it marks [핀
+// N].
 function newPinsView(news: any) {
   const here = news.doc === DOC,
     pins = news.pins,
@@ -735,10 +747,11 @@ function newPinsView(news: any) {
 
 // ---------------- Limn itself was updated
 // The page's version (the [더보기] foot's 'v0.4.51', filled in when the server made the page) and the server's (GET
-// /api/version, asked by polling.js after a lost connection comes back, on return and every VERSION_EVERY_MS): when they
-// differ, this tab runs the old viewer against a new server, and the status line says so with [새로 고침] until it reloads.
-// A call while one is out (busy) is left to it, and asked again once it is answered (again): the one out may fail, or have
-// been answered by the process a restart has just replaced - the return after a lost connection must not go unasked.
+// /api/version, asked by polling.ts after a lost connection comes back, on return and every VERSION_EVERY_MS): when
+// they differ, this tab runs the old viewer against a new server, and the status line says so with [새로 고침] until it
+// reloads. A call while one is out (busy) is left to it, and asked again once it is answered (again): the one out may
+// fail, or have been answered by the process a restart has just replaced - the return after a lost connection must not
+// go unasked.
 const VERSION = { page: '', server: '', at: 0, busy: false, again: false };
 const VERSION_EVERY_MS = 60000;
 function versionDue() {
@@ -777,8 +790,9 @@ async function checkVersion() {
   }
   if (VERSION.again) checkVersion();
 }
-// [새로 고침]: reloads this tab - the composer's draft and the reading spot are kept (sessionStorage), what waits behind an undo
-// is sent first - unless a reply or an edit is being written, which a reload would lose: that is said instead.
+// [새로 고침]: reloads this tab - the composer's draft and the reading spot are kept (sessionStorage), what waits
+// behind an undo is sent first - unless a reply or an edit is being written, which a reload would lose: that is said
+// instead.
 function reloadForUpdate() {
   const replyField = REPLY && replyNote(REPLY),
     typing = !!(replyField && replyField.value.trim()) || REPLY_DRAFT.size > 0 || editDirty();

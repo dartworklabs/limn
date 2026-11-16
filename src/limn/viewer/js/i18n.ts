@@ -15,8 +15,8 @@ function tr(text) {
   return text.replace(trimmed, I18N_EN[trimmed]);
 }
 // Composed UI strings: tl('{n}쪽',{n:3}). The Korean key is the template and the Korean output; in English the
-// table value is the template - a string, or plural forms {"one":...,"other":...} picked by p.n. {x} placeholders
-// are filled from p (values are inserted as given - escape them first if the result goes into HTML).
+// table value is the template - a string, or plural forms {"one":...,"other":...} picked by values.n. {x} placeholders
+// are filled from `values` (inserted as given - escape them first if the result goes into HTML).
 function tl(key, values) {
   let pattern = key;
   if (LANG === UI_LANG.EN && Object.prototype.hasOwnProperty.call(I18N_EN, key)) {
@@ -80,14 +80,15 @@ function warnText(text) {
   }
   return text;
 }
-// What people wrote is never translated (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때): document names, notes, authors and thread
-// posts are drawn under translate="no", and the translator leaves that subtree - its text and its UI attributes - alone, so a
-// document named '그림' or a note that reads '완료' stays as written. The UI words drawn inside it are tr()'d by the code that
-// draws them. el is an element (an SVG one has no translate and counts as translatable).
+// What people wrote is never translated (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때): document names, notes, authors
+// and thread posts are drawn under translate="no", and the translator leaves that subtree - its text and its UI
+// attributes - alone, so a document named '그림' or a note that reads '완료' stays as written. The UI words drawn
+// inside it are tr()'d by the code that draws them. Asked of an element (an SVG one has no translate and counts as
+// translatable).
 function i18nUser(element) {
   return !!element && element.translate === false;
 }
-// Translates el's UI attributes in place, unless el is user text.
+// Translates an element's UI attributes in place, unless it is user text.
 function translateAttributes(element) {
   if (i18nUser(element)) return;
   for (const attribute of I18N_ATTRS) {
@@ -98,7 +99,7 @@ function translateAttributes(element) {
     }
   }
 }
-// Translates text node n in place, unless it sits in a text field, a script or style, or user text.
+// Translates a text node in place, unless it sits in a text field, a script or style, or user text.
 function i18nText(node) {
   const parent = node.parentNode;
   if (!parent || /^(TEXTAREA|SCRIPT|STYLE)$/.test(parent.nodeName) || i18nUser(parent)) return;
@@ -120,15 +121,15 @@ function i18nTree(root) {
     else translateAttributes(node);
   }
 }
-// Checks the current language in [더보기]'s language segment, then in English translates the page once and everything drawn or
-// changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
+// Checks the current language in [더보기]'s language segment, then in English translates the page once and everything
+// drawn or changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
 function i18nStart() {
   for (const radio of document.querySelectorAll('#m-lang [role=radio]') as NodeListOf<HTMLElement>) {
     const on = radio.dataset.lang === LANG;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  segRove($('#m-lang')); // the group's one Tab stop is the language now chosen (events.js)
+  segRove($('#m-lang')); // the group's one Tab stop is the language now chosen (events.ts)
   if (LANG !== UI_LANG.EN) return;
   i18nTree(document.body);
   new MutationObserver((mutations) => {
@@ -153,10 +154,11 @@ function i18nStart() {
     attributeFilter: I18N_ATTRS,
   });
 }
-// [더보기]'s language segment: saves lang (ko or en) as this device's choice and reloads in it - the tab's draft is kept
-// (sessionStorage). The language on screen does nothing; nothing asks first. A ?lang= would beat the saved choice, so the
-// reload drops it and keeps the hash (document and place). Without one the address is unchanged, and replacing an address
-// that has a hash with itself only jumps to that hash inside the page, loading nothing - so that case reloads.
+// [더보기]'s language segment: saves lang (ko or en) as this device's choice and reloads in it - the tab's draft is
+// kept (sessionStorage). The language on screen does nothing; nothing asks first. A ?lang= would beat the saved choice,
+// so the reload drops it and keeps the hash (document and place). Without one the address is unchanged, and replacing
+// an address that has a hash with itself only jumps to that hash inside the page, loading nothing - so that case
+// reloads.
 function switchLang(lang) {
   if ((lang !== UI_LANG.KO && lang !== UI_LANG.EN) || lang === LANG) return;
   try {

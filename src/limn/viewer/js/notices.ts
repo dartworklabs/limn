@@ -1,14 +1,15 @@
 // ------------------------------------------------ Messages in context (docs/handbook/viewer.md §알림 자리)
-// The viewer has no toast (#167): every message has a home where it happened.
-// - A success is silent unless it can be undone; a silent one is still read out (#sr-news, quietNote). An undo sits where the
-//   action was (undoNote): a chip on the new pin's mark, a row in the card's place, a note in the card, a row in the Trash -
-//   or the status line when that place is not on screen.
-// - An error or a conflict is a banner at the top of the panel or section concerned (bannerNote), with its action - or, when
-//   that place is not on screen now, the same on the status line, read out as an alert, with a dot on the chip that leads
-//   there (rule 1: an error appears where the person can see it now; errors come first on the line).
-// - Background events and first-visit hints go to the status line (lineNote); a background event also puts a red dot on the
-//   chip that leads to it ([핀 N], [검토 M]) until the person looks there.
-// - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule 2).
+// The viewer has no toast: every message has a home where it happened.
+// - A success is silent unless it can be undone; a silent one is still read out (#sr-news, quietNote). An undo sits
+//   where the action was (undoNote): a chip on the new pin's mark, a row in the card's place, a note in the card, a row
+//   in the Trash - or the status line when that place is not on screen.
+// - An error or a conflict is a banner at the top of the panel or section concerned (bannerNote), with its action - or,
+//   when that place is not on screen now, the same on the status line, read out as an alert, with a dot on the chip
+//   that leads there (rule 1: an error appears where the person can see it now; errors come first on the line).
+// - Background events and first-visit hints go to the status line (lineNote); a background event also puts a red dot on
+//   the chip that leads to it ([핀 N], [검토 M]) until the person looks there.
+// - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule
+//   2).
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
 import {
   $,
@@ -37,9 +38,12 @@ import { dropBareDayLines, placeRow } from './list.ts';
 import { EDITOR } from './edit.ts';
 import type { Html } from './markup.ts';
 
-const NOTICE_MS = 6000; // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
-const NOTICE_HOLD_MAX = 30000; // a hold (a mouse on it, the '+N' list open) stretches a window by at most this: a send always goes
-const VERDICT_CHIP_HOLD_MAX = 4000; // ...and a page verdict line's save chip by at most this: a mouse resting by the words kept it up for 30s
+// the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
+const NOTICE_MS = 6000;
+// a hold (a mouse on it, the '+N' list open) stretches a window by at most this: a send always goes
+const NOTICE_HOLD_MAX = 30000;
+// ...and a page verdict line's save chip by at most this, so a mouse resting by the words does not keep it up for 30s
+const VERDICT_CHIP_HOLD_MAX = 4000;
 const LINE_MAX = 5; // the status line keeps five messages besides its undos (lineCap); its '+N' lists the rest
 const NOTICES = new Map() as Map<number, Notice>;
 const LINE = [] as Notice[]; // the status line's messages, newest first
@@ -52,24 +56,25 @@ const NOTICE_ICONS = {
   [NOTICE_KIND.ERR]: () => ic('circle-x'),
   [NOTICE_KIND.INFO]: () => ic('info'),
 } as Record<string, () => Html>;
-// The lead icon of a message of kind (NOTICE_KIND); an unknown kind draws the success one.
+// The lead icon of a message of `kind` (NOTICE_KIND); an unknown kind draws the success one.
 function noticeIcon(kind: string): Html {
   return (NOTICE_ICONS[kind] || NOTICE_ICONS[NOTICE_KIND.OK])();
 }
 
-// A message as [title, description]: everything before the first ' — ' (else the first ' · ') is the title, so the title of
-// '핀 #10 · 본문 — 서준님이 불렀습니다: …' is '핀 #10 · 본문'. A message without either is all title. Pure.
+// A message as [title, description]: everything before the first ' — ' (else the first ' · ') is the title, so the
+// title of '핀 #10 · 본문 — 서준님이 불렀습니다: …' is '핀 #10 · 본문'. A message without either is all title. Pure.
 function splitMessage(message: unknown): [string, string] {
   const text = String(message == null ? '' : message),
     match = /^(.+?) — (.+)$/.exec(text) || /^(.+?) · (.+)$/.exec(text);
   return match ? [match[1], match[2]] : [text, ''];
 }
 
-// One event announced twice is shown once (QA: a focused tab showed both '핀 #37 · 본문 — 검토 대기: …' and '#37 이 검토 대기로
-// 넘어왔습니다'). shown = the messages on the line; keys = the new message's event keys ('review_requested:37'), rank its path
-// (the browser-notification path 2, the list comparison 1). Among shown messages younger than 8 seconds that share a key: a
-// higher rank holding every key suppresses the new one ({skip:true}); a lower rank is replaced by it (drop). The same rank is
-// the same path and so another event (a second review request after a reopen): never suppressed. No keys, no check. Pure.
+// One event announced twice is shown once (a focused tab gets both '핀 #37 · 본문 — 검토 대기: …' and '#37 이 검토
+// 대기로 넘어왔습니다' for one event). shown = the messages on the line; keys = the new message's event keys
+// ('review_requested:37'), rank its path (the browser-notification path 2, the list comparison 1). Among shown messages
+// younger than 8 seconds that share a key: a higher rank holding every key suppresses the new one ({skip:true}); a
+// lower rank is replaced by it (drop). The same rank is the same path and so another event (a second review request
+// after a reopen): never suppressed. No keys, no check. Pure.
 function noticeDupe<Entry extends { at: number; keys: string[]; rank: number }>(
   shown: Entry[],
   keys: string[],
@@ -86,38 +91,38 @@ function noticeDupe<Entry extends { at: number; keys: string[]; rank: number }>(
   return { skip: false, drop };
 }
 
-// Where a banner goes (a NOTICE_HOST): the Trash while it is open as a modal - the page under it is inert, so a banner there
-// could be neither read nor dismissed - else the host the call names, else the composer while one is open, else the top of
-// the panel. Pure.
+// Where a banner goes (a NOTICE_HOST): the Trash while it is open as a modal - the page under it is inert, so a banner
+// there could be neither read nor dismissed - else the host the call names, else the composer while one is open, else
+// the top of the panel. Pure.
 function bannerHost(want: string | undefined, screen: { trashOpen: boolean; composerOpen: boolean }): string {
   if (screen.trashOpen) return NOTICE_HOST.TRASH;
   if (want) return want;
   return screen.composerOpen ? NOTICE_HOST.COMPOSER : NOTICE_HOST.LIST;
 }
-// Whether a banner host is on screen now (rule 1): the Trash while it is open; the composer while one is open in the shown
-// panel (the phone's unfolded sheet); the list and the review section while the panel is shown. A banner whose host is not
-// goes to the status line instead (bannerNote). Pure.
+// Whether a banner host is on screen now (rule 1): the Trash while it is open; the composer while one is open in the
+// shown panel (the phone's unfolded sheet); the list and the review section while the panel is shown. A banner whose
+// host is not goes to the status line instead (bannerNote). Pure.
 function bannerShown(host: string, screen: { sideOpen: boolean; trashOpen: boolean; composerOpen: boolean }): boolean {
   if (host === NOTICE_HOST.TRASH) return screen.trashOpen;
   if (host === NOTICE_HOST.COMPOSER) return screen.sideOpen && screen.composerOpen;
   return screen.sideOpen;
 }
 
-// Whether an undo can be shown where its action happened; if not it goes to the status line. A row or a card note needs the
-// panel open and its section expanded, a Trash row the Trash open; a chip waits for its mark (drawChips). Pure.
+// Whether an undo can be shown where its action happened; if not it goes to the status line. A row or a card note needs
+// the panel open and its section expanded, a Trash row the Trash open; a chip waits for its mark (drawChips). Pure.
 function offerSeen(place: string, screen: { sideOpen: boolean; secOpen: boolean; trashOpen: boolean }): boolean {
   if (place === NOTICE_PLACE.TRASH) return screen.trashOpen;
   if (place === NOTICE_PLACE.ROW || place === NOTICE_PLACE.CARD) return screen.sideOpen && screen.secOpen;
   return true;
 }
 
-// The dot a background message puts on a chip (a NOTICE_DOT, or '' for none): [검토 M]'s always; [핀 N]'s only while the
-// panel is closed - an open panel already shows the list. Pure.
+// The dot a background message puts on a chip (a NOTICE_DOT, or '' for none): [검토 M]'s always; [핀 N]'s only while
+// the panel is closed - an open panel already shows the list. Pure.
 function noticeDot(want: string, sideOpen: boolean): string {
   return want === NOTICE_DOT.SIDE && sideOpen ? '' : want || '';
 }
 
-// Registers a new message from its fields; msg is split into its title and description (msgSplit).
+// Registers a new message from its fields; fields.msg is split into its title and description (splitMessage).
 function makeNotice(fields: Partial<Notice> & { msg: string }): Notice {
   const [title, description] = splitMessage(fields.msg);
   const notice = {
@@ -181,14 +186,14 @@ function quietNote(message: string) {
   announce(trMsg(message));
 }
 
-// Puts a message on the status line, newest first, and returns it - or null when it repeats one already there (noticeDupe).
-// o: literal (msg is already in the UI language and quotes what people wrote, so it is not translated), keys and rank, life
-// (NOTICE_LIFE: STICKY until [x] or its action, CLICK until a press elsewhere, TIMER for NOTICE_MS), dot (the chip it marks,
-// noticeDot), topic (a hint's, endTopic), gone (runs when it leaves other than by its action), alert (a warning read out as
-// an alert: a banner whose place was not on screen), source (an error's: one entry per source - sourceEntry), undo (it
-// offers an undo: lineCap never evicts it). An error is
-// always an alert: read out assertively (#sr-alert) and first on the line (statusList). An error from a source that already
-// has one replaces it - and when its words are the same it is that one, kept and not said again. Past LINE_MAX the oldest
+// Puts a message on the status line, newest first, and returns it - or null when it repeats one already there
+// (noticeDupe). options: literal (the message is already in the UI language and quotes what people wrote, so it is not
+// translated), keys and rank, life (NOTICE_LIFE: STICKY until [x] or its action, CLICK until a press elsewhere, TIMER
+// for NOTICE_MS), dot (the chip it marks, noticeDot), topic (a hint's, endTopic), gone (runs when it leaves other than
+// by its action), alert (a warning read out as an alert: a banner whose place was not on screen), source (an error's:
+// one entry per source - sourceEntry), undo (it offers an undo: lineCap never evicts it). An error is always an alert:
+// read out assertively (#sr-alert) and first on the line (statusList). An error from a source that already has one
+// replaces it - and when its words are the same it is that one, kept and not said again. Past LINE_MAX the oldest
 // information leaves, then the oldest error, never an undo (lineCap). Any other message is read out by the line when it
 // shows it, else - another one holds the line - politely (#sr-news).
 function lineNote(message: string, kind: string, act?: NoticeAct | null, options?: Partial<Notice>): Notice | null {
@@ -196,7 +201,8 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
   const keys = options.keys || [],
     rank = options.rank || 1,
     text = options.literal ? String(message) : trMsg(message);
-  if (digestHold(message, kind, act, options)) return null; // gathered while a person was away (digestBegin): said once, together
+  // gathered while a person was away (digestBegin): said once, together
+  if (digestHold(message, kind, act, options)) return null;
   if (options.source) {
     const old = sourceEntry(options.source);
     if (old) {
@@ -217,7 +223,7 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
   });
   if (notice.back) LINE.push(notice);
   else if (notice.group) LINE.splice(newsSlot(), 0, notice);
-  else LINE.unshift(notice); // news: behind the undos (newsSlot); another document's behind all (updates.js)
+  else LINE.unshift(notice); // news: behind the undos (newsSlot); another document's behind all (updates.ts)
   lineCap();
   if (notice.dot) document.body.classList.add('dot-' + notice.dot);
   drawStatus();
@@ -226,10 +232,10 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
   else if (STATUS_TOP !== notice.n && !notice.quiet) announce(noticeText(notice));
   return notice;
 }
-// The line's cap (rule 2): it keeps LINE_MAX messages besides its undos and what must stay (keep: a document's update, a
-// gathered line). Past that the oldest piece of information leaves, then the oldest error - oldest by when it came (at), as
-// news may stand behind older messages (newsSlot, back) - never the newest message, and never an undo, which leaves only by
-// its window, its [되돌리기] or its [x] (an evicted deferred send would go early).
+// The line's cap (rule 2): it keeps LINE_MAX messages besides its undos and what must stay (keep: a document's update,
+// a gathered line). Past that the oldest piece of information leaves, then the oldest error - oldest by when it came
+// (at), as news may stand behind older messages (newsSlot, back) - never the newest message, and never an undo, which
+// leaves only by its window, its [되돌리기] or its [x] (an evicted deferred send would go early).
 function lineCap() {
   for (;;) {
     const kept = LINE.filter((notice) => !isUndo(notice) && !notice.keep);
@@ -240,17 +246,17 @@ function lineCap() {
     endNotice((oldest(rest.filter((notice) => !notice.alert)) || oldest(rest)) as Notice, false);
   }
 }
-// Whether message n offers an undo: made as one (undoNote, a discarded selection) or holding a deferred send (gone).
+// Whether a message offers an undo: made as one (undoNote, a discarded selection) or holding a deferred send (gone).
 function isUndo(notice: Notice): boolean {
   return notice.undo || !!notice.gone;
 }
-// Whether message n already says text (its title and description, as msgSplit cuts it) as kind.
+// Whether a message already says `text` (its title and description, as splitMessage cuts it) as `kind`.
 function sameWords(notice: Notice, text: string, kind: string): boolean {
   const [title, description] = splitMessage(text);
   return notice.kind === kind && notice.title === title && notice.desc === description;
 }
-// The message an error source has standing (one at most - a repeat replaces it), or null. A source is a request (its method
-// and URL, which names its pin and document, with what it asks of that URL - api()'s intent) or a named one.
+// The message an error source has standing (one at most - a repeat replaces it), or null. A source is a request (its
+// method and URL, which names its pin and document, with what it asks of that URL - api()'s intent) or a named one.
 function sourceEntry(source: string): Notice | null {
   for (const notice of NOTICES.values()) if (notice.source === source) return notice;
   return null;
@@ -263,11 +269,12 @@ function sourceOk(source: string) {
     });
 }
 
-// Puts a banner on top of its host's panel or section (bannerHost), replacing the one there, and scrolls it into view. ERR and
-// WARN banners are alerts, read out when drawn; OK and INFO ones are read out politely. o.save marks a failed save: the
-// composer's button then reads [다시 저장]. A host not on screen now (bannerShown) - the Trash closed, the panel collapsed,
-// the phone's sheet folded - gets nothing: the message goes to the status line instead, ERR and WARN as alerts, with the dot
-// on the chip that leads there ([검토 M] for the review section's, else [핀 N]). Returns the message drawn.
+// Puts a banner on top of its host's panel or section (bannerHost), replacing the one there, and scrolls it into view.
+// ERR and WARN banners are alerts, read out when drawn; OK and INFO ones are read out politely. options.save marks a
+// failed save: the composer's button then reads [다시 저장]. A host not on screen now (bannerShown) - the Trash closed,
+// the panel collapsed, the phone's sheet folded - gets nothing: the message goes to the status line instead, ERR and
+// WARN as alerts, with the dot on the chip that leads there ([검토 M] for the review section's, else [핀 N]). Returns
+// the message drawn.
 function bannerNote(
   host: string | undefined,
   message: string,
@@ -284,7 +291,8 @@ function bannerNote(
       alert: kind === NOTICE_KIND.ERR || kind === NOTICE_KIND.WARN,
       dot: shownHost === NOTICE_HOST.REVIEW ? NOTICE_DOT.RV : NOTICE_DOT.SIDE,
     });
-  const text = options.literal ? String(message) : trMsg(message); // a source's repeat in the same words is the banner already there: not drawn or said again
+  // a source's repeat in the same words is the banner already there: not drawn or said again
+  const text = options.literal ? String(message) : trMsg(message);
   if (options.source) {
     const same = sourceEntry(options.source);
     if (same) {
@@ -309,18 +317,20 @@ function bannerNote(
   return notice;
 }
 
-// Offers an undo where the action happened (place CHIP, ROW, CARD or TRASH; offerSeen) or, when that place is not on screen,
-// on the status line. o: pin, sec (its list section: 'open', 'review' or 'done') and prev (the pin drawn before it), label (a
-// chip's short text; the whole message is what is read out), life (TIMER: NOTICE_MS, unless given - rule 2, no other press
-// ends it), gone, pending (a chip whose mark comes only with the next list reload: settleChip). act.tip defaults to T.undo;
-// act.wait = its action sends a request, and the undo stays until that is answered (noticeAct).
+// Offers an undo where the action happened (place CHIP, ROW, CARD or TRASH; offerSeen) or, when that place is not on
+// screen, on the status line. options: pin, sec (its list section: 'open', 'review' or 'done') and prev (the pin drawn
+// before it), label (a chip's short text; the whole message is what is read out), life (TIMER: NOTICE_MS, unless given
+// - rule 2, no other press ends it), gone, pending (a chip whose mark comes only with the next list reload:
+// settleChip). act.tip defaults to T.undo; act.wait = its action sends a request, and the undo stays until that is
+// answered (noticeAct).
 function undoNote(place: string, message: string, act: NoticeAct, options: Partial<Notice>): Notice {
   const action = { tip: T.undo, ...act },
     life = options.life || NOTICE_LIFE.TIMER;
   if (
     !offerSeen(place, { sideOpen: SIDE_OPEN, secOpen: !options.sec || !!SEC[options.sec], trashOpen: $('#trash').open })
   )
-    return lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true }) as Notice; // no keys: never suppressed
+    // no keys: never suppressed
+    return lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true }) as Notice;
   const notice = makeNotice({
     ...options,
     life,
@@ -330,8 +340,8 @@ function undoNote(place: string, message: string, act: NoticeAct, options: Parti
     act: action,
     place,
   });
-  // One save chip on the pages at a time, the newest: an earlier one takes its undo to the status line (offerToLine), as a
-  // chip whose mark went does - several pages each showing a chip read as several things to answer.
+  // One save chip on the pages at a time, the newest: an earlier one takes its undo to the status line (offerToLine),
+  // as a chip whose mark went does - several pages each showing a chip read as several things to answer.
   if (place === NOTICE_PLACE.CHIP)
     [...NOTICES.values()].filter((x) => x !== notice && x.place === NOTICE_PLACE.CHIP).forEach(offerToLine);
   armNotice(notice);
@@ -340,14 +350,14 @@ function undoNote(place: string, message: string, act: NoticeAct, options: Parti
   return notice;
 }
 
-// Whether an undo row stands in list section sec ('open', 'review'): drawPins keeps that section shown while one does.
+// Whether an undo row stands in list `section` ('open', 'review'): drawPins keeps that section shown while one does.
 function offersIn(section: string): boolean {
   for (const notice of NOTICES.values()) if (notice.place === NOTICE_PLACE.ROW && notice.sec === section) return true;
   return false;
 }
 
-// The id of the element drawn just before pin id's in box (both matching sel: '.pin.card', '.arc-row'), or null - where a
-// row left in its place goes. Reads the page.
+// The id of the element drawn just before pin id's in box (both matching `selector`: '.pin.card', '.arc-row'), or null
+// - where a row left in its place goes. Reads the page.
 function drawnBefore(box: HTMLElement, selector: string, id: number | null): number | null {
   const own = box.querySelector(selector + '[data-id="' + id + '"]');
   let before = own && own.previousElementSibling;
@@ -367,12 +377,12 @@ function drawOffer(notice: Notice) {
   else drawOffers();
 }
 
-// Starts (or restarts) a message's life: a TIMER one ends after NOTICE_MS. While it is held (noticeHeld: a mouse on it, or
-// for one on the status line the line held) its window waits, and starts from the start again when the hold ends, as the
-// toast did - but a hold never stretches it past NOTICE_HOLD_MAX beyond its first window, so no hold can keep it (and a
-// send it holds) forever. Not held by the focus, which a reply sent with Ctrl+Enter puts on its [되돌리기], so the send would
-// wait for the focus to move; stopped while its action's request is out (busy, noticeAct). CLICK and STICKY ones wait for
-// the press listener below, [x] or their action.
+// Starts (or restarts) a message's life: a TIMER one ends after NOTICE_MS. While it is held (noticeHeld: a mouse on it,
+// or for one on the status line the line held) its window waits, and starts from the start again when the hold ends -
+// but a hold never stretches it past NOTICE_HOLD_MAX beyond its first window, so no hold can keep it (and a send it
+// holds) forever. Not held by the focus, which a reply sent with Ctrl+Enter puts on its [되돌리기], so the send would
+// wait for the focus to move; stopped while its action's request is out (busy, noticeAct). CLICK and STICKY ones wait
+// for the press listener below, [x] or their action.
 function armNotice(notice: Notice) {
   if (notice.life !== NOTICE_LIFE.TIMER) return;
   clearTimeout(notice.timer);
@@ -395,16 +405,16 @@ function armNotice(notice: Notice) {
     Math.max(0, notice.held ? left : Math.min(NOTICE_MS, left)),
   );
 }
-// Whether message n's window is held now: one on the status line while the line is (lineHeld); one drawn in place while a
-// mouse is on its element - still in the page and under the pointer, so no hold outlives what was hovered.
+// Whether a message's window is held now: one on the status line while the line is (lineHeld); one drawn in place while
+// a mouse is on its element - still in the page and under the pointer, so no hold outlives what was hovered.
 function noticeHeld(notice: Notice): boolean {
   if (notice.place === NOTICE_PLACE.LINE) return lineHeld();
   return notice.hover && !!notice.el && notice.el.isConnected && notice.el.matches(':hover');
 }
-// The status line holds its messages' windows while a mouse is on it (LINE_HOVER) or its '+N' list is open: what it shows
-// there is being read. The hover ends however the pointer leaves - out of the line, cancelled, out of the window - and when
-// the line hides or loses a message (lineVisible, endNotice): a hold never outlives the thing hovered. holdLine stops the
-// windows (bounded, armNotice); releaseLine starts each held one again once nothing holds.
+// The status line holds its messages' windows while a mouse is on it (LINE_HOVER) or its '+N' list is open: what it
+// shows there is being read. The hover ends however the pointer leaves - out of the line, cancelled, out of the window
+// - and when the line hides or loses a message (lineVisible, endNotice): a hold never outlives the thing hovered.
+// holdLine stops the windows (bounded, armNotice); releaseLine starts each held one again once nothing holds.
 let LINE_HOVER = false;
 function lineHeld() {
   return LINE_HOVER || $('#status-list').open;
@@ -419,8 +429,8 @@ function releaseLine() {
     if (notice.held) armNotice(notice);
   });
 }
-// A mouse moves over the line: the hover starts with a real movement (realMove), never with the line drawn under a resting
-// pointer - that would hold every undo appearing there. A touch never holds: its pointer leaves as it lifts.
+// A mouse moves over the line: the hover starts with a real movement (realMove), never with the line drawn under a
+// resting pointer - that would hold every undo appearing there. A touch never holds: its pointer leaves as it lifts.
 function lineHoverIn(move: {
   pointerType?: string;
   movementX?: number;
@@ -432,11 +442,12 @@ function lineHoverIn(move: {
   LINE_HOVER = true;
   holdLine();
 }
-// The pointer's position at the last move the page saw (document pointermove, after the element's own listener has run).
+// The pointer's position at the last move the page saw (document pointermove, after the element's own listener has
+// run).
 let LAST_POINTER_AT = null as { x: number; y: number } | null;
-// Whether pointer move e is a mouse really moving: a non-zero delta, by its own movement or against the last position seen.
-// A move the browser makes up under a resting pointer when the page changes under it has neither, so a message drawn under
-// a still pointer is not hovered until the mouse moves over it.
+// Whether pointer move e is a mouse really moving: a non-zero delta, by its own movement or against the last position
+// seen. A move the browser makes up under a resting pointer when the page changes under it has neither, so a message
+// drawn under a still pointer is not hovered until the mouse moves over it.
 function realMove(move: {
   pointerType?: string;
   movementX?: number;
@@ -474,9 +485,9 @@ document.addEventListener('pointerout', (event) => {
 window.addEventListener('blur', lineHoverOut);
 $('#status-list').addEventListener('close', releaseLine);
 
-// Takes a message away from its store and the screen. acted = its own action ended it: gone does not run (the action replaces
-// it). acted or seen ([x]) = the person has read it: its dot goes unless another message still holds it (dotHeld). One
-// leaving the line ends the line's hover (lineHoverOut). Idempotent.
+// Takes a message away from its store and the screen. acted = its own action ended it: gone does not run (the action
+// replaces it). acted or seen ([x]) = the person has read it: its dot goes unless another message still holds it
+// (dotHeld). One leaving the line ends the line's hover (lineHoverOut). Idempotent.
 function endNotice(notice: Notice, acted: boolean, seen?: boolean) {
   if (!NOTICES.has(notice.n)) return;
   NOTICES.delete(notice.n);
@@ -512,26 +523,27 @@ function endNotice(notice: Notice, acted: boolean, seen?: boolean) {
     gone();
   }
 }
-// The chips message n marks: its dot, or a gathered message's dots (digestEnd). Pure.
+// The chips a message marks: its dot, or a gathered message's dots (digestEnd). Pure.
 function noticeDots(notice: Notice): string[] {
   return notice.dots && notice.dots.length ? notice.dots : notice.dot ? [notice.dot] : [];
 }
 function holdsDot(notice: Notice, dot: string): boolean {
   return noticeDots(notice).includes(dot);
 }
-// Whether a message still marks chip d: one on the line (a gathered line by what it holds), or one being gathered (DIGEST),
-// whose dot went on as it was gathered (digestHold) and stays until it is said or seen.
+// Whether a message still marks chip `dot`: one on the line (a gathered line by what it holds), or one being gathered
+// (DIGEST), whose dot went on as it was gathered (digestHold) and stays until it is said or seen.
 function dotHeld(dot: string): boolean {
   return LINE.some((x) => holdsDot(x, dot)) || (!!DIGEST && digestDots([...DIGEST.items.values()]).includes(dot));
 }
 
-// Read before message n goes. A button of it with the focus goes with it, and what is returned, called once it has gone, finds
-// the focus a place: on a document with page lines the line of the page the button was on (a chip's) or the reading page's, else
-// the pages - never nothing, so Tab goes on from there and not from the top of the page. Called where nothing took the focus
-// meanwhile; a press with a reason being typed leaves it in its field (noticeAct). With a card's editor or reply open it is left
-// out of the pages: there a digit is the pages' verdict key (verdictKey shuts them for a focus outside the pages), and a person
-// in the middle of a reply did not ask for that. anyDoc: on a document without page lines too. An action's press goes without
-// it, for the action may put the focus where it wants; the window's end and [x] have no action.
+// Read before a message goes. A button of it with the focus goes with it, and what is returned, called once it has
+// gone, finds the focus a place: on a document with page lines the line of the page the button was on (a chip's) or the
+// reading page's, else the pages - never nothing, so Tab goes on from there and not from the top of the page. Called
+// where nothing took the focus meanwhile; a press with a reason being typed leaves it in its field (noticeAct). With a
+// card's editor or reply open it is left out of the pages: there a digit is the pages' verdict key (verdictKey shuts
+// them for a focus outside the pages), and a person in the middle of a reply did not ask for that. anyDoc: on a
+// document without page lines too. An action's press goes without it, for the action may put the focus where it wants;
+// the window's end and [x] have no action.
 function noticeFocusBack(notice: Notice, anyDoc?: boolean): () => void {
   const focused = document.activeElement as HTMLElement | null;
   const own = !!focused && !!focused.closest && !!focused.closest('[data-act^="notice-"][data-n="' + notice.n + '"]');
@@ -545,16 +557,16 @@ function noticeFocusBack(notice: Notice, anyDoc?: boolean): () => void {
   };
 }
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
-// take-back has too (verdict.js CANCEL_ANSWER_WAIT). A let: the tests shorten it.
+// take-back has too (verdict.ts CANCEL_ANSWER_WAIT). A let: the tests shorten it.
 let NOTICE_ACT_WAIT = 8000;
-// [되돌리기], [다시 시도], [보기]… on message num: the message goes and its action runs. An action that sends a request
-// (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its window stopped,
-// until the request is answered (rule 1: not cleared as if it had worked) - a failure then says itself where it can be seen.
-// Past NOTICE_ACT_WAIT without an answer the message says the answer is late (noticeLate); the answer, whenever it comes,
-// is still taken once. A late one leaves the focus the person has put somewhere since the press (a focusin anywhere but the
-// message's own button: a redraw giving the focus back to that button, or the focus falling to nothing as the button goes -
-// the action's own redraw may take it away before its answer resolves - is not a move): then back() does not run, and the
-// action is told (run.away(), save.js) so that it takes no focus either.
+// [되돌리기], [다시 시도], [보기]… on message `number`: the message goes and its action runs. An action that sends a
+// request (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its
+// window stopped, until the request is answered (rule 1: not cleared as if it had worked) - a failure then says itself
+// where it can be seen. Past NOTICE_ACT_WAIT without an answer the message says the answer is late (noticeLate); the
+// answer, whenever it comes, is still taken once. A late one leaves the focus the person has put somewhere since the
+// press (a focusin anywhere but the message's own button: a redraw giving the focus back to that button, or the focus
+// falling to nothing as the button goes - the action's own redraw may take it away before its answer resolves - is not
+// a move): then back() does not run, and the action is told (run.away(), save.ts) so that it takes no focus either.
 function noticeAct(number: number) {
   const notice = NOTICES.get(number);
   if (!notice || notice.busy) return;
@@ -562,7 +574,7 @@ function noticeAct(number: number) {
   if (action && action.stay) {
     action.fn();
     return;
-  } // an action that leaves the message standing (the next changed place, updates.js)
+  } // an action that leaves the message standing (the next changed place, updates.ts)
   const back = noticeFocusBack(notice);
   if (!action || !action.wait) {
     endNotice(notice, true);
@@ -600,9 +612,10 @@ function noticeAct(number: number) {
       if (!run.away()) back();
     });
 }
-// noticeAct's question for an action run without its watch - a failure's [다시 시도], which is no waiting action, running an
-// undo again (save.js): away() = its answer is late (NOTICE_ACT_WAIT) and the person has put the focus somewhere since. The
-// watch starts once the press's own work is done (its message going, back()), so the focus that work moves is not counted.
+// noticeAct's question for an action run without its watch - a failure's [다시 시도], which is no waiting action,
+// running an undo again (save.ts): away() = its answer is late (NOTICE_ACT_WAIT) and the person has put the focus
+// somewhere since. The watch starts once the press's own work is done (its message going, back()), so the focus that
+// work moves is not counted.
 function focusRun(): NoticeRun & { stop: () => void } {
   const at = Date.now();
   let moved = false,
@@ -621,17 +634,18 @@ function focusRun(): NoticeRun & { stop: () => void } {
     },
   };
 }
-// The source of the status line's message that says message n's answer is late, when n is not on the line (noticeLate).
+// The source of the status line's message that says a message's answer is late, when it is not on the line
+// (noticeLate).
 const NOTICE_LATE_SRC = 'notice-late:';
-// Message n's action a has sent a request that is not answered after NOTICE_ACT_WAIT: '되돌리기의 답이 늦습니다' (a 되살리기's
-// says so) goes before all the message said ('되돌리기의 답이 늦습니다 · #12 채택 판정 저장됨 · …'). It is one title with no
-// description: a line too narrow for a long text shows a message's title alone (drawStatus), which as the late words alone
-// lost what was being undone and drew the line narrower; whole, the target follows the late words and only the end is
-// cut. On the status line the message itself says it, first on the line again (newest) and as a warning: a message whose
-// busy button has the focus keeps the line (drawStatus), so a message of its own would wait behind '+N'. Elsewhere - a
-// chip, a row, the Trash, or the message gone by its [x] - the status line says it in one message of its own
-// (NOTICE_LATE_SRC), which goes with the answer as the message does (noticeAct). Either way one message per action:
-// nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
+// A message's action has sent a request that is not answered after NOTICE_ACT_WAIT: '되돌리기의 답이 늦습니다' (a
+// 되살리기's says so) goes before all the message said ('되돌리기의 답이 늦습니다 · #12 채택 판정 저장됨 · …'). It is
+// one title with no description: a line too narrow for a long text shows a message's title alone (drawStatus), which as
+// the late words alone would lose what is being undone and draw the line narrower; whole, the target follows the late
+// words and only the end is cut. On the status line the message itself says it, first on the line again (newest) and as
+// a warning: a message whose busy button has the focus keeps the line (drawStatus), so a message of its own would wait
+// behind '+N'. Elsewhere - a chip, a row, the Trash, or the message gone by its [x] - the status line says it in one
+// message of its own (NOTICE_LATE_SRC), which goes with the answer as the message does (noticeAct). Either way one
+// message per action: nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
 function noticeLate(notice: Notice, action: NoticeAct) {
   const what =
     tr(
@@ -642,7 +656,7 @@ function noticeLate(notice: Notice, action: NoticeAct) {
           : '되돌리기의 답이 늦습니다',
     ) +
     ' · ' +
-    noticeText(notice); // every action that waits is one of the three (the review rows' [다시 시도], review-pick.js)
+    noticeText(notice); // every action that waits is one of the three (the review rows' [다시 시도], review-pick.ts)
   const index = notice.place === NOTICE_PLACE.LINE && NOTICES.has(notice.n) ? LINE.indexOf(notice) : -1;
   if (index < 0) {
     const lateNotice = lineNote(what, NOTICE_KIND.WARN, null, { literal: true, source: NOTICE_LATE_SRC + notice.n });
@@ -663,8 +677,8 @@ function noticeLate(notice: Notice, action: NoticeAct) {
   if (notice.alert) announce(noticeText(notice), true);
   else if (STATUS_TOP !== notice.n) announce(noticeText(notice));
 } // as lineNote reads one out
-// A press on a message's action does not take the focus from the reason field being typed in: its button goes with the message, and
-// the keys typed next would be verdict keys.
+// A press on a message's action does not take the focus from the reason field being typed in: its button goes with the
+// message, and the keys typed next would be verdict keys.
 document.addEventListener(
   'mousedown',
   (event) => {
@@ -679,7 +693,7 @@ document.addEventListener(
   },
   true,
 );
-// [x] on message num: it goes as read (with its dot), and what it held runs (gone: a deferred send goes now).
+// [x] on message `number`: it goes as read (with its dot), and what it held runs (gone: a deferred send goes now).
 function noticeClose(number: number) {
   const notice = NOTICES.get(number);
   if (!notice) return;
@@ -693,9 +707,9 @@ function endTopic(topic: string) {
     if (notice.topic === topic) endNotice(notice, false, true);
   });
 }
-// The person looks where a dot points (the panel opened, the review section gone to): that dot goes, with the panel open the
-// hint on how to open it, and with the review section the messages about pins sent to review (seen) - on the line and
-// folded in a gathered line (foldedGone), which [펼치기] would otherwise put back with the dot.
+// The person looks where a dot points (the panel opened, the review section gone to): that dot goes, with the panel
+// open the hint on how to open it, and with the review section the messages about pins sent to review (seen) - on the
+// line and folded in a gathered line (foldedGone), which [펼치기] would otherwise put back with the dot.
 function noticeSeen(dot: string) {
   if (dot === NOTICE_DOT.RV) {
     LINE.slice().forEach((notice) => {
@@ -710,7 +724,8 @@ function noticeSeen(dot: string) {
   if (dot === NOTICE_DOT.SIDE) endTopic(NOTICE_TOPIC.SIDE);
 }
 // The gathering under way (DIGEST) loses the messages test picks (by their options), as seen: never said - their groups
-// go with them when no message of theirs stands, and what each held for its end runs, as for a message seen on the line.
+// go with them when no message of theirs stands, and what each held for its end runs, as for a message seen on the
+// line.
 function gatheredGone(test: (options: any) => boolean) {
   if (!DIGEST) return;
   for (const [group, item] of [...DIGEST.items]) {
@@ -727,16 +742,16 @@ function reviewPins(keys: string[]): number[] {
   const prefix = EVENT_TYPE.REVIEW_REQUESTED + ':';
   return keys.filter((key) => key.startsWith(prefix)).map((key) => Number(key.slice(prefix.length)));
 }
-// Whether a message about pins sent to review is stale: it names some, and none of them awaits review any more (confirmed,
-// reopened or deleted - here or elsewhere). inReview = the ids awaiting review. Pure.
+// Whether a message about pins sent to review is stale: it names some, and none of them awaits review any more
+// (confirmed, reopened or deleted - here or elsewhere). inReview = the ids awaiting review. Pure.
 function reviewNewsStale(keys: string[], inReview: number[]): boolean {
   const ids = reviewPins(keys);
   return ids.length > 0 && !ids.some((id) => inReview.includes(id));
 }
-// Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale) - on the
-// line, folded in a gathered line (foldedGone: the line then says, and marks, what is left) and in a gathering still under
-// way (DIGEST) - and [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line or gathered holds
-// it (dotHeld).
+// Each time the list is drawn (drawPins: after a reload, a confirm): the stale review arrivals go (reviewNewsStale) -
+// on the line, folded in a gathered line (foldedGone: the line then says, and marks, what is left) and in a gathering
+// still under way (DIGEST) - and [검토 M]'s dot - on the collapsed desktop's [핀 N] too - once no message on the line
+// or gathered holds it (dotHeld).
 function dropStaleReview() {
   const ids = REVIEW_ALL.map((pin) => pin.id);
   LINE.slice().forEach((notice) => {
@@ -745,22 +760,23 @@ function dropStaleReview() {
   foldedNews().forEach((folded) => {
     if (reviewNewsStale(folded.keys, ids)) foldedGone(folded, true);
   });
-  gatheredGone((options) => reviewNewsStale(options.keys || [], ids)); // still being gathered (the return's poll said it before the list came)
+  // still being gathered (the return's poll said it before the list came)
+  gatheredGone((options) => reviewNewsStale(options.keys || [], ids));
   if (!dotHeld(NOTICE_DOT.RV)) document.body.classList.remove('dot-' + NOTICE_DOT.RV);
 }
 
 // ---------------- Messages that gather (docs/handbook/viewer.md §새 소식)
-// One status-line message per group ('new:<doc>', 'done', 'upd:<doc>'…): a new event of a group whose message still stands
-// merges into it - merge(old data, new data) gives the whole - and the message says the whole again in place, as the newest
-// on the line, its window (a passing one's) starting again. view(data) gives what it says: {msg, kind, act, o}. A group held
-// by a gathering (digestHold) or by a gathered message not yet unfolded (digestTake) merges the same way, so twelve pins
-// closed one by one are one message, never twelve.
-// The same event on two paths is said once per event, not per message (noticeDupe's keys): less(data, keys) - given by a
-// group whose message carries keys - is its data without the events of those keys, or null when none is left. Events a
-// message of a higher rank already says are left out of what a group says (keysHeld); and when such a message comes later,
-// it takes its events out of the group's message, which says the rest in place (noticeLess) - the others stay. Such a
-// message coming by growing its own group's message does the same, and a group's message folded in a gathered line not yet
-// unfolded, or still being gathered, gives way as one on the line does (newsDupe, foldedLess, gatheredLess).
+// One status-line message per group ('new:<doc>', 'done', 'upd:<doc>'…): a new event of a group whose message still
+// stands merges into it - merge(old data, new data) gives the whole - and the message says the whole again in place, as
+// the newest on the line, its window (a passing one's) starting again. view(data) gives what it says: {msg, kind, act,
+// o}. A group held by a gathering (digestHold) or by a gathered message not yet unfolded (digestTake) merges the same
+// way, so twelve pins closed one by one are one message, never twelve. The same event on two paths is said once per
+// event, not per message (noticeDupe's keys): less(data, keys) - given by a group whose message carries keys - is its
+// data without the events of those keys, or null when none is left. Events a message of a higher rank already says are
+// left out of what a group says (keysHeld); and when such a message comes later, it takes its events out of the group's
+// message, which says the rest in place (noticeLess) - the others stay. Such a message coming by growing its own
+// group's message does the same, and a group's message folded in a gathered line not yet unfolded, or still being
+// gathered, gives way as one on the line does (newsDupe, foldedLess, gatheredLess).
 type GroupView = (data: any) => { msg: string; kind: string; act: NoticeAct | null; o: Partial<Notice> };
 type GroupLess = (data: any, keys: string[]) => any;
 const GROUPS = new Map() as Map<string, { data: any; n: Notice | null; view: GroupView; less: GroupLess | null }>;
@@ -802,8 +818,8 @@ function groupNote(
   if (stored && notice) stored.n = notice;
   return notice;
 }
-// The keys among keys that a message of a higher rank than rank already says: one on the line or folded in a gathered line
-// (foldedNews), younger than noticeDupe's window, or one gathered (DIGEST).
+// The keys among keys that a message of a higher rank than rank already says: one on the line or folded in a gathered
+// line (foldedNews), younger than noticeDupe's window, or one gathered (DIGEST).
 function keysHeld(keys: string[], rank: number): string[] {
   const now = Date.now(),
     gathered = DIGEST
@@ -817,11 +833,11 @@ function keysHeld(keys: string[], rank: number): string[] {
       gathered.some((options) => (options.keys || []).includes(key)),
   );
 }
-// A message of rank that says the events of keys comes (lineNote), or a group's message grows by them (groupNote; except:
-// that message): whether one of a higher rank says them all already - on the line, folded in a gathered line not yet
-// unfolded (foldedNews) or in the gathering under way (gatheredDupe) - so it is not said again (noticeDupe's skip); else
-// each of a lower rank that says some of them gives way (its drop): it says the rest in place (noticeLess, foldedLess,
-// gatheredLess) or goes.
+// A message of rank that says the events of keys comes (lineNote), or a group's message grows by them (groupNote;
+// except: that message): whether one of a higher rank says them all already - on the line, folded in a gathered line
+// not yet unfolded (foldedNews) or in the gathering under way (gatheredDupe) - so it is not said again (noticeDupe's
+// skip); else each of a lower rank that says some of them gives way (its drop): it says the rest in place (noticeLess,
+// foldedLess, gatheredLess) or goes.
 function newsDupe(keys: string[], rank: number, except: Notice | null): boolean {
   const now = Date.now(),
     line = noticeDupe(
@@ -838,9 +854,9 @@ function newsDupe(keys: string[], rank: number, except: Notice | null): boolean 
   gathered.drop.forEach((group) => gatheredLess(group, keys));
   return false;
 }
-// The gathering under way (DIGEST) as noticeDupe compares the line - a gathering is shorter than its window: skip when a
-// gathered message of a higher rank says every one of keys; else drop names each gathered group of a lower rank that says
-// some of them. except: the group of the message that says keys. Pure but for DIGEST.
+// The gathering under way (DIGEST) as noticeDupe compares the line - a gathering is shorter than its window: skip when
+// a gathered message of a higher rank says every one of keys; else drop names each gathered group of a lower rank that
+// says some of them. except: the group of the message that says keys. Pure but for DIGEST.
 function gatheredDupe(keys: string[], rank: number, except: string): { skip: boolean; drop: string[] } {
   const drop = [] as string[];
   if (!DIGEST || !keys.length) return { skip: false, drop };
@@ -854,9 +870,10 @@ function gatheredDupe(keys: string[], rank: number, except: string): { skip: boo
   }
   return { skip: false, drop };
 }
-// Gathered group g gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: a group
-// that can leave them out (less) stays gathered with the rest; with nothing left, or a group that cannot, it leaves the
-// gathering, never said - its group with it, and what it held for its end runs, as for a folded message (foldedGone).
+// A gathered group gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: a
+// group that can leave them out (less) stays gathered with the rest; with nothing left, or a group that cannot, it
+// leaves the gathering, never said - its group with it, and what it held for its end runs, as for a folded message
+// (foldedGone).
 function gatheredLess(group: string, keys: string[]) {
   const digest = DIGEST,
     item = digest ? digest.items.get(group) : undefined;
@@ -874,9 +891,9 @@ function gatheredLess(group: string, keys: string[]) {
   const said = entry.view(rest);
   digest.items.set(group, [said.msg, said.kind, said.act, { ...said.o, group: group }]);
 }
-// Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a gathered
-// line not yet unfolded (which then says what it holds, digestRetitle) - for what its view reads besides its data (a
-// document's moved pins and changed lines, updates.js). Whether it stands anywhere.
+// Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a
+// gathered line not yet unfolded (which then says what it holds, digestRetitle) - for what its view reads besides its
+// data (a document's moved pins and changed lines, updates.ts). Whether it stands anywhere.
 function groupRedraw(group: string): boolean {
   const entry = GROUPS.get(group);
   if (!entry) return false;
@@ -898,8 +915,8 @@ function groupRedraw(group: string): boolean {
   digestRetitle(folded.line);
   return true;
 }
-// The messages gathered lines not yet unfolded hold (digestNote's items), as noticeDupe compares them: each with its keys
-// and rank, as old as its gathered line (at), and where it is held (line, item).
+// The messages gathered lines not yet unfolded hold (digestNote's items), as noticeDupe compares them: each with its
+// keys and rank, as old as its gathered line (at), and where it is held (line, item).
 function foldedNews(): { at: number; keys: string[]; rank: number; line: Notice; item: any[] }[] {
   return LINE.flatMap((notice) =>
     (notice.items || []).map((item) => {
@@ -908,9 +925,9 @@ function foldedNews(): { at: number; keys: string[]; rank: number; line: Notice;
     }),
   );
 }
-// Folded message f gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: its
-// group that can leave them out (less) says the rest in the gathered line; with nothing left, or a group that cannot, it
-// leaves the gathered line, not seen (foldedGone). The line says what is left (digestRetitle).
+// A folded message gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: its
+// group that can leave them out (less) says the rest in the gathered line; with nothing left, or a group that cannot,
+// it leaves the gathered line, not seen (foldedGone). The line says what is left (digestRetitle).
 function foldedLess(folded: { line: Notice; item: any[] }, keys: string[]) {
   const items = folded.line.items || [],
     index = items.indexOf(folded.item),
@@ -927,9 +944,9 @@ function foldedLess(folded: { line: Notice; item: any[] }, keys: string[]) {
   items[index] = [said.msg, said.kind, said.act, { ...said.o, group: options.group }];
   digestRetitle(folded.line);
 }
-// Folded message f leaves its gathered line, as a message leaving the line does: its group ends with it, what it held for
-// its end runs (seen: as read - a review request whose pins left review, or the review section seen), and the line says
-// and marks what is left (digestRetitle).
+// A folded message leaves its gathered line, as a message leaving the line does: its group ends with it, what it held
+// for its end runs (seen: as read - a review request whose pins left review, or the review section seen), and the line
+// says and marks what is left (digestRetitle).
 function foldedGone(folded: { line: Notice; item: any[] }, seen: boolean) {
   const items = folded.line.items || [],
     index = items.indexOf(folded.item),
@@ -941,9 +958,9 @@ function foldedGone(folded: { line: Notice; item: any[] }, seen: boolean) {
   if (options.onEnd) options.onEnd(false, seen);
   digestRetitle(folded.line);
 }
-// Message x gives way to a message of a higher rank that says the events of keys (noticeDupe's drop): a group's message
-// that can leave them out (less) says the rest in place - not as news again: neither moved, nor read out, nor its window
-// started again - and one with nothing left, or that cannot, goes.
+// A message gives way to a message of a higher rank that says the events of keys (noticeDupe's drop): a group's message
+// that can leave them out (less) says the rest in place - not as news again: neither moved, nor read out, nor its
+// window started again - and one with nothing left, or that cannot, goes.
 function noticeLess(notice: Notice, keys: string[]) {
   const entry = notice.group ? GROUPS.get(notice.group) : undefined,
     rest = entry && entry.n === notice && entry.less ? entry.less(entry.data, keys) : null;
@@ -954,8 +971,8 @@ function noticeLess(notice: Notice, keys: string[]) {
   entry.data = rest;
   regroup(notice, entry.view(rest), true);
 }
-// Where news (a message of a group) stands on the line: right behind the last undo still standing - an undo lives its window
-// where it can be pressed (rule 2), and news arriving meanwhile must not hide it behind '+N' - else first.
+// Where news (a message of a group) stands on the line: right behind the last undo still standing - an undo lives its
+// window where it can be pressed (rule 2), and news arriving meanwhile must not hide it behind '+N' - else first.
 function newsSlot(): number {
   let slot = 0;
   LINE.forEach((x, index) => {
@@ -963,10 +980,11 @@ function newsSlot(): number {
   });
   return slot;
 }
-// Message n says view v now (groupNote): its words, kind, action, keys and dot, as the newest on the line, read out again
-// (politely, unless quiet) when its words changed - by the line's own live region (.st-sr, drawStatus) when the line shows
-// it, else by #sr-news, never by both, as lineNote reads a first message - and a passing one's window starts again.
-// still: it says less than before (noticeLess) and stays where it is, its window running on, not read out.
+// A message says what its view gives now (groupNote): its words, kind, action, keys and dot, as the newest on the line,
+// read out again (politely, unless quiet) when its words changed - by the line's own live region (.st-sr, drawStatus)
+// when the line shows it, else by #sr-news, never by both, as lineNote reads a first message - and a passing one's
+// window starts again. still: it says less than before (noticeLess) and stays where it is, its window running on, not
+// read out.
 function regroup(
   notice: Notice,
   said: { msg: string; kind: string; act: NoticeAct | null; o: Partial<Notice> },
@@ -1002,13 +1020,13 @@ function regroup(
 }
 
 // ---------------- Gathering while a person was away (docs/handbook/viewer.md §새 소식)
-// Back after a while (the tab hidden or the device asleep, polling.js) or opening the viewer again (boot), what the first
-// polls say is gathered for a moment (digestBegin … digestEnd) and said as one message: '자리를 비운 사이 (38분) — 본문이
-// 바뀌었습니다 · 나를 부름 2 · 검토 대기 3', with [펼치기], which puts each on the line as it would have come. One gathered
-// thing alone is said as itself. Only news is gathered - a message of a group (groupNote: a document's update, new pins, an
-// event addressed to me, the list comparison) - and its dots are put on at once. The screen's own messages (a restored draft,
-// a hint), an error, an undo, a message with an error source or one that asks not to (digest:false) are said as they come -
-// an error where it can be seen now (rule 1).
+// Back after a while (the tab hidden or the device asleep, polling.ts) or opening the viewer again (boot), what the
+// first polls say is gathered for a moment (digestBegin … digestEnd) and said as one message: '자리를 비운 사이 (38분)
+// — 본문이 바뀌었습니다 · 나를 부름 2 · 검토 대기 3', with [펼치기], which puts each on the line as it would have come.
+// One gathered thing alone is said as itself. Only news is gathered - a message of a group (groupNote: a document's
+// update, new pins, an event addressed to me, the list comparison) - and its dots are put on at once. The screen's own
+// messages (a restored draft, a hint), an error, an undo, a message with an error source or one that asks not to
+// (digest:false) are said as they come - an error where it can be seen now (rule 1).
 let DIGEST = null as {
   title: string;
   items: Map<string, any[]>;
@@ -1044,7 +1062,8 @@ function digestHold(
     kind === NOTICE_KIND.ERR
   )
     return false;
-  // one event on two paths is gathered once, as the line shows it once (noticeDupe): the event path wins over the list's
+  // one event on two paths is gathered once, as the line shows it once (noticeDupe): the event path wins over the
+  // list's
   // - per event: a gathered group that can leave the events out (less) keeps the rest (gatheredLess)
   const keys = options.keys || [],
     dup = gatheredDupe(keys, options.rank || 1, options.group);
@@ -1055,8 +1074,9 @@ function digestHold(
   if (dot) document.body.classList.add('dot-' + dot);
   return true;
 }
-// The gathering ends: nothing, the one thing as itself, or one message for all of them (digestNote) - behind what the line
-// says already (back): what came meanwhile never takes the line from an undo or a hint the screen itself put there.
+// The gathering ends: nothing, the one thing as itself, or one message for all of them (digestNote) - behind what the
+// line says already (back): what came meanwhile never takes the line from an undo or a hint the screen itself put
+// there.
 function digestEnd() {
   const digest = DIGEST;
   if (!digest) return;
@@ -1066,13 +1086,14 @@ function digestEnd() {
   if (items.length === 1) digestReplay(items[0], true);
   else if (items.length) digestNote(digest.title, items);
 }
-// The words a gathered message is named by in the gathered line: its brief (o.brief), else its title. Pure.
+// The words a gathered message is named by in the gathered line: its brief (options.brief), else its title. Pure.
 function digestBrief(item: any[]): string {
   const options = item[3] || {};
   return options.brief || splitMessage(options.literal ? String(item[0]) : trMsg(item[0]))[0];
 }
-// The gathered line's description: each brief once, in the order they came, with how many - a brief that ends in a count
-// ('새 핀 1', one per document) adds its count up ('새 핀 2'), any other counts how many said it ('나를 부름 2'). Pure.
+// The gathered line's description: each brief once, in the order they came, with how many - a brief that ends in a
+// count ('새 핀 1', one per document) adds its count up ('새 핀 2'), any other counts how many said it ('나를 부름 2').
+// Pure.
 function digestLine(briefs: string[]): string {
   const seen = new Map();
   briefs.forEach((brief) => {
@@ -1085,7 +1106,8 @@ function digestLine(briefs: string[]): string {
   return [...seen].map(([brief, tally]) => (tally.n > 1 || tally.counted ? brief + ' ' + tally.n : brief)).join(' · ');
 }
 function digestNote(title: string, items: any[][]) {
-  items = [...items.filter((item) => !(item[3] || {}).back), ...items.filter((item) => !!(item[3] || {}).back)]; // this document's news first
+  // this document's news first
+  items = [...items.filter((item) => !(item[3] || {}).back), ...items.filter((item) => !!(item[3] || {}).back)];
   const dots = digestDots(items);
   const notice = lineNote(
     title + ' — ' + digestLine(items.map(digestBrief)),
@@ -1115,9 +1137,9 @@ function digestNote(title: string, items: any[][]) {
     notice.digestTitle = title;
   }
 }
-// A gathered line went other than by [펼치기] (its [x]: seen): the groups it held end with it - each of their messages has
-// gone, so what a group's end checks (no other new-pins message, updates.js) sees them gone - and then what each held for
-// its end runs, as seen.
+// A gathered line went other than by [펼치기] (its [x]: seen): the groups it held end with it - each of their messages
+// has gone, so what a group's end checks (no other new-pins message, updates.ts) sees them gone - and then what each
+// held for its end runs, as seen.
 function digestClosed(items: any[][], seen: boolean) {
   items.forEach((item) => {
     const group = (item[3] || {}).group,
@@ -1129,16 +1151,16 @@ function digestClosed(items: any[][], seen: boolean) {
     if (ended) ended(false, seen);
   });
 }
-// Puts gathered message a on the line as it would have come - behind what the line says (back), or, unfolded by [펼치기], in
-// front; a group's message is that group's again.
+// Puts a gathered message on the line as it would have come - behind what the line says (back), or, unfolded by
+// [펼치기], in front; a group's message is that group's again.
 function digestReplay(item: any[], back: boolean) {
   const options = item[3] || {},
     notice = lineNote(item[0], item[1], item[2], { ...options, digest: false, back: back || !!options.back });
   const entry = options.group && GROUPS.get(options.group);
   if (entry && notice) entry.n = notice;
 }
-// Takes group's gathered message out of a gathered line not yet unfolded, so the group's new event merges into it and is
-// said on its own (groupNote); the line says what is left. Whether there was one.
+// Takes group's gathered message out of a gathered line not yet unfolded, so the group's new event merges into it and
+// is said on its own (groupNote); the line says what is left. Whether there was one.
 function digestTake(group: string): boolean {
   for (const notice of NOTICES.values()) {
     const items = notice.items;
@@ -1151,13 +1173,13 @@ function digestTake(group: string): boolean {
   }
   return false;
 }
-// The chips the gathered messages items mark (digestNote's dots): each one's dot once. Pure but for SIDE_OPEN.
+// The chips the gathered messages mark (digestNote's dots): each one's dot once. Pure but for SIDE_OPEN.
 function digestDots(items: any[][]): string[] {
   return [...new Set(items.map((item) => noticeDot((item[3] || {}).dot || '', SIDE_OPEN)).filter(Boolean))];
 }
-// Gathered line n says what it holds now (digestTake, foldedLess, foldedGone): each brief once with how many, and the dots
-// of those alone - one left stays a gathered line naming it - or, holding nothing more, it goes (nothing it held runs for
-// its end: what took them out did).
+// A gathered line says what it holds now (digestTake, foldedLess, foldedGone): each brief once with how many, and the
+// dots of those alone - one left stays a gathered line naming it - or, holding nothing more, it goes (nothing it held
+// runs for its end: what took them out did).
 function digestRetitle(notice: Notice) {
   const items = notice.items || [];
   if (!items.length) {
@@ -1175,9 +1197,9 @@ function digestRetitle(notice: Notice) {
   drawStatus();
 }
 
-// A CLICK message - a passing notice that is not an undo (a restored draft's [버리기]) - lasts until the next press somewhere
-// else: a click (a tap, Enter on a button) outside it ends it; a scroll does not. The press that made it has passed by the time
-// it exists. An undo is never CLICK (rule 2).
+// A CLICK message - a passing notice that is not an undo (a restored draft's [버리기]) - lasts until the next press
+// somewhere else: a click (a tap, Enter on a button) outside it ends it; a scroll does not. The press that made it has
+// passed by the time it exists. An undo is never CLICK (rule 2).
 document.addEventListener(
   'click',
   (event) => {
@@ -1194,10 +1216,11 @@ document.addEventListener(
   true,
 );
 
-// One message's element, made once and kept on n.el (a redraw moves it, so a focus inside survives and an alert is not read
-// out again): status icon, title and description (already in the UI language, so translate="no"), its action, and [x] -
-// none on a chip, which goes by itself. ERR and WARN banners are alerts. A TIMER message holds while a mouse is on it - from
-// a real movement over it (realMove), not from being drawn under a resting pointer - until the pointer leaves (armNotice).
+// One message's element, made once and kept on n.el (a redraw moves it, so a focus inside survives and an alert is not
+// read out again): status icon, title and description (already in the UI language, so translate="no"), its action, and
+// [x] - none on a chip, which goes by itself. ERR and WARN banners are alerts. A TIMER message holds while a mouse is
+// on it - from a real movement over it (realMove), not from being drawn under a resting pointer - until the pointer
+// leaves (armNotice).
 function noticeElement(notice: Notice, className: string): HTMLElement {
   if (notice.el) return notice.el;
   const element = document.createElement('div');
@@ -1214,7 +1237,8 @@ function noticeElement(notice: Notice, className: string): HTMLElement {
   );
   if (chip)
     for (const eventType of ['pointerdown', 'mousedown'])
-      element.addEventListener(eventType, (event) => event.stopPropagation()); // a press on the chip never starts a selection on the page under it
+      // a press on the chip never starts a selection on the page under it
+      element.addEventListener(eventType, (event) => event.stopPropagation());
   if (notice.life === NOTICE_LIFE.TIMER) {
     element.addEventListener(
       'pointermove',
@@ -1237,8 +1261,8 @@ function noticeElement(notice: Notice, className: string): HTMLElement {
   notice.el = element;
   return element;
 }
-// A message's buttons: its action (with its description, if any; aria-busy while its request is out) and, with close, [x]
-// named '알림 닫기'.
+// A message's buttons: its action (with its description, if any; aria-busy while its request is out) and, with close,
+// [x] named '알림 닫기'.
 function noticeButtons(notice: Notice, close: boolean): Html {
   const action = notice.act,
     tip = action && action.tip ? html` data-tip="${action.tip}"` : '',
@@ -1257,8 +1281,9 @@ function noticeRefocus(focused: HTMLElement | null) {
     focused.focus({ preventScroll: true });
 }
 
-// Banners in their hosts: the composer's above its save row, the review section's under its head (at the top of the list while
-// that section is hidden), the Trash's above its list, the list's at its top. One already in place is not moved.
+// Banners in their hosts: the composer's above its save row, the review section's under its head (at the top of the
+// list while that section is hidden), the Trash's above its list, the list's at its top. One already in place is not
+// moved.
 function drawBanners() {
   const focused = noticeFocus();
   BANNERS.forEach((notice, host) => {
@@ -1301,12 +1326,12 @@ new MutationObserver(() => {
   }
 }).observe($('#composer'), { attributes: true, attributeFilter: ['hidden'] });
 
-// Rows in a card's place and notes in a card, after drawPins drew the list. A row waits until its card has left the section
-// (away), then goes into the slot the list drew where its pin would stand in the list's order (cardRows: under its day line), or
-// for a row made after that draw where placeRow puts it; once its pin is back in that section, what it offers to
-// undo is undone and it goes - unless it holds a deferred send, whose card stays out until the send. A note goes above its
-// card's buttons (or a done pin's row's end); a note whose card is not drawn moves to the status line (offerToLine).
-// focus = what noticeFocus() saw before the redraw.
+// Rows in a card's place and notes in a card, after drawPins drew the list. A row waits until its card has left the
+// section (away), then goes into the slot the list drew where its pin would stand in the list's order (cardRows: under
+// its day line), or for a row made after that draw where placeRow puts it; once its pin is back in that section, what
+// it offers to undo is undone and it goes - unless it holds a deferred send, whose card stays out until the send. A
+// note goes above its card's buttons (or a done pin's row's end); a note whose card is not drawn moves to the status
+// line (offerToLine). focus = what noticeFocus() saw before the redraw.
 function drawOffers(focus?: HTMLElement | null) {
   NOTICES.forEach((notice) => {
     if (notice.place === NOTICE_PLACE.ROW) {
@@ -1317,7 +1342,8 @@ function drawOffers(focus?: HTMLElement | null) {
         return;
       }
       notice.away = true;
-      if (notice.sec === 'review') $('#sec-review').hidden = false; // its last card may just have left (drawPins keeps it shown too)
+      // its last card may just have left (drawPins keeps it shown too)
+      if (notice.sec === 'review') $('#sec-review').hidden = false;
       const element = noticeElement(notice, 'nt-row'),
         slot = box.querySelector('.nt-slot[data-slot="' + notice.n + '"]');
       if (slot) slot.replaceWith(element);
@@ -1341,13 +1367,14 @@ function drawOffers(focus?: HTMLElement | null) {
 }
 
 // Chips on marks, after marks() drew them: on the pin's mark, kept on its page. A chip whose mark is not drawn (another
-// document, a failed reload) moves to the status line - unless it waits for its first reload (pending) - and so does one
-// that would sit under the select mode's bar (chipsClearOfBar).
+// document, a failed reload) moves to the status line - unless it waits for its first reload (pending) - and so does
+// one that would sit under the select mode's bar (chipsClearOfBar).
 function drawChips() {
   NOTICES.forEach((notice) => {
     if (notice.place !== NOTICE_PLACE.CHIP) return;
     const anchor = (document.querySelector('.mark[data-pin="' + notice.pin + '"]') ||
-      document.querySelector('#doc .pv[data-pin="' + notice.pin + '"]')) as HTMLElement | null; // a page verdict line shows its pin instead of a mark
+      // a page verdict line shows its pin instead of a mark
+      document.querySelector('#doc .pv[data-pin="' + notice.pin + '"]')) as HTMLElement | null;
     if (!anchor) {
       if (!notice.pending) offerToLine(notice);
       return;
@@ -1363,10 +1390,10 @@ function drawChips() {
   });
   chipsClearOfBar();
 }
-// Keeps a chip where it can be pressed: inside its page, inside what the PDF area shows, and clear of a panel laid over the
-// PDF area (the unfolded foldable's overlay panel while composing). Where the room is narrower than the chip its words give
-// way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits. A page verdict line's chip stands in the
-// line's row (notices.css), which already keeps out of all of that (sizePageLines): nothing to move.
+// Keeps a chip where it can be pressed: inside its page, inside what the PDF area shows, and clear of a panel laid over
+// the PDF area (the unfolded foldable's overlay panel while composing). Where the room is narrower than the chip its
+// words give way (ellipsis, .nt-t) - never its [되돌리기] - then it moves left until it fits. A page verdict line's
+// chip stands in the line's row (notices.css), which already keeps out of all of that (sizePageLines): nothing to move.
 function chipInRoom(chip: HTMLElement, anchor: HTMLElement) {
   if (anchor.classList.contains('pv')) return;
   const scroller = $('#left'),
@@ -1382,8 +1409,8 @@ function chipInRoom(chip: HTMLElement, anchor: HTMLElement) {
     const panelRect = panel.getBoundingClientRect();
     if (panelRect.left > scrollerRect.left + 40) right = Math.min(right, panelRect.left - 4);
   }
-  // ...and so does the panel's handle (#grip), whose touch area (::after, 44px on touch) reaches into the PDF area at the
-  // panel's middle: a chip scrolled there had its [되돌리기] under the handle.
+  // ...and so does the panel's handle (#grip), whose touch area (::after, 44px on touch) reaches into the PDF area at
+  // the panel's middle: a chip scrolled there had its [되돌리기] under the handle.
   const grip = $('#grip');
   if (grip && grip.getClientRects().length) {
     const gripRect = grip.getBoundingClientRect(),
@@ -1407,10 +1434,11 @@ function boxesMeet(
     first.left < second.right && second.left < first.right && first.top < second.bottom && second.top < first.bottom
   );
 }
-// A chip never sits under the select mode's bar (#sel-bar, over the top of the PDF area while the mode is on): one whose box
-// meets the bar's - the mode turned on, or the page scrolled the mark up under it - takes its undo to the status line.
-// Nothing is read while no chip is up, and while the area scrolls only once a frame (with placeChips): read on every scroll
-// event it forced a layout each time - seconds of long tasks over a first scroll through a list of a hundred pins.
+// A chip never sits under the select mode's bar (#sel-bar, over the top of the PDF area while the mode is on): one
+// whose box meets the bar's - the mode turned on, or the page scrolled the mark up under it - takes its undo to the
+// status line. Nothing is read while no chip is up, and while the area scrolls only once a frame (with placeChips):
+// read on every scroll event it forced a layout each time - seconds of long tasks over a first scroll through a list of
+// a hundred pins.
 function chipsClearOfBar() {
   let any = false;
   NOTICES.forEach((notice) => {
@@ -1430,15 +1458,15 @@ function chipsClearOfBar() {
       offerToLine(notice);
   });
 }
-// A page verdict line's chip with no room to stand in (verdict.js placeLineChips) takes its undo to the status line.
+// A page verdict line's chip with no room to stand in (verdict.ts placeLineChips) takes its undo to the status line.
 function chipAway(chip: HTMLElement) {
   NOTICES.forEach((notice) => {
     if (notice.el === chip && notice.place === NOTICE_PLACE.CHIP) offerToLine(notice);
   });
 }
-// Places every save chip on screen again by chipInRoom's rules, from its mark's or line's place now: after a zoom (setW) and,
-// once a frame, while the PDF area scrolls either way - its place was set in px, so a zoomed page or a sideways scroll could
-// leave [되돌리기] off the PDF area or under the panel or its handle.
+// Places every save chip on screen again by chipInRoom's rules, from its mark's or line's place now: after a zoom
+// (setW) and, once a frame, while the PDF area scrolls either way - its place was set in px, so a zoomed page or a
+// sideways scroll could leave [되돌리기] off the PDF area or under the panel or its handle.
 function placeChips() {
   NOTICES.forEach((notice) => {
     const chip = notice.el,
@@ -1464,16 +1492,19 @@ $('#left').addEventListener(
   },
   { passive: true },
 );
-new MutationObserver(chipsClearOfBar).observe(document.body, { attributes: true, attributeFilter: ['class'] }); // body.selmode comes and goes
-// The list reload after a save or an append has run: a chip whose mark did not come goes to the status line (drawChips).
+// body.selmode comes and goes
+new MutationObserver(chipsClearOfBar).observe(document.body, { attributes: true, attributeFilter: ['class'] });
+// The list reload after a save or an append has run: a chip whose mark did not come goes to the status line
+// (drawChips).
 function settleChip(notice: Notice | null) {
   if (!notice || !NOTICES.has(notice.n) || notice.place !== NOTICE_PLACE.CHIP) return;
   notice.pending = false;
   drawChips();
 }
-// Moves an undo whose place left the screen to the status line, with the same action, what it holds (gone) and life; a TIMER
-// one gets a window of its own there. A pressed one (busy: its request is out) does not move - it is offered nowhere else,
-// and goes when the request is answered (noticeAct); the place it left was its own doing (a save's chip and its mark).
+// Moves an undo whose place left the screen to the status line, with the same action, what it holds (gone) and life; a
+// TIMER one gets a window of its own there. A pressed one (busy: its request is out) does not move - it is offered
+// nowhere else, and goes when the request is answered (noticeAct); the place it left was its own doing (a save's chip
+// and its mark).
 function offerToLine(notice: Notice) {
   if (notice.busy) return;
   const act = notice.act,
@@ -1481,8 +1512,8 @@ function offerToLine(notice: Notice) {
   notice.gone = null;
   endNotice(notice, true);
   if (!act) return;
-  // Its title and description stay as they were split: joined back with ' · ' a title that holds one ('#6 채택 판정 저장됨 · PL16')
-  // was cut at it on the line.
+  // Its title and description stay as they were split: joined back with ' · ' a title that holds one ('#6 채택 판정
+  // 저장됨 · PL16') was cut at it on the line.
   const moved = lineNote(notice.desc ? notice.title + ' — ' + notice.desc : notice.title, NOTICE_KIND.OK, act, {
     life: notice.life,
     gone,
@@ -1495,7 +1526,8 @@ function offerToLine(notice: Notice) {
   });
 } // an early send takes the moved undo away
 
-// Trash rows: an undo in the place of the row it took away (after the row drawn before it, or first). drawTrash calls this.
+// Trash rows: an undo in the place of the row it took away (after the row drawn before it, or first). drawTrash calls
+// this.
 function drawTrashOffers() {
   const box = $('#trash-list');
   NOTICES.forEach((notice) => {
@@ -1513,11 +1545,11 @@ $('#trash').addEventListener('close', () => {
   });
 });
 
-// Deferred send with an undo (docs/handbook/viewer.md §알림 자리): commit runs when its undo leaves - after NOTICE_MS, on [x],
-// or when the page is hidden - and [되돌리기] (cancel) runs undo instead, before anything reaches the server. So an agent never
-// sees a reply or a permanent delete that was taken back. note = the undo drawn for it, which an early commit takes away. Its
-// own bound is the guard: whatever holds or moves its undo, it is sent NOTICE_MS + NOTICE_HOLD_MAX after it was made at the
-// latest. Runs once, cancels once, never both.
+// Deferred send with an undo (docs/handbook/viewer.md §알림 자리): commit runs when its undo leaves - after NOTICE_MS,
+// on [x], or when the page is hidden - and [되돌리기] (cancel) runs undo instead, before anything reaches the server.
+// So an agent never sees a reply or a permanent delete that was taken back. note = the undo drawn for it, which an
+// early commit takes away. Its own bound is the guard: whatever holds or moves its undo, it is sent NOTICE_MS +
+// NOTICE_HOLD_MAX after it was made at the latest. Runs once, cancels once, never both.
 const DEFERRED = new Set() as Set<Deferred>;
 function deferred(commit: () => void, undo: () => void): Deferred {
   let done = false;
@@ -1543,7 +1575,7 @@ function deferred(commit: () => void, undo: () => void): Deferred {
   DEFERRED.add(send);
   return send;
 }
-// Draws deferred send d's undo (undoNote, a TIMER life): its end sends, its [되돌리기] cancels. Returns it.
+// Draws a deferred send's undo (undoNote, a TIMER life): its end sends, its [되돌리기] cancels. Returns it.
 function deferredNote(send: Deferred, place: string, message: string, options: Partial<Notice>): Notice {
   const notice = undoNote(
     place,
@@ -1554,7 +1586,8 @@ function deferredNote(send: Deferred, place: string, message: string, options: P
   send.note = notice;
   return notice;
 }
-// The page is hidden or closed: what waits is sent now (fetch keepalive), and its undo goes - it could no longer cancel.
+// The page is hidden or closed: what waits is sent now (fetch keepalive), and its undo goes - it could no longer
+// cancel.
 function flushDeferred() {
   Array.from(DEFERRED).forEach((send) => send.run());
 }

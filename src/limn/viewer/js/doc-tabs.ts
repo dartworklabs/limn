@@ -1,4 +1,4 @@
-// ------------------------------------------------ Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
+// ------------------------------------------- Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
 import {
   $,
   $$,
@@ -44,14 +44,15 @@ function hashDoc() {
   const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
   return match ? match[1] : null;
 }
-// Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the back
-// layer's pushed entry must stay recognizable after a document switch.
+// Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the
+// back layer's pushed entry must stay recognizable after a document switch.
 function setHash(doc) {
   if (!multiDoc()) return;
   const hash = '#doc=' + doc;
   if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
 }
-// The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first document.
+// The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first
+// document.
 function initialDoc() {
   const fromHash = hashDoc();
   if (fromHash && docInfo(fromHash)) return fromHash;
@@ -73,8 +74,8 @@ async function loadDocs() {
 function docCount(doc) {
   return OPEN_ALL.filter((pin) => pdoc(pin) === doc).length;
 }
-// A document's build state in the documents lists: a spinner while it builds, else a dot when its manuscript is newer than its
-// PDF; null for neither.
+// A document's build state in the documents lists: a spinner while it builds, else a dot when its manuscript is newer
+// than its PDF; null for neither.
 function docState(entry) {
   return entry.building
     ? html`<span class="spin" aria-label="빌드 중"></span>`
@@ -82,7 +83,8 @@ function docState(entry) {
       ? html`<span class="ddot" aria-label="원고 수정됨"></span>`
       : null;
 }
-// A document's marks in the documents list: its build state (docState), view-only 'PDF', figure '그림', and its open-pin count.
+// A document's marks in the documents list: its build state (docState), view-only 'PDF', figure '그림', and its
+// open-pin count.
 function docBadge(entry) {
   const openCount = docCount(entry.key);
   const pdf = entry.view_only ? html`<span class="badge dvo" aria-label="보기 전용">PDF</span>` : '';
@@ -107,30 +109,32 @@ function docTip(entry) {
         : '')
   );
 }
-// The marks of a document link: its name (.lbl, trimmed to its cap height by CSS as the view tabs' words) and page count.
+// The marks of a document link: its name (.lbl, trimmed to its cap height by CSS as the view tabs' words) and page
+// count.
 function docLinkInner(entry) {
   const count = entry.n_pages ? html`<span class="doc-link-count">${tl('{n}쪽', { n: entry.n_pages })}</span>` : '';
   return html`<span class="lbl">${entry.name}</span>${count}`;
 }
 // What a link's or a popover row's inside was last drawn from, so a redraw that changes nothing writes nothing.
 const DOC_DRAWN = new WeakMap() as WeakMap<Element, string>;
-// Sets the inside of el to markup m, drawn from key - unless it was drawn from key already. el itself stays: one that has the
-// focus keeps it, and no focusout or focusin is sent.
+// Sets the inside of an element to `markup`, drawn from key - unless it was drawn from key already. The element itself
+// stays: one that has the focus keeps it, and no focusout or focusin is sent.
 function docInner(element: Element, markup: Html, key: string) {
   if (DOC_DRAWN.get(element) === key) return;
   setHtml(element, markup);
   DOC_DRAWN.set(element, key);
 }
-// Sets attribute a of el to v when it is not v already (an unchanged write still reaches the MutationObservers).
+// Sets attribute `name` of an element to `value` when it is not that already (an unchanged write still reaches the
+// MutationObservers).
 function setAttributeIfChanged(element: Element, name: string, value: string) {
   if (element.getAttribute(name) !== value) element.setAttribute(name, value);
 }
-// Draws the document choosers: the select, the nav bar's links, the phone's position button (drawPos), an open navigation
-// sheet's rows and an open documents popover's. A document's name is user text (translate="no"); the UI words beside it (build
-// state, page count, the description) are translated here. With the same documents in the same order (a redraw by polling)
-// each link is updated in place - only what changed - so a link or [+N] (#doc-more, after the links) that has the focus keeps
-// the same node; otherwise the links are made again in front of [+N] and a link that had the focus gives it to its document's
-// new link. Then the row is fitted (docFit).
+// Draws the document choosers: the select, the nav bar's links, the phone's position button (drawPos), an open
+// navigation sheet's rows and an open documents popover's. A document's name is user text (translate="no"); the UI
+// words beside it (build state, page count, the description) are translated here. With the same documents in the same
+// order (a redraw by polling) each link is updated in place - only what changed - so a link or [+N] (#doc-more, after
+// the links) that has the focus keeps the same node; otherwise the links are made again in front of [+N] and a link
+// that had the focus gives it to its document's new link. Then the row is fitted (docFit).
 function drawDocTabs() {
   const box = $('#doc-select');
   setHtml(
@@ -173,10 +177,11 @@ function drawDocTabs() {
 }
 
 // ---- The document row's fit (docs/handbook/viewer.md §문서 링크가 넘칠 때)
-// Which links the row shows, as indices into w: every one when they all fit room - w are the links' widths, gap the row's gap -
-// else the first k in order with [+N] after them (moreW(N): its width saying N), k as large as fits, and the current
-// document's link (index cur, -1 for none) always among them: when it would be hidden it takes the k-th place. None ([]) when
-// not even one link and [+N] fit: the row is then a single chooser (docFit). Pure.
+// Which links the row shows, as indices into `widths` (the links' widths; gap the row's gap): every one when they all
+// fit room, else the first shownCount in order with [+N] after them (moreWidth(count): its width saying that count),
+// shownCount as large as fits, and the current document's link (index `current`, -1 for none) always among them: when
+// it would be hidden it takes the last place shown. None ([]) when not even one link and [+N] fit: the row is then a
+// single chooser (docFit). Pure.
 function docTabsShown(widths, gap, current, room, moreWidth) {
   const count = widths.length,
     all = widths.map((_, index) => index),
@@ -190,32 +195,31 @@ function docTabsShown(widths, gap, current, room, moreWidth) {
   }
   return [];
 }
-// How the chooser stands when no link and [+N] fit together: 'name' - the current document's name, shortened to an ellipsis
-// as room needs - when room holds the whole name or at least the chooser's own width (chrome: padding, gap, chevron) and three
-// em of name; else 'icon'. Pure.
+// How the chooser stands when no link and [+N] fit together: 'name' - the current document's name, shortened to an
+// ellipsis as room needs - when room holds the whole name or at least the chooser's own width (chrome: padding, gap,
+// chevron) and three em of name; else 'icon'. Pure.
 function docChooser(room, full, chrome, fontSize) {
   return room + 0.01 >= Math.min(full, chrome + 3 * fontSize) ? 'name' : 'icon';
 }
 let DOC_FIT = ''; // the row's last fit: a measure that changes nothing writes nothing and re-fits nothing
-// Fits the nav bar's document row to the room the bar leaves it, down a ladder in which nothing is ever cut:
-// (a) as many whole links as fit, in DOCS order, the current one always among them, and [+N] for the N left out
-//     (docTabsShown) - or every link and no button;
-// (b) when not even the current link and [+N] fit: one chooser, [+N]'s button (#doc-more, data-fit="name"), saying the
-//     current document's name - ellipsis as needed - and opening the same popover;
-// (c) when (b) could not show three em of the name: the same chooser as an icon (data-fit="icon").
-// The room is the bar's content width less every other control at its own width and the gaps between them, three of them
-// counted as they would stand: the search at its folded magnifier (the field gives way before the links, as it gives way
-// before every neighbour - searchFit takes what the row leaves), and at their whole widths the paper's name (up to its
+// Fits the nav bar's document row to the room the bar leaves it, down a ladder in which nothing is ever cut: (a) as
+// many whole links as fit, in DOCS order, the current one always among them, and [+N] for the N left out (docTabsShown)
+// - or every link and no button; (b) when not even the current link and [+N] fit: one chooser, [+N]'s button
+// (#doc-more, data-fit="name"), saying the current document's name - ellipsis as needed - and opening the same popover;
+// (c) when (b) could not show three em of the name: the same chooser as an icon (data-fit="icon"). The room is the
+// bar's content width less every other control at its own width and the gaps between them, three of them counted as
+// they would stand: the search at its folded magnifier (the field gives way before the links, as it gives way before
+// every neighbour - searchFit takes what the row leaves), and at their whole widths the paper's name (up to its
 // max-width: the links give way before it is shortened) and the short band's status line (it gives way last). The row's
-// least width is its content's (frame.css), so below (c) the bar's neighbours give way instead, each only after the row is
-// down to its icon: the paper's name shortens (it may shrink), and the short band's status line - which never shrinks, as
-// the search measures it whole - drops its words, whole or not at all: a stub of one or two letters said less than nothing
-// (its icon and action stay, and its spoken label is its own node).
-// Measured with every link shown, then each hidden or shown whole. Nothing that has the focus is hidden to be measured (a
-// hidden control loses it): the links are measured all shown, the button where it stands; a link or the button that has the
-// focus and is left out gives it to the button or the current link. When the fit changes the search is fitted again; an
-// open popover is placed again under its button (which may have moved), or shuts when the button has gone. Where the row is
-// not drawn (the phone, one document) nothing is.
+// least width is its content's (frame.css), so below (c) the bar's neighbours give way instead, each only after the row
+// is down to its icon: the paper's name shortens (it may shrink), and the short band's status line - which never
+// shrinks, as the search measures it whole - drops its words, whole or not at all: a stub of one or two letters would
+// say less than nothing (its icon and action stay, and its spoken label is its own node). Measured with every link
+// shown, then each hidden or shown whole. Nothing that has the focus is hidden to be measured (a hidden control loses
+// it): the links are measured all shown, the button where it stands; a link or the button that has the focus and is
+// left out gives it to the button or the current link. When the fit changes the search is fitted again; an open popover
+// is placed again under its button (which may have moved), or shuts when the button has gone. Where the row is not
+// drawn (the phone, one document) nothing is.
 function docFit() {
   const row = $('#doc-links'),
     more = $('#doc-more'),
@@ -231,7 +235,8 @@ function docFit() {
   if (row.getClientRects().length && tabs.length > 1) {
     const barStyle = getComputedStyle(bar),
       rowStyle = getComputedStyle(row);
-    // its whole width: laid out for the moment as it would stand unshrunk (up to its max-width), to the fraction of a pixel
+    // its whole width: laid out for the moment as it would stand unshrunk (up to its max-width), to the fraction of a
+    // pixel
     const whole = (control: HTMLElement) => {
       control.style.flex = 'none';
       const x = control.getBoundingClientRect().width;
@@ -264,7 +269,8 @@ function docFit() {
       link.hidden = false;
     });
     const moreStyle = getComputedStyle(more),
-      moreMargins = pixels(moreStyle.marginLeft) + pixels(moreStyle.marginRight); // the button's width counts its margins (frame.css)
+      // the button's width counts its margins (frame.css)
+      moreMargins = pixels(moreStyle.marginLeft) + pixels(moreStyle.marginRight);
     const widths = tabs.map((link) => link.getBoundingClientRect().width),
       gap = pixels(rowStyle.columnGap),
       seen = new Map(),
@@ -337,8 +343,9 @@ function docFit() {
   }
   placeDocMenu();
 }
-// Re-fits once a frame when the bar or a control beside the row changes size (the window, the pin panel, the page count, the
-// status line in the short band, the search) - never on the row's own size, which the fit sets - and when a font arrives.
+// Re-fits once a frame when the bar or a control beside the row changes size (the window, the pin panel, the page
+// count, the status line in the short band, the search) - never on the row's own size, which the fit sets - and when a
+// font arrives.
 let DOC_FIT_FRAME = 0;
 function docFitSoon() {
   if (!DOC_FIT_FRAME)
@@ -354,9 +361,10 @@ if (window.ResizeObserver) {
   for (const control of $$('#doc-nav>*')) if (control.id !== 'doc-links') observer.observe(control);
 }
 document.fonts.addEventListener('loadingdone', docFit);
-// The row is a scroll box only for how it is painted (frame.css): it never scrolls. The current link's bar reaches 1px under
-// it, which a browser lets keys scroll after a press in the row (the links moved up 1px) - undone at once - and which made
-// Firefox give the row a Tab stop of its own, a ring round all the links (index.html takes it out of the Tab order).
+// The row is a scroll box only for how it is painted (frame.css): it never scrolls. The current link's bar reaches 1px
+// under it, which a browser lets keys scroll after a press in the row (moving the links up 1px) - undone at once - and
+// for which Firefox gives the row a Tab stop of its own, a ring round all the links (index.html takes it out of the Tab
+// order).
 $('#doc-links').addEventListener(
   'scroll',
   (event) => {
@@ -370,10 +378,10 @@ $('#doc-links').addEventListener(
 );
 
 // ---- The documents popover ([+N] or the chooser, docs/handbook/viewer.md §문서 링크가 넘칠 때)
-// Every document in DOCS order, one row each: the current one's check, the name (user text) with its build state (docState),
-// the page count and, for the first nine, the Alt+number that picks it. Choosing a row is a document link's click (data-act
-// "doc": switchDoc). With nine documents or more a field on top filters the rows by name or path.
-// Draws the popover's rows. A redraw with the same documents in the same order (polling) updates each row in place - only
+// Every document in DOCS order, one row each: the current one's check, the name (user text) with its build state
+// (docState), the page count and, for the first nine, the Alt+number that picks it. Choosing a row is a document link's
+// click (data-act "doc": switchDoc). With nine documents or more a field on top filters the rows by name or path. Draws
+// the popover's rows. A redraw with the same documents in the same order (polling) updates each row in place - only
 // what changed - so a focused row keeps its node and the focus, and the filter and the list's scroll stay.
 function drawDocMenu() {
   const list = $('#doc-pop-list'),
@@ -398,8 +406,8 @@ function drawDocMenu() {
   });
   docMenuFilter();
 }
-// Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says so
-// when none does.
+// Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says
+// so when none does.
 function docMenuFilter() {
   const query = ($('#doc-pop-in') as HTMLInputElement).value.trim().toLowerCase();
   let shown = 0;
@@ -428,9 +436,9 @@ function openDocMenu() {
   const to = !filter.hidden && !MQ_COARSE.matches ? filter : row || pop;
   to.focus({ preventScroll: true });
 }
-// Puts the open popover under its button, its left edge on the button's and inside the window by 8px, and lets it grow down to
-// 8px above the window's bottom (--dp-room); its list scrolls inside that. docFit calls it after every fit, so the popover
-// follows its button when the bar changes (the window, the pin panel, the outline).
+// Puts the open popover under its button, its left edge on the button's and inside the window by 8px, and lets it grow
+// down to 8px above the window's bottom (--dp-room); its list scrolls inside that. docFit calls it after every fit, so
+// the popover follows its button when the bar changes (the window, the pin panel, the outline).
 function placeDocMenu() {
   const pop = $('#doc-pop'),
     more = $('#doc-more');
@@ -460,8 +468,8 @@ function toggleDocMenu() {
   if ($('#doc-pop').hidden) openDocMenu();
   else closeDocMenu(false);
 }
-// The nav bar's next stop after the popover's button, in its order (DOM order, as Tab goes): what Tab out of the popover
-// lands on. Null when the button is the bar's last.
+// The nav bar's next stop after the popover's button, in its order (DOM order, as Tab goes): what Tab out of the
+// popover lands on. Null when the button is the bar's last.
 function docMenuNext() {
   const more = $('#doc-more'),
     stops = ([...$('#doc-nav').querySelectorAll('button,input,select,a[href],[tabindex]')] as HTMLElement[]).filter(
@@ -474,13 +482,13 @@ function docMenuNext() {
     );
   return stops[stops.indexOf(more) + 1] || null;
 }
-// Keys: ↓ on the button opens the popover (Enter and Space are its click). In the filter ↓ goes to the current row (the first
-// shown when it is filtered out) and Enter chooses the first row shown; on a row ↓/↑ move one row, Home/End to the ends, ↑ on
-// the first goes back to the filter. Alt+1…9 picks that document from anywhere in the popover, the filter too (the shortcut
-// is otherwise not taken inside a text field). Tab leaves the popover forward: from the filter to the list's row, from a row
-// out - the popover shuts and the focus goes to the bar's next stop after the button; Shift+Tab goes back: from a row to the
-// filter, from the filter (or a row with no filter) out to the button, the popover shut. Esc is the viewer's (events.js): it
-// shuts the popover with the focus on the button.
+// Keys: ↓ on the button opens the popover (Enter and Space are its click). In the filter ↓ goes to the current row (the
+// first shown when it is filtered out) and Enter chooses the first row shown; on a row ↓/↑ move one row, Home/End to
+// the ends, ↑ on the first goes back to the filter. Alt+1…9 picks that document from anywhere in the popover, the
+// filter too (the shortcut is otherwise not taken inside a text field). Tab leaves the popover forward: from the filter
+// to the list's row, from a row out - the popover shuts and the focus goes to the bar's next stop after the button;
+// Shift+Tab goes back: from a row to the filter, from the filter (or a row with no filter) out to the button, the
+// popover shut. Esc is the viewer's (events.ts): it shuts the popover with the focus on the button.
 $('#doc-more').addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown' && !event.altKey) {
     event.preventDefault();
@@ -544,9 +552,9 @@ $('#doc-pop').addEventListener('keydown', (event) => {
   row.scrollIntoView({ block: 'nearest' });
 });
 $('#doc-pop-in').addEventListener('input', docMenuFilter);
-// The focus moving to a control outside the popover and its button (a click on another control, a shortcut that moves it)
-// shuts it; a press anywhere outside them shuts it too (the press still does what it does). Focus that goes nowhere (the
-// window losing it) leaves it open.
+// The focus moving to a control outside the popover and its button (a click on another control, a shortcut that moves
+// it) shuts it; a press anywhere outside them shuts it too (the press still does what it does). Focus that goes nowhere
+// (the window losing it) leaves it open.
 $('#doc-pop').addEventListener('focusout', (event) => {
   const to = event.relatedTarget as Node | null;
   if (to && !$('#doc-pop').contains(to) && !$('#doc-more').contains(to)) closeDocMenu(false);
