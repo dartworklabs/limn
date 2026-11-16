@@ -50,8 +50,8 @@ import {
 } from '../platform/notices.ts';
 import { SWALLOW_CLICK, hideTip } from '../platform/tooltip.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
-import { SCROLL_KEYS, readingDepth } from '../pdf/view-outline.ts';
+import { pdfAreaInnerWidth } from '../pdf/view-pages.ts';
+import { SCROLL_KEYS } from '../pdf/view-outline.ts';
 import { setSide, topAnchor } from '../layout/flow.ts';
 import { isElementLost, figureFields, isFrac, pinPlace } from '../pdf/view-figure.ts';
 import { savePin } from '../composer/flow-save.ts';
@@ -142,6 +142,7 @@ import {
 import { CONFIRMING, CONFIRMING_PIN } from '../pins/state.ts';
 import { relSpan } from '../pins/view-time.ts';
 import { SUGGEST_DRAFT } from '../composer/state-suggest.ts';
+import { arrivePage, figureTop, readingDepth } from '../pdf/view-page-jump.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).

@@ -65,7 +65,7 @@ import { drawDocTabs, multiDoc } from '../documents/view-tabs.ts';
 import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
-import { arrivePage, pageNoSides } from '../pdf/view-pages.ts';
+import { pageNoSides } from '../pdf/view-pages.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { pendingBadgeSide } from '../pdf/input-selection.ts';
 import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts';
@@ -91,6 +91,7 @@ import { pinVerdicts } from './state-seams.ts';
 import { CONFIRMING, CONFIRMING_PIN, PURGING } from './state.ts';
 import { timeParts } from './view-time.ts';
 import { editDirty, renderEdit } from './view-edit.ts';
+import { arrivePage } from '../pdf/view-page-jump.ts';
 
 async function loadPeople() {
   try {

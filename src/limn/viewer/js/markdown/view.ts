@@ -73,7 +73,6 @@ import {
   OUTLINE_SELECTED,
   SCROLL_KEYS,
   markOutline,
-  readingDepth,
   renderOutline,
   setOutlineBuild,
   setOutlineCut,
@@ -93,6 +92,7 @@ import { isMarkdownDoc, isTextDoc, docInfo, withDocQuery, isRegion, pdoc } from 
 import { levelOf, useLevel } from '../documents/rules.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { lineMarks, linePick, textSurface } from './state-seams.ts';
+import { readingDepth } from '../pdf/view-page-jump.ts';
 const MARKDOWN_LIMITS = Object.freeze({
   nesting: 20,
   blocks: 30000,
