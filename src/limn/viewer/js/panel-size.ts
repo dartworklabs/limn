@@ -27,44 +27,45 @@ function outlineBounds() {
   const max = Math.max(180, Math.min(320, innerWidth - curSideW() - 290));
   return { min: Math.min(220, max), max };
 }
-function showOutlineWidth(w) {
-  const b = outlineBounds();
-  w = Math.round(Math.max(b.min, Math.min(b.max, w)));
-  document.documentElement.style.setProperty('--outline-width', w + 'px');
-  const g = $('#outline-grip');
-  g.setAttribute('aria-valuemin', b.min);
-  g.setAttribute('aria-valuemax', b.max);
-  g.setAttribute('aria-valuenow', w);
-  return w;
+function showOutlineWidth(width) {
+  const bounds = outlineBounds();
+  width = Math.round(Math.max(bounds.min, Math.min(bounds.max, width)));
+  document.documentElement.style.setProperty('--outline-width', width + 'px');
+  const grip = $('#outline-grip');
+  grip.setAttribute('aria-valuemin', bounds.min);
+  grip.setAttribute('aria-valuemax', bounds.max);
+  grip.setAttribute('aria-valuenow', width);
+  return width;
 }
 // Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its own,
 // unsaved) and syncs the back layer. The wide outline follows pinPrefs.outlineClosed; until one is saved it starts open with a
 // mouse and collapsed on touch. The phone has no outline (CSS), so it draws no width.
 function applyOutlineState() {
-  const p = prefs(),
+  const preferences = prefs(),
     closed = outlineOverlay()
       ? !OUTLINE_MID_OPEN
-      : typeof p.outlineClosed === 'boolean'
-        ? p.outlineClosed
+      : typeof preferences.outlineClosed === 'boolean'
+        ? preferences.outlineClosed
         : MQ_COARSE.matches;
   document.body.classList.toggle('outline-collapsed', closed);
-  const t = $('#nav-toc-toggle');
-  t.setAttribute('aria-expanded', String(!closed));
-  t.setAttribute('aria-label', closed ? '목차 펼치기' : '목차 접기');
-  if (BAND !== LAYOUT_BAND.PHONE) showOutlineWidth(typeof p.outlineWidth === 'number' ? p.outlineWidth : 240);
+  const toggle = $('#nav-toc-toggle');
+  toggle.setAttribute('aria-expanded', String(!closed));
+  toggle.setAttribute('aria-label', closed ? '목차 펼치기' : '목차 접기');
+  if (BAND !== LAYOUT_BAND.PHONE)
+    showOutlineWidth(typeof preferences.outlineWidth === 'number' ? preferences.outlineWidth : 240);
   syncBackLayer(); // the mid outline overlay is a layer the back gesture closes
 }
 // Sets and remembers the outline width (pinPrefs.outlineWidth), then re-fits; the phone has no outline.
-function setOutlineWidth(w) {
+function setOutlineWidth(width) {
   if (BAND === LAYOUT_BAND.PHONE) return;
-  w = showOutlineWidth(w);
-  savePrefs({ outlineWidth: w });
+  width = showOutlineWidth(width);
+  savePrefs({ outlineWidth: width });
   relayout();
 }
 // Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin panel as it
 // opens; wide remembers it in pinPrefs.outlineClosed.
 function toggleOutline() {
-  const a = topAnchor(),
+  const anchor = topAnchor(),
     closed = !document.body.classList.contains('outline-collapsed');
   if (outlineOverlay()) {
     setOutlineMidOpen(!closed);
@@ -72,58 +73,63 @@ function toggleOutline() {
   } else savePrefs({ outlineClosed: closed });
   applyOutlineState();
   relayout();
-  restoreAnchor(a);
+  restoreAnchor(anchor);
   $('#nav-toc-toggle').focus({ preventScroll: true });
 }
-function sideBounds(layout, iw) {
-  const cl = (w, a, b) => Math.round(Math.min(b, Math.max(a, w)));
+function sideBounds(layout, windowWidth) {
+  const clampRound = (value, low, high) => Math.round(Math.min(high, Math.max(low, value)));
   if (layout === LAYOUT_MODE.MID) {
     const min = 300,
-      max = iw <= 900 ? Math.min(440, iw - 240) : Math.max(min, iw - 488);
-    const def = cl(330, min, max);
-    return { min, max, def, presets: [min, def, cl(iw * 0.5, min, max)] };
+      max = windowWidth <= 900 ? Math.min(440, windowWidth - 240) : Math.max(min, windowWidth - 488);
+    const defaultWidth = clampRound(330, min, max);
+    return { min, max, def: defaultWidth, presets: [min, defaultWidth, clampRound(windowWidth * 0.5, min, max)] };
   }
   const min = 280,
-    max = Math.max(min, Math.min(Math.round(iw * 0.8), iw - 486)),
-    def = cl(348, min, max);
-  return { min, max, def, presets: [cl(300, min, max), def, cl(iw * 0.42, min, max)] };
+    max = Math.max(min, Math.min(Math.round(windowWidth * 0.8), windowWidth - 486)),
+    defaultWidth = clampRound(348, min, max);
+  return {
+    min,
+    max,
+    def: defaultWidth,
+    presets: [clampRound(300, min, max), defaultWidth, clampRound(windowWidth * 0.42, min, max)],
+  };
 }
-function clampSide(w, b) {
-  return Math.round(Math.min(b.max, Math.max(b.min, w)));
+function clampSide(width, bounds) {
+  return Math.round(Math.min(bounds.max, Math.max(bounds.min, width)));
 }
 // Cycles through preset steps: the next step wider than the current width, wrapping to the narrowest if already at the widest. presetIndex is the step within +-4px (or -1 if none matches).
-function nextPreset(presets, w) {
-  const n = presets.find((p) => p > w + 4);
-  return n === undefined ? presets[0] : n;
+function nextPreset(presets, width) {
+  const wider = presets.find((preset) => preset > width + 4);
+  return wider === undefined ? presets[0] : wider;
 }
-function presetIndex(presets, w) {
-  return presets.findIndex((p) => Math.abs(p - w) <= 4);
+function presetIndex(presets, width) {
+  return presets.findIndex((preset) => Math.abs(preset - width) <= 4);
 }
 // Where a handle drag lands (docs/handbook/viewer.md §패널 폭과 시트 높이). wRaw = the width the pointer asks for: the drag-start
 // width plus how far it moved left, unclamped (a drag from the collapsed rail starts at 0). T = half the minimum, rounded down.
 // Returns {w: the width to show, zone}: 'follow' at or above the minimum (the width follows, up to the maximum); 'min' from T up
 // to the minimum (it stops at the minimum and the handle turns primary); 'collapse' below T (a release collapses the panel);
 // 'blocked' there while a draft is open (composing/editing/replying/relocating - it stops at the minimum instead).
-function snapSide(wRaw, b, composing) {
-  const T = Math.floor(b.min / 2);
-  if (wRaw >= b.min) return { w: Math.min(b.max, Math.round(wRaw)), zone: 'follow' };
-  if (wRaw >= T) return { w: b.min, zone: 'min' };
-  return { w: b.min, zone: composing ? 'blocked' : 'collapse' };
+function snapSide(requestedWidth, bounds, composing) {
+  const collapseBelow = Math.floor(bounds.min / 2);
+  if (requestedWidth >= bounds.min) return { w: Math.min(bounds.max, Math.round(requestedWidth)), zone: 'follow' };
+  if (requestedWidth >= collapseBelow) return { w: bounds.min, zone: 'min' };
+  return { w: bounds.min, zone: composing ? 'blocked' : 'collapse' };
 }
 // The handle's keys as a WAI-ARIA window splitter whose primary pane is the panel (aria-valuenow = its width). Open: Enter
 // collapses, Space cycles the presets, Home/End go to the minimum/maximum, ←/→ widen/narrow by 16px within the bounds (never
 // below the minimum - collapsing is Enter's job). Collapsed: Enter/Space open to the saved width, Home/← open at the minimum,
 // End at the maximum; → does nothing. Returns {act:'collapse'|'cycle'|'open'} or {act:'width', w}, or null for any other key.
-function gripKey(key, w, b, collapsed) {
+function gripKey(key, width, bounds, collapsed) {
   if (collapsed) {
     if (key === 'Enter' || key === ' ') return { act: 'open' };
-    if (key === 'Home' || key === 'ArrowLeft') return { act: 'width', w: b.min };
-    return key === 'End' ? { act: 'width', w: b.max } : null;
+    if (key === 'Home' || key === 'ArrowLeft') return { act: 'width', w: bounds.min };
+    return key === 'End' ? { act: 'width', w: bounds.max } : null;
   }
   if (key === 'Enter') return { act: 'collapse' };
   if (key === ' ') return { act: 'cycle' };
-  const to = { Home: b.min, End: b.max, ArrowLeft: w + 16, ArrowRight: w - 16 }[key];
-  return to === undefined ? null : { act: 'width', w: clampSide(to, b) };
+  const to = { Home: bounds.min, End: bounds.max, ArrowLeft: width + 16, ArrowRight: width - 16 }[key];
+  return to === undefined ? null : { act: 'width', w: clampSide(to, bounds) };
 }
 function sideKey() {
   return LAYOUT === LAYOUT_MODE.MID ? 'sideMid' : 'side';
@@ -134,17 +140,17 @@ function curSideW() {
 // The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
 let SIDE_SHOWN = null as { w: number; min: number; max: number } | null;
 // Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
-function showSideW(w, b) {
-  $('#right').style.width = w + 'px';
-  document.documentElement.style.setProperty('--side-w', w + 'px');
-  SIDE_SHOWN = { w, min: b.min, max: b.max };
+function showSideW(width, bounds) {
+  $('#right').style.width = width + 'px';
+  document.documentElement.style.setProperty('--side-w', width + 'px');
+  SIDE_SHOWN = { w: width, min: bounds.min, max: bounds.max };
   if (SIDE_OPEN) gripAria();
 }
 // The width the panel has in this layout, open or folded: the layout's saved width (sideKey), else its default, inside its
 // bounds b. applySideWidth draws it; renderSizeSeg checks it.
-function sideWidthFor(b) {
-  const p = prefs()[sideKey()];
-  return clampSide(typeof p === 'number' ? p : b.def, b);
+function sideWidthFor(bounds) {
+  const saved = prefs()[sideKey()];
+  return clampSide(typeof saved === 'number' ? saved : bounds.def, bounds);
 }
 function applySideWidth() {
   if (LAYOUT === LAYOUT_MODE.NARROW) {
@@ -152,29 +158,29 @@ function applySideWidth() {
     applySheet();
     return;
   }
-  const b = sideBounds(LAYOUT, innerWidth);
-  showSideW(sideWidthFor(b), b);
+  const bounds = sideBounds(LAYOUT, innerWidth);
+  showSideW(sideWidthFor(bounds), bounds);
 }
 // Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses topAnchor/restoreAnchor).
-function setSideWidth(w) {
+function setSideWidth(width) {
   if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const b = sideBounds(LAYOUT, innerWidth);
-  w = clampSide(w, b);
-  showSideW(w, b);
-  savePrefs({ [sideKey()]: w });
+  const bounds = sideBounds(LAYOUT, innerWidth);
+  width = clampSide(width, bounds);
+  showSideW(width, bounds);
+  savePrefs({ [sideKey()]: width });
   relayout();
   renderSizeSeg();
 }
 function cycleSideWidth() {
   if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const b = sideBounds(LAYOUT, innerWidth);
-  setSideWidth(nextPreset(b.presets, curSideW()));
+  const bounds = sideBounds(LAYOUT, innerWidth);
+  setSideWidth(nextPreset(bounds.presets, curSideW()));
 }
 // Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height when the keyboard is up.
 const SHEET_F = [0.45, 0.64, 1],
   SHEET_MIN_F = 0.3,
   SHEET_CLOSE_F = 0.25,
-  SHEET_COMPOSE_F = 0.8;
+  SHEET_COMPOSE_FRACTION = 0.8;
 const SHEET_TAB_LIFT_MAX = 0.6; // the tablet sheet's highest keyboard lift (tabletLift)
 // The sheet's own preference key and default height: the phone's 64% in pinPrefs.sheetF, the tablet sheet's 45% in sheetFTab - so a
 // height chosen on a folded phone never becomes the unfolded or tablet screen's default.
@@ -195,9 +201,9 @@ function keepSheet() {
 }
 // The sheet height in use (a fraction, 30-100%): the band's saved one, else its default.
 function sheetF() {
-  const s = sheetPref(),
-    f = prefs()[s.key];
-  return typeof f === 'number' ? Math.min(1, Math.max(SHEET_MIN_F, f)) : s.def;
+  const sheetPreference = sheetPref(),
+    saved = prefs()[sheetPreference.key];
+  return typeof saved === 'number' ? Math.min(1, Math.max(SHEET_MIN_F, saved)) : sheetPreference.def;
 }
 // Draws the sheet height: the band's own (sheetF), or on the tablet sheet its composing lift (tabletLift). Never saved.
 function applySheet() {
@@ -205,8 +211,8 @@ function applySheet() {
 }
 // The tablet sheet's height for need (the fraction of the screen the composer down to its note or open editor and the save row
 // take): its own height f if they fit, else just what they need, at most SHEET_TAB_LIFT_MAX; a higher chosen f stays. Pure.
-function sheetLift(f, need) {
-  return Math.max(f, Math.min(SHEET_TAB_LIFT_MAX, need));
+function sheetLift(fraction, need) {
+  return Math.max(fraction, Math.min(SHEET_TAB_LIFT_MAX, need));
 }
 // The sheet height to draw now: sheetF(), lifted (sheetLift) on the tablet sheet while composing - with the keyboard up (a panel
 // text field has focus on a touch screen) or with the suggestion editor open - and the user has not set a height meanwhile. Needs
@@ -214,31 +220,31 @@ function sheetLift(f, need) {
 // save row, against the layout height; measured in the sheet's scroll space, so the same at any scroll and while the location
 // line sticks.
 function tabletLift() {
-  const f = sheetF();
-  if (BAND !== LAYOUT_BAND.TABLET_SHEET || SHEET_KEPT || $('#composer').hidden || !MQ_COARSE.matches) return f;
-  const ed = $('#c-sg-text'),
-    open = ed.getClientRects().length > 0;
-  if (!open && !panelField()) return f;
-  const vr = $('#c-verdict-row'),
-    r = $('#right'),
-    last = open ? ed : vr.getClientRects().length ? vr : $('#note'),
-    bottom = last.getBoundingClientRect().bottom - r.getBoundingClientRect().top + r.scrollTop;
-  return sheetLift(f, (bottom + 8 + $('#c-actions').offsetHeight) / innerHeight);
+  const fraction = sheetF();
+  if (BAND !== LAYOUT_BAND.TABLET_SHEET || SHEET_KEPT || $('#composer').hidden || !MQ_COARSE.matches) return fraction;
+  const editor = $('#c-sg-text'),
+    open = editor.getClientRects().length > 0;
+  if (!open && !panelField()) return fraction;
+  const verdictRow = $('#c-verdict-row'),
+    panel = $('#right'),
+    last = open ? editor : verdictRow.getClientRects().length ? verdictRow : $('#note'),
+    bottom = last.getBoundingClientRect().bottom - panel.getBoundingClientRect().top + panel.scrollTop;
+  return sheetLift(fraction, (bottom + 8 + $('#c-actions').offsetHeight) / innerHeight);
 }
 // Sets and remembers the sheet height (a fraction, clamped to 30-100%, kept to 1/10000: a whole pixel on any screen) under the band's key, opens a collapsed sheet, and ends the composing lift.
-function setSheetF(f) {
+function setSheetF(fraction) {
   keepSheet();
-  f = Math.min(1, Math.max(SHEET_MIN_F, f));
-  savePrefs({ [sheetPref().key]: Math.round(f * 10000) / 10000 });
+  fraction = Math.min(1, Math.max(SHEET_MIN_F, fraction));
+  savePrefs({ [sheetPref().key]: Math.round(fraction * 10000) / 10000 });
   applySheet();
   if (!SIDE_OPEN) setSide(true);
   renderSizeSeg();
 }
 // The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
 function cycleSheet() {
-  const f = document.body.classList.contains('sheet-up') ? Math.max(sheetF(), SHEET_COMPOSE_F) : sheetF(),
-    i = SHEET_F.findIndex((x) => x > f + 0.02);
-  setSheetF(SHEET_F[i < 0 ? 0 : i]);
+  const shown = document.body.classList.contains('sheet-up') ? Math.max(sheetF(), SHEET_COMPOSE_FRACTION) : sheetF(),
+    nextIndex = SHEET_F.findIndex((stop) => stop > shown + 0.02);
+  setSheetF(SHEET_F[nextIndex < 0 ? 0 : nextIndex]);
 }
 // The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯], the size now chosen checked. The width checked is
 // the one the layout gives the panel (sideWidthFor), not one measured or last shown: a folded panel measures 0 wide - the
@@ -252,34 +258,34 @@ function renderSizeSeg() {
     at = segFocusAt(box);
   $('#m-size-l').textContent = narrow ? '시트 높이' : '패널 폭';
   box.setAttribute('aria-label', narrow ? '시트 높이' : '패널 폭');
-  let names, cur;
+  let names, checkedIndex;
   if (narrow) {
     names = ['낮게', '보통', '높게'];
-    const f = sheetF();
-    cur = SHEET_F.findIndex((x) => Math.abs(x - f) <= 0.02);
+    const fraction = sheetF();
+    checkedIndex = SHEET_F.findIndex((stop) => Math.abs(stop - fraction) <= 0.02);
   } else {
     names = ['좁게', '보통', '넓게'];
-    const b = sideBounds(LAYOUT, innerWidth);
-    cur = presetIndex(b.presets, sideWidthFor(b));
+    const bounds = sideBounds(LAYOUT, innerWidth);
+    checkedIndex = presetIndex(bounds.presets, sideWidthFor(bounds));
   }
   setHtml(
     box,
-    html`${names.map((n, i) => html`<button class="${i === cur ? 'on' : ''}" role="radio" aria-checked="${i === cur}" data-act="size-preset" data-i="${i}">${n}</button>`)}`,
+    html`${names.map((name, index) => html`<button class="${index === checkedIndex ? 'on' : ''}" role="radio" aria-checked="${index === checkedIndex}" data-act="size-preset" data-i="${index}">${name}</button>`)}`,
   );
   segRove(box);
   segKeep(box, at);
 } // one Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (events.js)
-function sizePreset(i) {
+function sizePreset(index) {
   if (LAYOUT === LAYOUT_MODE.NARROW) {
-    setSheetF(SHEET_F[i]);
+    setSheetF(SHEET_F[index]);
     return;
   }
-  setSideWidth(sideBounds(LAYOUT, innerWidth).presets[i]);
+  setSideWidth(sideBounds(LAYOUT, innerWidth).presets[index]);
 }
 // Sets SHEET_KEPT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSheetKept<T extends typeof SHEET_KEPT>(v: T): T {
-  SHEET_KEPT = v;
-  return v;
+function setSheetKept<Value extends typeof SHEET_KEPT>(value: Value): Value {
+  SHEET_KEPT = value;
+  return value;
 }
 export {
   SHEET_CLOSE_F,

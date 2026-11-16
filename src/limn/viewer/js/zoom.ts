@@ -11,132 +11,134 @@ import { $, K } from './core.ts';
 import { ZOOM_STEP, markZoomed, setK, zoomAnchor, zoomRestore, zoomTo } from './pages.ts';
 import { cancelDrag, cancelLP } from './selection.ts';
 import { isMdDoc } from './md-surface.ts';
-function zoomKey(e) {
-  const k = e.key,
-    c = e.code;
-  if (k === '=' || k === '+' || c === 'Equal' || c === 'NumpadAdd') return 'in';
-  if (k === '-' || k === '_' || c === 'Minus' || c === 'NumpadSubtract') return 'out';
-  if (k === '0' || c === 'Digit0' || c === 'Numpad0') return 'fit';
+function zoomKey(event) {
+  const key = event.key,
+    code = event.code;
+  if (key === '=' || key === '+' || code === 'Equal' || code === 'NumpadAdd') return 'in';
+  if (key === '-' || key === '_' || code === 'Minus' || code === 'NumpadSubtract') return 'out';
+  if (key === '0' || code === 'Digit0' || code === 'Numpad0') return 'fit';
   return null;
 }
 // The factor for one wheel tick. One mouse-wheel notch (|dy|>=50 pixels or a line unit) gets the same ZOOM_STEP as one button
 // press; a trackpad pinch's finely divided dy is composed via exp(-dy/100) - the inverse of the formula Chrome uses to turn
 // pinch scale into wheel events, so it grows in proportion to how far the fingers spread. dy is clamped to +-18 so a single
 // event never exceeds one button press's worth (ZOOM_STEP ~ exp(0.18)).
-function wheelFactor(dy, mode) {
-  if (!dy) return 1;
-  if (mode === 1 || mode === 2 || Math.abs(dy) >= 50) return dy < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
-  return Math.exp(-Math.max(-18, Math.min(18, dy)) / 100);
+function wheelFactor(deltaY, mode) {
+  if (!deltaY) return 1;
+  if (mode === 1 || mode === 2 || Math.abs(deltaY) >= 50) return deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
+  return Math.exp(-Math.max(-18, Math.min(18, deltaY)) / 100);
 }
 (function () {
-  const L = $('#left');
-  let acc = 1,
-    pt = null as number[] | null,
-    raf = 0,
-    G = null as { k: number } | null,
-    TP = null as { d: number; k: number; a: ReturnType<typeof zoomAnchor> } | null;
+  const pdfArea = $('#left');
+  let pendingFactor = 1,
+    wheelPoint = null as number[] | null,
+    wheelFrame = 0,
+    gestureStart = null as { k: number } | null,
+    pinchStart = null as { d: number; k: number; a: ReturnType<typeof zoomAnchor> } | null;
   const flush = () => {
-    raf = 0;
-    if (acc === 1 || !pt) return;
-    const f = acc;
-    acc = 1;
-    zoomTo(K * f, pt[0], pt[1]);
+    wheelFrame = 0;
+    if (pendingFactor === 1 || !wheelPoint) return;
+    const factor = pendingFactor;
+    pendingFactor = 1;
+    zoomTo(K * factor, wheelPoint[0], wheelPoint[1]);
   };
-  L.addEventListener(
+  pdfArea.addEventListener(
     'wheel',
-    (e) => {
-      if (!(e.ctrlKey || e.metaKey) || isMdDoc()) return;
-      e.preventDefault(); // a Markdown document's text zooms with the browser
-      acc *= wheelFactor(e.deltaY, e.deltaMode);
-      pt = [e.clientX, e.clientY];
-      if (!raf) raf = requestAnimationFrame(flush);
+    (event) => {
+      if (!(event.ctrlKey || event.metaKey) || isMdDoc()) return;
+      event.preventDefault(); // a Markdown document's text zooms with the browser
+      pendingFactor *= wheelFactor(event.deltaY, event.deltaMode);
+      wheelPoint = [event.clientX, event.clientY];
+      if (!wheelFrame) wheelFrame = requestAnimationFrame(flush);
     },
     { passive: false },
   );
-  L.addEventListener(
+  pdfArea.addEventListener(
     'gesturestart',
-    (e) => {
+    (event) => {
       if (isMdDoc()) return;
-      e.preventDefault();
-      if (!TP) G = { k: K };
+      event.preventDefault();
+      if (!pinchStart) gestureStart = { k: K };
     },
     { passive: false },
   );
-  L.addEventListener(
+  pdfArea.addEventListener(
     'gesturechange',
-    (e) => {
+    (event) => {
       if (isMdDoc()) return;
-      e.preventDefault();
-      if (G && !TP && e.scale > 0) zoomTo(G.k * e.scale, e.clientX, e.clientY);
+      event.preventDefault();
+      if (gestureStart && !pinchStart && event.scale > 0)
+        zoomTo(gestureStart.k * event.scale, event.clientX, event.clientY);
     },
     { passive: false },
   );
-  L.addEventListener(
+  pdfArea.addEventListener(
     'gestureend',
-    (e) => {
-      G = null;
+    (event) => {
+      gestureStart = null;
       if (isMdDoc()) return;
-      e.preventDefault();
+      event.preventDefault();
     },
     { passive: false },
   );
-  const mid = (a, b) => [(a.clientX + b.clientX) / 2, (a.clientY + b.clientY) / 2];
-  const dist = (a, b) => Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) || 1;
-  let tr = 0,
+  const midpointOf = (first, second) => [(first.clientX + second.clientX) / 2, (first.clientY + second.clientY) / 2];
+  const fingerDistance = (first, second) =>
+    Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) || 1;
+  let pinchFrame = 0,
     last = null as { d: number; m: number[] } | null;
   const apply = () => {
-    tr = 0;
-    if (!TP || !last) return;
-    setK((TP.k * last.d) / TP.d);
+    pinchFrame = 0;
+    if (!pinchStart || !last) return;
+    setK((pinchStart.k * last.d) / pinchStart.d);
     markZoomed();
-    zoomRestore(TP.a, last.m[0], last.m[1]);
+    zoomRestore(pinchStart.a, last.m[0], last.m[1]);
   };
-  L.addEventListener(
+  pdfArea.addEventListener(
     'touchstart',
-    (e) => {
+    (event) => {
       if (isMdDoc()) {
-        TP = null;
+        pinchStart = null;
         return;
       }
-      if (e.touches.length !== 2) {
-        if (e.touches.length > 2) TP = null;
+      if (event.touches.length !== 2) {
+        if (event.touches.length > 2) pinchStart = null;
         return;
       }
-      if (e.cancelable) e.preventDefault();
-      const a = e.touches[0],
-        b = e.touches[1],
-        m = mid(a, b);
+      if (event.cancelable) event.preventDefault();
+      const first = event.touches[0],
+        second = event.touches[1],
+        midpoint = midpointOf(first, second);
       cancelDrag();
       cancelLP();
-      TP = { d: dist(a, b), k: K, a: zoomAnchor(m[0], m[1]) };
-      last = { d: TP.d, m };
+      pinchStart = { d: fingerDistance(first, second), k: K, a: zoomAnchor(midpoint[0], midpoint[1]) };
+      last = { d: pinchStart.d, m: midpoint };
     },
     { passive: false },
   );
-  L.addEventListener(
+  pdfArea.addEventListener(
     'touchmove',
-    (e) => {
-      if (!TP || e.touches.length !== 2) return;
-      if (e.cancelable) e.preventDefault();
-      const a = e.touches[0],
-        b = e.touches[1];
-      last = { d: dist(a, b), m: mid(a, b) };
-      if (!tr) tr = requestAnimationFrame(apply);
+    (event) => {
+      if (!pinchStart || event.touches.length !== 2) return;
+      if (event.cancelable) event.preventDefault();
+      const first = event.touches[0],
+        second = event.touches[1];
+      last = { d: fingerDistance(first, second), m: midpointOf(first, second) };
+      if (!pinchFrame) pinchFrame = requestAnimationFrame(apply);
     },
     { passive: false },
   );
-  const end = (e) => {
-    if (TP && e.touches.length < 2) {
-      if (tr) {
-        cancelAnimationFrame(tr);
+  const end = (event) => {
+    if (pinchStart && event.touches.length < 2) {
+      if (pinchFrame) {
+        cancelAnimationFrame(pinchFrame);
         apply();
       }
-      TP = null;
+      pinchStart = null;
       last = null;
     }
   };
-  L.addEventListener('touchend', end);
-  L.addEventListener('touchcancel', end);
+  pdfArea.addEventListener('touchend', end);
+  pdfArea.addEventListener('touchcancel', end);
 })();
 
 export { wheelFactor, zoomKey };

@@ -7,10 +7,10 @@ function vecClose(doc) {
   if (!doc) return;
   try {
     doc.loadingTask.destroy();
-  } catch (e) {}
+  } catch (error) {}
 }
-function vecFail(msg, err?) {
-  VEC.failed = msg;
+function vecFail(message, cause?) {
+  VEC.failed = message;
   VEC.gen++;
   vecCancel();
   vecReleaseAll();
@@ -18,47 +18,47 @@ function vecFail(msg, err?) {
   vecClose(VEC.doc);
   VEC.doc = null;
   searchOffer(); // no PDF to read: no search
-  const c = $('#vec-chip');
-  c.hidden = false;
-  c.dataset.tip = tl('PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다', {
-    reason: tr(msg) + (err && err.message ? ' (' + String(err.message).slice(0, 100) + ')' : ''),
+  const chip = $('#vec-chip');
+  chip.hidden = false;
+  chip.dataset.tip = tl('PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다', {
+    reason: tr(message) + (cause && cause.message ? ' (' + String(cause.message).slice(0, 100) + ')' : ''),
   });
 }
-function vecState(n) {
-  let s = VEC.st.get(n);
-  if (!s) {
-    s = { base: null, bw: 0, bh: 0, dt: null, reg: null, dtCw: 0, dtK: 0, stale: false };
-    VEC.st.set(n, s);
+function pageDrawState(pageNumber) {
+  let pageState = VEC.st.get(pageNumber);
+  if (!pageState) {
+    pageState = { base: null, bw: 0, bh: 0, dt: null, reg: null, dtCw: 0, dtK: 0, stale: false };
+    VEC.st.set(pageNumber, pageState);
   }
-  return s;
+  return pageState;
 }
-function vecDrop(cv) {
-  if (!cv) return;
-  cv.width = 0;
-  cv.height = 0;
-  cv.remove();
+function dropCanvas(canvas) {
+  if (!canvas) return;
+  canvas.width = 0;
+  canvas.height = 0;
+  canvas.remove();
 } // must shrink to 0 for Safari to release memory right away too
-function vecRelease(n) {
-  if (VEC.cur && VEC.cur.n === n) vecCancel();
-  const s = VEC.st.get(n);
-  if (!s) return;
-  vecDrop(s.base);
-  vecDrop(s.dt);
-  VEC.st.delete(n);
-  const pg = document.getElementById('p' + n);
-  if (pg) pg.classList.remove('drawn');
+function releasePageCanvases(pageNumber) {
+  if (VEC.cur && VEC.cur.n === pageNumber) vecCancel();
+  const pageState = VEC.st.get(pageNumber);
+  if (!pageState) return;
+  dropCanvas(pageState.base);
+  dropCanvas(pageState.dt);
+  VEC.st.delete(pageNumber);
+  const pageElement = document.getElementById('p' + pageNumber);
+  if (pageElement) pageElement.classList.remove('drawn');
 }
 function vecReleaseAll() {
   vecCancel();
-  Array.from(VEC.st.keys()).forEach(vecRelease);
+  Array.from(VEC.st.keys()).forEach(releasePageCanvases);
 }
 function vecCancel() {
-  const c = VEC.cur;
+  const drawing = VEC.cur;
   VEC.cur = null;
-  if (c && c.task) {
+  if (drawing && drawing.task) {
     try {
-      c.task.cancel();
-    } catch (e) {}
+      drawing.task.cancel();
+    } catch (error) {}
   }
 }
 function vecObserve() {
@@ -67,24 +67,24 @@ function vecObserve() {
   VEC.near.clear();
   if (!window.IntersectionObserver) return;
   const io = (VEC.io = new IntersectionObserver(
-    (es) => {
-      es.forEach((en) => {
-        const n = Number((en.target as HTMLElement).dataset.page);
-        if (en.isIntersecting) VEC.near.add(n);
+    (entries) => {
+      entries.forEach((en) => {
+        const pageNumber = Number((en.target as HTMLElement).dataset.page);
+        if (en.isIntersecting) VEC.near.add(pageNumber);
         else {
-          VEC.near.delete(n);
-          vecRelease(n);
+          VEC.near.delete(pageNumber);
+          releasePageCanvases(pageNumber);
         }
       });
       vecSchedule(0);
     },
     { root: $('#left'), rootMargin: VEC_KEEP },
   ));
-  $$('.pg').forEach((pg) => io.observe(pg));
+  $$('.pg').forEach((pageElement) => io.observe(pageElement));
 }
 function vecSchedule(ms) {
   clearTimeout(VEC.timer);
-  VEC.timer = setTimeout(vecPump, ms || 0);
+  VEC.timer = setTimeout(pumpDrawJobs, ms || 0);
 }
 // Zoom, window size, or DPR changed - whatever was being drawn (the old size) is discarded and redrawn shortly after. Meanwhile, the old canvas is shown stretched.
 function vecInvalidate() {
@@ -92,192 +92,226 @@ function vecInvalidate() {
   vecCancel();
   vecSchedule(150);
 }
-function vecK() {
-  const vv = window.visualViewport;
-  return (window.devicePixelRatio || 1) * Math.max(1, (vv && vv.scale) || 1);
+function backingScale() {
+  const viewport = window.visualViewport;
+  return (window.devicePixelRatio || 1) * Math.max(1, (viewport && viewport.scale) || 1);
 }
 // The page canvas's backing size. If it exceeds the cap, it's scaled down proportionally and marked capped (the detail canvas fills in the visible portion).
-function vecTarget(cw, ch, k, cap) {
-  let bw = Math.round(cw * k),
-    bh = Math.round(ch * k),
+function vecTarget(cssWidth, cssHeight, pixelRatio, cap) {
+  let backingWidth = Math.round(cssWidth * pixelRatio),
+    backingHeight = Math.round(cssHeight * pixelRatio),
     capped = false;
-  if (bw * bh > cap) {
-    const f = Math.sqrt(cap / (bw * bh));
-    bw = Math.max(1, Math.floor(bw * f));
-    bh = Math.max(1, Math.floor(bh * f));
+  if (backingWidth * backingHeight > cap) {
+    const shrinkFactor = Math.sqrt(cap / (backingWidth * backingHeight));
+    backingWidth = Math.max(1, Math.floor(backingWidth * shrinkFactor));
+    backingHeight = Math.max(1, Math.floor(backingHeight * shrinkFactor));
     capped = true;
   }
-  return { cw, ch, k, bw, bh, capped };
+  return { cw: cssWidth, ch: cssHeight, k: pixelRatio, bw: backingWidth, bh: backingHeight, capped };
 }
-function vecTargetOf(pg) {
-  const cw = pg.clientWidth,
-    ch = pg.clientHeight;
-  return cw && ch ? vecTarget(cw, ch, vecK(), VEC_PIX_CAP) : null;
+function pageBackingTarget(pageElement) {
+  const cssWidth = pageElement.clientWidth,
+    cssHeight = pageElement.clientHeight;
+  return cssWidth && cssHeight ? vecTarget(cssWidth, cssHeight, backingScale(), VEC_PIX_CAP) : null;
 }
 // The portion of a page visible on screen (page CSS px). margin is extra room relative to the viewport size (the detail canvas is drawn a bit larger).
-function vecVisible(pg, margin) {
-  const L = $('#left'),
-    lr = L.getBoundingClientRect(),
-    r = pg.getBoundingClientRect();
-  const ox = r.left + pg.clientLeft,
-    oy = r.top + pg.clientTop,
-    cw = pg.clientWidth,
-    ch = pg.clientHeight;
-  const vx0 = lr.left + L.clientLeft,
-    vy0 = lr.top + L.clientTop,
-    vw = L.clientWidth,
-    vh = L.clientHeight,
-    mx = vw * margin,
-    my = vh * margin;
-  const x0 = Math.max(0, vx0 - mx - ox),
-    y0 = Math.max(0, vy0 - my - oy),
-    x1 = Math.min(cw, vx0 + vw + mx - ox),
-    y1 = Math.min(ch, vy0 + vh + my - oy);
-  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0, cw, ch } : null;
+function visiblePagePortion(pageElement, margin) {
+  const pdfArea = $('#left'),
+    areaRect = pdfArea.getBoundingClientRect(),
+    pageRect = pageElement.getBoundingClientRect();
+  const originX = pageRect.left + pageElement.clientLeft,
+    originY = pageRect.top + pageElement.clientTop,
+    cssWidth = pageElement.clientWidth,
+    cssHeight = pageElement.clientHeight;
+  const viewX = areaRect.left + pdfArea.clientLeft,
+    viewY = areaRect.top + pdfArea.clientTop,
+    viewWidth = pdfArea.clientWidth,
+    viewHeight = pdfArea.clientHeight,
+    marginX = viewWidth * margin,
+    marginY = viewHeight * margin;
+  const x0 = Math.max(0, viewX - marginX - originX),
+    y0 = Math.max(0, viewY - marginY - originY),
+    x1 = Math.min(cssWidth, viewX + viewWidth + marginX - originX),
+    y1 = Math.min(cssHeight, viewY + viewHeight + marginY - originY);
+  return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0, cw: cssWidth, ch: cssHeight } : null;
 }
-function vecCovers(reg, v) {
+function regionCovers(region, visible) {
   return (
-    !!reg &&
-    reg.x <= v.x / v.cw + 1e-6 &&
-    reg.y <= v.y / v.ch + 1e-6 &&
-    reg.x + reg.w >= (v.x + v.w) / v.cw - 1e-6 &&
-    reg.y + reg.h >= (v.y + v.h) / v.ch - 1e-6
+    !!region &&
+    region.x <= visible.x / visible.cw + 1e-6 &&
+    region.y <= visible.y / visible.ch + 1e-6 &&
+    region.x + region.w >= (visible.x + visible.w) / visible.cw - 1e-6 &&
+    region.y + region.h >= (visible.y + visible.h) / visible.ch - 1e-6
   );
 }
 // The one thing to draw next: pages within the viewport first (nearest to center), page canvas before detail canvas.
-function vecNextJob() {
+function nextDrawJob() {
   if (!VEC.doc) return null;
-  const L = $('#left'),
-    lr = L.getBoundingClientRect(),
-    top = lr.top,
-    bot = lr.top + L.clientHeight,
-    cy = (top + bot) / 2;
+  const pdfArea = $('#left'),
+    areaRect = pdfArea.getBoundingClientRect(),
+    top = areaRect.top,
+    bottom = areaRect.top + pdfArea.clientHeight,
+    centerY = (top + bottom) / 2;
   const list: { n: number; pg: HTMLElement; vis: any; d: number }[] = []; // vis: a boolean, subtracted to sort
-  VEC.near.forEach((n) => {
-    const pg = document.getElementById('p' + n);
-    if (!pg) return;
-    const r = pg.getBoundingClientRect();
-    list.push({ n, pg, vis: r.bottom > top && r.top < bot, d: Math.abs((r.top + r.bottom) / 2 - cy) });
+  VEC.near.forEach((pageNumber) => {
+    const pageElement = document.getElementById('p' + pageNumber);
+    if (!pageElement) return;
+    const pageRect = pageElement.getBoundingClientRect();
+    list.push({
+      n: pageNumber,
+      pg: pageElement,
+      vis: pageRect.bottom > top && pageRect.top < bottom,
+      d: Math.abs((pageRect.top + pageRect.bottom) / 2 - centerY),
+    });
   });
-  list.sort((a, b) => b.vis - a.vis || a.d - b.d);
-  for (const it of list) {
-    const s = vecState(it.n),
-      t = vecTargetOf(it.pg);
-    if (!t) continue;
-    if (!s.base || s.stale || s.bw !== t.bw || s.bh !== t.bh) return { n: it.n, kind: 'base' };
-    if (t.capped && it.vis) {
-      const v = vecVisible(it.pg, 0);
-      if (v && (!s.dt || s.dtCw !== t.cw || s.dtK !== t.k || !vecCovers(s.reg, v))) return { n: it.n, kind: 'dt' };
-    } else if (s.dt) {
-      vecDrop(s.dt);
-      s.dt = null;
-      s.reg = null;
+  list.sort((first, second) => second.vis - first.vis || first.d - second.d);
+  for (const candidate of list) {
+    const pageState = pageDrawState(candidate.n),
+      target = pageBackingTarget(candidate.pg);
+    if (!target) continue;
+    if (!pageState.base || pageState.stale || pageState.bw !== target.bw || pageState.bh !== target.bh)
+      return { n: candidate.n, kind: 'base' };
+    if (target.capped && candidate.vis) {
+      const visible = visiblePagePortion(candidate.pg, 0);
+      if (
+        visible &&
+        (!pageState.dt ||
+          pageState.dtCw !== target.cw ||
+          pageState.dtK !== target.k ||
+          !regionCovers(pageState.reg, visible))
+      )
+        return { n: candidate.n, kind: 'dt' };
+    } else if (pageState.dt) {
+      dropCanvas(pageState.dt);
+      pageState.dt = null;
+      pageState.reg = null;
     }
   }
   return null;
 }
-async function vecPump() {
+async function pumpDrawJobs() {
   if (VEC.pumping || !VEC.doc) return;
   VEC.pumping = true;
   try {
     for (let i = 0; i < 400; i++) {
-      const job = vecNextJob();
+      const job = nextDrawJob();
       if (!job) break;
-      await vecRun(job);
+      await runDrawJob(job);
     }
   } finally {
     VEC.pumping = false;
   }
 }
-async function vecRun(job) {
-  const n = job.n,
-    pg = document.getElementById('p' + n),
+async function runDrawJob(job) {
+  const pageNumber = job.n,
+    pageElement = document.getElementById('p' + pageNumber),
     doc = VEC.doc,
     gen = VEC.gen;
-  if (!pg || !doc) return;
-  if (n > doc.numPages) return; // a defensive check - just skips a case where another document/build's doc ends up running on a new n (the vecOpen bailout above is the real fix)
+  if (!pageElement || !doc) return;
+  if (pageNumber > doc.numPages) return; // a defensive check - just skips a case where another document/build's doc ends up running on a new n (the vecOpen bailout above is the real fix)
   let page;
   try {
-    page = await doc.getPage(n);
-  } catch (e) {
-    if (gen === VEC.gen) vecFail('쪽을 읽지 못했습니다', e);
+    page = await doc.getPage(pageNumber);
+  } catch (error) {
+    if (gen === VEC.gen) vecFail('쪽을 읽지 못했습니다', error);
     return;
   }
-  if (gen !== VEC.gen || !VEC.near.has(n) || !document.contains(pg)) return;
-  const t = vecTargetOf(pg);
-  if (!t) return;
-  const vp1 = page.getViewport({ scale: 1 }),
-    cv = document.createElement('canvas');
+  if (gen !== VEC.gen || !VEC.near.has(pageNumber) || !document.contains(pageElement)) return;
+  const target = pageBackingTarget(pageElement);
+  if (!target) return;
+  const unitViewport = page.getViewport({ scale: 1 }),
+    canvas = document.createElement('canvas');
   let scale,
-    tf,
-    reg = null as { x: number; y: number; w: number; h: number } | null;
+    transform,
+    region = null as { x: number; y: number; w: number; h: number } | null;
   // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
   // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. Since PNG was also drawn
   // filling that same box, this is needed for the canvas's text to land at the same % position it did for PNG.
   if (job.kind === 'base') {
-    cv.width = t.bw;
-    cv.height = t.bh;
-    scale = t.bw / vp1.width;
-    tf = [1, 0, 0, t.bh / (vp1.height * scale), 0, 0];
+    canvas.width = target.bw;
+    canvas.height = target.bh;
+    scale = target.bw / unitViewport.width;
+    transform = [1, 0, 0, target.bh / (unitViewport.height * scale), 0, 0];
   } else {
-    const v = vecVisible(pg, VEC_DT_MARGIN);
-    if (!v) return;
-    let k = t.k;
-    if (v.w * v.h * k * k > VEC_PIX_CAP) k = Math.sqrt(VEC_PIX_CAP / (v.w * v.h));
-    scale = (t.cw * k) / vp1.width;
-    cv.width = Math.max(1, Math.round(v.w * k));
-    cv.height = Math.max(1, Math.round(v.h * k));
-    tf = [1, 0, 0, (t.ch * k) / (vp1.height * scale), -v.x * k, -v.y * k];
-    reg = { x: v.x / t.cw, y: v.y / t.ch, w: v.w / t.cw, h: v.h / t.ch };
+    const visible = visiblePagePortion(pageElement, VEC_DT_MARGIN);
+    if (!visible) return;
+    let pixelRatio = target.k;
+    if (visible.w * visible.h * pixelRatio * pixelRatio > VEC_PIX_CAP)
+      pixelRatio = Math.sqrt(VEC_PIX_CAP / (visible.w * visible.h));
+    scale = (target.cw * pixelRatio) / unitViewport.width;
+    canvas.width = Math.max(1, Math.round(visible.w * pixelRatio));
+    canvas.height = Math.max(1, Math.round(visible.h * pixelRatio));
+    transform = [
+      1,
+      0,
+      0,
+      (target.ch * pixelRatio) / (unitViewport.height * scale),
+      -visible.x * pixelRatio,
+      -visible.y * pixelRatio,
+    ];
+    region = { x: visible.x / target.cw, y: visible.y / target.ch, w: visible.w / target.cw, h: visible.h / target.ch };
   }
-  const ctx = cv.getContext('2d', { alpha: false }),
-    t0 = performance.now();
-  const task = page.render({ canvasContext: ctx, viewport: page.getViewport({ scale }), transform: tf });
-  VEC.cur = { n, task };
+  const canvasContext = canvas.getContext('2d', { alpha: false }),
+    startedAt = performance.now();
+  const task = page.render({
+    canvasContext: canvasContext,
+    viewport: page.getViewport({ scale }),
+    transform: transform,
+  });
+  VEC.cur = { n: pageNumber, task };
   try {
     await task.promise;
-  } catch (e) {
+  } catch (error) {
     if (VEC.cur && VEC.cur.task === task) VEC.cur = null;
-    vecDrop(cv);
-    if (e && (e as Error).name === 'RenderingCancelledException') return;
-    if (gen === VEC.gen) vecFail('쪽을 그리지 못했습니다', e);
+    dropCanvas(canvas);
+    if (error && (error as Error).name === 'RenderingCancelledException') return;
+    if (gen === VEC.gen) vecFail('쪽을 그리지 못했습니다', error);
     return;
   }
   if (VEC.cur && VEC.cur.task === task) VEC.cur = null;
-  const t2 = gen === VEC.gen && VEC.near.has(n) && document.contains(pg) ? vecTargetOf(pg) : null;
-  if (!t2 || t2.cw !== t.cw || t2.ch !== t.ch || t2.k !== t.k) {
-    vecDrop(cv);
+  const targetAfter =
+    gen === VEC.gen && VEC.near.has(pageNumber) && document.contains(pageElement)
+      ? pageBackingTarget(pageElement)
+      : null;
+  if (!targetAfter || targetAfter.cw !== target.cw || targetAfter.ch !== target.ch || targetAfter.k !== target.k) {
+    dropCanvas(canvas);
     return;
   } // zoom or window size changed while drawing
-  VEC.stats.push({ n, kind: job.kind, ms: Math.round(performance.now() - t0), w: cv.width, h: cv.height });
+  VEC.stats.push({
+    n: pageNumber,
+    kind: job.kind,
+    ms: Math.round(performance.now() - startedAt),
+    w: canvas.width,
+    h: canvas.height,
+  });
   if (VEC.stats.length > 200) VEC.stats.splice(0, VEC.stats.length - 200);
-  const s = vecState(n);
+  const pageState = pageDrawState(pageNumber);
   if (job.kind === 'base') {
-    vecDrop(s.base);
-    s.base = cv;
-    s.bw = t.bw;
-    s.bh = t.bh;
-    s.stale = false;
-    cv.className = 'vb';
-    pg.prepend(cv);
-    pg.classList.add('drawn');
+    dropCanvas(pageState.base);
+    pageState.base = canvas;
+    pageState.bw = target.bw;
+    pageState.bh = target.bh;
+    pageState.stale = false;
+    canvas.className = 'vb';
+    pageElement.prepend(canvas);
+    pageElement.classList.add('drawn');
     if (VEC.tFirst === null) VEC.tFirst = performance.now();
   } else {
-    const r = reg as { x: number; y: number; w: number; h: number }; // a detail job always measured its region above
-    vecDrop(s.dt);
-    s.dt = cv;
-    s.reg = r;
-    s.dtCw = t.cw;
-    s.dtK = t.k;
-    cv.className = 'dt';
-    Object.assign(cv.style, {
-      left: r.x * 100 + '%',
-      top: r.y * 100 + '%',
-      width: r.w * 100 + '%',
-      height: r.h * 100 + '%',
+    const drawnRegion = region as { x: number; y: number; w: number; h: number }; // a detail job always measured its region above
+    dropCanvas(pageState.dt);
+    pageState.dt = canvas;
+    pageState.reg = drawnRegion;
+    pageState.dtCw = target.cw;
+    pageState.dtK = target.k;
+    canvas.className = 'dt';
+    Object.assign(canvas.style, {
+      left: drawnRegion.x * 100 + '%',
+      top: drawnRegion.y * 100 + '%',
+      width: drawnRegion.w * 100 + '%',
+      height: drawnRegion.h * 100 + '%',
     });
-    if (s.base) s.base.after(cv);
-    else pg.prepend(cv);
+    if (pageState.base) pageState.base.after(canvas);
+    else pageElement.prepend(canvas);
   }
 }
 $('#left').addEventListener(
@@ -300,9 +334,9 @@ $('#left').addEventListener(
   );
 })();
 {
-  const vv = window.visualViewport;
-  if (vv)
-    vv.addEventListener('resize', () => {
+  const viewport = window.visualViewport;
+  if (viewport)
+    viewport.addEventListener('resize', () => {
       if (VEC.doc) vecSchedule(300);
     });
 }

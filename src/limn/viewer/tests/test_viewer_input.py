@@ -248,7 +248,9 @@ class GestureLogic(unittest.TestCase):
 
     def test_sheet_release_collapses_low_or_flung_down_and_steps_up_on_an_upward_fling(self):
         """Below 25% or a downward fling collapses (30% while composing); an upward fling goes to the next stop."""
-        pre = js_const("SHEET_F")  # the statement that also declares SHEET_MIN_F, SHEET_CLOSE_F and SHEET_COMPOSE_F
+        pre = js_const(
+            "SHEET_F"
+        )  # the statement that also declares SHEET_MIN_F, SHEET_CLOSE_F and SHEET_COMPOSE_FRACTION
         got = self.run_js(
             ["sheetRelease"],
             "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"
@@ -361,12 +363,12 @@ class NavLogic(unittest.TestCase):
         self.assertEqual(en, {"name": "본문", "pages": "3/25", "label": "Go to · 본문 · 3 / 25"})
 
     def test_zoom_percent_is_the_scale_over_the_print_size(self):
-        """zoomPct(k): [더보기]'s zoom figure, rounded - the print size (96/72 px a point) is 100%, one step in 120%, two
+        """zoomPercent(k): [더보기]'s zoom figure, rounded - the print size (96/72 px a point) is 100%, one step in 120%, two
         144%, half 50%; 100 before a scale is known."""
         got = self.run_js(
-            ["zoomPct"],
-            "(globalThis.PT_PX=96/72,[zoomPct(96/72),zoomPct(96/72*1.2),zoomPct(96/72*1.44),zoomPct(96/72/2),zoomPct(1),"
-            "zoomPct(0)])",
+            ["zoomPercent"],
+            "(globalThis.PT_PX=96/72,[zoomPercent(96/72),zoomPercent(96/72*1.2),zoomPercent(96/72*1.44),zoomPercent(96/72/2),zoomPercent(1),"
+            "zoomPercent(0)])",
         )
         self.assertEqual(got, [100, 120, 144, 50, 75, 100])
 
@@ -695,13 +697,13 @@ class ViewerBase(BrowserBase):
     def long_press_pick(self, cdp, page, x=None, y=None):
         """A long-press quick selection at (x, y) (default: a clear spot near the top of page 1); waits for the composer.
 
-        The finger stays down until the long-press timer has picked (LP_PICKED is its pointer), as a person holds until
+        The finger stays down until the long-press timer has picked (LONG_PRESS_PICKED is its pointer), as a person holds until
         the selection appears. A fixed 0.6s hold raced the 450ms timer on a loaded machine: the lift could reach the page
         before the late timer ran and cancel the press."""
         if x is None:
             x, y = self.on_page(page, 0.3, 0.1)
         self.touch(cdp, "touchStart", [(x, y)])
-        page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
+        page.wait_for_function("LONG_PRESS===null&&LONG_PRESS_PICKED!==null", timeout=8000)
         self.touch(cdp, "touchEnd", [])
         page.wait_for_function(
             "COMPOSE.current&&COMPOSE.current.lo&&!document.querySelector('#composer').hidden", timeout=8000
@@ -7093,14 +7095,14 @@ class HangulInkInClippingBoxes(ViewerBase):
 
 
 class SelectModeLogic(unittest.TestCase):
-    """selModeScrollTop(top0, now, moved): where the PDF scroller goes when the select mode's bar reserve above page 1
+    """selectModeScrollTop(top0, now, moved): where the PDF scroller goes when the select mode's bar reserve above page 1
     comes or goes (docs/handbook/viewer.md §모바일 레이아웃 선택 모드)."""
 
     def scroll(self, cases):
-        """[(top0, now, moved)] -> [selModeScrollTop(...)] from the shipped source."""
-        js = extract_js_fn("selModeScrollTop") + "\nconsole.log(JSON.stringify(%s.map(c=>selModeScrollTop(...c))));" % (
-            json.dumps(cases)
-        )
+        """[(top0, now, moved)] -> [selectModeScrollTop(...)] from the shipped source."""
+        js = extract_js_fn(
+            "selectModeScrollTop"
+        ) + "\nconsole.log(JSON.stringify(%s.map(c=>selectModeScrollTop(...c))));" % (json.dumps(cases))
         return node_or_skip(self, js)
 
     def test_at_the_very_top_the_scroller_stays_at_zero_so_the_reserve_uncovers_page_one(self):
@@ -7109,12 +7111,12 @@ class SelectModeLogic(unittest.TestCase):
         self.assertEqual(self.scroll([(0, 0, 52), (0, 0, -52), (0, 40, 52), (-1, 0, 52)]), [0, 0, 0, 0])
 
     def test_the_bar_width_rounds_up_so_both_sides_fall_on_whole_pixels(self):
-        """selBarWidth(w, a): the mode bar's natural width w rounded up to a whole pixel, one more where the area a would
+        """selectModeBarWidth(w, a): the mode bar's natural width w rounded up to a whole pixel, one more where the area a would
         leave the two sides an odd remainder - so (a - W) / 2 is whole - and a width already whole (a wrapped bar as wide
         as the area allows) is kept."""
-        js = extract_js_fn("selBarWidth") + (
+        js = extract_js_fn("selectModeBarWidth") + (
             "\nconsole.log(JSON.stringify([[293.05,570],[293.05,571],[293,570],[387,411],[386.2,411],[44,820]]"
-            ".map(c=>selBarWidth(...c))));"
+            ".map(c=>selectModeBarWidth(...c))));"
         )
         self.assertEqual(node_or_skip(self, js), [294, 295, 294, 387, 387, 44])
 
@@ -7512,7 +7514,7 @@ class ClickOffCancelsSelection(ViewerBase):
         page.evaluate("window.__old = COMPOSE.box")
         x, y = self.blank(page)
         self.touch(cdp, "touchStart", [(x, y)])
-        page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
+        page.wait_for_function("LONG_PRESS===null&&LONG_PRESS_PICKED!==null", timeout=8000)
         self.touch(cdp, "touchEnd", [])
         page.wait_for_function("COMPOSE.box!==window.__old&&COMPOSE.current&&COMPOSE.current.lo", timeout=8000)
         nothing_follows(page, 700)  # a tap's pending cancel would have run by now

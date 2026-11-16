@@ -34,21 +34,21 @@ const OUTLINE_BATCH = 100; // sibling entries whose destinations are resolved at
 // How many entries that name a place (a destination) lie in item and below it. Counts without resolving anything, and with a stack
 // of its own: an outline can nest deeper than the call stack.
 function outlineCount(item) {
-  let n = 0;
+  let count = 0;
   const todo = [item];
   while (todo.length) {
-    const x = todo.pop();
-    if (x.dest != null) n++;
-    for (const c of x.items || []) todo.push(c);
+    const node = todo.pop();
+    if (node.dest != null) count++;
+    for (const child of node.items || []) todo.push(child);
   }
-  return n;
+  return count;
 }
 // Which document and build the entries in OUTLINE_ENTRIES were read for (outlineForget drops them when another document comes on
 // screen; the page list names a figure's pages by them only while they are those of the build on screen, outlineOnScreen).
 let OUTLINE_DOC = null as string | null,
   OUTLINE_BUILD = '';
 async function loadOutline(doc, gen) {
-  const k = DOC,
+  const docName = DOC,
     build = (META && META.pages_build) || '',
     stale = () => gen !== VEC.gen || doc !== VEC.doc; // a newer open (another document or build) took over
   let entries: OutlineEntry[] = [],
@@ -59,21 +59,22 @@ async function loadOutline(doc, gen) {
     // be resolved: one broken link leaves out that entry only, not the outline.
     async function entryOf(item) {
       try {
-        let dest = item.dest;
-        if (typeof dest === 'string') dest = await doc.getDestination(dest);
-        if (!Array.isArray(dest) || dest[0] == null) return null;
-        const page = typeof dest[0] === 'number' ? dest[0] + 1 : (await doc.getPageIndex(dest[0])) + 1;
-        const ptH = META && META.pages && META.pages[page - 1] ? +META.pages[page - 1].pt_h : 0;
+        let destination = item.dest;
+        if (typeof destination === 'string') destination = await doc.getDestination(destination);
+        if (!Array.isArray(destination) || destination[0] == null) return null;
+        const page =
+          typeof destination[0] === 'number' ? destination[0] + 1 : (await doc.getPageIndex(destination[0])) + 1;
+        const pageHeight = META && META.pages && META.pages[page - 1] ? +META.pages[page - 1].pt_h : 0;
         if (!(Number.isInteger(page) && page >= 1 && page <= doc.numPages)) return null;
         return {
           title: item.title || tr('제목 없음'),
           page,
           depth: 0,
           up: -1,
-          frac: destFrac(dest, ptH),
-          x: destLeft(dest),
+          frac: destinationFraction(destination, pageHeight),
+          x: destinationLeft(destination),
         };
-      } catch (e) {
+      } catch (error) {
         return null;
       }
     }
@@ -98,27 +99,27 @@ async function loadOutline(doc, gen) {
           if (depth < OUTLINE_MAX_DEPTH) {
             await walk(batch[j].items, depth + 1, got[j] ? at : up);
             if (stale()) return;
-          } else for (const c of batch[j].items || []) cut += outlineCount(c);
+          } else for (const child of batch[j].items || []) cut += outlineCount(child);
         }
       }
     }
     await walk(items || [], 0, -1);
-  } catch (e) {
+  } catch (error) {
     entries = [];
     cut = 0;
   }
   if (stale()) return;
   if (entries.length) {
     try {
-      const r = (await api(dq('/api/outline-labels', k), { what: '목차 번호 읽기', silent: true })).data;
-      if (!stale() && k === DOC && build === META.pages_build && r.build === build)
-        entries = mergeOutlineLabels(entries, r.labels || []);
-    } catch (e) {} // the PDF's own outline is still usable even if the numbering service can't be reached.
+      const answer = (await api(dq('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true })).data;
+      if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
+        entries = mergeOutlineLabels(entries, answer.labels || []);
+    } catch (error) {} // the PDF's own outline is still usable even if the numbering service can't be reached.
   }
   if (stale()) return;
   OUTLINE_ENTRIES = entries;
   OUTLINE_CUT = cut;
-  OUTLINE_DOC = k;
+  OUTLINE_DOC = docName;
   OUTLINE_BUILD = build;
   OUTLINE_SELECTED = -1;
   OUTLINE_ACTIVE_PAGE = 0;
@@ -149,24 +150,26 @@ function outlineOnScreen() {
   return OUTLINE_DOC === DOC && OUTLINE_BUILD === ((META && META.pages_build) || '');
 }
 function mergeOutlineLabels(entries, labels) {
-  const norm = (s) =>
-    String(s || '')
+  const normalize = (text) =>
+    String(text || '')
       .normalize('NFKC')
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
   const levels = ['section', 'subsection', 'subsubsection', 'paragraph', 'subparagraph'];
   const depthGuard = labels.some(
-    (l) => l.level === 'section' && entries.some((e) => e.depth === 0 && norm(e.title) === norm(l.title)),
+    (label) =>
+      label.level === 'section' &&
+      entries.some((entry) => entry.depth === 0 && normalize(entry.title) === normalize(label.title)),
   );
   let cursor = 0;
   return entries.map((entry) => {
-    const title = norm(entry.title);
+    const title = normalize(entry.title);
     let matched = null as any;
     if (title)
       for (let i = cursor; i < labels.length; i++) {
         const label = labels[i];
-        if (norm(label.title) !== title) continue;
+        if (normalize(label.title) !== title) continue;
         if (/^\d+$/.test(String(label.page || '')) && Number(label.page) !== entry.page) continue;
         if (depthGuard && levels.includes(label.level) && levels.indexOf(label.level) !== entry.depth) continue;
         matched = label;
@@ -199,8 +202,8 @@ function renderOutline() {
  * A row's name is its number and title: the dot that stands in for no number is not read. A Markdown document's line label
  * (L7) is not read either - its row is described as the source line instead ('원문 7번째 줄').
  */
-function outlineList(box, q) {
-  const query = String(q || '')
+function outlineList(box, filterText) {
+  const query = String(filterText || '')
     .trim()
     .toLowerCase();
   if (!OUTLINE_ENTRIES.length) {
@@ -214,8 +217,8 @@ function outlineList(box, q) {
     return;
   }
   const rows: number[] = [];
-  OUTLINE_ENTRIES.forEach((x, i) => {
-    if (!query || (x.number + ' ' + x.title).toLowerCase().includes(query)) rows.push(i);
+  OUTLINE_ENTRIES.forEach((entry, index) => {
+    if (!query || (entry.number + ' ' + entry.title).toLowerCase().includes(query)) rows.push(index);
   });
   const note = outlineCutNote(!!query);
   if (!rows.length) {
@@ -228,20 +231,20 @@ function outlineList(box, q) {
   const grouped = query ? outlineGrouped(OUTLINE_ENTRIES) : null;
   setHtml(
     box,
-    html`${rows.map((i) => {
-      const x = OUTLINE_ENTRIES[i],
-        on = i === OUTLINE_SELECTED;
-      const page = x.pageLabel || String(x.page),
-        grp = grouped && grouped.has(i) ? outlineGroupName(OUTLINE_ENTRIES[x.up]) : '';
-      const md = isMdDoc(),
-        line = md ? tl('원문 {line}번째 줄', { line: String(x.pageLabel || '').replace(/^L/, '') }) : null;
-      return html`<button translate="no" class="ol-depth-${Math.min(x.depth, 4)}${on ? ' ol-active' : ''}${grp ? ' ol-grouped' : ''}" data-act="outline-page" data-index="${i}" data-page="${x.page}" data-close="1" aria-current="${on ? 'location' : 'false'}" title="${grp ? grp + ' › ' + x.title : x.title}"${md ? html` aria-description="${line}"` : ''}>${grp ? html`<span class="ol-grp">${grp} ›</span>` : ''}<span class="ol-no"${x.number ? '' : html` aria-hidden="true"`}>${x.number || '·'}</span><span class="ol-name">${x.title}</span><span class="ol-page"${md ? html` aria-hidden="true"` : ''}>${page}</span></button>`;
+    html`${rows.map((index) => {
+      const entry = OUTLINE_ENTRIES[index],
+        on = index === OUTLINE_SELECTED;
+      const page = entry.pageLabel || String(entry.page),
+        groupName = grouped && grouped.has(index) ? outlineGroupName(OUTLINE_ENTRIES[entry.up]) : '';
+      const isMarkdown = isMdDoc(),
+        line = isMarkdown ? tl('원문 {line}번째 줄', { line: String(entry.pageLabel || '').replace(/^L/, '') }) : null;
+      return html`<button translate="no" class="ol-depth-${Math.min(entry.depth, 4)}${on ? ' ol-active' : ''}${groupName ? ' ol-grouped' : ''}" data-act="outline-page" data-index="${index}" data-page="${entry.page}" data-close="1" aria-current="${on ? 'location' : 'false'}" title="${groupName ? groupName + ' › ' + entry.title : entry.title}"${isMarkdown ? html` aria-description="${line}"` : ''}>${groupName ? html`<span class="ol-grp">${groupName} ›</span>` : ''}<span class="ol-no"${entry.number ? '' : html` aria-hidden="true"`}>${entry.number || '·'}</span><span class="ol-name">${entry.title}</span><span class="ol-page"${isMarkdown ? html` aria-hidden="true"` : ''}>${page}</span></button>`;
     })}${note}`,
   );
 }
 // The name of an outline entry as a group: its number and title.
-function outlineGroupName(e) {
-  return e ? (e.number ? e.number + ' ' : '') + e.title : '';
+function outlineGroupName(entry) {
+  return entry ? (entry.number ? entry.number + ' ' : '') + entry.title : '';
 }
 // The indices of the entries that a filter's flat results must say the group of: those under a group (up >= 0) whose number and
 // title another entry has too under another group - a figure listed under its status and under the manuscript figure that holds
@@ -250,8 +253,8 @@ function outlineGroupName(e) {
 let OUTLINE_GROUPED = { for: null, set: new Set() } as { for: object[] | null; set: Set<number> };
 function outlineGrouped(entries) {
   if (OUTLINE_GROUPED.for === entries) return OUTLINE_GROUPED.set;
-  const norm = (s) =>
-    String(s || '')
+  const normalize = (text) =>
+    String(text || '')
       .normalize('NFKC')
       .replace(/\s+/g, ' ')
       .trim()
@@ -259,14 +262,19 @@ function outlineGrouped(entries) {
   const under = new Map(),
     several = new Set(),
     set = new Set() as Set<number>;
-  entries.forEach((e) => {
-    const key = norm((e.number || '') + ' ' + e.title),
-      up = typeof e.up === 'number' ? e.up : -1;
+  entries.forEach((entry) => {
+    const key = normalize((entry.number || '') + ' ' + entry.title),
+      up = typeof entry.up === 'number' ? entry.up : -1;
     if (!under.has(key)) under.set(key, up);
     else if (under.get(key) !== up) several.add(key);
   });
-  entries.forEach((e, i) => {
-    if (typeof e.up === 'number' && e.up >= 0 && several.has(norm((e.number || '') + ' ' + e.title))) set.add(i);
+  entries.forEach((entry, index) => {
+    if (
+      typeof entry.up === 'number' &&
+      entry.up >= 0 &&
+      several.has(normalize((entry.number || '') + ' ' + entry.title))
+    )
+      set.add(index);
   });
   OUTLINE_GROUPED = { for: entries, set };
   return set;
@@ -275,15 +283,15 @@ function outlineGrouped(entries) {
 // Under a filter it says the unread entries were not searched (it does not say they are not there). Quiet text, not a row: it names no place. Html, or '' with no cut.
 function outlineCutNote(filtered) {
   if (!OUTLINE_CUT) return '';
-  const p = {
+  const values = {
     n: OUTLINE_CUT.toLocaleString('en-US'),
     max: OUTLINE_MAX_ENTRIES.toLocaleString('en-US'),
     depth: OUTLINE_MAX_DEPTH + 1,
   };
   return html`<p class="ol-more" role="note">${
     filtered
-      ? tl('생략한 목차 항목 {n}개는 검색하지 않았습니다 — 읽는 한도는 {max}개, {depth}단계입니다', p)
-      : tl('목차 항목 {n}개를 생략했습니다 — 읽는 한도는 {max}개, {depth}단계입니다', p)
+      ? tl('생략한 목차 항목 {n}개는 검색하지 않았습니다 — 읽는 한도는 {max}개, {depth}단계입니다', values)
+      : tl('목차 항목 {n}개를 생략했습니다 — 읽는 한도는 {max}개, {depth}단계입니다', values)
   }</p>`;
 }
 // Moves the current-section mark to OUTLINE_SELECTED in both lists without drawing them again. The section strip follows the
@@ -293,9 +301,9 @@ function outlineCutNote(filtered) {
 // comes with the same entry current: then nothing has moved, and a list the person left somewhere stays there.
 function markOutline() {
   for (const box of [$('#outline-items'), $('#ns-outline-items')]) {
-    for (const b of box.querySelectorAll('.ol-active')) {
-      b.classList.remove('ol-active');
-      b.setAttribute('aria-current', 'false');
+    for (const button of box.querySelectorAll('.ol-active')) {
+      button.classList.remove('ol-active');
+      button.setAttribute('aria-current', 'false');
     }
     const on = OUTLINE_SELECTED >= 0 ? box.querySelector('[data-index="' + OUTLINE_SELECTED + '"]') : null;
     if (on) {
@@ -338,15 +346,33 @@ let OUTLINE_MARKED = -1,
 // as the row keeps the margin over the view's foot there: from the section's head the very top lies lower, and on the tablet sheet
 // it took the row under the folded sheet's bar. Within what the list can scroll, so the list's two ends are as near as a row gets.
 // Pure.
-function outlineRevealTop(st, h, sh, top, bottom, m, head, cover = 0, near = top, group = top) {
-  const room = Math.max(0, Math.min(m, (h - cover - (bottom - top)) / 2)),
-    edge = st + cover;
-  if (top >= edge + room - 0.5 && bottom <= st + h - room + 0.5) return null;
-  const fits = (l: number) => l < top - room && bottom + room - l <= h - cover;
-  const up = top < edge + room || bottom - top > h - cover,
-    want = up ? Math.min(top - room, fits(near) ? near : top, fits(group) ? group : top) - cover : bottom - h + room;
-  const to = Math.round(Math.max(0, Math.min(sh - h, up && want <= head && bottom + room <= h + 0.5 ? 0 : want)));
-  return to === Math.round(st) ? null : to;
+function outlineRevealTop(
+  scrollTop,
+  viewHeight,
+  contentHeight,
+  top,
+  bottom,
+  margin,
+  head,
+  cover = 0,
+  near = top,
+  group = top,
+) {
+  const room = Math.max(0, Math.min(margin, (viewHeight - cover - (bottom - top)) / 2)),
+    edge = scrollTop + cover;
+  if (top >= edge + room - 0.5 && bottom <= scrollTop + viewHeight - room + 0.5) return null;
+  const fits = (landing: number) => landing < top - room && bottom + room - landing <= viewHeight - cover;
+  const up = top < edge + room || bottom - top > viewHeight - cover,
+    want = up
+      ? Math.min(top - room, fits(near) ? near : top, fits(group) ? group : top) - cover
+      : bottom - viewHeight + room;
+  const to = Math.round(
+    Math.max(
+      0,
+      Math.min(contentHeight - viewHeight, up && want <= head && bottom + room <= viewHeight + 0.5 ? 0 : want),
+    ),
+  );
+  return to === Math.round(scrollTop) ? null : to;
 }
 // Whether the filter is narrowing the list: its rows are the results, not the outline, and the current row is likely not among them.
 function outlineFiltered() {
@@ -357,8 +383,8 @@ function outlineFiltered() {
 // on a row. Neither a focus left in an empty filter holds anything - a tap on the pages does not take it away, so the outline would
 // wait for good - nor a row a mouse pressed, which keeps the focus after its pick: reading on must not leave the outline behind.
 function outlineHeld() {
-  const a = document.activeElement as HTMLElement | null;
-  const onRow = !!a && !!a.closest && !!a.closest('#outline-items');
+  const focused = document.activeElement as HTMLElement | null;
+  const onRow = !!focused && !!focused.closest && !!focused.closest('#outline-items');
   return (
     outlineFiltered() ||
     OUTLINE_OVER ||
@@ -387,38 +413,39 @@ function outlineFollow(open?: boolean) {
   OUTLINE_FOLLOW_DUE = false;
   OUTLINE_SNAP = false;
   const box = $('#outline'),
-    o = box.getBoundingClientRect(),
-    r = row.getBoundingClientRect(),
+    panelRect = box.getBoundingClientRect(),
+    rowRect = row.getBoundingClientRect(),
     now = performance.now(),
-    st = box.scrollTop;
-  const from = o.top + box.clientTop - st,
-    at = !jump && OUTLINE_AIM && now - OUTLINE_AIM.at < OUTLINE_FOLLOW_FLIGHT_MS ? OUTLINE_AIM.top : st;
+    scrollTop = box.scrollTop;
+  const from = panelRect.top + box.clientTop - scrollTop,
+    at = !jump && OUTLINE_AIM && now - OUTLINE_AIM.at < OUTLINE_FOLLOW_FLIGHT_MS ? OUTLINE_AIM.top : scrollTop;
   // Where the rows OUTLINE_FOLLOW_ROWS_UP above a row start (the first row's top when there are fewer), and the section head of the
   // current row (its entry's up): read in the same pass as the row, so no further layout.
-  const over = (b: Element) => {
-    for (let k = 0; k < OUTLINE_FOLLOW_ROWS_UP && b.previousElementSibling; k++) b = b.previousElementSibling;
-    return b.getBoundingClientRect().top - from;
+  const over = (start: Element) => {
+    for (let k = 0; k < OUTLINE_FOLLOW_ROWS_UP && start.previousElementSibling; k++)
+      start = start.previousElementSibling;
+    return start.getBoundingClientRect().top - from;
   };
-  const e = OUTLINE_ENTRIES[Number((row as HTMLElement).dataset.index)],
-    sec = e && e.up >= 0 ? list.querySelector('[data-index="' + e.up + '"]') : null;
+  const entry = OUTLINE_ENTRIES[Number((row as HTMLElement).dataset.index)],
+    sectionHead = entry && entry.up >= 0 ? list.querySelector('[data-index="' + entry.up + '"]') : null;
   // The tablet sheet's bar and the status line on it stand over the overlay's foot (frame.css: the overlay runs to the screen's
   // bottom): what they cover is out of view, so the view is that much shorter and so is what the list can scroll to bring a row up.
-  const foot = outlineFoot(o),
-    h = box.clientHeight,
+  const foot = outlineFoot(panelRect),
+    viewHeight = box.clientHeight,
     to = outlineRevealTop(
       at,
-      h - foot,
+      viewHeight - foot,
       box.scrollHeight - foot,
-      r.top - from,
-      r.bottom - from,
+      rowRect.top - from,
+      rowRect.bottom - from,
       OUTLINE_FOLLOW_MARGIN,
       list.getBoundingClientRect().top - from,
       $('#outline-find').offsetHeight,
       over(row),
-      sec ? over(sec) : undefined,
+      sectionHead ? over(sectionHead) : undefined,
     );
   if (to === null) return;
-  const land = jump || Math.abs(to - st) > h;
+  const land = jump || Math.abs(to - scrollTop) > viewHeight;
   OUTLINE_AIM = land ? null : { top: to, at: now };
   box.scrollTo({ top: to, behavior: land ? 'auto' : scrollMotion() });
 }
@@ -426,14 +453,20 @@ function outlineFollow(open?: boolean) {
 // it (#status-dock) where they are drawn across the panel. Only the tablet sheet's overlay has them there, and only it pads its
 // foot to match (responsive.css). Elsewhere it is 0: a collapsed #right in mid or short is a transparent frame whose floating
 // banner can reach across the panel without covering what lies below it, and nothing there pads the list for it.
-function outlineFoot(o: DOMRect) {
+function outlineFoot(panelRect: DOMRect) {
   if (BAND !== LAYOUT_BAND.TABLET_SHEET) return 0;
   let foot = 0;
-  for (const el of [$('#right'), $('#status-dock')]) {
-    if (!el || !el.getClientRects().length) continue;
-    const b = el.getBoundingClientRect();
-    if (b.height > 0 && b.left < o.right && b.right > o.left && b.top < o.bottom && b.bottom > o.top)
-      foot = Math.max(foot, o.bottom - b.top);
+  for (const element of [$('#right'), $('#status-dock')]) {
+    if (!element || !element.getClientRects().length) continue;
+    const rect = element.getBoundingClientRect();
+    if (
+      rect.height > 0 &&
+      rect.left < panelRect.right &&
+      rect.right > panelRect.left &&
+      rect.top < panelRect.bottom &&
+      rect.bottom > panelRect.top
+    )
+      foot = Math.max(foot, panelRect.bottom - rect.top);
   }
   return foot;
 }
@@ -448,15 +481,15 @@ function outlineCatchUp() {
 }
 // Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
-function destFrac(dest, ptH) {
-  const top = Array.isArray(dest) && dest[1] && dest[1].name === 'XYZ' ? dest[3] : null;
-  if (typeof top !== 'number' || !(ptH > 0)) return 0;
-  return Math.min(1, Math.max(0, 1 - top / ptH));
+function destinationFraction(destination, pageHeight) {
+  const top = Array.isArray(destination) && destination[1] && destination[1].name === 'XYZ' ? destination[3] : null;
+  if (typeof top !== 'number' || !(pageHeight > 0)) return 0;
+  return Math.min(1, Math.max(0, 1 - top / pageHeight));
 }
 // The left edge of an XYZ destination in PDF points, or null (Fit, no left): two headings at the same height in a page's two
 // columns are two spots, not one.
-function destLeft(dest) {
-  const left = Array.isArray(dest) && dest[1] && dest[1].name === 'XYZ' ? dest[2] : null;
+function destinationLeft(destination) {
+  const left = Array.isArray(destination) && destination[1] && destination[1].name === 'XYZ' ? destination[2] : null;
   return typeof left === 'number' ? left : null;
 }
 // The outline entry the reader is in at (page, frac), from the entries that start at or above that point. The outline's
@@ -471,17 +504,20 @@ function destLeft(dest) {
 // heading on the same page (v0.2.0 showed "1.2" at the very top of page 1, because 1, 1.1 and 1.2 all start on page 1).
 // -1 without entries. Pure.
 function outlineIndexAt(entries, page, frac) {
-  const at = (e) => e.frac || 0,
-    deep = (e) => e.depth || 0,
-    above = (e) => e.page < page || (e.page === page && at(e) <= frac + 1e-6);
-  const x = (e) => (typeof e.x === 'number' ? e.x : null),
-    sameX = (a, b) => (x(a) === null || x(b) === null ? x(a) === x(b) : Math.abs(x(a) - x(b)) <= 1e-3);
+  const at = (entry) => entry.frac || 0,
+    deep = (entry) => entry.depth || 0,
+    above = (entry) => entry.page < page || (entry.page === page && at(entry) <= frac + 1e-6);
+  const leftEdge = (entry) => (typeof entry.x === 'number' ? entry.x : null),
+    sameLeftEdge = (first, second) =>
+      leftEdge(first) === null || leftEdge(second) === null
+        ? leftEdge(first) === leftEdge(second)
+        : Math.abs(leftEdge(first) - leftEdge(second)) <= 1e-3;
   let top = 0;
-  for (const e of entries) if (above(e) && e.page > top) top = e.page;
+  for (const entry of entries) if (above(entry) && entry.page > top) top = entry.page;
   if (!top) {
     let first = -1;
-    entries.forEach((e, i) => {
-      if (first < 0 || e.page < entries[first].page) first = i;
+    entries.forEach((entry, index) => {
+      if (first < 0 || entry.page < entries[first].page) first = index;
     });
     return first;
   }
@@ -496,51 +532,60 @@ function outlineIndexAt(entries, page, frac) {
   // time; only winners crowded into one such box (more distinct spots than there are in a 1e-6 x 1e-3 box of a real page) cost a
   // walk of the box each. A winner outranked by a loser of a neighbouring spot is outranked by that spot's winner too (it is as
   // deep and as early or better), so the answer is the one the pairwise rule gives.
-  const win = new Map();
-  entries.forEach((e, i) => {
-    if (e.page !== top || !above(e)) return;
-    const key = at(e) + '|' + (x(e) === null ? '-' : x(e)),
-      j = win.get(key);
-    if (j === undefined || deep(e) > deep(entries[j])) win.set(key, i);
+  const spotWinner = new Map();
+  entries.forEach((entry, index) => {
+    if (entry.page !== top || !above(entry)) return;
+    const key = at(entry) + '|' + (leftEdge(entry) === null ? '-' : leftEdge(entry)),
+      winner = spotWinner.get(key);
+    if (winner === undefined || deep(entry) > deep(entries[winner])) spotWinner.set(key, index);
   });
-  const reps = [...win.values()].sort((a, b) => b - a); // the last listed first: the first of them nothing outranks is the answer
-  const byAt = reps.slice().sort((a, b) => at(entries[a]) - at(entries[b]) || a - b),
-    byX = reps.filter((i) => Number.isFinite(x(entries[i]))).sort((a, b) => x(entries[a]) - x(entries[b]) || a - b);
+  const winners = [...spotWinner.values()].sort((first, second) => second - first); // the last listed first: the first of them nothing outranks is the answer
+  const byAt = winners.slice().sort((first, second) => at(entries[first]) - at(entries[second]) || first - second),
+    byLeftEdge = winners
+      .filter((index) => Number.isFinite(leftEdge(entries[index])))
+      .sort((first, second) => leftEdge(entries[first]) - leftEdge(entries[second]) || first - second);
   // [from, to) in list (sorted by key) for the members whose key lies within eps of v, a little wider to be safe from the rounding of
   // a difference; each is tested exactly below.
-  const near = (list, key, v, eps) => {
-    const lower = (t) => {
-      let l = 0,
-        h = list.length;
-      while (l < h) {
-        const m = (l + h) >> 1;
-        if (key(entries[list[m]]) < t) l = m + 1;
-        else h = m;
+  const near = (list, key, value, tolerance) => {
+    const lower = (target) => {
+      let low = 0,
+        high = list.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if (key(entries[list[middle]]) < target) low = middle + 1;
+        else high = middle;
       }
-      return l;
+      return low;
     };
-    return [lower(v - eps * 1.001), lower(v + eps * 1.001)];
+    return [lower(value - tolerance * 1.001), lower(value + tolerance * 1.001)];
   };
-  const beats = (j, i) => deep(entries[j]) > deep(entries[i]) || (deep(entries[j]) === deep(entries[i]) && j < i);
-  const outranked = (i) => {
-    const a = entries[i];
+  const beats = (other, index) =>
+    deep(entries[other]) > deep(entries[index]) || (deep(entries[other]) === deep(entries[index]) && other < index);
+  const outranked = (index) => {
+    const entry = entries[index];
     let list = byAt,
-      [lo, hi] = near(byAt, at, at(a), 1e-6);
-    if (Number.isFinite(x(a))) {
-      const [l, h] = near(byX, x, x(a), 1e-3);
-      if (h - l < hi - lo) {
-        list = byX;
-        lo = l;
-        hi = h;
+      [low, high] = near(byAt, at, at(entry), 1e-6);
+    if (Number.isFinite(leftEdge(entry))) {
+      const [edgeLow, edgeHigh] = near(byLeftEdge, leftEdge, leftEdge(entry), 1e-3);
+      if (edgeHigh - edgeLow < high - low) {
+        list = byLeftEdge;
+        low = edgeLow;
+        high = edgeHigh;
       }
     }
-    for (let m = lo; m < hi; m++) {
-      const j = list[m];
-      if (j !== i && Math.abs(at(a) - at(entries[j])) <= 1e-6 && sameX(a, entries[j]) && beats(j, i)) return true;
+    for (let position = low; position < high; position++) {
+      const other = list[position];
+      if (
+        other !== index &&
+        Math.abs(at(entry) - at(entries[other])) <= 1e-6 &&
+        sameLeftEdge(entry, entries[other]) &&
+        beats(other, index)
+      )
+        return true;
     }
     return false;
   };
-  for (const i of reps) if (!outranked(i)) return i;
+  for (const i of winners) if (!outranked(i)) return i;
   return -1;
 } // (the loop always returns: the winner of the deepest, first spot is outranked by nothing)
 // An entry picked in the outline: it wins on its page from when the scroll it starts gets there until the reader leaves
@@ -553,48 +598,48 @@ let OUTLINE_PINNED = null as { page: number; index: number; reached: boolean } |
 const OUTLINE_PICK_SETTLE_MS = 250; // a smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest
 const OUTLINE_PICK_GAP = 8; // px between the top of the free PDF area and a picked heading
 // Pick entry i of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
-function pickOutline(i) {
+function pickOutline(index) {
   if (isMdDoc()) {
-    mdGoHeading(i);
+    mdGoHeading(index);
     return;
   } // a heading of the Markdown surface
-  const e = OUTLINE_ENTRIES[i];
-  if (!e) return;
-  OUTLINE_SELECTED = i;
-  OUTLINE_ACTIVE_PAGE = e.page;
-  OUTLINE_PINNED = { index: i, page: e.page, reached: false };
+  const entry = OUTLINE_ENTRIES[index];
+  if (!entry) return;
+  OUTLINE_SELECTED = index;
+  OUTLINE_ACTIVE_PAGE = entry.page;
+  OUTLINE_PINNED = { index: index, page: entry.page, reached: false };
   outlinePickWait();
   markOutline();
   updateSectionStrip();
   setViewMode('manuscript');
-  const top = outlinePickTop(e);
+  const top = outlinePickTop(entry);
   if (top === null) {
-    goPage(e.page);
+    goPage(entry.page);
     return;
   }
   glideTo(top);
-  arrivalWatch(() => outlinePickTop(e));
+  arrivalWatch(() => outlinePickTop(entry));
 }
 // Where a pick scrolls the pages to, as #left's scrollTop: a heading with a place on its page (an XYZ destination below the
 // page's top) OUTLINE_PICK_GAP under the free PDF area's top (spotTop); null - goPage's arrival (arrivePage: the page's
 // top, or a figure page's figure) - for an entry that names a whole page (frac 0) and for every entry of a figure
 // document, whose pages are its figures.
-function outlinePickTop(e) {
-  const pg = document.getElementById('p' + e.page),
-    d = docInfo(DOC);
-  if (!pg || !(e.frac > 0) || (d && isFigureKind(d.kind))) return null;
-  return spotTop(pg, e.frac, OUTLINE_PICK_GAP);
+function outlinePickTop(entry) {
+  const pageBox = document.getElementById('p' + entry.page),
+    docEntry = docInfo(DOC);
+  if (!pageBox || !(entry.frac > 0) || (docEntry && isFigureKind(docEntry.kind))) return null;
+  return spotTop(pageBox, entry.frac, OUTLINE_PICK_GAP);
 }
 // #left's scrollTop that puts the place `frac` down page pg `gap` px under the top of the free PDF area (selPopArea: under the
 // section strip, the instance band or the select mode's bar) - lower when it stands near its page's bottom, so that the
 // reading line (readingDepth) still falls on its page and the strip names it - as far as the pages scroll.
-function spotTop(pg: HTMLElement, frac: number, gap: number) {
-  const L = $('#left'),
-    r = pg.getBoundingClientRect(),
-    y = r.top + frac * r.height,
-    read = L.getBoundingClientRect().top + readingDepth(L);
-  const want = Math.max(selPopArea().top + gap, read + 2 - (r.bottom - y));
-  return Math.max(0, Math.min(L.scrollHeight - L.clientHeight, Math.round(L.scrollTop + y - want)));
+function spotTop(pageBox: HTMLElement, frac: number, gap: number) {
+  const pdfArea = $('#left'),
+    rect = pageBox.getBoundingClientRect(),
+    y = rect.top + frac * rect.height,
+    read = pdfArea.getBoundingClientRect().top + readingDepth(pdfArea);
+  const want = Math.max(selPopArea().top + gap, read + 2 - (rect.bottom - y));
+  return Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, Math.round(pdfArea.scrollTop + y - want)));
 }
 // (Re)starts the wait after which a pick still on its way looks whether the pages rest (any scroll of the pages restarts it).
 function outlinePickWait() {
@@ -629,16 +674,16 @@ function dropOutlinePick() {
 // strip, so the same page count also goes to the nav bar's right end (#nav-page) and the phone's position button (drawPos). Both
 // page counts open the page list (openPageList).
 // How far under the top of the PDF pane the reading line is: a quarter of the pane's height, at most 160px.
-function readingDepth(L) {
-  return L ? Math.min(160, L.clientHeight / 4) : 0;
+function readingDepth(pane) {
+  return pane ? Math.min(160, pane.clientHeight / 4) : 0;
 }
 function updateSectionStrip() {
   if (isMdDoc()) {
     mdStrip();
     return;
   } // the Markdown surface's strip and position button
-  const L = $('#left'),
-    anchor = topAnchor(readingDepth(L)),
+  const pdfArea = $('#left'),
+    anchor = topAnchor(readingDepth(pdfArea)),
     page = anchor ? anchor.page : 1,
     frac = anchor ? anchor.frac : 0;
   const pin = OUTLINE_PINNED;
@@ -646,20 +691,20 @@ function updateSectionStrip() {
     pin.reached = true;
     clearTimeout(OUTLINE_PICK_WAIT);
   } else if (pin && pin.reached) OUTLINE_PINNED = null;
-  const sel =
+  const selected =
     OUTLINE_PINNED && OUTLINE_PINNED.page === page ? OUTLINE_PINNED.index : outlineIndexAt(OUTLINE_ENTRIES, page, frac);
-  if (sel !== OUTLINE_SELECTED || page !== OUTLINE_ACTIVE_PAGE) {
+  if (selected !== OUTLINE_SELECTED || page !== OUTLINE_ACTIVE_PAGE) {
     OUTLINE_ACTIVE_PAGE = page;
-    OUTLINE_SELECTED = sel;
+    OUTLINE_SELECTED = selected;
     markOutline();
   }
-  const x = OUTLINE_ENTRIES[OUTLINE_SELECTED];
-  $('#section-current').textContent = x ? (x.number ? x.number + '  ' : '') + x.title : tr('원고');
-  const n = META && META.pages ? META.pages.length : 0,
-    pg = tl('{page} / {n}쪽', { page, n });
-  $('#section-page-t').textContent = pg;
-  $('#nav-page').textContent = pg;
-  const name = tl('쪽 번호로 이동 · {page} / {n}쪽', { page, n });
+  const entry = OUTLINE_ENTRIES[OUTLINE_SELECTED];
+  $('#section-current').textContent = entry ? (entry.number ? entry.number + '  ' : '') + entry.title : tr('원고');
+  const pageCount = META && META.pages ? META.pages.length : 0,
+    pageText = tl('{page} / {n}쪽', { page, n: pageCount });
+  $('#section-page-t').textContent = pageText;
+  $('#nav-page').textContent = pageText;
+  const name = tl('쪽 번호로 이동 · {page} / {n}쪽', { page, n: pageCount });
   $('#section-page').setAttribute('aria-label', name);
   $('#nav-page').setAttribute('aria-label', name);
   drawPos();
@@ -676,46 +721,47 @@ function updateSectionStrip() {
 function outlineRows(box: HTMLElement): HTMLElement[] {
   return [...box.querySelectorAll('button[data-act="outline-page"]')] as HTMLElement[];
 }
-function outlineFilter(field: HTMLElement, box: HTMLElement, sr: HTMLElement) {
-  const fieldEl = field as HTMLInputElement,
+function outlineFilter(field: HTMLElement, box: HTMLElement, status: HTMLElement) {
+  const input = field as HTMLInputElement,
     keyed = () => {
       document.documentElement.dataset.input = 'key';
     },
-    mine = (e: KeyboardEvent) => !(imeKey(e) || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey);
+    mine = (event: KeyboardEvent) =>
+      !(imeKey(event) || event.ctrlKey || event.metaKey || event.altKey || event.shiftKey);
   field.addEventListener('input', () => {
-    outlineList(box, fieldEl.value);
-    outlineSay(box, fieldEl.value, sr);
+    outlineList(box, input.value);
+    outlineSay(box, input.value, status);
   });
-  field.addEventListener('keydown', (e) => {
-    if (!mine(e) || (e.key !== 'Enter' && e.key !== 'ArrowDown')) return;
-    if (e.key === 'Enter' && !fieldEl.value.trim()) return; // nothing typed: the whole outline is listed, and none of it was asked for
+  field.addEventListener('keydown', (event) => {
+    if (!mine(event) || (event.key !== 'Enter' && event.key !== 'ArrowDown')) return;
+    if (event.key === 'Enter' && !input.value.trim()) return; // nothing typed: the whole outline is listed, and none of it was asked for
     const first = outlineRows(box)[0];
     if (!first) return; // nothing found: the key is the field's own
-    e.preventDefault();
+    event.preventDefault();
     keyed();
     first.focus();
-    if (e.key === 'Enter') first.click();
+    if (event.key === 'Enter') first.click();
   }); // the focus first: choosing in the sheet closes it and gives the focus back to where it was
-  box.addEventListener('keydown', (e) => {
+  box.addEventListener('keydown', (event) => {
     const row = (
-      e.target && (e.target as HTMLElement).closest
-        ? (e.target as HTMLElement).closest('button[data-act="outline-page"]')
+      event.target && (event.target as HTMLElement).closest
+        ? (event.target as HTMLElement).closest('button[data-act="outline-page"]')
         : null
     ) as HTMLElement | null;
-    if (!row || !mine(e)) return;
+    if (!row || !mine(event)) return;
     const rows = outlineRows(box),
       at = rows.indexOf(row);
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
       keyed();
       field.focus();
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
+    } else if (event.key === 'ArrowDown') {
+      event.preventDefault();
       keyed();
       if (rows[at + 1]) rows[at + 1].focus();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault();
       keyed();
       if (at > 0) rows[at - 1].focus();
       else field.focus();
@@ -724,10 +770,14 @@ function outlineFilter(field: HTMLElement, box: HTMLElement, sr: HTMLElement) {
 }
 // What a screen reader is told after each keystroke of a filter (a polite status): how many results, or that there are none; nothing
 // while the field is empty. The unread-entries note is not a result.
-function outlineSay(box: HTMLElement, q: string, sr: HTMLElement) {
-  const n = outlineRows(box).length,
-    t = !String(q || '').trim() ? '' : n ? tl('결과 {n}개', { n }) : tr('찾은 장·절이 없습니다.');
-  if (sr.textContent !== t) sr.textContent = t;
+function outlineSay(box: HTMLElement, filterText: string, status: HTMLElement) {
+  const count = outlineRows(box).length,
+    words = !String(filterText || '').trim()
+      ? ''
+      : count
+        ? tl('결과 {n}개', { n: count })
+        : tr('찾은 장·절이 없습니다.');
+  if (status.textContent !== words) status.textContent = words;
 } // the same words again are not set again: a live region read '없습니다' at every keystroke
 outlineFilter($('#outline-search'), $('#outline-items'), $('#outline-sr'));
 outlineFilter($('#ns-outline-search'), $('#ns-outline-items'), $('#ns-outline-sr')); // each filter works on its own list only
@@ -746,8 +796,8 @@ $('#ns-outline-search').addEventListener('input', () => {
       OUTLINE_HANDLED = performance.now();
       OUTLINE_AIM = null;
     };
-  for (const t of ['wheel', 'pointerdown', 'touchstart', 'touchmove', 'keydown'])
-    box.addEventListener(t, handled, { passive: true });
+  for (const eventType of ['wheel', 'pointerdown', 'touchstart', 'touchmove', 'keydown'])
+    box.addEventListener(eventType, handled, { passive: true });
   box.addEventListener(
     'scroll',
     () => {
@@ -762,11 +812,11 @@ $('#ns-outline-search').addEventListener('input', () => {
     },
     { passive: true },
   );
-  box.addEventListener('pointerenter', (e) => {
-    if (e.pointerType !== 'touch') OUTLINE_OVER = true;
+  box.addEventListener('pointerenter', (event) => {
+    if (event.pointerType !== 'touch') OUTLINE_OVER = true;
   });
-  box.addEventListener('pointerleave', (e) => {
-    if (e.pointerType !== 'touch') {
+  box.addEventListener('pointerleave', (event) => {
+    if (event.pointerType !== 'touch') {
       OUTLINE_OVER = false;
       outlineCatchUp();
     }
@@ -776,8 +826,8 @@ $('#ns-outline-search').addEventListener('input', () => {
   }); // by then the focus has landed: it may be on another row
   // The width grip stands beside the panel, and its press and keys are a hand on the panel all the same. A drag holds until it ends
   // (outlineHeld), whatever its length; the timed hold runs from the release or the cancel, so an owed follow is made after it.
-  for (const t of ['pointerdown', 'pointerup', 'pointercancel', 'keydown'])
-    grip.addEventListener(t, () => {
+  for (const eventType of ['pointerdown', 'pointerup', 'pointercancel', 'keydown'])
+    grip.addEventListener(eventType, () => {
       handled();
       if (OUTLINE_FOLLOW_DUE) outlineFollowLater();
     });
@@ -799,8 +849,8 @@ $('#ns-outline-search').addEventListener('input', () => {
   });
   // Display none to shown: a panel opening, here and not in its toggle, so that a band change that brings it back counts too.
   if (window.ResizeObserver)
-    new ResizeObserver(([e]) => {
-      const shown = e.contentRect.height > 0;
+    new ResizeObserver(([event]) => {
+      const shown = event.contentRect.height > 0;
       if (!shown) {
         OUTLINE_OVER = false;
         OUTLINE_AIM = null;
@@ -825,39 +875,40 @@ $('#left').addEventListener(
   { passive: true },
 );
 // The reader taking over the pages lets go of a pick still on its way (dropOutlinePick); so does a new size of the window.
-for (const t of ['wheel', 'touchstart', 'pointerdown'])
-  $('#left').addEventListener(t, dropOutlinePick, { passive: true });
+for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
+  $('#left').addEventListener(eventType, dropOutlinePick, { passive: true });
 // A key scrolls the pages when nothing else has the focus, or something on the pages has it.
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
-addEventListener('keydown', (e) => {
-  const a = document.activeElement;
-  if (SCROLL_KEYS.has(e.key) && (!a || a === document.body || $('#left').contains(a))) dropOutlinePick();
+addEventListener('keydown', (event) => {
+  const focused = document.activeElement;
+  if (SCROLL_KEYS.has(event.key) && (!focused || focused === document.body || $('#left').contains(focused)))
+    dropOutlinePick();
 });
 addEventListener('resize', dropOutlinePick);
 // Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setOutlineBuild<T extends typeof OUTLINE_BUILD>(v: T): T {
-  OUTLINE_BUILD = v;
-  return v;
+function setOutlineBuild<Value extends typeof OUTLINE_BUILD>(value: Value): Value {
+  OUTLINE_BUILD = value;
+  return value;
 }
 // Sets OUTLINE_CUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setOutlineCut<T extends typeof OUTLINE_CUT>(v: T): T {
-  OUTLINE_CUT = v;
-  return v;
+function setOutlineCut<Value extends typeof OUTLINE_CUT>(value: Value): Value {
+  OUTLINE_CUT = value;
+  return value;
 }
 // Sets OUTLINE_DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setOutlineDoc<T extends typeof OUTLINE_DOC>(v: T): T {
-  OUTLINE_DOC = v;
-  return v;
+function setOutlineDoc<Value extends typeof OUTLINE_DOC>(value: Value): Value {
+  OUTLINE_DOC = value;
+  return value;
 }
 // Sets OUTLINE_ENTRIES, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setOutlineEntries<T extends typeof OUTLINE_ENTRIES>(v: T): T {
-  OUTLINE_ENTRIES = v;
-  return v;
+function setOutlineEntries<Value extends typeof OUTLINE_ENTRIES>(value: Value): Value {
+  OUTLINE_ENTRIES = value;
+  return value;
 }
 // Sets OUTLINE_SELECTED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setOutlineSelected<T extends typeof OUTLINE_SELECTED>(v: T): T {
-  OUTLINE_SELECTED = v;
-  return v;
+function setOutlineSelected<Value extends typeof OUTLINE_SELECTED>(value: Value): Value {
+  OUTLINE_SELECTED = value;
+  return value;
 }
 export {
   OUTLINE_ACTIVE_PAGE,

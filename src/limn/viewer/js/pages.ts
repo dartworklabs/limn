@@ -37,12 +37,12 @@ import {
 import { restoreReasonFocus, holdReasonFocus } from './verdict-reason.ts';
 import { markBadgeSides, marks } from './list.ts';
 import { restoreAnchor, topAnchor } from './rebuild.ts';
-function pageSrc(p) {
-  const b = META.pages_build;
+function pageSrc(page) {
+  const build = META.pages_build;
   return dq(
-    b
-      ? '/pages/' + encodeURIComponent(b) + '/' + encodeURIComponent(p.name)
-      : '/pages/' + encodeURIComponent(p.name) + '?v=' + encodeURIComponent(META.built_at),
+    build
+      ? '/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name)
+      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(META.built_at),
   );
 }
 // Page sizes (docs/handbook/viewer.md §PDF 영역 전용 확대): every page box is its own paper width (pt_w, in points) times one
@@ -53,33 +53,34 @@ const PT_PX = 96 / 72;
 // The widest page's width in points: fit-width fits it and the limits count it. 612 (a letter page) before there are pages,
 // only so that the arithmetic never divides by zero - nothing is drawn then.
 function ptMax() {
-  const m = META && META.pages ? META.pages.reduce((a, p) => Math.max(a, p.pt_w || 0), 0) : 0;
-  return m > 0 ? m : 612;
+  const widest =
+    META && META.pages ? META.pages.reduce((widestSeen, page) => Math.max(widestSeen, page.pt_w || 0), 0) : 0;
+  return widest > 0 ? widest : 612;
 }
 // The most common page width of widths ws (points): the mode, the wider on a tie; 0 for none. A figure document opens by it
 // (openScale): its one wide outlier (a graphical abstract) scrolls sideways instead of shrinking every figure. Pure.
-function commonWidth(ws) {
-  const n = new Map();
+function commonWidth(widths) {
+  const counts = new Map();
   let best = 0,
     most = 0;
-  for (const w of ws) {
-    if (!(w > 0)) continue;
-    const c = (n.get(w) || 0) + 1;
-    n.set(w, c);
-    if (c > most || (c === most && w > best)) {
-      most = c;
-      best = w;
+  for (const width of widths) {
+    if (!(width > 0)) continue;
+    const count = (counts.get(width) || 0) + 1;
+    counts.set(width, count);
+    if (count > most || (count === most && width > best)) {
+      most = count;
+      best = width;
     }
   }
   return best;
 }
-function ptCommon() {
-  const c = META && META.pages ? commonWidth(META.pages.map((p) => p.pt_w)) : 0;
-  return c > 0 ? c : ptMax();
+function commonPageWidth() {
+  const common = META && META.pages ? commonWidth(META.pages.map((page) => page.pt_w)) : 0;
+  return common > 0 ? common : ptMax();
 }
 // A page box's CSS width for a page pt_w points wide at scale k: whole px, at least 1. Pure.
-function pageWidth(ptw, k) {
-  return Math.max(1, Math.round(ptw * k));
+function pageWidth(ptw, scale) {
+  return Math.max(1, Math.round(ptw * scale));
 }
 // Every page box sits in a block of its own (.pgw) that a page verdict line (verdict.js) joins under it: the line is sticky
 // to the bottom of the PDF area within that block, so it floats while its page is in view and settles under the page at its
@@ -97,23 +98,23 @@ function buildDoc() {
     focus = holdReasonFocus();
   doc.replaceChildren();
   COMPOSE.box = null; // a focus in the reason popover comes back with it
-  META.pages.forEach((p, i) => {
-    const d = document.createElement('div');
-    d.className = 'pg';
-    d.id = 'p' + (i + 1);
-    d.dataset.page = String(i + 1);
-    d.dataset.ptw = String(p.pt_w);
-    d.style.width = pageWidth(p.pt_w, K) + 'px';
-    d.style.aspectRatio = p.pt_w + ' / ' + p.pt_h;
+  META.pages.forEach((page, index) => {
+    const pageBox = document.createElement('div');
+    pageBox.className = 'pg';
+    pageBox.id = 'p' + (index + 1);
+    pageBox.dataset.page = String(index + 1);
+    pageBox.dataset.ptw = String(page.pt_w);
+    pageBox.style.width = pageWidth(page.pt_w, K) + 'px';
+    pageBox.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
     setHtml(
-      d,
-      html`<span class="no">${i + 1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽', { page: i + 1 })}" src="${pageSrc(p)}">`,
+      pageBox,
+      html`<span class="no">${index + 1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽', { page: index + 1 })}" src="${pageSrc(page)}">`,
     );
-    const w = document.createElement('div');
-    w.className = 'pgw';
-    w.dataset.page = String(i + 1);
-    w.appendChild(d);
-    doc.appendChild(w);
+    const wrapper = document.createElement('div');
+    wrapper.className = 'pgw';
+    wrapper.dataset.page = String(index + 1);
+    wrapper.appendChild(pageBox);
+    doc.appendChild(wrapper);
   });
   pageWidthVars();
   marks();
@@ -130,10 +131,10 @@ const ZOOM_MIN = 0.5,
   ZOOM_STEP = 1.2;
 // The widest page's width limits [lo, hi] in px, for the fitted width fit and the print-size width actual. Not rounded: a
 // rounded limit put the print size a fraction of a pixel out of reach (522pt drawn 697px at [100%]). Pure.
-function wBounds(fit, actual) {
-  const f = Math.max(160, fit),
-    lo = Math.min(actual, Math.max(160, f * ZOOM_MIN));
-  return [lo, Math.max(lo, f * ZOOM_MAX, actual)];
+function widthBounds(fit, actual) {
+  const fitted = Math.max(160, fit),
+    low = Math.min(actual, Math.max(160, fitted * ZOOM_MIN));
+  return [low, Math.max(low, fitted * ZOOM_MAX, actual)];
 }
 // The scale that fits the widest page to the PDF area (fitWidth).
 function fitK() {
@@ -142,40 +143,40 @@ function fitK() {
 // Sets the scale K within wBounds and gives every page box its own width (pageWidth); saved in wide unless save is false
 // (saveK). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines (sizePageLines), the save
 // chips (placeChips) and [더보기]'s zoom figure (drawZoom).
-function setK(k, save?) {
-  const m = ptMax(),
-    b = wBounds(fitWidth(), m * PT_PX);
-  setKState(Math.min(b[1], Math.max(b[0], k * m)) / m);
-  K_UNBOUND = false;
+function setK(scale, save?) {
+  const widest = ptMax(),
+    bounds = widthBounds(fitWidth(), widest * PT_PX);
+  setKState(Math.min(bounds[1], Math.max(bounds[0], scale * widest)) / widest);
+  SCALE_UNBOUNDED = false;
   sizePages();
   markBadgeSides();
   sizePageLines();
   placeChips();
-  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveK();
+  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
   vecInvalidate();
   drawZoom();
 }
 // Gives every page box its width at the scale K, bounded or not (setK bounds the scale first).
 function sizePages() {
-  const m = ptMax();
-  $$('.pg').forEach((e) => {
-    e.style.width = pageWidth(+e.dataset.ptw || m, K) + 'px';
+  const widest = ptMax();
+  $$('.pg').forEach((pageBox) => {
+    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, K) + 'px';
   });
   pageWidthVars();
 }
 // The page widths as the side column of the page verdict panel lays the blocks out (verdict-panel.css): each block's page
 // width (--pg-w) and the widest page's (--pg-max, on #doc), so that pages of different widths stand on one axis.
 function pageWidthVars() {
-  const m = ptMax();
-  $('#doc').style.setProperty('--pg-max', pageWidth(m, K) + 'px');
-  $$('#doc .pgw>.pg').forEach((e) => {
-    (e.parentElement as HTMLElement).style.setProperty('--pg-w', (e as HTMLElement).style.width);
+  const widest = ptMax();
+  $('#doc').style.setProperty('--pg-max', pageWidth(widest, K) + 'px');
+  $$('#doc .pgw>.pg').forEach((pageBox) => {
+    (pageBox.parentElement as HTMLElement).style.setProperty('--pg-w', (pageBox as HTMLElement).style.width);
   });
 }
 // Whether the pages stand at a scale K that no PDF-area width has bounded since their sizes changed (reapplyK). Only the changes
 // view brings it about: it hides the PDF area, and a scroller that is not drawn measures 0 wide, so bounding the scale by that
 // width cut a 1800px page to the least it allows (816px, the print size of a letter page).
-let K_UNBOUND = false;
+let SCALE_UNBOUNDED = false;
 // Applies K again after the pages' paper sizes changed (a new build with the same page count). A drawn PDF area bounds the
 // scale as ever (setK). A hidden one has no width to bound it by: the boxes take their new widths at K as it is, and the bounds
 // follow when the area shows again (boundK).
@@ -185,66 +186,67 @@ function reapplyK() {
     return;
   }
   sizePages();
-  K_UNBOUND = true;
+  SCALE_UNBOUNDED = true;
 }
 // The PDF area shows again: bounds a scale reapplyK left alone by the width it has now, keeping the reading spot.
 function boundK() {
-  if (!K_UNBOUND || !$('#left').getClientRects().length) return;
-  const a = topAnchor();
+  if (!SCALE_UNBOUNDED || !$('#left').getClientRects().length) return;
+  const anchor = topAnchor();
   setK(K, false);
-  restoreAnchor(a);
+  restoreAnchor(anchor);
 }
 // The zoom as [더보기] and the tool bar's zoom button show it: scale k against the print size, in percent, rounded; 100 before
 // a scale is known. Pure.
-function zoomPct(k) {
-  return k > 0 ? Math.round((k / PT_PX) * 100) : 100;
+function zoomPercent(scale) {
+  return scale > 0 ? Math.round((scale / PT_PX) * 100) : 100;
 }
 // Writes the zoom figure: [더보기]'s (a live region: it is read out as it changes) and the desktop tool bar's zoom button, which
 // shows the zoom now and goes to 100% - pressed (aria-pressed) while the figure is 100%. Its name and tip say both.
 function drawZoom() {
-  const t = zoomPct(K) + '%',
-    z = $('#m-zoom');
-  if (z) z.textContent = t;
-  const b = $('#btn-actual');
-  if (!b) return;
-  const v = b.querySelector('.z');
-  if (v) v.textContent = t;
-  b.setAttribute('aria-pressed', String(t === '100%'));
-  b.setAttribute('aria-label', tl('실제 크기(100%)로 · 지금 {pct}', { pct: t }));
-  b.dataset.tip = tl('실제 크기(100%)로: PDF 쪽을 인쇄한 지면 크기로 봅니다 · 지금 {pct}', { pct: t });
+  const figure = zoomPercent(K) + '%',
+    moreFigure = $('#m-zoom');
+  if (moreFigure) moreFigure.textContent = figure;
+  const button = $('#btn-actual');
+  if (!button) return;
+  const buttonFigure = button.querySelector('.z');
+  if (buttonFigure) buttonFigure.textContent = figure;
+  button.setAttribute('aria-pressed', String(figure === '100%'));
+  button.setAttribute('aria-label', tl('실제 크기(100%)로 · 지금 {pct}', { pct: figure }));
+  button.dataset.tip = tl('실제 크기(100%)로: PDF 쪽을 인쇄한 지면 크기로 봅니다 · 지금 {pct}', { pct: figure });
 }
 // The saved scale of the document on screen (wide only), or null: a figure document keeps its zoom against the print size
 // (pinPrefs.figZoom), since print size is what a figure is checked at; any other document the widest page's width in px
 // (pinPrefs.w), as it always has - one value for every LaTeX and view-only document.
 // A page width saved before this release (w) was set while reading a manuscript: a figure document never takes it, and opens
 // at its own default (openScale) until a zoom is chosen on it.
-function savedK() {
-  const p = prefs();
-  if (isFigureKind(META.kind)) return typeof p.figZoom === 'number' && p.figZoom > 0 ? p.figZoom * PT_PX : null;
-  return typeof p.w === 'number' && p.w > 0 ? p.w / ptMax() : null;
+function savedScale() {
+  const preferences = prefs();
+  if (isFigureKind(META.kind))
+    return typeof preferences.figZoom === 'number' && preferences.figZoom > 0 ? preferences.figZoom * PT_PX : null;
+  return typeof preferences.w === 'number' && preferences.w > 0 ? preferences.w / ptMax() : null;
 }
-function saveK() {
+function saveScale() {
   if (isFigureKind(META.kind)) savePrefs({ figZoom: Math.round((K / PT_PX) * 1e4) / 1e4 });
   else savePrefs({ w: pageWidth(ptMax(), K) });
 }
 // The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the fitted
 // width fit (px): a figure document at print size when its common page fits the PDF area - a wider outlier scrolls sideways -
 // else with the common page fitted; any other document with its widest page fitted - in wide (wide true) at most 900px. Pure.
-function openScale(fig, common, widest, fit, wide) {
-  return fig ? Math.min(PT_PX, fit / common) : (wide ? Math.min(fit, 900) : fit) / widest;
+function openScale(isFigure, common, widest, fit, wide) {
+  return isFigure ? Math.min(PT_PX, fit / common) : (wide ? Math.min(fit, 900) : fit) / widest;
 }
-function defaultK() {
-  return openScale(isFigureKind(META.kind), ptCommon(), ptMax(), fitWidth(), LAYOUT === LAYOUT_MODE.WIDE);
+function defaultScale() {
+  return openScale(isFigureKind(META.kind), commonPageWidth(), ptMax(), fitWidth(), LAYOUT === LAYOUT_MODE.WIDE);
 }
 // In compact, whether the scale on screen is one the user chose rather than the one the screen picks (defaultK): only a chosen
 // one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing back on it is not.
 function markZoomed() {
-  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(K - defaultK()) > K * 1e-3);
+  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(K - defaultScale()) > K * 1e-3);
 }
 function innerW() {
-  const L = $('#left'),
-    cs = getComputedStyle(L);
-  return L.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const pdfArea = $('#left'),
+    style = getComputedStyle(pdfArea);
+  return pdfArea.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
 }
 // Fit-width: the scroller's inner width in whole px (innerW: its padding is the gap, which on touch keeps the page off the
 // handles' hit areas), on every band. The mouse's #left.clientWidth minus 48px was 12px wider than the room inside its 44px
@@ -259,71 +261,77 @@ function fitWidth() {
 // A scale it leaves alone still meets a new column width: the badges and page numbers are placed again (markBadgeSides).
 function autoW() {
   if (!$('#left').getClientRects().length) return;
-  if (LAYOUT !== LAYOUT_MODE.WIDE ? !ZOOMED : savedK() === null) setK(defaultK(), false);
+  if (LAYOUT !== LAYOUT_MODE.WIDE ? !ZOOMED : savedScale() === null) setK(defaultScale(), false);
   else markBadgeSides();
 }
 // The page number stands outside a page (.no-out) where a wider page leaves room left of it - a page centred under one at
 // least the number's width and 8px wider on each side - and in the page's corner otherwise: on the widest pages, and on every
 // page of a document whose pages are all one size, wherever the column puts them (a manuscript looks as it did).
 function pageNoSides() {
-  const pgs = $$('#doc .pg');
-  if (!pgs.length || !pgs[0].getClientRects().length) return;
-  const ws = pgs.map((pg) => pg.getBoundingClientRect().width),
-    widest = Math.max(...ws);
-  pgs.forEach((pg, i) => {
-    const no = pg.querySelector('.no') as HTMLElement | null;
-    if (no) pg.classList.toggle('no-out', (widest - ws[i]) / 2 >= no.offsetWidth + 8);
+  const pageBoxes = $$('#doc .pg');
+  if (!pageBoxes.length || !pageBoxes[0].getClientRects().length) return;
+  const widths = pageBoxes.map((pageBox) => pageBox.getBoundingClientRect().width),
+    widest = Math.max(...widths);
+  pageBoxes.forEach((pageBox, index) => {
+    const no = pageBox.querySelector('.no') as HTMLElement | null;
+    if (no) pageBox.classList.toggle('no-out', (widest - widths[index]) / 2 >= no.offsetWidth + 8);
   });
 }
 // The scale to build a document's pages at before autoW looks again: a saved one in wide, else the screen's, else the one
 // on screen (a scroller that is not drawn has no width to take it from).
 function startK() {
-  const s = LAYOUT === LAYOUT_MODE.WIDE ? savedK() : null;
-  if (s !== null) return s;
-  const d = $('#left').getClientRects().length ? defaultK() : 0;
-  return d > 0 ? d : K > 0 ? K : PT_PX;
+  const saved = LAYOUT === LAYOUT_MODE.WIDE ? savedScale() : null;
+  if (saved !== null) return saved;
+  const screenScale = $('#left').getClientRects().length ? defaultScale() : 0;
+  return screenScale > 0 ? screenScale : K > 0 ? K : PT_PX;
 }
 // Zoom anchor: the page under screen coordinates (cx,cy) and its fraction within that page. If the point falls in the gap between pages, the vertically nearest page is used.
 // Without coordinates, the center of the PDF area is used (keyboard/button).
-function zoomAnchor(cx, cy) {
-  const L = $('#left'),
-    lr = L.getBoundingClientRect();
-  if (cx == null) {
-    cx = lr.left + L.clientWidth / 2;
-    cy = lr.top + L.clientHeight / 2;
+function zoomAnchor(clientX, clientY) {
+  const pdfArea = $('#left'),
+    areaRect = pdfArea.getBoundingClientRect();
+  if (clientX == null) {
+    clientX = areaRect.left + pdfArea.clientWidth / 2;
+    clientY = areaRect.top + pdfArea.clientHeight / 2;
   }
   let best = null as { pg: HTMLElement; r: DOMRect } | null,
-    bd = Infinity;
-  for (const pg of $$('.pg')) {
-    const r = pg.getBoundingClientRect(),
-      d = cy < r.top ? r.top - cy : cy > r.bottom ? cy - r.bottom : 0;
-    if (d < bd) {
-      bd = d;
-      best = { pg, r };
+    bestDistance = Infinity;
+  for (const pageBox of $$('.pg')) {
+    const rect = pageBox.getBoundingClientRect(),
+      distance = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      best = { pg: pageBox, r: rect };
     }
-    if (d === 0) break;
+    if (distance === 0) break;
   }
   return best
-    ? { pg: best.pg, cx, cy, fx: (cx - best.r.left) / best.r.width, fy: (cy - best.r.top) / best.r.height }
+    ? {
+        pg: best.pg,
+        cx: clientX,
+        cy: clientY,
+        fx: (clientX - best.r.left) / best.r.width,
+        fy: (clientY - best.r.top) / best.r.height,
+      }
     : null;
 }
 // Restores the anchor's in-page fractional position back to screen coordinates (cx,cy) - so the text under the pointer stays put even after zooming.
-function zoomRestore(a, cx?, cy?) {
-  if (!a) return;
-  const L = $('#left'),
-    r = a.pg.getBoundingClientRect();
-  L.scrollLeft += r.left + a.fx * r.width - (cx == null ? a.cx : cx);
-  L.scrollTop += r.top + a.fy * r.height - (cy == null ? a.cy : cy);
+function zoomRestore(anchor, clientX?, clientY?) {
+  if (!anchor) return;
+  const pdfArea = $('#left'),
+    pageRect = anchor.pg.getBoundingClientRect();
+  pdfArea.scrollLeft += pageRect.left + anchor.fx * pageRect.width - (clientX == null ? anchor.cx : clientX);
+  pdfArea.scrollTop += pageRect.top + anchor.fy * pageRect.height - (clientY == null ? anchor.cy : clientY);
 }
-function zoomTo(k, cx?, cy?) {
+function zoomTo(scale, clientX?, clientY?) {
   arrivalLetGo();
-  const a = zoomAnchor(cx, cy);
-  setK(k);
+  const anchor = zoomAnchor(clientX, clientY);
+  setK(scale);
   markZoomed();
-  zoomRestore(a);
+  zoomRestore(anchor);
 } // a zoom keeps its own anchor: no arrival pulls it back
-function zoom(n) {
-  zoomTo(K * Math.pow(ZOOM_STEP, n));
+function zoom(steps) {
+  zoomTo(K * Math.pow(ZOOM_STEP, steps));
 }
 // [100%]: the print size, around the middle of the PDF area as the zoom buttons.
 function actualSize() {
@@ -331,37 +339,37 @@ function actualSize() {
 }
 // Fit width (fitK): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
 function fitW() {
-  const a = topAnchor(),
-    L = $('#left');
+  const anchor = topAnchor(),
+    pdfArea = $('#left');
   setK(fitK(), LAYOUT === LAYOUT_MODE.WIDE);
   markZoomed();
-  restoreAnchor(a);
-  L.scrollLeft = 0;
+  restoreAnchor(anchor);
+  pdfArea.scrollLeft = 0;
 }
 // Arriving at page n - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin, jumpToPageLine): a
 // figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any other page at its top.
 // The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
 // (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (glideTo, glideInto), so the keys wait for it to end.
-function arrivePage(n: number) {
-  const el = document.getElementById('p' + n);
-  if (!el) return;
-  const to = figureTop(n),
-    L = $('#left');
+function arrivePage(pageNumber: number) {
+  const pageBox = document.getElementById('p' + pageNumber);
+  if (!pageBox) return;
+  const to = figureTop(pageNumber),
+    pdfArea = $('#left');
   const pageTop = () => {
-    const pg = document.getElementById('p' + n);
-    return pg ? scrollTopFor(pg) : null;
+    const currentBox = document.getElementById('p' + pageNumber);
+    return currentBox ? scrollTopFor(currentBox) : null;
   };
   if (to === null) {
-    glideInto(el);
+    glideInto(pageBox);
     arrivalWatch(pageTop);
     return;
   }
-  const top = !isAutoScrolling() && Math.abs(L.scrollTop - to) <= FIGURE_REST_PX;
-  if (top) glideInto(el);
+  const top = !isAutoScrolling() && Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX;
+  if (top) glideInto(pageBox);
   else glideTo(to);
-  arrivalWatch(top ? pageTop : () => figureTop(n));
+  arrivalWatch(top ? pageTop : () => figureTop(pageNumber));
 }
-const FIGURE_ROOM_PT = 24; // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
+const FIGURE_ROOM_POINTS = 24; // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
 const FIGURE_REST_PX = 2; // the pages rest on a jump's place within this (a glide ends on or next to its pixel)
 // Every jump of the PDF area - a page, an outline entry's place, a card's [보기]; each glide starts this watch with its place, a
 // function that measures it now - lands where it says once the pages rest. The glide's place is reckoned at its start, and the
@@ -407,14 +415,14 @@ function arrivalLetGo() {
   ARRIVAL = null;
   clearTimeout(ARRIVAL_TIMER);
 }
-for (const t of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
-  addEventListener(t, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
+for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
+  addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
 addEventListener('resize', arrivalLetGo);
 function arrivalSettle() {
-  const a = ARRIVAL,
-    L = $('#left');
-  if (!a) return;
-  if (a.hand !== HAND_SCROLL_AT || a.doc !== DOC || !L.getClientRects().length) {
+  const arrival = ARRIVAL,
+    pdfArea = $('#left');
+  if (!arrival) return;
+  if (arrival.hand !== HAND_SCROLL_AT || arrival.doc !== DOC || !pdfArea.getClientRects().length) {
     ARRIVAL = null;
     return;
   }
@@ -423,28 +431,28 @@ function arrivalSettle() {
     return;
   } // still on its way
   const now = performance.now();
-  if (!a.until) a.until = now + ARRIVAL_SETTLE_MS;
-  else if (now > a.until) {
+  if (!arrival.until) arrival.until = now + ARRIVAL_SETTLE_MS;
+  else if (now > arrival.until) {
     ARRIVAL = null;
     return;
   }
-  const place = a.place();
+  const place = arrival.place();
   if (place === null) {
     ARRIVAL = null;
     return;
   }
-  const to = Math.max(0, Math.min(L.scrollHeight - L.clientHeight, place));
-  if (Math.abs(L.scrollTop - to) <= FIGURE_REST_PX) {
-    a.at = to;
+  const to = Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, place));
+  if (Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX) {
+    arrival.at = to;
     return;
   }
-  if (a.fixes >= ARRIVAL_FIXES || (a.at !== null && Math.abs(a.at - to) <= FIGURE_REST_PX)) {
+  if (arrival.fixes >= ARRIVAL_FIXES || (arrival.at !== null && Math.abs(arrival.at - to) <= FIGURE_REST_PX)) {
     ARRIVAL = null;
     return;
   }
-  a.fixes++;
-  a.until = 0;
-  a.at = null;
+  arrival.fixes++;
+  arrival.until = 0;
+  arrival.at = null;
   glideTo(to);
   arrivalSoon();
 }
@@ -473,38 +481,42 @@ new ResizeObserver(() => {
 // OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's at every
 // zoom. Room past the page's top would stand the page below the reading line at a large zoom: the line would read the page
 // before it.
-function figureTop(n: number) {
-  const pg = document.getElementById('p' + n),
-    m = META && META.pages ? META.pages[n - 1] : null;
-  if (!pg || !m || typeof m.figure_top !== 'number' || !(m.pt_h > 0)) return null;
-  const h = pg.getBoundingClientRect().height,
-    free = (m.figure_top - (typeof m.figure_above === 'number' ? m.figure_above : 0)) * h;
-  return spotTop(pg, m.figure_top, Math.max(OUTLINE_PICK_GAP, Math.min((FIGURE_ROOM_PT * h) / m.pt_h, free)));
+function figureTop(pageNumber: number) {
+  const pageBox = document.getElementById('p' + pageNumber),
+    pageFacts = META && META.pages ? META.pages[pageNumber - 1] : null;
+  if (!pageBox || !pageFacts || typeof pageFacts.figure_top !== 'number' || !(pageFacts.pt_h > 0)) return null;
+  const height = pageBox.getBoundingClientRect().height,
+    free = (pageFacts.figure_top - (typeof pageFacts.figure_above === 'number' ? pageFacts.figure_above : 0)) * height;
+  return spotTop(
+    pageBox,
+    pageFacts.figure_top,
+    Math.max(OUTLINE_PICK_GAP, Math.min((FIGURE_ROOM_POINTS * height) / pageFacts.pt_h, free)),
+  );
 }
-function goPage(v?) {
-  arrivePage(parseInt(v === undefined ? $('#jump').value : v, 10));
+function goPage(entry?) {
+  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
 }
-$('#jump').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !imeKey(e)) goPage();
+$('#jump').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !imeKey(event)) goPage();
 });
 // The page a typed entry v goes to in a document of n pages: a whole number clamped to 1..n; null for an empty or non-number
 // entry, which goes nowhere. Pure.
-function clampPage(v, n) {
-  const s = String(v == null ? '' : v).trim();
-  if (!/^-?\d+$/.test(s) || !(n >= 1)) return null;
-  return Math.min(n, Math.max(1, parseInt(s, 10)));
+function clampPage(entry, pageCount) {
+  const text = String(entry == null ? '' : entry).trim();
+  if (!/^-?\d+$/.test(text) || !(pageCount >= 1)) return null;
+  return Math.min(pageCount, Math.max(1, parseInt(text, 10)));
 }
 // The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed does nothing.
 function navGo() {
-  const p = clampPage($('#ns-page-in').value, META && META.pages ? META.pages.length : 0);
-  if (p === null) return;
+  const page = clampPage($('#ns-page-in').value, META && META.pages ? META.pages.length : 0);
+  if (page === null) return;
   $('#nav-sheet').close();
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
-  goPage(p);
+  goPage(page);
 }
-$('#ns-page-in').addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !imeKey(e)) {
-    e.preventDefault();
+$('#ns-page-in').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && !imeKey(event)) {
+    event.preventDefault();
     navGo();
   }
 });

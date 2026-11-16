@@ -2882,7 +2882,7 @@ class MixedWidths(PanelBase):
         the widest page's block took the column past the area, every page moving right under the panel."""
         page = self.on()
         self.assertEqual(page.evaluate("META.pages.map(p=>Math.round(p.pt_w))"), [612, 396, 792, 612, 504, 612, 612])
-        self.assertGreaterEqual(page.evaluate("innerW()-pageWidth(ptCommon(),K)"), 360)
+        self.assertGreaterEqual(page.evaluate("innerW()-pageWidth(commonPageWidth(),K)"), 360)
         self.assertLess(page.evaluate(ROOM), 328)
         self.assertFalse(page.evaluate(SHAPE)["beside"])
         page.evaluate("setSide(false)")

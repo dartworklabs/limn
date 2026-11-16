@@ -341,7 +341,7 @@ class SearchLogic(unittest.TestCase):
             )
             segs.append({"text": text, "plain": plain, "box": {"x0": x0, "x1": x1, "y": y, "size": size, "ang": 0}})
         js = (
-            consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT", "SEARCH_GUTTER")
+            consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_POINTS", "SEARCH_GUTTER")
             + "\n"
             + fns(
                 "searchFold",
@@ -729,7 +729,7 @@ def corpus_answers(test, case):
             "main": json.dumps(str(vendor / "pdf.min.mjs")),
             "worker": json.dumps(str(vendor / "pdf.worker.min.mjs")),
             "pdf": json.dumps(str(pdf)),
-            "fns": consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_PT", "SEARCH_GUTTER")
+            "fns": consts("SEARCH_BREAK", "SEARCH_CJK", "SEARCH_EDGE_POINTS", "SEARCH_GUTTER")
             + "\n"
             + fns(
                 "searchFold",

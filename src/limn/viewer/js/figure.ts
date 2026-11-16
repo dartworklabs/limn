@@ -13,94 +13,98 @@ import { endJumpForScroll } from './verdict.ts';
 import { selPopArea } from './sel-popover.ts';
 
 // Whether f is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
-function isFrac(f: unknown): f is number[] {
-  return Array.isArray(f) && f.length === 4 && f.every((v) => typeof v === 'number' && Number.isFinite(v));
+function isFrac(box: unknown): box is number[] {
+  return (
+    Array.isArray(box) &&
+    box.length === 4 &&
+    box.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
+  );
 }
 // A person's name for an element: its label, else its part, else its id - the rule the pick answer's rung labels follow.
-function elName(el) {
-  return String((el && (el.label || el.part || el.id)) || '');
+function elName(element) {
+  return String((element && (element.label || element.part || element.id)) || '');
 }
 // The selected element's path, root first, as the location line shows it ('B2 › 달력 › 7월'). Each id is named by the
 // name the map gives it - the pick's path_names, one per id of its el.path (label, else part) - else by the rung that
 // carries it, else by the pick's own element, else by the id itself: an ancestor merged into an inner rung, past the
 // ladder's cap, drawn in another file or above a region answer's element has no rung, and the map's name or its id
 // still says where it is.
-function elPathText(o) {
-  const el = o && o.elSel;
-  if (!el || !Array.isArray(el.path)) return '';
+function elementPathText(selection) {
+  const selectedElement = selection && selection.elSel;
+  if (!selectedElement || !Array.isArray(selectedElement.path)) return '';
   const names = new Map();
-  if (o.el && o.el.id) names.set(o.el.id, elName(o.el));
-  (o.levels || []).forEach((lv) => {
-    if (lv.el && lv.el.id) names.set(lv.el.id, String(lv.label || elName(lv.el)));
+  if (selection.el && selection.el.id) names.set(selection.el.id, elName(selection.el));
+  (selection.levels || []).forEach((level) => {
+    if (level.el && level.el.id) names.set(level.el.id, String(level.label || elName(level.el)));
   });
-  const ids = o.el && Array.isArray(o.el.path) ? o.el.path : [],
-    given = Array.isArray(o.path_names) ? o.path_names : [];
-  ids.forEach((id, i) => {
-    const name = given[i];
+  const ids = selection.el && Array.isArray(selection.el.path) ? selection.el.path : [],
+    given = Array.isArray(selection.path_names) ? selection.path_names : [];
+  ids.forEach((id, index) => {
+    const name = given[index];
     if (typeof name === 'string' && name) names.set(id, name);
   });
-  return el.path.map((id) => names.get(id) || String(id)).join(' › ');
+  return selectedElement.path.map((id) => names.get(id) || String(id)).join(' › ');
 }
 // A figure rung's tooltip text: the whole figure's lines for the page's root (its path is itself), else the element's.
-function rungTip(lv) {
-  return Array.isArray(lv.el.path) && lv.el.path.length <= 1 ? T.fig : T.el;
+function rungTip(level) {
+  return Array.isArray(level.el.path) && level.el.path.length <= 1 ? T.fig : T.el;
 }
 // Puts a pending box (the composer's '새 핀', a re-place's '새 위치') on the element it will pin, so the person sees the
 // mark before saving. An element without a usable box, or no box on screen, leaves the box as dragged.
-function snapBox(box, el) {
-  if (!box || !el || !isFrac(el.frac)) return;
-  const f = el.frac;
-  drawBox(box, f[0], f[1], f[0] + f[2], f[1] + f[3]);
+function snapBox(box, element) {
+  if (!box || !element || !isFrac(element.frac)) return;
+  const frac = element.frac;
+  drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
   pendingBadgeSide(box);
 }
 // The element part of the composer for selection o and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
-function renderElement(o, box) {
+function renderElement(selection, box) {
   const line = $('#c-path'),
-    el = o.elSel;
-  line.hidden = !el;
-  if (el) {
-    line.textContent = elPathText(o) + ' ·';
-    line.dataset.tip = tl('요소 {id} · 누르면 쪽에서 이 상자를 보입니다', { id: el.id });
+    selectedElement = selection.elSel;
+  line.hidden = !selectedElement;
+  if (selectedElement) {
+    line.textContent = elementPathText(selection) + ' ·';
+    line.dataset.tip = tl('요소 {id} · 누르면 쪽에서 이 상자를 보입니다', { id: selectedElement.id });
     line.setAttribute('aria-description', tr('누르면 쪽에서 고른 요소의 상자를 보입니다'));
   }
-  snapBox(box, el);
-  if (box) box.classList.toggle('hi', !!el && line.matches(':hover,:focus-visible'));
+  snapBox(box, selectedElement);
+  if (box) box.classList.toggle('hi', !!selectedElement && line.matches(':hover,:focus-visible'));
 }
 // The path in the composer is also the way to check which element was chosen: the pending box on the page is drawn on it (snapBox), and
 // pointing at the path - the mouse over it, the focus on it - draws that box stronger (.sel.hi); pressing it (a tap on touch, where
 // nothing hovers) brings the box into view if it is out of it and flashes it (.sel.flash), as [보기] does a pin's mark. Quiet: the
 // path stays the muted label it was and answers only to a pointer that comes to it.
-function showElementHi(on: boolean) {
-  const b = COMPOSE.box;
-  if (b && b.isConnected) b.classList.toggle('hi', on);
+function highlightElementBox(on: boolean) {
+  const box = COMPOSE.box;
+  if (box && box.isConnected) box.classList.toggle('hi', on);
 }
-for (const [ev, on] of [
+for (const [eventName, on] of [
   ['mouseenter', true],
   ['focus', true],
   ['mouseleave', false],
   ['blur', false],
 ] as [string, boolean][])
-  $('#c-path').addEventListener(ev, () => showElementHi(on));
+  $('#c-path').addEventListener(eventName, () => highlightElementBox(on));
 function showElementBox() {
-  const b = COMPOSE.box;
-  if (!b || !b.isConnected) return;
-  const a = selPopArea(),
-    r = b.getBoundingClientRect();
-  if (r.top < a.top || r.bottom > a.bottom) {
+  const box = COMPOSE.box;
+  if (!box || !box.isConnected) return;
+  const area = selPopArea(),
+    rect = box.getBoundingClientRect();
+  if (rect.top < area.top || rect.bottom > area.bottom) {
     endJumpForScroll();
-    $('#left').scrollTop += r.top - (a.top + (a.bottom - a.top) * 0.3);
+    $('#left').scrollTop += rect.top - (area.top + (area.bottom - area.top) * 0.3);
   }
-  b.classList.remove('flash');
-  void b.offsetWidth;
-  b.classList.add('flash');
-  b.addEventListener('animationend', () => b.classList.remove('flash'), { once: true });
+  box.classList.remove('flash');
+  void box.offsetWidth;
+  box.classList.add('flash');
+  box.addEventListener('animationend', () => box.classList.remove('flash'), { once: true });
 }
 // The page badge of a region on a figure document (composer and card): '코드 없는 요소' when the map chose an element
 // it has no code lines for, '영역' when the map could not be read; null off figure documents without an element - the
 // caller keeps its view-only wording.
-function figRegionBadge(el, figure) {
-  return el
+function figRegionBadge(element, figure) {
+  return element
     ? { t: tr('코드 없는 요소'), tip: tr(T.elregion) }
     : figure
       ? { t: tr('영역'), tip: tr(T.figregion) }
@@ -109,58 +113,61 @@ function figRegionBadge(el, figure) {
 // The `el` a pin stores (POST /api/pin, an edit's loc): the pick's element with only the fields the pin record defines, in
 // its order - id, path, label, part, impl and the element's box `frac` on the build it was picked on, which the server's
 // read-time follow compares with the current build. A box that is not four finite numbers is left out.
-function elForSave(el) {
-  const out: PinElement = { id: el.id, path: Array.isArray(el.path) ? el.path.slice() : [] };
-  for (const k of ['label', 'part']) if (typeof el[k] === 'string') out[k] = el[k];
-  if (el.impl && typeof el.impl === 'object') out.impl = { file: el.impl.file, lo: el.impl.lo, hi: el.impl.hi };
-  if (isFrac(el.frac)) out.frac = el.frac.slice();
+function elementForSave(element) {
+  const out: PinElement = { id: element.id, path: Array.isArray(element.path) ? element.path.slice() : [] };
+  for (const k of ['label', 'part']) if (typeof element[k] === 'string') out[k] = element[k];
+  if (element.impl && typeof element.impl === 'object')
+    out.impl = { file: element.impl.file, lo: element.impl.lo, hi: element.impl.hi };
+  if (isFrac(element.frac)) out.frac = element.frac.slice();
   return out;
 }
 // The range kind of an element rung as the server names it (limn.builds.figure_map.element_kind): 'figure' for the page's
 // root (its path is itself), else 'el:<part>' with the part cut to 77 characters (a kind stays within 80), 'el:?' without a
 // part. src/limn/viewer/tests/test_viewer.py runs both on the same elements.
-function elKind(el) {
-  return Array.isArray(el.path) && el.path.length <= 1 ? 'figure' : 'el:' + String(el.part || '?').slice(0, 77);
+function elementKind(element) {
+  return Array.isArray(element.path) && element.path.length <= 1
+    ? 'figure'
+    : 'el:' + String(element.part || '?').slice(0, 77);
 }
 // Adds a figure pick's fields to a pin body or a re-place loc and returns it: `el`, the element's box as the pin's own
 // `frac` too (a mark drawn without the current map then sits where the person saw the snapped box), and the element's
 // kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines set by
 // hand in the excerpt keep the kind the body already has.
-function figureFields(body, el, rung) {
-  if (!el) return body;
-  body.el = elForSave(el);
-  if (isFrac(el.frac)) body.frac = el.frac.slice();
-  if (rung && rung.el) body.kind = elKind(el);
+function figureFields(body, element, rung) {
+  if (!element) return body;
+  body.el = elementForSave(element);
+  if (isFrac(element.frac)) body.frac = element.frac.slice();
+  if (rung && rung.el) body.kind = elementKind(element);
   return body;
 }
 // The rung the selection's scope names when it is a figure rung (it carries an element), else null.
-function figRung(o) {
-  const lv = o && o.scope && lvOf(o, o.scope);
-  return lv && lv.el ? lv : null;
+function figRung(selection) {
+  const level = selection && selection.scope && lvOf(selection, selection.scope);
+  return level && level.el ? level : null;
 }
 // The element a re-place candidate would move the pin to: its default rung's, else the answer's own (a region answer).
-function repickEl(c) {
-  const lv = lvOf(c, c.default_level);
-  return (lv && lv.el) || c.el || null;
+function repickEl(candidate) {
+  const level = lvOf(candidate, candidate.default_level);
+  return (level && level.el) || candidate.el || null;
 }
 // Whether the server found this figure pin's element in the current build: the read-time `mark` box on `mark_page`.
-function hasMark(p: Pin) {
-  return isFrac(p.mark) && typeof p.mark_page === 'number' && Number.isInteger(p.mark_page) && p.mark_page >= 1;
+function hasMark(pin: Pin) {
+  return isFrac(pin.mark) && typeof pin.mark_page === 'number' && Number.isInteger(pin.mark_page) && pin.mark_page >= 1;
 }
 // Where a pin's mark goes (docs/handbook/viewer.md §상태 표현): its element's box in the current build when the server found
 // it, else the page and box the pin was placed on - a manuscript pin, a view-only pin, a figure pin whose element was
 // lost or whose map is unreadable. The box can be null (a stored box that is not finite reads null as a whole): the caller
 // draws nothing for it.
-function pinPlace(p: Pin) {
-  return hasMark(p) ? { page: p.mark_page as number, frac: p.mark } : { page: p.page, frac: p.frac };
+function pinPlace(pin: Pin) {
+  return hasMark(pin) ? { page: pin.mark_page as number, frac: pin.mark } : { page: pin.page, frac: pin.frac };
 }
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
-function elLost(p: Pin) {
-  return !!p && p.el_sync === EL_SYNC.LOST;
+function elLost(pin: Pin) {
+  return !!pin && pin.el_sync === EL_SYNC.LOST;
 }
 // The card badge of a lost element ('요소 잃음', the warning look of '위치 잃음'), or ''.
-function elLostTag(p: Pin) {
-  return elLost(p)
+function elLostTag(pin: Pin) {
+  return elLost(pin)
     ? html`<span class="badge badge-warning" data-tip="${tr(T.ellost)}">${ic('triangle-alert')}${tr('요소 잃음')}</span>`
     : null;
 }
