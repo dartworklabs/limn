@@ -18,7 +18,7 @@ from hypothesis import given, strategies as st
 try:
     import tomllib
 except ModuleNotFoundError:
-    # Python 3.10 uses the same parser already locked through pytest and mypy's development dependencies.
+    # Python 3.10 uses the same parser already locked through pytest's development dependency.
     import tomli as tomllib
 
 ROOT = Path(__file__).resolve().parents[2]

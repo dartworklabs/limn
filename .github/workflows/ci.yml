@@ -48,12 +48,10 @@ jobs:
         run: uv run ruff format --check
       - name: ShellCheck
         run: uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh
-      - name: Mypy
-        run: uv run mypy
-      # Contributors type-check on macOS too, where the standard library declares fewer names (os.sched_getaffinity):
-      # check that platform from here as well, so a checkout is clean on both.
-      - name: Mypy (as on macOS)
-        run: uv run mypy --platform darwin
+      # basedpyright as Linux and as macOS, where the standard library declares fewer names (os.sched_getaffinity),
+      # so a checkout is clean on both. A recorded error that is gone fails too until the lowered baseline is committed.
+      - name: Types
+        run: uv run python tools/check_types.py
       - name: Feature boundaries
         run: uv run python tools/check_boundaries.py
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
@@ -120,8 +118,8 @@ jobs:
   # The browser suite, in jobs on their own runners (browser.yml: the Chromium classes in parts, the Firefox and WebKit
   # classes in one job), on Python 3.12 only. It tests the viewer's JS in a browser; running it on a second Python
   # version doubled its cost for little signal. Python 3.10 stays covered by the core suite above on 3.10, by the lint
-  # job's Ruff and mypy (both target 3.10) and by the instances job's check of the 3.10 floor. A server path that only a
-  # browser test reaches no longer runs on 3.10.
+  # job's Ruff and basedpyright (both target 3.10) and by the instances job's check of the 3.10 floor. A server path
+  # that only a browser test reaches no longer runs on 3.10.
   browser-3-12:
     name: browser (3.12)
     uses: ./.github/workflows/browser.yml
