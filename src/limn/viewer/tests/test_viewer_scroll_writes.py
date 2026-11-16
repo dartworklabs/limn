@@ -90,9 +90,10 @@ OTHERS = {
 
 def writes():
     """Every scripted scroll: (file, function, the source of that function up to the write)."""
-    for path in sorted(JS.glob("*.js")):
+    paths = sorted(JS.glob("*.js"))
+    for path, text in zip(paths, helpers_js.module_texts(paths), strict=True):
         where, before = "<top>", ""
-        for line in path.read_text(encoding="utf-8").splitlines():
+        for line in text.splitlines():
             named = FUNCTION.match(line)
             if named:
                 where, before = named.group(1), ""
@@ -130,8 +131,9 @@ class ScrollWrites(unittest.TestCase):
         which a script's 'auto' would follow. Mutation: mdcGo's literal 'smooth' (before #418), or a const read at load,
         fails."""
         allowed = ("'auto'", "'instant'", "scrollMotion()", "pvGlideArm(", "land?'auto':scrollMotion()")
-        for path in sorted(JS.glob("*.js")):
-            for m in re.finditer(r"\bbehavior\s*:\s*", path.read_text(encoding="utf-8")):
+        paths = sorted(JS.glob("*.js"))
+        for path, text in zip(paths, helpers_js.module_texts(paths), strict=True):
+            for m in re.finditer(r"\bbehavior\s*:\s*", text):
                 rest = helpers_js.squash(m.string[m.end() : m.end() + 120], fragment=True)[:40]
                 with self.subTest(file=path.name, at=rest):
                     self.assertTrue(rest.startswith(allowed), rest)

@@ -31,8 +31,9 @@ SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write
 def part_sources() -> dict[str, str]:
     """Every JS module of the page's script, by manifest path, in run order, as the build puts it into the script: its
     import and export statements taken out (helpers_js.module_code) - they name the module's bindings, they are not
-    uses of them."""
-    return {name: helpers_js.module_code((VIEWER / name).read_text(encoding="utf-8")) for name in PARTS}
+    uses of them - and its TypeScript types taken out (helpers_js.module_texts)."""
+    texts = helpers_js.module_texts([VIEWER / name for name in PARTS])
+    return {name: helpers_js.module_code(text) for name, text in zip(PARTS, texts, strict=True)}
 
 
 def template_end(toks: list[helpers_js.Token], k: int) -> int:

@@ -53,7 +53,8 @@ def part_sources() -> dict[str, str]:
     """Every JS module of the page's script, by manifest path, in run order, as the build puts it into the script: its
     import and export statements taken out (helpers_js.module_code) - they name the module's bindings, they are not
     uses of them."""
-    return {name: helpers_js.module_code((VIEWER / name).read_text(encoding="utf-8")) for name in PARTS}
+    texts = helpers_js.module_texts([VIEWER / name for name in PARTS])
+    return {name: helpers_js.module_code(text) for name, text in zip(PARTS, texts, strict=True)}
 
 
 def head_scripts() -> list[str]:
@@ -500,7 +501,7 @@ class ClosedSets(unittest.TestCase):
         """BAND_MODE (core.js) gives LAYOUT for the band in use: its keys are exactly LAYOUT_BAND's members and its values
         LAYOUT_MODE's, so a band added to one table without the other fails here, not on a device."""
         node_or_skip(self)
-        src = (VIEWER / "js" / "core.js").read_text(encoding="utf-8")
+        src = helpers_js.module_text(VIEWER / "js" / "core.js")
         line = helpers_js.module_declaration(src, "BAND_MODE")
         js = (
             helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, line)

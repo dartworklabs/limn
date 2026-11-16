@@ -27,7 +27,7 @@ TAUGHT = (
 
 def stored_kinds() -> list[str]:
     """md:<block> for every block kind of MD_BLOCK_KINDS in md-surface.js, then md:section."""
-    src = SURFACE.read_text(encoding="utf-8")
+    src = helpers_js.module_text(SURFACE)
     init = helpers_js.statement_init(helpers_js.module_declaration(src, "MD_BLOCK_KINDS"), "MD_BLOCK_KINDS")
     assert init.startswith("["), "md-surface.js has no MD_BLOCK_KINDS list"
     return ["md:" + k for k in re.findall(r"'([a-z]+)'", init)] + ["md:section"]

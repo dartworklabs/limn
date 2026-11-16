@@ -1,6 +1,6 @@
 """A small JavaScript tokenizer for the tests that read the viewer's scripts as source.
 
-The viewer is plain classic scripts (src/limn/viewer/js/*.js joined into one <script>), and the tests pull its real
+The viewer is ES modules (src/limn/viewer/js/*.ts) built into one classic script, and the tests pull its real
 functions out to run them under node, and check the source for shapes a parser would accept but a person did not mean
 (a statement swallowed by a `//` comment, a function nothing calls). Counting braces or matching regexes over raw text
 cannot tell a brace, quote or `//` inside a string, template literal, regular expression or comment from code, so these
@@ -13,16 +13,23 @@ On top of the tokens: the top-level function declarations of a script (top_level
 names it uses (references), and the closed-set tables core.js declares (closed_sets, closed_set_prelude - see
 docs/handbook/viewer.md §닫힌 값 표).
 
-Stdlib only, like the server; node is not needed to tokenize.
+Stdlib only, like the server; node is not needed to tokenize. A module's own text is TypeScript, which the tokenizer does
+not read: module_text() gives its code as the build takes it, its types taken out by tools/strip_types.mjs (node and
+`npm ci --ignore-scripts`).
 """
 
 from __future__ import annotations
 
 import functools
 import json
+import os
 import re
+import shutil
+import subprocess
+import unittest
 from dataclasses import dataclass
 from html.parser import HTMLParser
+from pathlib import Path
 from typing import Literal
 
 Kind = Literal["space", "comment", "line-comment", "string", "template", "regex", "ident", "number", "punct"]
@@ -725,3 +732,57 @@ def closed_set_prelude(sets: dict[str, ClosedSet], js: str) -> str:
             init = json.dumps(value) if isinstance(value, str) else "Object.freeze(%s)" % json.dumps(value)
             out += "var %s=%s;\n" % (name, init)
     return out
+
+
+ROOT = Path(__file__).resolve().parents[2]
+STRIP_TYPES = ROOT / "tools" / "strip_types.mjs"  # what the build takes a module's types out with
+
+
+@functools.lru_cache(maxsize=8)
+def strip_results(files: tuple[tuple[str, str], ...]) -> tuple[tuple[bool, str], ...]:
+    """tools/strip_types.mjs over (name, text) pairs, in one node run: for each, (True, its code with its types taken
+    out), or (False, the error stripping it threw - a SyntaxError for a module that does not parse)."""
+    node = shutil.which("node")
+    if not node or not (ROOT / "node_modules" / "typescript").is_dir():
+        missing = "node" if not node else "the viewer's dev tools (npm ci --ignore-scripts)"
+        if os.environ.get("LIMN_TEST_REQUIRE_NODE") == "1":
+            raise AssertionError("%s required (LIMN_TEST_REQUIRE_NODE=1) but not installed" % missing)
+        raise unittest.SkipTest("%s is not installed: a viewer module's code is its TypeScript without types" % missing)
+    # The texts go on stdin, as one JSON list: a module is past what one argument may hold (MAX_ARG_STRLEN).
+    script = (
+        "import { readFileSync } from 'node:fs';\n"
+        "import { stripTypes } from %s;\n"
+        "const files = JSON.parse(readFileSync(0, 'utf8'));\n"
+        "const one = ([name, text]) => { try { return [true, stripTypes(text, name)]; } catch (e) { return [false, String(e)]; } };\n"
+        "process.stdout.write(JSON.stringify(files.map(one)));\n"
+    ) % json.dumps(STRIP_TYPES.as_uri())
+    r = subprocess.run(
+        [node, "--input-type=module", "-e", script],
+        input=json.dumps([list(f) for f in files]),
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+        cwd=ROOT,
+    )
+    if r.returncode != 0:
+        raise AssertionError("tools/strip_types.mjs failed:\n%s" % r.stderr)
+    return tuple((ok, text) for ok, text in json.loads(r.stdout))
+
+
+def module_texts(paths: list[Path]) -> list[str]:
+    """The code of each viewer module in paths as the build takes it (tools/build_viewer.mjs): its TypeScript types taken
+    out by tools/strip_types.mjs, every other byte as written - imports, exports and comments included. Skips the test
+    without node and the viewer's dev tools, unless LIMN_TEST_REQUIRE_NODE=1 makes that a failure."""
+    results = strip_results(tuple((p.name, p.read_text(encoding="utf-8")) for p in paths))
+    failed = ["%s: %s" % (p.name, text) for p, (ok, text) in zip(paths, results, strict=True) if not ok]
+    if failed:
+        raise AssertionError("tools/strip_types.mjs refused:\n" + "\n".join(failed))
+    return [text for _, text in results]
+
+
+def module_text(path: Path) -> str:
+    """module_texts() of one module. Every module of its folder goes through the one node run (cached), so the tests
+    that read modules one at a time start node once."""
+    folder = sorted(p for p in path.parent.iterdir() if p.suffix in (".ts", ".js") and p.is_file())
+    return module_texts(folder)[folder.index(path)]

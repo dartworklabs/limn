@@ -29,6 +29,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAst } from 'rollup/parseAst';
+import { stripTypes } from './strip_types.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VIEWER = join(ROOT, 'src', 'limn', 'viewer');
@@ -195,10 +196,10 @@ export function listedModules(viewer = VIEWER) {
  */
 export function placeOf(path, legacy = LEGACY) {
   const parts = path.split('/');
-  if (parts.length === 2 && parts[1] === 'main.js') return { feature: 'entry', role: 'main', placed: true };
+  if (parts.length === 2 && /^main\.[jt]s$/.test(parts[1])) return { feature: 'entry', role: 'main', placed: true };
   if (parts.length === 3 && parts[1] === 'platform') return { feature: 'platform', role: 'lib', placed: true };
   if (parts.length === 3) {
-    const role = parts[2].replace(/\.js$/, '').split('-')[0];
+    const role = parts[2].replace(/\.[jt]s$/, '').split('-')[0];
     return { feature: parts[1], role, placed: true };
   }
   const known = legacy[path];
@@ -262,7 +263,8 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
 }
 
 /**
- * The modules each module imports, as viewer-relative paths (named and bare imports of relative paths).
+ * The modules each module imports, as viewer-relative paths (named and bare imports of relative paths). An import of
+ * types only (`import type`) is no import: the built script never runs it.
  * @param {string[]} modules
  * @param {string} viewer
  * @returns {Map<string, string[]>}
@@ -271,7 +273,7 @@ export function importGraph(modules, viewer = VIEWER) {
   const graph = new Map();
   for (const path of modules) {
     const file = join(viewer, path);
-    const ast = parseAst(readFileSync(file, 'utf8'));
+    const ast = parseAst(stripTypes(readFileSync(file, 'utf8'), path));
     const targets = [];
     for (const node of ast.body) {
       if (

@@ -913,10 +913,10 @@ class ReviewPickOutcome(unittest.TestCase):
 
 
 def open_review_pick():
-    """The text of review-pick.js."""
+    """The code of review-pick.js, its types taken out (helpers_js.module_text)."""
     from pathlib import Path
 
-    return (Path(__file__).resolve().parents[1] / "js" / "review-pick.js").read_text(encoding="utf-8")
+    return helpers_js.module_text(Path(__file__).resolve().parents[1] / "js" / "review-pick.js")
 
 
 if __name__ == "__main__":

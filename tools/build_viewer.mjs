@@ -1,9 +1,10 @@
 // Builds the viewer's one script, src/limn/viewer/dist/viewer.js, from its ES modules (docs/adr/0042-viewer-es-modules.md,
-// docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
+// docs/adr/0043-viewer-typescript.md, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
 //
-// The modules are src/limn/viewer/js/*.js, listed in parts.txt under __APP_JS__ in the order they run. Rollup (the exact
+// The modules are src/limn/viewer/js/*.ts, listed in parts.txt under __APP_JS__ in the order they run. Each module's
+// types are taken out first (tools/strip_types.mjs: only the types, every other byte as written), then Rollup (the exact
 // version package-lock.json pins) joins them into one file: no tree-shaking, no minifying, no renaming - every module's
-// text goes in as written, with its import and export statements taken out. The order is parts.txt's: the build puts a
+// code goes in as written, with its types, imports and exports taken out. The order is parts.txt's: the build puts a
 // bare `import '<previous module>'` in front of each module before Rollup reads it, and since every module then waits on
 // the one listed before it, a module's top-level code (its listeners, its let and const values) runs in exactly the
 // list's order, whatever the modules import from each other. The build fails if the joined order is not the list's.
@@ -19,6 +20,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rollup } from 'rollup';
+import { stripTypes } from './strip_types.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VIEWER = join(ROOT, 'src', 'limn', 'viewer');
@@ -48,6 +50,17 @@ function moduleOrder() {
 
 /** The viewer-relative POSIX path of an absolute module id. */
 const rel = (id) => relative(VIEWER, id).split(sep).join('/');
+
+/** The Rollup plugin that takes the types out of each module before anything else reads it (tools/strip_types.mjs). */
+function types() {
+  return {
+    name: 'limn-strip-types',
+    /** @param {string} code @param {string} id */
+    transform(code, id) {
+      return id === ENTRY ? null : { code: stripTypes(code, rel(id)), map: null };
+    },
+  };
+}
 
 /**
  * The Rollup plugin that makes the list's order the run order: each listed module but the first gets a bare import of
@@ -89,7 +102,7 @@ export async function build() {
   const bundle = await rollup({
     input: ENTRY,
     treeshake: false,
-    plugins: [listOrder(order)],
+    plugins: [types(), listOrder(order)],
     onwarn(warning) {
       if (warning.code === 'CIRCULAR_DEPENDENCY') return;
       throw new Error(`rollup: ${warning.code}: ${warning.message}`);

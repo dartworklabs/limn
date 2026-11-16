@@ -24,7 +24,7 @@ from pathlib import Path
 from limn.viewer import assemble
 
 from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, sq, viewer_text
-from helpers_js import inline_scripts, module_code
+from helpers_js import inline_scripts, module_code, module_texts, strip_results
 
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
 
@@ -48,20 +48,24 @@ def script_errors(scripts: list[str], module: bool = False) -> list[str] | None:
 
 
 def module_errors(directory: Path = VIEWER) -> list[str] | None:
-    """node --check on each module parts.txt lists under __APP_JS__, as an ES module: 'js/name.js: <error>' for each that
-    fails ([] = all parse), None without node."""
+    """Each module parts.txt lists under __APP_JS__ through the build's first step and node --check: its types taken out
+    (tools/strip_types.mjs refuses a module TypeScript cannot parse with a SyntaxError), then its code parsed as an ES
+    module. 'js/name.ts: <error>' for each that fails ([] = all parse), None without node."""
     names = assemble.viewer_manifest(directory)["__APP_JS__"]
-    errors = script_errors([(directory / n).read_text(encoding="utf-8") for n in names], module=True)
-    if errors is None:
+    if not shutil.which("node"):
         return None
-    return ["%s: %s" % (names[int(e.split(":")[0].split()[1])], e) for e in errors]
+    results = strip_results(tuple((n, (directory / n).read_text(encoding="utf-8")) for n in names))
+    out = ["%s: %s" % (n, text) for n, (ok, text) in zip(names, results, strict=True) if not ok]
+    stripped = [(n, text) for n, (ok, text) in zip(names, results, strict=True) if ok]
+    errors = script_errors([text for _, text in stripped], module=True) or []
+    return out + ["%s: %s" % (stripped[int(e.split(":")[0].split()[1])][0], e) for e in errors]
 
 
 def built_from_modules(built: str, plant: bool = False) -> str:
     """What dist/viewer.js should hold for the modules as they are: its first three lines ('use strict' and the build's
     note), then each listed module's code in order; with plant, one module carries an extra line."""
     modules = [
-        module_code((VIEWER / n).read_text(encoding="utf-8")) for n in assemble.viewer_manifest(VIEWER)["__APP_JS__"]
+        module_code(t) for t in module_texts([VIEWER / n for n in assemble.viewer_manifest(VIEWER)["__APP_JS__"]])
     ]
     if plant:
         modules[len(modules) // 2] += "const planted=1;\n"
@@ -129,8 +133,8 @@ class ViewerFiles(unittest.TestCase):
         self.assertNotIn("__APP_", HTML)
 
     def test_the_built_script_is_the_modules_code_in_list_order(self):
-        """dist/viewer.js is 'use strict', the build's note, then each listed module's code (module_code: its import and
-        export statements taken out) in the listed order, byte for byte but for blank lines - so the committed script
+        """dist/viewer.js is 'use strict', the build's note, then each listed module's code (module_texts and module_code:
+        its types, import and export statements taken out) in the listed order, byte for byte but for blank lines - so the committed script
         cannot fall behind a module, or run them in another order, without this failing (CI also rebuilds and compares
         the bytes)."""
         built = (VIEWER / "dist" / "viewer.js").read_text(encoding="utf-8")

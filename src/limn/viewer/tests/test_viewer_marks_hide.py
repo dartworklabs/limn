@@ -56,7 +56,7 @@ def fns(*names):
 
 def hold_ms():
     """The statement of marks-hide.js that declares MARKS_HOLD_MS."""
-    src = (Path(__file__).resolve().parents[1] / "js" / "marks-hide.js").read_text(encoding="utf-8")
+    src = helpers_js.module_text(Path(__file__).resolve().parents[1] / "js" / "marks-hide.js")
     return helpers_js.module_declaration(src, "MARKS_HOLD_MS")
 
 

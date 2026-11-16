@@ -9,6 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { Linter } from 'eslint';
+import tseslint from 'typescript-eslint';
 import { importGraph, placeOf, tableErrors, violations } from '../check_viewer_boundaries.mjs';
 import { limnRules } from '../../eslint.config.mjs';
 
@@ -170,5 +171,49 @@ test("a write through another module's binding is refused; a local of the same n
   assert.deepEqual(
     lint("import { OFF } from './offline.js';\nfunction f(OFF){OFF.n=1;}\nf({});\nconst n=OFF.n;\nexport { n };\n"),
     [],
+  );
+});
+
+/** The local rule messages ESLint gives code, a TypeScript module, by rule id. */
+function lintTs(code) {
+  const linter = new Linter({ configType: 'flat' });
+  return linter
+    .verify(
+      code,
+      [
+        {
+          files: ['**/*.ts'],
+          languageOptions: { ecmaVersion: 2024, sourceType: 'module', parser: tseslint.parser },
+          plugins: { limn: { rules: limnRules } },
+          rules: { 'limn/no-jsdoc-type': 'error', 'limn/no-imported-state-write': 'error' },
+        },
+      ],
+      'module.ts',
+    )
+    .map((m) => m.ruleId || `fatal: ${m.message}`);
+}
+
+test('a JSDoc type in a .ts file is refused; the words of a JSDoc comment pass', () => {
+  for (const comment of [
+    '/** @param {number} x */',
+    '/** @returns {string} */',
+    '/** @type {HTMLElement} */',
+    '/** @typedef Pair */',
+    '/** @template T */',
+  ]) {
+    assert.deepEqual(lintTs(`${comment}\nfunction f(x: number): number {\n  return x;\n}\nf(1);\n`), [
+      'limn/no-jsdoc-type',
+    ]);
+  }
+  assert.deepEqual(
+    lintTs('/** The width. @param x in pixels */\nfunction f(x: number) {\n  return x;\n}\nf(1);\n'),
+    [],
+  );
+});
+
+test("a write through another module's binding is refused through a type assertion too", () => {
+  assert.deepEqual(
+    lintTs("import { OFF } from './offline.ts';\n(OFF as { n: number }).n = 1;\nOFF!.n++;\n(<any>OFF).k = 2;\n"),
+    ['limn/no-imported-state-write', 'limn/no-imported-state-write', 'limn/no-imported-state-write'],
   );
 });
