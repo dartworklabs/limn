@@ -1,0 +1,13 @@
+{
+  "viewer/assemble.py": {
+    "role-unknown": 1,
+    "isinstance": 5
+  },
+  "viewer/mark.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "viewer/routes.py": {
+    "role-imports": 2
+  }
+}

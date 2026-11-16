@@ -54,6 +54,8 @@ jobs:
         run: uv run python tools/check_types.py
       - name: Feature boundaries
         run: uv run python tools/check_boundaries.py
+      - name: Module fitness
+        run: uv run python tools/check_fitness.py
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"

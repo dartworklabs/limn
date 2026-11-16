@@ -1,5 +1,12 @@
 """Whitespace normalization and bounded text, independent of any capability."""
 
+from typing import TypeAlias
+
+# Text a person writes and no code reads for meaning: a note, a reply, a close reason. Decision, model and protocol
+# modules name such a value FreeText instead of str; it is the reviewed exception of the primitive-type rule
+# (tools/check_fitness.py PRIMITIVE_ALIASES), so a str there otherwise means a domain value still to be typed.
+FreeText: TypeAlias = str
+
 
 def truncate_quote(s: object, n: int = 60) -> str:
     """Truncates a quote to at most n characters (ellipsis included, matching the «...» convention).

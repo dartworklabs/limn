@@ -1,0 +1,42 @@
+{
+  "revisions/answer.py": {
+    "role-imports": 2,
+    "isinstance": 5
+  },
+  "revisions/core.py": {
+    "role-unknown": 1,
+    "isinstance": 23
+  },
+  "revisions/execution.py": {
+    "role-unknown": 1,
+    "isinstance": 17
+  },
+  "revisions/http.py": {
+    "role-imports": 1
+  },
+  "revisions/input.py": {
+    "role-imports": 1,
+    "io": 2
+  },
+  "revisions/jobs.py": {
+    "role-unknown": 1,
+    "isinstance": 10
+  },
+  "revisions/macros.py": {
+    "role-unknown": 1
+  },
+  "revisions/needs.py": {
+    "primitive": 15
+  },
+  "revisions/routes.py": {
+    "role-imports": 1
+  },
+  "revisions/scope.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "revisions/service.py": {
+    "role-imports": 4,
+    "isinstance": 1
+  }
+}

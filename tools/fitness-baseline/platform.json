@@ -1,0 +1,12 @@
+{
+  "platform/files.py": {
+    "isinstance": 6
+  },
+  "platform/git.py": {
+    "isinstance": 1
+  },
+  "platform/values.py": {
+    "isinstance": 6,
+    "primitive": 3
+  }
+}

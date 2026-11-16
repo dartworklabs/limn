@@ -1,0 +1,37 @@
+{
+  "documents/assets.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "documents/http.py": {
+    "role-imports": 3,
+    "isinstance": 1
+  },
+  "documents/input.py": {
+    "io": 1
+  },
+  "documents/needs.py": {
+    "role-imports": 1,
+    "io": 1,
+    "primitive": 8
+  },
+  "documents/outline.py": {
+    "role-unknown": 1
+  },
+  "documents/reads.py": {
+    "role-unknown": 1
+  },
+  "documents/routes.py": {
+    "role-imports": 1
+  },
+  "documents/service.py": {
+    "role-imports": 2
+  },
+  "documents/source.py": {
+    "role-unknown": 1
+  },
+  "documents/verdicts.py": {
+    "role-unknown": 1,
+    "isinstance": 13
+  }
+}
