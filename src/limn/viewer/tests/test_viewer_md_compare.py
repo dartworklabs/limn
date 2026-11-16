@@ -399,7 +399,7 @@ class SameWordsOtherStructure(OneNote):
             [(k, t) for k, t, _ in marks], [("mod", "P"), ("mod", "P"), ("mod", "LI"), ("mod", "LI"), ("mod", "P")]
         )
         whys = page.evaluate(
-            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
+            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
         )
         self.assertEqual(
             whys,
@@ -459,7 +459,7 @@ class CodeBody(OneNote):
         page = self.open_compare()
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "PRE")])
         self.assertEqual(
-            page.evaluate("document.querySelector('#revision-rendered pre[data-mdc]').dataset.changeReason"),
+            page.evaluate("document.querySelector('#revision-rendered pre[data-mdc]').dataset.mdcWhy"),
             "코드 언어가 바뀜",
         )
         self.show(page, self.c[1])
@@ -571,7 +571,7 @@ class HiddenFrontMath(OneNote):
             "boxes:[q('p del.mdc-w .cc').map(e=>e.dataset.cc),q('p ins.mdc-w .cc').map(e=>e.dataset.cc)],"
             "names:[hiddenName(0x200b),hiddenName(0x2060)],"
             "math:[q('pre.md-math-block[data-mdc=mod]').length,words('pre.md-math-block del.mdc-w'),words('pre.md-math-block ins.mdc-w')],"
-            "code:q('[data-mdc]').map(e=>e.dataset.changeReason||'')[3],"
+            "code:q('[data-mdc]').map(e=>e.dataset.mdcWhy||'')[3],"
             "notice:q('.mdc-info').map(e=>e.textContent).join('|')};})()"
         )
         self.assertEqual(got["front"], [1, ["title: 옛 제목\n"], ["title: 새 제목"]])
@@ -837,7 +837,7 @@ class TableAlignment(OneNote):
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "TR"), ("mod", "TR")])
         self.assertEqual(
             page.evaluate(
-                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
+                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
             ),
             ["표 칸 정렬이 바뀜", "표 칸 정렬이 바뀜"],
         )
@@ -859,7 +859,7 @@ class AltRewrapped(OneNote):
         page = self.open_compare()
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "P")])
         self.assertEqual(
-            page.evaluate("document.querySelector('#revision-rendered [data-mdc]').dataset.changeReason"),
+            page.evaluate("document.querySelector('#revision-rendered [data-mdc]').dataset.mdcWhy"),
             "글자 모양(굵게·기울임·코드·링크)이 바뀜",
         )
 
@@ -912,7 +912,7 @@ class ChildBlockRefs(OneNote):
         self.assertEqual([(k, t) for k, t, _ in self.marks(page)], [("mod", "LI"), ("mod", "P")])
         self.assertEqual(
             page.evaluate(
-                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
+                "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
             ),
             ["글자 모양(굵게·기울임·코드·링크)이 바뀜", "그림 대체 글이 바뀜"],
         )
@@ -941,7 +941,9 @@ class BoxesSplit(OneNote):
         page = self.open_compare()
         self.assertEqual(self.marks(page), [])
         self.assertIn("두 판의 그린 문서가 같습니다", page.locator("#revision-rendered").text_content())
-        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>[e.tagName,e.dataset.changeReason||''])"
+        whys = (
+            "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>[e.tagName,e.dataset.mdcWhy||''])"
+        )
         self.show(page, self.c[1])
         self.assertEqual([k for k, _, _ in self.marks(page)], ["mod"] * 4)
         split = "인용·목록이 둘로 갈라짐"
@@ -966,7 +968,7 @@ class BoxesSplitEnglish(BoxesSplit):
     def test_a_quote_or_list_split_in_two_or_joined_is_a_change_but_new_bullets_are_not(self):
         """The split and the join say so in English."""
         page = self.open_compare()
-        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
+        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
         self.show(page, self.c[1])
         self.assertEqual(page.evaluate(whys), ["A quote or list split in two"] * 4)
         self.show(page, self.c[2])
@@ -989,7 +991,7 @@ class TablesJoined(OneNote):
         (markRegroups, REGROUP_BOX_TAGS). Mutation: regroup every box (REGROUP_BOX_TAGS matching any tag) -> the join marks both body
         rows changed in place, 'quotes or lists joined into one', and the split both, fails."""
         page = self.open_compare()
-        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.changeReason||'')"
+        whys = "[...document.querySelectorAll('#revision-rendered [data-mdc]')].map(e=>e.dataset.mdcWhy||'')"
         self.assertEqual(self.marks(page), [["ins", "TR", "나"]])
         self.assertEqual(page.evaluate(whys), [""])
         self.show(page, self.c[1])
