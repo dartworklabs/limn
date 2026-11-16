@@ -1,19 +1,19 @@
 // ------------------------------------------------ Range levels
-import { TIP_TEXT, UI_LANG, VIA, captureVisit, currentVisit } from '../app/state.ts';
+import { captureVisit, currentVisit } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
-import { LANG, translateTemplate, translate } from '../platform/i18n.ts';
+import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { withDocQuery } from '../documents/view-tabs.ts';
 import { elementName, rungTip } from '../pdf/view-figure.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
+import { UI_LANG } from '../platform/tables.ts';
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
+import { VIA } from '../app/rules-tables.ts';
+import { lineRange } from '../app/rules-pins.ts';
+import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
+import { levelOf } from '../documents/rules.ts';
 import { COMPOSE } from './flow-pick.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
-import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../main.ts';
-function levelOf(owner, key) {
-  return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
-}
-// A Markdown document's rungs (md-surface.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a
-// section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
+// A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
+// env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
 function wireScope(scope) {
   return scope === 'blocks' ? 'lines' : scope;
@@ -56,11 +56,6 @@ function currentRung(owner) {
   const scopeRung = owner.scope && levelOf(owner, owner.scope);
   if (scopeRung && scopeRung.lo === owner.lo && scopeRung.hi === owner.hi) return scopeRung;
   return rungs.find((rung) => rung.lo === owner.lo && rung.hi === owner.hi) || null;
-}
-// Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left
-// as-is).
-function lineRange(first, last) {
-  return 'L' + first + (last !== first ? '-L' + last : '');
 }
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more
 // than once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the
@@ -117,7 +112,7 @@ function drawLadder(box, owner, isEdit) {
   if (rungCount >= 2) revealSegment(box); // .lad-t: the drawn track inside the scroll box
   roveSegment(box);
   keepSegmentFocus(box, at);
-} // one Tab stop, the rung matching the range (else the first), and the focus kept (events.ts)
+} // one Tab stop, the rung matching the range (else the first), and the focus kept (main.ts)
 // The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and
 // their count, whatever set them (a rung or the excerpt). When the ladder is hidden (one rung) and the range is that
 // rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its checked segment names it. An edit card's own
@@ -203,19 +198,6 @@ document.addEventListener(
   },
   true,
 );
-// Applies rung `key` to the owner (the composer's selection or an edit card): its lines, scope and source; a figure
-// rung also selects its element (elSel), which lines later set in the excerpt keep (setLines).
-function useLevel(owner, key) {
-  const rung = levelOf(owner, key);
-  if (!rung) return;
-  if ('score' in rung) owner.score = rung.score;
-  owner.lo = rung.lo;
-  owner.hi = rung.hi;
-  owner.scope = rung.level;
-  owner.env = rung.env || null;
-  owner.snippet = rung.snippet;
-  if (rung.el) owner.elSel = rung.el;
-}
 let SNIPPET_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives.
@@ -312,15 +294,12 @@ export {
   drawLadder,
   kindFor,
   levelLabel,
-  levelOf,
   rangeCap,
   refetchSnip,
-  lineRange,
   scopeLabel,
   revealSegment,
   setCap,
   snipText,
-  useLevel,
   viaTag,
   wireScope,
 };

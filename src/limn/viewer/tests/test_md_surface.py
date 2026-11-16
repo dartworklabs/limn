@@ -263,7 +263,7 @@ def served_global(name: str) -> str:
     """JS that puts the initialiser of the served page's top-level `const NAME=...;` on globalThis under that name.
 
     A pulled function reads such a table from the page's shared scope, which a node harness lacks; helpers.extract_js_fn
-    brings only app/state.ts's closed sets along, and this one is markdown/view.ts's. On globalThis (not a `var` inside the
+    brings only the closed-set modules' tables along, and this one is markdown/view.ts's. On globalThis (not a `var` inside the
     harness's own function) so the pulled top-level function resolves it. Raises for a name the page does not declare."""
     try:
         init = helpers_js.declaration_init(HTML, name)

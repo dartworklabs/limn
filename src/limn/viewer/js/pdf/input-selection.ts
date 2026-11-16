@@ -5,28 +5,18 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-import {
-  $,
-  DOC,
-  PAGE_SCALE,
-  LAYOUT,
-  LAYOUT_MODE,
-  META,
-  REPICK,
-  REPLY,
-  SELMODE,
-  SIDE_OPEN,
-  isFigureKind,
-} from '../app/state.ts';
+import { DOC, PAGE_SCALE, LAYOUT, META, REPICK, REPLY, SELMODE, SIDE_OPEN, isFigureKind } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { SWALLOW_CLICK, setSwallowClick } from '../platform/tooltip.ts';
 import { fitScale, zoomTo } from './view-pages.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
-import { COMPOSE, discardSelection, pick } from '../composer/flow-pick.ts';
+import { discardSelection, pick, COMPOSE } from '../composer/flow-pick.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER, openSelectionPopover, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { markBadgeIn, markBadgeRoom } from '../pins/flow-list.ts';
+import { $ } from '../platform/dom.ts';
+import { LAYOUT_MODE } from '../app/rules-tables.ts';
+import { isMarkdownDoc } from '../documents/state.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 let DRAG = null as {
     pg: HTMLElement;
@@ -275,12 +265,13 @@ function selectionOpen() {
   return !!(COMPOSE.current || !$('#composer').hidden) && !REPICK && !REPLY && !EDITOR.current;
 }
 // Whether a pointerdown press is outside the open selection on the PDF area, so it can cancel it: not on a control or a
-// pin's number badge, not on the scrollbar, and not in the box, its badge, its note popover (sel-popover.ts, which
-// counts as the box) or a pin mark (their boxes ignore the pointer, so the page is what the press lands on).
+// pin's number badge, not on the scrollbar, and not in the box, its badge, its note popover
+// (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes ignore the pointer, so the
+// page is what the press lands on).
 function pressOutsideSelection(event) {
   const target = event.target as Element;
   if (!selectionOpen()) return false;
-  // A press on the Markdown surface picks (md-surface.ts), never cancels.
+  // A press on the Markdown surface picks (markdown/view.ts), never cancels.
   if (isMarkdownDoc() && target.closest('#md')) return false;
   if (target.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))
     return false;
@@ -400,7 +391,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     pdf_build: META.pages_build || undefined,
     doc: DOC || undefined,
   });
-  // A mouse drag's note popover (sel-popover.ts); pick() has opened the composer.
+  // A mouse drag's note popover (composer/view-selection-popover.ts); pick() has opened the composer.
   if (!repick) openSelectionPopover(box);
   return true;
 }

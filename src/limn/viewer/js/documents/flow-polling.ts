@@ -1,24 +1,9 @@
 // ------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
-import {
-  $,
-  BUILD_STATE,
-  DOC,
-  DOC_SEQ,
-  ELEMENT_SYNC,
-  EVENT_TYPE,
-  META_BY,
-  NOTICE_DOT,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  PIN_STATE,
-  SWITCHSEQ,
-  SYNC_STATE,
-  rendersInBrowser,
-} from '../app/state.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { DOC, DOC_SEQ, META_BY, SWITCHSEQ, rendersInBrowser } from '../app/state.ts';
+import { translateTemplate, translate, josa, josaName } from '../platform/i18n.ts';
 import { API_WAIT, api } from '../platform/api.ts';
 import { announce, digestBegin, digestSoon, groupNote, lineNote } from '../platform/notices.ts';
-import { docInfo, withDocQuery, drawDocTabs } from './view-tabs.ts';
+import { drawDocTabs } from './view-tabs.ts';
 import { switchDoc } from './flow-switch.ts';
 import { updateStaleBadge, updateSyncBadge } from './flow-boot.ts';
 import { notifyHandle, notifyOn, notifyQuery } from './flow-notification.ts';
@@ -32,12 +17,17 @@ import {
   countPinMove,
   versionDue,
 } from './flow-updates.ts';
-import { MARKDOWN_VIEW, isMarkdownDoc, buildMarkdownDoc, checkTreeImages } from '../markdown/view.ts';
-import { OFF, offlineFlush } from '../offline/api.ts';
-import { josa, josaName, who } from '../pins/view-card-parts.ts';
+import { MARKDOWN_VIEW, buildMarkdownDoc, checkTreeImages } from '../markdown/view.ts';
+import { OFF, offlineFlush } from '../offline/flow.ts';
 import { openTrash } from '../pins/view-cards.ts';
 import { gotoReview, loadPins } from '../pins/flow-list.ts';
-import { restorePin } from '../pins/api.ts';
+import { restorePin } from '../pins/flow-actions.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
+import { BUILD_STATE, ELEMENT_SYNC, PIN_STATE, SYNC_STATE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { who } from '../app/state-people.ts';
+import { isMarkdownDoc, docInfo, withDocQuery } from './state.ts';
 let LAST_PINS_REVISION = null as string | null,
   LAST_SRC_MTIME = null as string | number | null,
   POLL_FAILS = 0,
@@ -97,9 +87,9 @@ function syncHiddenNotifyTimer() {
 }
 // Applies connection and document status only to the visit that sent the request; notifications remain independent of
 // document visits. Back after AWAY_MS without an answer (the tab hidden, the device asleep, the connection lost), what
-// this poll and the build it may set going say is gathered into one message (notices.ts digestBegin,
+// this poll and the build it may set going say is gathered into one message (platform/notices.ts digestBegin,
 // docs/handbook/viewer.md §새 소식); a poll back from that, or one every VERSION_EVERY_MS, asks which Limn the server
-// runs (updates.ts checkVersion).
+// runs (documents/flow-updates.ts checkVersion).
 let LIGHT_OK_AT = 0;
 const AWAY_MS = 120000;
 async function pollLightOnce() {
@@ -139,7 +129,7 @@ async function pollLightOnce() {
   POLL_FAILS = 0;
   $('#conn-lost').hidden = true;
   if (back || was > 0 || versionDue()) checkVersion();
-  // the connection is back: the pins kept while it was gone are written (offline.ts)
+  // the connection is back: the pins kept while it was gone are written (offline/flow.ts)
   if (was > 0 && OFF.n) void offlineFlush();
   updateStaleBadge(meta);
   updateSyncBadge(meta.sync);
@@ -159,7 +149,7 @@ async function pollLightOnce() {
   if (isMarkdownDoc() && meta.src_mtime !== MARKDOWN_VIEW.mtime && meta.src_mtime !== MARKDOWN_VIEW.asked) {
     MARKDOWN_VIEW.asked = meta.src_mtime;
     buildMarkdownDoc();
-    // a tree image rewritten on disk shows without a reload (md-surface.ts)
+    // a tree image rewritten on disk shows without a reload (markdown/view.ts)
   } else if (isMarkdownDoc()) void checkTreeImages();
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;
@@ -177,8 +167,8 @@ async function pollLightOnce() {
 // Reflects another document's staleness/in-progress build on its tab, and if that document's build finished in the
 // background, says so on the status line with [열기] - a success for NOTICE_MS, a failure until [x] - and drops the
 // meta cache (a fresh page when you switch back). A finished build of another document - or a new source of another
-// Markdown or text document - is its update: said as that document's update message with [열기] (updates.ts
-// checkDocUpdate, docs/handbook/viewer.md §새 소식).
+// Markdown or text document - is its update: said as that document's update message with [열기]
+// (documents/flow-updates.ts checkDocUpdate, docs/handbook/viewer.md §새 소식).
 function noteOtherDocs(list) {
   if (!Array.isArray(list) || !list.length) return;
   let redraw = false;
@@ -463,10 +453,6 @@ function notePinChanges(previous, listed, dropped) {
     );
 }
 
-// A pin's state: its `state`, else what its done and review flags say.
-function pinState(pin: Pin) {
-  return (pin && pin.state) || (pin && pin.done ? (pin.review ? PIN_STATE.REVIEW : PIN_STATE.DONE) : PIN_STATE.OPEN);
-}
 // Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until
 // [x], with a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
 function noteReviewChanges(previous, listed) {
@@ -546,15 +532,21 @@ function setLastSrcMtime<Value extends typeof LAST_SRC_MTIME>(value: Value): Val
   LAST_SRC_MTIME = value;
   return value;
 }
+// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
+// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
+function offlineNow() {
+  return POLL_FAILS >= 2 || navigator.onLine === false;
+}
+
 export {
   POLL_FAILS,
   markMine,
   notePinChanges,
   noteReviewChanges,
-  pinState,
   pollLight,
   setLastPinsRevision,
   setLastSrcMtime,
   startLightPolling,
   syncHiddenNotifyTimer,
+  offlineNow,
 };

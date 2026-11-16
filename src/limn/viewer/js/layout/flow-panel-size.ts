@@ -6,23 +6,15 @@
 // the width where the panel's tool bar fits on one line, the maximum is the width that leaves the body (PDF) side its
 // minimum width. The outline's width bounds: 220-320px as an overlay; beside the document at most what leaves the PDF
 // 290px beside the panel.
-import {
-  $,
-  BAND,
-  LAYOUT,
-  LAYOUT_BAND,
-  LAYOUT_MODE,
-  COARSE_POINTER_QUERY,
-  OUTLINE_MID_OPEN,
-  SIDE_OPEN,
-  setOutlineMidOpen,
-} from '../app/state.ts';
+import { BAND, LAYOUT, COARSE_POINTER_QUERY, OUTLINE_MID_OPEN, SIDE_OPEN, setOutlineMidOpen } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
 import { gripAria, outlineOverlay, panelField, relayout, setSide } from './flow.ts';
 import { syncBackLayer } from './input.ts';
 import { restoreAnchor, topAnchor } from '../documents/flow-rebuild.ts';
-import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../main.ts';
+import { $ } from '../platform/dom.ts';
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
+import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 function outlineBounds() {
   if (outlineOverlay()) return { min: 220, max: 320 };
   const max = Math.max(180, Math.min(320, innerWidth - currentSideWidth() - 290));
@@ -293,7 +285,7 @@ function renderSizeSegment() {
     box,
     html`${names.map((name, index) => html`<button class="${index === checkedIndex ? 'on' : ''}" role="radio" aria-checked="${index === checkedIndex}" data-act="size-preset" data-i="${index}">${name}</button>`)}`,
   );
-  // One Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (events.ts).
+  // One Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (main.ts).
   roveSegment(box);
   keepSegmentFocus(box, at);
 }

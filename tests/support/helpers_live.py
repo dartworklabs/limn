@@ -251,7 +251,7 @@ class LiveTab:
         return self.page.evaluate("META.pages_build")
 
     def kept(self):
-        """The kept record (offline/api.ts OFF_KEPT): what each document keeps ({docs: {key: {build, ...}}}) and the old builds
+        """The kept record (offline/flow.ts OFF_KEPT): what each document keeps ({docs: {key: {build, ...}}}) and the old builds
         not dropped yet ({old: [{doc, build, ...}]}); None for an instance never kept."""
         return self.page.evaluate("async () => await offKept()")
 

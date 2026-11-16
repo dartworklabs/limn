@@ -1,10 +1,11 @@
-import { $, DIFF_FORMAT } from '../app/state.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { REVISION_VIEW, COMPARISON_PDF, drawPinGuide, revisionCurrent } from './flow.ts';
 import { ZOOM_STEP } from '../pdf/view-pages.ts';
-import { VECTOR_PIXEL_CAP } from '../pdf/api.ts';
+import { VECTOR_PIXEL_CAP } from '../pdf/flow-open.ts';
 import { canvasBackingTarget } from '../pdf/view-draw.ts';
 import { wheelFactor } from '../pdf/input-zoom.ts';
+import { $ } from '../platform/dom.ts';
+import { DIFF_FORMAT } from '../app/rules-tables.ts';
 // ------------------------------------------------ The comparison PDF's zoom (docs/handbook/viewer.md §변경 보기)
 // The changes view's own page geometry, zoom and rendering: its ratio is the comparison's alone, and nothing here
 // writes the manuscript's zoom or any other preference. REVISION_ZOOM: the ratio, the fit width and pane height it was

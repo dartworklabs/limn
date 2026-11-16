@@ -1,39 +1,29 @@
 // ----------------------------------------- The queued pins on screen (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기)
-// offline.ts reads the queue (offlineSync) on boot, after every pin kept, dropped or sent, and calls offlineUiSync(all)
-// with every record each time. This part draws them: where they stand on the page and in the pin panel. A queued pin is
-// not on the server yet, so it is drawn apart from a saved pin's mark: a dotted frame with no number (it has none yet),
-// its badge a clock - or, held back because its place could not be found again, a warning triangle in the warning
-// colour. The panel's section lists every record with its place, words, note and state, and two actions: [버리기] (its
-// undo on the status line, since the row is gone) and [다시 찍기] (the record leaves the queue and its note waits in
-// the composer for the next drag, the draft's own behaviour, draft.ts). Nothing here writes to the server.
-import {
-  $,
-  $$,
-  DEFAULT_DOC,
-  DOC,
-  REQUEST_KIND,
-  LAYOUT,
-  LAYOUT_MODE,
-  META,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  TIP_TEXT,
-  scrollMotion,
-} from '../app/state.ts';
+// offline/flow.ts reads the queue (offlineSync) on boot, after every pin kept, dropped or sent, and calls
+// offlineUiSync(all) with every record each time. This part draws them: where they stand on the page and in the pin
+// panel. A queued pin is not on the server yet, so it is drawn apart from a saved pin's mark: a dotted frame with no
+// number (it has none yet), its badge a clock - or, held back because its place could not be found again, a warning
+// triangle in the warning colour. The panel's section lists every record with its place, words, note and state, and two
+// actions: [버리기] (its undo on the status line, since the row is gone) and [다시 찍기] (the record leaves the queue
+// and its note waits in the composer for the next drag, the draft's own behaviour, composer/flow-draft.ts). Nothing
+// here writes to the server.
+import { DEFAULT_DOC, DOC, LAYOUT, META, scrollMotion } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { NOTICE_HOLD_MAX, NOTICE_MS, announce, lineNote, noticeIcon } from '../platform/notices.ts';
-import { docInfo } from '../documents/view-tabs.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
 import { arrivePage } from '../pdf/view-pages.ts';
 import { setSide } from '../layout/flow.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
 import { setKind } from '../composer/flow-pick.ts';
-import { saveDraftSoon } from '../composer/state.ts';
-import { OFF, offDel, offPut, offlineSync } from './api.ts';
+import { saveDraftSoon } from '../composer/flow-draft.ts';
+import { OFF, offDel, offPut, offlineSync } from './flow.ts';
 import { marksShow } from '../pins/input-hide-marks.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
 import { autoGrow } from '../pins/flow-edit.ts';
+import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
+import { isMarkdownDoc, docInfo } from '../documents/state.ts';
 /** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text is in the composer), standing as
  * its undo row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a
  * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
@@ -97,7 +87,7 @@ function offUiRows(all: any[], doc: string, defaultDoc: string, build: string, p
   return rows.filter((row) => row.here).concat(rows.filter((row) => !row.here));
 }
 // Why a held record is held: the reason it carries, or - an empty one - the reason a held record always has
-// (offline.ts writes this one when it has no other). '' for a record that waits. Pure but for translate.
+// (offline/flow.ts writes this one when it has no other). '' for a record that waits. Pure but for translate.
 function offUiWhy(rec: any): string {
   if (!rec || !rec.held) return '';
   const reason = String(rec.why || '').trim();
@@ -133,7 +123,7 @@ function offUiClip(text: unknown, limit: number): string {
 }
 
 /** Draws the queue anew from every queued record.
- * @param all every queued record, oldest first (offline.ts offAll) */
+ * @param all every queued record, oldest first (offline/flow.ts offAll) */
 function offlineUiSync(all: any[]) {
   OFFUI.all = Array.isArray(all) ? all : [];
   offUiDraw();
@@ -346,7 +336,7 @@ async function offUiRedo(rec: any, button: HTMLElement) {
     had = document.activeElement === button;
   // A record whose write was attempted and never answered may be a pin on the server already: taken back and drawn
   // again it would be made twice. The next send asks the server by its key and either ends the record or takes the
-  // mark off (offline.ts offlineFlush), so this is refused only until then.
+  // mark off (offline/flow.ts offlineFlush), so this is refused only until then.
   if (rec.sent) {
     lineNote(
       '보낸 적이 있어 서버에 이미 있을 수 있습니다 — 연결된 뒤 [지금 반영]으로 확인하세요',
@@ -406,7 +396,8 @@ function offUiUndoStart(rec: any, redo: boolean, text: string) {
   offUiArm(undo);
 }
 // The row's window: NOTICE_MS, or - while a mouse is on it - until it leaves, but never past NOTICE_HOLD_MAX beyond the
-// first window (notices.ts armNotice, the same rule for every undo). Stopped while its record is being put back.
+// first window (platform/notices.ts armNotice, the same rule for every undo). Stopped while its record is being put
+// back.
 function offUiArm(undo: OffUiUndo) {
   clearTimeout(undo.t);
   undo.t = undefined;
@@ -547,8 +538,8 @@ $('#queue-rows').addEventListener('pointerout', (event) => {
   }
 });
 // A mark's badge takes its press away from the page: a press on it never starts a selection, a long press or a tap's
-// selection there (selection.ts reads presses on #doc, and the frame itself lets them through). Its click shows the
-// row.
+// selection there (pdf/input-selection.ts reads presses on #doc, and the frame itself lets them through). Its click
+// shows the row.
 $('#doc').addEventListener(
   'pointerdown',
   (event) => {

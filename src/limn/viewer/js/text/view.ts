@@ -1,7 +1,7 @@
 // ------------------------------------------------ The text surface (docs/handbook/viewer.md §텍스트 화면, ADR-0029)
 // A text document (showsSourceLines: kind "text" - plain text or source code) is drawn in the browser as the Markdown
-// surface's documents are (md-surface.ts: GET /api/source, the reading spot, marks, badges, picks, the composer), but
-// it is never parsed: every server line is one line span (data-line), numbered in the gutter by CSS, in a monospace
+// surface's documents are (markdown/view.ts: GET /api/source, the reading spot, marks, badges, picks, the composer),
+// but it is never parsed: every server line is one line span (data-line), numbered in the gutter by CSS, in a monospace
 // column that wraps.
 // - The DOM is built with createElement and textContent only, within the Markdown surface's limits (MARKDOWN_LIMITS):
 //   over MARKDOWN_LIMITS.lines lines there is no view but its notice; the elements drawn - one per line, two per marked
@@ -10,17 +10,16 @@
 //   (a line, a character of the repertoire), within a long line too, and a newer draw (stale) drops the build at each
 //   yield.
 // - Nothing in the text is a link, an image or markup: it is only ever text.
-// - A character that would hide or reorder text (the repertoire of hidden-chars.ts) stays in the text, so a copy keeps
-//   it, inside an isolating span that shows its name (hiddenBox); a line of the view never reads in another order than
-//   its source. A notice above the lines counts them. Another notice names the line ends the server split on that are
-//   not LF or CRLF (/api/source line_ends): Limn numbers lines past them as str.splitlines() does, an editor that
-//   counts LF alone does not.
+// - A character that would hide or reorder text (the repertoire of platform/hidden-chars.ts) stays in the text, so a
+//   copy keeps it, inside an isolating span that shows its name (hiddenBox); a line of the view never reads in another
+//   order than its source. A notice above the lines counts them. Another notice names the line ends the server split on
+//   that are not LF or CRLF (/api/source line_ends): Limn numbers lines past them as str.splitlines() does, an editor
+//   that counts LF alone does not.
 // - A wrapped line's continuation hangs under its indentation, rounded down to a tab stop (hangColumns), so a tab lands
 //   on the same stop as in an editor whose tabs are TAB_COLUMNS columns wide.
 // - The ladder is: the chosen lines -> the paragraph between blank lines (para, or the paragraphs the lines meet:
 //   blocks, saved as lines) -> the indented block the lines head or stand in (indent). textLevels reads the server's
 //   lines alone.
-import { $, MARKDOWN_LIMIT, META, showsSourceLines } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { hiddenBox, clipMarkedText, hiddenName, scanHidden } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
@@ -32,13 +31,11 @@ import {
   lineSnippet,
   yieldToBrowser,
 } from '../markdown/view.ts';
+import { $ } from '../platform/dom.ts';
+import { MARKDOWN_LIMIT } from '../app/rules-tables.ts';
 const TAB_COLUMNS = 4; // the columns a tab spans (CSS tab-size of the view, and indentColumns)
 const MAX_HANG_COLUMNS = 16; // the most columns a wrapped line's continuation hangs: a phone keeps room for the text
 const BLOCK_LABEL_CHARS = 12; // the most characters of a block's header its rung's label shows
-// Whether the document on screen is a text document (shown line for line, never parsed).
-function isTextDoc() {
-  return !!META && showsSourceLines(META.kind);
-}
 // ---------------- Lines, columns and blocks: pure but for translateTemplate/translate
 // The columns a line's leading whitespace spans, a tab to the next multiple of tab, or -1 for a blank line (only
 // whitespace).
@@ -195,11 +192,11 @@ async function buildTextView(
 }
 // The source lines on screen (MARKDOWN_VIEW.lines) as line spans in a new div of class className - span(text, line)
 // makes the empty span of line number line - for the text surface (buildTextView) and the Markdown surface's line view
-// (lineView). Each marked character (hidden-chars.ts) is its box (hiddenBox) while the elements drawn stay within
-// MARKDOWN_LIMITS.elements: one a line, two a box, counted on every line, not only on a box (plain lines after a line
-// of boxes). Past it, the names form: each line one span whose text has every marked character as its name in angle
-// brackets ('⟨U+200B⟩', markHiddenPlain's form) - one element a line, never a raw character that reorders the line; a
-// copy of it gives the names, not the characters (namesViewText says so). A yield to the browser after every
+// (lineView). Each marked character (platform/hidden-chars.ts) is its box (hiddenBox) while the elements drawn stay
+// within MARKDOWN_LIMITS.elements: one a line, two a box, counted on every line, not only on a box (plain lines after a
+// line of boxes). Past it, the names form: each line one span whose text has every marked character as its name in
+// angle brackets ('⟨U+200B⟩', markHiddenPlain's form) - one element a line, never a raw character that reorders the
+// line; a copy of it gives the names, not the characters (namesViewText says so). A yield to the browser after every
 // MARKDOWN_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked
 // (how many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield. The
 // names form has no limit to pass, so the loop always returns from it.
@@ -322,13 +319,4 @@ function showTextHint() {
     ${translate('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${translate('를 누르면 도움말.')}</span><span class="t-touch">${translate('도움말은 [더보기]에 있습니다.')}</span>`,
   );
 }
-export {
-  isTextDoc,
-  srcLines,
-  showTextHint,
-  textLevels,
-  markedCharactersText,
-  namesViewText,
-  textNotice,
-  buildTextView,
-};
+export { srcLines, showTextHint, textLevels, markedCharactersText, namesViewText, textNotice, buildTextView };

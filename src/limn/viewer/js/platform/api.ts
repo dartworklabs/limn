@@ -16,18 +16,18 @@
 // light poll would count no failure, a drag's composer would not open, a save would not end and nothing would reach the
 // queue. A request that carries a wait is ended at it and fails as an unreached server does. POLL the light poll, and
 // the question a send of the queue starts with READ a document read that has a stored answer to fall back on
-// (offline.ts OFF_READS) PICK finding a selection's lines SAVE writing a new pin SEND a request of the queue's send
-// Requests without one (a rebuild, a revision's diff or build) may take as long as the server needs. API_OUT says the
-// last request that ended got no answer (or the worker answered this page from its copy because the network did not,
-// offlineAskDown). While it stands and a stored answer may serve (offlineMayServe), a document read with a stored
+// (offline/flow.ts OFF_READS) PICK finding a selection's lines SAVE writing a new pin SEND a request of the queue's
+// send Requests without one (a rebuild, a revision's diff or build) may take as long as the server needs. API_OUT says
+// the last request that ended got no answer (or the worker answered this page from its copy because the network did
+// not, offlineAskDown). While it stands and a stored answer may serve (offlineMayServe), a document read with a stored
 // answer is answered from it without asking: a visit's first reads are made one after another, and each waiting out its
 // own request would draw the page a read's wait later, every time. The light poll always asks, and its answer - any
 // answer - takes API_OUT down.
-import { NOTICE_HOST, NOTICE_KIND } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from './markup.ts';
 import { errText, translateTemplate, translate } from './i18n.ts';
 import { bannerNote, lineNote, quietNote, sourceOk } from './notices.ts';
-import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from '../offline/api.ts';
+import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from '../offline/flow.ts';
+import { NOTICE_HOST, NOTICE_KIND } from './tables.ts';
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
 async function api(url, options): Promise<{ status: number; data: any }> {

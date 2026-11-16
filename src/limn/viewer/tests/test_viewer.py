@@ -866,7 +866,7 @@ class FrontendVector(unittest.TestCase):
     def test_no_text_layer(self):
         """No text-selection layer is drawn over a page - a drag there is a region selection. The page's text is read
         in one place only (pdf/flow.ts pageText): for the in-document search, which draws boxes and no text, and for the
-        words of a selection made with no network (offline/api.ts offlineQuote)."""
+        words of a selection made with no network (offline/flow.ts offlineQuote)."""
         for s in ("TextLayer", "textLayer"):
             self.assertNotIn(s, HTML)
         self.assertEqual(HTML.count(".getTextContent("), 1)
@@ -914,7 +914,7 @@ class FrontendVectorLogic(unittest.TestCase):
                 extract_js_fn("cancelVectorDraw"),
                 extract_js_fn("nextDrawJob"),
                 extract_js_fn("openVectorDocument"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 r"""
             function $(sel){return {hidden:false};}
             function withDocQuery(u){return u;}
@@ -2728,7 +2728,7 @@ class FrontendDocs(unittest.TestCase):
 
 
 def js_tooltips() -> str:
-    """The viewer's tooltip table (`const TIP_TEXT` in app/state.ts) as the page declares it, for harnesses whose functions read TIP_TEXT.x."""
+    """The viewer's tooltip table (`const TIP_TEXT` in platform/i18n.ts) as the page declares it, for harnesses whose functions read TIP_TEXT.x."""
     return js_const("TIP_TEXT")
 
 
@@ -3293,7 +3293,7 @@ class FrontendFigure(unittest.TestCase):
                 r"""
             const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict/flow-line.ts)
-            const isMarkdownDoc=()=>false;   // and it has pages (markdown/view.ts)
+            const isMarkdownDoc=()=>false;   // and it has pages (documents/state.ts)
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -4128,7 +4128,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
             function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (verdict/flow-line.ts)
-            function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline/api.ts)
+            function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline/flow.ts)
             var OFF={idem:false};   // a server that knows no write by its key: the save carries none
             function isMarkdownDoc(){return false;}
             function composeAsk(mode){return {mode};} function assignOutcome(){return {kind:KIND_NEW,assignee:ASSIGN_NEW.v};}
@@ -5846,7 +5846,7 @@ class ViewerFunctions2(unittest.TestCase):
                 extract_js_fn("trashDaysLeft"),
                 extract_js_fn("isOwner"),
                 extract_js_fn("isViewer"),
-                "function verdictOf(){return null;}",  # an ordinary pin (verdict/flow-line.ts): its [되살리기] whatever the role
+                "function verdictOf(){return null;}",  # an ordinary pin (app/rules-pins.ts): its [되살리기] whatever the role
                 extract_js_fn("droppedCard"),
                 r"""
             const h=String(droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60}));

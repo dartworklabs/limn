@@ -3,32 +3,25 @@
 // remembers that login on the field (field._mentions) with the place of its '@name' in the text (field._tags), carried
 // as a hint (mentions) when sending - the server re-resolves it from the text. A hint belongs to its one '@name': an
 // edit that touches that tag drops it, so of two people with one name, deleting one's tag leaves only the other's hint.
-// A field that mirrors another's text (the note popover's field mirrors the composer's note, sel-popover.ts) offers the
-// same list, and its tags are kept on the field it mirrors, which sends them (mentionModel). There is no external
-// notification. The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it),
-// its people and the highlighted row.
-import {
-  $,
-  ASSIGNEE_AGENT,
-  KIND_NEW,
-  META,
-  PEOPLE,
-  PEOPLE_KNOWN,
-  PINS,
-  SAVE_MODE,
-  imeKey,
-  imeTail,
-} from '../app/state.ts';
+// A field that mirrors another's text (the note popover's field mirrors the composer's note,
+// composer/view-selection-popover.ts) offers the same list, and its tags are kept on the field it mirrors, which sends
+// them (mentionModel). There is no external notification. The open @-list: its field, the '@word' it was drawn for
+// (where its '@' is, q the letters after it), its people and the highlighted row.
+import { KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, imeKey, imeTail } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { revealSegment } from '../composer/view-levels.ts';
 import { appendTarget, syncQuestionHint } from '../composer/flow-pick.ts';
-import { saveDraftSoon } from '../composer/state.ts';
-import { avatar, meLogin, mentionAfterWord, peopleName } from './view-card-parts.ts';
+import { saveDraftSoon } from '../composer/flow-draft.ts';
+import { mentionAfterWord } from './view-card-parts.ts';
 import { renderReplyOutcome } from './flow-reply.ts';
-import { EDITOR, autoGrow, editNote } from './flow-edit.ts';
-import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../main.ts';
+import { autoGrow, editNote, EDITOR } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
+import { $ } from '../platform/dom.ts';
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
+import { ASSIGNEE_AGENT, SAVE_MODE } from '../app/rules-tables.ts';
+import { meLogin, peopleName } from '../app/state-people.ts';
+import { avatar } from '../app/view-people.ts';
 
 const MENTION = {
   ta: null as HTMLTextAreaElement | null,
@@ -345,8 +338,9 @@ function nameShared(login: string): boolean {
 }
 // The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its
 // data-act. The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name
-// reads in full; its scroll box is out of the Tab order as the ladder's is (levels.ts drawLadder). A segment's words
-// are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
+// reads in full; its scroll box is out of the Tab order as the ladder's is (composer/view-levels.ts drawLadder). A
+// segment's words are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any
+// font.
 function assigneeRowHtml(people: string[], value: string, act: string): Html {
   if (!people.length) return html``;
   const opt = (text, label, tip) =>
@@ -393,7 +387,7 @@ function renderAssignNew() {
     roveSegment(box);
     keepSegmentFocus(box, at);
     revealSegment(box.querySelector('.as-seg'));
-  } // one Tab stop, and the focus kept (events.ts)
+  } // one Tab stop, and the focus kept (main.ts)
   else {
     box.hidden = true;
     box.replaceChildren();
@@ -420,7 +414,7 @@ function renderAssignEdit() {
   roveSegment(box);
   keepSegmentFocus(box, at);
   revealSegment(box.querySelector('.as-seg'));
-} // one Tab stop, and the focus kept (events.ts)
+} // one Tab stop, and the focus kept (main.ts)
 // The preview line under a mention field: what sending the text does. The composer's note says who handles the pin
 // first - '담당' and the assignee the save sends (assignOutcome, SAVE_MODE.NEW) - then '알림' and the people who are
 // only notified: the assignee is told through the assignment and is not listed again. While the note may also join an
@@ -628,8 +622,8 @@ const isMentionField = (target) =>
     target.classList.contains('e-note') ||
     target.classList.contains('r-text') ||
     !!target._mirrorOf);
-// A mirror field's own listener has copied its text and the edit into its model (sel-popover.ts); here it only gets the
-// list.
+// A mirror field's own listener has copied its text and the edit into its model (composer/view-selection-popover.ts);
+// here it only gets the list.
 document.addEventListener('input', (event) => {
   const field = event.target as HTMLTextAreaElement;
   if (!isMentionField(field)) return;
@@ -659,7 +653,7 @@ window.addEventListener(
     if (imeKey(event)) {
       if (imeTail(event)) event.preventDefault();
       return;
-    } // the Enter that ended a composition neither picks nor breaks the line (core.ts)
+    } // the Enter that ended a composition neither picks nor breaks the line (app/state.ts)
     const count = MENTION.items.length;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       if (!count) return;

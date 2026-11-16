@@ -26,7 +26,7 @@ def transient_ms() -> str:
 
 
 def tooltip_table() -> str:
-    """The viewer's `const TIP_TEXT={...};` (app/state.ts) as the page declares it."""
+    """The viewer's `const TIP_TEXT={...};` (platform/i18n.ts) as the page declares it."""
     return js_const("TIP_TEXT")
 
 

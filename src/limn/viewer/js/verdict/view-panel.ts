@@ -9,9 +9,9 @@
 // centred while both margins hold it and moves left only by what the right one lacks. Where the room is short (a
 // narrower window, the pin panel opened, a zoomed page) the lines go back under the pages, with hysteresis
 // (PANEL_ENTER_ROOM, PANEL_EXIT_ROOM) so a width at the bar does not flip it. The wide band only: the foldable and
-// phone bands never take it. The line's words, keys, focus, save chip and reason are the line's own (verdict.ts,
-// verdict-reason.ts); this part decides when, places the panel and draws the summaries.
-import { $, $$, DOC, PAGE_SCALE, LAYOUT, LAYOUT_MODE, META, isFigureKind } from '../app/state.ts';
+// phone bands never take it. The line's words, keys, focus, save chip and reason are the line's own
+// (verdict/flow-line.ts, verdict/flow-reason.ts); this part decides when, places the panel and draws the summaries.
+import { DOC, PAGE_SCALE, LAYOUT, META, isFigureKind } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { NOTICES, chipAway, drawChips } from '../platform/notices.ts';
@@ -29,7 +29,6 @@ import {
   drawPageVerdicts,
   fillPageLine,
   pageTakesVerdict,
-  pageVerdictsOn,
   isAutoScrolling,
   noteCameFrom,
   canCancelVerdict,
@@ -45,8 +44,7 @@ import {
   stickSoon,
   isTabStop,
   fitWrappedWords,
-  verdictLabel,
-  verdictOf,
+  pageVerdictsOn,
 } from './flow-line.ts';
 import {
   REASON_SESSION,
@@ -59,6 +57,10 @@ import {
   setComposingField,
 } from './flow-reason.ts';
 import { topAnchor } from '../documents/flow-rebuild.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { LAYOUT_MODE } from '../app/rules-tables.ts';
+import { verdictOf } from '../app/rules-pins.ts';
+import { verdictLabel } from '../documents/state.ts';
 
 // The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
 // page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages
@@ -243,7 +245,7 @@ function ensurePanel() {
     panel = document.createElement('div');
     panel.id = 'pv-panel';
     panel.className = 'pv pv-panel pv-stack';
-    panel.dataset.tipAt = 'left'; // its descriptions stand left of it (tooltip.ts)
+    panel.dataset.tipAt = 'left'; // its descriptions stand left of it (platform/tooltip.ts)
     at.appendChild(panel);
     $('#doc').appendChild(at);
     if (CHIP_WATCH) CHIP_WATCH.observe(panel, { childList: true });
@@ -536,7 +538,7 @@ function heldPanelPage() {
 }
 $('#left').addEventListener('scrollend', () => {
   if (IS_BESIDE_PAGES) stickSoon();
-}); // after verdict.ts's, which ends the guard
+}); // after verdict/flow-line.ts's, which ends the guard
 // The reading page with a line as the lines are drawn (drawPageVerdicts): the held one while a glide holds the panel -
 // a list read again on the way would fill it with a page passed - else the page under the reading line
 // (readingPageWithLine).
@@ -615,9 +617,9 @@ addEventListener('keydown', (event) => {
   searchToPage();
 });
 // A tall panel (.pv-tall) scrolls inside. A control the keyboard focuses there comes whole into its view, focus ring
-// and all: the reason popover's Tab loop focuses without scrolling (verdict-reason.ts), which would leave its first
-// word and last control out of sight; the browser's own Tab scrolls only the control's edge to the panel's, which cuts
-// the ring; and the popover's rows change as the focus moves (the field's keys row), after the browser scrolled. A
+// and all: the reason popover's Tab loop focuses without scrolling (verdict/flow-reason.ts), which would leave its
+// first word and last control out of sight; the browser's own Tab scrolls only the control's edge to the panel's, which
+// cuts the ring; and the popover's rows change as the focus moves (the field's keys row), after the browser scrolled. A
 // press is left where it is: it is in view, and moving the panel under the pointer would put the caret of a click in
 // the field somewhere else.
 function revealFocused() {

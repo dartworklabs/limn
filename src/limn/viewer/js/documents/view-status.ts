@@ -4,32 +4,23 @@
 // short text in the short band's top row and the middle of the mid action row (#status-slot), and on the desktop (wide)
 // a line under the status chips (#status-wide). The line is the compact face of those chips: whenever one of them
 // changes (a MutationObserver on #bar2) it is drawn again from the state they come from. It also carries the messages
-// of notices.ts (LINE): background events, first-visit hints and an undo whose place has left the screen - the only
-// items the desktop's line shows besides a rebuild's 'no changes', a new Limn and the pins kept while cut off, since
-// its chips say the rest (statusShown).
-import {
-  $,
-  BAND,
-  BUILD_STATE,
-  LAYOUT,
-  LAYOUT_BAND,
-  LAYOUT_MODE,
-  META,
-  NOTICE_KIND,
-  STATUS_KIND,
-  SYNC_STATE,
-  TIP_TEXT,
-  buildsFromSource,
-} from '../app/state.ts';
+// of platform/notices.ts (LINE): background events, first-visit hints and an undo whose place has left the screen - the
+// only items the desktop's line shows besides a rebuild's 'no changes', a new Limn and the pins kept while cut off,
+// since its chips say the rest (statusShown).
+import { BAND, LAYOUT, META, buildsFromSource } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from '../platform/notices.ts';
 import { hideTip, showTipText } from '../platform/tooltip.ts';
-import { SYNC_REASON, isViewer } from './flow-boot.ts';
-import { POLL_FAILS } from './api.ts';
+import { SYNC_REASON } from './flow-boot.ts';
+import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
-import { OFF } from '../offline/api.ts';
+import { OFF } from '../offline/flow.ts';
+import { NOTICE_KIND } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
+import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
+import { isViewer } from './state.ts';
 let STATUS_SYNC = null as SyncStatus | null,
   STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
 // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
@@ -50,16 +41,16 @@ function statusProgress(progress) {
 
 // The items the status line shows for an input {notices, build, buildErr, offline, sync, stale, png, canRebuild,
 // unchanged} (statusInput), highest priority first - errors before information (docs/handbook/viewer.md §알림 자리,
-// rule 1): the line's error messages (alert, or kind ERR), newest first (notices, notices.ts LINE; act 'notice'); the
-// last build failed or had LaTeX errors; the connection is lost; the server runs another Limn than this page (outdated:
-// its version, [새로 고침], updates.ts); the line's other messages, newest first; a build runs (rendering in the page
-// render, else building); main sync is blocked; this tab's rebuild changed nothing (unchanged, for
-// STATUS_TRANSIENT_MS); the PDF is older than its source - not while a build runs, which clears it, nor while the
-// unchanged answer says the rebuild found nothing new (the line would contradict itself); main sync is under way; the
-// PDF shows as PNG. Each item is {kind, act} plus what its text needs; act is the data-act of its one action, or null -
-// [재빌드] and [그래도 빌드] (rebuild-force, a cold build) only where canRebuild (a LaTeX document and a person who may
-// build). The phase whose work can be counted - the page render, whose progress field gives pages done of total - is
-// looked up, not compared. Pure. One item of the status line (statusList), by its kind.
+// rule 1): the line's error messages (alert, or kind ERR), newest first (notices, platform/notices.ts LINE; act
+// 'notice'); the last build failed or had LaTeX errors; the connection is lost; the server runs another Limn than this
+// page (outdated: its version, [새로 고침], documents/flow-updates.ts); the line's other messages, newest first; a
+// build runs (rendering in the page render, else building); main sync is blocked; this tab's rebuild changed nothing
+// (unchanged, for STATUS_TRANSIENT_MS); the PDF is older than its source - not while a build runs, which clears it, nor
+// while the unchanged answer says the rebuild found nothing new (the line would contradict itself); main sync is under
+// way; the PDF shows as PNG. Each item is {kind, act} plus what its text needs; act is the data-act of its one action,
+// or null - [재빌드] and [그래도 빌드] (rebuild-force, a cold build) only where canRebuild (a LaTeX document and a
+// person who may build). The phase whose work can be counted - the page render, whose progress field gives pages done
+// of total - is looked up, not compared. Pure. One item of the status line (statusList), by its kind.
 type StatusItem =
   | { kind: 'notice'; notice: Notice; act: string }
   | { kind: 'failed'; act: string }
@@ -252,9 +243,9 @@ function statusText(item, fit) {
   return ['', ''];
 }
 
-// The leading mark of an item: a message's own (by its kind, notices.ts noticeIcon), a warning triangle for a failure
-// or blocked sync, the lost-connection icon, a spinner while work runs (a check once main sync is applied), an 8px
-// warning dot for a stale PDF, the image icon for PNG.
+// The leading mark of an item: a message's own (by its kind, platform/notices.ts noticeIcon), a warning triangle for a
+// failure or blocked sync, the lost-connection icon, a spinner while work runs (a check once main sync is applied), an
+// 8px warning dot for a stale PDF, the image icon for PNG.
 function statusIcon(item) {
   const kinds = STATUS_KIND;
   if (item.kind === kinds.NOTICE)
@@ -461,7 +452,7 @@ $('#status').addEventListener('focusout', () =>
 );
 // The '+N' list: every item as a 44px row with its long text and its action. A modal dialog over the line, so an
 // outside tap, Esc and the back gesture fold it like the sheets; a row's action folds it too. While it is open the
-// line's undo windows wait (notices.ts lineHeld).
+// line's undo windows wait (platform/notices.ts lineHeld).
 function drawStatusList(list) {
   setHtml(
     $('#status-list-rows'),

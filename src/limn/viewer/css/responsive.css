@@ -420,7 +420,7 @@ body.lay-narrow #right{position:fixed;left:0;right:0;bottom:var(--kb,0px);width:
 body.lay-narrow.side-open #right{height:round(down,min(calc(var(--sheet-f,.64) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap))),1px)}
 /* ^ to a whole pixel (round()): at a fractional height the sheet's top - and its tool row - fell between pixels, and the row's
    icons, drawn at whole pixels, stood up to 1px off the row's middle (the symmetry audit) */
-/* While composing the phone sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (layout/state.ts SHEET_KEPT);
+/* While composing the phone sheet rises to 80% (body.sheet-up, never saved) unless the user sets a height meanwhile (layout/flow-panel-size.ts SHEET_KEPT);
    the tablet sheet keeps its height and rises only with the keyboard up, through --sheet-f (tabletLift). */
 body.lay-narrow.side-open.sheet-up #right{height:round(down,min(calc(max(var(--sheet-f,.64),.8) * 100dvh),calc(var(--vvh,100dvh) - var(--sheet-gap))),1px)}
 /* The sheet's header is one row (docs/handbook/viewer.md §패널 폭과 시트 높이): the handle is the bar's middle column (44px), its

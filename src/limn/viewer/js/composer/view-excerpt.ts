@@ -3,15 +3,16 @@
 // with one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's
 // first or last line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer
 // and the edit card draw the same excerpt.
-import { $, SNIP_OPEN } from '../app/state.ts';
+import { SNIP_OPEN } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { withDocQuery, isRegion } from '../documents/view-tabs.ts';
 import { refetchSnip } from './view-levels.ts';
-import { COMPOSE, recomputeOverlap, renderComposer } from './flow-pick.ts';
-import { EDITOR, renderEdit } from '../pins/flow-edit.ts';
+import { recomputeOverlap, renderComposer, COMPOSE } from './flow-pick.ts';
+import { renderEdit, EDITOR } from '../pins/flow-edit.ts';
+import { $ } from '../platform/dom.ts';
+import { withDocQuery, isRegion } from '../documents/state.ts';
 
 // The range first..last widened to line: [min(first, line), max(last, line)]. Pure.
 function widenTo(first, last, line) {
@@ -40,8 +41,8 @@ function excerptRows(first, last, lineCount, open) {
   return out;
 }
 // Each selection's or edit card's source lines (line -> text, null when the server gave none) and the ones being
-// fetched. Kept beside the object, not on it: the composer's selection is written to the tab's draft (draft.ts) as
-// JSON.
+// fetched. Kept beside the object, not on it: the composer's selection is written to the tab's draft
+// (composer/flow-draft.ts) as JSON.
 const EXCERPT_LINES = new WeakMap(),
   EXCERPT_FETCHING = new WeakSet();
 // The line cache of owner - a selection or an edit card - in EXCERPT_LINES, made on first use.
@@ -149,7 +150,7 @@ function drawExcerpt(owner, box, isEdit) {
     text = (line) => {
       const lineText = lines.get(line);
       return lineText == null ? '…' : markHiddenHtml(lineText);
-    }; // a character that would hide or reorder the line in its box (hidden-chars.ts)
+    }; // a character that would hide or reorder the line in its box (platform/hidden-chars.ts)
   const rows = excerptRows(owner.lo, owner.hi, owner.n_lines || owner.hi, !isEdit && SNIP_OPEN).map((row) =>
     row.kind === 'fold'
       ? html`<div class="xp-fold">… ${translateTemplate('{n}줄', { n: row.n })}</div>`

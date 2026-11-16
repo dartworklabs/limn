@@ -2,8 +2,9 @@
 // UI language (window.LIMN_LANG from the head script). Korean strings in this file are the source; in English mode
 // translate()/translateMessage() look them up in I18N_EN (src/limn/viewer/ui_en.json) and a MutationObserver translates
 // text nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
-import { $, UI_LANG } from '../app/state.ts';
-import { roveSegment } from '../main.ts';
+import { UI_LANG } from './tables.ts';
+import { $ } from './dom.ts';
+import { roveSegment } from './segments.ts';
 const LANG = window.LIMN_LANG === UI_LANG.EN ? UI_LANG.EN : UI_LANG.KO,
   I18N_EN = __UI_EN_JSON__,
   I18N_ATTRS = ['data-tip', 'aria-label', 'title', 'placeholder'];
@@ -130,7 +131,7 @@ function i18nStart() {
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  roveSegment($('#m-lang')); // the group's one Tab stop is the language now chosen (events.ts)
+  roveSegment($('#m-lang')); // the group's one Tab stop is the language now chosen (platform/segments.ts)
   if (LANG !== UI_LANG.EN) return;
   i18nTree(document.body);
   new MutationObserver((mutations) => {
@@ -170,4 +171,99 @@ function switchLang(lang) {
   if (address.href === location.href) location.reload();
   else location.replace(address.href);
 }
-export { LANG, errText, i18nStart, switchLang, translateTemplate, translate, translateMessage, warnText };
+const TIP_TEXT = {
+  stale:
+    '핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
+  ellost:
+    '그림을 다시 그린 뒤 지도에서 이 요소를 찾지 못했습니다(요소 id가 바뀌었거나 지워짐). 표시는 핀을 찍은 때 자리에 그립니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
+  n: "누르면 문서에서 이 핀 자리로 갑니다. 에이전트에게는 '#2 처리해줘'처럼 번호로 부르세요. 번호는 다시 쓰이지 않습니다",
+  loc: '핀이 가리키는 원문 줄. 클릭하면 복사',
+  view: '문서에서 이 핀 자리로 가서 깜빡입니다',
+  edit: '메모와 범위를 고칩니다. 번호는 그대로입니다',
+  close: "처리됨으로 표시해 목록과 pins.md에서 뺍니다. 아래 '닫힌 핀'에서 되돌릴 수 있습니다",
+  drop: '핀을 휴지통으로 보냅니다. 카드 자리에 남는 [되돌리기]나 휴지통에서 같은 번호 그대로 되살릴 수 있습니다(30일 보관)',
+  dropVerdict:
+    '이 판정 핀을 휴지통으로 보냅니다(판정을 거둡니다). 같은 대상에 앞선 판정이 있으면 그 판정이 다시 지금 판정이 됩니다. 카드 자리에 남는 [되돌리기]나 휴지통에서 같은 번호 그대로 되살릴 수 있습니다(30일 보관)',
+  repick: '번호와 메모는 그대로 두고 PDF에서 새 위치를 드래그해 바꿉니다 (Esc 취소)',
+  esave: '수정한 내용을 저장합니다 (⌘ Enter / Ctrl+Enter)',
+  ecancel: '수정을 버립니다 (Esc)',
+  restore: '삭제한 핀을 같은 번호로 되살려 열린 핀에 올립니다',
+  purge:
+    '휴지통에서 영구 삭제합니다(소유자만). 그 자리에 6초 동안 남는 [되돌리기]로 취소할 수 있고, 그 줄이 사라지면 지웁니다',
+  synctex: 'PDF 좌표(SyncTeX)로 찾은 위치입니다.',
+  text: '드래그한 글자를 원문에서 직접 찾아 정한 위치입니다. 표나 기호표처럼 좌표로 찾기 어려운 곳에 쓰는 방법입니다.',
+  map: '그림 지도에서 드래그와 가장 많이 겹치는 요소를 골랐습니다.',
+  raw: '넓히기 전에 드래그 영역이 직접 가리킨 줄만 잡습니다',
+  mdraw: '넓히기 전에 끌어 고르거나 누른 줄만 잡습니다',
+  block: '고른 자리를 감싸는 블록 전체입니다(문단·목록 항목·표·코드 블록·인용·HTML 블록·머리 정보·수식)',
+  blocks: '고른 줄이 걸친 블록들 전체입니다',
+  section: '이 제목부터 같거나 높은 수준의 다음 제목 앞까지입니다',
+  para: '드래그한 자리를 감싸는 문단 전체입니다(앞뒤 % 주석 줄은 뺍니다)',
+  txpara: '고른 줄을 감싸는, 빈 줄 사이의 문단 전체입니다',
+  txparas: '고른 줄이 걸친 문단들 전체입니다',
+  indent:
+    '고른 줄이 머리인 들여쓰기 블록, 아니면 고른 줄을 감싼 들여쓰기 블록입니다(머리 줄부터, 닫는 괄호나 end·fi·done·esac 만 있는 줄까지)',
+  env: '감싸는 \\begin{…}…\\end{…} 블록 전체입니다. (바깥)은 한 단계 더 바깥 블록입니다',
+  el: '이 요소를 그린 코드 줄입니다. 대기 상자가 그림의 이 요소에 맞춰집니다',
+  fig: '그림 전체를 그린 코드 줄입니다',
+  elregion: '이 요소를 그린 코드 줄을 찾지 못했습니다 — 쪽·영역과 요소로 핀을 남깁니다',
+  figregion: '그림 지도를 읽지 못해 쪽·영역과 영역 글자로 핀을 남깁니다',
+  shape: '이 자리는 지금 핀과 모양(줄/영역)이 달라 옮길 수 없습니다 — 다른 자리를 고르거나 새 핀을 남기세요',
+  cur: '지금 핀이 가리키는 범위 그대로입니다',
+  undo: '방금 한 저장·완료·삭제를 되돌립니다',
+  question: '고칠 곳이 아니라 묻는 핀입니다. 답은 아래 스레드에 달리고, 원고는 질문이 수정을 뜻할 때만 고칩니다',
+  review:
+    '에이전트가 닫은 핀입니다. 사람이 결과를 보고 [확인]하면 완료로 가고, [답글]에 틀린 점을 쓰면 다시 열려 에이전트가 고칩니다',
+  confirm:
+    '결과를 확인했다고 기록하고 완료로 옮깁니다. 작성자에게 권하지만 누구나 누를 수 있고, 누른 사람이 기록됩니다',
+  change:
+    '변경사항 탭을 열어 이 핀을 고친 커밋(닫을 때 남긴 참조, 없으면 이 줄을 바꾼 최근 커밋)의 diff 에서 핀 자리를 강조합니다',
+  reply:
+    '이 핀에 답글을 답니다. 닫힌 핀이면 보내기 전에 칸 아래 한 줄이 결과(다시 열림·알림·그대로)를 알려 줍니다 (⌘ Enter / Ctrl+Enter 보내기)',
+  nochange: '변경 없음',
+  buildanyway: '그래도 빌드',
+  buildanywaytip:
+    '남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 빌드가 비교하지 않는 것(셸 탈출로 도는 프로그램이 읽는 파일 등)을 바꿨을 때 씁니다',
+  reloadtip:
+    '이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다',
+};
+// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer
+// pin with the smallest range), otherwise the smallest-id partial. Must follow the same rule as the server's
+// rel_badge() (pins.md) so card tags and pins.md rows never disagree - since a rel entry is only {id,rel}, the range is
+// looked up by id from PINS (all currently loaded open pins). The badge wording is phrased to be self-explanatory:
+// '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is told by this pin's own lo/hi.
+function josa(number, afterConsonant, afterVowel) {
+  const lastDigit = String(number).slice(-1);
+  return lastDigit === '0' || '13678'.includes(lastDigit) ? afterConsonant : afterVowel;
+}
+// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육),
+// else '로'. The particle after a name: afterConsonant after a final consonant, afterVowel after a vowel. A Hangul name
+// by its last syllable's final; a Latin one by how its end is read - a vowel letter (and a silent e) reads as a vowel,
+// a consonant as one ('Bob이', 'Alice가'), a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a
+// digit as its Korean reading (josa). Pure.
+function josaName(name: string, afterConsonant: string, afterVowel: string) {
+  const trimmed = String(name || '').trim(),
+    last = trimmed.slice(-1);
+  if (!last) return afterVowel;
+  const code = last.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 ? afterConsonant : afterVowel;
+  if (/[0-9]/.test(last)) return josa(last, afterConsonant, afterVowel);
+  if (/[A-Z]/.test(last) && !/[A-Za-z]/.test(trimmed.slice(-2, -1)))
+    return 'LMNR'.includes(last) ? afterConsonant : afterVowel;
+  if (/[a-zA-Z]/.test(last)) return /[aeiouyAEIOUY]/.test(last) ? afterVowel : afterConsonant;
+  return afterVowel;
+}
+
+export {
+  LANG,
+  errText,
+  i18nStart,
+  switchLang,
+  translateTemplate,
+  translate,
+  translateMessage,
+  warnText,
+  TIP_TEXT,
+  josa,
+  josaName,
+};

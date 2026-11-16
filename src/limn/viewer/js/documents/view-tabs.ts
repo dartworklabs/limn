@@ -1,8 +1,5 @@
 // ------------------------------------------- Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
 import {
-  $,
-  $$,
-  DEFAULT_DOC,
   DOC,
   DOCS,
   COARSE_POINTER_QUERY,
@@ -21,24 +18,11 @@ import { drawDocsMenu, drawPos, switchDoc } from './flow-switch.ts';
 import { closePageList } from '../pdf/view-page-list.ts';
 import { searchFit } from '../pdf/flow.ts';
 import type { Html } from '../platform/markup.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { docInfo, pdoc } from './state.ts';
 
 function multiDoc() {
   return DOCS.length > 1;
-}
-function docInfo(doc) {
-  return DOCS.find((entry) => entry.key === doc) || null;
-}
-function pdoc(pin: Pin) {
-  return (pin && pin.doc) || DEFAULT_DOC;
-}
-function isRegion(pin) {
-  return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
-}
-// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
-function withDocQuery(path, doc?) {
-  doc = doc || DOC;
-  if (!doc) return path;
-  return path + (path.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(doc);
 }
 function hashDoc() {
   const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
@@ -495,7 +479,7 @@ function docMenuNext() {
 // filter too (the shortcut is otherwise not taken inside a text field). Tab leaves the popover forward: from the filter
 // to the list's row, from a row out - the popover shuts and the focus goes to the bar's next stop after the button;
 // Shift+Tab goes back: from a row to the filter, from the filter (or a row with no filter) out to the button, the
-// popover shut. Esc is the viewer's (events.ts): it shuts the popover with the focus on the button.
+// popover shut. Esc is the viewer's (main.ts): it shuts the popover with the focus on the button.
 $('#doc-more').addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown' && !event.altKey) {
     event.preventDefault();
@@ -576,18 +560,4 @@ document.addEventListener(
   true,
 );
 addEventListener('resize', placeDocMenu);
-export {
-  closeDocMenu,
-  docBadge,
-  docInfo,
-  withDocQuery,
-  drawDocTabs,
-  hashDoc,
-  initialDoc,
-  isRegion,
-  loadDocs,
-  multiDoc,
-  pdoc,
-  setHash,
-  toggleDocMenu,
-};
+export { closeDocMenu, docBadge, drawDocTabs, hashDoc, initialDoc, loadDocs, multiDoc, setHash, toggleDocMenu };

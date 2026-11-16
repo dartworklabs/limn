@@ -6,32 +6,19 @@
 // which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
 // they are drawn as text, translate="no", and the names around them are put in the screen's language here.
 import {
-  $,
-  $$,
-  ASSIGNEE_AGENT,
   DEFAULT_DOC,
   DOC,
   DOCS,
   DONE,
   DONE_ALL,
   KIND_NEW,
-  REQUEST_KIND,
   LAYOUT,
-  LAYOUT_MODE,
   META,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  NOTICE_PLACE,
   OPEN_ALL,
   PINS,
-  PIN_STATE,
   REPLY,
   REVIEW_ALL,
-  ROLE,
-  TIP_TEXT,
-  VERDICT_PLACE,
   captureVisit,
   currentVisit,
   imeKey,
@@ -40,7 +27,7 @@ import {
   scrollMotion,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { errText, translateTemplate, translate } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import {
@@ -59,20 +46,14 @@ import {
   undoNote,
 } from '../platform/notices.ts';
 import { SWALLOW_CLICK, hideTip } from '../platform/tooltip.ts';
-import { docInfo, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/api.ts';
 import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
 import { SCROLL_KEYS, readingDepth } from '../pdf/view-outline.ts';
 import { searchToPage } from '../pdf/flow.ts';
-import { setSide, typingNow } from '../layout/flow.ts';
-import { lineRange } from '../composer/view-levels.ts';
+import { setSide } from '../layout/flow.ts';
 import { isElementLost, figureFields, isFrac, pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
 import { SUGGEST_DRAFT } from '../composer/flow-suggest.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
-import { savePin } from '../composer/api.ts';
+import { savePin } from '../composer/flow-save.ts';
 import {
   LAST_KEY_SAVE,
   REASON_SESSION,
@@ -125,23 +106,29 @@ import {
   markReadingSummary,
   drawSummaries,
 } from './view-panel.ts';
-import { claimActive, josa, josaToward, who } from '../pins/view-card-parts.ts';
+import { claimActive, josaToward } from '../pins/view-card-parts.ts';
 import { relSpan } from '../pins/view-cards.ts';
-import { PINS_APPLIED_SEQ, isMe, loadPins } from '../pins/flow-list.ts';
-import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/api.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
+import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
+import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/flow-actions.ts';
 import { refreshDoc, topAnchor } from '../documents/flow-rebuild.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
+import { $, $$, typingNow } from '../platform/dom.ts';
+import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE, PIN_STATE, ROLE, VERDICT_PLACE } from '../app/rules-tables.ts';
+import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
+import { who, isMe } from '../app/state-people.ts';
+import {
+  isRegion,
+  pdoc,
+  docVerdicts,
+  verdictLabel,
+  docKindOf,
+  viewerBlocked,
+  isMarkdownDoc,
+} from '../documents/state.ts';
+import { COMPOSE } from '../composer/flow-pick.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
-// The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is
-// read with the document), else its /api/docs entry's; null without usable words.
-function docVerdicts(doc?: string | null): DocVerdicts | null {
-  const docName = doc === undefined ? DOC : doc,
-    metaVerdicts = META && (!docName || META.doc === docName) ? META.verdicts : undefined,
-    entry = docInfo(docName),
-    verdicts = metaVerdicts || (entry && entry.verdicts);
-  return verdicts && Array.isArray(verdicts.choices) && verdicts.choices.length ? verdicts : null;
-}
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
 // document or a view-only PDF): the words, else null.
 function pageVerdictsOn(): DocVerdicts | null {
@@ -153,20 +140,6 @@ function pageVerdictsOn(): DocVerdicts | null {
 function canVerdict() {
   const role = META && META.me && META.me.role;
   return role !== ROLE.VIEWER && role !== ROLE.AGENT;
-}
-// A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it
-// (pins/verdict.py verdict_of: 1-16 letters, digits, '-' or '_'). Pure.
-function verdictOf(pin: Pin | null | undefined): string | null {
-  const value = pin && pin.verdict;
-  return typeof value === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(value) ? value : null;
-}
-// The name a verdict key is shown by: its word's label in the word file of document doc (default: the one on screen) -
-// a card of another document under [모든 문서] names its own document's word - else the key itself (a word the file no
-// longer declares stays the pin's verdict).
-function verdictLabel(key: string, doc?: string | null): string {
-  const verdicts = docVerdicts(doc),
-    choice = verdicts && verdicts.choices.find((x) => x.key === key);
-  return choice ? choice.label : key;
 }
 // A card's verdict badge, '판정 채택' (the question badge's shape; the words carry the meaning, no colour of its own),
 // or null.
@@ -245,10 +218,6 @@ function pageTargetOf(pin: Pin, kind: string | undefined): { page: number; id: s
   return frac.every((value, index) => Math.abs(value - WHOLE_PAGE[index]) <= 1e-6)
     ? { page: pin.page, id: 'page ' + pin.page }
     : null;
-}
-// The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
-function docKindOf(doc: string): string | undefined {
-  return (!DOC || doc === DOC) && META ? META.kind : (docInfo(doc) || {}).kind;
 }
 // The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole
 // target (pageTargetOf: a figure document's figure, a view-only PDF's whole page) - the page line's targets; else, on a
@@ -499,8 +468,8 @@ function redrawVerdictButtons(where: string) {
   else drawPageVerdicts();
 }
 // A press anywhere but on the armed button lets it go; Esc does too, and does nothing else. The click a long press's
-// release ends with is no press (tooltip.ts swallows it after this, on the document): it lets nothing go, nor closes
-// the description the long press showed.
+// release ends with is no press (platform/tooltip.ts swallows it after this, on the document): it lets nothing go, nor
+// closes the description the long press showed.
 window.addEventListener(
   'click',
   (event) => {
@@ -536,9 +505,9 @@ function whereOfButton(button: HTMLElement) {
 // unpressed word saves that verdict (the current one is replaced), the pressed one takes the person's own open verdict
 // back (as [판정 취소]), and a pressed one that is not theirs or is handled says why it is not taken back here. The
 // word a save is for (SAVING) keeps its box's words but gives a screen reader none (an empty aria-description, which
-// tooltip.ts leaves as the drawing code's): the line's status (.pv-busy, role=status) says the save, once. A click
-// presses the word and focuses it at the same moment, and a screen reader reads a description that changes then twice,
-// with the focus and as a change, before the status. Off: a composer's button is disabled; a page line's waits
+// platform/tooltip.ts leaves as the drawing code's): the line's status (.pv-busy, role=status) says the save, once. A
+// click presses the word and focuses it at the same moment, and a screen reader reads a description that changes then
+// twice, with the focus and as a change, before the status. Off: a composer's button is disabled; a page line's waits
 // (aria-disabled, verdictPress ignores it) before the first list, and right after its word was taken back
 // (TAKEN_BACK_HOLD) - it keeps the focus a keyboard press left on it, which a disabled button would drop to the page.
 // keyNumber: on the line of the page the keys act on (KEYED_PAGE), the word's key 1-5 - drawn after the word as a key
@@ -548,12 +517,12 @@ function whereOfButton(button: HTMLElement) {
 // chip; the name and the keys are still said. A page line's armed word ('삭제 확정') has no description either: its box
 // would cover the line's figure name while the word waits for its second press, the button already reads what the box
 // would say, and the line says how long it waits beside it (.pv-arm). Either keeps it for a long press (data-tip-press,
-// tooltip.ts): hover and focus raise no box, but a long press shows it and its release presses nothing, as on a word at
-// rest - so a long press never takes the pressed word's verdict back while a chip or the reason popover is up, nor
-// saves the armed word. The screen that draws the key marks (components.css .vd-b[data-kn]::after): a mouse's. Only
-// there does a word's description end in '단축키 1' and its button carry aria-keyshortcuts, so a phone's long press
-// never names a key it has none of. The lines are drawn again when that changes (a tablet's keyboard cover with its
-// touchpad taken off), so the description follows the marks.
+// platform/tooltip.ts): hover and focus raise no box, but a long press shows it and its release presses nothing, as on
+// a word at rest - so a long press never takes the pressed word's verdict back while a chip or the reason popover is
+// up, nor saves the armed word. The screen that draws the key marks (components.css .vd-b[data-kn]::after): a mouse's.
+// Only there does a word's description end in '단축키 1' and its button carry aria-keyshortcuts, so a phone's long
+// press never names a key it has none of. The lines are drawn again when that changes (a tablet's keyboard cover with
+// its touchpad taken off), so the description follows the marks.
 const KEY_MARK_SCREEN = matchMedia('(hover:hover) and (pointer:fine)');
 KEY_MARK_SCREEN.addEventListener('change', () => {
   if (META) drawPageVerdicts();
@@ -1034,7 +1003,7 @@ const TAKEN_BACK_HOLD = new Map() as Map<string, { key: string; until: number }>
 // A page line's last failed save, by page: said on the line that was pressed (pageLineHtml) as well as on the status
 // line, until the next press on that line or another document or build. The document and build it was for come with it.
 const LINE_SAVE_ERROR = new Map() as Map<number, { text: string; doc: string | null; build: string }>;
-// The reason after a page line's save - its popover, drafts kept per pin, its writes - is verdict-reason.ts
+// The reason after a page line's save - its popover, drafts kept per pin, its writes - is verdict/flow-reason.ts
 // (REASON_SESSION). The key marks follow the focus: off on every line while a text field has it - digits typed there
 // are text, the reason field's included (keyedPageFor). (Another document closes the popover through syncReasonSession
 // - or drawPageVerdicts when it has no lines - whose leave saves what was typed.)
@@ -1426,7 +1395,8 @@ const CANCEL_HOLD = new Map() as Map<string, number>; // line (pageLineSlot) -> 
 // are back and the status line says so; the late answer is still taken (its message, its [되돌리기]), but the focus has
 // moved on by then and stays. The value says whose wait it is.
 const CANCEL_OUT = new Map() as Map<string, number>;
-let CANCEL_ANSWER_WAIT = NOTICE_ACT_WAIT; // the bound a status-line action's request has (notices.ts noticeAct)
+// the bound a status-line action's request has (platform/notices.ts noticeAct)
+let CANCEL_ANSWER_WAIT = NOTICE_ACT_WAIT;
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its
 // kept reason draft opens (reviveReason); when a newer verdict came meanwhile - someone else's - it is restored but
 // superseded, the status line says so ('판정 #21 채택 되살림 · 지금 판정은 Bob의 #34 보류 — <대상>') and no popover
@@ -1614,7 +1584,7 @@ async function cancelVerdictPin(id: number, page: number, had: boolean, byKey?: 
 // popover (reasonPopoverHtml) is the line's last child, laid above it.
 /**
  * @param [chip] - the line holds a save chip or its reason popover: it draws no descriptions @param [panel] - the panel
- * beside the pages (verdict-panel.ts)
+ * beside the pages (verdict/view-panel.ts)
  */
 function pageLineHtml(page: number, list: Pin[] | undefined, verdicts: DocVerdicts, chip?: boolean, panel?: boolean) {
   const cur = list && list[0],
@@ -1682,8 +1652,8 @@ ${lineTipAttribute(!!chip, earlierName + ' — ' + translate('이 쪽의 더 새
   // fit. Its two spans are on every line, hidden but on the reading one: the line's children keep their places when the
   // reading page moves, so the morph (morphNode) never takes a focused button out of the page. A hidden one holds the
   // identifier, so every line is fitted as the reading line it may become (fitPageLines). The panel beside the pages
-  // (verdict-panel.ts) names its page and figure whole: the title on rows of its own under the identifier, kept even
-  // when empty, so the words below stand at one height for every page. A view-only PDF has no titles.
+  // (verdict/view-panel.ts) names its page and figure whole: the title on rows of its own under the identifier, kept
+  // even when empty, so the words below stand at one height for every page. A view-only PDF has no titles.
   const isReadingLine = READING_LINE_PAGE === page || !!panel,
     lineName = isReadingLine ? pageLineName(page) : { id: pageLineName(page).id, rest: '' };
   const name = panel
@@ -1735,8 +1705,8 @@ data-act="pv-undo" data-id="u${lineUndo.id}" aria-label="${translateTemplate('�
   return html`${name}<span class="pv-t">${text}${saving}${armSay}${cancel}${undo}${early}</span>${buttons}${err}${hint}${reasonPopoverHtml(page)}`;
 }
 // A line control's description: data-tip, or - on a line that holds a save chip or its reason popover (pageLineHtml
-// chip) - data-tip-press, which only a long press shows (tooltip.ts): no box over either, and a long press still
-// presses nothing.
+// chip) - data-tip-press, which only a long press shows (platform/tooltip.ts): no box over either, and a long press
+// still presses nothing.
 function lineTipAttribute(quiet: boolean, tip: string) {
   return quiet ? html`data-tip-press="${tip}"` : html`data-tip="${tip}"`;
 }
@@ -1900,7 +1870,7 @@ function sizePageLines() {
   if (!lines.length || !lines[0].getClientRects().length) return;
   // A zoom or a new width took the room across its bar: the lines move at the next frame (stickReadingLine), never
   // here. A zoom restores its place after this call, and the reading page read before that is not the one being read
-  // (verdict-panel.ts).
+  // (verdict/view-panel.ts).
   if (shouldStandBeside() !== IS_BESIDE_PAGES) stickSoon();
   if (IS_BESIDE_PAGES) {
     fitPageLines(lines);
@@ -1962,7 +1932,7 @@ function fitPageLines(lines: HTMLElement[]) {
     fitPanel(panel);
     lines = lines.filter((line) => line !== panel);
     if (!lines.length) return;
-  } // the panel: rows down it, never one row (verdict-panel.ts)
+  } // the panel: rows down it, never one row (verdict/view-panel.ts)
   const held = lines.map(holdsRows),
     docElement = $('#doc'),
     hold = holdPageView(true),
@@ -2518,11 +2488,11 @@ function placePopover() {
     line.style.setProperty('--pv-pop-max', Math.max(0, Math.floor(under ? below : above)) + 'px');
 }
 // No description box over a line's save chip. The chip ('#42 저장됨 · 채택 [되돌리기]') stands at the line's end above
-// it, where a word's box stands too: the press's own focus arms the box again (tooltip.ts armTip), and a resting hand's
-// slight move would bring it back after anything hid it. While a chip is on a line (drawChips puts it there, its window
-// takes it away) the line's words are drawn without their descriptions (verdictButton quiet), so neither hover nor
-// focus has a box to show; a chip that comes closes the box that is up. Its leaving draws the descriptions back.
-// Watched per line (childList only: the chip is a child of the line).
+// it, where a word's box stands too: the press's own focus arms the box again (platform/tooltip.ts armTip), and a
+// resting hand's slight move would bring it back after anything hid it. While a chip is on a line (drawChips puts it
+// there, its window takes it away) the line's words are drawn without their descriptions (verdictButton quiet), so
+// neither hover nor focus has a box to show; a chip that comes closes the box that is up. Its leaving draws the
+// descriptions back. Watched per line (childList only: the chip is a child of the line).
 const CHIP_WATCH =
   typeof MutationObserver !== 'undefined'
     ? new MutationObserver((recs) => {
@@ -2575,7 +2545,7 @@ function drawPageVerdicts() {
     syncTypingFold();
     return;
   }
-  // beside the pages or under them (verdict-panel.ts): the reading page holds until the spot is back
+  // beside the pages or under them (verdict/view-panel.ts): the reading page holds until the spot is back
   const turn = startBesideTurn();
   try {
     syncReasonSession();
@@ -2651,7 +2621,7 @@ function jumpToPageLine(id: number) {
     else bringPage(target.page, true);
     flashPanelOn(target.page);
     return true;
-  } // the panel flashes where the page lands (verdict-panel.ts)
+  } // the panel flashes where the page lands (verdict/view-panel.ts)
   const line = document.querySelector('#doc .pv[data-page="' + target.page + '"]') as HTMLElement | null;
   if (!line) return false;
   const block = line.parentElement as HTMLElement,
@@ -2670,9 +2640,9 @@ function jumpToPageLine(id: number) {
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
 // content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws
 // for the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the
-// text in the page again: skipped like the far cards (list.ts lazyCards), the lines far from the view are not laid out
-// at each of those. A skipped line breaks none of the line's rules, because it is never another size than the one it is
-// drawn at:
+// text in the page again: skipped like the far cards (pins/flow-list.ts lazyCards), the lines far from the view are not
+// laid out at each of those. A skipped line breaks none of the line's rules, because it is never another size than the
+// one it is drawn at:
 // - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its
 //   box is its content box), or the size the browser last drew it at (content-visibility:auto keeps it:
 //   contain-intrinsic-size auto), which is the same. Whatever changes what a line shows or its width fits it again
@@ -2769,15 +2739,15 @@ function sortFarLines(entries: IntersectionObserverEntry[]) {
 // ---------------- The line that floats, and the keys (docs/handbook/viewer.md §판정 핀)
 // Only the reading page's line floats: the page under the reading line, the one the section strip names and the keys
 // act on (READING_LINE_PAGE). Its line (.reading) is sticky to the PDF area's bottom within its page's block (.pgw,
-// pages.ts buildDoc): while its own place is below the area it floats there over the page (.stuck: an edge that sets it
-// off the page), and it names the figure it decides; at the page's end it settles under it. Every other line stays in
-// its place - a next page's line floating as soon as that page's top edge comes in would show a second '판정 없음' for
-// a figure not yet in view, and put another figure's buttons under a resting mouse or thumb. It does not float while a
-// selection is being written (the composer has its own verdict row, and the line would cover the selection - or on a
-// phone the sheet) nor over an open phone sheet (CSS). stickReadingLine follows the reading page and marks the floating
-// line; run once a frame while the area scrolls.
+// pdf/view-pages.ts buildDoc): while its own place is below the area it floats there over the page (.stuck: an edge
+// that sets it off the page), and it names the figure it decides; at the page's end it settles under it. Every other
+// line stays in its place - a next page's line floating as soon as that page's top edge comes in would show a second
+// '판정 없음' for a figure not yet in view, and put another figure's buttons under a resting mouse or thumb. It does
+// not float while a selection is being written (the composer has its own verdict row, and the line would cover the
+// selection - or on a phone the sheet) nor over an open phone sheet (CSS). stickReadingLine follows the reading page
+// and marks the floating line; run once a frame while the area scrolls.
 function stickReadingLine() {
-  // the room crossed its bar: drawn again beside or under the pages (verdict-panel.ts), which ran this
+  // the room crossed its bar: drawn again beside or under the pages (verdict/view-panel.ts), which ran this
   if (pageVerdictsOn() && redrawOnBesideChange()) return;
   const lines = $$('#doc .pv');
   if (!lines.length) return;
@@ -2800,7 +2770,7 @@ function stickReadingLine() {
   if (measureInsetRight() !== INSET_RIGHT) sizePageLines(); // a panel came over the area, went, or changed its width
   const at = heldPanelPage() || pageUnderReadingLine(),
     readingPage = at && pageTakesVerdict(at) ? at : 0,
-    keyedPage = keyedPageFor(readingPage); // a jump's glide: the panel's page held (verdict-panel.ts)
+    keyedPage = keyedPageFor(readingPage); // a jump's glide: the panel's page held (verdict/view-panel.ts)
   if (REASON_SESSION && REASON_SESSION.page === readingPage) REASON_SESSION.seen = true;
   else if (REASON_SESSION && REASON_SESSION.seen) leaveReason(); // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
@@ -3061,7 +3031,8 @@ function measureInsetRight() {
 // area's top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is
 // now.
 function pageUnderReadingLine() {
-  if (HELD_READING_PAGE) return HELD_READING_PAGE; // the lines are moving beside or under the pages (verdict-panel.ts)
+  // the lines are moving beside or under the pages (verdict/view-panel.ts)
+  if (HELD_READING_PAGE) return HELD_READING_PAGE;
   if (BUILD_READING_PAGE) return BUILD_READING_PAGE; // the pages are being built again (refreshDoc)
   if (!pageVerdictsOn() || document.body.classList.contains('revision-open') || !$('#left').getClientRects().length)
     return 0;
@@ -3234,7 +3205,7 @@ function verdictKey(event: KeyboardEvent) {
   if (ARMED_VERDICT && ARMED_VERDICT.kbd && ARMED_VERDICT.where === VERDICT_PLACE.PAGE && ARMED_VERDICT.page !== at)
     disarmVerdict(true, true);
   // The panel shows the page under the reading line at the key, also before the frame that would show it
-  // (verdict-panel.ts).
+  // (verdict/view-panel.ts).
   if (IS_BESIDE_PAGES && ensurePanel().dataset.page !== String(at)) stickReadingLine();
   const button = document.querySelector(
     '#doc .pv[data-page="' + at + '"] button[data-act="pv-save"][data-key="' + CSS.escape(choice.key) + '"]',
@@ -3625,9 +3596,9 @@ addEventListener('keydown', (event) => {
 // control, or - when pins are marked on that page - its first mark's badge, which Shift+Tab from the line reaches first
 // in the DOM's order. The DOM's stop before it is the page before's line: each Shift+Tab would scroll the document a
 // page up and never reach the outline. The earlier pages' lines are reached by PageUp, which makes each the reading
-// page in turn. A line with its reason popover open keeps Tab to itself first (verdict-reason.ts, on #doc), and another
-// page's line or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while the
-// reading page had no line (STOP_IN_VIEW), which leaves the same way.
+// page in turn. A line with its reason popover open keeps Tab to itself first (verdict/flow-reason.ts, on #doc), and
+// another page's line or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while
+// the reading page had no line (STOP_IN_VIEW), which leaves the same way.
 addEventListener('keydown', (event) => {
   if (
     event.key !== 'Tab' ||
@@ -3638,8 +3609,9 @@ addEventListener('keydown', (event) => {
     event.defaultPrevented
   )
     return;
-  // Beside the pages the panel is the reading line, and it stands after the pages in the DOM (verdict-panel.ts): from
-  // its first stop the reading page's marks come next, as they do from a line, and from the first of those the way out.
+  // Beside the pages the panel is the reading line, and it stands after the pages in the DOM (verdict/view-panel.ts):
+  // from its first stop the reading page's marks come next, as they do from a line, and from the first of those the way
+  // out.
   const active = document.activeElement as HTMLElement | null,
     panel = active && active.closest ? (active.closest('#pv-panel') as HTMLElement | null) : null;
   const block = panel || (active && active.closest ? (active.closest('#doc .pgw') as HTMLElement | null) : null),
@@ -3691,7 +3663,6 @@ export {
   pageTargetOf,
   pageTargetShort,
   pageVerdictPins,
-  pageVerdictsOn,
   isAutoScrolling,
   noteCameFrom,
   canCancelVerdict,
@@ -3721,10 +3692,9 @@ export {
   fitWrappedWords,
   verdictBadge,
   verdictDropped,
-  verdictLabel,
-  verdictOf,
   verdictOldMarker,
   verdictPress,
   verdictTarget,
   verdictUndo,
+  pageVerdictsOn,
 };

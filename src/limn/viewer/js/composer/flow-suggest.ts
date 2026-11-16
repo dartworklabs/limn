@@ -5,32 +5,22 @@
 // that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
 // edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
 // diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
-import {
-  $,
-  BAND,
-  DOC,
-  DOC_KIND,
-  LAYOUT_BAND,
-  META,
-  PIN_STATE,
-  SUGGEST_OFF,
-  SUGGEST_STATE,
-  isFigureKind,
-} from '../app/state.ts';
+import { BAND, DOC, META, isFigureKind } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { countAddedHidden, findHidden, markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { docInfo, withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { isViewer } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/api.ts';
-import { applySheet } from '../layout/state.ts';
-import { COMPOSE, renderOverlapBanner } from './flow-pick.ts';
-import { saveDraftSoon } from './state.ts';
+import { applySheet } from '../layout/flow-panel-size.ts';
+import { renderOverlapBanner, COMPOSE } from './flow-pick.ts';
+import { saveDraftSoon } from './flow-draft.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
+import { $ } from '../platform/dom.ts';
+import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;
@@ -195,9 +185,9 @@ function suggestDiffHtml(rows: { k: string; t: string; n: number }[]): Html {
       : html`<span class="rd-line rd-${row.k === 'ctx' ? 'context' : row.k}"><span class="rd-no" aria-hidden="true">${row.n}</span><span class="rd-code">${row.k === 'add' ? '+' : row.k === 'del' ? '-' : ' '}${markHiddenHtml(row.t)}</span></span>`,
   )}</div>`;
 }
-// What a draft's text holds of the characters that would hide or reorder text (hidden-chars.ts), which the editor (a
-// textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name, count]],
-// countAddedHidden) and how many it has in all; null when it has none. Pure.
+// What a draft's text holds of the characters that would hide or reorder text (platform/hidden-chars.ts), which the
+// editor (a textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name,
+// count]], countAddedHidden) and how many it has in all; null when it has none. Pure.
 function suggestHidden(draft: SuggestDraft): { added: [string, number][]; n: number } | null {
   if (draft.base == null) return null;
   let count = 0;
@@ -268,7 +258,7 @@ ${translate('수정해서 원문에 맞추기')}</button>`
 // or cannot be compared ('확인 불가'): a pin's `suggest_state`. A closed card shows the plain badge: a closed pin is
 // not re-synced, and one whose suggestion was applied reads as changed. null without a suggestion. The two warning
 // badges are .tip-shown: the card's line over the diff (suggestWarnLine) says what their explanation says, so they
-// carry no words for a screen reader (tooltip.ts); their explanation box stays.
+// carry no words for a screen reader (platform/tooltip.ts); their explanation box stays.
 function suggestBadge(pin: Pin, closed: boolean): Html | null {
   if (!pin.suggest) return null;
   const state = closed ? SUGGEST_STATE.READY : pin.suggest_state;

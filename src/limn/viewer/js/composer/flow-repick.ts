@@ -1,36 +1,35 @@
 // ------------------------------------------------ Re-place location
 // Shows the re-place banner with markup (Html) as its content.
 import {
-  $,
   DOC,
   LAYOUT,
-  LAYOUT_MODE,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
   PICKSEQ,
-  PIN_STATE,
   REPICK,
   SWITCHSEQ,
-  TIP_TEXT,
   captureVisit,
   currentVisit,
   setPickseq,
   setRepick,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
-import { isRegion } from '../documents/view-tabs.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
-import { kindFor, levelLabel, levelOf, lineRange, scopeLabel } from './view-levels.ts';
+import { kindFor, levelLabel, scopeLabel } from './view-levels.ts';
 import { figureFields, pinPlace, repickElement, snapBox } from '../pdf/view-figure.ts';
-import { isMarkdownDoc, markChosenLines, shownChoice } from '../markdown/view.ts';
-import { COMPOSE, cancelSelection } from './flow-pick.ts';
+import { markChosenLines, shownChoice } from '../markdown/view.ts';
+import { cancelSelection, COMPOSE } from './flow-pick.ts';
 import { loadPins } from '../pins/flow-list.ts';
-import { EDITOR, editSnip } from '../pins/flow-edit.ts';
+import { editSnip, EDITOR } from '../pins/flow-edit.ts';
+import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
+import { LAYOUT_MODE, PIN_STATE } from '../app/rules-tables.ts';
+import { lineRange } from '../app/rules-pins.ts';
+import { isMarkdownDoc, isRegion } from '../documents/state.ts';
+import { levelOf } from '../documents/rules.ts';
 function banner(markup) {
   const bannerBox = $('#banner');
   setHtml(bannerBox, markup);

@@ -6,23 +6,14 @@
 // was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
 // unchanged (savePin).
 import {
-  $,
-  $$,
   DOC,
   KIND_NEW,
-  REQUEST_KIND,
   LAST_POINTER,
   LAYOUT,
-  LAYOUT_MODE,
   META,
   MID_OVERLAY,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  NOTICE_TOPIC,
   PICKSEQ,
   PINS,
-  PIN_STATE,
-  RANGE_REL,
   REPICK,
   SNIP_OPEN,
   captureVisit,
@@ -34,19 +25,17 @@ import {
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
-import { errText, translateTemplate, translate, warnText } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, warnText, josa } from '../platform/i18n.ts';
 import { API_OUT, API_WAIT, api } from '../platform/api.ts';
 import { endTopic, lineNote } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { isRegion } from '../documents/view-tabs.ts';
-import { pinState } from '../documents/api.ts';
-import { applySheet } from '../layout/state.ts';
+import { applySheet } from '../layout/flow-panel-size.ts';
 import { applySide, relayout, setSelectMode, setSide } from '../layout/flow.ts';
 import { revealBox } from '../pdf/input-selection.ts';
-import { drawLadder, rangeCap, lineRange, scopeLabel, setCap, snipText, useLevel, viaTag } from './view-levels.ts';
+import { drawLadder, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
 import { drawExcerpt } from './view-excerpt.ts';
 import { figureRegionBadge, renderElement } from '../pdf/view-figure.ts';
-import { isMarkdownDoc, lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
+import { lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
 import {
   SUGGEST_DRAFT,
   renderSuggest,
@@ -56,9 +45,9 @@ import {
   suggestEdited,
   suggestPending,
 } from './flow-suggest.ts';
-import { holdDraftUntil, saveDraftSoon, syncDraft } from './state.ts';
-import { clearPendingSave, savePin, syncComposeSaveButtons } from './api.ts';
-import { offlineNow, offlinePick } from '../offline/api.ts';
+import { holdDraftUntil, saveDraftSoon, syncDraft } from './flow-draft.ts';
+import { clearPendingSave, savePin, syncComposeSaveButtons } from './flow-save.ts';
+import { offlinePick } from '../offline/flow.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
 import {
   SELECTION_POPOVER_FIELD,
@@ -66,15 +55,21 @@ import {
   drawSelectionPopover,
   isSelectionPopoverOpen,
 } from './view-selection-popover.ts';
-import { QUOTE_OPEN, josa } from '../pins/view-card-parts.ts';
+import { QUOTE_OPEN } from '../pins/view-card-parts.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
-import { EDITOR, autoGrow } from '../pins/flow-edit.ts';
+import { autoGrow, EDITOR } from '../pins/flow-edit.ts';
 import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
-import { roveSegment } from '../main.ts';
 import type { Html } from '../platform/markup.ts';
-
+import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { roveSegment } from '../platform/segments.ts';
+import { REQUEST_KIND, LAYOUT_MODE, RANGE_REL } from '../app/rules-tables.ts';
+import { lineRange, overlapsFor } from '../app/rules-pins.ts';
+import { isMarkdownDoc, isRegion } from '../documents/state.ts';
+import { offlineNow } from '../documents/flow-polling.ts';
+import { useLevel } from '../documents/rules.ts';
 const COMPOSE = {
   current: null as Selection | null,
   box: null as HTMLElement | null,
@@ -85,6 +80,7 @@ const COMPOSE = {
   intent: 0,
   retryVerdict: null as { key: string; sel: Selection; gen: number } | null,
 };
+
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
 function composeFields() {
@@ -174,7 +170,7 @@ async function pick(region) {
     }
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
     // composer opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back
-    // (offline.ts).
+    // (offline/flow.ts).
     const failure = error as ApiError;
     if (!repick && !(failure && failure.status) && !isMarkdownDoc()) {
       void offlinePick(region);
@@ -256,9 +252,9 @@ async function pick(region) {
   // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
-  // Drag -> straight into the note field - the popover's by the box while it is open (sel-popover.ts), else the
-  // composer's. Never focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and
-  // page.
+  // Drag -> straight into the note field - the popover's by the box while it is open
+  // (composer/view-selection-popover.ts), else the composer's. Never focused on touch - the virtual keyboard would pop
+  // up immediately and cover the range ladder and page.
   if (LAST_POINTER === 'mouse')
     (isSelectionPopoverOpen() ? SELECTION_POPOVER_FIELD : $('#note')).focus({ preventScroll: true });
   // If [핀 저장] was pressed while the pick was still running, the queued save runs here (COMPOSE.current has just been
@@ -267,29 +263,6 @@ async function pick(region) {
     clearPendingSave();
     savePin();
   }
-}
-// docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (COMPOSE.current) overlaps an open pin, one
-// representative is chosen and a "append" banner is drawn. Never auto-merged - the user picks between [메모에
-// 덧붙이기]/[별도 핀으로 저장]. Overlap is recomputed against this tab's PINS every time the range changes (drag/level
-// switch/up-down). Counted only once at pick time, a level switch to the exact range of an existing pin would show no
-// banner and save a duplicate pin. The rule matches the server's selection_rel (a test compares them): equal (same
-// range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
-function rangeRelation(first, last, pinFirst, pinLast) {
-  if (last < pinFirst || pinLast < first) return null;
-  if (first === pinFirst && last === pinLast) return RANGE_REL.EQUAL;
-  if (pinFirst <= first && last <= pinLast) return RANGE_REL.INSIDE;
-  if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
-  return RANGE_REL.PARTIAL;
-}
-function overlapsFor(selection, pins) {
-  const out: PickOverlap[] = [];
-  if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
-  (pins || []).forEach((pin) => {
-    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== selection.file) return;
-    const rel = rangeRelation(selection.lo, selection.hi, pin.lo, pin.hi);
-    if (rel) out.push({ id: pin.id, lo: pin.lo, hi: pin.hi, rel: rel });
-  });
-  return out;
 }
 // One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
 // (the smallest id).
@@ -391,8 +364,8 @@ function overlapShort(rel, id) {
 // field. The range ladder and excerpt are hidden.
 function renderRegionComposer(selection) {
   $('#composer').classList.add('region');
-  // A selection made while cut off (offline.ts offlinePick) has this shape and no file yet: its lines are found when it
-  // is sent.
+  // A selection made while cut off (offline/flow.ts offlinePick) has this shape and no file yet: its lines are found
+  // when it is sent.
   $('#c-loc').textContent =
     (selection.name ? selection.name + ' · ' : '') + translateTemplate('쪽 {page} 영역', { page: selection.page });
   $('#c-loc').dataset.copy = (selection.name ? selection.name + ' ' : '') + '쪽 ' + selection.page;
@@ -485,9 +458,9 @@ function renderComposer() {
   $('#c-expand').textContent = SNIP_OPEN
     ? translate('원문 접기')
     : translate('원문 펼치기') + (lineCount > 1 ? ' · ' + translateTemplate('{n}줄', { n: lineCount }) : '');
-  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (excerpt.ts)
+  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (composer/view-excerpt.ts)
   drawComposerQuote(selection);
-  renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (suggest.ts)
+  renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (composer/flow-suggest.ts)
   drawSelectionPopover(); // the popover by the box shows the same location
   markChosenLines(shownChoice()); // the chosen lines on the Markdown surface (a re-place's candidate while it has one)
 }
@@ -553,7 +526,7 @@ function drawComposerQuote(selection: Selection | null) {
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet
 // collapses (the body comes forward again). The composer panel's pin kind (fix request / question). Reverts to fix
 // request on save or discard (the default for the next pin). The kind says what the note is, not who handles it: the
-// assignee does not follow it (mentions.ts).
+// assignee does not follow it (pins/input-mentions.ts).
 function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
@@ -564,7 +537,7 @@ function setKind(kind) {
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   });
-  roveSegment($('#c-kind')); // the group's one Tab stop is the kind now chosen (events.ts)
+  roveSegment($('#c-kind')); // the group's one Tab stop is the kind now chosen (platform/segments.ts)
   $('#note').placeholder =
     KIND_NEW === REQUEST_KIND.QUESTION ? '무엇이 궁금한지 적어 주세요' : '메모: 여기를 어떻게 고칠지 (비워도 됩니다)';
   syncQuestionHint($('#c-qhint'), $('#note').value, KIND_NEW);
@@ -645,7 +618,7 @@ function selectionSnapshot() {
 // selection, its box and the composer when they still belong to the pages on screen (same document and build; the box
 // if its page is still there). Never over a newer selection - that one wins. When only the note can come back (the PDF
 // changed), the status line says so. Returns whether anything came back. focus false: the note field does not take the
-// focus (a late undo's answer, save.ts).
+// focus (a late undo's answer, composer/flow-save.ts).
 function restoreSelection(snapshot, focus?: boolean) {
   if (!snapshot || COMPOSE.current || COMPOSE.picking || REPICK || !$('#composer').hidden) return false;
   const noteField = $('#note');
@@ -789,7 +762,6 @@ function discardSelection() {
   if (note) holdDraftUntil(note);
 } // the kept draft goes when the window does
 export {
-  COMPOSE,
   appendTarget,
   cancelSelection,
   composeFields,
@@ -800,7 +772,6 @@ export {
   focusHold,
   focusPlace,
   imeOpen,
-  overlapsFor,
   pick,
   syncQuestionHint,
   quoteInner,
@@ -813,4 +784,5 @@ export {
   setKind,
   shownQuote,
   toggleQuote,
+  COMPOSE,
 };

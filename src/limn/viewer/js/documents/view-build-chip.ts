@@ -9,26 +9,17 @@
 // timer, request and completion baseline; the error panel follows that visit. BUILD.cur is the running build's last
 // /api/build answer (null when none runs): the status line reads its phase and seconds. BUILD.unchanged is {pull} while
 // the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
-import {
-  $,
-  BUILD_ERR_BY,
-  BUILD_STATE,
-  DOC,
-  DOC_SEQ,
-  META,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  PULL_STATE,
-  SWITCHSEQ,
-  buildsFromSource,
-} from '../app/state.ts';
+import { BUILD_ERR_BY, DOC, DOC_SEQ, META, SWITCHSEQ, buildsFromSource } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { lineNote } from '../platform/notices.ts';
-import { withDocQuery } from './view-tabs.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { buildUnchanged } from './view-status.ts';
 import { hideBuildErr, refreshDoc, showBuildErr } from './flow-rebuild.ts';
+import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
+import { BUILD_STATE, PULL_STATE } from '../app/rules-tables.ts';
+import { withDocQuery } from './state.ts';
 const BUILD = {
   timer: null as ReturnType<typeof setInterval> | null,
   error: null as any,
@@ -148,7 +139,7 @@ async function pollBuildOnce() {
   } else if (seq !== BUILD.lastSeq) {
     // This tab's own rebuild that pulled nothing new is an answer to it (the 6 s line below); any other new build on
     // screen - a merge pulled, another session's rebuild, a figure or PDF that came again - is the document's update
-    // (updates.ts).
+    // (documents/flow-updates.ts).
     const mine = BUILD.asked && !(build.pull && build.pull.state === PULL_STATE.OK);
     BUILD.lastSeq = seq;
     BUILD.asked = false; // claimed before the await - so the same completion is never processed twice

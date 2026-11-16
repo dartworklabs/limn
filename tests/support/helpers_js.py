@@ -10,7 +10,7 @@ punctuators. It is not a parser: it does not check grammar (node --check does th
 starts and ends, so a brace in any literal or comment is never counted.
 
 On top of the tokens: the top-level function declarations of a script (top_level_functions, function_source), the
-names it uses (references), and the closed-set tables app/state.ts declares (closed_sets, closed_set_prelude - see
+names it uses (references), and the closed-set tables the table modules declare (closed_sets, closed_set_prelude - see
 docs/handbook/viewer.md §닫힌 값 표).
 
 Stdlib only, like the server; node is not needed to tokenize. A module's own text is TypeScript, which the tokenizer does
@@ -471,12 +471,32 @@ def _split_top(toks: list[Token], sep: str) -> list[list[Token]]:
     return parts
 
 
+_STATEMENT_WORDS = ("const", "let", "var", "function", "async", "class")
+
+
+def _after_blocks(toks: list[Token]) -> list[list[Token]]:
+    """toks cut before each statement keyword that follows a top-level closing brace: a declaration that ends in a block
+    (`function f() {...}`, `class C {...}`) has no `;`, so _split_top leaves the statement after it in the same piece."""
+    parts: list[list[Token]] = [[]]
+    depth = 0
+    for k, t in enumerate(toks):
+        closed = k > 0 and depth == 0 and toks[k - 1].kind == "punct" and toks[k - 1].text == "}"
+        if closed and t.kind == "ident" and t.text in _STATEMENT_WORDS:
+            parts.append([])
+        if t.kind == "punct" and t.text in ("(", "[", "{"):
+            depth += 1
+        elif t.kind == "punct" and t.text in (")", "]", "}"):
+            depth -= 1
+        parts[-1].append(t)
+    return parts
+
+
 def closed_sets(src: str) -> dict[str, ClosedSet]:
-    """The closed sets script src declares at its top level (app/state.ts §closed sets), by name in order: every
-    `const A=..., B=...;` statement whose declarators are all a plain string or a frozen table of plain strings. Any
-    other const statement is skipped whole."""
+    """The closed sets script src declares at its top level (docs/handbook/viewer.md §닫힌 값 표), by name in order:
+    every `const A=..., B=...;` statement whose declarators are all a plain string or a frozen table of plain strings.
+    Any other const statement is skipped whole."""
     out: dict[str, ClosedSet] = {}
-    for statement in _split_top(code(tokenize(src)), ";"):
+    for statement in (piece for chunk in _split_top(code(tokenize(src)), ";") for piece in _after_blocks(chunk)):
         if not statement or statement[0].text != "const":
             continue
         found: dict[str, ClosedSet] = {}

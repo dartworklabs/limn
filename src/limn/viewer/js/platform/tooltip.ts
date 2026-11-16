@@ -1,7 +1,11 @@
 // ------------------------------------------------ Tooltip
-import { $, LAST_POINTER, LAST_TOUCH_AT, NO_HOVER_QUERY, setLastPointer, setLastTouchAt } from '../app/state.ts';
-import { typingNow } from '../layout/flow.ts';
+import { LAST_POINTER, LAST_TOUCH_AT, setLastPointer, setLastTouchAt } from '../app/state.ts';
 import { MARK_HIDDEN } from '../pins/flow-list.ts';
+import { $, typingNow } from './dom.ts';
+// A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
+// mouseover, which would leave the description stuck over the list. Only long-press is used.
+const NO_HOVER_QUERY = matchMedia('(hover:none)');
+
 const TIP = $('#tip');
 let tipTimer = undefined as ReturnType<typeof setTimeout> | undefined,
   armedTipElement = null as HTMLElement | null,
@@ -50,8 +54,8 @@ function tipFollow() {
 }
 // Shows an element's description over it. The box is translate="no": a description is already in the UI language (the
 // translator rewrote the attribute, or the code drew it with translate()), and one that quotes a note ('#38 · 완료')
-// must not be rewritten again. A mark badge a cover is over now (list.ts MARK_HIDDEN, markCoverSkip) shows none: it
-// would float over the cover.
+// must not be rewritten again. A mark badge a cover is over now (pins/flow-list.ts MARK_HIDDEN, markCoverSkip) shows
+// none: it would float over the cover.
 function showTip(element) {
   if (MARK_HIDDEN.has(element)) return;
   showTipText(element, element.dataset.tip || '');
@@ -168,7 +172,7 @@ document.addEventListener('mouseover', (event) => {
   armTip(target.closest ? target.closest('[data-tip]') : null);
 });
 // Puts the focus back on an element the page drew again in place of the control that had it (keepSegmentFocus,
-// events.ts). It is no new focus: after a key it shows the element's description as the keyboard's focus does, after a
+// main.ts). It is no new focus: after a key it shows the element's description as the keyboard's focus does, after a
 // press it shows none. A rung chosen with the mouse is drawn again once more when the excerpt's lines come back
 // (excerptFetch); by then the pointer has gone elsewhere, and a box the focus given back armed would stand over the
 // range caption and the overlap's buttons.
@@ -196,7 +200,7 @@ document.addEventListener('focusin', (event) => {
   }
   armTip(target.closest ? target.closest('[data-tip]') : null);
 });
-// Esc closes a showing box first (the key dispatch, events.ts); one still waiting to show (armTip's 300ms) goes with
+// Esc closes a showing box first (the key dispatch, main.ts); one still waiting to show (armTip's 300ms) goes with
 // any Esc, so it never opens after the key that dismissed it. A box over a control in an open sheet, menu or help (a
 // modal dialog) takes its Esc here, before the dialog: the key dispatch leaves an open dialog's Esc to the browser,
 // whose close request would take the box, the sheet and the focused control at once. Its default is prevented so the
@@ -219,11 +223,11 @@ document.addEventListener('keydown', tipEscKey, true);
 // (so the button doesn't fire). Over a page image, quick selection (long-press = that paragraph) takes priority, so
 // only badges (.mark [data-act=mark-jump]) apply. Input fields keep their paste menu. A control that holds its hover
 // and focus box back for a while - a page verdict line's words, [판정 취소] and earlier link while its save chip stands
-// or its reason popover is open, its armed word (verdict.ts) - carries the same description as data-tip-press, which
-// only a long press shows. Without it a long press there would find no description, so nothing would swallow its
-// release and the click would take the line's verdict back. A long press is the same press in every state. While a long
-// press's description is up the page is html.tip-press: a verdict line's context over its words, which says the same,
-// steps aside for it (verdict-reason.css).
+// or its reason popover is open, its armed word (verdict/flow-line.ts) - carries the same description as
+// data-tip-press, which only a long press shows. Without it a long press there would find no description, so nothing
+// would swallow its release and the click would take the line's verdict back. A long press is the same press in every
+// state. While a long press's description is up the page is html.tip-press: a verdict line's context over its words,
+// which says the same, steps aside for it (verdict-reason.css).
 let PRESS = null as { el: HTMLElement; x: number; y: number; t: ReturnType<typeof setTimeout>; shown?: boolean } | null,
   SWALLOW_CLICK = 0,
   TIP_HOLD = 0; // TIP_HOLD: the SWALLOW_CLICK a long press's release armed (0 for none)
@@ -471,4 +475,5 @@ export {
   showTipText,
   armedTipElement,
   tipFollow,
+  NO_HOVER_QUERY,
 };

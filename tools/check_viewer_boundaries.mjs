@@ -46,8 +46,9 @@ export const ROLES = {
 
 /** The features, bottom to top, and what each owns. Platform and entry are not features but the two ends. */
 export const FEATURES = {
-  platform: 'business-agnostic mechanisms: DOM markup, messages and language, requests, preferences, notices, tooltips',
-  app: "the page's shared state and the closed value tables (app/state.ts), until each value moves to the feature that owns it",
+  platform:
+    'business-agnostic mechanisms: DOM lookups and markup, messages and language, requests, preferences, notices, tooltips, segmented controls, and the closed value tables they compare',
+  app: "the page's shared state (app/state.ts), the app's closed value tables (app/rules-tables.ts), the pure readers of the server's records and the facts about people, until each value moves to the feature that owns it",
   layout: 'the frame: widths, the panel and sheet, their gestures',
   documents: 'which document is open, its meta and builds, the status line, switching and refreshing',
   pdf: "a PDF document's pages: opening, drawing, zoom, outline, page list, search, selection",

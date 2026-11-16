@@ -4,7 +4,7 @@ comments, and the closed-set tables the viewer compares states against.
 The parts under src/limn/viewer/js share one classic-script scope (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때), so a
 function nothing calls, a function declared twice, or a statement pasted after a `//` comment all parse and silently do
 the wrong thing. tests/support/helpers_js.py tokenizes the parts (strings, template literals, regexes, comments), which is what
-makes these checks exact. The closed sets (app/state.ts: PIN_STATE, BUILD_STATE, ...) carry values that come from the API,
+makes these checks exact. The closed sets (platform/tables.ts, app/rules-tables.ts: PIN_STATE, ...) carry values that come from the API,
 so each is compared with the server's own Literal, tuple or producer (docs/handbook/viewer.md §닫힌 값 표).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_source.py
@@ -223,6 +223,12 @@ class FunctionExtraction(unittest.TestCase):
         self.assertTrue(body.endswith("}"))
         self.assertIn(sq("function card(pin){"), sq(body))
         self.assertIn("${head}${body}</div>`;\n}", body)
+
+    def test_a_table_right_after_a_block_is_still_a_closed_set(self):
+        """A function or class declaration ends in its block, with no ';': the closed set declared right after one is
+        read all the same (a moved declaration can land a table there), and a const that is no closed set is not."""
+        src = "function f() { return 1; }\nconst A = Object.freeze({ X: 'x' });\nclass C { m() {} }\nconst B = 'b';\nconst D = f();"
+        self.assertEqual(list(helpers_js.closed_sets(src)), ["A", "B"])
 
     def test_the_tables_a_function_reads_come_with_it(self):
         """A pulled function that reads a closed set gets it as a `var` before its text, so it runs in a bare harness;

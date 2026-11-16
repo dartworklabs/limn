@@ -1,11 +1,17 @@
 // ------------------------------------------ Vector rendering: drawing the pages (docs/handbook/viewer.md §벡터 렌더링)
-// The pages of the PDF pdf-open.ts opened, drawn onto canvases one job at a time: pages within the viewport first, each
-// page's canvas sized to the screen, a detail canvas over a capped one, and every canvas released when its page scrolls
-// out of reach.
-import { $, $$ } from '../app/state.ts';
+// The pages of the PDF pdf/flow-open.ts opened, drawn onto canvases one job at a time: pages within the viewport first,
+// each page's canvas sized to the screen, a detail canvas over a capped one, and every canvas released when its page
+// scrolls out of reach.
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { VECTOR_PDF, VECTOR_DETAIL_MARGIN, VECTOR_KEEP_MARGIN, VECTOR_PIXEL_CAP, forgetVectorDocument } from './api.ts';
+import {
+  VECTOR_PDF,
+  VECTOR_DETAIL_MARGIN,
+  VECTOR_KEEP_MARGIN,
+  VECTOR_PIXEL_CAP,
+  forgetVectorDocument,
+} from './flow-open.ts';
 import { searchOffer } from './flow.ts';
+import { $, $$ } from '../platform/dom.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
 function closeVectorDocument(doc) {
   if (!doc) return;

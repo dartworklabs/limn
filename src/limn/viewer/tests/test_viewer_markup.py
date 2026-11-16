@@ -75,7 +75,7 @@ def markup_misuse(sources: dict[str, str]) -> list[str]:
             nxt = toks[k + 1] if k + 1 < len(toks) else None
             if t.text == "Html" and prev == "new" and name != MARKUP_PART:
                 found.append("%s: new Html outside platform/markup.ts" % name)
-            if t.text == "esc" and prev not in (".", "?.", "const") and name != MARKUP_PART:  # app/state.ts declares it
+            if t.text == "esc" and prev not in (".", "?.", "const") and name != MARKUP_PART:  # platform/dom.ts has it
                 found.append("%s: esc outside platform/markup.ts" % name)
             if t.text != "html" or prev in (".", "?.", "function"):
                 continue

@@ -6,22 +6,15 @@
 // re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the
 // page, so they fall back into place automatically once the page width is fit.
 import {
-  $,
   BAND,
   BAND_IN,
   BAND_MODE,
-  BAND_STEP,
   IS_MAC,
   LAYOUT,
-  LAYOUT_BAND,
-  LAYOUT_MODE,
   META,
   MID_OVERLAY,
   COARSE_POINTER_QUERY,
   REDUCED_MOTION_QUERY,
-  NOTICE_DOT,
-  NOTICE_KIND,
-  NOTICE_TOPIC,
   PINS,
   REPICK,
   REPLY,
@@ -52,17 +45,20 @@ import {
   applySideWidth,
   renderSizeSegment,
   setSheetKept,
-} from './state.ts';
+} from './flow-panel-size.ts';
 import { autoFitWidth, drawZoom } from '../pdf/view-pages.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { SEARCH } from '../pdf/flow.ts';
 import { syncBackLayer } from './input.ts';
 import { keepReadingSpot } from '../markdown/view.ts';
-import { COMPOSE, renderComposer } from '../composer/flow-pick.ts';
+import { renderComposer, COMPOSE } from '../composer/flow-pick.ts';
 import { stickSoon } from '../verdict/flow-line.ts';
 import { drawPins, fitBarWords, updateReviewCount } from '../pins/flow-list.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import { restoreAnchor, syncBuildErrChip, topAnchor } from '../documents/flow-rebuild.ts';
+import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
+import { $, typingNow } from '../platform/dom.ts';
+import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 // The band for a width x height CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the
 // width only: phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch
 // reads the height and the orientation too, first match wins: under 600px wide a phone at any height; under 480px high
@@ -213,7 +209,7 @@ function applySide() {
   body.classList.toggle('side-open', open || !!(SIDE_SLIDE && SIDE_SLIDE.kind === 'closing'));
   body.classList.toggle('composing', composing);
   if (!composing) setSheetKept(false);
-  // The phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.ts).
+  // The phone sheet's composing lift; the tablet sheet's is tabletLift (layout/flow-panel-size.ts).
   body.classList.toggle('sheet-up', composing && !SHEET_KEPT && BAND === LAYOUT_BAND.PHONE);
   // The toggles' names: the review count only where its pill sits inside them (the wide nav bar); every compact bar's
   // [핀 N] names what it shows first and leaves the count to its own half [검토 M].
@@ -564,7 +560,7 @@ document.addEventListener('keydown', holdCaret, true);
 // caret there as in a writable field - five lines a page - and lines it up with the scrollers outside as well, so the
 // pane would move from the middle of the field on either key. So their default is dropped there too, and the field
 // scrolls by Chromium's own page step (7/8 of what it shows), the caret where it stands.
-// outline.ts's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host.
+// pdf/view-outline.ts's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host.
 const PAGE_KEYS = new Set(['PageUp', 'PageDown']);
 // Chromium's page scroll: 7/8 of what the scroller shows, in whole pixels.
 const PAGE_STEP = 0.875;
@@ -616,17 +612,6 @@ function fieldScrollKey(event: KeyboardEvent) {
   event.preventDefault();
 }
 document.addEventListener('keydown', fieldScrollKey, true);
-// Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
-// keyboard is up.
-function typingNow() {
-  const focused = document.activeElement as HTMLInputElement;
-  if (!focused || focused === document.body) return false;
-  if (focused.isContentEditable || focused.tagName === 'TEXTAREA') return true;
-  return (
-    focused.tagName === 'INPUT' &&
-    !/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(focused.type || '')
-  );
-}
 // The panel's text field that has focus (a note, an edit or a reply), or null.
 function panelField() {
   const focused = document.activeElement;
@@ -689,10 +674,10 @@ function keepFieldInView() {
   field.scrollIntoView({ block: 'nearest' });
   if (field === $('#note')) noteRowInView();
 }
-// The composer's verdict row (verdict.ts) sits right under the note: with the note focused on a touch screen the panel
-// scrolls on until the row clears the save row too - only as far as the field being typed in stays whole under what is
-// above it: the location line stuck at the top (a compact sheet or panel), else the panel's own top with the location
-// line itself in view. A row that cannot fit beside the note stays where it is.
+// The composer's verdict row (verdict/flow-line.ts) sits right under the note: with the note focused on a touch screen
+// the panel scrolls on until the row clears the save row too - only as far as the field being typed in stays whole
+// under what is above it: the location line stuck at the top (a compact sheet or panel), else the panel's own top with
+// the location line itself in view. A row that cannot fit beside the note stays where it is.
 function noteRowInView() {
   const row = $('#c-verdict-row');
   if (row.hidden || !row.getClientRects().length) return;
@@ -897,7 +882,7 @@ document.fonts.addEventListener('loadingdone', () => {
 });
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
-// the Trash, in cards.ts).
+// the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
   $(dialogSelector).addEventListener('click', (event) => {
     const dialog = event.currentTarget;
@@ -940,5 +925,4 @@ export {
   setSide,
   showSheet,
   toggleSide,
-  typingNow,
 };

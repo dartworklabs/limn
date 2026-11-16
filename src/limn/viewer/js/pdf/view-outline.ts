@@ -1,31 +1,23 @@
 // ------------------------------------------------ The outline: reading it, the section strip, picks and the filter
-import {
-  $,
-  BAND,
-  DOC,
-  LAYOUT_BAND,
-  META,
-  REDUCED_MOTION_QUERY,
-  imeKey,
-  isFigureKind,
-  scrollMotion,
-} from '../app/state.ts';
+import { BAND, DOC, META, REDUCED_MOTION_QUERY, imeKey, isFigureKind, scrollMotion } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { docInfo, withDocQuery } from '../documents/view-tabs.ts';
 import { setViewMode } from '../revisions/flow.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
 import { arrivalWatch, goPage, jumpOnItsWay } from './view-pages.ts';
-import { VECTOR_PDF } from './api.ts';
+import { VECTOR_PDF } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
-import { isMarkdownDoc, goToHeading, updateMarkdownStrip } from '../markdown/view.ts';
+import { goToHeading, updateMarkdownStrip } from '../markdown/view.ts';
 import { glideTo } from '../verdict/flow-line.ts';
 import { popoverFreeArea } from '../composer/view-selection-popover.ts';
 import { topAnchor } from '../documents/flow-rebuild.ts';
+import { $ } from '../platform/dom.ts';
+import { LAYOUT_BAND } from '../app/rules-tables.ts';
+import { isMarkdownDoc, docInfo, withDocQuery } from '../documents/state.ts';
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
-// Markdown heading (md-surface.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
+// Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
 type OutlineEntry = {
   title: string;
   page: number;
@@ -782,8 +774,8 @@ function updateSectionStrip() {
 // field), Enter chooses (the row is a button), and Esc goes back to the field - and is not also taken by what Esc
 // closes (the overlay panel, the navigation sheet). An Enter or an arrow that an input method is composing with (Korean
 // typing commits its last syllable with Enter) is the method's, not ours. A key that moves the focus here makes the
-// keyboard the input the focus ring answers (html[data-input], tooltip.ts): a field is clicked with the mouse and typed
-// in, and the first ↓ must show where the focus went.
+// keyboard the input the focus ring answers (html[data-input], platform/tooltip.ts): a field is clicked with the mouse
+// and typed in, and the first ↓ must show where the focus went.
 /** @returns the result rows (the unread-entries note is not one) */
 function outlineRows(box: HTMLElement): HTMLElement[] {
   return [...box.querySelectorAll('button[data-act="outline-page"]')] as HTMLElement[];
@@ -907,9 +899,9 @@ $('#ns-outline-search').addEventListener('input', () => {
       handled();
       if (OUTLINE_FOLLOW_DUE) outlineFollowLater();
     });
-  // A press ends the keyboard's hold (html[data-input], tooltip.ts) without a focusout when it lands where a press
-  // takes no focus: the pages leave it on the row. Not at once: this runs first of all, and a press in the panel or on
-  // its grip must hold before it looks.
+  // A press ends the keyboard's hold (html[data-input], platform/tooltip.ts) without a focusout when it lands where a
+  // press takes no focus: the pages leave it on the row. Not at once: this runs first of all, and a press in the panel
+  // or on its grip must hold before it looks.
   document.addEventListener(
     'pointerdown',
     () => {

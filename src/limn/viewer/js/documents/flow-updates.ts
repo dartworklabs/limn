@@ -8,36 +8,36 @@
 //   (localStorage limnSeen), so a reload, another document or a visit days later still says what changed since;
 // - others' new pins (a co-author's, an agent's), one message per document, [보기];
 // - this page is older than the Limn the server runs now (GET /api/version): a status item with [새로 고침]
-//   (status.ts);
-// - back after a while, what came meanwhile is said as one message (notices.ts digestBegin, polling.ts).
+//   (documents/view-status.ts);
+// - back after a while, what came meanwhile is said as one message (platform/notices.ts digestBegin,
+//   documents/flow-polling.ts).
 import {
-  $$,
   DOC,
   DOCS,
   META,
   META_BY,
-  NOTICE_DOT,
-  NOTICE_KIND,
   REPLY,
   REPLY_DRAFT,
   SWITCHSEQ,
-  VIEW_MODE,
   isFigureKind,
   isViewOnlyKind,
   rendersInBrowser,
 } from '../app/state.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, josaName } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from '../platform/notices.ts';
-import { docInfo, withDocQuery, pdoc } from './view-tabs.ts';
 import { REVISION_VIEW, REVISION_PAGE, loadRevisions, setViewMode } from '../revisions/flow.ts';
 import { switchDoc } from './flow-switch.ts';
 import { notifyCursor, openPinFromLink } from './flow-notification.ts';
 import { drawStatus } from './view-status.ts';
-import { MARKDOWN_VIEW, isMarkdownDoc, lineLeaves, showLines } from '../markdown/view.ts';
-import { josaName, who } from '../pins/view-card-parts.ts';
+import { MARKDOWN_VIEW, lineLeaves, showLines } from '../markdown/view.ts';
 import { replyNote } from '../pins/flow-reply.ts';
 import { editDirty } from '../pins/flow-edit.ts';
+import { NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
+import { $$ } from '../platform/dom.ts';
+import { VIEW_MODE } from '../app/rules-tables.ts';
+import { who } from '../app/state-people.ts';
+import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
 const UPDATE_STATE = {
   moved: new Map() as Map<string, { moved: Set<number>; lost: Set<number> }>,
   lines: new Map() as Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>,
@@ -118,7 +118,7 @@ function verAfter(version: string, other: string): boolean {
     ? versionTime > otherTime
     : Number(versionBuild[2] || 0) > Number(otherBuild[2] || 0);
 }
-// Whether this device was here before: it has a seen record or an event cursor (notify.ts).
+// Whether this device was here before: it has a seen record or an event cursor (documents/flow-notification.ts).
 function visitedBefore() {
   return !!seenStore().v || notifyCursor() !== null;
 }
@@ -549,9 +549,9 @@ function forgetUpdate(doc: string) {
   UPDATE_STATE.seenAt.set(doc, Date.now());
   if (UPDATE_STATE.lines.delete(doc)) tintChangedLines();
 }
-// A source or a build is changing (polling.ts): for UPDATE_EXPECT_MS its pins' moves wait for its document's update
-// message. fresh: a source changed now - the wait starts now, so a message seen before it does not end it
-// (countPinMove).
+// A source or a build is changing (documents/flow-polling.ts): for UPDATE_EXPECT_MS its pins' moves wait for its
+// document's update message. fresh: a source changed now - the wait starts now, so a message seen before it does not
+// end it (countPinMove).
 function expectUpdate(fresh?: boolean) {
   const now = Date.now();
   if (fresh || UPDATE_STATE.expect < now) UPDATE_STATE.expectAt = now;
@@ -579,8 +579,8 @@ function countPinMove(pin: Pin, lost: boolean): boolean {
 } // on the line, gathered or folded: it says the move there
 // The changes view on the commits the message named, on `doc`: its source diff of base (the last seen commit) → top
 // (the newest it named - the shown build's, not the checkout's newest: a checkout ahead of the pages, or a commit come
-// since the message, is not in it), the list painting just them (revisions.ts REVISION_VIEW.want); without base, the
-// view as it opens. Another document is switched to first.
+// since the message, is not in it), the list painting just them (revisions/flow.ts REVISION_VIEW.want); without base,
+// the view as it opens. Another document is switched to first.
 function openUpdateRange(doc: string, base: string, top?: string) {
   const go = () => {
     REVISION_VIEW.want = { base, top: top || '' };
@@ -600,7 +600,7 @@ function openUpdateRange(doc: string, base: string, top?: string) {
 }
 
 // ---------------- A drawn document's changed lines
-// The source of drawn document `doc` was drawn (md-surface.ts buildMarkdownDoc); before: the lines it replaced on
+// The source of drawn document `doc` was drawn (markdown/view.ts buildMarkdownDoc); before: the lines it replaced on
 // screen (null on the visit's first draw). The lines that differ from the base - the lines before the change not yet
 // seen began, kept while its message stands - are tinted (md-upd) while that message stands, and the message says how
 // many places and goes to them. A later change before it is seen is compared with that base again, not with the lines
@@ -630,8 +630,8 @@ function compareRedrawnSource(doc: string, before: string[] | null, now: string[
   }
   if (!same) groupRedraw('upd:' + doc);
 } // its message says the places, on the line, gathered or folded
-// Tints the changed lines of the document on screen (after every draw of it, md-surface.ts showDocumentNode), and only
-// those.
+// Tints the changed lines of the document on screen (after every draw of it, markdown/view.ts showDocumentNode), and
+// only those.
 function tintChangedLines() {
   $$('#md .md-upd').forEach((line) => line.classList.remove('md-upd'));
   const changed = UPDATE_STATE.lines.get(DOC || '');
@@ -654,8 +654,9 @@ function goToNextChange(doc: string) {
 }
 
 // ---------------- Others' new pins
-// Each pin snapshot (list.ts applyPinLists): pins others made since the highest number this tab - or, on the first
-// snapshot, this device (limnSeen.pin) - had seen, one message per document. The first visit of a device says nothing.
+// Each pin snapshot (pins/flow-list.ts applyPinLists): pins others made since the highest number this tab - or, on the
+// first snapshot, this device (limnSeen.pin) - had seen, one message per document. The first visit of a device says
+// nothing.
 function noteNewPins(rows: Pin[]) {
   const me = (META && META.me && META.me.login) || '',
     max = (rows || []).reduce((highest, pin) => Math.max(highest, pin.id), 0);
@@ -757,11 +758,11 @@ function newPinsView(news: any) {
 
 // ---------------- Limn itself was updated
 // The page's version (the [더보기] foot's 'v0.4.51', filled in when the server made the page) and the server's (GET
-// /api/version, asked by polling.ts after a lost connection comes back, on return and every VERSION_EVERY_MS): when
-// they differ, this tab runs the old viewer against a new server, and the status line says so with [새로 고침] until it
-// reloads. A call while one is out (busy) is left to it, and asked again once it is answered (again): the one out may
-// fail, or have been answered by the process a restart has just replaced - the return after a lost connection must not
-// go unasked.
+// /api/version, asked by documents/flow-polling.ts after a lost connection comes back, on return and every
+// VERSION_EVERY_MS): when they differ, this tab runs the old viewer against a new server, and the status line says so
+// with [새로 고침] until it reloads. A call while one is out (busy) is left to it, and asked again once it is answered
+// (again): the one out may fail, or have been answered by the process a restart has just replaced - the return after a
+// lost connection must not go unasked.
 const VERSION = { page: '', server: '', at: 0, busy: false, again: false };
 const VERSION_EVERY_MS = 60000;
 function versionDue() {

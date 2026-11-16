@@ -1,9 +1,9 @@
+import { ICONS, esc } from './dom.ts';
 // -------------------------------------- Markup: html``, lucideIcon() and setHtml(), the one way the viewer writes HTML
 // docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so
 // a note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
 // and lucideIcon()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds every part to
 // both.
-import { ICONS, esc } from '../app/state.ts';
 
 // Markup the viewer built: html`` escaped every value in it, or lucideIcon() drew it from the bundled icon table.
 // toString() gives the markup text (for tests and debugging); a string made from it is no Html, so setHtml() refuses

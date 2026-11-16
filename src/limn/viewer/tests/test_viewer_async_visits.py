@@ -48,7 +48,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=1;
                 const lost={hidden:true};
@@ -95,7 +95,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=2;
                 const lost={hidden:false};

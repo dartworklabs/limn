@@ -11,13 +11,13 @@
 // - If pdf.js or the PDF fails to load or render, the canvas is torn down, falling back to the PNG <img>, and the
 //   status chip (#vec-chip) reports it.
 // No text-selection layer is added: dragging selects a region, and a text layer would conflict with it.
-import { $, DOC, META } from '../app/state.ts';
+import { DOC, META } from '../app/state.ts';
 import { translateTemplate } from '../platform/i18n.ts';
-import { withDocQuery } from '../documents/view-tabs.ts';
 import { loadOutline, outlineForget } from './view-outline.ts';
 import { cancelVectorDraw, closeVectorDocument, failVector, scheduleVectorDraw } from './view-draw.ts';
 import { searchClear, searchOffer } from './flow.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
+import { $ } from '../platform/dom.ts';
+import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 const PDFJS_VERSION = '__PDFJS_VERSION__';
 const VECTOR_PIXEL_CAP = 16777216,
   VECTOR_KEEP_MARGIN = '150% 0px',
@@ -112,8 +112,8 @@ async function openVectorDocument() {
     key = vectorCacheKey(DOC, build);
   let doc = VECTOR_PDF.cache.get(key);
   cancelVectorDraw();
-  // Another document or build: its search starts empty (search.ts), and the outline and page names of the document
-  // left behind are not the new one's (outline.ts).
+  // Another document or build: its search starts empty (pdf/flow.ts), and the outline and page names of the document
+  // left behind are not the new one's (pdf/view-outline.ts).
   searchClear();
   outlineForget();
   if (!doc) {

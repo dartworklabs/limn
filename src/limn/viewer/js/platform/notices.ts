@@ -11,32 +11,21 @@
 // - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule
 //   2).
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
-import {
-  $,
-  EVENT_TYPE,
-  NOTICE_DOT,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  NOTICE_PLACE,
-  NOTICE_TOPIC,
-  REPLY,
-  REVIEW_ALL,
-  SIDE_OPEN,
-  TIP_TEXT,
-} from '../app/state.ts';
+import { REPLY, REVIEW_ALL, SIDE_OPEN } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from './markup.ts';
-import { translate, translateMessage } from './i18n.ts';
+import { translate, translateMessage, TIP_TEXT } from './i18n.ts';
 import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
 import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from '../documents/view-status.ts';
 import { searchToPage } from '../pdf/flow.ts';
-import { saveButtonLabel } from '../composer/api.ts';
+import { saveButtonLabel } from '../composer/flow-save.ts';
 import { READING_LINE_PAGE, pageVerdictsOn } from '../verdict/flow-line.ts';
 import { focusLine, isReasonField } from '../verdict/flow-reason.ts';
 import { dropBareDayLines, placeRow } from '../pins/flow-list.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import type { Html } from './markup.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from './tables.ts';
+import { $ } from './dom.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 
 // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
 const NOTICE_MS = 6000;
@@ -223,7 +212,8 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
   });
   if (notice.back) LINE.push(notice);
   else if (notice.group) LINE.splice(newsSlot(), 0, notice);
-  else LINE.unshift(notice); // news: behind the undos (newsSlot); another document's behind all (updates.ts)
+  // news: behind the undos (newsSlot); another document's behind all (documents/flow-updates.ts)
+  else LINE.unshift(notice);
   lineCap();
   if (notice.dot) document.body.classList.add('dot-' + notice.dot);
   drawStatus();
@@ -561,7 +551,7 @@ function noticeFocusBack(notice: Notice, anyDoc?: boolean): () => void {
   };
 }
 // How long an action's request may go unanswered before its message says so (noticeLate) - the bound a page line's
-// take-back has too (verdict.ts CANCEL_ANSWER_WAIT). A let: the tests shorten it.
+// take-back has too (verdict/flow-line.ts CANCEL_ANSWER_WAIT). A let: the tests shorten it.
 let NOTICE_ACT_WAIT = 8000;
 // [되돌리기], [다시 시도], [보기]… on message `number`: the message goes and its action runs. An action that sends a
 // request (act.wait: restoring, undoing a close, a delete, a save or an append) keeps its message, busy and with its
@@ -570,7 +560,8 @@ let NOTICE_ACT_WAIT = 8000;
 // answer, whenever it comes, is still taken once. A late one leaves the focus the person has put somewhere since the
 // press (a focusin anywhere but the message's own button: a redraw giving the focus back to that button, or the focus
 // falling to nothing as the button goes - the action's own redraw may take it away before its answer resolves - is not
-// a move): then back() does not run, and the action is told (run.away(), save.ts) so that it takes no focus either.
+// a move): then back() does not run, and the action is told (run.away(), composer/flow-save.ts) so that it takes no
+// focus either.
 function noticeAct(number: number) {
   const notice = NOTICES.get(number);
   if (!notice || notice.busy) return;
@@ -578,7 +569,7 @@ function noticeAct(number: number) {
   if (action && action.stay) {
     action.fn();
     return;
-  } // an action that leaves the message standing (the next changed place, updates.ts)
+  } // an action that leaves the message standing (the next changed place, documents/flow-updates.ts)
   const back = noticeFocusBack(notice);
   if (!action || !action.wait) {
     endNotice(notice, true);
@@ -617,9 +608,9 @@ function noticeAct(number: number) {
     });
 }
 // noticeAct's question for an action run without its watch - a failure's [다시 시도], which is no waiting action,
-// running an undo again (save.ts): away() = its answer is late (NOTICE_ACT_WAIT) and the person has put the focus
-// somewhere since. The watch starts once the press's own work is done (its message going, back()), so the focus that
-// work moves is not counted.
+// running an undo again (composer/flow-save.ts): away() = its answer is late (NOTICE_ACT_WAIT) and the person has put
+// the focus somewhere since. The watch starts once the press's own work is done (its message going, back()), so the
+// focus that work moves is not counted.
 function focusRun(): NoticeRun & { stop: () => void } {
   const at = Date.now();
   let moved = false,
@@ -660,7 +651,8 @@ function noticeLate(notice: Notice, action: NoticeAct) {
           : '되돌리기의 답이 늦습니다',
     ) +
     ' · ' +
-    noticeText(notice); // every action that waits is one of the three (the review rows' [다시 시도], review-pick.ts)
+    // every action that waits is one of the three (the review rows' [다시 시도], pins/flow-review-pick.ts)
+    noticeText(notice);
   const index = notice.place === NOTICE_PLACE.LINE && NOTICES.has(notice.n) ? LINE.indexOf(notice) : -1;
   if (index < 0) {
     const lateNotice = lineNote(what, NOTICE_KIND.WARN, null, { literal: true, source: NOTICE_LATE_SRC + notice.n });
@@ -897,7 +889,7 @@ function gatheredLess(group: string, keys: string[]) {
 }
 // Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a
 // gathered line not yet unfolded (which then says what it holds, digestRetitle) - for what its view reads besides its
-// data (a document's moved pins and changed lines, updates.ts). Whether it stands anywhere.
+// data (a document's moved pins and changed lines, documents/flow-updates.ts). Whether it stands anywhere.
 function groupRedraw(group: string): boolean {
   const entry = GROUPS.get(group);
   if (!entry) return false;
@@ -1024,13 +1016,13 @@ function regroup(
 }
 
 // ---------------- Gathering while a person was away (docs/handbook/viewer.md §새 소식)
-// Back after a while (the tab hidden or the device asleep, polling.ts) or opening the viewer again (boot), what the
-// first polls say is gathered for a moment (digestBegin … digestEnd) and said as one message: '자리를 비운 사이 (38분)
-// — 본문이 바뀌었습니다 · 나를 부름 2 · 검토 대기 3', with [펼치기], which puts each on the line as it would have come.
-// One gathered thing alone is said as itself. Only news is gathered - a message of a group (groupNote: a document's
-// update, new pins, an event addressed to me, the list comparison) - and its dots are put on at once. The screen's own
-// messages (a restored draft, a hint), an error, an undo, a message with an error source or one that asks not to
-// (digest:false) are said as they come - an error where it can be seen now (rule 1).
+// Back after a while (the tab hidden or the device asleep, documents/flow-polling.ts) or opening the viewer again
+// (boot), what the first polls say is gathered for a moment (digestBegin … digestEnd) and said as one message: '자리를
+// 비운 사이 (38분) — 본문이 바뀌었습니다 · 나를 부름 2 · 검토 대기 3', with [펼치기], which puts each on the line as it
+// would have come. One gathered thing alone is said as itself. Only news is gathered - a message of a group (groupNote:
+// a document's update, new pins, an event addressed to me, the list comparison) - and its dots are put on at once. The
+// screen's own messages (a restored draft, a hint), an error, an undo, a message with an error source or one that asks
+// not to (digest:false) are said as they come - an error where it can be seen now (rule 1).
 let DIGEST = null as {
   title: string;
   items: Map<string, any[]>;
@@ -1142,8 +1134,8 @@ function digestNote(title: string, items: any[][]) {
   }
 }
 // A gathered line went other than by [펼치기] (its [x]: seen): the groups it held end with it - each of their messages
-// has gone, so what a group's end checks (no other new-pins message, updates.ts) sees them gone - and then what each
-// held for its end runs, as seen.
+// has gone, so what a group's end checks (no other new-pins message, documents/flow-updates.ts) sees them gone - and
+// then what each held for its end runs, as seen.
 function digestClosed(items: any[][], seen: boolean) {
   items.forEach((item) => {
     const group = (item[3] || {}).group,
@@ -1462,7 +1454,8 @@ function chipsClearOfBar() {
       offerToLine(notice);
   });
 }
-// A page verdict line's chip with no room to stand in (verdict.ts placeLineChips) takes its undo to the status line.
+// A page verdict line's chip with no room to stand in (verdict/flow-line.ts placeLineChips) takes its undo to the
+// status line.
 function chipAway(chip: HTMLElement) {
   NOTICES.forEach((notice) => {
     if (notice.el === chip && notice.place === NOTICE_PLACE.CHIP) offerToLine(notice);

@@ -6,16 +6,11 @@
 // page (frac 0), how far under it the page's top stands. y and h: where that page's top stood under the scroller's top
 // and its height, so restoreAnchor can tell a re-fit that moved nothing.
 import {
-  $,
-  $$,
   BUILD_ERR_BY,
-  BUILD_STATE,
   DOC,
   META,
   META_BY,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
   SIDE_OPEN,
   SWITCHSEQ,
   rendersInBrowser,
@@ -25,18 +20,21 @@ import { html, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { announce, lineNote, sourceOk } from '../platform/notices.ts';
-import { withDocQuery } from './view-tabs.ts';
 import { loadRevisions } from '../revisions/flow.ts';
 import { drawMeta } from './flow-boot.ts';
 import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
 import { buildDoc, pageSrc, reapplyScale } from '../pdf/view-pages.ts';
-import { openVectorDocument } from '../pdf/api.ts';
+import { openVectorDocument } from '../pdf/flow-open.ts';
 import { releaseAllVectorPages } from '../pdf/view-draw.ts';
 import { buildMarkdownDoc } from '../markdown/view.ts';
 import { pageUnderReadingLine } from '../verdict/flow-line.ts';
 import { isComposingNow, afterComposition } from '../verdict/flow-reason.ts';
 import { setBuildReadingPage } from '../verdict/view-panel.ts';
 import { loadPins } from '../pins/flow-list.ts';
+import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { BUILD_STATE } from '../app/rules-tables.ts';
+import { withDocQuery } from './state.ts';
 function topAnchor(offset?) {
   const scroller = $('#left'),
     scrollerTop = scroller.getBoundingClientRect().top,
@@ -195,9 +193,9 @@ function showBuildErr(build: any, say?: boolean) {
   panel.hidden = false;
   syncBuildErrChip();
 }
-// The error sources of a document's rebuild (notices.ts sourceEntry): the requests rebuild() sends, plain and forced
-// (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears it, and
-// so does a later build of that document, which refreshDoc shows.
+// The error sources of a document's rebuild (platform/notices.ts sourceEntry): the requests rebuild() sends, plain and
+// forced (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears
+// it, and so does a later build of that document, which refreshDoc shows.
 function rebuildSources(doc: string | null): string[] {
   return ['/api/rebuild?async=1', '/api/rebuild?async=1&force=1'].map(
     (url) => 'POST ' + withDocQuery(url, doc || undefined),

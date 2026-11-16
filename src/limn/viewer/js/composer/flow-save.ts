@@ -2,20 +2,14 @@
 // that pin's mark ('덧붙임 [되돌리기]', docs/handbook/viewer.md §알림 자리), and a failure a banner over the composer's
 // save row. A focus the closed composer took goes to that pin's mark (focusPlace).
 import {
-  $,
   DEFAULT_DOC,
   DOC,
   IS_MAC,
   KIND_NEW,
-  REQUEST_KIND,
   META,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
   OPEN_ALL,
   PINS,
-  SAVE_MODE,
   captureVisit,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
@@ -32,8 +26,6 @@ import {
   sourceOk,
   undoNote,
 } from '../platform/notices.ts';
-import { isRegion, pdoc } from '../documents/view-tabs.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
 import { kindFor, wireScope } from './view-levels.ts';
 import { figureRung, figureFields } from '../pdf/view-figure.ts';
 import {
@@ -45,7 +37,6 @@ import {
   suggestRebase,
 } from './flow-suggest.ts';
 import {
-  COMPOSE,
   cancelSelection,
   composeFields,
   composeOwns,
@@ -54,9 +45,10 @@ import {
   renderOverlapBanner,
   restoreSelection,
   selectionSnapshot,
+  COMPOSE,
 } from './flow-pick.ts';
-import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './state.ts';
-import { OFF, offlineKey, offlineNow, offlineQueueSave } from '../offline/api.ts';
+import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
+import { OFF, offlineKey, offlineQueueSave } from '../offline/flow.ts';
 import {
   figureShort,
   figureVerdictBody,
@@ -64,13 +56,18 @@ import {
   topPinId,
   renderVerdictRow,
   verdictDropped,
-  verdictLabel,
-  verdictOf,
   verdictUndo,
 } from '../verdict/flow-line.ts';
-import { isMe, loadPins } from '../pins/flow-list.ts';
-import { dropPin } from '../pins/api.ts';
+import { loadPins } from '../pins/flow-list.ts';
+import { dropPin } from '../pins/flow-actions.ts';
 import { assignOutcome, composeAsk, mentionHints } from '../pins/input-mentions.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
+import { REQUEST_KIND, SAVE_MODE } from '../app/rules-tables.ts';
+import { verdictOf } from '../app/rules-pins.ts';
+import { isMe } from '../app/state-people.ts';
+import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
+import { offlineNow } from '../documents/flow-polling.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.
@@ -294,11 +291,11 @@ async function savePin(verdict?: string) {
   const hints = mentionHints($('#note'));
   if (hints.length) body.mentions = hints;
   // Cut off, or a selection whose lines were never found (offlinePick): the pin goes into this browser's queue and is
-  // written when the connection is back (offline.ts §Sending the queue). The composer closes as a save does, so the
-  // next pin can be drawn straight away. A verdict is not kept this way - it is a word of the document's that only the
-  // server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as going
-  // until the queue has answered: let go before that, a second press while the store is still opening would keep the
-  // same selection twice, under two keys, and reconnecting would write two pins.
+  // written when the connection is back (offline/flow.ts §Sending the queue). The composer closes as a save does, so
+  // the next pin can be drawn straight away. A verdict is not kept this way - it is a word of the document's that only
+  // the server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as
+  // going until the queue has answered: let go before that, a second press while the store is still opening would keep
+  // the same selection twice, under two keys, and reconnecting would write two pins.
   if ((selection as any).offline || offlineNow()) {
     const done = () => {
       COMPOSE.saving = false;
@@ -356,7 +353,7 @@ async function savePin(verdict?: string) {
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
-    // On a figure document the verdict is the figure's, whatever element the selection names (verdict.ts
+    // On a figure document the verdict is the figure's, whatever element the selection names (verdict/flow-line.ts
     // figureVerdictBody).
     const figureBody = figureVerdictBody(selection);
     if (figureBody)
@@ -407,7 +404,7 @@ async function savePin(verdict?: string) {
         // Not there, or the list could not be read either. A save that waited out its time (ended at API_WAIT.SAVE,
         // an AbortError) met a server that does not answer: the connection went before the poll could say so. A
         // plain pin is then kept in the queue as one whose write was tried - with the key it went with and the pins
-        // that stood before it - so the send asks whether it arrived before writing it (offline.ts §Sending the
+        // that stood before it - so the send asks whether it arrived before writing it (offline/flow.ts §Sending the
         // queue), and the composer closes as a save does. A save the network refuses at once is a failure,
         // said above the save row with [다시 저장]; so is a pin the queue will not take.
         if (

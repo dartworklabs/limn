@@ -88,15 +88,21 @@ def __getattr__(name: str) -> str:
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
-# The viewer's closed-set tables (app/state.ts: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
-# Read from app/state.ts as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
+# The viewer's closed-set tables, which extract_js_fn brings along: the ones platform code compares (platform/tables.ts:
+# NOTICE_KIND, UI_LANG, ...) and the app's (app/rules-tables.ts: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...). Read from
+# the modules as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
 # reads as the script does, and no node is needed to import this module.
-VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "app" / "state.ts").read_text(encoding="utf-8"))
+CLOSED_SET_MODULES = ("platform/tables.ts", "app/rules-tables.ts")
+VIEWER_CLOSED_SETS = {
+    name: table
+    for module in CLOSED_SET_MODULES
+    for name, table in helpers_js.closed_sets((PKG / "viewer" / "js" / module).read_text(encoding="utf-8")).items()
+}
 
 
 def extract_js_fn(name: str) -> str:
     """The served page's top-level 'function NAME(...){...}' (with its 'async', if any), exactly as written, preceded by
-    the closed-set tables it names (PIN_STATE, LOCAL_LOGIN, ... from app/state.ts) as `var` declarations.
+    the closed-set tables it names (PIN_STATE, LOCAL_LOGIN, ... from CLOSED_SET_MODULES) as `var` declarations.
 
     Running the real source pulled this way through node lets a regression test verify the served code, not a copy the
     test pasted. The declaration is found by tokens (helpers_js), so braces, quotes and '//' inside strings, regexes
@@ -125,7 +131,7 @@ function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.
 )
 
 
-# Stand-ins for the hooks of the offline pin queue (js/offline/api.ts) for a node harness that pulls a function calling
+# Stand-ins for the hooks of the offline pin queue (js/offline/flow.ts) for a node harness that pulls a function calling
 # them - api(), savePin(), pick(), boot(), the light poll: the connection is there, nothing is queued, no answer is
 # stored and none is served from the store. var and function declarations, so a harness may take it more than once and
 # one that tests the queue itself declares the real functions after it.

@@ -9,34 +9,25 @@
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
-import {
-  $,
-  DOC,
-  DROPPED,
-  EVENT_TYPE,
-  LOCAL_LOGIN,
-  META,
-  NOTICE_DOT,
-  NOTICE_KIND,
-  NOTIFY_STATE,
-  OPEN_CARDS,
-  PIN_STATE,
-  SWITCHSEQ,
-} from '../app/state.ts';
+import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { SECTION_OPEN, prefs, savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { announce, groupNote, quietNote } from '../platform/notices.ts';
-import { docInfo, withDocQuery, hashDoc } from './view-tabs.ts';
+import { hashDoc } from './view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { switchDoc } from './flow-switch.ts';
-import { isViewer } from './flow-boot.ts';
-import { pinState, syncHiddenNotifyTimer } from './api.ts';
+import { syncHiddenNotifyTimer } from './flow-polling.ts';
 import { setSide } from '../layout/flow.ts';
-import { who } from '../pins/view-card-parts.ts';
 import { openTrash } from '../pins/view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from '../pins/flow-list.ts';
-import { restorePin } from '../pins/api.ts';
+import { restorePin } from '../pins/flow-actions.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
+import { LOCAL_LOGIN, NOTIFY_STATE, PIN_STATE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { who } from '../app/state-people.ts';
+import { docInfo, withDocQuery, isViewer } from './state.ts';
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
 let WORKER_REGISTRATION = null as ServiceWorkerRegistration | null;
 function notifySupported() {

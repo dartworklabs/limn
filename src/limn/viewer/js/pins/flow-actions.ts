@@ -1,24 +1,8 @@
 // [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with
 // [되돌리기] (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a
 // banner on top of the panel.
-import {
-  $,
-  DOC,
-  DONE_ALL,
-  DROPPED,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
-  OPEN_ALL,
-  PINS,
-  PIN_STATE,
-  REVIEW_ALL,
-  TIP_TEXT,
-  setOpenAll,
-  setPins,
-  setReviewAll,
-} from '../app/state.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { DOC, DONE_ALL, DROPPED, OPEN_ALL, PINS, REVIEW_ALL, setOpenAll, setPins, setReviewAll } from '../app/state.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import {
   NOTICE_ACT_WAIT,
@@ -34,13 +18,17 @@ import {
   sourceOk,
   undoNote,
 } from '../platform/notices.ts';
-import { pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin, showChange } from '../revisions/flow.ts';
-import { markMine, pinState } from '../documents/api.ts';
+import { markMine } from '../documents/flow-polling.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { searchToPage } from '../pdf/flow.ts';
 import { drawTrash } from './view-cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './flow-list.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
+import { PIN_STATE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { pdoc } from '../documents/state.ts';
 import { EDITOR } from './flow-edit.ts';
 async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
@@ -80,7 +68,7 @@ async function closePin(id) {
 // (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
 const CONFIRMING = new Set();
 // The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
-// them (verdict.ts).
+// them (verdict/flow-line.ts).
 const CONFIRMING_PIN = new Map() as Map<number, Pin>;
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
@@ -190,8 +178,8 @@ async function reopenPin(id: number): Promise<boolean> {
 // place with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's
 // [되돌리기]: silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs
 // (the whole undo, so the composer comes back too). options.say: the caller says the drop and offers its undo where it
-// was pressed (a page line's [판정 취소], verdict.ts cancelLineVerdict), options.where is where a failure is said and
-// options.what what it names. Resolves with whether the pin was deleted.
+// was pressed (a page line's [판정 취소], verdict/flow-line.ts cancelLineVerdict), options.where is where a failure is
+// said and options.what what it names. Resolves with whether the pin was deleted.
 async function dropPin(
   id: number | null,
   undoSave: boolean,

@@ -3,8 +3,6 @@
 // of a name - and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when
 // none of its tags resolves yet.
 import {
-  $,
-  $$,
   DEFAULT_DOC,
   DOC,
   DOCS,
@@ -12,28 +10,18 @@ import {
   DONE_ALL,
   DROPPED,
   LAYOUT,
-  LAYOUT_MODE,
-  LIST_ORDER,
-  LOCAL_LOGIN,
   MENTION_ONLY,
-  META,
   COARSE_POINTER_QUERY,
-  NOTICE_DOT,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
   OPEN_ALL,
   OPEN_CARDS,
   PEOPLE,
   PEOPLE_KNOWN,
   PINS,
-  PIN_STATE,
   REPLY,
   REVIEW_ALL,
   SHOW_ALL,
   SIDE_OPEN,
   SWITCHSEQ,
-  VIEW_MODE,
   scrollMotion,
   setDone,
   setDoneAll,
@@ -71,28 +59,34 @@ import {
   offersIn,
 } from '../platform/notices.ts';
 import { TIP_AT, hideTip, keyInput, armedTipElement } from '../platform/tooltip.ts';
-import { docInfo, drawDocTabs, multiDoc, pdoc } from '../documents/view-tabs.ts';
+import { drawDocTabs, multiDoc } from '../documents/view-tabs.ts';
 import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
-import { notePinChanges, noteReviewChanges, pinState } from '../documents/api.ts';
+import { notePinChanges, noteReviewChanges } from '../documents/flow-polling.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { arrivePage, pageNoSides } from '../pdf/view-pages.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { pendingBadgeSide } from '../pdf/input-selection.ts';
 import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownDoc, jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
-import { COMPOSE, recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
+import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
+import { recomputeOverlap, renderOverlapBanner, COMPOSE } from '../composer/flow-pick.ts';
 import { drawPageVerdicts, jumpToPageLine, endJumpForScroll, isShownOnLine } from '../verdict/flow-line.ts';
-import { mentionsMe, who } from './view-card-parts.ts';
+import { mentionsMe } from './view-card-parts.ts';
 import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './view-cards.ts';
 import { drawReviewPick } from './flow-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
-import { CONFIRMING, CONFIRMING_PIN, PURGING } from './api.ts';
+import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
 import { renderAssignNew } from './input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
-import { EDITOR, editDirty, renderEdit } from './flow-edit.ts';
-import { roveSegment } from '../main.ts';
+import { editDirty, renderEdit, EDITOR } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
+import { LIST_ORDER, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { roveSegment } from '../platform/segments.ts';
+import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { who, isMe } from '../app/state-people.ts';
+import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
 
 async function loadPeople() {
   try {
@@ -146,7 +140,7 @@ function applyPinLists(rows, dropped, lists) {
     reviewBefore = REVIEW_ALL;
   notePinChanges(openBefore, rows, dropped);
   noteReviewChanges(reviewBefore, rows);
-  noteNewPins(rows); // others' new pins (updates.ts)
+  noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
   setOpenAll(lists.openAll);
   setReviewAll(lists.reviewAll);
   setDoneAll(lists.doneAll);
@@ -348,12 +342,6 @@ function gotoReview() {
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
 }
-// The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm
-// the author, '내 확인 차례'.
-function isMe(person) {
-  const me = META && META.me;
-  return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
-}
 function reviewerLabel(pin: Pin) {
   if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
   return isMe(pin.author)
@@ -392,9 +380,9 @@ function toggleSection(key, force?) {
   drawPins();
 }
 // Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes
-// and the banners of notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin, its guide
-// line's buttons, whose [확인] follows that pin's state (drawPinGuideActions). The status line's review arrivals follow
-// the review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+// and the banners of platform/notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin,
+// its guide line's buttons, whose [확인] follows that pin's state (drawPinGuideActions). The status line's review
+// arrivals follow the review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
 /** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
 function drawPins() {
   dropStaleReview();
@@ -478,7 +466,7 @@ function drawPins() {
     reviewShown.map((pin) => pin.id),
     REVIEW_ALL.map((pin) => pin.id),
   );
-  // result rows while the section picks (review-pick.ts)
+  // result rows while the section picks (pins/flow-review-pick.ts)
   if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
   drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
   updateReviewCount();
@@ -644,7 +632,7 @@ function drawOrderControl(any: boolean) {
     button.setAttribute('aria-checked', String(on));
   }
   roveSegment(control);
-} // the group's one Tab stop is the order now chosen (events.ts)
+} // the group's one Tab stop is the order now chosen (main.ts)
 // A press on the order control: the list is drawn in that order, remembered for this browser, with the control where it
 // stood under the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it
 // is not redrawn).
@@ -897,9 +885,9 @@ function markBadgeSides() {
 // bringing above the sheet, every badge with the sheet pulled up to the document bar. A scroll moves a badge and the
 // room it can go to alike, so it moves no stop. A badge whose centre a cover is over now (or one out of view with
 // nowhere to show) is hidden (MARK_HIDDEN): a script's focus or the person's scroll can leave the focus on it, and its
-// description does not show (tooltip.ts showTip) - one standing over it goes. The boxes are compared, not hit-tested: a
-// hit test per badge is too slow for a pass that a scroll pays every frame with many badges on screen; the comparison
-// is cheap. Every box is read before any stop is written, and only a stop that changes is written.
+// description does not show (platform/tooltip.ts showTip) - one standing over it goes. The boxes are compared, not
+// hit-tested: a hit test per badge is too slow for a pass that a scroll pays every frame with many badges on screen;
+// the comparison is cheap. Every box is read before any stop is written, and only a stop that changes is written.
 const MARK_COVERS = ['#right', '#status-dock'],
   MARK_EDGE = 8; // MARK_EDGE: px a revealed badge keeps clear of a cover or the view's edge
 /** The pages' view: #left's box within the window. */
@@ -1149,7 +1137,7 @@ function marks() {
     drawPinMarks();
     drawChips();
     return;
-  } // the Markdown surface marks its lines (md-surface.ts)
+  } // the Markdown surface marks its lines (markdown/view.ts)
   $$('.mark').forEach((mark) => mark.remove());
   drawPageVerdicts();
   // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated
@@ -1301,7 +1289,7 @@ function focusCard(id: number) {
       '"] .rv-act',
   ) as HTMLElement | null;
   if (target) target.focus({ preventScroll: true });
-} // a result row (review-pick.ts): its box, or its first link when the box is off
+} // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
 // drawn scrolls to the page the mark would be on.
 function jumpPin(id) {
@@ -1321,7 +1309,7 @@ function jumpPin(id) {
   }
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
   if (jumpToPageLine(id)) return; // a pin its page verdict line shows: the line
-  marksShow(); // the way to a mark shows the marks (marks-hide.ts)
+  marksShow(); // the way to a mark shows the marks (pins/input-hide-marks.ts)
   // collapsed first so the sheet doesn't cover the page, then measured
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
   if (isMarkdownDoc()) {
@@ -1376,7 +1364,6 @@ export {
   focusCard,
   gotoPinRef,
   gotoReview,
-  isMe,
   jumpPin,
   jumpToCard,
   listDropped,

@@ -1,15 +1,9 @@
 // ------------------------------------------------ Help
 import {
-  $,
-  $$,
   DOCS,
-  REQUEST_KIND,
   LAYOUT,
-  LAYOUT_MODE,
   MENTION_ONLY,
   MID_OVERLAY,
-  NOTICE_HOST,
-  NOTICE_KIND,
   OPEN_CARDS,
   OUTLINE_MID_OPEN,
   REPICK,
@@ -46,12 +40,12 @@ import {
   toggleRevisionOther,
 } from './revisions/flow.ts';
 import { cycleDoc, openNavigationSheet, switchDoc } from './documents/flow-switch.ts';
-import { boot, viewerBlocked } from './documents/flow-boot.ts';
+import { boot } from './documents/flow-boot.ts';
 import { notifyToggle } from './documents/flow-notification.ts';
 import { BUILD } from './documents/view-build-chip.ts';
 import { reloadForUpdate } from './documents/flow-updates.ts';
 import { drawStatus, statusWhy, toggleStatusList } from './documents/view-status.ts';
-import { sizePreset, toggleOutline } from './layout/state.ts';
+import { sizePreset, toggleOutline } from './layout/flow-panel-size.ts';
 import { actualSize, fitToWidth, goSheetPage, zoom } from './pdf/view-pages.ts';
 import { pickOutline } from './pdf/view-outline.ts';
 import { closePageList, goListedPage, togglePageList } from './pdf/view-page-list.ts';
@@ -68,24 +62,23 @@ import {
   showSheet,
   toggleSide,
 } from './layout/flow.ts';
-import { useLevel } from './composer/view-levels.ts';
 import { applyRange, dropLine, widenTo } from './composer/view-excerpt.ts';
 import { showElementBox } from './pdf/view-figure.ts';
-import { isMarkdownDoc, goToAnchor, goToDocLink, toggleHtmlRun } from './markdown/view.ts';
+import { goToAnchor, goToDocLink, toggleHtmlRun } from './markdown/view.ts';
 import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
 import {
-  COMPOSE,
   discardSelection,
   recomputeOverlap,
   renderComposer,
   renderOverlapBanner,
   setKind,
   toggleQuote,
+  COMPOSE,
 } from './composer/flow-pick.ts';
-import { saveDraftSoon } from './composer/state.ts';
-import { appendToPin, savePin } from './composer/api.ts';
-import { offlineFlush, offlinePrepare } from './offline/api.ts';
+import { saveDraftSoon } from './composer/flow-draft.ts';
+import { appendToPin, savePin } from './composer/flow-save.ts';
+import { offlineFlush, offlinePrepare } from './offline/flow.ts';
 import { cancelLineVerdict, undoFromLine, verdictPress } from './verdict/flow-line.ts';
 import { actOnReason } from './verdict/flow-reason.ts';
 import { goToSummaryPage } from './verdict/view-panel.ts';
@@ -107,12 +100,18 @@ import {
   toggleSection,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
-import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/api.ts';
+import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply } from './pins/flow-reply.ts';
-import { EDITOR, cancelEdit, openEdit, renderEdit, saveEdit } from './pins/flow-edit.ts';
+import { cancelEdit, openEdit, renderEdit, saveEdit, EDITOR } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './documents/flow-rebuild.ts';
+import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
+import { $, $$ } from './platform/dom.ts';
+import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
+import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
+import { isMarkdownDoc, viewerBlocked } from './documents/state.ts';
+import { useLevel } from './documents/rules.ts';
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
@@ -209,7 +208,7 @@ document.addEventListener('click', (event) => {
       break; // the status line's [그래도 빌드]: a cold build
     case 'offline-prepare':
       void offlinePrepare();
-      break; // [더보기]'s [오프라인으로 받기] (offline.ts)
+      break; // [더보기]'s [오프라인으로 받기] (offline/flow.ts)
     case 'offline-flush':
       void offlineFlush();
       break; // the status line's [지금 반영]: send the kept pins now
@@ -227,7 +226,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'marks-toggle':
       marksSet(!MARKS.off);
-      break; // [더보기]'s [핀 표시] switch (marks-hide.ts)
+      break; // [더보기]'s [핀 표시] switch (pins/input-hide-marks.ts)
     case 'theme':
       setTheme(control.dataset.theme);
       break;
@@ -253,14 +252,14 @@ document.addEventListener('click', (event) => {
     case 'verdict-save':
     case 'pv-save':
       verdictPress(control, event.detail === 0 ? 'kb' : undefined);
-      break; // a verdict word's button: the composer's row or a page verdict line (verdict.ts)
+      break; // a verdict word's button: the composer's row or a page verdict line (verdict/flow-line.ts)
     case 'pv-earlier':
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break;
     case 'pv-cancel':
       cancelLineVerdict(control);
-      break; // a page line's [판정 취소] on the person's own open verdict (verdict.ts)
-    // a page line's reason and its popover (verdict-reason.ts)
+      break; // a page line's [판정 취소] on the person's own open verdict (verdict/flow-line.ts)
+    // a page line's reason and its popover (verdict/flow-reason.ts)
     case 'pv-reason-open':
     case 'pv-reason-save':
     case 'pv-reason-clear':
@@ -272,10 +271,10 @@ document.addEventListener('click', (event) => {
       break;
     case 'pv-sum':
       goToSummaryPage(control);
-      break; // a page's summary beside the verdict panel brings that page to it (verdict-panel.ts)
+      break; // a page's summary beside the verdict panel brings that page to it (verdict/view-panel.ts)
     case 'pv-undo':
       undoFromLine(control);
-      break; // a take-back's [되돌리기] on its line (verdict.ts)
+      break; // a take-back's [되돌리기] on its line (verdict/flow-line.ts)
     case 'pop-more':
       handPopoverToComposer();
       break; // the note popover by the box hands over to the composer in the panel
@@ -307,7 +306,7 @@ document.addEventListener('click', (event) => {
     case 'sg-reload':
     case 'sg-rebase':
       suggestAct(control, String(control.dataset.act));
-      break; // a suggested edit's switch and line (suggest.ts)
+      break; // a suggested edit's switch and line (composer/flow-suggest.ts)
     case 'sg-fold': {
       const key = control.dataset.key;
       if (!key) break;
@@ -359,10 +358,10 @@ document.addEventListener('click', (event) => {
     }
     case 'el-show':
       showElementBox();
-      break; // the composer's element path: show the chosen element's box on the page (figure.ts)
+      break; // the composer's element path: show the chosen element's box on the page (pdf/view-figure.ts)
     case 'doc-more':
       toggleDocMenu();
-      break; // [+N]: the documents popover (doc-tabs.ts)
+      break; // [+N]: the documents popover (documents/view-tabs.ts)
     case 'nav-sheet':
       openNavigationSheet();
       break;
@@ -440,7 +439,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'rv-card':
       if (id != null) goToReviewCard(id);
-      break; // confirming from result rows (review-pick.ts)
+      break; // confirming from result rows (pins/flow-review-pick.ts)
     case 'list-order':
       setListOrder(control.dataset.order);
       break;
@@ -573,10 +572,10 @@ document.addEventListener('click', (event) => {
       break; // an in-document #heading link of the Markdown surface
     case 'md-doc':
       goToDocLink(control);
-      break; // a link to another registered document (md-surface.ts, ADR-0030)
+      break; // a link to another registered document (markdown/view.ts, ADR-0030)
     case 'md-html-run':
       toggleHtmlRun(control);
-      break; // a run of raw HTML blocks opens or closes (md-surface.ts)
+      break; // a run of raw HTML blocks opens or closes (markdown/view.ts)
     case 'repick':
       startRepick();
       break;
@@ -634,42 +633,6 @@ $('#revision-file').addEventListener('change', renderRevisionFile);
 // the word's own press - chooses. While the focus walks such a group the stop goes with it, so Tab leaves from where
 // the focus is in one step; when the focus leaves, the stop goes back to the chosen word (leaveManualSegment).
 const SEGMENT_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
-/** The words of a radio group that can take the focus: neither disabled nor hidden. */
-function offeredWords(group: Element) {
-  return ([...group.querySelectorAll('[role=radio]')] as HTMLButtonElement[]).filter(
-    (word) => !word.disabled && !word.hidden,
-  );
-}
-/** The words of a group on offer that are laid out - the ones a key walks. */
-function shownWords(group: Element) {
-  return offeredWords(group).filter((word) => word.getClientRects().length);
-}
-/** Where the focus is among the words a group shows (shownWords), -1 when it is not on one of them. */
-function segmentFocusAt(group: Element) {
-  return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
-}
-// Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.ts
-// assigneeRowHtml), the range ladder with every range (levels.ts drawLadder - a pick that leaves the excerpt short of
-// lines draws it again once more when they come back, excerpt.ts excerptFetch) and [더보기]'s size on every pick and
-// relayout (panel-size.ts renderSizeSegment). The word with the focus goes with the old words, and the focus would land
-// on the body: an arrow's walk would end there, as would Enter or Space on the chosen word, and the next Tab would
-// begin again from the page's start. So each draw notes where the focus was (segmentFocusAt) and gives it back to the
-// word now at `index` - the last when there are fewer - as no new focus: a description shows only after a key
-// (tooltip.ts focusGivenBack). A group drawn away (no people left to assign) has none, and the focus stays.
-function keepSegmentFocus(group: Element, index: number) {
-  if (index < 0) return;
-  const words = shownWords(group),
-    word = words[Math.min(index, words.length - 1)];
-  if (word) focusGivenBack(word);
-}
-/** Keep one Tab stop in a radio group: the chosen word, else the first one on offer. It reads the markup only, not the
- * layout, so a group drawn while its panel is closed holds its one stop before it shows. */
-function roveSegment(group: Element | null) {
-  if (!group) return;
-  const words = offeredWords(group),
-    on = words.find((word) => word.getAttribute('aria-checked') === 'true') || words[0];
-  for (const word of words) word.tabIndex = word === on ? 0 : -1;
-}
 // the groups in the page's markup; a drawn one calls roveSegment itself
 for (const group of $$('[role=radiogroup]')) roveSegment(group);
 document.addEventListener('keydown', (event) => {
@@ -729,7 +692,7 @@ function passLadderBoxFocus(event: FocusEvent) {
 document.addEventListener('focusin', passLadderBoxFocus);
 
 document.addEventListener('keydown', (event) => {
-  if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (core.ts)
+  if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (app/state.ts)
   const target = event.target as HTMLElement,
     inField =
       target &&
@@ -882,7 +845,7 @@ document.addEventListener('keydown', (event) => {
       event.preventDefault();
       setReviewPicking(false);
       return;
-    } // the review section's pick, from inside it (review-pick.ts)
+    } // the review section's pick, from inside it (pins/flow-review-pick.ts)
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above is cancelled first).
     if (LAYOUT === LAYOUT_MODE.MID && MID_OVERLAY && SIDE_OPEN) {
       event.preventDefault();
@@ -903,4 +866,3 @@ document.addEventListener('keydown', (event) => {
   }
 });
 boot();
-export { segmentFocusAt, keepSegmentFocus, roveSegment };
