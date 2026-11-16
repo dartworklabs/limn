@@ -1,16 +1,16 @@
-// ------------------------------------------------ The page verdict panel beside the pages (docs/handbook/viewer.md §판정 패널, #329)
+// ---------------------------------------- The page verdict panel beside the pages (docs/handbook/viewer.md §판정 패널)
 // On a wide desktop whose PDF area leaves room right of the pages, the page verdict line is one panel in that margin
-// (#pv-panel, --pv-panel-w wide, --pv-panel-gap off the page) instead of a line under every page: the reading page's line
-// (READING_LINE_PAGE, the page under the 160px reading line that the section strip and the keys name), drawn again (fillPageLine) when the
-// reading page changes, its parts in rows down the panel (the name, the words, the state, the reason) - the words stand at
-// one place on the screen for every page. Under each page a one-row summary (.pv-sum: '6쪽 · PL17 · 판정 #7 채택 · 처리
-// 대기') says its verdict, the reading page's in bold, and a press brings that page to the panel. Every block (.pgw) is a
-// grid [margin | page | margin] whose right margin holds the panel: the page stays centred while both margins hold it and
-// moves left only by what the right one lacks. Where the room is short (a narrower window, the pin panel opened, a zoomed
-// page) the lines go back under the pages as before, with hysteresis (PANEL_ENTER_ROOM, PANEL_EXIT_ROOM) so a width at the bar
-// does not flip it. The wide band only: the foldable and phone bands never take it. The line's words, keys, focus, save
-// chip and reason are the line's own (verdict.js, verdict-reason.js); this part decides when, places the panel and draws
-// the summaries.
+// (#pv-panel, --pv-panel-w wide, --pv-panel-gap off the page) instead of a line under every page: the reading page's
+// line (READING_LINE_PAGE, the page under the 160px reading line that the section strip and the keys name), drawn again
+// (fillPageLine) when the reading page changes, its parts in rows down the panel (the name, the words, the state, the
+// reason) - the words stand at one place on the screen for every page. Under each page a one-row summary (.pv-sum: '6쪽
+// · PL17 · 판정 #7 채택 · 처리 대기') says its verdict, the reading page's in bold, and a press brings that page to the
+// panel. Every block (.pgw) is a grid [margin | page | margin] whose right margin holds the panel: the page stays
+// centred while both margins hold it and moves left only by what the right one lacks. Where the room is short (a
+// narrower window, the pin panel opened, a zoomed page) the lines go back under the pages, with hysteresis
+// (PANEL_ENTER_ROOM, PANEL_EXIT_ROOM) so a width at the bar does not flip it. The wide band only: the foldable and
+// phone bands never take it. The line's words, keys, focus, save chip and reason are the line's own (verdict.ts,
+// verdict-reason.ts); this part decides when, places the panel and draws the summaries.
 import { $, $$, DOC, K, LAYOUT, LAYOUT_MODE, META, isFigureKind } from './core.ts';
 import { html, setHtml } from './markup.ts';
 import { tl, tr } from './i18n.ts';
@@ -60,10 +60,10 @@ import {
 } from './verdict-reason.ts';
 import { topAnchor } from './rebuild.ts';
 
-// The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a page
-// holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages when the PDF
-// area's inner width less the page's is PANEL_ENTER_ROOM or more, and back under them below PANEL_EXIT_ROOM; in between they
-// stay as they are.
+// The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
+// page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages
+// when the PDF area's inner width less the page's is PANEL_ENTER_ROOM or more, and back under them below
+// PANEL_EXIT_ROOM; in between they stay as they are.
 const PANEL_WIDTH = 280,
   PANEL_GAP = 24,
   PANEL_LEFT_MARGIN = 24,
@@ -71,22 +71,24 @@ const PANEL_WIDTH = 280,
 const PANEL_EXIT_ROOM = PANEL_WIDTH + PANEL_GAP + PANEL_LEFT_MARGIN,
   PANEL_ENTER_ROOM = PANEL_EXIT_ROOM + PANEL_HYSTERESIS;
 let IS_BESIDE_PAGES = false; // the lines stand beside the pages now: one panel, a summary under each page
-// The room the PDF area leaves beside the pages: its inner width less the widest page's width at the scale on screen - below 0
-// for a page wider than the area - or null while the area is not drawn (the changes view): the lines then stay as they are.
-// One width for the whole document, so the reading page never decides it and scrolling never turns the panel on or off. The
-// widest, not the most common: a wider page's block took the panel's margin past the area, the column grew with it, and every
-// page moved right under the panel. With it every page stands beside the panel, on one axis (verdict-panel.css).
+// The room the PDF area leaves beside the pages: its inner width less the widest page's width at the scale on screen -
+// below 0 for a page wider than the area - or null while the area is not drawn (the changes view): the lines then stay
+// as they are. One width for the whole document, so the reading page never decides it and scrolling never turns the
+// panel on or off. The widest, not the most common: a wider page's block would take the panel's margin past the area,
+// the column would grow with it, and every page would move right under the panel. With it every page stands beside the
+// panel, on one axis (verdict-panel.css).
 function measureBesideRoom(): number | null {
   const area = $('#left');
   if (!META || !Array.isArray(META.pages) || !META.pages.length || !area.getClientRects().length) return null;
   return innerW() - pageWidth(ptMax(), K);
 }
 // Whether the lines should stand beside the pages: the wide band, a document with page lines, and the room - with
-// hysteresis around the bar. They stay as they are while the band settles (BAND_T): moved at the old band's new width they
-// stack, the space under a page grows, and the re-fit that follows took its spot from there and left the page read up to 200px
-// off (#356). bandSettle looks again once the band has settled.
+// hysteresis around the bar. They stay as they are while the band settles (BAND_T): moved at the old band's new width
+// they would stack, the space under a page would grow, and the re-fit that follows would take its spot from there and
+// leave the page read off its place. bandSettle looks again once the band has settled.
 function shouldStandBeside() {
-  if (isComposingNow() || BAND_T) return IS_BESIDE_PAGES; // a syllable being composed in the reason keeps the lines where they are until it ends and its key lets the field go
+  // a syllable being composed in the reason keeps the lines where they are until it ends and its key lets the field go
+  if (isComposingNow() || BAND_T) return IS_BESIDE_PAGES;
   if (LAYOUT !== LAYOUT_MODE.WIDE || !pageVerdictsOn()) return false;
   const room = measureBesideRoom();
   if (room === null) return IS_BESIDE_PAGES;
@@ -97,23 +99,25 @@ function applyBeside(on: boolean) {
   IS_BESIDE_PAGES = on;
   document.body.classList.toggle('pv-beside', on);
 }
-// Whether the room crossed its bar since the lines were drawn (stickReadingLine: a resize, the pin panel, a zoom, the frame after it): they
-// are drawn again, beside or under the pages. Whether it did.
+// Whether the room crossed its bar since the lines were drawn (stickReadingLine: a resize, the pin panel, a zoom, the
+// frame after it): they are drawn again, beside or under the pages. Whether it did.
 function redrawOnBesideChange() {
   if (shouldStandBeside() === IS_BESIDE_PAGES) return false;
   drawPageVerdicts();
   return true;
 }
-// The reading page held while the lines move (startBesideTurn to settleBesideTurn), 0 otherwise: read from the layout between the two it
-// was another page - the blocks change their height, by 4px a page, and only the settling puts the spot back - and a reason
-// being typed moved on: its half text was written and the digits after it were verdict keys. A var: pageUnderReadingLine reads it.
+// The reading page held while the lines move (startBesideTurn to settleBesideTurn), 0 otherwise: read from the layout
+// between the two it would be another page - the blocks change their height, and only the settling puts the spot back -
+// and a reason being typed would move on, its half text written and the digits after it taken as verdict keys. A var:
+// pageUnderReadingLine reads it.
 var HELD_READING_PAGE = 0;
 // The reading page held while the pages are built again (refreshDoc), until the reading spot is back: read from the new
-// column before that, it was a neighbour, and the reason being typed on the panel was moved on from - written and closed (#352).
+// column before that, it would be a neighbour, and the reason being typed on the panel would be moved on from - written
+// and closed.
 var BUILD_READING_PAGE = 0;
-// Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones come, so
-// what the person has must be carried over: the reading page, the point of it under the reading line, and the focus. Null
-// when the lines stay where they are. A composition cannot cross: its field goes, and with it its end.
+// Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones
+// come, so what the person has must be carried over: the reading page, the point of it under the reading line, and the
+// focus. Null when the lines stay where they are. A composition cannot cross: its field goes, and with it its end.
 function startBesideTurn() {
   const on = shouldStandBeside();
   if (on === IS_BESIDE_PAGES) return null;
@@ -133,11 +137,11 @@ function startBesideTurn() {
   applyBeside(on);
   return keep;
 }
-// The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view does not
-// shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back). A
-// reading line in the space above the page (the spot's gap) stands that far above it again, as far as the new space keeps it
-// past the page before, or that page would be the one read. The space changes with the lines, so the page before moves by
-// the difference: the page read is the one held.
+// The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view
+// does not shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge:
+// taken back). A reading line in the space above the page (the spot's gap) stands that far above it again, as far as
+// the new space keeps it past the page before, or that page would be the one read. The space changes with the lines, so
+// the page before moves by the difference: the page read is the one held.
 function settleBesideTurn(kept: NonNullable<ReturnType<typeof startBesideTurn>>) {
   HELD_READING_PAGE = 0;
   const spot = kept.spot,
@@ -154,10 +158,11 @@ function settleBesideTurn(kept: NonNullable<ReturnType<typeof startBesideTurn>>)
   if (settled.bottom <= y()) area.scrollTop -= 2;
   else if (!gap && settled.top > y()) area.scrollTop += 2;
 }
-// After the lines moved: a save chip stands on its pin's new line (drawChips, else its undo goes to the status line), and the reason
-// field that had the focus has it again with its caret, or the popover's button its focus - what is typed next stays text,
-// never a verdict key. Any other control focused on a line has the focus on the same control of its moved line (findControlAgain).
-// A focus on another page's line, which the panel does not show, goes to the PDF area, not to nothing.
+// After the lines moved: a save chip stands on its pin's new line (drawChips, else its undo goes to the status line),
+// and the reason field that had the focus has it again with its caret, or the popover's button its focus - what is
+// typed next stays text, never a verdict key. Any other control focused on a line has the focus on the same control of
+// its moved line (findControlAgain). A focus on another page's line, which the panel does not show, goes to the PDF
+// area, not to nothing.
 function finishBesideTurn(kept: NonNullable<ReturnType<typeof startBesideTurn>>) {
   drawChips();
   const field = kept.caret ? findReasonField() : null;
@@ -182,9 +187,10 @@ function finishBesideTurn(kept: NonNullable<ReturnType<typeof startBesideTurn>>)
   }
   searchToPage();
 }
-// A control focused on a line, as the lines move (startBesideTurn): its line's page and what names it among that line's controls -
-// its action and, where several share one, its word (data-key), the pin it leads to (data-ref), its id or its message (a save
-// chip's button, data-n). null for none, the reason field and the popover's buttons (carried on their own).
+// A control focused on a line, as the lines move (startBesideTurn): its line's page and what names it among that line's
+// controls - its action and, where several share one, its word (data-key), the pin it leads to (data-ref), its id or
+// its message (a save chip's button, data-n). null for none, the reason field and the popover's buttons (carried on
+// their own).
 function describeControl(
   element: Element | null,
 ): { page: string; act: string; key: string; ref: string; id: string; n: string } | null {
@@ -202,8 +208,9 @@ function describeControl(
     n: element.dataset.n || '',
   };
 }
-// The same control on the moved line of that page - beside the pages or under one - shown, or null (the panel shows another
-// page now). The focus lands there: on the PDF area it lost its place, and Enter on [이유 추가] no longer wrote the reason.
+// The same control on the moved line of that page - beside the pages or under one - shown, or null (the panel shows
+// another page now). The focus lands there: on the PDF area it would lose its place, and Enter on [이유 추가] would not
+// write the reason.
 function findControlAgain(described: ReturnType<typeof describeControl>): HTMLElement | null {
   const line = described ? document.querySelector('#doc .pv[data-page="' + CSS.escape(described.page) + '"]') : null;
   if (!described || !line) return null;
@@ -221,13 +228,13 @@ function findControlAgain(described: ReturnType<typeof describeControl>): HTMLEl
 }
 
 // ---------------- The panel
-// The panel (#pv-panel): a page verdict line of its own, in the last child of the pages' column (#pv-panel-at) - so every
-// '#doc .pv[data-page]' look-up of the reading page's line finds it, the DOM's Tab from its last control leaves the pages (to
-// the pin panel), and a rebuild of the column (buildDoc) takes it away with the pages. #pv-panel-at has no height and is
-// sticky to the PDF area's top, so the panel stays in view while it stays in the area's scroll chain: PageDown, the arrows,
-// Home and End on one of its controls and a wheel over it move the pages, by the browser's own steps, as on a line under a
-// page. Fixed to the window it was out of that chain: after a key save the keys and the wheel moved nothing, and the next
-// digit changed the same page's verdict.
+// The panel (#pv-panel): a page verdict line of its own, in the last child of the pages' column (#pv-panel-at) - so
+// every '#doc .pv[data-page]' look-up of the reading page's line finds it, the DOM's Tab from its last control leaves
+// the pages (to the pin panel), and a rebuild of the column (buildDoc) takes it away with the pages. #pv-panel-at has
+// no height and is sticky to the PDF area's top, so the panel stays in view while it stays in the area's scroll chain:
+// PageDown, the arrows, Home and End on one of its controls and a wheel over it move the pages, by the browser's own
+// steps, as on a line under a page. Fixed to the window it would be out of that chain: after a key save the keys and
+// the wheel would move nothing, and the next digit would change the same page's verdict.
 function ensurePanel() {
   let panel = document.getElementById('pv-panel') as HTMLElement | null;
   if (!panel) {
@@ -236,7 +243,7 @@ function ensurePanel() {
     panel = document.createElement('div');
     panel.id = 'pv-panel';
     panel.className = 'pv pv-panel pv-stack';
-    panel.dataset.tipAt = 'left'; // its descriptions stand left of it (tooltip.js)
+    panel.dataset.tipAt = 'left'; // its descriptions stand left of it (tooltip.ts)
     at.appendChild(panel);
     $('#doc').appendChild(at);
     if (CHIP_WATCH) CHIP_WATCH.observe(panel, { childList: true });
@@ -247,12 +254,12 @@ function removePanel() {
   const at = document.getElementById('pv-panel-at');
   if (at) at.remove();
 }
-// Fills the panel with the reading page's line (READING_LINE_PAGE). A page that takes no verdict (a list page, a comparison board)
-// names itself in one form whatever its title looks like - the page ('2쪽') on the name's row and the map's whole title, if
-// it has one, on the title's row (quietPageTitle) - and says it takes none, without words. The verdict pages' split of a title
-// at its first ' · ' (pageLineName) put a board's '비교판' beside its page and left a list page's title out. A save chip on the
-// panel for a pin of another page goes to the status line with its undo (chipAway), as a chip whose mark is not drawn does:
-// the panel no longer shows the verdict it undoes.
+// Fills the panel with the reading page's line (READING_LINE_PAGE). A page that takes no verdict (a list page, a
+// comparison board) names itself in one form whatever its title looks like - the page ('2쪽') on the name's row and the
+// map's whole title, if it has one, on the title's row (quietPageTitle) - and says it takes none, without words. The
+// verdict pages' split of a title at its first ' · ' (pageLineName) would put a board's '비교판' beside its page and
+// leave a list page's title out. A save chip on the panel for a pin of another page goes to the status line with its
+// undo (chipAway), as a chip whose mark is not drawn does: the panel does not show the verdict it undoes.
 function fillPanel(map: Map<number, Pin[]>, verdicts: DocVerdicts) {
   const panel = ensurePanel(),
     readingPage = READING_LINE_PAGE,
@@ -284,27 +291,30 @@ function fillPanel(map: Map<number, Pin[]>, verdicts: DocVerdicts) {
   placePanel();
   flashOnArrival(at);
 }
-// The title the map gives page `page` of a figure document, whole ('' for none, or for a view-only PDF, which has no map).
+// The title the map gives page `page` of a figure document, whole ('' for none, or for a view-only PDF, which has no
+// map).
 function quietPageTitle(page: number): string {
   const facts = META && isFigureKind(META.kind) && Array.isArray(META.pages) ? META.pages[page - 1] : null;
   return facts && facts.title ? String(facts.title) : '';
 }
-// Whether the panel shows another page than the one under the reading line (at, verdict or none). Under the pages: never.
+// Whether the panel shows another page than the one under the reading line (at, verdict or none). Under the pages:
+// never.
 function isPanelStale(at: number) {
   const panel = document.getElementById('pv-panel');
   return IS_BESIDE_PAGES && !!panel && panel.dataset.page !== String(at);
 }
-// The panel is about to show another page than p's: what the person has on it stays with the page they left. An open reason is
-// moved on from as the reading page leaves it (leaveReason), and a focus on a control goes to the PDF area, as one on a left
-// line's does (moveFocusOffPage). This must come before the filling: the morph keeps the element and hands it to the new
-// page, so Enter or Space on '채택' pressed the next page's word, and a control that goes left the focus on nothing.
+// The panel is about to show another page than the one it shows: what the person has on it stays with the page they
+// left. An open reason is moved on from as the reading page leaves it (leaveReason), and a focus on a control goes to
+// the PDF area, as one on a left line's does (moveFocusOffPage). This must come before the filling: the morph keeps the
+// element and hands it to the new page, so Enter or Space on '채택' would press the next page's word, and a control
+// that goes would leave the focus on nothing.
 function leavePanelPage(panel: HTMLElement, at: number) {
   if (panel.dataset.page === String(at)) return;
   if (REASON_SESSION && REASON_SESSION.seen && REASON_SESSION.page !== at) leaveReason();
   const active = document.activeElement;
   if (!!active && panel.contains(active)) searchToPage();
 }
-// The pin save chip e is for (its notice's), 0 for none.
+// The pin a save chip is for (its notice's), 0 for none.
 function pinOfChip(chip: HTMLElement): number {
   let pin = 0;
   NOTICES.forEach((notice) => {
@@ -312,14 +322,13 @@ function pinOfChip(chip: HTMLElement): number {
   });
   return pin;
 }
-// The panel's place: --pv-panel-gap right of the widest page on the reading page's axis (page 1 before there is one) - one
-// place for pages of every width - its top at the PDF area's top
-// padding, where #pv-panel-at sticks: it stands at the column's end, and the inset from the bottom of what a sticky box may
-// use (the area less its padding) to that top pulls it up, so its height stays nothing. Taller than the area shows (a short
-// window, a long conflict note in the popover) - or reaching down to a card over the area (findPanelFoot) - the panel scrolls
-// inside (.pv-tall). Only then: a scroller clips what stands
-// outside it, the pressed word's context under the panel, and that context's box would bring a scroll bar with it. Once a
-// frame with stickReadingLine.
+// The panel's place: --pv-panel-gap right of the widest page on the reading page's axis (page 1 before there is one) -
+// one place for pages of every width - its top at the PDF area's top padding, where #pv-panel-at sticks: it stands at
+// the column's end, and the inset from the bottom of what a sticky box may use (the area less its padding) to that top
+// pulls it up, so its height stays nothing. Taller than the area shows (a short window, a long conflict note in the
+// popover) - or reaching down to a card over the area (findPanelFoot) - the panel scrolls inside (.pv-tall). Only then:
+// a scroller clips what stands outside it, the pressed word's context under the panel, and that context's box would
+// bring a scroll bar with it. Once a frame with stickReadingLine.
 function placePanel() {
   const panel = document.getElementById('pv-panel'),
     at = document.getElementById('pv-panel-at');
@@ -352,10 +361,11 @@ function placePanel() {
   if (tall !== was) panel.classList.toggle('pv-tall', tall);
   if (panel.style.maxHeight !== height) panel.style.maxHeight = height;
 }
-// How far down the panel may reach, in the window's px: the PDF area's bottom (bottom), or the top of a card laid over the area's
-// right side under the panel - with the pin panel closed its tool bar, a banner and the status line float at the area's
-// bottom right (side-panel.css) - whichever is higher, so a tall panel scrolls above them. Over its bottom, the status
-// line's hint covered the reason field's last line and its focus ring. top: the panel's top; left: its left edge.
+// How far down the panel may reach, in the window's px: the PDF area's bottom (bottom), or the top of a card laid over
+// the area's right side under the panel - with the pin panel closed its tool bar, a banner and the status line float at
+// the area's bottom right (side-panel.css) - whichever is higher, so a tall panel scrolls above them. Over its bottom,
+// the status line's hint would cover the reason field's last line and its focus ring. top: the panel's top; left: its
+// left edge.
 const OVER_AREA_IDS = ['bar2', 'banner', 'status-wide'];
 function findPanelFoot(top: number, bottom: number, left: number): number {
   let foot = bottom;
@@ -368,9 +378,9 @@ function findPanelFoot(top: number, bottom: number, left: number): number {
   }
   return foot;
 }
-// The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for one row:
-// there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand in its flow
-// under the state (verdict-panel.css): the words above never move.
+// The panel's line is laid out in rows (.pv-stack: the name, the words, the state, the reason) and never measured for
+// one row: there is room for each part's whole width, so nothing gives way. Its save chip and the reason popover stand
+// in its flow under the state (verdict-panel.css): the words above never move.
 function fitPanel(panel: HTMLElement) {
   panel.classList.remove(
     'pv-tight',
@@ -391,8 +401,8 @@ function fitPanel(panel: HTMLElement) {
   if (group) fitWrappedWords(group);
   keepFocusOnLine([panel]);
 }
-// Brings page `page` to the reading place: its top at the PDF area's top padding when the page reaches past the reading line
-// (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
+// Brings page `page` to the reading place: its top at the PDF area's top padding when the page reaches past the reading
+// line (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
 function bringPage(page: number, smooth?: boolean) {
   const at = bringScrollTop(page);
   if (at === null) return;
@@ -430,10 +440,11 @@ function summaryLabel(page: number, list: Pin[] | undefined) {
       : tr('판정 없음'))
   );
 }
-// '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict, and '초안 있음' where a reason
-// draft waits for that page - a line would mark it, and the panel shows only the reading page: one row of one height whatever
-// it says, so neither a verdict changing it nor the reading page changing moves the pages. A press brings that page to the
-// panel (goToSummaryPage). Not a Tab stop - the keyboard has the panel, and PageDown brings the next page to it.
+// '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict, and '초안 있음' where
+// a reason draft waits for that page - a line would mark it, and the panel shows only the reading page: one row of one
+// height whatever it says, so neither a verdict changing it nor the reading page changing moves the pages. A press
+// brings that page to the panel (goToSummaryPage). Not a Tab stop - the keyboard has the panel, and PageDown brings the
+// next page to it.
 function summaryHtml(page: number, list: Pin[] | undefined) {
   const cur = list && list[0],
     key = cur && verdictOf(cur),
@@ -447,8 +458,8 @@ function summaryHtml(page: number, list: Pin[] | undefined) {
       !!getDraft(DOC, 'p' + page) || (!!ownDraft && !!cur && ownDraft.text.trim() !== String(cur.note || '').trim());
   return html`<span class="pv-sum-id" translate="no">${pageLineName(page).id}</span>${sep}<span class="pv-sum-s">${state}${draft ? html`${sep}<span class="pv-sum-draft">${tr('초안 있음')}</span>` : ''}</span>`;
 }
-// Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for being
-// far from the view (watchFarLines: a far row is skipped like a far line).
+// Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for
+// being far from the view (watchFarLines: a far row is skipped like a far line).
 function drawSummaries(map: Map<number, Pin[]>) {
   const made = [] as HTMLElement[];
   $$('#doc .pgw').forEach((block) => {
@@ -489,8 +500,8 @@ function markReadingSummary() {
   const summary = document.querySelector('#doc .pv-sum[data-page="' + readingPage + '"]');
   if (summary) summary.classList.add('on');
 }
-// A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes to the
-// panel's pressed word, else its first (focusLine); the panel flashes.
+// A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes
+// to the panel's pressed word, else its first (focusLine); the panel flashes.
 function goToSummaryPage(summary: HTMLElement) {
   const page = Number(summary.dataset.page) || 0;
   if (!document.getElementById('p' + page)) return;
@@ -503,12 +514,13 @@ function goToSummaryPage(summary: HTMLElement) {
   flashPanel(panel);
 }
 // ---------------- A jump's glide
-// A jump to a far page (the outline, the page list, a card's [보기]) glides past every page between, and the digits and Enter
-// wait meanwhile (isAutoScrolling). The panel keeps the page it shows and is filled once, where the jump lands: filled for
-// every page passed it changed 57 times in 1.3s. The reading page it shows (READING_LINE_PAGE), the bold summary, an open reason and
-// the keys' page wait with it; the section strip names the pages passed as ever. stickReadingLine asks: the page held, or 0 when
-// nothing is (under the pages, at rest, a panel that names no page). The glide's end - its scrollend, else the guard's own
-// end - draws the panel again, so at rest the panel, the section strip and the keys name one page.
+// A jump to a far page (the outline, the page list, a card's [보기]) glides past every page between, and the digits and
+// Enter wait meanwhile (isAutoScrolling). The panel keeps the page it shows and is filled once, where the jump lands:
+// filled for every page passed it would change many times a second. The reading page it shows (READING_LINE_PAGE), the
+// bold summary, an open reason and the keys' page wait with it; the section strip names the pages passed.
+// stickReadingLine asks: the page held, or 0 when nothing is (under the pages, at rest, a panel that names no page).
+// The glide's end - its scrollend, else the guard's own end - draws the panel again, so at rest the panel, the section
+// strip and the keys name one page.
 let HOLD_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
 function heldPanelPage() {
   if (!IS_BESIDE_PAGES || !isAutoScrolling()) return 0;
@@ -524,17 +536,18 @@ function heldPanelPage() {
 }
 $('#left').addEventListener('scrollend', () => {
   if (IS_BESIDE_PAGES) stickSoon();
-}); // after verdict.js's, which ends the guard
-// The reading page with a line as the lines are drawn (drawPageVerdicts): the held one while a glide holds the panel - a list
-// read again on the way filled it with a page passed - else the page under the reading line (readingPageWithLine).
+}); // after verdict.ts's, which ends the guard
+// The reading page with a line as the lines are drawn (drawPageVerdicts): the held one while a glide holds the panel -
+// a list read again on the way would fill it with a page passed - else the page under the reading line
+// (readingPageWithLine).
 function heldReadingPage() {
   const held = heldPanelPage();
   return held ? (pageTakesVerdict(held) ? held : 0) : readingPageWithLine();
 }
-// The panel flashes for a card's [보기] once it shows page `page`: at once when it does, else when a glide lands and fills it
-// (flashOnArrival) - flashed as the glide began, it lit the page being left and was over before the landing. The wait is
-// bounded (FLASH_WAIT_MS): a hand that takes the pages over and stays on the page shown fills nothing, and a later visit
-// to the card's page must not flash.
+// The panel flashes for a card's [보기] once it shows page `page`: at once when it does, else when a glide lands and
+// fills it (flashOnArrival) - flashed as the glide begins, it would light the page being left and be over before the
+// landing. The wait is bounded (FLASH_WAIT_MS): a hand that takes the pages over and stays on the page shown fills
+// nothing, and a later visit to the card's page must not flash.
 let FLASH_WAIT = { page: 0, until: 0 };
 const FLASH_WAIT_MS = 3000;
 function flashPanelOn(page: number) {
@@ -546,8 +559,8 @@ function flashPanelOn(page: number) {
   }
   FLASH_WAIT = { page, until: performance.now() + FLASH_WAIT_MS };
 }
-// The panel was filled with page `page` (fillPanel): the first filling at rest after a flash was asked for ends the wait, and
-// flashes if it is that page (a hand that took the pages elsewhere lands on another).
+// The panel was filled with page `page` (fillPanel): the first filling at rest after a flash was asked for ends the
+// wait, and flashes if it is that page (a hand that took the pages elsewhere lands on another).
 function flashOnArrival(page: number) {
   const waiting = FLASH_WAIT;
   if (!waiting.page || isAutoScrolling()) return;
@@ -563,13 +576,14 @@ function flashPanel(panel: HTMLElement) {
   panel._flT = setTimeout(() => panel.classList.remove('flash'), 1200);
 }
 // ---------------- Keys the panel needs of its own
-// The panel stands after the pages in the DOM, so what stands on the reading page comes by hand. Its Tab stops: its marks.
+// The panel stands after the pages in the DOM, so what stands on the reading page comes by hand. Its Tab stops: its
+// marks.
 function markStops(page: number): HTMLElement[] {
   const block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
   return block ? ([...block.querySelectorAll(TABBABLE)].filter(isTabStop) as HTMLElement[]) : [];
 }
-// Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next stop is a later
-// page's mark, whose focus scrolled the pages there.
+// Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next
+// stop is a later page's mark, whose focus would scroll the pages there.
 addEventListener('keydown', (event) => {
   if (
     event.key !== 'Tab' ||
@@ -591,8 +605,8 @@ addEventListener('keydown', (event) => {
     first.focus({ preventScroll: true });
   }
 });
-// Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on the pages.
-// A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
+// Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on
+// the pages. A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
 addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || event.defaultPrevented || !IS_BESIDE_PAGES) return;
   const active = document.activeElement;
@@ -600,11 +614,12 @@ addEventListener('keydown', (event) => {
   event.preventDefault();
   searchToPage();
 });
-// A tall panel (.pv-tall) scrolls inside. A control the keyboard focuses there comes whole into its view, focus ring and all:
-// the reason popover's Tab loop focuses without scrolling (verdict-reason.js), so its first word and last control stayed out of
-// sight; the browser's own Tab scrolls only the control's edge to the panel's, which cut the ring; and the popover's rows
-// change as the focus moves (the field's keys row), after the browser scrolled. A press is left where it is: it is in view, and
-// moving the panel under the pointer put the caret of a click in the field somewhere else.
+// A tall panel (.pv-tall) scrolls inside. A control the keyboard focuses there comes whole into its view, focus ring
+// and all: the reason popover's Tab loop focuses without scrolling (verdict-reason.ts), which would leave its first
+// word and last control out of sight; the browser's own Tab scrolls only the control's edge to the panel's, which cuts
+// the ring; and the popover's rows change as the focus moves (the field's keys row), after the browser scrolled. A
+// press is left where it is: it is in view, and moving the panel under the pointer would put the caret of a click in
+// the field somewhere else.
 function revealFocused() {
   const panel = document.getElementById('pv-panel'),
     active = document.activeElement;
@@ -638,7 +653,8 @@ if (typeof ResizeObserver !== 'undefined')
   new ResizeObserver(() => {
     if (LAYOUT === LAYOUT_MODE.WIDE && pageVerdictsOn()) stickSoon();
   }).observe($('#left'));
-// Sets BUILD_READING_PAGE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+// Sets BUILD_READING_PAGE, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
 function setBuildReadingPage<Value extends typeof BUILD_READING_PAGE>(value: Value): Value {
   BUILD_READING_PAGE = value;
   return value;
