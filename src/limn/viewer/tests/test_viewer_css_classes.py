@@ -26,17 +26,17 @@ SRC = VIEWER.parent
 # Class families the viewer names at run time: prefix -> (the script that builds the name from it, the values it joins).
 # Only prefix+value passes unnamed; a value is a quoted string in a script (a number for a depth).
 BUILT = {
-    "band-": ("layout.js (the screen band on <body>)", {"short", "tablet-sheet"}),
-    "lay-": ("layout.js (the layout on <body>)", {"mid", "narrow"}),
-    "dot-": ("notices.js (the red dot on the control a message leads to)", {"rv", "side"}),
-    "nk-": ("notices.js, status.js (a message's kind)", {"err", "info", "ok", "warn"}),
-    "ev-": ("card-parts.js (a thread's state record)", {"assign", "close", "confirm", "reopen"}),
-    "rd-": ("revisions.js, suggest.js (a diff line's kind)", {"del", "file", "hunk", "meta"}),
-    "md-al-": ("md-surface.js (a Markdown table cell's alignment)", {"center", "left", "right"}),
-    "mdc-chip-": ("md-compare.js (a change chip's kind)", {"pin"}),
-    "mdc-": ("md-compare.js (a compared block's change)", {"del", "ins", "mod", "move"}),
-    "ol-depth-": ("outline.js (an outline entry's depth)", {"0", "1", "2", "3", "4"}),
-    "ic-": ("markup.js (an icon's name)", {"check", "minus", "pencil"}),
+    "band-": ("layout/flow.ts (the screen band on <body>)", {"short", "tablet-sheet"}),
+    "lay-": ("layout/flow.ts (the layout on <body>)", {"mid", "narrow"}),
+    "dot-": ("platform/notices.ts (the red dot on the control a message leads to)", {"rv", "side"}),
+    "nk-": ("platform/notices.ts, documents/view-status.ts (a message's kind)", {"err", "info", "ok", "warn"}),
+    "ev-": ("pins/view-card-parts.ts (a thread's state record)", {"assign", "close", "confirm", "reopen"}),
+    "rd-": ("revisions/flow.ts, composer/flow-suggest.ts (a diff line's kind)", {"del", "file", "hunk", "meta"}),
+    "md-al-": ("markdown/view.ts (a Markdown table cell's alignment)", {"center", "left", "right"}),
+    "mdc-chip-": ("revisions/view-rendered-compare.ts (a change chip's kind)", {"pin"}),
+    "mdc-": ("revisions/view-rendered-compare.ts (a compared block's change)", {"del", "ins", "mod", "move"}),
+    "ol-depth-": ("pdf/view-outline.ts (an outline entry's depth)", {"0", "1", "2", "3", "4"}),
+    "ic-": ("platform/markup.ts (an icon's name)", {"check", "minus", "pencil"}),
 }
 BUILT_NAMES = {p + v for p, (_, values) in BUILT.items() for v in values}
 # Classes kept with no writer, and why.
@@ -79,7 +79,7 @@ def writers() -> str:
     """The texts that can put a class on an element: the page template, the viewer scripts, and the Python under
     src/limn (server-made HTML), tests excepted."""
     parts = [(VIEWER / "index.html").read_text(encoding="utf-8")]
-    parts += helpers_js.module_texts(sorted(JS_DIR.glob("*.ts")))  # the code, without its TypeScript types
+    parts += helpers_js.module_texts(sorted(JS_DIR.rglob("*.ts")))  # the code, without its TypeScript types
     parts += [p.read_text(encoding="utf-8") for p in sorted(VIEWER.glob("*.mjs"))]
     parts += [p.read_text(encoding="utf-8") for p in sorted(SRC.rglob("*.py")) if "tests" not in p.parts]
     return "\n".join(parts)
@@ -114,7 +114,7 @@ class ViewerCssClasses(unittest.TestCase):
         """Each BUILT prefix is still joined to a value in a script ('nk-'+…, `ev-${…}`); each name it lists is selected by
         a rule, is not also written whole (then it needs no listing), and its value stands quoted in a script (a depth
         is a number) - so the list never outlives the family or names a value no script has."""
-        scripts = "\n".join(helpers_js.module_texts(sorted(JS_DIR.glob("*.ts"))))
+        scripts = "\n".join(helpers_js.module_texts(sorted(JS_DIR.rglob("*.ts"))))
         for prefix, (_, values) in BUILT.items():
             with self.subTest(prefix=prefix):
                 self.assertRegex(scripts, r"[\s'\"`]" + re.escape(prefix) + r"(?:['\"]\s*\+|\$\{)")

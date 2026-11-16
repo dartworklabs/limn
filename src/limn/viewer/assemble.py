@@ -115,7 +115,9 @@ BRAND_DIR = VIEWER_DIR / "brand"
 VIEWER_MARKERS = ("__APP_CSS__", "__APP_JS__")
 PAGE_MARKERS = ("__APP_CSS__",)
 VIEWER_MANIFEST = "parts.txt"  # the ordered list of parts, beside index.html
-VIEWER_PART_RE = re.compile(r"[a-z0-9-]+/[a-z0-9-]+\.[a-z]+")  # folder/name.ext: never leaves the viewer folder
+VIEWER_PART_RE = re.compile(
+    r"[a-z0-9-]+(?:/[a-z0-9-]+)+\.[a-z]+"
+)  # folder/name.ext, folders nested: never leaves the viewer folder
 # The built script GET /viewer.js serves (load_viewer_script): tools/build_viewer.mjs writes it, the repository keeps it.
 VIEWER_SCRIPT = "dist/viewer.js"
 # The service worker GET /sw.js serves, beside index.html. A script of its own, never a part of the page.
@@ -355,7 +357,7 @@ def service_worker(directory: Path) -> str:
 def md_worker(directory: Path, markdown_it_version: str) -> str:
     """The Markdown parse worker GET /md-parse.mjs serves: directory/md-parse.mjs with __MARKDOWN_IT_VERSION__ filled, the
     ?v= of the vendored markdown-it it imports. A module worker the viewer starts from this origin when a Markdown
-    document opens (md-surface.js); it parses within the limits it is sent and answers plain tokens, and touches no DOM.
+    document opens (markdown/view.ts); it parses within the limits it is sent and answers plain tokens, and touches no DOM.
     A missing file is a packaging defect and raises OSError, like the page's parts."""
     return (directory / MD_WORKER).read_text(encoding="utf-8").replace("__MARKDOWN_IT_VERSION__", markdown_it_version)
 

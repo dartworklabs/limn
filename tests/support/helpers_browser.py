@@ -291,7 +291,7 @@ def line_to_end(page):
 # The editing commands below are the host's, not the viewer's: the browser runs them, so the chord is the platform's.
 # A Control chord does nothing at all on macOS - the caret stays and the letters land wherever it already was - which
 # is a pass only where the test wanted that place anyway. The viewer's own shortcuts stay Control: it reads
-# ctrlKey || metaKey (src/limn/viewer/js/events.ts), so one chord covers both hosts there.
+# ctrlKey || metaKey (src/limn/viewer/js/main.ts), so one chord covers both hosts there.
 def undo_edit(page):
     """Undo the focused text field's last edit with the browser host's native chord."""
     page.keyboard.press("Meta+z" if sys.platform == "darwin" else "Control+z")
@@ -414,7 +414,7 @@ def ime_key_press(cdp, key, at=None, repeat=False, *, code=None, shift=False):
 
 
 # A macOS host, as far as the viewer and Chromium can tell from another one. The viewer reads the host from
-# navigator.platform (IS_MAC, src/limn/viewer/js/core.ts): MAC_PLATFORM is the init script that makes it MacIntel. Chromium
+# navigator.platform (IS_MAC, src/limn/viewer/js/app/state.ts): MAC_PLATFORM is the init script that makes it MacIntel. Chromium
 # takes a key as macOS binds it when the key comes with the Cocoa command it is bound to there - what Playwright sends on a
 # macOS host (its macEditingCommands), and what mac_press sends from any host: Home then scrolls the document instead of
 # moving the caret (issues #414, #452). Only the keys the tests press; Space is bound to no command.
@@ -512,9 +512,9 @@ def ime_end_with(cdp, key, text, repeats=0):
     """The input method ends its composition with key the way ibus-hangul on Linux does: the key goes down marked
     composing (ime_key_down), the input method commits text (ime_commit_ended: compositionend, then the committed input),
     then hands the very key on as a plain keydown (isComposing false) and its keyup - with no keyup before that keydown
-    (core.js imeTail, docs/handbook/viewer.md §조합을 끝내는 키). One press, so like ibus-hangul's every keydown and the keyup carry the
+    (app/state.ts imeTail, docs/handbook/viewer.md §조합을 끝내는 키). One press, so like ibus-hangul's every keydown and the keyup carry the
     time the key went down (CDP's event time): the gap a busy machine leaves between the commit and the next call does not
-    move the key out of core.js IME_TAIL_MS. With repeats the key is held: that many autorepeats (keydown with repeat, at
+    move the key out of app/state.ts IME_TAIL_MS. With repeats the key is held: that many autorepeats (keydown with repeat, at
     IME_REPEAT_DELAY and IME_REPEAT_EVERY - past the window) come before its keyup. The time of the press."""
     at = time.time()
     ime_key_down(cdp, key, at)
@@ -556,7 +556,7 @@ class Finger:
     lift's time has passed, so whatever input follows is stamped after it.
 
     pace is the wall time after each move: the drag's speed in real time, which the viewer's own gestures measure
-    (performance.now() in gestures.js). 0 sends the moves at once, as such a runner did; the stamps keep their spacing."""
+    (performance.now() in layout/input.ts). 0 sends the moves at once, as such a runner did; the stamps keep their spacing."""
 
     def __init__(self, cdp, pace=TOUCH_STEP):
         """A finger on cdp's page, not yet down."""

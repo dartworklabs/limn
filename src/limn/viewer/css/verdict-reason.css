@@ -1,4 +1,4 @@
-/* ---------------- The page verdict line's toggle state and a verdict's reason (verdict.js pageLineHtml, verdict-reason.js;
+/* ---------------- The page verdict line's toggle state and a verdict's reason (verdict/flow-line.ts pageLineHtml, verdict/flow-reason.ts;
    docs/handbook/viewer.md §판정 핀). The line's own box, sizes and rows are components.css's. */
 
 /* The pressed word: the line's current verdict - or the word a save on the line is for - filled (aria-pressed, a toggle,
@@ -30,7 +30,7 @@
 
 /* The popover (.pv-pop): inside its line, laid above it - never pushing the page down or making the floating line taller -
    from the line's start, no wider than the line or about forty Hangul letters. The field grows with its lines up to five
-   (verdict-reason.js growReasonField); one row under it says whose reason it is, the draft's state ('저장 안 됨' in the warning
+   (verdict/flow-reason.ts growReasonField); one row under it says whose reason it is, the draft's state ('저장 안 됨' in the warning
    colour, '저장됨' with a check), the keys, and [지우기] [닫기] [저장]. */
 .pv>.pv-pop{position:absolute;left:0;bottom:calc(100% + var(--space-2));z-index:5;box-sizing:border-box;width:min(100%,36rem);
   display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-2);border:1px solid var(--border-strong);border-radius:var(--radius);
@@ -62,7 +62,7 @@
   background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border-strong);font-size:var(--text-xs);white-space:nowrap;box-shadow:var(--shadow-sm);pointer-events:none}
 .pv:is(.pv-onshow,:has(.vd-b[aria-pressed=true]:focus-visible)):not(.pv-pop-open)>.pv-onhint{display:block}
 @media (hover:hover){.pv:has(.vd-b[aria-pressed=true]:where(:not(:disabled,[aria-disabled="true"])):hover):not(.pv-pop-open)>.pv-onhint{display:block}}
-/* A long press's description box is up (html.tip-press, tooltip.js): it says what the context says, so the context steps aside. */
+/* A long press's description box is up (html.tip-press, platform/tooltip.ts): it says what the context says, so the context steps aside. */
 html.tip-press #doc .pv>.pv-onhint{display:none}
 /* A saved reason the person may change: its pencil after the text. */
 .pv button.pv-note .ic-pencil{width:1em;height:1em;margin-left:var(--space-1);vertical-align:calc(.5cap - .5em);color:var(--muted-foreground)}

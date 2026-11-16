@@ -192,7 +192,7 @@ class MessageTable(unittest.TestCase):
         self.assertEqual(sorted(k for k in used if k not in UI_EN), [])
 
     def test_every_tooltip_text_has_a_translation(self):
-        """The tooltip table TIP_TEXT (core.js) reaches the screen through translate(TIP_TEXT.x), which composed_keys() cannot see: every text
+        """The tooltip table TIP_TEXT (app/state.ts) reaches the screen through translate(TIP_TEXT.x), which composed_keys() cannot see: every text
         in it has an English entry, so a new tooltip is never left in Korean."""
         table = js_const("TIP_TEXT")
         texts = [re.sub(r"\\(.)", r"\1", m.group(2)) for m in ENTRY.finditer(table)]

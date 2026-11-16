@@ -35,7 +35,7 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
 .day-line{display:flex;align-items:center;gap:var(--space-2);margin:var(--space-2) 0;color:var(--muted-foreground);font-size:var(--text-sm);font-weight:600;line-height:var(--line-label)}   /* a whole number of px: every card under it starts on a whole pixel */
 .day-line::before,.day-line::after{content:"";flex:1;height:1px;background:var(--border)}
 .day-line:first-child{margin-top:0}
-/* A card far from the list's view is not laid out or painted until it comes near it (list.js lazyCards, issue #305). It stands
+/* A card far from the list's view is not laid out or painted until it comes near it (pins/flow-list.ts lazyCards, issue #305). It stands
    at the height it had when it went (--card-h), or at the one it was last drawn at (auto). */
 #list .pin.card.lazy{content-visibility:auto;contain-intrinsic-block-size:auto var(--card-h)}
 .dcnt{flex:none;justify-content:center;min-width:20px;padding:0 var(--space-1);border-radius:var(--radius-lg);line-height:18px}
@@ -48,7 +48,7 @@ button.sec-tg{display:inline-flex;align-items:center;gap:var(--space-1);min-widt
 .arc-row .ic{width:14px;height:14px}
 .arc-row.done :is(.arc-l1,.arc-head)>.ic{color:var(--status-closed)}
 .arc-l1,.arc-l1b{display:flex;align-items:center;gap:var(--space-1);min-height:26px;white-space:nowrap}
-/* A superseded verdict's done row (cards.js doneCard): its first line is the number, '판정 보류' and '이전 판정 · #12로 대체됨'
+/* A superseded verdict's done row (pins/view-cards.ts doneCard): its first line is the number, '판정 보류' and '이전 판정 · #12로 대체됨'
    with [답글] at its end, and the location, reference and time are the line under it (.arc-l1b). The number and the badges
    are one block (.arc-head) that wraps inside itself where the line cannot hold them (a ~300px panel, a 320px phone): the
    marker goes under the verdict badge and [답글] stays at the first line's end, never on a line of its own. */

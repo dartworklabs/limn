@@ -67,7 +67,7 @@ LINE = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"
   return {text: t.replace(/·/g, ' · ').replace(/\\s+/g, ' ').trim(), pin: l.dataset.pin || null, cancel: c ? Number(c.dataset.ref) : null,
     words: [...l.querySelectorAll('button.vd-b')].map(b => b.textContent), tips: [...l.querySelectorAll('button.vd-b')].map(b => b.dataset.tip)};}"""
 # A smooth scroll of the PDF area to page 2's top that the viewer did not start (no jump of its own, so its guard judges the
-# scroll by the hand's last touch: verdict.js isAutoScrolling), held open: the browser's end of it (scrollend) is kept from
+# scroll by the hand's last touch: verdict/flow-line.ts isAutoScrolling), held open: the browser's end of it (scrollend) is kept from
 # the viewer and counted until glide_let_go hands it on. The browser's glide is over in about half a second, and a test that
 # looked or pressed its key one round trip after starting it found it over on a loaded runner: IS_GLIDING read false, or was
 # never seen true (#423). Run with the page's clock standing still (clock_still), so that the guard's own lapse - a second
@@ -1123,7 +1123,7 @@ class ConfirmationRoundFixes(VerdictBase):
 
 # Before a press (VerdictBase.press_page): keep the line and button pressed, and record every pointer, mouse and click event
 # from now on at the window's capture phase - before any of the viewer's handlers, the document's capture-phase
-# SWALLOW_CLICK (tooltip.js) among them - with its type, target, point and whether the browser made it; and whether a click
+# SWALLOW_CLICK (platform/tooltip.ts) among them - with its type, target, point and whether the browser made it; and whether a click
 # then reached the pressed button itself.
 PRESS_WATCH = """([line, btn]) => {const d = (e) => e ? e.tagName.toLowerCase() + (e.className && typeof e.className === 'string' ? '.' + e.className.trim().replace(/\\s+/g, '.') : '') + (e.dataset && e.dataset.key ? '[' + e.dataset.key + ']' : '') : null;
   const b = document.querySelector(btn);
@@ -1153,7 +1153,7 @@ OLD = """id=>{const m=[...document.querySelectorAll('.pin[data-id="'+id+'"] .vd-
 
 
 def ro(n):
-    """'로' or '으로' after number n read in Korean (verdict.js josaToward)."""
+    """'로' or '으로' after number n read in Korean (verdict/flow-line.ts josaToward)."""
     return "으로" if str(n)[-1] in "036" else "로"
 
 
@@ -3999,7 +3999,7 @@ class ReasonRoom(VerdictBase):
         self.assertTrue(page.evaluate("()=>!!document.querySelector('#doc .pgw.pv-roomy')"))
         room = page.evaluate(
             "()=>pdfAreaInnerWidth()-pageWidth(widestPagePoints(),PAGE_SCALE)"
-        )  # the room beside the pages (verdict-panel.js measureBesideRoom)
+        )  # the room beside the pages (verdict/view-panel.ts measureBesideRoom)
         size = page.viewport_size
         page.set_viewport_size({"width": int(size["width"] + 420 - room), "height": size["height"]})
         settle(page)
@@ -6182,7 +6182,7 @@ class ReasonComposition(VerdictBase):
                 if case == "released":
                     ime_key_up(cdp, "Enter", at)
                 elif case == "later":
-                    page.wait_for_timeout(400)  # past the window (core.js IME_TAIL_MS)
+                    page.wait_for_timeout(400)  # past the window (app/state.ts IME_TAIL_MS)
                 self.enter_saves(page, cdp, pid, None if case == "later" else at)
 
     def test_the_focus_or_the_page_going_away_ends_the_composition_key(self):
@@ -6262,7 +6262,7 @@ class ReasonComposition(VerdictBase):
         Enter writes it: also where the page's handler of the end takes 180 ms (SLOW_END), the input that much later as
         Chromium stamps it when it dispatches it; where the method commits other text than it showed ('극' for '글'); and
         where it commits in parts ('문', then '자' for '문자'). Taken as other text, the commit let the key go and the
-        Enter wrote the reason and closed the popover: known by coming within core.js IME_TAIL_MS of the end, behind the
+        Enter wrote the reason and closed the popover: known by coming within app/state.ts IME_TAIL_MS of the end, behind the
         slow handler; known as the text the composition showed, when it differed or came in parts."""
         cases = (
             ("as shown", "채택", 0, GEUL, ("글",)),
@@ -6292,7 +6292,7 @@ class ReasonComposition(VerdictBase):
     def test_a_rebuild_waits_for_the_key_that_ended_the_syllable_to_come_up(self):
         """'한' typed and '글' left composing when a new build with a page more arrives: it waits for the syllable (above).
         The Enter goes down, the input method commits '글' and hands the Enter on: the pages are not built again while
-        that key is down - also past the waits' looks (verdict-reason.js COMPOSED_POLL_MS) and held -, and the Enter
+        that key is down - also past the waits' looks (verdict/flow-reason.ts COMPOSED_POLL_MS) and held -, and the Enter
         and its repeats are the composition's. Up - or forgotten, the window losing the focus before the Enter is handed
         on - the pages are built again at once, before the waits' next look: the new field holds '한글' with the focus,
         nothing written, and the next Enter writes it. The page's clock stands still from the build on (clock_still), so
@@ -6350,7 +6350,7 @@ class ReasonComposition(VerdictBase):
 
     def test_a_release_that_never_comes_lets_the_field_go(self):
         """The Enter that ended the syllable handed on (held_over) and its keyup never comes while the field keeps the
-        focus - an input method may keep the release. The waiting rebuild goes on once core.js IME_HOLD_MS has passed with
+        focus - an input method may keep the release. The waiting rebuild goes on once app/state.ts IME_HOLD_MS has passed with
         no event of that key, and not before: on the page's clock, 1 ms short of it the pages still wait, through the
         waits' looks, and at it they are built again at once - before the waits' next look. The new field holds '한글' with
         the focus, nothing written, and the next Enter is a press of its own and writes it. The same where the browser

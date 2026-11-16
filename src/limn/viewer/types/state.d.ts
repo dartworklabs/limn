@@ -1,7 +1,7 @@
 // Shapes of the viewer's own screen state (docs/handbook/viewer.md §여러 문서 전환, 화면 상태의 소유자). Types only;
 // none of this is stored or sent as it is.
 
-// The open edit card (edit.js EDITOR.current): the pin it edits, its card element, the request's base revision, the
+// The open edit card (pins/flow-edit.ts EDITOR.current): the pin it edits, its card element, the request's base revision, the
 // range being edited with its ladder and snippet, the values it opened with (orig) to tell what changed.
 /** An active card keeps original values and copied mention hints so later changes can be saved against its baseline. */
 interface EditCard {
@@ -31,7 +31,7 @@ interface EditCard {
   overwrite?: boolean; // the person chose [내 메모로 덮어쓰기] after seeing theirs
 }
 
-// A suggested edit being written (suggest.js; the composer's SUGGEST_DRAFT, an edit card's sg): whether its editor is on, the text it
+// A suggested edit being written (composer/flow-suggest.ts; the composer's SUGGEST_DRAFT, an edit card's sg): whether its editor is on, the text it
 // holds, the text it was filled from (base, null before the first fill) and the lines that base is (file, lo, hi), the
 // suggestion the pin had when its edit card opened (had), the current text a 409 answered with and the lines it is
 // (current), the lines being read now ('file:lo-hi', reading) and the last read that failed: its lines, whether it was
@@ -49,20 +49,20 @@ interface SuggestDraft {
   fail: { key: string; fill: boolean; why: string } | null;
 }
 
-// The composer's selection (composer.js COMPOSE.current): the pick's answer plus what the composer chose on it - the
+// The composer's selection (composer/flow-pick.ts COMPOSE.current): the pick's answer plus what the composer chose on it - the
 // ladder rung (scope) and its environment, the element the range follows (elSel), and the overlap it reports (rel).
 interface Selection extends PickAnswer {
   scope?: string | null;
   env?: string | null;
   elSel?: PinElement | null;
   rel?: PickOverlap[];
-  // A drag whose pick could not be sent (offline.js offlinePick): it has no lines, and its box in PDF points is kept so
+  // A drag whose pick could not be sent (offline/api.ts offlinePick): it has no lines, and its box in PDF points is kept so
   // the same coordinates can be sent to pick once the connection is back.
   offline?: boolean;
   rect?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
-// A pin's location being placed again (repick.js REPICK): the pin, where it was, the drawn box and the new candidate.
+// A pin's location being placed again (composer/flow-repick.ts REPICK): the pin, where it was, the drawn box and the new candidate.
 interface Repick {
   id: number;
   from: { lo?: number; hi?: number; page: number; region: boolean };
@@ -76,7 +76,7 @@ interface ReplyDraft {
   readonly mentions: readonly string[];
 }
 
-// The open reply box (reply.js REPLY): its pin, its element, and whether the outcome toggle is flipped and which way.
+// The open reply box (pins/flow-reply.ts REPLY): its pin, its element, and whether the outcome toggle is flipped and which way.
 interface ReplyBox {
   id: number;
   flip: boolean;
@@ -84,13 +84,13 @@ interface ReplyBox {
   el: HTMLElement;
 }
 
-// A message's one action (notices.js): its button's label (Korean, translated when drawn), its description and what it does;
+// A message's one action (platform/notices.ts): its button's label (Korean, translated when drawn), its description and what it does;
 // wait = it sends a request, and the message stays (busy) until that is answered (noticeAct).
 interface NoticeAct {
   label: string;
   tip?: string;
   wait?: boolean;
-  stay?: boolean; // the action runs and the message stays (the next changed place, updates.js)
+  stay?: boolean; // the action runs and the message stays (the next changed place, documents/flow-updates.ts)
   fn: (run?: NoticeRun) => unknown;
 }
 
@@ -100,7 +100,7 @@ interface NoticeRun {
   away(): boolean;
 }
 
-// A message in context (notices.js, docs/handbook/viewer.md §알림 자리): what it says and how (a chip shows its short label),
+// A message in context (platform/notices.ts, docs/handbook/viewer.md §알림 자리): what it says and how (a chip shows its short label),
 // where it is drawn (place, and the banner host, the pin, list section and pin before it for an undo, and for a row the pin
 // as its card was drawn, which orders the row among the cards (rec); away once a row's card has left), how long it lives, the chip it marks (dot), the hint topic, the duplicate keys of the status line, whether it is
 // read out as an alert and comes first on the line (alert), whether its action's request is out (busy), the error source it
@@ -141,7 +141,7 @@ interface Notice {
   el: HTMLElement | null;
   group: string; // the group it says (groupNote): later events of that group merge into it
   keep: boolean; // never pushed off the line by its cap (a document's update, a gathered message)
-  back: boolean; // stands behind the line's other messages: news of another document (updates.js)
+  back: boolean; // stands behind the line's other messages: news of another document (documents/flow-updates.ts)
   dots: string[]; // the chips a gathered message marks (digestNote); else its one dot
   onEnd: ((acted: boolean, seen: boolean) => void) | null; // runs once as it goes: by its action, or seen ([x])
   items?: any[][]; // a gathered message's messages, as lineNote's arguments (digestNote)
@@ -150,14 +150,14 @@ interface Notice {
   digest?: boolean; // false: never gathered
 }
 
-// A send held back behind its undo (notices.js deferred()): run sends it now, cancel takes it back unsent; note is its undo.
+// A send held back behind its undo (platform/notices.ts deferred()): run sends it now, cancel takes it back unsent; note is its undo.
 interface Deferred {
   note: Notice | null;
   run: () => void;
   cancel: () => void;
 }
 
-// The pin the changes view was opened for (revisions.js REVISION_VIEW.target), and how the commit was chosen for it (via, and
+// The pin the changes view was opened for (revisions/flow.ts REVISION_VIEW.target), and how the commit was chosen for it (via, and
 // tokOf, the commit id its close reference names).
 interface RevTarget {
   id: number;
@@ -173,10 +173,10 @@ interface RevTarget {
   hit?: boolean;
   near?: boolean;
   tokOf?: string;
-  mdcMsg?: string;   // the rendered compare's line about the pin's blocks (md-compare.js ringPinBlocks)
+  mdcMsg?: string;   // the rendered compare's line about the pin's blocks (revisions/view-rendered-compare.ts ringPinBlocks)
 }
 
-// The changes view's quick range (revisions.js REVISION_VIEW.range, issue #188): mode is a RANGE_MODE value, start and end the
+// The changes view's quick range (revisions/flow.ts REVISION_VIEW.range, issue #188): mode is a RANGE_MODE value, start and end the
 // commits it spans (start the older; equal for one commit), endSet whether the end was chosen (pressed after the start, or
 // named by an update message), base the commit an update message's range is compared from (its last seen commit).
 interface RevRange {
@@ -193,7 +193,7 @@ interface RevSeen {
   at: string;
 }
 
-// The target a verdict pin is about (verdict.js verdictTargetOf): a key pins about one thing share, whether it is a page's
+// The target a verdict pin is about (verdict/flow-line.ts verdictTargetOf): a key pins about one thing share, whether it is a page's
 // whole target and its page, and for exact lines whether the pin is open (its lines matched to the text now) and its anchor.
 interface VerdictTarget {
   key: string;
@@ -202,7 +202,7 @@ interface VerdictTarget {
   lines: { open: boolean; anchor: string | null } | null;
 }
 
-// A document's verdict order (verdict.js verdictOrder): its resolved targets' pins, newest first, and every resolved pin's
+// A document's verdict order (verdict/flow-line.ts verdictOrder): its resolved targets' pins, newest first, and every resolved pin's
 // current verdict by pin id.
 interface VerdictOrder {
   groups: Map<string, { whole: boolean; page: number; pins: Pin[] }>;

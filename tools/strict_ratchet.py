@@ -1,7 +1,7 @@
 """Hold the viewer's not-yet-met checks to per-file counts that only go down (docs/adr/0042-viewer-es-modules.md D7,
 docs/handbook/viewer.md §타입 검사).
 
-Three checks run over the viewer's ES modules (TypeScript, src/limn/viewer/js/*.ts), and the existing code does not
+Three checks run over the viewer's ES modules (TypeScript, src/limn/viewer/js/**/*.ts), and the existing code does not
 meet all of them yet:
 
 - tsc-strict: `tsc -p tsconfig.strict.json` - the full TypeScript `strict` set (noImplicitAny and the rest) on top of
@@ -10,7 +10,7 @@ meet all of them yet:
   confusing global, an exhaustive switch over a closed union, a declared name of whole words, a comment with no
   history - limn/plain-names and limn/no-history-comment, tools/viewer-names.json), per rule.
 - boundaries: tools/check_viewer_boundaries.mjs - import cycles, feature dependencies ALLOWED does not list, platform
-  importing a feature, role rules, modules not yet in their feature folder - per rule.
+  importing a feature, role rules - per rule.
 
 This script runs all three and compares each file's count, per check and rule, with tools/strict-baseline.json. A
 count above its baseline fails: new code must meet the rule. A count below fails too, until the baseline is lowered

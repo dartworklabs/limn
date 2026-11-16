@@ -16,7 +16,7 @@ html,body{overscroll-behavior-x:none}
 /* #main = document navigation + PDF area. #right's edit/pin screen is kept independent. */
 #main{flex:1;display:flex;flex-direction:column;min-width:240px;min-height:0;position:relative}
 #left{flex:1;overflow:auto;padding:var(--space-4) var(--space-4) 60vh var(--hit);min-width:240px;min-height:0;touch-action:pan-x pan-y}
-#left.pv-glide{overflow-anchor:none}   /* while a jump glides (verdict.js setJumpTarget): WebKit ends a smooth scroll at any anchoring adjustment */
+#left.pv-glide{overflow-anchor:none}   /* while a jump glides (verdict/flow-line.ts setJumpTarget): WebKit ends a smooth scroll at any anchoring adjustment */
 #pdf-body{flex:1;display:flex;min-height:0;min-width:0}
 #pdf-center{flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;position:relative}   /* holds the select mode's frame and bar (#sel-mode) */
 #doc-nav{display:none;flex:none;align-items:center;gap:var(--space-3);height:var(--doc-nav-h);padding:0 var(--space-4);
@@ -102,7 +102,7 @@ body.outline-collapsed #outline-items,body.outline-collapsed #outline-search,bod
 /* The filter and its hint stay at the top of the panel however far the list has scrolled: the panel follows the current section, so
    the list is rarely at its top, and a filter scrolled away is out of reach. A band of the panel's own colour, so that rows pass under
    it and not behind the field's corners; its space above the field comes out of the head's, so at rest nothing moves. The panel sets
-   its scroll-padding to the band's height (outline.js): a row the keyboard walks to does not stop under it. */
+   its scroll-padding to the band's height (pdf/view-outline.ts): a row the keyboard walks to does not stop under it. */
 #outline-find{display:flow-root;position:sticky;top:0;z-index:1;margin-top:calc(-1 * var(--space-2));padding-top:var(--space-2);background:var(--sidebar)}
 #outline-search{width:100%;margin-bottom:var(--space-2);background:var(--field);font-size:var(--text-sm)}
 /* The filter's keys, under the field while it has the focus (a mouse and keyboard's reminder; the field is described by it for a screen

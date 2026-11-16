@@ -173,6 +173,7 @@ class ViewerFiles(unittest.TestCase):
             "part twice": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\njs/a.ts\n",
             "path out of the folder": "__APP_CSS__\n../a.css\n__APP_JS__\njs/a.ts\n",
             "absolute path": "__APP_CSS__\n/etc/a.css\n__APP_JS__\njs/a.ts\n",
+            "nested path out of the folder": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/pins/../../a.ts\n",
         }
         for why, text in cases.items():
             with self.subTest(why), tempfile.TemporaryDirectory() as d:
@@ -185,11 +186,12 @@ class ViewerFiles(unittest.TestCase):
         each part is for."""
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "parts.txt").write_text(
-                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.ts\njs/b.ts # last\n",
+                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.ts\njs/pins/b.ts # last\n",
                 encoding="utf-8",
             )
             self.assertEqual(
-                assemble.viewer_manifest(Path(d)), {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.ts", "js/b.ts")}
+                assemble.viewer_manifest(Path(d)),
+                {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.ts", "js/pins/b.ts")},
             )
 
 

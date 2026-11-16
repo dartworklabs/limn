@@ -48,7 +48,7 @@ button.btn-sm>.lbl{text-box:trim-both cap alphabetic}
 button.btn-icon{flex:none;padding:0;width:var(--control-h);min-width:var(--control-h);height:var(--control-h)}
 button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);height:var(--control-h-sm)}
 :focus-visible{outline:2px solid var(--ring);outline-offset:1px}
-/* The ring answers the keyboard only (docs/handbook/viewer.md §뜻과 모양): after a press (html[data-input=pointer], tooltip.js)
+/* The ring answers the keyboard only (docs/handbook/viewer.md §뜻과 모양): after a press (html[data-input=pointer], platform/tooltip.ts)
    a control a script focuses - [본문 1/2 ▾] as the navigation sheet closes - draws none. A text field keeps it: it shows where
    the typing goes. */
 :root[data-input=pointer] :focus-visible:not(input,textarea,select){outline:none}
@@ -70,7 +70,7 @@ button.btn-icon.btn-sm{width:var(--control-h-sm);min-width:var(--control-h-sm);h
 .badge-claimed .ic{color:var(--status-claimed)}
 .badge-claimed.late{background:color-mix(in srgb,var(--status-warning) 14%,transparent);color:var(--status-warning)}
 .badge-claimed.late .ic{color:var(--status-warning)}
-/* A badge's explanation for screen readers (data-tip-sr, tooltip.js; docs/handbook/viewer.md §설명과 접근성): generated content
+/* A badge's explanation for screen readers (data-tip-sr, platform/tooltip.ts; docs/handbook/viewer.md §설명과 접근성): generated content
    clipped to nothing, as .sr-only clips text. It is read with the badge, and being generated it is neither copied with a
    selection nor found by the browser's find - a hidden text node was both, an invisible find result and a pasted sentence. */
 [data-tip-sr]::after{content:attr(data-tip-sr);position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0);clip-path:inset(50%);white-space:nowrap}
@@ -135,7 +135,7 @@ input.n{width:58px;text-align:center}
 .mark.hi{border-width:3px}
 /* A figure document's page is a figure, judged by its colours: its marks are a frame only, with no tint over what they mark. */
 body.fig-doc .mark{background:none}
-/* The marks taken off for a look at the page itself (marks-hide.js): not drawn, not pressed, not read. */
+/* The marks taken off for a look at the page itself (pins/input-hide-marks.ts): not drawn, not pressed, not read. */
 body.marks-off .mark{visibility:hidden}
 body.marks-off .mark>.nt-chip{visibility:visible}   /* an undo keeps its place, where its mark is, and can be pressed */
 /* The badge's number is trimmed to its cap height (text-box), which the button centres in the circle: as a line box the
@@ -168,14 +168,14 @@ pre{background:var(--code);border:0;border-radius:var(--radius);padding:var(--sp
 pre.wrap{white-space:pre-wrap;overflow-wrap:anywhere}   /* a long unbreakable token (a URL, a command) breaks too */
 pre.nowrap{white-space:pre}
 #build-err pre{max-height:30vh}   /* the failed build's log tail, under its errors */
-/* The page verdict line (verdict.js; docs/handbook/viewer.md §판정 핀), on a figure document or a view-only PDF whose
+/* The page verdict line (verdict/flow-line.ts; docs/handbook/viewer.md §판정 핀), on a figure document or a view-only PDF whose
    word file says page: true: a line under each page - the page target's verdict state, the earlier open verdicts' link and
    one button per word - the page's width up to what the PDF area shows, held in view (sticky) while a zoomed page scrolls
    sideways; zooming changes the page, never the line. The pages' column (#doc) is as wide as the widest page, never narrower
    than the PDF area, so a zoomed page's line has its whole width to stick in - with a mouse too (a column kept at the
    fitted width let the line scroll away with it). */
 #doc{width:fit-content;min-width:100%}
-/* Each page and its line are one block (.pgw, pages.js). Only the reading page's line (.reading - the page under the reading
+/* Each page and its line are one block (.pgw, pdf/view-pages.ts). Only the reading page's line (.reading - the page under the reading
    line, which the keys act on) is sticky to the PDF area's bottom within its block: it floats there while its own place is
    below the area and settles 8px under the page at its end; every other line stays in its place. A sticky box keeps clear
    of its scroller's padding, and the PDF area's end padding (60vh, room to scroll the last page up) is no part of what
@@ -189,13 +189,13 @@ pre.nowrap{white-space:pre}
   margin:calc(-1 * var(--space-2)) auto var(--space-4);min-height:var(--pv-ctl);font-size:var(--text-sm);color:var(--muted-foreground);user-select:none;
   --pv-ctl:var(--control-h-md);--pv-ring:var(--space-2);--pv-gap:var(--space-2);--pv-blur:8px;overflow-anchor:none}
 .pv.reading{bottom:calc(var(--pv-inset,0px) + var(--pv-gap) - var(--pv-pad-b,0px) + var(--pv-kb-over,0px))}   /* --pv-kb-over: a keyboard over the page, stickReadingLine */
-/* Floating over its page (.stuck, verdict.js stickReadingLine): the PDF area's own background carried --pv-ring past the line on every
+/* Floating over its page (.stuck, verdict/flow-line.ts stickReadingLine): the PDF area's own background carried --pv-ring past the line on every
    side by a spread shadow (the line's box and the place of its words do not move), a 1px separator on its top edge (the
    strong border: --border is the PDF area's own grey in the light theme) and a
    soft shadow above it. Compact screens keep the 44px words and tighten the rest - a 4px ring, 4px off the bottom, a
    smaller shadow - since every px there is plot. */
 .pv.stuck{background:var(--background);box-shadow:0 0 0 var(--pv-ring) var(--background),0 -1px 0 var(--pv-ring) var(--border-strong),0 -2px var(--pv-blur) var(--pv-ring) var(--shadow-color)}
-/* Held under its own page by an open reason's room and lying over the next page's head (.pv-over, verdict.js placePopoverRoom):
+/* Held under its own page by an open reason's room and lying over the next page's head (.pv-over, verdict/flow-line.ts placePopoverRoom):
    the same edge and shadow under it as over it, so the band is set off from the page it covers instead of reading as that
    page's head. */
 .pv.stuck.pv-over{box-shadow:0 0 0 var(--pv-ring) var(--background),0 -1px 0 var(--pv-ring) var(--border-strong),0 1px 0 var(--pv-ring) var(--border-strong),
@@ -208,7 +208,7 @@ body.compact .pv{--pv-ring:var(--space-1);--pv-gap:var(--space-1);--pv-blur:4px}
 body:is(.composing,.band-phone.lay-narrow.side-open) .pv.reading{bottom:auto}
 /* Measured from the PDF area's own bottom: where the keyboard is measured (--kb, a browser that does not resize the layout
    for it) the page's height already gives it up, and the sheet and the bars ride on it - adding --kb here counted it twice.
-   --sheet-h is the sheet's height, folded to its bar or open (status.js). */
+   --sheet-h is the sheet's height, folded to its bar or open (documents/view-status.ts). */
 body.lay-narrow{--pv-inset:var(--sheet-h,0px)}
 body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h,0px) + 24px)}
 /* On touch the status line's [x] and its action answer 44px up from the sheet's top edge, over the PDF (responsive.css): the
@@ -226,7 +226,7 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv:not(.pv-stack)>.pv-fig{flex:1 1 0;min-width:var(--pv-fig-min,0px);max-width:max-content;overflow:hidden}
 .pv.pv-tight:not(.pv-stack)>.pv-t .pv-note{min-width:0}   /* the wide band's last cuts before a second row (fitPageLines) */
 /* The earlier link on a tight line is its count alone, '+2' (data-n): its words ('이전 2건', '+2 earlier') step out - its name
-   and its tooltip say it whole (verdict.js pageLineHtml). Cut to fit instead (2em at least), it read '1 ea…' on a 620px
+   and its tooltip say it whole (verdict/flow-line.ts pageLineHtml). Cut to fit instead (2em at least), it read '1 ea…' on a 620px
    English line (1280 x 800, panel open, three-digit pin numbers), and at 5em that line stacked. The count has no padding
    of its own there - the dot before it (.pv-ea) takes that room, and the row's gaps keep it 11px from [판정 취소] and 8px
    from the words. Its press area is 24 x 32px all the same, from its own right edge back over that room (::after, a mouse;
@@ -242,13 +242,13 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    its state wraps, and the dot stood alone at the end of the row above the link. */
 .pv.pv-stack>.pv-t>.pv-ea{display:none}
 .pv.pv-early-out:not(.pv-stack)>.pv-t :is(.pv-early,.pv-ea){display:none}
-/* The extras a press puts in a row (verdict-reason.js 'Enter 이유 쓰기', verdict.js the line's [되돌리기] of a take-back) take
+/* The extras a press puts in a row (verdict/flow-reason.ts 'Enter 이유 쓰기', verdict/flow-line.ts the line's [되돌리기] of a take-back) take
    the earlier link's place there: it steps out while either is on the line and is back when it goes. Beside it, a 620px
    line (1280 x 800, panel open) ran 7 and 25px past its row and stacked under the press. Every line is fitted as the
    reading line (#doc.pv-measure) with the link in beside 'Enter 이유 쓰기' too, and fitPageLines counts the wider of the two states
    a key save's line takes - 'Enter 이유 쓰기' without the link while it is read, [이유 추가] with it at rest (keySaveStateCut). */
 .pv.pv-tight:not(.pv-stack)>.pv-t:has(>.pv-undo) :is(.pv-early,.pv-ea),#doc:not(.pv-measure) .pv.pv-tight:not(.pv-stack)>.pv-t:has(.pv-kbd) :is(.pv-early,.pv-ea){display:none}
-/* While the line offers a take-back's [되돌리기] (verdict.js LINE_UNDO_OFFERS), [이유 추가] steps out on every row - as it does for an
+/* While the line offers a take-back's [되돌리기] (verdict/flow-line.ts LINE_UNDO_OFFERS), [이유 추가] steps out on every row - as it does for an
    armed confirm word's wait - and is back when the offer ends (a kept draft's '초안 있음' stays). Beside it a 620px row with
    three-digit pin numbers was still within 2px of stacking for the offer's few seconds. A focus on it moves to the
    [되돌리기] (cancelVerdictPin). */
@@ -258,7 +258,7 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv:not(.pv-stack)>.pv-t .pv-note{flex:0 100 auto;min-width:3em;max-width:none}
 .pv:not(.pv-stack)>.pv-t .pv-busy{flex:0 50 auto;min-width:0;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
 .pv:not(.pv-stack)>.pv-t .pv-early{min-width:var(--control-h-sm);text-align:center}
-/* While a save on the line is out its rows are held (verdict.js holdsRows) and nothing fits the line again, so what the
+/* While a save on the line is out its rows are held (verdict/flow-line.ts holdsRows) and nothing fits the line again, so what the
    save adds gives way instead of pushing the row's end out of it: its words ('· 보류 저장 중…') are cut down to nothing
    where the row is short - the pressed word's check already says what is saved, and a screen reader hears the words
    (role=status) - the reason is cut as for an armed word, and the earlier link steps out until the save is done. fitPageLines
@@ -267,7 +267,7 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv:has(>.pv-t>.pv-busy)>.pv-t :is(.pv-early,.pv-ea){display:none}
 /* While a confirm word waits for its second press its line says how long ('4초 안에 한 번 더 누르면 저장', .pv-arm) in full: what
    does not bear on that press gives way to it - the reason and the earlier link to nothing (it keeps a focus it has), [이유
-   추가] and [판정 취소] step out - and it is cut last. The words stay where they are (the line keeps its rows, verdict.js holdsRows). */
+   추가] and [판정 취소] step out - and it is cut last. The words stay where they are (the line keeps its rows, verdict/flow-line.ts holdsRows). */
 .pv:not(.pv-stack)>.pv-t .pv-arm{flex:0 1 auto;min-width:6em;overflow-x:clip;overflow-y:visible;text-overflow:ellipsis}
 .pv:has(>.pv-t :is(.pv-arm,.pv-busy))>.pv-t .pv-note{min-width:0}
 .pv:not(.pv-stack):has(>.pv-t .pv-arm)>.pv-t .pv-early{flex:0 50 auto;min-width:0;overflow-x:clip;overflow-y:visible;text-overflow:clip}
@@ -277,7 +277,7 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
 .pv>.vd-btns{order:2}
 .pv>.pv-err{order:4}
 /* The floating line names the figure its words decide before its state: its identifier ('7쪽 · PL18', never cut) and its
-   title ('[후보] 다섯 쌍의 …', cut to fit) - verdict.js pageLineName; on a row its least width is that identifier's
+   title ('[후보] 다섯 쌍의 …', cut to fit) - verdict/flow-line.ts pageLineName; on a row its least width is that identifier's
    (--pv-fig-min, fitPageLines). A verdict's reason (its note's first line) ends the state, cut to fit too. */
 .pv .pv-fig{display:flex;flex:0 1 auto;max-width:min(45%,28em);white-space:nowrap;color:var(--foreground);font-weight:600}
 .pv .pv-fig-id{flex:none}
@@ -292,7 +292,7 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    of the reading line's name, which a resting line's hidden name holds), in the line's muted text at the text's own weight -
    the reading line's name is the foreground at 600, its title after it. The row is kept because the reading line's name came
    and went with the reading page: the line a reading page left shrank by the row (131 -> 108px on a phone) and moved the page
-   being read - and the scroll that made up for it ended a jump's glide and trapped a slow scroll at a page's end (verdict.js
+   being read - and the scroll that made up for it ended a jump's glide and trapped a slow scroll at a page's end (verdict/flow-line.ts
    stickReadingLine). Kept empty, it stood 44px between a phone's page and the state under it and the line looked loose, as far from
    its own page as from the next (#308); laid after the words instead, the state and the words moved a row whenever the
    reading page changed. Same font size, same row: the line's height and its words' places are the reading line's whichever
@@ -301,23 +301,23 @@ body.lay-narrow.has-status:not(.typing,.pv-typing){--pv-inset:calc(var(--sheet-h
    line stacks or not whichever page is read. */
 #doc.pv-measure .pv>:is(.pv-fig,.pv-fig-sep)[hidden]{display:flex!important;visibility:hidden;min-height:1lh}   /* over frame.css [hidden]; one text line high */
 /* So does the [이유 추가] a line with the person's own open verdict and no reason holds hidden while it is neither the reading
-   line nor the last save's (verdict-reason.js inlineReason): the reading line shows it, and a line with an earlier link
+   line nor the last save's (verdict/flow-reason.ts inlineReason): the reading line shows it, and a line with an earlier link
    near its bar stacked only while it was read. Not where the line steps it out anyway (a take-back's [되돌리기]). */
 #doc.pv-measure .pv:not(:has(>.pv-t>.pv-undo))>.pv-t>.pv-ra[hidden]{display:contents!important;visibility:hidden}
-/* So does a key save's line (.pv-kw, verdict.js fitPageLines) fit its way to the reason as the wider of its two looks (--pv-add-w:
-   measureStateNeed draws both): it says 'Enter 이유 쓰기' while it is read and [이유 추가] at rest (verdict-reason.js
+/* So does a key save's line (.pv-kw, verdict/flow-line.ts fitPageLines) fit its way to the reason as the wider of its two looks (--pv-add-w:
+   measureStateNeed draws both): it says 'Enter 이유 쓰기' while it is read and [이유 추가] at rest (verdict/flow-reason.ts
    inlineReason) - 40px wider in Korean, 15px in English - and its rows were fitted on the one it showed. */
 #doc.pv-measure .pv.pv-kw .pv-ra>.pv-add{min-width:var(--pv-add-w,0px)}
 .pv.pv-stack>.pv-fig[hidden]{display:flex!important;min-height:1lh;color:var(--muted-foreground);font-weight:400}
 @media (pointer:coarse){.pv.pv-stack .pv-fig{margin-bottom:calc(var(--space-1) - var(--space-5))}}
-/* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict.js) the
+/* While the reason is typed on a touch screen (body.pv-typing: a text field in a page line has the focus, verdict/flow-line.ts) the
    keyboard leaves little of the page: the line drops its figure's name and its save chip folds to its [되돌리기] - and the
    status line over the sheet steps aside as it does for a panel field (responsive.css) - so the plot keeps what is left. */
-/* The reason popover's side (verdict.js placePopover): under its line where the room above is too short and the room below holds
+/* The reason popover's side (verdict/flow-line.ts placePopover): under its line where the room above is too short and the room below holds
    it, and never taller than the room it has (it scrolls). Never a scroll anchor: a line is sticky, and an anchor that moves
    with the scroll turns a change inside it into a jump of the page. */
 .pv.pv-pop-below>.pv-pop{top:calc(100% + var(--space-2));bottom:auto}
-/* Room to read a page's end under its open reason popover (verdict.js placePopoverRoom, #345): an empty box after the line, as tall
+/* Room to read a page's end under its open reason popover (verdict/flow-line.ts placePopoverRoom, #345): an empty box after the line, as tall
    as what the popover covers of the page, that a sticky line may come down into; its negative margin gives the height back,
    so no page moves when it comes or goes. The line's top edge is sticky where it stands (its inline top). Beside the pages
    the blocks are grids and hold no line: never there. */
@@ -325,7 +325,7 @@ body:not(.pv-beside) #doc .pgw.pv-roomy::after{content:'';display:block;height:v
 .pv>.pv-pop{max-height:var(--pv-pop-max,none);overflow-y:auto}
 @media (pointer:coarse){body.pv-typing .pv.reading>:is(.pv-fig,.pv-fig-sep){display:none}
   body.pv-typing .pv>.nt-chip :is(.nt-ic,.nt-t){display:none}}
-/* The key a word answers on the line the keys act on (data-kn, verdict.js): after the word in the button's own colour, set off
+/* The key a word answers on the line the keys act on (data-kn, verdict/flow-line.ts): after the word in the button's own colour, set off
    by weight and size as a button's shortcut is (.kh); a mouse screen only. */
 @media (hover:hover) and (pointer:fine){.pv .vd-b[data-kn]::after,#doc.pv-measure .pv .vd-b::after{content:attr(data-kn);margin-left:var(--space-1);font-weight:400;font-size:var(--text-xs)}
   /* Every line is fitted as the line the keys act on (fitPageLines): its words with their keys - a word's key is its place */
@@ -366,7 +366,7 @@ body:not(.pv-beside) #doc .pgw.pv-roomy::after{content:'';display:block;height:v
 @media (hover:hover){.pv button.pv-early:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--primary);text-decoration:underline}}
 /* [판정 취소]: a text action that takes a verdict back, not a way to somewhere - muted destructive text (the danger hue
    leaning to the line's own text, so it never outshouts the state or reads as the blue links), the line's weight, and the
-   link's underline only on hover and :focus-visible. A phone's floating line holds it back (.pv-lean, verdict.js leanFloatingLine). */
+   link's underline only on hover and :focus-visible. A phone's floating line holds it back (.pv-lean, verdict/flow-line.ts leanFloatingLine). */
 /* The dot before [판정 취소] stands 4px further off on each side: [판정 취소] 16px and more from the reason's button before it. */
 .pv .pv-t>.pv-sep.pv-cn{margin-inline:var(--space-1)}
 .pv button.pv-cancel{--pv-cancel-fg:color-mix(in srgb,var(--destructive) 78%,var(--foreground));color:var(--pv-cancel-fg);font-weight:inherit;
@@ -376,7 +376,7 @@ body:not(.pv-beside) #doc .pgw.pv-roomy::after{content:'';display:block;height:v
 body.band-phone .pv.pv-lean .pv-cn{visibility:hidden}   /* its place kept: the line's rows are the same floating or in place */
 /* A stacked line puts its state on a row of its own and its buttons on the next, at its start, filling the row - or sharing
    it with a save chip at its end (notices.css). */
-.pv.pv-stack>.pv-t{flex-basis:100%;min-height:max(var(--pv-ctl),var(--pv-t-h,0px))}   /* --pv-t-h: the reading line's state rows (verdict.js fitPageLines) */
+.pv.pv-stack>.pv-t{flex-basis:100%;min-height:max(var(--pv-ctl),var(--pv-t-h,0px))}   /* --pv-t-h: the reading line's state rows (verdict/flow-line.ts fitPageLines) */
 .pv.pv-stack.pv-t-kept>.pv-t{align-content:flex-start}   /* kept taller than its state: the rows at the top, under the identifier */
 /* The state's row is as tall from the start as a text action makes it ([이유 추가], [판정 취소]: 32px with a mouse, 44px on
    touch): a line in its place grows downward, and a phone's first verdict moved its words 25px down under the finger. */
@@ -388,12 +388,12 @@ body.band-phone .pv.pv-lean .pv-cn{visibility:hidden}   /* its place kept: the l
    took the lower 13px of the link's. */
 @media (pointer:coarse){.pv.pv-stack{row-gap:var(--space-5)} .pv .pv-t{row-gap:var(--space-4)}}
 .pv.flash{animation:pinflash 1.2s ease-in-out 1}
-/* A line far from the view is left for the browser to skip (.pv-far, verdict.js sortFarLines; #322): not laid out or painted
+/* A line far from the view is left for the browser to skip (.pv-far, verdict/flow-line.ts sortFarLines; #322): not laid out or painted
    until it comes near, at the height it is drawn at (--pv-h: the line has no padding or border, so its box is its content
    box). Skipping contains a line - its parts drawn on whole pixels, what reaches past its box clipped - so never the
    reading line, which floats, a line holding the focus, its reason popover or a save chip, nor one fitPageLines is measuring. */
 #doc .pv.pv-far:not(.reading,.pv-fitting,.pv-pop-open,:focus-within,:has(>.nt-chip)){content-visibility:auto;contain-intrinsic-block-size:var(--pv-h)}
-/* A character that would hide or reorder text (hidden-chars.js): kept in the text inside an isolating span, its name shown in a
+/* A character that would hide or reorder text (platform/hidden-chars.ts): kept in the text inside an isolating span, its name shown in a
    thin box - on the text surface, in the excerpt under the ladder and in a suggestion's diff, for every document kind. The
    character itself is in a .sr-only child: it takes no room, its name does. */
 .cc{unicode-bidi:isolate;display:inline-block;position:relative;margin:0 1px;padding:0 2px;border:1px solid var(--status-warning);

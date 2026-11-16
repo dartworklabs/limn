@@ -1,4 +1,4 @@
-/* ---------------- Queued pins on screen (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기, js/offline-ui.js): a pin kept in this
+/* ---------------- Queued pins on screen (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기, js/offline/view.ts): a pin kept in this
    browser while cut off is not on the server yet, so it is drawn apart from a saved pin. On the page: a dotted grey frame with
    a faint tint and, outside its top-left corner like a saved mark's number, a light badge with a clock - it has no number
    yet. Held back (its place could not be found again): the frame and the badge in the warning colour, the badge a triangle.
@@ -6,7 +6,7 @@
 .qmark{position:absolute;border:2px dotted var(--muted-foreground);background:color-mix(in srgb,var(--muted-foreground) 6%,transparent);pointer-events:none}
 .qmark.held{border-color:var(--warning);background:color-mix(in srgb,var(--status-warning) 8%,transparent)}
 body.fig-doc .qmark{background:none}   /* a figure is judged by its colours: a frame only, as a saved mark there */
-body.marks-off .qmark{visibility:hidden}   /* taken off with the saved marks for a look at the page (marks-hide.js) */
+body.marks-off .qmark{visibility:hidden}   /* taken off with the saved marks for a look at the page (pins/input-hide-marks.ts) */
 .qmark button.qmark-jump{position:absolute;top:-2px;left:-24px;width:var(--pin-badge-size);height:var(--pin-badge-size);min-width:0;min-height:0;padding:0;
   display:flex;align-items:center;justify-content:center;border:1px solid var(--border-strong);border-radius:50%;background:var(--card);
   color:var(--muted-foreground);pointer-events:auto;cursor:pointer;box-shadow:var(--shadow-xs)}

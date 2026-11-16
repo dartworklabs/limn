@@ -63,7 +63,7 @@ UNDER = """() => {const v = document.querySelector('#left').getBoundingClientRec
 STOPS = "[...document.querySelectorAll('.mark button.mark-jump')].map(b => b.tabIndex)"
 # Whether each badge, in the document's order, can stand whole above every cover in its columns, below the pages' top, at a
 # scroll the pages reach - the tablet's and the phone's covers (the sheet, its bar, the status line on it) rise from the
-# window's foot, so a cover's top is all that bounds a badge from below. Read independently of list.js.
+# window's foot, so a cover's top is all that bounds a badge from below. Read independently of pins/flow-list.ts.
 REACHABLE = """() => {const L = document.querySelector('#left'), v = L.getBoundingClientRect(), top = Math.max(v.top, 0),
     max = L.scrollHeight - L.clientHeight;
   const cs = ['#right', '#status-dock'].map(s => document.querySelector(s)).filter(e => e && e.getClientRects().length)

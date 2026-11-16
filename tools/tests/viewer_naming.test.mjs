@@ -194,11 +194,11 @@ test('a use, a property name, an object key and an unchanged import name are not
   );
   assert.deepEqual(
     reportedNames(
-      'import { pvPress } from "./verdict.ts";\nimport { vdRefocus as refocusVerdict } from "./verdict.ts";\nvoid [pvPress, refocusVerdict];\n',
+      'import { pvPress } from "./flow-line.ts";\nimport { vdRefocus as refocusVerdict } from "./flow-line.ts";\nvoid [pvPress, refocusVerdict];\n',
     ),
     [],
   );
-  assert.deepEqual(reportedNames('import { vdRefocus as vr } from "./verdict.ts";\nvoid vr;\nvoid vr;\n'), ['vr']);
+  assert.deepEqual(reportedNames('import { vdRefocus as vr } from "./flow-line.ts";\nvoid vr;\nvoid vr;\n'), ['vr']);
   assert.deepEqual(reportedNames('const pinCount = 1;\nconst c = pinCount;\nvoid c;\nvoid c;\nvoid c;\n'), ['c']);
 });
 

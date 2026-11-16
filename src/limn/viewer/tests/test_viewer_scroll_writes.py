@@ -1,6 +1,6 @@
 """Every scripted scroll in the viewer's JavaScript, sorted by what it does to a jump of the PDF area (docs/handbook/viewer.md §그림 쪽 도착).
 
-A jump's settling (pages.js arrivalSettle) glides the pages back to its place when they rest elsewhere, so it has to know why
+A jump's settling (pdf/view-pages.ts arrivalSettle) glides the pages back to its place when they rest elsewhere, so it has to know why
 they moved. A write that shows something ends the jump first (SHOWS: endJumpForScroll, no input need come before it: a search hit lands
 when the PDF's text has been read). A write that keeps what is on screen across a layout change moves with the place (KEEPS). A
 new scripted scroll fails here until it is put in one of these lists, so that nobody adds one the settling would undo.
@@ -21,76 +21,76 @@ FUNCTION = re.compile(r"^(?:async\s+)?function\s+(\w+)")
 
 # (file, function: <top> outside any): how many writes. endJumpForScroll comes before each of them.
 SHOWS = {
-    ("doc-switch.ts", "showDoc"): 1,
-    ("figure.ts", "showElementBox"): 1,
-    ("list.ts", "jumpPin"): 1,
-    ("list.ts", "markReveal"): 1,
-    ("md-surface.ts", "goOnToHeading"): 1,
-    ("md-surface.ts", "showLines"): 1,
-    ("search.ts", "searchBringBack"): 3,
-    ("search.ts", "searchReveal"): 2,
-    ("selection.ts", "revealBox"): 1,
-    ("verdict-panel.ts", "bringPage"): 1,
-    ("verdict-reason.ts", "showDraftLine"): 1,
-    ("verdict.ts", "<top>"): 1,
+    ("documents/flow-switch.ts", "showDoc"): 1,
+    ("pdf/view-figure.ts", "showElementBox"): 1,
+    ("pins/flow-list.ts", "jumpPin"): 1,
+    ("pins/flow-list.ts", "markReveal"): 1,
+    ("markdown/view.ts", "goOnToHeading"): 1,
+    ("markdown/view.ts", "showLines"): 1,
+    ("pdf/flow.ts", "searchBringBack"): 3,
+    ("pdf/flow.ts", "searchReveal"): 2,
+    ("pdf/input-selection.ts", "revealBox"): 1,
+    ("verdict/view-panel.ts", "bringPage"): 1,
+    ("verdict/flow-reason.ts", "showDraftLine"): 1,
+    ("verdict/flow-line.ts", "<top>"): 1,
 }
 # They hold what is on screen where it stands while the layout changes; the settling measures the place after them.
 KEEPS = {
-    ("doc-switch.ts", "restoreView"): 1,
-    ("layout.ts", "setSelectMode"): 1,
-    ("md-surface.ts", "stopHeadingJump"): 2,
-    ("md-surface.ts", "restoreReadingAnchor"): 2,
-    ("md-surface.ts", "keepReadingSpot"): 2,
-    ("pages.ts", "fitToWidth"): 1,
-    ("pages.ts", "zoomRestore"): 2,
-    ("rebuild.ts", "restoreAnchor"): 2,
-    ("verdict-panel.ts", "settleBesideTurn"): 3,
-    ("verdict.ts", "letLineBlocks"): 1,
+    ("documents/flow-switch.ts", "restoreView"): 1,
+    ("layout/flow.ts", "setSelectMode"): 1,
+    ("markdown/view.ts", "stopHeadingJump"): 2,
+    ("markdown/view.ts", "restoreReadingAnchor"): 2,
+    ("markdown/view.ts", "keepReadingSpot"): 2,
+    ("pdf/view-pages.ts", "fitToWidth"): 1,
+    ("pdf/view-pages.ts", "zoomRestore"): 2,
+    ("documents/flow-rebuild.ts", "restoreAnchor"): 2,
+    ("verdict/view-panel.ts", "settleBesideTurn"): 3,
+    ("verdict/flow-line.ts", "letLineBlocks"): 1,
 }
 # The jump's own glide.
-GLIDES = {("verdict.ts", "glideInto"): 1, ("verdict.ts", "glideTo"): 1}
+GLIDES = {("verdict/flow-line.ts", "glideInto"): 1, ("verdict/flow-line.ts", "glideTo"): 1}
 # Another scroller than the PDF area: the pin panel and its cards, a sheet, a menu, a list, the changes view, a field.
 OTHERS = {
-    ("cards.ts", "openTrash"): 1,
-    ("composer.ts", "pick"): 3,
-    ("doc-switch.ts", "fitNavigationSheet"): 6,
-    ("doc-tabs.ts", "<top>"): 3,
-    ("doc-tabs.ts", "openDocMenu"): 1,
-    ("excerpt.ts", "applyRange"): 1,
-    ("layout.ts", "<top>"): 1,
-    ("layout.ts", "fieldScrollKey"): 1,
-    ("layout.ts", "keepFieldInView"): 2,
-    ("layout.ts", "noteRowInView"): 1,
-    ("layout.ts", "onViewport"): 1,
-    ("levels.ts", "revealSegment"): 3,
-    ("md-compare.ts", "goToChangeGroup"): 1,
-    ("offline.ts", "offlinePick"): 1,
-    ("md-surface.ts", "pickLines"): 2,
-    ("list.ts", "gotoPinRef"): 1,
-    ("list.ts", "gotoReview"): 1,
-    ("list.ts", "jumpToCard"): 1,
-    ("list.ts", "lazyCards"): 1,
-    ("list.ts", "setListOrder"): 1,
-    ("mentions.ts", "mentionPlace"): 1,
-    ("notices.ts", "bannerNote"): 1,
-    ("offline-ui.ts", "offUiReveal"): 1,
-    ("outline.ts", "outlineFollow"): 1,
-    ("page-list.ts", "pageListKey"): 1,
-    ("page-list.ts", "revealPageRow"): 1,
-    ("reply.ts", "openReply"): 1,
-    ("review-pick.ts", "confirmTicked"): 1,
-    ("review-pick.ts", "setReviewPicking"): 1,
-    ("revision-zoom.ts", "mountRevisionPdf"): 1,
-    ("revision-zoom.ts", "restoreRevisionAnchor"): 2,
-    ("revisions.ts", "highlightPinLines"): 1,
-    ("revisions.ts", "scrollOverlayTo"): 1,
-    ("verdict-panel.ts", "revealFocused"): 2,
+    ("pins/view-cards.ts", "openTrash"): 1,
+    ("composer/flow-pick.ts", "pick"): 3,
+    ("documents/flow-switch.ts", "fitNavigationSheet"): 6,
+    ("documents/view-tabs.ts", "<top>"): 3,
+    ("documents/view-tabs.ts", "openDocMenu"): 1,
+    ("composer/view-excerpt.ts", "applyRange"): 1,
+    ("layout/flow.ts", "<top>"): 1,
+    ("layout/flow.ts", "fieldScrollKey"): 1,
+    ("layout/flow.ts", "keepFieldInView"): 2,
+    ("layout/flow.ts", "noteRowInView"): 1,
+    ("layout/flow.ts", "onViewport"): 1,
+    ("composer/view-levels.ts", "revealSegment"): 3,
+    ("revisions/view-rendered-compare.ts", "goToChangeGroup"): 1,
+    ("offline/api.ts", "offlinePick"): 1,
+    ("markdown/view.ts", "pickLines"): 2,
+    ("pins/flow-list.ts", "gotoPinRef"): 1,
+    ("pins/flow-list.ts", "gotoReview"): 1,
+    ("pins/flow-list.ts", "jumpToCard"): 1,
+    ("pins/flow-list.ts", "lazyCards"): 1,
+    ("pins/flow-list.ts", "setListOrder"): 1,
+    ("pins/input-mentions.ts", "mentionPlace"): 1,
+    ("platform/notices.ts", "bannerNote"): 1,
+    ("offline/view.ts", "offUiReveal"): 1,
+    ("pdf/view-outline.ts", "outlineFollow"): 1,
+    ("pdf/view-page-list.ts", "pageListKey"): 1,
+    ("pdf/view-page-list.ts", "revealPageRow"): 1,
+    ("pins/flow-reply.ts", "openReply"): 1,
+    ("pins/flow-review-pick.ts", "confirmTicked"): 1,
+    ("pins/flow-review-pick.ts", "setReviewPicking"): 1,
+    ("revisions/input.ts", "mountRevisionPdf"): 1,
+    ("revisions/input.ts", "restoreRevisionAnchor"): 2,
+    ("revisions/flow.ts", "highlightPinLines"): 1,
+    ("revisions/flow.ts", "scrollOverlayTo"): 1,
+    ("verdict/view-panel.ts", "revealFocused"): 2,
 }
 
 
 def writes():
     """Every scripted scroll: (file, function, the source of that function up to the write)."""
-    paths = sorted(JS.glob("*.ts"))
+    paths = sorted(JS.rglob("*.ts"))
     for path, text in zip(paths, helpers_js.module_texts(paths), strict=True):
         where, before = "<top>", ""
         for line in text.splitlines():
@@ -103,7 +103,7 @@ def writes():
                 where, before = "<top>", ""
             code = "" if line.lstrip().startswith("//") else line.split("   //")[0]
             for write in WRITE.finditer(code):
-                yield path.name, where, before + code[: write.start()]
+                yield path.relative_to(JS).as_posix(), where, before + code[: write.start()]
             before += code + "\n"
 
 
@@ -133,11 +133,11 @@ class ScrollWrites(unittest.TestCase):
         which a script's 'auto' would follow. Mutation: goToChangeGroup's literal 'smooth' (before #418), or a const read at load,
         fails."""
         allowed = ("'auto'", "'instant'", "scrollMotion()", "armGlide(", "land?'auto':scrollMotion()")
-        paths = sorted(JS.glob("*.ts"))
+        paths = sorted(JS.rglob("*.ts"))
         for path, text in zip(paths, helpers_js.module_texts(paths), strict=True):
             for m in re.finditer(r"\bbehavior\s*:\s*", text):
                 rest = helpers_js.squash(m.string[m.end() : m.end() + 120], fragment=True)[:40]
-                with self.subTest(file=path.name, at=rest):
+                with self.subTest(file=path.relative_to(JS).as_posix(), at=rest):
                     self.assertTrue(rest.startswith(allowed), rest)
         for path in sorted((JS.parent / "css").glob("*.css")):
             with self.subTest(file=path.name):

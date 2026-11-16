@@ -1,4 +1,4 @@
-/* ---------------- Messages in context (docs/handbook/viewer.md §알림 자리; notices.js). No toast: a message is drawn where it
+/* ---------------- Messages in context (docs/handbook/viewer.md §알림 자리; platform/notices.ts). No toast: a message is drawn where it
    happened - a banner on top of a panel or section, a row in a card's place, a note in a card, a chip on a new pin's mark, a
    message on the status line - and a red dot marks the chip a background event leads to. One element for all of them (.nt):
    status icon, title and description, its action and [x]. Sizes stay on the 4px grid; touch draws the buttons smaller than
@@ -47,7 +47,7 @@
 
 /* A save's or an append's undo on the new pin's mark ('저장됨 [되돌리기]'): a small chip just above the mark's box, on the PDF
    where the pin was picked - so it is there with the phone's sheet folded. The mark lets presses through (pointer-events:none);
-   the chip takes its own, and notices.js keeps a press on it from starting a selection. */
+   the chip takes its own, and platform/notices.ts keeps a press on it from starting a selection. */
 .mark:has(>.nt-chip){z-index:4}
 .mark>.nt-chip{position:absolute;left:0;bottom:calc(100% + var(--space-1));box-sizing:border-box;height:calc(var(--control-h-sm) + 2 * var(--space-1));width:max-content;max-width:min(320px,80vw);
   padding:0 var(--space-1) 0 var(--space-2);gap:var(--space-1);border-radius:var(--radius-lg);background:var(--popover);color:var(--popover-foreground);
@@ -59,7 +59,7 @@
 :is(.mark,.pv)>.nt-chip .nt-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 @media (pointer:coarse){.mark>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
   .mark>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
-/* A page verdict's save (verdict.js): the same chip laid over its line - never in its flow (it added a row on a phone and moved
+/* A page verdict's save (verdict/flow-line.ts): the same chip laid over its line - never in its flow (it added a row on a phone and moved
    the words under a waiting finger) and never over any part of it (placeLineChips finds the room; --pv-chip-r, --pv-chip-y).
    Its words fold where the room is short (.pv-chip-short), then its icon (.pv-chip-bare); with no room for [되돌리기] the undo
    is on the status line instead. */
@@ -68,7 +68,7 @@
   border-radius:var(--radius-lg);background:var(--popover);
   color:var(--popover-foreground);border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);line-height:16px;white-space:nowrap}
 .pv.pv-chip-short>.nt-chip .nt-t,.pv.pv-chip-bare>.nt-chip .nt-ic{display:none}
-.pv.pv-chip-wait>.nt-chip{visibility:hidden}   /* no room while its line is about to change: placed once it settles (verdict.js placeLineChips) */
+.pv.pv-chip-wait>.nt-chip{visibility:hidden}   /* no room while its line is about to change: placed once it settles (verdict/flow-line.ts placeLineChips) */
 .pv>.nt-chip .nt-ic{height:16px}
 .pv>.nt-chip .nt-ti{font-weight:600}
 @media (pointer:coarse){.pv>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}

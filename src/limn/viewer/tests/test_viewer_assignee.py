@@ -259,7 +259,7 @@ STATUS = "() => document.querySelector('#status').innerText"
 # change and press, with its target and that target's text after it - so text that did not land says where its keys went
 # or what took it. It is what read the note at fold inner 673x841 as '확인' after '@Bob Park 확인' was typed (#431): every
 # key there but no edit of any of them, the Hangul that Playwright inserts as text in their place, the focus on the note
-# and no error - the document's selection had stayed in the caption the press before it left the caret in (layout.js,
+# and no error - the document's selection had stayed in the caption the press before it left the caret in (layout/flow.ts,
 # CARET_HELD). WRITE_SEEN takes the listeners off again: they watch one write(), not the rest of the test.
 WRITE_WATCH = """() => {if (window.__writeWatch) __writeWatch.off();
   const seen = [], types = ['keydown', 'input', 'focusin', 'focusout', 'pointerdown', 'click'];

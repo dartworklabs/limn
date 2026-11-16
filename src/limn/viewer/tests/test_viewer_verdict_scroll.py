@@ -4,7 +4,7 @@ Each page PDF.js draws for the first time adds its embedded fonts to document.fo
 browser lay out all the text in the page again. With the far pin cards already skipped (#305) that was every page verdict
 line: the 88 lines of a 91-page figure document were about 4,300 of the 7,400 objects laid out at each font, and the
 first wheel scroll through it still had 8-9 long tasks. The lines more than a view's height from the PDF area's view are
-now left for the browser to skip (content-visibility:auto) at the height each is drawn at (verdict.js sortFarLines).
+now left for the browser to skip (content-visibility:auto) at the height each is drawn at (verdict/flow-line.ts sortFarLines).
 
 The cost is held by a count, not a duration, as test_viewer_list_scroll holds the cards' (helpers_trace): the layout
 objects the browser lays out after a font is added, read from a Chrome trace, against the same with every line drawn and
@@ -257,7 +257,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
         self.assertEqual(m, "%dpx 0px %dpx 0px" % (h2, h2), "the observer's margin kept the old height")
 
 
-# The summaries under the pages the browser skips now (beside the pages: verdict-panel.js), the pages of those in the PDF
+# The summaries under the pages the browser skips now (beside the pages: verdict/view-panel.ts), the pages of those in the PDF
 # area's view that it may skip, and whether the panel may be skipped.
 SUMS_SKIPPED = """() => [...document.querySelectorAll('#doc .pv-sum')].filter(s => !s.querySelector('.pv-sum-id').checkVisibility({contentVisibilityAuto: true})).length"""
 SUMS_HELD_IN_VIEW = """() => {const r = document.querySelector('#left').getBoundingClientRect();

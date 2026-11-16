@@ -1,4 +1,4 @@
-/* ---------------- Suggested edits (docs/handbook/viewer.md §제안 수정, suggest.js): the kind row's [제안 수정] switch, the editor
+/* ---------------- Suggested edits (docs/handbook/viewer.md §제안 수정, composer/flow-suggest.ts): the kind row's [제안 수정] switch, the editor
    with its one line, and a card's line diff of base -> text in the changes view's source-diff look (revisions.css .rd-line).
    The composer's kind row holds the kind's segmented control and, at its end, the switch - or, where a selection can carry no
    suggestion, the short reason in its place; a row too narrow for both (English in a 348px panel) wraps the switch under the

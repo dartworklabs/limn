@@ -228,7 +228,7 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:0}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
@@ -278,7 +278,7 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[{id:1}],REVIEW_ALL=[],DONE_ALL=[],PINS=OPEN_ALL,DONE=[],DROPPED=[{id:9}];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
@@ -336,9 +336,9 @@ class PinListLoading(unittest.TestCase):
                 js_markup(),
                 JS_OFFLINE_STUBS,
                 extract_js_fn("boot"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
@@ -346,7 +346,7 @@ class PinListLoading(unittest.TestCase):
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map();
                 const SECTION_SEEN={open:null,review:null,done:null},COARSE_POINTER_QUERY={matches:false};
                 const document={hidden:false};
-                function isMarkdownDoc(){return false;}   // the document has pages (md-surface.js)
+                function isMarkdownDoc(){return false;}   // the document has pages (markdown/view.ts)
                 let pinReads=0;
                 function api(url){
                   if(url==='/api/meta'||url==='/api/meta?light=1')
@@ -401,9 +401,9 @@ class PinListLoading(unittest.TestCase):
                 js_markup(),
                 JS_OFFLINE_STUBS,
                 extract_js_fn("boot"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC=null,SWITCHSEQ=0,META=null,LAST_PINS_REVISION=null,LAST_SRC_MTIME=null;
                 let POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
@@ -438,7 +438,7 @@ class PinListLoading(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 extract_js_fn("showDoc"),
                 extract_js_fn("resetBuildForDoc"),
                 """
@@ -501,7 +501,7 @@ class PinListLoading(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 extract_js_fn("refreshDoc"),
                 """
                 let DOC='a',SWITCHSEQ=0,NAVGEN=0,META={pages:[{id:'a'}]},COMPOSE={current:null},REFRESH_GEN=0; const EDITOR={current:null,saving:false};
@@ -539,7 +539,7 @@ class ViewerPollingVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src';
                 let POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
@@ -574,7 +574,7 @@ class ViewerPollingVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC='b',SWITCHSEQ=1,LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src';
                 let POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};

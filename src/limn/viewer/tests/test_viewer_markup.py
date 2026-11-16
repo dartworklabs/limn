@@ -3,7 +3,7 @@
 Two halves. Behavior: html`` keeps its literal parts and escapes every value that is not Html, so text a person or a
 PDF wrote (a note, a name, an outline heading) never becomes markup; setHtml() refuses anything else. Source: the parts
 are read as tokens (helpers_js) to hold the rules a browser cannot - no innerHTML write outside setHtml(), no esc() or
-new Html outside markup.js (so no part builds escaped markup by hand), html never called as a plain function, and no
+new Html outside platform/markup.ts (so no part builds escaped markup by hand), html never called as a plain function, and no
 html`` result joined with '+' (that turns it back into a string, which setHtml() refuses).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_markup.py
@@ -22,7 +22,7 @@ import helpers_js
 from helpers import VIEWER, extract_js_fn, js_esc, js_icons, run_node
 
 PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
-MARKUP_PART = "js/markup.ts"
+MARKUP_PART = "js/platform/markup.ts"
 
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])
 SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write", "writeln"])
@@ -63,7 +63,7 @@ def sink_writes(src: str) -> int:
 
 
 def markup_misuse(sources: dict[str, str]) -> list[str]:
-    """Each place a part breaks the markup rules: Html made or esc() used outside markup.js, html used other than as a
+    """Each place a part breaks the markup rules: Html made or esc() used outside platform/markup.ts, html used other than as a
     tag, or an html`` result that is an operand of '+'. Empty when every part keeps them."""
     found = []
     for name, src in sources.items():
@@ -74,9 +74,9 @@ def markup_misuse(sources: dict[str, str]) -> list[str]:
             prev = toks[k - 1].text if k else ""
             nxt = toks[k + 1] if k + 1 < len(toks) else None
             if t.text == "Html" and prev == "new" and name != MARKUP_PART:
-                found.append("%s: new Html outside markup.js" % name)
-            if t.text == "esc" and prev not in (".", "?.", "const") and name != MARKUP_PART:  # core.js declares it
-                found.append("%s: esc outside markup.js" % name)
+                found.append("%s: new Html outside platform/markup.ts" % name)
+            if t.text == "esc" and prev not in (".", "?.", "const") and name != MARKUP_PART:  # app/state.ts declares it
+                found.append("%s: esc outside platform/markup.ts" % name)
             if t.text != "html" or prev in (".", "?.", "function"):
                 continue
             if prev in ("{", ",") and nxt is not None and nxt.text == ":":  # an object's key named html, not a use
@@ -92,13 +92,13 @@ def markup_misuse(sources: dict[str, str]) -> list[str]:
 
 
 def node_or_skip(case: unittest.TestCase) -> None:
-    """Skip case when node is not installed: the behavior tests run the served markup.js."""
+    """Skip case when node is not installed: the behavior tests run the served platform/markup.ts."""
     if not shutil.which("node"):
         case.skipTest("node not available")
 
 
 def run_markup(body: str) -> object:
-    """Run body after the served esc(), ICONS and markup.js under node, and return what it printed as JSON."""
+    """Run body after the served esc(), ICONS and platform/markup.ts under node, and return what it printed as JSON."""
     return json.loads(run_node("\n".join([js_esc(), js_icons(), body])))
 
 
@@ -157,16 +157,16 @@ class MarkupValues(unittest.TestCase):
 
 
 class MarkupSource(unittest.TestCase):
-    """The parts write HTML only through setHtml(), make Html only in markup.js, and use html only as a tag."""
+    """The parts write HTML only through setHtml(), make Html only in platform/markup.ts, and use html only as a tag."""
 
     def test_only_set_html_writes_html(self):
-        """markup.js has exactly setHtml()'s write and no other part has any HTML sink."""
+        """platform/markup.ts has exactly setHtml()'s write and no other part has any HTML sink."""
         counts = {name: sink_writes(src) for name, src in part_sources().items()}
         self.assertEqual(counts.pop(MARKUP_PART), 1)
         self.assertEqual({k: v for k, v in counts.items() if v}, {})
 
     def test_parts_keep_the_markup_rules(self):
-        """No part makes Html or calls esc() outside markup.js, calls html as a function, or joins an html`` result
+        """No part makes Html or calls esc() outside platform/markup.ts, calls html as a function, or joins an html`` result
         with '+'."""
         self.assertEqual(markup_misuse(part_sources()), [])
 
@@ -176,8 +176,8 @@ class MarkupSource(unittest.TestCase):
         self.assertEqual(markup_misuse({"js/a.ts": legal}), [])
         self.assertEqual(sink_writes(legal + " el.innerHTML; s=el.innerHTML;"), 0)
         for bad, rule in [
-            ("x=new Html(s);", "new Html outside markup.js"),
-            ("x='<b>'+esc(s)+'</b>';", "esc outside markup.js"),
+            ("x=new Html(s);", "new Html outside platform/markup.ts"),
+            ("x='<b>'+esc(s)+'</b>';", "esc outside platform/markup.ts"),
             ("x=html('<b>'+s+'</b>');", "html not used as a tag"),
             ("x=html;", "html not used as a tag"),
             ("x=html`<b>`+s;", "html`` joined with '+'"),

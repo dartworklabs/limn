@@ -62,7 +62,7 @@ WHERE = """n => {const L = document.querySelector('#left'), pg = document.getEle
     page: r.top - L.getBoundingClientRect().top - L.clientTop, room, reading: readingPageWithLine(), keys: keyedPageFor(readingPageWithLine()),
     count: document.getElementById('nav-page').textContent, panel: p ? +p.dataset.page : null};}"""
 # The line of page n made 60px taller, as a redraw with more in it makes it. By its height and not by padding: a line has none,
-# so the height it is skipped at (--pv-h, verdict.js §Lines far from the view) is its whole box. A padded line stood 60px taller
+# so the height it is skipped at (--pv-h, verdict/flow-line.ts §Lines far from the view) is its whole box. A padded line stood 60px taller
 # skipped than drawn: whenever it went far or came near, the pages moved by themselves, late under load (#357).
 LINE_GROWS = """n => {const l = document.querySelector('#doc .pv[data-page="' + n + '"]');
   l.style.minHeight = (l.getBoundingClientRect().height + 60) + 'px';}"""
@@ -210,7 +210,7 @@ class FigurePages(BrowserBase):
 
 class EveryJump(FigurePages):
     """Every jump ends where it asked, with or without a figure, though a line above its place is fitted on the way: a pass
-    may not write to a glide, so the settling measures the place when it rests (pages.js arrivalSettle, #357)."""
+    may not write to a glide, so the settling measures the place when it rests (pdf/view-pages.ts arrivalSettle, #357)."""
 
     def setUp(self):
         super().setUp()
@@ -356,12 +356,12 @@ class MotionSetLive(FigurePages):
     """prefers-reduced-motion changed while the viewer is open (#418) reaches the next jump of the pages: a page from the
     page field (a figure's arrival, glideTo), an outline entry's place (glideTo) and a card's [보기] (a page without a
     figure, glideInto) are instant with the setting on - the pages there before the call returns, no glide guard - and
-    glide again with it off. The viewer read the setting once, at load (core.js's SMOOTH), so a setting turned on later
+    glide again with it off. The viewer read the setting once, at load (app/state.ts's SMOOTH), so a setting turned on later
     left every jump gliding and one turned off left them instant."""
 
     def test_each_jump_follows_the_setting_as_it_is_now(self):
         """Opened with the setting off and with it on, then turned on and off: each jump does what the setting says now.
-        Mutation: the behaviour read once at load (core.js's SMOOTH before #418) -> the jumps after the first change keep
+        Mutation: the behaviour read once at load (app/state.ts's SMOOTH before #418) -> the jumps after the first change keep
         the load's setting, fails."""
         pid = self.verdict(6, "보류")
         jumps = {

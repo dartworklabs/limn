@@ -48,7 +48,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=1;
                 const lost={hidden:true};
@@ -95,7 +95,7 @@ class AsyncDocumentVisits(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
                 """
                 let DOC='a',SWITCHSEQ=1,POLL_FAILS=2;
                 const lost={hidden:false};
@@ -133,8 +133,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
-                "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
-                "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (verdict.js)
+                "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
+                "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (verdict/flow-line.ts)
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
@@ -152,12 +152,12 @@ class VisitLocalContinuations(unittest.TestCase):
                 function savedDraftSnapshot(){return null;} function restoredDraftOwns(){return false;} function clearSavedDraft(){}
                 function restoreSelection(){restores++;}
                 function dropPin(){drops++;}
-                function focusRun(){return {away:()=>false,stop(){}};}   // a retry's own focus watch (notices.js)
+                function focusRun(){return {away:()=>false,stop(){}};}   // a retry's own focus watch (platform/notices.ts)
                 function translateTemplate(s){return s;}function translate(s){return s;}const BANNERS=new Map();function endNotice(){}
                 function undoNote(place,msg,act){undo=act.fn;return null;}function settleChip(){}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
-                const SUGGEST_DRAFT={on:false,text:'',base:null}; let META=null;   // no suggested edit (suggest.js)
+                const SUGGEST_DRAFT={on:false,text:'',base:null}; let META=null;   // no suggested edit (composer/flow-suggest.ts)
                 function suggestOff(){return null;} function suggestForSave(){return null;} function suggestPending(){return false;}
                 """,
                 scenario,
@@ -241,7 +241,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
-                "function renderVerdictRow(){}",  # no verdict words here (verdict.js)
+                "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 extract_js_fn("isViewer"),
                 extract_js_fn("viewerBlocked"),
                 extract_js_fn("appendToPin"),
@@ -258,7 +258,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function undoNote(){said++;return null;}function settleChip(){}function translateTemplate(s){return s;}function translate(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function undoAppend(){} function mentionHints(){return [];}
-                const SUGGEST_DRAFT={on:false,text:'',base:null}; function suggestPending(){return false;}   // no suggested edit (suggest.js)
+                const SUGGEST_DRAFT={on:false,text:'',base:null}; function suggestPending(){return false;}   // no suggested edit (composer/flow-suggest.ts)
                 (async()=>{
                   const old=appendToPin(7,'new');COMPOSE.current={doc:'a',newSelection:true};
                   COMPOSE.box={remove(){removed++;}};
@@ -342,7 +342,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const EDITOR={current:first,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
-                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
+                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (composer/flow-suggest.ts)
                 function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function translateTemplate(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -374,7 +374,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const EDITOR={current:first,saving:false};let finish,loads=0,snips=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
-                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
+                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (composer/flow-suggest.ts)
                 function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function editTheirs(){said++;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function assigneeOf(){return 'agent';}function editSnip(){snips++;}
@@ -404,7 +404,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 const EDITOR={current:card,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
-                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (suggest.js)
+                function suggestOfPin(){return {on:false,text:'',base:null,had:null};}   // no suggested edit (composer/flow-suggest.ts)
                 function mentionHints(){return [];}function quietNote(){said++;}function bannerNote(){said++;}function translateTemplate(s){return s;}
                 function loadPins(){loads++;return Promise.resolve();}
                 function api(){return new Promise(resolve=>{finish=resolve;});}

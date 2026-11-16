@@ -1,4 +1,4 @@
-"""The queued pins on screen (js/offline-ui.js, docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기).
+"""The queued pins on screen (js/offline/view.ts, docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기).
 
 A pin made while cut off waits in this browser's queue (IndexedDB limnOffline). The person has to see where they already
 pinned, which pins are held back and why, and be able to drop one or pin it again. The pure parts - which records draw a

@@ -1,4 +1,4 @@
-"""The server's `superseded_by` (limn.pins.verdict.superseded_by, ADR-0023) against the viewer's verdict order (verdict.js).
+"""The server's `superseded_by` (limn.pins.verdict.superseded_by, ADR-0023) against the viewer's verdict order (verdict/flow-line.ts).
 
 The viewer counts which verdict pin is a target's current verdict itself (verdictOrder: the page line, the card's '이전 판정 ·
 #N로 대체됨', the [보기] jump), and since 0.4.34 the server tells agents the same thing in GET /api/pins and pins.md. They are
@@ -126,7 +126,7 @@ class SupersessionParity(BrowserBase):
 
 
 class AnchorParity(unittest.TestCase):
-    """The viewer's anchorKey (verdict.js, under node) and the server's anchor_key (limn.pins.verdict) on the same stored
+    """The viewer's anchorKey (verdict/flow-line.ts, under node) and the server's anchor_key (limn.pins.verdict) on the same stored
     anchors: one anchor to the one exactly when one to the other, and both as the definition says - the same JSON value,
     a number as the double the viewer parses it to."""
 

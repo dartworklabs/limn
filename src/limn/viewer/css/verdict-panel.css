@@ -1,11 +1,11 @@
-/* ---------------- The page verdict panel beside the pages (verdict-panel.js; docs/handbook/viewer.md §판정 패널, #329). On
+/* ---------------- The page verdict panel beside the pages (verdict/view-panel.ts; docs/handbook/viewer.md §판정 패널, #329). On
    a wide desktop whose PDF area leaves room right of the pages (body.pv-beside) the page verdict line is one panel there
    (#pv-panel, the reading page's line) and a one-row summary under each page (.pv-sum) instead of a line under every page.
    The line's own parts, words and states are components.css's and verdict-reason.css's. */
 body{--pv-panel-w:280px;--pv-panel-gap:24px;--pv-panel-pad:var(--space-3)}
 /* The side column: every page block is [margin | page | margin], the right margin at least the panel and its gap. The page
-   stays centred while both margins hold that, and moves left only by what the right one lacks (verdict-panel.js keeps the
-   left one at PANEL_LEFT_MARGIN or more, with hysteresis). A page narrower than the widest (--pg-w, --pg-max: pages.js) keeps
+   stays centred while both margins hold that, and moves left only by what the right one lacks (verdict/view-panel.ts keeps the
+   left one at PANEL_LEFT_MARGIN or more, with hysteresis). A page narrower than the widest (--pg-w, --pg-max: pdf/view-pages.ts) keeps
    half the difference more on its right, so every page stands on the widest one's axis and the panel beside all of them
    at one place. The summary is the block's second row, under the page. */
 body.pv-beside #doc .pgw{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(calc(var(--pv-panel-w) + var(--pv-panel-gap) + (var(--pg-max,0px) - var(--pg-w,0px)) / 2),1fr);align-items:start}
@@ -73,7 +73,7 @@ body.pv-beside #doc .pgw:not(:has(>.pv-sum))>.pg{margin-bottom:var(--space-6)}  
 #doc .pv-sum.pv-far:not(:focus){content-visibility:auto;contain-intrinsic-block-size:var(--control-h-sm)}
 /* A touch screen wide enough for the panel: the rows stand far enough apart that the '#N' link and what is under it each answer
    44px, and a summary answers 44px; it shows a press as every button does (components.css) and a long press shows its words
-   (tooltip.js data-tip-press). */
+   (platform/tooltip.ts data-tip-press). */
 @media (pointer:coarse){#doc #pv-panel>.pv-t{row-gap:var(--space-6);padding-top:var(--space-4)}
   #doc .pv-sum{height:var(--hit);margin-bottom:var(--space-2)}
   #doc .pv-sum.pv-far:not(:focus){contain-intrinsic-block-size:var(--hit)}}
