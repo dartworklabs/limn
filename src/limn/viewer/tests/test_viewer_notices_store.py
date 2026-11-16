@@ -21,7 +21,7 @@ import json
 import time
 import unittest
 
-from helpers import extract_js_fn, js_const, js_i18n, run_node
+from helpers import extract_js_fn, js_const, js_i18n, js_seam_wired, run_node
 from helpers_browser import BrowserBase, settle
 from helpers_notices import COUNT_CONFIRMS, SEEN, WATCH_ALERTS, NoticePage, node_or_skip
 
@@ -34,6 +34,8 @@ STORE_FNS = [
     "foldedNews", "gatheredDupe", "gatheredLess", "dotHeld", "digestDots",
 ]  # fmt: skip
 STORE_CONSTS = ("NOTICE_MS", "NOTICE_HOLD_MAX", "LINE_MAX")
+# The seams the store reads the page through, wired as js/main.ts wires them, to the prelude's stand-ins.
+STORE_SEAMS = [js_seam_wired(s, late=True) for s in ("setNoticeStatusLine", "setNoticePanel", "setNoticeFocus")]
 
 # A fake clock (setTimeout, clearTimeout, Date.now; tick(ms) runs what falls due, in order) and the page around the store,
 # stubbed: a closed panel, a hidden '+N' list, no drawing. drawStatus shows the line while it has messages, as the real one.
@@ -108,7 +110,7 @@ class NoticeStoreModel(unittest.TestCase):
         error survives a later success of its source."""
         consts = "\n".join(dict.fromkeys(js_const(n) for n in STORE_CONSTS))
         script = "\n".join(
-            [js_i18n("ko"), MODEL_PRELUDE, consts]
+            [js_i18n("ko"), MODEL_PRELUDE, consts, *STORE_SEAMS]
             + [extract_js_fn(n) for n in STORE_FNS]
             + ["const SEEDS=300,STEPS=60;", MODEL_RUN]
         )

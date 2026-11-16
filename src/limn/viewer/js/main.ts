@@ -17,11 +17,20 @@ import {
   setMentionOnly,
   setShowAll,
   setSnipOpen,
+  REVIEW_ALL,
 } from './app/state.ts';
 import { switchLang } from './platform/i18n.ts';
 import { setTheme } from './platform/prefs.ts';
-import { copyText } from './platform/api.ts';
-import { bannerNote, noticeAct, noticeClose } from './platform/notices.ts';
+import { copyText, setRequestFallback } from './platform/api.ts';
+import {
+  bannerNote,
+  noticeAct,
+  noticeClose,
+  setNoticeComposer,
+  setNoticeFocus,
+  setNoticePanel,
+  setNoticeStatusLine,
+} from './platform/notices.ts';
 import { TIP, focusGivenBack, hideTip } from './platform/tooltip.ts';
 import { closeDocMenu, multiDoc, toggleDocMenu } from './documents/view-tabs.ts';
 import {
@@ -44,7 +53,7 @@ import { boot } from './documents/flow-boot.ts';
 import { notifyToggle } from './documents/flow-notification.ts';
 import { BUILD } from './documents/view-build-chip.ts';
 import { reloadForUpdate } from './documents/flow-updates.ts';
-import { drawStatus, statusWhy, toggleStatusList } from './documents/view-status.ts';
+import { drawStatus, statusWhy, toggleStatusList, STATUS_TOP, setStatusSig } from './documents/view-status.ts';
 import { sizePreset, toggleOutline } from './layout/flow-panel-size.ts';
 import { actualSize, fitToWidth, goSheetPage, zoom } from './pdf/view-pages.ts';
 import { pickOutline } from './pdf/view-outline.ts';
@@ -77,10 +86,25 @@ import {
   COMPOSE,
 } from './composer/flow-pick.ts';
 import { saveDraftSoon } from './composer/flow-draft.ts';
-import { appendToPin, savePin } from './composer/flow-save.ts';
-import { offlineFlush, offlinePrepare } from './offline/flow.ts';
-import { cancelLineVerdict, undoFromLine, verdictPress } from './verdict/flow-line.ts';
-import { actOnReason } from './verdict/flow-reason.ts';
+import { appendToPin, savePin, saveButtonLabel } from './composer/flow-save.ts';
+import {
+  offlineFlush,
+  offlinePrepare,
+  offReadKey,
+  offStaleSaid,
+  offStash,
+  offStashed,
+  offlineBack,
+  offlineMayServe,
+} from './offline/flow.ts';
+import {
+  cancelLineVerdict,
+  undoFromLine,
+  verdictPress,
+  READING_LINE_PAGE,
+  pageVerdictsOn,
+} from './verdict/flow-line.ts';
+import { actOnReason, focusLine, isReasonField } from './verdict/flow-reason.ts';
 import { goToSummaryPage } from './verdict/view-panel.ts';
 import { handPopoverToComposer } from './composer/view-selection-popover.ts';
 import { MESSAGE_OPEN } from './pins/view-card-parts.ts';
@@ -98,6 +122,8 @@ import {
   revealCard,
   setListOrder,
   toggleSection,
+  dropBareDayLines,
+  placeRow,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
@@ -112,6 +138,33 @@ import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
 import { isMarkdownDoc, viewerBlocked } from './documents/state.ts';
 import { useLevel } from './documents/rules.ts';
+
+// The seams platform calls the features through (docs/handbook/viewer.md §모듈 경계), each registered here once. This
+// runs before boot() and before any listener can fire (no code that runs while the script loads calls one), so no
+// platform call meets an unregistered seam; each member is the function the platform code called directly before.
+setRequestFallback({
+  readKey: offReadKey,
+  mayServe: offlineMayServe,
+  stashed: offStashed,
+  staleSaid: offStaleSaid,
+  back: offlineBack,
+  stash: offStash,
+});
+setNoticeStatusLine({
+  top: () => STATUS_TOP,
+  draw: drawStatus,
+  setSignature: setStatusSig,
+  toggleList: toggleStatusList,
+});
+setNoticePanel({ sideOpen: () => SIDE_OPEN, reviewPins: () => REVIEW_ALL, placeRow, dropBareDayLines });
+setNoticeFocus({
+  fieldOpen: () => !!EDITOR.current || !!REPLY,
+  pageLinesOn: () => !!pageVerdictsOn(),
+  readingLinePage: () => READING_LINE_PAGE,
+  focusLine,
+  isReasonField,
+});
+setNoticeComposer({ saveButtonLabel });
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

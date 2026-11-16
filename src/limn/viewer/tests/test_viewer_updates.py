@@ -28,7 +28,7 @@ from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
-from helpers import add_pin, extract_js_fn, js_const, js_i18n, ps, req, run_node
+from helpers import add_pin, extract_js_fn, js_const, js_i18n, js_seam_wired, ps, req, run_node
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, ChromiumTestCase, settle, until
@@ -481,6 +481,12 @@ UPDATE_VIEW_FNS = [
     "docUpdateView", "countPinMove", "compareRedrawnSource", "lineChanges", "josaName", "isFigureKind", "isViewOnlyKind",
 ]  # fmt: skip
 GROUP_CONSTS = ("NOTICE_MS", "NOTICE_HOLD_MAX", "LINE_MAX", "DIGEST_MAX_MS")
+# The seams the store reads the page through, wired as js/main.ts wires them, to the prelude's stand-ins (and the status
+# line's own signature setter, which the store calls through its seam).
+GROUP_SEAMS = [
+    extract_js_fn("setStatusSig"),
+    *(js_seam_wired(s, late=True) for s in ("setNoticeStatusLine", "setNoticePanel", "setNoticeFocus")),
+]
 
 
 class Grouping(unittest.TestCase):
@@ -492,7 +498,13 @@ class Grouping(unittest.TestCase):
     def run_store(self, body):
         consts = "\n".join(dict.fromkeys(js_const(n) for n in GROUP_CONSTS))
         return json.loads(
-            run_node("\n".join([js_i18n("ko"), GROUP_PRELUDE, consts] + [extract_js_fn(n) for n in GROUP_FNS] + [body]))
+            run_node(
+                "\n".join(
+                    [js_i18n("ko"), GROUP_PRELUDE, consts, *GROUP_SEAMS]
+                    + [extract_js_fn(n) for n in GROUP_FNS]
+                    + [body]
+                )
+            )
         )
 
     def test_twelve_pins_closed_one_by_one_are_one_message_that_grows(self):

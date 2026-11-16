@@ -161,6 +161,10 @@
 - `platform-isolation`: 공용 모듈이 기능의 모듈을 가져오거나, 다른 공용 모듈을 거쳐 닿는다.
 - `role`: `rules`가 제 기능의 `rules`와 `platform` 밖을 가져오거나, `state`·`api`가 제 기능·`app`·`platform`의 `rules`·`state` 밖을 가져오거나, 누구든 입구를 가져온다.
 
+**공용 장치의 이음매.** 공용 장치(`platform`)는 기능을 모른다. 알림이 상태 줄을 다시 그리고 맨 위 메시지를 묻는 일, 패널이 열렸는지 읽고 핀 목록에 줄을 놓는 일, 메시지의 동작 뒤 포커스를 판정 줄이나 읽는 자리로 돌려주는 일, 작성 패널의 저장 버튼 이름을 읽는 일, 요청(`api()`)이 끊긴 채 보관한 답을 쓰는 일은 기능의 일이다. 그래서 공용 모듈은 그 자리마다 이음매를 둔다. 받을 모양을 인터페이스로 적고(`NoticeStatusLine`·`NoticePanel`·`NoticeFocus`·`NoticeComposer`는 `platform/notices.ts`, `RequestFallback`은 `platform/api.ts`), 그것을 받는 등록 함수(`setNoticeStatusLine()` 등)와 꺼내는 함수를 둔다. 이음매는 필요 하나에 하나이고, 범용 이벤트 버스는 두지 않는다. 세 기능 이상이 같은 순간을 기다릴 때만 처리 함수의 목록을 두며, 그때 부르는 순서는 등록 순서다.
+
+입구(`js/main.ts`)가 이음매마다 한 번, 맨 위 코드에서 `boot()`보다 먼저 등록한다. 스크립트가 적재되는 동안 도는 코드는 이음매에 닿지 않으므로 등록 전에 불리는 이음매는 없다. 등록하지 않은 이음매를 부르면 이음매 이름을 말하는 예외가 난다. 아무 일도 하지 않고 넘어가는 기본값은 없다. 공용 코드는 등록된 함수를, 기능 함수를 직접 부르던 자리에서 같은 인자와 같은 순서로, 동기로 부른다. [`test_viewer_platform_seams.py`](../../src/limn/viewer/tests/test_viewer_platform_seams.py)가 원본에서 이음매를 찾아 입구가 모두를 한 번씩 `boot()` 전에 등록하는지, 등록 전 호출이 이름을 말하며 실패하는지, 공용 함수가 입구의 실제 등록을 거쳐 기능 함수를 같은 자리·인자·순서로 부르는지 본다.
+
 표 자체의 실수(모르는 기능·역할, 이유 없는 방향, 한 쌍의 두 방향, `ALLOWED`의 순환)와 자리가 없는 모듈(`js/`에 바로 놓였거나 더 깊은 폴더에 있거나 위 표의 자리가 아닌 것)은 검사를 바로 실패시킨다. 규칙과 표는 `tools/tests/viewer_checks.test.mjs`(`npm test`)가 제 사례로 지킨다. 같은 파일이 ESLint의 지역 규칙(`limn/no-jsdoc-type`·`no-imported-state-write`)도 보고, 이름과 주석의 지역 규칙(`limn/plain-names`·`no-history-comment`)은 `tools/tests/viewer_naming.test.mjs`가 제 사례로 지킨다. 검사는 모듈의 import 그래프를 타입을 걷은 글에서 읽으므로 `import type`은 그래프에 들지 않는다.
 
 ### 이름과 주석

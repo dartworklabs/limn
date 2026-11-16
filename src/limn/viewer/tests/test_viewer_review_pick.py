@@ -24,7 +24,17 @@ from limn.pins.listing.projection import pin_state
 from limn.security.access import LOCAL_ACTOR
 
 import helpers_js
-from helpers import JS_OFFLINE_STUBS, add_pin, edit_stored, extract_js_fn, find_record, js_i18n, ps, run_node
+from helpers import (
+    JS_OFFLINE_STUBS,
+    add_pin,
+    edit_stored,
+    extract_js_fn,
+    find_record,
+    js_i18n,
+    js_seam_wired,
+    ps,
+    run_node,
+)
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
 from helpers_browser import MEASURE, BrowserBase, fonts_ready, settle
@@ -890,6 +900,7 @@ class ReviewPickOutcome(unittest.TestCase):
                 js_i18n("ko"),
                 "function sourceOk(){} function apiFailed(){}",
                 JS_OFFLINE_STUBS,
+                js_seam_wired("setRequestFallback", late=True),
                 extract_js_fn("api"),
                 """globalThis.fetch=(u,init)=>Promise.resolve({status:200,json:()=>new Promise((ok,no)=>{
                   if(!init.signal){no(new SyntaxError('not JSON'));return;}
