@@ -15,7 +15,7 @@ import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
-import { canConfirmReview, confirmAccessText } from '../documents/flow-boot.ts';
+import { canConfirmReview, confirmAccessText } from '../documents/view-meta.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
 import { PDFJS_VERSION, VECTOR_PDF } from '../pdf/flow-open.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
@@ -57,7 +57,7 @@ import {
 } from '../app/rules-tables.ts';
 import { pinState, lineRange } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
-import { isMarkdownDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
+import { isMarkdownDoc, docInfo, withDocQuery, isRegion, pdoc, REVISION_PAGE } from '../documents/state.ts';
 const REVISION_VIEW = {
   seq: 0,
   files: [] as { name: string; text: string }[],
@@ -89,7 +89,6 @@ const REVISION_VIEW = {
   rangeN: null as { commits: number; files: number } | null,
   want: null as { base: string; top: string } | null,
 };
-const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
 // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_RECENT = 12;
 const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
@@ -1517,7 +1516,6 @@ async function loadRevisionPdf(id, seq, docKey) {
 }
 export {
   REVISION_VIEW,
-  REVISION_PAGE,
   COMPARISON_PDF,
   COMPARISON_SCOPE,
   findAnyPin,

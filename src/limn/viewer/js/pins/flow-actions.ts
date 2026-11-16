@@ -19,7 +19,6 @@ import {
   undoNote,
 } from '../platform/notices.ts';
 import { findAnyPin, showChange } from '../revisions/flow.ts';
-import { markMine } from '../documents/flow-polling.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { drawTrash } from './view-cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './flow-list.ts';
@@ -29,6 +28,7 @@ import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
 import { EDITOR } from './flow-edit.ts';
+import { markMine } from './flow-changes.ts';
 async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;

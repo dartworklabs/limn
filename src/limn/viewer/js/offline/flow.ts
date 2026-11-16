@@ -12,7 +12,7 @@ import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { API_WAIT, api, setApiOut } from '../platform/api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/notices.ts';
 import { setLastPinsRevision, offlineNow } from '../documents/flow-polling.ts';
-import { WORKER_REGISTRATION, setWorkerRegistration } from '../documents/flow-notification.ts';
+import { WORKER_REGISTRATION, setWorkerRegistration } from '../pins/flow-notification.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { VECTOR_PDF } from '../pdf/flow-open.ts';
 import { pageText } from '../pdf/flow.ts';
@@ -331,7 +331,7 @@ function offlineBack() {
 }
 
 // ---------------- The service worker
-// The worker is registered for every visit, not only where notifications are allowed (documents/flow-notification.ts
+// The worker is registered for every visit, not only where notifications are allowed (pins/flow-notification.ts
 // asks it for those): it is what answers when the network does not. A browser without one still works online, and says
 // so when asked to prepare.
 async function offlineWorker(): Promise<ServiceWorkerRegistration | null> {

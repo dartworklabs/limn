@@ -62,7 +62,6 @@ import { TIP_AT, hideTip, keyInput, armedTipElement, MARK_HIDDEN } from '../plat
 import { drawDocTabs, multiDoc } from '../documents/view-tabs.ts';
 import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
-import { notePinChanges, noteReviewChanges } from '../documents/flow-polling.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { arrivePage, pageNoSides } from '../pdf/view-pages.ts';
 import { applySide, setSide } from '../layout/flow.ts';
@@ -87,6 +86,7 @@ import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
+import { notePinChanges, noteReviewChanges } from './flow-changes.ts';
 
 async function loadPeople() {
   try {

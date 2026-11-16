@@ -54,9 +54,10 @@ js/documents/view-tabs.ts              # several documents: the list, tabs and l
 js/documents/state.ts                  # the open document's facts: entries and their kinds, the pin's document, queries, verdict words, the viewer role
 js/revisions/flow.ts                   # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents
-js/documents/flow-boot.ts              # boot() and the header: meta, stale and sync badges, viewer role
-js/documents/flow-polling.ts           # meta polling, other documents' builds, status-line messages for pins changed elsewhere
-js/documents/flow-notification.ts      # browser notifications and pin links (#doc=&pin=)
+js/documents/view-meta.ts              # the header: meta, stale and sync badges, viewer role
+js/documents/flow-polling.ts           # meta polling, other documents' builds
+js/pins/flow-changes.ts                # status-line messages for pins changed elsewhere, this tab's own actions kept from them
+js/pins/flow-notification.ts           # browser notifications and pin links (#doc=&pin=)
 js/documents/view-build-chip.ts        # build progress polling and its chip
 js/documents/flow-updates.ts           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
 js/documents/view-status.ts            # the status line: its items, text, progress bar and place per band
@@ -101,4 +102,4 @@ js/pins/flow-reply.ts                  # the reply box and its outcome line
 js/pins/flow-edit.ts                   # the edit card
 js/composer/flow-repick.ts             # re-placing a pin's location
 js/documents/flow-rebuild.ts           # view anchors, refreshing the document, the build error panel, rebuild
-js/main.ts                             # help dialog, the click and key dispatch, and the call to boot()
+js/main.ts                             # help dialog, the click and key dispatch, boot() and its call

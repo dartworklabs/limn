@@ -12,7 +12,7 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from '../platform/notices.ts';
 import { hideTip, showTipText } from '../platform/tooltip.ts';
-import { SYNC_REASON } from './flow-boot.ts';
+import { SYNC_REASON } from './view-meta.ts';
 import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';

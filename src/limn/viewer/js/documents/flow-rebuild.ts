@@ -21,7 +21,7 @@ import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { announce, lineNote, sourceOk } from '../platform/notices.ts';
 import { loadRevisions } from '../revisions/flow.ts';
-import { drawMeta } from './flow-boot.ts';
+import { drawMeta } from './view-meta.ts';
 import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
 import { buildDoc, pageSrc, reapplyScale } from '../pdf/view-pages.ts';
 import { openVectorDocument } from '../pdf/flow-open.ts';

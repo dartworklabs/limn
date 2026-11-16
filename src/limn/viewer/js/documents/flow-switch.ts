@@ -33,7 +33,7 @@ import { api } from '../platform/api.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import { docBadge, drawDocTabs, hashDoc, multiDoc, setHash } from './view-tabs.ts';
 import { loadRevisions, setViewMode } from '../revisions/flow.ts';
-import { drawMeta } from './flow-boot.ts';
+import { drawMeta } from './view-meta.ts';
 import { resetBuildForDoc } from './view-build-chip.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { autoFitWidth, buildDoc, widestPagePoints, startScale } from '../pdf/view-pages.ts';

@@ -12,8 +12,7 @@ import { ORDER, SECTION_OPEN, savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote, quietNote } from '../platform/notices.ts';
 import { showChange } from '../revisions/flow.ts';
-import { canConfirmReview } from '../documents/flow-boot.ts';
-import { markMine } from '../documents/flow-polling.ts';
+import { canConfirmReview } from '../documents/view-meta.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { suggestBadge } from '../composer/flow-suggest.ts';
@@ -27,6 +26,7 @@ import { $ } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
+import { markMine } from './flow-changes.ts';
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
 // close with none). null while the section shows cards.

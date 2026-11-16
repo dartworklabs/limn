@@ -45,7 +45,7 @@ interface MentionTag {
   tok: string;
 }
 
-// A notification's buttons (documents/flow-notification.ts), which the DOM library leaves out of NotificationOptions though the service
+// A notification's buttons (pins/flow-notification.ts), which the DOM library leaves out of NotificationOptions though the service
 // worker's showNotification() takes them.
 interface NotificationOptions {
   actions?: { action: string; title: string }[];
