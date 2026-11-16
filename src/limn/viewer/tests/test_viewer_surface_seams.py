@@ -18,6 +18,7 @@ from helpers import extract_js_fn, js_seams_wired, run_node
 from helpers_notices import node_or_skip
 
 PAGE_SEAMS = "pdf/state-seams.ts"
+LINE_SEAMS = "markdown/state-seams.ts"
 
 # Recording stand-ins under the names js/main.ts registers for the page surface's seams: the pins' marks
 # (pins/flow-list.ts), the verdict (verdict/flow-reason.ts, verdict/flow-line.ts), the composer
@@ -272,6 +273,151 @@ class HandingTheSelection(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [["endJump"], ["placePopover"], ["--", 270], ["scrollIntoView"]])
+
+
+# Recording stand-ins under the names js/main.ts registers for the Markdown surface's seams: the text surface
+# (text/view.ts), what a pick of lines fills (composer/flow-repick.ts, composer/flow-pick.ts, verdict/flow-line.ts) and
+# the pins' marks (pins/flow-list.ts).
+LINE_FEATURES = r"""
+const LOG=[];
+const TEXT_RUNGS=[{level:'raw'}];
+function buildTextView(stale,ends){LOG.push(['textBuild',typeof stale,ends]); return Promise.resolve(null);}
+function textLevels(range){LOG.push(['textLevels',range.lo,range.hi]); return TEXT_RUNGS;}
+function bannerCompare(){LOG.push(['compare']);}
+function setBusy(on){LOG.push(['setBusy',on]);}
+function renderComposer(){LOG.push(['renderComposer']);}
+function renderVerdictRow(){LOG.push(['renderVerdictRow']);}
+function marks(){LOG.push(['marks']);}
+"""
+
+
+def run_lines(*parts: str) -> object:
+    """parts joined after the Markdown surface's stand-ins and the wiring; the script prints its result as JSON."""
+    return json.loads(run_node("\n".join([LINE_FEATURES, js_seams_wired(LINE_SEAMS), *parts])))
+
+
+class PickingLines(unittest.TestCase):
+    """A pick of lines fills the re-placing banner or the composer and its verdict row through linePick; a text
+    document's ladder is the text surface's."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    # what pickLines reads and calls besides the seams, after the served function (whose setters these replace)
+    PICK = r"""
+    let DOC='a',REPICK=null,PICKSEQ=0,LAYOUT='wide',LAST_POINTER='touch',PINS=[]; var LAYOUT_MODE={WIDE:'wide'};
+    const MARKDOWN_VIEW={heads:[],file:'a.md',name:'a.md',lines:['x','y']}; const COMPOSE={intent:0};
+    const ELS={}; function $(s){return ELS[s]||(ELS[s]={hidden:true,scrollTop:1,focus(){}});}
+    const document={querySelector:()=>null};
+    function isTextDoc(){return false;} function markdownLevels(){return [];} function levelOf(){return null;}
+    function lineSnippet(){return '';} function endTopic(){} function setPickseq(v){PICKSEQ=v;}
+    function useLevel(){LOG.push(['useLevel']);} function setSide(){LOG.push(['setSide']);} function applySide(){}
+    function overlapsFor(){return [];} function setSnipOpen(){LOG.push(['setSnipOpen']);}
+    function revealBox(){LOG.push(['revealBox']);}
+    """
+
+    def test_a_pick_while_replacing_a_pin_only_redraws_the_comparison(self):
+        got = run_lines(
+            extract_js_fn("pickLines"),
+            self.PICK,
+            "REPICK={}; pickLines({lo:1,hi:2},null,null,'',false);console.log(JSON.stringify([LOG,REPICK.cand.lo]));",
+        )
+        self.assertEqual(got, [[["compare"]], 1])
+
+    def test_a_pick_opens_the_composer_then_draws_it_and_its_verdict_row(self):
+        """The composer is shown and set not busy after the level is used; it is drawn, then the verdict row, after
+        the snippet folds and before the selection is revealed."""
+        got = run_lines(
+            extract_js_fn("pickLines"),
+            self.PICK,
+            "pickLines({lo:1,hi:2},null,null,'q',false); console.log(JSON.stringify(LOG));",
+        )
+        self.assertEqual(
+            got,
+            [
+                ["useLevel"],
+                ["setBusy", False],
+                ["setSide"],
+                ["setSnipOpen"],
+                ["renderComposer"],
+                ["renderVerdictRow"],
+                ["revealBox"],
+            ],
+        )
+
+    def test_a_text_documents_ladder_is_the_text_surfaces_answer(self):
+        got = run_lines(
+            "function isTextDoc(){return true;}",
+            extract_js_fn("markdownLevels"),
+            "const rungs=markdownLevels({lo:3,hi:4},null,null); console.log(JSON.stringify([LOG,rungs===TEXT_RUNGS]));",
+        )
+        self.assertEqual(got, [[["textLevels", 3, 4]], True])
+
+    def test_a_pick_from_the_drawn_document_takes_the_line_views_ladder_and_redraws_the_composer(self):
+        """relevelForLineView sets the raw ladder, uses it, then draws the composer."""
+        got = run_lines(
+            r"""
+            let DOC='a',REPICK=null; const MARKDOWN_VIEW={file:'a.md'};
+            const COMPOSE={current:{doc:'a',file:'a.md',lo:2,hi:3,levels:[{level:'block',lo:1,hi:4}]}};
+            function isRegion(){return false;} function $(){return {};}
+            function markdownLevels(){return [{level:'raw',lo:2,hi:3}];} function useLevel(s,l){LOG.push(['useLevel',l]);}
+            """,
+            extract_js_fn("relevelForLineView"),
+            "relevelForLineView(); console.log(JSON.stringify([LOG,COMPOSE.current.default_level]));",
+        )
+        self.assertEqual(got, [[["useLevel", "raw"], ["renderComposer"]], "raw"])
+
+
+class DrawingTheLines(unittest.TestCase):
+    """A text document's lines are the text surface's view, shown once it is drawn and not stale; showDocumentNode
+    draws the pins' marks after the outline and before the line view's ladder."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def test_a_text_document_is_drawn_by_the_text_surface_then_shown_and_compared(self):
+        """buildMarkdownDoc hands the text surface its staleness check and the source's line ends, then shows the view
+        it answers and compares the redrawn source; a draw that went stale while the view was built shows nothing."""
+        got = run_lines(
+            r"""
+            let DOC='a',GONE=false; const MARKDOWN_VIEW={gen:0,shown:'',doc:null,mtime:null,asked:null,lines:[],heads:[]};
+            var MARKDOWN_LIMITS={lines:100};
+            const DOCROOT={querySelector:()=>null,replaceChildren(){}}; function $(){return DOCROOT;}
+            const document={body:{classList:{add(){}}}};
+            function isFieldBusy(){return false;} function isMarkdownDoc(){return true;} function isTextDoc(){return true;}
+            function withDocQuery(u){return u;} function waitLine(){return {};}
+            function api(){return Promise.resolve({status:200,data:{src_mtime:5,file:'a.txt',lines:['x'],line_ends:{crlf:1}}});}
+            const VIEW={id:'view'};
+            function buildTextView(stale,ends){LOG.push(['textBuild',typeof stale,ends.crlf]); if(GONE)DOC='b'; return Promise.resolve(VIEW);}
+            function showDocumentNode(node){LOG.push(['show',node.id]);}
+            function compareRedrawnSource(doc){LOG.push(['compare',doc]);}
+            """,
+            extract_js_fn("buildMarkdownDoc"),
+            "(async()=>{await buildMarkdownDoc(); LOG.push(['--']); GONE=true; await buildMarkdownDoc();"
+            "console.log(JSON.stringify(LOG));})();",
+        )
+        self.assertEqual(
+            got,
+            [["textBuild", "function", 1], ["show", "view"], ["compare", "a"], ["--"], ["textBuild", "function", 1]],
+        )
+
+    def test_the_marks_come_after_the_outline_and_before_the_ladder(self):
+        got = run_lines(
+            r"""
+            let DOC='a',SWITCHSEQ=1,COLUMN_OBSERVER=null;
+            const MARKDOWN_VIEW={want:null,shown:'a',spot:null,jumpTo:null,headTo:null};
+            const DOCROOT={replaceChildren(){LOG.push(['replace']);}}; function $(){return DOCROOT;}
+            function isColumnShown(){return true;} function readingAnchor(){return null;}
+            function fitWideFormulas(){} function restoreReadingAnchor(){} function drawOutline(){LOG.push(['outline']);}
+            function relevelForLineView(){LOG.push(['relevel']);} function markChosenLines(){} function shownChoice(){}
+            function updateMarkdownStrip(){LOG.push(['strip']);} function readSpot(){} function tintChangedLines(){}
+            """,
+            extract_js_fn("showDocumentNode"),
+            "showDocumentNode({dataset:{}}); console.log(JSON.stringify(LOG));",
+        )
+        self.assertEqual(got, [["replace"], ["outline"], ["marks"], ["relevel"], ["strip"]])
 
 
 if __name__ == "__main__":

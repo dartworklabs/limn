@@ -16555,6 +16555,52 @@ function lostElementTag(pin) {
     : null;
 }
 
+// ------------------------------------------------ What the Markdown surface asks the features above it
+// markdown draws a document from its source, offers its lines and takes a pick of them; a text document's own view and
+// ladder, the composer and the verdict row a line pick fills, and the pins' marks on the lines are the features above
+// (text, composer, verdict, pins). markdown may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a
+// seam here: an interface for what markdown asks, a registration function and an accessor. js/main.ts registers every
+// seam once, at its top level before boot() runs (no code that runs while the script loads reaches one), and markdown
+// calls the registered function at the point, with the arguments and in the order it called the feature function
+// directly. An accessor called before its registration throws, naming the seam.
+
+// A text document (text/view.ts), drawn with this surface's line machinery: its view and its ladder.
+let TEXT_SURFACE = null;
+// Registers the text surface; js/main.ts calls it once.
+function setTextSurface(surface) {
+  TEXT_SURFACE = surface;
+}
+// The registered text surface; throws before setTextSurface() has run.
+function textSurface() {
+  if (!TEXT_SURFACE) throw new Error('setTextSurface() has not run: the Markdown surface cannot draw a text document');
+  return TEXT_SURFACE;
+}
+
+// What a pick of lines fills (composer/flow-pick.ts, composer/flow-repick.ts, verdict/flow-line.ts): the re-placing
+// banner's comparison, the composer's busy state and its drawing, and the verdict row.
+let LINE_PICK = null;
+// Registers what a pick of lines fills; js/main.ts calls it once.
+function setLinePick(pick) {
+  LINE_PICK = pick;
+}
+// The registered composer and verdict row; throws before setLinePick() has run.
+function linePick() {
+  if (!LINE_PICK) throw new Error('setLinePick() has not run: a pick of lines has no composer');
+  return LINE_PICK;
+}
+
+// The pins' marks on the drawn document's lines (pins/flow-list.ts).
+let LINE_MARKS = null;
+// Registers the pins' marks; js/main.ts calls it once.
+function setLineMarks(marks) {
+  LINE_MARKS = marks;
+}
+// The registered marks; throws before setLineMarks() has run.
+function lineMarks() {
+  if (!LINE_MARKS) throw new Error('setLineMarks() has not run: the drawn document has no pin marks to draw');
+  return LINE_MARKS;
+}
+
 // --------------------------------------------- The Markdown surface (docs/handbook/viewer.md §Markdown 화면, ADR-0025)
 // A document the browser draws from its source (rendersInBrowser: kind "markdown") has no pages. #doc holds one flowing
 // column, article#md, drawn here; the panel, the list, the composer and the cards are the same as on the PDF surface.
@@ -16994,7 +17040,7 @@ async function buildMarkdownDoc() {
       );
       return;
     }
-    const view = await buildTextView(stale, source.line_ends);
+    const view = await textSurface().build(stale, source.line_ends);
     if (view && !stale()) {
       showDocumentNode(view);
       compareRedrawnSource(docKey || '', before, MARKDOWN_VIEW.lines);
@@ -17079,7 +17125,7 @@ function showDocumentNode(node) {
   restoreReadingAnchor(anchor);
   if (COLUMN_OBSERVER) COLUMN_OBSERVER.observe(node);
   drawOutline();
-  marks();
+  lineMarks().draw();
   relevelForLineView();
   markChosenLines(shownChoice());
   updateMarkdownStrip();
@@ -17121,7 +17167,7 @@ function relevelForLineView() {
   selection.raw_hi = range.hi;
   selection.default_level = 'raw';
   useLevel(selection, 'raw');
-  renderComposer();
+  linePick().renderComposer();
 }
 function waitLine(text) {
   const line = document.createElement('div');
@@ -18723,7 +18769,7 @@ function markdownLevels(
   endBlock,
   tapped,
 ) {
-  if (isTextDoc()) return textLevels(range); // a text document's rungs come from its lines alone
+  if (isTextDoc()) return textSurface().levels(range); // a text document's rungs come from its lines alone
   const rungs = [];
   const add = (level, label, first, last, env) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
@@ -18799,7 +18845,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   };
   if (REPICK) {
     REPICK.cand = selection;
-    bannerCompare();
+    linePick().compare();
     return;
   }
   endTopic(NOTICE_TOPIC.PICK);
@@ -18811,7 +18857,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   selection.elSel = null;
   useLevel(selection, defaultLevel);
   $('#composer').hidden = false;
-  setBusy(false);
+  linePick().setBusy(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
   setSide(true);
@@ -18819,8 +18865,8 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   setSnipOpen(false);
-  renderComposer();
-  renderVerdictRow();
+  linePick().renderComposer();
+  linePick().renderVerdictRow();
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
   // the chosen lines out from under the sheet (compact), as a PDF box is
@@ -37309,6 +37355,10 @@ setPageMarkdown({
   updateStrip: updateMarkdownStrip,
 });
 setPageChanges({ setMode: setViewMode });
+// The seams the Markdown surface calls the features above it through (markdown/state-seams.ts).
+setTextSurface({ build: buildTextView, levels: textLevels });
+setLinePick({ compare: bannerCompare, setBusy, renderComposer, renderVerdictRow });
+setLineMarks({ draw: marks });
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

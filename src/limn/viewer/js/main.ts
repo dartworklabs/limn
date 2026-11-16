@@ -177,6 +177,7 @@ import {
   toggleQuote,
   cancelSelection,
   pick,
+  setBusy,
 } from './composer/flow-pick.ts';
 import { saveDraftSoon, restoreDraft, parkDraft, openDraftDoc } from './composer/flow-draft.ts';
 import { appendToPin, savePin, saveButtonLabel } from './composer/flow-save.ts';
@@ -202,6 +203,7 @@ import {
   stickSoon,
   sizePageLines,
   pageVerdictPins,
+  renderVerdictRow,
 } from './verdict/flow-line.ts';
 import {
   actOnReason,
@@ -248,7 +250,7 @@ import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } fro
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty } from './pins/flow-edit.ts';
-import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
+import { applyRepick, cancelRepick, startRepick, bannerCompare } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
@@ -270,6 +272,8 @@ import {
   setPinNotifications,
   setVerdictHold,
 } from './documents/state-seams.ts';
+import { setLineMarks, setLinePick, setTextSurface } from './markdown/state-seams.ts';
+import { buildTextView, textLevels } from './text/view.ts';
 import { setPageChanges, setPageMarkdown, setPageMarks, setPageSelection, setPageVerdicts } from './pdf/state-seams.ts';
 import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } from './documents/flow-polling.ts';
 import { drawMeta } from './documents/view-meta.ts';
@@ -396,6 +400,10 @@ setPageMarkdown({
   updateStrip: updateMarkdownStrip,
 });
 setPageChanges({ setMode: setViewMode });
+// The seams the Markdown surface calls the features above it through (markdown/state-seams.ts).
+setTextSurface({ build: buildTextView, levels: textLevels });
+setLinePick({ compare: bannerCompare, setBusy, renderComposer, renderVerdictRow });
+setLineMarks({ draw: marks });
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

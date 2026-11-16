@@ -84,12 +84,7 @@ import {
 import { applySide, setSide } from '../layout/flow.ts';
 import { BACK } from '../layout/input.ts';
 import { revealBox, selectionRoom } from '../pdf/input-selection.ts';
-import { textLevels, buildTextView } from '../text/view.ts';
-import { renderComposer, setBusy } from '../composer/flow-pick.ts';
 import { imeOpen } from '../platform/composition.ts';
-import { renderVerdictRow } from '../verdict/flow-line.ts';
-import { marks } from '../pins/flow-list.ts';
-import { bannerCompare } from '../composer/flow-repick.ts';
 import { NOTICE_TOPIC } from '../platform/tables.ts';
 import { $, $$, focusFell, focusHold } from '../platform/dom.ts';
 import { LAYOUT_MODE, MARKDOWN_LIMIT, PIN_STATE } from '../app/rules-tables.ts';
@@ -97,6 +92,7 @@ import { pinState, lineRange, overlapsFor } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isTextDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
 import { levelOf, useLevel } from '../documents/rules.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
+import { lineMarks, linePick, textSurface } from './state-seams.ts';
 const MARKDOWN_LIMITS = Object.freeze({
   nesting: 20,
   blocks: 30000,
@@ -526,7 +522,7 @@ async function buildMarkdownDoc() {
       );
       return;
     }
-    const view = await buildTextView(stale, source.line_ends);
+    const view = await textSurface().build(stale, source.line_ends);
     if (view && !stale()) {
       showDocumentNode(view);
       compareRedrawnSource(docKey || '', before, MARKDOWN_VIEW.lines);
@@ -611,7 +607,7 @@ function showDocumentNode(node: HTMLElement) {
   restoreReadingAnchor(anchor);
   if (COLUMN_OBSERVER) COLUMN_OBSERVER.observe(node);
   drawOutline();
-  marks();
+  lineMarks().draw();
   relevelForLineView();
   markChosenLines(shownChoice());
   updateMarkdownStrip();
@@ -653,7 +649,7 @@ function relevelForLineView() {
   selection.raw_hi = range.hi;
   selection.default_level = 'raw';
   useLevel(selection, 'raw');
-  renderComposer();
+  linePick().renderComposer();
 }
 function waitLine(text) {
   const line = document.createElement('div');
@@ -2271,7 +2267,7 @@ function markdownLevels(
   endBlock: HTMLElement | null,
   tapped?: boolean,
 ) {
-  if (isTextDoc()) return textLevels(range); // a text document's rungs come from its lines alone
+  if (isTextDoc()) return textSurface().levels(range); // a text document's rungs come from its lines alone
   const rungs = [] as any[];
   const add = (level, label, first, last, env) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
@@ -2347,7 +2343,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   } as unknown as Selection;
   if (REPICK) {
     REPICK.cand = selection;
-    bannerCompare();
+    linePick().compare();
     return;
   }
   endTopic(NOTICE_TOPIC.PICK);
@@ -2359,7 +2355,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   selection.elSel = null;
   useLevel(selection, defaultLevel);
   $('#composer').hidden = false;
-  setBusy(false);
+  linePick().setBusy(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
   setSide(true);
@@ -2367,8 +2363,8 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   setSnipOpen(false);
-  renderComposer();
-  renderVerdictRow();
+  linePick().renderComposer();
+  linePick().renderVerdictRow();
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
   // the chosen lines out from under the sheet (compact), as a PDF box is
