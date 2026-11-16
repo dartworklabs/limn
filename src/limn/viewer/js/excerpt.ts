@@ -1,8 +1,8 @@
 // ------------------------------------------------ Range excerpt (docs/handbook/viewer.md §패널 정리 범위 발췌)
-// On every layout the source under the range ladder is the range control itself: the selected lines in a tinted band with
-// one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's first or last
-// line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer and the edit card
-// draw the same excerpt.
+// On every layout the source under the range ladder is the range control itself: the selected lines in a tinted band
+// with one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's
+// first or last line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer
+// and the edit card draw the same excerpt.
 import { $, SNIP_OPEN } from './core.ts';
 import { html, ic, setHtml } from './markup.ts';
 import { ccHtml } from './hidden-chars.ts';
@@ -13,19 +13,21 @@ import { refetchSnip } from './levels.ts';
 import { COMPOSE, recomputeOverlap, renderComposer } from './composer.ts';
 import { EDITOR, renderEdit } from './edit.ts';
 
-// The range lo..hi widened to line k: [min(lo,k), max(hi,k)]. Pure.
+// The range first..last widened to line: [min(first, line), max(last, line)]. Pure.
 function widenTo(first, last, line) {
   return [Math.min(first, line), Math.max(last, line)];
 }
-// The range lo..hi less its end line k: [lo+1,hi] or [lo,hi-1]; null when k is no end of a range of two or more lines. Pure.
+// The range first..last less its end line `line`: [first+1, last] or [first, last-1]; null when that line is neither
+// end of a range of two or more lines. Pure.
 function dropLine(first, last, line) {
   if (first >= last) return null;
   return line === first ? [first + 1, last] : line === last ? [first, last - 1] : null;
 }
-// The rows the excerpt draws round lo..hi in a file of n lines, top to bottom: a dimmed line above (none above line 1), the
-// band - folded to its first two and last two lines round {kind:'fold', n} when longer than five and not opened - and a
-// dimmed line below (none past line n). Each row is {k, kind:'ctx'|'on', edge} (edge: an end of a band of two or more). Pure.
-// One row of the excerpt (excerptRows).
+// The rows the excerpt draws round first..last in a file of lineCount lines, top to bottom: a dimmed line above (none
+// above line 1), the band - folded to its first two and last two lines round {kind:'fold', n} (n: the lines folded)
+// when longer than five and not opened - and a dimmed line below (none past the file's last line). Each row is {k,
+// kind:'ctx'|'on', edge} (k: its line; edge: an end of a band of two or more). Pure. One row of the excerpt
+// (excerptRows).
 type ExcerptRow = { k: number; kind: 'ctx' | 'on'; edge: boolean } | { kind: 'fold'; n: number };
 function excerptRows(first, last, lineCount, open) {
   const out: ExcerptRow[] = [],
@@ -37,11 +39,12 @@ function excerptRows(first, last, lineCount, open) {
   if (last < lineCount) out.push({ k: last + 1, kind: 'ctx', edge: false });
   return out;
 }
-// Each selection's or edit card's source lines (line -> text, null when the server gave none) and the ones being fetched.
-// Kept beside the object, not on it: the composer's selection is written to the tab's draft (draft.js) as JSON.
+// Each selection's or edit card's source lines (line -> text, null when the server gave none) and the ones being
+// fetched. Kept beside the object, not on it: the composer's selection is written to the tab's draft (draft.ts) as
+// JSON.
 const EXCERPT_LINES = new WeakMap(),
   EXCERPT_FETCHING = new WeakSet();
-// o's line cache (EXCERPT_LINES), made on first use.
+// The line cache of owner - a selection or an edit card - in EXCERPT_LINES, made on first use.
 function excerptLines(owner) {
   let lines = EXCERPT_LINES.get(owner);
   if (!lines) {
@@ -50,7 +53,7 @@ function excerptLines(owner) {
   }
   return lines;
 }
-// Reads a numbered snippet ('   40  text' lines, limn.pins.location.mapping.snippet) into o's line cache.
+// Reads a numbered snippet ('   40  text' lines, limn.pins.location.mapping.snippet) into the owner's line cache.
 function excerptTake(owner, snip) {
   const lines = excerptLines(owner);
   String(snip || '')
@@ -60,8 +63,9 @@ function excerptTake(owner, snip) {
       if (match) lines.set(+match[1], match[2] || '');
     });
 }
-// Fetches the lines the excerpt shows that o's cache lacks - its ends and their neighbours - in at most two windows of
-// /api/snippet, then redraws o's panel. A line the server did not give is cached as null ('…'), so a failure never loops.
+// Fetches the lines the excerpt shows that the owner's cache lacks - its ends and their neighbours - in at most two
+// windows of /api/snippet, then redraws the owner's panel. A line the server did not give is cached as null ('…'), so a
+// failure never loops.
 async function excerptFetch(owner) {
   const lineCount = owner.n_lines || owner.hi,
     want = new Set<number>();
@@ -93,12 +97,12 @@ async function excerptFetch(owner) {
   EXCERPT_FETCHING.delete(owner);
   excerptRedraw(owner);
 }
-// Redraws the panel o belongs to (the composer's selection or the open edit card); a stale o draws nothing.
+// Redraws the panel the owner belongs to (the composer's selection or the open edit card); a stale owner draws nothing.
 function excerptRedraw(owner) {
   if (owner === COMPOSE.current) renderComposer();
   else if (owner === EDITOR.current) renderEdit();
 }
-// o's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
+// The owner's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
 function excerptBox(owner) {
   const editing = EDITOR.current;
   return owner === COMPOSE.current
@@ -108,9 +112,9 @@ function excerptBox(owner) {
       : null;
 }
 // The control to focus after a redraw that took the focused one (a keyboard's Enter or Space on '+' or '−'): the same
-// action on the same line; else the same action on the side the change happened - the next dimmed line above or below, or
-// the band's new end line's '−' - so another press repeats it; else the control nearest that line. was: {act, line}; o has
-// the new range. Pure over the rows' buttons (btns: [{act, line, el}]).
+// action on the same line; else the same action on the side the change happened - the next dimmed line above or below,
+// or the band's new end line's '−' - so another press repeats it; else the control nearest that line. was: {act, line};
+// the owner has the new range. Pure over the rows' buttons ([{act, line, el}]).
 function excerptFocusTarget(buttons, was, owner) {
   const at = (act, line) => buttons.find((button) => button.act === act && button.line === line);
   const up = was.line <= owner.lo,
@@ -124,9 +128,9 @@ function excerptFocusTarget(buttons, was, owner) {
     null,
   );
 }
-// Draws o's excerpt into box, or clears and hides it (a region, no selection).
-// isEdit: an edit card (the composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that
-// takes the focused '+' or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
+// Draws the owner's excerpt into box, or clears and hides it (a region, no selection). isEdit: an edit card (the
+// composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that takes the focused '+'
+// or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
 function drawExcerpt(owner, box, isEdit) {
   const on = !!owner && !owner.region && !isRegion(owner);
   const focused = document.activeElement as HTMLElement,
@@ -145,7 +149,7 @@ function drawExcerpt(owner, box, isEdit) {
     text = (line) => {
       const lineText = lines.get(line);
       return lineText == null ? '…' : ccHtml(lineText);
-    }; // a character that would hide or reorder the line in its box (hidden-chars.js)
+    }; // a character that would hide or reorder the line in its box (hidden-chars.ts)
   const rows = excerptRows(owner.lo, owner.hi, owner.n_lines || owner.hi, !isEdit && SNIP_OPEN).map((row) =>
     row.kind === 'fold'
       ? html`<div class="xp-fold">… ${tl('{n}줄', { n: row.n })}</div>`
@@ -178,17 +182,17 @@ ${row.edge ? html`<button class="xp-chip xp-drop" data-act="xp-drop" data-line="
     $('#c-expand').textContent = SNIP_OPEN ? tr('원문 접기') : tr('원문 펼치기') + ' · ' + tl('{n}줄', { n: bandSize });
   }
 }
-// Sets o's lines by hand: lo..hi, the scope 'lines' and no environment; a figure pick keeps its element (elSel) - lines set
-// in the source are a range edit, not a new place.
+// Sets the owner's lines by hand: first..last, the scope 'lines' and no environment; a figure pick keeps its element
+// (elSel) - lines set in the source are a range edit, not a new place.
 function setLines(owner, first, last) {
   owner.lo = first;
   owner.hi = last;
   owner.scope = 'lines';
   owner.env = null;
 }
-// Applies range r ([lo,hi], kept inside the file) to o as lines set by hand (setLines), then the overlap (composer), the
-// panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the
-// end that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
+// Applies range ([first, last], kept inside the file) to the owner as lines set by hand (setLines), then the overlap
+// (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the end
+// that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
 function applyRange(owner, range, anchor) {
   if (!owner || !range) return;
   const lineCount = owner.n_lines || Math.max(range[1], owner.hi),

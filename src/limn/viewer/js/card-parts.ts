@@ -40,9 +40,11 @@ function who(person) {
   if (person && person.login === LOCAL_LOGIN) return tr(person.name || '로컬/에이전트');
   return (person && (person.name || person.login)) || '';
 } // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
-const BADPIC = new Set(); // an avatar URL that has already failed is never requested again (otherwise console errors would pile up on every re-render)
-// A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon - distinguishes people from agents at a glance.
-// The initial is in a box of its own (.av-l): trimmed to its cap height, so the circle centres the letter and not its line box.
+// The avatar URLs that have failed: never requested again, so console errors do not pile up on every redraw.
+const FAILED_AVATARS = new Set();
+// A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon -
+// distinguishes people from agents at a glance. The initial is in a box of its own (.av-l): trimmed to its cap height,
+// so the circle centres the letter and not its line box.
 function isAgent(person) {
   return !!person && (person.login === LOCAL_LOGIN || String(person.login).startsWith('agent:'));
 }
@@ -50,7 +52,7 @@ function avatar(person) {
   if (!person || !(person.name || person.login)) return html``;
   if (isAgent(person)) return html`<span class="av i agent" aria-hidden="true">${ic('bot')}</span>`;
   const initial = (who(person).trim()[0] || '?').toUpperCase();
-  return person.pic && !BADPIC.has(person.pic)
+  return person.pic && !FAILED_AVATARS.has(person.pic)
     ? html`<img class="av" src="${person.pic}" alt="" referrerpolicy="no-referrer" data-ini="${initial}">`
     : html`<span class="av i" aria-hidden="true"><span class="av-l">${initial}</span></span>`;
 }
@@ -59,7 +61,7 @@ document.addEventListener(
   (event) => {
     const image = event.target as HTMLImageElement;
     if (image && image.tagName === 'IMG' && image.classList.contains('av')) {
-      BADPIC.add(image.getAttribute('src'));
+      FAILED_AVATARS.add(image.getAttribute('src'));
       const circle = document.createElement('span');
       circle.className = 'av i';
       const letter = document.createElement('span');
@@ -77,18 +79,20 @@ function authorTip(pin: Pin) {
     tip += ' / ' + tl('수정: {name} · {at}', { name: who(pin.edited_by) || tr('기록 전'), at: pin.edited_at });
   return tip;
 }
-// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer pin with the smallest range),
-// otherwise the smallest-id partial. Must follow the same rule as the server's rel_badge() (pins.md) so card tags and
-// pins.md rows never disagree - since a rel entry is only {id,rel}, the range is looked up by id from PINS (all currently loaded open pins).
-// The badge wording is phrased to be self-explanatory: '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is distinguished using p's (this pin's) lo/hi.
+// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer
+// pin with the smallest range), otherwise the smallest-id partial. Must follow the same rule as the server's
+// rel_badge() (pins.md) so card tags and pins.md rows never disagree - since a rel entry is only {id,rel}, the range is
+// looked up by id from PINS (all currently loaded open pins). The badge wording is phrased to be self-explanatory:
+// '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is told by this pin's own lo/hi.
 function josa(number, afterConsonant, afterVowel) {
   const lastDigit = String(number).slice(-1);
   return lastDigit === '0' || '13678'.includes(lastDigit) ? afterConsonant : afterVowel;
 }
-// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육), else '로'.
-// The particle after a name: c after a final consonant, v after a vowel. A Hangul name by its last syllable's final; a Latin
-// one by how its end is read - a vowel letter (and a silent e) reads as a vowel, a consonant as one ('Bob이', 'Alice가'),
-// a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a digit as its Korean reading (josa). Pure.
+// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육),
+// else '로'. The particle after a name: afterConsonant after a final consonant, afterVowel after a vowel. A Hangul name
+// by its last syllable's final; a Latin one by how its end is read - a vowel letter (and a silent e) reads as a vowel,
+// a consonant as one ('Bob이', 'Alice가'), a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a
+// digit as its Korean reading (josa). Pure.
 function josaName(name: string, afterConsonant: string, afterVowel: string) {
   const trimmed = String(name || '').trim(),
     last = trimmed.slice(-1);
@@ -148,16 +152,18 @@ function relBadge(rel, pin) {
   }
   return null;
 }
-// The in-progress marker (docs/handbook/api.md §처리 중 표시 (claim)). claim_until is epoch seconds, compared independent of the browser's timezone (numbers
-// instead of a wall-clock string, for the same reason as docs/handbook/build-sync.md §위치 추정). The viewer never places a claim (agent-only) - it only offers [풀기].
+// The in-progress marker (docs/handbook/api.md §처리 중 표시 (claim)). claim_until is epoch seconds, compared
+// independent of the browser's timezone (numbers instead of a wall-clock string, for the same reason as
+// docs/handbook/build-sync.md §위치 추정). The viewer never places a claim (agent-only) - it only offers [풀기].
 function claimActive(pin: Pin) {
   return typeof pin.claim_until === 'number' && pin.claim_until > Date.now() / 1000;
 }
-// Estimated time to handle (docs/handbook/api.md §처리 중 표시): if an agent gives eta_min on a claim, the server sets eta_ts
-// (epoch). The badge shows '처리 중 · 약 15분 · 20:40쯤' - both the remaining minutes and the time are rounded up to
-// 5-minute steps (an estimate is approximate). Past it, '예상보다 늦어짐 (+5분)'. A legacy claim with no eta shows
-// '처리 중 · 20:02부터 (23분째)'. The lock's auto-expiry (claim_until) was misread as the estimated completion (observed:
-// '~04:02'), so it's never shown on screen - only in the description. The time is the viewing device's local time. now is injected by tests.
+// Estimated time to handle (docs/handbook/api.md §처리 중 표시): if an agent gives eta_min on a claim, the server sets
+// eta_ts (epoch). The badge shows '처리 중 · 약 15분 · 20:40쯤' - both the remaining minutes and the time are rounded
+// up to 5-minute steps (an estimate is approximate). Past it, '예상보다 늦어짐 (+5분)'. A legacy claim with no eta
+// shows '처리 중 · 20:02부터 (23분째)'. The lock's auto-expiry (claim_until) would read as the estimated completion, so
+// it is never shown on screen - only in the description. The time is the viewing device's local time. now is injected
+// by tests.
 function ceil5(minutes) {
   return Math.max(5, Math.ceil(minutes / 5 - 1e-9) * 5);
 }
@@ -212,7 +218,8 @@ function claimTag(pin: Pin) {
   const claim = claimInfo(pin);
   return html`<span class="badge badge-claimed${claim.late ? ' late' : ''}" data-claim="${pin.id}" data-tip="${claim.tip}">${ic('clock')}<span class="ct">${claim.t}</span></span>`;
 }
-// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't redrawn). The list is redrawn if any pin's lock has expired.
+// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't
+// redrawn). The list is redrawn if any pin's lock has expired.
 function tickClaims() {
   if (document.hidden) return;
   let gone = false;
@@ -230,8 +237,9 @@ function tickClaims() {
   if (gone) drawPins();
 }
 setInterval(tickClaims, 30000);
-// A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field). The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a
-// region's page is the one its mark is on in the current build (pinPlace), which a figure pin's element can move.
+// A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field).
+// The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a region's page is the one its mark is on in the current build
+// (pinPlace), which a figure pin's element can move.
 function locText(pin: Pin) {
   return isRegion(pin) ? tr('영역') : rng(pin.lo, pin.hi);
 }
@@ -243,8 +251,9 @@ function locCopy(pin: Pin) {
       .pop();
   return isRegion(pin) ? name + ' 쪽 ' + pinPlace(pin).page : name + ' L' + pin.lo + '-L' + pin.hi;
 }
-// The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered - clicking it switches to that document.
-// The name is user text (translate="no"); its description's UI words are translated here.
+// The document chip attached to a card header when viewing all documents. Another document's is dashed-bordered -
+// clicking it switches to that document. The name is user text (translate="no"); its description's UI words are
+// translated here.
 function docChip(pin: Pin) {
   if (!(SHOW_ALL && multiDoc())) return html``;
   const entry = docInfo(pdoc(pin)),
@@ -254,12 +263,14 @@ function docChip(pin: Pin) {
     (other ? ' — ' + tr('#번호·[보기]를 누르면 이 문서로 바꿉니다') : '');
   return html`<span class="badge badge-secondary dchip${other ? ' other' : ''}" translate="no" data-tip="${tip}">${entry ? entry.name : pdoc(pin)}</span>`;
 }
-// Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a single line of history, built with html``.
-// wide shows the last 3, compact shows only the last 1, expanded via [이전 N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDITOR.current.
+// Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a
+// single line of history, built with html``. wide shows the last 3, compact shows only the last 1, expanded via [이전
+// N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDITOR.current.
 function isQuestion(pin: Pin) {
   return !!pin && pin.kind_req === KIND_REQ.QUESTION;
 }
-// The current assignee - the recorded value (p.assignee); for a legacy pin without one, the person the server inferred (the first of p.addressed); if neither, the agent.
+// The current assignee - the recorded value (pin.assignee); for a legacy pin without one, the person the server
+// inferred (the first of pin.addressed); if neither, the agent.
 function assigneeOf(pin: Pin) {
   if (!pin) return ASSIGNEE_AGENT;
   if (pin.assignee) return pin.assignee;
@@ -296,7 +307,8 @@ function assignChip(pin: Pin, pressable: boolean): Html {
     tip =
       tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다', { name: name }) +
       (canEdit ? tr('. 누르면 [수정]에서 담당을 바꿉니다') : '');
-  const shown = shared ? personLabel(pin.assignee) : html`${name}`; // a name another known person shares carries the login, as the composer's
+  // a name another known person shares carries the login, as the composer's
+  const shown = shared ? personLabel(pin.assignee) : html`${name}`;
   return canEdit
     ? html`<button class="cm-i badge badge-assign as-chip${mine ? ' me' : ''}" data-act="edit" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span>${ic('pencil')}</button>`
     : html`<span class="cm-i badge badge-assign as-chip${mine ? ' me' : ''}" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span></span>`;
@@ -324,7 +336,8 @@ function cardMetadata(pin: Pin, statusLabel: string, pressable: boolean): Html {
       part: html`<span class="cm-i card-meta-context${open ? ' sr-only' : ''}">${tr(statusLabel)}</span>`,
     },
   ];
-  // Between two drawn facts ' · '; before any other fact a space only a screen reader meets, so the words never run together.
+  // Between two drawn facts ' · '; before any other fact a space only a screen reader meets, so the words never run
+  // together.
   let drawnCount = 0;
   const parts = facts.map((fact, index) =>
     fact.drawn && drawnCount++
@@ -335,13 +348,15 @@ function cardMetadata(pin: Pin, statusLabel: string, pressable: boolean): Html {
   );
   return html`<div class="card-meta${agent ? ' hide-open' : ''}${drawnCount ? '' : ' hide-folded'}">${parts}</div>`;
 }
-// Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the same meaning in text once more.
+// Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the
+// same meaning in text once more.
 const CARD_STATE_NAME = { open: '열림', claimed: '처리 중', review: '검토 대기', lost: '위치 잃음' };
 function stDot(state) {
   const label = tl('상태: {name}', { name: tr(CARD_STATE_NAME[state]) });
   return html`<span class="st-dot${state === CARD_DOT.OPEN ? '' : ' ' + state}" role="img" aria-label="${label}" data-tip="${label}"></span>`;
 }
-// Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen record is a reopen.
+// Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen
+// record is a reopen.
 function reopenedTurn(pin: Pin) {
   const thread = threadOf(pin);
   for (let i = thread.length - 1; i >= 0; i--) {
@@ -360,12 +375,13 @@ function replyCount(pin: Pin) {
 function entryText(entry: ThreadEntry) {
   return fmtText(entry.text, entry.mentions);
 }
-// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md §@태그).
-// Names and numbers are found in the text as written and the result is built with html``, so the text between and
-// inside the tokens stays text - what a person wrote never leaks as HTML. Names are matched with the same candidates as the server's resolve_mentions() (full
-// name/login/the part of the login before @/the first word of the name), longest first, case-insensitive. Skipped when
-// '@' follows a word (mentionAfterWord - an email address); a name ending in an ASCII letter followed by an ASCII letter
-// (@Alicex) is a different word. An unresolved '@word' stays plain text - it must never look like it called someone.
+// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md
+// §@태그). Names and numbers are found in the text as written and the result is built with html``, so the text between
+// and inside the tokens stays text - what a person wrote never leaks as HTML. Names are matched with the same
+// candidates as the server's resolve_mentions() (full name/login/the part of the login before @/the first word of the
+// name), longest first, case-insensitive. Skipped when '@' follows a word (mentionAfterWord - an email address); a name
+// ending in an ASCII letter followed by an ASCII letter (@Alicex) is a different word. An unresolved '@word' stays
+// plain text - it must never look like it called someone.
 function peopleName(login) {
   const known = PEOPLE.find((person) => person.login === login);
   return known ? known.name : login;
@@ -382,9 +398,9 @@ function mentionTokensOf(logins) {
   });
   return out.sort((left, right) => right.t.length - left.t.length || left.k - right.k);
 } // for a tie in text length, full name > login > first word
-// Whether the '@' at text[i] continues a word, so it is no tag - the server's rule: the character before it is a letter or
-// digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That character
-// is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
+// Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
+// letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
+// character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
 function mentionAfterWord(text, index) {
   if (index <= 0) return false;
   const lowUnit = text.charCodeAt(index - 1),
@@ -402,8 +418,8 @@ function meLogin() {
   const me = typeof META !== 'undefined' && META && META.me;
   return me && me.login && me.login !== LOCAL_LOGIN ? me.login : null;
 }
-// text as Html with its resolved @-tags (logins) and existing #refs as tokens. A match the rules turn down is consumed and
-// stays text, and the text between two tags is searched for #refs only, so a name never holds a link.
+// text as Html with its resolved @-tags (logins) and existing #refs as tokens. A match the rules turn down is consumed
+// and stays text, and the text between two tags is searched for #refs only, so a name never holds a link.
 function fmtText(text, logins) {
   const plain = String(text == null ? '' : text),
     tokens = mentionTokensOf(logins),
@@ -434,8 +450,8 @@ function fmtText(text, logins) {
   out.push(pinRefs(plain.slice(at)));
   return html`${out}`;
 }
-// s with each '#12' whose pin exists as a link, as html`` values. '#12;' and a number glued to a word, digit or '#' stay
-// text. A '#12' whose pin is in the Trash renders as '#12 deleted pin' (faded) and opens the Trash at that row.
+// text with each '#12' whose pin exists as a link, as html`` values. '#12;' and a number glued to a word, digit or '#'
+// stay text. A '#12' whose pin is in the Trash renders as '#12 deleted pin' (faded) and opens the Trash at that row.
 function pinRefs(text: string) {
   const out: (string | Html)[] = [];
   let at = 0;
@@ -461,9 +477,9 @@ function pinRefGone(id) {
   return typeof DROPPED !== 'undefined' && Array.isArray(DROPPED) && DROPPED.some((pin) => pin.id === id);
 }
 // The [나를 부른 핀] filter (docs/handbook/viewer.md §@태그): uses the same material as the badge/pins.md's '→ @name'
-// (p.addressed, which the server counts only for the current round via thread_round) - the old version scanned the
-// entire thread (threadOf(p).some(...)) and had a defect where an @-tag from an old round kept a pin marked "called me"
-// even after reopening (observed). addressed_to() only has a value on question pins.
+// (pin.addressed, which the server counts only for the current round via thread_round), not a scan of the whole thread
+// (threadOf(pin).some(...)): that would keep a pin marked "called me" after a reopen for an @-tag of an earlier round.
+// addressed_to() only has a value on question pins.
 function mentionsMe(pin: Pin) {
   const me = META && META.me;
   if (!me || !me.login || me.login === LOCAL_LOGIN) return false;
@@ -484,22 +500,23 @@ function addressedTag(pin: Pin) {
     : '';
   return html`${self}${rest}`;
 }
-// A fix pin's FYI @-tags (never skipped) - kept separate from p.addressed (question-pin only) and sent in p.fyi instead.
+// A fix pin's FYI @-tags (never skipped) - kept separate from pin.addressed (question-pin only) and sent in pin.fyi
+// instead.
 function fyiTag(pin: Pin) {
   const to = pin.fyi || [];
   if (!to.length) return null;
   return html`<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">${ic('at-sign')}${tl('참고 {names}', { names: to.map(peopleName).join(', ') })}</span>`;
 }
-// Is the reference (ref) a meaningful value? '-' is a placeholder QA scripts/legacy callers use for "no reference" - shown as-is
-// it would produce meaningless text like '닫음 · -' (observed defect). An empty or whitespace-only value is filtered out the same way.
+// Is the reference (ref) a meaningful value? '-' is a placeholder some callers use for "no reference" - shown as-is
+// it would produce meaningless text like '닫음 · -'. An empty or whitespace-only value is filtered out the same way.
 function hasRef(value) {
   return !!value && String(value).trim() !== '' && String(value).trim() !== '-';
 }
 const EVENT_LABEL = { close: '닫음', reopen: '다시 엶', confirm: '확인', assign: '담당 바꿈' };
 // The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
 const QUOTE_OPEN = new Set();
-// A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner), folded to
-// one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
+// A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner),
+// folded to one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
 function cardQuote(pin: Pin): Html | null {
   const quote = shownQuote(pin, (docInfo(pdoc(pin)) || {}).kind);
   if (!quote) return null;
@@ -508,11 +525,11 @@ function cardQuote(pin: Pin): Html | null {
   return html`<div class="quote hit${open ? ' open' : ''}" role="button" tabindex="0" data-act="quote" data-key="${key}" aria-expanded="${String(open)}"\
  data-tip="${open ? null : ccPlain(quote)}" translate="no">${quoteInner(quote, isMdPin(pin))}</div>`;
 }
-// A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'. The post and its
-// author's name are user text (translate="no"); '(나)' is translated here.
+// A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'. The post
+// and its author's name are user text (translate="no"); '(나)' is translated here.
 const MSG_OPEN = new Set();
-// A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key ('id:index') keeps
-// it open across redraws (MSG_OPEN), and without a key it is drawn whole with no button.
+// A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key
+// ('id:index') keeps it open across redraws (MSG_OPEN), and without a key it is drawn whole with no button.
 function msgBody(entry: ThreadEntry, key) {
   const long = String(entry.text || '').length > 280 || String(entry.text || '').split('\n').length > 6,
     open = !key || MSG_OPEN.has(key);
@@ -522,7 +539,8 @@ function msgBody(entry: ThreadEntry, key) {
       : '';
   return html`<div class="msg-t${long && !open ? ' clamp' : ''}" translate="no">${entryText(entry)}</div>${more}`;
 }
-// One entry of an archive row's thread: a post (avatar, author, time, text) or a state record (who, what, reference, time, optional text).
+// One entry of an archive row's thread: a post (avatar, author, time, text) or a state record (who, what, reference,
+// time, optional text).
 function msgHtml(entry: ThreadEntry, key) {
   const by = entry.by || {},
     name = who(by) || '?',
@@ -531,29 +549,31 @@ function msgHtml(entry: ThreadEntry, key) {
     return html`<div class="msg ev ev-${entry.ev}"><div class="msg-h"><b translate="no">${name}${mine}</b><span>${tr(EVENT_LABEL[entry.ev] || entry.ev)}${hasRef(entry.ref) ? ' · ' + entry.ref : ''}</span>${relSpan(entry.at)}</div>${entry.text ? msgBody(entry, key) : ''}</div>`;
   return html`<div class="msg">${avatar(by)}<div class="msg-b"><div class="msg-h"><b translate="no">${name}${mine}</b>${relSpan(entry.at)}</div>${msgBody(entry, key)}</div></div>`;
 }
-// A node of a card's timeline: the person's avatar, or for no recorded person an empty circle in its place, so the column, the
-// line and the indent of the text hold.
+// A node of a card's timeline: the person's avatar, or for no recorded person an empty circle in its place, so the
+// column, the line and the indent of the text hold.
 function nodeAvatar(person: Person | null | undefined): Html {
   return who(person) ? avatar(person) : html`<span class="av none" aria-hidden="true"></span>`;
 }
-// Who and when at the start of a card's comment or entry head, kept on one line (.who): the name ends in an ellipsis where the
-// line is short, its whole text staying the element's text and its description (tip), and '(나)' and the time are never cut.
-// The name and its tip are user text: the element holding both is translate="no", so a person named '완료' is not 'Done' in
-// either; '(나)' and the tip's own words are translated here. cls marks a name with no recorded person.
+// Who and when at the start of a card's comment or entry head, kept on one line (.who): the name ends in an ellipsis
+// where the line is short, its whole text staying the element's text and its description (tip), and '(나)' and the time
+// are never cut. The name and its tip are user text: the element holding both is translate="no", so a person named
+// '완료' is not 'Done' in either; '(나)' and the tip's own words are translated here. className marks a name with no
+// recorded person.
 function whoWhen(name: string, mine: boolean, tip: string, time: Html | string, className?: string): Html {
-  const me = mine ? html`<span class="me-tag"> ${tr('(나)')}</span>` : ''; // the space is the text's; drawn, the margin is
+  // the space is the text's; drawn, the margin is
+  const me = mine ? html`<span class="me-tag"> ${tr('(나)')}</span>` : '';
   return html`<span class="who"><b class="${className || ''}" translate="no" data-tip="${tip}"><span class="nm">${name}</span>${me}</b>${time}</span>`;
 }
-// The head of a card's first comment, a reply's: who wrote the note ('기록 전' for a pin from before authors were recorded), when,
-// and when it was last edited, which takes the next line where the first has no room. The name's description also says who
-// edited it.
+// The head of a card's first comment, a reply's: who wrote the note ('기록 전' for a pin with no recorded author),
+// when, and when it was last edited, which takes the next line where the first has no room. The name's description also
+// says who edited it.
 function noteHead(pin: Pin): Html {
   const name = who(pin.author);
   return html`<div class="msg-h note-h">${whoWhen(name || tr('기록 전'), isMe(pin.author), authorTip(pin), pin.at ? stampSpan(pin.at, STAMP_FORM.BOTH) : '', name ? '' : 'old')}\
 ${pin.edited_at ? stampSpan(pin.edited_at, STAMP_FORM.EDITED) : ''}</div>`;
 }
-// One entry of a card's timeline: a post (avatar, then name and time over its text) or a state record (a dot in the avatar's
-// place, then name and time, what happened and its reference on the next line, any text under them).
+// One entry of a card's timeline: a post (avatar, then name and time over its text) or a state record (a dot in the
+// avatar's place, then name and time, what happened and its reference on the next line, any text under them).
 /** @param key - keeps a long post open across redraws (msgBody) */
 function timelineEntry(entry: ThreadEntry, key: string): Html {
   const by = entry.by || {},
@@ -564,9 +584,9 @@ function timelineEntry(entry: ThreadEntry, key: string): Html {
 <div class="ev-l">${tr(EVENT_LABEL[entry.ev] || entry.ev)}${hasRef(entry.ref) ? html` · <span translate="no">${entry.ref}</span>` : ''}</div>${entry.text ? msgBody(entry, key) : ''}</div></div>`;
   return html`<div class="msg">${nodeAvatar(by)}<div class="msg-b">${head}${msgBody(entry, key)}</div></div>`;
 }
-// The thread of p as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless THREAD_OPEN
-// holds p; the button that shows the rest or folds them, in a row the timeline passes (.th-row); and the reply slot when p's
-// reply box is open.
+// The thread of a pin as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless
+// THREAD_OPEN holds the pin; the button that shows the rest or folds them, in a row the timeline passes (.th-row); and
+// the reply slot when the pin's reply box is open.
 function threadHtml(pin: Pin, wide) {
   const thread = threadOf(pin),
     keep = wide ? 3 : 1,

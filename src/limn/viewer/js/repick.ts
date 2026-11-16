@@ -43,10 +43,10 @@ function bannerRepick(err?) {
     html`<span>${isMdDoc() ? tl('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소', { id: REPICK.id }) : tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소', { id: REPICK.id })}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`,
   );
 }
-// The re-place banner compares the current and the new place (lines as the composer writes them, rng: L9, L3-L5); on a figure
-// the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked (mdSelShown). A
-// candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the banner asks for
-// another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
+// The re-place banner compares the current and the new place (lines as the composer writes them, rng: L9, L3-L5); on a
+// figure the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked
+// (mdSelShown). A candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the
+// banner asks for another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
 function bannerCompare() {
   const repick = REPICK,
     candidate = repick && repick.cand;
@@ -75,7 +75,8 @@ function bannerCompare() {
   snapBox(repick.box, repickEl(candidate));
   mdSelMark(mdSelShown());
 } // the Markdown surface marks the candidate's lines as its box
-// On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the banner stays visible even on the collapsed sheet).
+// On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the
+// banner stays visible even on the collapsed sheet).
 async function startRepick() {
   if (!EDITOR.current) return;
   if (EDITOR.current.doc && EDITOR.current.doc !== DOC) {
@@ -98,8 +99,8 @@ async function startRepick() {
   if (MQ_COARSE.matches) setSelMode(true);
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
 }
-// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared re-place. The
-// Markdown surface's mark goes back to the composer's selection, if any.
+// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
+// re-place. The Markdown surface's mark goes back to the composer's selection, if any.
 function cancelRepick() {
   const was = !!REPICK;
   if (was) setPickseq(PICKSEQ + 1);
@@ -112,11 +113,11 @@ function cancelRepick() {
     if (EDITOR.current && LAYOUT !== LAYOUT_MODE.WIDE) setSide(true);
   }
 }
-// Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the editor
-// holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the region on a
-// view-only page; one without an element drops the pin's el. On 409 a warning banner on top of the panel says why, and it keeps
-// the editor's rev current and reloads the pins; on success (silent: the mark moves; read out only) it syncs the open editor
-// with the stored pin. Does nothing without a candidate.
+// Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the
+// editor holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the
+// region on a view-only page; one without an element drops the pin's el. On 409 a warning banner on top of the panel
+// says why, and it keeps the editor's rev current and reloads the pins; on success (silent: the mark moves; read out
+// only) it syncs the open editor with the stored pin. Does nothing without a candidate.
 async function applyRepick() {
   const repick = REPICK;
   if (!repick || !repick.cand) return;
@@ -149,7 +150,8 @@ async function applyRepick() {
       quote: candidate.quote,
       pdf_build: candidate.pdf_build || undefined,
     }; // view-only: only the region is re-placed
-  figureFields(loc, repickEl(candidate), isRegion(candidate) || !level.el ? null : level); // a new loc names its element or none: a loc without el drops the pin's el
+  // a new loc names its element or none: a loc without el drops the pin's el
+  figureFields(loc, repickEl(candidate), isRegion(candidate) || !level.el ? null : level);
   const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : 0;
   try {
     const { status, data } = await api('/api/pins/' + repick.id + '/edit', {

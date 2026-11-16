@@ -1,6 +1,7 @@
-// ------------------------------------------------ Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
-// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name -
-// and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when none of its tags resolves yet.
+// ----------------------------------- Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
+// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead
+// of a name - and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when
+// none of its tags resolves yet.
 import {
   $,
   $$,
@@ -98,11 +99,13 @@ async function loadPeople() {
     }
   } catch (error) {}
 }
-// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no snapshot.
+// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no
+// snapshot.
 let PINS_LOAD_SEQ = 0,
   PINS_APPLIED_SEQ = 0;
-// Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to defaultDoc.
-// confirming (optional) holds the ids whose [확인] waits for its undo (CONFIRMING): they stay out of the review list.
+// Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to
+// defaultDoc. confirming (optional) holds the ids whose [확인] waits for its undo (CONFIRMING): they stay out of the
+// review list.
 function derivePinLists(rows: Pin[], doc, defaultDoc, confirming) {
   const openAll: Pin[] = [],
     reviewAll: Pin[] = [],
@@ -124,23 +127,26 @@ function derivePinLists(rows: Pin[], doc, defaultDoc, confirming) {
   }
   return { openAll, reviewAll, doneAll, openHere, doneHere };
 }
-// Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply whose
-// pin left says so there too, with a dot on [핀 N]), then redraws the current document.
-/** Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close. */
+// Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply
+// whose pin left says so there too, with a dot on [핀 N]), then redraws the current document.
+/**
+ * Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close.
+ */
 function applyPinLists(rows, dropped, lists) {
   const openBefore = OPEN_ALL,
     reviewBefore = REVIEW_ALL;
   notePinChanges(openBefore, rows, dropped);
   noteReviewChanges(reviewBefore, rows);
-  updNewPins(rows); // others' new pins (updates.js)
+  updNewPins(rows); // others' new pins (updates.ts)
   setOpenAll(lists.openAll);
   setReviewAll(lists.reviewAll);
   setDoneAll(lists.doneAll);
   setDropped(dropped);
   setPins(lists.openHere);
   setDone(lists.doneHere);
-  // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still awaiting
-  // review - and leaves it once the snapshot no longer has it so (deleted from another window, reopened, confirmed elsewhere).
+  // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still
+  // awaiting review - and leaves it once the snapshot does not have it so (deleted from another window, reopened,
+  // confirmed elsewhere).
   CONFIRMING_PIN.forEach((_, id) => {
     const fresh = rows.find((row) => row.id === id);
     if (fresh && pinState(fresh) === PIN_STATE.REVIEW) CONFIRMING_PIN.set(id, fresh);
@@ -180,9 +186,9 @@ function applyPinLists(rows, dropped, lists) {
   } // if the list changes (someone else's save/completion), overlap is recomputed too
   docTitle(true);
 }
-// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it: a read
-// another one started later overtook (a light poll's, an action's) returns false and draws nothing, and the list stays as
-// the newer one drew it. A failed read is a banner on top of the panel with [다시 시도].
+// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it: a
+// read another one started later overtook (a light poll's, an action's) returns false and draws nothing, and the list
+// stays as the newer one drew it. A failed read is a banner on top of the panel with [다시 시도].
 async function loadPins() {
   const seq = ++PINS_LOAD_SEQ;
   let rows;
@@ -220,7 +226,8 @@ async function loadPins() {
   if (seq < PINS_APPLIED_SEQ) return false;
   loadPeople();
   // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
-  PINS_APPLIED_SEQ = seq; // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
+  // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
+  PINS_APPLIED_SEQ = seq;
   applyPinLists(rows, dropped, derivePinLists(rows, DOC, DEFAULT_DOC, CONFIRMING));
   return true;
 }
@@ -234,7 +241,8 @@ async function loadPinsNow(): Promise<boolean> {
   await loadPins();
   return PINS_APPLIED_SEQ > since;
 }
-// The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is kept even from another document (so the draft text doesn't disappear).
+// The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is
+// kept even from another document (so the draft text doesn't disappear).
 function listOpen() {
   return SHOW_ALL && multiDoc()
     ? OPEN_ALL
@@ -246,11 +254,12 @@ function listDone() {
 function listReview() {
   return SHOW_ALL && multiDoc() ? REVIEW_ALL : REVIEW_ALL.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
-// Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next to [핀 N] (compact) / the tool bar chip (wide).
-// [⬚ 선택] keeps the width of its pressed face [⬚ 선택 중] wherever it shows its label (docs/handbook/viewer.md §모바일 레이아웃
-// 선택 모드), so pressing it moves neither it nor its neighbours - on the landscape phone's top row a wider face moved the
-// button itself under the finger. Effect: --sel-w on the button, measured with the pressed face drawn for a moment (in the
-// interface language), or removed where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
+// Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next
+// to [핀 N] (compact) / the tool bar chip (wide). [⬚ 선택] keeps the width of its pressed face [⬚ 선택 중] wherever it
+// shows its label (docs/handbook/viewer.md §모바일 레이아웃 선택 모드), so pressing it moves neither it nor its
+// neighbours - on the landscape phone's top row a wider face would move the button itself under the finger. Effect:
+// --sel-w on the button, measured with the pressed face drawn for a moment (in the interface language), or removed
+// where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
 function holdSelectWidth() {
   const button = $('#btn-select'),
     label = button.querySelector('.lbl') as HTMLElement;
@@ -265,12 +274,12 @@ function holdSelectWidth() {
   label.textContent = text;
   button.style.setProperty('--sel-w', Math.ceil(width) + 'px');
 }
-// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit counts,
-// a folded cover): first [⬚ 선택] drops its label for the 36px icon the phone has (#bar1.bar-sel-icon) - the chip never
-// shrinks for it; then the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug); then the words
-// '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review (#bar1.bar-tight) - so a
-// count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has its width (holdSelectWidth,
-// every band); decoration only - nothing moves.
+// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit
+// counts, a folded cover): first [⬚ 선택] drops its label for the 36px icon the phone has (#bar1.bar-sel-icon) - the
+// chip never shrinks for it; then the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug);
+// then the words '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review
+// (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
+// its width (holdSelectWidth, every band); decoration only - nothing moves.
 function fitBarWords() {
   const bar = $('#bar1'),
     leftCell = bar.querySelector('.bar-l');
@@ -278,7 +287,8 @@ function fitBarWords() {
   holdSelectWidth();
   if (LAYOUT !== LAYOUT_MODE.NARROW) return;
   const over = () => {
-    const shown = [...leftCell.children].filter((child) => child.getClientRects().length); // the last control's edge, not scrollWidth: the hits overflow too
+    // the last control's edge, not scrollWidth: the hits overflow too
+    const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
     return (
       shown.length > 0 &&
       shown[shown.length - 1].getBoundingClientRect().right > leftCell.getBoundingClientRect().right + 0.05
@@ -290,9 +300,9 @@ function fitBarWords() {
     if (step === 'bar-sel-icon') holdSelectWidth();
   }
 }
-// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's bar shows
-// the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's.
-// The pill is the eye icon and the count, so it never reads as part of the open count beside it ('11 1', UX audit P10).
+// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's
+// bar shows the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's. The pill is the
+// eye icon and the count, so it never reads as part of the open count beside it ('11 1').
 function updateReviewCount() {
   const count = REVIEW_ALL.length,
     chip = $('#rv-chip');
@@ -304,14 +314,16 @@ function updateReviewCount() {
   const reviewButton = $('#btn-rv');
   reviewButton.hidden = !count;
   reviewButton.querySelector('.rv-c').textContent = count;
-  reviewButton.setAttribute('aria-label', tl('검토 {n} · 검토 대기 핀으로 가기', { n: count })); // the sheet bar's [검토 M] half: its name starts with what it shows
+  // the sheet bar's [검토 M] half: its name starts with what it shows
+  reviewButton.setAttribute('aria-label', tl('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
   fitBarWords();
   const here = listReview().length;
   chip.hidden = !count || LAYOUT !== LAYOUT_MODE.WIDE || !SIDE_OPEN;
   chip.textContent =
     tl('검토 대기 {n}', { n: count }) + (multiDoc() && here !== count ? ' ' + tl('(이 문서 {n})', { n: here }) : '');
 }
-// [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes (seen).
+// [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes
+// (seen).
 function gotoReview() {
   noticeSeen(NOTICE_DOT.RV);
   if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
@@ -326,7 +338,8 @@ function gotoReview() {
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
 }
-// The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
+// The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm
+// the author, '내 확인 차례'.
 function isMe(person) {
   const me = META && META.me;
   return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
@@ -338,11 +351,12 @@ function reviewerLabel(pin: Pin) {
 function listDropped() {
   return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
-// One section header (docs/handbook/viewer.md §목록 구획): chevron, name, count and - while collapsed - 'new N' (ids the section did not show
-// when it was last expanded). The body it controls (aria-controls) is hidden while collapsed.
+// One section header (docs/handbook/viewer.md §목록 구획): chevron, name, count and - while collapsed - 'new N' (ids
+// the section did not show when it was last expanded). The body it controls (aria-controls) is hidden while collapsed.
 const SECTION_NAME_ID = { open: 'list-h', review: 'review-h', done: 'done-h' };
-// ids = the pins this section lists now; all = the section's pins across every document. While expanded, everything is marked seen
-// (all, so switching documents never reads as arrivals); SEC_SEEN starts from the first load, so nothing is 'new' at boot.
+// ids = the pins this section lists now; all = the section's pins across every document. While expanded, everything is
+// marked seen (all, so switching documents never reads as arrivals); SEC_SEEN starts from the first load, so nothing is
+// 'new' at boot.
 function drawSectionHead(key, name, ids, all) {
   const toggle = document.getElementById(key + '-toggle');
   if (!toggle) return;
@@ -365,19 +379,22 @@ function toggleSec(key, force?) {
   savePrefs({ sec: SEC });
   drawPins();
 }
-// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes and the
-// banners of notices.js, keeping a focus that was in one) - and, while the changes view shows a pin, its guide line's buttons,
-// whose [확인] follows that pin's state (revTargetActs). The status line's review arrivals follow the review list it draws:
-// those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes
+// and the banners of notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin, its guide
+// line's buttons, whose [확인] follows that pin's state (revTargetActs). The status line's review arrivals follow the
+// review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
 /** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
 function drawPins() {
   dropStaleReview();
-  const keep = listKeep(); // the rows in the list's view: one of them is put back where it stood once the cards are drawn (lazyCards)
+  // the rows in the list's view: one of them is put back where it stood once the cards are drawn (lazyCards)
+  const keep = listKeep();
   const openListed = listOpen(),
     doneListed = listDone(),
     droppedListed = listDropped();
-  const keptNoticeFocus = noticeFocus(); // a focus in an undo row or note, given back once they are drawn again (drawOffers)
-  // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
+  // a focus in an undo row or note, given back once they are drawn again (drawOffers)
+  const keptNoticeFocus = noticeFocus();
+  // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a
+  // cross-document inbox).
   const mentioningMe = OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),
     mentionFilter = $('#mention-filter');
   if (MENTION_ONLY && !mentioningMe.length) setMentionOnly(false);
@@ -386,8 +403,8 @@ function drawPins() {
   setHtml(mentionFilter, html`${ic('at-sign')}${mentioningMe.length}`);
   mentionFilter.setAttribute('aria-label', tl('나를 부른 핀 {n}', { n: mentioningMe.length }));
   const openShown = MENTION_ONLY ? OPEN_ALL.filter(mentionsMe) : openListed;
-  // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing (so auto-sync
-  // redrawing the list, or a layout change redrawing the cards, never interrupts typing).
+  // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing
+  // (so auto-sync redrawing the list, or a layout change redrawing the cards, never interrupts typing).
   const replyField = REPLY && replyNote(REPLY),
     replyFocus =
       replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
@@ -419,7 +436,8 @@ function drawPins() {
   $('#trash-link').textContent = tl('휴지통 {n}', { n: trashCount });
   $('#trash-link').hidden = !trashCount;
   $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
-  // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too (QA). Only a note that another document has pins is left.
+  // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too. Only a note
+  // that another document has pins is left.
   setHtml(
     $('#pins'),
     openShown.length
@@ -438,8 +456,8 @@ function drawPins() {
       } catch (error) {}
     }
   }
-  // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands in it
-  // (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
+  // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands
+  // in it (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
   const reviewShown = MENTION_ONLY ? REVIEW_ALL.filter(mentionsMe) : listReview();
   $('#sec-review').hidden = !reviewShown.length && !offersIn('review');
   drawSectionHead(
@@ -448,7 +466,8 @@ function drawPins() {
     reviewShown.map((pin) => pin.id),
     REVIEW_ALL.map((pin) => pin.id),
   );
-  if (!rvDraw(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review')); // result rows while the section picks (review-pick.js)
+  // result rows while the section picks (review-pick.ts)
+  if (!rvDraw(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
   drawOrderControl((SEC.open && openShown.length > 0) || (SEC.review && reviewShown.length > 0));
   updateReviewCount();
   // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
@@ -482,11 +501,12 @@ function drawPins() {
   cardFocusBack(cardFocus);
   if (REV.target) revTargetActs();
 }
-// The pins of a list section in order (docs/handbook/viewer.md §목록 순서), list itself untouched. LIST_ORDER.NEW: the newest `at`
-// first, the later pin first within a minute, a pin with no readable time last. LIST_ORDER.PAGE: by page, where the pin's mark is
-// now, then line, then height on the page for a region, which has no line; pins of several documents stand document by document,
-// since page numbers mean nothing across them. A pin with no page (a Markdown document's, ADR-0025 D2) is ordered by its lines
-// alone - its page counts as 0. LIST_ORDER.ID: as the server lists them.
+// The pins of a list section in order (docs/handbook/viewer.md §목록 순서), list itself untouched. LIST_ORDER.NEW: the
+// newest `at` first, the later pin first within a minute, a pin with no readable time last. LIST_ORDER.PAGE: by page,
+// where the pin's mark is now, then line, then height on the page for a region, which has no line; pins of several
+// documents stand document by document, since page numbers mean nothing across them. A pin with no page (a Markdown
+// document's, ADR-0025 D2) is ordered by its lines alone - its page counts as 0. LIST_ORDER.ID: as the server lists
+// them.
 /** @param order - a LIST_ORDER value */
 function orderPins(list: Pin[], order: string): Pin[] {
   if (order === LIST_ORDER.ID) return list;
@@ -517,11 +537,11 @@ function orderPins(list: Pin[], order: string): Pin[] {
     })
     .map((entry) => entry.p);
 }
-// One list section's cards as Html, in the list's order; newest first, a day line stands over each day's first card. Its name is
-// worked out here, so it is right from the next draw on when the date turns. An undo row of the section (sec: 'open', 'review')
-// whose card has left gets an empty slot where its pin stands in that order, under its day's line, which stays while the row
-// does if the pin was that day's only card (drawOffers puts the row in the slot). In the server's order the row follows the card
-// drawn before it, as it always did.
+// One list section's cards as Html, in the list's order; newest first, a day line stands over each day's first card.
+// Its name is worked out here, so it is right from the next draw on when the date turns. An undo row of the section
+// (sec: 'open', 'review') whose card has left gets an empty slot where its pin stands in that order, under its day's
+// line, which stays while the row does if the pin was that day's only card (drawOffers puts the row in the slot). In
+// the server's order the row follows the card drawn before it.
 function cardRows(list: Pin[], section: string): Html {
   const now = Date.now(),
     slots = new Map();
@@ -543,12 +563,13 @@ function cardRows(list: Pin[], section: string): Html {
     return html`${over}${slot ? html`<div class="nt-slot" data-slot="${slot}"></div>` : card(pin)}`;
   })}`;
 }
-// Where undo row e of notice n goes in list section box when the list drew no slot for it (the row came after that draw): where
-// the list's next draw puts its slot (cardRows), so that draw moves nothing. Its place is by orderPins among what is drawn -
-// the cards and the other rows that know their pins: after the one before it when that is of its day (newest first; in the
-// page order always), else before the one after it when that is, else, its day having nothing else, under a line made for it
-// between the two, which stays while the row does (dropBareDayLines). In the server's order, or for a row that does not know
-// its pin, it follows the card drawn before it (prev), else it goes first.
+// Where a notice's undo row goes in a list section's box when the list drew no slot for it (the row came after that
+// draw): where the list's next draw puts its slot (cardRows), so that draw moves nothing. Its place is by orderPins
+// among what is drawn - the cards and the other rows that know their pins: after the one before it when that is of its
+// day (newest first; in the page order always), else before the one after it when that is, else, its day having nothing
+// else, under a line made for it between the two, which stays while the row does (dropBareDayLines). In the server's
+// order, or for a row that does not know its pin, it follows the card drawn before it (the notice's prev), else it goes
+// first.
 function placeRow(box: HTMLElement, notice: Notice, row: HTMLElement) {
   const cardBefore = notice.prev != null ? box.querySelector('.pin.card[data-id="' + notice.prev + '"]') : null;
   if (!notice.rec || ORDER === LIST_ORDER.ID) {
@@ -611,9 +632,10 @@ function drawOrderControl(any: boolean) {
     button.setAttribute('aria-checked', String(on));
   }
   segRove(control);
-} // the group's one Tab stop is the order now chosen (events.js)
-// A press on the order control: the list is drawn in order o, remembered for this browser, with the control where it stood under
-// the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it is not redrawn).
+} // the group's one Tab stop is the order now chosen (events.ts)
+// A press on the order control: the list is drawn in that order, remembered for this browser, with the control where it
+// stood under the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it
+// is not redrawn).
 /** @param order - a LIST_ORDER value */
 function setListOrder(order: string | undefined) {
   const next = listOrderOf(order);
@@ -625,32 +647,33 @@ function setListOrder(order: string | undefined) {
   drawPins();
   listScroller().scrollTop += control.getBoundingClientRect().top - y;
 }
-// Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does not
-// lay them out or paint them until they come near the view. Their markup stays whole and current all the while - a card
-// coming back is drawn from what it holds then - and a focus, a find or a selection reaching into one draws it at once; a
-// script's measure inside one lays it out for the answer, but the innerText of what is skipped is empty.
-// What it saves: each page PDF.js draws for the first time adds its embedded fonts to document.fonts, and every font added
-// makes the browser lay out all the text in the page again - every card in the open panel with it. 127 cards made the first
-// wheel scroll through a 91-page figure document 77-84 long tasks (4.4-4.9s), none with the panel folded (issue #305).
-// Only a card more than a view's height above or below the list's view is skipped (lazyWatch): skipping contains a card
-// (paint containment), which draws its parts on whole pixels and clips what reaches past its edge (a focus ring, a 44px
-// touch target's hit area), so a card in view, or scrolled to, is never held and draws as it always did. A card being
-// edited or holding the reply box is never skipped: containment would hold the fixed action row (compact) inside the card.
-// A skipped card stands at the height it had when it went (--card-h, from the observer's own measure: no extra layout).
-// With a guessed height instead the list moved under a person scrolled down it at every draw, by the guess's error over
-// every card above, and a jump to a card (a mark's badge, [검토 M]) would aim by guesses. The height goes stale when the
-// list's width or its font changes, so then every card is drawn again and sorted anew (lazyAgain), as at each draw - which
-// makes new cards, all drawn once. A height that goes stale otherwise (a card changed in place while skipped) comes right
-// as the card comes near: the browser's scroll anchoring keeps the view where it stands as it grows or shrinks. A draw
-// makes new elements, which that anchoring cannot hold, so a row in the view before it (listKeep) is put back where it
-// stood: its cards may stand at other heights than the ones they replace.
+// Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does
+// not lay them out or paint them until they come near the view. Their markup stays whole and current all the while - a
+// card coming back is drawn from what it holds then - and a focus, a find or a selection reaching into one draws it at
+// once; a script's measure inside one lays it out for the answer, but the innerText of what is skipped is empty. What
+// it saves: each page PDF.js draws for the first time adds its embedded fonts to document.fonts, and every font added
+// makes the browser lay out all the text in the page again - every card in the open panel with it, so the first wheel
+// scroll through a figure document of many pages stalls on those layouts. Only a card more than a view's height above
+// or below the list's view is skipped (lazyWatch): skipping contains a card (paint containment), which draws its parts
+// on whole pixels and clips what reaches past its edge (a focus ring, a 44px touch target's hit area), so a card in
+// view, or scrolled to, is never held and draws as it is. A card being edited or holding the reply box is never
+// skipped: containment would hold the fixed action row (compact) inside the card. A skipped card stands at the height
+// it had when it went (--card-h, from the observer's own measure: no extra layout). With a guessed height instead the
+// list would move under a person scrolled down it at every draw, by the guess's error over every card above, and a jump
+// to a card (a mark's badge, [검토 M]) would aim by guesses. The height goes stale when the list's width or its font
+// changes, so then every card is drawn again and sorted anew (lazyAgain), as at each draw - which makes new cards, all
+// drawn once. A height that goes stale otherwise (a card changed in place while skipped) comes right as the card comes
+// near: the browser's scroll anchoring keeps the view where it stands as it grows or shrinks. A draw makes new
+// elements, which that anchoring cannot hold, so a row in the view before it (listKeep) is put back where it stood: its
+// cards may stand at other heights than the ones they replace.
 let LAZY_IO = null as IntersectionObserver | null,
   LAZY_ROOT = null as HTMLElement | null,
   LAZY_WIDTH = 0,
   LAZY_HEIGHT = -1;
-// After a draw: the first row kept (listKeep) that is still drawn in the section it was in is put back where it stood - a row
-// whose pin a poll moved to another section (검토 대기, 완료) or deleted gives way to the next, and with none left nothing is
-// put back: followed into its new section, the view jumped past every card still open. Then every new card is sorted.
+// After a draw: the first row kept (listKeep) that is still drawn in the section it was in is put back where it stood -
+// a row whose pin a poll moved to another section (검토 대기, 완료) or deleted gives way to the next, and with none
+// left nothing is put back: followed into its new section, the view would jump past every card still open. Then every
+// new card is sorted.
 function lazyCards(keep: { sel: string; sec: string; top: number }[]) {
   const scroller = listScroller();
   for (const kept of keep) {
@@ -664,8 +687,9 @@ function lazyCards(keep: { sel: string; sec: string; top: number }[]) {
   LAZY_WIDTH = list.getClientRects().length ? list.clientWidth : 0;
   lazyWatch();
 }
-// Has every card sorted from its first report, by an observer whose margin is the scroller's height now, in px above and
-// below its view (a percentage would be of the root's width): it is made again when that height or the scroller changes.
+// Has every card sorted from its first report, by an observer whose margin is the scroller's height now, in px above
+// and below its view (a percentage would be of the root's width): it is made again when that height or the scroller
+// changes.
 function lazyWatch() {
   if (!window.IntersectionObserver) return;
   const scroller = listScroller(),
@@ -679,8 +703,8 @@ function lazyWatch() {
   for (const card of $$('#list .pin.card')) LAZY_IO.observe(card);
 }
 // The observer's reports: a card that came within a view's height of the list's view is drawn as it is; one that went
-// further is skipped at the height it has now - not a card that is not laid out (the panel folded: no height to stand at),
-// being edited or holding the reply box.
+// further is skipped at the height it has now - not a card that is not laid out (the panel folded: no height to stand
+// at), being edited or holding the reply box.
 function lazySort(entries: IntersectionObserverEntry[]) {
   for (const entry of entries) {
     const card = entry.target as HTMLElement;
@@ -708,9 +732,9 @@ function lazySort(entries: IntersectionObserverEntry[]) {
     card.classList.add('lazy');
   }
 }
-// Every card drawn once more and sorted anew, a row in the view kept in place: the skipped cards' heights are
-// stale. So they are when the list's width changes or it is shown (a card not laid out was not skipped), and when a font the
-// list is set in comes in (a slice of the bundled Pretendard for letters not drawn before): their heights were read in the
+// Every card drawn once more and sorted anew, a row in the view kept in place: the skipped cards' heights are stale. So
+// they are when the list's width changes or it is shown (a card not laid out was not skipped), and when a font the list
+// is set in comes in (a slice of the bundled Pretendard for letters not drawn before): their heights were read in the
 // fallback face. The fonts PDF.js adds are not the list's, and fire no loadingdone besides.
 function lazyAgain() {
   const keep = listKeep();
@@ -742,9 +766,9 @@ document.fonts.addEventListener('loadingdone', (event) => {
 function listScroller() {
   return document.body.classList.contains('compact') ? $('#right') : $('#list');
 }
-// The cards and archive rows in the list's view, top first, each with its section and its top: the rows lazyCards may put
-// back. None while the list is at its top (the browser does not anchor there either: what a draw adds above it shows) or is
-// not laid out.
+// The cards and archive rows in the list's view, top first, each with its section and its top: the rows lazyCards may
+// put back. None while the list is at its top (the browser does not anchor there either: what a draw adds above it
+// shows) or is not laid out.
 function listKeep(): { sel: string; sec: string; top: number }[] {
   const scroller = listScroller(),
     out: { sel: string; sec: string; top: number }[] = [];
@@ -773,10 +797,10 @@ function listSection(row: Element) {
   const section = row.closest('#pins,#review-pins,#done-list');
   return section ? section.id : '';
 }
-// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are drawn
-// again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn anew, it fell
-// to the page and the next Tab started over. Text fields keep theirs above; a card gone leaves the focus where it fell, and a
-// focus that is somewhere again (a notice's, drawOffers) stays there.
+// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
+// drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
+// anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
+// focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
 function cardFocusKeep(): { el: HTMLElement; id: string; act: string; i: number } | null {
   const focused = document.activeElement as HTMLElement | null,
     cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]') as HTMLElement | null) : null;
@@ -802,23 +826,24 @@ function cardFocusBack(kept: { el: HTMLElement; id: string; act: string; i: numb
   if (target) target.focus({ preventScroll: true });
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
-// manuscript fingerprint of the build the pin was placed on with the current build). Back when the viewer judged this by
-// wall clock, it was wrong across the board with browser timezone, a note-only edited_at, and a pin placed on a stale
-// PDF (confirmed by independent verification). The viewer just renders the value it's given.
+// manuscript fingerprint of the build the pin was placed on with the current build). The viewer does not judge it by
+// wall clock - the browser's time zone, a note-only edited_at and a pin placed on a stale PDF would all mislead it -
+// and renders the value it is given.
 function isEstimated(pin: Pin) {
   return pin.est === true;
 }
-// Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): fx is the mark's left as a
-// fraction of the page, w the page width, pad the room left of the page in the PDF scroller (its margin) and reach how far
-// the badge hangs left of the mark (28px on touch, 24px with a mouse). Only when the margin and the offset together are
-// short of the reach would the badge be clipped, and only then does it sit in the mark's top-left corner - inside, it covers
-// the text the mark points at. Pure.
+// Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): markLeft is the mark's
+// left as a fraction of the page, pageWidth the page width, pad the room left of the page in the PDF scroller (its
+// margin) and reach how far the badge hangs left of the mark (28px on touch, 24px with a mouse). Only when the margin
+// and the offset together are short of the reach would the badge be clipped, and only then does it sit in the mark's
+// top-left corner - inside, it covers the text the mark points at. Pure.
 function markBadgeIn(markLeft, pageWidth, pad, reach) {
   return markLeft * pageWidth + pad < reach;
 }
-// Page pg's room: the room left of it in the PDF scroller, in scroll coordinates (a horizontal scroll does not count), its
-// width, and the badge's reach for the primary pointer: {pad, w, reach}. Pages have their own widths and a narrower page is
-// centred, so each page has its own margin. null for a page that is not laid out (the changes view hides the pages).
+// A page's room: the room left of it in the PDF scroller, in scroll coordinates (a horizontal scroll does not count),
+// its width, and the badge's reach for the primary pointer: {pad, w, reach}. Pages have their own widths and a narrower
+// page is centred, so each page has its own margin. null for a page that is not laid out (the changes view hides the
+// pages).
 function markBadgeRoom(page: Element | null) {
   const pane = $('#left');
   if (!pane || !page || !page.getClientRects().length) return null;
@@ -829,10 +854,10 @@ function markBadgeRoom(page: Element | null) {
     reach: MQ_COARSE.matches ? 28 : 24,
   };
 }
-// Re-decides every page number's place (pageNoSides) and every drawn mark's badge side for its page's width and margin now (a
-// zoom, a re-fit or a band change moves both),
-// then how far each badge's press area reaches (markHitSides: the badges' distances follow the same width). A mark on a page
-// that is not laid out keeps its side until the page shows again.
+// Re-decides every page number's place (pageNoSides) and every drawn mark's badge side for its page's width and margin
+// now (a zoom, a re-fit or a band change moves both), then how far each badge's press area reaches (markHitSides: the
+// badges' distances follow the same width). A mark on a page that is not laid out keeps its side until the page shows
+// again.
 function markBadgeSides() {
   pageNoSides();
   const rooms = new Map();
@@ -846,23 +871,23 @@ function markBadgeSides() {
   markHitSides();
   markCoverSkip();
 } // the pending boxes' '+' badges follow the same rule
-// A badge no scroll can show is no stop for the keyboard (docs/handbook/viewer.md §모바일 레이아웃): Tab put the ring on a
-// mark the person could not see, and its tooltip floated over the box that hid it (issue #418). The covers are the boxes
-// drawn over the pages, each where it is laid out (MARK_COVERS): the panel (#right: the sheet, the overlay panel, the closed
-// sheet's bar) and the status line standing on the sheet's top edge (#status-dock, outside the panel so its action can reach
-// up over the pages). The bars that also stand over the pages do so inside the panel's box: the tool bar is the sheet's head,
-// and the phone's search row (#doc-nav at its foot) lies over the closed bar. A badge is a stop while the pages can scroll
-// it, up or down within their ends, to where it stands whole in the pages' view (#left's box within the window) clear of
-// every cover in its columns (markShift) - wherever it stands now, so Tab meets the badges under the sheet in turn and
-// brings each out (markReveal). Passing over the badges a cover was over at that moment, Tab from #3 went past #4 and #5 to
-// #6, whose scroll then showed the two it had passed. No stop: a badge under the overlay panel (it runs the pages' height),
-// one at the last page's foot the pages end before bringing above the sheet, every badge with the sheet pulled up to the
-// document bar. A scroll moves a badge and the room it can go to alike, so it moves no stop. A badge whose centre a cover
-// is over now (or one out of view with nowhere to show) is hidden (MARK_HIDDEN): a script's focus or the person's scroll can
-// leave the focus on it, and its description does not show (tooltip.js showTip) - one standing over it goes. The boxes are
-// compared, not hit-tested: a hit test per badge took 15 ms a pass in Chromium with 150 badges on screen, which a scroll
-// pays every frame; the comparison takes under 1 ms. Every box is read before any stop is written, and only a stop that
-// changes is written.
+// A badge no scroll can show is no stop for the keyboard (docs/handbook/viewer.md §모바일 레이아웃): otherwise Tab
+// would put the ring on a mark the person cannot see, and its tooltip would float over the box that hides it. The
+// covers are the boxes drawn over the pages, each where it is laid out (MARK_COVERS): the panel (#right: the sheet, the
+// overlay panel, the closed sheet's bar) and the status line standing on the sheet's top edge (#status-dock, outside
+// the panel so its action can reach up over the pages). The bars that also stand over the pages do so inside the
+// panel's box: the tool bar is the sheet's head, and the phone's search row (#doc-nav at its foot) lies over the closed
+// bar. A badge is a stop while the pages can scroll it, up or down within their ends, to where it stands whole in the
+// pages' view (#left's box within the window) clear of every cover in its columns (markShift) - wherever it stands now,
+// so Tab meets the badges under the sheet in turn and brings each out (markReveal). Were the badges a cover is over at
+// that moment passed over, Tab from #3 would go past #4 and #5 to #6, whose scroll then shows the two it passed. No
+// stop: a badge under the overlay panel (it runs the pages' height), one at the last page's foot the pages end before
+// bringing above the sheet, every badge with the sheet pulled up to the document bar. A scroll moves a badge and the
+// room it can go to alike, so it moves no stop. A badge whose centre a cover is over now (or one out of view with
+// nowhere to show) is hidden (MARK_HIDDEN): a script's focus or the person's scroll can leave the focus on it, and its
+// description does not show (tooltip.ts showTip) - one standing over it goes. The boxes are compared, not hit-tested: a
+// hit test per badge is too slow for a pass that a scroll pays every frame with many badges on screen; the comparison
+// is cheap. Every box is read before any stop is written, and only a stop that changes is written.
 const MARK_COVERS = ['#right', '#status-dock'],
   MARK_EDGE = 8; // MARK_EDGE: px a revealed badge keeps clear of a cover or the view's edge
 /** The pages' view: #left's box within the window. */
@@ -875,7 +900,7 @@ function markView(): { left: number; top: number; right: number; bottom: number 
     bottom: Math.min(rect.bottom, innerHeight),
   };
 }
-/** The covers' boxes laid out over view v, each cut to it. */
+/** The covers' boxes laid out over the view, each cut to it. */
 function markCoverBoxes(view: { left: number; top: number; right: number; bottom: number }) {
   const out: { left: number; top: number; right: number; bottom: number }[] = [];
   for (const selector of MARK_COVERS) {
@@ -890,10 +915,11 @@ function markCoverBoxes(view: { left: number; top: number; right: number; bottom
   }
   return out;
 }
-// How far the pages scroll down (px, up negative) to bring badge box r into a part of view v that none of the boxes cs is over
-// in r's columns, the scroll kept within [lo, hi] (what the pages can still scroll up and down): the least such distance, null
-// where no part can hold it. A badge wholly in such a part already is 0 - it is not moved, as the browser leaves a control in
-// view - and one brought in stands MARK_EDGE px clear of that part's ends where the part has the room. Pure.
+// How far the pages scroll down (px, up negative) to bring the badge's box into a part of the view that none of the
+// covers is over in the badge's columns, the scroll kept within [minScroll, maxScroll] (what the pages can still scroll
+// up and down): the least such distance, null where no part can hold it. A badge wholly in such a part already is 0 -
+// it is not moved, as the browser leaves a control in view - and one brought in stands MARK_EDGE px clear of that
+// part's ends where the part has the room. Pure.
 function markShift(
   badge: { left: number; top: number; right: number; bottom: number },
   view: { left: number; top: number; right: number; bottom: number },
@@ -926,7 +952,8 @@ function markShift(
             : 0,
       ),
     );
-    if (badge.top - shift < top - 0.5 || badge.bottom - shift > bottom + 0.5) continue; // the pages end before the badge gets there
+    // the pages end before the badge gets there
+    if (badge.top - shift < top - 0.5 || badge.bottom - shift > bottom + 0.5) continue;
     if (best === null || Math.abs(shift) < Math.abs(best)) best = shift;
   }
   return best;
@@ -945,7 +972,8 @@ function markCoverSkip() {
     if (!rect.width) return { stop: 0, hid: false };
     const centerX = rect.left + rect.width / 2,
       centerY = rect.top + rect.height / 2;
-    const stop = markShift(rect, view, covers, minScroll, maxScroll) === null ? -1 : 0; // a stop while the pages can bring it to where it shows, whether in view or not
+    // a stop while the pages can bring it to where it shows, whether in view or not
+    const stop = markShift(rect, view, covers, minScroll, maxScroll) === null ? -1 : 0;
     return {
       stop,
       hid:
@@ -969,8 +997,8 @@ function markCoverSkip() {
       break;
     }
 }
-// Scrolls the pages to bring badge b to where it shows (markShift), when they can. It shows something, so a jump on its way
-// ends first (endJumpForScroll): its settling would glide the pages back.
+// Scrolls the pages to bring a badge to where it shows (markShift), when they can. It shows something, so a jump on its
+// way ends first (endJumpForScroll): its settling would glide the pages back.
 function markReveal(badge: HTMLElement) {
   const pane = $('#left'),
     view = markView(),
@@ -987,11 +1015,12 @@ function markReveal(badge: HTMLElement) {
   endJumpForScroll();
   pane.scrollBy({ top: shift, behavior: 'instant' });
 }
-// Tab and Shift+Tab bring the badge they reach to where it shows. The browser scrolls a focused control into the pages' box
-// only, and on the tablet's or the phone's sheet, under its status line or its closed bar, that was out of sight: the focus
-// stayed under the cover and its description over it. The key moves the focus as its default action, in its own task, so a
-// focus that arrives while MARK_TAB is set is the walk's; a focus a script puts on a badge (focusPlace, without a scroll) is
-// left where it is. The focus events come before the browser's own scroll for the focus, which then finds the badge in view.
+// Tab and Shift+Tab bring the badge they reach to where it shows. The browser scrolls a focused control into the pages'
+// box only, and on the tablet's or the phone's sheet, under its status line or its closed bar, that can be out of
+// sight: the focus would stay under the cover and its description over it. The key moves the focus as its default
+// action, in its own task, so a focus that arrives while MARK_TAB is set is the walk's; a focus a script puts on a
+// badge (focusPlace, without a scroll) is left where it is. The focus events come before the browser's own scroll for
+// the focus, which then finds the badge in view.
 let MARK_TAB = false;
 function markTabKey(event: KeyboardEvent) {
   if (event.key !== 'Tab') return;
@@ -1006,14 +1035,14 @@ $('#left').addEventListener('focusin', (event) => {
   if (!MARK_TAB || !(badge instanceof HTMLElement) || !badge.matches('.mark button.mark-jump')) return;
   markReveal(badge);
 });
-// What the covers cover changes without the marks being drawn again: the sheet opens, closes or is dragged to another height,
-// the status line comes or goes, the overlay panel slides in, the window is resized, or the pages scroll under them. The
-// covers' sizes are watched (the sheet's open and closed heights differ, a status line goes from none to its line); a scroll
-// asks again at most once a frame. The keyboard's focus on a badge a cover has come over (the sheet a press of Enter on it opened, Ctrl+\ or
-// a height chosen) is brought out again, as the keyboard's focus in a field is kept above the touch keyboard; a badge the
-// person scrolls under a cover keeps the focus where it is, as a control scrolled out of the window does, and only its
-// description goes - scrolling the pages back would undo the person's own scroll, and moving the focus would lose their place
-// in the Tab order. The next Tab goes on from it.
+// What the covers cover changes without the marks being drawn again: the sheet opens, closes or is dragged to another
+// height, the status line comes or goes, the overlay panel slides in, the window is resized, or the pages scroll under
+// them. The covers' sizes are watched (the sheet's open and closed heights differ, a status line goes from none to its
+// line); a scroll asks again at most once a frame. The keyboard's focus on a badge a cover has come over (the sheet a
+// press of Enter on it opened, Ctrl+\ or a height chosen) is brought out again, as the keyboard's focus in a field is
+// kept above the touch keyboard; a badge the person scrolls under a cover keeps the focus where it is, as a control
+// scrolled out of the window does, and only its description goes - scrolling the pages back would undo the person's own
+// scroll, and moving the focus would lose their place in the Tab order. The next Tab goes on from it.
 function markCoversMoved() {
   markCoverSkip();
   const focused = document.activeElement;
@@ -1026,8 +1055,8 @@ if (window.ResizeObserver) {
     if (cover) coverResize.observe(cover, { box: 'border-box' });
   }
 }
-// The overlay panel slides in and out by its offset, its size unchanged (responsive.css mid-panel-in, side-panel.css side-in):
-// the observer hears of the panel only while it is still off the pages, so the slide's end asks again.
+// The overlay panel slides in and out by its offset, its size unchanged (responsive.css mid-panel-in, side-panel.css
+// side-in): the observer hears of the panel only while it is still off the pages, so the slide's end asks again.
 $('#right').addEventListener('animationend', (event) => {
   if (event.target === event.currentTarget) markCoversMoved();
 });
@@ -1043,10 +1072,10 @@ $('#left').addEventListener(
   },
   { passive: true },
 );
-// How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the badges'
-// drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size.
-// Two badges whose press areas would overlap split the gap between their drawn boxes in half, along the axis on which their
-// centres are further apart - so a press goes to the nearer badge, and a badge with no close neighbour keeps its whole area.
+// How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the
+// badges' drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size. Two badges whose press
+// areas would overlap split the gap between their drawn boxes in half, along the axis on which their centres are
+// further apart - so a press goes to the nearer badge, and a badge with no close neighbour keeps its whole area.
 // Returns one {t,r,b,l} per box: the room in px on that side, or null where no neighbour limits it; 0 where the drawn
 // boxes touch or overlap. Pure.
 function markHitRooms(boxes, reach) {
@@ -1073,11 +1102,11 @@ function markHitRooms(boxes, reach) {
   });
   return rooms;
 }
-// Gives every drawn badge its sides' room (markHitRooms) as --room-t/-r/-b/-l, which the badge's ::after caps its reach by
-// (components.css); a side no neighbour limits has no property and reaches the whole way. The boxes are read in the
-// viewport, so badges on two pages are neighbours too; the press area is the touch one, 44px (a mouse's 24px lies inside it).
-// Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set, and setViewMode
-// measures when the pages show again.
+// Gives every drawn badge its sides' room (markHitRooms) as --room-t/-r/-b/-l, which the badge's ::after caps its reach
+// by (components.css); a side no neighbour limits has no property and reaches the whole way. The boxes are read in the
+// viewport, so badges on two pages are neighbours too; the press area is the touch one, 44px (a mouse's 24px lies
+// inside it). Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set,
+// and setViewMode measures when the pages show again.
 function markHitSides() {
   const badges = $$('.mark button.mark-jump') as HTMLElement[];
   if (badges.some((badge) => !badge.getClientRects().length)) return;
@@ -1097,21 +1126,23 @@ function markHitSides() {
     badge.style.setProperty('--room-l', px(room.l));
   });
 }
-// Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a figure
-// pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or an append's
-// undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
+// Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a
+// figure pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or
+// an append's undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
-// A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it (drawPageVerdicts, first).
+// A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it
+// (drawPageVerdicts, first).
 function marks() {
   if (isMdDoc()) {
     mdMarks();
     drawChips();
     return;
-  } // the Markdown surface marks its lines (md-surface.js)
+  } // the Markdown surface marks its lines (md-surface.ts)
   $$('.mark').forEach((mark) => mark.remove());
   drawPageVerdicts();
-  // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated to an open pin's overlap/editing).
-  // A figure pin is drawn where the server found its element in this build (see pinPlace), and a found element is no estimate.
+  // Awaiting-review pins are also drawn as purple marks - so the reviewer can see right there what was fixed (unrelated
+  // to an open pin's overlap/editing). A figure pin is drawn where the server found its element in this build (see
+  // pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC)).forEach((pin) => {
     const at = pinPlace(pin),
       page = document.getElementById('p' + at.page);
@@ -1161,10 +1192,10 @@ $('#doc').addEventListener(
   },
   true,
 );
-// Clicking a badge -> scroll to the card + .cur highlight (spec) + a 1.2-second flash. The highlight is never left on -
-// it releases; when it was a static box-shadow, it stayed on the card until the next click.
-// compact: clicking a badge expands the panel/sheet and that card, then scrolls via jumpToCard.
-// Expands the section that holds pin id if it is collapsed (a mark click, a notification, [검토 대기 N]). Returns true if it changed.
+// Clicking a badge -> scroll to the card + .cur highlight + a 1.2-second flash. The highlight is never left on - it
+// releases, so it does not stay on the card until the next click. compact: clicking a badge expands the panel/sheet and
+// that card, then scrolls via jumpToCard. Expands the section that holds pin id if it is collapsed (a mark click, a
+// notification, [검토 대기 N]). Returns true if it changed.
 function openSectionFor(id) {
   const pin = findAnyPin(id);
   if (!pin) return false;
@@ -1199,7 +1230,8 @@ function jumpToCard(id) {
   cardElement.classList.add('cur', 'flash');
   cardElement._curT = setTimeout(() => cardElement.classList.remove('cur', 'flash'), 1200);
 }
-// A '#12' link in text: expands and scrolls to that pin's card/archive row, then flashes it. If it's on another document, '모든 문서' is turned on.
+// A '#12' link in text: expands and scrolls to that pin's card/archive row, then flashes it. If it's on another
+// document, '모든 문서' is turned on.
 /** @param [focus] - by keyboard: the focus goes to the card (its number) */
 function gotoPinRef(id: number, focus?: boolean) {
   const pin = findAnyPin(id);
@@ -1231,8 +1263,8 @@ function gotoPinRef(id: number, focus?: boolean) {
     if (focus) focusCard(id);
   });
 }
-// The pin id beside the card that holds control a - the next card in its section, else the one before - or null: where the
-// focus goes when that card leaves by a keyboard press ([삭제], [지우기]).
+// The pin id beside the card that holds the control - the next card in its section, else the one before - or null:
+// where the focus goes when that card leaves by a keyboard press ([삭제], [지우기]).
 function cardNeighbour(control: HTMLElement): number | null {
   const cardElement = control.closest('.pin.card');
   if (!cardElement) return null;
@@ -1257,9 +1289,9 @@ function focusCard(id: number) {
       '"] .rv-act',
   ) as HTMLElement | null;
   if (target) target.focus({ preventScroll: true });
-} // a result row (review-pick.js): its box, or its first link when the box is off
-// Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not drawn
-// scrolls to the page the mark would be on.
+} // a result row (review-pick.ts): its box, or its first link when the box is off
+// Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
+// drawn scrolls to the page the mark would be on.
 function jumpPin(id) {
   if (viaDoc(id, jumpPin)) return;
   const pin = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id && pdoc(x) === DOC);
@@ -1277,8 +1309,9 @@ function jumpPin(id) {
   }
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
   if (jumpToPageLine(id)) return; // a pin its page verdict line shows: the line
-  marksShow(); // the way to a mark shows the marks (marks-hide.js)
-  if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false); // collapsed first so the sheet doesn't cover the page, then measured
+  marksShow(); // the way to a mark shows the marks (marks-hide.ts)
+  // collapsed first so the sheet doesn't cover the page, then measured
+  if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
   if (isMdDoc()) {
     mdJump(id);
     return;

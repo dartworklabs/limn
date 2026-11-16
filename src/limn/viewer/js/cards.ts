@@ -77,7 +77,7 @@ import type { Html } from './markup.ts';
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access. */
 function card(pin: Pin) {
-  pin = dropPageLineOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict.js)
+  pin = dropPageLineOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict.ts)
   const loc = 'L' + pin.lo + '-L' + pin.hi,
     name =
       pin.name ||
@@ -87,8 +87,9 @@ function card(pin: Pin) {
     tags: Html[] = []; // loc stays in the copy format
   if (pin.stale)
     tags.push(html`<span class="badge badge-warning" data-tip="${T.stale}">${ic('triangle-alert')}위치 잃음</span>`);
-  // A figure pin whose element is where it was (el_sync ok) has no '줄 +N 이동': its code lines shifted, but the pin is the element, whose
-  // mark and path have not moved. A moved or lost element, and a pin with no element (no el_sync), show it.
+  // A figure pin whose element is where it was (el_sync ok) has no '줄 +N 이동': its code lines shifted, but the pin is
+  // the element, whose mark and path have not moved. A moved or lost element, and a pin with no element (no el_sync),
+  // show it.
   else {
     const moved = /^moved ([+-]\d+)$/.exec(pin.sync || '');
     if (moved && pin.el_sync !== EL_SYNC.OK)
@@ -100,7 +101,7 @@ function card(pin: Pin) {
       );
   }
   const lostBadge = elLostTag(pin);
-  if (lostBadge) tags.push(lostBadge); // a figure pin whose element the re-rendered map no longer has
+  if (lostBadge) tags.push(lostBadge); // a figure pin whose element the re-rendered map does not have
   const claimed = claimActive(pin);
   if (claimed) tags.push(claimTag(pin));
   if (pin.edited_at)
@@ -109,7 +110,8 @@ function card(pin: Pin) {
         when: pin.edited_at.slice(11, 16) + (pin.edited_by ? ' · ' + who(pin.edited_by) : ''),
       })}">${ic('pencil')}${tr('수정됨')}</span>`,
     );
-  const closedCard = pinState(pin) !== PIN_STATE.OPEN; // overlap/location-confidence badges are meaningless on an awaiting-review/done card (line matching doesn't run, QA)
+  // overlap and location-confidence badges mean nothing on an awaiting-review or done card: line matching does not run
+  const closedCard = pinState(pin) !== PIN_STATE.OPEN;
   const overlapBadge = closedCard ? null : relBadge(pin.rel, pin);
   if (overlapBadge)
     tags.push(
@@ -127,23 +129,26 @@ function card(pin: Pin) {
     );
   const editing = !!(EDITOR.current && EDITOR.current.id === pin.id),
     open = OPEN_CARDS.has(pin.id);
-  // Header line: number/line-range/page on the left, reply count/collapse on the right. Badges (.tags) drop to one line below the header.
-  // compact accordion: the collapsed header and note preview (.sum) retain the note-level metadata; clicking expands badges/note/buttons (CSS).
-  // In wide, .sum and the collapse button are hidden and the card is always expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
+  // Header line: number/line-range/page on the left, reply count/collapse on the right. Badges (.tags) drop to one line
+  // below the header. compact accordion: the collapsed header and note preview (.sum) retain the note-level metadata;
+  // clicking expands badges/note/buttons (CSS). In wide, .sum and the collapse button are hidden and the card is always
+  // expanded. Actions form an equal-width grid; only [완료] is emphasized, [삭제] is the destructive color.
   const first = String(pin.note || '')
       .split('\n')[0]
       .trim(),
-    noNote = html`<span class="dim">${tr(pin.suggest ? '(제안 문안만)' : '(메모 없음)')}</span>`; // a suggestion alone says what to do
-  // A verdict pin without a note spends no line on it: its '판정 채택' badge says what it asks. Folded (compact), its preview is the badge.
+    // a suggestion alone says what to do
+    noNote = html`<span class="dim">${tr(pin.suggest ? '(제안 문안만)' : '(메모 없음)')}</span>`;
+  // A verdict pin without a note spends no line on it: its '판정 채택' badge says what it asks. Folded (compact), its
+  // preview is the badge.
   const isVerdictOnly = !pin.note && !pin.suggest && !!verdictOf(pin);
-  // Collapsed card's (compact) note preview: up to two lines on its own line below the header. It used to only get the
-  // leftover width after the number/location inside the header's single line, clipping to '[C...', and an awaiting-review
-  // card's prefixed '내 확인 차례 · ' ate even more of that width (QA 2026-09-24). Review status is conveyed by the dot color.
-  // A verdict pin's preview always leads with what it is: its badge ('판정 채택') and the figure it is about - a reason in its note
-  // took the whole preview, and the folded card no longer said which verdict or which figure (P2-9 of the 0.4.33 review). The
-  // reason follows on a line of its own, cut to one line (.sum-note). A superseded verdict says so folded too: its badge,
-  // '이전 판정 · #4로 대체됨', then '메모 있음' when it has a note (shown when opened). A row that does not clip, so the '#4'
-  // link answers its whole touch area (.sum-vd, responsive.css).
+  // Collapsed card's (compact) note preview: up to two lines on its own line below the header, not the width left after
+  // the number and location in the header's single line, which would clip it to '[C...' (and an awaiting-review card's
+  // '내 확인 차례 · ' prefix would take more of it). Review status is conveyed by the dot color. A verdict pin's
+  // preview always leads with what it is: its badge ('판정 채택') and the figure it is about - a reason in its note
+  // would take the whole preview, and the folded card would not say which verdict or which figure. The reason follows
+  // on a line of its own, cut to one line (.sum-note). A superseded verdict says so folded too: its badge, '이전 판정 ·
+  // #4로 대체됨', then '메모 있음' when it has a note (shown when opened). A row that does not clip, so the '#4' link
+  // answers its whole touch area (.sum-vd, responsive.css).
   const oldMarker = verdictOldMarker(pin),
     targetTag = verdictTarget(pin),
     isVerdict = !!verdictOf(pin),
@@ -156,7 +161,8 @@ function card(pin: Pin) {
   const noteTime = pin.at ? stampSpan(pin.at, STAMP_FORM.SHORT, 'sum-t') : '';
   const sum = html`<div class="sum${isVerdict ? ' sum-vd' : ''}" translate="no" data-act="card-toggle">${noteTime}${isVerdict ? html`${verdictBadge(pin)}${oldMarker}${targetTag}${hasNote}${why}` : first ? fmtText(first, pin.mentions) : noNote}</div>`;
   if (isRegion(pin)) {
-    const regionBadge = figRegionBadge(pin.el, isFigureKind((docInfo(pdoc(pin)) || {}).kind)); // a figure region: element without code, or map unreadable
+    // a figure region: element without code, or map unreadable
+    const regionBadge = figRegionBadge(pin.el, isFigureKind((docInfo(pdoc(pin)) || {}).kind));
     tags.unshift(
       regionBadge
         ? html`<span class="badge" data-tip="${regionBadge.tip}">${regionBadge.t}</span>`
@@ -170,15 +176,16 @@ function card(pin: Pin) {
   const verdictTag = verdictBadge(pin);
   if (targetTag) tags.unshift(targetTag);
   if (oldMarker) tags.unshift(oldMarker);
-  if (verdictTag) tags.unshift(verdictTag); // '판정 채택' in the question badge's place, then '이전 판정 · #4로 대체됨', then the figure it is about
+  // '판정 채택' in the question badge's place, then '이전 판정 · #4로 대체됨', then the figure it is about
+  if (verdictTag) tags.unshift(verdictTag);
   const addressed = pin.assignee ? null : addressedTag(pin);
   if (addressed) tags.push(addressed); // a recorded assignee already appears in the note-level metadata
   const fyi = fyiTag(pin);
-  if (fyi) tags.push(fyi); // a fix pin's FYI @-tags - this line once sat after the comment above and never executed (QA 2026-09-24)
+  if (fyi) tags.push(fyi); // a fix pin's FYI @-tags
   const suggestTag = suggestBadge(pin, closedCard);
-  if (suggestTag) tags.push(suggestTag); // a suggested edit, and why not to apply it (suggest.js)
+  if (suggestTag) tags.push(suggestTag); // a suggested edit, and why not to apply it (suggest.ts)
   const inReview = pinState(pin) === PIN_STATE.REVIEW;
-  const quote = cardQuote(pin); // the dragged PDF text, one line above the note (issue #185)
+  const quote = cardQuote(pin); // the dragged PDF text, one line above the note
   if (inReview)
     tags.unshift(
       html`<span class="badge badge-review" data-tip="${tr(T.review) + ' · ' + tl('닫은 쪽: {name}', { name: who(pin.closed_by) || '?' }) + ' · ' + (pin.done_at || '')}">${ic('eye')}${reviewerLabel(pin)}</span>`,
@@ -188,11 +195,12 @@ function card(pin: Pin) {
     tags.unshift(
       html`<span class="badge badge-reopen" data-tip="${tl('검토에서 되돌아온 핀 — {name} · {time}', { name: who(reopened.by) || '?', time: arcTime(reopened.at) }) + (reopened.text ? ' · ' + tl('이유: {text}', { text: reopened.text }) : '')}">${ic('rotate-ccw')}다시 열림</span>`,
     );
-  // The one status word of the facts line: what the dot says, and '다시 열림' for an open pin back from review (the dot is the open one's).
-  // The assignee is a button only under a mouse, whose 24px hit fits the line. On touch it is text, folded and open alike, and is
-  // changed through [수정]: a 44px hit has no room there - in a folded card it lay over the note's preview, where a tap means
-  // "unfold" and instead opened the editor and raised the keyboard; in an open card the note right over it and [수정] right
-  // under it open the same editor. Never a button while the card is being edited.
+  // The one status word of the facts line: what the dot says, and '다시 열림' for an open pin back from review (the dot
+  // is the open one's). The assignee is a button only under a mouse, whose 24px hit fits the line. On touch it is text,
+  // folded and open alike, and is changed through [수정]: a 44px hit has no room there - in a folded card it would lie
+  // over the note's preview, where a tap means "unfold", and open the editor and raise the keyboard instead; in an open
+  // card the note right over it and [수정] right under it open the same editor. Never a button while the card is being
+  // edited.
   const pressable = !editing && !MQ_COARSE.matches;
   const lost = !!(pin.stale || lostBadge),
     metadata = cardMetadata(
@@ -200,13 +208,13 @@ function card(pin: Pin) {
       inReview ? '검토 대기' : lost ? '위치 잃음' : claimed ? '처리 중' : reopened ? '다시 열림' : '열림',
       pressable,
     );
-  // compact's head link (CSS shows it in place of #N, the line range and N쪽, diagnosis P6/U5): one 44px target that does what
+  // compact's head link (CSS shows it in place of #N, the line range and N쪽): one 44px target that does what
   // [보기] does - the same data-act, so it also replaces the row's [보기] there.
   // A pin of a Markdown document has no page (ADR-0025 D2): its head says the lines alone.
   const at = pinPlace(pin).page,
     page = typeof at === 'number' && !isMdPin(pin) ? tl('{page}쪽', { page: at }) : '';
-  // Its words and the reply count are in .lbl: compact trims them to their cap height, so the head row's dot, words, count and
-  // chevron share one centre in any font.
+  // Its words and the reply count are in .lbl: compact trims them to their cap height, so the head row's dot, words,
+  // count and chevron share one centre in any font.
   const go = html`<span class="go-all" role="button" tabindex="0" data-act="view" data-tip="${T.view}"><span class="lbl">#${pin.id} · ${locText(pin)}${page ? ' · ' + page : ''}</span></span>`;
   const replyTotal = replyCount(pin);
   const replyCountLink = replyTotal
@@ -222,15 +230,17 @@ function card(pin: Pin) {
             : CARD_DOT.OPEN,
     ),
     unfold = open || (!inReview && editing);
-  // Who wrote the note is said by the comment's head (noteHead). A folded compact card draws no such head, so its own head keeps the avatar.
+  // Who wrote the note is said by the comment's head (noteHead). A folded compact card draws no such head, so its own
+  // head keeps the avatar.
   const folded = LAYOUT !== LAYOUT_MODE.WIDE && !unfold;
   const authorAvatar =
     folded && who(pin.author)
       ? html`<span class="au" role="img" aria-label="${who(pin.author)}" data-tip="${authorTip(pin)}" translate="no">${avatar(pin.author)}</span>`
       : '';
-  // The first comment (docs/handbook/viewer.md §패널 정리 핀 카드): a reply's shape, its head and then the note and what belongs to
-  // the note beside the avatar's column. The thread follows it, and .tl-on draws the timeline through them (cards.css). The edit
-  // card takes the note's place under the same head, with no thread: comment('') is the head alone.
+  // The first comment (docs/handbook/viewer.md §패널 정리 핀 카드): a reply's shape, its head and then the note and
+  // what belongs to the note beside the avatar's column. The thread follows it, and .tl-on draws the timeline through
+  // them (cards.css). The edit card takes the note's place under the same head, with no thread: comment('') is the head
+  // alone.
   const comment = (
     body: Html | string,
   ) => html`<div class="tl${body && !folded && threadOf(pin).length ? ' tl-on' : ''}"><div class="cmt">${nodeAvatar(pin.author)}\
@@ -254,13 +264,14 @@ ${canConfirmReview() ? '' : html`<div class="dim review-access">${confirmAccessT
 ${suggestView(pin)}${metadata}`)}<div class="acts">${cardActs(claimed, LAYOUT !== LAYOUT_MODE.WIDE, !(verdictOf(pin) && isAgentRole()), !!verdictOf(pin))}</div>`;
   return html`<div class="pin card${pin.stale || elLost(pin) ? ' st' : ''}${claimed ? ' claimed' : ''}${editing ? ' editing' : ''}${open ? ' open' : ''}" data-id="${pin.id}" data-doc="${pdoc(pin)}">${head}${body}</div>`;
 }
-// An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제] [완료], by name.
-// compact (narrow and mid, any pointer): [삭제] [수정] ([풀기]) ...... [답글] [완료] - [보기] is the head's '#N · L… · N쪽' link, and
-// [수정][풀기][삭제] show only their icon (the name stays in aria-label and the tooltip); CSS picks icon or name per layout.
-// canDrop false (an agent's verdict card, D16) leaves [삭제] out. On a verdict pin's card it is [지우기] (verdict): a word file
-// may name a verdict '삭제' (the figure goes), and the card's '판정 삭제' badge beside a [삭제] read as that verdict. Two or three
-// syllables like the row's other names, so it keeps one line in the row's equal cells ('핀 지우기' broke in two at 348px); its
-// description says what taking a verdict back does.
+// An open card's action row, in the order it is seen so that Tab follows it. wide: [보기] [수정] [답글] ([풀기]) [삭제]
+// [완료], by name. compact (narrow and mid, any pointer): [삭제] [수정] ([풀기]) ...... [답글] [완료] - [보기] is the
+// head's '#N · L… · N쪽' link, and [수정][풀기][삭제] show only their icon (the name stays in aria-label and the
+// tooltip); CSS picks icon or name per layout. canDrop false (an agent's verdict card, D16) leaves [삭제] out. On a
+// verdict pin's card it is [지우기] (verdict): a word file may name a verdict '삭제' (the figure goes), and the card's
+// '판정 삭제' badge beside a [삭제] would read as that verdict. Two or three syllables like the row's other names, so
+// it keeps one line in the row's equal cells ('핀 지우기' would break in two on a narrow row); its description says
+// what taking a verdict back does.
 function cardActs(claimed, compact, canDrop = true, verdict = false) {
   const dropLabel = verdict ? '지우기' : '삭제';
   const buttons = {
@@ -277,14 +288,15 @@ function cardActs(claimed, compact, canDrop = true, verdict = false) {
   };
   return html`${(compact ? ['drop', 'edit', 'unclaim', 'reply', 'close'] : ['view', 'edit', 'reply', 'unclaim', 'drop', 'close']).map((name) => buttons[name])}`;
 }
-// Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with faded text, not a card.
-// The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line is one line of the agent's
-// answer (close_reply) - truncated on overflow, expandable on click. The original request note is only shown by pressing
-// [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it survives a redraw.
+// Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with
+// faded text, not a card. The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line
+// is one line of the agent's answer (close_reply) - truncated on overflow, expandable on click. The original request
+// note is only shown by pressing [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it
+// survives a redraw.
 const ARC_OPEN = new Set();
-// Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute time is in the description (hover).
-// The original string is kept in data-at and re-computed every 60 seconds (tickRel). The archive and the verdict line say this;
-// a comment says stampText.
+// Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute
+// time is in the description (hover). The original string is kept in data-at and re-computed every 60 seconds
+// (tickRel). The archive and the verdict line say this; a comment says stampText.
 function relTime(stamp, now?) {
   stamp = String(stamp || '');
   const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(stamp);
@@ -300,8 +312,8 @@ function relTime(stamp, now?) {
 function relSpan(stamp, className?, tip?) {
   return html`<span class="rt${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-tip="${(tip ? tip + ' ' : '') + (stamp || '?')}">${relTime(stamp)}</span>`;
 }
-// A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM', t}), or null
-// for a string that is no time. Pure but for the device's time zone.
+// A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM',
+// t}), or null for a string that is no time. Pure but for the device's time zone.
 function timeParts(stamp: string | null | undefined) {
   const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(stamp || ''));
   if (!match) return null;
@@ -314,8 +326,8 @@ function timeParts(stamp: string | null | undefined) {
     t: new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
   };
 }
-// The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A string that is
-// no time comes back as it is. now is injected by tests.
+// The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A
+// string that is no time comes back as it is. now is injected by tests.
 function timeAbs(stamp: string | null | undefined, now?: number): string {
   const parts = timeParts(stamp);
   if (!parts) return String(stamp || '');
@@ -326,13 +338,15 @@ function timeAbs(stamp: string | null | undefined, now?: number): string {
     parts.hm
   );
 }
-// The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected by tests.
+// The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected
+// by tests.
 function timeAgo(stamp: string | null | undefined, now?: number): string {
   const parts = timeParts(stamp);
   return parts && (now == null ? Date.now() : now) - parts.t < 7 * 24 * 60 * 60000 ? relTime(stamp, now) : '';
 }
-// What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute part from
-// seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else the absolute.
+// What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute
+// part from seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else
+// the absolute.
 /** @param form - a STAMP_FORM value */
 function stampText(stamp: string | null | undefined, form: string, now?: number): string {
   const ago = timeAgo(stamp, now),
@@ -341,13 +355,15 @@ function stampText(stamp: string | null | undefined, form: string, now?: number)
   const both = ago ? ago + ' · ' + abs : abs;
   return form === STAMP_FORM.EDITED ? tl('수정 {time}', { time: both }) : both;
 }
-// A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its description.
+// A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its
+// description.
 /** @param form - a STAMP_FORM value */
 function stampSpan(stamp: string | null | undefined, form: string, className?: string): Html {
   return html`<span class="rt ts${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-form="${form}" data-tip="${stamp || '?'}">${stampText(stamp, form)}</span>`;
 }
-// The name of the day a stored time falls on, as a day line of the list says it: 오늘, 어제, '10월 31일', and '2025년 9월 25일' in another
-// year; '' for a string that is no time. A time ahead of this device's clock counts as today. now is injected by tests.
+// The name of the day a stored time falls on, as a day line of the list says it: 오늘, 어제, '10월 31일', and '2025년
+// 9월 25일' in another year; '' for a string that is no time. A time ahead of this device's clock counts as today. now
+// is injected by tests.
 function dayName(stamp: string | null | undefined, now?: number): string {
   const parts = timeParts(stamp);
   if (!parts) return '';
@@ -380,8 +396,8 @@ function arcTime(stamp) {
   stamp = String(stamp || '');
   return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(stamp) ? stamp.slice(5, 16) : stamp;
 }
-// The location span of an archive row (done or trashed pin): 'L12-L18' for lines, '쪽 N 영역' for a region, N being the page
-// its mark is on now (pinPlace); the copy text carries the same.
+// The location span of an archive row (done or trashed pin): 'L12-L18' for lines, '쪽 N 영역' for a region, N being the
+// page its mark is on now (pinPlace); the copy text carries the same.
 function arcLoc(pin: Pin) {
   const name =
     pin.name ||
@@ -390,8 +406,8 @@ function arcLoc(pin: Pin) {
       .pop();
   return html`<span class="loc" tabindex="0" data-copy="${isRegion(pin) ? locCopy(pin) : name + ' L' + pin.lo + '-L' + pin.hi}" data-tip="${T.loc}">${isRegion(pin) ? tl('{page}쪽 영역', { page: pinPlace(pin).page }) : rng(pin.lo, pin.hi)}</span>`;
 }
-// One expandable line of an archive row: text (a close reply or a deleted pin's note) is user text (translate="no"), so its
-// Korean description tip is translated here.
+// One expandable line of an archive row: text (a close reply or a deleted pin's note) is user text (translate="no"), so
+// its Korean description tip is translated here.
 function arcLine(key, text, tip, logins) {
   const open = ARC_OPEN.has(key);
   return html`<span class="arc-reply${open ? ' open' : ''}" translate="no" role="button" tabindex="0" data-act="arc-toggle" data-key="${key}" aria-expanded="${open}" data-tip="${trMsg(tip)}">${fmtText(text, logins)}</span>`;
@@ -405,12 +421,12 @@ function allMentions(pin: Pin) {
   );
   return out;
 }
-// A done pin's archive row (docs/handbook/viewer.md §보관함): icon, #N, location, reference and time with [답글]; the close
-// reply as one expandable line (user text) with [원래 요청], [변경 보기] and [스레드 N]; the original request and the thread
-// when expanded (ARC_OPEN), the thread also while a reply box is open on it. A superseded verdict's row has two badges, so
-// its first line is icon, #N, '판정 보류' and '이전 판정 · #12로 대체됨' (one block, .arc-head, that wraps inside itself on
-// the narrowest widths) with [답글] at its end, and the location, reference and time go on a line of their own under it
-// (.arc-l1b) - in every width, so one pin's facts never scatter.
+// A done pin's archive row (docs/handbook/viewer.md §보관함): icon, #N, location, reference and time with [답글]; the
+// close reply as one expandable line (user text) with [원래 요청], [변경 보기] and [스레드 N]; the original request and
+// the thread when expanded (ARC_OPEN), the thread also while a reply box is open on it. A superseded verdict's row has
+// two badges, so its first line is icon, #N, '판정 보류' and '이전 판정 · #12로 대체됨' (one block, .arc-head, that
+// wraps inside itself on the narrowest widths) with [답글] at its end, and the location, reference and time go on a
+// line of their own under it (.arc-l1b) - in every width, so one pin's facts never scatter.
 function doneCard(pin: Pin) {
   const ref = hasRef(pin.close_ref)
     ? html`<span class="badge arc-ref" data-tip="닫을 때 남긴 참조 — 같은 값이면 같은 처리에 딸린 핀입니다">${pin.close_ref}</span>`
@@ -419,10 +435,10 @@ function doneCard(pin: Pin) {
     ? arcLine('r:' + pin.id, pin.close_reply, '닫으며 남긴 설명 — 누르면 펼치고 접습니다', allMentions(pin))
     : html`<span class="arc-reply none">설명 없이 닫힘</span>`;
   const originalOpen = ARC_OPEN.has('o:' + pin.id);
-  // If the thread is longer than a single close record (there was a reply/reopen), it expands via [스레드 N] - with only
-  // one record, it's the same as the single answer line above. [답글] opens the same reply box as a card (openReply): a person's
-  // reply on a done pin reopens it by the server rule, and the line under the box says so before sending. The thread is kept
-  // expanded while replying so the box is visible.
+  // If the thread is longer than a single close record (there was a reply/reopen), it expands via [스레드 N] - with
+  // only one record, it's the same as the single answer line above. [답글] opens the same reply box as a card
+  // (openReply): a person's reply on a done pin reopens it by the server rule, and the line under the box says so
+  // before sending. The thread is kept expanded while replying so the box is visible.
   const replying = REPLY && REPLY.id === pin.id;
   const entries = threadOf(pin),
     hasThread = entries.length > 1 || (entries.length > 0 && !entries[0].ev),
@@ -450,9 +466,10 @@ function doneCard(pin: Pin) {
 ${oldMarker ? html`<div class="arc-l1"><span class="arc-head">${numberTag}${verdictBadge(pin)}${oldMarker}${targetTag}</span>${replyButton}</div><div class="arc-l1b">${where}</div>` : html`<div class="arc-l1">${numberTag}${where}${replyButton}</div>`}\
 <div class="arc-l2">${reply}${originalToggle}<button class="arc-orig-t b-change" data-act="change" data-tip="${T.change}">변경 보기</button>${threadToggle}</div>${original}${thread}</div>`;
 }
-// A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged, [되살리기], and -
-// for the owner only - [영구 삭제] (sent after its undo row goes away, like a reply). The buttons follow the two lines in the
-// markup; CSS sets them beside the meta line, or on a phone beside the note line (two lines, not three).
+// A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged,
+// [되살리기], and - for the owner only - [영구 삭제] (sent after its undo row goes away, like a reply). The buttons
+// follow the two lines in the markup; CSS sets them beside the meta line, or on a phone beside the note line (two
+// lines, not three).
 const TRASH_DAYS = 30;
 function trashDaysLeft(at, now, expirySeconds) {
   if (typeof expirySeconds === 'number')
@@ -465,8 +482,8 @@ function trashDaysLeft(at, now, expirySeconds) {
 function isOwner() {
   return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.OWNER);
 }
-// A Trash row: #N, location, when and by whom it was deleted and the days left, the note as one expandable line (user text),
-// and [되살리기] (not for a viewer) and [영구 삭제] (the owner only) after the two lines.
+// A Trash row: #N, location, when and by whom it was deleted and the days left, the note as one expandable line (user
+// text), and [되살리기] (not for a viewer) and [영구 삭제] (the owner only) after the two lines.
 function droppedCard(pin: Pin) {
   const line = pin.note
     ? arcLine('d:' + pin.id, pin.note, '삭제한 핀의 메모 — 누르면 펼치고 접습니다', pin.mentions)
@@ -477,8 +494,8 @@ function droppedCard(pin: Pin) {
     left != null
       ? html`<span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-left" data-tip="${tl('{n}일이 지나면 저절로 지워집니다', { n: TRASH_DAYS })}">${tl('{n}일 뒤 지워짐', { n: left })}</span>`
       : '';
-  // a viewer reads the Trash but is offered no state change (the server answers 403 anyway) - not rendered, not only hidden
-  // ...and an agent is not offered a verdict pin's (D16: 403 verdict_human)
+  // a viewer reads the Trash but is offered no state change (the server answers 403 anyway) - not rendered, not only
+  // hidden ...and an agent is not offered a verdict pin's (D16: 403 verdict_human)
   const restore =
     isViewer() || (verdictOf(pin) && isAgentRole())
       ? ''
@@ -492,9 +509,10 @@ ${relSpan(pin.dropped_at, 'arc-t', tl('삭제한 사람 {name} · 삭제한 시�
 <span class="arc-sep" aria-hidden="true">·</span><span class="arc-t trash-by">${tl('{name} 삭제', { name: by })}</span>${daysLeftTag}<span class="sp"></span>\
 </div><div class="arc-l2">${line}</div><span class="arc-acts">${restore}${purge}</span></div>`;
 }
-let TRASH_ALL = false; // the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched
-// Draws the Trash's rows, newest first (all documents with TRASH_ALL), leaving out a row whose permanent delete waits, whose
-// undo row (notices.js) goes in its place. A focus on a control in the list stays in it (trashRefocus).
+// the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched
+let TRASH_ALL = false;
+// Draws the Trash's rows, newest first (all documents with TRASH_ALL), leaving out a row whose permanent delete waits,
+// whose undo row (notices.ts) goes in its place. A focus on a control in the list stays in it (trashRefocus).
 function drawTrash() {
   const dropped = TRASH_ALL ? DROPPED : listDropped(),
     box = $('#trash-list');
@@ -519,8 +537,8 @@ function drawTrash() {
   if (focused && spot && !box.contains(document.activeElement)) trashRefocus(box, spot, focused);
   tipFollow();
 } // a box over a row drawn anew stands over nothing
-// Where focused element a stands in the Trash's list before a redraw: its row's pin (null in an undo row), its action, and the
-// rows' pins in order with its row's place among them.
+// Where the focused element stands in the Trash's list before a redraw: its row's pin (null in an undo row), its
+// action, and the rows' pins in order with its row's place among them.
 function trashSpot(
   box: HTMLElement,
   focused: HTMLElement,
@@ -532,11 +550,12 @@ function trashSpot(
   );
   return { id, act: focused.dataset.act || '', ids, at: id == null ? -1 : ids.indexOf(id) };
 }
-// A redraw took the focus out of the Trash's list (setHtml; restorePin's list reload after its answer): it comes back - to
-// the element itself when it is drawn again (an undo row is moved, not made anew), to the same control of its row when the
-// row is still there (a [되살리기] that failed), else, the row gone (restored, purged, gone elsewhere), to the undo row in its
-// place, the next row's [되살리기], the one before's, and last the Trash's [닫기] - never to nothing, which left Tab and
-// Esc to start from the page's top. A focus the person moved out of the list meanwhile is not here to come back (drawTrash).
+// A redraw took the focus out of the Trash's list (setHtml; restorePin's list reload after its answer): it comes back -
+// to the element itself when it is drawn again (an undo row is moved, not made anew), to the same control of its row
+// when the row is still there (a [되살리기] that failed), else, the row gone (restored, purged, gone elsewhere), to the
+// undo row in its place, the next row's [되살리기], the one before's, and last the Trash's [닫기] - never to nothing,
+// which would leave Tab and Esc to start from the page's top. A focus the person moved out of the list meanwhile is not
+// here to come back (drawTrash).
 function trashRefocus(
   box: HTMLElement,
   spot: { id: number | null; act: string; ids: number[]; at: number },
@@ -588,9 +607,10 @@ function openTrash(flashId?) {
 $('#trash').addEventListener('close', () => {
   TRASH_ALL = false;
 });
-// Tab stays in the open Trash, a modal dialog: from its last control it comes back to its first, and Shift+Tab from its first
-// (or from the dialog itself) goes to its last. The browser took it out to its own toolbar instead, and the page's focus fell
-// to <body> while the Trash stayed open - Tab from [닫기] once the last row was restored did.
+// Tab stays in the open Trash, a modal dialog: from its last control it comes back to its first, and Shift+Tab from its
+// first (or from the dialog itself) goes to its last. Left to the browser, Tab would leave it for the browser's own
+// toolbar and the page's focus would fall to <body> while the Trash stays open (Tab from [닫기] once the last row is
+// restored).
 $('#trash').addEventListener('keydown', (event) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
   const trash = $('#trash');

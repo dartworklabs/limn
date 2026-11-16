@@ -26,8 +26,8 @@ const EDITOR = { current: null as EditCard | null, saving: false };
 function editorOwns(card) {
   return EDITOR.current === card;
 }
-/** Capture editable card values independently of its mutable range, mention hints, and controls - the suggested edit's switch,
- * text and base among them. */
+/** Capture editable card values independently of its mutable range, mention hints, and controls - the suggested edit's
+ * switch, text and base among them. */
 function editFields(card) {
   return JSON.stringify({
     note: editNote(card).value,
@@ -45,14 +45,16 @@ function syncEditSaveButton() {
   const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
   if (button) (button as HTMLButtonElement).disabled = EDITOR.saving;
 }
-// The note field of edit card E (openEdit puts exactly one in every card).
+// The note field of an edit card (openEdit puts exactly one in every card).
 function editNote(card: EditCard): HTMLTextAreaElement {
   return card.el.querySelector('.e-note') as HTMLTextAreaElement;
 }
-// Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card markup,
-// records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element) and loads the
-// snippet and range ladder. An edit already open on that pin is left as it is.
-/** Open an editable card with independent original mention hints, preserving the pin's identity and revision baseline. */
+// Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card
+// markup, records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element)
+// and loads the snippet and range ladder. An edit already open on that pin is left as it is.
+/**
+ * Open an editable card with independent original mention hints, preserving the pin's identity and revision baseline.
+ */
 function openEdit(id) {
   if (viaDoc(id, openEdit)) return;
   const pin = PINS.find((listed) => listed.id === id);
@@ -126,14 +128,18 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
     sg: suggestOfPin(pin),
   };
   if (EDITOR.current.region) cardElement.classList.add('region');
-  if (verdictOf(pin)) cardElement.classList.add('verdict'); // a verdict pin keeps its verdict and target (D3): only the note and the assignee are edited
+  // a verdict pin keeps its verdict and target (D3): only the note and the assignee are edited
+  if (verdictOf(pin)) cardElement.classList.add('verdict');
   drawPins();
   renderEdit();
   noteField.focus();
   editSnip(true);
 }
 // Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
-/** Report unsaved note, mention hints, range, scope, kind, assignee or suggested-edit changes before a card may close or change documents. */
+/**
+ * Report unsaved note, mention hints, range, scope, kind, assignee or suggested-edit changes before a card may close or
+ * change documents.
+ */
 function editDirty() {
   const card = EDITOR.current;
   if (!card) return false;
@@ -192,7 +198,8 @@ async function editSnip(withLevels) {
     }
     card.snippet = data.snippet;
     card.n_lines = data.n_lines;
-    const markdownRungs = withLevels && rendersInBrowser(editDocKind(card)) ? mdEditLevels(card) : null; // a Markdown pin's rungs come from the drawn document
+    // a Markdown pin's rungs come from the drawn document
+    const markdownRungs = withLevels && rendersInBrowser(editDocKind(card)) ? mdEditLevels(card) : null;
     if (markdownRungs) card.levels = markdownRungs;
     else if (withLevels && data.levels && !rendersInBrowser(editDocKind(card))) {
       card.levels = data.levels;
@@ -204,10 +211,12 @@ async function editSnip(withLevels) {
     renderEdit();
   } catch (error) {}
 }
-// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the ladder -
-// shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee and question
-// hints.
-/** Draw current editable fields and their save availability, including a card opened while an earlier edit is pending. */
+// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the
+// ladder - shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee
+// and question hints.
+/**
+ * Draw current editable fields and their save availability, including a card opened while an earlier edit is pending.
+ */
 function renderEdit() {
   const card = EDITOR.current;
   if (!card) return;
@@ -218,7 +227,7 @@ function renderEdit() {
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   });
-  segRove(cardElement.querySelector('.e-kind')); // the group's one Tab stop is the kind now chosen (events.js)
+  segRove(cardElement.querySelector('.e-kind')); // the group's one Tab stop is the kind now chosen (events.ts)
   setCap(
     cardElement.querySelector('.e-cap'),
     card.region
@@ -231,7 +240,7 @@ function renderEdit() {
   pre.textContent = snipText(card.snippet, false);
   renderAssignEdit();
   drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
-  renderEditSuggest(card); // the [제안 수정] switch and its editor (suggest.js); a closed pin's suggestion read-only
+  renderEditSuggest(card); // the [제안 수정] switch and its editor (suggest.ts); a closed pin's suggestion read-only
   qHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
@@ -245,15 +254,18 @@ function cancelEdit() {
   EDITOR.current = null;
   drawPins();
 }
-// Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note and its hints, the kind, the
-// assignee, the suggested edit (suggestForEdit: set, replaced, or null to remove it) and, when the lines or the ladder rung moved,
-// lo/hi with scope and kind. Nothing changed just closes the card. On 409 suggest_base_changed nothing was saved: the card keeps
-// its draft, shows the lines' current text against it and the banner offers [지금 원문으로 맞추기].
-// On 409 for a closed pin (error===done), the card retains its note against the latest stored range and a warning banner says
-// only the note can still be changed; on any other 409 (a rival edit) the card adopts the stored pin's rev, range, scope, file and element, and a banner
-// says so. A saved edit is silent (the card shows it; read out only). Always reloads the pins. A viewer role and a save already
-// under way send nothing.
-/** Submit one edit revision, including hint-only changes; later input keeps the card open against the successful response's baseline. */
+// Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note and its
+// hints, the kind, the assignee, the suggested edit (suggestForEdit: set, replaced, or null to remove it) and, when the
+// lines or the ladder rung moved, lo/hi with scope and kind. Nothing changed just closes the card. On 409
+// suggest_base_changed nothing was saved: the card keeps its draft, shows the lines' current text against it and the
+// banner offers [지금 원문으로 맞추기]. On 409 for a closed pin (error===done), the card retains its note against the
+// latest stored range and a warning banner says only the note can still be changed; on any other 409 (a rival edit) the
+// card adopts the stored pin's rev, range, scope, file and element, and a banner says so. A saved edit is silent (the
+// card shows it; read out only). Always reloads the pins. A viewer role and a save already under way send nothing.
+/**
+ * Submit one edit revision, including hint-only changes; later input keeps the card open against the successful
+ * response's baseline.
+ */
 async function saveEdit() {
   const card = EDITOR.current;
   if (!card || EDITOR.saving || viewerBlocked()) return;
@@ -275,8 +287,9 @@ async function saveEdit() {
     JSON.stringify(mentionHints(editNote(card))) !== JSON.stringify(card.orig.mentions || [])
   )
     body.note = note;
-  // A rival edit changed the note since the card opened (theirs, shown in the banner): the card's note is not saved over it
-  // until the person chooses [내 메모로 덮어쓰기] - a second [저장] used to write over an agent's addition unseen.
+  // A rival edit changed the note since the card opened (theirs, shown in the banner): the card's note is not saved
+  // over it until the person chooses [내 메모로 덮어쓰기] - otherwise a second [저장] would write over an agent's
+  // addition unseen.
   if (body.note !== undefined && card.theirs != null && !card.overwrite && card.theirs !== note) {
     editTheirs(card);
     return;
@@ -368,7 +381,8 @@ async function saveEdit() {
           NOTICE_KIND.WARN,
         );
       if (editorOwns(card)) {
-        const keep = suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined; // a suggestion being changed is kept; else the stored one is taken
+        // a suggestion being changed is kept; else the stored one is taken
+        const keep = suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined;
         card.base_rev = pin.rev;
         card.lo = pin.lo;
         card.hi = pin.hi;
@@ -418,7 +432,7 @@ async function saveEdit() {
     syncEditSaveButton();
   }
 }
-// A rival edit wrote another note while card E was open (E.theirs): the banner shows that note whole and offers
+// A rival edit wrote another note while the card was open (card.theirs): the banner shows that note whole and offers
 // [내 메모로 덮어쓰기]; the card keeps the person's text, and [저장] alone does not write over theirs.
 function editTheirs(card: EditCard) {
   const theirs = card.theirs == null ? '' : card.theirs;
@@ -440,9 +454,9 @@ function editTheirs(card: EditCard) {
     { source: 'POST /api/pins/' + card.id + '/edit edit', literal: true },
   );
 }
-// An edit the server answered 409 suggest_base_changed: nothing was saved and card E keeps its draft. The editor shows the lines'
-// current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps its text and takes that text as
-// its base); then [저장] again.
+// An edit the server answered 409 suggest_base_changed: nothing was saved and the card keeps its draft. The editor
+// shows the lines' current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps
+// its text and takes that text as its base); then [저장] again.
 function editSuggestRefused(card: EditCard, data: any) {
   if (editorOwns(card)) {
     card.sg.current = {

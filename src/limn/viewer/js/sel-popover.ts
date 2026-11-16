@@ -1,11 +1,12 @@
-// ------------------------------------------------ The note popover by the selection box (docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모', #192)
-// With a mouse on the desktop and mid layouts, a drag that ends opens a small popover under the dashed box: the location, a note
-// field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the composer's note - one
-// value, edited from either place - and [저장] and Ctrl/⌘+Enter take savePin(), the composer's own path, so the saved chip
-// with its undo and every rule of §알림 자리 hold unchanged. '@' in the field offers the composer's @-list by the field; a
-// pick's tag is kept on the composer's note (mentions.js mentionModel). [자세히 →] hands over to the composer in the panel,
-// which keeps the kind, the range and the overlap. Esc and a short click off the box cancel the selection as before; a press
-// on the popover is a press inside the box (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
+// ---------------------- The note popover by the selection box (docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모')
+// With a mouse on the desktop and mid layouts, a drag that ends opens a small popover under the dashed box: the
+// location, a note field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the
+// composer's note - one value, edited from either place - and [저장] and Ctrl/⌘+Enter take savePin(), the composer's
+// own path, so the saved chip with its undo and every rule of §알림 자리 hold unchanged. '@' in the field offers the
+// composer's @-list by the field; a pick's tag is kept on the composer's note (mentions.ts mentionModel). [자세히 →]
+// hands over to the composer in the panel, which keeps the kind, the range and the overlap. Esc and a short click off
+// the box cancel the selection as they do without it; a press on the popover is a press inside the box
+// (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
 import { $, KIND_NEW, LAST_PTR, LAYOUT, LAYOUT_MODE, REPICK } from './core.ts';
 import { tl, tr } from './i18n.ts';
 import { isRegion } from './doc-tabs.ts';
@@ -21,10 +22,10 @@ const SEL_POP = $('#sel-pop'),
 SEL_POP_FIELD._mirrorOf = $('#note') as HTMLTextAreaElement; // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
 let SEL_POP_BOX = null as HTMLElement | null;
-// Where a w x h popover goes for a box in the free area (rectangles {left, top, right, bottom}), gap px from the box and from
-// the area's edges: below the box with its left edge, above it when below has no room, at the area's foot when neither side
-// has room; moved left to stay inside the area's right edge, never past its left. Not shown when the box is outside the area
-// (scrolled away). Whole pixels, so its text is drawn crisp. Pure.
+// Where a popover of width x height goes for a box in the free area (rectangles {left, top, right, bottom}), gap px
+// from the box and from the area's edges: below the box with its left edge, above it when below has no room, at the
+// area's foot when neither side has room; moved left to stay inside the area's right edge, never past its left. Not
+// shown when the box is outside the area (scrolled away). Whole pixels, so its text is drawn crisp. Pure.
 function popPlace(
   box: { left: number; top: number; right: number; bottom: number },
   area: { left: number; top: number; right: number; bottom: number },
@@ -46,8 +47,8 @@ function popPlace(
     shown: box.bottom > area.top && box.top < area.bottom,
   };
 }
-// The part of the PDF area nothing covers (the select mode's frame, #sel-mode: under the section strip, above a sheet, left of an
-// overlay panel and its handle), inside #left's scrollbar and under the select mode's bar while it shows.
+// The part of the PDF area nothing covers (the select mode's frame, #sel-mode: under the section strip, above a sheet,
+// left of an overlay panel and its handle), inside #left's scrollbar and under the select mode's bar while it shows.
 function selPopArea() {
   const leftPane = $('#left'),
     paneRect = leftPane.getBoundingClientRect(),
@@ -82,8 +83,9 @@ function closeSelPop() {
 function selPopOpen() {
   return !SEL_POP.hidden;
 }
-// Draws the popover from the selection: the location (or '찾는 중' while the pick runs), the note's placeholder, its place. It
-// closes when its box is no longer the selection's, the composer closed, the pick failed or the layout became the phone's.
+// Draws the popover from the selection: the location (or '찾는 중' while the pick runs), the note's placeholder, its
+// place. It closes when its box is not the selection's, the composer is closed, the pick failed or the layout is the
+// phone's.
 function drawSelPop() {
   const selection = COMPOSE.current;
   if (
@@ -107,8 +109,8 @@ function drawSelPop() {
   SEL_POP.hidden = false;
   placeSelPop();
 }
-// Puts the popover by its box in the free area (popPlace); hidden while the box is scrolled out of it. An @-list open on its
-// field goes with it, and closes while it is hidden.
+// Puts the popover by its box in the free area (popPlace); hidden while the box is scrolled out of it. An @-list open
+// on its field goes with it, and closes while it is hidden.
 function placeSelPop() {
   if (SEL_POP.hidden || !SEL_POP_BOX) return;
   if (!wantsSelectionPopover()) {
@@ -131,8 +133,9 @@ function placeSelPop() {
     else mentionClose();
   }
 }
-// One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft follow), and
-// what is typed in the composer shows here (a name picked there from the @-list too: mentions.js mentionMirror).
+// One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft
+// follow), and what is typed in the composer shows here (a name picked there from the @-list too: mentions.ts
+// mentionMirror).
 SEL_POP_FIELD.addEventListener('input', () => {
   const noteField = $('#note') as HTMLTextAreaElement;
   noteField.value = SEL_POP_FIELD.value;
@@ -149,7 +152,8 @@ $('#note').addEventListener('input', () => {
 SEL_POP_FIELD.addEventListener('focus', () => {
   SEL_POP_FIELD.value = ($('#note') as HTMLTextAreaElement).value;
 });
-// [자세히 →]: the composer in the panel takes over with the focus in its note; the popover does not come back for this selection.
+// [자세히 →]: the composer in the panel takes over with the focus in its note; the popover does not come back for this
+// selection.
 function selPopMore() {
   closeSelPop();
   setSide(true);

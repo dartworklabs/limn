@@ -1,9 +1,10 @@
 // ------------------------------------------------ composer
-// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit.
-// intent: a counter every change to what the composer asks bumps (COMPOSE.intent++) - a new, cleared or restored selection
-// (pick, cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
-// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it was bound
-// to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is unchanged (savePin).
+// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
+// counter every change to what the composer asks bumps (COMPOSE.intent++) - a new, cleared or restored selection (pick,
+// cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
+// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
+// was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
+// unchanged (savePin).
 import {
   $,
   $$,
@@ -79,8 +80,8 @@ const COMPOSE = {
   intent: 0,
   retryVerdict: null as { key: string; sel: Selection; gen: number } | null,
 };
-/** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap and
- * snippet updates do not count as new input. */
+/** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
+ * and snippet updates do not count as new input. */
 function composeFields() {
   const selection = COMPOSE.current,
     noteField = $('#note');
@@ -100,7 +101,9 @@ function composeFields() {
     sg: { on: SG.on, text: SG.text, base: SG.base },
   });
 }
-/** A successful request may clear its original selection only when every submitted editable field is still unchanged. */
+/**
+ * A successful request may clear its original selection only when every submitted editable field is still unchanged.
+ */
 function composeOwns(selection, box, visit, fields) {
   return currentVisit(visit) && COMPOSE.current === selection && COMPOSE.box === box && composeFields() === fields;
 }
@@ -108,16 +111,16 @@ function setBusy(on) {
   $('#c-spin').hidden = !on;
   $('#c-body').classList.toggle('busy', on);
 }
-// Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner.
-// A new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it. The
-// first-visit hint on how to pick goes (endTopic): it has been done.
+// Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner. A
+// new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it.
+// The first-visit hint on how to pick goes (endTopic): it has been done.
 async function pick(region) {
   const seq = setPickseq(PICKSEQ + 1),
     repick = REPICK;
   endTopic(NOTICE_TOPIC.PICK); // the first-visit hint on how to pick has been done
-  // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared right away - so that a [핀 저장] within
-  // this window (~1.1s) never silently saves the stale COMPOSE.current, and instead goes through the COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to
-  // save the just-chosen new location (regression: the old location used to get saved on a re-select).
+  // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared at once, so a [핀 저장] while
+  // the pick runs never saves the stale COMPOSE.current - the old place - and instead goes through the
+  // COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to save the place just chosen.
   if (repick) {
     banner(html`<span>되짚는 중…</span>`);
   } else {
@@ -128,10 +131,12 @@ async function pick(region) {
     COMPOSE.picking = true;
     $('#c-err').hidden = true;
     $('#c-body').hidden = false;
-    renderVerdictRow(); // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
+    // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
+    renderVerdictRow();
     setSide(true);
     applySide(); // a collapsed panel opens for a new selection in every layout (wide included)
-    if (MID_OVERLAY) relayout(); // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
+    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
+    if (MID_OVERLAY) relayout();
     if (LAYOUT !== LAYOUT_MODE.WIDE) {
       $('#right').scrollTop = 0;
       revealBox(COMPOSE.box);
@@ -162,8 +167,9 @@ async function pick(region) {
       COMPOSE.picking = false;
       clearPendingSave();
     }
-    // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the composer
-    // opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back (offline.js).
+    // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
+    // composer opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back
+    // (offline.ts).
     const failure = error as ApiError;
     if (!repick && !(failure && failure.status) && !isMdDoc()) {
       void offlinePick(region);
@@ -205,7 +211,7 @@ async function pick(region) {
       bannerRepick(errText(answer));
       return;
     }
-    // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
+    // A failed pick never carries out a pending save - only the error panel is shown, so a save never fails silently.
     COMPOSE.current = null;
     COMPOSE.intent++;
     clearPendingSave();
@@ -232,31 +238,36 @@ async function pick(region) {
       selection.hi = answer.hi;
     }
   }
-  COMPOSE.dismissedOverlap = null; // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
+  // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
+  COMPOSE.dismissedOverlap = null;
   selection.overlaps = overlapsFor(selection, PINS);
-  // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is re-fetched - loadPins recomputes overlap too.
+  // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
+  // re-fetched - loadPins recomputes overlap too.
   if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) loadPins();
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
   renderComposer();
-  $('#composer').scrollTop = 0; // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
+  // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
+  $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
-  // Drag -> straight into the note field - the popover's by the box while it is open (sel-popover.js), else the composer's. Never
-  // focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and page.
+  // Drag -> straight into the note field - the popover's by the box while it is open (sel-popover.ts), else the
+  // composer's. Never focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and
+  // page.
   if (LAST_PTR === 'mouse') (selPopOpen() ? SEL_POP_FIELD : $('#note')).focus({ preventScroll: true });
-  // If [핀 저장] was pressed while pick was still slow (~1.1s), the queued save runs here (COMPOSE.current has just been filled in).
+  // If [핀 저장] was pressed while the pick was still running, the queued save runs here (COMPOSE.current has just been
+  // filled in).
   if (COMPOSE.pendingSave) {
     clearPendingSave();
     savePin();
   }
 }
-// docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (COMPOSE.current) overlaps an open pin, one representative is chosen and a "append" banner
-// is drawn. Never auto-merged - the user picks between [메모에 덧붙이기]/[별도 핀으로 저장].
-// Overlap is recomputed against this tab's PINS every time the range changes (drag/level switch/up-down). Computing
-// it only once at pick time meant switching levels to produce the exact same range as an existing pin never showed
-// the banner, and a duplicate pin got saved (observed). The rule matches the server's selection_rel (a regression
-// test compares them): equal (same range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
+// docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (COMPOSE.current) overlaps an open pin, one
+// representative is chosen and a "append" banner is drawn. Never auto-merged - the user picks between [메모에
+// 덧붙이기]/[별도 핀으로 저장]. Overlap is recomputed against this tab's PINS every time the range changes (drag/level
+// switch/up-down). Counted only once at pick time, a level switch to the exact range of an existing pin would show no
+// banner and save a duplicate pin. The rule matches the server's selection_rel (a test compares them): equal (same
+// range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
 function rangeRelation(first, last, pinFirst, pinLast) {
   if (last < pinFirst || pinLast < first) return null;
   if (first === pinFirst && last === pinLast) return RANGE_REL.EQUAL;
@@ -274,7 +285,8 @@ function overlapsFor(selection, pins) {
   });
   return out;
 }
-// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap (the smallest id).
+// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
+// (the smallest id).
 function pickOverlap(overlaps) {
   if (!overlaps || !overlaps.length) return null;
   const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
@@ -289,8 +301,9 @@ function pickOverlap(overlaps) {
   if (partials.length) return partials.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
   return null;
 }
-// Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침'.
-// The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range as open pin #4'.
+// Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를
+// 감쌈' - '#4와 일부 겹침'. The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range
+// as open pin #4'.
 function overlapText(rel, id) {
   const template =
     {
@@ -301,22 +314,22 @@ function overlapText(rel, id) {
     }[rel] || '열린 핀 #{id}{p} 겹칩니다';
   return tl(template, { id, p: rel === RANGE_REL.CONTAINS ? josa(id, '을', '를') : josa(id, '과', '와') });
 }
-// [별도 핀으로 저장] turns off "that relationship with that pin" (id:rel). Re-announced if changing the range changes the
-// relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
+// [별도 핀으로 저장] turns off "that relationship with that pin" (id:rel). Re-announced if changing the range changes
+// the relationship, and reset on a fresh drag (pick), so one press never silences it for every later selection.
 
 function recomputeOverlap() {
   if (COMPOSE.current) COMPOSE.current.overlaps = overlapsFor(COMPOSE.current, PINS);
 }
-// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for - or
-// null without one, and once the author chose [따로 저장] for it.
+// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
+// or null without one, and once the author chose [따로 저장] for it.
 function appendTarget(): { id: number; lo: number; hi: number; rel: string } | null {
   const selection = COMPOSE.current,
     overlap = selection ? pickOverlap(selection.overlaps) : null;
   return overlap && COMPOSE.dismissedOverlap !== overlap.id + ':' + overlap.rel ? overlap : null;
 }
-// Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (diagnosis P2: three lines
-// took 72px above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its tooltip) and the two
-// actions with short names; elsewhere the sentence with the lines and the two full-named buttons.
+// Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (three lines would
+// take too much room above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its
+// tooltip) and the two actions with short names; elsewhere the sentence with the lines and the two full-named buttons.
 /** Render the current overlap choice; its append control shares the composer's in-flight submission lock. The assignee
  *  row and the preview line follow it (renderAssignNew): while an append is on offer they say what it does. */
 function renderOverlapBanner() {
@@ -335,7 +348,8 @@ function renderOverlapBanner() {
   const text = one
     ? html`<span class="ov-t" data-tip="${full}">${overlapShort(overlap.rel, overlap.id)}</span>`
     : html`<span>${overlapText(overlap.rel, overlap.id)} <span class="dim">(L${overlap.lo}-L${overlap.hi})</span></span>`;
-  // A suggested edit belongs to this selection's lines and is saved with a new pin only: while one is written, [덧붙이기] waits.
+  // A suggested edit belongs to this selection's lines and is saved with a new pin only: while one is written,
+  // [덧붙이기] waits.
   const isSuggesting = suggestPending(),
     appendTip = isSuggesting
       ? tr('제안 수정은 새 핀으로만 저장합니다 — 덧붙이려면 제안 수정을 끄세요')
@@ -348,7 +362,8 @@ function renderOverlapBanner() {
   );
   renderAssignNew();
 }
-// The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
+// The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침'
+// (the card badges' wording).
 function overlapShort(rel, id) {
   const template =
     { equal: '#{id}{p} 같은 범위', inside: '#{id} 범위 안', contains: '#{id}{p} 감쌈', partial: '#{id}{p} 일부 겹침' }[
@@ -358,10 +373,12 @@ function overlapShort(rel, id) {
 }
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated: the range
 // caption (rangeCap) under it says them, and the ladder's pressed segment. The dragged line goes into the description.
-// Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder and excerpt are hidden.
+// Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source
+// field. The range ladder and excerpt are hidden.
 function renderRegionComposer(selection) {
   $('#composer').classList.add('region');
-  // A selection made while cut off (offline.js offlinePick) has this shape and no file yet: its lines are found when it is sent.
+  // A selection made while cut off (offline.ts offlinePick) has this shape and no file yet: its lines are found when it
+  // is sent.
   $('#c-loc').textContent =
     (selection.name ? selection.name + ' · ' : '') + tl('쪽 {page} 영역', { page: selection.page });
   $('#c-loc').dataset.copy = (selection.name ? selection.name + ' ' : '') + '쪽 ' + selection.page;
@@ -393,10 +410,12 @@ function renderRegionComposer(selection) {
   renderSuggest(selection);
   drawSelPop();
 }
-// Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write - every change
-// of the selection (a pick, a level, a line set in the excerpt, a restore) passes through here. Its markup is in the order the
-// screen shows on every layout (docs/handbook/viewer.md §패널 정리), so Tab follows it.
-/** Render and persist the chosen location without enabling a new submission while another create or append is pending. */
+// Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write -
+// every change of the selection (a pick, a level, a line set in the excerpt, a restore) passes through here. Its markup
+// is in the order the screen shows on every layout (docs/handbook/viewer.md §패널 정리), so Tab follows it.
+/**
+ * Render and persist the chosen location without enabling a new submission while another create or append is pending.
+ */
 function renderComposer() {
   const selection = COMPOSE.current;
   if (!selection) return;
@@ -439,7 +458,8 @@ function renderComposer() {
   const pre = $('#c-snip');
   pre.className = 'wrap' + (SNIP_OPEN ? ' open' : '');
   pre.textContent = snipText(selection.snippet, SNIP_OPEN);
-  // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one long line wraps into several is common).
+  // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one
+  // long line wraps into several is common).
   const over = SNIP_OPEN || pre.scrollHeight > pre.clientHeight + 2,
     lineCount = String(selection.snippet || '').split('\n').length;
   pre.classList.toggle('clip', !SNIP_OPEN && over);
@@ -447,20 +467,20 @@ function renderComposer() {
   $('#c-expand').textContent = SNIP_OPEN
     ? tr('원문 접기')
     : tr('원문 펼치기') + (lineCount > 1 ? ' · ' + tl('{n}줄', { n: lineCount }) : '');
-  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (excerpt.js)
+  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (excerpt.ts)
   drawComposerQuote(selection);
-  renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (suggest.js)
+  renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (suggest.ts)
   drawSelPop(); // the popover by the box shows the same location
   mdSelMark(mdSelShown()); // the chosen lines on the Markdown surface (a re-place's candidate while it has one)
 }
-// ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자', issue #185)
-// The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range change
-// (the same object) keeps it open.
+// ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자')
+// The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range
+// change (the same object) keeps it open.
 let QUOTE_OPEN_SELECTION = null as Selection | null;
-// What a pick or a pin shows of its quote (the dragged PDF text, whitespace-normalized by the server): the text trimmed, or ''
-// for none - no text (a tap or a long press), a region (a view-only PDF or a figure region shows its text as the source
-// already) or a line of a figure document (its quote is the element's name, which the location line names). A document of
-// an unknown kind is a LaTeX one. Pure.
+// What a pick or a pin shows of its quote (the dragged PDF text, whitespace-normalized by the server): the text
+// trimmed, or '' for none - no text (a tap or a long press), a region (a view-only PDF or a figure region shows its
+// text as the source already) or a line of a figure document (its quote is the element's name, which the location line
+// names). A document of an unknown kind is a LaTeX one. Pure.
 function shownQuote(
   pickOrPin: { kind?: string; file?: string; pdf?: string; quote?: string } | null,
   docKind: string | undefined,
@@ -468,16 +488,17 @@ function shownQuote(
   if (!pickOrPin || isRegion(pickOrPin) || isFigureKind(docKind)) return '';
   return String(pickOrPin.quote || '').trim();
 }
-// The quote line's inside: the icon, a name for screen readers and the text. The line is the manuscript's text and is drawn
-// translate="no", so the name is put in the screen's language here (tr); it says where the text was chosen - in the PDF, or
-// in a document drawn in the browser (md: Markdown or text), which has none. A character in the text that would hide or
-// reorder it is in its box (ccHtml), and its tooltip names it (ccPlain). CSS cuts the text to one line until it is opened.
+// The quote line's inside: the icon, a name for screen readers and the text. The line is the manuscript's text and is
+// drawn translate="no", so the name is put in the screen's language here (tr); it says where the text was chosen - in
+// the PDF, or in a document drawn in the browser (drawnInBrowser: Markdown or text), which has none. A character in the
+// text that would hide or reorder it is in its box (ccHtml), and its tooltip names it (ccPlain). CSS cuts the text to
+// one line until it is opened.
 function quoteInner(quote: string, drawnInBrowser: boolean): Html {
   return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr(drawnInBrowser ? '문서에서 고른 글자' : 'PDF에서 고른 글자')}: </span><span class="q-t">${ccHtml(quote)}</span>`;
 }
-// Opens or folds a quote line (the composer's #c-quote or a card's .quote) where it is, without redrawing, so the focus stays
-// on it. Open, the whole text is on screen and the tooltip that repeated it goes; folded, it comes back. The state is kept
-// for the next draw: the composer's per selection (QUOTE_OPEN_SELECTION), a card's per pin (QUOTE_OPEN).
+// Opens or folds a quote line (the composer's #c-quote or a card's .quote) where it is, without redrawing, so the focus
+// stays on it. Open, the whole text is on screen and the tooltip that repeated it goes; folded, it comes back. The
+// state is kept for the next draw: the composer's per selection (QUOTE_OPEN_SELECTION), a card's per pin (QUOTE_OPEN).
 function toggleQuote(line: HTMLElement) {
   const open = line.getAttribute('aria-expanded') !== 'true',
     text = line.querySelector('.q-t');
@@ -493,8 +514,8 @@ function toggleQuote(line: HTMLElement) {
     else QUOTE_OPEN.delete(key);
   }
 }
-// The composer's quote line, right under the location line: shown for a LaTeX line pick with text, open if it was opened for
-// this selection. Nothing, and no gap, otherwise.
+// The composer's quote line, right under the location line: shown for a LaTeX line pick with text, open if it was
+// opened for this selection. Nothing, and no gap, otherwise.
 function drawComposerQuote(selection: Selection | null) {
   const line = $('#c-quote'),
     quote = shownQuote(selection, META ? META.kind : undefined);
@@ -511,9 +532,10 @@ function drawComposerQuote(selection: Selection | null) {
   if (open) delete line.dataset.tip;
   else line.dataset.tip = ccPlain(quote);
 }
-// When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
-// The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
-// The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).
+// When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet
+// collapses (the body comes forward again). The composer panel's pin kind (fix request / question). Reverts to fix
+// request on save or discard (the default for the next pin). The kind says what the note is, not who handles it: the
+// assignee does not follow it (mentions.ts).
 function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === KIND_REQ.QUESTION ? KIND_REQ.QUESTION : KIND_REQ.FIX);
@@ -524,15 +546,16 @@ function setKind(kind) {
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   });
-  segRove($('#c-kind')); // the group's one Tab stop is the kind now chosen (events.js)
+  segRove($('#c-kind')); // the group's one Tab stop is the kind now chosen (events.ts)
   $('#note').placeholder =
     KIND_NEW === KIND_REQ.QUESTION ? '무엇이 궁금한지 적어 주세요' : '메모: 여기를 어떻게 고칠지 (비워도 됩니다)';
   qHint($('#c-qhint'), $('#note').value, KIND_NEW);
   renderVerdictRow();
 } // a question takes no verdict
-// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in ?/? or a
-// Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
-// trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.
+// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
+// ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
+// bracket/quote and a trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind
+// itself.
 function looksQuestion(text) {
   let trimmed = String(text || '').trim();
   for (let i = 0; i < 3; i++)
@@ -541,15 +564,15 @@ function looksQuestion(text) {
       .replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
   return /[?？]$/.test(trimmed) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(trimmed);
 }
-// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. Never
-// auto-changes it - only changes on click (author feedback 2026-09-25: "...표현한 의도가 있는건가?" got saved as a fix
-// request). Disappears once it becomes a question or the text no longer reads like one.
+// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. It
+// never changes the kind itself - only a click does. It goes once the kind is a question or the text does not read like
+// one.
 function qHint(box, text, kind) {
   if (box) box.hidden = kind === KIND_REQ.QUESTION || !looksQuestion(text);
 }
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
-// discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the tablet sheet's
-// composing lift ends with the composer, also when an open edit card keeps the sheet open.
+// discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the
+// tablet sheet's composing lift ends with the composer, also when an open edit card keeps the sheet open.
 function cancelSelection(clearNote) {
   if (REPICK) cancelRepick();
   closeSelPop();
@@ -580,8 +603,10 @@ function cancelSelection(clearNote) {
   applySide();
   if (LAYOUT === LAYOUT_MODE.NARROW) applySheet();
 }
-// What a discarded or saved selection needs to come back (restoreSelection): the pick (COMPOSE.current), its box on the page, the note with its
-// @-tag hints, the kind, the assignee choice and the suggested edit's draft, and the document/build the box belongs to. null when there is no selection.
+// What a discarded or saved selection needs to come back (restoreSelection): the pick (COMPOSE.current), its box on the
+// page, the note with its
+// @-tag hints, the kind, the assignee choice and the suggested edit's draft, and the document/build the box belongs to.
+// null when there is no selection.
 function selectionSnapshot() {
   if (!COMPOSE.current && !COMPOSE.picking && $('#composer').hidden) return null;
   const noteField = $('#note');
@@ -598,10 +623,11 @@ function selectionSnapshot() {
     build: META && META.pages_build,
   };
 }
-// Brings a snapshot back - the undo of a discard or of a save: the note, kind, assignee and suggested edit always; the selection, its box and the
-// composer when they still belong to the pages on screen (same document and build; the box if its page is still there). Never over
-// a newer selection - that one wins. When only the note can come back (the PDF changed), the status line says so.
-// Returns whether anything came back. focus false: the note field does not take the focus (a late undo's answer, save.js).
+// Brings a snapshot back - the undo of a discard or of a save: the note, kind, assignee and suggested edit always; the
+// selection, its box and the composer when they still belong to the pages on screen (same document and build; the box
+// if its page is still there). Never over a newer selection - that one wins. When only the note can come back (the PDF
+// changed), the status line says so. Returns whether anything came back. focus false: the note field does not take the
+// focus (a late undo's answer, save.ts).
 function restoreSelection(snapshot, focus?: boolean) {
   if (!snapshot || COMPOSE.current || COMPOSE.picking || REPICK || !$('#composer').hidden) return false;
   const noteField = $('#note');
@@ -637,15 +663,16 @@ function restoreSelection(snapshot, focus?: boolean) {
   if (LAST_PTR === 'mouse' && focus !== false) noteField.focus({ preventScroll: true });
   return true;
 }
-// Whether the focus has nowhere left to stay: on <body>, or inside the composer or the popover by the box, which have just
-// closed (a field hidden under the focus may still report itself focused until the next layout).
-// What a late focusPlace checks against: this visit and the composer's intent, read just after the composer closed.
+// Whether the focus has nowhere left to stay: on <body>, or inside the composer or the popover by the box, which have
+// just closed (a field hidden under the focus may still report itself focused until the next layout). What a late
+// focusPlace checks against: this visit and the composer's intent, read just after the composer closed.
 function focusClosed() {
   return { visit: captureVisit(), intent: COMPOSE.intent };
 }
-// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is over
-// once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no compositionend (a switch
-// of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at the moment it is asked.
+// The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is
+// over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
+// compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
+// the moment it is asked.
 let COMPOSITION_ELEMENT = null as Element | null;
 addEventListener(
   'compositionstart',
@@ -679,15 +706,15 @@ function focusFell() {
   const focused = document.activeElement;
   return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
 }
-// Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so the next
-// Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved or appended to
-// (id) - its badge on the Markdown surface, its mark on a PDF page, where the save chip's [되돌리기] is the next Tab - else the
-// place selection d was made at: the line dragged or pressed first on the Markdown surface (raw_lo; the pick may have widened
-// to its block), its page on a PDF; else the document area. A place that is
-// no control holds the focus while it has it (focusHold). A focus the person has put elsewhere meanwhile stays, and so does
-// one in a composer opened since (a save's answer and the pins it reloads come later): with closed - the visit and the
-// composer's intent just after the close (focusClosed) - nothing moves unless both are still those, no composer or pick is
-// open and no input method's composition is (imeOpen).
+// Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so
+// the next Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved
+// or appended to (id) - its badge on the Markdown surface, its mark on a PDF page, where the save chip's [되돌리기] is
+// the next Tab - else the place the selection was made at: the line dragged or pressed first on the Markdown surface
+// (raw_lo; the pick may have widened to its block), its page on a PDF; else the document area. A place that is no
+// control holds the focus while it has it (focusHold). A focus the person has put elsewhere meanwhile stays, and so
+// does one in a composer opened since (a save's answer and the pins it reloads come later): with closed - the visit and
+// the composer's intent just after the close (focusClosed) - nothing moves unless both are still those, no composer or
+// pick is open and no input method's composition is (imeOpen).
 function focusPlace(
   selection: Selection | null | undefined,
   id: number | null,
@@ -711,8 +738,8 @@ function focusPlace(
   }
   focusHold(at && at.getClientRects().length ? at : $('#left'));
 }
-// Focuses el without scrolling; an element that takes no focus of its own takes it for as long as it has it (tabindex -1,
-// dropped on blur), as the PDF area does for a search (searchToPage).
+// Focuses target without scrolling; an element that takes no focus of its own takes it for as long as it has it
+// (tabindex -1, dropped on blur), as the PDF area does for a search (searchToPage).
 function focusHold(target: HTMLElement) {
   if (!target.hasAttribute('tabindex')) {
     target.tabIndex = -1;
@@ -720,11 +747,12 @@ function focusHold(target: HTMLElement) {
   }
   target.focus({ preventScroll: true });
 }
-// Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or its suggested edit
-// an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its place, the composer, is gone),
-// bringing back the selection, the note, the suggested edit and the box - an undo instead of a confirmation. The stored draft
-// stays for that window (a page left meanwhile still restores it) and is removed when the offer goes. A focus the closing
-// composer took with it goes to the place the selection stood (focusPlace).
+// Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or
+// its suggested edit an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its
+// place, the composer, is gone), bringing back the selection, the note, the suggested edit and the box - an undo
+// instead of a confirmation. The stored draft stays for that window (a page left meanwhile still restores it) and is
+// removed when the offer goes. A focus the closing composer took with it goes to the place the selection stood
+// (focusPlace).
 function discardSelection() {
   syncDraft();
   const snapshot = selectionSnapshot();

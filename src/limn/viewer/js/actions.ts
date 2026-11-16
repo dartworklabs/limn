@@ -1,6 +1,6 @@
-// [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with [되돌리기]
-// (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a banner on top
-// of the panel.
+// [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with
+// [되돌리기] (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a
+// banner on top of the panel.
 import {
   $,
   DOC,
@@ -71,15 +71,16 @@ async function closePin(id) {
   } catch (error) {}
   await loadPins();
 }
-// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes view's guide
-// line call this one function. Like a reply it is a deferred send: the card leaves the review section at once (CONFIRMING keeps
-// it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기] for NOTICE_MS and the request
-// goes when that row does; the undo puts the card back with nothing sent. The request names the close the card showed
-// (done_at), so a pin reopened and closed again in between answers 409 'conflict' instead of confirming a result nobody looked
-// at; a 409 'open' means it was reopened and is still open (docs/handbook/api.md §검토 대기). Both are banners on top of the
-// review section (confirmConflict).
+// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
+// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
+// once (CONFIRMING keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
+// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
+// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
+// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
+// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
 const CONFIRMING = new Set();
-// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts them (verdict.js).
+// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
+// them (verdict.ts).
 const CONFIRMING_PIN = new Map() as Map<number, Pin>;
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
@@ -89,12 +90,13 @@ function confirmConflictText(id, pin) {
     ? tl('핀 #{id} 은 이미 완료로 닫혔습니다 — 확인할 것이 없습니다', { id })
     : tl('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요', { id });
 }
-// What kind of banner that 409 conflict is, by the same rule as its text: closed again is a WARN that still asks for a look
-// ([변경 보기]); already done by a person is INFO with nothing to do. Pure.
+// What kind of banner that 409 conflict is, by the same rule as its text: closed again is a WARN that still asks for a
+// look ([변경 보기]); already done by a person is INFO with nothing to do. Pure.
 function confirmConflictKind(pin: Pin | null | undefined): string {
   return pin && pinState(pin) !== PIN_STATE.REVIEW ? NOTICE_KIND.INFO : NOTICE_KIND.WARN;
 }
-// Says a confirm answered 409 'conflict' in a banner on top of the review section (confirmConflictText, confirmConflictKind).
+// Says a confirm answered 409 'conflict' in a banner on top of the review section (confirmConflictText,
+// confirmConflictKind).
 function confirmConflict(id: number, pin: Pin | null | undefined) {
   const kind = confirmConflictKind(pin);
   bannerNote(
@@ -163,7 +165,7 @@ function confirmPin(id) {
     rec: pin,
   });
 }
-// Undo of [완료] (its row's [되돌리기]) - the viewer has no [다시 열기] button any more; a reply reopens by the server rule.
+// Undo of [완료] (its row's [되돌리기]). The viewer has no [다시 열기] button: a reply reopens by the server rule.
 // Silent: the card comes back. Resolves with whether the pin was reopened (the row waits for it, noticeAct).
 async function reopenPin(id: number): Promise<boolean> {
   let ok = false;
@@ -176,11 +178,12 @@ async function reopenPin(id: number): Promise<boolean> {
   await loadPins();
   return ok;
 }
-// [삭제] (a verdict pin's card: [지우기]) takes the pin off the list at once (no confirmation) and leaves a row in its place
-// with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's [되돌리기]:
-// silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs (the whole undo, so
-// the composer comes back too). o.say: the caller says the drop and offers its undo where it was pressed (a page line's
-// [판정 취소], verdict.js cancelLineVerdict), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
+// [삭제] (a verdict pin's card: [지우기]) takes the pin off the list at once (no confirmation) and leaves a row in its
+// place with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's
+// [되돌리기]: silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs
+// (the whole undo, so the composer comes back too). options.say: the caller says the drop and offers its undo where it
+// was pressed (a page line's [판정 취소], verdict.ts cancelLineVerdict), options.where is where a failure is said and
+// options.what what it names. Resolves with whether the pin was deleted.
 async function dropPin(
   id: number | null,
   undoSave: boolean,
@@ -198,7 +201,8 @@ async function dropPin(
   if (EDITOR.current && EDITOR.current.id === id) EDITOR.current = null;
   drawPins();
   marks();
-  markMine(id); // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
+  // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
+  markMine(id);
   const source = 'POST /api/pins/' + id + '/drop';
   try {
     await api('/api/pins/' + id + '/drop', {
@@ -228,8 +232,8 @@ async function dropPin(
     }
   }
   await loadPins();
-  // An answer lost on the way back: the list says whether the pin went. If it did the drop is done - its failure and its
-  // [다시 시도] (which would find nothing to drop) go, and it is said as done.
+  // An answer lost on the way back: the list says whether the pin went. If it did the drop is done - its failure and
+  // its [다시 시도] (which would find nothing to drop) go, and it is said as done.
   if (!ok && lost && !findAnyPin(id) && DROPPED.some((dropped) => dropped.id === id)) {
     ok = true;
     sourceOk(source);
@@ -248,8 +252,8 @@ async function dropPin(
   }
   return ok;
 }
-// [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out when that
-// row does (deferred, NOTICE_MS).
+// [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out
+// when that row does (deferred, NOTICE_MS).
 const PURGING = new Set();
 function purgePin(id) {
   const cardBefore = drawnBefore($('#trash-list'), '.arc-row', id);
@@ -277,10 +281,10 @@ function purgePin(id) {
   );
   deferredNote(pendingPurge, NOTICE_PLACE.TRASH, tl('핀 #{id} 영구 삭제', { id }), { pin: id, prev: cardBefore });
 }
-// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is there.
-// Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure says itself
-// where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the request is answered,
-// before the list reload (trashRestore's bound is the request's).
+// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is
+// there. Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure
+// says itself where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the
+// request is answered, before the list reload (trashRestore's bound is the request's).
 async function restorePin(id: number | null, settled?: () => void): Promise<boolean> {
   let ok = false;
   try {
@@ -300,12 +304,13 @@ async function restorePin(id: number | null, settled?: () => void): Promise<bool
   await loadPins();
   return ok;
 }
-// [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it without an
-// answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash while it is open, else
-// the list, else the status line - one title there, as noticeLate's), once per pin (its source). Closing the Trash takes it
-// out to where it can be seen, as the Trash's undo rows go to the status line. It goes when the request is answered - not
-// after the list reload, so a failure's banner, which takes its place, is never taken with it - and a focus on it (its [x])
-// goes to the row's [되살리기] (the reload then moves it on, trashRefocus), else into the Trash, else to the pages.
+// [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it
+// without an answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash
+// while it is open, else the list, else the status line - one title there, as noticeLate's), once per pin (its source).
+// Closing the Trash takes it out to where it can be seen, as the Trash's undo rows go to the status line. It goes when
+// the request is answered - not after the list reload, so a failure's banner, which takes its place, is never taken
+// with it - and a focus on it (its [x]) goes to the row's [되살리기] (the reload then moves it on, trashRefocus), else
+// into the Trash, else to the pages.
 async function trashRestore(id: number | null) {
   const source = NOTICE_LATE_SRC + 'restore:' + id,
     trash = $('#trash') as HTMLDialogElement;

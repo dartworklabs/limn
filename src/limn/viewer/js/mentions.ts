@@ -1,12 +1,12 @@
 // ------------------------------------------------ @-tag autocomplete (docs/handbook/viewer.md §@태그)
 // Typing '@' in the note/edit/reply field shows known people (PEOPLE, excluding me). Picking one inserts '@name ' and
-// remembers that login on the field (ta._mentions) with the place of its '@name' in the text (ta._tags), carried as a hint
-// (mentions) when sending - the server re-resolves it from the text. A hint belongs to its one '@name': an edit that
-// touches that tag drops it, so of two people with one name, deleting one's tag leaves only the other's hint. A field that
-// mirrors another's text (the note popover's field mirrors the composer's note, sel-popover.js) offers the same list, and
-// its tags are kept on the field it mirrors, which sends them (mentionModel). There is no external notification.
-// The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it), its people and the
-// highlighted row.
+// remembers that login on the field (field._mentions) with the place of its '@name' in the text (field._tags), carried
+// as a hint (mentions) when sending - the server re-resolves it from the text. A hint belongs to its one '@name': an
+// edit that touches that tag drops it, so of two people with one name, deleting one's tag leaves only the other's hint.
+// A field that mirrors another's text (the note popover's field mirrors the composer's note, sel-popover.ts) offers the
+// same list, and its tags are kept on the field it mirrors, which sends them (mentionModel). There is no external
+// notification. The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it),
+// its people and the highlighted row.
 import { $, ASSIGNEE_AGENT, KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, SAVE_MODE, imeKey, imeTail } from './core.ts';
 import { html, ic, setHtml } from './markup.ts';
 import { tl, tr } from './i18n.ts';
@@ -51,8 +51,8 @@ function mentionMatches(query, people, meLogin) {
     .slice(0, 6)
     .map((row) => row.p);
 }
-// The hints a send carries: the logins of the field's tags that are tags in its text now (an '@name' right after a letter
-// is none, as for the server; typing a new tag right before an old one makes one for a moment), in text order.
+// The hints a send carries: the logins of the field's tags that are tags in its text now (an '@name' right after a
+// letter is none, as for the server; typing a new tag right before an old one makes one for a moment), in text order.
 function mentionHints(field: HTMLTextAreaElement | null): string[] {
   if (!field) return [];
   const text = field.value;
@@ -77,8 +77,8 @@ function mentionTags(field: HTMLTextAreaElement): MentionTag[] {
   field._tagsFrom = field._mentions;
   return field._tags;
 }
-// Each of picks ({login, tok}) bound to the first '@name' (tok) in text that a tag can start at and no earlier pick took;
-// a pick whose name is not there is dropped. Pure.
+// Each of picks ({login, tok}) bound to the first '@name' (tok) in text that a tag can start at and no earlier pick
+// took; a pick whose name is not there is dropped. Pure.
 function mentionBind(picks: { login: string; tok: string }[], text: string): MentionTag[] {
   const taken = new Set(),
     out = [] as MentionTag[];
@@ -94,11 +94,11 @@ function mentionBind(picks: { login: string; tok: string }[], text: string): Men
   return out.sort((left, right) => left.at - right.at);
 }
 // The tags of old after an edit made it now, with the caret at caret afterwards: the edit is the one span where the two
-// differ. Typing, pasting and deleting leave the caret at its end, so of two equal '@name's the one at the caret is the one
-// edited; when the caret says otherwise (a script set the text) the smallest span is taken. A tag the edit overlapped, or
-// typed into, is dropped - its person is no longer named there - and a tag after it moves by what the edit added or took
-// away. A tag whose '@name' is not where it moved to is dropped too; one that a letter now precedes stays (it is no tag
-// until that letter goes: mentionHints). Pure.
+// differ. Typing, pasting and deleting leave the caret at its end, so of two equal '@name's the one at the caret is the
+// one edited; when the caret says otherwise (a script set the text) the smallest span is taken. A tag the edit
+// overlapped, or typed into, is dropped - its person is not named there - and a tag after it moves by what the edit
+// added or took away. A tag whose '@name' is not where it moved to is dropped too; one that a letter now precedes stays
+// (it is no tag until that letter goes: mentionHints). Pure.
 function mentionShift(tags: MentionTag[], old: string, now: string, caret: number): MentionTag[] {
   const minLength = Math.min(old.length, now.length);
   const span = (tail: number) => {
@@ -130,8 +130,8 @@ function mentionCommonStart(old: string, now: string): number {
   while (shared < minLength && old[shared] === now[shared]) shared++;
   return shared;
 }
-// Follows an edit of ta's text (an input event, or the note popover's text copied in): its tags move with the edit or
-// drop out, and its logins become theirs. caret is where the edit left the caret.
+// Follows an edit of the field's text (an input event, or the note popover's text copied in): its tags move with the
+// edit or drop out, and its logins become theirs. caret is where the edit left the caret.
 function mentionEdited(field: HTMLTextAreaElement, caret?: number) {
   const known = field._tags && field._tagsFrom === field._mentions && field._tagsFor != null;
   const tags = known
@@ -144,19 +144,19 @@ function mentionEdited(field: HTMLTextAreaElement, caret?: number) {
     : mentionTags(field);
   mentionKeep(field, tags);
 }
-// Stores tags as ta's own for its present text, with the logins they name (in text order) as ta._mentions.
+// Stores tags as the field's own for its present text, with the logins they name (in text order) as field._mentions.
 function mentionKeep(field: HTMLTextAreaElement, tags: MentionTag[]) {
   field._tags = tags;
   field._tagsFor = field.value;
   field._mentions = field._tagsFrom = tags.length ? new Set(tags.map((tag) => tag.login)) : null;
 }
-// The field that keeps ta's tags and sends them: the field ta mirrors (ta._mirrorOf, whose text ta's own listener keeps equal
-// to ta's), else ta itself.
+// The field that keeps a field's tags and sends them: the field it mirrors (field._mirrorOf, whose text the field's own
+// listener keeps equal to its own), else the field itself.
 function mentionModel(field: HTMLTextAreaElement): HTMLTextAreaElement {
   return field._mirrorOf || field;
 }
-// Shows m's text in each field that mirrors it. A mirror's own listeners copy only what is typed in m (an input event), and
-// a pick writes m's text from code.
+// Shows the model's text in each field that mirrors it. A mirror's own listeners copy only what is typed in the model
+// (an input event), and a pick writes the model's text from code.
 function mentionMirror(model: HTMLTextAreaElement) {
   document.querySelectorAll('textarea').forEach((mirror) => {
     if (mirror._mirrorOf === model && mirror.value !== model.value) mirror.value = model.value;
@@ -169,7 +169,8 @@ function mentionCurrent() {
   return !!query && query.start === MENTION.start && query.q === MENTION.q;
 }
 // An '@word' still being typed (the cursor sits at its end) is never flagged as '등록된 사람이 아님' yet - the warning
-// used to appear while still picking (QA 2026-09-25). It's flagged once the cursor leaves it or the field. If the same word appears earlier too (an already-finished '@word'), it's still flagged as usual.
+// would show while the person is still picking. It is flagged once the cursor leaves it or the field. If the same word
+// appears earlier too (an '@word' already finished), it is flagged as usual.
 function mentionBadSettled(bad, text, typing) {
   if (!typing) return bad;
   const typed = typing.q,
@@ -183,13 +184,14 @@ function mentionClose() {
 // The line below the input field: who will be notified on save (resolved @names) and any '@word' that won't resolve
 // ('not a registered person'). Since text can't be colored inside a textarea, this is previewed here instead - so it's
 // known before saving whether a tag will actually become a notification. It is the server's resolve_mentions() step for
-// step (tests/viewer/test_mentions_parity.py runs one corpus through both): hit is what the server records, in first-seen order.
+// step (src/limn/viewer/tests/test_mentions_parity.py runs one corpus through both): hit is what the server records, in
+// first-seen order.
 function mentionScan(text: string, hints?: Iterable<string>): { hit: string[]; bad: string[] } {
   return mentionResolve(text, hints || [], PEOPLE, false);
 }
-// mentionScan's reading over an explicit list of people. A name several people share tags those of them the hints name: in
-// the server's order (by login), or with byHint in the hints' own order - the order the text names them (mentionRemember),
-// which is what decides who was tagged first (assignOutcome). Pure.
+// mentionScan's reading over an explicit list of people. A name several people share tags those of them the hints name:
+// in the server's order (by login), or with byHint in the hints' own order - the order the text names them
+// (mentionKeep), which is what decides who was tagged first (assignOutcome). Pure.
 function mentionResolve(
   text: string,
   hints: Iterable<string>,
@@ -234,9 +236,9 @@ function mentionResolve(
   return { hit, bad };
 }
 // The server's mention_tokens(): [{t, lg:[login...]}], longest first. The candidates of a person are the full name, the
-// login, the login before '@' and the name's first word (when it has several), lower-cased; a candidate shorter than two
-// characters (code points, as Python counts) is none. The same candidate twice for one person is one entry ('Bob' for
-// bob@example.com), and a candidate several people share lists them all (sorted) - it then needs a hint.
+// login, the login before '@' and the name's first word (when it has several), lower-cased; a candidate shorter than
+// two characters (code points, as Python counts) is none. The same candidate twice for one person is one entry ('Bob'
+// for bob@example.com), and a candidate several people share lists them all (sorted) - it then needs a hint.
 function mentionTokens(people) {
   const by = new Map();
   (people || []).forEach((person) => {
@@ -255,8 +257,9 @@ function mentionTokens(people) {
     .sort((left, right) => [...right.t].length - [...left.t].length);
 }
 // The colleagues a note tags, in the order it first names them - whom an assignee row offers. A colleague is a resolved
-// @-tag that is not me (the server drops a tag of its author too), so an unresolved word, a tag taken out of the text and a
-// tag of myself are nobody. keep (an edit card's stored assignee) stays offered after its tag left the note. Pure.
+// @-tag that is not me (the server drops a tag of its author too), so an unresolved word, a tag taken out of the text
+// and a tag of myself are nobody. keep (an edit card's stored assignee) stays offered after its tag left the note.
+// Pure.
 function assignPeople(
   text: string,
   hints: Iterable<string>,
@@ -269,14 +272,14 @@ function assignPeople(
   return out;
 }
 // Assignee (docs/handbook/viewer.md §담당): what a save of the composer's note does. Every input is an argument - text,
-// kind (the request kind), hints (the logins picked from the @-list, in the order the text names them), people (the known
-// people), me (the author's login, null on the identity-less screen), mode and pick (the assignee row's state) - so the
-// preview line, the assignee row and the request all read one answer, worked out when each needs it.
-// - SAVE_MODE.NEW, a new pin: its assignee is the author's pick while that stands (kept: the agent, or a colleague the note
-//   still tags), else the first colleague the note tags, wherever the tag sits and whatever the kind, else the agent. told
-//   are the colleagues who are only notified - the assignee is told through the assignment.
-// - SAVE_MODE.APPEND, the note joins an existing pin: that pin's assignee (stored) and kind stay as they are, there is nobody
-//   to choose (people is empty), and every colleague the note tags is told.
+// kind (the request kind), hints (the logins picked from the @-list, in the order the text names them), people (the
+// known people), me (the author's login, null on the identity-less screen), mode and pick (the assignee row's state) -
+// so the preview line, the assignee row and the request all read one answer, worked out when each needs it.
+// - SAVE_MODE.NEW, a new pin: its assignee is the author's pick while that stands (kept: the agent, or a colleague the
+//   note still tags), else the first colleague the note tags, wherever the tag sits and whatever the kind, else the
+//   agent. told are the colleagues who are only notified - the assignee is told through the assignment.
+// - SAVE_MODE.APPEND, the note joins an existing pin: that pin's assignee (stored) and kind stay as they are, there is
+//   nobody to choose (people is empty), and every colleague the note tags is told.
 // Pure.
 function assignOutcome(inputs: {
   text: string;
@@ -302,7 +305,8 @@ function assignOutcome(inputs: {
     kept,
   };
 }
-// assignOutcome's inputs as the composer holds them at this moment, for a save in mode; an append reads the pin it joins.
+// assignOutcome's inputs as the composer holds them at this moment, for a save in mode; an append reads the pin it
+// joins.
 function composeAsk(mode: string): Parameters<typeof assignOutcome>[0] {
   const noteField = $('#note') as HTMLTextAreaElement,
     overlap = mode === SAVE_MODE.APPEND ? appendTarget() : null,
@@ -318,8 +322,8 @@ function composeAsk(mode: string): Parameters<typeof assignOutcome>[0] {
     stored: pin ? pin.assignee || null : null,
   };
 }
-// A person's name where the reader must tell people apart (an assignee row, the composer's preview line): the name, with the
-// login beside it for a name another known person shares - as the @-list shows every person (.ml).
+// A person's name where the reader must tell people apart (an assignee row, the composer's preview line): the name,
+// with the login beside it for a name another known person shares - as the @-list shows every person (.ml).
 function personLabel(login: string): Html {
   return nameShared(login) ? html`${peopleName(login)} <span class="ml">${login}</span>` : html`${peopleName(login)}`;
 }
@@ -328,10 +332,10 @@ function nameShared(login: string): boolean {
   const name = peopleName(login);
   return PEOPLE.some((person) => person.login !== login && person.name === name);
 }
-// The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its data-act.
-// The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full;
-// its scroll box is out of the Tab order as the ladder's is (levels.js drawLadder).
-// A segment's words are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
+// The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its
+// data-act. The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name
+// reads in full; its scroll box is out of the Tab order as the ladder's is (levels.ts drawLadder). A segment's words
+// are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
 function assigneeRowHtml(people: string[], value: string, act: string): Html {
   if (!people.length) return html``;
   const opt = (text, label, tip) =>
@@ -352,15 +356,16 @@ function assigneeRowHtml(people: string[], value: string, act: string): Html {
   );
   return html`<span class="as-lab">${tr('담당')}</span><div class="seg lad as-seg" data-reveal="whole" tabindex="-1"><div class="lad-t">${agent}${others}</div></div>`;
 }
-// The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time the note
-// changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the save carries
-// (mentionHints), so they offer exactly whom the server tags.
+// The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time
+// the note changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the
+// save carries (mentionHints), so they offer exactly whom the server tags.
 const ASSIGN_NEW = { v: ASSIGNEE_AGENT, touched: false };
-// Draws the composer's assignee row and the preview line from the note as it is now (assignOutcome), and drops a pick whose
-// person left the note. No row without a tagged colleague - the agent has the pin - and none while the note would join an
-// existing pin (appendTarget): an append keeps that pin's assignee, so the row would choose nothing. Before the people list
-// has arrived (PEOPLE_KNOWN) no pick is dropped: a draft restored at boot keeps its pick until its person can be looked up
-// (loadPeople draws the row again). savePin() does not read what is settled here: it asks assignOutcome itself.
+// Draws the composer's assignee row and the preview line from the note as it is now (assignOutcome), and drops a pick
+// whose person left the note. No row without a tagged colleague - the agent has the pin - and none while the note would
+// join an existing pin (appendTarget): an append keeps that pin's assignee, so the row would choose nothing. Before the
+// people list has arrived (PEOPLE_KNOWN) no pick is dropped: a draft restored at boot keeps its pick until its person
+// can be looked up (loadPeople draws the row again). savePin() does not read what is settled here: it asks
+// assignOutcome itself.
 function renderAssignNew() {
   const noteField = $('#note'),
     box = $('#c-assign');
@@ -377,15 +382,15 @@ function renderAssignNew() {
     segRove(box);
     segKeep(box, at);
     segReveal(box.querySelector('.as-seg'));
-  } // one Tab stop, and the focus kept (events.js)
+  } // one Tab stop, and the focus kept (events.ts)
   else {
     box.hidden = true;
     box.replaceChildren();
   }
   mentionPreview(noteField);
 }
-// The edit card's assignee row: the stored assignee stays pressed until the author changes it - a stored pin never takes the
-// new pin's default.
+// The edit card's assignee row: the stored assignee stays pressed until the author changes it - a stored pin never
+// takes the new pin's default.
 function renderAssignEdit() {
   const card = EDITOR.current;
   if (!card) return;
@@ -404,23 +409,24 @@ function renderAssignEdit() {
   segRove(box);
   segKeep(box, at);
   segReveal(box.querySelector('.as-seg'));
-} // one Tab stop, and the focus kept (events.js)
-// The preview line under a mention field: what sending the text does. The composer's note says who handles the pin first -
-// '담당' and the assignee the save sends (assignOutcome, SAVE_MODE.NEW) - then '알림' and the people who are only notified:
-// the assignee is told through the assignment and is not listed again. While the note may also join an existing pin
-// (appendTarget - the overlap notice's [덧붙이기]) the line says only what each action changes: '알림' and everyone the
-// note tags, whom appending tells, then - once a colleague is tagged - ' · 따로 저장하면 담당' and the assignee a separate
-// save sends. Appending leaves that pin's assignee as it is, so the line says nothing of it. The two are groups (.m-grp)
-// that never break inside: the line breaks only after the separator, which ends the first, and a group wider than the
-// line cuts its names with an ellipsis (their whole text stays). An edit or a reply assigns nobody and lists whom it notifies. Hidden while the text
-// has no '@' word to report.
+} // one Tab stop, and the focus kept (events.ts)
+// The preview line under a mention field: what sending the text does. The composer's note says who handles the pin
+// first - '담당' and the assignee the save sends (assignOutcome, SAVE_MODE.NEW) - then '알림' and the people who are
+// only notified: the assignee is told through the assignment and is not listed again. While the note may also join an
+// existing pin (appendTarget - the overlap notice's [덧붙이기]) the line says only what each action changes: '알림' and
+// everyone the note tags, whom appending tells, then - once a colleague is tagged - ' · 따로 저장하면 담당' and the
+// assignee a separate save sends. Appending leaves that pin's assignee as it is, so the line says nothing of it. The
+// two are groups (.m-grp) that never break inside: the line breaks only after the separator, which ends the first, and
+// a group wider than the line cuts its names with an ellipsis (their whole text stays). An edit or a reply assigns
+// nobody and lists whom it notifies. Hidden while the text has no '@' word to report.
 function mentionPreview(field) {
   if (!field) return;
   const box = field.nextElementSibling;
   if (!box || !box.classList.contains('m-preview')) return;
   const scan = mentionScan(field.value, mentionHints(field)),
     me = meLogin(); // the same hints the save/send carries
-  const focused = document.activeElement as HTMLTextAreaElement | null; // ta, or a field that mirrors it, being typed in
+  // the field, or a field that mirrors it, being typed in
+  const focused = document.activeElement as HTMLTextAreaElement | null;
   scan.bad = mentionBadSettled(
     scan.bad,
     field.value,
@@ -490,9 +496,9 @@ ${avatar(person)}<span>${person.name}</span><span class="ml">${person.login}</sp
   pop.hidden = false;
   mentionPlace();
 }
-// Puts the open @-list by its field (mentionTop; the note popover's field: mentionRoom, which may cut the list, keeping its
-// highlighted row in view), inside the window's width. Also run when the field moves under the list (the note popover
-// follows its box: placeSelPop).
+// Puts the open @-list by its field (mentionTop; the note popover's field: mentionRoom, which may cut the list, keeping
+// its highlighted row in view), inside the window's width. Also run when the field moves under the list (the note
+// popover follows its box: placeSelPop).
 function mentionPlace() {
   const field = MENTION.ta,
     pop = $('#mention-pop');
@@ -519,17 +525,16 @@ function mentionPlace() {
     ? Math.min(selected.offsetTop, Math.max(was, selected.offsetTop + selected.offsetHeight - pop.clientHeight))
     : was;
 }
-// The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], the note
-// popover by the box [자세히 →][저장], composer panel [취소][핀 저장].
+// The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], the
+// note popover by the box [자세히 →][저장], composer panel [취소][핀 저장].
 function mentionGuard(field) {
   const box = field.closest('.reply-box,.edit,#sel-pop');
   return box ? box.querySelector('.r-acts,.e-acts,.sp-acts') : field.id === 'note' ? $('#c-actions') : null;
 }
-// The @-list's top (docs/handbook/viewer.md §@태그). A spot that never covers the action row (guard) is chosen in this order -
-// (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the action row
-// (4) if nothing fits, below the input field (the old spot; the note popover's field takes mentionRoom instead). A reply
-// field has [취소][보내기] right below it, so (1) never fits and (2) is used instead (the list used to cover both buttons,
-// QA 2026-09-25).
+// The @-list's top (docs/handbook/viewer.md §@태그). A spot that never covers the action row (guard) is chosen in this
+// order - (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the
+// action row (4) if nothing fits, below the input field (the note popover's field takes mentionRoom instead). A reply
+// field has [취소][보내기] right below it, so (1) never fits there and (2) keeps the list off both buttons.
 function mentionTop(fieldRect, guardRect, listHeight, top, bottom) {
   const gap = 4,
     limit = guardRect && guardRect.top >= fieldRect.bottom ? Math.min(bottom, guardRect.top) : bottom;
@@ -538,9 +543,10 @@ function mentionTop(fieldRect, guardRect, listHeight, top, bottom) {
   if (guardRect && guardRect.bottom + gap + listHeight <= bottom) return guardRect.bottom + gap;
   return Math.max(top + gap, Math.min(fieldRect.bottom + gap, bottom - listHeight - gap));
 }
-// The @-list's spot by the note popover's field, whose action row g ([자세히 →][저장]) it never covers: mentionTop's spot
-// when one of (1)-(3) holds all h px of the list (max null). Otherwise (a short window) not mentionTop's (4), which covers
-// the field and that row, but the roomiest of (1)-(3), the list cut to its room (max px; the list scrolls). Pure.
+// The @-list's spot by the note popover's field, whose action row ([자세히 →][저장]) it never covers: mentionTop's spot
+// when one of (1)-(3) holds all listHeight px of the list (max null). Otherwise (a short window) not mentionTop's (4),
+// which covers the field and that row, but the roomiest of (1)-(3), the list cut to its room (max px; the list
+// scrolls). Pure.
 function mentionRoom(
   fieldRect: { top: number; bottom: number },
   guardRect: { top: number; bottom: number } | null,
@@ -562,12 +568,12 @@ function mentionRoom(
     fitted = Math.max(0, Math.floor(roomiest.room));
   return { top: roomiest.up ? roomiest.edge - fitted : roomiest.edge, max: fitted };
 }
-// Inserts the picked person as '@name ' at the cursor, remembers the login as a hint with the place of its tag (the tags
-// after it move along) on the field's model (mentionModel: a mirror field's text goes to the field it mirrors, which keeps
-// the tags), shows the text in the fields that mirror the model, and refreshes what depends on the model (the preview, the
-// assignee, the reply outcome; the note's draft). When the caret no longer ends the '@word' the list was drawn for (it
-// moved, and no keyup or click has redrawn the list yet), nothing is inserted - the name would land where the caret went,
-// spliced into the text - and the list follows the caret instead.
+// Inserts the picked person as '@name ' at the cursor, remembers the login as a hint with the place of its tag (the
+// tags after it move along) on the field's model (mentionModel: a mirror field's text goes to the field it mirrors,
+// which keeps the tags), shows the text in the fields that mirror the model, and refreshes what depends on the model
+// (the preview, the assignee, the reply outcome; the note's draft). When the caret has left the end of the '@word' the
+// list was drawn for (it moved, and no keyup or click has redrawn the list yet), nothing is inserted - the name would
+// land where the caret went, spliced into the text - and the list follows the caret instead.
 function mentionApply(index) {
   const field = MENTION.ta,
     person = MENTION.items[index];
@@ -609,7 +615,8 @@ const isMentionField = (target) =>
     target.classList.contains('e-note') ||
     target.classList.contains('r-text') ||
     !!target._mirrorOf);
-// A mirror field's own listener has copied its text and the edit into its model (sel-popover.js); here it only gets the list.
+// A mirror field's own listener has copied its text and the edit into its model (sel-popover.ts); here it only gets the
+// list.
 document.addEventListener('input', (event) => {
   const field = event.target as HTMLTextAreaElement;
   if (!isMentionField(field)) return;
@@ -638,7 +645,7 @@ window.addEventListener(
     if (imeKey(event)) {
       if (imeTail(event)) event.preventDefault();
       return;
-    } // the Enter that ended a composition neither picks nor breaks the line (core.js)
+    } // the Enter that ended a composition neither picks nor breaks the line (core.ts)
     const count = MENTION.items.length;
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       if (!count) return;
@@ -659,9 +666,9 @@ window.addEventListener(
   },
   true,
 );
-// When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at that point
-// (a mirror field's: its model's preview), and an open list follows the caret: it is drawn again for the '@word' the caret
-// now ends, or closes when there is none.
+// When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at
+// that point (a mirror field's: its model's preview), and an open list follows the caret: it is drawn again for the
+// '@word' the caret now ends, or closes when there is none.
 ['keyup', 'click', 'focusout'].forEach((eventType) =>
   document.addEventListener(eventType, (event) => {
     const field = event.target as HTMLTextAreaElement;

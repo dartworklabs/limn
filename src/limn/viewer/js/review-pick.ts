@@ -1,9 +1,10 @@
-// ------------------------------------------------ Confirming several pins awaiting review from their result rows (ADR-0035)
+// ------------------------------------------- Confirming several pins awaiting review from their result rows (ADR-0035)
 // The review section's [골라서 확인] (#review-pick) turns its cards into result rows: a box with #N and the place, the
-// badges, what was asked, what the agent said (its explanation, reference and changed lines) and [변경 보기]. A person ticks
-// the rows whose result they have read and confirms them together with [N건 확인] in the section head's second line
-// (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed again
-// since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the rules.
+// badges, what was asked, what the agent said (its explanation, reference and changed lines) and [변경 보기]. A person
+// ticks the rows whose result they have read and confirms them together with [N건 확인] in the section head's second
+// line (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed
+// again since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the
+// rules.
 import {
   $,
   DONE_ALL,
@@ -37,18 +38,18 @@ import { drawPins, jumpToCard, listReview, loadPins, marks, orderPins } from './
 import { CONFIRMING, CONFIRMING_PIN } from './actions.ts';
 import type { Html } from './markup.ts';
 
-// The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a close
-// with none). null while the section shows cards.
+// The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
+// close with none). null while the section shows cards.
 let RV_PICK = null as Map<number, string> | null;
 
-// Whether pin p's row shows a result a person can have read: the agent's explanation or the lines it changed. A row without
-// one cannot be ticked - that pin is confirmed from its card (ADR-0035 D2). Pure.
+// Whether a pin's row shows a result a person can have read: the agent's explanation or the lines it changed. A row
+// without one cannot be ticked - that pin is confirmed from its card (ADR-0035 D2). Pure.
 function showsResult(pin: Pin): boolean {
   return !!String(pin.close_reply || '').trim() || (Array.isArray(pin.changes) && pin.changes.length > 0);
 }
 
-// The changed lines of p's close, short: '바뀐 줄 L33-L35', with the file's name first when the first range is in another
-// file than the pin's, and '+N' for the ranges after it. '' when the close names none. Pure.
+// The changed lines of a pin's close, short: '바뀐 줄 L33-L35', with the file's name first when the first range is in
+// another file than the pin's, and '+N' for the ranges after it. '' when the close names none. Pure.
 function changedLinesText(pin: Pin): string {
   const changes = Array.isArray(pin.changes) ? pin.changes : [];
   if (!changes.length) return '';
@@ -72,8 +73,8 @@ function canPickReviews(list: Pin[]): boolean {
   return canConfirmReview() && list.length >= 2 && list.some(showsResult);
 }
 
-// One result row of pin p (the review section while it picks). Its box is named by its first line (#N · place · page) and
-// described by its explanation. The explanation folds at six lines as a thread post does (msgBody, [더 보기]); the
+// One result row of a pin (the review section while it picks). Its box is named by its first line (#N · place · page)
+// and described by its explanation. The explanation folds at six lines as a thread post does (msgBody, [더 보기]); the
 // reference and the changed lines are a line under it, each kept whole. A row with no result has its box disabled and
 // offers [카드에서 확인] on its first line, beside [변경 보기].
 function resultRow(pin: Pin): Html {
@@ -151,8 +152,9 @@ function findPickFocus(): { sel: string; i: number } | null {
   }
   return focused.closest('#rv-bar') && focused.id ? { sel: '#' + CSS.escape(focused.id), i: 0 } : null;
 }
-// Gives the focus back after a redraw to what findPickFocus found (k: the same place among its kind, else the first), or -
-// that gone or disabled - to [골라서 확인], else to the section's toggle. Only when the redraw dropped the focus to the page.
+// Gives the focus back after a redraw to what findPickFocus found (the same place among its kind, else the first), or -
+// that gone or disabled - to [골라서 확인], else to the section's toggle. Only when the redraw dropped the focus to the
+// page.
 function restorePickFocus(kept: { sel: string; i: number } | null) {
   const focused = document.activeElement;
   if (!kept || (focused && focused !== document.body)) return;
@@ -168,10 +170,10 @@ function restorePickFocus(kept: { sel: string; i: number } | null) {
   to.focus({ preventScroll: true });
 }
 
-// Draws the review section's rows while it picks, and its head's button and bar either way; drawPins calls it with the pins
-// the section lists. A pick that can no longer be (one pin left, no row with a result, no right to confirm) or whose rows
-// are folded away (the section collapsed) ends here, and a tick on a pin that left the list or lost its result goes.
-// Returns whether it drew rows (else drawPins draws the cards).
+// Draws the review section's rows while it picks, and its head's button and bar either way; drawPins calls it with the
+// pins the section lists. A pick that cannot go on (one pin left, no row with a result, no right to confirm) or whose
+// rows are folded away (the section collapsed) ends here, and a tick on a pin that left the list or lost its result
+// goes. Returns whether it drew rows (else drawPins draws the cards).
 function rvDraw(list: Pin[]): boolean {
   const can = canPickReviews(list),
     keep = RV_PICK ? findPickFocus() : null;
@@ -198,8 +200,8 @@ function rvDraw(list: Pin[]): boolean {
   return !!RV_PICK;
 }
 
-// Starts (on) or ends picking. Starting opens a collapsed section (and keeps it open, as [검토 M] does), brings the section
-// to the top of the list and gives the focus to [모두 고르기]; ending gives it back to [골라서 확인].
+// Starts (on) or ends picking. Starting opens a collapsed section (and keeps it open, as [검토 M] does), brings the
+// section to the top of the list and gives the focus to [모두 고르기]; ending gives it back to [골라서 확인].
 function rvPick(on: boolean) {
   RV_PICK = on ? new Map() : null;
   if (on && !SEC.review) {
@@ -207,12 +209,14 @@ function rvPick(on: boolean) {
     savePrefs({ sec: SEC });
   }
   drawPins();
-  if (on) $('#sec-review').scrollIntoView({ block: 'start' }); // the section, not its head: a stuck head is where it is shown already and would not scroll
+  // the section, not its head: a stuck head is where it is shown already and would not scroll
+  if (on) $('#sec-review').scrollIntoView({ block: 'start' });
   const target = (on ? $('#rv-all') : $('#review-pick')) as HTMLElement | null;
   if (target && target.getClientRects().length) target.focus({ preventScroll: true });
 }
 
-// [카드에서 확인] on a row with no result: the pick ends and the list goes to that pin's card, unfolded, the focus on its [확인].
+// [카드에서 확인] on a row with no result: the pick ends and the list goes to that pin's card, unfolded, the focus on
+// its [확인].
 function rvToCard(id: number) {
   rvPick(false);
   OPEN_CARDS.add(id);
@@ -224,8 +228,8 @@ function rvToCard(id: number) {
   if (confirmButton) confirmButton.focus({ preventScroll: true });
 }
 
-// A box was ticked or cleared: a row's records the done_at its row shows now (ADR-0035 D3); [모두 고르기] ticks every row with
-// a result the section lists, or clears them.
+// A box was ticked or cleared: a row's records the done_at its row shows now (ADR-0035 D3); [모두 고르기] ticks every
+// row with a result the section lists, or clears them.
 function tickResultBox(box: HTMLInputElement) {
   if (!RV_PICK) return;
   const list = listReviewShown();
@@ -241,14 +245,16 @@ function tickResultBox(box: HTMLInputElement) {
   drawPins();
 }
 
-// The review pins the section lists now - the same filter drawPins uses ([나를 부른 핀], else the document or [모든 문서]).
+// The review pins the section lists now - the same filter drawPins uses ([나를 부른 핀], else the document or [모든
+// 문서]).
 function listReviewShown(): Pin[] {
   return MENTION_ONLY ? REVIEW_ALL.filter(mentionsMe) : listReview();
 }
 
-// [N건 확인]: the ticked pins leave the section at once and the rest stay picking; one undo row stands at the section's top
-// for NOTICE_MS - the section is brought to the top of the list so it shows - and gets the focus. When it goes (or the
-// page is hidden) every confirm is sent at once (sendConfirms); its [되돌리기] sends nothing and puts the pins back (undoConfirms).
+// [N건 확인]: the ticked pins leave the section at once and the rest stay picking; one undo row stands at the section's
+// top for NOTICE_MS - the section is brought to the top of the list so it shows - and gets the focus. When it goes (or
+// the page is hidden) every confirm is sent at once (sendConfirms); its [되돌리기] sends nothing and puts the pins back
+// (undoConfirms).
 function rvConfirm() {
   if (!RV_PICK) return;
   const items = [...RV_PICK]
@@ -293,9 +299,9 @@ function rvConfirm() {
 }
 
 // The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had. While the
-// section picks - also a new pick started meanwhile - their ticks join the ticks it has, and the focus goes to [N건 확인];
-// otherwise they come back as cards and the focus goes to [골라서 확인]. A pin gone from that list meanwhile is not brought
-// back; one deleted elsewhere is said so.
+// section picks - also a new pick started meanwhile - their ticks join the ticks it has, and the focus goes to [N건
+// 확인]; otherwise they come back as cards and the focus goes to [골라서 확인]. A pin gone from that list meanwhile is
+// not brought back; one deleted elsewhere is said so.
 function undoConfirms(items: { pin: Pin; at: string }[], where: Map<number, number>, ticks: Map<number, string>) {
   const back: Pin[] = [],
     lost: number[] = [];
@@ -315,7 +321,8 @@ function undoConfirms(items: { pin: Pin; at: string }[], where: Map<number, numb
   if (RV_PICK) for (const pin of back) RV_PICK.set(pin.id, ticks.get(pin.id) || '');
   drawPins();
   marks();
-  const to = (RV_PICK ? $('#rv-go') : $('#review-pick')) as HTMLElement | null; // the undo row that had the focus is gone
+  // the undo row that had the focus is gone
+  const to = (RV_PICK ? $('#rv-go') : $('#review-pick')) as HTMLElement | null;
   if (to && to.getClientRects().length && !(to as HTMLButtonElement).disabled) to.focus({ preventScroll: true });
   if (lost.length)
     lineNote(
@@ -324,10 +331,10 @@ function undoConfirms(items: { pin: Pin; at: string }[], where: Map<number, numb
     );
 }
 
-// What the server did with one confirm. CLOSED_AGAIN: closed again since the row was ticked (409 conflict, still awaiting
-// review); DONE_BY_PERSON: closed straight to done meanwhile (409 conflict, done); REOPENED: reopened (409 open); GONE: no
-// such pin (200 ok:false); REFUSED: any other refusal (its text); UNREACHED: no answer, or one that cannot be read - the
-// only one [다시 시도] sends again.
+// What the server did with one confirm. CLOSED_AGAIN: closed again since the row was ticked (409 conflict, still
+// awaiting review); DONE_BY_PERSON: closed straight to done meanwhile (409 conflict, done); REOPENED: reopened (409
+// open); GONE: no such pin (200 ok:false); REFUSED: any other refusal (its text); UNREACHED: no answer, or one that
+// cannot be read - the only one [다시 시도] sends again.
 const CONFIRM_OUTCOME = Object.freeze({
   OK: 'ok',
   CLOSED_AGAIN: 'closed-again',
@@ -363,13 +370,15 @@ function confirmOutcome(
       : { out: CONFIRM_OUTCOME.UNREACHED };
 }
 
-// How long one confirm may go unanswered before it is said as not sent (and offered to [다시 시도]); a confirm takes some
-// milliseconds. Without it one request the network holds kept every pin of the send out of the list and the banner unsaid.
+// How long one confirm may go unanswered before it is said as not sent (and offered to [다시 시도]); a confirm takes
+// some milliseconds. Without it one request the network holds would keep every pin of the send out of the list and the
+// banner unsaid.
 const CONFIRM_SEND_MS = 15000;
 // Sends the confirm of one pin with the done_at its row showed when ticked (keepalive, so a page being closed sends it)
-// and lets the pin go back to the lists as soon as it is answered, whatever the others do: off CONFIRMING, the next list
-// read shows it where the server has it. No answer within CONFIRM_SEND_MS ends the request as unreached - a retry of one that
-// did reach the server answers as already done, with the same done_at. Resolves with its outcome (confirmOutcome).
+// and lets the pin go back to the lists as soon as it is answered, whatever the others do: off CONFIRMING, the next
+// list read shows it where the server has it. No answer within CONFIRM_SEND_MS ends the request as unreached - a retry
+// of one that did reach the server answers as already done, with the same done_at. Resolves with its outcome
+// (confirmOutcome).
 function sendOneConfirm(pin: Pin, at: string): Promise<{ out: string; why?: string }> {
   const stop = new AbortController(),
     bound = setTimeout(() => stop.abort(), CONFIRM_SEND_MS);
@@ -393,10 +402,10 @@ function sendOneConfirm(pin: Pin, at: string): Promise<{ out: string; why?: stri
       return outcome;
     });
 }
-// Sends the confirms of items all at once (sendOneConfirm: every request starts in this call, so a page being closed sends them
-// all) and, once each is answered or given up, says what came of them: all done is said quietly; anything refused is one
-// banner on top of the review section that names each pin with why (confirmsBanner). The list is read again alongside, not
-// before: a read the network holds would keep the banner and its [다시 시도] unsaid.
+// Sends the confirms of items all at once (sendOneConfirm: every request starts in this call, so a page being closed
+// sends them all) and, once each is answered or given up, says what came of them: all done is said quietly; anything
+// refused is one banner on top of the review section that names each pin with why (confirmsBanner). The list is read
+// again alongside, not before: a read the network holds would keep the banner and its [다시 시도] unsaid.
 async function sendConfirms(items: { pin: Pin; at: string }[]) {
   const outs = await Promise.all(items.map(({ pin, at }) => sendOneConfirm(pin, at)));
   loadPins();
@@ -420,10 +429,10 @@ async function sendConfirms(items: { pin: Pin; at: string }[]) {
   bannerNote(NOTICE_HOST.REVIEW, said.msg, said.kind, act, { literal: true });
 }
 
-// The banner for a send whose confirms did not all go through, or null when they did: 'N건 중 K건 확인 — ' and, per kind,
-// the pins and why, joined by ' · ' (one dash: the banner shows what is before it as its title and the rest as its
-// description). ERR when a pin did not reach the server, WARN when one was closed again, reopened, gone or refused, INFO
-// when the rest were only done by a person meanwhile. Pure.
+// The banner for a send whose confirms did not all go through, or null when they did: 'N건 중 K건 확인 — ' and, per
+// kind, the pins and why, joined by ' · ' (one dash: the banner shows what is before it as its title and the rest as
+// its description). ERR when a pin did not reach the server, WARN when one was closed again, reopened, gone or refused,
+// INFO when the rest were only done by a person meanwhile. Pure.
 function confirmsBanner(outcomes: { id: number; out: string; why?: string }[]): { msg: string; kind: string } | null {
   const of = (outcome: string) => outcomes.filter((result) => result.out === outcome),
     ids = (list: { id: number }[]) => list.map((result) => '#' + result.id).join(', ');
@@ -453,8 +462,8 @@ function confirmsBanner(outcomes: { id: number; out: string; why?: string }[]): 
 
 // [다시 시도]: the pins that did not reach the server, sent again at once with the same done_at - no second undo. A pin
 // being sent again, or one the lists read since show done or open, is left out; one the lists have not shown again yet
-// (their read still out) is sent, and the server answers by the done_at as it would have. Resolves once they are answered
-// and said, so the banner's button stays busy until then (noticeAct).
+// (their read still out) is sent, and the server answers by the done_at as it would have. Resolves once they are
+// answered and said, so the banner's button stays busy until then (noticeAct).
 function retryConfirms(items: { pin: Pin; at: string }[]): Promise<void> {
   const moved = (id: number) => [DONE_ALL, OPEN_ALL].some((list) => list.some((pin) => pin.id === id));
   const still = items.filter((item) => !CONFIRMING.has(item.pin.id) && !moved(item.pin.id));

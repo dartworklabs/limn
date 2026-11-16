@@ -1,9 +1,10 @@
-// ------------------------------------------------ The composer draft, kept per tab (docs/handbook/viewer.md §패널 정리)
-// A draft - the composer's selection, box, note, kind, assignee and suggested edit, or a note waiting for the next pick - is written to
-// sessionStorage on every edit (debounced 300ms, flushed when the page hides) under draftKey(label, document), so leaving the
-// page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot restores it (restoreDraft). Saving
-// clears it; a discard clears it once its undo window is over (DRAFT.holds has that document's undo). Only this tab sees it.
-// The tab owns the debounce timer and the active document's draft key; a discard's undo holds its own document's key.
+// ----------------------------------------------- The composer draft, kept per tab (docs/handbook/viewer.md §패널 정리)
+// A draft - the composer's selection, box, note, kind, assignee and suggested edit, or a note waiting for the next pick
+// - is written to sessionStorage on every edit (debounced 300ms, flushed when the page hides) under draftKey(label,
+// document), so leaving the page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot
+// restores it (restoreDraft). Saving clears it; a discard clears it once its undo window is over (DRAFT.holds has that
+// document's undo). Only this tab sees it. The tab owns the debounce timer and the active document's draft key; a
+// discard's undo holds its own document's key.
 import {
   $,
   ASSIGNEE_AGENT,
@@ -61,16 +62,16 @@ function holdDraftUntil(note: Notice) {
 function draftKey(label, doc) {
   return 'limnDraft:' + encodeURIComponent(label || '') + ':' + doc;
 }
-// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on this build,
-// 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null for nothing to keep,
-// another document, or another record version.
+// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
+// this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
+// for nothing to keep, another document, or another record version.
 function draftRestore(record, doc, build) {
   if (!record || record.v !== 1 || record.doc !== doc) return null;
   if (record.cur && record.build === build) return 'full';
   return String(record.note || '').trim() ? 'note' : null;
 }
-// The draft on screen now, or null: the open composer (with its pick, or a note while the pick is still running) or a note
-// kept in the hidden composer for the next pick.
+// The draft on screen now, or null: the open composer (with its pick, or a note while the pick is still running) or a
+// note kept in the hidden composer for the next pick.
 function draftRecord() {
   const noteField = $('#note'),
     open = !$('#composer').hidden,
@@ -125,7 +126,8 @@ function savedDraftSnapshot() {
     return null;
   }
 }
-// A returned visit may clear the original draft only while its restored selection and every unsaved field still match the submitted record.
+// A returned visit may clear the original draft only while its restored selection and every unsaved field still match
+// the submitted record.
 function restoredDraftOwns(snapshot) {
   const origin = DRAFT.origin;
   if (
@@ -154,7 +156,8 @@ function clearSavedDraft(snapshot) {
     if (sessionStorage.getItem(snapshot.key) === snapshot.value) sessionStorage.removeItem(snapshot.key);
   } catch (error) {}
 }
-// Finish one document's draft before a switch; later debounce and pagehide callbacks must not write it under the next document.
+// Finish one document's draft before a switch; later debounce and pagehide callbacks must not write it under the next
+// document.
 function parkDraft() {
   syncDraft();
   clearTimeout(DRAFT.timer);
@@ -180,12 +183,12 @@ addEventListener('pagehide', syncDraft);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) syncDraft();
 });
-// Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the next
-// press elsewhere. A full restore redraws the box and opens a collapsed panel or sheet (not remembered); a note-only one leaves
-// the note in the note field for the next pick. [버리기] is the usual discard (a full draft gets its undo; the draft goes once
-// that window is over). A pick the person made on this document while the boot was still reading the pins (a Markdown
-// document is drawn before they come) is newer than the kept one and stays: only the kept note comes into it, when its field
-// is still empty, and the kept selection and suggested edit are dropped.
+// Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the
+// next press elsewhere. A full restore redraws the box and opens a collapsed panel or sheet (not remembered); a
+// note-only one leaves the note in the note field for the next pick. [버리기] is the usual discard (a full draft gets
+// its undo; the draft goes once that window is over). A pick the person made on this document while the boot was still
+// reading the pins (a Markdown document is drawn before they come) is newer than the kept one and stays: only the kept
+// note comes into it, when its field is still empty, and the kept selection and suggested edit are dropped.
 function restoreDraft() {
   let record = null as any,
     raw = null as string | null;

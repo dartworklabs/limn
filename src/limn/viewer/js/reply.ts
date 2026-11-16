@@ -1,10 +1,10 @@
 // ------------------------------------------------ Reply input field (docs/handbook/viewer.md §스레드와 검토)
 // Only one input field is ever open. Its DOM is held on REPLY.el, and when drawPins() redraws cards, it's re-inserted
 // into .reply-slot - so the 5-second auto-sync redrawing the list never loses the draft text or cursor (focus is
-// restored too). There is one [답글] for every state: on a closed pin (awaiting review or done) the server decides whether the
-// reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with the same rule
-// (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false. Sending is deferred behind an
-// undo in the card, where the box was (deferredNote).
+// restored too). There is one [답글] for every state: on a closed pin (awaiting review or done) the server decides
+// whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
+// the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
+// Sending is deferred behind an undo in the card, where the box was (deferredNote).
 import {
   KIND_REQ,
   LOCAL_LOGIN,
@@ -45,17 +45,18 @@ function isHuman() {
     me.role !== ROLE.AGENT
   );
 }
-// Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
-// on a closed pin reopens it unless it tags a person or the pin is a question. mentioned = the post's resolved @-tags without me.
+// Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false)
+// wins; otherwise a person's reply on a closed pin reopens it unless it tags a person or the pin is a question.
+// mentioned = the post's resolved @-tags without me.
 function replyReopens(pin: Pin, human: boolean, mentioned: string[], override?: boolean | null) {
   if (pinState(pin) === PIN_STATE.OPEN) return false;
   if (override !== undefined && override !== null) return !!override;
   if (pin.kind_req === KIND_REQ.QUESTION || !human) return false;
   return !(mentioned && mentioned.length);
 }
-// The outcome line: {text, toggle}, or null for an open pin (a reply never changes it). toggle names the one rare override the box
-// offers: 'keep' ([상태 유지], reopen:false) where the rule would reopen, 'reopen' ([다시 열기], reopen:true) where it keeps a closed pin
-// as it is. flip = that toggle is pressed.
+// The outcome line: {text, toggle}, or null for an open pin (a reply never changes it). toggle names the one rare
+// override the box offers: 'keep' ([상태 유지], reopen:false) where the rule would reopen, 'reopen' ([다시 열기],
+// reopen:true) where it keeps a closed pin as it is. flip = that toggle is pressed.
 function replyPreview(pin: Pin | null, human: boolean, mentioned: string[], flip: boolean) {
   if (!pin || pinState(pin) === PIN_STATE.OPEN) return null;
   const mentions = mentioned || [];
@@ -85,8 +86,8 @@ function replyPlaceholder(pin: Pin | null, human: boolean, flip: boolean) {
       : '답글 (⌘/Ctrl+Enter 보내기)',
   );
 }
-// After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while the
-// undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
+// After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while
+// the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
 function replyServerNote(id, predicted, data) {
   if (!data || !data.ok || !!data.reopened === !!predicted) return null;
   if (data.reopened) return tl('#{id} 은 그사이 닫혀서 이 답글이 다시 열었습니다', { id });
@@ -95,8 +96,9 @@ function replyServerNote(id, predicted, data) {
     : tl('#{id} 은 다시 열리지 않고 답글로만 남았습니다', { id });
 }
 // The post's @-tags that count as asking a person: without me and without agent-role accounts (as the server's rule).
-// Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the same hints,
-// so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will do (PR #11 review).
+// Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the
+// same hints, so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will
+// do.
 function replyMentioned(field) {
   const me = meLogin();
   return mentionScan(field.value, new Set(mentionHints(field))).hit.filter(
@@ -116,7 +118,7 @@ function createReplyBox(pin: Pin | null) {
   );
   return box;
 }
-// The text field of reply box R (createReplyBox puts exactly one in every box).
+// The text field of a reply box (createReplyBox puts exactly one in every box).
 function replyNote(replyBox: ReplyBox): HTMLTextAreaElement {
   return replyBox.el.querySelector('textarea') as HTMLTextAreaElement;
 }
@@ -158,7 +160,9 @@ function renderReplyOutcome() {
   );
   flipButton.setAttribute('aria-checked', String(!!replyBox.flip));
 }
-/** Focus the existing box, or open pin id with copied draft hints and a reset override; expand the panel for a new box. */
+/**
+ * Focus the existing box, or open pin id with copied draft hints and a reset override; expand the panel for a new box.
+ */
 function openReply(id) {
   if (REPLY && REPLY.id === id) {
     const field = replyNote(REPLY);
@@ -182,7 +186,9 @@ function openReply(id) {
   field.focus();
   (REPLY as ReplyBox).el.scrollIntoView({ block: 'nearest' });
 }
-/** Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing. */
+/**
+ * Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing.
+ */
 function closeReply(redraw?) {
   if (!REPLY) return;
   const field = replyNote(REPLY);
@@ -214,9 +220,9 @@ function sendReply() {
   if (hints.length) body.mentions = hints;
   if (flip && pin && pinState(pin) !== PIN_STATE.OPEN && replyBox.toggle) body.reopen = replyBox.toggle === 'reopen';
   const reopens = !!pin && replyReopens(pin, isHuman(), replyMentioned(field), body.reopen);
-  // Back into the box - after [되돌리기], or with an inline error when sending failed, so the draft is visibly kept. That
-  // error line (an alert) is the one place a failed send is said; with the box off screen (the panel closed) the status line
-  // says it instead (rule 1).
+  // Back into the box - after [되돌리기], or with an inline error when sending failed, so the draft is visibly kept.
+  // That error line (an alert) is the one place a failed send is said; with the box off screen (the panel closed) the
+  // status line says it instead (rule 1).
   const back = (err) => {
     if (REPLY_VISITS.get(id) !== visit) {
       if (err)
