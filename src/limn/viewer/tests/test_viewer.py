@@ -753,9 +753,9 @@ class FrontendMobileStructure(unittest.TestCase):
         for ev in ("pointermove", "pointerup", "pointercancel"):
             self.assertIn("window.addEventListener('%s'" % ev, HTML)
         self.assertIn(sq("if(mouse||SELMODE)"), SCRIPT_SQ)  # mouse still drags like before, regardless of mode
-        self.assertIn(sq("if(!e.isPrimary){cancelDrag()"), SCRIPT_SQ)  # a second finger (pinch) drops the selection
+        self.assertIn(sq("if(!event.isPrimary){cancelDrag()"), SCRIPT_SQ)  # a second finger (pinch) drops the selection
         self.assertNotIn(
-            sq("window.addEventListener('mouseup',e=>{if(!DRAG)"), SCRIPT_SQ
+            sq("window.addEventListener('mouseup',event=>{if(!DRAG)"), SCRIPT_SQ
         )  # no old mouse-only path remains
         self.assertIn("function quickPick(", HTML)
         self.assertIn("LONGPRESS_MS", HTML)
@@ -780,11 +780,11 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("document.addEventListener('contextmenu'", HTML)
 
     def test_keyboard_and_resize_hooks(self):
-        self.assertIn(sq("vv.addEventListener('resize',onViewport)"), SCRIPT_SQ)
+        self.assertIn(sq("viewport.addEventListener('resize',onViewport)"), SCRIPT_SQ)
         self.assertIn("new ResizeObserver(", HTML)
         body = sq(js_fn_body("relayout"))
         self.assertIn("topAnchor()", body)
-        self.assertIn("restoreAnchor(a)", body)
+        self.assertIn("restoreAnchor(anchor)", body)
 
     def test_page_images_lazy(self):
         self.assertIn('<img loading="lazy"', HTML)
@@ -811,7 +811,7 @@ class FrontendVector(unittest.TestCase):
         body = self.fn("vecOpen")
         self.assertIn("'/pdf?build='+encodeURIComponent(build)", body)
         self.assertIn("build=META.pages_build", body)
-        self.assertIn("doc.numPages!==n", body)  # not used if the page count differs
+        self.assertIn("doc.numPages!==pageCount", body)  # not used if the page count differs
         # close the old document after a rebuild. PDFDocumentProxy has no destroy (observed: 'old.destroy is not a function').
         self.assertIn("vecClose(old)", body)
         self.assertIn("doc.loadingTask.destroy()", self.fn("vecClose"))
@@ -819,7 +819,7 @@ class FrontendVector(unittest.TestCase):
 
     def test_stale_doc_detached_before_awaiting_new_pdf(self):
         # on a cache miss from a different document/rebuild, VEC.doc is left empty until the fetch
-        # finishes — so a vecRun queued in the meantime by IntersectionObserver can't touch the old
+        # finishes — so a runDrawJob queued in the meantime by IntersectionObserver can't touch the old
         # PDFDocumentProxy with a now-wrong page number (cross-document contamination, or getting stuck
         # on PNG via 'Invalid page request').
         body = self.fn("vecOpen")
@@ -828,15 +828,15 @@ class FrontendVector(unittest.TestCase):
         i_fetch = body.index("await fetch(")
         self.assertLess(i_if, i_null)
         self.assertLess(i_null, i_fetch)
-        self.assertIn("if(prev&&!vecCached(prev))vecClose(prev)", body)
+        self.assertIn("if(previousDoc&&!isVectorCached(previousDoc))vecClose(previousDoc)", body)
         # old might already be null (cleared above) — vecClose(null) must not be called without a null guard
-        self.assertIn("if(old&&old!==doc&&!vecCached(old))vecClose(old)", body)
+        self.assertIn("if(old&&old!==doc&&!isVectorCached(old))vecClose(old)", body)
 
     def test_fallback_to_png_on_any_failure(self):
         boot = self.fn("vecBoot")
-        self.assertIn(sq("catch(e){VEC.lib=null; vecFail("), sq(boot))
+        self.assertIn(sq("catch(error){VEC.lib=null; vecFail("), sq(boot))
         self.assertIn("vecFail('PDF 를 벡터로 열지 못했습니다'", self.fn("vecOpen"))
-        run = self.fn("vecRun")
+        run = self.fn("runDrawJob")
         self.assertIn("RenderingCancelledException", run)  # a cancellation is not a failure
         self.assertIn("vecFail('쪽을 그리지 못했습니다'", run)
         fail = self.fn("vecFail")
@@ -852,8 +852,8 @@ class FrontendVector(unittest.TestCase):
         obs = self.fn("vecObserve")
         self.assertIn("new IntersectionObserver(", obs)
         self.assertIn("root:$('#left'),rootMargin:VEC_KEEP", obs)
-        self.assertIn("vecRelease(n)", obs)
-        self.assertIn(sq("cv.width=0; cv.height=0"), sq(self.fn("vecDrop")))
+        self.assertIn("releasePageCanvases(pageNumber)", obs)
+        self.assertIn(sq("canvas.width=0; canvas.height=0"), sq(self.fn("dropCanvas")))
         self.assertIn("vecObserve()", self.fn("buildDoc"))
         ref = self.fn("refreshDoc")
         self.assertIn("vecReleaseAll()", ref)  # canvases drawn from the old PDF are removed
@@ -898,18 +898,18 @@ class FrontendVectorLogic(unittest.TestCase):
 
     def test_vecopen_stale_doc_not_touched_while_new_pdf_is_fetching(self):
         """The observed case: vecOpen() is called for a new 27-page document while VEC.doc still points at the old
-        one-page document. VEC.doc is null before the fetch finishes, so vecNextJob() pulls no work, and nothing queued
+        one-page document. VEC.doc is null before the fetch finishes, so nextDrawJob() pulls no work, and nothing queued
         in the meantime calls the old doc.getPage (which throws here); the search hooks vecOpen() calls are stubbed."""
         js = "\n".join(
             [
-                "const VEC_CACHE_MAX=3;",
-                extract_js_fn("vecCacheKey"),
-                extract_js_fn("vecCachePut"),
-                extract_js_fn("vecCached"),
+                "const VECTOR_CACHE_MAX=3;",
+                extract_js_fn("vectorCacheKey"),
+                extract_js_fn("cacheVectorDocument"),
+                extract_js_fn("isVectorCached"),
                 extract_js_fn("vecForget"),
                 extract_js_fn("vecClose"),
                 extract_js_fn("vecCancel"),
-                extract_js_fn("vecNextJob"),
+                extract_js_fn("nextDrawJob"),
                 extract_js_fn("vecOpen"),
                 "function isMdDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (md-surface.js)
                 r"""
@@ -939,7 +939,7 @@ class FrontendVectorLogic(unittest.TestCase):
             const results={};
             results.docNulledBeforeFetch=(VEC.doc===null);
             results.oldClosedImmediately=oldClosed;
-            results.noJobWhileDocNull=(vecNextJob()===null);
+            results.noJobWhileDocNull=(nextDrawJob()===null);
 
             resolveFetch({ok:true, arrayBuffer:()=>Promise.resolve(new ArrayBuffer(8))});
             setTimeout(()=>{
@@ -962,13 +962,13 @@ class FrontendVectorLogic(unittest.TestCase):
     def test_detail_region_cover_check(self):
         js = "\n".join(
             [
-                extract_js_fn("vecCovers"),
+                extract_js_fn("regionCovers"),
                 "const reg={x:0.1,y:0.2,w:0.5,h:0.3}; const out=[];",
-                "out.push(vecCovers(reg,{x:100,y:200,w:500,h:300,cw:1000,ch:1000}));",
-                "out.push(vecCovers(reg,{x:150,y:250,w:100,h:100,cw:1000,ch:1000}));",
-                "out.push(vecCovers(reg,{x:50,y:250,w:100,h:100,cw:1000,ch:1000}));",
-                "out.push(vecCovers(reg,{x:150,y:250,w:100,h:300,cw:1000,ch:1000}));",
-                "out.push(vecCovers(null,{x:0,y:0,w:1,h:1,cw:10,ch:10}));",
+                "out.push(regionCovers(reg,{x:100,y:200,w:500,h:300,cw:1000,ch:1000}));",
+                "out.push(regionCovers(reg,{x:150,y:250,w:100,h:100,cw:1000,ch:1000}));",
+                "out.push(regionCovers(reg,{x:50,y:250,w:100,h:100,cw:1000,ch:1000}));",
+                "out.push(regionCovers(reg,{x:150,y:250,w:100,h:300,cw:1000,ch:1000}));",
+                "out.push(regionCovers(null,{x:0,y:0,w:1,h:1,cw:10,ch:10}));",
                 "console.log(JSON.stringify(out));",
             ]
         )
@@ -982,20 +982,22 @@ class FrontendZoom(unittest.TestCase):
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
         # a Markdown document's text zooms with the browser (isMdDoc): the wheel is left alone there
         self.assertIn(
-            sq("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey)||isMdDoc())return; e.preventDefault();"),
+            sq(
+                "pdfArea.addEventListener('wheel',event=>{if(!(event.ctrlKey||event.metaKey)||isMdDoc())return; event.preventDefault();"
+            ),
             SCRIPT_SQ,
         )
-        self.assertIn(sq("{passive:false}"), sq(js_call("L.addEventListener('wheel'")))
-        i = SCRIPT_SQ.index(sq("L.addEventListener('wheel'"))
+        self.assertIn(sq("{passive:false}"), sq(js_call("pdfArea.addEventListener('wheel'")))
+        i = SCRIPT_SQ.index(sq("pdfArea.addEventListener('wheel'"))
         # PDF area only — sidebar wheel scrolling is left alone
-        self.assertIn(sq("const L=$('#left')"), SCRIPT_SQ[i - 500 : i])
-        self.assertIn(sq("zoomTo(K*f,pt[0],pt[1])"), SCRIPT_SQ)  # anchored to the pointer
+        self.assertIn(sq("const pdfArea=$('#left')"), SCRIPT_SQ[i - 500 : i])
+        self.assertIn(sq("zoomTo(K*factor,wheelPoint[0],wheelPoint[1])"), SCRIPT_SQ)  # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
         for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
-            self.assertIn(sq("L.addEventListener('%s'" % ev), SCRIPT_SQ)
-        blk = sq(js_call("L.addEventListener('touchstart'"))
-        self.assertIn("e.touches.length!==2", blk)
+            self.assertIn(sq("pdfArea.addEventListener('%s'" % ev), SCRIPT_SQ)
+        blk = sq(js_call("pdfArea.addEventListener('touchstart'"))
+        self.assertIn("event.touches.length!==2", blk)
         self.assertIn("cancelDrag();cancelLP();", blk)  # a pinch discards the in-progress selection/long-press
         self.assertIn("{passive:false}", blk)
 
@@ -1011,11 +1013,11 @@ class FrontendZoom(unittest.TestCase):
         under the pointer (anchor taken before the scale changes, restored after)."""
         self.assertIn(sq("const ZOOM_MIN=0.5,ZOOM_MAX=5"), SCRIPT_SQ)
         setk = sq(js_fn_body("setK"))
-        self.assertIn("wBounds(fitWidth(),m*PT_PX)", setk)
+        self.assertIn("widthBounds(fitWidth(),widest*PT_PX)", setk)
         self.assertNotIn("2200", setk)
         zt = sq(js_fn_body("zoomTo"))
-        self.assertLess(zt.index("zoomAnchor(cx,cy)"), zt.index("setK(k)"))
-        self.assertLess(zt.index("setK(k)"), zt.index("zoomRestore(a)"))
+        self.assertLess(zt.index("zoomAnchor(clientX,clientY)"), zt.index("setK(scale)"))
+        self.assertLess(zt.index("setK(scale)"), zt.index("zoomRestore(anchor)"))
 
 
 class FrontendZoomLogic(unittest.TestCase):
@@ -1054,16 +1056,16 @@ class FrontendZoomLogic(unittest.TestCase):
         self.assertLess(out[6], 1.2)  # dy split into small increments never exceeds one step per event
 
     def test_width_bounds_are_half_to_five_times_fit_and_hold_the_print_size(self):
-        """wBounds(fit, actual): the widest page's width stays within half to five times the fitted width (at least
+        """widthBounds(fit, actual): the widest page's width stays within half to five times the fitted width (at least
         160px), widened to hold its print size - so [100%] is in reach on a screen wide enough to fit a page more than
         twice over, for a page more than five times as wide as the screen and for a page under 160px (72pt, 96px). The
         limits are not rounded: a rounded one put the print size a fraction of a pixel out of reach."""
         js = "\n".join(
             [
                 "const ZOOM_MIN=0.5,ZOOM_MAX=5;",
-                extract_js_fn("wBounds"),
-                "console.log(JSON.stringify([wBounds(956,816),wBounds(370,816),wBounds(100,816),wBounds(2000,816),",
-                " wBounds(300,4000),wBounds(956,96),wBounds(2101,696.32)]));",
+                extract_js_fn("widthBounds"),
+                "console.log(JSON.stringify([widthBounds(956,816),widthBounds(370,816),widthBounds(100,816),widthBounds(2000,816),",
+                " widthBounds(300,4000),widthBounds(956,96),widthBounds(2101,696.32)]));",
             ]
         )
         self.assertEqual(
@@ -1206,7 +1208,7 @@ class FrontendMobileLogic(unittest.TestCase):
         point on a figure document: +-0.4 % of the page width by +-0.4 % of its height, a rectangle on a page that is
         not square (here 400 x 600); both are clamped to the page at every corner. The half-widths are the page's own
         (selection.js), not numbers this test repeats."""
-        consts = js_const("c01") + js_const("LONGPRESS_MS")
+        consts = js_const("clampUnit") + js_const("LONGPRESS_MS")
         js = "\n".join(
             [
                 consts,
@@ -1221,7 +1223,7 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("quickPick"),
                 "quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660);"
                 " META={kind:'figure'}; quickPick(pg,300,350); quickPick(pg,90,40); quickPick(pg,510,660);"
-                " console.log(JSON.stringify([out,[QUICK_W,QUICK_H,QUICK_FIG]]));",
+                " console.log(JSON.stringify([out,[QUICK_HALF_WIDTH,QUICK_HALF_HEIGHT,QUICK_FIGURE_HALF]]));",
             ]
         )
         out, (quick_w, quick_h, quick_fig) = json.loads(run_node(js))
@@ -1465,8 +1467,10 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         tag = re.search(r'<div id="grip"[^>]*>', HTML).group(0)
         for part in ('role="separator"', 'aria-orientation="vertical"', 'tabindex="0"', 'aria-controls="right"'):
             self.assertIn(part, tag)
-        self.assertIn(sq("(function(){const g=$('#grip');\n  let D=", True), SCRIPT_SQ)  # the handle's own drag state
-        self.assertIn("g.setPointerCapture(e.pointerId)", HTML)
+        self.assertIn(
+            sq("(function(){const grip=$('#grip');\n  let drag=", True), SCRIPT_SQ
+        )  # the handle's own drag state
+        self.assertIn("grip.setPointerCapture(event.pointerId)", HTML)
         self.assertNotIn(sq("$('#grip').addEventListener('mousedown'"), SCRIPT_SQ)  # no old mouse-only path remains
         self.assertNotIn("body.compact #grip{display:none}", HTML)  # still visible in mid too
         self.assertIn("body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}", HTML)
@@ -1474,7 +1478,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
     def test_width_is_remembered_per_layout_and_relayout_keeps_anchor(self):
         self.assertIn(sq("function sideKey(){return LAYOUT===LAYOUT_MODE.MID?'sideMid':'side';}"), SCRIPT_SQ)
         side = sq(js_fn_body("setSideWidth"))
-        self.assertIn("savePrefs({[sideKey()]:w})", side)
+        self.assertIn("savePrefs({[sideKey()]:width})", side)
         self.assertIn("relayout()", side)
         body = sq(js_fn_body("relayout"))
         # the panel width must be settled first for the page width to match
@@ -1499,7 +1503,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
         self.assertIn(sq("case 'size-preset':sizePreset(Number(a.dataset.i))"), SCRIPT_SQ)
-        self.assertIn(sq("renderSizeSeg(); placeMore(); showSheet(d)"), SCRIPT_SQ)
+        self.assertIn(sq("renderSizeSeg(); placeMore(); showSheet(sheet)"), SCRIPT_SQ)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
         right = HTML[HTML.index('<div id="right">') : HTML.index('<div id="tip"')]
@@ -2666,10 +2670,10 @@ class FrontendDocs(unittest.TestCase):
         self.assertLess(body.index(sq("const t=e.target,inField=")), i)
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
-        self.assertIn(sq("const VEC_CACHE_MAX=3;"), SCRIPT_SQ)
-        put = extract_js_fn("vecCachePut")
-        self.assertIn(sq("while(c.size>VEC_CACHE_MAX)"), sq(put))
-        self.assertIn("vecClose(d)", put)
+        self.assertIn(sq("const VECTOR_CACHE_MAX=3;"), SCRIPT_SQ)
+        put = extract_js_fn("cacheVectorDocument")
+        self.assertIn(sq("while(cache.size>VECTOR_CACHE_MAX)"), sq(put))
+        self.assertIn("vecClose(cachedDoc)", put)
         sw = JS_UPDATE_STUBS + extract_js_fn("switchDoc")
         self.assertIn("saveView();", sw)
         self.assertIn("setHash(k)", sw)
@@ -2917,7 +2921,7 @@ class FrontendFigure(unittest.TestCase):
         its element itself."""
         self.node()
         js = "\n".join(
-            [extract_js_fn("elName"), extract_js_fn("elPathText")]
+            [extract_js_fn("elName"), extract_js_fn("elementPathText")]
             + [
                 r"""
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월'},root={id:'B2',path:['B2']};
@@ -2925,8 +2929,8 @@ class FrontendFigure(unittest.TestCase):
                         {level:'fig',lo:1,hi:40,label:'B2',el:root}];
             const merged=[{level:'el',lo:20,hi:30,label:'7월',merged:['el2'],el:cell},{level:'fig',lo:1,hi:40,label:'B2',el:root}];
             const box={id:'B9/x',path:['B9','B9/x'],part:'Box'};
-            console.log(JSON.stringify([elPathText({levels:full,el:cell,elSel:cell}),elPathText({levels:full,el:cell,elSel:full[1].el}),
-              elPathText({levels:merged,el:cell,elSel:cell}),elPathText({levels:[],el:box,elSel:box}),elPathText({levels:[],elSel:null})]));"""
+            console.log(JSON.stringify([elementPathText({levels:full,el:cell,elSel:cell}),elementPathText({levels:full,el:cell,elSel:full[1].el}),
+              elementPathText({levels:merged,el:cell,elSel:cell}),elementPathText({levels:[],el:box,elSel:box}),elementPathText({levels:[],elSel:null})]));"""
             ]
         )
         self.assertEqual(json.loads(run_node(js)), ["B2 › 달력 › 7월", "B2 › 달력", "B2 › B2/c › 7월", "B9 › Box", ""])
@@ -2938,7 +2942,7 @@ class FrontendFigure(unittest.TestCase):
         its id."""
         self.node()
         js = "\n".join(
-            [extract_js_fn("elName"), extract_js_fn("elPathText")]
+            [extract_js_fn("elName"), extract_js_fn("elementPathText")]
             + [
                 r"""
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월'},root={id:'B2',path:['B2']};
@@ -2946,12 +2950,12 @@ class FrontendFigure(unittest.TestCase):
             const aug={id:'B2/c/m08',path:['B2','B2/c','B2/c/m08'],label:'8월'};
             const names=['','달력','8월'];
             console.log(JSON.stringify([
-              elPathText({levels:merged,el:cell,elSel:cell,path_names:['','달력','7월']}),
-              elPathText({kind:'region',el:aug,elSel:aug,path_names:names}),
-              elPathText({kind:'region',el:aug,elSel:aug}),
-              elPathText({kind:'region',el:aug,elSel:aug,path_names:['','달력']}),
-              elPathText({kind:'region',el:aug,elSel:aug,path_names:[null,3,'8월']}),
-              elPathText({kind:'region',el:aug,elSel:aug,path_names:'달력'})]));"""
+              elementPathText({levels:merged,el:cell,elSel:cell,path_names:['','달력','7월']}),
+              elementPathText({kind:'region',el:aug,elSel:aug,path_names:names}),
+              elementPathText({kind:'region',el:aug,elSel:aug}),
+              elementPathText({kind:'region',el:aug,elSel:aug,path_names:['','달력']}),
+              elementPathText({kind:'region',el:aug,elSel:aug,path_names:[null,3,'8월']}),
+              elementPathText({kind:'region',el:aug,elSel:aug,path_names:'달력'})]));"""
             ]
         )
         self.assertEqual(
@@ -3012,7 +3016,7 @@ class FrontendFigure(unittest.TestCase):
         line, no box is no error."""
         self.node()
         js = "\n".join(
-            [extract_js_fn(n) for n in ("isFrac", "elName", "elPathText", "drawBox", "snapBox", "renderElement")]
+            [extract_js_fn(n) for n in ("isFrac", "elName", "elementPathText", "drawBox", "snapBox", "renderElement")]
             + [
                 r"""
             function pendingBadgeSide(){}   // the badge's side needs the page on screen (markBadgeRoom); not this test's
@@ -3072,7 +3076,7 @@ class FrontendFigure(unittest.TestCase):
             self.assertIn(sq("renderElement(selection,COMPOSE.box)"), sq(extract_js_fn(fn)), fn)
         self.assertIn(sq("selection.elSel=answer.el||null;"), sq(extract_js_fn("pick")))
         self.assertIn(sq("if(rung.el)owner.elSel=rung.el;"), sq(extract_js_fn("useLevel")))
-        for fn in ("elPathText", "snapBox", "renderElement"):
+        for fn in ("elementPathText", "snapBox", "renderElement"):
             self.assertNotIn("api(", extract_js_fn(fn), fn)
         parts = (PKG / "viewer" / "parts.txt").read_text(encoding="utf-8")
         self.assertLess(parts.index("js/levels.ts"), parts.index("js/figure.ts"))
@@ -3394,7 +3398,10 @@ class FrontendFigure(unittest.TestCase):
         list that is not four numbers is no box either."""
         self.node()
         js = "\n".join(
-            [extract_js_fn(n) for n in ("isFrac", "hasMark", "pinPlace", "elForSave", "figureFields", "claimActive")]
+            [
+                extract_js_fn(n)
+                for n in ("isFrac", "hasMark", "pinPlace", "elementForSave", "figureFields", "claimActive")
+            ]
             + [
                 r"""
             const b=figureFields({frac:[0.1,0.1,0.2,0.2]},{id:'x',path:['x'],frac:null},null);
@@ -3414,7 +3421,7 @@ class FrontendFigure(unittest.TestCase):
         keep the body's kind; a pick without an element is untouched."""
         self.node()
         js = "\n".join(
-            [extract_js_fn(n) for n in ("isFrac", "elForSave", "elKind", "figureFields")]
+            [extract_js_fn(n) for n in ("isFrac", "elementForSave", "elementKind", "figureFields")]
             + [
                 r"""
             const cell={id:'B2/c/m07',path:['B2','B2/c','B2/c/m07'],label:'7월',part:'MonthCell',
@@ -3454,7 +3461,7 @@ class FrontendFigure(unittest.TestCase):
         without a box and leaves the body's own frac alone."""
         self.node()
         js = "\n".join(
-            [extract_js_fn(n) for n in ("isFrac", "elForSave", "elKind", "figureFields")]
+            [extract_js_fn(n) for n in ("isFrac", "elementForSave", "elementKind", "figureFields")]
             + [
                 r"""
             const out=[];
@@ -3467,7 +3474,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [want] * 4)
 
     def test_el_kind_names_elements_like_the_server(self):
-        """The viewer's elKind() and the server's limn.builds.figure_map.element_kind() name the same elements the same
+        """The viewer's elementKind() and the server's limn.builds.figure_map.element_kind() name the same elements the same
         way: 'figure' for a page's root (with or without a part), 'el:<part>' below it with the part cut to 77
         characters, 'el:?' without a part."""
         self.node()
@@ -3494,7 +3501,7 @@ class FrontendFigure(unittest.TestCase):
                 {"id": "B2/c/y", "path": ["B2", "B2/c", "B2/c/y"], "part": "P" * 100},
             ),
         ]
-        js = extract_js_fn("elKind") + "\nconsole.log(JSON.stringify(%s.map(elKind)));" % json.dumps(
+        js = extract_js_fn("elementKind") + "\nconsole.log(JSON.stringify(%s.map(elementKind)));" % json.dumps(
             [c[2] for c in cases], ensure_ascii=False
         )
         self.assertEqual(json.loads(run_node(js)), [figure_map.element_kind(e, root) for e, root, _ in cases])
@@ -5839,7 +5846,7 @@ class SectionStrip(unittest.TestCase):
     """Exercise the section strip anchor and scroll fraction calculations."""
 
     def run_js(self, body):
-        out = run_node(extract_js_fn("outlineIndexAt") + "\n" + extract_js_fn("destFrac") + "\n" + body)
+        out = run_node(extract_js_fn("outlineIndexAt") + "\n" + extract_js_fn("destinationFraction") + "\n" + body)
         if out is None:
             self.skipTest("node is not installed")
         return json.loads(out)
@@ -5978,8 +5985,8 @@ class SectionStrip(unittest.TestCase):
 
     def test_dest_top_to_fraction(self):
         js = (
-            "console.log(JSON.stringify([destFrac([{},{name:'XYZ'},72,792,0],792),destFrac([{},{name:'XYZ'},72,396,0],792),"
-            "destFrac([{},{name:'Fit'}],792),destFrac([{},{name:'XYZ'},0,null,0],792),destFrac([{},{name:'XYZ'},0,900,0],792)]))"
+            "console.log(JSON.stringify([destinationFraction([{},{name:'XYZ'},72,792,0],792),destinationFraction([{},{name:'XYZ'},72,396,0],792),"
+            "destinationFraction([{},{name:'Fit'}],792),destinationFraction([{},{name:'XYZ'},0,null,0],792),destinationFraction([{},{name:'XYZ'},0,900,0],792)]))"
         )
         self.assertEqual(self.run_js(js), [0, 0.5, 0, 0, 0])
 

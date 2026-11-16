@@ -2138,7 +2138,9 @@ class FigureDocuments(BrowserBase):
         page.evaluate("discardSelection()")
         settle(page)
         self.assertEqual(page.evaluate("[COMPOSE.box, document.querySelectorAll('#doc .sel').length]"), [None, 0])
-        page.evaluate("showElementBox(); showElementHi(true)")  # a box that is gone: nothing to do, nothing thrown
+        page.evaluate(
+            "showElementBox(); highlightElementBox(true)"
+        )  # a box that is gone: nothing to do, nothing thrown
 
     def test_tapping_the_element_path_on_a_phone_flashes_the_box(self):
         """On touch nothing hovers: a tap on the path (its press area is 44px, the .hit utility) flashes the pending box."""
@@ -2229,7 +2231,7 @@ class FigureDocuments(BrowserBase):
         px, py = self.on_page(page, x + w / 2, y + h / 2)
         cdp = page.context.new_cdp_session(page)
         self.touch(cdp, "touchStart", [(px, py)])
-        page.wait_for_function("LP===null&&LP_PICKED!==null", timeout=8000)
+        page.wait_for_function("LONG_PRESS===null&&LONG_PRESS_PICKED!==null", timeout=8000)
         self.touch(cdp, "touchEnd", [])
         page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
         settle(page)

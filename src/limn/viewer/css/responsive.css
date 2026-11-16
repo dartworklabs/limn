@@ -31,7 +31,7 @@ body.mid-overlay.side-open #sel-mode{right:calc(var(--side-w,330px) + 8px)}
 body.selmode #sel-mode{box-shadow:inset 0 0 0 2px var(--primary)}
 #sel-bar{display:none;position:absolute;top:var(--space-2);left:var(--edge);right:var(--edge);width:fit-content;margin:0 auto;padding:var(--space-1);
   align-items:center;border-radius:var(--radius-lg);background:var(--primary);color:var(--primary-foreground);box-shadow:var(--shadow);
-  font-size:var(--text-lg);line-height:18px;pointer-events:auto;min-width:var(--sel-bar-w,0px)}   /* whole-pixel sides (selBarWidth) */
+  font-size:var(--text-lg);line-height:18px;pointer-events:auto;min-width:var(--sel-bar-w,0px)}   /* whole-pixel sides (selectModeBarWidth) */
 body.selmode #sel-bar{display:flex}
 #sel-bar .sb-ic{display:flex;flex:none;align-items:center;justify-content:center;width:var(--control-h-lg);height:var(--control-h-lg)}
 #sel-bar .sb-ic .ic{width:18px;height:18px}

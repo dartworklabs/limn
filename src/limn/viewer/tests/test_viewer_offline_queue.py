@@ -146,7 +146,9 @@ class OfflineQueueSend(unittest.TestCase):
         """A pin kept on a figure document is written with the element its pick names, as an online save is: the
         element (id, path, part, box), the element's box as the pin's own, and - where the default rung is the
         element's - its kind. A pin without it has nothing to follow when the element moves."""
-        figure = "\n".join(extract_js_fn(name) for name in ("isFrac", "elForSave", "elKind", "figureFields", "lvOf"))
+        figure = "\n".join(
+            extract_js_fn(name) for name in ("isFrac", "elementForSave", "elementKind", "figureFields", "lvOf")
+        )
         got = json.loads(
             run_node(
                 "\n".join(
@@ -1283,7 +1285,7 @@ var KEPT=null;   // the state store's kept record, as two tabs of one browser sh
 function offKept(){return Promise.resolve(copy(KEPT));}
 function offKeptUpdate(fn){const v=fn(copy(KEPT)); if(v)KEPT=copy(v); return Promise.resolve(v||null);}
 var QUEUE=[],QUEUE_DOWN=false;   // the pins store; QUEUE_DOWN: the read fails, as IndexedDB answers null
-function offTx(mode,fn){return Promise.resolve(QUEUE_DOWN?null:QUEUE.slice());}
+function offQueue(mode,fn){return Promise.resolve(QUEUE_DOWN?null:QUEUE.slice());}
 var CACHE=new Set(),FAIL=[],WORKER_DOWN=false,LOG=[],SLOW=[];
 function later(n,v){return n?new Promise(function(r){setImmediate(r);}).then(function(){return later(n-1,v);}):Promise.resolve(v);}
 function offlineAsk(msg){if(WORKER_DOWN)return Promise.resolve(null);

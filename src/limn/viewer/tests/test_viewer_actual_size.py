@@ -224,7 +224,7 @@ class ActualSize(BrowserBase):
           return {text: b.textContent.trim(), pressed: b.getAttribute('aria-pressed'), name: b.getAttribute('aria-label'),
             tip: b.dataset.tip, w: b.getBoundingClientRect().width};}"""
         before = page.evaluate(look)
-        pct = "%d%%" % page.evaluate("zoomPct(K)")
+        pct = "%d%%" % page.evaluate("zoomPercent(K)")
         self.assertNotEqual(pct, "100%")
         self.assertEqual(before["text"], pct)
         self.assertEqual(before["pressed"], "false")
@@ -266,7 +266,7 @@ class ActualSize(BrowserBase):
     def test_the_zoom_button_speaks_english(self):
         """In English the zoom button's name and tip say the same in English, with the zoom now."""
         page = self.open(0, lang="en", init=NO_COACH, **DESKTOP)
-        pct = "%d%%" % page.evaluate("zoomPct(K)")
+        pct = "%d%%" % page.evaluate("zoomPercent(K)")
         got = page.evaluate(
             "[document.querySelector('#btn-actual').getAttribute('aria-label'),"
             "document.querySelector('#btn-actual').dataset.tip]"

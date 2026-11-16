@@ -246,7 +246,7 @@ class ManyLinesWhileThePdfScrolls(SixtyFigurePages):
         page = self.on_fig()
         page.evaluate("setK(K, true)")  # a saved scale: a new window size keeps it
         settle(page)
-        self.assertIsNotNone(page.evaluate("savedK()"))
+        self.assertIsNotNone(page.evaluate("savedScale()"))
         margin = "() => [document.querySelector('#left').clientHeight, FAR_OBSERVER.rootMargin]"
         h, m = page.evaluate(margin)
         self.assertEqual(m, "%dpx 0px %dpx 0px" % (h, h))
