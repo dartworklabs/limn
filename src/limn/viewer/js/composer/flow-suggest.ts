@@ -5,32 +5,22 @@
 // that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
 // edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
 // diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
-import {
-  BAND,
-  DOC,
-  DOC_KIND,
-  LAYOUT_BAND,
-  META,
-  PIN_STATE,
-  SUGGEST_OFF,
-  SUGGEST_STATE,
-  isFigureKind,
-} from '../app/state.ts';
+import { BAND, DOC, META, isFigureKind } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { countAddedHidden, findHidden, markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { docInfo, withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { isViewer } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/flow-polling.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
-import { COMPOSE, renderOverlapBanner } from './flow-pick.ts';
+import { renderOverlapBanner, COMPOSE } from './flow-pick.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
 import { $ } from '../platform/dom.ts';
+import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;

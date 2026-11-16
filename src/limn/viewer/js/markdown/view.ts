@@ -35,13 +35,10 @@ import {
   IME_ON_FREE,
   LAST_POINTER,
   LAYOUT,
-  LAYOUT_MODE,
-  MARKDOWN_LIMIT,
   META,
   COARSE_POINTER_QUERY,
   PICKSEQ,
   PINS,
-  PIN_STATE,
   REPICK,
   REVIEW_ALL,
   SWITCHSEQ,
@@ -65,9 +62,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { endTopic } from '../platform/notices.ts';
 import { TIP, hideTip, showTip } from '../platform/tooltip.ts';
-import { docInfo, withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { drawPos, switchDoc, switchPending } from '../documents/flow-switch.ts';
-import { pinState } from '../documents/flow-polling.ts';
 import { tintChangedLines, compareRedrawnSource } from '../documents/flow-updates.ts';
 import {
   OUTLINE_SELECTED,
@@ -84,9 +79,7 @@ import {
 import { applySide, setSide } from '../layout/flow.ts';
 import { BACK } from '../layout/input.ts';
 import { revealBox, selectionRoom } from '../pdf/input-selection.ts';
-import { levelOf, lineRange, useLevel } from '../composer/view-levels.ts';
 import {
-  isTextDoc,
   srcLines,
   showTextHint,
   textLevels,
@@ -95,12 +88,16 @@ import {
   textNotice,
   buildTextView,
 } from '../text/view.ts';
-import { COMPOSE, focusFell, focusHold, imeOpen, overlapsFor, renderComposer, setBusy } from '../composer/flow-pick.ts';
+import { focusFell, focusHold, imeOpen, renderComposer, setBusy, COMPOSE } from '../composer/flow-pick.ts';
 import { endJumpForScroll, renderVerdictRow } from '../verdict/flow-line.ts';
 import { marks } from '../pins/flow-list.ts';
 import { bannerCompare } from '../composer/flow-repick.ts';
 import { NOTICE_TOPIC } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
+import { LAYOUT_MODE, MARKDOWN_LIMIT, PIN_STATE } from '../app/rules-tables.ts';
+import { pinState, lineRange, overlapsFor } from '../app/rules-pins.ts';
+import { isMarkdownDoc, isTextDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
+import { levelOf, useLevel } from '../documents/rules.ts';
 const MARKDOWN_LIMITS = Object.freeze({
   nesting: 20,
   blocks: 30000,
@@ -191,11 +188,6 @@ function keepRenderContext(root: Element, context: RenderContext) {
 function renderContextOf(element: Element | null): RenderContext {
   const root = element && element.closest('.md');
   return (root && ROOT_CONTEXTS.get(root)) || MARKDOWN_VIEW;
-}
-// Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
-// instance.
-function isMarkdownDoc() {
-  return !!META && rendersInBrowser(META.kind);
 }
 function isMarkdownPin(pin: Pin) {
   const entry = docInfo(pdoc(pin));
@@ -2949,7 +2941,6 @@ export {
   MARKDOWN_VIEW,
   MARKDOWN_LIMITS,
   OVER_ELEMENT_LIMIT,
-  isMarkdownDoc,
   isMarkdownPin,
   readingAnchor,
   buildMarkdownDoc,

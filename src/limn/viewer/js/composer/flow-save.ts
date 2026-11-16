@@ -6,12 +6,10 @@ import {
   DOC,
   IS_MAC,
   KIND_NEW,
-  REQUEST_KIND,
   META,
   COARSE_POINTER_QUERY,
   OPEN_ALL,
   PINS,
-  SAVE_MODE,
   captureVisit,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
@@ -28,8 +26,6 @@ import {
   sourceOk,
   undoNote,
 } from '../platform/notices.ts';
-import { isRegion, pdoc } from '../documents/view-tabs.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
 import { kindFor, wireScope } from './view-levels.ts';
 import { figureRung, figureFields } from '../pdf/view-figure.ts';
 import {
@@ -41,7 +37,6 @@ import {
   suggestRebase,
 } from './flow-suggest.ts';
 import {
-  COMPOSE,
   cancelSelection,
   composeFields,
   composeOwns,
@@ -50,9 +45,10 @@ import {
   renderOverlapBanner,
   restoreSelection,
   selectionSnapshot,
+  COMPOSE,
 } from './flow-pick.ts';
 import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
-import { OFF, offlineKey, offlineNow, offlineQueueSave } from '../offline/flow.ts';
+import { OFF, offlineKey, offlineQueueSave } from '../offline/flow.ts';
 import {
   figureShort,
   figureVerdictBody,
@@ -60,15 +56,18 @@ import {
   topPinId,
   renderVerdictRow,
   verdictDropped,
-  verdictLabel,
-  verdictOf,
   verdictUndo,
 } from '../verdict/flow-line.ts';
-import { isMe, loadPins } from '../pins/flow-list.ts';
+import { loadPins } from '../pins/flow-list.ts';
 import { dropPin } from '../pins/flow-actions.ts';
 import { assignOutcome, composeAsk, mentionHints } from '../pins/input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
+import { REQUEST_KIND, SAVE_MODE } from '../app/rules-tables.ts';
+import { verdictOf } from '../app/rules-pins.ts';
+import { isMe } from '../app/state-people.ts';
+import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
+import { offlineNow } from '../documents/flow-polling.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.

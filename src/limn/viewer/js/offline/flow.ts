@@ -21,23 +21,24 @@ import {
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { API_WAIT, api, setApiOut } from '../platform/api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/notices.ts';
-import { docInfo, withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
-import { POLL_FAILS, setLastPinsRevision } from '../documents/flow-polling.ts';
+import { setLastPinsRevision, offlineNow } from '../documents/flow-polling.ts';
 import { WORKER_REGISTRATION, setWorkerRegistration } from '../documents/flow-notification.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { VECTOR_PDF } from '../pdf/flow-open.ts';
 import { pageText } from '../pdf/flow.ts';
-import { kindFor, levelOf, wireScope } from '../composer/view-levels.ts';
+import { kindFor, wireScope } from '../composer/view-levels.ts';
 import { figureFields } from '../pdf/view-figure.ts';
 import { MARKDOWN_VIEW } from '../markdown/view.ts';
-import { COMPOSE, renderComposer } from '../composer/flow-pick.ts';
+import { renderComposer, COMPOSE } from '../composer/flow-pick.ts';
 import { offlineUiSync } from './view.ts';
 import { topPinId } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
-import { isMe, loadPins } from '../pins/flow-list.ts';
+import { loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
+import { isMe } from '../app/state-people.ts';
+import { docInfo, withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
+import { levelOf } from '../documents/rules.ts';
 const OFF_DB = 'limnOffline',
   OFF_STORE = 'pins',
   OFF_STATE = 'state',
@@ -218,11 +219,6 @@ async function offlineSync() {
   drawStatus();
   // The queued pins on the page and in the panel (offline-ui.ts).
   offlineUiSync(all);
-}
-// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
-// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
-function offlineNow() {
-  return POLL_FAILS >= 2 || navigator.onLine === false;
 }
 
 // ---------------- The last answer to a document read
@@ -1717,7 +1713,6 @@ export {
   offlineFlush,
   offlineKey,
   offlineMayServe,
-  offlineNow,
   offlinePick,
   offlinePrepare,
   offlineQueueSave,

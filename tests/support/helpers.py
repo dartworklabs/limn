@@ -89,10 +89,10 @@ def __getattr__(name: str) -> str:
 
 
 # The viewer's closed-set tables, which extract_js_fn brings along: the ones platform code compares (platform/tables.ts:
-# NOTICE_KIND, UI_LANG, ...) and the app's (app/state.ts: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...). Read from the modules
-# as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript reads as the
-# script does, and no node is needed to import this module.
-CLOSED_SET_MODULES = ("platform/tables.ts", "app/state.ts")
+# NOTICE_KIND, UI_LANG, ...) and the app's (app/rules-tables.ts: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...). Read from
+# the modules as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
+# reads as the script does, and no node is needed to import this module.
+CLOSED_SET_MODULES = ("platform/tables.ts", "app/rules-tables.ts")
 VIEWER_CLOSED_SETS = {
     name: table
     for module in CLOSED_SET_MODULES

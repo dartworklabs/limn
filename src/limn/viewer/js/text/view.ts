@@ -20,7 +20,6 @@
 // - The ladder is: the chosen lines -> the paragraph between blank lines (para, or the paragraphs the lines meet:
 //   blocks, saved as lines) -> the indented block the lines head or stand in (indent). textLevels reads the server's
 //   lines alone.
-import { MARKDOWN_LIMIT, META, showsSourceLines } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { hiddenBox, clipMarkedText, hiddenName, scanHidden } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
@@ -33,13 +32,10 @@ import {
   yieldToBrowser,
 } from '../markdown/view.ts';
 import { $ } from '../platform/dom.ts';
+import { MARKDOWN_LIMIT } from '../app/rules-tables.ts';
 const TAB_COLUMNS = 4; // the columns a tab spans (CSS tab-size of the view, and indentColumns)
 const MAX_HANG_COLUMNS = 16; // the most columns a wrapped line's continuation hangs: a phone keeps room for the text
 const BLOCK_LABEL_CHARS = 12; // the most characters of a block's header its rung's label shows
-// Whether the document on screen is a text document (shown line for line, never parsed).
-function isTextDoc() {
-  return !!META && showsSourceLines(META.kind);
-}
 // ---------------- Lines, columns and blocks: pure but for translateTemplate/translate
 // The columns a line's leading whitespace spans, a tab to the next multiple of tab, or -1 for a blank line (only
 // whitespace).
@@ -323,13 +319,4 @@ function showTextHint() {
     ${translate('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${translate('를 누르면 도움말.')}</span><span class="t-touch">${translate('도움말은 [더보기]에 있습니다.')}</span>`,
   );
 }
-export {
-  isTextDoc,
-  srcLines,
-  showTextHint,
-  textLevels,
-  markedCharactersText,
-  namesViewText,
-  textNotice,
-  buildTextView,
-};
+export { srcLines, showTextHint, textLevels, markedCharactersText, namesViewText, textNotice, buildTextView };

@@ -1,61 +1,35 @@
-import {
-  ASSIGNEE_AGENT,
-  CARD_DOT,
-  DOC,
-  DROPPED,
-  REQUEST_KIND,
-  LOCAL_LOGIN,
-  META,
-  OPEN_ALL,
-  PEOPLE,
-  PINS,
-  PIN_STATE,
-  RANGE_REL,
-  REPLY,
-  SHOW_ALL,
-  STAMP_FORM,
-  THREAD_EVENT,
-  THREAD_OPEN,
-} from '../app/state.ts';
+import { DOC, DROPPED, META, OPEN_ALL, PEOPLE, PINS, REPLY, SHOW_ALL, THREAD_OPEN } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
 import { markHiddenPlain } from '../platform/hidden-chars.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
-import { docInfo, isRegion, multiDoc, pdoc } from '../documents/view-tabs.ts';
+import { translateTemplate, translate, josa } from '../platform/i18n.ts';
+import { multiDoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { isViewer } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/flow-polling.ts';
-import { lineRange } from '../composer/view-levels.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { quoteInner, shownQuote } from '../composer/flow-pick.ts';
 import { relSpan, stampSpan } from './view-cards.ts';
-import { drawPins, isMe } from './flow-list.ts';
+import { drawPins } from './flow-list.ts';
 import { nameShared, personLabel } from './input-mentions.ts';
 import type { Html } from '../platform/markup.ts';
 import { $$ } from '../platform/dom.ts';
+import {
+  ASSIGNEE_AGENT,
+  CARD_DOT,
+  REQUEST_KIND,
+  LOCAL_LOGIN,
+  PIN_STATE,
+  RANGE_REL,
+  STAMP_FORM,
+  THREAD_EVENT,
+} from '../app/rules-tables.ts';
+import { pinState, lineRange } from '../app/rules-pins.ts';
+import { who, peopleName, meLogin, isMe } from '../app/state-people.ts';
+import { FAILED_AVATARS, avatar } from '../app/view-people.ts';
+import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
 
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
-function who(person) {
-  if (person && person.login === LOCAL_LOGIN) return translate(person.name || '로컬/에이전트');
-  return (person && (person.name || person.login)) || '';
-} // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
-// The avatar URLs that have failed: never requested again, so console errors do not pile up on every redraw.
-const FAILED_AVATARS = new Set();
-// A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon -
-// distinguishes people from agents at a glance. The initial is in a box of its own (.av-l): trimmed to its cap height,
-// so the circle centres the letter and not its line box.
-function isAgent(person) {
-  return !!person && (person.login === LOCAL_LOGIN || String(person.login).startsWith('agent:'));
-}
-function avatar(person) {
-  if (!person || !(person.name || person.login)) return html``;
-  if (isAgent(person)) return html`<span class="av i agent" aria-hidden="true">${lucideIcon('bot')}</span>`;
-  const initial = (who(person).trim()[0] || '?').toUpperCase();
-  return person.pic && !FAILED_AVATARS.has(person.pic)
-    ? html`<img class="av" src="${person.pic}" alt="" referrerpolicy="no-referrer" data-ini="${initial}">`
-    : html`<span class="av i" aria-hidden="true"><span class="av-l">${initial}</span></span>`;
-}
+
 document.addEventListener(
   'error',
   (event) => {
@@ -83,32 +57,6 @@ function authorTip(pin: Pin) {
       ' / ' +
       translateTemplate('수정: {name} · {at}', { name: who(pin.edited_by) || translate('기록 전'), at: pin.edited_at });
   return tip;
-}
-// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer
-// pin with the smallest range), otherwise the smallest-id partial. Must follow the same rule as the server's
-// rel_badge() (pins.md) so card tags and pins.md rows never disagree - since a rel entry is only {id,rel}, the range is
-// looked up by id from PINS (all currently loaded open pins). The badge wording is phrased to be self-explanatory:
-// '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is told by this pin's own lo/hi.
-function josa(number, afterConsonant, afterVowel) {
-  const lastDigit = String(number).slice(-1);
-  return lastDigit === '0' || '13678'.includes(lastDigit) ? afterConsonant : afterVowel;
-}
-// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육),
-// else '로'. The particle after a name: afterConsonant after a final consonant, afterVowel after a vowel. A Hangul name
-// by its last syllable's final; a Latin one by how its end is read - a vowel letter (and a silent e) reads as a vowel,
-// a consonant as one ('Bob이', 'Alice가'), a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a
-// digit as its Korean reading (josa). Pure.
-function josaName(name: string, afterConsonant: string, afterVowel: string) {
-  const trimmed = String(name || '').trim(),
-    last = trimmed.slice(-1);
-  if (!last) return afterVowel;
-  const code = last.charCodeAt(0);
-  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 ? afterConsonant : afterVowel;
-  if (/[0-9]/.test(last)) return josa(last, afterConsonant, afterVowel);
-  if (/[A-Z]/.test(last) && !/[A-Za-z]/.test(trimmed.slice(-2, -1)))
-    return 'LMNR'.includes(last) ? afterConsonant : afterVowel;
-  if (/[a-zA-Z]/.test(last)) return /[aeiouyAEIOUY]/.test(last) ? afterVowel : afterConsonant;
-  return afterVowel;
 }
 function josaToward(number) {
   return '036'.includes(String(number).slice(-1)) ? '으로' : '로';
@@ -381,17 +329,6 @@ function replyCount(pin: Pin) {
 function entryText(entry: ThreadEntry) {
   return fmtText(entry.text, entry.mentions);
 }
-// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md
-// §@태그). Names and numbers are found in the text as written and the result is built with html``, so the text between
-// and inside the tokens stays text - what a person wrote never leaks as HTML. Names are matched with the same
-// candidates as the server's resolve_mentions() (full name/login/the part of the login before @/the first word of the
-// name), longest first, case-insensitive. Skipped when '@' follows a word (mentionAfterWord - an email address); a name
-// ending in an ASCII letter followed by an ASCII letter (@Alicex) is a different word. An unresolved '@word' stays
-// plain text - it must never look like it called someone.
-function peopleName(login) {
-  const known = PEOPLE.find((person) => person.login === login);
-  return known ? known.name : login;
-}
 function mentionTokensOf(logins) {
   const out: { t: string; lg: string; k: number }[] = [];
   (logins || []).forEach((login) => {
@@ -419,10 +356,6 @@ function mentionAfterWord(text, index) {
 }
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-function meLogin() {
-  const me = typeof META !== 'undefined' && META && META.me;
-  return me && me.login && me.login !== LOCAL_LOGIN ? me.login : null;
 }
 // text as Html with its resolved @-tags (logins) and existing #refs as tokens. A match the rules turn down is consumed
 // and stays text, and the text between two tags is searched for #refs only, so a name never holds a link.
@@ -613,7 +546,6 @@ export {
   addressedTag,
   assigneeOf,
   authorTip,
-  avatar,
   cardMetadata,
   cardQuote,
   claimActive,
@@ -623,26 +555,20 @@ export {
   fmtText,
   fyiTag,
   hasRef,
-  isAgent,
   isQuestion,
-  josa,
-  josaName,
   josaToward,
   locCopy,
   locText,
-  meLogin,
   mentionAfterWord,
   mentionsMe,
   messageBody,
   messageHtml,
   nodeAvatar,
   noteHead,
-  peopleName,
   relBadge,
   reopenedTurn,
   replyCount,
   stateDot,
   threadHtml,
   threadOf,
-  who,
 };

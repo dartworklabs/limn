@@ -1,19 +1,9 @@
 // ------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
-import {
-  BUILD_STATE,
-  DOC,
-  DOC_SEQ,
-  ELEMENT_SYNC,
-  META_BY,
-  PIN_STATE,
-  SWITCHSEQ,
-  SYNC_STATE,
-  rendersInBrowser,
-} from '../app/state.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { DOC, DOC_SEQ, META_BY, SWITCHSEQ, rendersInBrowser } from '../app/state.ts';
+import { translateTemplate, translate, josa, josaName } from '../platform/i18n.ts';
 import { API_WAIT, api } from '../platform/api.ts';
 import { announce, digestBegin, digestSoon, groupNote, lineNote } from '../platform/notices.ts';
-import { docInfo, withDocQuery, drawDocTabs } from './view-tabs.ts';
+import { drawDocTabs } from './view-tabs.ts';
 import { switchDoc } from './flow-switch.ts';
 import { updateStaleBadge, updateSyncBadge } from './flow-boot.ts';
 import { notifyHandle, notifyOn, notifyQuery } from './flow-notification.ts';
@@ -27,14 +17,17 @@ import {
   countPinMove,
   versionDue,
 } from './flow-updates.ts';
-import { MARKDOWN_VIEW, isMarkdownDoc, buildMarkdownDoc, checkTreeImages } from '../markdown/view.ts';
+import { MARKDOWN_VIEW, buildMarkdownDoc, checkTreeImages } from '../markdown/view.ts';
 import { OFF, offlineFlush } from '../offline/flow.ts';
-import { josa, josaName, who } from '../pins/view-card-parts.ts';
 import { openTrash } from '../pins/view-cards.ts';
 import { gotoReview, loadPins } from '../pins/flow-list.ts';
 import { restorePin } from '../pins/flow-actions.ts';
 import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
+import { BUILD_STATE, ELEMENT_SYNC, PIN_STATE, SYNC_STATE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { who } from '../app/state-people.ts';
+import { isMarkdownDoc, docInfo, withDocQuery } from './state.ts';
 let LAST_PINS_REVISION = null as string | null,
   LAST_SRC_MTIME = null as string | number | null,
   POLL_FAILS = 0,
@@ -460,10 +453,6 @@ function notePinChanges(previous, listed, dropped) {
     );
 }
 
-// A pin's state: its `state`, else what its done and review flags say.
-function pinState(pin: Pin) {
-  return (pin && pin.state) || (pin && pin.done ? (pin.review ? PIN_STATE.REVIEW : PIN_STATE.DONE) : PIN_STATE.OPEN);
-}
 // Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until
 // [x], with a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
 function noteReviewChanges(previous, listed) {
@@ -543,15 +532,21 @@ function setLastSrcMtime<Value extends typeof LAST_SRC_MTIME>(value: Value): Val
   LAST_SRC_MTIME = value;
   return value;
 }
+// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
+// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
+function offlineNow() {
+  return POLL_FAILS >= 2 || navigator.onLine === false;
+}
+
 export {
   POLL_FAILS,
   markMine,
   notePinChanges,
   noteReviewChanges,
-  pinState,
   pollLight,
   setLastPinsRevision,
   setLastSrcMtime,
   startLightPolling,
   syncHiddenNotifyTimer,
+  offlineNow,
 };

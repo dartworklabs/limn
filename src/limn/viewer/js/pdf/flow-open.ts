@@ -13,12 +13,11 @@
 // No text-selection layer is added: dragging selects a region, and a text layer would conflict with it.
 import { DOC, META } from '../app/state.ts';
 import { translateTemplate } from '../platform/i18n.ts';
-import { withDocQuery } from '../documents/view-tabs.ts';
 import { loadOutline, outlineForget } from './view-outline.ts';
 import { cancelVectorDraw, closeVectorDocument, failVector, scheduleVectorDraw } from './view-draw.ts';
 import { searchClear, searchOffer } from './flow.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
 import { $ } from '../platform/dom.ts';
+import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 const PDFJS_VERSION = '__PDFJS_VERSION__';
 const VECTOR_PIXEL_CAP = 16777216,
   VECTOR_KEEP_MARGIN = '150% 0px',

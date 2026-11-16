@@ -1,18 +1,17 @@
 // ------------------------------------------------ Range levels
-import { VIA, captureVisit, currentVisit } from '../app/state.ts';
+import { captureVisit, currentVisit } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { withDocQuery } from '../documents/view-tabs.ts';
 import { elementName, rungTip } from '../pdf/view-figure.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
-import { COMPOSE } from './flow-pick.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import { UI_LANG } from '../platform/tables.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
-function levelOf(owner, key) {
-  return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
-}
+import { VIA } from '../app/rules-tables.ts';
+import { lineRange } from '../app/rules-pins.ts';
+import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
+import { levelOf } from '../documents/rules.ts';
+import { COMPOSE } from './flow-pick.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 // A Markdown document's rungs (md-surface.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a
 // section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
@@ -57,11 +56,6 @@ function currentRung(owner) {
   const scopeRung = owner.scope && levelOf(owner, owner.scope);
   if (scopeRung && scopeRung.lo === owner.lo && scopeRung.hi === owner.hi) return scopeRung;
   return rungs.find((rung) => rung.lo === owner.lo && rung.hi === owner.hi) || null;
-}
-// Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left
-// as-is).
-function lineRange(first, last) {
-  return 'L' + first + (last !== first ? '-L' + last : '');
 }
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more
 // than once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the
@@ -204,19 +198,6 @@ document.addEventListener(
   },
   true,
 );
-// Applies rung `key` to the owner (the composer's selection or an edit card): its lines, scope and source; a figure
-// rung also selects its element (elSel), which lines later set in the excerpt keep (setLines).
-function useLevel(owner, key) {
-  const rung = levelOf(owner, key);
-  if (!rung) return;
-  if ('score' in rung) owner.score = rung.score;
-  owner.lo = rung.lo;
-  owner.hi = rung.hi;
-  owner.scope = rung.level;
-  owner.env = rung.env || null;
-  owner.snippet = rung.snippet;
-  if (rung.el) owner.elSel = rung.el;
-}
 let SNIPPET_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives.
@@ -313,15 +294,12 @@ export {
   drawLadder,
   kindFor,
   levelLabel,
-  levelOf,
   rangeCap,
   refetchSnip,
-  lineRange,
   scopeLabel,
   revealSegment,
   setCap,
   snipText,
-  useLevel,
   viaTag,
   wireScope,
 };

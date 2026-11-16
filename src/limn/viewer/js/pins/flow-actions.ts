@@ -1,18 +1,7 @@
 // [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with
 // [되돌리기] (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a
 // banner on top of the panel.
-import {
-  DOC,
-  DONE_ALL,
-  DROPPED,
-  OPEN_ALL,
-  PINS,
-  PIN_STATE,
-  REVIEW_ALL,
-  setOpenAll,
-  setPins,
-  setReviewAll,
-} from '../app/state.ts';
+import { DOC, DONE_ALL, DROPPED, OPEN_ALL, PINS, REVIEW_ALL, setOpenAll, setPins, setReviewAll } from '../app/state.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import {
@@ -29,16 +18,18 @@ import {
   sourceOk,
   undoNote,
 } from '../platform/notices.ts';
-import { pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin, showChange } from '../revisions/flow.ts';
-import { markMine, pinState } from '../documents/flow-polling.ts';
+import { markMine } from '../documents/flow-polling.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { searchToPage } from '../pdf/flow.ts';
 import { drawTrash } from './view-cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './flow-list.ts';
-import { EDITOR } from './flow-edit.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
+import { PIN_STATE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { pdoc } from '../documents/state.ts';
+import { EDITOR } from './flow-edit.ts';
 async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;

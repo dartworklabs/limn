@@ -5,12 +5,9 @@
 import {
   DOC,
   DOC_SEQ,
-  LOCAL_LOGIN,
   META,
   META_BY,
   COARSE_POINTER_QUERY,
-  ROLE,
-  SYNC_STATE,
   VIEW_BY,
   buildsFromSource,
   isFigureKind,
@@ -21,8 +18,8 @@ import { html, setHtml } from '../platform/markup.ts';
 import { i18nStart, translateTemplate, translate } from '../platform/i18n.ts';
 import { applyTheme, prefs, savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
-import { DIGEST, bannerNote, digestBegin, digestSoon } from '../platform/notices.ts';
-import { withDocQuery, drawDocTabs, initialDoc, loadDocs, multiDoc, setHash } from './view-tabs.ts';
+import { DIGEST, digestBegin, digestSoon } from '../platform/notices.ts';
+import { drawDocTabs, initialDoc, loadDocs, multiDoc, setHash } from './view-tabs.ts';
 import { applyViewWidth, loadViews, restoreView } from './flow-switch.ts';
 import { pollLight, setLastPinsRevision, setLastSrcMtime, startLightPolling } from './flow-polling.ts';
 import {
@@ -41,16 +38,17 @@ import { autoFitWidth, buildDoc } from '../pdf/view-pages.ts';
 import { bootVector } from '../pdf/flow-open.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { applyLayout, coach } from '../layout/flow.ts';
-import { isMarkdownDoc, showMarkdownHint } from '../markdown/view.ts';
-import { isTextDoc } from '../text/view.ts';
+import { showMarkdownHint } from '../markdown/view.ts';
 import { restoreDraft } from '../composer/flow-draft.ts';
 import { saveButtonLabel } from '../composer/flow-save.ts';
 import { offlineAskDown, offlineBoot } from '../offline/flow.ts';
-import { avatar, isAgent, who } from '../pins/view-card-parts.ts';
 import { loadPins } from '../pins/flow-list.ts';
-import { isHuman } from '../pins/flow-reply.ts';
-import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
+import { NOTICE_HOST } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
+import { LOCAL_LOGIN, ROLE, SYNC_STATE } from '../app/rules-tables.ts';
+import { isAgent, who, isHuman } from '../app/state-people.ts';
+import { avatar } from '../app/view-people.ts';
+import { isMarkdownDoc, isTextDoc, withDocQuery, isViewer } from './state.ts';
 async function boot() {
   i18nStart();
   // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below
@@ -191,9 +189,6 @@ function updateSyncBadge(sync) {
     ? badge.textContent + ' · ' + reason + ' · ' + translate('기존 PDF가 보일 수 있습니다')
     : badge.textContent;
 }
-function isViewer() {
-  return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.VIEWER);
-}
 // An agent identity (role agent): it neither deletes nor restores a verdict pin (D16, 403 verdict_human), so it is
 // offered neither.
 function isAgentRole() {
@@ -210,13 +205,6 @@ function confirmAccessText() {
       ? '보기 권한만 있습니다 — 편집 권한이 있는 사람이 확인합니다'
       : '에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요',
   );
-}
-// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it, in a
-// banner over the composer while one is open, else on top of the panel (bannerHost).
-function viewerBlocked() {
-  if (!isViewer()) return false;
-  bannerNote(undefined, '보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다', NOTICE_KIND.WARN);
-  return true;
 }
 // Paints the header and the info line from META (the document on screen): names, page count, commit, build time, who is
 // signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document
@@ -305,8 +293,6 @@ export {
   confirmAccessText,
   drawMeta,
   isAgentRole,
-  isViewer,
   updateStaleBadge,
   updateSyncBadge,
-  viewerBlocked,
 };

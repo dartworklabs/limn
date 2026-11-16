@@ -37,7 +37,10 @@ css/md-compare.css      # the rendered compare of a Markdown document in the cha
 
 __APP_JS__
 js/platform/tables.ts                  # closed values platform code compares: notice kinds, places, hosts, lives, dots, topics; UI language; list order; event types
+js/app/rules-tables.ts                 # the closed value tables of the app: pin, build, sync and revision states, scopes, roles, layout modes and bands, ...
+js/app/rules-pins.ts                   # a pin record read as values: its state, verdict, line range, how its range overlaps another
 js/app/state.ts                        # shared state and its setters, the closed value tables of the app
+js/app/state-people.ts                 # people: who a login is, agent or human, the viewer themself
 js/platform/dom.ts                     # DOM lookups ($, $$), escaping (esc), the icon table, whether a text field has focus
 js/platform/markup.ts                  # html``, lucideIcon() and setHtml(): markup with every value escaped, and its one sink
 js/platform/hidden-chars.ts            # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
@@ -48,6 +51,7 @@ js/platform/notices.ts                 # messages in context: banners, undos whe
 js/platform/tooltip.ts                 # hover/focus tooltips, the touch long-press tooltip, explanations for screen readers
 js/platform/segments.ts                # segmented controls: the words on offer, one Tab stop, the focus kept across a redraw
 js/documents/view-tabs.ts              # several documents: the list, tabs and links
+js/documents/state.ts                  # the open document's facts: entries and their kinds, the pin's document, queries, verdict words, the viewer role
 js/revisions/flow.ts                   # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents
 js/documents/flow-boot.ts              # boot() and the header: meta, stale and sync badges, viewer role
@@ -68,6 +72,7 @@ js/pdf/input-zoom.ts                   # PDF-area zoom input: Ctrl+wheel, pinch,
 js/layout/flow.ts                      # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
 js/layout/input.ts                     # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
 js/pdf/input-selection.ts              # drag and quick selection on the PDF, double-tap zoom
+js/documents/rules.ts                  # the range ladder's levels of a document's source
 js/composer/view-levels.ts             # the range ladder, line nudges, source snippets, the location-confidence badge
 js/composer/view-excerpt.ts            # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/pdf/view-figure.ts                  # figure documents: the chosen element's box and path
@@ -84,6 +89,7 @@ js/verdict/flow-line.ts                # verdict pins: the composer's verdict ro
 js/verdict/flow-reason.ts              # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
 js/verdict/view-panel.ts               # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
 js/composer/view-selection-popover.ts  # the note popover by the selection box (mouse layouts)
+js/app/view-people.ts                  # a person's avatar
 js/pins/view-card-parts.ts             # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
 js/pins/view-cards.ts                  # the open and review card, archive and Trash rows, the Trash dialog
 js/pins/flow-review-pick.ts            # confirming several pins awaiting review from their result rows (ADR-0035)

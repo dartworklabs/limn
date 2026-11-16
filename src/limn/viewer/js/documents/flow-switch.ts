@@ -8,7 +8,6 @@ import {
   DONE_ALL,
   PAGE_SCALE,
   LAYOUT,
-  LAYOUT_MODE,
   META,
   META_BY,
   NAVGEN,
@@ -17,7 +16,6 @@ import {
   REVIEW_ALL,
   SWITCHSEQ,
   VIEW_BY,
-  VIEW_MODE,
   ZOOMED,
   setDoc,
   setDone,
@@ -33,7 +31,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { docBadge, docInfo, withDocQuery, drawDocTabs, hashDoc, multiDoc, pdoc, setHash } from './view-tabs.ts';
+import { docBadge, drawDocTabs, hashDoc, multiDoc, setHash } from './view-tabs.ts';
 import { loadRevisions, setViewMode } from '../revisions/flow.ts';
 import { drawMeta } from './flow-boot.ts';
 import { resetBuildForDoc } from './view-build-chip.ts';
@@ -45,17 +43,19 @@ import { drawSheetPages, revealPageRow, tipCutTitles } from '../pdf/view-page-li
 import { searchLeave, searchToPage } from '../pdf/flow.ts';
 import { showSheet } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
-import { MARKDOWN_VIEW, isMarkdownDoc, readingAnchor, markdownPositionLabel } from '../markdown/view.ts';
-import { COMPOSE, cancelSelection } from '../composer/flow-pick.ts';
+import { MARKDOWN_VIEW, readingAnchor, markdownPositionLabel } from '../markdown/view.ts';
+import { cancelSelection, COMPOSE } from '../composer/flow-pick.ts';
 import { openDraftDoc, parkDraft, restoreDraft } from '../composer/flow-draft.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { drawPins, marks } from '../pins/flow-list.ts';
-import { EDITOR, cancelEdit, editDirty } from '../pins/flow-edit.ts';
+import { cancelEdit, editDirty, EDITOR } from '../pins/flow-edit.ts';
 import { cancelRepick } from '../composer/flow-repick.ts';
 import { refreshDoc, restoreAnchor, topAnchor } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
+import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
+import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
 function drawDocsMenu() {
   $('#ns-docs').hidden = !multiDoc();
   setHtml(

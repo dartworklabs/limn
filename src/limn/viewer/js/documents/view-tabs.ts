@@ -1,6 +1,5 @@
 // ------------------------------------------- Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
 import {
-  DEFAULT_DOC,
   DOC,
   DOCS,
   COARSE_POINTER_QUERY,
@@ -20,24 +19,10 @@ import { closePageList } from '../pdf/view-page-list.ts';
 import { searchFit } from '../pdf/flow.ts';
 import type { Html } from '../platform/markup.ts';
 import { $, $$ } from '../platform/dom.ts';
+import { docInfo, pdoc } from './state.ts';
 
 function multiDoc() {
   return DOCS.length > 1;
-}
-function docInfo(doc) {
-  return DOCS.find((entry) => entry.key === doc) || null;
-}
-function pdoc(pin: Pin) {
-  return (pin && pin.doc) || DEFAULT_DOC;
-}
-function isRegion(pin) {
-  return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
-}
-// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
-function withDocQuery(path, doc?) {
-  doc = doc || DOC;
-  if (!doc) return path;
-  return path + (path.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(doc);
 }
 function hashDoc() {
   const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
@@ -575,18 +560,4 @@ document.addEventListener(
   true,
 );
 addEventListener('resize', placeDocMenu);
-export {
-  closeDocMenu,
-  docBadge,
-  docInfo,
-  withDocQuery,
-  drawDocTabs,
-  hashDoc,
-  initialDoc,
-  isRegion,
-  loadDocs,
-  multiDoc,
-  pdoc,
-  setHash,
-  toggleDocMenu,
-};
+export { closeDocMenu, docBadge, drawDocTabs, hashDoc, initialDoc, loadDocs, multiDoc, setHash, toggleDocMenu };

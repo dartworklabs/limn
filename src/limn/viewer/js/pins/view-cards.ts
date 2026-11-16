@@ -1,28 +1,11 @@
-import {
-  CARD_DOT,
-  DROPPED,
-  ELEMENT_SYNC,
-  LAYOUT,
-  LAYOUT_MODE,
-  META,
-  COARSE_POINTER_QUERY,
-  OPEN_CARDS,
-  PIN_STATE,
-  RANGE_REL,
-  REPLY,
-  ROLE,
-  STAMP_FORM,
-  isFigureKind,
-} from '../app/state.ts';
+import { DROPPED, LAYOUT, META, COARSE_POINTER_QUERY, OPEN_CARDS, REPLY, isFigureKind } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { LANG, translateTemplate, translate, translateMessage, TIP_TEXT } from '../platform/i18n.ts';
+import { LANG, translateTemplate, translate, translateMessage, TIP_TEXT, josa } from '../platform/i18n.ts';
 import { NOTICES, drawTrashOffers } from '../platform/notices.ts';
 import { hideTip, tipFollow } from '../platform/tooltip.ts';
-import { docInfo, isRegion, pdoc } from '../documents/view-tabs.ts';
-import { canConfirmReview, confirmAccessText, isAgentRole, isViewer } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/flow-polling.ts';
+import { canConfirmReview, confirmAccessText, isAgentRole } from '../documents/flow-boot.ts';
 import { showSheet } from '../layout/flow.ts';
-import { lineRange, viaTag } from '../composer/view-levels.ts';
+import { viaTag } from '../composer/view-levels.ts';
 import { isElementLost, lostElementTag, figureRegionBadge, pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { suggestBadge, suggestView } from '../composer/flow-suggest.ts';
@@ -31,14 +14,12 @@ import {
   dropPageLineOverlaps,
   isTabStop,
   verdictBadge,
-  verdictOf,
   verdictOldMarker,
   verdictTarget,
 } from '../verdict/flow-line.ts';
 import {
   addressedTag,
   authorTip,
-  avatar,
   cardMetadata,
   cardQuote,
   claimActive,
@@ -48,7 +29,6 @@ import {
   fyiTag,
   hasRef,
   isQuestion,
-  josa,
   locCopy,
   locText,
   messageHtml,
@@ -60,14 +40,18 @@ import {
   stateDot,
   threadHtml,
   threadOf,
-  who,
 } from './view-card-parts.ts';
-import { isMe, listDropped, reviewerLabel } from './flow-list.ts';
+import { listDropped, reviewerLabel } from './flow-list.ts';
 import { PURGING } from './flow-actions.ts';
-import { EDITOR } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_PLACE, UI_LANG } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
+import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, ROLE, STAMP_FORM } from '../app/rules-tables.ts';
+import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
+import { who, isMe } from '../app/state-people.ts';
+import { avatar } from '../app/view-people.ts';
+import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
+import { EDITOR } from './flow-edit.ts';
 
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;

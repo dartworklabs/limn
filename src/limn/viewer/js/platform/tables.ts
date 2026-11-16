@@ -1,7 +1,7 @@
 // ------------------------------------------------ Closed value tables platform code compares
 // The closed sets (docs/handbook/viewer.md §닫힌 값 표) that the platform modules read: a notice's kind, place, host,
 // life, dot and topic, the UI language, the list order and an event's type. The app's other tables are in
-// app/state.ts. Each is a frozen table compared by member, never by a string literal.
+// app/rules-tables.ts. Each is a frozen table compared by member, never by a string literal.
 const EVENT_TYPE = Object.freeze({
   MENTION: 'mention',
   REVIEW_REQUESTED: 'review_requested',

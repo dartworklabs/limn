@@ -1,16 +1,13 @@
 // ------------------------------------------------ Edit
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-import { REQUEST_KIND, PINS, PIN_STATE, rendersInBrowser } from '../app/state.ts';
+import { PINS, rendersInBrowser } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
-import { withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { viaDoc } from '../documents/flow-switch.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/flow-polling.ts';
-import { drawLadder, kindFor, levelOf, rangeCap, setCap, snipText, wireScope } from '../composer/view-levels.ts';
+import { drawLadder, kindFor, rangeCap, setCap, snipText, wireScope } from '../composer/view-levels.ts';
 import { drawExcerpt } from '../composer/view-excerpt.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { editCardLevels } from '../markdown/view.ts';
@@ -23,13 +20,18 @@ import {
   suggestRebase,
 } from '../composer/flow-suggest.ts';
 import { syncQuestionHint } from '../composer/flow-pick.ts';
-import { verdictOf } from '../verdict/flow-line.ts';
-import { assigneeOf, isQuestion, peopleName } from './view-card-parts.ts';
+import { assigneeOf, isQuestion } from './view-card-parts.ts';
 import { drawPins, jumpPin, loadPins } from './flow-list.ts';
 import { mentionHints, mentionPreview, renderAssignEdit } from './input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { roveSegment } from '../platform/segments.ts';
+import { REQUEST_KIND, PIN_STATE } from '../app/rules-tables.ts';
+import { pinState, verdictOf } from '../app/rules-pins.ts';
+import { peopleName } from '../app/state-people.ts';
+import { withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
+import { levelOf } from '../documents/rules.ts';
 const EDITOR = { current: null as EditCard | null, saving: false };
+
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
   return EDITOR.current === card;

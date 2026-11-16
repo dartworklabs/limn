@@ -9,11 +9,8 @@ import {
   BAND,
   BAND_IN,
   BAND_MODE,
-  BAND_STEP,
   IS_MAC,
   LAYOUT,
-  LAYOUT_BAND,
-  LAYOUT_MODE,
   META,
   MID_OVERLAY,
   COARSE_POINTER_QUERY,
@@ -54,13 +51,14 @@ import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { SEARCH } from '../pdf/flow.ts';
 import { syncBackLayer } from './input.ts';
 import { keepReadingSpot } from '../markdown/view.ts';
-import { COMPOSE, renderComposer } from '../composer/flow-pick.ts';
+import { renderComposer, COMPOSE } from '../composer/flow-pick.ts';
 import { stickSoon } from '../verdict/flow-line.ts';
 import { drawPins, fitBarWords, updateReviewCount } from '../pins/flow-list.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import { restoreAnchor, syncBuildErrChip, topAnchor } from '../documents/flow-rebuild.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
 import { $, typingNow } from '../platform/dom.ts';
+import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 // The band for a width x height CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the
 // width only: phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch
 // reads the height and the orientation too, first match wins: under 600px wide a phone at any height; under 480px high

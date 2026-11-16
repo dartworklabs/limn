@@ -10,23 +10,18 @@ import {
   DONE_ALL,
   DROPPED,
   LAYOUT,
-  LAYOUT_MODE,
-  LOCAL_LOGIN,
   MENTION_ONLY,
-  META,
   COARSE_POINTER_QUERY,
   OPEN_ALL,
   OPEN_CARDS,
   PEOPLE,
   PEOPLE_KNOWN,
   PINS,
-  PIN_STATE,
   REPLY,
   REVIEW_ALL,
   SHOW_ALL,
   SIDE_OPEN,
   SWITCHSEQ,
-  VIEW_MODE,
   scrollMotion,
   setDone,
   setDoneAll,
@@ -64,30 +59,34 @@ import {
   offersIn,
 } from '../platform/notices.ts';
 import { TIP_AT, hideTip, keyInput, armedTipElement } from '../platform/tooltip.ts';
-import { docInfo, drawDocTabs, multiDoc, pdoc } from '../documents/view-tabs.ts';
+import { drawDocTabs, multiDoc } from '../documents/view-tabs.ts';
 import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
-import { notePinChanges, noteReviewChanges, pinState } from '../documents/flow-polling.ts';
+import { notePinChanges, noteReviewChanges } from '../documents/flow-polling.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { arrivePage, pageNoSides } from '../pdf/view-pages.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { pendingBadgeSide } from '../pdf/input-selection.ts';
 import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownDoc, jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
-import { COMPOSE, recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
+import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
+import { recomputeOverlap, renderOverlapBanner, COMPOSE } from '../composer/flow-pick.ts';
 import { drawPageVerdicts, jumpToPageLine, endJumpForScroll, isShownOnLine } from '../verdict/flow-line.ts';
-import { mentionsMe, who } from './view-card-parts.ts';
+import { mentionsMe } from './view-card-parts.ts';
 import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './view-cards.ts';
 import { drawReviewPick } from './flow-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
 import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
 import { renderAssignNew } from './input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
-import { EDITOR, editDirty, renderEdit } from './flow-edit.ts';
+import { editDirty, renderEdit, EDITOR } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
 import { LIST_ORDER, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
+import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { who, isMe } from '../app/state-people.ts';
+import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
 
 async function loadPeople() {
   try {
@@ -342,12 +341,6 @@ function gotoReview() {
     const section = $('#sec-review');
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
-}
-// The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm
-// the author, '내 확인 차례'.
-function isMe(person) {
-  const me = META && META.me;
-  return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
 }
 function reviewerLabel(pin: Pin) {
   if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
@@ -1371,7 +1364,6 @@ export {
   focusCard,
   gotoPinRef,
   gotoReview,
-  isMe,
   jumpPin,
   jumpToCard,
   listDropped,

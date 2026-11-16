@@ -6,25 +6,19 @@
 // which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
 // they are drawn as text, translate="no", and the names around them are put in the screen's language here.
 import {
-  ASSIGNEE_AGENT,
   DEFAULT_DOC,
   DOC,
   DOCS,
   DONE,
   DONE_ALL,
   KIND_NEW,
-  REQUEST_KIND,
   LAYOUT,
-  LAYOUT_MODE,
   META,
   COARSE_POINTER_QUERY,
   OPEN_ALL,
   PINS,
-  PIN_STATE,
   REPLY,
   REVIEW_ALL,
-  ROLE,
-  VERDICT_PLACE,
   captureVisit,
   currentVisit,
   imeKey,
@@ -33,7 +27,7 @@ import {
   scrollMotion,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import {
@@ -52,19 +46,13 @@ import {
   undoNote,
 } from '../platform/notices.ts';
 import { SWALLOW_CLICK, hideTip } from '../platform/tooltip.ts';
-import { docInfo, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/flow-polling.ts';
 import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
 import { SCROLL_KEYS, readingDepth } from '../pdf/view-outline.ts';
 import { searchToPage } from '../pdf/flow.ts';
 import { setSide } from '../layout/flow.ts';
-import { lineRange } from '../composer/view-levels.ts';
 import { isElementLost, figureFields, isFrac, pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
 import { SUGGEST_DRAFT } from '../composer/flow-suggest.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
 import { savePin } from '../composer/flow-save.ts';
 import {
   LAST_KEY_SAVE,
@@ -118,25 +106,29 @@ import {
   markReadingSummary,
   drawSummaries,
 } from './view-panel.ts';
-import { claimActive, josa, josaToward, who } from '../pins/view-card-parts.ts';
+import { claimActive, josaToward } from '../pins/view-card-parts.ts';
 import { relSpan } from '../pins/view-cards.ts';
-import { PINS_APPLIED_SEQ, isMe, loadPins } from '../pins/flow-list.ts';
+import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
 import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/flow-actions.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import { refreshDoc, topAnchor } from '../documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
 import { $, $$, typingNow } from '../platform/dom.ts';
+import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE, PIN_STATE, ROLE, VERDICT_PLACE } from '../app/rules-tables.ts';
+import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
+import { who, isMe } from '../app/state-people.ts';
+import {
+  isRegion,
+  pdoc,
+  docVerdicts,
+  verdictLabel,
+  docKindOf,
+  viewerBlocked,
+  isMarkdownDoc,
+} from '../documents/state.ts';
+import { COMPOSE } from '../composer/flow-pick.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
-// The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is
-// read with the document), else its /api/docs entry's; null without usable words.
-function docVerdicts(doc?: string | null): DocVerdicts | null {
-  const docName = doc === undefined ? DOC : doc,
-    metaVerdicts = META && (!docName || META.doc === docName) ? META.verdicts : undefined,
-    entry = docInfo(docName),
-    verdicts = metaVerdicts || (entry && entry.verdicts);
-  return verdicts && Array.isArray(verdicts.choices) && verdicts.choices.length ? verdicts : null;
-}
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
 // document or a view-only PDF): the words, else null.
 function pageVerdictsOn(): DocVerdicts | null {
@@ -148,20 +140,6 @@ function pageVerdictsOn(): DocVerdicts | null {
 function canVerdict() {
   const role = META && META.me && META.me.role;
   return role !== ROLE.VIEWER && role !== ROLE.AGENT;
-}
-// A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it
-// (pins/verdict.py verdict_of: 1-16 letters, digits, '-' or '_'). Pure.
-function verdictOf(pin: Pin | null | undefined): string | null {
-  const value = pin && pin.verdict;
-  return typeof value === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(value) ? value : null;
-}
-// The name a verdict key is shown by: its word's label in the word file of document doc (default: the one on screen) -
-// a card of another document under [모든 문서] names its own document's word - else the key itself (a word the file no
-// longer declares stays the pin's verdict).
-function verdictLabel(key: string, doc?: string | null): string {
-  const verdicts = docVerdicts(doc),
-    choice = verdicts && verdicts.choices.find((x) => x.key === key);
-  return choice ? choice.label : key;
 }
 // A card's verdict badge, '판정 채택' (the question badge's shape; the words carry the meaning, no colour of its own),
 // or null.
@@ -240,10 +218,6 @@ function pageTargetOf(pin: Pin, kind: string | undefined): { page: number; id: s
   return frac.every((value, index) => Math.abs(value - WHOLE_PAGE[index]) <= 1e-6)
     ? { page: pin.page, id: 'page ' + pin.page }
     : null;
-}
-// The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
-function docKindOf(doc: string): string | undefined {
-  return (!DOC || doc === DOC) && META ? META.kind : (docInfo(doc) || {}).kind;
 }
 // The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole
 // target (pageTargetOf: a figure document's figure, a view-only PDF's whole page) - the page line's targets; else, on a
@@ -3686,7 +3660,6 @@ export {
   pageTargetOf,
   pageTargetShort,
   pageVerdictPins,
-  pageVerdictsOn,
   isAutoScrolling,
   noteCameFrom,
   canCancelVerdict,
@@ -3716,10 +3689,9 @@ export {
   fitWrappedWords,
   verdictBadge,
   verdictDropped,
-  verdictLabel,
-  verdictOf,
   verdictOldMarker,
   verdictPress,
   verdictTarget,
   verdictUndo,
+  pageVerdictsOn,
 };

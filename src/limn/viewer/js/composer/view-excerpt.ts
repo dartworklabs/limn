@@ -8,11 +8,11 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { withDocQuery, isRegion } from '../documents/view-tabs.ts';
 import { refetchSnip } from './view-levels.ts';
-import { COMPOSE, recomputeOverlap, renderComposer } from './flow-pick.ts';
-import { EDITOR, renderEdit } from '../pins/flow-edit.ts';
+import { recomputeOverlap, renderComposer, COMPOSE } from './flow-pick.ts';
+import { renderEdit, EDITOR } from '../pins/flow-edit.ts';
 import { $ } from '../platform/dom.ts';
+import { withDocQuery, isRegion } from '../documents/state.ts';
 
 // The range first..last widened to line: [min(first, line), max(last, line)]. Pure.
 function widenTo(first, last, line) {

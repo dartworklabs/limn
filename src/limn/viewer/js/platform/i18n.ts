@@ -227,5 +227,43 @@ const TIP_TEXT = {
   reloadtip:
     '이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다',
 };
+// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer
+// pin with the smallest range), otherwise the smallest-id partial. Must follow the same rule as the server's
+// rel_badge() (pins.md) so card tags and pins.md rows never disagree - since a rel entry is only {id,rel}, the range is
+// looked up by id from PINS (all currently loaded open pins). The badge wording is phrased to be self-explanatory:
+// '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is told by this pin's own lo/hi.
+function josa(number, afterConsonant, afterVowel) {
+  const lastDigit = String(number).slice(-1);
+  return lastDigit === '0' || '13678'.includes(lastDigit) ? afterConsonant : afterVowel;
+}
+// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육),
+// else '로'. The particle after a name: afterConsonant after a final consonant, afterVowel after a vowel. A Hangul name
+// by its last syllable's final; a Latin one by how its end is read - a vowel letter (and a silent e) reads as a vowel,
+// a consonant as one ('Bob이', 'Alice가'), a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a
+// digit as its Korean reading (josa). Pure.
+function josaName(name: string, afterConsonant: string, afterVowel: string) {
+  const trimmed = String(name || '').trim(),
+    last = trimmed.slice(-1);
+  if (!last) return afterVowel;
+  const code = last.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 ? afterConsonant : afterVowel;
+  if (/[0-9]/.test(last)) return josa(last, afterConsonant, afterVowel);
+  if (/[A-Z]/.test(last) && !/[A-Za-z]/.test(trimmed.slice(-2, -1)))
+    return 'LMNR'.includes(last) ? afterConsonant : afterVowel;
+  if (/[a-zA-Z]/.test(last)) return /[aeiouyAEIOUY]/.test(last) ? afterVowel : afterConsonant;
+  return afterVowel;
+}
 
-export { LANG, errText, i18nStart, switchLang, translateTemplate, translate, translateMessage, warnText, TIP_TEXT };
+export {
+  LANG,
+  errText,
+  i18nStart,
+  switchLang,
+  translateTemplate,
+  translate,
+  translateMessage,
+  warnText,
+  TIP_TEXT,
+  josa,
+  josaName,
+};

@@ -5,29 +5,19 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-import {
-  DOC,
-  PAGE_SCALE,
-  LAYOUT,
-  LAYOUT_MODE,
-  META,
-  REPICK,
-  REPLY,
-  SELMODE,
-  SIDE_OPEN,
-  isFigureKind,
-} from '../app/state.ts';
+import { DOC, PAGE_SCALE, LAYOUT, META, REPICK, REPLY, SELMODE, SIDE_OPEN, isFigureKind } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { SWALLOW_CLICK, setSwallowClick } from '../platform/tooltip.ts';
 import { fitScale, zoomTo } from './view-pages.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
-import { COMPOSE, discardSelection, pick } from '../composer/flow-pick.ts';
+import { discardSelection, pick, COMPOSE } from '../composer/flow-pick.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER, openSelectionPopover, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { markBadgeIn, markBadgeRoom } from '../pins/flow-list.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import { $ } from '../platform/dom.ts';
+import { LAYOUT_MODE } from '../app/rules-tables.ts';
+import { isMarkdownDoc } from '../documents/state.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;

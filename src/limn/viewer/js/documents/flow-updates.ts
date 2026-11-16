@@ -18,25 +18,25 @@ import {
   REPLY,
   REPLY_DRAFT,
   SWITCHSEQ,
-  VIEW_MODE,
   isFigureKind,
   isViewOnlyKind,
   rendersInBrowser,
 } from '../app/state.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, josaName } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from '../platform/notices.ts';
-import { docInfo, withDocQuery, pdoc } from './view-tabs.ts';
 import { REVISION_VIEW, REVISION_PAGE, loadRevisions, setViewMode } from '../revisions/flow.ts';
 import { switchDoc } from './flow-switch.ts';
 import { notifyCursor, openPinFromLink } from './flow-notification.ts';
 import { drawStatus } from './view-status.ts';
-import { MARKDOWN_VIEW, isMarkdownDoc, lineLeaves, showLines } from '../markdown/view.ts';
-import { josaName, who } from '../pins/view-card-parts.ts';
+import { MARKDOWN_VIEW, lineLeaves, showLines } from '../markdown/view.ts';
 import { replyNote } from '../pins/flow-reply.ts';
 import { editDirty } from '../pins/flow-edit.ts';
 import { NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
 import { $$ } from '../platform/dom.ts';
+import { VIEW_MODE } from '../app/rules-tables.ts';
+import { who } from '../app/state-people.ts';
+import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
 const UPDATE_STATE = {
   moved: new Map() as Map<string, { moved: Set<number>; lost: Set<number> }>,
   lines: new Map() as Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>,

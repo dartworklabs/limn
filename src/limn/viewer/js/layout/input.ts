@@ -11,8 +11,6 @@ import {
   BAND,
   DOC,
   LAYOUT,
-  LAYOUT_BAND,
-  LAYOUT_MODE,
   MID_OVERLAY,
   COARSE_POINTER_QUERY,
   REDUCED_MOTION_QUERY,
@@ -57,6 +55,7 @@ import {
 } from './flow.ts';
 import { LONGPRESS_MS } from '../pdf/input-selection.ts';
 import { $, $$ } from '../platform/dom.ts';
+import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 (function () {
   const grip = $('#grip');
   let drag = null as {

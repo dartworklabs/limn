@@ -10,26 +10,16 @@
 // Images are the manuscript tree's files of now (GET /api/asset, as the Markdown surface draws them) on both sides -
 // the old side's own image files are not read; a line above the compare says so whenever a side has one. A character
 // that would hide or reorder text stays in its box (drawText) on both sides, and a changed one is a changed word.
-import {
-  DIFF_FORMAT,
-  LAYOUT,
-  LAYOUT_MODE,
-  MARKDOWN_LIMIT,
-  SCOPE_MODE,
-  SCOPE_SOURCE,
-  scrollMotion,
-} from '../app/state.ts';
+import { LAYOUT, scrollMotion } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { withDocQuery } from '../documents/view-tabs.ts';
 import { REVISION_VIEW, hunkRanges, revisionKey, drawPinGuide, revisionCurrent, revisionPinFor } from './flow.ts';
 import {
   MARKDOWN_VIEW,
   MARKDOWN_LIMITS,
   OVER_ELEMENT_LIMIT,
-  isMarkdownDoc,
   limitText,
   formatMebibytes,
   renderTokens,
@@ -38,8 +28,10 @@ import {
   waitLine,
   yieldToBrowser,
 } from '../markdown/view.ts';
-import { isTextDoc, markedCharactersText } from '../text/view.ts';
+import { markedCharactersText } from '../text/view.ts';
 import { $ } from '../platform/dom.ts';
+import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
+import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
 // RENDERED_COMPARE: the compare on screen (key: revisionKey() it was drawn for), its parse worker and job, the change
 // groups in order (stops, each the blocks of one change) and the one the navigator is at, the drawn column (root) and
 // the observer that lays its gutter chips out again when its width changes (ro), the status line it said (line) and

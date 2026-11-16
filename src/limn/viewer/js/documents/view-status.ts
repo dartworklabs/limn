@@ -7,28 +7,20 @@
 // of notices.ts (LINE): background events, first-visit hints and an undo whose place has left the screen - the only
 // items the desktop's line shows besides a rebuild's 'no changes', a new Limn and the pins kept while cut off, since
 // its chips say the rest (statusShown).
-import {
-  BAND,
-  BUILD_STATE,
-  LAYOUT,
-  LAYOUT_BAND,
-  LAYOUT_MODE,
-  META,
-  STATUS_KIND,
-  SYNC_STATE,
-  buildsFromSource,
-} from '../app/state.ts';
+import { BAND, LAYOUT, META, buildsFromSource } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from '../platform/notices.ts';
 import { hideTip, showTipText } from '../platform/tooltip.ts';
-import { SYNC_REASON, isViewer } from './flow-boot.ts';
+import { SYNC_REASON } from './flow-boot.ts';
 import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
 import { OFF } from '../offline/flow.ts';
 import { NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
+import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
+import { isViewer } from './state.ts';
 let STATUS_SYNC = null as SyncStatus | null,
   STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
 // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not

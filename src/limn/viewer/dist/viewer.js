@@ -4,7 +4,7 @@
 // ------------------------------------------------ Closed value tables platform code compares
 // The closed sets (docs/handbook/viewer.md §닫힌 값 표) that the platform modules read: a notice's kind, place, host,
 // life, dot and topic, the UI language, the list order and an event's type. The app's other tables are in
-// app/state.ts. Each is a frozen table compared by member, never by a string literal.
+// app/rules-tables.ts. Each is a frozen table compared by member, never by a string literal.
 const EVENT_TYPE = Object.freeze({
   MENTION: 'mention',
   REVIEW_REQUESTED: 'review_requested',
@@ -40,19 +40,7 @@ const NOTICE_TOPIC = Object.freeze({ PICK: 'pick', SIDE: 'side', OFFLINE: 'offli
 // the pin list's order (orderPins); index.html data-order
 const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' });
 
-'use strict';
-const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
-// Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
-// applies to the next slide or scroll. The panel's slides are skipped, but thresholds and previews stay (§패널 폭과
-// 시트 높이).
-const REDUCED_MOTION_QUERY = matchMedia('(prefers-reduced-motion: reduce)');
-// How a scripted scroll moves - a jump of the pages, a heading, a card, a change group: smoothly, or at once ('auto':
-// nothing sets a smooth scroll-behavior, and responsive.css holds it auto) while reduced motion is asked for. Asked at
-// each scroll, never read once at load: a setting turned on later must stop every jump gliding, and one turned off must
-// let them glide again.
-function scrollMotion() {
-  return REDUCED_MOTION_QUERY.matches ? 'auto' : 'smooth';
-}
+// ------------------------------------------------ The app's closed value tables (platform/tables.ts has the platform's)
 // Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is
 // a member of one frozen table here, never a string literal at the comparison. The first group comes from the server
 // and must equal its strings exactly (src/limn/viewer/tests/test_viewer_source.py compares each table with the server's
@@ -172,6 +160,61 @@ const MARKDOWN_LIMIT = Object.freeze({
   ERROR: 'error',
   NUL: 'nul',
 }); // the limit a Markdown document's drawing hit (md-surface.ts, MARKDOWN_LIMITS): #md's data-limit
+
+// ------------------------------------------------ A pin record read as values
+// Pure readers of a pin as the API sends it: its state, its verdict key, its line range, how a range overlaps it.
+// A pin's state: its `state`, else what its done and review flags say.
+function pinState(pin) {
+  return (pin && pin.state) || (pin && pin.done ? (pin.review ? PIN_STATE.REVIEW : PIN_STATE.DONE) : PIN_STATE.OPEN);
+}
+// A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it
+// (pins/verdict.py verdict_of: 1-16 letters, digits, '-' or '_'). Pure.
+function verdictOf(pin) {
+  const value = pin && pin.verdict;
+  return typeof value === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(value) ? value : null;
+}
+// Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left
+// as-is).
+function lineRange(first, last) {
+  return 'L' + first + (last !== first ? '-L' + last : '');
+}
+// docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (COMPOSE.current) overlaps an open pin, one
+// representative is chosen and a "append" banner is drawn. Never auto-merged - the user picks between [메모에
+// 덧붙이기]/[별도 핀으로 저장]. Overlap is recomputed against this tab's PINS every time the range changes (drag/level
+// switch/up-down). Counted only once at pick time, a level switch to the exact range of an existing pin would show no
+// banner and save a duplicate pin. The rule matches the server's selection_rel (a test compares them): equal (same
+// range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
+function rangeRelation(first, last, pinFirst, pinLast) {
+  if (last < pinFirst || pinLast < first) return null;
+  if (first === pinFirst && last === pinLast) return RANGE_REL.EQUAL;
+  if (pinFirst <= first && last <= pinLast) return RANGE_REL.INSIDE;
+  if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
+  return RANGE_REL.PARTIAL;
+}
+function overlapsFor(selection, pins) {
+  const out = [];
+  if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
+  (pins || []).forEach((pin) => {
+    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== selection.file) return;
+    const rel = rangeRelation(selection.lo, selection.hi, pin.lo, pin.hi);
+    if (rel) out.push({ id: pin.id, lo: pin.lo, hi: pin.hi, rel: rel });
+  });
+  return out;
+}
+
+('use strict');
+const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
+// Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
+// applies to the next slide or scroll. The panel's slides are skipped, but thresholds and previews stay (§패널 폭과
+// 시트 높이).
+const REDUCED_MOTION_QUERY = matchMedia('(prefers-reduced-motion: reduce)');
+// How a scripted scroll moves - a jump of the pages, a heading, a card, a change group: smoothly, or at once ('auto':
+// nothing sets a smooth scroll-behavior, and responsive.css holds it auto) while reduced motion is asked for. Asked at
+// each scroll, never read once at load: a setting turned on later must stop every jump gliding, and one turned off must
+// let them glide again.
+function scrollMotion() {
+  return REDUCED_MOTION_QUERY.matches ? 'auto' : 'smooth';
+}
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar
 // and the action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that
 // differs per band reads BAND.
@@ -649,6 +692,51 @@ function setSwitchseq(value) {
 function setZoomed(value) {
   ZOOMED = value;
   return value;
+}
+
+// ------------------------------------------------ People
+// Who a login is (a name, an agent or a human) and whether it is the viewer themself, read from the page's shared
+// state.
+function who(person) {
+  if (person && person.login === LOCAL_LOGIN) return translate(person.name || '로컬/에이전트');
+  return (person && (person.name || person.login)) || '';
+} // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
+// A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon -
+// distinguishes people from agents at a glance. The initial is in a box of its own (.av-l): trimmed to its cap height,
+// so the circle centres the letter and not its line box.
+function isAgent(person) {
+  return !!person && (person.login === LOCAL_LOGIN || String(person.login).startsWith('agent:'));
+}
+// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md
+// §@태그). Names and numbers are found in the text as written and the result is built with html``, so the text between
+// and inside the tokens stays text - what a person wrote never leaks as HTML. Names are matched with the same
+// candidates as the server's resolve_mentions() (full name/login/the part of the login before @/the first word of the
+// name), longest first, case-insensitive. Skipped when '@' follows a word (mentionAfterWord - an email address); a name
+// ending in an ASCII letter followed by an ASCII letter (@Alicex) is a different word. An unresolved '@word' stays
+// plain text - it must never look like it called someone.
+function peopleName(login) {
+  const known = PEOPLE.find((person) => person.login === login);
+  return known ? known.name : login;
+}
+function meLogin() {
+  const me = typeof META !== 'undefined' && META && META.me;
+  return me && me.login && me.login !== LOCAL_LOGIN ? me.login : null;
+}
+function isHuman() {
+  const me = typeof META !== 'undefined' && META && META.me;
+  return !!(
+    me &&
+    me.login &&
+    me.login !== LOCAL_LOGIN &&
+    !String(me.login).startsWith('agent:') &&
+    me.role !== ROLE.AGENT
+  );
+}
+// The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm
+// the author, '내 확인 차례'.
+function isMe(person) {
+  const me = META && META.me;
+  return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
 }
 
 // ------------------------------------------------ DOM lookups, escaping, icons
@@ -1208,6 +1296,32 @@ const TIP_TEXT = {
   reloadtip:
     '이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다',
 };
+// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer
+// pin with the smallest range), otherwise the smallest-id partial. Must follow the same rule as the server's
+// rel_badge() (pins.md) so card tags and pins.md rows never disagree - since a rel entry is only {id,rel}, the range is
+// looked up by id from PINS (all currently loaded open pins). The badge wording is phrased to be self-explanatory:
+// '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is told by this pin's own lo/hi.
+function josa(number, afterConsonant, afterVowel) {
+  const lastDigit = String(number).slice(-1);
+  return lastDigit === '0' || '13678'.includes(lastDigit) ? afterConsonant : afterVowel;
+}
+// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육),
+// else '로'. The particle after a name: afterConsonant after a final consonant, afterVowel after a vowel. A Hangul name
+// by its last syllable's final; a Latin one by how its end is read - a vowel letter (and a silent e) reads as a vowel,
+// a consonant as one ('Bob이', 'Alice가'), a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a
+// digit as its Korean reading (josa). Pure.
+function josaName(name, afterConsonant, afterVowel) {
+  const trimmed = String(name || '').trim(),
+    last = trimmed.slice(-1);
+  if (!last) return afterVowel;
+  const code = last.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 ? afterConsonant : afterVowel;
+  if (/[0-9]/.test(last)) return josa(last, afterConsonant, afterVowel);
+  if (/[A-Z]/.test(last) && !/[A-Za-z]/.test(trimmed.slice(-2, -1)))
+    return 'LMNR'.includes(last) ? afterConsonant : afterVowel;
+  if (/[a-zA-Z]/.test(last)) return /[aeiouyAEIOUY]/.test(last) ? afterVowel : afterConsonant;
+  return afterVowel;
+}
 
 // ------------------------------------------- Preferences (merged save): per-device pinPrefs, list-section state, theme
 const LIGHT_SCHEME_QUERY = matchMedia('(prefers-color-scheme: light)');
@@ -3538,21 +3652,6 @@ function roveSegment(group) {
 function multiDoc() {
   return DOCS.length > 1;
 }
-function docInfo(doc) {
-  return DOCS.find((entry) => entry.key === doc) || null;
-}
-function pdoc(pin) {
-  return (pin && pin.doc) || DEFAULT_DOC;
-}
-function isRegion(pin) {
-  return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
-}
-// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
-function withDocQuery(path, doc) {
-  doc = doc || DOC;
-  if (!doc) return path;
-  return path + (path.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(doc);
-}
 function hashDoc() {
   const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
   return match ? match[1] : null;
@@ -4089,6 +4188,65 @@ document.addEventListener(
   true,
 );
 addEventListener('resize', placeDocMenu);
+
+// ------------------------------------------------ The open document's facts
+// Read from the page's shared state: the document entries and their kinds, the document a pin belongs to, the query
+// that names a document, its verdict words, and the viewer role.
+// Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
+// instance.
+function isMarkdownDoc() {
+  return !!META && rendersInBrowser(META.kind);
+}
+// Whether the document on screen is a text document (shown line for line, never parsed).
+function isTextDoc() {
+  return !!META && showsSourceLines(META.kind);
+}
+function docInfo(doc) {
+  return DOCS.find((entry) => entry.key === doc) || null;
+}
+function pdoc(pin) {
+  return (pin && pin.doc) || DEFAULT_DOC;
+}
+function isRegion(pin) {
+  return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
+}
+// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
+function withDocQuery(path, doc) {
+  doc = doc || DOC;
+  if (!doc) return path;
+  return path + (path.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(doc);
+}
+// The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is
+// read with the document), else its /api/docs entry's; null without usable words.
+function docVerdicts(doc) {
+  const docName = doc === undefined ? DOC : doc,
+    metaVerdicts = META && (!docName || META.doc === docName) ? META.verdicts : undefined,
+    entry = docInfo(docName),
+    verdicts = metaVerdicts || (entry && entry.verdicts);
+  return verdicts && Array.isArray(verdicts.choices) && verdicts.choices.length ? verdicts : null;
+}
+// The name a verdict key is shown by: its word's label in the word file of document doc (default: the one on screen) -
+// a card of another document under [모든 문서] names its own document's word - else the key itself (a word the file no
+// longer declares stays the pin's verdict).
+function verdictLabel(key, doc) {
+  const verdicts = docVerdicts(doc),
+    choice = verdicts && verdicts.choices.find((x) => x.key === key);
+  return choice ? choice.label : key;
+}
+// The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
+function docKindOf(doc) {
+  return (!DOC || doc === DOC) && META ? META.kind : (docInfo(doc) || {}).kind;
+}
+function isViewer() {
+  return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.VIEWER);
+}
+// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it, in a
+// banner over the composer while one is open, else on top of the panel (bannerHost).
+function viewerBlocked() {
+  if (!isViewer()) return false;
+  bannerNote(undefined, '보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다', NOTICE_KIND.WARN);
+  return true;
+}
 
 // ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
 // REVISION_VIEW: one changes-view visit owns the selected commit, source text and request sequence (seq). overlay is a
@@ -6256,9 +6414,6 @@ function updateSyncBadge(sync) {
     ? badge.textContent + ' · ' + reason + ' · ' + translate('기존 PDF가 보일 수 있습니다')
     : badge.textContent;
 }
-function isViewer() {
-  return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.VIEWER);
-}
 // An agent identity (role agent): it neither deletes nor restores a verdict pin (D16, 403 verdict_human), so it is
 // offered neither.
 function isAgentRole() {
@@ -6275,13 +6430,6 @@ function confirmAccessText() {
       ? '보기 권한만 있습니다 — 편집 권한이 있는 사람이 확인합니다'
       : '에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요',
   );
-}
-// A state change the viewer role cannot make (the server answers 403 anyway): say so once instead of sending it, in a
-// banner over the composer while one is open, else on top of the panel (bannerHost).
-function viewerBlocked() {
-  if (!isViewer()) return false;
-  bannerNote(undefined, '보기 권한(viewer)만 있는 계정이라 바꿀 수 없습니다', NOTICE_KIND.WARN);
-  return true;
 }
 // Paints the header and the info line from META (the document on screen): names, page count, commit, build time, who is
 // signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document
@@ -6790,10 +6938,6 @@ function notePinChanges(previous, listed, dropped) {
     );
 }
 
-// A pin's state: its `state`, else what its done and review flags say.
-function pinState(pin) {
-  return (pin && pin.state) || (pin && pin.done ? (pin.review ? PIN_STATE.REVIEW : PIN_STATE.DONE) : PIN_STATE.OPEN);
-}
 // Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until
 // [x], with a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
 function noteReviewChanges(previous, listed) {
@@ -6872,6 +7016,11 @@ function setLastPinsRevision(value) {
 function setLastSrcMtime(value) {
   LAST_SRC_MTIME = value;
   return value;
+}
+// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
+// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
+function offlineNow() {
+  return POLL_FAILS >= 2 || navigator.onLine === false;
 }
 
 // ------------------------ Browser notifications (docs/handbook/viewer.md §브라우저 알림) - only while the tab is alive
@@ -15139,10 +15288,25 @@ function selectionRoom() {
   };
 }
 
-// ------------------------------------------------ Range levels
+// ------------------------------------------------ The range ladder's levels
 function levelOf(owner, key) {
   return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
 }
+// Applies rung `key` to the owner (the composer's selection or an edit card): its lines, scope and source; a figure
+// rung also selects its element (elSel), which lines later set in the excerpt keep (setLines).
+function useLevel(owner, key) {
+  const rung = levelOf(owner, key);
+  if (!rung) return;
+  if ('score' in rung) owner.score = rung.score;
+  owner.lo = rung.lo;
+  owner.hi = rung.hi;
+  owner.scope = rung.level;
+  owner.env = rung.env || null;
+  owner.snippet = rung.snippet;
+  if (rung.el) owner.elSel = rung.el;
+}
+
+// ------------------------------------------------ Range levels
 // A Markdown document's rungs (md-surface.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a
 // section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
@@ -15187,11 +15351,6 @@ function currentRung(owner) {
   const scopeRung = owner.scope && levelOf(owner, owner.scope);
   if (scopeRung && scopeRung.lo === owner.lo && scopeRung.hi === owner.hi) return scopeRung;
   return rungs.find((rung) => rung.lo === owner.lo && rung.hi === owner.hi) || null;
-}
-// Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left
-// as-is).
-function lineRange(first, last) {
-  return 'L' + first + (last !== first ? '-L' + last : '');
 }
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more
 // than once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the
@@ -15334,19 +15493,6 @@ document.addEventListener(
   },
   true,
 );
-// Applies rung `key` to the owner (the composer's selection or an edit card): its lines, scope and source; a figure
-// rung also selects its element (elSel), which lines later set in the excerpt keep (setLines).
-function useLevel(owner, key) {
-  const rung = levelOf(owner, key);
-  if (!rung) return;
-  if ('score' in rung) owner.score = rung.score;
-  owner.lo = rung.lo;
-  owner.hi = rung.hi;
-  owner.scope = rung.level;
-  owner.env = rung.env || null;
-  owner.snippet = rung.snippet;
-  if (rung.el) owner.elSel = rung.el;
-}
 let SNIPPET_TIMER = undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives.
@@ -15918,11 +16064,6 @@ function keepRenderContext(root, context) {
 function renderContextOf(element) {
   const root = element && element.closest('.md');
   return (root && ROOT_CONTEXTS.get(root)) || MARKDOWN_VIEW;
-}
-// Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
-// instance.
-function isMarkdownDoc() {
-  return !!META && rendersInBrowser(META.kind);
 }
 function isMarkdownPin(pin) {
   const entry = docInfo(pdoc(pin));
@@ -18682,10 +18823,6 @@ document.addEventListener('selectionchange', () => {
 const TAB_COLUMNS = 4; // the columns a tab spans (CSS tab-size of the view, and indentColumns)
 const MAX_HANG_COLUMNS = 16; // the most columns a wrapped line's continuation hangs: a phone keeps room for the text
 const BLOCK_LABEL_CHARS = 12; // the most characters of a block's header its rung's label shows
-// Whether the document on screen is a text document (shown line for line, never parsed).
-function isTextDoc() {
-  return !!META && showsSourceLines(META.kind);
-}
 // ---------------- Lines, columns and blocks: pure but for translateTemplate/translate
 // The columns a line's leading whitespace spans, a tab to the next multiple of tab, or -1 for a blank line (only
 // whitespace).
@@ -21130,7 +21267,6 @@ document.addEventListener('input', (event) => {
 // (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
 // was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
 // unchanged (savePin).
-
 const COMPOSE = {
   current: null,
   box: null,
@@ -21141,6 +21277,7 @@ const COMPOSE = {
   intent: 0,
   retryVerdict: null,
 };
+
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
 function composeFields() {
@@ -21323,29 +21460,6 @@ async function pick(region) {
     clearPendingSave();
     savePin();
   }
-}
-// docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (COMPOSE.current) overlaps an open pin, one
-// representative is chosen and a "append" banner is drawn. Never auto-merged - the user picks between [메모에
-// 덧붙이기]/[별도 핀으로 저장]. Overlap is recomputed against this tab's PINS every time the range changes (drag/level
-// switch/up-down). Counted only once at pick time, a level switch to the exact range of an existing pin would show no
-// banner and save a duplicate pin. The rule matches the server's selection_rel (a test compares them): equal (same
-// range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
-function rangeRelation(first, last, pinFirst, pinLast) {
-  if (last < pinFirst || pinLast < first) return null;
-  if (first === pinFirst && last === pinLast) return RANGE_REL.EQUAL;
-  if (pinFirst <= first && last <= pinLast) return RANGE_REL.INSIDE;
-  if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
-  return RANGE_REL.PARTIAL;
-}
-function overlapsFor(selection, pins) {
-  const out = [];
-  if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
-  (pins || []).forEach((pin) => {
-    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== selection.file) return;
-    const rel = rangeRelation(selection.lo, selection.hi, pin.lo, pin.hi);
-    if (rel) out.push({ id: pin.id, lo: pin.lo, hi: pin.hi, rel: rel });
-  });
-  return out;
 }
 // One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
 // (the smallest id).
@@ -22785,11 +22899,6 @@ async function offlineSync() {
   drawStatus();
   // The queued pins on the page and in the panel (offline-ui.ts).
   offlineUiSync(all);
-}
-// Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
-// judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
-function offlineNow() {
-  return POLL_FAILS >= 2 || navigator.onLine === false;
 }
 
 // ---------------- The last answer to a document read
@@ -24810,15 +24919,6 @@ new MutationObserver(() => offUiDraw()).observe($('#doc'), { childList: true });
 // they are drawn as text, translate="no", and the names around them are put in the screen's language here.
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
-// The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is
-// read with the document), else its /api/docs entry's; null without usable words.
-function docVerdicts(doc) {
-  const docName = doc === undefined ? DOC : doc,
-    metaVerdicts = META && (!docName || META.doc === docName) ? META.verdicts : undefined,
-    entry = docInfo(docName),
-    verdicts = metaVerdicts || (entry && entry.verdicts);
-  return verdicts && Array.isArray(verdicts.choices) && verdicts.choices.length ? verdicts : null;
-}
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
 // document or a view-only PDF): the words, else null.
 function pageVerdictsOn() {
@@ -24830,20 +24930,6 @@ function pageVerdictsOn() {
 function canVerdict() {
   const role = META && META.me && META.me.role;
   return role !== ROLE.VIEWER && role !== ROLE.AGENT;
-}
-// A pin's verdict key, or null: a stored value counts only when it is key-shaped, as the server reads it
-// (pins/verdict.py verdict_of: 1-16 letters, digits, '-' or '_'). Pure.
-function verdictOf(pin) {
-  const value = pin && pin.verdict;
-  return typeof value === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(value) ? value : null;
-}
-// The name a verdict key is shown by: its word's label in the word file of document doc (default: the one on screen) -
-// a card of another document under [모든 문서] names its own document's word - else the key itself (a word the file no
-// longer declares stays the pin's verdict).
-function verdictLabel(key, doc) {
-  const verdicts = docVerdicts(doc),
-    choice = verdicts && verdicts.choices.find((x) => x.key === key);
-  return choice ? choice.label : key;
 }
 // A card's verdict badge, '판정 채택' (the question badge's shape; the words carry the meaning, no colour of its own),
 // or null.
@@ -24922,10 +25008,6 @@ function pageTargetOf(pin, kind) {
   return frac.every((value, index) => Math.abs(value - WHOLE_PAGE[index]) <= 1e-6)
     ? { page: pin.page, id: 'page ' + pin.page }
     : null;
-}
-// The kind of document doc: the meta's for the document on screen, else its /api/docs entry's.
-function docKindOf(doc) {
-  return (!DOC || doc === DOC) && META ? META.kind : (docInfo(doc) || {}).kind;
 }
 // The target a verdict pin is about, as far as its stored place says it without a project's rules: the page's whole
 // target (pageTargetOf: a figure document's figure, a view-only PDF's whole page) - the page line's targets; else, on a
@@ -31659,20 +31741,9 @@ $('#left').addEventListener('scroll', placeSelectionPopover, { passive: true });
 addEventListener('resize', placeSelectionPopover);
 new ResizeObserver(placeSelectionPopover).observe($('#doc')); // a zoom moves the box with its page
 
-/** Native pin-card markup, including participant text, state badges and threads.
- * User-provided names and notes enter markup only through the escaping Html template. */
-function who(person) {
-  if (person && person.login === LOCAL_LOGIN) return translate(person.name || '로컬/에이전트');
-  return (person && (person.name || person.login)) || '';
-} // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
+// ------------------------------------------------ A person's avatar
 // The avatar URLs that have failed: never requested again, so console errors do not pile up on every redraw.
 const FAILED_AVATARS = new Set();
-// A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon -
-// distinguishes people from agents at a glance. The initial is in a box of its own (.av-l): trimmed to its cap height,
-// so the circle centres the letter and not its line box.
-function isAgent(person) {
-  return !!person && (person.login === LOCAL_LOGIN || String(person.login).startsWith('agent:'));
-}
 function avatar(person) {
   if (!person || !(person.name || person.login)) return html``;
   if (isAgent(person)) return html`<span class="av i agent" aria-hidden="true">${lucideIcon('bot')}</span>`;
@@ -31681,6 +31752,10 @@ function avatar(person) {
     ? html`<img class="av" src="${person.pic}" alt="" referrerpolicy="no-referrer" data-ini="${initial}">`
     : html`<span class="av i" aria-hidden="true"><span class="av-l">${initial}</span></span>`;
 }
+
+/** Native pin-card markup, including participant text, state badges and threads.
+ * User-provided names and notes enter markup only through the escaping Html template. */
+
 document.addEventListener(
   'error',
   (event) => {
@@ -31708,32 +31783,6 @@ function authorTip(pin) {
       ' / ' +
       translateTemplate('수정: {name} · {at}', { name: who(pin.edited_by) || translate('기록 전'), at: pin.edited_at });
   return tip;
-}
-// docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer
-// pin with the smallest range), otherwise the smallest-id partial. Must follow the same rule as the server's
-// rel_badge() (pins.md) so card tags and pins.md rows never disagree - since a rel entry is only {id,rel}, the range is
-// looked up by id from PINS (all currently loaded open pins). The badge wording is phrased to be self-explanatory:
-// '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is told by this pin's own lo/hi.
-function josa(number, afterConsonant, afterVowel) {
-  const lastDigit = String(number).slice(-1);
-  return lastDigit === '0' || '13678'.includes(lastDigit) ? afterConsonant : afterVowel;
-}
-// '로' or '으로' after a number read in Korean: '으로' after a final consonant other than ㄹ (영/십·백·천, 삼, 육),
-// else '로'. The particle after a name: afterConsonant after a final consonant, afterVowel after a vowel. A Hangul name
-// by its last syllable's final; a Latin one by how its end is read - a vowel letter (and a silent e) reads as a vowel,
-// a consonant as one ('Bob이', 'Alice가'), a lone capital as its letter's Korean name ('Agent B가', 'Team L이'); a
-// digit as its Korean reading (josa). Pure.
-function josaName(name, afterConsonant, afterVowel) {
-  const trimmed = String(name || '').trim(),
-    last = trimmed.slice(-1);
-  if (!last) return afterVowel;
-  const code = last.charCodeAt(0);
-  if (code >= 0xac00 && code <= 0xd7a3) return (code - 0xac00) % 28 ? afterConsonant : afterVowel;
-  if (/[0-9]/.test(last)) return josa(last, afterConsonant, afterVowel);
-  if (/[A-Z]/.test(last) && !/[A-Za-z]/.test(trimmed.slice(-2, -1)))
-    return 'LMNR'.includes(last) ? afterConsonant : afterVowel;
-  if (/[a-zA-Z]/.test(last)) return /[aeiouyAEIOUY]/.test(last) ? afterVowel : afterConsonant;
-  return afterVowel;
 }
 function josaToward(number) {
   return '036'.includes(String(number).slice(-1)) ? '으로' : '로';
@@ -32006,17 +32055,6 @@ function replyCount(pin) {
 function entryText(entry) {
   return fmtText(entry.text, entry.mentions);
 }
-// Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md
-// §@태그). Names and numbers are found in the text as written and the result is built with html``, so the text between
-// and inside the tokens stays text - what a person wrote never leaks as HTML. Names are matched with the same
-// candidates as the server's resolve_mentions() (full name/login/the part of the login before @/the first word of the
-// name), longest first, case-insensitive. Skipped when '@' follows a word (mentionAfterWord - an email address); a name
-// ending in an ASCII letter followed by an ASCII letter (@Alicex) is a different word. An unresolved '@word' stays
-// plain text - it must never look like it called someone.
-function peopleName(login) {
-  const known = PEOPLE.find((person) => person.login === login);
-  return known ? known.name : login;
-}
 function mentionTokensOf(logins) {
   const out = [];
   (logins || []).forEach((login) => {
@@ -32044,10 +32082,6 @@ function mentionAfterWord(text, index) {
 }
 function escapeRegExp(text) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-function meLogin() {
-  const me = typeof META !== 'undefined' && META && META.me;
-  return me && me.login && me.login !== LOCAL_LOGIN ? me.login : null;
 }
 // text as Html with its resolved @-tags (logins) and existing #refs as tokens. A match the rules turn down is consumed
 // and stays text, and the text between two tags is searched for #refs only, so a name never holds a link.
@@ -33527,12 +33561,6 @@ function gotoReview() {
     const section = $('#sec-review');
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
-}
-// The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm
-// the author, '내 확인 차례'.
-function isMe(person) {
-  const me = META && META.me;
-  return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
 }
 function reviewerLabel(pin) {
   if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
@@ -35671,16 +35699,6 @@ $('#mention-pop').addEventListener('pointerdown', (event) => event.preventDefaul
 // whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
 // the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
 // Sending is deferred behind an undo in the card, where the box was (deferredNote).
-function isHuman() {
-  const me = typeof META !== 'undefined' && META && META.me;
-  return !!(
-    me &&
-    me.login &&
-    me.login !== LOCAL_LOGIN &&
-    !String(me.login).startsWith('agent:') &&
-    me.role !== ROLE.AGENT
-  );
-}
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false)
 // wins; otherwise a person's reply on a closed pin reopens it unless it tags a person or the pin is a question.
 // mentioned = the post's resolved @-tags without me.
@@ -35937,6 +35955,7 @@ function sendReply() {
 // ------------------------------------------------ Edit
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
 const EDITOR = { current: null, saving: false };
+
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
   return EDITOR.current === card;

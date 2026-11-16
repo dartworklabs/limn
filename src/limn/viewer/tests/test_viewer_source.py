@@ -4,7 +4,7 @@ comments, and the closed-set tables the viewer compares states against.
 The parts under src/limn/viewer/js share one classic-script scope (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때), so a
 function nothing calls, a function declared twice, or a statement pasted after a `//` comment all parse and silently do
 the wrong thing. tests/support/helpers_js.py tokenizes the parts (strings, template literals, regexes, comments), which is what
-makes these checks exact. The closed sets (app/state.ts: PIN_STATE, BUILD_STATE, ...) carry values that come from the API,
+makes these checks exact. The closed sets (platform/tables.ts, app/rules-tables.ts: PIN_STATE, ...) carry values that come from the API,
 so each is compared with the server's own Literal, tuple or producer (docs/handbook/viewer.md §닫힌 값 표).
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_source.py

@@ -5,43 +5,22 @@
 // whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
 // the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
 // Sending is deferred behind an undo in the card, where the box was (deferredNote).
-import {
-  REQUEST_KIND,
-  LOCAL_LOGIN,
-  META,
-  OPEN_CARDS,
-  PEOPLE,
-  PIN_STATE,
-  REPLY,
-  REPLY_DRAFT,
-  REPLY_VISITS,
-  ROLE,
-  SIDE_OPEN,
-  setReply,
-} from '../app/state.ts';
+import { OPEN_CARDS, PEOPLE, REPLY, REPLY_DRAFT, REPLY_VISITS, SIDE_OPEN, setReply } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote } from '../platform/notices.ts';
 import { findAnyPin } from '../revisions/flow.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
-import { markMine, pinState } from '../documents/flow-polling.ts';
+import { markMine } from '../documents/flow-polling.ts';
 import { setSide } from '../layout/flow.ts';
-import { meLogin, peopleName } from './view-card-parts.ts';
 import { drawPins, loadPins } from './flow-list.ts';
 import { mentionHints, mentionPreview, mentionScan } from './input-mentions.ts';
 import { autoGrow } from './flow-edit.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-function isHuman() {
-  const me = typeof META !== 'undefined' && META && META.me;
-  return !!(
-    me &&
-    me.login &&
-    me.login !== LOCAL_LOGIN &&
-    !String(me.login).startsWith('agent:') &&
-    me.role !== ROLE.AGENT
-  );
-}
+import { REQUEST_KIND, PIN_STATE, ROLE } from '../app/rules-tables.ts';
+import { pinState } from '../app/rules-pins.ts';
+import { meLogin, peopleName, isHuman } from '../app/state-people.ts';
+import { viewerBlocked } from '../documents/state.ts';
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false)
 // wins; otherwise a person's reply on a closed pin reopens it unless it tags a person or the pin is a question.
 // mentioned = the post's resolved @-tags without me.
@@ -294,4 +273,4 @@ function sendReply() {
   const undoButton = document.querySelector('[data-act="notice-act"][data-n="' + note.n + '"]');
   if (undoButton) (undoButton as HTMLElement).focus({ preventScroll: true });
 }
-export { closeReply, isHuman, openReply, renderReplyOutcome, replyNote, sendReply };
+export { closeReply, openReply, renderReplyOutcome, replyNote, sendReply };

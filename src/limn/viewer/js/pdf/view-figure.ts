@@ -3,15 +3,15 @@
 // element (levels[].el with id, path root first, label, part, impl and its box `frac` on the pick's page). The composer
 // shows that element without another request (docs/handbook/viewer.md §패널 정리): the pending box snaps to it - the
 // mark the pin will get - and the location line names its path. The selection keeps the element it shows as elSel.
-import { ELEMENT_SYNC } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { drawBox, pendingBadgeSide } from './input-selection.ts';
-import { levelOf } from '../composer/view-levels.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { popoverFreeArea } from '../composer/view-selection-popover.ts';
 import { $ } from '../platform/dom.ts';
+import { ELEMENT_SYNC } from '../app/rules-tables.ts';
+import { levelOf } from '../documents/rules.ts';
+import { COMPOSE } from '../composer/flow-pick.ts';
 
 // Whether box is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
 function isFrac(box: unknown): box is number[] {

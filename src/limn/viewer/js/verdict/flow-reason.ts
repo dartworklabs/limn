@@ -35,12 +35,10 @@ import {
   imeTail,
 } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
-import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { docInfo } from '../documents/view-tabs.ts';
-import { viewerBlocked } from '../documents/flow-boot.ts';
 import { searchToPage } from '../pdf/flow.ts';
 import {
   SAVING_LINES,
@@ -54,7 +52,6 @@ import {
   pageTargetOf,
   pageTargetShort,
   pageVerdictPins,
-  pageVerdictsOn,
   isAutoScrolling,
   canCancelVerdict,
   currentVerdictOn,
@@ -64,15 +61,16 @@ import {
   endJumpForScroll,
   pageLineSlot,
   stickReadingLine,
-  verdictLabel,
-  verdictOf,
+  pageVerdictsOn,
 } from './flow-line.ts';
 import { IS_BESIDE_PAGES, bringPage, redrawOnBesideChange } from './view-panel.ts';
-import { josa } from '../pins/view-card-parts.ts';
-import { PINS_APPLIED_SEQ, gotoPinRef, isMe, loadPins } from '../pins/flow-list.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
+import { PINS_APPLIED_SEQ, gotoPinRef, loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
 import { $, typingNow } from '../platform/dom.ts';
+import { verdictOf } from '../app/rules-pins.ts';
+import { isMe } from '../app/state-people.ts';
+import { docInfo, verdictLabel, viewerBlocked } from '../documents/state.ts';
+import { EDITOR } from '../pins/flow-edit.ts';
 
 // ---------------- Drafts kept per pin (sessionStorage)
 // One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The

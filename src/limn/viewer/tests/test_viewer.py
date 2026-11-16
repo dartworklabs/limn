@@ -2728,7 +2728,7 @@ class FrontendDocs(unittest.TestCase):
 
 
 def js_tooltips() -> str:
-    """The viewer's tooltip table (`const TIP_TEXT` in app/state.ts) as the page declares it, for harnesses whose functions read TIP_TEXT.x."""
+    """The viewer's tooltip table (`const TIP_TEXT` in platform/i18n.ts) as the page declares it, for harnesses whose functions read TIP_TEXT.x."""
     return js_const("TIP_TEXT")
 
 
@@ -3293,7 +3293,7 @@ class FrontendFigure(unittest.TestCase):
                 r"""
             const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
             const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict/flow-line.ts)
-            const isMarkdownDoc=()=>false;   // and it has pages (markdown/view.ts)
+            const isMarkdownDoc=()=>false;   // and it has pages (documents/state.ts)
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>drawn.push([m.dataset.pin,m.className,m.style.left,m.style.width])};
             const document={getElementById:id=>id==='p1'?page1:null,
@@ -5846,7 +5846,7 @@ class ViewerFunctions2(unittest.TestCase):
                 extract_js_fn("trashDaysLeft"),
                 extract_js_fn("isOwner"),
                 extract_js_fn("isViewer"),
-                "function verdictOf(){return null;}",  # an ordinary pin (verdict/flow-line.ts): its [되살리기] whatever the role
+                "function verdictOf(){return null;}",  # an ordinary pin (app/rules-pins.ts): its [되살리기] whatever the role
                 extract_js_fn("droppedCard"),
                 r"""
             const h=String(droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60}));

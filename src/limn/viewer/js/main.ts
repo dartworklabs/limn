@@ -1,9 +1,7 @@
 // ------------------------------------------------ Help
 import {
   DOCS,
-  REQUEST_KIND,
   LAYOUT,
-  LAYOUT_MODE,
   MENTION_ONLY,
   MID_OVERLAY,
   OPEN_CARDS,
@@ -42,7 +40,7 @@ import {
   toggleRevisionOther,
 } from './revisions/flow.ts';
 import { cycleDoc, openNavigationSheet, switchDoc } from './documents/flow-switch.ts';
-import { boot, viewerBlocked } from './documents/flow-boot.ts';
+import { boot } from './documents/flow-boot.ts';
 import { notifyToggle } from './documents/flow-notification.ts';
 import { BUILD } from './documents/view-build-chip.ts';
 import { reloadForUpdate } from './documents/flow-updates.ts';
@@ -64,20 +62,19 @@ import {
   showSheet,
   toggleSide,
 } from './layout/flow.ts';
-import { useLevel } from './composer/view-levels.ts';
 import { applyRange, dropLine, widenTo } from './composer/view-excerpt.ts';
 import { showElementBox } from './pdf/view-figure.ts';
-import { isMarkdownDoc, goToAnchor, goToDocLink, toggleHtmlRun } from './markdown/view.ts';
+import { goToAnchor, goToDocLink, toggleHtmlRun } from './markdown/view.ts';
 import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
 import {
-  COMPOSE,
   discardSelection,
   recomputeOverlap,
   renderComposer,
   renderOverlapBanner,
   setKind,
   toggleQuote,
+  COMPOSE,
 } from './composer/flow-pick.ts';
 import { saveDraftSoon } from './composer/flow-draft.ts';
 import { appendToPin, savePin } from './composer/flow-save.ts';
@@ -106,12 +103,15 @@ import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply } from './pins/flow-reply.ts';
-import { EDITOR, cancelEdit, openEdit, renderEdit, saveEdit } from './pins/flow-edit.ts';
+import { cancelEdit, openEdit, renderEdit, saveEdit, EDITOR } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
+import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
+import { isMarkdownDoc, viewerBlocked } from './documents/state.ts';
+import { useLevel } from './documents/rules.ts';
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

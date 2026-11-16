@@ -5,27 +5,28 @@
 // line (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed
 // again since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the
 // rules.
-import { DONE_ALL, MENTION_ONLY, OPEN_ALL, OPEN_CARDS, PIN_STATE, REVIEW_ALL, setReviewAll } from '../app/state.ts';
+import { DONE_ALL, MENTION_ONLY, OPEN_ALL, OPEN_CARDS, REVIEW_ALL, setReviewAll } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { ORDER, SECTION_OPEN, savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote, quietNote } from '../platform/notices.ts';
-import { pdoc } from '../documents/view-tabs.ts';
 import { showChange } from '../revisions/flow.ts';
 import { canConfirmReview } from '../documents/flow-boot.ts';
-import { markMine, pinState } from '../documents/flow-polling.ts';
-import { lineRange } from '../composer/view-levels.ts';
+import { markMine } from '../documents/flow-polling.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { suggestBadge } from '../composer/flow-suggest.ts';
-import { verdictBadge, verdictOf, verdictOldMarker, verdictTarget } from '../verdict/flow-line.ts';
+import { verdictBadge, verdictOldMarker, verdictTarget } from '../verdict/flow-line.ts';
 import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from './view-card-parts.ts';
 import { drawPins, jumpToCard, listReview, loadPins, marks, orderPins } from './flow-list.ts';
 import { CONFIRMING, CONFIRMING_PIN } from './flow-actions.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
+import { PIN_STATE } from '../app/rules-tables.ts';
+import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
+import { pdoc } from '../documents/state.ts';
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
 // close with none). null while the section shows cards.

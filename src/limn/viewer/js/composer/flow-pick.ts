@@ -8,16 +8,12 @@
 import {
   DOC,
   KIND_NEW,
-  REQUEST_KIND,
   LAST_POINTER,
   LAYOUT,
-  LAYOUT_MODE,
   META,
   MID_OVERLAY,
   PICKSEQ,
   PINS,
-  PIN_STATE,
-  RANGE_REL,
   REPICK,
   SNIP_OPEN,
   captureVisit,
@@ -29,19 +25,17 @@ import {
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
-import { errText, translateTemplate, translate, warnText } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, warnText, josa } from '../platform/i18n.ts';
 import { API_OUT, API_WAIT, api } from '../platform/api.ts';
 import { endTopic, lineNote } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { isRegion } from '../documents/view-tabs.ts';
-import { pinState } from '../documents/flow-polling.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
 import { applySide, relayout, setSelectMode, setSide } from '../layout/flow.ts';
 import { revealBox } from '../pdf/input-selection.ts';
-import { drawLadder, rangeCap, lineRange, scopeLabel, setCap, snipText, useLevel, viaTag } from './view-levels.ts';
+import { drawLadder, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
 import { drawExcerpt } from './view-excerpt.ts';
 import { figureRegionBadge, renderElement } from '../pdf/view-figure.ts';
-import { isMarkdownDoc, lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
+import { lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
 import {
   SUGGEST_DRAFT,
   renderSuggest,
@@ -53,7 +47,7 @@ import {
 } from './flow-suggest.ts';
 import { holdDraftUntil, saveDraftSoon, syncDraft } from './flow-draft.ts';
 import { clearPendingSave, savePin, syncComposeSaveButtons } from './flow-save.ts';
-import { offlineNow, offlinePick } from '../offline/flow.ts';
+import { offlinePick } from '../offline/flow.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
 import {
   SELECTION_POPOVER_FIELD,
@@ -61,17 +55,21 @@ import {
   drawSelectionPopover,
   isSelectionPopoverOpen,
 } from './view-selection-popover.ts';
-import { QUOTE_OPEN, josa } from '../pins/view-card-parts.ts';
+import { QUOTE_OPEN } from '../pins/view-card-parts.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
-import { EDITOR, autoGrow } from '../pins/flow-edit.ts';
+import { autoGrow, EDITOR } from '../pins/flow-edit.ts';
 import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
-
+import { REQUEST_KIND, LAYOUT_MODE, RANGE_REL } from '../app/rules-tables.ts';
+import { lineRange, overlapsFor } from '../app/rules-pins.ts';
+import { isMarkdownDoc, isRegion } from '../documents/state.ts';
+import { offlineNow } from '../documents/flow-polling.ts';
+import { useLevel } from '../documents/rules.ts';
 const COMPOSE = {
   current: null as Selection | null,
   box: null as HTMLElement | null,
@@ -82,6 +80,7 @@ const COMPOSE = {
   intent: 0,
   retryVerdict: null as { key: string; sel: Selection; gen: number } | null,
 };
+
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
 function composeFields() {
@@ -264,29 +263,6 @@ async function pick(region) {
     clearPendingSave();
     savePin();
   }
-}
-// docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (COMPOSE.current) overlaps an open pin, one
-// representative is chosen and a "append" banner is drawn. Never auto-merged - the user picks between [메모에
-// 덧붙이기]/[별도 핀으로 저장]. Overlap is recomputed against this tab's PINS every time the range changes (drag/level
-// switch/up-down). Counted only once at pick time, a level switch to the exact range of an existing pin would show no
-// banner and save a duplicate pin. The rule matches the server's selection_rel (a test compares them): equal (same
-// range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
-function rangeRelation(first, last, pinFirst, pinLast) {
-  if (last < pinFirst || pinLast < first) return null;
-  if (first === pinFirst && last === pinLast) return RANGE_REL.EQUAL;
-  if (pinFirst <= first && last <= pinLast) return RANGE_REL.INSIDE;
-  if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
-  return RANGE_REL.PARTIAL;
-}
-function overlapsFor(selection, pins) {
-  const out: PickOverlap[] = [];
-  if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
-  (pins || []).forEach((pin) => {
-    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== selection.file) return;
-    const rel = rangeRelation(selection.lo, selection.hi, pin.lo, pin.hi);
-    if (rel) out.push({ id: pin.id, lo: pin.lo, hi: pin.hi, rel: rel });
-  });
-  return out;
 }
 // One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
 // (the smallest id).
@@ -786,7 +762,6 @@ function discardSelection() {
   if (note) holdDraftUntil(note);
 } // the kept draft goes when the window does
 export {
-  COMPOSE,
   appendTarget,
   cancelSelection,
   composeFields,
@@ -797,7 +772,6 @@ export {
   focusHold,
   focusPlace,
   imeOpen,
-  overlapsFor,
   pick,
   syncQuestionHint,
   quoteInner,
@@ -810,4 +784,5 @@ export {
   setKind,
   shownQuote,
   toggleQuote,
+  COMPOSE,
 };

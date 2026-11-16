@@ -9,32 +9,13 @@
 // rangeBase its old side; listOpen whether the phone shows every loaded row; rangeLine the range's summary for the
 // status line, and rangeN its commit and file counts (the rendered compare's status line takes them, md-compare.ts
 // sayCompareStatus).
-import {
-  DIFF_FORMAT,
-  DOC,
-  DONE_ALL,
-  LAYOUT,
-  LAYOUT_MODE,
-  OPEN_ALL,
-  OVERLAY_SIDE,
-  PIN_STATE,
-  RANGE_MODE,
-  REVIEW_ALL,
-  REVISION_STATE,
-  SCOPE_MODE,
-  SCOPE_SOURCE,
-  SEEN_STATE,
-  SWITCHSEQ,
-  VIEW_MODE,
-} from '../app/state.ts';
+import { DOC, DONE_ALL, LAYOUT, OPEN_ALL, REVIEW_ALL, SWITCHSEQ } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { docInfo, withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
 import { canConfirmReview, confirmAccessText } from '../documents/flow-boot.ts';
-import { pinState } from '../documents/flow-polling.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
 import { PDFJS_VERSION, VECTOR_PDF } from '../pdf/flow-open.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
@@ -49,9 +30,7 @@ import {
   revisionPdfActive,
 } from './input.ts';
 import { setSide } from '../layout/flow.ts';
-import { lineRange } from '../composer/view-levels.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownDoc } from '../markdown/view.ts';
 import {
   RENDERED_COMPARE,
   clearRenderedCompare,
@@ -60,10 +39,25 @@ import {
   restateCompareStatus,
   showRenderedCompare,
 } from './view-rendered-compare.ts';
-import { isMe, markHitSides } from '../pins/flow-list.ts';
+import { markHitSides } from '../pins/flow-list.ts';
 import { keepSpot, returnToSpot } from '../documents/flow-rebuild.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
+import {
+  DIFF_FORMAT,
+  LAYOUT_MODE,
+  OVERLAY_SIDE,
+  PIN_STATE,
+  RANGE_MODE,
+  REVISION_STATE,
+  SCOPE_MODE,
+  SCOPE_SOURCE,
+  SEEN_STATE,
+  VIEW_MODE,
+} from '../app/rules-tables.ts';
+import { pinState, lineRange } from '../app/rules-pins.ts';
+import { isMe } from '../app/state-people.ts';
+import { isMarkdownDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
 const REVISION_VIEW = {
   seq: 0,
   files: [] as { name: string; text: string }[],
