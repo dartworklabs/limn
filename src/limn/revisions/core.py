@@ -1380,6 +1380,7 @@ def revision_exec(
         return StepFailed("tool_start")
     assert proc.stdout is not None and proc.stderr is not None  # stdout/stderr=PIPE
     buffers = {proc.stdout: bytearray(), proc.stderr: bytearray()}
+    by_fd = {pipe.fileno(): buffer for pipe, buffer in buffers.items()}
     size, deadline = 0, time.monotonic() + timeout
     try:
         with selectors.DefaultSelector() as sel:
@@ -1397,7 +1398,7 @@ def revision_exec(
                     size += len(chunk)
                     if size > limit:
                         return StepFailed("size")
-                    buffers[key.fileobj].extend(chunk)  # type: ignore[index]  # the keys are the two pipes
+                    by_fd[key.fd].extend(chunk)
             try:
                 rc = proc.wait(timeout=max(0.01, deadline - time.monotonic()))
             except subprocess.TimeoutExpired:

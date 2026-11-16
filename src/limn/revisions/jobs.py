@@ -154,16 +154,15 @@ def revision_cached(spec: RevisionSpec, root: Path) -> CachedComparison:
         data = json.loads(status.read_text(encoding="utf-8"))
         if not isinstance(data, dict) or time.time() - status.stat().st_mtime > REVISION_CACHE_TTL:
             return IdleComparison()
-        match data.get("state"):
-            case "ready":
-                pdf = path / "revision.pdf"
-                if pdf.is_symlink() or not 0 < pdf.stat().st_size <= REVISION_PDF_MAX:
-                    return IdleComparison()
-                return ReadyComparison(_without_meta(data))
-            case "error":
-                return FailedComparison(_without_meta(data))
-            case _:
+        state = data.get("state")
+        if state == "ready":
+            pdf = path / "revision.pdf"
+            if pdf.is_symlink() or not 0 < pdf.stat().st_size <= REVISION_PDF_MAX:
                 return IdleComparison()
+            return ReadyComparison(_without_meta(data))
+        if state == "error":
+            return FailedComparison(_without_meta(data))
+        return IdleComparison()
     except (OSError, ValueError, TypeError):
         return IdleComparison()
 
