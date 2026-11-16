@@ -4,7 +4,9 @@ import json
 import shutil
 import unittest
 
-from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, js_esc, js_markup, run_node
+from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, js_esc, js_markup, js_seams_wired, run_node
+
+DOCUMENT_SEAMS = "documents/state-seams.ts"
 
 
 class PinListLoading(unittest.TestCase):
@@ -440,6 +442,7 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 extract_js_fn("showDoc"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 extract_js_fn("resetBuildForDoc"),
                 """
                 let DOC='a',META={build_seq:1},SWITCHSEQ=0,NAVGEN=0,COMPOSE={current:null}; const EDITOR={current:null,saving:false};
@@ -472,6 +475,7 @@ class PinListLoading(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("refreshDoc"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 """
                 let DOC='b',SWITCHSEQ=1,META={pages:[{id:'current'}]},REFRESH_GEN=0;
                 const META_BY=new Map(),pending=[],painted=[];
@@ -503,6 +507,7 @@ class PinListLoading(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 extract_js_fn("refreshDoc"),
+                js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 """
                 let DOC='a',SWITCHSEQ=0,NAVGEN=0,META={pages:[{id:'a'}]},COMPOSE={current:null},REFRESH_GEN=0; const EDITOR={current:null,saving:false};
                 const META_BY=new Map([['b',{pages:[{id:'old'}],pages_build:'v1'}]]);

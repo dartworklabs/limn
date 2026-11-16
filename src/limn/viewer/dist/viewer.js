@@ -4048,7 +4048,7 @@ function docFit() {
   }
   if (fit !== DOC_FIT) {
     DOC_FIT = fit;
-    searchFit();
+    pageNavigation().fitSearch();
   }
   placeDocMenu();
 }
@@ -4133,7 +4133,7 @@ function openDocMenu() {
   const pop = $('#doc-pop'),
     filter = $('#doc-pop-in');
   hideTip();
-  closePageList(false);
+  pageNavigation().closePageList(false);
   filter.hidden = DOCS.length < 9;
   filter.value = '';
   $('#doc-more').setAttribute('aria-expanded', 'true');
@@ -4338,6 +4338,70 @@ function viewerBlocked() {
   return true;
 }
 const REVISION_PAGE = 30; // rows of one /api/revisions page (the server's history window is 500, api.md)
+
+// ------------------------------------------------ What documents asks the features above it
+// documents decides which document is open and when it is drawn, saved, left and refreshed; drawing it, its outline
+// and page list, its search, its Markdown lines and the changes view are the features above (pdf, markdown,
+// revisions). documents may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a seam here: an
+// interface for what documents asks, a registration function and an accessor. js/main.ts registers every seam once, at
+// its top level before boot() runs (no code that runs while the script loads reaches one), and documents calls the
+// registered function at the point, with the arguments and in the order it called the feature function directly. An
+// accessor called before its registration throws, naming the seam.
+
+// The pages of a PDF document (pdf/view-pages.ts, pdf/flow-open.ts, pdf/view-draw.ts): drawing them, their scale and
+// the PDF.js document behind them.
+let PAGE_SURFACE = null;
+// Registers the pages of a PDF document; js/main.ts calls it once.
+function setPageSurface(surface) {
+  PAGE_SURFACE = surface;
+}
+// The registered pages; throws before setPageSurface() has run.
+function pageSurface() {
+  if (!PAGE_SURFACE) throw new Error('setPageSurface() has not run: documents has no pages to draw');
+  return PAGE_SURFACE;
+}
+
+// The ways around a PDF document (pdf/view-outline.ts, pdf/view-page-list.ts, pdf/flow.ts): its outline, its page
+// list and its search, which the navigation sheet, the document menu and a switch use.
+let PAGE_NAVIGATION = null;
+// Registers the outline, the page list and the search; js/main.ts calls it once.
+function setPageNavigation(navigation) {
+  PAGE_NAVIGATION = navigation;
+}
+// The registered outline, page list and search; throws before setPageNavigation() has run.
+function pageNavigation() {
+  if (!PAGE_NAVIGATION) throw new Error('setPageNavigation() has not run: documents has no outline or page list');
+  return PAGE_NAVIGATION;
+}
+
+// What documents reads of the Markdown surface's drawn document and writes into it (markdown/view.ts MARKDOWN_VIEW):
+// which document is drawn and from which source, the line read now and the line count, the source asked for and the
+// line to come back to once it is drawn.
+// A document drawn in the browser from its source (markdown/view.ts; a text document uses the same machinery).
+let MARKDOWN_SURFACE = null;
+// Registers the Markdown surface; js/main.ts calls it once.
+function setMarkdownSurface(surface) {
+  MARKDOWN_SURFACE = surface;
+}
+// The registered Markdown surface; throws before setMarkdownSurface() has run.
+function markdownSurface() {
+  if (!MARKDOWN_SURFACE) throw new Error('setMarkdownSurface() has not run: documents has no Markdown surface');
+  return MARKDOWN_SURFACE;
+}
+
+// What documents writes into the changes view before it opens (revisions/flow.ts REVISION_VIEW): the range to paint
+// and the pin it was opened for.
+// The changes view ([변경 보기], revisions/flow.ts): which view shows, and its commit list.
+let CHANGES_VIEW = null;
+// Registers the changes view; js/main.ts calls it once.
+function setChangesView(view) {
+  CHANGES_VIEW = view;
+}
+// The registered changes view; throws before setChangesView() has run.
+function changesView() {
+  if (!CHANGES_VIEW) throw new Error('setChangesView() has not run: documents has no changes view');
+  return CHANGES_VIEW;
+}
 
 // ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
 // REVISION_VIEW: one changes-view visit owns the selected commit, source text and request sequence (seq). overlay is a
@@ -5826,16 +5890,16 @@ function openNavigationSheet() {
   hideTip();
   drawDocsMenu();
   drawNavigationView();
-  markOutline(); // its rows are drawn already (renderOutline when the outline was read): only the mark moves
+  pageNavigation().markOutline(); // its rows are drawn already (renderOutline when the outline was read): only the mark moves
   const pageCount = META && META.pages ? META.pages.length : 0,
     pageField = $('#ns-page-in');
   pageField.value = '';
-  pageField.placeholder = String(OUTLINE_ACTIVE_PAGE || 1);
+  pageField.placeholder = String(pageNavigation().outlinePage() || 1);
   $('#ns-page-n').textContent = translateTemplate('/ {n}쪽', { n: pageCount });
-  drawSheetPages();
+  pageNavigation().drawSheetPages();
   showSheet(sheet);
-  revealPageRow($('#ns-pages'));
-  tipCutTitles($('#ns-pages'));
+  pageNavigation().revealPageRow($('#ns-pages'));
+  pageNavigation().tipCutTitles($('#ns-pages'));
   revealSheetOutline(sheet);
 }
 // The outline's current section in the open sheet (docs/handbook/viewer.md §모바일 레이아웃): the sheet's outline is
@@ -6114,16 +6178,16 @@ function drawPos() {
   const label =
     isMarkdownDoc() && !isRevisions
       ? // a Markdown document has lines, not pages
-        markdownPositionLabel(
+        markdownSurface().positionLabel(
           shown ? shown.name : '',
-          MARKDOWN_VIEW.at,
-          MARKDOWN_VIEW.lines.length,
+          markdownSurface().reading().at,
+          markdownSurface().reading().lines.length,
           multiDoc(),
           innerWidth >= 400,
         )
       : posLabel(
           shown ? shown.name : '',
-          OUTLINE_ACTIVE_PAGE || 1,
+          pageNavigation().outlinePage() || 1,
           pageCount,
           multiDoc(),
           innerWidth >= 400,
@@ -6142,7 +6206,7 @@ function drawPos() {
 function saveView() {
   if (!DOC || !META) return;
   if (isMarkdownDoc()) {
-    const anchor = MARKDOWN_VIEW.shown === DOC ? readingAnchor() : null;
+    const anchor = markdownSurface().reading().shown === DOC ? markdownSurface().readingAnchor() : null;
     if (anchor) VIEW_BY.set(DOC, { line: anchor.line, off: anchor.off, lay: LAYOUT });
     saveViews();
     return;
@@ -6190,7 +6254,7 @@ function viewScale(view, widest) {
 // saved or default scale (startScale). Returns whether a kept view decided it.
 function applyViewWidth(view) {
   if (view && view.lay === LAYOUT && (LAYOUT === LAYOUT_MODE.WIDE || view.zoomed)) {
-    const scale = viewScale(view, widestPagePoints());
+    const scale = viewScale(view, pageSurface().widestPoints());
     if (scale) {
       setPageScale(scale);
       setZoomed(LAYOUT !== LAYOUT_MODE.WIDE && !!view.zoomed);
@@ -6198,13 +6262,14 @@ function applyViewWidth(view) {
     }
   }
   setZoomed(false);
-  setPageScale(startScale());
+  setPageScale(pageSurface().startScale());
   return false;
 }
 function restoreView(view) {
   if (!view) return;
   if (isMarkdownDoc()) {
-    MARKDOWN_VIEW.want = typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
+    markdownSurface().reading().want =
+      typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
     return;
   } // once it is drawn (showDocumentNode)
   restoreAnchor({ page: view.page, frac: view.frac });
@@ -6224,10 +6289,10 @@ async function switchDoc(doc) {
   if (!doc || doc === DOC || !docInfo(doc)) return;
   const seq = setSwitchseq(SWITCHSEQ + 1),
     navigation = NAVGEN;
-  searchLeave(); // the search belongs to the document left (pdf/flow.ts)
+  pageNavigation().leaveSearch(); // the search belongs to the document left (pdf/flow.ts)
   const active = document.activeElement,
     inPages = !!active && !!active.closest && !!active.closest('#left');
-  if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
+  if (document.body.classList.contains('revision-open')) changesView().setMode(VIEW_MODE.MANUSCRIPT);
   saveView();
   parkDraft();
   cancelRepick();
@@ -6299,8 +6364,8 @@ function showDoc(view) {
   endJumpForScroll();
   drawMeta();
   const hadWidth = applyViewWidth(view);
-  buildDoc();
-  if (!hadWidth) autoFitWidth();
+  pageSurface().build();
+  if (!hadWidth) pageSurface().fitWidth();
   restoreView(view);
   if (!view && $('#left')) $('#left').scrollTop = 0;
   setPins(OPEN_ALL.filter((pin) => pdoc(pin) === DOC));
@@ -6309,8 +6374,8 @@ function showDoc(view) {
   marks();
   drawDocTabs();
   $('#outline-items').textContent = translate('PDF 목차를 읽는 중입니다.');
-  if (document.body.classList.contains('revision-open')) loadRevisions();
-  openVectorDocument();
+  if (document.body.classList.contains('revision-open')) changesView().load();
+  pageSurface().openVector();
   resetBuildForDoc(); // if a previous document's request is still in flight, queue after it
   docTitle(false);
 }
@@ -6457,7 +6522,7 @@ function drawMeta() {
   // a figure document's marks are a frame with no tint (components.css)
   document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
   document.body.classList.toggle('md-surface', isMarkdownDoc());
-  showMarkdownHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
+  markdownSurface().showHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   // the document area's name says what it holds
   $('#left').setAttribute(
     'aria-label',
@@ -6648,11 +6713,15 @@ async function pollLightOnce() {
   // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per
   // change while that read is on its way (MARKDOWN_VIEW.asked), and again on the next poll if it failed
   // (buildMarkdownDoc clears MARKDOWN_VIEW.asked).
-  if (isMarkdownDoc() && meta.src_mtime !== MARKDOWN_VIEW.mtime && meta.src_mtime !== MARKDOWN_VIEW.asked) {
-    MARKDOWN_VIEW.asked = meta.src_mtime;
-    buildMarkdownDoc();
+  if (
+    isMarkdownDoc() &&
+    meta.src_mtime !== markdownSurface().reading().mtime &&
+    meta.src_mtime !== markdownSurface().reading().asked
+  ) {
+    markdownSurface().reading().asked = meta.src_mtime;
+    markdownSurface().build();
     // a tree image rewritten on disk shows without a reload (markdown/view.ts)
-  } else if (isMarkdownDoc()) void checkTreeImages();
+  } else if (isMarkdownDoc()) void markdownSurface().checkTreeImages();
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;
     LAST_SRC_MTIME = sig;
@@ -7875,8 +7944,8 @@ function shownDocState(doc) {
   // screen: the document list's (noteOtherDocs keeps it fresh) - MARKDOWN_VIEW still holds the lines of one drawn
   // before, as they were when left
   const sourceTime =
-    doc === DOC && MARKDOWN_VIEW.doc === doc && typeof MARKDOWN_VIEW.mtime === 'number'
-      ? MARKDOWN_VIEW.mtime
+    doc === DOC && markdownSurface().reading().doc === doc && typeof markdownSurface().reading().mtime === 'number'
+      ? markdownSurface().reading().mtime
       : doc !== DOC && entry && typeof entry.src_mtime === 'number'
         ? entry.src_mtime
         : source.src_mtime;
@@ -8159,10 +8228,10 @@ function countPinMove(pin, lost) {
 // the view as it opens. Another document is switched to first.
 function openUpdateRange(doc, base, top) {
   const go = () => {
-    REVISION_VIEW.want = { base, top: top || '' };
-    REVISION_VIEW.target = null; // the view opened for a pin shows the message's range now, not that pin's commit
-    if (document.body.classList.contains('revision-open')) loadRevisions();
-    else setViewMode(VIEW_MODE.REVISIONS);
+    changesView().wanted().want = { base, top: top || '' };
+    changesView().wanted().target = null; // the view opened for a pin shows the message's range now, not that pin's commit
+    if (document.body.classList.contains('revision-open')) changesView().load();
+    else changesView().setMode(VIEW_MODE.REVISIONS);
   };
   if (doc === DOC) {
     go();
@@ -8212,7 +8281,11 @@ function tintChangedLines() {
   $$('#md .md-upd').forEach((line) => line.classList.remove('md-upd'));
   const changed = UPDATE_STATE.lines.get(DOC || '');
   if (!changed || !isMarkdownDoc()) return;
-  changed.ranges.forEach((range) => lineLeaves(range.lo, range.hi).forEach((line) => line.classList.add('md-upd')));
+  changed.ranges.forEach((range) =>
+    markdownSurface()
+      .lineLeaves(range.lo, range.hi)
+      .forEach((line) => line.classList.add('md-upd')),
+  );
 }
 // [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's
 // lines (showLines: the reading spot is read where it lands).
@@ -8225,8 +8298,8 @@ function goToNextChange(doc) {
   if (!changed || !changed.ranges.length) return;
   changed.at = (changed.at + 1) % changed.ranges.length;
   const range = changed.ranges[changed.at],
-    leaves = lineLeaves(range.lo, range.hi);
-  if (leaves.length) showLines(leaves);
+    leaves = markdownSurface().lineLeaves(range.lo, range.hi);
+  if (leaves.length) markdownSurface().showLines(leaves);
 }
 
 // ---------------- Others' new pins
@@ -36715,7 +36788,7 @@ async function refreshDoc(meta) {
     META_BY.set(visitDoc, snapshot);
     setMeta(snapshot);
     drawMeta();
-    buildMarkdownDoc();
+    markdownSurface().build();
     await loadPins();
     return;
   } // no pages: the source is drawn again
@@ -36737,26 +36810,26 @@ async function refreshDoc(meta) {
   // PDF is opened. A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
-    releaseAllVectorPages();
+    pageSurface().releaseVector();
     $$('.pg').forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSrc(page);
+      pageElement.querySelector('img').src = pageSurface().pageSource(page);
     });
-    reapplyScale();
+    pageSurface().reapplyScale();
   } else {
     setBuildReadingPage(pageUnderReadingLine());
     try {
-      buildDoc();
+      pageSurface().build();
       restoreAnchor(anchor);
     } finally {
       setBuildReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(anchor);
-  openVectorDocument();
-  if (document.body.classList.contains('revision-open')) loadRevisions();
+  pageSurface().openVector();
+  if (document.body.classList.contains('revision-open')) changesView().load();
   await loadPins();
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
@@ -36897,6 +36970,38 @@ setNoticeFocus({
   isReasonField,
 });
 setNoticeComposer({ saveButtonLabel });
+// The seams documents calls the features above it through (documents/state-seams.ts), registered the same way.
+setPageSurface({
+  build: buildDoc,
+  fitWidth: autoFitWidth,
+  widestPoints: widestPagePoints,
+  startScale,
+  reapplyScale,
+  pageSource: pageSrc,
+  openVector: openVectorDocument,
+  releaseVector: releaseAllVectorPages,
+});
+setPageNavigation({
+  leaveSearch: searchLeave,
+  fitSearch: searchFit,
+  closePageList,
+  outlinePage: () => OUTLINE_ACTIVE_PAGE,
+  markOutline,
+  drawSheetPages,
+  revealPageRow,
+  tipCutTitles,
+});
+setMarkdownSurface({
+  reading: () => MARKDOWN_VIEW,
+  build: buildMarkdownDoc,
+  checkTreeImages,
+  readingAnchor,
+  positionLabel: markdownPositionLabel,
+  showHint: showMarkdownHint,
+  lineLeaves,
+  showLines,
+});
+setChangesView({ wanted: () => REVISION_VIEW, setMode: setViewMode, load: loadRevisions });
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

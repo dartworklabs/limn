@@ -15,11 +15,10 @@ import { prefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import { drawDocsMenu, drawPos, switchDoc } from './flow-switch.ts';
-import { closePageList } from '../pdf/view-page-list.ts';
-import { searchFit } from '../pdf/flow.ts';
 import type { Html } from '../platform/markup.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { docInfo, pdoc } from './state.ts';
+import { pageNavigation } from './state-seams.ts';
 
 function multiDoc() {
   return DOCS.length > 1;
@@ -330,7 +329,7 @@ function docFit() {
   }
   if (fit !== DOC_FIT) {
     DOC_FIT = fit;
-    searchFit();
+    pageNavigation().fitSearch();
   }
   placeDocMenu();
 }
@@ -415,7 +414,7 @@ function openDocMenu() {
   const pop = $('#doc-pop'),
     filter = $('#doc-pop-in') as HTMLInputElement;
   hideTip();
-  closePageList(false);
+  pageNavigation().closePageList(false);
   filter.hidden = DOCS.length < 9;
   filter.value = '';
   $('#doc-more').setAttribute('aria-expanded', 'true');

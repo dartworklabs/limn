@@ -1,8 +1,9 @@
 """Platform's seams (docs/handbook/viewer.md §모듈 경계): platform knows no feature, so where a platform module reads
 from or calls into one, it declares a seam - a typed registration function, a store and an accessor - and js/main.ts
-registers every seam once, before boot() runs.
+registers every seam once, before boot() runs. A feature that calls the features above it does the same
+(documents/state-seams.ts; test_viewer_documents_seams.py holds what documents calls through them).
 
-The tests hold the three promises a seam makes. The entry point wires every seam the platform declares (read from the
+The tests hold the three promises a seam makes. The entry point wires every seam the viewer declares (read from the
 source, so a new seam cannot stay unwired), once, before boot(). An unregistered seam throws, naming itself, instead of
 doing nothing. And a platform function calls the registered functions at the point, with the arguments and in the
 order it called the feature functions directly - checked under node against the served code wired by js/main.ts's own
@@ -16,20 +17,30 @@ import json
 import re
 import unittest
 
-from helpers import VIEWER, extract_js_fn, js_const, js_i18n, js_seam, js_seam_wired, platform_seams, run_node
+from helpers import (
+    VIEWER,
+    extract_js_fn,
+    js_const,
+    js_i18n,
+    js_seam,
+    js_seam_wired,
+    platform_seams,
+    run_node,
+    viewer_seams,
+)
 from helpers_notices import node_or_skip
 
 MAIN = VIEWER / "js" / "main.ts"
 
 
 class Wiring(unittest.TestCase):
-    """js/main.ts registers every seam platform declares, once, before boot()."""
+    """js/main.ts registers every seam the viewer declares, once, before boot()."""
 
     def test_the_platform_declares_its_seams(self):
         """The seams are found by their shape in platform's source - the list the other tests use is not empty, and
         each seam's store, setter and accessor are distinct names."""
-        seams = platform_seams()
-        self.assertGreaterEqual(len(seams), 5)
+        self.assertGreaterEqual(len(platform_seams()), 5)
+        seams = viewer_seams()
         for seam in seams:
             self.assertEqual(len({seam.setter, seam.store, seam.accessor}), 3, seam)
 
@@ -38,7 +49,7 @@ class Wiring(unittest.TestCase):
         src = MAIN.read_text(encoding="utf-8")
         boot = re.search(r"^boot\(\);$", src, re.M)
         self.assertIsNotNone(boot, "main.ts calls boot() at its top level")
-        for seam in platform_seams():
+        for seam in viewer_seams():
             with self.subTest(seam=seam.setter):
                 calls = [m.start() for m in re.finditer(r"^%s\(\{" % seam.setter, src, re.M)]
                 self.assertEqual(len(calls), 1, "%s is registered once at main.ts's top level" % seam.setter)
@@ -46,7 +57,7 @@ class Wiring(unittest.TestCase):
 
     def test_no_other_module_registers_a_seam(self):
         """No module but js/main.ts registers a seam (a call of its setter with the registered object)."""
-        for seam in platform_seams():
+        for seam in viewer_seams():
             for path in sorted((VIEWER / "js").rglob("*.ts")):
                 if path == MAIN:
                     continue
@@ -63,7 +74,7 @@ class Unregistered(unittest.TestCase):
 
     def test_each_accessor_throws_by_name(self):
         """Every accessor, before its setter ran, throws an Error whose message names the setter."""
-        for seam in platform_seams():
+        for seam in viewer_seams():
             with self.subTest(seam=seam.setter):
                 script = js_seam(seam.setter) + (
                     "\ntry{%s(); console.log(JSON.stringify('returned'));}"

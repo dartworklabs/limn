@@ -859,8 +859,8 @@ class FrontendVector(unittest.TestCase):
         self.assertIn(sq("canvas.width=0; canvas.height=0"), sq(self.fn("dropCanvas")))
         self.assertIn("observeVectorPages()", self.fn("buildDoc"))
         ref = self.fn("refreshDoc")
-        self.assertIn("releaseAllVectorPages()", ref)  # canvases drawn from the old PDF are removed
-        self.assertIn("openVectorDocument()", ref)  # reopen the PDF from the new build
+        self.assertIn("pageSurface().releaseVector()", ref)  # canvases drawn from the old PDF are removed
+        self.assertIn("pageSurface().openVector()", ref)  # reopen the PDF from the new build
         self.assertIn("invalidateVectorDraws()", self.fn("setScale"))  # redraw when the zoom changes
 
     def test_no_text_layer(self):
@@ -2688,7 +2688,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn(sq("savePrefs({lastDoc:doc})"), sq(sw))
         show = extract_js_fn("showDoc")
         self.assertIn("restoreView(view)", show)
-        self.assertIn("openVectorDocument()", show)
+        self.assertIn("pageSurface().openVector()", show)
 
     def test_cross_doc_card_actions_switch_first(self):
         self.assertIn(sq("function jumpPin(id){if(viaDoc(id,jumpPin))return;"), SCRIPT_SQ)

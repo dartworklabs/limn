@@ -4,12 +4,12 @@ import { META, buildsFromSource, isFigureKind } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { setStatusSync } from './view-status.ts';
-import { showMarkdownHint } from '../markdown/view.ts';
 import { $ } from '../platform/dom.ts';
 import { LOCAL_LOGIN, ROLE, SYNC_STATE } from '../app/rules-tables.ts';
 import { isAgent, who, isHuman } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
 import { isMarkdownDoc, isTextDoc, isViewer } from './state.ts';
+import { markdownSurface } from './state-seams.ts';
 function builtAtEpoch(builtAt) {
   const parsed = Date.parse(String(builtAt || '').replace(' ', 'T'));
   return isNaN(parsed) ? null : parsed / 1000;
@@ -105,7 +105,7 @@ function drawMeta() {
   // a figure document's marks are a frame with no tint (components.css)
   document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
   document.body.classList.toggle('md-surface', isMarkdownDoc());
-  showMarkdownHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
+  markdownSurface().showHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   // the document area's name says what it holds
   $('#left').setAttribute(
     'aria-label',

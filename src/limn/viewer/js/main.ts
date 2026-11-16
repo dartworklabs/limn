@@ -64,6 +64,8 @@ import {
   setRevisionWhole,
   setViewMode,
   showChange,
+  REVISION_VIEW,
+  loadRevisions,
   showRevision,
   toggleRevisionOther,
 } from './revisions/flow.ts';
@@ -88,10 +90,28 @@ import { BUILD, startBuildPolling } from './documents/view-build-chip.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
 import { drawStatus, statusWhy, toggleStatusList, STATUS_TOP, setStatusSig } from './documents/view-status.ts';
 import { sizePreset, toggleOutline, applySideWidth, applyOutlineState } from './layout/flow-panel-size.ts';
-import { actualSize, fitToWidth, goSheetPage, zoom, buildDoc, autoFitWidth } from './pdf/view-pages.ts';
-import { pickOutline, updateSectionStrip } from './pdf/view-outline.ts';
-import { closePageList, goListedPage, togglePageList } from './pdf/view-page-list.ts';
-import { searchClose, searchGo, searchOpen } from './pdf/flow.ts';
+import {
+  actualSize,
+  fitToWidth,
+  goSheetPage,
+  zoom,
+  buildDoc,
+  autoFitWidth,
+  pageSrc,
+  reapplyScale,
+  startScale,
+  widestPagePoints,
+} from './pdf/view-pages.ts';
+import { pickOutline, updateSectionStrip, OUTLINE_ACTIVE_PAGE, markOutline } from './pdf/view-outline.ts';
+import {
+  closePageList,
+  goListedPage,
+  togglePageList,
+  drawSheetPages,
+  revealPageRow,
+  tipCutTitles,
+} from './pdf/view-page-list.ts';
+import { searchClose, searchGo, searchOpen, searchFit, searchLeave } from './pdf/flow.ts';
 import { revisionPdfActive, revisionZoom } from './revisions/input.ts';
 import { zoomKey } from './pdf/input-zoom.ts';
 import {
@@ -108,7 +128,19 @@ import {
 } from './layout/flow.ts';
 import { applyRange, dropLine, widenTo } from './composer/view-excerpt.ts';
 import { showElementBox } from './pdf/view-figure.ts';
-import { goToAnchor, goToDocLink, toggleHtmlRun } from './markdown/view.ts';
+import {
+  goToAnchor,
+  goToDocLink,
+  toggleHtmlRun,
+  MARKDOWN_VIEW,
+  buildMarkdownDoc,
+  checkTreeImages,
+  lineLeaves,
+  markdownPositionLabel,
+  readingAnchor,
+  showLines,
+  showMarkdownHint,
+} from './markdown/view.ts';
 import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
 import {
@@ -176,7 +208,9 @@ import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
 import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc } from './documents/state.ts';
 import { useLevel } from './documents/rules.ts';
 import { setHtml } from './platform/markup.ts';
-import { bootVector } from './pdf/flow-open.ts';
+import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
+import { releaseAllVectorPages } from './pdf/view-draw.ts';
+import { setChangesView, setMarkdownSurface, setPageNavigation, setPageSurface } from './documents/state-seams.ts';
 import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } from './documents/flow-polling.ts';
 import { drawMeta } from './documents/view-meta.ts';
 
@@ -206,6 +240,38 @@ setNoticeFocus({
   isReasonField,
 });
 setNoticeComposer({ saveButtonLabel });
+// The seams documents calls the features above it through (documents/state-seams.ts), registered the same way.
+setPageSurface({
+  build: buildDoc,
+  fitWidth: autoFitWidth,
+  widestPoints: widestPagePoints,
+  startScale,
+  reapplyScale,
+  pageSource: pageSrc,
+  openVector: openVectorDocument,
+  releaseVector: releaseAllVectorPages,
+});
+setPageNavigation({
+  leaveSearch: searchLeave,
+  fitSearch: searchFit,
+  closePageList,
+  outlinePage: () => OUTLINE_ACTIVE_PAGE,
+  markOutline,
+  drawSheetPages,
+  revealPageRow,
+  tipCutTitles,
+});
+setMarkdownSurface({
+  reading: () => MARKDOWN_VIEW,
+  build: buildMarkdownDoc,
+  checkTreeImages,
+  readingAnchor,
+  positionLabel: markdownPositionLabel,
+  showHint: showMarkdownHint,
+  lineLeaves,
+  showLines,
+});
+setChangesView({ wanted: () => REVISION_VIEW, setMode: setViewMode, load: loadRevisions });
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {

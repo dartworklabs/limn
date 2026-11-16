@@ -9,13 +9,13 @@ import { updateStaleBadge, updateSyncBadge } from './view-meta.ts';
 import { notifyHandle, notifyOn, notifyQuery } from '../pins/flow-notification.ts';
 import { BUILD, pollBuild } from './view-build-chip.ts';
 import { DIGEST_TAIL_MS, awayTitle, checkDocUpdate, checkVersion, expectUpdate, versionDue } from './flow-updates.ts';
-import { MARKDOWN_VIEW, buildMarkdownDoc, checkTreeImages } from '../markdown/view.ts';
 import { OFF, offlineFlush } from '../offline/flow.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, SYNC_STATE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from './state.ts';
+import { markdownSurface } from './state-seams.ts';
 let LAST_PINS_REVISION = null as string | null,
   LAST_SRC_MTIME = null as string | number | null,
   POLL_FAILS = 0,
@@ -134,11 +134,15 @@ async function pollLightOnce() {
   // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per
   // change while that read is on its way (MARKDOWN_VIEW.asked), and again on the next poll if it failed
   // (buildMarkdownDoc clears MARKDOWN_VIEW.asked).
-  if (isMarkdownDoc() && meta.src_mtime !== MARKDOWN_VIEW.mtime && meta.src_mtime !== MARKDOWN_VIEW.asked) {
-    MARKDOWN_VIEW.asked = meta.src_mtime;
-    buildMarkdownDoc();
+  if (
+    isMarkdownDoc() &&
+    meta.src_mtime !== markdownSurface().reading().mtime &&
+    meta.src_mtime !== markdownSurface().reading().asked
+  ) {
+    markdownSurface().reading().asked = meta.src_mtime;
+    markdownSurface().build();
     // a tree image rewritten on disk shows without a reload (markdown/view.ts)
-  } else if (isMarkdownDoc()) void checkTreeImages();
+  } else if (isMarkdownDoc()) void markdownSurface().checkTreeImages();
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;
     LAST_SRC_MTIME = sig;

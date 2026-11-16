@@ -32,18 +32,11 @@ import { savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import { docBadge, drawDocTabs, hashDoc, multiDoc, setHash } from './view-tabs.ts';
-import { loadRevisions, setViewMode } from '../revisions/flow.ts';
 import { drawMeta } from './view-meta.ts';
 import { resetBuildForDoc } from './view-build-chip.ts';
 import { checkDocUpdate } from './flow-updates.ts';
-import { autoFitWidth, buildDoc, widestPagePoints, startScale } from '../pdf/view-pages.ts';
-import { openVectorDocument } from '../pdf/flow-open.ts';
-import { OUTLINE_ACTIVE_PAGE, markOutline } from '../pdf/view-outline.ts';
-import { drawSheetPages, revealPageRow, tipCutTitles } from '../pdf/view-page-list.ts';
-import { searchLeave } from '../pdf/flow.ts';
 import { showSheet } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
-import { MARKDOWN_VIEW, readingAnchor, markdownPositionLabel } from '../markdown/view.ts';
 import { cancelSelection, COMPOSE } from '../composer/flow-pick.ts';
 import { openDraftDoc, parkDraft, restoreDraft } from '../composer/flow-draft.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
@@ -56,6 +49,7 @@ import { $, $$, searchToPage } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
+import { changesView, markdownSurface, pageNavigation, pageSurface } from './state-seams.ts';
 function drawDocsMenu() {
   $('#ns-docs').hidden = !multiDoc();
   setHtml(
@@ -77,16 +71,16 @@ function openNavigationSheet() {
   hideTip();
   drawDocsMenu();
   drawNavigationView();
-  markOutline(); // its rows are drawn already (renderOutline when the outline was read): only the mark moves
+  pageNavigation().markOutline(); // its rows are drawn already (renderOutline when the outline was read): only the mark moves
   const pageCount = META && META.pages ? META.pages.length : 0,
     pageField = $('#ns-page-in');
   pageField.value = '';
-  pageField.placeholder = String(OUTLINE_ACTIVE_PAGE || 1);
+  pageField.placeholder = String(pageNavigation().outlinePage() || 1);
   $('#ns-page-n').textContent = translateTemplate('/ {n}쪽', { n: pageCount });
-  drawSheetPages();
+  pageNavigation().drawSheetPages();
   showSheet(sheet);
-  revealPageRow($('#ns-pages'));
-  tipCutTitles($('#ns-pages'));
+  pageNavigation().revealPageRow($('#ns-pages'));
+  pageNavigation().tipCutTitles($('#ns-pages'));
   revealSheetOutline(sheet);
 }
 // The outline's current section in the open sheet (docs/handbook/viewer.md §모바일 레이아웃): the sheet's outline is
@@ -365,16 +359,16 @@ function drawPos() {
   const label =
     isMarkdownDoc() && !isRevisions
       ? // a Markdown document has lines, not pages
-        markdownPositionLabel(
+        markdownSurface().positionLabel(
           shown ? shown.name : '',
-          MARKDOWN_VIEW.at,
-          MARKDOWN_VIEW.lines.length,
+          markdownSurface().reading().at,
+          markdownSurface().reading().lines.length,
           multiDoc(),
           innerWidth >= 400,
         )
       : posLabel(
           shown ? shown.name : '',
-          OUTLINE_ACTIVE_PAGE || 1,
+          pageNavigation().outlinePage() || 1,
           pageCount,
           multiDoc(),
           innerWidth >= 400,
@@ -393,7 +387,7 @@ function drawPos() {
 function saveView() {
   if (!DOC || !META) return;
   if (isMarkdownDoc()) {
-    const anchor = MARKDOWN_VIEW.shown === DOC ? readingAnchor() : null;
+    const anchor = markdownSurface().reading().shown === DOC ? markdownSurface().readingAnchor() : null;
     if (anchor) VIEW_BY.set(DOC, { line: anchor.line, off: anchor.off, lay: LAYOUT });
     saveViews();
     return;
@@ -441,7 +435,7 @@ function viewScale(view, widest) {
 // saved or default scale (startScale). Returns whether a kept view decided it.
 function applyViewWidth(view) {
   if (view && view.lay === LAYOUT && (LAYOUT === LAYOUT_MODE.WIDE || view.zoomed)) {
-    const scale = viewScale(view, widestPagePoints());
+    const scale = viewScale(view, pageSurface().widestPoints());
     if (scale) {
       setPageScale(scale);
       setZoomed(LAYOUT !== LAYOUT_MODE.WIDE && !!view.zoomed);
@@ -449,13 +443,14 @@ function applyViewWidth(view) {
     }
   }
   setZoomed(false);
-  setPageScale(startScale());
+  setPageScale(pageSurface().startScale());
   return false;
 }
 function restoreView(view) {
   if (!view) return;
   if (isMarkdownDoc()) {
-    MARKDOWN_VIEW.want = typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
+    markdownSurface().reading().want =
+      typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
     return;
   } // once it is drawn (showDocumentNode)
   restoreAnchor({ page: view.page, frac: view.frac });
@@ -475,10 +470,10 @@ async function switchDoc(doc) {
   if (!doc || doc === DOC || !docInfo(doc)) return;
   const seq = setSwitchseq(SWITCHSEQ + 1),
     navigation = NAVGEN;
-  searchLeave(); // the search belongs to the document left (pdf/flow.ts)
+  pageNavigation().leaveSearch(); // the search belongs to the document left (pdf/flow.ts)
   const active = document.activeElement,
     inPages = !!active && !!active.closest && !!active.closest('#left');
-  if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
+  if (document.body.classList.contains('revision-open')) changesView().setMode(VIEW_MODE.MANUSCRIPT);
   saveView();
   parkDraft();
   cancelRepick();
@@ -550,8 +545,8 @@ function showDoc(view) {
   endJumpForScroll();
   drawMeta();
   const hadWidth = applyViewWidth(view);
-  buildDoc();
-  if (!hadWidth) autoFitWidth();
+  pageSurface().build();
+  if (!hadWidth) pageSurface().fitWidth();
   restoreView(view);
   if (!view && $('#left')) $('#left').scrollTop = 0;
   setPins(OPEN_ALL.filter((pin) => pdoc(pin) === DOC));
@@ -560,8 +555,8 @@ function showDoc(view) {
   marks();
   drawDocTabs();
   $('#outline-items').textContent = translate('PDF 목차를 읽는 중입니다.');
-  if (document.body.classList.contains('revision-open')) loadRevisions();
-  openVectorDocument();
+  if (document.body.classList.contains('revision-open')) changesView().load();
+  pageSurface().openVector();
   resetBuildForDoc(); // if a previous document's request is still in flight, queue after it
   docTitle(false);
 }

@@ -20,13 +20,8 @@ import { html, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { announce, lineNote, sourceOk } from '../platform/notices.ts';
-import { loadRevisions } from '../revisions/flow.ts';
 import { drawMeta } from './view-meta.ts';
 import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
-import { buildDoc, pageSrc, reapplyScale } from '../pdf/view-pages.ts';
-import { openVectorDocument } from '../pdf/flow-open.ts';
-import { releaseAllVectorPages } from '../pdf/view-draw.ts';
-import { buildMarkdownDoc } from '../markdown/view.ts';
 import { pageUnderReadingLine } from '../verdict/flow-line.ts';
 import { isComposingNow, afterComposition } from '../verdict/flow-reason.ts';
 import { setBuildReadingPage } from '../verdict/view-panel.ts';
@@ -35,6 +30,7 @@ import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { BUILD_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
+import { changesView, markdownSurface, pageSurface } from './state-seams.ts';
 function topAnchor(offset?) {
   const scroller = $('#left'),
     scrollerTop = scroller.getBoundingClientRect().top,
@@ -123,7 +119,7 @@ async function refreshDoc(meta?) {
     META_BY.set(visitDoc, snapshot);
     setMeta(snapshot);
     drawMeta();
-    buildMarkdownDoc();
+    markdownSurface().build();
     await loadPins();
     return;
   } // no pages: the source is drawn again
@@ -145,26 +141,26 @@ async function refreshDoc(meta?) {
   // PDF is opened. A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
-    releaseAllVectorPages();
+    pageSurface().releaseVector();
     $$('.pg').forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSrc(page);
+      pageElement.querySelector('img').src = pageSurface().pageSource(page);
     });
-    reapplyScale();
+    pageSurface().reapplyScale();
   } else {
     setBuildReadingPage(pageUnderReadingLine());
     try {
-      buildDoc();
+      pageSurface().build();
       restoreAnchor(anchor);
     } finally {
       setBuildReadingPage(0);
     }
   } // the reading page held until its spot is back
   restoreAnchor(anchor);
-  openVectorDocument();
-  if (document.body.classList.contains('revision-open')) loadRevisions();
+  pageSurface().openVector();
+  if (document.body.classList.contains('revision-open')) changesView().load();
   await loadPins();
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
