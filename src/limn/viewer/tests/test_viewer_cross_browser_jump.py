@@ -34,7 +34,7 @@ RESTED = """() => new Promise(done => {const L = document.querySelector('#left')
   look();})"""
 # Where page n stands against the PDF area's top, the page read, and whether a jump is still said to be on its way.
 AT = """n => {const L = document.querySelector('#left'), r = document.getElementById('p' + n).getBoundingClientRect();
-  return {off: Math.round(r.top - L.getBoundingClientRect().top - L.clientTop), read: pvReadingAt(), jump: PV_JUMP !== null,
+  return {off: Math.round(r.top - L.getBoundingClientRect().top - L.clientTop), read: pageUnderReadingLine(), jump: JUMP_TARGET !== null,
     anchoring: getComputedStyle(L).overflowAnchor};}"""
 
 
@@ -102,7 +102,7 @@ class JumpFlows:
                 self.assertEqual((got["read"], got["jump"], got["anchoring"]), (n, False, "auto"), got)
                 self.assertEqual(page.evaluate("OPEN_ALL.length"), 0, "a digit during the glide saved a verdict")
         page.keyboard.press("1")
-        page.wait_for_function("OPEN_ALL.length===1&&!PV_BUSY.size", timeout=10000)
+        page.wait_for_function("OPEN_ALL.length===1&&!SAVING_LINES.size", timeout=10000)
         self.assertEqual(page.evaluate("OPEN_ALL[0].page"), 1)
         # A jump a script's scroll stops short of its place (as a document switch or a rebuild does) lets the hold go once the
         # pages are still: anchoring comes back.
@@ -111,7 +111,7 @@ class JumpFlows:
         )
         page.evaluate(RESTED)
         page.wait_for_function(
-            "()=>PV_JUMP===null&&getComputedStyle(document.querySelector('#left')).overflowAnchor==='auto'",
+            "()=>JUMP_TARGET===null&&getComputedStyle(document.querySelector('#left')).overflowAnchor==='auto'",
             timeout=4000,
         )
 

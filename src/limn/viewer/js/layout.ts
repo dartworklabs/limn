@@ -64,7 +64,7 @@ import { SEARCH } from './search.ts';
 import { syncBackLayer } from './gestures.ts';
 import { mdSpotKeep } from './md-surface.ts';
 import { COMPOSE, renderComposer } from './composer.ts';
-import { pvStickSoon } from './verdict.ts';
+import { stickSoon } from './verdict.ts';
 import { drawPins, fitBarWords, updateReviewCount } from './list.ts';
 import { EDITOR } from './edit.ts';
 import { restoreAnchor, syncBuildErrChip, topAnchor } from './rebuild.ts';
@@ -393,7 +393,7 @@ function refit() {
 }
 // Applies settleBand to the window now. Settle: BAND_IN takes the new input. Keep: BAND_IN stays (a pending wait is dropped - the
 // window came back). Wait: (re)starts BAND_SETTLE_MS; when it runs out with no text field focused, BAND_IN takes the window's input,
-// the page re-fits once and the page lines follow (pvSideWant holds them meanwhile). Returns whether the caller may re-fit now.
+// the page re-fits once and the page lines follow (shouldStandBeside holds them meanwhile). Returns whether the caller may re-fit now.
 function bandSettle() {
   const N = bandInput(),
     step = settleBand(BAND_IN, N, typingNow());
@@ -402,7 +402,7 @@ function bandSettle() {
   if (step === BAND_STEP.WAIT) {
     BAND_T = setTimeout(() => {
       BAND_T = 0;
-      pvStickSoon();
+      stickSoon();
       if (typingNow()) return;
       setBandIn(bandInput());
       refit();

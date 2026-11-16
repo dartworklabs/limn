@@ -646,9 +646,6 @@
       "src/limn/viewer/js/text-surface.ts": 71,
       "src/limn/viewer/js/tooltip.ts": 52,
       "src/limn/viewer/js/updates.ts": 120,
-      "src/limn/viewer/js/verdict-panel.ts": 135,
-      "src/limn/viewer/js/verdict-reason.ts": 450,
-      "src/limn/viewer/js/verdict.ts": 681,
       "src/limn/viewer/js/zoom.ts": 26
     },
     "no-restricted-globals": {

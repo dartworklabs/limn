@@ -1,8 +1,8 @@
-/* ---------------- The page verdict line's toggle state and a verdict's reason (verdict.js pvLineHtml, verdict-reason.js;
+/* ---------------- The page verdict line's toggle state and a verdict's reason (verdict.js pageLineHtml, verdict-reason.js;
    docs/handbook/viewer.md §판정 핀). The line's own box, sizes and rows are components.css's. */
 
 /* The pressed word: the line's current verdict - or the word a save on the line is for - filled (aria-pressed, a toggle,
-   pvPress). The primary fill for an ordinary word, the destructive fill for a confirm word (삭제). Above the line's
+   pressPageVerdict). The primary fill for an ordinary word, the destructive fill for a confirm word (삭제). Above the line's
    button edge (.pv .vd-b, 0,2,0) and the armed confirm word's look. */
 .pv .vd-b[aria-pressed=true]{background:var(--primary);border-color:var(--primary);color:var(--primary-foreground);font-weight:600}
 .pv .vd-b.vd-confirm[aria-pressed=true]{background:var(--destructive);border-color:var(--destructive);color:var(--destructive-foreground)}
@@ -30,7 +30,7 @@
 
 /* The popover (.pv-pop): inside its line, laid above it - never pushing the page down or making the floating line taller -
    from the line's start, no wider than the line or about forty Hangul letters. The field grows with its lines up to five
-   (verdict-reason.js pvReasonGrow); one row under it says whose reason it is, the draft's state ('저장 안 됨' in the warning
+   (verdict-reason.js growReasonField); one row under it says whose reason it is, the draft's state ('저장 안 됨' in the warning
    colour, '저장됨' with a check), the keys, and [지우기] [닫기] [저장]. */
 .pv>.pv-pop{position:absolute;left:0;bottom:calc(100% + var(--space-2));z-index:5;box-sizing:border-box;width:min(100%,36rem);
   display:flex;flex-direction:column;gap:var(--space-1);padding:var(--space-2);border:1px solid var(--border-strong);border-radius:var(--radius);

@@ -17,7 +17,7 @@ import { tl, tr } from './i18n.ts';
 import { VEC } from './pdf-open.ts';
 import { relayout, setSide } from './layout.ts';
 import { isMdDoc } from './md-surface.ts';
-import { pvShow } from './verdict.ts';
+import { endJumpForScroll } from './verdict.ts';
 import { SEL_POP_BOX, placeSelPop, selPopArea } from './sel-popover.ts';
 import { topAnchor } from './rebuild.ts';
 
@@ -614,7 +614,7 @@ function searchReveal(h) {
     L = $('#left');
   if (!s) return;
   if (s.by || s.aside)
-    pvShow(() => {
+    endJumpForScroll(() => {
       const n = searchShift(h);
       return n ? L.scrollTop + n.by : null;
     });
@@ -1049,7 +1049,7 @@ function searchBringBack(to: HTMLElement) {
       L = $('#left');
     const off = b.top < a.top + 8 || b.bottom > a.bottom - 8,
       aside = b.left < a.left + 8 || b.right > a.right - 8;
-    if (off || aside) pvShow();
+    if (off || aside) endJumpForScroll();
     if (off) L.scrollTop += b.top - (a.top + (a.bottom - a.top) * 0.3);
     if (aside) L.scrollLeft += (b.left + b.right) / 2 - (a.left + a.right) / 2;
     placeSelPop();

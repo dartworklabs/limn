@@ -50,7 +50,7 @@ PLACE = """([n, y]) => {const L = document.querySelector('#left'), r = document.
   L.scrollTop += r.top - L.getBoundingClientRect().top - y;}"""
 # Page n's top under the PDF area's top, the page read, and the band.
 STANDS = """n => {const L = document.querySelector('#left'), r = document.getElementById('p' + n).getBoundingClientRect();
-  return {y: r.top - L.getBoundingClientRect().top, read: pvReadingAt(), band: BAND, beside: PV_SIDE};}"""
+  return {y: r.top - L.getBoundingClientRect().top, read: pageUnderReadingLine(), band: BAND, beside: IS_BESIDE_PAGES};}"""
 # The point of the page at the top edge: its page and how far down it, in px at the page's height now.
 TOP_SPOT = "()=>{const a=topAnchor(); return {page: a.page, at: a.frac * a.h};}"
 HEIGHT = "n=>document.getElementById('p'+n).getBoundingClientRect().height"

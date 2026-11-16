@@ -12,7 +12,7 @@ import { arrivalWatch, goPage, jumpOnItsWay } from './pages.ts';
 import { VEC } from './pdf-open.ts';
 import { refreshPageLists } from './page-list.ts';
 import { isMdDoc, mdGoHeading, mdStrip } from './md-surface.ts';
-import { pvGlideTo } from './verdict.ts';
+import { glideTo } from './verdict.ts';
 import { selPopArea } from './sel-popover.ts';
 import { topAnchor } from './rebuild.ts';
 
@@ -572,7 +572,7 @@ function pickOutline(i) {
     goPage(e.page);
     return;
   }
-  pvGlideTo(top);
+  glideTo(top);
   arrivalWatch(() => outlinePickTop(e));
 }
 // Where a pick scrolls the pages to, as #left's scrollTop: a heading with a place on its page (an XYZ destination below the

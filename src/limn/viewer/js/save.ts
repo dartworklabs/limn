@@ -45,7 +45,7 @@ import {
   figureShort,
   figureVerdictBody,
   figureVerdictRoot,
-  pvTopId,
+  topPinId,
   renderVerdictRow,
   verdictDropped,
   verdictLabel,
@@ -326,7 +326,7 @@ async function savePin(verdict?: string) {
     fields = composeFields(); // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft = savedDraftSnapshot();
   const question = out.kind === KIND_REQ.QUESTION;
-  const top = pvTopId(); // a save whose answer is lost is looked for above it before it is called a failure
+  const top = topPinId(); // a save whose answer is lost is looked for above it before it is called a failure
   try {
     let status = 0,
       data = null as any;

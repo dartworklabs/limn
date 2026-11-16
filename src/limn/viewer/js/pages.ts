@@ -25,8 +25,16 @@ import { OUTLINE_PICK_GAP, spotTop } from './outline.ts';
 import { vecInvalidate, vecObserve } from './pdf-draw.ts';
 import { MD, isMdDoc, mdBuild } from './md-surface.ts';
 import { COMPOSE } from './composer.ts';
-import { PV_JUMP, PV_SCROLL_HAND, pvAutoScrolling, pvGlideInto, pvGlideTo, pvIntoTop, sizePv } from './verdict.ts';
-import { pvReasonFocusBack, pvReasonHoldFocus } from './verdict-reason.ts';
+import {
+  JUMP_TARGET,
+  HAND_SCROLL_AT,
+  isAutoScrolling,
+  glideInto,
+  glideTo,
+  scrollTopFor,
+  sizePageLines,
+} from './verdict.ts';
+import { restoreReasonFocus, holdReasonFocus } from './verdict-reason.ts';
 import { markBadgeSides, marks } from './list.ts';
 import { restoreAnchor, topAnchor } from './rebuild.ts';
 function pageSrc(p) {
@@ -86,7 +94,7 @@ function buildDoc() {
   MD.shown = '';
   document.body.classList.remove('md-surface'); // a draw of the Markdown surface still on its way stops here
   const doc = $('#doc'),
-    focus = pvReasonHoldFocus();
+    focus = holdReasonFocus();
   doc.replaceChildren();
   COMPOSE.box = null; // a focus in the reason popover comes back with it
   META.pages.forEach((p, i) => {
@@ -111,7 +119,7 @@ function buildDoc() {
   marks();
   vecObserve();
   drawZoom();
-  pvReasonFocusBack(focus);
+  restoreReasonFocus(focus);
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the pages would look too small.
 // The scale is never saved in compact (mid/narrow) - so a width fit for a folded screen never overrides the spread/desktop setting.
@@ -132,7 +140,7 @@ function fitK() {
   return fitWidth() / ptMax();
 }
 // Sets the scale K within wBounds and gives every page box its own width (pageWidth); saved in wide unless save is false
-// (saveK). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines (sizePv), the save
+// (saveK). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines (sizePageLines), the save
 // chips (placeChips) and [더보기]'s zoom figure (drawZoom).
 function setK(k, save?) {
   const m = ptMax(),
@@ -141,7 +149,7 @@ function setK(k, save?) {
   K_UNBOUND = false;
   sizePages();
   markBadgeSides();
-  sizePv();
+  sizePageLines();
   placeChips();
   if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveK();
   vecInvalidate();
@@ -330,10 +338,10 @@ function fitW() {
   restoreAnchor(a);
   L.scrollLeft = 0;
 }
-// Arriving at page n - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin, jumpPv): a
+// Arriving at page n - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin, jumpToPageLine): a
 // figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any other page at its top.
 // The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
-// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (pvGlideTo, pvGlideInto), so the keys wait for it to end.
+// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (glideTo, glideInto), so the keys wait for it to end.
 function arrivePage(n: number) {
   const el = document.getElementById('p' + n);
   if (!el) return;
@@ -341,34 +349,34 @@ function arrivePage(n: number) {
     L = $('#left');
   const pageTop = () => {
     const pg = document.getElementById('p' + n);
-    return pg ? pvIntoTop(pg) : null;
+    return pg ? scrollTopFor(pg) : null;
   };
   if (to === null) {
-    pvGlideInto(el);
+    glideInto(el);
     arrivalWatch(pageTop);
     return;
   }
-  const top = !pvAutoScrolling() && Math.abs(L.scrollTop - to) <= FIGURE_REST_PX;
-  if (top) pvGlideInto(el);
-  else pvGlideTo(to);
+  const top = !isAutoScrolling() && Math.abs(L.scrollTop - to) <= FIGURE_REST_PX;
+  if (top) glideInto(el);
+  else glideTo(to);
   arrivalWatch(top ? pageTop : () => figureTop(n));
 }
 const FIGURE_ROOM_PT = 24; // of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element
 const FIGURE_REST_PX = 2; // the pages rest on a jump's place within this (a glide ends on or next to its pixel)
 // Every jump of the PDF area - a page, an outline entry's place, a card's [보기]; each glide starts this watch with its place, a
 // function that measures it now - lands where it says once the pages rest. The glide's place is reckoned at its start, and the
-// layout can still move under it: a save's list reload redraws hundreds of lines and stalls the glide past its guard (PV_JUMP
+// layout can still move under it: a save's list reload redraws hundreds of lines and stalls the glide past its guard (JUMP_TARGET
 // lapses after a second), which gives scroll anchoring back, and the anchoring's adjustment left the figure 30-300px off
-// (#345); a line fitted on the way moves the pages after it, and a glide may not be written to (pvLetBlocks). So each time the
+// (#345); a line fitted on the way moves the pages after it, and a glide may not be written to (letLineBlocks). So each time the
 // pages come to rest - after ARRIVAL_REST_MS without a scroll, the glide guard down - it measures the place again and glides the
-// rest (pvGlideTo: the guard and the held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest
+// rest (glideTo: the guard and the held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest
 // that found nothing to do: each correction counts the window again from its own rest, which is always measured. Counted from
 // the first rest it closed on a correction stopped on its way, whose guard lapses up to two seconds later, and left the figure
 // short by what remained (#357). It only settles what nobody asked
 // for: anything the person does meanwhile - a press, a key, a wheel or a touch anywhere, a window resize - lets it go
 // (arrivalLetGo), for that starts a move of its own (a card's mark, a search hit, a zoom, another page) the watch must not
-// undo; so do the person's scroll (PV_HAND), another document and the pages not shown. A script that scrolls to show something
-// lets it go too, with no input before it (pvShow: a search hit landing as the PDF's text is read, in the middle of a jump); a
+// undo; so do the person's scroll (HAND_ON_PAGES), another document and the pages not shown. A script that scrolls to show something
+// lets it go too, with no input before it (endJumpForScroll: a search hit landing as the PDF's text is read, in the middle of a jump); a
 // script that only keeps what is on screen does not, and may stop the glide: the place moved with it, and the settling goes
 // on. A scroll by anything else, once the pages have rested at the place, lets it go at that rest: the place stayed and the
 // pages left it, which is no layout's doing (at). A new jump replaces it. An instant jump needs no watch: nothing is on its way
@@ -387,7 +395,7 @@ let ARRIVAL = null as {
   ARRIVAL_TIMER = 0;
 /** @param place - the scrollTop the jump goes to, measured now; null once it is gone */
 function arrivalWatch(place: () => number | null) {
-  ARRIVAL = { place, hand: PV_SCROLL_HAND, doc: DOC, fixes: 0, until: 0, at: null };
+  ARRIVAL = { place, hand: HAND_SCROLL_AT, doc: DOC, fixes: 0, until: 0, at: null };
   arrivalSoon();
 }
 function arrivalSoon() {
@@ -406,11 +414,11 @@ function arrivalSettle() {
   const a = ARRIVAL,
     L = $('#left');
   if (!a) return;
-  if (a.hand !== PV_SCROLL_HAND || a.doc !== DOC || !L.getClientRects().length) {
+  if (a.hand !== HAND_SCROLL_AT || a.doc !== DOC || !L.getClientRects().length) {
     ARRIVAL = null;
     return;
   }
-  if (PV_JUMP !== null || pvAutoScrolling()) {
+  if (JUMP_TARGET !== null || isAutoScrolling()) {
     arrivalSoon();
     return;
   } // still on its way
@@ -437,18 +445,18 @@ function arrivalSettle() {
   a.fixes++;
   a.until = 0;
   a.at = null;
-  pvGlideTo(to);
+  glideTo(to);
   arrivalSoon();
 }
 // Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its watch has
 // neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no rest while either
 // holds, however long: a busy machine's frames come late. An outline pick waits on this before it lets go (outlinePickRest).
 function jumpOnItsWay() {
-  return PV_JUMP !== null || pvAutoScrolling() || (ARRIVAL !== null && ARRIVAL.at === null);
+  return JUMP_TARGET !== null || isAutoScrolling() || (ARRIVAL !== null && ARRIVAL.at === null);
 }
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a person's
-// scroll (PV_HAND) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
-// pass that holds anchoring off (pvHoldView) or a far line drawn at its new height moves what is below it and says nothing
+// scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no scroll at all: a line
+// pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what is below it and says nothing
 // to the scroller - the settling must not hang on anchoring to notice.
 $('#left').addEventListener(
   'scroll',

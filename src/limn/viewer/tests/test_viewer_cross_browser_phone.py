@@ -1,6 +1,6 @@
 """The page verdict line on a phone in bundled Firefox and WebKit (docs/handbook/viewer.md §판정 핀).
 
-pvFit measures every line as the reading line (#doc.pv-measure), which grows a line above the reading page for the length of
+fitPageLines measures every line as the reading line (#doc.pv-measure), which grows a line above the reading page for the length of
 the pass. WebKit's scroll anchoring followed that growth on the next page's block and not the shrink after it, so a key save
 on a phone moved the pages 39px; Chromium's nets out (test_viewer_verdicts.py's EdgeKeys pins the same flow there). The
 fixture is VerdictBase's: helpers_figure.viewer_docs with word files on all three documents, page lines on the figure (two
@@ -23,7 +23,7 @@ WORDS = {"format": "limn-verdicts/1", "verdicts": [{"key": "채택"}, {"key": "�
 PHONE = {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True}
 TOP = "()=>document.querySelector('#left').scrollTop"
 # Focuses page n's first Tab stop without scrolling to it; whether it took the focus.
-FIRST_STOP = """n=>{const b=[...document.querySelector('#doc .pgw[data-page="'+n+'"]').querySelectorAll(PV_TABBABLE)].find(pvTabStop);
+FIRST_STOP = """n=>{const b=[...document.querySelector('#doc .pgw[data-page="'+n+'"]').querySelectorAll(TABBABLE)].find(isTabStop);
   b.focus({preventScroll:true}); return document.activeElement===b;}"""
 
 
@@ -70,7 +70,7 @@ class PhoneLineFlows:
             "()=>{const L=document.querySelector('#left'); L.scrollTop+=document.getElementById('p2').getBoundingClientRect().top-L.getBoundingClientRect().top;}"
         )
         settle(page)
-        self.assertEqual(page.evaluate("[PV_READ, pvEdgeStop(false)]"), [2, None])
+        self.assertEqual(page.evaluate("[READING_LINE_PAGE, findEdgeStop(false)]"), [2, None])
         top = page.evaluate(TOP)
         self.assertTrue(page.evaluate(FIRST_STOP, 2))
         page.keyboard.press("Shift+Tab")
@@ -78,7 +78,7 @@ class PhoneLineFlows:
         self.assertAlmostEqual(page.evaluate(TOP), top, delta=1)
         page.focus("#btn-more")
         page.keyboard.press("1")
-        page.wait_for_function("OPEN_ALL.length===1&&!PV_BUSY.size", timeout=10000)
+        page.wait_for_function("OPEN_ALL.length===1&&!SAVING_LINES.size", timeout=10000)
         settle(page)
         self.assertAlmostEqual(page.evaluate(TOP), top, delta=1, msg="the key save moved the pages")
         page.evaluate("()=>NOTICES.forEach(n=>{if(n.place==='chip')endNotice(n,false);})")
@@ -87,7 +87,7 @@ class PhoneLineFlows:
         page.keyboard.press("Shift+Tab")
         self.assertEqual(page.evaluate("document.activeElement.id"), "btn-more")
         self.assertAlmostEqual(page.evaluate(TOP), top, delta=1)
-        self.assertEqual(page.evaluate("PV_READ"), 2)
+        self.assertEqual(page.evaluate("READING_LINE_PAGE"), 2)
 
 
 class WebKitPhoneLine(PhoneLineFlows, PhoneBase):

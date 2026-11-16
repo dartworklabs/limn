@@ -60,7 +60,7 @@
 @media (pointer:coarse){.mark>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}
   .mark>.nt-chip .nt-acts button{height:calc(var(--ctl-touch) - 2 * var(--space-1))}}
 /* A page verdict's save (verdict.js): the same chip laid over its line - never in its flow (it added a row on a phone and moved
-   the words under a waiting finger) and never over any part of it (pvChipPlace finds the room; --pv-chip-r, --pv-chip-y).
+   the words under a waiting finger) and never over any part of it (placeLineChips finds the room; --pv-chip-r, --pv-chip-y).
    Its words fold where the room is short (.pv-chip-short), then its icon (.pv-chip-bare); with no room for [되돌리기] the undo
    is on the status line instead. */
 .pv>.nt-chip{position:absolute;right:var(--pv-chip-r,0px);top:var(--pv-chip-y,50%);z-index:1;transform:translateY(-50%);box-sizing:border-box;
@@ -68,7 +68,7 @@
   border-radius:var(--radius-lg);background:var(--popover);
   color:var(--popover-foreground);border:1px solid color-mix(in srgb,var(--success) 45%,var(--border));box-shadow:var(--shadow-sm);font-size:var(--text-sm);line-height:16px;white-space:nowrap}
 .pv.pv-chip-short>.nt-chip .nt-t,.pv.pv-chip-bare>.nt-chip .nt-ic{display:none}
-.pv.pv-chip-wait>.nt-chip{visibility:hidden}   /* no room while its line is about to change: placed once it settles (verdict.js pvChipPlace) */
+.pv.pv-chip-wait>.nt-chip{visibility:hidden}   /* no room while its line is about to change: placed once it settles (verdict.js placeLineChips) */
 .pv>.nt-chip .nt-ic{height:16px}
 .pv>.nt-chip .nt-ti{font-weight:600}
 @media (pointer:coarse){.pv>.nt-chip{height:var(--ctl-touch);padding:0 var(--space-1) 0 var(--space-3)}

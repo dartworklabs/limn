@@ -38,7 +38,7 @@ import { figureFields } from './figure.ts';
 import { MD } from './md-surface.ts';
 import { COMPOSE, renderComposer } from './composer.ts';
 import { offlineUiSync } from './offline-ui.ts';
-import { pvTopId } from './verdict.ts';
+import { topPinId } from './verdict.ts';
 import { SEL_POP_FIELD, selPopOpen } from './sel-popover.ts';
 import { isMe, loadPins } from './list.ts';
 const OFF_DB = 'limnOffline',
@@ -1305,7 +1305,7 @@ function fracSame(a: unknown, b: unknown) {
 // on one page are told apart by nothing else, and a page-only judgment deleted a second pin that was never written.
 // A pin this queue has already written - in this send or any earlier one (offWrote) - is not offered again: two
 // deliberate pins may be alike in every field this reads, and only one of them is that pin. Nor is a pin that was
-// already there when this record was attempted (rec.top, as pvLanded reads its own lost answer): whatever that pin
+// already there when this record was attempted (rec.top, as findLandedVerdict reads its own lost answer): whatever that pin
 // is, it is not the write this record made afterwards.
 function offlineLanded(rec: any, d: any, claimed: Set<number>): number {
   const f = d.el && Array.isArray(d.el.frac) ? d.el.frac : d.frac || rec.frac; // a figure pin's box is its element's (offlineBody)
@@ -1456,7 +1456,7 @@ async function offlineFlush() {
       if (keyed) {
         if (!(await offHas(rec.id))) continue;
         rec.sent = true;
-        rec.top = pvTopId();
+        rec.top = topPinId();
         await offPut(rec);
         try {
           const { data } = await api('/api/pin', {
@@ -1508,7 +1508,7 @@ async function offlineFlush() {
       // answer at all, a 5xx the server returned after its write went through, a gateway's 502 or 504 over a request
       // that did reach it. Those keep the mark and are looked for in the list instead.
       rec.sent = true;
-      rec.top = pvTopId();
+      rec.top = topPinId();
       await offPut(rec); // the pins that existed before this write, as savePin notes for its own
       try {
         const { data } = await api('/api/pin', {

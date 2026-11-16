@@ -83,7 +83,7 @@ FUNCTIONS = (
     "offlineBox",
     "offlineBody",
     "fracSame",
-    "pvTopId",
+    "topPinId",
     "offlineLanded",
     "offWrote",
     "offWroteAdd",

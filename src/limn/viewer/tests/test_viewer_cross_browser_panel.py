@@ -46,7 +46,7 @@ RING_CUT = """() => {const f = document.activeElement, c = getComputedStyle(f), 
     const b = e.getBoundingClientRect(); if (r.left - out < b.left || r.right + out > b.right || r.top - out < b.top || r.bottom + out > b.bottom) hit.push(e.id || e.className);}
   return hit;}"""
 # Brings page n's top to off px under the PDF area's top, as a hand on the wheel (not a jump's glide).
-TO = """([n, off]) => {PV_HAND(); const L = document.querySelector('#left'); L.scrollTop += document.getElementById('p' + n).getBoundingClientRect().top - L.getBoundingClientRect().top - off;}"""
+TO = """([n, off]) => {HAND_ON_PAGES(); const L = document.querySelector('#left'); L.scrollTop += document.getElementById('p' + n).getBoundingClientRect().top - L.getBoundingClientRect().top - off;}"""
 # Whether the pages have rested for ten frames (a smooth scroll is over).
 RESTING = """() => {const L = document.querySelector('#left'), w = window.__rest || (window.__rest = {top: -1, n: 0});
   if (L.scrollTop === w.top) w.n++; else {w.top = L.scrollTop; w.n = 0;} if (w.n < 10) return false; window.__rest = null; return true;}"""
@@ -147,19 +147,19 @@ class EngineBase(BrowserBase):
     def resize(self, page, room):
         """The window made as wide as leaves `room` px beside the pages."""
         for _ in range(3):
-            got = page.evaluate("()=>pvSideRoom()")
+            got = page.evaluate("()=>measureBesideRoom()")
             if abs(got - room) < 1:
                 break
             size = page.viewport_size
             page.set_viewport_size({"width": int(size["width"] + room - got), "height": size["height"]})
             settle(page)
-        self.assertLess(abs(page.evaluate("()=>pvSideRoom()") - room), 1)
+        self.assertLess(abs(page.evaluate("()=>measureBesideRoom()") - room), 1)
 
     def key(self, page, k, n, count):
         """Key k pressed from the PDF area with page n read; waits until page n has `count` verdicts and all is quiet."""
         page.evaluate("searchToPage()")
         page.keyboard.press(k)
-        page.wait_for_function("([n,c])=>(pageVerdictPins().get(n)||[]).length===c&&!PV_BUSY.size", arg=[n, count])
+        page.wait_for_function("([n,c])=>(pageVerdictPins().get(n)||[]).length===c&&!SAVING_LINES.size", arg=[n, count])
         settle(page)
 
     def outline(self):
@@ -203,7 +203,7 @@ class PanelFlows:
         blocks = page.evaluate(BLOCKS)
         got = page.evaluate(
             """async () => {const L = document.querySelector('#left'), out = []; const frame = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-              for (let i = 0; i < 200 && PV_READ < 5; i++) {PV_HAND(); L.scrollTop += 60; await frame(); const p = document.getElementById('pv-panel'), n = pvReadingPage();
+              for (let i = 0; i < 200 && READING_LINE_PAGE < 5; i++) {HAND_ON_PAGES(); L.scrollTop += 60; await frame(); const p = document.getElementById('pv-panel'), n = readingPageWithLine();
                 const r = p.getBoundingClientRect(), pg = document.getElementById('p' + n).getBoundingClientRect(), on = document.querySelector('#doc .pv-sum.on');
                 out.push({n, panel: +p.dataset.page, strip: (document.getElementById('section-page-t') || {}).textContent || '', bold: on ? +on.dataset.page : 0,
                   top: Math.round(r.top - L.getBoundingClientRect().top - parseFloat(getComputedStyle(L).paddingTop)), gap: Math.round(r.left - pg.right)});}
@@ -322,13 +322,13 @@ class PanelFlows:
         settle(page)
         self.assertGreater(page.evaluate(TOP) - top, 400)
         for _ in range(2):  # WebKit's page step is shorter than Chromium's: a second one reaches page 3
-            if page.evaluate("pvReadingPage()") == 3:
+            if page.evaluate("readingPageWithLine()") == 3:
                 break
             self.assertIsNotNone(page.evaluate(FOCUS), "PageDown left the focus on nothing")
             page.keyboard.press("PageDown")
             page.wait_for_function(RESTING, polling="raf", timeout=10000)
             settle(page)
-        self.assertEqual(page.evaluate("pvReadingPage()"), 3)
+        self.assertEqual(page.evaluate("readingPageWithLine()"), 3)
         self.key(page, "2", 3, 1)
         self.assertEqual([(p["page"], p["verdict"]) for p in self.pins().values()], [(3, "보류")])
 
