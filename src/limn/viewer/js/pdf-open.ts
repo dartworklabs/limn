@@ -1,13 +1,16 @@
 // ------------------------------------------------ Vector rendering (PDF.js) - docs/handbook/viewer.md §벡터 렌더링
-// Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's pinch
-// scale), and app zoom is already baked into each page's CSS width (pt_w x K). The page box, aspect ratio, and % coordinates stay
-// exactly as they were for PNG, so drag frac/marks/pdf_build never change.
-// - Only pages near the visible area (VEC_KEEP) are drawn; canvases for pages that scroll away are released (IntersectionObserver).
-// - A single canvas never exceeds VEC_PIX_CAP pixels. At zoom beyond that, the page canvas is capped and a detail canvas (.dt)
-//   rendered at native resolution for just the visible portion is overlaid on top.
-// - When zoom changes, the existing canvas is stretched via CSS to stay visible while a debounced redraw happens (no flicker).
-// - If pdf.js/the PDF fails to load or render, the canvas is torn down, falling back to the PNG <img>, and the status chip (#vec-chip) reports it.
-// No text-selection layer is added - since dragging means selecting a region, it would conflict with text selection.
+// Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's
+// pinch scale), and app zoom is already baked into each page's CSS width (pt_w x K). The page box, aspect ratio and %
+// coordinates are the PNG page's, so drag frac, marks and pdf_build do not depend on the renderer.
+// - Only pages near the visible area (VEC_KEEP) are drawn; canvases for pages that scroll away are released
+//   (IntersectionObserver).
+// - A single canvas never exceeds VEC_PIX_CAP pixels. At zoom beyond that, the page canvas is capped and a detail
+//   canvas (.dt) rendered at native resolution for just the visible portion is overlaid on top.
+// - When zoom changes, the existing canvas is stretched via CSS to stay visible while a debounced redraw happens (no
+//   flicker).
+// - If pdf.js or the PDF fails to load or render, the canvas is torn down, falling back to the PNG <img>, and the
+//   status chip (#vec-chip) reports it.
+// No text-selection layer is added: dragging selects a region, and a text layer would conflict with it.
 import { $, DOC, META } from './core.ts';
 import { tl } from './i18n.ts';
 import { dq } from './doc-tabs.ts';
@@ -37,8 +40,9 @@ const VEC = {
   tDoc: null as number | null,
   cache: new Map(),
 };
-// Multiple documents: holds up to VEC_CACHE_MAX recently opened PDF document objects keyed by 'document|build' - switching tabs back
-// draws immediately without re-fetching. Beyond that, the least recently used is closed first (worker memory). An old build of the same document is closed when a new build opens.
+// Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
+// switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first
+// (worker memory). An old build of the same document is closed when a new build opens.
 const VECTOR_CACHE_MAX = 3;
 function vectorCacheKey(docName, build) {
   return (docName || '') + '|' + (build || '');
@@ -62,16 +66,20 @@ function cacheVectorDocument(key, doc) {
     if (cachedDoc !== VEC.doc && cachedDoc !== doc) vecClose(cachedDoc);
   }
 }
+// Whether a PDF document object is one the cache still holds (and so must not be closed).
 function isVectorCached(doc) {
   for (const cachedDoc of VEC.cache.values()) if (cachedDoc === doc) return true;
   return false;
 }
+// Drops a PDF document object from the cache without closing it.
 function vecForget(doc) {
   VEC.cache.forEach((cachedDoc, cachedKey) => {
     if (cachedDoc === doc) VEC.cache.delete(cachedKey);
   });
 }
-window.__pinVec = VEC; // for measurement (Playwright) - canvas count, render time
+// For measurement (Playwright): canvas count, render time.
+window.__pinVec = VEC;
+// Loads pdf.js (once) and opens the PDF on screen; a browser without IntersectionObserver keeps the PNG pages.
 async function vecBoot() {
   if (!window.IntersectionObserver) {
     vecFail('이 브라우저는 IntersectionObserver 가 없습니다');
@@ -87,7 +95,8 @@ async function vecBoot() {
   }
   await vecOpen();
 }
-// Opens the PDF for the currently displayed build (META.pages_build). Never used if the page count differs from what's on screen (coordinates would be off).
+// Opens the PDF for the currently displayed build (META.pages_build). A PDF whose page count differs from the pages on
+// screen is never used: its coordinates would be off.
 async function vecOpen() {
   // A Markdown document has no PDF: the PDF work still pending for the document left (its fetch, outline, pages) is
   // stale from here, or its outline would land over the Markdown headings.
@@ -103,10 +112,13 @@ async function vecOpen() {
     key = vectorCacheKey(DOC, build);
   let doc = VEC.cache.get(key);
   vecCancel();
-  searchClear(); // another document or build: its search starts empty (search.js)
-  outlineForget(); // and the outline and page names of the document left behind are not the new one's (outline.js)
+  // Another document or build: its search starts empty (search.ts), and the outline and page names of the document
+  // left behind are not the new one's (outline.ts).
+  searchClear();
+  outlineForget();
   if (!doc) {
-    // The old document (a different document/old build) is never used for the new page DOM - PNG is shown while fetching.
+    // The old document (a different document or an old build) is never used for the new page DOM: the PNG pages show
+    // while the PDF is fetched.
     const previousDoc = VEC.doc;
     VEC.doc = null;
     VEC.build = null;

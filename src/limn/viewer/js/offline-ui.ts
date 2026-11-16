@@ -1,11 +1,11 @@
-// ------------------------------------------------ The queued pins on screen (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기)
-// offline.js reads the queue (offlineSync) on boot, after every pin kept, dropped or sent, and calls offlineUiSync(all)
+// ----------------------------------------- The queued pins on screen (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기)
+// offline.ts reads the queue (offlineSync) on boot, after every pin kept, dropped or sent, and calls offlineUiSync(all)
 // with every record each time. This part draws them: where they stand on the page and in the pin panel. A queued pin is
 // not on the server yet, so it is drawn apart from a saved pin's mark: a dotted frame with no number (it has none yet),
-// its badge a clock - or, held back because its place could not be found again, a warning triangle in the warning colour.
-// The panel's section lists every record with its place, words, note and state, and two actions: [버리기] (its undo on
-// the status line, since the row is gone) and [다시 찍기] (the record leaves the queue and its note waits in the composer
-// for the next drag, the draft's own behaviour, draft.js). Nothing here writes to the server.
+// its badge a clock - or, held back because its place could not be found again, a warning triangle in the warning
+// colour. The panel's section lists every record with its place, words, note and state, and two actions: [버리기] (its
+// undo on the status line, since the row is gone) and [다시 찍기] (the record leaves the queue and its note waits in
+// the composer for the next drag, the draft's own behaviour, draft.ts). Nothing here writes to the server.
 import {
   $,
   $$,
@@ -34,10 +34,10 @@ import { OFF, offDel, offPut, offlineSync } from './offline.ts';
 import { marksShow } from './marks-hide.ts';
 import { ASSIGN_NEW, renderAssignNew } from './mentions.ts';
 import { autoGrow } from './edit.ts';
-/** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text went to the composer), standing as its undo
- * row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a mouse is on the row
- * (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
- *  */
+/** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text is in the composer), standing as
+ * its undo row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a
+ * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
+ */
 type OffUiUndo = {
   rec: any;
   redo: boolean;
@@ -55,8 +55,8 @@ const OFFUI = {
   flashT: 0 as ReturnType<typeof setTimeout> | 0,
 };
 
-// Whether frac is a box on the page: four finite numbers, the box inside the page with some size. A record from another
-// version of this viewer, or one written by hand, must not draw a frame off the page. Pure.
+// Whether frac is a box on the page: four finite numbers, the box inside the page with some size. A record from
+// another version of this viewer, or one written by hand, must not draw a frame off the page. Pure.
 function offUiFrac(frac: unknown): boolean {
   if (!Array.isArray(frac) || frac.length < 4) return false;
   if (!frac.slice(0, 4).every((value) => typeof value === 'number' && Number.isFinite(value))) return false;
@@ -69,12 +69,12 @@ function offUiFrac(frac: unknown): boolean {
     frac[1] + frac[3] <= 1 + 1e-6
   );
 }
-// The rows the panel lists and the marks the page draws, from every queued record (oldest first): this document's records
-// first, then the others', each in the order they were written - the order they are sent. A row says what it is: `here` (on
-// the document on screen), `lines` (a Markdown or text document's line pin, which has no page), `mark` (drawn on the page:
-// here, on the build on screen - its box is that build's - and on a page this document has), `old` (here, drawn on another
-// build: listed, not drawn). doc is the document on screen, defaultDoc the one a record with no document belongs to, build
-// the build on screen, nPages its page count. Pure.
+// The rows the panel lists and the marks the page draws, from every queued record (oldest first): this document's
+// records first, then the others', each in the order they were written - the order they are sent. A row says what it
+// is: `here` (on the document on screen), `lines` (a Markdown or text document's line pin, which has no page), `mark`
+// (drawn on the page: here, on the build on screen - its box is that build's - and on a page this document has), `old`
+// (here, drawn on another build: listed, not drawn). doc is the document on screen, defaultDoc the one a record with no
+// document belongs to, build the build on screen, pageCount its page count. Pure.
 function offUiRows(all: any[], doc: string, defaultDoc: string, build: string, pageCount: number) {
   const rows = (Array.isArray(all) ? all : [])
     .filter((record) => record && typeof record === 'object')
@@ -96,8 +96,8 @@ function offUiRows(all: any[], doc: string, defaultDoc: string, build: string, p
     });
   return rows.filter((row) => row.here).concat(rows.filter((row) => !row.here));
 }
-// Why a held record is held: the reason it carries, or - an empty one - the reason a held record always has (offline.js
-// writes this one when it has no other). '' for a record that waits. Pure but for tr.
+// Why a held record is held: the reason it carries, or - an empty one - the reason a held record always has
+// (offline.ts writes this one when it has no other). '' for a record that waits. Pure but for tr.
 function offUiWhy(rec: any): string {
   if (!rec || !rec.held) return '';
   const reason = String(rec.why || '').trim();
@@ -124,7 +124,7 @@ function offUiPlace(rec: any): string {
   }
   return rec && Number.isInteger(rec.page) && rec.page >= 1 ? tl('{page}쪽', { page: rec.page }) : '';
 }
-// A one-line excerpt of text: its white space folded, cut at n characters with an ellipsis. Pure.
+// A one-line excerpt of text: its white space folded, cut at limit characters with an ellipsis. Pure.
 function offUiClip(text: unknown, limit: number): string {
   const folded = String(text == null ? '' : text)
     .replace(/\s+/g, ' ')
@@ -132,7 +132,8 @@ function offUiClip(text: unknown, limit: number): string {
   return folded.length > limit ? folded.slice(0, limit - 1) + '…' : folded;
 }
 
-/** @param all every queued record, oldest first (offline.js offAll) */
+/** Draws the queue anew from every queued record.
+ * @param all every queued record, oldest first (offline.ts offAll) */
 function offlineUiSync(all: any[]) {
   OFFUI.all = Array.isArray(all) ? all : [];
   offUiDraw();
@@ -142,6 +143,7 @@ function offUiView() {
   const pages = META && !isMdDoc() && Array.isArray(META.pages) ? META.pages.length : 0;
   return offUiRows(OFFUI.all, DOC || DEFAULT_DOC, DEFAULT_DOC, (META && META.pages_build) || '', pages);
 }
+// Draws the marks and the panel's section for the document and build on screen.
 function offUiDraw() {
   const rows = offUiView();
   offUiMarks(rows);
@@ -181,11 +183,11 @@ function offUiMarks(rows: ReturnType<typeof offUiRows>) {
   });
 }
 
-// The section in the pin panel (#sec-queue): hidden while the queue is empty, else a head with its count (and how many are
-// held), a line saying what these are, and one row per record. Sending them now is the status line's [지금 반영], shown
-// whenever there is a connection to send on.
-// A record dropped or taken back a moment ago keeps its place in the order as its undo row (offUiUndoRow) while that lasts,
-// so the section stays while one stands even with the queue empty.
+// The section in the pin panel (#sec-queue): hidden while the queue is empty, else a head with its count (and how many
+// are held), a line saying what these are, and one row per record. Sending them now is the status line's [지금 반영],
+// shown whenever there is a connection to send on.
+// A record dropped or taken back a moment ago keeps its place in the order as its undo row (offUiUndoRow) while that
+// lasts, so the section stays while one stands even with the queue empty.
 function offUiList(rows: ReturnType<typeof offUiRows>) {
   const section = $('#sec-queue');
   if (!section) return;
@@ -214,9 +216,10 @@ function offUiList(rows: ReturnType<typeof offUiRows>) {
   setHtml($('#queue-rows'), html`${items.map((x) => x.h)}`);
   offUiFocusBack(focused);
 }
-// One row: its state (a clock and '대기', or a triangle and '보류' with its reason - words, never the colour alone), where
-// it was pinned (a link to that page; another document's row names that document and goes there), the words it was drawn
-// over, its note, and its two actions. A long note is folded to three lines by CSS; the whole of it stays in the row.
+// One row: its state (a clock and '대기', or a triangle and '보류' with its reason - words, never the colour alone),
+// where it was pinned (a link to that page; another document's row names that document and goes there), the words it
+// was drawn over, its note, and its two actions. A long note is folded to three lines by CSS; the whole of it stays in
+// the row.
 function offUiRow(row: ReturnType<typeof offUiRows>[number]) {
   const rec = row.rec,
     id = rec.id,
@@ -245,9 +248,10 @@ ${quoteText ? html`<p class="q-quote" translate="no">${quoteText}</p>` : ''}\
 <div class="q-acts"><button type="button" class="btn-sm btn-secondary" data-q="redo" data-qid="${id}" data-tip="${tr('이 핀을 쌓인 목록에서 빼고 메모를 작성 칸에 둡니다. 다음에 끈 자리가 이 메모로 새 핀이 됩니다')}">${tr('다시 찍기')}</button>\
 <button type="button" class="btn-sm btn-ghost q-drop" data-q="drop" data-qid="${id}" data-tip="${tr('이 핀을 보내지 않고 버립니다. 그 자리에 남는 [되돌리기]로 되살립니다')}">${tr('버리기')}</button></div></div>`;
 }
-// The undo of a drop or a take-back, in the row's place (docs/handbook/viewer.md §알림 자리, an undo stays where the action
-// was): the dashed undo row of the list, its words, [되돌리기] (busy while the record is put back) and [x]. The status line
-// is not its place: there the kept pins' own count comes before every message, so the undo stood behind '+N'.
+// The undo of a drop or a take-back, in the row's place (docs/handbook/viewer.md §알림 자리, an undo stays where the
+// action was): the dashed undo row of the list, its words, [되돌리기] (busy while the record is put back) and [x]. The
+// status line is not its place: there the kept pins' own count comes before every message, so the undo would stand
+// behind '+N'.
 function offUiUndoRow(undo: OffUiUndo) {
   const id = undo.rec.id,
     place = offUiPlace(undo.rec),
@@ -259,14 +263,15 @@ function offUiUndoRow(undo: OffUiUndo) {
 <button type="button" class="btn-icon btn-sm btn-ghost nt-x" data-q="undo-x" data-qid="${id}" aria-label="${tr('알림 닫기')}">${ic('x')}</button></span></div>`;
 }
 
-// The keyboard focus on one of the section's buttons, as its action and record, so a redraw gives it back (a redraw comes
-// whenever the queue is read, which another tab or a send may cause at any time).
+// The keyboard focus on one of the section's buttons, as its action and record, so a redraw gives it back (a redraw
+// comes whenever the queue is read, which another tab or a send may cause at any time).
 function offUiFocus(): { q: string; id: string } | null {
   const active = document.activeElement as HTMLElement | null;
   return active && active.closest && active.closest('#sec-queue') && active.dataset.q
     ? { q: active.dataset.q, id: active.dataset.qid || '' }
     : null;
 }
+// Gives the focus back to the button offUiFocus noted, when the redraw left it nowhere.
 function offUiFocusBack(focused: { q: string; id: string } | null) {
   if (!focused) return;
   const active = document.activeElement;
@@ -277,6 +282,7 @@ function offUiFocusBack(focused: { q: string; id: string } | null) {
   if (button) button.focus({ preventScroll: true });
 }
 
+// The queued record with this id, or null.
 function offUiRec(id: number): any {
   return OFFUI.all.find((record) => record && record.id === id) || null;
 }
@@ -315,8 +321,8 @@ function offUiGo(rec: any) {
     mark.classList.add('flash');
   }
 }
-// [버리기]: the record goes now and is never sent. Its undo row stands in its place (offUiUndoRow) and puts the record back
-// as it was - its key is its id, so it takes its place in the order again.
+// [버리기]: the record goes now and is never sent. Its undo row stands in its place (offUiUndoRow) and puts the record
+// back as it was - its key is its id, so it takes its place in the order again.
 async function offUiDrop(rec: any, button: HTMLElement) {
   if (offUiBusy()) return;
   const had = document.activeElement === button;
@@ -326,17 +332,17 @@ async function offUiDrop(rec: any, button: HTMLElement) {
   announce(tr('쌓인 핀을 버렸습니다'));
   if (had) offUiFocusUndo(rec.id);
 }
-// [다시 찍기]: the record leaves the queue and its note, @-tags, kind and assignee go into the composer, where they wait for
-// the next drag (or join the selection already open). A note already being written is not overwritten: the person saves
-// or discards it first. Another document's record switches to that document first - its draft is that document's.
-// A record that may already be a pin on the server (sent, no answer) is not taken back.
+// [다시 찍기]: the record leaves the queue and its note, @-tags, kind and assignee go into the composer, where they
+// wait for the next drag (or join the selection already open). A note already being written is not overwritten: the
+// person saves or discards it first. Another document's record switches to that document first - its draft is that
+// document's. A record that may already be a pin on the server (sent, no answer) is not taken back.
 async function offUiRedo(rec: any, button: HTMLElement) {
   if (offUiBusy()) return;
   const docName = rec.doc || DEFAULT_DOC,
     had = document.activeElement === button;
   // A record whose write was attempted and never answered may be a pin on the server already: taken back and drawn
   // again it would be made twice. The next send asks the server by its key and either ends the record or takes the
-  // mark off (offline.js offlineFlush), so this is refused only until then.
+  // mark off (offline.ts offlineFlush), so this is refused only until then.
   if (rec.sent) {
     lineNote(
       '보낸 적이 있어 서버에 이미 있을 수 있습니다 — 연결된 뒤 [지금 반영]으로 확인하세요',
@@ -375,8 +381,9 @@ async function offUiRedo(rec: any, button: HTMLElement) {
   announce(tr('메모를 작성 칸에 두었습니다') + ' · ' + tr('자리를 다시 끌어 고르세요'));
   if (!$('#composer').hidden) note.focus({ preventScroll: true });
   else if (had) offUiFocusUndo(rec.id);
+  // The page it was on, beside the panel.
   if (LAYOUT === LAYOUT_MODE.WIDE && Number.isInteger(rec.page) && !isMdDoc()) arrivePage(rec.page);
-} // the page it was on, beside the panel
+}
 // While the queue is being sent a record may be on its way: it is neither dropped nor taken back until that is over.
 function offUiBusy() {
   if (!OFF.flushing) return false;
@@ -385,6 +392,7 @@ function offUiBusy() {
 }
 
 // ---------------- The undo rows' windows
+// Stands a record's undo row (replacing one it already has) and starts its window.
 function offUiUndoStart(rec: any, redo: boolean, text: string) {
   const old = OFFUI.undos.get(rec.id);
   if (old) clearTimeout(old.t);
@@ -394,7 +402,7 @@ function offUiUndoStart(rec: any, redo: boolean, text: string) {
   offUiArm(undo);
 }
 // The row's window: NOTICE_MS, or - while a mouse is on it - until it leaves, but never past NOTICE_HOLD_MAX beyond the
-// first window (notices.js armNotice, the same rule for every undo). Stopped while its record is being put back.
+// first window (notices.ts armNotice, the same rule for every undo). Stopped while its record is being put back.
 function offUiArm(undo: OffUiUndo) {
   clearTimeout(undo.t);
   undo.t = undefined;
@@ -406,7 +414,8 @@ function offUiArm(undo: OffUiUndo) {
     Math.max(0, undo.hover ? left : Math.min(undo.from + NOTICE_MS - now, left)),
   );
 }
-// The window is over (or [x]): the row goes. A focus on it goes to the row now in its place's neighbourhood, else the head.
+// The window is over (or [x]): the row goes. A focus on it goes to the row now in its place's neighbourhood, else the
+// head.
 function offUiUndoEnd(id: number) {
   const undo = OFFUI.undos.get(id);
   if (!undo) return;
@@ -425,9 +434,9 @@ function offUiUndoEnd(id: number) {
     if (button) button.focus({ preventScroll: true });
   }
 }
-// [되돌리기]: the record goes back into the queue as it was. A take-back's note leaves the composer with it - unless it is no
-// longer the same note there (written on, or already saved with a drag): then the record would make a second pin, so it is
-// not put back and the line says why.
+// [되돌리기]: the record goes back into the queue as it was. A take-back's note leaves the composer with it - unless it
+// is no longer the same note there (written on, or already saved with a drag): then the record would make a second pin,
+// so it is not put back and the line says why.
 async function offUiUndo(id: number) {
   const undo = OFFUI.undos.get(id);
   if (!undo || undo.busy) return;
@@ -437,7 +446,8 @@ async function offUiUndo(id: number) {
       !!document.activeElement.closest &&
       !!document.activeElement.closest('#queue-rows>[data-undo]');
   // The composer's note is the document on screen's draft: on another document it is that document's, and clearing it
-  // (and saving the draft) would take a note this record never put there. The take-back is undone only where it was made.
+  // (and saving the draft) would take a note this record never put there. The take-back is undone only where it was
+  // made.
   if (undo.redo && (DOC || DEFAULT_DOC) !== (undo.rec.doc || DEFAULT_DOC)) {
     offUiUndoEnd(id);
     lineNote('다른 문서로 옮겨 되돌리지 않았습니다 — 그 문서에서 메모를 지우세요', NOTICE_KIND.INFO, null, {
@@ -474,6 +484,7 @@ async function offUiUndo(id: number) {
     if (button) button.focus({ preventScroll: true });
   }
 }
+// Puts the focus on a record's undo row's [되돌리기].
 function offUiFocusUndo(id: number) {
   const button = $('#sec-queue').querySelector(
     '[data-undo][data-qid="' + id + '"] [data-q="undo"]',
@@ -532,7 +543,8 @@ $('#queue-rows').addEventListener('pointerout', (event) => {
   }
 });
 // A mark's badge takes its press away from the page: a press on it never starts a selection, a long press or a tap's
-// selection there (selection.js reads presses on #doc, and the frame itself lets them through). Its click shows the row.
+// selection there (selection.ts reads presses on #doc, and the frame itself lets them through). Its click shows the
+// row.
 $('#doc').addEventListener(
   'pointerdown',
   (event) => {
@@ -555,7 +567,7 @@ $('#doc').addEventListener('click', (event) => {
   if (!button) return;
   offUiReveal(Number(button.dataset.qid));
 });
-// The pages are drawn again (a new build, a zoom that rebuilds them, another document): the marks go with the old pages,
-// and which records this document and build draw has changed - both are drawn again.
+// The pages are drawn again (a new build, a zoom that rebuilds them, another document): the marks go with the old
+// pages, and which records this document and build draw has changed - both are drawn again.
 new MutationObserver(() => offUiDraw()).observe($('#doc'), { childList: true });
 export { offlineUiSync };

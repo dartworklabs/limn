@@ -1,16 +1,22 @@
 // ------------------------------------------------ PDF-area-only zoom - docs/handbook/viewer.md §PDF 영역 전용 확대
-// Browser zoom would also enlarge the sidebar and tool bar. Zoom input over the PDF area is intercepted to change only the pages' scale (K).
-// - Desktop: Ctrl(Cmd)+wheel over #left. Trackpad pinch also arrives as a wheel event with ctrlKey set, in Chrome/Firefox. Anchored to the pointer.
-// - Safari trackpad pinch: gesturestart/gesturechange (e.scale).
-// - Keyboard Ctrl(Cmd) + = / + / - / 0 -> zoom in/out/fit width (never intercepted while an input field has focus - see the key handler).
-// - Touch: #left has touch-action:pan-x pan-y, so there's no browser pinch. K changes with the ratio of the two-finger distance, and the
-//   point under the midpoint of the two fingers follows the fingers (drag while zooming). A page in selection mode has touch-action:none, so it goes through the same path.
-// - A Markdown document (md-surface.js) has no pages to scale: every one of these leaves its input to the browser - Ctrl+wheel,
-//   a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch there).
+// Browser zoom would also enlarge the sidebar and tool bar, so zoom input over the PDF area is intercepted to change
+// only the pages' scale (K).
+// - Desktop: Ctrl(Cmd)+wheel over #left, anchored to the pointer. A trackpad pinch also arrives as a wheel event with
+//   ctrlKey set, in Chrome and Firefox.
+// - Safari trackpad pinch: gesturestart/gesturechange (the event's scale).
+// - Keyboard Ctrl(Cmd) + = / + / - / 0 -> zoom in/out/fit width (never intercepted while an input field has focus -
+//   see the key handler).
+// - Touch: #left has touch-action:pan-x pan-y, so there is no browser pinch. K changes with the ratio of the two-finger
+//   distance, and the point under the midpoint of the two fingers follows the fingers (drag while zooming). A page in
+//   selection mode has touch-action:none, so it goes through the same path.
+// - A Markdown document (md-surface.ts) has no pages to scale: every one of these leaves its input to the browser -
+//   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
+//   there).
 import { $, K } from './core.ts';
 import { ZOOM_STEP, markZoomed, setK, zoomAnchor, zoomRestore, zoomTo } from './pages.ts';
 import { cancelDrag, cancelLP } from './selection.ts';
 import { isMdDoc } from './md-surface.ts';
+// The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event) {
   const key = event.key,
     code = event.code;
@@ -19,10 +25,11 @@ function zoomKey(event) {
   if (key === '0' || code === 'Digit0' || code === 'Numpad0') return 'fit';
   return null;
 }
-// The factor for one wheel tick. One mouse-wheel notch (|dy|>=50 pixels or a line unit) gets the same ZOOM_STEP as one button
-// press; a trackpad pinch's finely divided dy is composed via exp(-dy/100) - the inverse of the formula Chrome uses to turn
-// pinch scale into wheel events, so it grows in proportion to how far the fingers spread. dy is clamped to +-18 so a single
-// event never exceeds one button press's worth (ZOOM_STEP ~ exp(0.18)).
+// The factor for one wheel tick. One mouse-wheel notch (|deltaY| >= 50 pixels, or a line or page unit) gets the same
+// ZOOM_STEP as one button press; a trackpad pinch's finely divided deltaY is composed via exp(-deltaY/100) - the
+// inverse of the formula Chrome uses to turn pinch scale into wheel events, so it grows in proportion to how far the
+// fingers spread. deltaY is clamped to +-18 so a single event never exceeds one button press's worth (ZOOM_STEP ~
+// exp(0.18)).
 function wheelFactor(deltaY, mode) {
   if (!deltaY) return 1;
   if (mode === 1 || mode === 2 || Math.abs(deltaY) >= 50) return deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;

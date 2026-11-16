@@ -1,11 +1,12 @@
-// ------------------------------------------------ Seeing and pinning while cut off (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기)
-// Before leaving the network, [오프라인으로 받기] keeps this build's page (the shell), its PDF and its page images in the
-// service worker's cache and asks the server to hold that build's reverse-mapping material (POST /api/hold). While cut off,
-// a drag keeps its box: pick cannot run, so the selection carries only its page, box, and the words PDF.js reads inside it,
-// and [핀 저장] puts the pin in a queue (IndexedDB limnOffline) instead of on the server. The queue survives a reload, the
-// tab closing and the browser restarting - only this browser sees it. Back on the network the queue is replayed in the
-// order it was written: each record's own coordinates go to POST /api/pick with the build they were drawn on, and its
-// answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never dropped.
+// ---------------------------------- Seeing and pinning while cut off (docs/handbook/viewer.md §끊긴 채 보기와 핀 쌓기)
+// Before leaving the network, [오프라인으로 받기] keeps this build's page (the shell), its PDF and its page images in
+// the service worker's cache and asks the server to hold that build's reverse-mapping material (POST /api/hold). While
+// cut off, a drag keeps its box: pick cannot run, so the selection carries only its page, box, and the words PDF.js
+// reads inside it, and [핀 저장] puts the pin in a queue (IndexedDB limnOffline) instead of on the server. The queue
+// survives a reload, the tab closing and the browser restarting - only this browser sees it. Back on the network the
+// queue is replayed in the order it was written: each record's own coordinates go to POST /api/pick with the build they
+// were drawn on, and its answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never
+// dropped.
 import {
   $,
   DEFAULT_DOC,
@@ -45,10 +46,11 @@ const OFF_DB = 'limnOffline',
   OFF_STORE = 'pins',
   OFF_STATE = 'state',
   OFF_MAX = 200;
-const OFF_WROTE = 'wrote'; // the state key holding the pin numbers this queue wrote while a record still waits
+// The state key holding the pin numbers this queue wrote while a record still waits.
+const OFF_WROTE = 'wrote';
 // The document reads a reopened tab needs before it can draw anything, and whose last answer is therefore stored. It is
 // every read the boot path makes: the document's meta and the document list, the pin list AND the dropped one (loadPins
-// applies neither snapshot unless both answered - without the second the stored list was fetched and then thrown away),
+// applies neither snapshot unless both answered - without the second the stored list would be fetched and thrown away),
 // the people, the outline labels, and the source a Markdown or text document is drawn from. A light poll (light=1) is
 // not among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored,
 // and no answer to a write ever is.
@@ -61,14 +63,15 @@ const OFF_READS = [
   '/api/outline-labels',
   '/api/source',
 ];
-// idem: the server said it knows a write by its key (meta's pin_idem, offStash). boot: this visit's first reads are still under way (cleared by offlineBoot, which boot() calls last). staleNote: the
-// status line's message that the screen was drawn from stored reads, while it stands. The rest is a kept copy keeping
-// itself current (§Keeping a kept copy current below): following - a follow is running in this tab; kept - the kept
-// record as last read (undefined until read, null for an instance never kept) and keptAt when; seen - what each document
-// is on as the server last said; timer - the follow set to run once things stand still; fails, after - follows that
-// failed in a row and the time before which none is tried again; failSaid - that failure was said this visit.
-// holder: the server said it counts a build's hold per holder (meta's hold_holder); me: this browser's name among
-// those holders, once read or made (offHolderId).
+// idem: the server said it knows a write by its key (meta's pin_idem, offStash). boot: this visit's first reads are
+// still under way (cleared by offlineBoot, which boot() calls last). staleNote: the status line's message that the
+// screen was drawn from stored reads, while it stands. The rest is a kept copy keeping itself current (§Keeping a kept
+// copy current below): following - a follow is running in this tab; kept - the kept record as last read (undefined
+// until read, null for an instance never kept) and keptAt when; seen - what each document is on as the server last
+// said; timer - the follow set to run once things stand still; fails, after - follows that failed in a row and the time
+// before which none is tried again; failSaid - that failure was said this visit. holder: the server said it counts a
+// build's hold per holder (meta's hold_holder); me: this browser's name among those holders, once read or made
+// (offHolderId).
 const OFF = {
   n: 0,
   held: 0,
@@ -90,8 +93,8 @@ const OFF = {
   holder: false,
   me: '',
 };
-// This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and every
-// caller below falls back to saying the pin could not be kept rather than losing it quietly.
+// This browser's queue, opened once per page. A browser that refuses IndexedDB (a private window) answers null, and
+// every caller below falls back to saying the pin could not be kept rather than losing it quietly.
 function offDb(): Promise<IDBDatabase | null> {
   if (OFF.db) return Promise.resolve(OFF.db);
   return new Promise((resolve) => {
@@ -125,10 +128,11 @@ function offDb(): Promise<IDBDatabase | null> {
     request.onblocked = () => resolve(null);
   });
 }
-/** One operation on a store as a promise; `fn` gets the store and returns its request. */
+/** One operation on a store as a promise; `operation` gets the store and returns its request. */
 // A write is done when its transaction has committed, not when its request succeeded: a transaction can still abort
 // after that (the browser out of room at the commit), and the write is rolled back. Answered at the request, a queued
-// pin read as kept, the composer closed on it, and the note was gone. So a write answers null unless it committed.
+// pin would read as kept, the composer would close on it, and the note would be gone. So a write answers null unless
+// it committed.
 function offIn(store, mode, operation): Promise<any> {
   return offDb().then(
     (db) =>
@@ -164,18 +168,20 @@ function offQueue(mode, operation): Promise<any> {
 function offAll(): Promise<any[]> {
   return offQueue('readonly', (store) => store.getAll()).then((records) => (Array.isArray(records) ? records : []));
 }
+// Adds a record to the queue; answers its key, or null when it was not kept.
 function offAdd(rec) {
   return offQueue('readwrite', (store) => store.add(rec));
 }
 // The pins this browser's queue has written, kept in the state store (OFF_WROTE, newest last, OFF_WROTE_MAX of them).
 // A record whose answer never came is looked for in the pin list, and a pin that is in here was written by a different
 // record of this queue - it is not this one's, however alike the two are. Without that, a record that lost its answer
-// while a twin of it was written (the same place, the same note) matched the twin's pin and was deleted unwritten.
+// while a twin of it was written (the same place, the same note) would match the twin's pin and be deleted unwritten.
 function offWrote(): Promise<number[]> {
   return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_WROTE)).then((stored) =>
     Array.isArray(stored && stored.ids) ? stored.ids : [],
   );
 }
+// Notes a pin this queue wrote (offWrote).
 async function offWroteAdd(id: number) {
   if (typeof id !== 'number') return;
   const ids = await offWrote();
@@ -200,9 +206,11 @@ async function offWroteKeep(rest: any[]) {
 function offHas(id): Promise<boolean> {
   return offQueue('readonly', (store) => store.getKey(id)).then((key) => key !== null && key !== undefined);
 }
+// Writes a record back into the queue, under its own key.
 function offPut(rec) {
   return offQueue('readwrite', (store) => store.put(rec));
 }
+// Drops a record from the queue.
 function offDel(id) {
   return offQueue('readwrite', (store) => store.delete(id));
 }
@@ -212,8 +220,9 @@ async function offlineSync() {
   OFF.n = all.length;
   OFF.held = all.filter((record) => record && record.held).length;
   drawStatus();
+  // The queued pins on the page and in the panel (offline-ui.ts).
   offlineUiSync(all);
-} // the queued pins on the page and in the panel (offline-ui.js)
+}
 // Whether this tab should keep a pin instead of sending it: the light poll has lost the server (POLL_FAILS, the same
 // judgment the status line's '연결 끊김' uses) or the browser says there is no network at all.
 function offlineNow() {
@@ -237,13 +246,14 @@ function offReadKey(url, options): string | null {
 }
 // Stores the answer to a document read, so a later visit with no network can be drawn from it. Only an answer the
 // server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
-// Markdown document past the drawing limit answers 413 with its reason, md-surface.js), and that answer is not the
-// document. Stored, it would come back on the next visit as a document that opened and was empty.
+// Markdown document past the drawing limit answers 413 with its reason, md-surface.ts), and that answer is not the
+// document. Stored, it would come back on the next visit as a document that opens empty.
 function offStash(url: string, data: any, status: number, options?: { method?: string } | null) {
   // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
   // the light poll's included, carries pin_idem when a write is known by its key (api.md POST /api/pin).
-  // A meta answer also says which build each document is on now, which is what keeps a kept copy current (offlineFollowSeen).
-  // And hold_holder when a build's hold is counted per holder, which is what lets this browser let go of its own (offFollowTidy).
+  // A meta answer also says which build each document is on now, which is what keeps a kept copy current
+  // (offlineFollowSeen). And hold_holder when a build's hold is counted per holder, which is what lets this browser let
+  // go of its own (offFollowTidy).
   if (status === 200 && data && String(url).split('?')[0] === '/api/meta') {
     OFF.idem = data.pin_idem === true;
     OFF.holder = data.hold_holder === true;
@@ -261,8 +271,9 @@ function offStashed(url, options): Promise<{ data: any; status: number; at: numb
   return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (stored) => {
     if (!stored || !('data' in stored)) return null;
     // The record has to say for itself that the server answered it with a success. A record that does not say so is
-    // not trusted and is dropped: an earlier build of this viewer stored refusals too, and read as a success they
-    // open a document that is simply empty. A read that finds nothing asks the network, which is the right answer.
+    // not trusted and is dropped: a record written by another build of this viewer may hold a refusal, and read as a
+    // success it opens a document that is simply empty. A read that finds nothing asks the network, which is the right
+    // answer.
     if (typeof stored.status !== 'number' || stored.status < 200 || stored.status >= 300) {
       void offIn(OFF_STATE, 'readwrite', (store) => store.delete(key));
       return null;
@@ -299,14 +310,15 @@ function offKeptMeta(kept: any, key: string, last: any): { data: any; status: nu
 // When a read the network refused may be answered from the store: while this visit is still making its first reads
 // (a tab opened again with no network has nothing else to draw from), or while the connection is known to be gone
 // (offlineNow - switching documents during a flight). Never for a read that fails while the viewer is connected: that
-// failure is said and asked again as it always was (a failed pin read's '핀 읽기 실패 [다시 시도]', a Markdown source's
-// note and its re-ask on the next poll). Answered from the store there, it read as a success - the list stayed stale
-// and nothing asked again.
+// failure is said and asked again (a failed pin read's '핀 읽기 실패 [다시 시도]', a Markdown source's note and its
+// re-ask on the next poll). Answered from the store there, it would read as a success - the list would stay stale and
+// nothing would ask again.
 function offlineMayServe() {
   return OFF.boot || offlineNow();
 }
-// Says once per visit that what is on screen was read before the connection went, and when. The pins and the pages are
-// that moment's, not this one's: the status line already says the connection is gone, and this says how old the screen is.
+// Says once per visit that what is on screen was read before the connection went, and when. The pins and the pages
+// are that moment's, not this one's: the status line already says the connection is gone, and this says how old the
+// screen is.
 function offStaleSaid(at) {
   if (OFF.saidStale) return;
   OFF.saidStale = true;
@@ -336,8 +348,9 @@ function offlineBack() {
 }
 
 // ---------------- The service worker
-// The worker is registered for every visit, not only where notifications are allowed (notify.js asks it for those): it is
-// what answers when the network does not. A browser without one still works online, and says so when asked to prepare.
+// The worker is registered for every visit, not only where notifications are allowed (notify.ts asks it for those): it
+// is what answers when the network does not. A browser without one still works online, and says so when asked to
+// prepare.
 async function offlineWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
   try {
@@ -346,9 +359,9 @@ async function offlineWorker(): Promise<ServiceWorkerRegistration | null> {
     return null;
   }
 }
-// One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits the
-// question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is not 3s,
-// and a wait that short called a keep that was still going a failure.
+// One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits
+// the question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is
+// not 3s, and a wait that short would call a keep that is still going a failure.
 async function offlineAsk(message: { type: string; urls?: string[] }, ms?: number): Promise<any> {
   const reg = await offlineWorker();
   if (!reg) return null;
@@ -377,8 +390,8 @@ async function offlineAsk(message: { type: string; urls?: string[] }, ms?: numbe
 }
 // Asks the worker that controls this page whether it is answering from its copies because the network did not (sw.js
 // 'down'), before the visit's first read: this page was then one of those answers, and its reads need not each wait
-// out a request (api.js API_OUT). Only a worker already in control is asked, and for a moment - a first visit, or a
-// browser with no worker, reads as it always did.
+// out a request (api.ts API_OUT). Only a worker already in control is asked, and for a moment - a first visit, or a
+// browser with no worker, reads as usual.
 async function offlineAskDown() {
   const worker = 'serviceWorker' in navigator ? navigator.serviceWorker.controller : null;
   if (!worker) return;
@@ -412,8 +425,8 @@ function offlineUrls(): string[] {
   } catch (error) {}
   return Array.from(out);
 }
-// The PDF and the page images of document k as its meta m names them - the very addresses the viewer asks for when that
-// document is on screen (pdf-open.js vecOpen, pages.js pageSrc), since a copy is found again by its address. Pure.
+// The PDF and the page images of a document as its meta names them - the very addresses the viewer asks for when that
+// document is on screen (pdf-open.ts vecOpen, pages.ts pageSrc), since a copy is found again by its address. Pure.
 function offlineDocFiles(docName: string | null, meta: any): string[] {
   const build = (meta && meta.pages_build) || '',
     out = [] as string[];
@@ -424,16 +437,17 @@ function offlineDocFiles(docName: string | null, meta: any): string[] {
   );
   return out;
 }
+// Files asked of the worker at a time, and how long one such ask may take.
 const OFF_KEEP_CHUNK = 12,
-  OFF_KEEP_MS = 180000; // files asked of the worker at a time, and how long one such ask may take
+  OFF_KEEP_MS = 180000;
 // [오프라인으로 받기]: keeps every document of this instance for reading with no network - a person on a flight moves
-// between them - and asks the server to hold each build its pins will point at. Each document's reads go through api(),
-// which stores their answers (offStash): its meta, its outline labels, and for a Markdown or text document the source it
-// is drawn from. The files go to the worker a few at a time, so the line can say how far it is. The hold is what lets the
-// queue land on exact lines later; a server without that route (an older Limn) is not a failure - the pins are kept all
-// the same, and said to need their place chosen again if the build is gone by then. Pressing it once also turns on
-// following for this instance (offlineFollow): each document kept whole is recorded, and from then on its copy keeps
-// itself current while connected.
+// between them - and asks the server to hold each build its pins will point at. Each document's reads go through
+// api(), which stores their answers (offStash): its meta, its outline labels, and for a Markdown or text document the
+// source it is drawn from. The files go to the worker a few at a time, so the line can say how far it is. The hold is
+// what lets the queue land on exact lines later; a server without that route (an older Limn) is not a failure - the
+// pins are kept all the same, and said to need their place chosen again if the build is gone by then. Pressing it once
+// also turns on following for this instance (offlineFollow): each document kept whole is recorded, and from then on
+// its copy keeps itself current while connected.
 async function offlinePrepare() {
   if (OFF.prep) return;
   OFF.prep = true;
@@ -452,10 +466,12 @@ async function offlinePrepare() {
       lineNote('이 브라우저는 오프라인 보기를 지원하지 않습니다', NOTICE_KIND.WARN, null, {});
       return;
     }
-    await offKeptSet((record) => record || { key: OFF_KEPT, docs: {}, old: [] }); // the person chose this instance: it follows from now on
+    // The person chose this instance: it follows from now on.
+    await offKeptSet((record) => record || { key: OFF_KEPT, docs: {}, old: [] });
     const urls = new Set(offlineUrls()),
       keys = DOCS.length ? DOCS.map((docEntry) => docEntry.key) : [DOC];
-    const got = [] as { k: string; entry: any }[]; // each document's entry for the kept record, once its files are known whole
+    // Each document's entry for the kept record, once its files are known whole.
+    const got = [] as { k: string; entry: any }[];
     let docs = 0,
       held = 0,
       lost = 0;
@@ -556,23 +572,23 @@ async function offlinePrepare() {
 }
 
 // ---------------- Keeping a kept copy current
-// [오프라인으로 받기] pressed once turns this on for the instance - this origin, whose store is this browser's: the state
-// store's OFF_KEPT record says so, with what each document keeps (docs: its build, that build's file addresses, when its
-// hold was last answered and when that build was asked for; a Markdown or text document's source time instead) and the old
-// builds not dropped yet (old). While connected, every meta answer says which build each document is on now (offStash ->
-// offlineFollowSeen). A document whose copy is behind is followed: its reads are stored, its new files fetched whole, its
-// new build held - the same as pressing does, for one document, quietly - and only then is it recorded and the old
-// build's copies dropped from this device. Of its hold on the server this browser lets go only its own share, where
-// the server counts a hold per holder (meta's hold_holder): another device - the same person's tablet, cut off - may
-// have pins queued on that build which this one cannot see, and its share keeps the build. On a server with one hold
-// per build nothing is let go; the hold simply is not asked again, and lapses in 7 days. An old build a queued pin of this browser was drawn
-// on stays, copies and all, and its hold goes on being asked (offFree): that pin lands by that build. Holds last 7 days
-// and are asked again once a day while the instance is used.
-// Nothing is said on success; failing again and again is said once. An instance never kept fetches nothing - what stays
-// on a device is what its person chose (ADR-0040 D7).
-// OFF_RENEW_MS: a hold asked again after this long. OFF_SETTLE_MS: a change has to stand this long before it is followed,
-// so a run of builds is followed once, to the last. OFF_RETRY_*: the wait after a failed follow, doubling to the cap.
-// OFF_SAY_AFTER: failures in a row before it is said. OFF_LOCK: the name tabs of this browser follow under, one at a time.
+// [오프라인으로 받기] pressed once turns this on for the instance - this origin, whose store is this browser's: the
+// state store's OFF_KEPT record says so, with what each document keeps (docs: its build, that build's file addresses,
+// when its hold was last answered and when that build was asked for; a Markdown or text document's source time instead)
+// and the old builds not dropped yet (old). While connected, every meta answer says which build each document is on now
+// (offStash -> offlineFollowSeen). A document whose copy is behind is followed: its reads are stored, its new files
+// fetched whole, its new build held - the same as pressing does, for one document, quietly - and only then is it
+// recorded and the old build's copies dropped from this device. Of its hold on the server this browser lets go only its
+// own share, where the server counts a hold per holder (meta's hold_holder): another device - the same person's tablet,
+// cut off - may have pins queued on that build which this one cannot see, and its share keeps the build. On a server
+// with one hold per build nothing is let go; the hold simply is not asked again, and lapses in 7 days. An old build a
+// queued pin of this browser was drawn on stays, copies and all, and its hold goes on being asked (offFree): that pin
+// lands by that build. Holds last 7 days and are asked again once a day while the instance is used. Nothing is said on
+// success; failing again and again is said once. An instance never kept fetches nothing - what stays on a device is
+// what its person chose (ADR-0040 D7). OFF_RENEW_MS: a hold asked again after this long. OFF_SETTLE_MS: a change has to
+// stand this long before it is followed, so a run of builds is followed once, to the last. OFF_RETRY_*: the wait after
+// a failed follow, doubling to the cap. OFF_SAY_AFTER: failures in a row before it is said. OFF_LOCK: the name tabs of
+// this browser follow under, one at a time.
 const OFF_KEPT = 'kept',
   OFF_HOLDER = 'holder',
   OFF_RENEW_MS = 86400000,
@@ -588,8 +604,8 @@ function offKept(): Promise<any> {
   );
 }
 // Changes the kept record in one transaction, read and written together: two tabs of this browser share it, and a
-// change made between another tab's read and its write would be lost. fn gets the record (or null) and answers the
-// new one, or null to leave it. Answers what was written, or null.
+// change made between another tab's read and its write would be lost. change gets the record (or null) and answers
+// the new one, or null to leave it. Answers what was written, or null.
 function offKeptUpdate(change: (record: any) => any): Promise<any> {
   return offDb().then(
     (db) =>
@@ -629,8 +645,8 @@ async function offKeptSet(change: (record: any) => any): Promise<any> {
   }
   return written;
 }
-// [더보기]'s [오프라인으로 받기] says whether this instance is kept: '받아 둠' at the row's end once it is. Following is
-// silent, so this is the one place a person can see that it is on - and that an instance was never kept.
+// [더보기]'s [오프라인으로 받기] says whether this instance is kept: '받아 둠' at the row's end once it is. Following
+// is silent, so this is the one place a person can see that it is on - and that an instance was never kept.
 function offKeptShow() {
   const keptMark = document.getElementById('m-offline-n');
   if (!keptMark) return;
@@ -652,9 +668,9 @@ function offSeenIn(meta: any): Record<string, { build: string; src: any; kind: a
   });
   return out;
 }
-// The documents whose kept copy is behind what the server shows: a page document on another build (or one not kept yet -
-// a document added to a kept instance is part of it), a Markdown or text document whose source changed. A document with
-// no build has nothing to keep; one the server no longer lists is not looked at. Pure.
+// The documents whose kept copy is behind what the server shows: a page document on another build (or one not kept yet
+// - a document added to a kept instance is part of it), a Markdown or text document whose source changed. A document
+// with no build has nothing to keep; one the server no longer lists is not looked at. Pure.
 function offBehind(kept: any, seen: Record<string, { build: string; src: any; kind: any }>): string[] {
   const docs = (kept && kept.docs) || {};
   return Object.keys(seen).filter((docName) => {
@@ -688,12 +704,12 @@ function offRenewDue(kept: any, now: number): { doc: string; build: string }[] {
   });
   return out;
 }
-// The kept record once document k keeps entry. The newer reading wins: entry.seen is when the server was asked for its
-// build, and a follow and a press - or two tabs of a browser without Web Locks - may each bring one; asked later, it
-// saw the server later. The losing build, if it is a different one, goes to the old builds with its files, so whatever
-// a tab fetched is accounted for and dropped in turn - never the build that won, whichever tab fetched it. (Asked in
-// the same millisecond, the later write wins; the next follow sees the server's build and puts it right.) A build kept
-// again leaves the old ones. Pure.
+// The kept record once a document keeps an entry. The newer reading wins: entry.seen is when the server was asked for
+// its build, and a follow and a press - or two tabs of a browser without Web Locks - may each bring one; asked later,
+// it saw the server later. The losing build, if it is a different one, goes to the old builds with its files, so
+// whatever a tab fetched is accounted for and dropped in turn - never the build that won, whichever tab fetched it.
+// (Asked in the same millisecond, the later write wins; the next follow sees the server's build and puts it right.) A
+// build kept again leaves the old ones. Pure.
 function offKeptWith(kept: any, docName: string, entry: any): any {
   const out = { key: OFF_KEPT, docs: { ...((kept && kept.docs) || {}) }, old: ((kept && kept.old) || []).slice() };
   const current = out.docs[docName] || null;
@@ -715,9 +731,10 @@ function offKeptWith(kept: any, docName: string, entry: any): any {
   out.old = out.old.filter((oldBuild: any) => !(oldBuild.doc === docName && oldBuild.build === entry.build));
   return out;
 }
-// The kept record once a follow of document k to build b stopped before b was kept: the files it asked for are noted
-// with the old builds, never held by this browser (unheld - its hold is not asked again), so they are dropped in turn
-// and do not stay on the device unaccounted for. null when there is nothing to note - b is what k keeps. Pure.
+// The kept record once a follow of a document to a build stopped before that build was kept: the files it asked for
+// are noted with the old builds, never held by this browser (unheld - its hold is not asked again), so they are dropped
+// in turn and do not stay on the device unaccounted for. null when there is nothing to note - the build is what the
+// document keeps. Pure.
 function offKeptPart(kept: any, docName: string, build: string, files: string[]): any {
   if (!kept || (kept.docs && kept.docs[docName] && kept.docs[docName].build === build)) return null;
   const old = (kept.old || []).slice(),
@@ -727,7 +744,7 @@ function offKeptPart(kept: any, docName: string, build: string, files: string[])
   else old.push({ doc: docName, build: build, files: files.slice(), at: 0, unheld: true });
   return { ...kept, old };
 }
-// The kept record with the hold of build b of document k answered at `at`. Pure.
+// The kept record with the hold of a document's build answered at `at`. Pure.
 function offKeptHeld(kept: any, docName: string, build: string, at: number): any {
   if (!kept) return null;
   const out = {
@@ -740,7 +757,7 @@ function offKeptHeld(kept: any, docName: string, build: string, at: number): any
   if (out.docs[docName] && out.docs[docName].build === build) out.docs[docName] = { ...out.docs[docName], at };
   return out;
 }
-// Asks the server to hold build b of document k for days (0 lets it go) -> {at, held}: when it answered, and whether it
+// Asks the server to hold a document's build for days (0 lets it go) -> {at, held}: when it answered, and whether it
 // holds the build. A refusal is an answer with nothing held: an older Limn without the route or a build already gone
 // (404), a role that may not hold (403). null when there was no answer.
 async function offHold(
@@ -820,7 +837,8 @@ function offlineFollowSeen(meta: any) {
 // chance after a failure. A sighting with nothing new leaves a follow already set as it is.
 function offFollowCheck(moved: boolean) {
   const kept = OFF.kept;
-  if (kept === undefined) return; // not read yet: offlineBoot checks once it is
+  // Not read yet: offlineBoot checks once it is.
+  if (kept === undefined) return;
   // Another tab of this browser may turn following on; this one reads the record again now and then (no request).
   if (kept === null) {
     if (Date.now() - OFF.keptAt >= 60000) {
@@ -867,6 +885,7 @@ async function offlineFollow() {
     OFF.following = false;
   }
 }
+// One follow: each document whose copy is behind, then the old builds and the holds (offFollowTidy).
 async function offFollowRun() {
   let ok = true;
   const kept = await offKept();
@@ -880,12 +899,13 @@ async function offFollowRun() {
   if (!OFF.prep && !offlineNow() && !(await offFollowTidy())) ok = false;
   offFollowDone(ok);
 }
-// Follows document k: its meta and outline labels read (and so stored), the files of the build it is on fetched, and
-// that build held - all of it before it is recorded, so the build it kept stays whole until this one is. A Markdown
-// or text document reads its source again. Answers whether it is done.
+// Follows a document: its meta and outline labels read (and so stored), the files of the build it is on fetched, and
+// that build held - all of it before it is recorded, so the build it kept stays whole until this one is. A Markdown or
+// text document reads its source again. Answers whether it is done.
 async function offFollowDoc(docName: string): Promise<boolean> {
   let meta;
-  const seen = Date.now(); // when the server was asked: a reading asked later is the newer one (offKeptWith)
+  // When the server was asked: a reading asked later is the newer one (offKeptWith).
+  const seen = Date.now();
   try {
     meta = (await api(dq('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
   } catch (error) {
@@ -904,7 +924,8 @@ async function offFollowDoc(docName: string): Promise<boolean> {
     return true;
   }
   const build = meta.pages_build;
-  if (!build) return true; // nothing to keep
+  // Nothing to keep.
+  if (!build) return true;
   try {
     await api(dq('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
   } catch (error) {}
@@ -919,15 +940,16 @@ async function offFollowDoc(docName: string): Promise<boolean> {
     if (!answer || (answer.failed || []).length) return half();
   }
   const hold = await offHold(docName, build, 7);
-  if (!hold) return half(); // not held, it may be gone before its pins are sent
+  // Not held, it may be gone before its pins are sent.
+  if (!hold) return half();
   await offKeptSet((record) => offKeptWith(record, docName, { build: build, files, at: hold.at, seen, meta: meta }));
   return true;
 }
 // Drops the copies of the old builds no queued pin was drawn on, and asks again the holds that are due. Of a dropped
 // build's hold only this browser's own share is let go, and only where the server counts shares - another device's
-// queue may need that build. A queue that cannot be
-// read drops nothing: read as empty, it would drop the build a waiting pin needs. Nor does a build the server still
-// shows go (one half fetched waits for the next try, the screen may be drawn from it). Answers whether everything went.
+// queue may need that build. A queue that cannot be read drops nothing: read as empty, it would drop the build a
+// waiting pin needs. Nor does a build the server still shows go (one half fetched waits for the next try, the screen
+// may be drawn from it). Answers whether everything went.
 async function offFollowTidy(): Promise<boolean> {
   let ok = true;
   const kept = await offKept();
@@ -999,13 +1021,14 @@ function offFollowDone(ok: boolean) {
 }
 
 // ---------------- Pinning while cut off
-// The words inside the dragged box, read from the PDF this tab already has open (PDF.js, the same text the search reads).
-// The server's own quote comes from pdftotext at pick time; this one only has to say what was pinned while the answer is
-// still hours away, and the pick's quote replaces it when the pin is written.
+// The words inside the dragged box, read from the PDF this tab already has open (PDF.js, the same text the search
+// reads). The server's own quote comes from pdftotext at pick time; this one only has to say what was pinned while the
+// answer is still hours away, and the pick's quote replaces it when the pin is written.
 async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: number; y1: number }): Promise<string> {
   if (!VEC.doc) return '';
   try {
-    const { items, vp: viewport } = await pageText(VEC.doc, page); // the one reader of a page's text (search.js)
+    // The one reader of a page's text (search.ts).
+    const { items, vp: viewport } = await pageText(VEC.doc, page);
     return quoteIn(items, viewport.height, rect);
   } catch (error) {
     return '';
@@ -1014,8 +1037,8 @@ async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: nu
 // The words of a page's text items that a box lies on. The box is in PDF points measured from the page's top, as a
 // drag's is; PDF.js gives each item where its baseline starts, measured from the bottom, and how wide and tall it is.
 // An item counts when its run crosses the box and the middle of its line is inside it. Judged by where the item
-// starts alone, a line that begins at the margin and runs through the box was left out - which is most lines, so
-// the quote came back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
+// starts alone, a line that begins at the margin and runs through the box would be left out - which is most lines, so
+// the quote would come back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
 function quoteIn(items: any[], pageHeight: number, rect: { x0: number; y0: number; x1: number; y1: number }): string {
   const out = [] as string[];
   (items || []).forEach((item) => {
@@ -1030,9 +1053,10 @@ function quoteIn(items: any[], pageHeight: number, rect: { x0: number; y0: numbe
   const quote = out.join(' ').replace(/\s+/g, ' ').trim();
   return quote.length > 160 ? quote.slice(0, 159) + '…' : quote;
 }
-// A drag whose pick could not be sent: the box stays and the composer opens on a selection with no lines - the same shape a
-// view-only PDF's region selection has (isRegion), so the range ladder, the source snippet, a suggested edit and a verdict
-// are all off, and [핀 저장] has only the page, the box and the words to keep. Its lines are found when the queue is sent.
+// A drag whose pick could not be sent: the box stays and the composer opens on a selection with no lines - the same
+// shape a view-only PDF's region selection has (isRegion), so the range ladder, the source snippet, a suggested edit
+// and a verdict are all off, and [핀 저장] has only the page, the box and the words to keep. Its lines are found when
+// the queue is sent.
 async function offlinePick(drag: {
   page: number;
   x0: number;
@@ -1046,7 +1070,8 @@ async function offlinePick(drag: {
   const seq = PICKSEQ,
     rect = { x0: drag.x0, y0: drag.y0, x1: drag.x1, y1: drag.y1 },
     quote = await offlineQuote(drag.page, rect);
-  if (seq !== PICKSEQ) return; // a newer drag or a cancel owns the composer now
+  // A newer drag or a cancel owns the composer now.
+  if (seq !== PICKSEQ) return;
   const selection = {
     kind: 'region',
     page: drag.page,
@@ -1090,12 +1115,12 @@ async function offlinePick(drag: {
   });
   if (LAST_PTR === 'mouse') (selPopOpen() ? SEL_POP_FIELD : $('#note')).focus({ preventScroll: true });
 }
-// [핀 저장] with no server: the pin goes to the queue with everything needed to write it later - where it was drawn, on which
-// build, its words, and what the composer asked (the note, its kind, its assignee and the @-tags). Answers whether it was
-// kept; a browser that refuses the queue answers false and the caller says the save failed, so no pin is lost silently.
-// tried is given for a save that was sent and got no answer (save.js): the record is kept as one whose write was
-// attempted - under the key the save went with, if it had one, and with the newest pin that stood before it - so the
-// send asks for it before it writes it.
+// [핀 저장] with no server: the pin goes to the queue with everything needed to write it later - where it was drawn, on
+// which build, its words, and what the composer asked (the note, its kind, its assignee and the @-tags). Answers
+// whether it was kept; a browser that refuses the queue answers false and the caller says the save failed, so no pin is
+// lost silently. tried is given for a save that was sent and got no answer (save.ts): the record is kept as one whose
+// write was attempted - under the key the save went with, if it had one, and with the newest pin that stood before it -
+// so the send asks for it before it writes it.
 async function offlineQueueSave(
   selection: Selection,
   note: string,
@@ -1165,7 +1190,7 @@ async function offlineQueueSave(
     idem: (tried && tried.idem) || offlineKey(),
   };
   if (found && typeof selection.page !== 'number' && !lined) {
-    // a line selection whose source this tab no longer holds: nothing to check it against later
+    // A line selection whose source this tab no longer holds: nothing to check it against later.
     bannerNote(
       NOTICE_HOST.COMPOSER,
       tr('핀 저장 실패 — 이 문서의 원문을 다시 읽은 뒤 저장하세요'),
@@ -1273,8 +1298,9 @@ async function offlinePlaceLines(rec: any): Promise<any> {
   };
 }
 // The drag a record holds, in the PDF points pick reads: the box kept with it, or the one its page fractions and that
-// page's size on the build make - the same product selection.js sends when the drag happens. Null when the record has
-// neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's corner). Pure.
+// page's size on the build make - the same product selection.ts sends when the drag happens. Null when the record has
+// neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's corner).
+// Pure.
 function offlineBox(rec: any): { x0: number; y0: number; x1: number; y1: number } | null {
   if (rec.rect) return rec.rect;
   const frac = rec.frac,
@@ -1304,7 +1330,8 @@ function offlineBody(rec: any, place: any): Record<string, unknown> {
     } as Record<string, unknown>;
     if ((rec.mentions || []).length) region.mentions = rec.mentions;
     if (rec.idem) region.idem = rec.idem;
-    if (place.el) figureFields(region, place.el, null); // a figure pick: its element, and the element's box as the pin's (as savePin sends one)
+    // A figure pick: its element, and the element's box as the pin's (as savePin sends one).
+    if (place.el) figureFields(region, place.el, null);
     return region;
   }
   const body = {
@@ -1350,13 +1377,15 @@ function fracSame(first: unknown, second: unknown) {
 // The pin this record already is on the server, or 0: mine, on its document, at the same place, with the same note.
 // A send whose answer was lost is found here instead of written twice - the judgment savePin makes for its own lost
 // answer. A line answer stands on its lines; a region answer stands on its page AND its box, because two region pins
-// on one page are told apart by nothing else, and a page-only judgment deleted a second pin that was never written.
+// on one page are told apart by nothing else, and a page-only judgment would delete a second pin that was never
+// written.
 // A pin this queue has already written - in this send or any earlier one (offWrote) - is not offered again: two
 // deliberate pins may be alike in every field this reads, and only one of them is that pin. Nor is a pin that was
-// already there when this record was attempted (rec.top, as findLandedVerdict reads its own lost answer): whatever that pin
-// is, it is not the write this record made afterwards.
+// already there when this record was attempted (rec.top, as findLandedVerdict reads its own lost answer): whatever that
+// pin is, it is not the write this record made afterwards.
 function offlineLanded(rec: any, place: any, claimed: Set<number>): number {
-  const frac = place.el && Array.isArray(place.el.frac) ? place.el.frac : place.frac || rec.frac; // a figure pin's box is its element's (offlineBody)
+  // A figure pin's box is its element's (offlineBody).
+  const frac = place.el && Array.isArray(place.el.frac) ? place.el.frac : place.frac || rec.frac;
   const top = typeof rec.top === 'number' ? rec.top : 0;
   const hit = OPEN_ALL.find(
     (pin) =>
@@ -1377,7 +1406,8 @@ function offlineLanded(rec: any, place: any, claimed: Set<number>): number {
 async function offlineFlush() {
   // The flag is taken before anything is awaited. Reconnecting fires several triggers within the same tick (the
   // 'online' event, the light poll's recovery, boot, the status line's [지금 반영]); a flag set after the first await
-  // let two of them read the same records and write every pin twice, since each had read the list before the other wrote.
+  // would let two of them read the same records and write every pin twice, since each reads the list before the other
+  // writes.
   if (OFF.flushing || offlineNow() || viewerBlocked()) return;
   OFF.flushing = true;
   const all = await offAll();
@@ -1401,14 +1431,15 @@ async function offlineFlush() {
   let held = 0,
     failed = 0;
   try {
-    await loadPins(); // what is already there - a lost answer from an earlier send is found, not written twice
+    // What is already there - a lost answer from an earlier send is found, not written twice.
+    await loadPins();
     for (const rec of all) {
       if (offlineNow()) break;
-      // A record whose write was already attempted on a server that knows a write by its key is asked about by the
-      // key alone, before anything is placed. The earlier attempt may have made the pin and lost only its answer -
-      // and by now its place may be gone (the held build expired; the lines were edited, perhaps by the agent that
-      // handled that very pin). Placed first, such a record was held and its key never tried: the pin stood on the
-      // server while the record stayed in the queue, a [다시 찍기] away from being made twice. The question writes
+      // A record whose write was already attempted on a server that knows a write by its key is asked about by the key
+      // alone, before anything is placed. The earlier attempt may have made the pin and lost only its answer - and by
+      // now its place may be gone (the held build expired; the lines were edited, perhaps by the agent that handled
+      // that very pin). Placed first, such a record would be held and its key never tried: the pin would stand on the
+      // server while the record stays in the queue, a [다시 찍기] away from being made twice. The question writes
       // nothing whichever way it is answered (api.md POST /api/pin, replay_only).
       const keyed = OFF.idem && !!rec.idem;
       if (keyed && rec.sent) {
@@ -1429,16 +1460,17 @@ async function offlineFlush() {
             continue;
           }
           // The server knows no pin by this key: the attempt never arrived, so its mark comes off. A record then held
-          // for its place is one [다시 찍기] may take back - offline-ui.js refuses a record that may be on the server.
+          // for its place is one [다시 찍기] may take back - offline-ui.ts refuses a record that may be on the server.
           if (answer.status === 409 && (await offHas(rec.id))) {
             rec.sent = false;
             await offPut(rec);
           }
         } catch (error) {
+          // No answer to the question either: the record waits, unplaced and unheld.
           failed++;
           continue;
         }
-      } // no answer to the question either: the record waits, unplaced and unheld
+      }
       // Every record is placed afresh. A drag is asked of pick, on the build it was drawn on; the lines of a Markdown
       // or text document are looked for in its source as it reads now. The lines a pick once answered are never
       // written: the manuscript moves while a person is away, and writing them would anchor the pin to whatever
@@ -1487,9 +1519,10 @@ async function offlineFlush() {
             })
           ).data;
         } catch (error) {
+          // No answer or a refusal: the record stays for the next send.
           failed++;
           continue;
-        } // no answer or a refusal: the record stays for the next send
+        }
         if (!place || place.error) {
           rec.held = true;
           rec.why = errText(place) || tr('위치를 찾지 못했습니다');
@@ -1500,13 +1533,13 @@ async function offlineFlush() {
       }
       // A server that knows a write by its key needs none of the looking below: the same key is the same pin, so the
       // record is sent with it until an answer comes, and an answer to a second attempt names the pin the first made.
-      // The attempt is recorded before it is made (a tab closed mid-request never reaches the lines after it), which
-      // is what sends the next visit to the question above. A refusal of the request itself (4xx) says nothing was
-      // written: the mark comes off and the record is kept with what the server said.
-      // Both ways of sending keep what the other needs. This one notes the pins that existed before the attempt
-      // (top) and records the pin it writes (offWroteAdd), although it reads neither: a server rolled back to a Limn
-      // without the key sends the next visit to the looking below, and an attempt marked here with no boundary let
-      // any older look-alike answer for it, as a pin written here but not recorded let a twin's pin do.
+      // The attempt is recorded before it is made (a tab closed mid-request never reaches the lines after it), which is
+      // what sends the next visit to the question above. A refusal of the request itself (4xx) says nothing was
+      // written: the mark comes off and the record is kept with what the server said. Both ways of sending keep what
+      // the other needs. This one notes the pins that existed before the attempt (top) and records the pin it writes
+      // (offWroteAdd), although it reads neither: a server rolled back to a Limn without the key sends the next visit
+      // to the looking below, and an attempt marked here with no boundary would let any older look-alike answer for it,
+      // as a pin written here but not recorded would let a twin's pin do.
       if (keyed) {
         if (!(await offHas(rec.id))) continue;
         rec.sent = true;
@@ -1541,8 +1574,9 @@ async function offlineFlush() {
       }
       // Only a record whose write was already attempted can be a pin on the server. A record that has never been
       // sent is written, whatever is there: two pins alike in document, place and note are told apart by nothing this
-      // can read, and matching a fresh record against one of them deleted a pin that was never written.
+      // can read, and matching a fresh record against one of them would delete a pin that was never written.
       if (rec.sent) {
+        // Its pin number, not the record's.
         const was = offlineLanded(rec, place, claimed);
         if (was) {
           claimed.add(was);
@@ -1551,7 +1585,7 @@ async function offlineFlush() {
           await offDel(rec.id);
           continue;
         }
-      } // its pin number, not the record's
+      }
       // Another tab of this browser shares the queue and may have written this one while the pick was out: a record
       // that is no longer there has been dealt with, and writing it again would make the pin twice.
       if (!(await offHas(rec.id))) continue;
@@ -1563,7 +1597,8 @@ async function offlineFlush() {
       // that did reach it. Those keep the mark and are looked for in the list instead.
       rec.sent = true;
       rec.top = topPinId();
-      await offPut(rec); // the pins that existed before this write, as savePin notes for its own
+      // The pins that existed before this write, as savePin notes for its own.
+      await offPut(rec);
       try {
         const { data } = await api('/api/pin', {
           method: 'POST',
@@ -1581,6 +1616,7 @@ async function offlineFlush() {
       } catch (error) {
         const apiError = error as ApiError;
         const status = (apiError && apiError.status) || 0;
+        // Turned away: nothing is on the server.
         if (status >= 400 && status < 500) {
           rec.sent = false;
           rec.held = true;
@@ -1588,7 +1624,7 @@ async function offlineFlush() {
           await offPut(rec);
           held++;
           continue;
-        } // turned away: nothing is on the server
+        }
         await loadPins();
         const late = offlineLanded(rec, place, claimed);
         if (late) {
@@ -1640,10 +1676,11 @@ async function offlineFlush() {
     );
 }
 
-// Boot: the worker is registered, the queue is counted, and a queue waiting on a live connection is sent right away. The
-// light poll calls offlineFlush() again whenever the connection comes back (polling.js).
+// Boot: the worker is registered, the queue is counted, and a queue waiting on a live connection is sent right away.
+// The light poll calls offlineFlush() again whenever the connection comes back (polling.ts).
 function offlineBoot() {
-  OFF.boot = false; // the first reads are done: from here a read that fails while connected is a failure again
+  // The first reads are done: from here a read that fails while connected is a failure again.
+  OFF.boot = false;
   void offlineWorker();
   void offlineSync().then(() => {
     if (OFF.n && !offlineNow()) void offlineFlush();

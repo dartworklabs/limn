@@ -1,8 +1,8 @@
-// ------------------------------------------------ The page list (docs/handbook/viewer.md §조작 한눈에, issue #187)
-// Going to a page without typing. The page count above the page (wide: #section-page) or at the nav bar's end (mid, short and
-// the tablet sheet: #nav-page) opens a popover (#page-pop): a page field on top and one row per page below it, each with the
-// sections that start on that page. The phone's navigation sheet carries the same rows under its page field (#ns-pages).
-// Choosing a row goes there at once - there is no confirm step.
+// ------------------------------------------------ The page list (docs/handbook/viewer.md §조작 한눈에, §쪽 목록)
+// Going to a page without typing. The page count above the page (wide: #section-page) or at the nav bar's end (mid,
+// short and the tablet sheet: #nav-page) opens a popover (#page-pop): a page field on top and one row per page below
+// it, each with the sections that start on that page. The phone's navigation sheet carries the same rows under its page
+// field (#ns-pages). Choosing a row goes there at once - there is no confirm step.
 import { $, DOC, META, MQ_COARSE, VIEW_MODE, buildsFromSource, imeKey, isFigureKind } from './core.ts';
 import { html, ic, setHtml } from './markup.ts';
 import { tl } from './i18n.ts';
@@ -13,9 +13,9 @@ import { clampPage, goPage } from './pages.ts';
 import { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, outlineOnScreen } from './outline.ts';
 import { pageVerdictPins, pageVerdictsOn, verdictLabel, verdictOf } from './verdict.ts';
 
-// The names a row shows for each of n pages, index 0 for page 1: the top-level headings that start on the page joined with
-// ' · ' ('1 Introduction · 2 Related work'), else the one the page continues ('… 2 Related work'); '' before the first heading.
-// entries is the outline in document order (OUTLINE_ENTRIES). Pure.
+// The names a row shows for each of pageTotal pages, index 0 for page 1: the top-level headings that start on the page
+// joined with ' · ' ('1 Introduction · 2 Related work'), else the one the page continues ('… 2 Related work'); ''
+// before the first heading. entries is the outline in document order (OUTLINE_ENTRIES). Pure.
 function pageSections(entries, pageTotal) {
   const name = (entry) => (entry.number ? entry.number + ' ' : '') + entry.title,
     topEntries = entries.filter((entry) => entry.depth === 0),
@@ -30,17 +30,17 @@ function pageSections(entries, pageTotal) {
   }
   return out;
 }
-// Whether the document on screen names sections in its page list: a LaTeX manuscript does; a figure document names its pages
-// by their titles instead (pageTitles) and a view-only PDF lists page numbers only.
+// Whether the document on screen names sections in its page list: a LaTeX manuscript does; a figure document names its
+// pages by their titles instead (pageTitles) and a view-only PDF lists page numbers only.
 function pageListNamed() {
   const docEntry = docInfo(DOC);
   return !docEntry || buildsFromSource(docEntry.kind);
 }
-// The title each of n pages shows in the page list of a document that is not a LaTeX manuscript, index 0 for page 1: the title the
-// build's meta gives the page (pages[i].title - a figure's title from its element map), else - when byOutline, as in a figure
-// document, whose pages are its figures - the entry of the outline that points at the page (the deepest of them, of equally deep
-// ones the first the outline lists, as outlineIndexAt picks among entries that start at one spot), else ''. pages is META.pages
-// (or null), entries the outline in document order. Pure.
+// The title each of pageTotal pages shows in the page list of a document that is not a LaTeX manuscript, index 0 for
+// page 1: the title the build's meta gives the page (pages[i].title - a figure's title from its element map), else -
+// when byOutline, as in a figure document, whose pages are its figures - the entry of the outline that points at the
+// page (the deepest of them, of equally deep ones the first the outline lists, as outlineIndexAt picks among entries
+// that start at one spot), else ''. pages is META.pages (or null), entries the outline in document order. Pure.
 function pageTitles(pages, entries, pageTotal, byOutline) {
   const name = (entry) => (entry.number ? entry.number + ' ' : '') + entry.title,
     named = new Map();
@@ -56,9 +56,10 @@ function pageTitles(pages, entries, pageTotal, byOutline) {
     return entry ? name(entry) : '';
   });
 }
-// The names the page list shows for pages 1..n: a LaTeX manuscript's sections, a figure document's page titles, else none.
-// A figure's pages are named by the outline only while it is the one read for the build on screen (outlineOnScreen): while another
-// document's or build's is still being read, a page without a title shows its number, and the list is drawn again when it arrives.
+// The names the page list shows for pages 1..pageTotal: a LaTeX manuscript's sections, a figure document's page titles,
+// else none. A figure's pages are named by the outline only while it is the one read for the build on screen
+// (outlineOnScreen): while another document's or build's is still being read, a page without a title shows its number,
+// and the list is drawn again when it arrives.
 function pageNames(pageTotal) {
   if (pageListNamed()) return pageSections(OUTLINE_ENTRIES, pageTotal);
   const docEntry = docInfo(DOC),
@@ -69,9 +70,10 @@ function pageNames(pageTotal) {
 function pageCount() {
   return META && META.pages ? META.pages.length : 0;
 }
-// The rows for pages 1..n: the page on screen (cur) is the selected option, carries the check and is the list's one tab stop.
-// The section names are the manuscript's words (translate="no"); the page number is UI.
-// A page whose page verdict line shows a verdict carries it at the row's end, before the check ('#42 채택'): the verdicts at a glance.
+// The rows for pages 1..pageTotal: the page on screen (currentPage) is the selected option, carries the check and is
+// the list's one tab stop. The section names are the manuscript's words (translate="no"); the page number is UI.
+// A page whose page verdict line shows a verdict carries it at the row's end, before the check ('#42 채택'): the
+// verdicts at a glance.
 function pageRowsHtml(pageTotal, currentPage) {
   const names = pageNames(pageTotal),
     verdictPins = pageVerdictsOn() ? pageVerdictPins() : null;
@@ -90,9 +92,11 @@ function revealPageRow(list) {
   list.scrollTop = selectedRow.offsetTop - (list.clientHeight - selectedRow.offsetHeight) / 2;
 }
 
-let PAGE_LIST_FROM = null as HTMLElement | null; // the page count that opened the popover; null while it is shut
-// Opens the popover under the page count `from`, listing the pages with the current one in view. A mouse or keyboard gets the
-// page field focused, so typing a number still works at once; touch gets the current row focused, so no keyboard comes up.
+// The page count that opened the popover; null while it is shut.
+let PAGE_LIST_FROM = null as HTMLElement | null;
+// Opens the popover under the page count `from`, listing the pages with the current one in view. A mouse or keyboard
+// gets the page field focused, so typing a number still works at once; touch gets the current row focused, so no
+// keyboard comes up.
 function openPageList(from) {
   const popover = $('#page-pop'),
     list = $('#page-pop-list'),
@@ -109,9 +113,10 @@ function openPageList(from) {
   const row = list.querySelector('[aria-selected=true]') as HTMLElement | null;
   (MQ_COARSE.matches && row ? row : pageField).focus({ preventScroll: true });
 }
-// Draws the popover's rows - for the page on screen, the names and titles as they are now - and what depends on them: the wider list
-// that titles need (a figure's), its place under the page count, and the full title of each row that cuts its title short. Keeps
-// the focus on the row it was on, so a list redrawn under the finger or the keys (the outline arrived) is the one they were in.
+// Draws the popover's rows - for the page on screen, the names and titles as they are now - and what depends on them:
+// the wider list that titles need (a figure's), its place under the page count, and the full title of each row that
+// cuts its title short. Keeps the focus on the row it was on, so a list redrawn under the finger or the keys (the
+// outline arrived) is the one they were in.
 function drawPopoverRows() {
   const popover = $('#page-pop'),
     list = $('#page-pop-list');
@@ -123,7 +128,8 @@ function drawPopoverRows() {
   placePageList();
   tipCutTitles(list);
 }
-// Runs draw (which replaces the rows of list) and gives the focus back to the row of the same page if it was in the list.
+// Runs draw (which replaces the rows of list) and gives the focus back to the row of the same page if it was in the
+// list.
 function keepRowFocus(list, draw) {
   const focused = document.activeElement,
     row = focused && list.contains(focused) ? focused.closest('.pl-row') : null,
@@ -132,9 +138,9 @@ function keepRowFocus(list, draw) {
   const again = page ? (list.querySelector('.pl-row[data-page="' + page + '"]') as HTMLElement | null) : null;
   if (again) again.focus({ preventScroll: true });
 }
-// A figure document's row whose title the row cuts short (an ellipsis) carries the whole title as its description: hovering shows it,
-// and so does a long press on touch, which has no native tooltip to rely on (the click after a long press is swallowed - a tap still goes
-// to the page). A title that fits carries none. Needs the rows laid out.
+// A figure document's row whose title the row cuts short (an ellipsis) carries the whole title as its description:
+// hovering shows it, and so does a long press on touch, which has no native tooltip to rely on (the click after a long
+// press is swallowed - a tap still goes to the page). A title that fits carries none. Needs the rows laid out.
 function tipCutTitles(list) {
   if (pageListNamed()) return;
   for (const nameCell of list.querySelectorAll('.pl-s') as NodeListOf<HTMLElement>) {
@@ -143,7 +149,8 @@ function tipCutTitles(list) {
     else delete row.dataset.tip;
   }
 }
-// Draws the page lists that are open again (the outline of the document on screen has been read): the popover and the navigation sheet's.
+// Draws the page lists that are open again (the outline of the document on screen has been read): the popover and the
+// navigation sheet's.
 function refreshPageLists() {
   hideTip();
   if (!$('#page-pop').hidden) drawPopoverRows();
@@ -152,8 +159,9 @@ function refreshPageLists() {
     tipCutTitles($('#ns-pages'));
   }
 }
-// Puts the open popover under its page count, its right edge on the count's and inside the window by 8px, and lets it grow
-// only down to 8px above the window's bottom (--pl-room; 480px at most); its list scrolls inside that. A count that is no longer shown shuts it.
+// Puts the open popover under its page count, its right edge on the count's and inside the window by 8px, and lets it
+// grow only down to 8px above the window's bottom (--pl-room; 480px at most); its list scrolls inside that. A count
+// that is no longer shown shuts it.
 function placePageList() {
   const popover = $('#page-pop'),
     from = PAGE_LIST_FROM;
@@ -169,7 +177,8 @@ function placePageList() {
   popover.style.top = top + 'px';
   popover.style.setProperty('--pl-room', Math.max(0, innerHeight - 8 - top) + 'px');
 }
-// Shuts the popover; back gives the focus back to the page count that opened it (Esc, a choice), an outside click leaves it.
+// Shuts the popover; back gives the focus back to the page count that opened it (Esc, a choice), an outside click
+// leaves it.
 function closePageList(back) {
   const popover = $('#page-pop');
   if (popover.hidden) return;
@@ -186,8 +195,8 @@ function togglePageList(from) {
   closePageList(again);
   if (!again) openPageList(from);
 }
-// Goes to page p from the list or its field: shuts the popover (the sheet shuts through its data-close), leaves the changes view
-// for the manuscript, and scrolls to the page.
+// Goes to a page chosen in the list or typed in its field: shuts the popover (the sheet shuts through its data-close),
+// leaves the changes view for the manuscript, and scrolls to the page.
 function goListedPage(page) {
   closePageList(true);
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
@@ -201,8 +210,9 @@ function drawSheetPages() {
   setHtml(box, pageRowsHtml(pageTotal, OUTLINE_ACTIVE_PAGE || 1));
 }
 
-// Keys in a page list (the popover's and the sheet's): ↓/↑ move one row, Home/End to the ends - from the page field ↓/↑ go to
-// the current page's row; Enter on a row is its click, Enter in the field goes to the typed page (clamped to 1..n).
+// Keys in a page list (the popover's and the sheet's): ↓/↑ move one row, Home/End to the ends - from the page field ↓/↑
+// go to the current page's row; Enter on a row is its click, Enter in the field goes to the typed page (clamped to the
+// page count).
 function pageListKey(event) {
   const target = event.target as HTMLElement;
   if (imeKey(event)) return;

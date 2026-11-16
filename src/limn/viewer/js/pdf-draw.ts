@@ -1,14 +1,19 @@
-// Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
+// ------------------------------------------ Vector rendering: drawing the pages (docs/handbook/viewer.md §벡터 렌더링)
+// The pages of the PDF pdf-open.ts opened, drawn onto canvases one job at a time: pages within the viewport first, each
+// page's canvas sized to the screen, a detail canvas over a capped one, and every canvas released when its page scrolls
+// out of reach.
 import { $, $$ } from './core.ts';
 import { tl, tr } from './i18n.ts';
 import { VEC, VEC_DT_MARGIN, VEC_KEEP, VEC_PIX_CAP, vecForget } from './pdf-open.ts';
 import { searchOffer } from './search.ts';
+// Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
 function vecClose(doc) {
   if (!doc) return;
   try {
     doc.loadingTask.destroy();
   } catch (error) {}
 }
+// Gives up on vector drawing for the document on screen: the pages stay PNG, and #vec-chip says why.
 function vecFail(message, cause?) {
   VEC.failed = message;
   VEC.gen++;
@@ -17,13 +22,15 @@ function vecFail(message, cause?) {
   vecForget(VEC.doc);
   vecClose(VEC.doc);
   VEC.doc = null;
-  searchOffer(); // no PDF to read: no search
+  // No PDF to read: no search.
+  searchOffer();
   const chip = $('#vec-chip');
   chip.hidden = false;
   chip.dataset.tip = tl('PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다', {
     reason: tr(message) + (cause && cause.message ? ' (' + String(cause.message).slice(0, 100) + ')' : ''),
   });
 }
+// The draw state of a page (its canvases and the size they were drawn at), made on first use.
 function pageDrawState(pageNumber) {
   let pageState = VEC.st.get(pageNumber);
   if (!pageState) {
@@ -32,12 +39,13 @@ function pageDrawState(pageNumber) {
   }
   return pageState;
 }
+// Removes a canvas. It must shrink to 0 first, so Safari too releases its memory right away.
 function dropCanvas(canvas) {
   if (!canvas) return;
   canvas.width = 0;
   canvas.height = 0;
   canvas.remove();
-} // must shrink to 0 for Safari to release memory right away too
+}
 function releasePageCanvases(pageNumber) {
   if (VEC.cur && VEC.cur.n === pageNumber) vecCancel();
   const pageState = VEC.st.get(pageNumber);
@@ -86,17 +94,20 @@ function vecSchedule(ms) {
   clearTimeout(VEC.timer);
   VEC.timer = setTimeout(pumpDrawJobs, ms || 0);
 }
-// Zoom, window size, or DPR changed - whatever was being drawn (the old size) is discarded and redrawn shortly after. Meanwhile, the old canvas is shown stretched.
+// Zoom, window size or DPR changed: whatever was being drawn (at the old size) is discarded and redrawn shortly after.
+// Meanwhile, the old canvas is shown stretched.
 function vecInvalidate() {
   if (!VEC.doc) return;
   vecCancel();
   vecSchedule(150);
 }
+// Backing pixels per CSS pixel: the device pixel ratio times the browser's pinch scale.
 function backingScale() {
   const viewport = window.visualViewport;
   return (window.devicePixelRatio || 1) * Math.max(1, (viewport && viewport.scale) || 1);
 }
-// The page canvas's backing size. If it exceeds the cap, it's scaled down proportionally and marked capped (the detail canvas fills in the visible portion).
+// The page canvas's backing size. If it exceeds the cap, it is scaled down proportionally and marked capped (the
+// detail canvas fills in the visible portion).
 function vecTarget(cssWidth, cssHeight, pixelRatio, cap) {
   let backingWidth = Math.round(cssWidth * pixelRatio),
     backingHeight = Math.round(cssHeight * pixelRatio),
@@ -114,7 +125,8 @@ function pageBackingTarget(pageElement) {
     cssHeight = pageElement.clientHeight;
   return cssWidth && cssHeight ? vecTarget(cssWidth, cssHeight, backingScale(), VEC_PIX_CAP) : null;
 }
-// The portion of a page visible on screen (page CSS px). margin is extra room relative to the viewport size (the detail canvas is drawn a bit larger).
+// The portion of a page visible on screen (page CSS px). margin is extra room relative to the viewport size (the
+// detail canvas is drawn a bit larger).
 function visiblePagePortion(pageElement, margin) {
   const pdfArea = $('#left'),
     areaRect = pdfArea.getBoundingClientRect(),
@@ -135,6 +147,7 @@ function visiblePagePortion(pageElement, margin) {
     y1 = Math.min(cssHeight, viewY + viewHeight + marginY - originY);
   return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0, cw: cssWidth, ch: cssHeight } : null;
 }
+// Whether a detail canvas's region (fractions of the page) covers the visible portion.
 function regionCovers(region, visible) {
   return (
     !!region &&
@@ -189,6 +202,7 @@ function nextDrawJob() {
   }
   return null;
 }
+// Runs the draw jobs one after another until none is left; one pump at a time.
 async function pumpDrawJobs() {
   if (VEC.pumping || !VEC.doc) return;
   VEC.pumping = true;
@@ -208,7 +222,9 @@ async function runDrawJob(job) {
     doc = VEC.doc,
     gen = VEC.gen;
   if (!pageElement || !doc) return;
-  if (pageNumber > doc.numPages) return; // a defensive check - just skips a case where another document/build's doc ends up running on a new n (the vecOpen bailout above is the real fix)
+  // A page number past the document's last page means another document or build replaced it. vecOpen's generation
+  // check keeps that from happening; this only skips the case.
+  if (pageNumber > doc.numPages) return;
   let page;
   try {
     page = await doc.getPage(pageNumber);
@@ -225,8 +241,8 @@ async function runDrawJob(job) {
     transform,
     region = null as { x: number; y: number; w: number; h: number } | null;
   // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
-  // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. Since PNG was also drawn
-  // filling that same box, this is needed for the canvas's text to land at the same % position it did for PNG.
+  // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. The PNG fills that same
+  // box, so this is what lands the canvas's text at the same % position as the PNG's.
   if (job.kind === 'base') {
     canvas.width = target.bw;
     canvas.height = target.bh;
@@ -273,10 +289,11 @@ async function runDrawJob(job) {
     gen === VEC.gen && VEC.near.has(pageNumber) && document.contains(pageElement)
       ? pageBackingTarget(pageElement)
       : null;
+  // Zoom or window size changed while drawing.
   if (!targetAfter || targetAfter.cw !== target.cw || targetAfter.ch !== target.ch || targetAfter.k !== target.k) {
     dropCanvas(canvas);
     return;
-  } // zoom or window size changed while drawing
+  }
   VEC.stats.push({
     n: pageNumber,
     kind: job.kind,
@@ -297,7 +314,8 @@ async function runDrawJob(job) {
     pageElement.classList.add('drawn');
     if (VEC.tFirst === null) VEC.tFirst = performance.now();
   } else {
-    const drawnRegion = region as { x: number; y: number; w: number; h: number }; // a detail job always measured its region above
+    // A detail job always measures its region above.
+    const drawnRegion = region as { x: number; y: number; w: number; h: number };
     dropCanvas(pageState.dt);
     pageState.dt = canvas;
     pageState.reg = drawnRegion;
@@ -321,7 +339,8 @@ $('#left').addEventListener(
   },
   { passive: true },
 );
-// devicePixelRatio changes with browser zoom (Ctrl+wheel outside the PDF, etc.) or moving the window to a different screen - redraws at that scale.
+// devicePixelRatio changes with browser zoom (Ctrl+wheel outside the PDF, etc.) or moving the window to a different
+// screen: the pages redraw at that scale.
 (function watchDpr() {
   if (!window.matchMedia) return;
   matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener(

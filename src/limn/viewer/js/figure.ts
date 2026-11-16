@@ -1,8 +1,8 @@
 // ------------------------------------------------ Figure documents: the element a pick chose, its box and path
 // A figure document's pick answers the element under the drag and the ladder of its ancestors; every rung carries its
 // element (levels[].el with id, path root first, label, part, impl and its box `frac` on the pick's page). The composer
-// shows that element without another request (docs/handbook/viewer.md §패널 정리): the pending box snaps to it - the mark
-// the pin will get - and the location line names its path. The selection keeps the element it shows as elSel.
+// shows that element without another request (docs/handbook/viewer.md §패널 정리): the pending box snaps to it - the
+// mark the pin will get - and the location line names its path. The selection keeps the element it shows as elSel.
 import { $, EL_SYNC, T } from './core.ts';
 import { html, ic } from './markup.ts';
 import { tl, tr } from './i18n.ts';
@@ -12,7 +12,7 @@ import { COMPOSE } from './composer.ts';
 import { endJumpForScroll } from './verdict.ts';
 import { selPopArea } from './sel-popover.ts';
 
-// Whether f is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
+// Whether box is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
 function isFrac(box: unknown): box is number[] {
   return (
     Array.isArray(box) &&
@@ -20,7 +20,8 @@ function isFrac(box: unknown): box is number[] {
     box.every((coordinate) => typeof coordinate === 'number' && Number.isFinite(coordinate))
   );
 }
-// A person's name for an element: its label, else its part, else its id - the rule the pick answer's rung labels follow.
+// A person's name for an element: its label, else its part, else its id - the rule the pick answer's rung labels
+// follow.
 function elName(element) {
   return String((element && (element.label || element.part || element.id)) || '');
 }
@@ -49,15 +50,15 @@ function elementPathText(selection) {
 function rungTip(level) {
   return Array.isArray(level.el.path) && level.el.path.length <= 1 ? T.fig : T.el;
 }
-// Puts a pending box (the composer's '새 핀', a re-place's '새 위치') on the element it will pin, so the person sees the
-// mark before saving. An element without a usable box, or no box on screen, leaves the box as dragged.
+// Puts a pending box (the composer's '새 핀', a re-place's '새 위치') on the element it will pin, so the person sees
+// the mark before saving. An element without a usable box, or no box on screen, leaves the box as dragged.
 function snapBox(box, element) {
   if (!box || !element || !isFrac(element.frac)) return;
   const frac = element.frac;
   drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
   pendingBadgeSide(box);
 }
-// The element part of the composer for selection o and its pending box: the path line '#c-path' (hidden when the pick
+// The element part of the composer for the selection and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
 function renderElement(selection, box) {
   const line = $('#c-path'),
@@ -71,10 +72,11 @@ function renderElement(selection, box) {
   snapBox(box, selectedElement);
   if (box) box.classList.toggle('hi', !!selectedElement && line.matches(':hover,:focus-visible'));
 }
-// The path in the composer is also the way to check which element was chosen: the pending box on the page is drawn on it (snapBox), and
-// pointing at the path - the mouse over it, the focus on it - draws that box stronger (.sel.hi); pressing it (a tap on touch, where
-// nothing hovers) brings the box into view if it is out of it and flashes it (.sel.flash), as [보기] does a pin's mark. Quiet: the
-// path stays the muted label it was and answers only to a pointer that comes to it.
+// The path in the composer is also the way to check which element was chosen: the pending box on the page is drawn on
+// it (snapBox), and pointing at the path - the mouse over it, the focus on it - draws that box stronger (.sel.hi);
+// pressing it (a tap on touch, where nothing hovers) brings the box into view if it is out of it and flashes it
+// (.sel.flash), as [보기] does a pin's mark. The path stays a muted label and answers only to a pointer that comes to
+// it.
 function highlightElementBox(on: boolean) {
   const box = COMPOSE.box;
   if (box && box.isConnected) box.classList.toggle('hi', on);
@@ -110,9 +112,9 @@ function figRegionBadge(element, figure) {
       ? { t: tr('영역'), tip: tr(T.figregion) }
       : null;
 }
-// The `el` a pin stores (POST /api/pin, an edit's loc): the pick's element with only the fields the pin record defines, in
-// its order - id, path, label, part, impl and the element's box `frac` on the build it was picked on, which the server's
-// read-time follow compares with the current build. A box that is not four finite numbers is left out.
+// The `el` a pin stores (POST /api/pin, an edit's loc): the pick's element with only the fields the pin record defines,
+// in its order - id, path, label, part, impl and the element's box `frac` on the build it was picked on, which the
+// server's read-time follow compares with the current build. A box that is not four finite numbers is left out.
 function elementForSave(element) {
   const out: PinElement = { id: element.id, path: Array.isArray(element.path) ? element.path.slice() : [] };
   for (const k of ['label', 'part']) if (typeof element[k] === 'string') out[k] = element[k];
@@ -121,9 +123,9 @@ function elementForSave(element) {
   if (isFrac(element.frac)) out.frac = element.frac.slice();
   return out;
 }
-// The range kind of an element rung as the server names it (limn.builds.figure_map.element_kind): 'figure' for the page's
-// root (its path is itself), else 'el:<part>' with the part cut to 77 characters (a kind stays within 80), 'el:?' without a
-// part. src/limn/viewer/tests/test_viewer.py runs both on the same elements.
+// The range kind of an element rung as the server names it (limn.builds.figure_map.element_kind): 'figure' for the
+// page's root (its path is itself), else 'el:<part>' with the part cut to 77 characters (a kind stays within 80),
+// 'el:?' without a part. src/limn/viewer/tests/test_viewer.py runs both on the same elements.
 function elementKind(element) {
   return Array.isArray(element.path) && element.path.length <= 1
     ? 'figure'
@@ -154,10 +156,10 @@ function repickEl(candidate) {
 function hasMark(pin: Pin) {
   return isFrac(pin.mark) && typeof pin.mark_page === 'number' && Number.isInteger(pin.mark_page) && pin.mark_page >= 1;
 }
-// Where a pin's mark goes (docs/handbook/viewer.md §상태 표현): its element's box in the current build when the server found
-// it, else the page and box the pin was placed on - a manuscript pin, a view-only pin, a figure pin whose element was
-// lost or whose map is unreadable. The box can be null (a stored box that is not finite reads null as a whole): the caller
-// draws nothing for it.
+// Where a pin's mark goes (docs/handbook/viewer.md §상태 표현): its element's box in the current build when the server
+// found it, else the page and box the pin was placed on - a manuscript pin, a view-only pin, a figure pin whose element
+// was lost or whose map is unreadable. The box can be null (a stored box that is not finite reads null as a whole): the
+// caller draws nothing for it.
 function pinPlace(pin: Pin) {
   return hasMark(pin) ? { page: pin.mark_page as number, frac: pin.mark } : { page: pin.page, frac: pin.frac };
 }
