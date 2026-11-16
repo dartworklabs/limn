@@ -18,16 +18,16 @@ import markdownit from '/vendor/markdown-it/markdown-it.esm.min.mjs?v=__MARKDOWN
 // fence would be read (it may end a paragraph, as a fence may) and the inline math rule before the backslash escapes (it
 // reads '\(' first; '\$' it leaves to them, a dollar sign).
 function mdParser(nesting) {
-  const md = markdownit({html: true, linkify: false, typographer: false, maxNesting: nesting});
-  md.block.ruler.before('table', 'front_matter', mdFrontMatter, {alt: []});
-  md.block.ruler.before('fence', 'math_block', mdMathBlock, {alt: ['paragraph', 'reference', 'blockquote', 'list']});
+  const md = markdownit({ html: true, linkify: false, typographer: false, maxNesting: nesting });
+  md.block.ruler.before('table', 'front_matter', mdFrontMatter, { alt: [] });
+  md.block.ruler.before('fence', 'math_block', mdMathBlock, { alt: ['paragraph', 'reference', 'blockquote', 'list'] });
   md.inline.ruler.before('escape', 'math_inline', mdMathInline);
   return md;
 }
 // TeX math is kept as written (ADR-0032, docs/superpowers/specs/2026-11-05-more-line-formats.md §수식): nothing is
 // rendered, but no emphasis, link or escape takes a character inside it. The delimiters are Pandoc's tex_math_dollars and
 // tex_math_single_backslash: each opening one and the one that closes it.
-const MD_MATH = Object.freeze({'$$': '$$', '$': '$', '\\(': '\\)', '\\[': '\\]'});
+const MD_MATH = Object.freeze({ $$: '$$', $: '$', '\\(': '\\)', '\\[': '\\]' });
 // The index in s, from i up to max, of the first closing delimiter close that neither a backslash nor a code span takes, or
 // -1. In TeX '\$' is a dollar sign and '\\' a backslash, so a backslash and the character after it are passed over; a code
 // span binds tighter than anything but HTML and autolinks (CommonMark), so one is passed over whole (mdTickEnd) - '$10, and
@@ -54,7 +54,9 @@ function mdMathEnd(s, i, max, close, memo) {
 function mdTickEnd(s, k, max, runs) {
   let n = k;
   while (n < max && s.charCodeAt(n) === 0x60) n++;
-  const len = n - k, at = runs.get(len), i = at ? mdFirstAtOrAfter(at.pos, n) : 0;
+  const len = n - k,
+    at = runs.get(len),
+    i = at ? mdFirstAtOrAfter(at.pos, n) : 0;
   if (at && i < at.pos.length && at.pos[i] + len <= max) return at.pos[i] + len;
   if (n < max && s.charCodeAt(max) === 0x60 && s.charCodeAt(max - 1) === 0x60) {
     let j = max - 1;
@@ -65,7 +67,8 @@ function mdTickEnd(s, k, max, runs) {
 }
 // The index of the first entry of the ascending list a that is at least x, or a.length.
 function mdFirstAtOrAfter(a, x) {
-  let lo = 0, hi = a.length;
+  let lo = 0,
+    hi = a.length;
   while (lo < hi) {
     const mid = (lo + hi) >> 1;
     if (a[mid] < x) lo = mid + 1;
@@ -85,21 +88,26 @@ function mdFirstAtOrAfter(a, x) {
 // raw HTML that starts before the delimiter has taken its text already; one inside the math is math, but no delimiter inside
 // a code span closes it (mdMathEnd).
 function mdMathInline(state, silent) {
-  const s = state.src, at = state.pos, c = s.charCodeAt(at);
+  const s = state.src,
+    at = state.pos,
+    c = s.charCodeAt(at);
   if (c !== 0x24 && c !== 0x5c) return false;
   const open = s.startsWith('$$', at) ? '$$' : c === 0x24 ? '$' : s.startsWith('\\(', at) ? '\\(' : '';
   if (!open) return false;
-  const close = MD_MATH[open], end = mdMathEnd(s, at + open.length, state.posMax, close, state.mdMath || (state.mdMath = {}));
+  const close = MD_MATH[open],
+    end = mdMathEnd(s, at + open.length, state.posMax, close, state.mdMath || (state.mdMath = {}));
   if (end < 0) return false;
   const tex = s.slice(at + open.length, end);
   if (!tex.trim()) return false;
-  if (open === '$' && (/\s/.test(tex[0]) || /\s/.test(tex[tex.length - 1]) || /[0-9]/.test(s[end + 1] || ''))) return false;
+  if (open === '$' && (/\s/.test(tex[0]) || /\s/.test(tex[tex.length - 1]) || /[0-9]/.test(s[end + 1] || '')))
+    return false;
   if (!silent) {
     const pieces = s.slice(at, end + close.length).split('\n');
     pieces.forEach((piece, i) => {
       if (i) state.push('softbreak', 'br', 0);
       const t = state.push('math_inline', 'code', 0);
-      t.content = piece; t.markup = open;
+      t.content = piece;
+      t.markup = open;
       t.info = pieces.length === 1 ? 'whole' : i ? 'tail' : 'head';
     });
   }
@@ -118,14 +126,17 @@ function mdMathBlock(state, start, end, silent) {
   // lines after it from other content starts than the quote that took it, so it would answer otherwise and cut a paragraph
   // the outer quote's answer kept whole.
   if (state.sCount[start] - state.blkIndent >= 4 || state.sCount[start] < state.blkIndent) return false;
-  const s = state.src, b = state.bMarks[start] + state.tShift[start];
+  const s = state.src,
+    b = state.bMarks[start] + state.tShift[start];
   const open = s.startsWith('$$', b) ? '$$' : s.startsWith('\\[', b) ? '\\[' : '';
   if (!open) return false;
   const [close, n] = mdMathBlockEnd(state, start, b + 2, end, MD_MATH[open]);
   if (close < 0 || s.slice(close + 2, state.eMarks[n]).trim() || !s.slice(b + 2, close).trim()) return false;
   if (silent) return true;
   const t = state.push('math_block', 'math', 0);
-  t.block = true; t.map = [start, n + 1]; t.markup = open;
+  t.block = true;
+  t.map = [start, n + 1];
+  t.markup = open;
   t.content = state.getLines(start, n + 1, state.sCount[start], false);
   state.line = n + 1;
   return true;
@@ -139,15 +150,22 @@ function mdMathBlock(state, start, end, silent) {
 // - from a later opening line, or the paragraph asking each of its lines whether math ends it - stops there, and eight
 // thousand '\[' lines without a '\]' are read once, not once each.
 function mdMathBlockEnd(state, start, from, end, close) {
-  const s = state.src, memo = mdMathMemo(state, end, close), seen = [];
-  let n = start, k = from, found = null;
+  const s = state.src,
+    memo = mdMathMemo(state, end, close),
+    seen = [];
+  let n = start,
+    k = from,
+    found = null;
   while (!found) {
     const le = state.eMarks[n];
     if (k >= le) {
       n++;
       if (mdMathStop(state, n, end)) found = [-1, -1];
       else if (memo.lines.has(n)) found = memo.lines.get(n);
-      else { seen.push(n); k = state.bMarks[n] + state.tShift[n]; }
+      else {
+        seen.push(n);
+        k = state.bMarks[n] + state.tShift[n];
+      }
       continue;
     }
     const c = s.charCodeAt(k);
@@ -171,9 +189,10 @@ function mdMathBlockEnd(state, start, from, end, close) {
 // list's look ahead between its items and a quote after it can share end, indentation and level, and the quote's lines
 // start past its markers only once it reads them. lines: line -> what a search from its start found.
 function mdMathMemo(state, end, close) {
-  const all = state.mdMathBlock || (state.mdMathBlock = new Map()), key = close + ' ' + end + ' ' + state.blkIndent + ' ' + state.level + ' ' + state.parentType;
+  const all = state.mdMathBlock || (state.mdMathBlock = new Map()),
+    key = close + ' ' + end + ' ' + state.blkIndent + ' ' + state.level + ' ' + state.parentType;
   let memo = all.get(key);
-  if (!memo) all.set(key, memo = {lines: new Map()});
+  if (!memo) all.set(key, (memo = { lines: new Map() }));
   return memo;
 }
 // Where the code span whose opening run of len backticks ends at r on line n closes: [its line, the index just past its
@@ -197,12 +216,17 @@ function mdTickRuns(s) {
   const runs = new Map();
   for (let j = 0, line = 0; j < s.length;) {
     const c = s.charCodeAt(j);
-    if (c !== 0x60) { if (c === 0x0a) line++; j++; continue; }
+    if (c !== 0x60) {
+      if (c === 0x0a) line++;
+      j++;
+      continue;
+    }
     let e = j;
     while (e < s.length && s.charCodeAt(e) === 0x60) e++;
     let at = runs.get(e - j);
-    if (!at) runs.set(e - j, at = {pos: [], line: []});
-    at.pos.push(j); at.line.push(line);
+    if (!at) runs.set(e - j, (at = { pos: [], line: [] }));
+    at.pos.push(j);
+    at.line.push(line);
     j = e;
   }
   return runs;
@@ -217,12 +241,19 @@ function mdMathStopAfter(state, n, end) {
   const all = state.mdMathStops || (state.mdMathStops = new Map());
   const key = end + ' ' + state.blkIndent + ' ' + state.level + ' ' + state.parentType;
   let next = all.get(key);
-  if (!next) all.set(key, next = new Map());
+  if (!next) all.set(key, (next = new Map()));
   const seen = [];
-  let m = n + 1, stop;
+  let m = n + 1,
+    stop;
   for (;;) {
-    if (next.has(m)) { stop = next.get(m); break; }
-    if (mdMathStop(state, m, end)) { stop = m; break; }
+    if (next.has(m)) {
+      stop = next.get(m);
+      break;
+    }
+    if (mdMathStop(state, m, end)) {
+      stop = m;
+      break;
+    }
     seen.push(m++);
   }
   for (const v of seen) next.set(v, stop);
@@ -245,44 +276,71 @@ function mdMathStop(state, n, end) {
 // so the rule also asks for the document itself - the root, no container open - and the line's content at the source's
 // very first character.
 function mdFrontMatter(state, start, end, silent) {
-  if (start !== 0 || state.parentType !== 'root' || state.level !== 0 || state.bMarks[0] + state.tShift[0] !== 0) return false;
-  const line = n => state.src.slice(state.bMarks[n], state.eMarks[n]);
+  if (start !== 0 || state.parentType !== 'root' || state.level !== 0 || state.bMarks[0] + state.tShift[0] !== 0)
+    return false;
+  const line = (n) => state.src.slice(state.bMarks[n], state.eMarks[n]);
   if (!/^﻿?---[ \t]*$/.test(line(0)) || end < 3) return false;
   if (!/^[ \t]*(#|[^\s:#][^:\n]*:([ \t]|$))/.test(line(1))) return false;
   let close = -1;
-  for (let n = 2; n < end; n++) if (/^(---|\.\.\.)[ \t]*$/.test(line(n))) { close = n; break; }
+  for (let n = 2; n < end; n++)
+    if (/^(---|\.\.\.)[ \t]*$/.test(line(n))) {
+      close = n;
+      break;
+    }
   if (close < 0) return false;
   if (silent) return true;
   const t = state.push('front_matter', '', 0);
-  t.block = true; t.map = [0, close + 1]; t.info = line(close).trim(); t.markup = '---';
+  t.block = true;
+  t.map = [0, close + 1];
+  t.info = line(close).trim();
+  t.markup = '---';
   t.content = state.src.slice(state.bMarks[1], state.eMarks[close - 1]);
   state.line = close + 1;
   return true;
 }
 
-let md = null, nesting = 0;
+let md = null,
+  nesting = 0;
 function plain(t) {
-  return {type: t.type, tag: t.tag, nesting: t.nesting, map: t.map, content: t.content, info: t.info, hidden: t.hidden,
-    level: t.level, markup: t.markup, attrs: t.attrs, children: t.children ? t.children.map(plain) : null};
+  return {
+    type: t.type,
+    tag: t.tag,
+    nesting: t.nesting,
+    map: t.map,
+    content: t.content,
+    info: t.info,
+    hidden: t.hidden,
+    level: t.level,
+    markup: t.markup,
+    attrs: t.attrs,
+    children: t.children ? t.children.map(plain) : null,
+  };
 }
-self.onmessage = e => {
-  const {id, text, limits} = e.data;
+self.onmessage = (e) => {
+  const { id, text, limits } = e.data;
   try {
     if (!md || nesting !== limits.nesting) {
       md = mdParser(limits.nesting);
       nesting = limits.nesting;
     }
     const tokens = md.parse(text, {});
-    let inlines = 0, deepest = 0;
+    let inlines = 0,
+      deepest = 0;
     for (const t of tokens) {
       deepest = Math.max(deepest, t.level);
-      if (t.children) { inlines += t.children.length; for (const c of t.children) deepest = Math.max(deepest, c.level); }
+      if (t.children) {
+        inlines += t.children.length;
+        for (const c of t.children) deepest = Math.max(deepest, c.level);
+      }
     }
-    if (deepest >= limits.nesting - 1) return postMessage({id, ok: false, limit: 'nesting', count: deepest + 1, max: limits.nesting});
-    if (tokens.length > limits.blocks) return postMessage({id, ok: false, limit: 'blocks', count: tokens.length, max: limits.blocks});
-    if (inlines > limits.inlines) return postMessage({id, ok: false, limit: 'inlines', count: inlines, max: limits.inlines});
-    postMessage({id, ok: true, tokens: tokens.map(plain)});
+    if (deepest >= limits.nesting - 1)
+      return postMessage({ id, ok: false, limit: 'nesting', count: deepest + 1, max: limits.nesting });
+    if (tokens.length > limits.blocks)
+      return postMessage({ id, ok: false, limit: 'blocks', count: tokens.length, max: limits.blocks });
+    if (inlines > limits.inlines)
+      return postMessage({ id, ok: false, limit: 'inlines', count: inlines, max: limits.inlines });
+    postMessage({ id, ok: true, tokens: tokens.map(plain) });
   } catch (err) {
-    postMessage({id, ok: false, limit: 'error', message: String(err && err.message || err)});
+    postMessage({ id, ok: false, limit: 'error', message: String((err && err.message) || err) });
   }
 };

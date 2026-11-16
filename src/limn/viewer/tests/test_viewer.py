@@ -33,16 +33,22 @@ from helpers import (
     JS_UPDATE_STUBS,
     PKG,
     RULE_CASES,
+    SCRIPT_SQ,
     SKILL_KO,
     SKILL_MD,
     SW_JS,
     UI_EN,
     VIEWER_CLOSED_SETS,
     extract_js_fn,
+    js_call,
+    js_case_block,
+    js_const,
     js_esc,
+    js_fn_body,
     js_hidden_chars,
     js_i18n,
     js_icons,
+    js_listener_body,
     js_markup,
     js_thread,
     page_for,
@@ -50,6 +56,7 @@ from helpers import (
     rec_for,
     run_node,
     script_page_for,
+    sq,
 )
 from helpers_browser import ChromiumTestCase
 
@@ -460,21 +467,18 @@ class FrontendStructure(unittest.TestCase):
     def test_build_polling_is_conditional_not_permanent(self):
         # bug: startBuildPolling() used to unconditionally set setInterval(pollBuild,1000), calling
         # /api/build every second even when the tab was hidden or there was nothing to do.
-        m = re.search(r"function startBuildPolling\(\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIsNotNone(m)
-        self.assertNotIn("setInterval(pollBuild", m.group(1))
-        self.assertIn("pollBuild()", m.group(1))
-        m1 = re.search(r"\nfunction pollBuild\(\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIn("if(document.hidden)returnPromise.resolve()", m1.group(1).replace(" ", ""))
-        self.assertIn("if(BUILD.inflight)returnBUILD.inflight", m1.group(1).replace(" ", ""))
-        m2 = re.search(r"async function pollBuildOnce\(\)\{(.*?)\n\}", HTML, re.S)
-        body = m2.group(1)
-        self.assertIn("if(!BUILD.timer)BUILD.timer=setInterval(pollBuild,1000)", body.replace(" ", ""))
+        start = sq(js_fn_body("startBuildPolling"))
+        self.assertNotIn("setInterval(pollBuild", start)
+        self.assertIn("pollBuild()", start)
+        poll = sq(js_fn_body("pollBuild"))
+        self.assertIn(sq("if(document.hidden)return Promise.resolve()"), poll)
+        self.assertIn(sq("if(BUILD.inflight)return BUILD.inflight"), poll)
+        body = sq(js_fn_body("pollBuildOnce"))
+        self.assertIn(sq("if(!BUILD.timer)BUILD.timer=setInterval(pollBuild,1000)"), body)
         self.assertIn("clearInterval(BUILD.timer)", body)
 
     def test_light_poll_kicks_off_build_polling_when_running_or_seq_changed(self):
-        m = re.search(r"async function pollLightOnce\(\)\{(.*?)\n\}", HTML, re.S)
-        body = m.group(1).replace(" ", "")
+        body = sq(js_fn_body("pollLightOnce"))
         self.assertIn("d.build&&d.build.state===BUILD_STATE.RUNNING", body)
         self.assertIn("d.build_seq!==BUILD.lastSeq", body)
         self.assertIn("pollBuild()", body)
@@ -482,11 +486,9 @@ class FrontendStructure(unittest.TestCase):
     def test_light_poll_is_single_flight(self):
         # bug: when visibilitychange and focus overlapped, pollLight() would call /api/meta·loadPins
         # fresh each time, firing loadPins up to 3 times. It needs the same single-flight pattern as pollBuild.
-        m = re.search(r"\nfunction pollLight\(\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIsNotNone(m)
-        body = m.group(1).replace(" ", "")
-        self.assertIn("if(document.hidden)returnPromise.resolve()", body)
-        self.assertIn("if(LIGHT_INFLIGHT)returnLIGHT_INFLIGHT", body)
+        body = sq(js_fn_body("pollLight"))
+        self.assertIn(sq("if(document.hidden)return Promise.resolve()"), body)
+        self.assertIn(sq("if(LIGHT_INFLIGHT)return LIGHT_INFLIGHT"), body)
         self.assertIn("LIGHT_INFLIGHT=pollLightOnce()", body)
 
     def test_build_err_reopen_affordance_exists(self):
@@ -494,16 +496,14 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn('data-act="build-err-reopen"', HTML)
         self.assertIn("case 'build-err-reopen'", HTML)
         self.assertIn("function hideBuildErr()", HTML)
-        self.assertIn("case 'err-close':hideBuildErr()", HTML)
+        self.assertIn(sq("case 'err-close':hideBuildErr()"), SCRIPT_SQ)
 
     def test_doc_menu_closes_even_when_switch_doc_is_synchronous_and_cached(self):
         # regression: when switchDoc() runs synchronously through drawDocTabs->drawDocsMenu for a cached
         # document, it redraws the open #nav-sheet, detaching the clicked <a> from the DOM. Calling
         # a.closest() after switchDoc() then returns null and the menu stays open — inMenu must always
         # be determined *before* calling switchDoc().
-        m = re.search(r"case 'doc':\{(.*?)\}", HTML, re.S)
-        self.assertIsNotNone(m)
-        body = m.group(1)
+        body = js_case_block("doc")
         js = (
             """
             (async()=>{
@@ -527,26 +527,23 @@ class FrontendStructure(unittest.TestCase):
         self.assertTrue(data["closed"], "#nav-sheet must close even when the selected document is cached")
 
     def test_pick_resets_overlap_dismissed_and_recounts(self):
-        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
-        body = m.group(1)
+        body = sq(js_fn_body("pick"))
         cur_idx = body.index("COMPOSE.current=sel;")
         self.assertGreater(body.index("COMPOSE.dismissedOverlap=null"), cur_idx)
         self.assertGreater(body.index("sel.overlaps=overlapsFor(sel,PINS)"), cur_idx)
 
     def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
-        m = re.search(r"case 'level':\{(.*?)\}\s*\n", HTML)
-        self.assertIsNotNone(m)
         # ...and only the composer's change counts as a new intent (a failed verdict save's retry is for the old one, savePin)
-        self.assertIn("if(!inEdit){COMPOSE.intent++;recomputeOverlap();}", m.group(1).replace(" ", ""))
+        self.assertIn(sq("if(!inEdit){COMPOSE.intent++;recomputeOverlap();}"), sq(js_case_block("level")))
         self.assertIn(
-            "if(o===COMPOSE.current){COMPOSE.intent++;recomputeOverlap();}",
-            extract_js_fn("applyRange").replace(" ", ""),
+            sq("if(o===COMPOSE.current){COMPOSE.intent++;recomputeOverlap();}"),
+            sq(extract_js_fn("applyRange")),
         )
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
-        self.assertIn("pdf_build:META.pages_build", HTML)  # drag -> /api/pick
-        self.assertIn("quote:d.quote,pdf_build:d.pdf_build", HTML)  # pick response -> /api/pin
-        self.assertIn("frac:c.frac,pdf_build:c.pdf_build", HTML)  # relocate -> loc
+        self.assertIn(sq("pdf_build:META.pages_build"), SCRIPT_SQ)  # drag -> /api/pick
+        self.assertIn(sq("quote:d.quote,pdf_build:d.pdf_build"), SCRIPT_SQ)  # pick response -> /api/pin
+        self.assertIn(sq("frac:c.frac,pdf_build:c.pdf_build"), SCRIPT_SQ)  # relocate -> loc
 
     def test_no_wall_clock_estimate_left_in_viewer(self):
         self.assertNotIn("pinAtEpoch", HTML)
@@ -558,43 +555,39 @@ class FrontendStructure(unittest.TestCase):
         # not in a section of the list.
         self.assertIn('<dialog id="trash"', HTML)
         self.assertIn('id="trash-list"', HTML)
-        self.assertIn("case 'trash-open':openTrash();break;", HTML)
+        self.assertIn(sq("case 'trash-open':openTrash();break;"), SCRIPT_SQ)
         self.assertNotIn('id="dropped-toggle"', HTML)
         self.assertIn("function droppedCard(", HTML)
         self.assertIn('data-act="restore"', HTML)
-        self.assertIn("case 'restore':trashRestore(id)", HTML)  # restorePin with the bound an undo has (#336)
-        self.assertIn("await restorePin(id,()=>{clearTimeout(wait);", HTML)
+        self.assertIn(sq("case 'restore':trashRestore(id)"), SCRIPT_SQ)  # restorePin with the bound an undo has (#336)
+        self.assertIn(sq("await restorePin(id,()=>{clearTimeout(wait);"), SCRIPT_SQ)
 
     def test_load_pins_fetches_dropped_list_for_diff_and_panel(self):
         """loadPins reads the Trash too, and applyPinLists hands it to the list comparison that tells a drop from a
         close (notePinChanges) before it keeps it for the panel."""
-        m = re.search(r"async function loadPins\(\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIsNotNone(m)
-        body = m.group(1)
+        body = js_fn_body("loadPins")
         self.assertIn("/api/pins/dropped", body)
         applied = JS_UPDATE_STUBS + extract_js_fn("applyPinLists")
         self.assertIn(
             "setDropped(dropped)", applied
         )  # DROPPED is core.js's: list.js changes it through its setter (ADR-0042 D1)
-        self.assertIn("notePinChanges(prevOpen,rows,dropped)", applied)
+        self.assertIn(sq("notePinChanges(prevOpen,rows,dropped)"), sq(applied))
 
     def test_draw_pins_counts_the_trash(self):
         body = extract_js_fn("drawPins")
         # LDROP = listDropped() (current document or all documents)
-        self.assertIn("LDROP.filter(p=>!PURGING.has(p.id)).length", body)
-        self.assertIn("tl('휴지통 {n}',{n:nTrash})", body)
-        self.assertIn("if($('#trash').open)drawTrash();", body)
+        self.assertIn(sq("LDROP.filter(p=>!PURGING.has(p.id)).length"), sq(body))
+        self.assertIn(sq("tl('휴지통 {n}',{n:nTrash})"), sq(body))
+        self.assertIn(sq("if($('#trash').open)drawTrash();"), sq(body))
         self.assertIn("map(droppedCard)", extract_js_fn("drawTrash"))
 
     def test_done_card_shows_close_reply_and_ref(self):
         # §C: a closed card shows the reply/ref left at close time (both go through esc).
-        m = re.search(r"function doneCard\(p\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIsNotNone(m)
-        body = m.group(1)
+        body = sq(js_fn_body("doneCard"))
         self.assertIn("p.close_ref", body)
         self.assertIn("p.close_reply", body)
         self.assertIn("arcLine('r:'+p.id,p.close_reply", body)  # the reply line is drawn by arcLine, going through esc
-        self.assertIn("fmtText(text,logins)", extract_js_fn("arcLine"))  # fmtText goes through esc first
+        self.assertIn(sq("fmtText(text,logins)"), sq(extract_js_fn("arcLine")))  # fmtText goes through esc first
         self.assertIn("${p.close_ref}", body)
 
     def test_close_curl_example_in_skill_md_documents_reply_and_ref(self):
@@ -615,9 +608,9 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn("function claimActive(", HTML)
         self.assertIn("function claimLabel(", HTML)
         self.assertIn('data-act="unclaim"', HTML)
-        self.assertIn("case 'unclaim':unclaimPin(id)", HTML)
+        self.assertIn(sq("case 'unclaim':unclaimPin(id)"), SCRIPT_SQ)
         self.assertIn("function unclaimPin(", HTML)
-        self.assertIn("/api/pins/'+id+'/unclaim'", HTML)
+        self.assertIn(sq("'/api/pins/'+id+'/unclaim'"), SCRIPT_SQ)
 
     def test_no_claim_button_offered_to_viewer(self):
         # the viewer never claims (agent-only) — there must be no 'claim' action button.
@@ -757,35 +750,39 @@ class FrontendMobileStructure(unittest.TestCase):
         self.assertIn("$('#doc').addEventListener('pointerdown'", HTML)
         for ev in ("pointermove", "pointerup", "pointercancel"):
             self.assertIn("window.addEventListener('%s'" % ev, HTML)
-        self.assertIn("if(mouse||SELMODE)", HTML)  # mouse still drags like before, regardless of mode
-        self.assertIn("if(!e.isPrimary){cancelDrag()", HTML)  # a second finger (pinch) drops the selection
-        self.assertNotIn("window.addEventListener('mouseup',e=>{if(!DRAG)", HTML)  # no old mouse-only path remains
+        self.assertIn(sq("if(mouse||SELMODE)"), SCRIPT_SQ)  # mouse still drags like before, regardless of mode
+        self.assertIn(sq("if(!e.isPrimary){cancelDrag()"), SCRIPT_SQ)  # a second finger (pinch) drops the selection
+        self.assertNotIn(
+            sq("window.addEventListener('mouseup',e=>{if(!DRAG)"), SCRIPT_SQ
+        )  # no old mouse-only path remains
         self.assertIn("function quickPick(", HTML)
         self.assertIn("LONGPRESS_MS", HTML)
 
     def test_touch_does_not_autofocus_note_or_pop_hover_tips(self):
         """A pick focuses a note field only after a mouse drag (the popover's by the box while it is open, else the
         composer's), never on touch, and hover/focus tooltips stay off on touch and on devices without hover."""
-        m = re.search(r"async function pick\(r\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIn("if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus(", m.group(1))
         self.assertIn(
-            "if(touchRecent()||MQ_NOHOVER.matches)return; const t=/** @type {HTMLElement} */(e.target); armTip(", HTML
+            sq("if(LAST_PTR==='mouse')(selPopOpen()?SEL_POP_FIELD:$('#note')).focus("), sq(js_fn_body("pick"))
+        )
+        self.assertIn(
+            sq("if(touchRecent()||MQ_NOHOVER.matches)return; const t=e.target; armTip("),
+            SCRIPT_SQ,
         )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
         # unless the keyboard moved the focus (test_viewer_tips.TipKeyboard). The card as a whole gets no tooltip.
         self.assertIn(
-            "||(!keyInput()&&(touchRecent()||MQ_NOHOVER.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}",
-            HTML,
+            sq("||(!keyInput()&&(touchRecent()||MQ_NOHOVER.matches))){if(Date.now()>=SWALLOW_CLICK)hideTip();return;}"),
+            SCRIPT_SQ,
         )
-        self.assertNotIn("data-doc=\"'+esc(pdoc(p))+'\" data-tip=\"'+tip+'\"", extract_js_fn("card"))
+        self.assertNotIn("data-doc=\"'+esc(pdoc(p))+'\" data-tip=\"'+tip+'\"", sq(extract_js_fn("card")))
         self.assertIn("document.addEventListener('contextmenu'", HTML)
 
     def test_keyboard_and_resize_hooks(self):
-        self.assertIn("vv.addEventListener('resize',onViewport)", HTML)
+        self.assertIn(sq("vv.addEventListener('resize',onViewport)"), SCRIPT_SQ)
         self.assertIn("new ResizeObserver(", HTML)
-        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", HTML, re.S)
-        self.assertIn("topAnchor()", m.group(1))
-        self.assertIn("restoreAnchor(a)", m.group(1))
+        body = sq(js_fn_body("relayout"))
+        self.assertIn("topAnchor()", body)
+        self.assertIn("restoreAnchor(a)", body)
 
     def test_page_images_lazy(self):
         self.assertIn('<img loading="lazy"', HTML)
@@ -796,19 +793,17 @@ class FrontendVector(unittest.TestCase):
     """Check the PDF.js loading, cache, render, and PNG fallback paths exposed by the viewer."""
 
     def fn(self, name):
-        m = re.search(r"\n(?:async )?function %s\([^)]*\)\{(.*?)\n\}" % name, HTML, re.S)
-        self.assertIsNotNone(m, name)
-        return m.group(1)
+        return sq(js_fn_body(name))
 
     def test_loads_vendored_pdfjs_same_origin_with_version(self):
         self.assertNotIn("__PDFJS_VERSION__", HTML)
-        self.assertIn("const PDFJS_V='%s'" % viewer_assemble.PDFJS_VERSION, HTML)
-        self.assertIn("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", HTML)
-        self.assertIn("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V", HTML)
+        self.assertIn(sq("const PDFJS_V='%s'" % viewer_assemble.PDFJS_VERSION), SCRIPT_SQ)
+        self.assertIn(sq("import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)"), SCRIPT_SQ)
+        self.assertIn(sq("workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V"), SCRIPT_SQ)
         for cdn in ("cdn.jsdelivr", "unpkg.com", "cdnjs", "mozilla.github.io/pdf.js/build"):
             self.assertNotIn(cdn, HTML)  # runs only inside the tailnet — no external CDN
-        self.assertIn("isEvalSupported:false", HTML)
-        self.assertIn("useWasm:false", HTML)  # wasm isn't in vendor (vendor/pdfjs/README.md)
+        self.assertIn(sq("isEvalSupported:false"), SCRIPT_SQ)
+        self.assertIn(sq("useWasm:false"), SCRIPT_SQ)  # wasm isn't in vendor (vendor/pdfjs/README.md)
 
     def test_pdf_is_the_screen_build(self):
         body = self.fn("vecOpen")
@@ -837,7 +832,7 @@ class FrontendVector(unittest.TestCase):
 
     def test_fallback_to_png_on_any_failure(self):
         boot = self.fn("vecBoot")
-        self.assertIn("catch(e){VEC.lib=null; vecFail(", boot)
+        self.assertIn(sq("catch(e){VEC.lib=null; vecFail("), sq(boot))
         self.assertIn("vecFail('PDF 를 벡터로 열지 못했습니다'", self.fn("vecOpen"))
         run = self.fn("vecRun")
         self.assertIn("RenderingCancelledException", run)  # a cancellation is not a failure
@@ -856,7 +851,7 @@ class FrontendVector(unittest.TestCase):
         self.assertIn("new IntersectionObserver(", obs)
         self.assertIn("root:$('#left'),rootMargin:VEC_KEEP", obs)
         self.assertIn("vecRelease(n)", obs)
-        self.assertIn("cv.width=0; cv.height=0", self.fn("vecDrop"))
+        self.assertIn(sq("cv.width=0; cv.height=0"), sq(self.fn("vecDrop")))
         self.assertIn("vecObserve()", self.fn("buildDoc"))
         ref = self.fn("refreshDoc")
         self.assertIn("vecReleaseAll()", ref)  # canvases drawn from the old PDF are removed
@@ -870,7 +865,7 @@ class FrontendVector(unittest.TestCase):
         for s in ("TextLayer", "textLayer"):
             self.assertNotIn(s, HTML)
         self.assertEqual(HTML.count(".getTextContent("), 1)
-        self.assertIn(".getTextContent(", (PKG / "viewer" / "js" / "search.js").read_text(encoding="utf-8"))
+        self.assertIn(".getTextContent(", (PKG / "viewer" / "js" / "search.ts").read_text(encoding="utf-8"))
 
 
 class FrontendVectorLogic(unittest.TestCase):
@@ -985,26 +980,26 @@ class FrontendZoom(unittest.TestCase):
     def test_ctrl_wheel_on_pdf_area_is_intercepted_non_passive(self):
         # a Markdown document's text zooms with the browser (isMdDoc): the wheel is left alone there
         self.assertIn(
-            "L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey)||isMdDoc())return; e.preventDefault();", HTML
+            sq("L.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey)||isMdDoc())return; e.preventDefault();"),
+            SCRIPT_SQ,
         )
-        i = HTML.index("L.addEventListener('wheel'")
-        self.assertIn("{passive:false}", HTML[i : i + 300])
-        self.assertIn("const L=$('#left')", HTML[i - 500 : i])  # PDF area only — sidebar wheel scrolling is left alone
-        self.assertIn("zoomTo(K*f,pt[0],pt[1])", HTML)  # anchored to the pointer
+        self.assertIn(sq("{passive:false}"), sq(js_call("L.addEventListener('wheel'")))
+        i = SCRIPT_SQ.index(sq("L.addEventListener('wheel'"))
+        # PDF area only — sidebar wheel scrolling is left alone
+        self.assertIn(sq("const L=$('#left')"), SCRIPT_SQ[i - 500 : i])
+        self.assertIn(sq("zoomTo(K*f,pt[0],pt[1])"), SCRIPT_SQ)  # anchored to the pointer
 
     def test_safari_gesture_and_touch_pinch(self):
         for ev in ("gesturestart", "gesturechange", "gestureend", "touchstart", "touchmove", "touchend", "touchcancel"):
-            self.assertIn("L.addEventListener('%s'" % ev, HTML)
-        i = HTML.index("L.addEventListener('touchstart'")
-        blk = HTML[i : i + 400]
+            self.assertIn(sq("L.addEventListener('%s'" % ev), SCRIPT_SQ)
+        blk = sq(js_call("L.addEventListener('touchstart'"))
         self.assertIn("e.touches.length!==2", blk)
-        self.assertIn("cancelDrag(); cancelLP();", blk)  # a pinch discards the in-progress selection/long-press
+        self.assertIn("cancelDrag();cancelLP();", blk)  # a pinch discards the in-progress selection/long-press
         self.assertIn("{passive:false}", blk)
 
     def test_keyboard_zoom_skips_inputs(self):
         """Only modifier shortcuts outside fields reach the visible PDF's controller."""
-        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", HTML, re.S)
-        body = m.group(1)
+        body = sq(js_listener_body("document", "keydown", "inField"))
         self.assertIn("if((e.ctrlKey||e.metaKey)&&!e.altKey&&!inField&&!isMdDoc()){const z=zoomKey(e);", body)
         self.assertIn("e.preventDefault();zoomVisiblePdf(z)", body)
         self.assertLess(body.index("inField="), body.index("zoomKey(e)"))
@@ -1012,11 +1007,11 @@ class FrontendZoom(unittest.TestCase):
     def test_zoom_bounds_and_anchor(self):
         """The scale is bounded by the fitted width and the print size of the widest page, and a zoom keeps the point
         under the pointer (anchor taken before the scale changes, restored after)."""
-        self.assertIn("const ZOOM_MIN=0.5,ZOOM_MAX=5", HTML)
-        setk = re.search(r"\nfunction setK\(k,save\)\{(.*?)\}\n", HTML, re.S).group(1)
+        self.assertIn(sq("const ZOOM_MIN=0.5,ZOOM_MAX=5"), SCRIPT_SQ)
+        setk = sq(js_fn_body("setK"))
         self.assertIn("wBounds(fitWidth(),m*PT_PX)", setk)
         self.assertNotIn("2200", setk)
-        zt = re.search(r"\nfunction zoomTo\(k,cx,cy\)\{(.*?)\}\n", HTML, re.S).group(1)
+        zt = sq(js_fn_body("zoomTo"))
         self.assertLess(zt.index("zoomAnchor(cx,cy)"), zt.index("setK(k)"))
         self.assertLess(zt.index("setK(k)"), zt.index("zoomRestore(a)"))
 
@@ -1181,7 +1176,7 @@ class FrontendMobileLogic(unittest.TestCase):
             (m(1000, 800), m(1200, 800), False, "settle"),  # a mouse window, at once
             (m(1000, 800), m(1000, 300), True, "settle"),  # even with a text field focused
         ]
-        consts = re.search(r"^const BAND_HOLD_PX=.*;$", HTML, re.M).group(0)  # the served thresholds, not a copy
+        consts = js_const("BAND_HOLD_PX")  # the served thresholds, not a copy
         js = (
             consts
             + extract_js_fn("settleBand")
@@ -1194,7 +1189,7 @@ class FrontendMobileLogic(unittest.TestCase):
     def test_a_mouse_window_keeps_the_width_only_layout_modes(self):
         """The mouse rows of the old width-only test give the same layout mode through BAND_MODE: 412 narrow, 880 mid,
         1440 wide."""
-        consts = re.search(r"^const BAND_MODE=.*;$", HTML, re.M).group(0)
+        consts = js_const("BAND_MODE")
         js = "\n".join(
             [
                 extract_js_fn("layoutFor"),
@@ -1209,9 +1204,7 @@ class FrontendMobileLogic(unittest.TestCase):
         point on a figure document: +-0.4 % of the page width by +-0.4 % of its height, a rectangle on a page that is
         not square (here 400 x 600); both are clamped to the page at every corner. The half-widths are the page's own
         (selection.js), not numbers this test repeats."""
-        consts = re.search(r"^const c01=.*;$", HTML, re.M).group(0) + re.search(
-            r"^const LONGPRESS_MS=.*;$", HTML, re.M
-        ).group(0)
+        consts = js_const("c01") + js_const("LONGPRESS_MS")
         js = "\n".join(
             [
                 consts,
@@ -1388,7 +1381,7 @@ class FrontendPanelWidthLogic(unittest.TestCase):
 
     def test_moving_a_pin_sends_the_text_it_moved_to(self):
         """[위치 다시 잡기] carries the new drag's words, as a new pin does; without them the pin lost its quote."""
-        self.assertIn("pdf_build:c.pdf_build||undefined,quote:c.quote,", extract_js_fn("applyRepick"))
+        self.assertIn(sq("pdf_build:c.pdf_build||undefined,quote:c.quote,"), sq(extract_js_fn("applyRepick")))
 
     def test_choosing_a_rung_takes_its_score(self):
         """The badge speaks for the lines chosen: a table's score does not stay on its \\end line, which holds none of the
@@ -1458,7 +1451,7 @@ class FrontendPanelWidthLogic(unittest.TestCase):
         )
         self.assertIsNone(got[3])
         self.assertIsNone(got[4])
-        self.assertIn("const VIA_HIDE=90,VIA_WARN=30,VIA_SURE_SCORE=75,VIA_SURE_FILL=95;", HTML)
+        self.assertIn(sq("const VIA_HIDE=90,VIA_WARN=30,VIA_SURE_SCORE=75,VIA_SURE_FILL=95;"), SCRIPT_SQ)
 
 
 class FrontendPanelTidyStructure(unittest.TestCase):
@@ -1468,24 +1461,22 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         tag = re.search(r'<div id="grip"[^>]*>', HTML).group(0)
         for part in ('role="separator"', 'aria-orientation="vertical"', 'tabindex="0"', 'aria-controls="right"'):
             self.assertIn(part, tag)
-        self.assertIn("(function(){const g=$('#grip');\n  let D=/** @type {", HTML)  # the handle's own drag state
+        self.assertIn(sq("(function(){const g=$('#grip');\n  let D=", True), SCRIPT_SQ)  # the handle's own drag state
         self.assertIn("g.setPointerCapture(e.pointerId)", HTML)
-        self.assertNotIn("$('#grip').addEventListener('mousedown'", HTML)  # no old mouse-only path remains
+        self.assertNotIn(sq("$('#grip').addEventListener('mousedown'"), SCRIPT_SQ)  # no old mouse-only path remains
         self.assertNotIn("body.compact #grip{display:none}", HTML)  # still visible in mid too
         self.assertIn("body.lay-narrow #grip,body.lay-mid:not(.side-open) #grip{display:none}", HTML)
 
     def test_width_is_remembered_per_layout_and_relayout_keeps_anchor(self):
-        self.assertIn("function sideKey(){return LAYOUT===LAYOUT_MODE.MID?'sideMid':'side';}", HTML)
-        m = re.search(r"\nfunction setSideWidth\(w\)\{(.*?)\}\n", HTML, re.S)
-        self.assertIsNotNone(m)
-        self.assertIn("savePrefs({[sideKey()]:w})", m.group(1))
-        self.assertIn("relayout()", m.group(1))
-        m = re.search(r"\nfunction relayout\(\)\{(.*?)\}\n", HTML, re.S)
-        body = m.group(1)
+        self.assertIn(sq("function sideKey(){return LAYOUT===LAYOUT_MODE.MID?'sideMid':'side';}"), SCRIPT_SQ)
+        side = sq(js_fn_body("setSideWidth"))
+        self.assertIn("savePrefs({[sideKey()]:w})", side)
+        self.assertIn("relayout()", side)
+        body = sq(js_fn_body("relayout"))
         # the panel width must be settled first for the page width to match
         self.assertLess(body.index("applySideWidth()"), body.index("autoW()"))
         # ResizeObserver doesn't re-fit every frame while dragging
-        self.assertIn("!document.body.classList.contains('resizing'))scheduleRelayout()", HTML)
+        self.assertIn(sq("!document.body.classList.contains('resizing'))scheduleRelayout()"), SCRIPT_SQ)
         self.assertIn("body.lay-mid.side-open #right{width:var(--side-w,", HTML)
 
     def test_sheet_grip_and_size_presets_in_more(self):
@@ -1503,8 +1494,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertIn("var(--sheet-f,.64)", HTML)
         more = HTML[HTML.index('<dialog id="more"') : HTML.index('<dialog id="help"')]
         self.assertIn('id="m-size"', more)
-        self.assertIn("case 'size-preset':sizePreset(Number(a.dataset.i))", HTML)
-        self.assertIn("renderSizeSeg(); placeMore(); showSheet(d)", HTML)
+        self.assertIn(sq("case 'size-preset':sizePreset(Number(a.dataset.i))"), SCRIPT_SQ)
+        self.assertIn(sq("renderSizeSeg(); placeMore(); showSheet(d)"), SCRIPT_SQ)
 
     def test_actions_row_is_fixed_at_panel_bottom_outside_composer(self):
         right = HTML[HTML.index('<div id="right">') : HTML.index('<div id="tip"')]
@@ -1524,7 +1515,9 @@ class FrontendPanelTidyStructure(unittest.TestCase):
 
     def test_composer_is_one_loc_line_segmented_ladder_and_folded_snippet(self):
         self.assertNotIn('id="c-meta"', HTML)  # location info repeated 3x -> now one line
-        self.assertNotIn("드래그한 줄 L'+d.raw_lo", HTML)
+        self.assertNotIn(
+            "드래그한 줄 L'+d.raw_lo", SCRIPT_SQ
+        )  # the text is inside a string: squash keeps it as written
         row = HTML[HTML.index('<div class="c-loc-row">') : HTML.index('<div id="c-warn"')]
         for el in ('id="c-loc"', 'id="c-page"', 'id="c-tag"', 'id="c-copy"'):
             self.assertIn(el, row)
@@ -1535,8 +1528,7 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertNotIn('class="step"', HTML)  # the stepper is gone from every layout (the range is set in the source)
         # 4 lines + 8px top/bottom padding
         self.assertIn("#c-snip:not(.open){max-height:calc(6em + 16px);overflow:hidden}", css)
-        m = re.search(r"\nfunction renderComposer\(\)\{(.*?)\n\}", HTML, re.S)
-        self.assertIn("pre.scrollHeight>pre.clientHeight", m.group(1))
+        self.assertIn(sq("pre.scrollHeight>pre.clientHeight"), sq(js_fn_body("renderComposer")))
         # on every layout the note field comes before the range block in the markup (so Tab and the screen agree and the
         # note never hides under the action row)
         comp = HTML[HTML.index('<div id="composer"') : HTML.index('<div id="list">')]
@@ -1544,9 +1536,8 @@ class FrontendPanelTidyStructure(unittest.TestCase):
         self.assertLess(comp.index('id="c-kind"'), comp.index('id="c-range"'))
 
     def test_card_head_tags_row_and_action_grid(self):
-        m = re.search(r"\nfunction card\(p\)\{(.*?)\n\}", HTML, re.S)
         # the open card's action row is built by cardActs() in its visual order per layout (compact: icons first, wide: by name)
-        body = m.group(1) + extract_js_fn("cardActs")
+        body = js_fn_body("card") + extract_js_fn("cardActs")
         self.assertNotIn('<span class="tags">', body)  # badges are not inside the head row
         # one line after the head (fold button)
         self.assertGreater(body.index('<div class="tags">'), body.index("b-fold"))
@@ -1787,7 +1778,7 @@ class FrontendDesignTokens(unittest.TestCase):
         css = HTML[HTML.index("<style>") : HTML.index("</style>")]
         css = re.sub(r"/\*.*?\*/", "", css, flags=re.S)
         # values JS measures and sets (--kb, --side-w, etc.)
-        runtime = set(re.findall(r"setProperty\('(--[a-z0-9-]+)'", HTML))
+        runtime = set(re.findall(r"setProperty\(\s*'(--[a-z0-9-]+)'", HTML))
         used = set(re.findall(r"var\((--[a-z0-9-]+)", css))
         defined = set(re.findall(r"(--[a-z0-9-]+)\s*:", css))
         self.assertEqual(used - defined - runtime, set())  # no old tokens left over from a rename (--acc, --dim, ...)
@@ -1849,7 +1840,7 @@ class FrontendNotices(unittest.TestCase):
         for sel, d in self.rules(r"\.nt\b"):
             self.assertFalse([k for k in d if k.startswith("border-left")], sel)
         for kind, icon in (("OK", "circle-check"), ("WARN", "triangle-alert"), ("ERR", "circle-x"), ("INFO", "info")):
-            self.assertIn("[NOTICE_KIND.%s]:()=>ic('%s')" % (kind, icon), HTML)
+            self.assertIn(sq("[NOTICE_KIND.%s]:()=>ic('%s')" % (kind, icon)), SCRIPT_SQ)
         for kind, color in (("err", "destructive"), ("warn", "warning"), ("ok", "success")):
             self.assertIn(".nt-banner.nk-%s{border-color:color-mix(in srgb,var(--%s)" % (kind, color), self.css)
 
@@ -1947,7 +1938,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         out = json.loads(run_node(js))
         self.assertEqual(out[:6], ["방금", "3분 전", "4시간 전", "3일 전", "9-1", "x"])
         self.assertIn('data-tip="닫은 시각 2026-09-01 10:00"', out[6])
-        self.assertIn("setInterval(tickRel,60000);", HTML)
+        self.assertIn(sq("setInterval(tickRel,60000);"), SCRIPT_SQ)
         # formerly: it could wrap to '09-24 1…'
         self.assertIn(".arc-t{flex:none;font-size:var(--text-xs);white-space:nowrap}", self.css)
 
@@ -1970,19 +1961,22 @@ class FrontendSemanticAudit(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [False, True, True, False, False, False])
-        self.assertIn("o:{keys:evs.map(x=>x.type+':'+x.pin),rank:2,literal:true,", extract_js_fn("notifyLineView"))
         self.assertIn(
-            "{keys:g.ids.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),",
-            JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
+            sq("o:{keys:evs.map(x=>x.type+':'+x.pin),rank:2,literal:true,"), sq(extract_js_fn("notifyLineView"))
         )
         self.assertIn(
-            "{keys:g.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),", JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges")
+            sq("{keys:g.ids.map(i=>EVENT_TYPE.REVIEW_REQUESTED+':'+i),"),
+            sq(JS_UPDATE_STUBS + extract_js_fn("notePinChanges")),
+        )
+        self.assertIn(
+            sq("{keys:g.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),"),
+            sq(JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges")),
         )
 
     def test_closed_cards_drop_position_badges_and_thread_count_opens_reply(self):
         body = extract_js_fn("card")
-        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", body)
-        self.assertIn("const v=closedCard?null:viaTag(p);", body)
+        self.assertIn(sq("const rb=closedCard?null:relBadge(p.rel,p);"), sq(body))
+        self.assertIn(sq("const v=closedCard?null:viaTag(p);"), sq(body))
         self.assertIn('class="th-n" role="button" tabindex="0" data-act="reply-open"', body)
 
     def test_long_messages_clamp_and_identity_marks(self):
@@ -2007,11 +2001,13 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn(".th-n{min-height:var(--hit);min-width:var(--hit);", coarse)
 
     def test_review_count_labels_scope_and_filter_is_compact(self):
-        self.assertIn("' '+tl('(이 문서 {n})',{n:here})", extract_js_fn("updateReviewCount"))
+        self.assertIn(sq("' '+tl('(이 문서 {n})',{n:here})"), sq(extract_js_fn("updateReviewCount")))
         body = extract_js_fn("drawPins")
         self.assertIn(
-            "setHtml(mf,html`${ic('at-sign')}${MINE.length}`); mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));",
-            body,
+            sq(
+                "setHtml(mf,html`${ic('at-sign')}${MINE.length}`); mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));"
+            ),
+            sq(body),
         )
 
     def test_revision_note_wraps_and_returns_to_previous_doc(self):
@@ -2019,7 +2015,7 @@ class FrontendSemanticAudit(unittest.TestCase):
         review); revTargetActs draws them."""
         self.assertIn("#revision-pin .rp-acts{display:flex;gap:var(--space-2);flex:none;margin-left:auto}", self.css)
         self.assertIn('data-act="rev-back"', extract_js_fn("revTargetActs"))
-        self.assertIn("if(fromManuscript)REV.back=back", extract_js_fn("showChange"))
+        self.assertIn(sq("if(fromManuscript)REV.back=back"), sq(extract_js_fn("showChange")))
         self.assertIn("case 'rev-back':", HTML)
 
     def test_the_source_diff_always_wraps(self):
@@ -2041,8 +2037,8 @@ class FrontendSemanticAudit(unittest.TestCase):
         self.assertIn("#revision-file-row select{min-height:var(--control-h-touch)}", self.css)
         self.assertIn("#revision-warning summary{line-height:var(--control-h-touch)}", self.css)
         # if the pin's range line isn't in the diff and only nearby lines changed, don't say "the highlighted line is the pin's range" (there is no highlighted line).
-        self.assertIn("tg.near=!first&&tg.hit", extract_js_fn("revHighlight"))
-        self.assertIn("tg.near?'핀 범위 줄 자체는 바뀌지 않았고", extract_js_fn("revTargetNote"))
+        self.assertIn(sq("tg.near=!first&&tg.hit"), sq(extract_js_fn("revHighlight")))
+        self.assertIn(sq("tg.near?'핀 범위 줄 자체는 바뀌지 않았고", True), sq(extract_js_fn("revTargetNote")))
 
     def test_references_share_one_link_style_and_pending_looks_pending(self):
         # one consistent link style (QA 2026-09-24): #number, line range, page N, and in-text #12 all share
@@ -2364,7 +2360,7 @@ class PinNumberJump(unittest.TestCase):
         '1쪽' (16px) and 'L4-L5' only got min-height - their centred hit areas overlapped 4-8px apart, so '1쪽' answered
         16x38 (input diagnosis P6). Real boxes cannot overlap; the live check is PhoneTouchSizes."""
         src = HTML
-        self.assertIn("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act", src)
+        self.assertIn(sq("/^(button|link)$/.test(t.getAttribute('role')||'')&&t.dataset&&t.dataset.act"), SCRIPT_SQ)
         css = src[src.index("<style>") : src.index("</style>")]
         coarse = css[css.index("@media (pointer:coarse){") :]
         coarse = coarse[: coarse.index("\n}")]
@@ -2376,7 +2372,7 @@ class PinNumberJump(unittest.TestCase):
         self.assertNotIn(".pin .n.go::before", css)
 
     def test_view_action_still_routes_to_jumppin(self):
-        self.assertIn("case 'view':jumpPin(id);break;", HTML)
+        self.assertIn(sq("case 'view':jumpPin(id);break;"), SCRIPT_SQ)
 
     def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
         """On touch a small icon button (.btn-icon.btn-sm: a card's fold, a message's [x]) is 44px: the touch rule is pinned
@@ -2443,9 +2439,11 @@ class HtmlTemplateStructure(unittest.TestCase):
     def test_document_title_prefixes_label(self):
         # with multiple documents, the document name (META.doc_name) is used instead of the main filename — the label prefix stays the same.
         self.assertIn(
-            "document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)"
-            "+' · '+tl('열린 {n}',{n:PINS.length})",
-            extract_js_fn("docTitle"),
+            sq(
+                "document.title='Limn · '+(META.label?META.label+' · ':'')+(multiDoc()?META.doc_name||META.main:META.main)"
+                "+' · '+tl('열린 {n}',{n:PINS.length})"
+            ),
+            sq(extract_js_fn("docTitle")),
         )
         self.assertIn("docTitle(true);", JS_UPDATE_STUBS + extract_js_fn("applyPinLists"))
 
@@ -2469,8 +2467,8 @@ class FrontendDocs(unittest.TestCase):
         self.assertNotIn('id="docs-menu"', HTML)
         self.assertIn("body.no-rebuild #btn-rebuild{display:none}", css)
         self.assertIn('id="all-docs"', css)
-        self.assertIn("$('#all-docs').hidden=!multiDoc()", HTML)
-        self.assertIn("document.body.classList.toggle('docs-multi',multiDoc())", HTML)
+        self.assertIn(sq("$('#all-docs').hidden=!multiDoc()"), SCRIPT_SQ)
+        self.assertIn(sq("document.body.classList.toggle('docs-multi',multiDoc())"), SCRIPT_SQ)
 
     def test_selector_views_and_outline_are_in_pdf_area(self):
         self.assertIn('<select id="doc-select" aria-label="문서 선택">', HTML)
@@ -2483,14 +2481,16 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn('id="nav-toc-toggle" data-act="outline"', HTML)
         self.assertLess(HTML.index('id="doc-nav"'), HTML.index('id="right"'))
         body = extract_js_fn("drawDocTabs")
-        self.assertIn("box.value=DOC", body)
+        self.assertIn(sq("box.value=DOC"), sq(body))
         self.assertIn("DOCS.map", body)
-        self.assertIn("setAttr(a,'aria-current',", body)  # the current document's link is marked (updated in place)
+        self.assertIn(
+            sq("setAttr(a,'aria-current',"), sq(body)
+        )  # the current document's link is marked (updated in place)
 
     def test_default_theme_is_light(self):
         self.assertIn('<html lang="ko" data-theme="light">', HTML)
         self.assertIn("p={theme:'light'}", HTML)
-        self.assertIn("prefs().theme||'light'", HTML)
+        self.assertIn(sq("prefs().theme||'light'"), SCRIPT_SQ)
 
     def test_outline_labels_only_attach_to_matching_pdf_entries(self):
         js = "\n".join(
@@ -2551,7 +2551,7 @@ class FrontendDocs(unittest.TestCase):
             "@@ -3,2 +3,2 @@ heading\n-old <script>alert(1)</script>\n"
             "+new <img src=x onerror=alert(1)>\n context\n"
         )
-        esc = re.search(r"^const esc=.*;$", HTML, re.M).group(0)
+        esc = js_const("esc")
         js = "\n".join(
             [
                 esc,
@@ -2581,7 +2581,7 @@ class FrontendDocs(unittest.TestCase):
         patch = "@@ -1,2 +1,2 @@\n-if ok:\r\n+if ok\u202e:\u200b\U000e0041\r\n+a\rb\n"
         js = "\n".join(
             [
-                re.search(r"^const esc=.*;$", HTML, re.M).group(0),
+                js_const("esc"),
                 js_markup(),
                 js_hidden_chars(),
                 extract_js_fn("renderRevisionDiff"),
@@ -2600,7 +2600,7 @@ class FrontendDocs(unittest.TestCase):
         self.assertEqual(rendered.count("\r"), 0)
 
     def test_revision_file_selection_renders_only_selected_patch(self):
-        esc = re.search(r"^const esc=.*;$", HTML, re.M).group(0)
+        esc = js_const("esc")
         js = "\n".join(
             [
                 esc,
@@ -2655,29 +2655,28 @@ class FrontendDocs(unittest.TestCase):
         )
 
     def test_switch_shortcuts_skip_input_fields(self):
-        m = re.search(r"document\.addEventListener\('keydown',e=>\{(.*?)\n\}\);", HTML, re.S)
-        body = m.group(1)
+        body = sq(js_listener_body("document", "keydown", "inField"))
         i = body.index("if(multiDoc()&&!inField){")
         self.assertIn("e.key==='PageUp'||e.key==='PageDown'", body[i:])
         self.assertIn("/^Digit[1-9]$/.test(e.code||'')", body[i:])
-        self.assertLess(body.index("const t=/** @type {HTMLElement} */(e.target),inField="), i)
+        self.assertLess(body.index(sq("const t=e.target,inField=")), i)
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
-        self.assertIn("const VEC_CACHE_MAX=3;", HTML)
+        self.assertIn(sq("const VEC_CACHE_MAX=3;"), SCRIPT_SQ)
         put = extract_js_fn("vecCachePut")
-        self.assertIn("while(c.size>VEC_CACHE_MAX)", put)
+        self.assertIn(sq("while(c.size>VEC_CACHE_MAX)"), sq(put))
         self.assertIn("vecClose(d)", put)
         sw = JS_UPDATE_STUBS + extract_js_fn("switchDoc")
         self.assertIn("saveView();", sw)
         self.assertIn("setHash(k)", sw)
-        self.assertIn("savePrefs({lastDoc:k})", sw)
+        self.assertIn(sq("savePrefs({lastDoc:k})"), sq(sw))
         show = extract_js_fn("showDoc")
         self.assertIn("restoreView(v)", show)
         self.assertIn("vecOpen()", show)
 
     def test_cross_doc_card_actions_switch_first(self):
-        self.assertIn("function jumpPin(id){if(viaDoc(id,jumpPin))return;", HTML)
-        self.assertIn("function openEdit(id){if(viaDoc(id,openEdit))return;", HTML)
+        self.assertIn(sq("function jumpPin(id){if(viaDoc(id,jumpPin))return;"), SCRIPT_SQ)
+        self.assertIn(sq("function openEdit(id){if(viaDoc(id,openEdit))return;"), SCRIPT_SQ)
         js = "\n".join(
             [
                 r"""
@@ -2702,26 +2701,24 @@ class FrontendDocs(unittest.TestCase):
     def test_region_selection_saves_page_and_frac_only(self):
         body = extract_js_fn("savePin")
         self.assertIn(
-            "if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};",
-            body,
+            sq(
+                "if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};"
+            ),
+            sq(body),
         )
-        self.assertIn("body.doc=d.doc||DOC||undefined;", body)
-        self.assertIn("if(!o||!o.file)return out;", extract_js_fn("overlapsFor"))
+        self.assertIn(sq("body.doc=d.doc||DOC||undefined;"), sq(body))
+        self.assertIn(sq("if(!o||!o.file)return out;"), sq(extract_js_fn("overlapsFor")))
         self.assertIn("#composer.region #c-levels", HTML)
 
 
 def js_tooltips() -> str:
     """The viewer's tooltip table (`const T` in core.js) as the page declares it, for harnesses whose functions read T.x."""
-    found = re.search(r"^const T=\{.*?^\};$", HTML, re.S | re.M)
-    assert found is not None, "core.js no longer declares `const T={...};` at line start"
-    return found.group(0)
+    return js_const("T")
 
 
 def js_via_limits() -> str:
     """The location-confidence thresholds viaTag() reads (`const VIA_HIDE=...` in levels.js) and mapSure(), which reads them."""
-    found = re.search(r"^const VIA_HIDE=.*;$", HTML, re.M)
-    assert found is not None, "levels.js no longer declares `const VIA_HIDE=...;` at line start"
-    return found.group(0) + "\n" + extract_js_fn("mapSure")
+    return js_const("VIA_HIDE") + "\n" + extract_js_fn("mapSure")
 
 
 # ---------------------------------------------------------------- figure documents (docs/handbook/viewer.md §패널 정리, §상태 표현)
@@ -2816,10 +2813,13 @@ class FrontendFigure(unittest.TestCase):
         # compact bars have no [PDF 재빌드]: the status line and the [⋯] row do it, and neither shows without a rebuild (UX spec §V8)
         self.assertIn("body.compact #btn-rebuild{display:none}", css)
         self.assertIn("body.compact:not(.no-rebuild) #m-rebuild{display:flex}", css)
-        self.assertIn("canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer()", extract_js_fn("statusInput"))
+        self.assertIn(
+            sq("canRebuild:!!META&&buildsFromSource(META.kind)&&!isViewer()"), sq(extract_js_fn("statusInput"))
+        )
         self.assertNotIn("body.view-only", css)
         self.assertIn(
-            "document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))", extract_js_fn("drawMeta")
+            sq("document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))"),
+            sq(extract_js_fn("drawMeta")),
         )
         for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs", "docUpdateView"):
             with self.subTest(fn=fn):
@@ -2827,8 +2827,8 @@ class FrontendFigure(unittest.TestCase):
                 if fn != "noteOtherDocs":  # another document's finished build is its update message (docUpdateView)
                     self.assertRegex(extract_js_fn(fn), r"buildsFromSource\(|isFigureKind\(")
         self.assertIn(
-            "isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''",
-            extract_js_fn("docTip"),
+            sq("isFigureKind(d.kind)?' · '+tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)'):''"),
+            sq(extract_js_fn("docTip")),
         )
 
     def test_the_empty_hint_and_the_commit_tooltip_hold_for_every_document_kind(self):
@@ -3065,14 +3065,14 @@ class FrontendFigure(unittest.TestCase):
             HTML,
         )
         for fn in ("renderComposer", "renderRegionComposer"):
-            self.assertIn("renderElement(d,COMPOSE.box)", extract_js_fn(fn), fn)
-        self.assertIn("sel.elSel=d.el||null;", extract_js_fn("pick"))
-        self.assertIn("if(lv.el)o.elSel=lv.el;", extract_js_fn("useLevel"))
+            self.assertIn(sq("renderElement(d,COMPOSE.box)"), sq(extract_js_fn(fn)), fn)
+        self.assertIn(sq("sel.elSel=d.el||null;"), sq(extract_js_fn("pick")))
+        self.assertIn(sq("if(lv.el)o.elSel=lv.el;"), sq(extract_js_fn("useLevel")))
         for fn in ("elPathText", "snapBox", "renderElement"):
             self.assertNotIn("api(", extract_js_fn(fn), fn)
         parts = (PKG / "viewer" / "parts.txt").read_text(encoding="utf-8")
-        self.assertLess(parts.index("js/levels.js"), parts.index("js/figure.js"))
-        self.assertLess(parts.index("js/figure.js"), parts.index("js/composer.js"))
+        self.assertLess(parts.index("js/levels.ts"), parts.index("js/figure.ts"))
+        self.assertLess(parts.index("js/figure.ts"), parts.index("js/composer.ts"))
 
     def test_a_figure_region_is_named_by_what_the_map_found_and_a_view_only_region_keeps_its_name(self):
         """figRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element
@@ -3204,18 +3204,20 @@ class FrontendFigure(unittest.TestCase):
         mark like a lost line; [보기] falls back to the mark's page; a figure region card is labelled by what the map
         found."""
         m = extract_js_fn("marks")
-        self.assertIn("const at=pinPlace(p),el=document.getElementById('p'+at.page);", m)
-        self.assertIn("if(!el||!isFrac(at.frac))return;", m)
-        self.assertIn("const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);", m)
+        self.assertIn(sq("const at=pinPlace(p),el=document.getElementById('p'+at.page);"), sq(m))
+        self.assertIn(sq("if(!el||!isFrac(at.frac))return;"), sq(m))
+        self.assertIn(sq("const est=isEstimated(p)&&!hasMark(p),lost=p.stale||elLost(p);"), sq(m))
         c = extract_js_fn("card")
         # the open and the review card's N쪽, and compact's one head link '#N · L… · N쪽' (input diagnosis U5)
-        self.assertEqual(c.count("pinPlace(p).page"), 1)  # one page label for both cards' links
-        self.assertEqual(c.count("tl('{page}쪽',{page:at})"), 1)  # ... none for a Markdown pin, which has no page
-        self.assertEqual(c.count("p.stale||elLost(p)?CARD_DOT.LOST"), 1)  # one status dot for both cards
-        self.assertIn("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);", c)
-        self.assertIn("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))", c)
+        self.assertEqual(sq(c).count("pinPlace(p).page"), 1)  # one page label for both cards' links
+        self.assertEqual(
+            sq(c).count(sq("tl('{page}쪽',{page:at})")), 1
+        )  # ... none for a Markdown pin, which has no page
+        self.assertEqual(sq(c).count(sq("p.stale||elLost(p)?CARD_DOT.LOST")), 1)  # one status dot for both cards
+        self.assertIn(sq("const lostEl=elLostTag(p); if(lostEl)tags.push(lostEl);"), sq(c))
+        self.assertIn(sq("figRegionBadge(p.el,isFigureKind((docInfo(pdoc(p))||{}).kind))"), sq(c))
         self.assertIn("arrivePage(pinPlace(p).page)", extract_js_fn("jumpPin"))  # its page now, by its figure
-        self.assertIn("p.el_sync===EL_SYNC.LOST", JS_UPDATE_STUBS + extract_js_fn("notePinChanges"))
+        self.assertIn("p.el_sync===EL_SYNC.LOST", sq(JS_UPDATE_STUBS + extract_js_fn("notePinChanges")))
 
     def test_a_pin_of_an_unknown_via_gets_a_neutral_hint_not_the_synctex_one(self):
         """A `via` this page does not know is named as it came, in a tooltip that claims no method and no meaning for the
@@ -3501,17 +3503,20 @@ class FrontendFigure(unittest.TestCase):
         region = (
             "if(isRegion(d))body={page:d.page,frac:d.frac,note:note,quote:d.quote,pdf_build:d.pdf_build||undefined};"
         )
-        self.assertLess(save.index(region), save.index("figureFields(body,d.elSel,isRegion(d)?null:figRung(d));"))
-        rp = extract_js_fn("applyRepick")
+        save = sq(save)
         self.assertLess(
-            rp.index("if(isRegion(c))loc="), rp.index("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);")
+            save.index(sq(region)), save.index(sq("figureFields(body,d.elSel,isRegion(d)?null:figRung(d));"))
         )
-        self.assertIn("snapBox(R.box,repickEl(c));", extract_js_fn("bannerCompare"))
-        self.assertIn("region:!!EDITOR.current.region", extract_js_fn("startRepick"))
-        self.assertIn("pinEl:p.el||null", extract_js_fn("openEdit"))
-        self.assertIn("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))", extract_js_fn("saveEdit"))
-        self.assertIn("pinEl:p.el||null", extract_js_fn("applyRepick"))
-        self.assertIn("E.pinEl=p.el||null;", extract_js_fn("saveEdit"))
+        rp = sq(extract_js_fn("applyRepick"))
+        self.assertLess(
+            rp.index("if(isRegion(c))loc="), rp.index(sq("figureFields(loc,repickEl(c),isRegion(c)||!lv.el?null:lv);"))
+        )
+        self.assertIn(sq("snapBox(R.box,repickEl(c));"), sq(extract_js_fn("bannerCompare")))
+        self.assertIn(sq("region:!!EDITOR.current.region"), sq(extract_js_fn("startRepick")))
+        self.assertIn(sq("pinEl:p.el||null"), sq(extract_js_fn("openEdit")))
+        self.assertIn(sq("(!E.pinEl&&(E.scope||null)!==(E.orig.scope||null))"), sq(extract_js_fn("saveEdit")))
+        self.assertIn(sq("pinEl:p.el||null"), sq(extract_js_fn("applyRepick")))
+        self.assertIn(sq("E.pinEl=p.el||null;"), sq(extract_js_fn("saveEdit")))
 
     def test_a_re_place_candidate_of_the_other_shape_is_not_offered(self):
         """/edit never turns a line pin into a region pin or back, so a candidate of the other shape (a region answer for
@@ -3868,11 +3873,11 @@ class FrontendArchive(unittest.TestCase):
         self.assertIn("function stickTop()", h)
         self.assertIn("case 'arc-toggle':", h)
         body = extract_js_fn("drawPins")
-        self.assertIn("secHead('done',tr('완료'),LDONE.map(p=>p.id),DONE_ALL.map(p=>p.id))", body)
-        self.assertIn("secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id))", body)
+        self.assertIn(sq("secHead('done',tr('완료'),LDONE.map(p=>p.id),DONE_ALL.map(p=>p.id))"), sq(body))
+        self.assertIn(sq("secHead('review',tr('검토 대기'),LREV.map(p=>p.id),REVIEW_ALL.map(p=>p.id))"), sq(body))
         self.assertIn("LDONE.slice().reverse().map(doneCard)", body)
         # the same list functions (listDone/listDropped) are used for document switching and the "all documents" toggle too
-        self.assertIn("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();", body)
+        self.assertIn(sq("const LIST=listOpen(),LDONE=listDone(),LDROP=listDropped();"), sq(body))
 
     def test_status_without_stripes_dot_badge_and_icons(self):
         """No card, archive row, message or document row draws a left colour stripe; status is a dot, a badge or an icon."""
@@ -3891,11 +3896,12 @@ class FrontendArchive(unittest.TestCase):
             self.assertIn(".st-dot.%s{background:var(--status-" % st, css)
         self.assertEqual(css.count("--status-claimed:"), 2)  # both dark and light
         body = extract_js_fn("card")
-        self.assertIn("${claimed?' claimed':''}", body)
+        self.assertIn(sq("${claimed?' claimed':''}"), sq(body))
         self.assertIn(
-            "stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)", body
+            sq("stDot(rv?CARD_DOT.REVIEW:p.stale||elLost(p)?CARD_DOT.LOST:claimed?CARD_DOT.CLAIMED:CARD_DOT.OPEN)"),
+            sq(body),
         )
-        self.assertIn("tl('상태: {name}',{name:tr(ST_NAME[st])})", extract_js_fn("stDot"))
+        self.assertIn(sq("tl('상태: {name}',{name:tr(ST_NAME[st])})"), sq(extract_js_fn("stDot")))
         self.assertIn('role="img" aria-label="${t}"', extract_js_fn("stDot"))  # not distinguished by color alone
         self.assertIn("${ic('rotate-ccw')}다시 열림", body)
         self.assertIn(".arc-row+.arc-row{border-top:1px solid var(--border)}", css)
@@ -3963,9 +3969,9 @@ class FrontendClaimEta(unittest.TestCase):
         self.assertEqual(out, [md_render.ceil5(m) for m in (0, 0.2, 5, 5.01, 14.9, 23)])
 
     def test_card_uses_claim_tag_and_ticker(self):
-        self.assertIn("if(claimed)tags.push(claimTag(p));", extract_js_fn("card"))
+        self.assertIn(sq("if(claimed)tags.push(claimTag(p));"), sq(extract_js_fn("card")))
         self.assertIn('data-claim="', extract_js_fn("claimTag"))
-        self.assertIn("setInterval(tickClaims,30000);", HTML)
+        self.assertIn(sq("setInterval(tickClaims,30000);"), SCRIPT_SQ)
         self.assertNotIn("toLocaleTimeString", extract_js_fn("claimInfo"))
 
 
@@ -4052,18 +4058,18 @@ class FrontendSaveWhilePicking(unittest.TestCase):
 
     def test_save_pin_no_longer_silently_drops_missing_cur(self):
         body = extract_js_fn("savePin")
-        self.assertNotIn("if(!COMPOSE.current||COMPOSE.saving)return;", body)
-        self.assertIn("if(COMPOSE.saving)return;", body)
-        self.assertIn("if(!COMPOSE.current){if(COMPOSE.picking)togglePendingSave(); return;}", body)
+        self.assertNotIn(sq("if(!COMPOSE.current||COMPOSE.saving)return;"), sq(body))
+        self.assertIn(sq("if(COMPOSE.saving)return;"), sq(body))
+        self.assertIn(sq("if(!COMPOSE.current){if(COMPOSE.picking)togglePendingSave(); return;}"), sq(body))
 
     def test_pick_triggers_queued_save_on_success_and_clears_on_error(self):
         pick_body = extract_js_fn("pick")
-        self.assertIn("if(COMPOSE.pendingSave){clearPendingSave(); savePin();}", pick_body)
+        self.assertIn(sq("if(COMPOSE.pendingSave){clearPendingSave(); savePin();}"), sq(pick_body))
         # the failure path (catch/d.error) also clears the pending save — it never saves silently.
         self.assertIn("clearPendingSave();", pick_body)
         self.assertRegex(
-            pick_body,
-            r"catch\(e\)\{if\(seq!==PICKSEQ\)return; setBusy\(false\); if\(!rp\)\{COMPOSE.picking=false; clearPendingSave\(\);\}",
+            sq(pick_body),
+            r"catch\(e\)\{if\(seq!==PICKSEQ\)return;setBusy\(false\);if\(!rp\)\{COMPOSE.picking=false;clearPendingSave\(\);\}",
         )
 
     def _harness(self, extra_body):
@@ -4611,9 +4617,9 @@ class FrontendThread(unittest.TestCase):
 
     def test_card_has_question_badge_reply_button_and_thread_count(self):
         body = extract_js_fn("card")
-        self.assertIn("if(isQuestion(p))tags.unshift(", body)
+        self.assertIn(sq("if(isQuestion(p))tags.unshift("), sq(body))
         self.assertIn('data-act="reply-open"', body)
-        self.assertIn("threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)", body)
+        self.assertIn(sq("threadHtml(p,LAYOUT===LAYOUT_MODE.WIDE)"), sq(body))
         self.assertIn("ic('message-square')", body)
 
     def test_reply_editor_survives_redraw_and_save_sends_kind(self):
@@ -4621,18 +4627,22 @@ class FrontendThread(unittest.TestCase):
         dp = extract_js_fn("drawPins")
         self.assertIn("slot.replaceWith(REPLY.el)", dp)
         self.assertIn("rta.focus()", dp)
-        self.assertIn("body.kind_req=out.kind;", extract_js_fn("savePin"))
-        self.assertIn("kind:KIND_NEW,", extract_js_fn("composeAsk"))
+        self.assertIn(sq("body.kind_req=out.kind;"), sq(extract_js_fn("savePin")))
+        self.assertIn(sq("kind:KIND_NEW,"), sq(extract_js_fn("composeAsk")))
         self.assertIn("setKind(KIND_REQ.FIX)", extract_js_fn("cancelSelection"))
-        self.assertIn("KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요'", extract_js_fn("setKind"))
-        self.assertIn("if(REPLY){e.preventDefault();closeReply();return;}", HTML)  # Esc closes the input field first
+        self.assertIn(sq("KIND_NEW===KIND_REQ.QUESTION?'무엇이 궁금한지 적어 주세요'"), sq(extract_js_fn("setKind")))
+        self.assertIn(
+            sq("if(REPLY){e.preventDefault();closeReply();return;}"), SCRIPT_SQ
+        )  # Esc closes the input field first
         self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
         # one path; the server decides - and silent, as the reply box's own error line says a failed send (one alert)
-        self.assertIn("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true})", send)
-        self.assertIn("body.reopen=R.toggle==='reopen'", send)  # the one override: [상태 유지] / [다시 열기]
+        self.assertIn(
+            sq("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true})"), sq(send)
+        )
+        self.assertIn(sq("body.reopen=R.toggle==='reopen'"), sq(send))  # the one override: [상태 유지] / [다시 열기]
         self.assertIn("deferred(", send)  # sent when its undo in the card goes away
-        self.assertIn("deferredNote(d,NOTICE_PLACE.CARD,", send)
+        self.assertIn(sq("deferredNote(d,NOTICE_PLACE.CARD,"), sq(send))
 
     def test_compact_collapsed_card_hides_thread(self):
         """A collapsed compact card hides its badges, quote line, comment head, note, actions, thread and the review
@@ -4755,7 +4765,7 @@ class FrontendReview(unittest.TestCase):
         # box previews the server rule (FrontendReplyRule checks every row of helpers.RULE_CASES).
         body = extract_js_fn("replyEl")
         # from the same outcome as the line below
-        self.assertIn('placeholder="${replyPlaceholder(p,isHuman(),false)}"', body)
+        self.assertIn(sq('placeholder="${replyPlaceholder(p,isHuman(),false)}"'), sq(body))
         self.assertIn(
             "'무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)'",
             extract_js_fn("replyPlaceholder"),
@@ -4763,7 +4773,7 @@ class FrontendReview(unittest.TestCase):
         self.assertIn('class="r-outcome"', body)
         self.assertIn('data-act="reply-flip"', body)
         self.assertIn(
-            "setReply({id,flip:false,toggle:null,el:replyEl(p)})", extract_js_fn("openReply")
+            sq("setReply({id,flip:false,toggle:null,el:replyEl(p)})"), sq(extract_js_fn("openReply"))
         )  # through core.js's setter (ADR-0042 D1)
 
 
@@ -4819,12 +4829,12 @@ class FrontendChangeView(unittest.TestCase):
         h = HTML
         self.assertIn('data-act="change"', extract_js_fn("doneCard"))
         self.assertIn('data-act="change"', extract_js_fn("card"))
-        self.assertIn("case 'change':if(id!=null)showChange(id);break;", h)
+        self.assertIn(sq("case 'change':if(id!=null)showChange(id);break;"), SCRIPT_SQ)
         self.assertIn('id="revision-pin"', h)
-        self.assertIn("showRevision(pick.id,DIFF_FORMAT.SOURCE)", extract_js_fn("loadRevisions"))
+        self.assertIn(sq("showRevision(pick.id,DIFF_FORMAT.SOURCE)"), sq(extract_js_fn("loadRevisions")))
         fmt = extract_js_fn("setRevisionFormat")
         # the comparison PDF is only built while viewing that format
-        self.assertIn("REV.pdfCommit!==revKey()", fmt)
+        self.assertIn(sq("REV.pdfCommit!==revKey()"), sq(fmt))
         css = h[h.index("<style>") : h.index("</style>")]
         self.assertIn("body.revision-open #revision-view{display:block}", css)  # it opens even on a folded fold device
 
@@ -4841,15 +4851,17 @@ class FrontendChangeView(unittest.TestCase):
         self.assertIn(
             '<button id="revision-whole" class="tg btn-sm" data-act="revision-whole" aria-pressed="false" hidden', h
         )
-        self.assertIn("case 'revision-other':toggleRevisionOther();break;", h)
-        self.assertIn("case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;", h)
+        self.assertIn(sq("case 'revision-other':toggleRevisionOther();break;"), SCRIPT_SQ)
+        self.assertIn(sq("case 'revision-whole':setRevisionWhole(!REV_SCOPE.whole);break;"), SCRIPT_SQ)
         src = extract_js_fn("loadRevisionSource")
-        self.assertIn("'&pin='+tg0.id", src)  # a pin's view asks for its scope; plain browsing does not
-        self.assertIn("r.scope.mode===SCOPE_MODE.PIN", src)
+        self.assertIn(sq("'&pin='+tg0.id"), sq(src))  # a pin's view asks for its scope; plain browsing does not
+        self.assertIn(sq("r.scope.mode===SCOPE_MODE.PIN"), sq(src))
         pdf = extract_js_fn("loadRevisionPdf")
-        self.assertIn("!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null", pdf)
-        self.assertIn("REV_SCOPE.fallback=true", pdf)  # a subset that does not compile falls back once
-        self.assertIn("REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false", extract_js_fn("showRevision"))
+        self.assertIn(sq("!REV_SCOPE.whole&&!REV_SCOPE.fallback?tg.id:null"), sq(pdf))
+        self.assertIn(sq("REV_SCOPE.fallback=true"), sq(pdf))  # a subset that does not compile falls back once
+        self.assertIn(
+            sq("REV_SCOPE.whole=REV_SCOPE.partial=REV_SCOPE.fallback=false"), sq(extract_js_fn("showRevision"))
+        )
         css = h[h.index("<style>") : h.index("</style>")]
         # the folded diff shares every source-diff rule (its selector first, so the existing strings stay whole)
         for rule in (" .rd-line{", ".wrap .rd-code{", " .rd-add{", " .rd-del{", " .rd-hunk{"):
@@ -5049,15 +5061,17 @@ class FrontendMentions(unittest.TestCase):
         self.assertIn('<div id="c-assign" class="assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
         self.assertIn('<div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>', h)
         self.assertIn(
-            "const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;",
-            extract_js_fn("savePin"),
+            sq(
+                "const out=assignOutcome(composeAsk(SAVE_MODE.NEW)); body.kind_req=out.kind; body.assignee=out.assignee;"
+            ),
+            sq(extract_js_fn("savePin")),
         )
         self.assertIn(
-            "if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;", extract_js_fn("saveEdit")
+            sq("if(E.assignee&&E.assignee!==E.orig.assignee)body.assignee=E.assignee;"), sq(extract_js_fn("saveEdit"))
         )
-        self.assertIn("const adr=p.assignee?null:addressedTag(p);", extract_js_fn("card"))
-        self.assertIn("assigned:5", h)
-        self.assertIn("assign:'담당 바꿈'", h)
+        self.assertIn(sq("const adr=p.assignee?null:addressedTag(p);"), sq(extract_js_fn("card")))
+        self.assertIn(sq("assigned:5"), SCRIPT_SQ)
+        self.assertIn(sq("assign:'담당 바꿈'"), SCRIPT_SQ)
 
     def test_preview_row_under_every_mention_field(self):
         h = HTML
@@ -5102,11 +5116,13 @@ class FrontendMentions(unittest.TestCase):
         h = HTML
         self.assertIn('id="mention-pop"', h)
         self.assertIn('id="mention-filter"', h)
-        self.assertIn("const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;", extract_js_fn("savePin"))
+        self.assertIn(
+            sq("const mh=mentionHints($('#note')); if(mh.length)body.mentions=mh;"), sq(extract_js_fn("savePin"))
+        )
         self.assertIn("mentionHints(ta)", extract_js_fn("sendReply"))
-        self.assertIn("fmtText(p.note,p.mentions)", extract_js_fn("card"))
+        self.assertIn(sq("fmtText(p.note,p.mentions)"), sq(extract_js_fn("card")))
         # autocomplete gets Enter/Esc first (capture phase)
-        self.assertIn("window.addEventListener('keydown',e=>{if(!MENTION.ta", h)
+        self.assertIn(sq("window.addEventListener('keydown',e=>{if(!MENTION.ta"), SCRIPT_SQ)
 
 
 # ---------------------------------------------------------------- browser notifications (docs/handbook/viewer.md §브라우저 알림)
@@ -5319,7 +5335,7 @@ class FrontendQuestionHint(unittest.TestCase):
         qh = extract_js_fn("qHint")
         self.assertNotIn("setKind", qh)  # only suggests
         self.assertNotIn("kind_req=", qh)
-        self.assertIn("kind===KIND_REQ.QUESTION", qh)  # hidden if it's already a question
+        self.assertIn(sq("kind===KIND_REQ.QUESTION"), sq(qh))  # hidden if it's already a question
 
 
 class FrontendNotify(unittest.TestCase):
@@ -5330,7 +5346,7 @@ class FrontendNotify(unittest.TestCase):
             self.skipTest("node not available")
 
     def harness(self, script):
-        rank = re.search(r"^const NOTIFY_RANK=.*;$", HTML, re.M).group(0)
+        rank = js_const("NOTIFY_RANK")
         return "\n".join(
             [
                 rank,
@@ -5402,15 +5418,17 @@ class FrontendNotify(unittest.TestCase):
         # [더보기]'s row is a switch with its reason line under it (UX spec §V7), its state never in its name
         self.assertRegex(h, r'<button id="m-notify" role="switch" aria-checked="false"')
         self.assertIn('id="m-notify-why"', h)
-        self.assertIn("m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON))", extract_js_fn("drawNotify"))
+        self.assertIn(
+            sq("m.setAttribute('aria-checked',String(st===NOTIFY_STATE.ON))"), sq(extract_js_fn("drawNotify"))
+        )
         self.assertNotIn('id="btn-notify"', h)  # the desktop's bell went with its [⋯]: the switch is the one control
         tog = extract_js_fn("notifyToggle")
         self.assertIn("Notification.requestPermission()", tog)
         self.assertEqual(html_without_comments(h).count("requestPermission("), 1)  # only asked on the click path
         self.assertIn("reg.showNotification(", extract_js_fn("notifyShow"))
         self.assertNotIn("new Notification(", html_without_comments(h))
-        self.assertIn("tag:'pin-'+e.pin", extract_js_fn("notifyShow"))
-        self.assertIn("document.visibilityState==='visible'&&document.hasFocus()", extract_js_fn("notifyShow"))
+        self.assertIn(sq("tag:'pin-'+e.pin"), sq(extract_js_fn("notifyShow")))
+        self.assertIn(sq("document.visibilityState==='visible'&&document.hasFocus()"), sq(extract_js_fn("notifyShow")))
         self.assertIn("notifyQuery()", JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"))
         self.assertIn("navigator.serviceWorker.register('/sw.js'", extract_js_fn("notifyRegister"))
 
@@ -5434,7 +5452,7 @@ class FrontendBadgeWording(unittest.TestCase):
             ]
         )
         self.assertEqual(json.loads(run_node(js)), ["#1과 같은 범위", "#1 범위 안", "#20과 일부 겹침", None])
-        self.assertIn("const rb=closedCard?null:relBadge(p.rel,p);", extract_js_fn("card"))
+        self.assertIn(sq("const rb=closedCard?null:relBadge(p.rel,p);"), sq(extract_js_fn("card")))
 
     def test_overlap_banner_verbs(self):
         if not shutil.which("node"):
@@ -5490,7 +5508,7 @@ class ViewerMarkup(unittest.TestCase):
     def test_no_reopen_button_anywhere(self):
         self.assertNotIn('data-act="rv-reopen"', HTML)
         self.assertNotIn("case 'rv-reopen'", HTML)
-        self.assertNotIn("openReply(id,'reopen')", HTML)
+        self.assertNotIn(sq("openReply(id,'reopen')"), SCRIPT_SQ)
 
     def test_dropped_section_left_the_list(self):
         lst = HTML[HTML.index('<div id="list">') : HTML.index('<div id="c-actions">')]
@@ -5518,17 +5536,17 @@ class ViewerMarkup(unittest.TestCase):
         self.assertTrue(en.startswith("A place in the output + a request or question + its conversation"), en)
 
     def test_dropped_is_a_notification_type(self):
-        self.assertIn("dropped:", re.search(r"const NOTIFY_RANK=\{[^}]*\}", HTML).group(0))
+        self.assertIn(sq("dropped:"), sq(js_const("NOTIFY_RANK")))
         self.assertIn("dropped", NOTIFY_TYPES)
 
     def test_system_notification_for_a_deleted_pin_offers_restore(self):
         # a hidden tab gets a system notification: [되살리기] is a notification action the service worker hands to the tab
         self.assertIn(
-            "actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]",
-            extract_js_fn("notifyShow"),
+            sq("actions:e.type===EVENT_TYPE.DROPPED&&!isViewer()?[{action:'restore',title:tr('되살리기')}]:[]"),
+            sq(extract_js_fn("notifyShow")),
         )
-        self.assertIn("e.action==='restore'", SW_JS)
-        self.assertIn("d.type==='restore-pin'", HTML)
+        self.assertIn(sq("e.action==='restore'"), sq(SW_JS))
+        self.assertIn(sq("d.type==='restore-pin'"), SCRIPT_SQ)
 
 
 class ViewerFunctions(unittest.TestCase):

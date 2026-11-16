@@ -23,10 +23,10 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, viewer_text
-from helpers_js import inline_scripts, module_code
+from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, sq, viewer_text
+from helpers_js import inline_scripts, module_code, module_texts, strip_results
 
-EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
+EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".ts"}
 
 
 def script_errors(scripts: list[str], module: bool = False) -> list[str] | None:
@@ -48,20 +48,24 @@ def script_errors(scripts: list[str], module: bool = False) -> list[str] | None:
 
 
 def module_errors(directory: Path = VIEWER) -> list[str] | None:
-    """node --check on each module parts.txt lists under __APP_JS__, as an ES module: 'js/name.js: <error>' for each that
-    fails ([] = all parse), None without node."""
+    """Each module parts.txt lists under __APP_JS__ through the build's first step and node --check: its types taken out
+    (tools/strip_types.mjs refuses a module TypeScript cannot parse with a SyntaxError), then its code parsed as an ES
+    module. 'js/name.ts: <error>' for each that fails ([] = all parse), None without node."""
     names = assemble.viewer_manifest(directory)["__APP_JS__"]
-    errors = script_errors([(directory / n).read_text(encoding="utf-8") for n in names], module=True)
-    if errors is None:
+    if not shutil.which("node"):
         return None
-    return ["%s: %s" % (names[int(e.split(":")[0].split()[1])], e) for e in errors]
+    results = strip_results(tuple((n, (directory / n).read_text(encoding="utf-8")) for n in names))
+    out = ["%s: %s" % (n, text) for n, (ok, text) in zip(names, results, strict=True) if not ok]
+    stripped = [(n, text) for n, (ok, text) in zip(names, results, strict=True) if ok]
+    errors = script_errors([text for _, text in stripped], module=True) or []
+    return out + ["%s: %s" % (stripped[int(e.split(":")[0].split()[1])][0], e) for e in errors]
 
 
 def built_from_modules(built: str, plant: bool = False) -> str:
     """What dist/viewer.js should hold for the modules as they are: its first three lines ('use strict' and the build's
     note), then each listed module's code in order; with plant, one module carries an extra line."""
     modules = [
-        module_code((VIEWER / n).read_text(encoding="utf-8")) for n in assemble.viewer_manifest(VIEWER)["__APP_JS__"]
+        module_code(t) for t in module_texts([VIEWER / n for n in assemble.viewer_manifest(VIEWER)["__APP_JS__"]])
     ]
     if plant:
         modules[len(modules) // 2] += "const planted=1;\n"
@@ -129,8 +133,8 @@ class ViewerFiles(unittest.TestCase):
         self.assertNotIn("__APP_", HTML)
 
     def test_the_built_script_is_the_modules_code_in_list_order(self):
-        """dist/viewer.js is 'use strict', the build's note, then each listed module's code (module_code: its import and
-        export statements taken out) in the listed order, byte for byte but for blank lines - so the committed script
+        """dist/viewer.js is 'use strict', the build's note, then each listed module's code (module_texts and module_code:
+        its types, import and export statements taken out) in the listed order, byte for byte but for blank lines - so the committed script
         cannot fall behind a module, or run them in another order, without this failing (CI also rebuilds and compares
         the bytes)."""
         built = (VIEWER / "dist" / "viewer.js").read_text(encoding="utf-8")
@@ -149,8 +153,8 @@ class ViewerFiles(unittest.TestCase):
             with self.subTest(page=page), tempfile.TemporaryDirectory() as d:
                 broken = Path(d)
                 (broken / "index.html").write_text(page, encoding="utf-8")
-                (broken / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n", encoding="utf-8")
-                for name, text in (("css/a.css", "body{}\n"), ("js/a.js", "boot();\n")):
+                (broken / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n", encoding="utf-8")
+                for name, text in (("css/a.css", "body{}\n"), ("js/a.ts", "boot();\n")):
                     (broken / name).parent.mkdir(exist_ok=True)
                     (broken / name).write_text(text, encoding="utf-8")
                 with self.assertRaises(ValueError):
@@ -161,14 +165,14 @@ class ViewerFiles(unittest.TestCase):
         any marker, an unknown or repeated marker, a marker with no parts or missing, a part listed twice, a path
         that could leave the viewer folder."""
         cases = {
-            "part before a marker": "css/a.css\n__APP_CSS__\ncss/b.css\n__APP_JS__\njs/a.js\n",
-            "unknown marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n__APP_X__\njs/b.js\n",
-            "repeated marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\n__APP_CSS__\ncss/b.css\n",
-            "marker without parts": "__APP_CSS__\n__APP_JS__\njs/a.js\n",
-            "missing marker": "__APP_JS__\njs/a.js\n",
-            "part twice": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.js\njs/a.js\n",
-            "path out of the folder": "__APP_CSS__\n../a.css\n__APP_JS__\njs/a.js\n",
-            "absolute path": "__APP_CSS__\n/etc/a.css\n__APP_JS__\njs/a.js\n",
+            "part before a marker": "css/a.css\n__APP_CSS__\ncss/b.css\n__APP_JS__\njs/a.ts\n",
+            "unknown marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n__APP_X__\njs/b.ts\n",
+            "repeated marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n__APP_CSS__\ncss/b.css\n",
+            "marker without parts": "__APP_CSS__\n__APP_JS__\njs/a.ts\n",
+            "missing marker": "__APP_JS__\njs/a.ts\n",
+            "part twice": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\njs/a.ts\n",
+            "path out of the folder": "__APP_CSS__\n../a.css\n__APP_JS__\njs/a.ts\n",
+            "absolute path": "__APP_CSS__\n/etc/a.css\n__APP_JS__\njs/a.ts\n",
         }
         for why, text in cases.items():
             with self.subTest(why), tempfile.TemporaryDirectory() as d:
@@ -181,11 +185,11 @@ class ViewerFiles(unittest.TestCase):
         each part is for."""
         with tempfile.TemporaryDirectory() as d:
             (Path(d) / "parts.txt").write_text(
-                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.js\njs/b.js # last\n",
+                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.ts\njs/b.ts # last\n",
                 encoding="utf-8",
             )
             self.assertEqual(
-                assemble.viewer_manifest(Path(d)), {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.js", "js/b.js")}
+                assemble.viewer_manifest(Path(d)), {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.ts", "js/b.ts")}
             )
 
 
@@ -283,7 +287,7 @@ class ServiceWorkerRoute(Base):
         self.assertIn("notificationclick", js)
         self.assertIn("clients.openWindow", js)
         # v0.2.2: [되살리기] on a 'dropped' notification
-        self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)
+        self.assertIn(sq("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'"), sq(js))
         self.assertIn("addEventListener('fetch'", js)  # keeps the document for reading with no network
         self.assertIn("startsWith('/api/')", js)  # but never a pin or meta answer: a stale list is not the current one
         code, _, _ = self.get("/sw.js", {"Host": "evil.example"})

@@ -1,8 +1,13 @@
-# Commits that only reformat code; `git blame` skips them with
+# Commits that only reformat code or only move types; `git blame` skips them with
 #   git config blame.ignoreRevsFile .git-blame-ignore-revs
-# (GitHub's blame view reads this file on its own). Add a commit here only if it changes no AST.
+# (GitHub's blame view reads this file on its own). Add a commit here only if it changes no code the browser or the
+# server runs: no AST change, or one in types only (the built viewer script normalizes to the same bytes).
 
 # Move the trailing comments that would make the formatter split code (comments only)
 b6455ea16a4849c2fb77bda603b49407e6a36258
 # Format the tree with ruff format
 f015ac503ef002374e4217db9c392a4d608810c4
+# Format the viewer sources with Prettier
+483e44f2b3f3c7076b8ce46820fa7a8151bf48fc
+# Write the viewer modules in TypeScript (types only: JSDoc types moved into the code)
+b903934fa925bf178f5ec64e7a3c97089497dca4

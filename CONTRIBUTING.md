@@ -15,17 +15,21 @@ uv run shellcheck src/limn/administration/instances.sh src/limn/administration/i
 uv run python tools/check_boundaries.py    # public feature exports and import graph
 uv run python tools/check_fitness.py      # module roles from file names; per-slice baseline may only go down
 uv run python tools/check_types.py        # basedpyright as Linux and macOS; its baseline may only go down
-npm ci --ignore-scripts && npm run typecheck   # type check of the viewer's ES modules (tsconfig.json; dev only, Node 22)
+npm ci --ignore-scripts && npm run typecheck   # type check of the viewer's TypeScript modules (tsconfig.json; dev only, Node 22)
 npm run build                             # after changing src/limn/viewer/js: rebuild src/limn/viewer/dist/viewer.js and commit it
 npm run build:check                       # the committed built script is what the modules build (CI runs this)
+npm run format:check                      # Prettier (.prettierrc.json) over the viewer modules and the repo's .mjs tools; `npm run format` applies it
 npm test                                  # the viewer checks' own cases (tools/tests)
 uv run python tools/strict_ratchet.py     # strict tsc, ESLint and module-boundary counts per viewer module may only go down
-git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips the whole-tree reformat
+git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips the whole-tree reformats and the TypeScript conversion
 ```
 
 The server is stdlib-only Python 3.10+ (the modules in `src/limn/`, wired together by `src/limn/server.py`);
-the viewer is static files in `src/limn/viewer/` plus one script built from its ES modules and committed
-(`src/limn/viewer/dist/viewer.js`, docs/adr/0042-viewer-es-modules.md), so installing and serving need no Node. Please
+the viewer is static files in `src/limn/viewer/` plus one script built from its ES modules, written in TypeScript
+(`src/limn/viewer/js/*.ts`, erasable syntax only: the build takes the types out), and committed
+(`src/limn/viewer/dist/viewer.js`, docs/adr/0042-viewer-es-modules.md, docs/adr/0043-viewer-typescript.md), so
+installing and serving need no Node. The Python tests that read a module's code read it without its types, so they need
+`npm ci --ignore-scripts` too; without it they skip. Please
 keep the runtime dependency-free and the viewer free of UI frameworks. Rendering needs a TeX distribution with SyncTeX (`latexmk`/`pdflatex`) and Poppler
 (`pdftoppm`) at runtime, but the tests do not.
 

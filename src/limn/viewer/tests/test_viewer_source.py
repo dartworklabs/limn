@@ -33,7 +33,7 @@ from limn.sync import rules as pull
 from limn.viewer import assemble
 
 import helpers_js
-from helpers import PKG, VIEWER, VIEWER_CLOSED_SETS, extract_js_fn, run_node
+from helpers import PKG, VIEWER, VIEWER_CLOSED_SETS, extract_js_fn, run_node, sq
 
 PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
 CORPUS = Path(__file__).resolve().parents[4] / "tests" / "data" / "pin_records.jsonl"
@@ -53,7 +53,8 @@ def part_sources() -> dict[str, str]:
     """Every JS module of the page's script, by manifest path, in run order, as the build puts it into the script: its
     import and export statements taken out (helpers_js.module_code) - they name the module's bindings, they are not
     uses of them."""
-    return {name: helpers_js.module_code((VIEWER / name).read_text(encoding="utf-8")) for name in PARTS}
+    texts = helpers_js.module_texts([VIEWER / name for name in PARTS])
+    return {name: helpers_js.module_code(text) for name, text in zip(PARTS, texts, strict=True)}
 
 
 def head_scripts() -> list[str]:
@@ -134,6 +135,67 @@ class Tokenizer(unittest.TestCase):
             self.assertEqual(depth, 0, name)
 
 
+class Squash(unittest.TestCase):
+    """helpers_js.squash() reads code in no layout, so a test finds a piece of code in Prettier's output as well as in the
+    hand-compressed text it replaced - and the helpers that pull a declaration out of a script do not mind the layout."""
+
+    COMPRESSED = "function f(a,b){if(a)return b; const t=x=>x+1,u=[1,2];return a?t(b):u;}"
+    FORMATTED = """
+    function f(a, b) {
+      if (a) return b; // why
+      const t = (x) => x + 1,
+        u = [1, 2,];
+      return a
+        ? t(b,)
+        : u;
+    }
+    """
+
+    def test_one_piece_of_code_squashes_to_one_text_in_any_layout(self):
+        """Spaces, line breaks, comments, a trailing comma and the parentheses round a lone arrow parameter are layout."""
+        self.assertEqual(helpers_js.squash(self.FORMATTED), helpers_js.squash(self.COMPRESSED))
+
+    def test_a_space_stays_only_where_two_tokens_would_merge(self):
+        """`return b`, `a in b` and `a + +b` keep one space; `a+b` and `f(x)` keep none."""
+        self.assertEqual(
+            helpers_js.squash("return  b ; a  in  b ; a + +b; a + b; f( x )"), "return b;a in b;a+ +b;a+b;f(x)"
+        )
+
+    def test_strings_templates_and_regexes_are_kept_as_written(self):
+        """What a literal holds - spaces, commas before a bracket - is not layout."""
+        src = "x = ' a ,)' + `t ${ y ,} ` + / b /.source;"
+        self.assertIn("' a ,)'", helpers_js.squash(src))
+        self.assertIn("`t ${y} `", helpers_js.squash(src).replace(",}", "}"))
+        self.assertIn("/ b /", helpers_js.squash(src))
+
+    def test_a_fragment_may_stop_inside_a_string_or_a_comment(self):
+        """With fragment=True a piece cut where a test stopped copying is read as far as it goes; without, it is an error."""
+        self.assertEqual(helpers_js.squash("a ? 'x y", fragment=True), "a?'x y")
+        self.assertEqual(helpers_js.squash("a /* b", fragment=True), "a")
+        with self.assertRaises(helpers_js.TokenizeError):
+            helpers_js.squash("a ? 'x y")
+
+    def test_a_declaration_a_case_and_a_listener_are_found_in_either_layout(self):
+        """declaration_init, case_block and listener_body return the text as written, whatever the layout."""
+        for src in (
+            "const A=1,B=[1,2];switch(k){case 'a':{go();break;}} document.addEventListener('keydown',e=>{inField=1;});",
+            "const A = 1,\n  B = [1, 2];\nswitch (k) {\n  case 'a': {\n    go(); break;\n  }\n}\n"
+            "document.addEventListener('keydown', (e) => {\n  inField = 1;\n});\n",
+        ):
+            page = "<script>%s</script>" % src
+            with self.subTest(src=src[:30]):
+                self.assertEqual(helpers_js.squash(helpers_js.declaration_init(page, "B")), "[1,2]")
+                self.assertEqual(helpers_js.squash(helpers_js.declaration_init(page, "A")), "1")
+                self.assertEqual(helpers_js.squash(helpers_js.case_block(page, "a")), "go();break;")
+                self.assertEqual(
+                    helpers_js.squash(helpers_js.listener_body(page, "document", "keydown", "inField")), "inField=1;"
+                )
+                with self.assertRaises(LookupError):
+                    helpers_js.declaration_source(page, "C")
+                with self.assertRaises(LookupError):
+                    helpers_js.listener_body(page, "document", "keydown", "other")
+
+
 class FunctionExtraction(unittest.TestCase):
     """extract_js_fn() returns a top-level declaration exactly as served, whatever its literals hold."""
 
@@ -159,7 +221,7 @@ class FunctionExtraction(unittest.TestCase):
         still ends at the function's own closing brace (the last character) and holds the whole body."""
         body = extract_js_fn("card")
         self.assertTrue(body.endswith("}"))
-        self.assertIn("function card(p){", body)
+        self.assertIn(sq("function card(p){"), sq(body))
         self.assertIn("${head}${body}</div>`;\n}", body)
 
     def test_the_tables_a_function_reads_come_with_it(self):
@@ -214,10 +276,12 @@ class DeadAndDoubledFunctions(unittest.TestCase):
         """The mentions.js accident planted again: with the call turned into comment text, mentionBadSettled is
         reported as unreferenced."""
         sources = part_sources()
-        src = sources["js/mentions.js"]
-        call = re.search(r"\n\s*(r\.bad=mentionBadSettled\([^;]*\);)", src)
+        src = sources["js/mentions.ts"]
+        call = re.search(r"\n\s*(r\.bad\s*=\s*mentionBadSettled\([^;]*\);)", src)
         self.assertIsNotNone(call)
-        sources["js/mentions.js"] = src.replace(call.group(0), " // the same hints " + call.group(1), 1)
+        sources["js/mentions.ts"] = src.replace(
+            call.group(0), " // the same hints " + " ".join(call.group(1).split()), 1
+        )
         self.assertIn("mentionBadSettled", self.unreferenced(sources))
 
 
@@ -412,8 +476,8 @@ class ClosedSets(unittest.TestCase):
         TABLE.MEMBER the parts name is a member of that table, and a planted misspelling is caught."""
         self.assertEqual(unknown_members(part_sources()), [])
         planted = dict(part_sources())
-        planted["js/list.js"] += "const X=PIN_STATE.REVEIW;\n"
-        self.assertEqual(unknown_members(planted), ["js/list.js: PIN_STATE.REVEIW"])
+        planted["js/list.ts"] += "const X=PIN_STATE.REVEIW;\n"
+        self.assertEqual(unknown_members(planted), ["js/list.ts: PIN_STATE.REVEIW"])
 
     def test_markup_values_are_members(self):
         """The changes view's tabs, the view switch and the composer's kind buttons send their data-* value into code
@@ -430,15 +494,15 @@ class ClosedSets(unittest.TestCase):
         one reading, PIN_STATE the one spelling. Both kinds of slip, planted, are caught."""
         self.assertEqual(raw_state_reads(part_sources()), [])
         planted = dict(part_sources())
-        planted["js/list.js"] += "const a=PINS.filter(p=>!p.done),b=pinState(PINS[0])==='review';\n"
-        self.assertEqual(raw_state_reads(planted), ["js/list.js: p.done", "js/list.js: pinState(...)==='review'"])
+        planted["js/list.ts"] += "const a=PINS.filter(p=>!p.done),b=pinState(PINS[0])==='review';\n"
+        self.assertEqual(raw_state_reads(planted), ["js/list.ts: p.done", "js/list.ts: pinState(...)==='review'"])
 
     def test_band_mode_maps_every_band_and_only_the_bands_to_a_layout_mode(self):
         """BAND_MODE (core.js) gives LAYOUT for the band in use: its keys are exactly LAYOUT_BAND's members and its values
         LAYOUT_MODE's, so a band added to one table without the other fails here, not on a device."""
         node_or_skip(self)
-        src = (VIEWER / "js" / "core.js").read_text(encoding="utf-8")
-        line = re.search(r"^const BAND_MODE=.*;$", src, re.M).group(0)
+        src = helpers_js.module_text(VIEWER / "js" / "core.ts")
+        line = helpers_js.module_declaration(src, "BAND_MODE")
         js = (
             helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, line)
             + line

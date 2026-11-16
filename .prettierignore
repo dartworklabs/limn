@@ -1,0 +1,14 @@
+# Prettier formats only the viewer's hand-written sources and the repo's own .mjs tools (docs/handbook/viewer.md).
+# Everything is ignored first; the scope is then listed again.
+*
+!*/
+!src/limn/viewer/js/**
+!src/limn/viewer/sw.js
+!src/limn/viewer/md-parse.mjs
+!tools/*.mjs
+!tools/tests/*.mjs
+!eslint.config.mjs
+# The built script is Rollup's output of the modules, never edited by hand.
+src/limn/viewer/dist/
+src/limn/vendor/
+node_modules/

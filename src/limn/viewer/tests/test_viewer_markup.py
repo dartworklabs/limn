@@ -22,7 +22,7 @@ import helpers_js
 from helpers import VIEWER, extract_js_fn, js_esc, js_icons, run_node
 
 PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
-MARKUP_PART = "js/markup.js"
+MARKUP_PART = "js/markup.ts"
 
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])
 SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write", "writeln"])
@@ -31,8 +31,9 @@ SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write
 def part_sources() -> dict[str, str]:
     """Every JS module of the page's script, by manifest path, in run order, as the build puts it into the script: its
     import and export statements taken out (helpers_js.module_code) - they name the module's bindings, they are not
-    uses of them."""
-    return {name: helpers_js.module_code((VIEWER / name).read_text(encoding="utf-8")) for name in PARTS}
+    uses of them - and its TypeScript types taken out (helpers_js.module_texts)."""
+    texts = helpers_js.module_texts([VIEWER / name for name in PARTS])
+    return {name: helpers_js.module_code(text) for name, text in zip(PARTS, texts, strict=True)}
 
 
 def template_end(toks: list[helpers_js.Token], k: int) -> int:
@@ -77,6 +78,8 @@ def markup_misuse(sources: dict[str, str]) -> list[str]:
             if t.text == "esc" and prev not in (".", "?.", "const") and name != MARKUP_PART:  # core.js declares it
                 found.append("%s: esc outside markup.js" % name)
             if t.text != "html" or prev in (".", "?.", "function"):
+                continue
+            if prev in ("{", ",") and nxt is not None and nxt.text == ":":  # an object's key named html, not a use
                 continue
             if nxt is None or nxt.kind != "template" or not nxt.text.startswith("`"):
                 found.append("%s: html not used as a tag" % name)
@@ -168,7 +171,7 @@ class MarkupSource(unittest.TestCase):
     def test_checks_catch_each_injected_violation(self):
         """Each rule rejects a planted break and accepts the legal form beside it."""
         legal = "setHtml(a,html`<b>${x}</b>`); const t=`${y}`+z; o.html=1; f(o.html); o.esc=1;"
-        self.assertEqual(markup_misuse({"js/a.js": legal}), [])
+        self.assertEqual(markup_misuse({"js/a.ts": legal}), [])
         self.assertEqual(sink_writes(legal + " el.innerHTML; s=el.innerHTML;"), 0)
         for bad, rule in [
             ("x=new Html(s);", "new Html outside markup.js"),
@@ -179,7 +182,7 @@ class MarkupSource(unittest.TestCase):
             ("x='<i>'+html`<b>${html`<u>`}</b>`;", "html`` joined with '+'"),
         ]:
             with self.subTest(bad=bad):
-                self.assertEqual(markup_misuse({"js/a.js": bad}), ["js/a.js: %s" % rule])
+                self.assertEqual(markup_misuse({"js/a.ts": bad}), ["js/a.ts: %s" % rule])
         for bad in (
             "el.innerHTML=s;",
             "el.outerHTML+=s;",

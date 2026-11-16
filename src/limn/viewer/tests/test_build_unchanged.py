@@ -12,27 +12,22 @@ Run: uv run pytest -q src/limn/viewer/tests/test_build_unchanged.py
 
 import json
 import os
-import re
 import shutil
 import unittest
 
-from helpers import HTML, JS_UPDATE_STUBS, UI_EN, extract_js_fn, js_i18n, js_markup, run_node
+from helpers import JS_UPDATE_STUBS, UI_EN, extract_js_fn, js_const, js_i18n, js_markup, run_node
 
 UNCHANGED = {"ko": "변경 없음", "en": "No changes"}
 
 
 def transient_ms() -> str:
     """The viewer's `const STATUS_TRANSIENT_MS=...;` (status.js) as the page declares it."""
-    found = re.search(r"^const STATUS_TRANSIENT_MS=\d+;", HTML, re.M)
-    assert found is not None, "status.js no longer declares `const STATUS_TRANSIENT_MS=<ms>;` at line start"
-    return found.group(0)
+    return js_const("STATUS_TRANSIENT_MS")
 
 
 def tooltip_table() -> str:
     """The viewer's `const T={...};` (core.js) as the page declares it."""
-    found = re.search(r"^const T=\{.*?^\};$", HTML, re.S | re.M)
-    assert found is not None, "core.js no longer declares `const T={...};` at line start"
-    return found.group(0)
+    return js_const("T")
 
 
 class UnchangedAnswer(unittest.TestCase):
@@ -102,7 +97,7 @@ class UnchangedAnswer(unittest.TestCase):
                         js_i18n(lang),
                         tooltip_table(),
                         js_markup(),
-                        re.search(r"^const esc=.*;$", HTML, re.M).group(0),
+                        js_const("esc"),
                         "const ICONS={};",
                         *[extract_js_fn(n) for n in ("statusProgress", "statusList", "statusText", "statusAct")],
                         r"""const base={notices:[],build:null,buildErr:null,offline:false,sync:null,stale:false,png:false,unchanged:{pull:''}};

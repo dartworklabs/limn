@@ -13,8 +13,10 @@ import re
 import unittest
 from pathlib import Path
 
+import helpers_js
+
 ROOT = Path(__file__).resolve().parents[2]
-SURFACE = ROOT / "src" / "limn" / "viewer" / "js" / "md-surface.js"
+SURFACE = ROOT / "src" / "limn" / "viewer" / "js" / "md-surface.ts"
 API = ROOT / "docs" / "handbook" / "api.md"
 TAUGHT = (
     ROOT / "docs" / "handbook" / "viewer.md",
@@ -25,9 +27,10 @@ TAUGHT = (
 
 def stored_kinds() -> list[str]:
     """md:<block> for every block kind of MD_BLOCK_KINDS in md-surface.js, then md:section."""
-    m = re.search(r"^const MD_BLOCK_KINDS=\[([^\]]*)\];$", SURFACE.read_text(encoding="utf-8"), re.M)
-    assert m is not None, "md-surface.js has no MD_BLOCK_KINDS line"
-    return ["md:" + k for k in re.findall(r"'([a-z]+)'", m.group(1))] + ["md:section"]
+    src = helpers_js.module_text(SURFACE)
+    init = helpers_js.statement_init(helpers_js.module_declaration(src, "MD_BLOCK_KINDS"), "MD_BLOCK_KINDS")
+    assert init.startswith("["), "md-surface.js has no MD_BLOCK_KINDS list"
+    return ["md:" + k for k in re.findall(r"'([a-z]+)'", init)] + ["md:section"]
 
 
 class MarkdownKinds(unittest.TestCase):

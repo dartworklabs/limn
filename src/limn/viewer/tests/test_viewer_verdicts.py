@@ -20,7 +20,7 @@ from urllib.parse import urlparse
 from limn.pins.location import source as pick_source
 
 import helpers_figure
-from helpers import ps, split_resp
+from helpers import ps, split_resp, sq
 from helpers_access import ALICE, BOB, member_add, member_set_role, talk_to
 from helpers_browser import (
     IME_END_AFTER,
@@ -1758,7 +1758,7 @@ class FunctionalUiFixes(VerdictBase):
         settle(page)
         self.assertEqual(page.locator(btn).inner_text(), "삭제")
         self.assertEqual(page.evaluate("document.querySelector('#sr-news').textContent"), "삭제 확정을 풀었습니다")
-        self.assertIn("disarmVerdict(true,true)", page.evaluate("String(armVerdict)"))
+        self.assertIn(sq("disarmVerdict(true,true)"), sq(page.evaluate("String(armVerdict)")))
 
     def test_a_new_build_lets_an_armed_word_go(self):
         """삭제 armed on a page line, then the PDF is drawn again from a new build: the press is let go - one more press arms

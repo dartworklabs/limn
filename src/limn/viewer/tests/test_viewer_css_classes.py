@@ -16,6 +16,8 @@ import re
 import unittest
 from pathlib import Path
 
+import helpers_js
+
 VIEWER = Path(__file__).resolve().parents[1]
 CSS_DIR = VIEWER / "css"
 JS_DIR = VIEWER / "js"
@@ -77,7 +79,7 @@ def writers() -> str:
     """The texts that can put a class on an element: the page template, the viewer scripts, and the Python under
     src/limn (server-made HTML), tests excepted."""
     parts = [(VIEWER / "index.html").read_text(encoding="utf-8")]
-    parts += [p.read_text(encoding="utf-8") for p in sorted(JS_DIR.glob("*.js"))]
+    parts += helpers_js.module_texts(sorted(JS_DIR.glob("*.ts")))  # the code, without its TypeScript types
     parts += [p.read_text(encoding="utf-8") for p in sorted(VIEWER.glob("*.mjs"))]
     parts += [p.read_text(encoding="utf-8") for p in sorted(SRC.rglob("*.py")) if "tests" not in p.parts]
     return "\n".join(parts)
@@ -112,7 +114,7 @@ class ViewerCssClasses(unittest.TestCase):
         """Each BUILT prefix is still joined to a value in a script ('nk-'+…, `ev-${…}`); each name it lists is selected by
         a rule, is not also written whole (then it needs no listing), and its value stands quoted in a script (a depth
         is a number) - so the list never outlives the family or names a value no script has."""
-        scripts = "\n".join(p.read_text(encoding="utf-8") for p in sorted(JS_DIR.glob("*.js")))
+        scripts = "\n".join(helpers_js.module_texts(sorted(JS_DIR.glob("*.ts"))))
         for prefix, (_, values) in BUILT.items():
             with self.subTest(prefix=prefix):
                 self.assertRegex(scripts, r"[\s'\"`]" + re.escape(prefix) + r"(?:['\"]\s*\+|\$\{)")

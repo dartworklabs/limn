@@ -2,10 +2,10 @@
 // §모듈 경계), in the spirit of tools/check_boundaries.py for the server.
 //
 // Each module has a feature (the capability it serves) and a role (what it does within it). The path says both:
-//   js/<feature>/<role>.js or js/<feature>/<role>-<topic>.js   a module of a feature
-//   js/platform/<name>.js                                      a shared mechanism (feature platform, role lib)
-//   js/main.js                                                 the entry point (feature entry, role main)
-// The 57 modules the conversion left flat (js/<name>.js) are not in place yet: LEGACY below says their feature and
+//   js/<feature>/<role>.ts or js/<feature>/<role>-<topic>.ts   a module of a feature
+//   js/platform/<name>.ts                                      a shared mechanism (feature platform, role lib)
+//   js/main.ts                                                 the entry point (feature entry, role main)
+// The 57 modules the conversion left flat (js/<name>.ts) are not in place yet: LEGACY below says their feature and
 // role instead, and each counts once as `unplaced` until it moves. A flat module LEGACY does not name is an error.
 //
 // The rules, over every import of every module listed in parts.txt (__APP_JS__):
@@ -29,6 +29,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAst } from 'rollup/parseAst';
+import { stripTypes } from './strip_types.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VIEWER = join(ROOT, 'src', 'limn', 'viewer');
@@ -81,17 +82,17 @@ export const ALLOWED = [
   ['revisions', 'text', "a text document's changes are shown as its lines"],
   ['composer', 'layout', 'the composer opens in the panel or sheet the frame shows'],
   ['composer', 'documents', 'a pin is made on the open document and its build'],
-  ['composer', 'pdf', 'a selection on a PDF page becomes the composer\'s place'],
-  ['composer', 'markdown', 'a selection on a Markdown document becomes the composer\'s place'],
+  ['composer', 'pdf', "a selection on a PDF page becomes the composer's place"],
+  ['composer', 'markdown', "a selection on a Markdown document becomes the composer's place"],
   ['composer', 'revisions', 'a suggested edit is shown as a diff'],
   ['pins', 'layout', 'the pin list sits in the panel or sheet the frame shows'],
-  ['pins', 'documents', "pins belong to a document and follow its builds"],
+  ['pins', 'documents', 'pins belong to a document and follow its builds'],
   ['pins', 'pdf', 'a pin is marked on its page and jumped to'],
   ['pins', 'markdown', 'a pin of a Markdown document is marked on its lines'],
   ['pins', 'revisions', "a pin's [변경 보기] opens the changes view"],
   ['pins', 'composer', 'editing or re-placing a pin reopens the composer'],
   ['verdict', 'layout', 'the verdict panel stands beside the pages when the frame has room'],
-  ['verdict', 'documents', "verdict words come from the open document"],
+  ['verdict', 'documents', 'verdict words come from the open document'],
   ['verdict', 'pdf', 'a page verdict belongs to the page being read'],
   ['verdict', 'markdown', 'a verdict reads the Markdown reading position'],
   ['verdict', 'composer', "a verdict is saved from the composer's verdict row"],
@@ -109,63 +110,63 @@ export const ALLOWED = [
 
 // The flat modules not yet in their feature folder: [feature, role], from what each does (parts.txt says it in a line).
 export const LEGACY = {
-  'js/core.js': ['app', 'state'],
-  'js/markup.js': ['platform', 'lib'],
-  'js/hidden-chars.js': ['platform', 'lib'],
-  'js/i18n.js': ['platform', 'lib'],
-  'js/prefs.js': ['platform', 'lib'],
-  'js/api.js': ['platform', 'lib'],
-  'js/notices.js': ['platform', 'lib'],
-  'js/tooltip.js': ['platform', 'lib'],
-  'js/doc-tabs.js': ['documents', 'view'],
-  'js/revisions.js': ['revisions', 'flow'],
-  'js/doc-switch.js': ['documents', 'flow'],
-  'js/boot.js': ['documents', 'flow'],
-  'js/polling.js': ['documents', 'api'],
-  'js/notify.js': ['documents', 'flow'],
-  'js/build-chip.js': ['documents', 'view'],
-  'js/updates.js': ['documents', 'flow'],
-  'js/status.js': ['documents', 'view'],
-  'js/panel-size.js': ['layout', 'state'],
-  'js/pages.js': ['pdf', 'view'],
-  'js/pdf-open.js': ['pdf', 'api'],
-  'js/outline.js': ['pdf', 'view'],
-  'js/page-list.js': ['pdf', 'view'],
-  'js/pdf-draw.js': ['pdf', 'view'],
-  'js/search.js': ['pdf', 'flow'],
-  'js/revision-zoom.js': ['revisions', 'input'],
-  'js/zoom.js': ['pdf', 'input'],
-  'js/layout.js': ['layout', 'flow'],
-  'js/gestures.js': ['layout', 'input'],
-  'js/selection.js': ['pdf', 'input'],
-  'js/levels.js': ['composer', 'view'],
-  'js/excerpt.js': ['composer', 'view'],
-  'js/figure.js': ['pdf', 'view'],
-  'js/md-surface.js': ['markdown', 'view'],
-  'js/text-surface.js': ['text', 'view'],
-  'js/md-compare.js': ['revisions', 'view'],
-  'js/suggest.js': ['composer', 'flow'],
-  'js/composer.js': ['composer', 'flow'],
-  'js/draft.js': ['composer', 'state'],
-  'js/save.js': ['composer', 'api'],
-  'js/offline.js': ['offline', 'api'],
-  'js/offline-ui.js': ['offline', 'view'],
-  'js/verdict.js': ['verdict', 'flow'],
-  'js/verdict-reason.js': ['verdict', 'flow'],
-  'js/verdict-panel.js': ['verdict', 'view'],
-  'js/sel-popover.js': ['composer', 'view'],
-  'js/card-parts.js': ['pins', 'view'],
-  'js/cards.js': ['pins', 'view'],
-  'js/review-pick.js': ['pins', 'flow'],
-  'js/list.js': ['pins', 'flow'],
-  'js/marks-hide.js': ['pins', 'input'],
-  'js/actions.js': ['pins', 'api'],
-  'js/mentions.js': ['pins', 'input'],
-  'js/reply.js': ['pins', 'flow'],
-  'js/edit.js': ['pins', 'flow'],
-  'js/repick.js': ['composer', 'flow'],
-  'js/rebuild.js': ['documents', 'flow'],
-  'js/events.js': ['entry', 'main'],
+  'js/core.ts': ['app', 'state'],
+  'js/markup.ts': ['platform', 'lib'],
+  'js/hidden-chars.ts': ['platform', 'lib'],
+  'js/i18n.ts': ['platform', 'lib'],
+  'js/prefs.ts': ['platform', 'lib'],
+  'js/api.ts': ['platform', 'lib'],
+  'js/notices.ts': ['platform', 'lib'],
+  'js/tooltip.ts': ['platform', 'lib'],
+  'js/doc-tabs.ts': ['documents', 'view'],
+  'js/revisions.ts': ['revisions', 'flow'],
+  'js/doc-switch.ts': ['documents', 'flow'],
+  'js/boot.ts': ['documents', 'flow'],
+  'js/polling.ts': ['documents', 'api'],
+  'js/notify.ts': ['documents', 'flow'],
+  'js/build-chip.ts': ['documents', 'view'],
+  'js/updates.ts': ['documents', 'flow'],
+  'js/status.ts': ['documents', 'view'],
+  'js/panel-size.ts': ['layout', 'state'],
+  'js/pages.ts': ['pdf', 'view'],
+  'js/pdf-open.ts': ['pdf', 'api'],
+  'js/outline.ts': ['pdf', 'view'],
+  'js/page-list.ts': ['pdf', 'view'],
+  'js/pdf-draw.ts': ['pdf', 'view'],
+  'js/search.ts': ['pdf', 'flow'],
+  'js/revision-zoom.ts': ['revisions', 'input'],
+  'js/zoom.ts': ['pdf', 'input'],
+  'js/layout.ts': ['layout', 'flow'],
+  'js/gestures.ts': ['layout', 'input'],
+  'js/selection.ts': ['pdf', 'input'],
+  'js/levels.ts': ['composer', 'view'],
+  'js/excerpt.ts': ['composer', 'view'],
+  'js/figure.ts': ['pdf', 'view'],
+  'js/md-surface.ts': ['markdown', 'view'],
+  'js/text-surface.ts': ['text', 'view'],
+  'js/md-compare.ts': ['revisions', 'view'],
+  'js/suggest.ts': ['composer', 'flow'],
+  'js/composer.ts': ['composer', 'flow'],
+  'js/draft.ts': ['composer', 'state'],
+  'js/save.ts': ['composer', 'api'],
+  'js/offline.ts': ['offline', 'api'],
+  'js/offline-ui.ts': ['offline', 'view'],
+  'js/verdict.ts': ['verdict', 'flow'],
+  'js/verdict-reason.ts': ['verdict', 'flow'],
+  'js/verdict-panel.ts': ['verdict', 'view'],
+  'js/sel-popover.ts': ['composer', 'view'],
+  'js/card-parts.ts': ['pins', 'view'],
+  'js/cards.ts': ['pins', 'view'],
+  'js/review-pick.ts': ['pins', 'flow'],
+  'js/list.ts': ['pins', 'flow'],
+  'js/marks-hide.ts': ['pins', 'input'],
+  'js/actions.ts': ['pins', 'api'],
+  'js/mentions.ts': ['pins', 'input'],
+  'js/reply.ts': ['pins', 'flow'],
+  'js/edit.ts': ['pins', 'flow'],
+  'js/repick.ts': ['composer', 'flow'],
+  'js/rebuild.ts': ['documents', 'flow'],
+  'js/events.ts': ['entry', 'main'],
 };
 
 export const RULES = ['cycle', 'feature-dependency', 'platform-isolation', 'role', 'unplaced'];
@@ -177,7 +178,10 @@ export function listedModules(viewer = VIEWER) {
   for (const raw of readFileSync(join(viewer, 'parts.txt'), 'utf8').split('\n')) {
     const line = raw.split('#')[0].trim();
     if (!line) continue;
-    if (/^__[A-Z_]+__$/.test(line)) { inJs = line === '__APP_JS__'; continue; }
+    if (/^__[A-Z_]+__$/.test(line)) {
+      inJs = line === '__APP_JS__';
+      continue;
+    }
     if (inJs) out.push(line);
   }
   return out;
@@ -186,16 +190,16 @@ export function listedModules(viewer = VIEWER) {
 /**
  * The feature and role of a module path, from its place or, for a flat module, from legacy; null for a flat module
  * legacy does not name.
- * @param {string} path a viewer-relative path such as js/pins/view-cards.js
+ * @param {string} path a viewer-relative path such as js/pins/view-cards.ts
  * @param {Record<string, string[]>} legacy
  * @returns {{feature: string, role: string, placed: boolean} | null}
  */
 export function placeOf(path, legacy = LEGACY) {
   const parts = path.split('/');
-  if (parts.length === 2 && parts[1] === 'main.js') return { feature: 'entry', role: 'main', placed: true };
+  if (parts.length === 2 && parts[1] === 'main.ts') return { feature: 'entry', role: 'main', placed: true };
   if (parts.length === 3 && parts[1] === 'platform') return { feature: 'platform', role: 'lib', placed: true };
   if (parts.length === 3) {
-    const role = parts[2].replace(/\.js$/, '').split('-')[0];
+    const role = parts[2].replace(/\.ts$/, '').split('-')[0];
     return { feature: parts[1], role, placed: true };
   }
   const known = legacy[path];
@@ -211,7 +215,8 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
   const features = new Set(Object.keys(FEATURES));
   const pairs = new Set();
   for (const [from, to, why] of allowed) {
-    if ((from !== ANY && !features.has(from)) || (to !== ANY && !features.has(to))) errors.push(`ALLOWED names an unknown feature: ${from} -> ${to}`);
+    if ((from !== ANY && !features.has(from)) || (to !== ANY && !features.has(to)))
+      errors.push(`ALLOWED names an unknown feature: ${from} -> ${to}`);
     if (!why || !why.trim()) errors.push(`ALLOWED ${from} -> ${to} has no reason`);
     if (pairs.has(`${to} ${from}`)) errors.push(`ALLOWED lists both ${from} -> ${to} and ${to} -> ${from}`);
     pairs.add(`${from} ${to}`);
@@ -219,25 +224,38 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
   // The listed directions between named features must be acyclic.
   const next = new Map();
   for (const [from, to] of allowed) if (from !== ANY && to !== ANY) next.set(from, [...(next.get(from) || []), to]);
-  const seen = new Set(), stack = new Set();
-  const visit = f => {
-    if (stack.has(f)) { errors.push(`ALLOWED has a cycle through ${f}`); return; }
+  const seen = new Set(),
+    stack = new Set();
+  const visit = (f) => {
+    if (stack.has(f)) {
+      errors.push(`ALLOWED has a cycle through ${f}`);
+      return;
+    }
     if (seen.has(f)) return;
-    seen.add(f); stack.add(f);
+    seen.add(f);
+    stack.add(f);
     for (const t of next.get(f) || []) visit(t);
     stack.delete(f);
   };
   for (const f of next.keys()) visit(f);
   for (const [path, [feature, role]] of Object.entries(legacy)) {
-    if (!features.has(feature) || !(role in ROLES)) errors.push(`LEGACY ${path}: unknown feature or role ${feature}/${role}`);
+    if (!features.has(feature) || !(role in ROLES))
+      errors.push(`LEGACY ${path}: unknown feature or role ${feature}/${role}`);
     if (!existsSync(join(viewer, path))) errors.push(`LEGACY ${path}: no such file - take its line out`);
   }
   for (const path of modules) {
     const place = placeOf(path, legacy);
-    if (!place) { errors.push(`${path}: a flat module LEGACY does not name - put it in js/<feature>/<role>.js`); continue; }
+    if (!place) {
+      errors.push(`${path}: a flat module LEGACY does not name - put it in js/<feature>/<role>.ts`);
+      continue;
+    }
     if (!features.has(place.feature)) errors.push(`${path}: unknown feature ${place.feature}`);
-    else if (!(place.role in ROLES)) errors.push(`${path}: unknown role ${place.role} (one of ${Object.keys(ROLES).join(', ')})`);
-    else if ((place.role === 'lib') !== (place.feature === 'platform') || (place.role === 'main') !== (place.feature === 'entry')) {
+    else if (!(place.role in ROLES))
+      errors.push(`${path}: unknown role ${place.role} (one of ${Object.keys(ROLES).join(', ')})`);
+    else if (
+      (place.role === 'lib') !== (place.feature === 'platform') ||
+      (place.role === 'main') !== (place.feature === 'entry')
+    ) {
       errors.push(`${path}: role ${place.role} does not belong in ${place.feature}`);
     }
   }
@@ -245,7 +263,8 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
 }
 
 /**
- * The modules each module imports, as viewer-relative paths (named and bare imports of relative paths).
+ * The modules each module imports, as viewer-relative paths (named and bare imports of relative paths). An import of
+ * types only (`import type`) is no import: the built script never runs it.
  * @param {string[]} modules
  * @param {string} viewer
  * @returns {Map<string, string[]>}
@@ -254,13 +273,20 @@ export function importGraph(modules, viewer = VIEWER) {
   const graph = new Map();
   for (const path of modules) {
     const file = join(viewer, path);
-    const ast = parseAst(readFileSync(file, 'utf8'));
+    const ast = parseAst(stripTypes(readFileSync(file, 'utf8'), path));
     const targets = [];
     for (const node of ast.body) {
-      if (node.type !== 'ImportDeclaration' && !(node.type === 'ExportNamedDeclaration' && node.source) && node.type !== 'ExportAllDeclaration') continue;
+      if (
+        node.type !== 'ImportDeclaration' &&
+        !(node.type === 'ExportNamedDeclaration' && node.source) &&
+        node.type !== 'ExportAllDeclaration'
+      )
+        continue;
       const spec = String(node.source.value);
       if (!spec.startsWith('.')) throw new Error(`${path}: imports ${spec}, which is not a module of the viewer`);
-      const target = relative(viewer, resolve(dirname(file), spec)).split(sep).join('/');
+      const target = relative(viewer, resolve(dirname(file), spec))
+        .split(sep)
+        .join('/');
       if (!targets.includes(target)) targets.push(target);
     }
     graph.set(path, targets);
@@ -274,18 +300,31 @@ export function importGraph(modules, viewer = VIEWER) {
  */
 function components(graph) {
   let index = 0;
-  const order = new Map(), low = new Map(), onStack = new Set(), stack = [], comp = new Map();
+  const order = new Map(),
+    low = new Map(),
+    onStack = new Set(),
+    stack = [],
+    comp = new Map();
   let n = 0;
-  const strong = v => {
-    order.set(v, index); low.set(v, index); index++;
-    stack.push(v); onStack.add(v);
+  const strong = (v) => {
+    order.set(v, index);
+    low.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
     for (const w of graph.get(v) || []) {
-      if (!order.has(w)) { strong(w); low.set(v, Math.min(low.get(v), low.get(w))); }
-      else if (onStack.has(w)) low.set(v, Math.min(low.get(v), order.get(w)));
+      if (!order.has(w)) {
+        strong(w);
+        low.set(v, Math.min(low.get(v), low.get(w)));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v), order.get(w)));
     }
     if (low.get(v) === order.get(v)) {
       let w;
-      do { w = stack.pop(); onStack.delete(w); comp.set(w, n); } while (w !== v);
+      do {
+        w = stack.pop();
+        onStack.delete(w);
+        comp.set(w, n);
+      } while (w !== v);
       n++;
     }
   };
@@ -302,14 +341,22 @@ function components(graph) {
  * @returns {Array<[string, string[]]>}
  */
 function reachedThroughPlatform(graph, start, legacy) {
-  const out = [], seen = new Set([start]), queue = [[start, []]];
+  const out = [],
+    seen = new Set([start]),
+    queue = [[start, []]];
   while (queue.length) {
     const [module, via] = queue.shift();
     const place = placeOf(module, legacy);
     if (!place) continue;
-    if (place.feature !== 'platform') { out.push([module, via]); continue; }
+    if (place.feature !== 'platform') {
+      out.push([module, via]);
+      continue;
+    }
     for (const next of graph.get(module) || []) {
-      if (!seen.has(next)) { seen.add(next); queue.push([next, [...via, module]]); }
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push([next, [...via, module]]);
+      }
     }
   }
   return out;
@@ -324,11 +371,12 @@ function reachedThroughPlatform(graph, start, legacy) {
 export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
   const out = [];
   const comp = components(graph);
-  const may = (from, to) => from === to || to === 'platform' || allowed.some(([a, b]) => (a === ANY || a === from) && (b === ANY || b === to));
+  const may = (from, to) =>
+    from === to || to === 'platform' || allowed.some(([a, b]) => (a === ANY || a === from) && (b === ANY || b === to));
   for (const [path, targets] of graph) {
     const place = placeOf(path, legacy);
     if (!place) continue;
-    if (!place.placed) out.push(['unplaced', path, `${path} belongs in js/${place.feature}/${place.role}.js (LEGACY)`]);
+    if (!place.placed) out.push(['unplaced', path, `${path} belongs in js/${place.feature}/${place.role}.ts (LEGACY)`]);
     for (const target of targets) {
       const to = placeOf(target, legacy);
       if (!to) continue;
@@ -337,17 +385,36 @@ export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
         // Paths count, not only direct imports: a platform module that reaches a feature through other platform
         // modules depends on it as much as the one that imports it.
         for (const [reached, via] of reachedThroughPlatform(graph, target, legacy)) {
-          out.push(['platform-isolation', path, `${path} (platform) reaches ${reached} (${placeOf(reached, legacy).feature})${via.length ? ' through ' + via.join(' -> ') : ''}`]);
+          out.push([
+            'platform-isolation',
+            path,
+            `${path} (platform) reaches ${reached} (${placeOf(reached, legacy).feature})${via.length ? ' through ' + via.join(' -> ') : ''}`,
+          ]);
         }
       } else if (!may(place.feature, to.feature)) {
-        out.push(['feature-dependency', path, `${path} (${place.feature}) imports ${target} (${to.feature}): ALLOWED has no ${place.feature} -> ${to.feature}`]);
+        out.push([
+          'feature-dependency',
+          path,
+          `${path} (${place.feature}) imports ${target} (${to.feature}): ALLOWED has no ${place.feature} -> ${to.feature}`,
+        ]);
       }
       const sameOrShared = to.feature === place.feature || to.feature === 'platform';
       if (to.role === 'main') out.push(['role', path, `${path} imports the entry point ${target}`]);
       else if (place.role === 'rules' && !(sameOrShared && (to.role === 'rules' || to.role === 'lib'))) {
-        out.push(['role', path, `${path} (rules) imports ${target} (${to.feature} ${to.role}): rules import only rules of their feature and platform`]);
-      } else if ((place.role === 'state' || place.role === 'api') && !((sameOrShared || to.feature === 'app') && ['rules', 'state', 'lib'].includes(to.role))) {
-        out.push(['role', path, `${path} (${place.role}) imports ${target} (${to.feature} ${to.role}): ${place.role} imports only rules and state of its feature, app and platform`]);
+        out.push([
+          'role',
+          path,
+          `${path} (rules) imports ${target} (${to.feature} ${to.role}): rules import only rules of their feature and platform`,
+        ]);
+      } else if (
+        (place.role === 'state' || place.role === 'api') &&
+        !((sameOrShared || to.feature === 'app') && ['rules', 'state', 'lib'].includes(to.role))
+      ) {
+        out.push([
+          'role',
+          path,
+          `${path} (${place.role}) imports ${target} (${to.feature} ${to.role}): ${place.role} imports only rules and state of its feature, app and platform`,
+        ]);
       }
     }
   }
@@ -359,7 +426,7 @@ export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
  * @param {Array<[string, string, string]>} found
  */
 export function counts(found) {
-  const out = Object.fromEntries(RULES.map(r => [r, {}]));
+  const out = Object.fromEntries(RULES.map((r) => [r, {}]));
   for (const [rule, path] of found) {
     const key = `src/limn/viewer/${path}`;
     out[rule][key] = (out[rule][key] || 0) + 1;
@@ -382,8 +449,10 @@ function main(argv) {
   }
   for (const [rule, , message] of found) console.log(`${rule}: ${message}`);
   const c = counts(found);
-  console.log(RULES.map(r => `${r} ${Object.values(c[r]).reduce((a, b) => a + b, 0)}`).join(', ') +
-    ` - tools/strict_ratchet.py holds these to tools/strict-baseline.json`);
+  console.log(
+    RULES.map((r) => `${r} ${Object.values(c[r]).reduce((a, b) => a + b, 0)}`).join(', ') +
+      ` - tools/strict_ratchet.py holds these to tools/strict-baseline.json`,
+  );
   return 0;
 }
 

@@ -71,8 +71,12 @@ assert len(SCRIPT_ELEMENT.findall(PAGE)) == 1, "the page must load its script on
 HTML = SCRIPT_ELEMENT.sub(lambda _: "<script>" + SCRIPT + "</script>", PAGE)
 UI_EN = VIEWER_FILES.messages
 SW_JS = VIEWER_FILES.service_worker
+# The script as sq() reads it, for the tests that look for a piece of code in it.
+SCRIPT_SQ = helpers_js.squash(SCRIPT)
 # The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
-VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.js").read_text(encoding="utf-8"))
+# Read from core.ts as written: a closed-set table carries no type annotation (its frozen type is inferred), so its TypeScript
+# reads as the script does, and no node is needed to import this module.
+VIEWER_CLOSED_SETS = helpers_js.closed_sets((PKG / "viewer" / "js" / "core.ts").read_text(encoding="utf-8"))
 
 
 def extract_js_fn(name: str) -> str:
@@ -124,37 +128,69 @@ function apiUnanswered(url,o,e){API_OUT=true; if(!o.silent&&!o.quietUnreached)ap
 """
 
 
+def js_const(name: str) -> str:
+    """The page's top-level `const|let|var` statement that declares NAME, whole and as written (helpers_js.declaration_source),
+    for a harness that needs the served table or constant instead of a copy. A name no script declares, or declares
+    twice, raises."""
+    return helpers_js.declaration_source(HTML, name)
+
+
+def js_fn_body(name: str) -> str:
+    """The text between the braces of the page's top-level function NAME, as written (helpers_js.function_body)."""
+    return helpers_js.function_body(HTML, name)
+
+
+def js_case_block(label: str) -> str:
+    """The text between the braces of the page's first `case 'LABEL':{...}` (helpers_js.case_block), as written."""
+    return helpers_js.case_block(HTML, label)
+
+
+def js_call(head: str) -> str:
+    """The page's first call expression that begins with head (`L.addEventListener('wheel'`), whole and as written
+    (helpers_js.call_source)."""
+    return helpers_js.call_source(HTML, head)
+
+
+def js_listener_body(target: str, event: str, mentioning: str = "") -> str:
+    """The block body of the first handler `target.addEventListener('EVENT', e => {...})` of the page whose body
+    mentions the name `mentioning`, as written (helpers_js.listener_body)."""
+    return helpers_js.listener_body(HTML, target, event, mentioning)
+
+
+def sq(js: str, fragment: bool = False) -> str:
+    """js as helpers_js.squash reads it: the same code in no layout. The viewer's source is formatted, so a test asks
+    whether sq(piece) is in sq(the code) - SCRIPT_SQ, or a function's body - and not whether one layout of it is."""
+    return helpers_js.squash(js, fragment)
+
+
 def js_markup() -> str:
-    """The viewer's markup module (js/markup.js: Html, html``, ic(), setHtml()) as served (helpers_js.module_code), for node harnesses that
+    """The viewer's markup module (js/markup.ts: Html, html``, ic(), setHtml()) as served (helpers_js.module_text, module_code), for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""
-    return helpers_js.module_code((VIEWER / "js" / "markup.js").read_text(encoding="utf-8"))
+    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "markup.ts"))
 
 
 def js_hidden_chars() -> str:
-    """The viewer's hidden-character module (js/hidden-chars.js: the repertoire, ccHtml, ccPlain, ...) as served (module_code), for
+    """The viewer's hidden-character module (js/hidden-chars.ts: the repertoire, ccHtml, ccPlain, ...) as served (module_text, module_code), for
     node harnesses that run a function showing a source's or a suggestion's text. ccHtml needs js_markup() and js_esc()."""
-    return helpers_js.module_code((VIEWER / "js" / "hidden-chars.js").read_text(encoding="utf-8"))
+    return helpers_js.module_code(helpers_js.module_text(VIEWER / "js" / "hidden-chars.ts"))
 
 
 def js_icons() -> str:
     """The viewer's Lucide icon table (ICONS) with the markup part that draws it (ic(), html``) — included together when
     running icon-drawing functions like card()/archiveRow() under node. Brings no esc(); add js_esc() if the harness
     has none."""
-    m = re.search(r"const ICONS=\{.*?\};", HTML)
-    return m.group(0) + "\n" + js_markup()
+    return js_const("ICONS") + "\n" + js_markup()
 
 
 def js_esc() -> str:
     """The viewer's own esc() (HTML-escapes &<>"' and turns null into ''), as the page defines it - for node harnesses
     that run functions building markup, so they escape exactly as the viewer does instead of with a pasted copy."""
-    return re.search(r"^const esc=.*;$", HTML, re.M).group(0)
+    return js_const("esc")
 
 
 def js_thread() -> str:
     """The native thread and card context renderers; callers supply actors, icons, and viewer state."""
-    ev = re.search(r"^const EV_LABEL=.*;$", HTML, re.M).group(0)
-    st = re.search(r"^const ST_NAME=.*;$", HTML, re.M).group(0)
-    mo = re.search(r"^const MSG_OPEN=.*;$", HTML, re.M).group(0)
+    ev, st, mo = js_const("EV_LABEL"), js_const("ST_NAME"), js_const("MSG_OPEN")
     return "\n".join(
         [ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")]
         + [

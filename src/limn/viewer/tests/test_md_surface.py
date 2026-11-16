@@ -12,13 +12,13 @@ Run: uv run pytest -q src/limn/viewer/tests/test_md_surface.py
 
 import json
 import os
-import re
 import shutil
 import unittest
 from pathlib import Path
 
 import limn
 
+import helpers_js
 from helpers import HTML, extract_js_fn, run_node
 
 BUNDLE = Path(limn.__file__).resolve().parent / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs"
@@ -264,10 +264,11 @@ def served_global(name: str) -> str:
     A pulled function reads such a table from the page's shared scope, which a node harness lacks; helpers.extract_js_fn
     brings only core.js's closed sets along, and this one is md-surface.js's. On globalThis (not a `var` inside the
     harness's own function) so the pulled top-level function resolves it. Raises for a name the page does not declare."""
-    m = re.search(r"^const %s=(.*);$" % re.escape(name), HTML, re.M)
-    if m is None:
-        raise AssertionError("the page declares no top-level const %s" % name)
-    return "globalThis.%s=%s;\n" % (name, m.group(1))
+    try:
+        init = helpers_js.declaration_init(HTML, name)
+    except LookupError:
+        raise AssertionError("the page declares no top-level const %s" % name) from None
+    return "globalThis.%s=%s;\n" % (name, init)
 
 
 def worker_rules() -> str:

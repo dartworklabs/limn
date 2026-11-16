@@ -15,9 +15,9 @@ import shutil
 import unittest
 
 from helpers import HTML, VIEWER, extract_js_fn, js_esc, js_markup, run_node
-from helpers_js import module_code
+from helpers_js import module_code, module_texts
 
-PARTS = ("js/hidden-chars.js", "js/text-surface.js")
+PARTS = ("js/hidden-chars.ts", "js/text-surface.ts")
 
 PY = [
     "import os",  # 1
@@ -42,9 +42,9 @@ BIB = ["@article{a,", "  title = {T},", "}", "", "@book{b,", "  title = {U},", "
 
 def served_parts() -> str:
     """The two modules exactly as the page's script serves them (each module's code is in the script byte for byte, its
-    import and export statements taken out), after the markup module ccHtml builds with and md-surface.js's mdSnippet,
+    types, import and export statements taken out), after the markup module ccHtml builds with and md-surface.js's mdSnippet,
     which a rung's snippet comes from."""
-    parts = [module_code((VIEWER / name).read_text(encoding="utf-8")) for name in PARTS]
+    parts = [module_code(text) for text in module_texts([VIEWER / name for name in PARTS])]
     for name, text in zip(PARTS, parts, strict=True):
         assert text in HTML, name  # the build joins the modules' code byte for byte (tools/build_viewer.mjs)
     return "\n".join([js_esc(), js_markup(), extract_js_fn("mdSnippet"), *parts])

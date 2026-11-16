@@ -31,8 +31,10 @@ from limn.security.access import LOCAL_ACTOR
 from limn.viewer import assemble
 from limn.web.errors import HTTPError, error_page_html
 
+import helpers_js
 from helpers import (
     HTML,
+    SCRIPT_SQ,
     UI_EN,
     ApplicationFixture,
     add_pin,
@@ -40,12 +42,14 @@ from helpers import (
     edit_stored,
     extract_js_fn,
     fresh_runtime,
+    js_const,
     page_for,
     run_config,
     run_node,
     script_page_for,
     serve_viewer,
     shut_wr,
+    sq,
 )
 from helpers_access import ALICE_ACTOR
 from helpers_authority import post_authority
@@ -104,7 +108,7 @@ def static_ui_strings(html):
 LIT = re.compile(r"'((?:[^'\\\n]|\\.)*)'|\"((?:[^\"\\\n]|\\.)*)\"")
 # A `name: 'text'` entry of a JS object literal. As in LIT, only the `\\.` branch takes a backslash, so each
 # character has one way to match and an unterminated quote fails at once instead of backtracking over the rest.
-ENTRY = re.compile(r"\w+:(['\"])((?:\\.|(?!\1)[^\\])*)\1")
+ENTRY = re.compile(r"\w+:\s*(['\"])((?:\\.|(?!\1)[^\\])*)\1")
 
 
 def first_arg(src, i):
@@ -190,9 +194,8 @@ class MessageTable(unittest.TestCase):
     def test_every_tooltip_text_has_a_translation(self):
         """The tooltip table T (core.js) reaches the screen through tr(T.x), which composed_keys() cannot see: every text
         in it has an English entry, so a new tooltip is never left in Korean."""
-        found = re.search(r"^const T=\{(.*?)^\};$", HTML, re.S | re.M)
-        assert found is not None, "core.js no longer declares `const T={...};` at line start"
-        texts = [re.sub(r"\\(.)", r"\1", m.group(2)) for m in ENTRY.finditer(found.group(1))]
+        table = js_const("T")
+        texts = [re.sub(r"\\(.)", r"\1", m.group(2)) for m in ENTRY.finditer(table)]
         self.assertGreater(len(texts), 20)
         self.assertEqual(sorted(t for t in texts if t not in UI_EN), [])
 
@@ -241,7 +244,7 @@ class Wiring(unittest.TestCase):
         self.assertNotIn("__UI_EN_JSON__", html)
         # build_html fills placeholders; keys must not contain them
         self.assertFalse([k for k in UI_EN if "__" in k])
-        m = re.search(r"I18N_EN=(\{.*?\}), I18N_ATTRS=", html, re.S)
+        m = re.search(r"I18N_EN\s*=\s*(\{.*?\}),\s*I18N_ATTRS\s*=", html, re.S)
         self.assertIsNotNone(m)
         self.assertEqual(json.loads(m.group(1).replace("<\\/", "</")), UI_EN)
         self.assertNotIn("</script", m.group(1))
@@ -263,10 +266,10 @@ class Wiring(unittest.TestCase):
         quotes what people wrote (o.literal: notifyShow, another document's name); boot starts the translator first; the
         language segment says which language it switches to."""
         for fn in ("lineNote", "bannerNote"):
-            self.assertIn("msg:o.literal?String(msg):trMsg(msg)", extract_js_fn(fn), fn)
-        self.assertIn("async function boot(){i18nStart();", HTML)
+            self.assertIn(sq("msg:o.literal?String(msg):trMsg(msg)"), sq(extract_js_fn(fn)), fn)
+        self.assertIn(sq("async function boot(){i18nStart();"), SCRIPT_SQ)
         self.assertIn('id="m-lang"', HTML)
-        self.assertIn("case 'lang':switchLang(a.dataset.lang);break;", HTML)  # the segment says which language
+        self.assertIn(sq("case 'lang':switchLang(a.dataset.lang);break;"), SCRIPT_SQ)  # the segment says which language
 
 
 class BrowserLanguage(ChromiumTestCase):
@@ -430,12 +433,11 @@ class PickWarnings(unittest.TestCase):
         """Run the viewer's real tr/tl/warnText (and its PICK_WARNS table) under node in lang; the JSON of body."""
         if not shutil.which("node"):
             self.skipTest("node not available")
-        table = re.search(r"const PICK_WARNS=\[.*?\];", HTML, re.S)
-        self.assertIsNotNone(table)
+        table = js_const("PICK_WARNS")
         js = "\n".join(
             [
                 "var LANG=%s,I18N_EN=%s;" % (json.dumps(lang), json.dumps(UI_EN, ensure_ascii=False)),
-                table.group(0),
+                table,
                 extract_js_fn("tr"),
                 extract_js_fn("tl"),
                 extract_js_fn("warnText"),
@@ -446,9 +448,8 @@ class PickWarnings(unittest.TestCase):
 
     def test_every_server_sentence_has_a_template_with_english(self):
         """Each warning sentence of location_http.PICK_WARNINGS is in PICK_WARNS (placeholders aside) and in the table."""
-        table = re.search(r"const PICK_WARNS=\[(.*?)\];", HTML, re.S)
-        self.assertIsNotNone(table)
-        templates = re.findall(r"'((?:[^'\\]|\\.)*)'", table.group(1))
+        table = helpers_js.declaration_init(HTML, "PICK_WARNS")
+        templates = re.findall(r"'((?:[^'\\]|\\.)*)'", table)
         self.assertEqual(sorted(re.sub(r"\{\w+\}", "{x}", t) for t in templates), sorted(pick_warning_sentences()))
         self.assertEqual([t for t in templates if not isinstance(UI_EN.get(t), str)], [])
 

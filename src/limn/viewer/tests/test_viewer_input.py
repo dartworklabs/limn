@@ -29,7 +29,7 @@ from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
 import helpers_figure
-from helpers import HTML, UI_EN, GatedBuild, add_pin, blank_png, extract_js_fn, ps, run_node, serve_viewer
+from helpers import UI_EN, GatedBuild, add_pin, blank_png, extract_js_fn, js_const, ps, run_node, serve_viewer
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import (
@@ -248,9 +248,7 @@ class GestureLogic(unittest.TestCase):
 
     def test_sheet_release_collapses_low_or_flung_down_and_steps_up_on_an_upward_fling(self):
         """Below 25% or a downward fling collapses (30% while composing); an upward fling goes to the next stop."""
-        pre = re.search(
-            r"const SHEET_F=\[[^\]]*\],SHEET_MIN_F=[\d.]+,SHEET_CLOSE_F=[\d.]+(?:,SHEET_COMPOSE_F=[\d.]+)?;", HTML
-        ).group(0)
+        pre = js_const("SHEET_F")  # the statement that also declares SHEET_MIN_F, SHEET_CLOSE_F and SHEET_COMPOSE_F
         got = self.run_js(
             ["sheetRelease"],
             "[sheetRelease(0.2,300,0.1,false),sheetRelease(0.2,300,0.1,true),"
@@ -276,7 +274,7 @@ class GestureLogic(unittest.TestCase):
     def test_tablet_sheet_lift_rises_only_as_far_as_needed_and_never_past_60_percent(self):
         """sheetLift(f, need): the tablet sheet's height while composing with the keyboard up - its own height when the
         location line, the note and the save row fit, else just what they need, at most 60%; a higher chosen height stays."""
-        pre = re.search(r"^const SHEET_TAB_LIFT_MAX=.*;", HTML, re.M).group(0)
+        pre = js_const("SHEET_TAB_LIFT_MAX")
         got = self.run_js(
             ["sheetLift"], "[sheetLift(0.45,0.39),sheetLift(0.45,0.52),sheetLift(0.45,0.8),sheetLift(0.64,0.8)]", pre
         )

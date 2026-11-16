@@ -24,7 +24,7 @@ from limn.pins.editing.values import SUGGEST_LINES_MAX
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
-from helpers import HTML, add_pin, extract_js_fn, ps, req, run_node
+from helpers import add_pin, extract_js_fn, js_const, ps, req, run_node
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
 from helpers_browser import MISSES_24, MISSES_44, BrowserBase, ime_compose, ime_end_with, settle
@@ -96,9 +96,7 @@ class SuggestLogic(unittest.TestCase):
 
     def run_js(self, names, body):
         """The served functions names and the suggestion constants, then body; its printed JSON."""
-        consts = "\n".join(
-            re.search(r"^const %s=[^;]*;" % n, HTML, re.M).group(0) for n in ("SUGGEST_LINES", "SUGGEST_FOLD")
-        )
+        consts = "\n".join(dict.fromkeys(js_const(n) for n in ("SUGGEST_LINES", "SUGGEST_FOLD")))
         return json.loads(run_node("\n".join([consts] + [extract_js_fn(n) for n in names] + [body])))
 
     def test_the_server_and_the_viewer_cap_a_suggestion_at_the_same_lines(self):

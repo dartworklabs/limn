@@ -67,6 +67,9 @@ jobs:
         run: npm run build:check
       - name: Viewer type check
         run: npm run typecheck
+      # Prettier's output is the viewer modules' layout (.prettierrc.json; .prettierignore names what it covers).
+      - name: Viewer format
+        run: npm run format:check
       # The viewer checks' own cases (tools/tests): the boundary rules and tables, and the local ESLint rules.
       - name: Viewer check tests
         run: npm test
@@ -106,7 +109,9 @@ jobs:
             markers: "not browser and not tex"
             workers: 4
     env:
-      # The node --check of the served page's scripts and the viewer's modules (src/limn/viewer/tests/test_viewer_files.py) must run here: node 22 is set up below.
+      # The node --check of the served page's scripts and the viewer's modules (src/limn/viewer/tests/test_viewer_files.py)
+      # must run here, and so must the tests that read a module's code (tests/support/helpers_js.py module_texts: its
+      # TypeScript types taken out with the viewer's dev tools): node 22 and `npm ci` are below.
       LIMN_TEST_REQUIRE_NODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -123,6 +128,8 @@ jobs:
           node-version: "22"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
+      - name: Install viewer dev tools
+        run: npm ci --ignore-scripts
       - name: Python tests
         run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}" -o faulthandler_timeout=600
 
@@ -210,6 +217,8 @@ jobs:
           node-version: "22"
       - name: Install dev dependencies
         run: uv sync --group dev --locked
+      - name: Install viewer dev tools
+        run: npm ci --ignore-scripts
       # The page-scoped Hangul test font (tests/support/helpers_browser_font.py) is fetched here, before the tests, and kept
       # under actions/cache by its pinned source: no test reads it from GitHub raw, where a read once timed out inside four
       # tests of a part. The fetch tries three times, a bounded wait apart; LIMN_TEST_FONT_PREFETCHED=1 on the test step

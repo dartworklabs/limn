@@ -28,7 +28,7 @@ from limn.administration import serve_documents as startup_documents
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.security.access import LOCAL_ACTOR
 
-from helpers import HTML, add_pin, extract_js_fn, js_i18n, ps, req, run_node
+from helpers import add_pin, extract_js_fn, js_const, js_i18n, ps, req, run_node
 from helpers_access import ALICE, BOB, actor
 from helpers_authority import post_authority
 from helpers_browser import BrowserBase, ChromiumTestCase, settle, until
@@ -480,7 +480,7 @@ const said=()=>LINE.map(n=>n.title+(n.desc?' — '+n.desc:''));
 UPDATE_VIEW_FNS = [
     "docUpdateView", "updPinMoved", "updSourceRedrawn", "lineChanges", "josaName", "isFigureKind", "isViewOnlyKind",
 ]  # fmt: skip
-GROUP_CONSTS = r"^const (?:NOTICE_MS|NOTICE_HOLD_MAX|LINE_MAX|DIGEST_MAX_MS)=\d+;"
+GROUP_CONSTS = ("NOTICE_MS", "NOTICE_HOLD_MAX", "LINE_MAX", "DIGEST_MAX_MS")
 
 
 class Grouping(unittest.TestCase):
@@ -490,7 +490,7 @@ class Grouping(unittest.TestCase):
         node_or_skip(self)
 
     def run_store(self, body):
-        consts = "\n".join(re.findall(GROUP_CONSTS, HTML, re.M))
+        consts = "\n".join(dict.fromkeys(js_const(n) for n in GROUP_CONSTS))
         return json.loads(
             run_node("\n".join([js_i18n("ko"), GROUP_PRELUDE, consts] + [extract_js_fn(n) for n in GROUP_FNS] + [body]))
         )

@@ -88,11 +88,11 @@ def test_every_check_and_rule_is_compared_and_a_new_rule_starts_at_zero():
 
 
 def test_the_baseline_lists_only_viewer_modules_with_violations():
-    """The committed baseline holds the three checks, each naming viewer JS modules only with positive counts (a rule
+    """The committed baseline holds the three checks, each naming viewer modules (.ts) only with positive counts (a rule
     leaves it once it is met)."""
     baseline = json.loads((ROOT / "tools" / "strict-baseline.json").read_text(encoding="utf-8"))
     assert sorted(baseline) == ["boundaries", "eslint", "tsc-strict"]
     tables = [baseline["tsc-strict"], *baseline["eslint"].values(), *baseline["boundaries"].values()]
     for counts in tables:
         assert counts
-        assert all(k.startswith("src/limn/viewer/js/") and k.endswith(".js") and v > 0 for k, v in counts.items())
+        assert all(k.startswith("src/limn/viewer/js/") and k.endswith(".ts") and v > 0 for k, v in counts.items())

@@ -1,9 +1,10 @@
 // Builds the viewer's one script, src/limn/viewer/dist/viewer.js, from its ES modules (docs/adr/0042-viewer-es-modules.md,
-// docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
+// docs/adr/0043-viewer-typescript.md, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
 //
-// The modules are src/limn/viewer/js/*.js, listed in parts.txt under __APP_JS__ in the order they run. Rollup (the exact
+// The modules are src/limn/viewer/js/*.ts, listed in parts.txt under __APP_JS__ in the order they run. Each module's
+// types are taken out first (tools/strip_types.mjs: only the types, every other byte as written), then Rollup (the exact
 // version package-lock.json pins) joins them into one file: no tree-shaking, no minifying, no renaming - every module's
-// text goes in as written, with its import and export statements taken out. The order is parts.txt's: the build puts a
+// code goes in as written, with its types, imports and exports taken out. The order is parts.txt's: the build puts a
 // bare `import '<previous module>'` in front of each module before Rollup reads it, and since every module then waits on
 // the one listed before it, a module's top-level code (its listeners, its let and const values) runs in exactly the
 // list's order, whatever the modules import from each other. The build fails if the joined order is not the list's.
@@ -19,6 +20,7 @@ import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { rollup } from 'rollup';
+import { stripTypes } from './strip_types.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const VIEWER = join(ROOT, 'src', 'limn', 'viewer');
@@ -36,7 +38,10 @@ function moduleOrder() {
   for (const raw of readFileSync(join(VIEWER, 'parts.txt'), 'utf8').split('\n')) {
     const line = raw.split('#')[0].trim();
     if (!line) continue;
-    if (/^__[A-Z_]+__$/.test(line)) { inJs = line === '__APP_JS__'; continue; }
+    if (/^__[A-Z_]+__$/.test(line)) {
+      inJs = line === '__APP_JS__';
+      continue;
+    }
     if (inJs) out.push(line);
   }
   if (!out.length) throw new Error('parts.txt lists no module under __APP_JS__');
@@ -44,7 +49,18 @@ function moduleOrder() {
 }
 
 /** The viewer-relative POSIX path of an absolute module id. */
-const rel = id => relative(VIEWER, id).split(sep).join('/');
+const rel = (id) => relative(VIEWER, id).split(sep).join('/');
+
+/** The Rollup plugin that takes the types out of each module before anything else reads it (tools/strip_types.mjs). */
+function types() {
+  return {
+    name: 'limn-strip-types',
+    /** @param {string} code @param {string} id */
+    transform(code, id) {
+      return id === ENTRY ? null : { code: stripTypes(code, rel(id)), map: null };
+    },
+  };
+}
 
 /**
  * The Rollup plugin that makes the list's order the run order: each listed module but the first gets a bare import of
@@ -73,7 +89,7 @@ function listOrder(order) {
       if (!spec.startsWith('.')) spec = './' + spec;
       // In front of the module's first import (Rollup drops the text between two imports it removes, so the banner
       // comment above the imports stays only if nothing is put before it), or at the top of a module with none.
-      const first = this.parse(code).body.find(node => node.type === 'ImportDeclaration');
+      const first = this.parse(code).body.find((node) => node.type === 'ImportDeclaration');
       const at = first ? first.start : 0;
       return { code: `${code.slice(0, at)}import '${spec}';\n${code.slice(at)}`, map: null };
     },
@@ -86,7 +102,7 @@ export async function build() {
   const bundle = await rollup({
     input: ENTRY,
     treeshake: false,
-    plugins: [listOrder(order)],
+    plugins: [types(), listOrder(order)],
     onwarn(warning) {
       if (warning.code === 'CIRCULAR_DEPENDENCY') return;
       throw new Error(`rollup: ${warning.code}: ${warning.message}`);
@@ -96,7 +112,7 @@ export async function build() {
     const { output } = await bundle.generate({ format: 'es', banner: BANNER, sourcemap: false });
     if (output.length !== 1) throw new Error(`rollup wrote ${output.length} files, not one`);
     const [chunk] = output;
-    const ran = chunk.moduleIds.filter(id => id !== ENTRY).map(rel);
+    const ran = chunk.moduleIds.filter((id) => id !== ENTRY).map(rel);
     if (ran.join('\n') !== order.join('\n')) {
       throw new Error(`the modules would run in another order than parts.txt lists them:\n${ran.join('\n')}`);
     }
@@ -113,7 +129,11 @@ async function main(argv) {
   const code = await build();
   if (argv.includes('--check')) {
     let committed = '';
-    try { committed = readFileSync(OUT, 'utf8'); } catch { /* a missing file is stale */ }
+    try {
+      committed = readFileSync(OUT, 'utf8');
+    } catch {
+      /* a missing file is stale */
+    }
     if (committed !== code) {
       console.error(`${relative(ROOT, OUT)} is not what the modules build: run \`npm run build\` and commit it`);
       return 1;

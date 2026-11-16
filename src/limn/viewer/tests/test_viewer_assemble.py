@@ -41,9 +41,9 @@ def viewer_folder(root: Path, page: str = PAGE) -> Path:
     (root / "dist" / "viewer.js").write_text("".join(SCRIPT_PARTS), encoding="utf-8")
     (root / "index.html").write_text(page, encoding="utf-8")
     (root / "css" / "a.css").write_text("b{}\n", encoding="utf-8")
-    (root / "js" / "one.js").write_text(SCRIPT_PARTS[0], encoding="utf-8")
-    (root / "js" / "two.js").write_text(SCRIPT_PARTS[1], encoding="utf-8")
-    (root / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/one.js\njs/two.js\n", encoding="utf-8")
+    (root / "js" / "one.ts").write_text(SCRIPT_PARTS[0], encoding="utf-8")
+    (root / "js" / "two.ts").write_text(SCRIPT_PARTS[1], encoding="utf-8")
+    (root / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/one.ts\njs/two.ts\n", encoding="utf-8")
     return root
 
 

@@ -36,60 +36,60 @@ css/text-surface.css    # the text surface: a text document's monospace lines, t
 css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column, block and word marks, gutter chips
 
 __APP_JS__
-js/core.js              # DOM helpers, icons, shared state and its setters, the tooltip texts (T)
-js/markup.js            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
-js/hidden-chars.js      # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
-js/i18n.js              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
-js/prefs.js             # per-device preferences (pinPrefs), list-section state, theme
-js/api.js               # api() and how a failed request is said, copy
-js/notices.js           # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends
-js/tooltip.js           # hover/focus tooltips, the touch long-press tooltip, explanations for screen readers
-js/doc-tabs.js          # several documents: the list, tabs and links
-js/revisions.js         # the changes view: source diff, comparison PDF, [변경 보기] from a pin
-js/doc-switch.js        # the documents sheet, remembered view positions, switching documents
-js/boot.js              # boot() and the header: meta, stale and sync badges, viewer role
-js/polling.js           # meta polling, other documents' builds, status-line messages for pins changed elsewhere
-js/notify.js            # browser notifications and pin links (#doc=&pin=)
-js/build-chip.js        # build progress polling and its chip
-js/updates.js           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
-js/status.js            # the status line: its items, text, progress bar and place per band
-js/panel-size.js        # outline width, panel width and sheet height, their presets
-js/pages.js             # the page elements, page width and zoom steps, page jump
-js/pdf-open.js          # PDF.js: loading, the document cache, opening the current build
-js/outline.js           # the PDF outline and the section strip
-js/page-list.js         # the page list: the page counts' popover and the navigation sheet's page rows
-js/pdf-draw.js          # PDF.js: canvases, what to draw next, rendering pages
-js/search.js            # in-document text search: reading page text, matching, the field per layout, hit boxes
-js/revision-zoom.js     # Comparison PDF geometry, rendering and input
-js/zoom.js              # PDF-area zoom input: Ctrl+wheel, pinch, keys
-js/layout.js            # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
-js/gestures.js          # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
-js/selection.js         # drag and quick selection on the PDF, double-tap zoom
-js/levels.js            # the range ladder, line nudges, source snippets, the location-confidence badge
-js/excerpt.js           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
-js/figure.js            # figure documents: the chosen element's box and path
-js/md-surface.js        # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
-js/text-surface.js      # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
-js/md-compare.js        # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
-js/suggest.js           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
-js/composer.js          # pick() and the composer: overlap banner, kind, question hint, discard and restore
-js/draft.js             # the composer draft kept per tab (sessionStorage)
-js/save.js              # saving a pin, appending to one, the queued save
-js/offline.js           # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
-js/offline-ui.js        # the queued pins on screen: their marks on the page, their rows in the panel
-js/verdict.js           # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
-js/verdict-reason.js    # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
-js/verdict-panel.js     # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
-js/sel-popover.js       # the note popover by the selection box (mouse layouts)
-js/card-parts.js        # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
-js/cards.js             # the open and review card, archive and Trash rows, the Trash dialog
-js/review-pick.js       # confirming several pins awaiting review from their result rows (ADR-0035)
-js/list.js              # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
-js/marks-hide.js        # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
-js/actions.js           # close, confirm, reopen, drop, purge, restore, unclaim
-js/mentions.js          # @-tag autocomplete, preview and the assignee choice
-js/reply.js             # the reply box and its outcome line
-js/edit.js              # the edit card
-js/repick.js            # re-placing a pin's location
-js/rebuild.js           # view anchors, refreshing the document, the build error panel, rebuild
-js/events.js            # help dialog, the click and key dispatch, and the call to boot()
+js/core.ts              # DOM helpers, icons, shared state and its setters, the tooltip texts (T)
+js/markup.ts            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
+js/hidden-chars.ts      # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
+js/i18n.ts              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
+js/prefs.ts             # per-device preferences (pinPrefs), list-section state, theme
+js/api.ts               # api() and how a failed request is said, copy
+js/notices.ts           # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends
+js/tooltip.ts           # hover/focus tooltips, the touch long-press tooltip, explanations for screen readers
+js/doc-tabs.ts          # several documents: the list, tabs and links
+js/revisions.ts         # the changes view: source diff, comparison PDF, [변경 보기] from a pin
+js/doc-switch.ts        # the documents sheet, remembered view positions, switching documents
+js/boot.ts              # boot() and the header: meta, stale and sync badges, viewer role
+js/polling.ts           # meta polling, other documents' builds, status-line messages for pins changed elsewhere
+js/notify.ts            # browser notifications and pin links (#doc=&pin=)
+js/build-chip.ts        # build progress polling and its chip
+js/updates.ts           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
+js/status.ts            # the status line: its items, text, progress bar and place per band
+js/panel-size.ts        # outline width, panel width and sheet height, their presets
+js/pages.ts             # the page elements, page width and zoom steps, page jump
+js/pdf-open.ts          # PDF.js: loading, the document cache, opening the current build
+js/outline.ts           # the PDF outline and the section strip
+js/page-list.ts         # the page list: the page counts' popover and the navigation sheet's page rows
+js/pdf-draw.ts          # PDF.js: canvases, what to draw next, rendering pages
+js/search.ts            # in-document text search: reading page text, matching, the field per layout, hit boxes
+js/revision-zoom.ts     # Comparison PDF geometry, rendering and input
+js/zoom.ts              # PDF-area zoom input: Ctrl+wheel, pinch, keys
+js/layout.ts            # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
+js/gestures.ts          # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
+js/selection.ts         # drag and quick selection on the PDF, double-tap zoom
+js/levels.ts            # the range ladder, line nudges, source snippets, the location-confidence badge
+js/excerpt.ts           # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
+js/figure.ts            # figure documents: the chosen element's box and path
+js/md-surface.ts        # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks
+js/text-surface.ts      # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
+js/md-compare.ts        # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
+js/suggest.ts           # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
+js/composer.ts          # pick() and the composer: overlap banner, kind, question hint, discard and restore
+js/draft.ts             # the composer draft kept per tab (sessionStorage)
+js/save.ts              # saving a pin, appending to one, the queued save
+js/offline.ts           # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
+js/offline-ui.ts        # the queued pins on screen: their marks on the page, their rows in the panel
+js/verdict.ts           # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
+js/verdict-reason.ts    # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
+js/verdict-panel.ts     # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
+js/sel-popover.ts       # the note popover by the selection box (mouse layouts)
+js/card-parts.ts        # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
+js/cards.ts             # the open and review card, archive and Trash rows, the Trash dialog
+js/review-pick.ts       # confirming several pins awaiting review from their result rows (ADR-0035)
+js/list.ts              # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
+js/marks-hide.ts        # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
+js/actions.ts           # close, confirm, reopen, drop, purge, restore, unclaim
+js/mentions.ts          # @-tag autocomplete, preview and the assignee choice
+js/reply.ts             # the reply box and its outcome line
+js/edit.ts              # the edit card
+js/repick.ts            # re-placing a pin's location
+js/rebuild.ts           # view anchors, refreshing the document, the build error panel, rebuild
+js/events.ts            # help dialog, the click and key dispatch, and the call to boot()

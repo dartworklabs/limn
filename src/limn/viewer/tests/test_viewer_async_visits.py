@@ -1,6 +1,7 @@
 """Keep delayed viewer requests from changing a later document visit."""
 
 import json
+import re
 import shutil
 import unittest
 
@@ -578,9 +579,12 @@ class VisitLocalContinuations(unittest.TestCase):
 
     def test_revision_import_finishing_after_switch_does_not_start_pdf(self):
         """A late PDF.js module import cannot attach a loading task to another document's revision view."""
-        source = extract_js_fn("loadRevisionPdf").replace(
-            "await import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V)", "await delayedImport()"
+        source, n = re.subn(
+            r"await import\(\s*'/vendor/pdfjs/pdf\.min\.mjs\?v='\s*\+\s*PDFJS_V\s*\)",
+            "await delayedImport()",
+            extract_js_fn("loadRevisionPdf"),
         )
+        self.assertEqual(n, 1, "loadRevisionPdf no longer awaits the PDF.js import by that call")
         js = "\n".join(
             [
                 source,
