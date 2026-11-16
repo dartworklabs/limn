@@ -11,7 +11,7 @@ const EVENT_TYPE = Object.freeze({
   DROPPED: 'dropped',
 }); // an event's `type` (events.EventType)
 const UI_LANG = Object.freeze({ KO: 'ko', EN: 'en' }); // LANG
-// what a message reports (notices.ts): its icon, colour and how it is read out
+// what a message reports (platform/notices.ts): its icon, colour and how it is read out
 const NOTICE_KIND = Object.freeze({ OK: 'ok', WARN: 'warn', ERR: 'err', INFO: 'info' });
 const NOTICE_PLACE = Object.freeze({
   LINE: 'line',
@@ -20,7 +20,7 @@ const NOTICE_PLACE = Object.freeze({
   ROW: 'row',
   CARD: 'card',
   TRASH: 'trash',
-}); // where a message is drawn (notices.ts)
+}); // where a message is drawn (platform/notices.ts)
 const NOTICE_HOST = Object.freeze({
   COMPOSER: 'composer',
   LIST: 'list',

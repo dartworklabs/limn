@@ -73,11 +73,11 @@ function commonPageWidth() {
 function pageWidth(ptw, scale) {
   return Math.max(1, Math.round(ptw * scale));
 }
-// Every page box sits in a block of its own (.pgw) that a page verdict line (verdict.ts) joins under it: the line is
-// sticky to the bottom of the PDF area within that block, so it floats while its page is in view and settles under the
-// page at its end - in one block with every page it would float over the next pages' lines.
+// Every page box sits in a block of its own (.pgw) that a page verdict line (verdict/flow-line.ts) joins under it: the
+// line is sticky to the bottom of the PDF area within that block, so it floats while its page is in view and settles
+// under the page at its end - in one block with every page it would float over the next pages' lines.
 function buildDoc() {
-  // A document the browser draws from its source has no pages (md-surface.ts).
+  // A document the browser draws from its source has no pages (markdown/view.ts).
   if (isMarkdownDoc()) {
     COMPOSE.box = null;
     buildMarkdownDoc();

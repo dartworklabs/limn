@@ -170,7 +170,7 @@ async function pick(region) {
     }
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
     // composer opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back
-    // (offline.ts).
+    // (offline/flow.ts).
     const failure = error as ApiError;
     if (!repick && !(failure && failure.status) && !isMarkdownDoc()) {
       void offlinePick(region);
@@ -252,9 +252,9 @@ async function pick(region) {
   // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
-  // Drag -> straight into the note field - the popover's by the box while it is open (sel-popover.ts), else the
-  // composer's. Never focused on touch - the virtual keyboard would pop up immediately and cover the range ladder and
-  // page.
+  // Drag -> straight into the note field - the popover's by the box while it is open
+  // (composer/view-selection-popover.ts), else the composer's. Never focused on touch - the virtual keyboard would pop
+  // up immediately and cover the range ladder and page.
   if (LAST_POINTER === 'mouse')
     (isSelectionPopoverOpen() ? SELECTION_POPOVER_FIELD : $('#note')).focus({ preventScroll: true });
   // If [핀 저장] was pressed while the pick was still running, the queued save runs here (COMPOSE.current has just been
@@ -364,8 +364,8 @@ function overlapShort(rel, id) {
 // field. The range ladder and excerpt are hidden.
 function renderRegionComposer(selection) {
   $('#composer').classList.add('region');
-  // A selection made while cut off (offline.ts offlinePick) has this shape and no file yet: its lines are found when it
-  // is sent.
+  // A selection made while cut off (offline/flow.ts offlinePick) has this shape and no file yet: its lines are found
+  // when it is sent.
   $('#c-loc').textContent =
     (selection.name ? selection.name + ' · ' : '') + translateTemplate('쪽 {page} 영역', { page: selection.page });
   $('#c-loc').dataset.copy = (selection.name ? selection.name + ' ' : '') + '쪽 ' + selection.page;
@@ -458,9 +458,9 @@ function renderComposer() {
   $('#c-expand').textContent = SNIP_OPEN
     ? translate('원문 접기')
     : translate('원문 펼치기') + (lineCount > 1 ? ' · ' + translateTemplate('{n}줄', { n: lineCount }) : '');
-  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (excerpt.ts)
+  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (composer/view-excerpt.ts)
   drawComposerQuote(selection);
-  renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (suggest.ts)
+  renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (composer/flow-suggest.ts)
   drawSelectionPopover(); // the popover by the box shows the same location
   markChosenLines(shownChoice()); // the chosen lines on the Markdown surface (a re-place's candidate while it has one)
 }
@@ -526,7 +526,7 @@ function drawComposerQuote(selection: Selection | null) {
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet
 // collapses (the body comes forward again). The composer panel's pin kind (fix request / question). Reverts to fix
 // request on save or discard (the default for the next pin). The kind says what the note is, not who handles it: the
-// assignee does not follow it (mentions.ts).
+// assignee does not follow it (pins/input-mentions.ts).
 function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
@@ -537,7 +537,7 @@ function setKind(kind) {
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   });
-  roveSegment($('#c-kind')); // the group's one Tab stop is the kind now chosen (events.ts)
+  roveSegment($('#c-kind')); // the group's one Tab stop is the kind now chosen (platform/segments.ts)
   $('#note').placeholder =
     KIND_NEW === REQUEST_KIND.QUESTION ? '무엇이 궁금한지 적어 주세요' : '메모: 여기를 어떻게 고칠지 (비워도 됩니다)';
   syncQuestionHint($('#c-qhint'), $('#note').value, KIND_NEW);
@@ -618,7 +618,7 @@ function selectionSnapshot() {
 // selection, its box and the composer when they still belong to the pages on screen (same document and build; the box
 // if its page is still there). Never over a newer selection - that one wins. When only the note can come back (the PDF
 // changed), the status line says so. Returns whether anything came back. focus false: the note field does not take the
-// focus (a late undo's answer, save.ts).
+// focus (a late undo's answer, composer/flow-save.ts).
 function restoreSelection(snapshot, focus?: boolean) {
   if (!snapshot || COMPOSE.current || COMPOSE.picking || REPICK || !$('#composer').hidden) return false;
   const noteField = $('#note');

@@ -4,7 +4,7 @@
 // page only once a query asks for it, after any page that is being drawn, and kept for as long as that document object
 // is open (one per build). A hit lies within one page and may run over its line ends; its boxes - one for each line it
 // lies on - are drawn over the page from the text items' geometry, in page fractions like a mark. No text layer is
-// added - a drag on the page stays a region selection (pdf-open.ts).
+// added - a drag on the page stays a region selection (pdf/flow-open.ts).
 // - Matching: searchFold() on both sides (case, Unicode composition and width, runs of spaces, curly quotes and
 //   dashes), then searchPattern(): a line break is a space or nothing, and a hyphen that ends a line may be left out.
 // - Where the field is: in the nav bar when there is room (inline), folded to a magnifier when there is not (icon), and
@@ -782,7 +782,7 @@ function searchPaint() {
 }
 // A page's text in PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
 // text is read - the search reads every page through it, and a selection made with no network the page it was drawn
-// on (offline.ts offlineQuote). Rejects as PDF.js does when the page cannot be read.
+// on (offline/flow.ts offlineQuote). Rejects as PDF.js does when the page cannot be read.
 async function pageText(doc: any, pageNumber: number): Promise<{ items: any[]; styles: any; vp: any }> {
   const page = await doc.getPage(pageNumber),
     textContent = await page.getTextContent(),
@@ -1134,7 +1134,7 @@ function searchFrom(previous: Element | null) {
 }
 // The shortcut, the magnifier and the navigation sheet's row: discloses the field and puts the focus in it with its
 // text selected, remembering what had the focus. The short band hides its top row while a panel field is typed in
-// (body.typing, layout.ts): the row comes back for the field - the focus then leaves the panel field, so the class
+// (body.typing, layout/flow.ts): the row comes back for the field - the focus then leaves the panel field, so the class
 // would go anyway. Returns false, the search left as it was, when the field does not take the focus: it is not offered
 // (the changes view, no PDF), or its row is out of the layout for another reason - the shortcut is then the browser's,
 // and the search is never left open without the focus in its field.
@@ -1288,7 +1288,7 @@ document.addEventListener(
   true,
 );
 // Keys in the search: Enter is the next hit and Shift+Enter the previous (not while an input method composes); Esc ends
-// the search. Neither reaches the viewer's own keys (events.ts), so Esc here never cancels a selection or a draft - but
+// the search. Neither reaches the viewer's own keys (main.ts), so Esc here never cancels a selection or a draft - but
 // with the search closed and empty (the focus on its magnifier) there is nothing to end, and Esc is the viewer's.
 $('#doc-search').addEventListener('keydown', (event) => {
   if (imeKey(event)) return;
@@ -1319,7 +1319,7 @@ if (window.ResizeObserver) {
   fitObserver.observe($('#doc-nav'));
   fitObserver.observe($('#search-box'));
   for (const child of $('#doc-nav').children) if (child.id !== 'doc-search') fitObserver.observe(child);
-  // The short band moves the status line into the bar (status.ts); a new message changes its width.
+  // The short band moves the status line into the bar (documents/view-status.ts); a new message changes its width.
   fitObserver.observe($('#status'));
 }
 // ... or not: while the field holds the status to a max-width its box keeps that width whatever it says, so a new

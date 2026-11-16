@@ -7,8 +7,8 @@
 // (SEEN_STATE), seenN how many commits it compares with the newest and seenIds which (the server's count, never the
 // list's positions); rangeIds the commits the shown range compares (the server's commit_ids; null until it answers),
 // rangeBase its old side; listOpen whether the phone shows every loaded row; rangeLine the range's summary for the
-// status line, and rangeN its commit and file counts (the rendered compare's status line takes them, md-compare.ts
-// sayCompareStatus).
+// status line, and rangeN its commit and file counts (the rendered compare's status line takes them,
+// revisions/view-rendered-compare.ts sayCompareStatus).
 import { DOC, DONE_ALL, LAYOUT, OPEN_ALL, REVIEW_ALL, SWITCHSEQ } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
@@ -444,11 +444,11 @@ async function loadRevisions() {
     drawRange();
     return;
   }
-  // Opened by a document's update message (updates.ts openUpdateRange): the commits it named - after the last seen one
-  // (base) up to the newest it named (top; the newest row without one) - as a range in the source diff, the list
-  // painting what the server says the range holds. Commits above top (the checkout ahead of the shown build, one come
-  // since) stay out, also when the list is read again for a new build: the range keeps the message's base and its end
-  // (endSet).
+  // Opened by a document's update message (documents/flow-updates.ts openUpdateRange): the commits it named - after the
+  // last seen one (base) up to the newest it named (top; the newest row without one) - as a range in the source diff,
+  // the list painting what the server says the range holds. Commits above top (the checkout ahead of the shown build,
+  // one come since) stay out, also when the list is read again for a new build: the range keeps the message's base and
+  // its end (endSet).
   const want = REVISION_VIEW.want;
   REVISION_VIEW.want = null;
   if (want && want.base && !isFigure) {
@@ -563,7 +563,7 @@ function revisionKey() {
 // Shows a range: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is
 // built only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format
 // undefined: the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps
-// the tab shown, for a range too: its rendered compare builds nothing (md-compare.ts).
+// the tab shown, for a range too: its rendered compare builds nothing (revisions/view-rendered-compare.ts).
 function showRange(range: RevRange, format?: string) {
   REVISION_VIEW.range = range;
   const request = rangeRequest(REVISION_VIEW.rows, range, REVISION_VIEW.seen);
@@ -618,7 +618,7 @@ function drawRange() {
       count.textContent =
         seenState === SEEN_STATE.OK ? String(REVISION_VIEW.seenN) : seenState === SEEN_STATE.PENDING ? '…' : '';
   }
-  roveSegment($('#revision-range')); // the group's one Tab stop is the range now chosen (events.ts)
+  roveSegment($('#revision-range')); // the group's one Tab stop is the range now chosen (platform/segments.ts)
   renderCommitList();
 }
 // A commit's time as the list shows it: MM-DD HH:MM of its ISO commit time (the committer's own clock), else its date.
@@ -991,7 +991,7 @@ function drawRevisionSide() {
     button.classList.toggle('on', on);
     button.disabled = none && button.dataset.side === OVERLAY_SIDE.PREV;
   }
-  roveSegment($('#revision-side')); // the group's one Tab stop is the side now chosen (events.ts)
+  roveSegment($('#revision-side')); // the group's one Tab stop is the side now chosen (platform/segments.ts)
   $('#revision-overlay').dataset.side = REVISION_VIEW.side;
 }
 // Shows the previous build's pages (side PREV, when there is one) or the current build's.

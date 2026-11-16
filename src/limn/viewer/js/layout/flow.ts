@@ -209,7 +209,7 @@ function applySide() {
   body.classList.toggle('side-open', open || !!(SIDE_SLIDE && SIDE_SLIDE.kind === 'closing'));
   body.classList.toggle('composing', composing);
   if (!composing) setSheetKept(false);
-  // The phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.ts).
+  // The phone sheet's composing lift; the tablet sheet's is tabletLift (layout/flow-panel-size.ts).
   body.classList.toggle('sheet-up', composing && !SHEET_KEPT && BAND === LAYOUT_BAND.PHONE);
   // The toggles' names: the review count only where its pill sits inside them (the wide nav bar); every compact bar's
   // [핀 N] names what it shows first and leaves the count to its own half [검토 M].
@@ -560,7 +560,7 @@ document.addEventListener('keydown', holdCaret, true);
 // caret there as in a writable field - five lines a page - and lines it up with the scrollers outside as well, so the
 // pane would move from the middle of the field on either key. So their default is dropped there too, and the field
 // scrolls by Chromium's own page step (7/8 of what it shows), the caret where it stands.
-// outline.ts's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host.
+// pdf/view-outline.ts's SCROLL_KEYS also holds the arrows and Space, which stay a field's keys on every host.
 const PAGE_KEYS = new Set(['PageUp', 'PageDown']);
 // Chromium's page scroll: 7/8 of what the scroller shows, in whole pixels.
 const PAGE_STEP = 0.875;
@@ -674,10 +674,10 @@ function keepFieldInView() {
   field.scrollIntoView({ block: 'nearest' });
   if (field === $('#note')) noteRowInView();
 }
-// The composer's verdict row (verdict.ts) sits right under the note: with the note focused on a touch screen the panel
-// scrolls on until the row clears the save row too - only as far as the field being typed in stays whole under what is
-// above it: the location line stuck at the top (a compact sheet or panel), else the panel's own top with the location
-// line itself in view. A row that cannot fit beside the note stays where it is.
+// The composer's verdict row (verdict/flow-line.ts) sits right under the note: with the note focused on a touch screen
+// the panel scrolls on until the row clears the save row too - only as far as the field being typed in stays whole
+// under what is above it: the location line stuck at the top (a compact sheet or panel), else the panel's own top with
+// the location line itself in view. A row that cannot fit beside the note stays where it is.
 function noteRowInView() {
   const row = $('#c-verdict-row');
   if (row.hidden || !row.getClientRects().length) return;
@@ -882,7 +882,7 @@ document.fonts.addEventListener('loadingdone', () => {
 });
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
-// the Trash, in cards.ts).
+// the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
   $(dialogSelector).addEventListener('click', (event) => {
     const dialog = event.currentTarget;

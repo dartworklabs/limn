@@ -12,8 +12,8 @@ import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 import { COMPOSE } from './flow-pick.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
-// A Markdown document's rungs (md-surface.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a
-// section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
+// A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
+// env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
 function wireScope(scope) {
   return scope === 'blocks' ? 'lines' : scope;
@@ -112,7 +112,7 @@ function drawLadder(box, owner, isEdit) {
   if (rungCount >= 2) revealSegment(box); // .lad-t: the drawn track inside the scroll box
   roveSegment(box);
   keepSegmentFocus(box, at);
-} // one Tab stop, the rung matching the range (else the first), and the focus kept (events.ts)
+} // one Tab stop, the rung matching the range (else the first), and the focus kept (main.ts)
 // The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and
 // their count, whatever set them (a rung or the excerpt). When the ladder is hidden (one rung) and the range is that
 // rung, its name follows ('범위 L5 · 1줄 · 문단'); with a ladder, its checked segment names it. An edit card's own

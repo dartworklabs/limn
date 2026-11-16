@@ -87,9 +87,9 @@ function syncHiddenNotifyTimer() {
 }
 // Applies connection and document status only to the visit that sent the request; notifications remain independent of
 // document visits. Back after AWAY_MS without an answer (the tab hidden, the device asleep, the connection lost), what
-// this poll and the build it may set going say is gathered into one message (notices.ts digestBegin,
+// this poll and the build it may set going say is gathered into one message (platform/notices.ts digestBegin,
 // docs/handbook/viewer.md §새 소식); a poll back from that, or one every VERSION_EVERY_MS, asks which Limn the server
-// runs (updates.ts checkVersion).
+// runs (documents/flow-updates.ts checkVersion).
 let LIGHT_OK_AT = 0;
 const AWAY_MS = 120000;
 async function pollLightOnce() {
@@ -129,7 +129,7 @@ async function pollLightOnce() {
   POLL_FAILS = 0;
   $('#conn-lost').hidden = true;
   if (back || was > 0 || versionDue()) checkVersion();
-  // the connection is back: the pins kept while it was gone are written (offline.ts)
+  // the connection is back: the pins kept while it was gone are written (offline/flow.ts)
   if (was > 0 && OFF.n) void offlineFlush();
   updateStaleBadge(meta);
   updateSyncBadge(meta.sync);
@@ -149,7 +149,7 @@ async function pollLightOnce() {
   if (isMarkdownDoc() && meta.src_mtime !== MARKDOWN_VIEW.mtime && meta.src_mtime !== MARKDOWN_VIEW.asked) {
     MARKDOWN_VIEW.asked = meta.src_mtime;
     buildMarkdownDoc();
-    // a tree image rewritten on disk shows without a reload (md-surface.ts)
+    // a tree image rewritten on disk shows without a reload (markdown/view.ts)
   } else if (isMarkdownDoc()) void checkTreeImages();
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;
@@ -167,8 +167,8 @@ async function pollLightOnce() {
 // Reflects another document's staleness/in-progress build on its tab, and if that document's build finished in the
 // background, says so on the status line with [열기] - a success for NOTICE_MS, a failure until [x] - and drops the
 // meta cache (a fresh page when you switch back). A finished build of another document - or a new source of another
-// Markdown or text document - is its update: said as that document's update message with [열기] (updates.ts
-// checkDocUpdate, docs/handbook/viewer.md §새 소식).
+// Markdown or text document - is its update: said as that document's update message with [열기]
+// (documents/flow-updates.ts checkDocUpdate, docs/handbook/viewer.md §새 소식).
 function noteOtherDocs(list) {
   if (!Array.isArray(list) || !list.length) return;
   let redraw = false;

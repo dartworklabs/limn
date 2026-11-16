@@ -208,7 +208,7 @@ document.addEventListener('click', (event) => {
       break; // the status line's [그래도 빌드]: a cold build
     case 'offline-prepare':
       void offlinePrepare();
-      break; // [더보기]'s [오프라인으로 받기] (offline.ts)
+      break; // [더보기]'s [오프라인으로 받기] (offline/flow.ts)
     case 'offline-flush':
       void offlineFlush();
       break; // the status line's [지금 반영]: send the kept pins now
@@ -226,7 +226,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'marks-toggle':
       marksSet(!MARKS.off);
-      break; // [더보기]'s [핀 표시] switch (marks-hide.ts)
+      break; // [더보기]'s [핀 표시] switch (pins/input-hide-marks.ts)
     case 'theme':
       setTheme(control.dataset.theme);
       break;
@@ -252,14 +252,14 @@ document.addEventListener('click', (event) => {
     case 'verdict-save':
     case 'pv-save':
       verdictPress(control, event.detail === 0 ? 'kb' : undefined);
-      break; // a verdict word's button: the composer's row or a page verdict line (verdict.ts)
+      break; // a verdict word's button: the composer's row or a page verdict line (verdict/flow-line.ts)
     case 'pv-earlier':
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break;
     case 'pv-cancel':
       cancelLineVerdict(control);
-      break; // a page line's [판정 취소] on the person's own open verdict (verdict.ts)
-    // a page line's reason and its popover (verdict-reason.ts)
+      break; // a page line's [판정 취소] on the person's own open verdict (verdict/flow-line.ts)
+    // a page line's reason and its popover (verdict/flow-reason.ts)
     case 'pv-reason-open':
     case 'pv-reason-save':
     case 'pv-reason-clear':
@@ -271,10 +271,10 @@ document.addEventListener('click', (event) => {
       break;
     case 'pv-sum':
       goToSummaryPage(control);
-      break; // a page's summary beside the verdict panel brings that page to it (verdict-panel.ts)
+      break; // a page's summary beside the verdict panel brings that page to it (verdict/view-panel.ts)
     case 'pv-undo':
       undoFromLine(control);
-      break; // a take-back's [되돌리기] on its line (verdict.ts)
+      break; // a take-back's [되돌리기] on its line (verdict/flow-line.ts)
     case 'pop-more':
       handPopoverToComposer();
       break; // the note popover by the box hands over to the composer in the panel
@@ -306,7 +306,7 @@ document.addEventListener('click', (event) => {
     case 'sg-reload':
     case 'sg-rebase':
       suggestAct(control, String(control.dataset.act));
-      break; // a suggested edit's switch and line (suggest.ts)
+      break; // a suggested edit's switch and line (composer/flow-suggest.ts)
     case 'sg-fold': {
       const key = control.dataset.key;
       if (!key) break;
@@ -358,10 +358,10 @@ document.addEventListener('click', (event) => {
     }
     case 'el-show':
       showElementBox();
-      break; // the composer's element path: show the chosen element's box on the page (figure.ts)
+      break; // the composer's element path: show the chosen element's box on the page (pdf/view-figure.ts)
     case 'doc-more':
       toggleDocMenu();
-      break; // [+N]: the documents popover (doc-tabs.ts)
+      break; // [+N]: the documents popover (documents/view-tabs.ts)
     case 'nav-sheet':
       openNavigationSheet();
       break;
@@ -439,7 +439,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'rv-card':
       if (id != null) goToReviewCard(id);
-      break; // confirming from result rows (review-pick.ts)
+      break; // confirming from result rows (pins/flow-review-pick.ts)
     case 'list-order':
       setListOrder(control.dataset.order);
       break;
@@ -572,10 +572,10 @@ document.addEventListener('click', (event) => {
       break; // an in-document #heading link of the Markdown surface
     case 'md-doc':
       goToDocLink(control);
-      break; // a link to another registered document (md-surface.ts, ADR-0030)
+      break; // a link to another registered document (markdown/view.ts, ADR-0030)
     case 'md-html-run':
       toggleHtmlRun(control);
-      break; // a run of raw HTML blocks opens or closes (md-surface.ts)
+      break; // a run of raw HTML blocks opens or closes (markdown/view.ts)
     case 'repick':
       startRepick();
       break;
@@ -692,7 +692,7 @@ function passLadderBoxFocus(event: FocusEvent) {
 document.addEventListener('focusin', passLadderBoxFocus);
 
 document.addEventListener('keydown', (event) => {
-  if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (core.ts)
+  if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (app/state.ts)
   const target = event.target as HTMLElement,
     inField =
       target &&
@@ -845,7 +845,7 @@ document.addEventListener('keydown', (event) => {
       event.preventDefault();
       setReviewPicking(false);
       return;
-    } // the review section's pick, from inside it (review-pick.ts)
+    } // the review section's pick, from inside it (pins/flow-review-pick.ts)
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above is cancelled first).
     if (LAYOUT === LAYOUT_MODE.MID && MID_OVERLAY && SIDE_OPEN) {
       event.preventDefault();

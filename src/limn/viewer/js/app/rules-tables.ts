@@ -1,4 +1,4 @@
-// ------------------------------------------------ The app's closed value tables (platform/tables.ts has the platform's)
+// ----------------------------------------------- The app's closed value tables (platform/tables.ts has the platform's)
 // Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is
 // a member of one frozen table here, never a string literal at the comparison. The first group comes from the server
 // and must equal its strings exactly (src/limn/viewer/tests/test_viewer_source.py compares each table with the server's
@@ -102,7 +102,7 @@ const STATUS_KIND = Object.freeze({
   SYNC: 'sync',
   PNG: 'png',
 }); // an item of the status line (statusList)
-// where a verdict button is (verdict.ts): the composer's verdict row or a page verdict line
+// where a verdict button is (verdict/flow-line.ts): the composer's verdict row or a page verdict line
 const VERDICT_PLACE = Object.freeze({ COMPOSER: 'composer', PAGE: 'page' });
 // what a comment's time says (stampText); a .rt's data-form
 const STAMP_FORM = Object.freeze({ BOTH: 'both', SHORT: 'short', EDITED: 'edited' });
@@ -117,7 +117,7 @@ const MARKDOWN_LIMIT = Object.freeze({
   LOAD: 'load',
   ERROR: 'error',
   NUL: 'nul',
-}); // the limit a Markdown document's drawing hit (md-surface.ts, MARKDOWN_LIMITS): #md's data-limit
+}); // the limit a Markdown document's drawing hit (markdown/view.ts, MARKDOWN_LIMITS): #md's data-limit
 export {
   PIN_STATE,
   BUILD_STATE,

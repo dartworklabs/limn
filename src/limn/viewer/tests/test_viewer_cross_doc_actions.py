@@ -57,7 +57,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 }
                 """,
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 *(extract_js_fn(name) for name in functions),
                 scenario,
             ]

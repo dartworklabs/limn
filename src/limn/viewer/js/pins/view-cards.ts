@@ -58,7 +58,7 @@ import { EDITOR } from './flow-edit.ts';
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access. */
 function card(pin: Pin) {
-  pin = dropPageLineOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict.ts)
+  pin = dropPageLineOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict/flow-line.ts)
   const loc = 'L' + pin.lo + '-L' + pin.hi,
     name =
       pin.name ||
@@ -166,7 +166,7 @@ function card(pin: Pin) {
   const fyi = fyiTag(pin);
   if (fyi) tags.push(fyi); // a fix pin's FYI @-tags
   const suggestTag = suggestBadge(pin, closedCard);
-  if (suggestTag) tags.push(suggestTag); // a suggested edit, and why not to apply it (suggest.ts)
+  if (suggestTag) tags.push(suggestTag); // a suggested edit, and why not to apply it (composer/flow-suggest.ts)
   const inReview = pinState(pin) === PIN_STATE.REVIEW;
   const quote = cardQuote(pin); // the dragged PDF text, one line above the note
   if (inReview)
@@ -495,7 +495,7 @@ ${relSpan(pin.dropped_at, 'arc-t', translateTemplate('삭제한 사람 {name} ·
 // the Trash shows every document while open for another document's pin - the list's own filter (SHOW_ALL) is untouched
 let TRASH_ALL = false;
 // Draws the Trash's rows, newest first (all documents with TRASH_ALL), leaving out a row whose permanent delete waits,
-// whose undo row (notices.ts) goes in its place. A focus on a control in the list stays in it (trashRefocus).
+// whose undo row (platform/notices.ts) goes in its place. A focus on a control in the list stays in it (trashRefocus).
 function drawTrash() {
   const dropped = TRASH_ALL ? DROPPED : listDropped(),
     box = $('#trash-list');

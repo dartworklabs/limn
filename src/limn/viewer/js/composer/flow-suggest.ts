@@ -185,9 +185,9 @@ function suggestDiffHtml(rows: { k: string; t: string; n: number }[]): Html {
       : html`<span class="rd-line rd-${row.k === 'ctx' ? 'context' : row.k}"><span class="rd-no" aria-hidden="true">${row.n}</span><span class="rd-code">${row.k === 'add' ? '+' : row.k === 'del' ? '-' : ' '}${markHiddenHtml(row.t)}</span></span>`,
   )}</div>`;
 }
-// What a draft's text holds of the characters that would hide or reorder text (hidden-chars.ts), which the editor (a
-// textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name, count]],
-// countAddedHidden) and how many it has in all; null when it has none. Pure.
+// What a draft's text holds of the characters that would hide or reorder text (platform/hidden-chars.ts), which the
+// editor (a textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name,
+// count]], countAddedHidden) and how many it has in all; null when it has none. Pure.
 function suggestHidden(draft: SuggestDraft): { added: [string, number][]; n: number } | null {
   if (draft.base == null) return null;
   let count = 0;
@@ -258,7 +258,7 @@ ${translate('수정해서 원문에 맞추기')}</button>`
 // or cannot be compared ('확인 불가'): a pin's `suggest_state`. A closed card shows the plain badge: a closed pin is
 // not re-synced, and one whose suggestion was applied reads as changed. null without a suggestion. The two warning
 // badges are .tip-shown: the card's line over the diff (suggestWarnLine) says what their explanation says, so they
-// carry no words for a screen reader (tooltip.ts); their explanation box stays.
+// carry no words for a screen reader (platform/tooltip.ts); their explanation box stays.
 function suggestBadge(pin: Pin, closed: boolean): Html | null {
   if (!pin.suggest) return null;
   const state = closed ? SUGGEST_STATE.READY : pin.suggest_state;

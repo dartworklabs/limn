@@ -285,7 +285,7 @@ function renderSizeSegment() {
     box,
     html`${names.map((name, index) => html`<button class="${index === checkedIndex ? 'on' : ''}" role="radio" aria-checked="${index === checkedIndex}" data-act="size-preset" data-i="${index}">${name}</button>`)}`,
   );
-  // One Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (events.ts).
+  // One Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (main.ts).
   roveSegment(box);
   keepSegmentFocus(box, at);
 }

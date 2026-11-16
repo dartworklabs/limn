@@ -712,7 +712,7 @@ function showDraftLine(page: number) {
   if (IS_BESIDE_PAGES) {
     bringPage(page);
     stickReadingLine();
-  } // beside the pages the panel is the line, once the page is read (verdict-panel.ts)
+  } // beside the pages the panel is the line, once the page is read (verdict/view-panel.ts)
   const line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
   if (!line) return;
   if (!IS_BESIDE_PAGES) {
@@ -1195,7 +1195,7 @@ function settleFailedCancelDraft(slot: string) {
 }
 // [되돌리기] brought verdict pin id back (a cancel's, the save chip's): its kept draft opens again on its line, without
 // the focus - only while it is that line's current verdict (a newer verdict of someone else's keeps the line;
-// verdict.ts says so).
+// verdict/flow-line.ts says so).
 function reviveReason(id: number) {
   const draft = getDraft(DOC, id),
     pin = findReasonPin(id);
@@ -2207,12 +2207,12 @@ $('#doc').addEventListener('compositionend', (event) => {
   setTimeout(runComposedWaits, 0);
 });
 // Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there
-// still holds it (core.ts imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or under
-// the pages (shouldStandBeside) and the pages are not built again (refreshDoc, afterComposition) until it ends and that
-// key lets go. Moved or rebuilt, the field would be a new one: the old one's composition would end with it, the input
-// method's commit would land on top of the text carried over (its last syllable doubled), and the Enter ibus-hangul
-// hands on after the commit, with its repeats, would reach the new field as the viewer's - writing the reason and
-// closing the popover.
+// still holds it (app/state.ts imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or
+// under the pages (shouldStandBeside) and the pages are not built again (refreshDoc, afterComposition) until it ends
+// and that key lets go. Moved or rebuilt, the field would be a new one: the old one's composition would end with it,
+// the input method's commit would land on top of the text carried over (its last syllable doubled), and the Enter
+// ibus-hangul hands on after the commit, with its repeats, would reach the new field as the viewer's - writing the
+// reason and closing the popover.
 function isComposingNow() {
   if (COMPOSING_FIELD && COMPOSING_FIELD.isConnected) return true;
   const field = imeHeldIn();
@@ -2241,8 +2241,8 @@ function afterComposition(): Promise<void> {
 }
 // After a composition ended, unless another began meanwhile or the key that ended it still holds the field: the
 // rebuilds that waited go on, and the lines move if the room crossed its bar while it lasted. Held, it looks again once
-// that key lets the field go (core.ts IME_ON_FREE): up, another key, forgotten, or IME_HOLD_MS with no event of its
-// own.
+// that key lets the field go (app/state.ts IME_ON_FREE): up, another key, forgotten, or IME_HOLD_MS with no event of
+// its own.
 function runComposedWaits() {
   if (isComposingNow()) return;
   COMPOSED_WAITS.splice(0).forEach((go) => go());
@@ -2575,7 +2575,7 @@ addEventListener(
   },
   true,
 );
-// A popover's buttons and the line's reason (events.ts).
+// A popover's buttons and the line's reason (main.ts).
 function actOnReason(control: HTMLElement) {
   const act = control.dataset.act,
     line = control.closest('.pv'),

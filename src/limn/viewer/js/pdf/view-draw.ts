@@ -1,7 +1,7 @@
 // ------------------------------------------ Vector rendering: drawing the pages (docs/handbook/viewer.md §벡터 렌더링)
-// The pages of the PDF pdf-open.ts opened, drawn onto canvases one job at a time: pages within the viewport first, each
-// page's canvas sized to the screen, a detail canvas over a capped one, and every canvas released when its page scrolls
-// out of reach.
+// The pages of the PDF pdf/flow-open.ts opened, drawn onto canvases one job at a time: pages within the viewport first,
+// each page's canvas sized to the screen, a detail canvas over a capped one, and every canvas released when its page
+// scrolls out of reach.
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import {
   VECTOR_PDF,

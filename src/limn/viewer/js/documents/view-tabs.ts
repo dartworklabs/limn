@@ -479,7 +479,7 @@ function docMenuNext() {
 // filter too (the shortcut is otherwise not taken inside a text field). Tab leaves the popover forward: from the filter
 // to the list's row, from a row out - the popover shuts and the focus goes to the bar's next stop after the button;
 // Shift+Tab goes back: from a row to the filter, from the filter (or a row with no filter) out to the button, the
-// popover shut. Esc is the viewer's (events.ts): it shuts the popover with the focus on the button.
+// popover shut. Esc is the viewer's (main.ts): it shuts the popover with the focus on the button.
 $('#doc-more').addEventListener('keydown', (event) => {
   if (event.key === 'ArrowDown' && !event.altKey) {
     event.preventDefault();

@@ -914,7 +914,7 @@ class FrontendVectorLogic(unittest.TestCase):
                 extract_js_fn("cancelVectorDraw"),
                 extract_js_fn("nextDrawJob"),
                 extract_js_fn("openVectorDocument"),
-                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (markdown/view.ts)
+                "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 r"""
             function $(sel){return {hidden:false};}
             function withDocQuery(u){return u;}

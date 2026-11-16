@@ -291,11 +291,11 @@ async function savePin(verdict?: string) {
   const hints = mentionHints($('#note'));
   if (hints.length) body.mentions = hints;
   // Cut off, or a selection whose lines were never found (offlinePick): the pin goes into this browser's queue and is
-  // written when the connection is back (offline.ts §Sending the queue). The composer closes as a save does, so the
-  // next pin can be drawn straight away. A verdict is not kept this way - it is a word of the document's that only the
-  // server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as going
-  // until the queue has answered: let go before that, a second press while the store is still opening would keep the
-  // same selection twice, under two keys, and reconnecting would write two pins.
+  // written when the connection is back (offline/flow.ts §Sending the queue). The composer closes as a save does, so
+  // the next pin can be drawn straight away. A verdict is not kept this way - it is a word of the document's that only
+  // the server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as
+  // going until the queue has answered: let go before that, a second press while the store is still opening would keep
+  // the same selection twice, under two keys, and reconnecting would write two pins.
   if ((selection as any).offline || offlineNow()) {
     const done = () => {
       COMPOSE.saving = false;
@@ -353,7 +353,7 @@ async function savePin(verdict?: string) {
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
-    // On a figure document the verdict is the figure's, whatever element the selection names (verdict.ts
+    // On a figure document the verdict is the figure's, whatever element the selection names (verdict/flow-line.ts
     // figureVerdictBody).
     const figureBody = figureVerdictBody(selection);
     if (figureBody)
@@ -404,7 +404,7 @@ async function savePin(verdict?: string) {
         // Not there, or the list could not be read either. A save that waited out its time (ended at API_WAIT.SAVE,
         // an AbortError) met a server that does not answer: the connection went before the poll could say so. A
         // plain pin is then kept in the queue as one whose write was tried - with the key it went with and the pins
-        // that stood before it - so the send asks whether it arrived before writing it (offline.ts §Sending the
+        // that stood before it - so the send asks whether it arrived before writing it (offline/flow.ts §Sending the
         // queue), and the composer closes as a save does. A save the network refuses at once is a failure,
         // said above the save row with [다시 저장]; so is a pin the queue will not take.
         if (

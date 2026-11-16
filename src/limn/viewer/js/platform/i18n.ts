@@ -131,7 +131,7 @@ function i18nStart() {
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  roveSegment($('#m-lang')); // the group's one Tab stop is the language now chosen (events.ts)
+  roveSegment($('#m-lang')); // the group's one Tab stop is the language now chosen (platform/segments.ts)
   if (LANG !== UI_LANG.EN) return;
   i18nTree(document.body);
   new MutationObserver((mutations) => {

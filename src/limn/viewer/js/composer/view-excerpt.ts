@@ -41,8 +41,8 @@ function excerptRows(first, last, lineCount, open) {
   return out;
 }
 // Each selection's or edit card's source lines (line -> text, null when the server gave none) and the ones being
-// fetched. Kept beside the object, not on it: the composer's selection is written to the tab's draft (draft.ts) as
-// JSON.
+// fetched. Kept beside the object, not on it: the composer's selection is written to the tab's draft
+// (composer/flow-draft.ts) as JSON.
 const EXCERPT_LINES = new WeakMap(),
   EXCERPT_FETCHING = new WeakSet();
 // The line cache of owner - a selection or an edit card - in EXCERPT_LINES, made on first use.
@@ -150,7 +150,7 @@ function drawExcerpt(owner, box, isEdit) {
     text = (line) => {
       const lineText = lines.get(line);
       return lineText == null ? '…' : markHiddenHtml(lineText);
-    }; // a character that would hide or reorder the line in its box (hidden-chars.ts)
+    }; // a character that would hide or reorder the line in its box (platform/hidden-chars.ts)
   const rows = excerptRows(owner.lo, owner.hi, owner.n_lines || owner.hi, !isEdit && SNIP_OPEN).map((row) =>
     row.kind === 'fold'
       ? html`<div class="xp-fold">… ${translateTemplate('{n}줄', { n: row.n })}</div>`

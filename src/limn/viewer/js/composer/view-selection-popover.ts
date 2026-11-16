@@ -3,9 +3,9 @@
 // location, a note field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the
 // composer's note - one value, edited from either place - and [저장] and Ctrl/⌘+Enter take savePin(), the composer's
 // own path, so the saved chip with its undo and every rule of §알림 자리 hold unchanged. '@' in the field offers the
-// composer's @-list by the field; a pick's tag is kept on the composer's note (mentions.ts mentionModel). [자세히 →]
-// hands over to the composer in the panel, which keeps the kind, the range and the overlap. Esc and a short click off
-// the box cancel the selection as they do without it; a press on the popover is a press inside the box
+// composer's @-list by the field; a pick's tag is kept on the composer's note (pins/input-mentions.ts mentionModel).
+// [자세히 →] hands over to the composer in the panel, which keeps the kind, the range and the overlap. Esc and a short
+// click off the box cancel the selection as they do without it; a press on the popover is a press inside the box
 // (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
 import { KIND_NEW, LAST_POINTER, LAYOUT, REPICK } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
@@ -136,8 +136,8 @@ function placeSelectionPopover() {
   }
 }
 // One note: what is typed here is the composer's note (its @-tag preview, assignee row, question hint and draft
-// follow), and what is typed in the composer shows here (a name picked there from the @-list too: mentions.ts
-// mentionMirror).
+// follow), and what is typed in the composer shows here (a name picked there from the @-list too:
+// pins/input-mentions.ts mentionMirror).
 SELECTION_POPOVER_FIELD.addEventListener('input', () => {
   const noteField = $('#note') as HTMLTextAreaElement;
   noteField.value = SELECTION_POPOVER_FIELD.value;

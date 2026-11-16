@@ -250,9 +250,9 @@ function rowsAround(rows: { top: number; bottom: number }[], current: number, co
   const first = Math.max(0, Math.min(current - Math.floor((count - 1) / 2), rows.length - count));
   return [first, Math.min(rows.length - 1, first + count - 1)];
 }
-// The keyboard coming up or going changes the sheet's height (--vvh, layout.ts, which runs first): the sheet is fitted
-// again - at the current section, or under a filter from the result at the top of the list - so no row is left cut at
-// the new edges.
+// The keyboard coming up or going changes the sheet's height (--vvh, layout/flow.ts, which runs first): the sheet is
+// fitted again - at the current section, or under a filter from the result at the top of the list - so no row is left
+// cut at the new edges.
 for (const target of [window.visualViewport, window])
   if (target)
     target.addEventListener('resize', () => {
@@ -275,8 +275,8 @@ for (const target of [window.visualViewport, window])
           );
         });
     });
-// The sheet's filter has drawn its list again (outline.ts): fitted from the first result, keeping the sheet's height -
-// or, emptied, back at the current section.
+// The sheet's filter has drawn its list again (pdf/view-outline.ts): fitted from the first result, keeping the sheet's
+// height - or, emptied, back at the current section.
 function refitFilteredSheet() {
   const sheet = $('#nav-sheet') as HTMLDialogElement;
   if (!sheet.open) return;
@@ -333,7 +333,7 @@ function drawNavigationView() {
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  roveSegment($('#ns-view')); // the group's one Tab stop is the view now chosen (events.ts)
+  roveSegment($('#ns-view')); // the group's one Tab stop is the view now chosen (platform/segments.ts)
 }
 // The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
 // several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
@@ -475,7 +475,7 @@ async function switchDoc(doc) {
   if (!doc || doc === DOC || !docInfo(doc)) return;
   const seq = setSwitchseq(SWITCHSEQ + 1),
     navigation = NAVGEN;
-  searchLeave(); // the search belongs to the document left (search.ts)
+  searchLeave(); // the search belongs to the document left (pdf/flow.ts)
   const active = document.activeElement,
     inPages = !!active && !!active.closest && !!active.closest('#left');
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
@@ -518,7 +518,7 @@ async function switchDoc(doc) {
   hideTip();
   showDoc(VIEW_BY.get(doc));
   openDraftDoc();
-  checkDocUpdate(doc, {}); // changed since this device last saw it (updates.ts)
+  checkDocUpdate(doc, {}); // changed since this device last saw it (documents/flow-updates.ts)
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
     try {
@@ -582,7 +582,7 @@ function cycleDoc(step) {
   switchDoc(DOCS[(index + step + DOCS.length) % DOCS.length].key);
 }
 // Each history traversal is a new navigation generation (NAVGEN), also one back to the document on screen - except the
-// back layer's own entry (gestures.ts: a back that closes a sheet, or the entry it pops itself), which leaves the
+// back layer's own entry (layout/input.ts: a back that closes a sheet, or the entry it pops itself), which leaves the
 // documents alone. This listener runs before the layer's, so BACK and BACK_SKIP still say whose entry it was. A
 // traversal then shows the document its address names (followHash): between two entries of the same address no
 // hashchange comes, and the switch it just ended must not leave the address naming one document over another on screen.

@@ -12,15 +12,15 @@
 //   and the agent's paths stay as they are. One formula's TeX is drawn only up to MARKDOWN_LIMITS.tex characters
 //   (drawTexBox): past it that formula alone stays as its characters.
 // - The DOM is built with createElement and textContent only: markdown-it's HTML renderer is never used, so the one
-//   innerHTML sink (markup.ts setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder that keeps
-//   its lines, an inline tag shows as code. A character that would hide or reorder text (hidden-chars.ts) stays in the
-//   drawn text inside its box (drawText), as on the text surface, and a notice above the document counts them. An image
-//   loads only when its source is a file of the manuscript tree with an image suffix, resolved against the document's
-//   own path (imageSource) and fetched from this origin's GET /api/asset (asked again on the light poll,
-//   checkTreeImages: one rewritten on disk shows without a reload); a remote or data: image, or one that leaves the
-//   tree, is its alt text (ADR-0030). A link opens only through the allowlist (linkAction) - another origin's http(s),
-//   mailto, an in-document #heading, another registered document of this instance (by its path, with its #heading), an
-//   image of the tree in a new tab; anything else is inert text.
+//   innerHTML sink (platform/markup.ts setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder
+//   that keeps its lines, an inline tag shows as code. A character that would hide or reorder text
+//   (platform/hidden-chars.ts) stays in the drawn text inside its box (drawText), as on the text surface, and a notice
+//   above the document counts them. An image loads only when its source is a file of the manuscript tree with an image
+//   suffix, resolved against the document's own path (imageSource) and fetched from this origin's GET /api/asset (asked
+//   again on the light poll, checkTreeImages: one rewritten on disk shows without a reload); a remote or data: image,
+//   or one that leaves the tree, is its alt text (ADR-0030). A link opens only through the allowlist (linkAction) -
+//   another origin's http(s), mailto, an in-document #heading, another registered document of this instance (by its
+//   path, with its #heading), an image of the tree in a new tab; anything else is inert text.
 // - Every block token's map becomes data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each
 //   source line gets its own span (data-line) only when the inline token's line breaks match its source's line ends
 //   (inlineLines); otherwise the whole run is one span with its range. A code block's content lines are its source
@@ -109,14 +109,14 @@ const MARKDOWN_LIMITS = Object.freeze({
   tex: 10000,
 });
 // MARKDOWN_VIEW: the document drawn (doc, file, name), its source lines and the src_mtime they were read at (mtime: set
-// only by a read that answered, so the light poll, polling.ts, sees a failed read as not done), the src_mtime a redraw
-// was last asked for (asked: the light poll asks once per change while that read is on its way, and a failed read
-// clears it), the reading line (at), the limit hit (limit), its headings, the worker and its parse in flight, whether a
-// redraw waits for a field (waiting), the elements built so far (els), the characters drawn in their boxes (marked) and
-// whether the next text drawn may be the file's first, its byte-order mark kept (bom, drawText), the document #doc
-// shows now (shown: '' for none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it
-// is drawn (want) and the reading spot as last read at the column's width and the pane's scroll offset then (spot,
-// readSpot: kept across a reflow and a redraw while hidden, keepReadingSpot; top tells a pane moved since,
+// only by a read that answered, so the light poll, documents/flow-polling.ts, sees a failed read as not done), the
+// src_mtime a redraw was last asked for (asked: the light poll asks once per change while that read is on its way, and
+// a failed read clears it), the reading line (at), the limit hit (limit), its headings, the worker and its parse in
+// flight, whether a redraw waits for a field (waiting), the elements built so far (els), the characters drawn in their
+// boxes (marked) and whether the next text drawn may be the file's first, its byte-order mark kept (bom, drawText), the
+// document #doc shows now (shown: '' for none - a PDF document's pages, the wait line), the reading spot a kept view
+// asks for once it is drawn (want) and the reading spot as last read at the column's width and the pane's scroll offset
+// then (spot, readSpot: kept across a reflow and a redraw while hidden, keepReadingSpot; top tells a pane moved since,
 // refreshMovedSpot).
 const MARKDOWN_VIEW = {
   gen: 0,
@@ -164,8 +164,8 @@ const MARKDOWN_VIEW = {
 // byte-order mark kept (bom, drawText), the headings (heads), and how many formulas were drawn - a count to draw them
 // on, null not to draw them at all (tex, ADR-0036 D3: the rendered compare keeps the source characters, which its block
 // keys and its word diff read). The renderer reads and writes only these; the document view's context is MARKDOWN_VIEW
-// itself (renderDocument), and the rendered compare (md-compare.ts) builds each side with a context of its own
-// (newRenderContext).
+// itself (renderDocument), and the rendered compare (revisions/view-rendered-compare.ts) builds each side with a
+// context of its own (newRenderContext).
 type DrawnHeading = { level: number; lo: number; el: HTMLElement; title: string; slug: string };
 type RenderContext = {
   lines: string[];
@@ -416,7 +416,7 @@ function yieldToBrowser() {
   });
 }
 // Whether a redraw would take a text field from under the person typing in it: a field inside #doc that is composing,
-// or held by the key that ended its composition (imeHeldIn, core.ts §조합을 끝내는 키).
+// or held by the key that ended its composition (imeHeldIn, app/state.ts §조합을 끝내는 키).
 function isFieldBusy() {
   const active = document.activeElement as HTMLElement | null,
     held = imeHeldIn();
@@ -503,7 +503,7 @@ async function buildMarkdownDoc() {
     return;
   }
   const source = answer.data,
-    // the lines this source replaces (updates.ts)
+    // the lines this source replaces (documents/flow-updates.ts)
     before =
       MARKDOWN_VIEW.doc === docKey && MARKDOWN_VIEW.mtime !== null && MARKDOWN_VIEW.mtime !== source.src_mtime
         ? MARKDOWN_VIEW.lines
@@ -514,7 +514,7 @@ async function buildMarkdownDoc() {
   MARKDOWN_VIEW.name = MARKDOWN_VIEW.file.split('/').pop() || MARKDOWN_VIEW.file;
   MARKDOWN_VIEW.lines = Array.isArray(source.lines) ? source.lines.map(String) : [];
   if (isTextDoc()) {
-    MARKDOWN_VIEW.heads = []; // a text document is never parsed: its lines are its view (text-surface.ts)
+    MARKDOWN_VIEW.heads = []; // a text document is never parsed: its lines are its view (text/view.ts)
     if (MARKDOWN_VIEW.lines.length > MARKDOWN_LIMITS.lines) {
       showDocumentNode(
         documentNotice(
@@ -982,7 +982,7 @@ async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTML
     if (error === OVER_ELEMENT_LIMIT) return null;
     throw error;
   }
-  // the text surface's notice (text-surface.ts), above the first block
+  // the text surface's notice (text/view.ts), above the first block
   if (MARKDOWN_VIEW.marked) root.prepend(textNotice('marks', markedCharactersText(MARKDOWN_VIEW.marked)));
   return root;
 }
@@ -1022,8 +1022,8 @@ function countedElement(tag: string, context: RenderContext): HTMLElement {
 // Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a
 // link's, inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through drawText,
 // pausing with the rest of the build (drawTextNow only for the placeholder's first line, 120 characters at most): a
-// character of hidden-chars.ts's repertoire stays in the text - a selection, a copy and a pin's quote keep it - inside
-// its box (hiddenBox), so no line reads in another order than its source; a box is two elements against
+// character of platform/hidden-chars.ts's repertoire stays in the text - a selection, a copy and a pin's quote keep it
+// - inside its box (hiddenBox), so no line reads in another order than its source; a box is two elements against
 // MARKDOWN_LIMITS.elements (markedBox) and one unit of work (isPauseDue). A string with none of them, nearly every one,
 // is one text node after one native test (isPlainText). The byte-order mark that starts the file is kept as on the text
 // surface (isKeptInSequence's first): line 1 is then a paragraph (the mark is no indent, no '#', no '<'), so the mark
@@ -1865,9 +1865,9 @@ function sizeImage(img: HTMLImageElement, width: number, height: number) {
 // ---------------- A tree image changed on disk (docs/handbook/viewer.md §그림)
 // The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so
 // without a check an image rewritten on disk would show only after a reload: a redraw draws the same address again. On
-// the light poll (polling.ts), the tree images that have loaded on screen or within one document area's height of it -
-// the nearest IMAGE_CHECK.max of them (among as near, the one asked longest ago first: more than that many on screen
-// take turns), at most once every IMAGE_CHECK.gap ms, one request at a time - are asked again: fetch(…,
+// the light poll (documents/flow-polling.ts), the tree images that have loaded on screen or within one document area's
+// height of it - the nearest IMAGE_CHECK.max of them (among as near, the one asked longest ago first: more than that
+// many on screen take turns), at most once every IMAGE_CHECK.gap ms, one request at a time - are asked again: fetch(…,
 // {cache:'no-cache'}) revalidates with the tag the browser holds (an unchanged image is a stat and a 304 on the server,
 // AssetTags) and reads the ETag. An image whose tag moved on gets its address with &v=<the new tag> (the server reads
 // only doc and path): one the page has not decoded, so the browser loads the new picture, and the box keeps the reading
@@ -2026,8 +2026,8 @@ function onImageError(event: Event) {
   if (here) afterImageChange();
 }
 // Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a
-// '#…' decoded once, a document's name (markHiddenPlain, hidden-chars.ts, ADR-0029 D5); the drawn text, an alt text
-// too, is the document's. A link element for href (linkAction): a web or mail link opens in a new tab without a
+// '#…' decoded once, a document's name (markHiddenPlain, platform/hidden-chars.ts, ADR-0029 D5); the drawn text, an alt
+// text too, is the document's. A link element for href (linkAction): a web or mail link opens in a new tab without a
 // referrer or opener; an in-document '#…' goes to the heading it names (data-act md-anchor: a click or Enter, the
 // global key handler asking imeKey first); another registered document is data-act md-doc (goToDocLink), the same way;
 // an image of the tree opens in a new tab from GET /api/asset; anything else is inert text with its target, and why, in
@@ -2098,11 +2098,11 @@ function drawLink(href: unknown, context: RenderContext): HTMLElement {
 }
 // A link to another registered document (data-act md-doc): that document, at its '#heading' once it is drawn here
 // (MARKDOWN_VIEW.headTo, showDocumentNode), with a history entry of its own - the browser's back returns to the
-// document left through the hashchange switch (doc-switch.ts), and a back before the document has opened ends that
-// switch (NAVGEN). While a back layer holds the entry on top (a sheet on a phone, gestures.ts) no entry is added, as a
-// tab switch adds none; the layer's entry must stay the top one. Followed again while the switch it started still waits
-// for that document (a double click, switchPending), it adds no second entry and starts no second switch: it only names
-// the heading to go to.
+// document left through the hashchange switch (documents/flow-switch.ts), and a back before the document has opened
+// ends that switch (NAVGEN). While a back layer holds the entry on top (a sheet on a phone, layout/input.ts) no entry
+// is added, as a tab switch adds none; the layer's entry must stay the top one. Followed again while the switch it
+// started still waits for that document (a double click, switchPending), it adds no second entry and starts no second
+// switch: it only names the heading to go to.
 function goToDocLink(link: HTMLElement) {
   const docKey = String(link.dataset.doc || ''),
     id = String(link.dataset.anchor || ''),
@@ -2495,7 +2495,7 @@ function drawPinMarks() {
 }
 // The child of column (#md) that holds element (null: element is not inside it) - where a badge layer goes in the
 // document's order, a child of #md still, so it stands in the gutter and no block's text (a quote, a tap's block) takes
-// its number. A text document's lines are all one block (.tx-src, text-surface.ts), so there the layer goes before
+// its number. A text document's lines are all one block (.tx-src, text/view.ts), so there the layer goes before
 // element's line span itself, a
 // sibling of the lines and in no line's text: before the whole text, every badge would be read before the first line.
 function topBlockOf(column: HTMLElement, element: Element): Element | null {
@@ -2538,9 +2538,9 @@ function jumpToPinLines(id) {
   if (leaves.length) showLines(leaves);
 }
 // Scrolls the first of the line elements to the reading depth (30% down the document area) and flashes them - a pin's
-// [보기] (jumpToPinLines) and [바뀐 곳] (goToNextChange, updates.ts) - and reads the reading spot where that put the
-// pane: the page's own jump is over at once, so its place is the spot before the scroll's frame reads it (as a heading
-// jump's once it lands, endLandedJump). A width that changes before that frame puts back the jump's place
+// [보기] (jumpToPinLines) and [바뀐 곳] (goToNextChange, documents/flow-updates.ts) - and reads the reading spot where
+// that put the pane: the page's own jump is over at once, so its place is the spot before the scroll's frame reads it
+// (as a heading jump's once it lands, endLandedJump). A width that changes before that frame puts back the jump's place
 // (keepReadingSpot), not the one read before it.
 function showLines(elements: HTMLElement[]) {
   const pane = $('#left'),
@@ -2558,8 +2558,8 @@ function showLines(elements: HTMLElement[]) {
 }
 // ---------------- Outline from headings, the strip and the position button
 // A heading as its outline row and the strip name it: plain text, its marked characters by name (clipMarkedText,
-// hidden-chars.ts), at most HEADING_CLIP characters - the row and the strip cut it to one line anyway, and the name
-// never reads in another order.
+// platform/hidden-chars.ts), at most HEADING_CLIP characters - the row and the strip cut it to one line anyway, and the
+// name never reads in another order.
 const HEADING_CLIP = 120;
 function drawOutline() {
   setOutlineDoc(DOC);
@@ -2657,7 +2657,7 @@ function showMarkdownHint() {
   if (want === 'tx') {
     showTextHint();
     return;
-  } // a text document's own words (text-surface.js)
+  } // a text document's own words (text/view.ts)
   setHtml(
     help,
     html`<span class="t-mouse">${translate('글을')} <b>${translate('끌어')}</b> ${translate('고르면 그 줄을,')} <b>${translate('블록을 누르면')}</b> ${translate('그 블록을 고르고')}</span><span class="t-touch"><b>${translate('블록을 누르면')}</b> ${translate('그 블록을,')} <b>${translate('길게 눌러')}</b> ${translate('글을 고르면 그 줄을 고르고')}</span> ${translate('그 자리의')} <b>${translate('원문 줄 번호')}</b>${translate('가 핀의 위치가 됩니다.')}<br>
@@ -2726,7 +2726,7 @@ function stopHeadingJump() {
 }
 for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, stopHeadingJump, { passive: true });
-// A key scrolls the pane when nothing else has the focus or something in the pane has it - outline.ts's scope
+// A key scrolls the pane when nothing else has the focus or something in the pane has it - pdf/view-outline.ts's scope
 // (SCROLL_KEYS): with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
 addEventListener('keydown', (event) => {
   const active = document.activeElement;

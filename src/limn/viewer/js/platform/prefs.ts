@@ -77,7 +77,7 @@ function applyTheme() {
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  roveSegment($('#m-theme')); // the group's one Tab stop is the word now chosen (events.ts)
+  roveSegment($('#m-theme')); // the group's one Tab stop is the word now chosen (platform/segments.ts)
   const now = $('#m-theme-now');
   if (now) {
     now.hidden = theme !== 'system';

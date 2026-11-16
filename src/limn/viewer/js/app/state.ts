@@ -35,7 +35,7 @@ function buildsFromSource(kind) {
 }
 // Whether a document of this `kind` is drawn by the browser from its source (the server's renders_in_browser,
 // limn.runtime.documents.Doc.renders_in_browser): a Markdown one and a text one (ADR-0029). It has no pages - #doc
-// holds its column (md-surface.ts) - and its line pins carry no page.
+// holds its column (markdown/view.ts) - and its line pins carry no page.
 function rendersInBrowser(kind: string | undefined) {
   return kind === DOC_KIND.MARKDOWN || kind === DOC_KIND.TEXT;
 }
@@ -259,8 +259,8 @@ let META = null as unknown as Meta,
   DROPPED = [] as Pin[],
   REPICK = null as Repick | null,
   PICKSEQ = 0;
-// PAGE_SCALE: the scale of the document on screen, CSS px per PDF point (pages.ts §page sizes); 0 until its first pages
-// are built.
+// PAGE_SCALE: the scale of the document on screen, CSS px per PDF point (pdf/view-pages.ts §page sizes); 0 until its
+// first pages are built.
 let SNIP_OPEN = false,
   PAGE_SCALE = 0;
 // Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its
@@ -310,7 +310,7 @@ let DOCS = [] as DocEntry[],
   SHOW_ALL = false,
   SWITCHSEQ = 0;
 // NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document
-// switch still waiting when one happens opens nothing (switchDoc, doc-switch.ts).
+// switch still waiting when one happens opens nothing (switchDoc, documents/flow-switch.ts).
 let NAVGEN = 0;
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit() {

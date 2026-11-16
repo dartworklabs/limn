@@ -112,8 +112,8 @@ async function openVectorDocument() {
     key = vectorCacheKey(DOC, build);
   let doc = VECTOR_PDF.cache.get(key);
   cancelVectorDraw();
-  // Another document or build: its search starts empty (search.ts), and the outline and page names of the document
-  // left behind are not the new one's (outline.ts).
+  // Another document or build: its search starts empty (pdf/flow.ts), and the outline and page names of the document
+  // left behind are not the new one's (pdf/view-outline.ts).
   searchClear();
   outlineForget();
   if (!doc) {

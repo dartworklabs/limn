@@ -58,7 +58,7 @@ async function boot() {
   applyLayout();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   setHtml($('#btn-save'), saveButtonLabel());
-  await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline.ts)
+  await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline/flow.ts)
   await loadDocs();
   setDoc(initialDoc());
   try {
@@ -114,7 +114,7 @@ async function boot() {
   startLightPolling();
   startBuildPolling();
   offlineBoot();
-  checkDocsSeen(); // what changed since this device last saw each document (updates.ts)
+  checkDocsSeen(); // what changed since this device last saw each document (documents/flow-updates.ts)
   if (DIGEST) pollLight().finally(() => digestSoon(DIGEST_TAIL_MS)); // the events addressed to me since the last visit
   drawNotify();
   if (prefs().notify && notifySupported() && notifyPerm() === 'granted') notifyRegister();
@@ -227,7 +227,7 @@ function drawMeta() {
   // ').
   $('#meta-main').textContent = META.main;
   $('#meta-main').dataset.tip = translate(isMarkdownDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
-  const isText = isMarkdownDoc() && isTextDoc(); // a text document's form is 텍스트 (text-surface.ts)
+  const isText = isMarkdownDoc() && isTextDoc(); // a text document's form is 텍스트 (text/view.ts)
   $('#meta-pages').textContent = isText
     ? translate('텍스트')
     : isMarkdownDoc()

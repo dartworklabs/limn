@@ -217,7 +217,7 @@ async function offlineSync() {
   OFF.n = all.length;
   OFF.held = all.filter((record) => record && record.held).length;
   drawStatus();
-  // The queued pins on the page and in the panel (offline-ui.ts).
+  // The queued pins on the page and in the panel (offline/view.ts).
   offlineUiSync(all);
 }
 
@@ -238,7 +238,7 @@ function offReadKey(url, options): string | null {
 }
 // Stores the answer to a document read, so a later visit with no network can be drawn from it. Only an answer the
 // server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
-// Markdown document past the drawing limit answers 413 with its reason, md-surface.ts), and that answer is not the
+// Markdown document past the drawing limit answers 413 with its reason, markdown/view.ts), and that answer is not the
 // document. Stored, it would come back on the next visit as a document that opens empty.
 function offStash(url: string, data: any, status: number, options?: { method?: string } | null) {
   // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
@@ -340,9 +340,9 @@ function offlineBack() {
 }
 
 // ---------------- The service worker
-// The worker is registered for every visit, not only where notifications are allowed (notify.ts asks it for those): it
-// is what answers when the network does not. A browser without one still works online, and says so when asked to
-// prepare.
+// The worker is registered for every visit, not only where notifications are allowed (documents/flow-notification.ts
+// asks it for those): it is what answers when the network does not. A browser without one still works online, and says
+// so when asked to prepare.
 async function offlineWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
   try {
@@ -383,9 +383,9 @@ async function offlineAsk(message: { type: string; urls?: string[] }, ms?: numbe
   });
 }
 // Asks the worker that controls this page whether it is answering from its copies because the network did not (sw.js
-// 'down'), before the visit's first read: this page was then one of those answers, and its reads need not each wait
-// out a request (api.ts API_OUT). Only a worker already in control is asked, and for a moment - a first visit, or a
-// browser with no worker, reads as usual.
+// 'down'), before the visit's first read: this page was then one of those answers, and its reads need not each wait out
+// a request (platform/api.ts API_OUT). Only a worker already in control is asked, and for a moment - a first visit, or
+// a browser with no worker, reads as usual.
 async function offlineAskDown() {
   const worker = 'serviceWorker' in navigator ? navigator.serviceWorker.controller : null;
   if (!worker) return;
@@ -420,8 +420,8 @@ function offlineUrls(): string[] {
   return Array.from(out);
 }
 // The PDF and the page images of a document as its meta names them - the very addresses the viewer asks for when that
-// document is on screen (pdf-open.ts openVectorDocument, pages.ts pageSrc), since a copy is found again by its address.
-// Pure.
+// document is on screen (pdf/flow-open.ts openVectorDocument, pdf/view-pages.ts pageSrc), since a copy is found again
+// by its address. Pure.
 function offlineDocFiles(docName: string | null, meta: any): string[] {
   const build = (meta && meta.pages_build) || '',
     out = [] as string[];
@@ -1027,7 +1027,7 @@ function offFollowDone(ok: boolean) {
 async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: number; y1: number }): Promise<string> {
   if (!VECTOR_PDF.doc) return '';
   try {
-    // The one reader of a page's text (search.ts).
+    // The one reader of a page's text (pdf/flow.ts).
     const { items, vp: viewport } = await pageText(VECTOR_PDF.doc, page);
     return quoteIn(items, viewport.height, rect);
   } catch (error) {
@@ -1119,9 +1119,9 @@ async function offlinePick(drag: {
 // [핀 저장] with no server: the pin goes to the queue with everything needed to write it later - where it was drawn, on
 // which build, its words, and what the composer asked (the note, its kind, its assignee and the @-tags). Answers
 // whether it was kept; a browser that refuses the queue answers false and the caller says the save failed, so no pin is
-// lost silently. tried is given for a save that was sent and got no answer (save.ts): the record is kept as one whose
-// write was attempted - under the key the save went with, if it had one, and with the newest pin that stood before it -
-// so the send asks for it before it writes it.
+// lost silently. tried is given for a save that was sent and got no answer (composer/flow-save.ts): the record is kept
+// as one whose write was attempted - under the key the save went with, if it had one, and with the newest pin that
+// stood before it - so the send asks for it before it writes it.
 async function offlineQueueSave(
   selection: Selection,
   note: string,
@@ -1299,9 +1299,9 @@ async function offlinePlaceLines(rec: any): Promise<any> {
   };
 }
 // The drag a record holds, in the PDF points pick reads: the box kept with it, or the one its page fractions and that
-// page's size on the build make - the same product selection.ts sends when the drag happens. Null when the record has
-// neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's corner).
-// Pure.
+// page's size on the build make - the same product pdf/input-selection.ts sends when the drag happens. Null when the
+// record has neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's
+// corner). Pure.
 function offlineBox(rec: any): { x0: number; y0: number; x1: number; y1: number } | null {
   if (rec.rect) return rec.rect;
   const frac = rec.frac,
@@ -1461,7 +1461,8 @@ async function offlineFlush() {
             continue;
           }
           // The server knows no pin by this key: the attempt never arrived, so its mark comes off. A record then held
-          // for its place is one [다시 찍기] may take back - offline-ui.ts refuses a record that may be on the server.
+          // for its place is one [다시 찍기] may take back - offline/view.ts refuses a record that may be on the
+          // server.
           if (answer.status === 409 && (await offHas(rec.id))) {
             rec.sent = false;
             await offPut(rec);
@@ -1680,7 +1681,7 @@ async function offlineFlush() {
 }
 
 // Boot: the worker is registered, the queue is counted, and a queue waiting on a live connection is sent right away.
-// The light poll calls offlineFlush() again whenever the connection comes back (polling.ts).
+// The light poll calls offlineFlush() again whenever the connection comes back (documents/flow-polling.ts).
 function offlineBoot() {
   // The first reads are done: from here a read that fails while connected is a failure again.
   OFF.boot = false;

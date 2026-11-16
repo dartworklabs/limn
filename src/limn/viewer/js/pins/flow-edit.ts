@@ -240,7 +240,8 @@ function renderEdit() {
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   });
-  roveSegment(cardElement.querySelector('.e-kind')); // the group's one Tab stop is the kind now chosen (events.ts)
+  // the group's one Tab stop is the kind now chosen (platform/segments.ts)
+  roveSegment(cardElement.querySelector('.e-kind'));
   setCap(
     cardElement.querySelector('.e-cap'),
     card.region
@@ -253,7 +254,8 @@ function renderEdit() {
   pre.textContent = snipText(card.snippet, false);
   renderAssignEdit();
   drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
-  renderEditSuggest(card); // the [제안 수정] switch and its editor (suggest.ts); a closed pin's suggestion read-only
+  // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
+  renderEditSuggest(card);
   syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;

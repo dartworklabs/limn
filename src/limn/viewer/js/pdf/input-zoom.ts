@@ -9,7 +9,7 @@
 // - Touch: #left has touch-action:pan-x pan-y, so there is no browser pinch. PAGE_SCALE changes with the ratio of the
 //   two-finger distance, and the point under the midpoint of the two fingers follows the fingers (drag while zooming).
 //   A page in selection mode has touch-action:none, so it goes through the same path.
-// - A Markdown document (md-surface.ts) has no pages to scale: every one of these leaves its input to the browser -
+// - A Markdown document (markdown/view.ts) has no pages to scale: every one of these leaves its input to the browser -
 //   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
 //   there).
 import { PAGE_SCALE } from '../app/state.ts';

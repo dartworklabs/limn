@@ -193,9 +193,9 @@ function showBuildErr(build: any, say?: boolean) {
   panel.hidden = false;
   syncBuildErrChip();
 }
-// The error sources of a document's rebuild (notices.ts sourceEntry): the requests rebuild() sends, plain and forced
-// (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears it, and
-// so does a later build of that document, which refreshDoc shows.
+// The error sources of a document's rebuild (platform/notices.ts sourceEntry): the requests rebuild() sends, plain and
+// forced (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears
+// it, and so does a later build of that document, which refreshDoc shows.
 function rebuildSources(doc: string | null): string[] {
   return ['/api/rebuild?async=1', '/api/rebuild?async=1&force=1'].map(
     (url) => 'POST ' + withDocQuery(url, doc || undefined),

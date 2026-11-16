@@ -68,7 +68,7 @@ async function closePin(id) {
 // (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
 const CONFIRMING = new Set();
 // The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
-// them (verdict.ts).
+// them (verdict/flow-line.ts).
 const CONFIRMING_PIN = new Map() as Map<number, Pin>;
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
@@ -178,8 +178,8 @@ async function reopenPin(id: number): Promise<boolean> {
 // place with [되돌리기] for NOTICE_MS; it waits in the Trash. A failure puts the card back. undoSave = the save chip's
 // [되돌리기]: silent, as the composer comes back with the selection - and again = what that failure's [다시 시도] runs
 // (the whole undo, so the composer comes back too). options.say: the caller says the drop and offers its undo where it
-// was pressed (a page line's [판정 취소], verdict.ts cancelLineVerdict), options.where is where a failure is said and
-// options.what what it names. Resolves with whether the pin was deleted.
+// was pressed (a page line's [판정 취소], verdict/flow-line.ts cancelLineVerdict), options.where is where a failure is
+// said and options.what what it names. Resolves with whether the pin was deleted.
 async function dropPin(
   id: number | null,
   undoSave: boolean,

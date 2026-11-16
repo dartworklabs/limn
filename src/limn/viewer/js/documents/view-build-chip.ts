@@ -139,7 +139,7 @@ async function pollBuildOnce() {
   } else if (seq !== BUILD.lastSeq) {
     // This tab's own rebuild that pulled nothing new is an answer to it (the 6 s line below); any other new build on
     // screen - a merge pulled, another session's rebuild, a figure or PDF that came again - is the document's update
-    // (updates.ts).
+    // (documents/flow-updates.ts).
     const mine = BUILD.asked && !(build.pull && build.pull.state === PULL_STATE.OK);
     BUILD.lastSeq = seq;
     BUILD.asked = false; // claimed before the await - so the same completion is never processed twice
