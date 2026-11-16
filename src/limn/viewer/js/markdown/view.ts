@@ -30,8 +30,6 @@
 //   ordinary POST /api/pin, with no page, frac or pdf_build (the server drops them for this document anyway, ADR-0025
 //   D2).
 import {
-  $,
-  $$,
   DOC,
   DOCS,
   IME_ON_FREE,
@@ -41,7 +39,6 @@ import {
   MARKDOWN_LIMIT,
   META,
   COARSE_POINTER_QUERY,
-  NOTICE_TOPIC,
   PICKSEQ,
   PINS,
   PIN_STATE,
@@ -102,6 +99,8 @@ import { COMPOSE, focusFell, focusHold, imeOpen, overlapsFor, renderComposer, se
 import { endJumpForScroll, renderVerdictRow } from '../verdict/flow-line.ts';
 import { marks } from '../pins/flow-list.ts';
 import { bannerCompare } from '../composer/flow-repick.ts';
+import { NOTICE_TOPIC } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
 const MARKDOWN_LIMITS = Object.freeze({
   nesting: 20,
   blocks: 30000,

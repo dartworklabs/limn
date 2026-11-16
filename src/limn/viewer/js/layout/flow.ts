@@ -6,7 +6,6 @@
 // re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the
 // page, so they fall back into place automatically once the page width is fit.
 import {
-  $,
   BAND,
   BAND_IN,
   BAND_MODE,
@@ -19,9 +18,6 @@ import {
   MID_OVERLAY,
   COARSE_POINTER_QUERY,
   REDUCED_MOTION_QUERY,
-  NOTICE_DOT,
-  NOTICE_KIND,
-  NOTICE_TOPIC,
   PINS,
   REPICK,
   REPLY,
@@ -63,6 +59,8 @@ import { stickSoon } from '../verdict/flow-line.ts';
 import { drawPins, fitBarWords, updateReviewCount } from '../pins/flow-list.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 import { restoreAnchor, syncBuildErrChip, topAnchor } from '../documents/flow-rebuild.ts';
+import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
+import { $, typingNow } from '../platform/dom.ts';
 // The band for a width x height CSS px window whose primary pointer is coarse (touch) or not. Pure. A mouse reads the
 // width only: phone up to 700px, the overlay panel up to 900px, the side panel up to 1099px, wide from 1100px. Touch
 // reads the height and the orientation too, first match wins: under 600px wide a phone at any height; under 480px high
@@ -616,17 +614,6 @@ function fieldScrollKey(event: KeyboardEvent) {
   event.preventDefault();
 }
 document.addEventListener('keydown', fieldScrollKey, true);
-// Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
-// keyboard is up.
-function typingNow() {
-  const focused = document.activeElement as HTMLInputElement;
-  if (!focused || focused === document.body) return false;
-  if (focused.isContentEditable || focused.tagName === 'TEXTAREA') return true;
-  return (
-    focused.tagName === 'INPUT' &&
-    !/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(focused.type || '')
-  );
-}
 // The panel's text field that has focus (a note, an edit or a reply), or null.
 function panelField() {
   const focused = document.activeElement;
@@ -940,5 +927,4 @@ export {
   setSide,
   showSheet,
   toggleSide,
-  typingNow,
 };

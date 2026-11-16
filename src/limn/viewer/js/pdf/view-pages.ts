@@ -1,7 +1,5 @@
 // ------------------------------------------------ PDF pages: their boxes, scale and zoom, and arriving at one
 import {
-  $,
-  $$,
   DOC,
   PAGE_SCALE,
   LAYOUT,
@@ -36,6 +34,7 @@ import {
 import { restoreReasonFocus, holdReasonFocus } from '../verdict/flow-reason.ts';
 import { markBadgeSides, marks } from '../pins/flow-list.ts';
 import { restoreAnchor, topAnchor } from '../documents/flow-rebuild.ts';
+import { $, $$ } from '../platform/dom.ts';
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {

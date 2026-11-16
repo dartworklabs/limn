@@ -1,7 +1,10 @@
 // ------------------------------------------- Preferences (merged save): per-device pinPrefs, list-section state, theme
-import { $, $$, LIST_ORDER, LIGHT_SCHEME_QUERY } from '../app/state.ts';
 import { translateTemplate, translate } from './i18n.ts';
-import { roveSegment } from '../main.ts';
+import { LIST_ORDER } from './tables.ts';
+import { $, $$ } from './dom.ts';
+import { roveSegment } from './segments.ts';
+const LIGHT_SCHEME_QUERY = matchMedia('(prefers-color-scheme: light)');
+
 function prefs() {
   try {
     const stored = JSON.parse(localStorage.getItem('pinPrefs') || '{}');
@@ -107,4 +110,5 @@ export {
   countNewInSection,
   setOrder,
   setTheme,
+  LIGHT_SCHEME_QUERY,
 };

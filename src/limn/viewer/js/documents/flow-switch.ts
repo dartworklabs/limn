@@ -3,8 +3,6 @@
 // Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One
 // document leaves the section out - there is nothing to switch to.
 import {
-  $,
-  $$,
   DOC,
   DOCS,
   DONE_ALL,
@@ -14,7 +12,6 @@ import {
   META,
   META_BY,
   NAVGEN,
-  NOTICE_HOST,
   OPEN_ALL,
   PINS,
   REVIEW_ALL,
@@ -56,7 +53,9 @@ import { drawPins, marks } from '../pins/flow-list.ts';
 import { EDITOR, cancelEdit, editDirty } from '../pins/flow-edit.ts';
 import { cancelRepick } from '../composer/flow-repick.ts';
 import { refreshDoc, restoreAnchor, topAnchor } from './flow-rebuild.ts';
-import { roveSegment } from '../main.ts';
+import { NOTICE_HOST } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { roveSegment } from '../platform/segments.ts';
 function drawDocsMenu() {
   $('#ns-docs').hidden = !multiDoc();
   setHtml(

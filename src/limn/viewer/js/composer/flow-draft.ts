@@ -5,19 +5,7 @@
 // restores it (restoreDraft). Saving clears it; a discard clears it once its undo window is over (DRAFT.holds has that
 // document's undo). Only this tab sees it. The tab owns the debounce timer and the active document's draft key; a
 // discard's undo holds its own document's key.
-import {
-  $,
-  ASSIGNEE_AGENT,
-  DOC,
-  KIND_NEW,
-  REQUEST_KIND,
-  LAYOUT,
-  LAYOUT_MODE,
-  META,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  setSnipOpen,
-} from '../app/state.ts';
+import { ASSIGNEE_AGENT, DOC, KIND_NEW, REQUEST_KIND, LAYOUT, LAYOUT_MODE, META, setSnipOpen } from '../app/state.ts';
 import { NOTICES, lineNote } from '../platform/notices.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { drawBox, newBox, pendingBadge, revealBox } from '../pdf/input-selection.ts';
@@ -26,6 +14,8 @@ import { SUGGEST_DRAFT, suggestClear, suggestCopy } from './flow-suggest.ts';
 import { COMPOSE, cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind } from './flow-pick.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
 import { autoGrow } from '../pins/flow-edit.ts';
+import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 const DRAFT = {
   timer: 0 as ReturnType<typeof setTimeout> | 0,
   ready: false,

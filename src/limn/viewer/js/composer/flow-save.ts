@@ -2,7 +2,6 @@
 // that pin's mark ('덧붙임 [되돌리기]', docs/handbook/viewer.md §알림 자리), and a failure a banner over the composer's
 // save row. A focus the closed composer took goes to that pin's mark (focusPlace).
 import {
-  $,
   DEFAULT_DOC,
   DOC,
   IS_MAC,
@@ -10,9 +9,6 @@ import {
   REQUEST_KIND,
   META,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
   OPEN_ALL,
   PINS,
   SAVE_MODE,
@@ -71,6 +67,8 @@ import {
 import { isMe, loadPins } from '../pins/flow-list.ts';
 import { dropPin } from '../pins/flow-actions.ts';
 import { assignOutcome, composeAsk, mentionHints } from '../pins/input-mentions.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.

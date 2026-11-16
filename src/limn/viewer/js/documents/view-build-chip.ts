@@ -10,14 +10,11 @@
 // /api/build answer (null when none runs): the status line reads its phase and seconds. BUILD.unchanged is {pull} while
 // the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
 import {
-  $,
   BUILD_ERR_BY,
   BUILD_STATE,
   DOC,
   DOC_SEQ,
   META,
-  NOTICE_KIND,
-  NOTICE_LIFE,
   PULL_STATE,
   SWITCHSEQ,
   buildsFromSource,
@@ -29,6 +26,8 @@ import { withDocQuery } from './view-tabs.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { buildUnchanged } from './view-status.ts';
 import { hideBuildErr, refreshDoc, showBuildErr } from './flow-rebuild.ts';
+import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 const BUILD = {
   timer: null as ReturnType<typeof setInterval> | null,
   error: null as any,

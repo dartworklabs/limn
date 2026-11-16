@@ -12,7 +12,7 @@
 //   searchFit(). While the opened field lies over its neighbours in the bar they are taken off it whole (searchCover).
 // - Ends with: Esc or [검색 닫기] (cleared, focus back), another document or a new build (searchClear, from
 //   openVectorDocument), the changes view and a PDF that cannot be read (searchOffer hides it).
-import { $, $$, BAND, IS_MAC, LAYOUT_BAND, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
+import { BAND, IS_MAC, LAYOUT_BAND, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { relayout, setSide } from '../layout/flow.ts';
@@ -20,6 +20,7 @@ import { isMarkdownDoc } from '../markdown/view.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER_BOX, placeSelectionPopover, popoverFreeArea } from '../composer/view-selection-popover.ts';
 import { topAnchor } from '../documents/flow-rebuild.ts';
+import { $, $$ } from '../platform/dom.ts';
 
 // The text as it is matched: Unicode NFKC (Hangul jamo composed, a letter and its combining mark joined, ligatures and
 // full-width forms unfolded), lower case, curly quotes and dashes as ' " and -, soft hyphens and zero-width marks

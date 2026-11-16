@@ -12,10 +12,11 @@
 // - A Markdown document (md-surface.ts) has no pages to scale: every one of these leaves its input to the browser -
 //   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
 //   there).
-import { $, PAGE_SCALE } from '../app/state.ts';
+import { PAGE_SCALE } from '../app/state.ts';
 import { ZOOM_STEP, markZoomed, setScale, zoomAnchor, zoomRestore, zoomTo } from './view-pages.ts';
 import { cancelDrag, cancelLongPress } from './input-selection.ts';
 import { isMarkdownDoc } from '../markdown/view.ts';
+import { $ } from '../platform/dom.ts';
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event) {
   const key = event.key,

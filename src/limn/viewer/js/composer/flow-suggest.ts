@@ -6,7 +6,6 @@
 // edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
 // diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
 import {
-  $,
   BAND,
   DOC,
   DOC_KIND,
@@ -31,6 +30,7 @@ import { saveDraftSoon } from './flow-draft.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
+import { $ } from '../platform/dom.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;

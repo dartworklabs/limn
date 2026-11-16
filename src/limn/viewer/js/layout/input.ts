@@ -8,8 +8,6 @@
 // opens the panel at the minimum and then follows; a double-click (a tap on touch) opens it at the saved width. A tap
 // on an open handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
 import {
-  $,
-  $$,
   BAND,
   DOC,
   LAYOUT,
@@ -58,6 +56,7 @@ import {
   toggleSide,
 } from './flow.ts';
 import { LONGPRESS_MS } from '../pdf/input-selection.ts';
+import { $, $$ } from '../platform/dom.ts';
 (function () {
   const grip = $('#grip');
   let drag = null as {

@@ -1,14 +1,15 @@
 // ------------------------------------------------ Range levels
-import { TIP_TEXT, UI_LANG, VIA, captureVisit, currentVisit } from '../app/state.ts';
+import { VIA, captureVisit, currentVisit } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
-import { LANG, translateTemplate, translate } from '../platform/i18n.ts';
+import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { withDocQuery } from '../documents/view-tabs.ts';
 import { elementName, rungTip } from '../pdf/view-figure.ts';
 import { isMarkdownDoc } from '../markdown/view.ts';
 import { COMPOSE } from './flow-pick.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
-import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../main.ts';
+import { UI_LANG } from '../platform/tables.ts';
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 function levelOf(owner, key) {
   return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
 }

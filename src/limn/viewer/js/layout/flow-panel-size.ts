@@ -7,7 +7,6 @@
 // minimum width. The outline's width bounds: 220-320px as an overlay; beside the document at most what leaves the PDF
 // 290px beside the panel.
 import {
-  $,
   BAND,
   LAYOUT,
   LAYOUT_BAND,
@@ -22,7 +21,8 @@ import { prefs, savePrefs } from '../platform/prefs.ts';
 import { gripAria, outlineOverlay, panelField, relayout, setSide } from './flow.ts';
 import { syncBackLayer } from './input.ts';
 import { restoreAnchor, topAnchor } from '../documents/flow-rebuild.ts';
-import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../main.ts';
+import { $ } from '../platform/dom.ts';
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 function outlineBounds() {
   if (outlineOverlay()) return { min: 220, max: 320 };
   const max = Math.max(180, Math.min(320, innerWidth - currentSideWidth() - 290));

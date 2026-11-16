@@ -10,8 +10,6 @@
 // status line, and rangeN its commit and file counts (the rendered compare's status line takes them, md-compare.ts
 // sayCompareStatus).
 import {
-  $,
-  $$,
   DIFF_FORMAT,
   DOC,
   DONE_ALL,
@@ -27,12 +25,11 @@ import {
   SCOPE_SOURCE,
   SEEN_STATE,
   SWITCHSEQ,
-  TIP_TEXT,
   VIEW_MODE,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
-import { errText, translateTemplate, translate } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { docInfo, withDocQuery, isRegion, pdoc } from '../documents/view-tabs.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
@@ -65,7 +62,8 @@ import {
 } from './view-rendered-compare.ts';
 import { isMe, markHitSides } from '../pins/flow-list.ts';
 import { keepSpot, returnToSpot } from '../documents/flow-rebuild.ts';
-import { roveSegment } from '../main.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { roveSegment } from '../platform/segments.ts';
 const REVISION_VIEW = {
   seq: 0,
   files: [] as { name: string; text: string }[],

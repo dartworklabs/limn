@@ -1,7 +1,5 @@
 // ------------------------------------------- Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
 import {
-  $,
-  $$,
   DEFAULT_DOC,
   DOC,
   DOCS,
@@ -21,6 +19,7 @@ import { drawDocsMenu, drawPos, switchDoc } from './flow-switch.ts';
 import { closePageList } from '../pdf/view-page-list.ts';
 import { searchFit } from '../pdf/flow.ts';
 import type { Html } from '../platform/markup.ts';
+import { $, $$ } from '../platform/dom.ts';
 
 function multiDoc() {
   return DOCS.length > 1;

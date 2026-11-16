@@ -6,8 +6,6 @@
 // which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
 // they are drawn as text, translate="no", and the names around them are put in the screen's language here.
 import {
-  $,
-  $$,
   ASSIGNEE_AGENT,
   DEFAULT_DOC,
   DOC,
@@ -20,17 +18,12 @@ import {
   LAYOUT_MODE,
   META,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  NOTICE_PLACE,
   OPEN_ALL,
   PINS,
   PIN_STATE,
   REPLY,
   REVIEW_ALL,
   ROLE,
-  TIP_TEXT,
   VERDICT_PLACE,
   captureVisit,
   currentVisit,
@@ -40,7 +33,7 @@ import {
   scrollMotion,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { errText, translateTemplate, translate } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import {
@@ -66,7 +59,7 @@ import { pinState } from '../documents/flow-polling.ts';
 import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
 import { SCROLL_KEYS, readingDepth } from '../pdf/view-outline.ts';
 import { searchToPage } from '../pdf/flow.ts';
-import { setSide, typingNow } from '../layout/flow.ts';
+import { setSide } from '../layout/flow.ts';
 import { lineRange } from '../composer/view-levels.ts';
 import { isElementLost, figureFields, isFrac, pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownDoc } from '../markdown/view.ts';
@@ -131,6 +124,8 @@ import { PINS_APPLIED_SEQ, isMe, loadPins } from '../pins/flow-list.ts';
 import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/flow-actions.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 import { refreshDoc, topAnchor } from '../documents/flow-rebuild.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
+import { $, $$, typingNow } from '../platform/dom.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is

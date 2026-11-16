@@ -3,7 +3,7 @@
 // short and the tablet sheet: #nav-page) opens a popover (#page-pop): a page field on top and one row per page below
 // it, each with the sections that start on that page. The phone's navigation sheet carries the same rows under its page
 // field (#ns-pages). Choosing a row goes there at once - there is no confirm step.
-import { $, DOC, META, COARSE_POINTER_QUERY, VIEW_MODE, buildsFromSource, imeKey, isFigureKind } from '../app/state.ts';
+import { DOC, META, COARSE_POINTER_QUERY, VIEW_MODE, buildsFromSource, imeKey, isFigureKind } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { hideTip } from '../platform/tooltip.ts';
@@ -12,6 +12,7 @@ import { setViewMode } from '../revisions/flow.ts';
 import { clampPage, goPage } from './view-pages.ts';
 import { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, outlineOnScreen } from './view-outline.ts';
 import { pageVerdictPins, pageVerdictsOn, verdictLabel, verdictOf } from '../verdict/flow-line.ts';
+import { $ } from '../platform/dom.ts';
 
 // The names a row shows for each of pageTotal pages, index 0 for page 1: the top-level headings that start on the page
 // joined with ' · ' ('1 Introduction · 2 Related work'), else the one the page continues ('… 2 Related work'); ''

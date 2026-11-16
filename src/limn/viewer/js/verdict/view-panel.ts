@@ -11,7 +11,7 @@
 // (PANEL_ENTER_ROOM, PANEL_EXIT_ROOM) so a width at the bar does not flip it. The wide band only: the foldable and
 // phone bands never take it. The line's words, keys, focus, save chip and reason are the line's own (verdict.ts,
 // verdict-reason.ts); this part decides when, places the panel and draws the summaries.
-import { $, $$, DOC, PAGE_SCALE, LAYOUT, LAYOUT_MODE, META, isFigureKind } from '../app/state.ts';
+import { DOC, PAGE_SCALE, LAYOUT, LAYOUT_MODE, META, isFigureKind } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { NOTICES, chipAway, drawChips } from '../platform/notices.ts';
@@ -59,6 +59,7 @@ import {
   setComposingField,
 } from './flow-reason.ts';
 import { topAnchor } from '../documents/flow-rebuild.ts';
+import { $, $$ } from '../platform/dom.ts';
 
 // The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
 // page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages

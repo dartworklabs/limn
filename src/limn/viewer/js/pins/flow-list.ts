@@ -3,8 +3,6 @@
 // of a name - and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when
 // none of its tags resolves yet.
 import {
-  $,
-  $$,
   DEFAULT_DOC,
   DOC,
   DOCS,
@@ -13,15 +11,10 @@ import {
   DROPPED,
   LAYOUT,
   LAYOUT_MODE,
-  LIST_ORDER,
   LOCAL_LOGIN,
   MENTION_ONLY,
   META,
   COARSE_POINTER_QUERY,
-  NOTICE_DOT,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
   OPEN_ALL,
   OPEN_CARDS,
   PEOPLE,
@@ -91,8 +84,10 @@ import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
 import { renderAssignNew } from './input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { EDITOR, editDirty, renderEdit } from './flow-edit.ts';
-import { roveSegment } from '../main.ts';
 import type { Html } from '../platform/markup.ts';
+import { LIST_ORDER, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { roveSegment } from '../platform/segments.ts';
 
 async function loadPeople() {
   try {

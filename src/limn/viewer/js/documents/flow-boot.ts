@@ -3,15 +3,12 @@
 // first-visit hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was
 // one.
 import {
-  $,
   DOC,
   DOC_SEQ,
   LOCAL_LOGIN,
   META,
   META_BY,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
   ROLE,
   SYNC_STATE,
   VIEW_BY,
@@ -52,6 +49,8 @@ import { offlineAskDown, offlineBoot } from '../offline/flow.ts';
 import { avatar, isAgent, who } from '../pins/view-card-parts.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { isHuman } from '../pins/flow-reply.ts';
+import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 async function boot() {
   i18nStart();
   // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below

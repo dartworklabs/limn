@@ -11,22 +11,9 @@
 // - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule
 //   2).
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
-import {
-  $,
-  EVENT_TYPE,
-  NOTICE_DOT,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  NOTICE_PLACE,
-  NOTICE_TOPIC,
-  REPLY,
-  REVIEW_ALL,
-  SIDE_OPEN,
-  TIP_TEXT,
-} from '../app/state.ts';
+import { REPLY, REVIEW_ALL, SIDE_OPEN } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from './markup.ts';
-import { translate, translateMessage } from './i18n.ts';
+import { translate, translateMessage, TIP_TEXT } from './i18n.ts';
 import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
 import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from '../documents/view-status.ts';
@@ -37,6 +24,8 @@ import { focusLine, isReasonField } from '../verdict/flow-reason.ts';
 import { dropBareDayLines, placeRow } from '../pins/flow-list.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 import type { Html } from './markup.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from './tables.ts';
+import { $ } from './dom.ts';
 
 // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
 const NOTICE_MS = 6000;

@@ -1,6 +1,5 @@
 // ------------------------------------------------ The outline: reading it, the section strip, picks and the filter
 import {
-  $,
   BAND,
   DOC,
   LAYOUT_BAND,
@@ -23,6 +22,7 @@ import { isMarkdownDoc, goToHeading, updateMarkdownStrip } from '../markdown/vie
 import { glideTo } from '../verdict/flow-line.ts';
 import { popoverFreeArea } from '../composer/view-selection-popover.ts';
 import { topAnchor } from '../documents/flow-rebuild.ts';
+import { $ } from '../platform/dom.ts';
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
 // Markdown heading (md-surface.ts drawOutline). up is the index of the entry it sits under (-1 at the top).

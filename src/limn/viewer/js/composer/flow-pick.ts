@@ -6,8 +6,6 @@
 // was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
 // unchanged (savePin).
 import {
-  $,
-  $$,
   DOC,
   KIND_NEW,
   REQUEST_KIND,
@@ -16,9 +14,6 @@ import {
   LAYOUT_MODE,
   META,
   MID_OVERLAY,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  NOTICE_TOPIC,
   PICKSEQ,
   PINS,
   PIN_STATE,
@@ -72,8 +67,10 @@ import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
 import { EDITOR, autoGrow } from '../pins/flow-edit.ts';
 import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
-import { roveSegment } from '../main.ts';
 import type { Html } from '../platform/markup.ts';
+import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
+import { roveSegment } from '../platform/segments.ts';
 
 const COMPOSE = {
   current: null as Selection | null,

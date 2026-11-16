@@ -1,15 +1,10 @@
 // ------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
 import {
-  $,
   BUILD_STATE,
   DOC,
   DOC_SEQ,
   ELEMENT_SYNC,
-  EVENT_TYPE,
   META_BY,
-  NOTICE_DOT,
-  NOTICE_KIND,
-  NOTICE_LIFE,
   PIN_STATE,
   SWITCHSEQ,
   SYNC_STATE,
@@ -38,6 +33,8 @@ import { josa, josaName, who } from '../pins/view-card-parts.ts';
 import { openTrash } from '../pins/view-cards.ts';
 import { gotoReview, loadPins } from '../pins/flow-list.ts';
 import { restorePin } from '../pins/flow-actions.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 let LAST_PINS_REVISION = null as string | null,
   LAST_SRC_MTIME = null as string | number | null,
   POLL_FAILS = 0,

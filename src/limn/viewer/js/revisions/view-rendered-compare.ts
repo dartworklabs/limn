@@ -11,7 +11,6 @@
 // the old side's own image files are not read; a line above the compare says so whenever a side has one. A character
 // that would hide or reorder text stays in its box (drawText) on both sides, and a changed one is a changed word.
 import {
-  $,
   DIFF_FORMAT,
   LAYOUT,
   LAYOUT_MODE,
@@ -40,6 +39,7 @@ import {
   yieldToBrowser,
 } from '../markdown/view.ts';
 import { isTextDoc, markedCharactersText } from '../text/view.ts';
+import { $ } from '../platform/dom.ts';
 // RENDERED_COMPARE: the compare on screen (key: revisionKey() it was drawn for), its parse worker and job, the change
 // groups in order (stops, each the blocks of one change) and the one the navigator is at, the drawn column (root) and
 // the observer that lays its gutter chips out again when its width changes (ro), the status line it said (line) and

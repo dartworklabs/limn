@@ -2,7 +2,6 @@
 // The pages of the PDF pdf-open.ts opened, drawn onto canvases one job at a time: pages within the viewport first, each
 // page's canvas sized to the screen, a detail canvas over a capped one, and every canvas released when its page scrolls
 // out of reach.
-import { $, $$ } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import {
   VECTOR_PDF,
@@ -12,6 +11,7 @@ import {
   forgetVectorDocument,
 } from './flow-open.ts';
 import { searchOffer } from './flow.ts';
+import { $, $$ } from '../platform/dom.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
 function closeVectorDocument(doc) {
   if (!doc) return;

@@ -224,6 +224,12 @@ class FunctionExtraction(unittest.TestCase):
         self.assertIn(sq("function card(pin){"), sq(body))
         self.assertIn("${head}${body}</div>`;\n}", body)
 
+    def test_a_table_right_after_a_block_is_still_a_closed_set(self):
+        """A function or class declaration ends in its block, with no ';': the closed set declared right after one is
+        read all the same (a moved declaration can land a table there), and a const that is no closed set is not."""
+        src = "function f() { return 1; }\nconst A = Object.freeze({ X: 'x' });\nclass C { m() {} }\nconst B = 'b';\nconst D = f();"
+        self.assertEqual(list(helpers_js.closed_sets(src)), ["A", "B"])
+
     def test_the_tables_a_function_reads_come_with_it(self):
         """A pulled function that reads a closed set gets it as a `var` before its text, so it runs in a bare harness;
         one that reads none gets nothing."""

@@ -1,15 +1,11 @@
 // ------------------------------------------------ Help
 import {
-  $,
-  $$,
   DOCS,
   REQUEST_KIND,
   LAYOUT,
   LAYOUT_MODE,
   MENTION_ONLY,
   MID_OVERLAY,
-  NOTICE_HOST,
-  NOTICE_KIND,
   OPEN_CARDS,
   OUTLINE_MID_OPEN,
   REPICK,
@@ -113,6 +109,9 @@ import { closeReply, openReply, renderReplyOutcome, sendReply } from './pins/flo
 import { EDITOR, cancelEdit, openEdit, renderEdit, saveEdit } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './documents/flow-rebuild.ts';
+import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
+import { $, $$ } from './platform/dom.ts';
+import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
@@ -634,42 +633,6 @@ $('#revision-file').addEventListener('change', renderRevisionFile);
 // the word's own press - chooses. While the focus walks such a group the stop goes with it, so Tab leaves from where
 // the focus is in one step; when the focus leaves, the stop goes back to the chosen word (leaveManualSegment).
 const SEGMENT_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
-/** The words of a radio group that can take the focus: neither disabled nor hidden. */
-function offeredWords(group: Element) {
-  return ([...group.querySelectorAll('[role=radio]')] as HTMLButtonElement[]).filter(
-    (word) => !word.disabled && !word.hidden,
-  );
-}
-/** The words of a group on offer that are laid out - the ones a key walks. */
-function shownWords(group: Element) {
-  return offeredWords(group).filter((word) => word.getClientRects().length);
-}
-/** Where the focus is among the words a group shows (shownWords), -1 when it is not on one of them. */
-function segmentFocusAt(group: Element) {
-  return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
-}
-// Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.ts
-// assigneeRowHtml), the range ladder with every range (levels.ts drawLadder - a pick that leaves the excerpt short of
-// lines draws it again once more when they come back, excerpt.ts excerptFetch) and [더보기]'s size on every pick and
-// relayout (panel-size.ts renderSizeSegment). The word with the focus goes with the old words, and the focus would land
-// on the body: an arrow's walk would end there, as would Enter or Space on the chosen word, and the next Tab would
-// begin again from the page's start. So each draw notes where the focus was (segmentFocusAt) and gives it back to the
-// word now at `index` - the last when there are fewer - as no new focus: a description shows only after a key
-// (tooltip.ts focusGivenBack). A group drawn away (no people left to assign) has none, and the focus stays.
-function keepSegmentFocus(group: Element, index: number) {
-  if (index < 0) return;
-  const words = shownWords(group),
-    word = words[Math.min(index, words.length - 1)];
-  if (word) focusGivenBack(word);
-}
-/** Keep one Tab stop in a radio group: the chosen word, else the first one on offer. It reads the markup only, not the
- * layout, so a group drawn while its panel is closed holds its one stop before it shows. */
-function roveSegment(group: Element | null) {
-  if (!group) return;
-  const words = offeredWords(group),
-    on = words.find((word) => word.getAttribute('aria-checked') === 'true') || words[0];
-  for (const word of words) word.tabIndex = word === on ? 0 : -1;
-}
 // the groups in the page's markup; a drawn one calls roveSegment itself
 for (const group of $$('[role=radiogroup]')) roveSegment(group);
 document.addEventListener('keydown', (event) => {
@@ -903,4 +866,3 @@ document.addEventListener('keydown', (event) => {
   }
 });
 boot();
-export { segmentFocusAt, keepSegmentFocus, roveSegment };

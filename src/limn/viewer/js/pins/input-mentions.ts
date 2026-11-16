@@ -8,7 +8,6 @@
 // notification. The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it),
 // its people and the highlighted row.
 import {
-  $,
   ASSIGNEE_AGENT,
   KIND_NEW,
   META,
@@ -27,8 +26,9 @@ import { saveDraftSoon } from '../composer/flow-draft.ts';
 import { avatar, meLogin, mentionAfterWord, peopleName } from './view-card-parts.ts';
 import { renderReplyOutcome } from './flow-reply.ts';
 import { EDITOR, autoGrow, editNote } from './flow-edit.ts';
-import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../main.ts';
 import type { Html } from '../platform/markup.ts';
+import { $ } from '../platform/dom.ts';
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 
 const MENTION = {
   ta: null as HTMLTextAreaElement | null,

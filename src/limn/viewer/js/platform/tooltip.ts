@@ -1,7 +1,11 @@
 // ------------------------------------------------ Tooltip
-import { $, LAST_POINTER, LAST_TOUCH_AT, NO_HOVER_QUERY, setLastPointer, setLastTouchAt } from '../app/state.ts';
-import { typingNow } from '../layout/flow.ts';
+import { LAST_POINTER, LAST_TOUCH_AT, setLastPointer, setLastTouchAt } from '../app/state.ts';
 import { MARK_HIDDEN } from '../pins/flow-list.ts';
+import { $, typingNow } from './dom.ts';
+// A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
+// mouseover, which would leave the description stuck over the list. Only long-press is used.
+const NO_HOVER_QUERY = matchMedia('(hover:none)');
+
 const TIP = $('#tip');
 let tipTimer = undefined as ReturnType<typeof setTimeout> | undefined,
   armedTipElement = null as HTMLElement | null,
@@ -471,4 +475,5 @@ export {
   showTipText,
   armedTipElement,
   tipFollow,
+  NO_HOVER_QUERY,
 };

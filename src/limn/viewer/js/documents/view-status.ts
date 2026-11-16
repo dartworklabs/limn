@@ -8,21 +8,18 @@
 // items the desktop's line shows besides a rebuild's 'no changes', a new Limn and the pins kept while cut off, since
 // its chips say the rest (statusShown).
 import {
-  $,
   BAND,
   BUILD_STATE,
   LAYOUT,
   LAYOUT_BAND,
   LAYOUT_MODE,
   META,
-  NOTICE_KIND,
   STATUS_KIND,
   SYNC_STATE,
-  TIP_TEXT,
   buildsFromSource,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from '../platform/notices.ts';
 import { hideTip, showTipText } from '../platform/tooltip.ts';
 import { SYNC_REASON, isViewer } from './flow-boot.ts';
@@ -30,6 +27,8 @@ import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
 import { OFF } from '../offline/flow.ts';
+import { NOTICE_KIND } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 let STATUS_SYNC = null as SyncStatus | null,
   STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
 // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not

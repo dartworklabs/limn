@@ -23,11 +23,11 @@
 // answer is answered from it without asking: a visit's first reads are made one after another, and each waiting out its
 // own request would draw the page a read's wait later, every time. The light poll always asks, and its answer - any
 // answer - takes API_OUT down.
-import { NOTICE_HOST, NOTICE_KIND } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from './markup.ts';
 import { errText, translateTemplate, translate } from './i18n.ts';
 import { bannerNote, lineNote, quietNote, sourceOk } from './notices.ts';
 import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from '../offline/flow.ts';
+import { NOTICE_HOST, NOTICE_KIND } from './tables.ts';
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
 async function api(url, options): Promise<{ status: number; data: any }> {

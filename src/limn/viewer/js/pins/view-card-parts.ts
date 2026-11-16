@@ -1,5 +1,4 @@
 import {
-  $$,
   ASSIGNEE_AGENT,
   CARD_DOT,
   DOC,
@@ -33,6 +32,7 @@ import { relSpan, stampSpan } from './view-cards.ts';
 import { drawPins, isMe } from './flow-list.ts';
 import { nameShared, personLabel } from './input-mentions.ts';
 import type { Html } from '../platform/markup.ts';
+import { $$ } from '../platform/dom.ts';
 
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */

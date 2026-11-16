@@ -9,20 +9,7 @@
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
-import {
-  $,
-  DOC,
-  DROPPED,
-  EVENT_TYPE,
-  LOCAL_LOGIN,
-  META,
-  NOTICE_DOT,
-  NOTICE_KIND,
-  NOTIFY_STATE,
-  OPEN_CARDS,
-  PIN_STATE,
-  SWITCHSEQ,
-} from '../app/state.ts';
+import { DOC, DROPPED, LOCAL_LOGIN, META, NOTIFY_STATE, OPEN_CARDS, PIN_STATE, SWITCHSEQ } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { SECTION_OPEN, prefs, savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
@@ -37,6 +24,8 @@ import { who } from '../pins/view-card-parts.ts';
 import { openTrash } from '../pins/view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from '../pins/flow-list.ts';
 import { restorePin } from '../pins/flow-actions.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
 let WORKER_REGISTRATION = null as ServiceWorkerRegistration | null;
 function notifySupported() {

@@ -6,22 +6,9 @@
 // colour. The panel's section lists every record with its place, words, note and state, and two actions: [버리기] (its
 // undo on the status line, since the row is gone) and [다시 찍기] (the record leaves the queue and its note waits in
 // the composer for the next drag, the draft's own behaviour, draft.ts). Nothing here writes to the server.
-import {
-  $,
-  $$,
-  DEFAULT_DOC,
-  DOC,
-  REQUEST_KIND,
-  LAYOUT,
-  LAYOUT_MODE,
-  META,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  TIP_TEXT,
-  scrollMotion,
-} from '../app/state.ts';
+import { DEFAULT_DOC, DOC, REQUEST_KIND, LAYOUT, LAYOUT_MODE, META, scrollMotion } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { NOTICE_HOLD_MAX, NOTICE_MS, announce, lineNote, noticeIcon } from '../platform/notices.ts';
 import { docInfo } from '../documents/view-tabs.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
@@ -34,6 +21,8 @@ import { OFF, offDel, offPut, offlineSync } from './flow.ts';
 import { marksShow } from '../pins/input-hide-marks.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../pins/input-mentions.ts';
 import { autoGrow } from '../pins/flow-edit.ts';
+import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
 /** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text is in the composer), standing as
  * its undo row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a
  * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).

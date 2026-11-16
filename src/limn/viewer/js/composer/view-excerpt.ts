@@ -3,7 +3,7 @@
 // with one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's
 // first or last line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer
 // and the edit card draw the same excerpt.
-import { $, SNIP_OPEN } from '../app/state.ts';
+import { SNIP_OPEN } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
@@ -12,6 +12,7 @@ import { withDocQuery, isRegion } from '../documents/view-tabs.ts';
 import { refetchSnip } from './view-levels.ts';
 import { COMPOSE, recomputeOverlap, renderComposer } from './flow-pick.ts';
 import { EDITOR, renderEdit } from '../pins/flow-edit.ts';
+import { $ } from '../platform/dom.ts';
 
 // The range first..last widened to line: [min(first, line), max(last, line)]. Pure.
 function widenTo(first, last, line) {

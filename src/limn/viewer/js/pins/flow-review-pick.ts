@@ -5,22 +5,9 @@
 // line (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed
 // again since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the
 // rules.
-import {
-  $,
-  DONE_ALL,
-  MENTION_ONLY,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
-  OPEN_ALL,
-  OPEN_CARDS,
-  PIN_STATE,
-  REVIEW_ALL,
-  TIP_TEXT,
-  setReviewAll,
-} from '../app/state.ts';
+import { DONE_ALL, MENTION_ONLY, OPEN_ALL, OPEN_CARDS, PIN_STATE, REVIEW_ALL, setReviewAll } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { errText, translateTemplate, translate } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { ORDER, SECTION_OPEN, savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote, quietNote } from '../platform/notices.ts';
@@ -37,6 +24,8 @@ import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from '
 import { drawPins, jumpToCard, listReview, loadPins, marks, orderPins } from './flow-list.ts';
 import { CONFIRMING, CONFIRMING_PIN } from './flow-actions.ts';
 import type { Html } from '../platform/markup.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
 // close with none). null while the section shows cards.

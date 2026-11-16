@@ -8,17 +8,11 @@
 // were drawn on, and its answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never
 // dropped.
 import {
-  $,
   DEFAULT_DOC,
   DOC,
   DOCS,
   LAST_POINTER,
   META,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_LIFE,
-  NOTICE_PLACE,
-  NOTICE_TOPIC,
   OPEN_ALL,
   PICKSEQ,
   rendersInBrowser,
@@ -42,6 +36,8 @@ import { offlineUiSync } from './view.ts';
 import { topPinId } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { isMe, loadPins } from '../pins/flow-list.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 const OFF_DB = 'limnOffline',
   OFF_STORE = 'pins',
   OFF_STATE = 'state',

@@ -60,7 +60,7 @@
 
 ### 닫힌 값 표
 
-뷰어가 상태·모드를 비교하는 값은 문자열 리터럴로 쓰지 않고 `app/state.ts` 맨 앞의 얼린 표(`Object.freeze`) 멤버로 쓴다. 비교하는 자리(`b.state===BUILD_STATE.RUNNING`)도, 그 값을 만드는 자리(`return LAYOUT_MODE.NARROW`)도 같다. 핀의 상태는 `pinState(p)` 한 곳에서만 읽는다. API의 `state`가 있으면 그 값을, 없는 옛 응답이면 `done`·`review` 표시에서 서버와 같은 규칙으로 정한다. 다른 코드는 `done`·`review` 표시를 직접 읽지 않는다.
+뷰어가 상태·모드를 비교하는 값은 문자열 리터럴로 쓰지 않고 얼린 표(`Object.freeze`)의 멤버로 쓴다. 공용 장치가 비교하는 표(알림의 종류·자리·주인·수명·점·주제, UI 언어, 목록 순서, 이벤트 종류)는 `platform/tables.ts`에, 나머지는 `app/state.ts` 맨 앞에 있다. 비교하는 자리(`b.state===BUILD_STATE.RUNNING`)도, 그 값을 만드는 자리(`return LAYOUT_MODE.NARROW`)도 같다. 핀의 상태는 `pinState(p)` 한 곳에서만 읽는다. API의 `state`가 있으면 그 값을, 없는 옛 응답이면 `done`·`review` 표시에서 서버와 같은 규칙으로 정한다. 다른 코드는 `done`·`review` 표시를 직접 읽지 않는다.
 
 | 표 | 값 | 출처 |
 | --- | --- | --- |
@@ -152,11 +152,11 @@
 | `js/platform/<이름>.ts` | `platform`(공용 장치) | `lib` |
 | `js/main.ts` | `entry` | `main` |
 
-기능은 아래에서 위로 `platform`(마크업·말·요청·설정·알림·설명 상자), `app`(공유 상태와 닫힌 값 표, `app/state.ts`), `layout`(틀: 폭, 패널과 시트, 그 손짓), `documents`(열린 문서와 그 meta·빌드, 상태 줄, 전환과 새로 고침), `pdf`(PDF의 쪽: 열기·그리기·확대·목차·쪽 목록·검색·고르기), `markdown`, `text`, `revisions`(변경 보기), `composer`(고른 자리에서 핀 만들기), `pins`(핀 목록과 카드, 스레드, 동작), `verdict`(판정 핀과 판정 패널), `offline`(끊긴 채 보기와 핀 쌓기), `entry`다. 역할은 `rules`(값을 받아 값을 내는 순수 판단, DOM·요청·자기 상태 없음), `state`(모듈 상태와 그 변경 함수), `api`(서버 요청과 답 읽기), `view`(DOM 그리기), `input`(포인터·키·손짓), `flow`(기능 안의 단계), `lib`, `main`이다.
+기능은 아래에서 위로 `platform`(마크업·말·요청·설정·알림·설명 상자, 그 장치들이 비교하는 닫힌 값 표), `app`(공유 상태와 나머지 닫힌 값 표, `app/state.ts`), `layout`(틀: 폭, 패널과 시트, 그 손짓), `documents`(열린 문서와 그 meta·빌드, 상태 줄, 전환과 새로 고침), `pdf`(PDF의 쪽: 열기·그리기·확대·목차·쪽 목록·검색·고르기), `markdown`, `text`, `revisions`(변경 보기), `composer`(고른 자리에서 핀 만들기), `pins`(핀 목록과 카드, 스레드, 동작), `verdict`(판정 핀과 판정 패널), `offline`(끊긴 채 보기와 핀 쌓기), `entry`다. 역할은 `rules`(값을 받아 값을 내는 순수 판단, DOM·요청·자기 상태 없음), `state`(모듈 상태와 그 변경 함수), `api`(서버 요청과 답 읽기), `view`(DOM 그리기), `input`(포인터·키·손짓), `flow`(기능 안의 단계), `lib`, `main`이다.
 
 검사하는 규칙은 넷이고 모두 줄기만 하는 기준선에 든다(§타입 검사).
 
-- `cycle`: import가 모듈의 순환을 닫는다. 지금은 57개 중 54개가 한 순환에 든다.
+- `cycle`: import가 모듈의 순환을 닫는다. 지금은 모듈 대부분이 한 순환에 든다.
 - `feature-dependency`: 다른 기능의 모듈을 가져오는데 그 방향이 `ALLOWED`에 없다. `ALLOWED`는 방향마다 업무상의 이유를 적고, 모든 기능은 `platform`과 `app`을 가져올 수 있으며, 나열한 방향끼리는 순환이 없어야 한다. 새 방향은 diff에 새 줄로 보인다.
 - `platform-isolation`: 공용 모듈이 기능의 모듈을 가져오거나, 다른 공용 모듈을 거쳐 닿는다.
 - `role`: `rules`가 제 기능의 `rules`와 `platform` 밖을 가져오거나, `state`·`api`가 제 기능·`app`·`platform`의 `rules`·`state` 밖을 가져오거나, 누구든 입구를 가져온다.

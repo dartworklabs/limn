@@ -36,7 +36,9 @@ css/text-surface.css    # the text surface: a text document's monospace lines, t
 css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column, block and word marks, gutter chips
 
 __APP_JS__
-js/app/state.ts                        # DOM helpers, icons, shared state and its setters, the tooltip texts (TIP_TEXT)
+js/platform/tables.ts                  # closed values platform code compares: notice kinds, places, hosts, lives, dots, topics; UI language; list order; event types
+js/app/state.ts                        # shared state and its setters, the closed value tables of the app
+js/platform/dom.ts                     # DOM lookups ($, $$), escaping (esc), the icon table, whether a text field has focus
 js/platform/markup.ts                  # html``, lucideIcon() and setHtml(): markup with every value escaped, and its one sink
 js/platform/hidden-chars.ts            # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
 js/platform/i18n.ts                    # UI language: translate/translateTemplate/translateMessage, API error and pick warning text, the English observer
@@ -44,6 +46,7 @@ js/platform/prefs.ts                   # per-device preferences (pinPrefs), list
 js/platform/api.ts                     # api() and how a failed request is said, copy
 js/platform/notices.ts                 # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends
 js/platform/tooltip.ts                 # hover/focus tooltips, the touch long-press tooltip, explanations for screen readers
+js/platform/segments.ts                # segmented controls: the words on offer, one Tab stop, the focus kept across a redraw
 js/documents/view-tabs.ts              # several documents: the list, tabs and links
 js/revisions/flow.ts                   # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents

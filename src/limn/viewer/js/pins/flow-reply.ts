@@ -9,10 +9,6 @@ import {
   REQUEST_KIND,
   LOCAL_LOGIN,
   META,
-  NOTICE_DOT,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
   OPEN_CARDS,
   PEOPLE,
   PIN_STATE,
@@ -35,6 +31,7 @@ import { meLogin, peopleName } from './view-card-parts.ts';
 import { drawPins, loadPins } from './flow-list.ts';
 import { mentionHints, mentionPreview, mentionScan } from './input-mentions.ts';
 import { autoGrow } from './flow-edit.ts';
+import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 function isHuman() {
   const me = typeof META !== 'undefined' && META && META.me;
   return !!(

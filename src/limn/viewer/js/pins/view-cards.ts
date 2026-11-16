@@ -1,6 +1,4 @@
 import {
-  $,
-  $$,
   CARD_DOT,
   DROPPED,
   ELEMENT_SYNC,
@@ -8,19 +6,16 @@ import {
   LAYOUT_MODE,
   META,
   COARSE_POINTER_QUERY,
-  NOTICE_PLACE,
   OPEN_CARDS,
   PIN_STATE,
   RANGE_REL,
   REPLY,
   ROLE,
   STAMP_FORM,
-  TIP_TEXT,
-  UI_LANG,
   isFigureKind,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
-import { LANG, translateTemplate, translate, translateMessage } from '../platform/i18n.ts';
+import { LANG, translateTemplate, translate, translateMessage, TIP_TEXT } from '../platform/i18n.ts';
 import { NOTICES, drawTrashOffers } from '../platform/notices.ts';
 import { hideTip, tipFollow } from '../platform/tooltip.ts';
 import { docInfo, isRegion, pdoc } from '../documents/view-tabs.ts';
@@ -71,6 +66,8 @@ import { isMe, listDropped, reviewerLabel } from './flow-list.ts';
 import { PURGING } from './flow-actions.ts';
 import { EDITOR } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
+import { NOTICE_PLACE, UI_LANG } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
 
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;

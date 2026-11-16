@@ -11,13 +11,10 @@
 //   (status.ts);
 // - back after a while, what came meanwhile is said as one message (notices.ts digestBegin, polling.ts).
 import {
-  $$,
   DOC,
   DOCS,
   META,
   META_BY,
-  NOTICE_DOT,
-  NOTICE_KIND,
   REPLY,
   REPLY_DRAFT,
   SWITCHSEQ,
@@ -38,6 +35,8 @@ import { MARKDOWN_VIEW, isMarkdownDoc, lineLeaves, showLines } from '../markdown
 import { josaName, who } from '../pins/view-card-parts.ts';
 import { replyNote } from '../pins/flow-reply.ts';
 import { editDirty } from '../pins/flow-edit.ts';
+import { NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
+import { $$ } from '../platform/dom.ts';
 const UPDATE_STATE = {
   moved: new Map() as Map<string, { moved: Set<number>; lost: Set<number> }>,
   lines: new Map() as Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>,

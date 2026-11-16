@@ -6,16 +6,12 @@
 // page (frac 0), how far under it the page's top stands. y and h: where that page's top stood under the scroller's top
 // and its height, so restoreAnchor can tell a re-fit that moved nothing.
 import {
-  $,
-  $$,
   BUILD_ERR_BY,
   BUILD_STATE,
   DOC,
   META,
   META_BY,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
   SIDE_OPEN,
   SWITCHSEQ,
   rendersInBrowser,
@@ -37,6 +33,8 @@ import { pageUnderReadingLine } from '../verdict/flow-line.ts';
 import { isComposingNow, afterComposition } from '../verdict/flow-reason.ts';
 import { setBuildReadingPage } from '../verdict/view-panel.ts';
 import { loadPins } from '../pins/flow-list.ts';
+import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
+import { $, $$ } from '../platform/dom.ts';
 function topAnchor(offset?) {
   const scroller = $('#left'),
     scrollerTop = scroller.getBoundingClientRect().top,

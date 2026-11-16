@@ -2,23 +2,18 @@
 // [되돌리기] (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a
 // banner on top of the panel.
 import {
-  $,
   DOC,
   DONE_ALL,
   DROPPED,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_PLACE,
   OPEN_ALL,
   PINS,
   PIN_STATE,
   REVIEW_ALL,
-  TIP_TEXT,
   setOpenAll,
   setPins,
   setReviewAll,
 } from '../app/state.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import {
   NOTICE_ACT_WAIT,
@@ -42,6 +37,8 @@ import { searchToPage } from '../pdf/flow.ts';
 import { drawTrash } from './view-cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './flow-list.ts';
 import { EDITOR } from './flow-edit.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;

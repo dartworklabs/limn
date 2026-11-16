@@ -6,7 +6,6 @@
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
 import {
-  $,
   DOC,
   PAGE_SCALE,
   LAYOUT,
@@ -28,6 +27,7 @@ import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER, openSelectionPopover, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { markBadgeIn, markBadgeRoom } from '../pins/flow-list.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
+import { $ } from '../platform/dom.ts';
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;

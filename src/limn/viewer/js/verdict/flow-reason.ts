@@ -21,18 +21,13 @@
 // Moving on - the reading page leaving the popover's page after it was there, another save on another page, another
 // document - closes it and writes what was typed, said in one line; a folded draft waits for the person.
 import {
-  $,
   DOC,
   DONE_ALL,
   IME_ON_FREE,
   META,
-  NOTICE_HOST,
-  NOTICE_KIND,
-  NOTICE_LIFE,
   OPEN_ALL,
   REPLY,
   REVIEW_ALL,
-  TIP_TEXT,
   captureVisit,
   currentVisit,
   imeHeldIn,
@@ -40,14 +35,13 @@ import {
   imeTail,
 } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
-import { errText, translateTemplate, translate } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import { docInfo } from '../documents/view-tabs.ts';
 import { viewerBlocked } from '../documents/flow-boot.ts';
 import { searchToPage } from '../pdf/flow.ts';
-import { typingNow } from '../layout/flow.ts';
 import {
   SAVING_LINES,
   KEYED_PAGE,
@@ -77,6 +71,8 @@ import { IS_BESIDE_PAGES, bringPage, redrawOnBesideChange } from './view-panel.t
 import { josa } from '../pins/view-card-parts.ts';
 import { PINS_APPLIED_SEQ, gotoPinRef, isMe, loadPins } from '../pins/flow-list.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { $, typingNow } from '../platform/dom.ts';
 
 // ---------------- Drafts kept per pin (sessionStorage)
 // One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The

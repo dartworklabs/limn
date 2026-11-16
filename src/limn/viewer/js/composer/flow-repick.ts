@@ -1,25 +1,21 @@
 // ------------------------------------------------ Re-place location
 // Shows the re-place banner with markup (Html) as its content.
 import {
-  $,
   DOC,
   LAYOUT,
   LAYOUT_MODE,
   COARSE_POINTER_QUERY,
-  NOTICE_HOST,
-  NOTICE_KIND,
   PICKSEQ,
   PIN_STATE,
   REPICK,
   SWITCHSEQ,
-  TIP_TEXT,
   captureVisit,
   currentVisit,
   setPickseq,
   setRepick,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
-import { translateTemplate, translate } from '../platform/i18n.ts';
+import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
 import { isRegion } from '../documents/view-tabs.ts';
@@ -31,6 +27,8 @@ import { isMarkdownDoc, markChosenLines, shownChoice } from '../markdown/view.ts
 import { COMPOSE, cancelSelection } from './flow-pick.ts';
 import { loadPins } from '../pins/flow-list.ts';
 import { EDITOR, editSnip } from '../pins/flow-edit.ts';
+import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
+import { $ } from '../platform/dom.ts';
 function banner(markup) {
   const bannerBox = $('#banner');
   setHtml(bannerBox, markup);
