@@ -26,15 +26,15 @@ import {
   isViewOnlyKind,
   rendersInBrowser,
 } from './core.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from './notices.ts';
-import { docInfo, dq, pdoc } from './doc-tabs.ts';
-import { REV, REVISION_PAGE, loadRevisions, setViewMode } from './revisions.ts';
+import { docInfo, withDocQuery, pdoc } from './doc-tabs.ts';
+import { REVISION_VIEW, REVISION_PAGE, loadRevisions, setViewMode } from './revisions.ts';
 import { switchDoc } from './doc-switch.ts';
 import { notifyCursor, openPinFromLink } from './notify.ts';
 import { drawStatus } from './status.ts';
-import { MD, isMdDoc, mdLeaves, mdShowLines } from './md-surface.ts';
+import { MARKDOWN_VIEW, isMarkdownDoc, lineLeaves, showLines } from './md-surface.ts';
 import { josaName, who } from './card-parts.ts';
 import { replyNote } from './reply.ts';
 import { editDirty } from './edit.ts';
@@ -272,17 +272,18 @@ function freshPins(rows: Pin[], top: number, me: string): Pin[] {
     .filter((pin) => pin.id > top && !(pin.author && me && pin.author.login === me))
     .sort((first, second) => first.id - second.id);
 }
-// How long a person was away, as the gathered message's title says it: minutes, hours, then days. Pure but for tl().
+// How long a person was away, as the gathered message's title says it: minutes, hours, then days. Pure but for
+// translateTemplate().
 /** @param lost the connection was what was gone */
 function awayTitle(ms: number, lost: boolean): string {
   const minutes = Math.max(1, Math.round(ms / 60000)),
     span =
       minutes < 60
-        ? tl('{n}분', { n: minutes })
+        ? translateTemplate('{n}분', { n: minutes })
         : minutes < 1440
-          ? tl('{n}시간', { n: Math.round(minutes / 60) })
-          : tl('{n}일', { n: Math.round(minutes / 1440) });
-  return tl(lost ? '연결이 끊긴 사이 ({t})' : '자리를 비운 사이 ({t})', { t: span });
+          ? translateTemplate('{n}시간', { n: Math.round(minutes / 60) })
+          : translateTemplate('{n}일', { n: Math.round(minutes / 1440) });
+  return translateTemplate(lost ? '연결이 끊긴 사이 ({t})' : '자리를 비운 사이 ({t})', { t: span });
 }
 
 // ---------------- A document changed
@@ -294,12 +295,12 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
     kind = (entry && entry.kind) || (meta && meta.kind) || '',
     source = (meta || entry) as any;
   if (!source) return null;
-  // a drawn document on screen: its source as last read (MD.mtime), not the meta it was opened with; off screen: the
-  // document list's (noteOtherDocs keeps it fresh) - MD still holds the lines of one drawn before, as they were when
-  // left
+  // a drawn document on screen: its source as last read (MARKDOWN_VIEW.mtime), not the meta it was opened with; off
+  // screen: the document list's (noteOtherDocs keeps it fresh) - MARKDOWN_VIEW still holds the lines of one drawn
+  // before, as they were when left
   const sourceTime =
-    doc === DOC && MD.doc === doc && typeof MD.mtime === 'number'
-      ? MD.mtime
+    doc === DOC && MARKDOWN_VIEW.doc === doc && typeof MARKDOWN_VIEW.mtime === 'number'
+      ? MARKDOWN_VIEW.mtime
       : doc !== DOC && entry && typeof entry.src_mtime === 'number'
         ? entry.src_mtime
         : source.src_mtime;
@@ -316,7 +317,7 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
 async function docRows(doc: string): Promise<RevisionRow[] | null> {
   try {
     const answer = (
-      await api(dq('/api/revisions?limit=' + REVISION_PAGE, doc), { what: '변경사항 읽기', silent: true })
+      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, doc), { what: '변경사항 읽기', silent: true })
     ).data;
     return answer.available ? ((answer.revisions || []) as RevisionRow[]) : [];
   } catch (error) {
@@ -335,7 +336,7 @@ async function docBuild(
   let meta = (doc === DOC ? META : META_BY.get(doc)) as any;
   if (!meta || 'build:' + meta.pages_build !== now.ver) {
     try {
-      meta = (await api(dq('/api/meta?light=1', doc), { what: '상태 확인', silent: true })).data;
+      meta = (await api(withDocQuery('/api/meta?light=1', doc), { what: '상태 확인', silent: true })).data;
     } catch (error) {
       return null;
     }
@@ -469,7 +470,7 @@ function docUpdateView(update: any) {
     parts.push((commits.prs[0] ? 'PR #' + commits.prs[0] + ' ' : '') + commits.subject);
     if (commits.authors[0]) parts.push(commits.authors[0]);
   } else if (commits.n > 1) {
-    parts.push(tl(commits.more ? '커밋 {n}개 넘게' : '커밋 {n}개', { n: commits.n }));
+    parts.push(translateTemplate(commits.more ? '커밋 {n}개 넘게' : '커밋 {n}개', { n: commits.n }));
     if (commits.prs.length)
       parts.push(
         commits.prs
@@ -480,11 +481,11 @@ function docUpdateView(update: any) {
     if (commits.authors.length)
       parts.push(
         commits.authors.slice(0, 2).join(', ') +
-          (commits.authors.length > 2 ? ' ' + tl('외 {n}명', { n: commits.authors.length - 2 }) : ''),
+          (commits.authors.length > 2 ? ' ' + translateTemplate('외 {n}명', { n: commits.authors.length - 2 }) : ''),
       );
   } else
     parts.push(
-      tr(
+      translate(
         isFigureKind(update.kind)
           ? '그림을 새로 가져왔습니다'
           : isViewOnlyKind(update.kind)
@@ -492,9 +493,9 @@ function docUpdateView(update: any) {
             : '커밋 없이 파일이 바뀌었습니다',
       ),
     );
-  if (lines && lines.ranges.length) parts.push(tl('바뀐 곳 {n}', { n: lines.ranges.length }));
-  if (moves && moves.moved.size) parts.push(tl('핀 {n}개 줄 이동', { n: moves.moved.size }));
-  if (moves && moves.lost.size) parts.push(tl('핀 {n}개 위치 잃음', { n: moves.lost.size }));
+  if (lines && lines.ranges.length) parts.push(translateTemplate('바뀐 곳 {n}', { n: lines.ranges.length }));
+  if (moves && moves.moved.size) parts.push(translateTemplate('핀 {n}개 줄 이동', { n: moves.moved.size }));
+  if (moves && moves.lost.size) parts.push(translateTemplate('핀 {n}개 위치 잃음', { n: moves.lost.size }));
   const act = !here
     ? { label: '열기', tip: '그 문서로 바꿉니다', fn: () => switchDoc(doc) }
     : lines && lines.ranges.length
@@ -513,7 +514,10 @@ function docUpdateView(update: any) {
               fn: () => openUpdateRange(doc, update.seenRev, update.top),
             }
           : null;
-  const title = tl('{name}{p} 바뀌었습니다', { name: update.name, p: josaName(update.name, '이', '가') });
+  const title = translateTemplate('{name}{p} 바뀌었습니다', {
+    name: update.name,
+    p: josaName(update.name, '이', '가'),
+  });
   return {
     msg: parts.length ? title + ' — ' + parts.join(' · ') : title,
     kind: NOTICE_KIND.INFO,
@@ -539,26 +543,26 @@ function docUpdateSeen(doc: string, update: any) {
   forgetUpdate(doc);
 }
 // What this tab kept for a seen change of a document - its moved pins and its tinted lines - goes. Moves that come
-// after this belong to no message that is due (updPinMoved).
+// after this belong to no message that is due (countPinMove).
 function forgetUpdate(doc: string) {
   UPDATE_STATE.moved.delete(doc);
   UPDATE_STATE.seenAt.set(doc, Date.now());
-  if (UPDATE_STATE.lines.delete(doc)) updMarks();
+  if (UPDATE_STATE.lines.delete(doc)) tintChangedLines();
 }
 // A source or a build is changing (polling.ts): for UPDATE_EXPECT_MS its pins' moves wait for its document's update
 // message. fresh: a source changed now - the wait starts now, so a message seen before it does not end it
-// (updPinMoved).
-function updExpect(fresh?: boolean) {
+// (countPinMove).
+function expectUpdate(fresh?: boolean) {
   const now = Date.now();
   if (fresh || UPDATE_STATE.expect < now) UPDATE_STATE.expectAt = now;
   UPDATE_STATE.expect = now + UPDATE_EXPECT_MS;
 }
 // A pin moved its lines (lost: lost its place) - counted for its document's update message while that stands or is due,
-// and said there. Due: a change is awaited (updExpect) that this document's message has not been seen for since - after
-// [x] on that message a late move (a maintenance save of the moved place, ADR-0028) is said on its own, not taken into
-// a message that has gone. Returns whether a moved pin is said there (its own message is then left out); a lost pin is
-// always said on its own as well, for it asks for a new place.
-function updPinMoved(pin: Pin, lost: boolean): boolean {
+// and said there. Due: a change is awaited (expectUpdate) that this document's message has not been seen for since -
+// after [x] on that message a late move (a maintenance save of the moved place, ADR-0028) is said on its own, not taken
+// into a message that has gone. Returns whether a moved pin is said there (its own message is then left out); a lost
+// pin is always said on its own as well, for it asks for a new place.
+function countPinMove(pin: Pin, lost: boolean): boolean {
   const doc = pdoc(pin),
     group = GROUPS.get('upd:' + doc),
     now = Date.now();
@@ -575,12 +579,12 @@ function updPinMoved(pin: Pin, lost: boolean): boolean {
 } // on the line, gathered or folded: it says the move there
 // The changes view on the commits the message named, on `doc`: its source diff of base (the last seen commit) → top
 // (the newest it named - the shown build's, not the checkout's newest: a checkout ahead of the pages, or a commit come
-// since the message, is not in it), the list painting just them (revisions.ts REV.want); without base, the view as it
-// opens. Another document is switched to first.
+// since the message, is not in it), the list painting just them (revisions.ts REVISION_VIEW.want); without base, the
+// view as it opens. Another document is switched to first.
 function openUpdateRange(doc: string, base: string, top?: string) {
   const go = () => {
-    REV.want = { base, top: top || '' };
-    REV.target = null; // the view opened for a pin shows the message's range now, not that pin's commit
+    REVISION_VIEW.want = { base, top: top || '' };
+    REVISION_VIEW.target = null; // the view opened for a pin shows the message's range now, not that pin's commit
     if (document.body.classList.contains('revision-open')) loadRevisions();
     else setViewMode(VIEW_MODE.REVISIONS);
   };
@@ -596,14 +600,15 @@ function openUpdateRange(doc: string, base: string, top?: string) {
 }
 
 // ---------------- A drawn document's changed lines
-// The source of drawn document `doc` was drawn (md-surface.ts mdBuild); before: the lines it replaced on screen (null
-// on the visit's first draw). The lines that differ from the base - the lines before the change not yet seen began,
-// kept while its message stands - are tinted (md-upd) while that message stands, and the message says how many places
-// and goes to them. A later change before it is seen is compared with that base again, not with the lines just drawn,
-// so a place changed first stays tinted and counted beside the new one; a return to the document compares what it draws
-// now. A change this device has seen already - its message dismissed while the document was off screen, or in another
-// tab - is no base: the lines it drew are not compared, so no tint stands that no message would take away.
-function updSourceRedrawn(doc: string, before: string[] | null, now: string[]) {
+// The source of drawn document `doc` was drawn (md-surface.ts buildMarkdownDoc); before: the lines it replaced on
+// screen (null on the visit's first draw). The lines that differ from the base - the lines before the change not yet
+// seen began, kept while its message stands - are tinted (md-upd) while that message stands, and the message says how
+// many places and goes to them. A later change before it is seen is compared with that base again, not with the lines
+// just drawn, so a place changed first stays tinted and counted beside the new one; a return to the document compares
+// what it draws now. A change this device has seen already - its message dismissed while the document was off screen,
+// or in another tab - is no base: the lines it drew are not compared, so no tint stands that no message would take
+// away.
+function compareRedrawnSource(doc: string, before: string[] | null, now: string[]) {
   const changed = UPDATE_STATE.lines.get(doc),
     seen = seenDoc(doc),
     current = shownDocState(doc);
@@ -618,7 +623,7 @@ function updSourceRedrawn(doc: string, before: string[] | null, now: string[]) {
   if (!changed && !ranges.length) return;
   const same = !!changed && JSON.stringify(changed.ranges) === JSON.stringify(ranges);
   UPDATE_STATE.lines.set(doc, { base, ranges, at: changed && same ? changed.at : -1 });
-  updMarks();
+  tintChangedLines();
   if (before) {
     checkDocUpdate(doc, {});
     return;
@@ -627,14 +632,14 @@ function updSourceRedrawn(doc: string, before: string[] | null, now: string[]) {
 } // its message says the places, on the line, gathered or folded
 // Tints the changed lines of the document on screen (after every draw of it, md-surface.ts showDocumentNode), and only
 // those.
-function updMarks() {
+function tintChangedLines() {
   $$('#md .md-upd').forEach((line) => line.classList.remove('md-upd'));
   const changed = UPDATE_STATE.lines.get(DOC || '');
-  if (!changed || !isMdDoc()) return;
-  changed.ranges.forEach((range) => mdLeaves(range.lo, range.hi).forEach((line) => line.classList.add('md-upd')));
+  if (!changed || !isMarkdownDoc()) return;
+  changed.ranges.forEach((range) => lineLeaves(range.lo, range.hi).forEach((line) => line.classList.add('md-upd')));
 }
 // [바뀐 곳]: the next changed place (the first after the last), scrolled to the reading depth and flashed like a pin's
-// lines (mdShowLines: the reading spot is read where it lands).
+// lines (showLines: the reading spot is read where it lands).
 function goToNextChange(doc: string) {
   if (doc !== DOC) {
     switchDoc(doc);
@@ -644,14 +649,14 @@ function goToNextChange(doc: string) {
   if (!changed || !changed.ranges.length) return;
   changed.at = (changed.at + 1) % changed.ranges.length;
   const range = changed.ranges[changed.at],
-    leaves = mdLeaves(range.lo, range.hi);
-  if (leaves.length) mdShowLines(leaves);
+    leaves = lineLeaves(range.lo, range.hi);
+  if (leaves.length) showLines(leaves);
 }
 
 // ---------------- Others' new pins
 // Each pin snapshot (list.ts applyPinLists): pins others made since the highest number this tab - or, on the first
 // snapshot, this device (limnSeen.pin) - had seen, one message per document. The first visit of a device says nothing.
-function updNewPins(rows: Pin[]) {
+function noteNewPins(rows: Pin[]) {
   const me = (META && META.me && META.me.login) || '',
     max = (rows || []).reduce((highest, pin) => Math.max(highest, pin.id), 0);
   // the highest this device has seen stands even when the pins above the list's highest were deleted since: one
@@ -689,9 +694,13 @@ function announceNewPins(pins: Pin[]) {
         doc: doc,
         pins: list.map((pin) => ({
           id: pin.id,
-          who: who(pin.author) || tr('누군가'),
+          who: who(pin.author) || translate('누군가'),
           verdict: pin.verdict || '',
-          place: pin.page ? tl('{n}쪽', { n: pin.page }) : typeof pin.lo === 'number' ? 'L' + pin.lo : '',
+          place: pin.page
+            ? translateTemplate('{n}쪽', { n: pin.page })
+            : typeof pin.lo === 'number'
+              ? 'L' + pin.lo
+              : '',
           note: String(pin.note || '')
             .split('\n')[0]
             .slice(0, 40),
@@ -717,19 +726,19 @@ function newPinsView(news: any) {
     info = docInfo(news.doc),
     name = info ? info.name : news.doc;
   const head = one
-    ? tl(first.verdict ? '새 판정 #{id}' : '새 핀 #{id}', { id: first.id })
-    : tl('새 핀 {n}개', { n: pins.length });
+    ? translateTemplate(first.verdict ? '새 판정 #{id}' : '새 핀 #{id}', { id: first.id })
+    : translateTemplate('새 핀 {n}개', { n: pins.length });
   const description = one
     ? [first.who, first.place, first.verdict || first.note].filter(Boolean).join(' · ')
     : pins
         .slice(0, 3)
         .map((x: any) => '#' + x.id)
         .join(', ') +
-      (pins.length > 3 ? ' ' + tl('외 {n}개', { n: pins.length - 3 }) : '') +
+      (pins.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: pins.length - 3 }) : '') +
       ' · ' +
       [...new Set(pins.map((x: any) => x.who))].slice(0, 2).join(', ');
   return {
-    msg: (here ? head : tl('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
+    msg: (here ? head : translateTemplate('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
     kind: NOTICE_KIND.INFO,
     act: { label: here ? '보기' : '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(news.doc, first.id) },
     o: {
@@ -737,7 +746,7 @@ function newPinsView(news: any) {
       back: !here,
       dot: here ? NOTICE_DOT.SIDE : '',
       keys: pins.map((x: any) => 'new:' + x.id),
-      brief: tl('새 핀 {n}', { n: pins.length }),
+      brief: translateTemplate('새 핀 {n}', { n: pins.length }),
       onEnd: (acted: boolean, seen: boolean) => {
         if ((acted || seen) && ![...GROUPS.keys()].some((key) => key.startsWith('new:')))
           setSeenPin(UPDATE_STATE.top || 0);
@@ -814,11 +823,11 @@ export {
   checkDocsSeen,
   checkVersion,
   reloadForUpdate,
-  updExpect,
-  updMarks,
-  updNewPins,
-  updPinMoved,
-  updSourceRedrawn,
+  expectUpdate,
+  tintChangedLines,
+  noteNewPins,
+  countPinMove,
+  compareRedrawnSource,
   versionDue,
   versionOutdated,
   visitedBefore,

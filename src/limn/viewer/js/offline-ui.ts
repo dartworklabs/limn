@@ -11,23 +11,23 @@ import {
   $$,
   DEFAULT_DOC,
   DOC,
-  KIND_REQ,
+  REQUEST_KIND,
   LAYOUT,
   LAYOUT_MODE,
   META,
   NOTICE_KIND,
   NOTICE_LIFE,
-  T,
+  TIP_TEXT,
   scrollMotion,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { NOTICE_HOLD_MAX, NOTICE_MS, announce, lineNote, noticeIcon } from './notices.ts';
 import { docInfo } from './doc-tabs.ts';
 import { switchDoc } from './doc-switch.ts';
 import { arrivePage } from './pages.ts';
 import { setSide } from './layout.ts';
-import { isMdDoc } from './md-surface.ts';
+import { isMarkdownDoc } from './md-surface.ts';
 import { setKind } from './composer.ts';
 import { saveDraftSoon } from './draft.ts';
 import { OFF, offDel, offPut, offlineSync } from './offline.ts';
@@ -97,14 +97,14 @@ function offUiRows(all: any[], doc: string, defaultDoc: string, build: string, p
   return rows.filter((row) => row.here).concat(rows.filter((row) => !row.here));
 }
 // Why a held record is held: the reason it carries, or - an empty one - the reason a held record always has
-// (offline.ts writes this one when it has no other). '' for a record that waits. Pure but for tr.
+// (offline.ts writes this one when it has no other). '' for a record that waits. Pure but for translate.
 function offUiWhy(rec: any): string {
   if (!rec || !rec.held) return '';
   const reason = String(rec.why || '').trim();
-  return reason || tr('위치를 찾지 못했습니다');
+  return reason || translate('위치를 찾지 못했습니다');
 }
 // Where a record was pinned, as the row and the mark's tip say it: '3쪽', a line pin's 'intro.md 12–14줄' (one line:
-// '12줄'), '' when it says neither. Pure but for tl.
+// '12줄'), '' when it says neither. Pure but for translateTemplate.
 function offUiPlace(rec: any): string {
   const lines = rec && rec.lines;
   if (rec && rec.page == null && lines && typeof lines === 'object') {
@@ -118,11 +118,11 @@ function offUiPlace(rec: any): string {
     return (
       (name ? name + ' ' : '') +
       (Number.isFinite(lastLine) && lastLine !== firstLine
-        ? tl('{lo}–{hi}줄', { lo: firstLine, hi: lastLine })
-        : tl('{lo}줄', { lo: firstLine }))
+        ? translateTemplate('{lo}–{hi}줄', { lo: firstLine, hi: lastLine })
+        : translateTemplate('{lo}줄', { lo: firstLine }))
     );
   }
-  return rec && Number.isInteger(rec.page) && rec.page >= 1 ? tl('{page}쪽', { page: rec.page }) : '';
+  return rec && Number.isInteger(rec.page) && rec.page >= 1 ? translateTemplate('{page}쪽', { page: rec.page }) : '';
 }
 // A one-line excerpt of text: its white space folded, cut at limit characters with an ellipsis. Pure.
 function offUiClip(text: unknown, limit: number): string {
@@ -140,7 +140,7 @@ function offlineUiSync(all: any[]) {
 }
 // The view of the queue for the document and build on screen.
 function offUiView() {
-  const pages = META && !isMdDoc() && Array.isArray(META.pages) ? META.pages.length : 0;
+  const pages = META && !isMarkdownDoc() && Array.isArray(META.pages) ? META.pages.length : 0;
   return offUiRows(OFFUI.all, DOC || DEFAULT_DOC, DEFAULT_DOC, (META && META.pages_build) || '', pages);
 }
 // Draws the marks and the panel's section for the document and build on screen.
@@ -169,15 +169,16 @@ function offUiMarks(rows: ReturnType<typeof offUiRows>) {
       width: frac[2] * 100 + '%',
       height: frac[3] * 100 + '%',
     });
-    const note = offUiClip(row.rec.note, 60) || tr('(메모 없음)'),
+    const note = offUiClip(row.rec.note, 60) || translate('(메모 없음)'),
       why = offUiWhy(row.rec);
-    const tip = (row.held ? tr('보류된 핀') + ' · ' + why : tr('쌓인 핀 · 연결되면 반영합니다')) + ' — ' + note;
+    const tip =
+      (row.held ? translate('보류된 핀') + ' · ' + why : translate('쌓인 핀 · 연결되면 반영합니다')) + ' — ' + note;
     // A badge too close to the page's left edge to stand outside the box stands in its corner, as a saved one does.
     const inner = frac[0] * pageBox.clientWidth < 28;
     if (inner) mark.classList.add('in');
     setHtml(
       mark,
-      html`<button type="button" class="qmark-jump" translate="no" data-qid="${row.rec.id}" aria-label="${row.held ? tr('보류된 핀 — 목록에서 보기') : tr('쌓인 핀 — 목록에서 보기')}" data-tip="${tip}">${ic(row.held ? 'triangle-alert' : 'clock')}</button>`,
+      html`<button type="button" class="qmark-jump" translate="no" data-qid="${row.rec.id}" aria-label="${row.held ? translate('보류된 핀 — 목록에서 보기') : translate('쌓인 핀 — 목록에서 보기')}" data-tip="${tip}">${lucideIcon(row.held ? 'triangle-alert' : 'clock')}</button>`,
     );
     pageBox.appendChild(mark);
   });
@@ -201,7 +202,7 @@ function offUiList(rows: ReturnType<typeof offUiRows>) {
   const held = rows.filter((row) => row.held).length;
   setHtml(
     $('#queue-toggle'),
-    html`${ic(OFFUI.open ? 'chevron-down' : 'chevron-right')}<span class="sec-name" id="queue-h">${tr('쌓인 핀')} <span class="badge badge-secondary sec-n">${rows.length}</span></span>${held ? html`<span class="badge q-held-n">${ic('triangle-alert')}${tl('보류 {n}', { n: held })}</span>` : ''}`,
+    html`${lucideIcon(OFFUI.open ? 'chevron-down' : 'chevron-right')}<span class="sec-name" id="queue-h">${translate('쌓인 핀')} <span class="badge badge-secondary sec-n">${rows.length}</span></span>${held ? html`<span class="badge q-held-n">${lucideIcon('triangle-alert')}${translateTemplate('보류 {n}', { n: held })}</span>` : ''}`,
   );
   $('#queue-toggle').setAttribute('aria-expanded', String(OFFUI.open));
   $('#queue-body').hidden = !OFFUI.open;
@@ -234,19 +235,22 @@ function offUiRow(row: ReturnType<typeof offUiRows>[number]) {
     : row.page !== null && !row.lines && row.page <= (META && META.pages ? META.pages.length : 0);
   const at = html`${docLabel ? html`<span class="q-doc" translate="no">${docLabel}</span>` : ''}${place ? html`<span class="q-place">${place}</span>` : ''}`;
   const where = goes
-    ? html`<button type="button" class="q-go" data-q="go" data-qid="${id}" data-tip="${row.here ? tr('이 쪽으로 갑니다') : tr('이 문서로 바꿉니다')}">${at}</button>`
+    ? html`<button type="button" class="q-go" data-q="go" data-qid="${id}" data-tip="${row.here ? translate('이 쪽으로 갑니다') : translate('이 문서로 바꿉니다')}">${at}</button>`
     : docLabel || place
       ? html`<span class="q-at">${at}</span>`
       : '';
-  const name = (row.held ? tr('보류') : tr('대기')) + (place ? ' · ' + place : '') + (docLabel ? ' · ' + docLabel : '');
-  return html`<div class="qrow${row.held ? ' held' : ''}" role="group" aria-label="${tl('쌓인 핀: {what}', { what: name })}" data-qid="${id}">\
-<div class="q-head"><span class="q-st">${ic(row.held ? 'triangle-alert' : 'clock')}<span>${row.held ? tr('보류') : tr('대기')}</span></span>${where}</div>\
+  const name =
+    (row.held ? translate('보류') : translate('대기')) +
+    (place ? ' · ' + place : '') +
+    (docLabel ? ' · ' + docLabel : '');
+  return html`<div class="qrow${row.held ? ' held' : ''}" role="group" aria-label="${translateTemplate('쌓인 핀: {what}', { what: name })}" data-qid="${id}">\
+<div class="q-head"><span class="q-st">${lucideIcon(row.held ? 'triangle-alert' : 'clock')}<span>${row.held ? translate('보류') : translate('대기')}</span></span>${where}</div>\
 ${row.held ? html`<p class="q-why">${why}</p>` : ''}\
-${row.old ? html`<p class="q-old">${tr('다른 PDF에서 찍어 쪽 위에 그리지 않았습니다')}</p>` : ''}\
+${row.old ? html`<p class="q-old">${translate('다른 PDF에서 찍어 쪽 위에 그리지 않았습니다')}</p>` : ''}\
 ${quoteText ? html`<p class="q-quote" translate="no">${quoteText}</p>` : ''}\
-<p class="q-note${note ? '' : ' dim'}" translate="no">${note || tr('(메모 없음)')}</p>\
-<div class="q-acts"><button type="button" class="btn-sm btn-secondary" data-q="redo" data-qid="${id}" data-tip="${tr('이 핀을 쌓인 목록에서 빼고 메모를 작성 칸에 둡니다. 다음에 끈 자리가 이 메모로 새 핀이 됩니다')}">${tr('다시 찍기')}</button>\
-<button type="button" class="btn-sm btn-ghost q-drop" data-q="drop" data-qid="${id}" data-tip="${tr('이 핀을 보내지 않고 버립니다. 그 자리에 남는 [되돌리기]로 되살립니다')}">${tr('버리기')}</button></div></div>`;
+<p class="q-note${note ? '' : ' dim'}" translate="no">${note || translate('(메모 없음)')}</p>\
+<div class="q-acts"><button type="button" class="btn-sm btn-secondary" data-q="redo" data-qid="${id}" data-tip="${translate('이 핀을 쌓인 목록에서 빼고 메모를 작성 칸에 둡니다. 다음에 끈 자리가 이 메모로 새 핀이 됩니다')}">${translate('다시 찍기')}</button>\
+<button type="button" class="btn-sm btn-ghost q-drop" data-q="drop" data-qid="${id}" data-tip="${translate('이 핀을 보내지 않고 버립니다. 그 자리에 남는 [되돌리기]로 되살립니다')}">${translate('버리기')}</button></div></div>`;
 }
 // The undo of a drop or a take-back, in the row's place (docs/handbook/viewer.md §알림 자리, an undo stays where the
 // action was): the dashed undo row of the list, its words, [되돌리기] (busy while the record is put back) and [x]. The
@@ -255,12 +259,12 @@ ${quoteText ? html`<p class="q-quote" translate="no">${quoteText}</p>` : ''}\
 function offUiUndoRow(undo: OffUiUndo) {
   const id = undo.rec.id,
     place = offUiPlace(undo.rec),
-    title = undo.redo ? tr('메모를 작성 칸에 두었습니다') : tr('쌓인 핀을 버렸습니다');
-  const detail = undo.redo ? tr('자리를 다시 끌어 고르세요') : place;
+    title = undo.redo ? translate('메모를 작성 칸에 두었습니다') : translate('쌓인 핀을 버렸습니다');
+  const detail = undo.redo ? translate('자리를 다시 끌어 고르세요') : place;
   return html`<div class="nt nt-row nk-${NOTICE_KIND.OK}" role="group" aria-label="${title}" data-qid="${id}" data-undo="1"><span class="nt-ic">${noticeIcon(NOTICE_KIND.OK)}</span>\
 <span class="nt-t" translate="no"><span class="nt-ti">${title}</span>${detail ? html`<span class="nt-d">${detail}</span>` : ''}</span>\
-<span class="nt-acts"><button type="button" class="btn-sm btn-secondary nt-act" data-q="undo" data-qid="${id}" data-tip="${T.undo}"${undo.busy ? html` aria-busy="true"` : ''}><span class="lbl">${tr('되돌리기')}</span></button>\
-<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data-q="undo-x" data-qid="${id}" aria-label="${tr('알림 닫기')}">${ic('x')}</button></span></div>`;
+<span class="nt-acts"><button type="button" class="btn-sm btn-secondary nt-act" data-q="undo" data-qid="${id}" data-tip="${TIP_TEXT.undo}"${undo.busy ? html` aria-busy="true"` : ''}><span class="lbl">${translate('되돌리기')}</span></button>\
+<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data-q="undo-x" data-qid="${id}" aria-label="${translate('알림 닫기')}">${lucideIcon('x')}</button></span></div>`;
 }
 
 // The keyboard focus on one of the section's buttons, as its action and record, so a redraw gives it back (a redraw
@@ -329,7 +333,7 @@ async function offUiDrop(rec: any, button: HTMLElement) {
   await offDel(rec.id);
   offUiUndoStart(rec, false, '');
   await offlineSync();
-  announce(tr('쌓인 핀을 버렸습니다'));
+  announce(translate('쌓인 핀을 버렸습니다'));
   if (had) offUiFocusUndo(rec.id);
 }
 // [다시 찍기]: the record leaves the queue and its note, @-tags, kind and assignee go into the composer, where they
@@ -368,7 +372,7 @@ async function offUiRedo(rec: any, button: HTMLElement) {
   await offDel(rec.id);
   note.value = text;
   note._mentions = (rec.mentions || []).length ? new Set(rec.mentions) : null;
-  setKind(rec.kind_req === KIND_REQ.QUESTION ? KIND_REQ.QUESTION : KIND_REQ.FIX);
+  setKind(rec.kind_req === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   if (rec.assignee) {
     ASSIGN_NEW.v = rec.assignee;
     ASSIGN_NEW.touched = true;
@@ -378,11 +382,11 @@ async function offUiRedo(rec: any, button: HTMLElement) {
   saveDraftSoon();
   offUiUndoStart(rec, true, text);
   await offlineSync();
-  announce(tr('메모를 작성 칸에 두었습니다') + ' · ' + tr('자리를 다시 끌어 고르세요'));
+  announce(translate('메모를 작성 칸에 두었습니다') + ' · ' + translate('자리를 다시 끌어 고르세요'));
   if (!$('#composer').hidden) note.focus({ preventScroll: true });
   else if (had) offUiFocusUndo(rec.id);
   // The page it was on, beside the panel.
-  if (LAYOUT === LAYOUT_MODE.WIDE && Number.isInteger(rec.page) && !isMdDoc()) arrivePage(rec.page);
+  if (LAYOUT === LAYOUT_MODE.WIDE && Number.isInteger(rec.page) && !isMarkdownDoc()) arrivePage(rec.page);
 }
 // While the queue is being sent a record may be on its way: it is neither dropped nor taken back until that is over.
 function offUiBusy() {

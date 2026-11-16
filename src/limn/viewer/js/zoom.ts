@@ -1,21 +1,21 @@
 // ------------------------------------------------ PDF-area-only zoom - docs/handbook/viewer.md §PDF 영역 전용 확대
 // Browser zoom would also enlarge the sidebar and tool bar, so zoom input over the PDF area is intercepted to change
-// only the pages' scale (K).
+// only the pages' scale (PAGE_SCALE).
 // - Desktop: Ctrl(Cmd)+wheel over #left, anchored to the pointer. A trackpad pinch also arrives as a wheel event with
 //   ctrlKey set, in Chrome and Firefox.
 // - Safari trackpad pinch: gesturestart/gesturechange (the event's scale).
 // - Keyboard Ctrl(Cmd) + = / + / - / 0 -> zoom in/out/fit width (never intercepted while an input field has focus -
 //   see the key handler).
-// - Touch: #left has touch-action:pan-x pan-y, so there is no browser pinch. K changes with the ratio of the two-finger
-//   distance, and the point under the midpoint of the two fingers follows the fingers (drag while zooming). A page in
-//   selection mode has touch-action:none, so it goes through the same path.
+// - Touch: #left has touch-action:pan-x pan-y, so there is no browser pinch. PAGE_SCALE changes with the ratio of the
+//   two-finger distance, and the point under the midpoint of the two fingers follows the fingers (drag while zooming).
+//   A page in selection mode has touch-action:none, so it goes through the same path.
 // - A Markdown document (md-surface.ts) has no pages to scale: every one of these leaves its input to the browser -
 //   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
 //   there).
-import { $, K } from './core.ts';
-import { ZOOM_STEP, markZoomed, setK, zoomAnchor, zoomRestore, zoomTo } from './pages.ts';
-import { cancelDrag, cancelLP } from './selection.ts';
-import { isMdDoc } from './md-surface.ts';
+import { $, PAGE_SCALE } from './core.ts';
+import { ZOOM_STEP, markZoomed, setScale, zoomAnchor, zoomRestore, zoomTo } from './pages.ts';
+import { cancelDrag, cancelLongPress } from './selection.ts';
+import { isMarkdownDoc } from './md-surface.ts';
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event) {
   const key = event.key,
@@ -47,12 +47,12 @@ function wheelFactor(deltaY, mode) {
     if (pendingFactor === 1 || !wheelPoint) return;
     const factor = pendingFactor;
     pendingFactor = 1;
-    zoomTo(K * factor, wheelPoint[0], wheelPoint[1]);
+    zoomTo(PAGE_SCALE * factor, wheelPoint[0], wheelPoint[1]);
   };
   pdfArea.addEventListener(
     'wheel',
     (event) => {
-      if (!(event.ctrlKey || event.metaKey) || isMdDoc()) return;
+      if (!(event.ctrlKey || event.metaKey) || isMarkdownDoc()) return;
       event.preventDefault(); // a Markdown document's text zooms with the browser
       pendingFactor *= wheelFactor(event.deltaY, event.deltaMode);
       wheelPoint = [event.clientX, event.clientY];
@@ -63,16 +63,16 @@ function wheelFactor(deltaY, mode) {
   pdfArea.addEventListener(
     'gesturestart',
     (event) => {
-      if (isMdDoc()) return;
+      if (isMarkdownDoc()) return;
       event.preventDefault();
-      if (!pinchStart) gestureStart = { k: K };
+      if (!pinchStart) gestureStart = { k: PAGE_SCALE };
     },
     { passive: false },
   );
   pdfArea.addEventListener(
     'gesturechange',
     (event) => {
-      if (isMdDoc()) return;
+      if (isMarkdownDoc()) return;
       event.preventDefault();
       if (gestureStart && !pinchStart && event.scale > 0)
         zoomTo(gestureStart.k * event.scale, event.clientX, event.clientY);
@@ -83,7 +83,7 @@ function wheelFactor(deltaY, mode) {
     'gestureend',
     (event) => {
       gestureStart = null;
-      if (isMdDoc()) return;
+      if (isMarkdownDoc()) return;
       event.preventDefault();
     },
     { passive: false },
@@ -96,14 +96,14 @@ function wheelFactor(deltaY, mode) {
   const apply = () => {
     pinchFrame = 0;
     if (!pinchStart || !last) return;
-    setK((pinchStart.k * last.d) / pinchStart.d);
+    setScale((pinchStart.k * last.d) / pinchStart.d);
     markZoomed();
     zoomRestore(pinchStart.a, last.m[0], last.m[1]);
   };
   pdfArea.addEventListener(
     'touchstart',
     (event) => {
-      if (isMdDoc()) {
+      if (isMarkdownDoc()) {
         pinchStart = null;
         return;
       }
@@ -116,8 +116,8 @@ function wheelFactor(deltaY, mode) {
         second = event.touches[1],
         midpoint = midpointOf(first, second);
       cancelDrag();
-      cancelLP();
-      pinchStart = { d: fingerDistance(first, second), k: K, a: zoomAnchor(midpoint[0], midpoint[1]) };
+      cancelLongPress();
+      pinchStart = { d: fingerDistance(first, second), k: PAGE_SCALE, a: zoomAnchor(midpoint[0], midpoint[1]) };
       last = { d: pinchStart.d, m: midpoint };
     },
     { passive: false },

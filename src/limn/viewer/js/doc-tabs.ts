@@ -5,15 +5,15 @@ import {
   DEFAULT_DOC,
   DOC,
   DOCS,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   OPEN_ALL,
   imeKey,
   isFigureKind,
   setDefaultDoc,
   setDocs,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { LANG, tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { LANG, translateTemplate, translate } from './i18n.ts';
 import { prefs } from './prefs.ts';
 import { api } from './api.ts';
 import { hideTip } from './tooltip.ts';
@@ -35,7 +35,7 @@ function isRegion(pin) {
   return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
 }
 // Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
-function dq(path, doc?) {
+function withDocQuery(path, doc?) {
   doc = doc || DOC;
   if (!doc) return path;
   return path + (path.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(doc);
@@ -89,9 +89,9 @@ function docBadge(entry) {
   const openCount = docCount(entry.key);
   const pdf = entry.view_only ? html`<span class="badge dvo" aria-label="보기 전용">PDF</span>` : '';
   const figure = isFigureKind(entry.kind)
-    ? html`<span class="badge dfig" aria-label="${tr('그림 문서')}">${tr('그림')}</span>`
+    ? html`<span class="badge dfig" aria-label="${translate('그림 문서')}">${translate('그림')}</span>`
     : '';
-  return html`${docState(entry)}${pdf}${figure}<span class="badge badge-secondary dcnt${openCount ? '' : ' z'}" aria-label="${tl('열린 핀 {n}', { n: openCount })}">${openCount}</span>`;
+  return html`${docState(entry)}${pdf}${figure}<span class="badge badge-secondary dcnt${openCount ? '' : ' z'}" aria-label="${translateTemplate('열린 핀 {n}', { n: openCount })}">${openCount}</span>`;
 }
 // A document link's description: name, path, what kind of document it is, and its build state. The link is user text
 // (translate="no", the name), so the UI words are translated here.
@@ -100,19 +100,23 @@ function docTip(entry) {
     entry.name +
     ' · ' +
     entry.path +
-    (entry.view_only ? tr(' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)') : '') +
-    (isFigureKind(entry.kind) ? ' · ' + tr('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)') : '') +
+    (entry.view_only ? translate(' · 보기 전용 PDF(줄 번호 없이 쪽·영역으로 핀을 남깁니다)') : '') +
+    (isFigureKind(entry.kind)
+      ? ' · ' + translate('그림 문서(드래그하면 요소와 그 요소를 그린 코드 줄을 찾습니다)')
+      : '') +
     (entry.building
-      ? tr(' · 빌드 중')
+      ? translate(' · 빌드 중')
       : entry.stale_build
-        ? tr(' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])')
+        ? translate(' · 원고가 이 PDF보다 새롭습니다(그 탭에서 [PDF 재빌드])')
         : '')
   );
 }
 // The marks of a document link: its name (.lbl, trimmed to its cap height by CSS as the view tabs' words) and page
 // count.
 function docLinkInner(entry) {
-  const count = entry.n_pages ? html`<span class="doc-link-count">${tl('{n}쪽', { n: entry.n_pages })}</span>` : '';
+  const count = entry.n_pages
+    ? html`<span class="doc-link-count">${translateTemplate('{n}쪽', { n: entry.n_pages })}</span>`
+    : '';
   return html`<span class="lbl">${entry.name}</span>${count}`;
 }
 // What a link's or a popover row's inside was last drawn from, so a redraw that changes nothing writes nothing.
@@ -139,7 +143,7 @@ function drawDocTabs() {
   const box = $('#doc-select');
   setHtml(
     box,
-    html`${DOCS.map((entry) => html`<option translate="no" value="${entry.key}">${entry.name}${entry.building ? tr(' · 빌드 중') : entry.stale_build ? tr(' · 원고 수정됨') : ''}</option>`)}`,
+    html`${DOCS.map((entry) => html`<option translate="no" value="${entry.key}">${entry.name}${entry.building ? translate(' · 빌드 중') : entry.stale_build ? translate(' · 원고 수정됨') : ''}</option>`)}`,
   );
   if (DOC) box.value = DOC;
   const row = $('#doc-links'),
@@ -313,10 +317,13 @@ function docFit() {
     showAs(mode, mode === 'more' ? '+' + hiddenCount : mode === 'name' ? currentEntry.name : '');
     more.style.maxWidth = cap;
     if (mode === 'more') {
-      more.setAttribute('aria-label', tl('+{n} 문서 더 보기', { n: hiddenCount }));
+      more.setAttribute('aria-label', translateTemplate('+{n} 문서 더 보기', { n: hiddenCount }));
       more.removeAttribute('title');
     } else {
-      more.setAttribute('aria-label', currentEntry.name + ' — ' + tl('문서 {n}개 중 고르기', { n: DOCS.length }));
+      more.setAttribute(
+        'aria-label',
+        currentEntry.name + ' — ' + translateTemplate('문서 {n}개 중 고르기', { n: DOCS.length }),
+      );
       more.setAttribute('title', docTip(currentEntry));
     }
     more.hidden = mode === 'more' && !hiddenCount;
@@ -400,7 +407,7 @@ function drawDocMenu() {
     setAttributeIfChanged(row, 'tabindex', on ? '0' : '-1');
     docInner(
       row,
-      html`<span class="dp-c">${on ? ic('check') : ''}</span><span class="dp-n"><span class="dp-t" translate="no">${entry.name}</span>${docState(entry)}</span><span class="dp-p">${entry.n_pages ? tl('{n}쪽', { n: entry.n_pages }) : ''}</span><span class="dp-k">${index < 9 ? 'Alt+' + (index + 1) : ''}</span>`,
+      html`<span class="dp-c">${on ? lucideIcon('check') : ''}</span><span class="dp-n"><span class="dp-t" translate="no">${entry.name}</span>${docState(entry)}</span><span class="dp-p">${entry.n_pages ? translateTemplate('{n}쪽', { n: entry.n_pages }) : ''}</span><span class="dp-k">${index < 9 ? 'Alt+' + (index + 1) : ''}</span>`,
       [entry.name, entry.n_pages || '', on, state, LANG].join('\u0001'),
     );
   });
@@ -433,7 +440,7 @@ function openDocMenu() {
   placeDocMenu();
   const row = $('#doc-pop-list [aria-selected=true]') as HTMLElement | null;
   if (row) row.scrollIntoView({ block: 'nearest' });
-  const to = !filter.hidden && !MQ_COARSE.matches ? filter : row || pop;
+  const to = !filter.hidden && !COARSE_POINTER_QUERY.matches ? filter : row || pop;
   to.focus({ preventScroll: true });
 }
 // Puts the open popover under its button, its left edge on the button's and inside the window by 8px, and lets it grow
@@ -573,7 +580,7 @@ export {
   closeDocMenu,
   docBadge,
   docInfo,
-  dq,
+  withDocQuery,
   drawDocTabs,
   hashDoc,
   initialDoc,

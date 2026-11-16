@@ -32,15 +32,15 @@ import {
   OPEN_ALL,
   REPLY,
   REVIEW_ALL,
-  T,
+  TIP_TEXT,
   captureVisit,
   currentVisit,
   imeHeldIn,
   imeKey,
   imeTail,
 } from './core.ts';
-import { html, ic } from './markup.ts';
-import { errText, tl, tr } from './i18n.ts';
+import { html, lucideIcon } from './markup.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from './notices.ts';
 import { hideTip } from './tooltip.ts';
@@ -572,7 +572,7 @@ function keepLostReason(session: ReasonSession) {
     dropDraft(session.doc, session.id);
     putDraft(session.doc, 'p' + session.page, session.text, '', -1, { mode: 'add', folded: true, from: session.via });
     lineNote(
-      tl('판정 #{id}{p} 다른 곳에서 거둬졌습니다 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', {
+      translateTemplate('판정 #{id}{p} 다른 곳에서 거둬졌습니다 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', {
         id: session.id,
         p: josa(session.id, '이', '가'),
         target: reasonTargetName(session),
@@ -703,7 +703,7 @@ function restoreKeptDrafts() {
   if (!shown.length) return;
   const first = shown[0];
   lineNote(
-    tl('저장 안 된 이유 초안 {n}건 · 줄의 [초안 있음]이 엽니다 — {target}', {
+    translateTemplate('저장 안 된 이유 초안 {n}건 · 줄의 [초안 있음]이 엽니다 — {target}', {
       n: shown.length,
       target: pageTargetShort(first),
     }),
@@ -803,7 +803,9 @@ function settleDetachedReason(slot: string, id: number, key: string) {
   if (!session.text.trim()) return;
   if (!id) {
     lineNote(
-      tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', { target: reasonTargetName(session) }),
+      translateTemplate('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', {
+        target: reasonTargetName(session),
+      }),
       NOTICE_KIND.WARN,
       null,
       { literal: true },
@@ -834,7 +836,7 @@ function openReason(page: number, focus: boolean) {
   if (!cur || !canCancelVerdict(cur)) {
     if (getDraft(DOC, 'p' + page))
       lineNote(
-        tl('이유를 붙일 내 판정이 없습니다 · 판정을 누르면 이 초안이 그 판정으로 갑니다 — {target}', {
+        translateTemplate('이유를 붙일 내 판정이 없습니다 · 판정을 누르면 이 초안이 그 판정으로 갑니다 — {target}', {
           target: pageTargetShort(page),
         }),
         NOTICE_KIND.INFO,
@@ -913,7 +915,9 @@ function keepUnboundReason(page: number) {
   if (session.text.trim()) {
     putDraft(session.doc, 'p' + page, session.text, '', -1, { mode: 'add', folded: true, from: session.via });
     lineNote(
-      tl('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', { target: pageTargetShort(page) }),
+      translateTemplate('판정 저장 실패 · 쓰던 이유는 이 쪽의 초안으로 남겼습니다 — {target}', {
+        target: pageTargetShort(page),
+      }),
       NOTICE_KIND.WARN,
       null,
       { literal: true },
@@ -1039,7 +1043,7 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     const x = error as ApiError;
     if (!x || !x.status || x.status >= 500) {
       lineNote(
-        tl('이유 저장 실패 · {why} — {target}', { why: tr('서버에 닿지 않습니다'), target }),
+        translateTemplate('이유 저장 실패 · {why} — {target}', { why: translate('서버에 닿지 않습니다'), target }),
         NOTICE_KIND.ERR,
         { label: '다시 시도', fn: () => settleWriteOnto(session, false, page) },
         { source: src, literal: true },
@@ -1092,10 +1096,13 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     putDraft(doc, 'p' + page, joined.text, '', -1, { mode: 'add', folded: true, from: joined.from });
   }
   lineNote(
-    tl('판정 #{id} 이유는 저장되지 않아 지금 판정의 초안으로 옮겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', {
-      id: session.id,
-      target,
-    }),
+    translateTemplate(
+      '판정 #{id} 이유는 저장되지 않아 지금 판정의 초안으로 옮겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}',
+      {
+        id: session.id,
+        target,
+      },
+    ),
     NOTICE_KIND.WARN,
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-onto' },
@@ -1170,8 +1177,14 @@ function placeFailedCancelDraft(id: number, page: number, doc: string | null, sh
   const target = targetNameOn(doc, page, id);
   lineNote(
     back
-      ? tl('판정 #{id} 이유는 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', { id, target })
-      : tl('판정 #{id} 이유는 이 쪽의 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', { id, target }),
+      ? translateTemplate('판정 #{id} 이유는 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', {
+          id,
+          target,
+        })
+      : translateTemplate('판정 #{id} 이유는 이 쪽의 초안으로 남겼습니다 · 줄의 [초안 있음]이 엽니다 — {target}', {
+          id,
+          target,
+        }),
     NOTICE_KIND.WARN,
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-uncancel' },
@@ -1486,7 +1499,7 @@ function closeTakenReason(session: ReasonSession, doc: string | null, id: number
     const line = document.querySelector('#doc .pv[data-page="' + session.page + '"]') as HTMLElement | null;
     if (line) fillReasonField(line);
     lineNote(
-      tl('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
+      translateTemplate('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
         id,
         word: verdictLabel(word, doc),
         target: reasonTargetName(session),
@@ -1517,14 +1530,14 @@ function saySavedOn(doc: string | null, page: number, id: number, key: string) {
     nowKey = now ? verdictOf(now) : null;
   lineNote(
     now && nowKey && now.id !== id
-      ? tl('이유는 이전 판정 #{id} {word}에 저장됨 · 지금 판정은 #{cur} {now} — {target}', {
+      ? translateTemplate('이유는 이전 판정 #{id} {word}에 저장됨 · 지금 판정은 #{cur} {now} — {target}', {
           id,
           word,
           cur: now.id,
           now: verdictLabel(nowKey, doc),
           target,
         })
-      : tl('이유 저장됨 · 판정 #{id} {word} — {target}', { id, word, target }),
+      : translateTemplate('이유 저장됨 · 판정 #{id} {word} — {target}', { id, word, target }),
     NOTICE_KIND.OK,
     null,
     { literal: true, life: NOTICE_LIFE.TIMER },
@@ -1626,12 +1639,15 @@ function tooLongReason(body: Record<string, unknown>) {
     note = body.note,
     format = (x: number) => x.toLocaleString('en-US');
   if (typeof append === 'string' && append.length > NOTE_APPEND_LIMIT)
-    return tl('덧붙일 이유는 {max}자까지입니다(지금 {len}자)', {
+    return translateTemplate('덧붙일 이유는 {max}자까지입니다(지금 {len}자)', {
       max: format(NOTE_APPEND_LIMIT),
       len: format(append.length),
     });
   if (typeof note === 'string' && note.length > NOTE_LIMIT)
-    return tl('메모는 {max}자까지입니다(지금 {len}자)', { max: format(NOTE_LIMIT), len: format(note.length) });
+    return translateTemplate('메모는 {max}자까지입니다(지금 {len}자)', {
+      max: format(NOTE_LIMIT),
+      len: format(note.length),
+    });
   return '';
 }
 // Writes text as a reason session's pin's note. The pin is read from the server first (a list read a while ago may hold
@@ -1676,7 +1692,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
   }
   if (!pin || pin.dropped_at) {
     if (!WITHDRAWN_PINS.has(session.id))
-      lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다', { id: session.id }), NOTICE_KIND.WARN);
+      lineNote(translateTemplate('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다', { id: session.id }), NOTICE_KIND.WARN);
     return false;
   }
   rebaseOnLanded(session, pin); // its own lost write, landed, is the note it changes now
@@ -1711,7 +1727,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
       if (status !== 409) break;
       const answered = data && data.pin; // someone changed the pin meanwhile: their note stays
       if (!answered) {
-        sayReasonFailed(session, text, null, tr('그사이 다른 곳에서 메모가 바뀌었습니다'));
+        sayReasonFailed(session, text, null, translate('그사이 다른 곳에서 메모가 바뀌었습니다'));
         return false;
       }
       if (replacesWholeNote(session)) {
@@ -1741,7 +1757,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
     /* its line's verdict changed meanwhile: settleWriteOnto says where it is */
   } else if (said)
     lineNote(
-      tl('이유 저장됨 · 판정 #{id} {word} — {target}', {
+      translateTemplate('이유 저장됨 · 판정 #{id} {word} — {target}', {
         id: session.id,
         word: verdictLabel(session.key, session.doc),
         target: reasonTargetName(session),
@@ -1750,7 +1766,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
       null,
       { life: NOTICE_LIFE.TIMER, literal: true },
     ); // result first: the folded line shows it
-  else quietNote(tl('판정 #{id} 이유를 저장했습니다', { id: session.id }));
+  else quietNote(translateTemplate('판정 #{id} 이유를 저장했습니다', { id: session.id }));
   if (session.doc === DOC) loadPins().catch(() => {});
   return true;
 }
@@ -1763,7 +1779,7 @@ function reasonTargetName(session: ReasonSession) {
 function targetNameOn(doc: string | null, page: number, id: number) {
   if (doc === DOC) return pageTargetShort(page);
   const entry = doc ? docInfo(doc) : null;
-  return (entry && entry.name) || (id ? '#' + id : tl('{page}쪽', { page }));
+  return (entry && entry.name) || (id ? '#' + id : translateTemplate('{page}쪽', { page }));
 }
 // A reason that could not be written, said on the status line result first ('이유 저장 실패 · 서버에 닿지 않습니다 —
 // PL16') in place of api()'s line, keyed by the request as api() keys it (a later answer from it clears it). The draft
@@ -1786,9 +1802,11 @@ function sayReasonFailed(session: ReasonSession, text: string, error: ApiError |
   if (WITHDRAWN_PINS.has(session.id) || session.onto) return;
   const why =
     why0 ||
-    (statusCode ? (error && error.data && errText(error.data)) || 'HTTP ' + statusCode : tr('서버에 닿지 않습니다'));
+    (statusCode
+      ? (error && error.data && errText(error.data)) || 'HTTP ' + statusCode
+      : translate('서버에 닿지 않습니다'));
   const notice = lineNote(
-    tl('이유 저장 실패 · {why} — {target}', { why, target: reasonTargetName(session) }),
+    translateTemplate('이유 저장 실패 · {why} — {target}', { why, target: reasonTargetName(session) }),
     NOTICE_KIND.ERR,
     again ? { label: '다시 시도', fn: () => retryReason(session) } : null,
     { source: 'POST /api/pins/' + session.id + '/edit reason', literal: true },
@@ -1811,7 +1829,9 @@ function keepConflict(session: ReasonSession, text: string, newer: Pin) {
     });
   if (!session.onto)
     lineNote(
-      tl('이유 저장 안 함 · 그사이 다른 곳에서 메모가 바뀌었습니다 — {target}', { target: reasonTargetName(session) }),
+      translateTemplate('이유 저장 안 함 · 그사이 다른 곳에서 메모가 바뀌었습니다 — {target}', {
+        target: reasonTargetName(session),
+      }),
       NOTICE_KIND.WARN,
       { label: '메모 보기', fn: () => gotoPinRef(session.id) },
       { source: 'POST /api/pins/' + session.id + '/edit reason', literal: true },
@@ -1894,13 +1914,15 @@ function escapeReason(how: string) {
     if (how === 'key') searchToPage();
     refillLine(session.page);
     announce(
-      how === 'key' ? tr('Esc 한 번 더 누르면 이 이유를 버립니다') : tr('[닫기]를 한 번 더 누르면 이 이유를 버립니다'),
+      how === 'key'
+        ? translate('Esc 한 번 더 누르면 이 이유를 버립니다')
+        : translate('[닫기]를 한 번 더 누르면 이 이유를 버립니다'),
     );
     return;
   }
   dropDraft(session.doc, session.id || 'p' + session.page);
   closeReasonPopover(true);
-  announce(tl('판정 #{id} 이유를 버렸습니다', { id: session.id }));
+  announce(translateTemplate('판정 #{id} 이유를 버렸습니다', { id: session.id }));
 }
 // [접기]: the popover folds away, nothing written - over the plot it hides what the reason is about. The draft stays
 // kept, folded (a reload leaves it folded), and the line marks it '초안 있음', which opens it again and takes the
@@ -1917,7 +1939,7 @@ function foldReason() {
   ) as HTMLElement | null;
   if (control) control.focus({ preventScroll: true });
   else focusLine(session.page);
-  announce(tr('이유 초안을 접었습니다 — 줄의 [초안 있음]이 다시 엽니다'));
+  announce(translate('이유 초안을 접었습니다 — 줄의 [초안 있음]이 다시 엽니다'));
 }
 // [지우기]: the saved reason goes - the note emptied against the rev the popover read it at - and the status line
 // offers [되돌리기], which writes it back. The popover and its draft stay until the server says it is done. A [지우기]
@@ -1958,8 +1980,8 @@ async function clearReason() {
         statusCode = x && typeof x.status === 'number' ? x.status : 0;
       if (!statusCode) session.clearTried = true;
       lineNote(
-        tl('이유 지우기 실패 · {why} — {target}', {
-          why: statusCode ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : tr('서버에 닿지 않습니다'),
+        translateTemplate('이유 지우기 실패 · {why} — {target}', {
+          why: statusCode ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
           target,
         }),
         NOTICE_KIND.ERR,
@@ -1987,9 +2009,9 @@ async function clearReason() {
     dropDraft(session.doc, session.id);
     if (REASON_SESSION === session) closeReasonPopover(true);
     lineNote(
-      tl('판정 #{id} {word} 이유 지움 — {target}', { id: session.id, word, target }),
+      translateTemplate('판정 #{id} {word} 이유 지움 — {target}', { id: session.id, word, target }),
       NOTICE_KIND.OK,
-      { label: '되돌리기', tip: T.undo, wait: true, fn: () => undoClearReason(session.id, old) },
+      { label: '되돌리기', tip: TIP_TEXT.undo, wait: true, fn: () => undoClearReason(session.id, old) },
       { life: NOTICE_LIFE.TIMER, undo: true, literal: true },
     );
   } else if (REASON_SESSION === session) {
@@ -2022,23 +2044,23 @@ async function undoClearReason(id: number, old: string): Promise<boolean> {
 // What the popover says of its draft: '저장 중…' while it writes, '저장됨' with a check when its text is the saved
 // reason, '저장 안 됨' when it is not written yet, nothing when empty.
 function popoverState(session: ReasonSession): { text: string; cls: string } {
-  if (session.writing || session.saveWhenBound) return { text: tr('저장 중…'), cls: 'busy' };
+  if (session.writing || session.saveWhenBound) return { text: translate('저장 중…'), cls: 'busy' };
   const text = session.text.trim();
   if (!text) return { text: '', cls: '' };
   return text === session.saved || text === session.base.trim()
-    ? { text: tr('저장됨'), cls: 'ok' }
-    : { text: tr('저장 안 됨'), cls: 'warn' };
+    ? { text: translate('저장됨'), cls: 'ok' }
+    : { text: translate('저장 안 됨'), cls: 'warn' };
 }
 // What the keys do now, under the field: with a fine pointer and the focus in it, Enter saves (and with nothing typed
 // Esc closes); after a first Esc, what the second does. With touch only the second press of [닫기] is said. The digits
 // are not mentioned: in the field they are text.
 function popoverHint(session: ReasonSession, focused: boolean) {
   const fine = matchMedia('(pointer:fine)').matches;
-  if (session.escArm === 'btn') return tr('[닫기]를 한 번 더 누르면 이 이유를 버립니다');
+  if (session.escArm === 'btn') return translate('[닫기]를 한 번 더 누르면 이 이유를 버립니다');
   if (!fine) return '';
-  if (session.escArm) return tr('Esc 한 번 더 누르면 이 이유를 버립니다');
+  if (session.escArm) return translate('Esc 한 번 더 누르면 이 이유를 버립니다');
   if (!focused) return '';
-  return session.text.trim() ? tr('Enter 저장') : tr('Enter 저장') + ' · ' + tr('Esc 닫기');
+  return session.text.trim() ? translate('Enter 저장') : translate('Enter 저장') + ' · ' + translate('Esc 닫기');
 }
 // The popover on page `page`'s line while its session is open there (a person who may make a verdict): a labelled,
 // non-modal group - the field, then one row: whose reason it is ('판정 #16 보류 이유', '판정 #16 보류 · 저장된 이유
@@ -2057,36 +2079,39 @@ function reasonPopoverHtml(page: number) {
     hint = popoverHint(session, focused);
   const word = verdictLabel(session.key),
     who = !session.id
-      ? tl('{word} 판정 이유 · 판정 저장 중', { word })
+      ? translateTemplate('{word} 판정 이유 · 판정 저장 중', { word })
       : replacesWholeNote(session) && session.base.trim()
-        ? tl('판정 #{id} {word} · 저장된 이유 수정', { id: session.id, word })
-        : tl('판정 #{id} {word} 이유', { id: session.id, word });
+        ? translateTemplate('판정 #{id} {word} · 저장된 이유 수정', { id: session.id, word })
+        : translateTemplate('판정 #{id} {word} 이유', { id: session.id, word });
   const from = session.from ? findReasonPin(session.from) : null,
     moved = session.from
-      ? tl('#{id} {word}에서 옮김', { id: session.from, word: verdictLabel((from && verdictOf(from)) || '') })
+      ? translateTemplate('#{id} {word}에서 옮김', {
+          id: session.from,
+          word: verdictLabel((from && verdictOf(from)) || ''),
+        })
       : '';
   const conflictRow = session.conflict
-    ? html`<div class="pv-pop-cf" role="alert"><span class="pv-pop-cf-t">${tr('그사이 다른 곳에서 메모가 바뀌었습니다 — 지금 메모')}</span>\
-<div class="pv-pop-cf-note" translate="no" tabindex="0">${session.conflict.note || tr('(빈 메모)')}</div><span class="pv-pop-acts">\
-<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-see">${tr('메모 보기')}</button>\
-<button type="button" class="btn-sm hit" data-act="pv-reason-reapply" data-tip="${tr('바뀐 메모를 이 글로 바꿉니다')}">${tr('그 위에 쓰기')}</button></span></div>`
+    ? html`<div class="pv-pop-cf" role="alert"><span class="pv-pop-cf-t">${translate('그사이 다른 곳에서 메모가 바뀌었습니다 — 지금 메모')}</span>\
+<div class="pv-pop-cf-note" translate="no" tabindex="0">${session.conflict.note || translate('(빈 메모)')}</div><span class="pv-pop-acts">\
+<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-see">${translate('메모 보기')}</button>\
+<button type="button" class="btn-sm hit" data-act="pv-reason-reapply" data-tip="${translate('바뀐 메모를 이 글로 바꿉니다')}">${translate('그 위에 쓰기')}</button></span></div>`
     : '';
   // never pointing at a line that says nothing (while it writes)
   const describedBy = hint && !session.writing ? html` aria-describedby="pv-pop-h-${session.sid}"` : '';
   return html`<div class="pv-pop" role="group" data-id="s${session.sid}" aria-labelledby="pv-pop-to-${session.sid}"${describedBy}>${conflictRow}\
 <textarea class="pv-reason" rows="1" maxlength="4000" autocomplete="off" enterkeyhint="done" data-id="s${session.sid}" data-pin="${session.id}"${session.writing ? html` readonly aria-busy="true"` : ''} \
-placeholder="${tr('이유 (선택)')}" aria-label="${tl('{who} (선택)', { who })}"${describedBy}></textarea>\
+placeholder="${translate('이유 (선택)')}" aria-label="${translateTemplate('{who} (선택)', { who })}"${describedBy}></textarea>\
 <div class="pv-pop-f"><span class="pv-pop-to" id="pv-pop-to-${session.sid}" translate="no">${who}${moved ? html`<span class="pv-pop-from"> · ${moved}</span>` : ''}</span>\
-<span class="pv-pop-st${state.cls ? ' ' + state.cls : ''}" aria-live="polite">${state.cls === 'ok' ? ic('check') : ''}${state.text}</span><span class="pv-pop-h" id="pv-pop-h-${session.sid}">${hint}</span>\
+<span class="pv-pop-st${state.cls ? ' ' + state.cls : ''}" aria-live="polite">${state.cls === 'ok' ? lucideIcon('check') : ''}${state.text}</span><span class="pv-pop-h" id="pv-pop-h-${session.sid}">${hint}</span>\
 <span class="pv-pop-acts">${
     replacesWholeNote(session) && session.base.trim()
       ? html`<button type="button" class="btn-ghost btn-sm pv-pop-clear hit" data-act="pv-reason-clear" \
-data-tip="${tr('저장한 이유를 지웁니다. 상태 줄의 [되돌리기]가 되살립니다')}">${tr('지우기')}</button>`
+data-tip="${translate('저장한 이유를 지웁니다. 상태 줄의 [되돌리기]가 되살립니다')}">${translate('지우기')}</button>`
       : ''
   }\
-${hasUnsavedReason(session) && !session.writing && session.id ? html`<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-fold" data-tip="${tr('초안을 둔 채 접습니다. 줄의 [초안 있음]이 다시 엽니다')}">${tr('접기')}</button>` : ''}\
-<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-close" data-tip="${tr('닫습니다. 쓰던 이유가 있으면 한 번 더 눌러야 버립니다')}">${tr('닫기')}</button>\
-<button type="button" class="btn-sm pv-pop-save hit" data-act="pv-reason-save"${session.writing || session.conflict ? html` aria-disabled="true"` : ''}>${tr('저장')}</button></span></div></div>`;
+${hasUnsavedReason(session) && !session.writing && session.id ? html`<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-fold" data-tip="${translate('초안을 둔 채 접습니다. 줄의 [초안 있음]이 다시 엽니다')}">${translate('접기')}</button>` : ''}\
+<button type="button" class="btn-ghost btn-sm hit" data-act="pv-reason-close" data-tip="${translate('닫습니다. 쓰던 이유가 있으면 한 번 더 눌러야 버립니다')}">${translate('닫기')}</button>\
+<button type="button" class="btn-sm pv-pop-save hit" data-act="pv-reason-save"${session.writing || session.conflict ? html` aria-disabled="true"` : ''}>${translate('저장')}</button></span></div></div>`;
 }
 // The reason on page `page`'s line, after its state: the saved reason of its current verdict (a check and its first
 // line, .pv-rn) - a button that opens the popover to change it on the person's own open verdict, with a pencil and the
@@ -2104,19 +2129,19 @@ function inlineReason(page: number, cur: Pin | undefined) {
     pageDraft = open ? null : getDraft(DOC, 'p' + page);
   const sep = html`<span class="pv-sep" aria-hidden="true">·</span>`;
   const mark = html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-draft hit" data-act="pv-reason-open" \
-aria-label="${tr('초안 있음 — 저장 안 된 이유 초안, 누르면 이어 씁니다')}" data-tip="${tr('저장 안 된 이유 초안이 있습니다 — 누르면 이어 씁니다')}">${tr('초안 있음')}</button></span>`;
+aria-label="${translate('초안 있음 — 저장 안 된 이유 초안, 누르면 이어 씁니다')}" data-tip="${translate('저장 안 된 이유 초안이 있습니다 — 누르면 이어 씁니다')}">${translate('초안 있음')}</button></span>`;
   if (!cur) return pageDraft ? mark : '';
   const mine = canCancelVerdict(cur),
     note = String(cur.note || ''),
     first = note.split('\n')[0];
   const verdictDraft = open ? null : getDraft(DOC, cur.id),
     draft = !!verdictDraft && verdictDraft.text.trim() !== note.trim();
-  const ok = html`<span class="pv-ok" aria-hidden="true">${ic('check')}</span>`;
+  const ok = html`<span class="pv-ok" aria-hidden="true">${lucideIcon('check')}</span>`;
   const saved = !note
     ? ''
     : mine && !open
       ? html`<span class="pv-rn">${sep}<button type="button" class="btn-ghost btn-sm pv-note hit" data-act="pv-reason-open" translate="no" \
-aria-label="${tl('{note} — 저장된 이유 수정, 판정 #{id}', { id: cur.id, note: first })}" data-tip="${tr('저장된 이유 수정')}">${ok}<span class="pv-note-t">${first}</span>${ic('pencil')}</button></span>`
+aria-label="${translateTemplate('{note} — 저장된 이유 수정, 판정 #{id}', { id: cur.id, note: first })}" data-tip="${translate('저장된 이유 수정')}">${ok}<span class="pv-note-t">${first}</span>${lucideIcon('pencil')}</button></span>`
       : // open: no box over the popover
         html`<span class="pv-rn">${sep}<span class="pv-note" translate="no"${open ? '' : html` data-tip="${note}"`}>${ok}${first}</span></span>`;
   // a key save: its line says the key
@@ -2131,11 +2156,11 @@ aria-label="${tl('{note} — 저장된 이유 수정, 판정 #{id}', { id: cur.i
           : READING_LINE_PAGE === page || LAST_LINE_SAVE === cur.id
             ? keys
               ? html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" data-act="pv-reason-open" aria-keyshortcuts="Enter" \
-data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}"><kbd class="pv-kbd">Enter</kbd> ${tr('이유 쓰기')}</button></span>`
+data-tip="${translate('이 판정의 이유를 씁니다. 메모로 붙습니다')}"><kbd class="pv-kbd">Enter</kbd> ${translate('이유 쓰기')}</button></span>`
               : html`<span class="pv-ra">${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" data-act="pv-reason-open" \
-data-tip="${tr('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${tr('이유 추가')}</button></span>`
+data-tip="${translate('이 판정의 이유를 씁니다. 메모로 붙습니다')}">${translate('이유 추가')}</button></span>`
             : // no data-act: no focus or press finds it
-              html`<span class="pv-ra" hidden>${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${tr('이유 추가')}</button></span>`;
+              html`<span class="pv-ra" hidden>${sep}<button type="button" class="btn-ghost btn-sm pv-add hit" tabindex="-1">${translate('이유 추가')}</button></span>`;
   return html`${saved}${act}`;
 }
 // After a line is drawn (fillPageLine): the open field holds the session's text - put in only when it differs and no

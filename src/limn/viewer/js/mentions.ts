@@ -8,15 +8,15 @@
 // notification. The open @-list: its field, the '@word' it was drawn for (where its '@' is, q the letters after it),
 // its people and the highlighted row.
 import { $, ASSIGNEE_AGENT, KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, SAVE_MODE, imeKey, imeTail } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
-import { segReveal } from './levels.ts';
-import { appendTarget, qHint } from './composer.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translateTemplate, translate } from './i18n.ts';
+import { revealSegment } from './levels.ts';
+import { appendTarget, syncQuestionHint } from './composer.ts';
 import { saveDraftSoon } from './draft.ts';
 import { avatar, meLogin, mentionAfterWord, peopleName } from './card-parts.ts';
 import { renderReplyOutcome } from './reply.ts';
 import { EDITOR, autoGrow, editNote } from './edit.ts';
-import { segFocusAt, segKeep, segRove } from './events.ts';
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from './events.ts';
 import type { Html } from './markup.ts';
 
 const MENTION = {
@@ -342,19 +342,19 @@ function assigneeRowHtml(people: string[], value: string, act: string): Html {
     html`<button type="button" role="radio" data-act="${act}" data-v="${text}" aria-checked="${text === value}"${text === value ? html` class="on"` : ''} data-tip="${tip}"><span class="as-t">${label}</span></button>`;
   const agent = opt(
     ASSIGNEE_AGENT,
-    tr('에이전트'),
-    tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'),
+    translate('에이전트'),
+    translate('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'),
   );
   const others = people.map((login) =>
     opt(
       login,
       html`@${personLabel(login)}`,
-      tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다', {
+      translateTemplate('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다', {
         name: peopleName(login) + (nameShared(login) ? ' (' + login + ')' : ''),
       }),
     ),
   );
-  return html`<span class="as-lab">${tr('담당')}</span><div class="seg lad as-seg" data-reveal="whole" tabindex="-1"><div class="lad-t">${agent}${others}</div></div>`;
+  return html`<span class="as-lab">${translate('담당')}</span><div class="seg lad as-seg" data-reveal="whole" tabindex="-1"><div class="lad-t">${agent}${others}</div></div>`;
 }
 // The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time
 // the note changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the
@@ -376,12 +376,12 @@ function renderAssignNew() {
     ASSIGN_NEW.touched = outcome.kept;
   }
   if (outcome.people.length && !appendTarget()) {
-    const at = segFocusAt(box);
+    const at = segmentFocusAt(box);
     setHtml(box, assigneeRowHtml(outcome.people, outcome.assignee as string, 'assign-new'));
     box.hidden = false;
-    segRove(box);
-    segKeep(box, at);
-    segReveal(box.querySelector('.as-seg'));
+    roveSegment(box);
+    keepSegmentFocus(box, at);
+    revealSegment(box.querySelector('.as-seg'));
   } // one Tab stop, and the focus kept (events.ts)
   else {
     box.hidden = true;
@@ -403,12 +403,12 @@ function renderAssignEdit() {
     box.replaceChildren();
     return;
   }
-  const at = segFocusAt(box);
+  const at = segmentFocusAt(box);
   setHtml(box, assigneeRowHtml(people, card.assignee, 'assign-edit'));
   box.hidden = false;
-  segRove(box);
-  segKeep(box, at);
-  segReveal(box.querySelector('.as-seg'));
+  roveSegment(box);
+  keepSegmentFocus(box, at);
+  revealSegment(box.querySelector('.as-seg'));
 } // one Tab stop, and the focus kept (events.ts)
 // The preview line under a mention field: what sending the text does. The composer's note says who handles the pin
 // first - '담당' and the assignee the save sends (assignOutcome, SAVE_MODE.NEW) - then '알림' and the people who are
@@ -442,13 +442,13 @@ function mentionPreview(field) {
   const told = outcome && !join ? scan.hit.filter((login) => login !== outcome.assignee) : scan.hit;
   const name = (login) =>
     login === ASSIGNEE_AGENT
-      ? html`<span class="m-who">${tr('에이전트')}</span>`
+      ? html`<span class="m-who">${translate('에이전트')}</span>`
       : html`<span class="mention">${personLabel(login)}</span>`;
   const hits = told.length
-    ? html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map((login) => html`<span class="mention${login === me ? ' me' : ''}">${personLabel(login)}${login === me ? ' ' + tr('(나 — 알림 없음)') : ''}</span>`)}`
+    ? html`<span class="m-lab">${lucideIcon('at-sign')}알림</span>${told.map((login) => html`<span class="mention${login === me ? ' me' : ''}">${personLabel(login)}${login === me ? ' ' + translate('(나 — 알림 없음)') : ''}</span>`)}`
     : '';
   const assigns = outcome
-    ? html`<span class="m-lab">${tr(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee as string)}`
+    ? html`<span class="m-lab">${translate(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee as string)}`
     : html``;
   const head = !outcome
     ? hits
@@ -478,9 +478,11 @@ function mentionUpdate(field) {
   MENTION.sel = Math.min(MENTION.sel, Math.max(0, MENTION.items.length - 1));
   const pop = $('#mention-pop');
   const none =
-    (query.q ? tl("'{q}' 와 맞는 사람이 없습니다", { q: query.q }) : tr('부를 수 있는 사람이 없습니다')) +
+    (query.q
+      ? translateTemplate("'{q}' 와 맞는 사람이 없습니다", { q: query.q })
+      : translate('부를 수 있는 사람이 없습니다')) +
     ' — ' +
-    tr('핀이나 답글을 남긴 적 있는 사람과 멤버로 등록된 사람만 부를 수 있습니다');
+    translate('핀이나 답글을 남긴 적 있는 사람과 멤버로 등록된 사람만 부를 수 있습니다');
   setHtml(
     pop,
     MENTION.items.length
@@ -498,7 +500,7 @@ ${avatar(person)}<span>${person.name}</span><span class="ml">${person.login}</sp
 }
 // Puts the open @-list by its field (mentionTop; the note popover's field: mentionRoom, which may cut the list, keeping
 // its highlighted row in view), inside the window's width. Also run when the field moves under the list (the note
-// popover follows its box: placeSelPop).
+// popover follows its box: placeSelectionPopover).
 function mentionPlace() {
   const field = MENTION.ta,
     pop = $('#mention-pop');
@@ -628,14 +630,15 @@ document.addEventListener('input', (event) => {
   mentionUpdate(field);
   if (field.id === 'note') {
     renderAssignNew();
-    qHint($('#c-qhint'), field.value, KIND_NEW);
+    syncQuestionHint($('#c-qhint'), field.value, KIND_NEW);
     saveDraftSoon();
     return;
   } // the row draws the preview line too
   mentionPreview(field);
   if (field.classList.contains('e-note')) {
     renderAssignEdit();
-    if (EDITOR.current) qHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
+    if (EDITOR.current)
+      syncQuestionHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
   } else if (field.classList.contains('r-text')) renderReplyOutcome();
 });
 window.addEventListener(

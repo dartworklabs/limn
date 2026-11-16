@@ -3,39 +3,48 @@
 // page's canvas sized to the screen, a detail canvas over a capped one, and every canvas released when its page scrolls
 // out of reach.
 import { $, $$ } from './core.ts';
-import { tl, tr } from './i18n.ts';
-import { VEC, VEC_DT_MARGIN, VEC_KEEP, VEC_PIX_CAP, vecForget } from './pdf-open.ts';
+import { translateTemplate, translate } from './i18n.ts';
+import {
+  VECTOR_PDF,
+  VECTOR_DETAIL_MARGIN,
+  VECTOR_KEEP_MARGIN,
+  VECTOR_PIXEL_CAP,
+  forgetVectorDocument,
+} from './pdf-open.ts';
 import { searchOffer } from './search.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
-function vecClose(doc) {
+function closeVectorDocument(doc) {
   if (!doc) return;
   try {
     doc.loadingTask.destroy();
   } catch (error) {}
 }
 // Gives up on vector drawing for the document on screen: the pages stay PNG, and #vec-chip says why.
-function vecFail(message, cause?) {
-  VEC.failed = message;
-  VEC.gen++;
-  vecCancel();
-  vecReleaseAll();
-  vecForget(VEC.doc);
-  vecClose(VEC.doc);
-  VEC.doc = null;
+function failVector(message, cause?) {
+  VECTOR_PDF.failed = message;
+  VECTOR_PDF.gen++;
+  cancelVectorDraw();
+  releaseAllVectorPages();
+  forgetVectorDocument(VECTOR_PDF.doc);
+  closeVectorDocument(VECTOR_PDF.doc);
+  VECTOR_PDF.doc = null;
   // No PDF to read: no search.
   searchOffer();
   const chip = $('#vec-chip');
   chip.hidden = false;
-  chip.dataset.tip = tl('PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다', {
-    reason: tr(message) + (cause && cause.message ? ' (' + String(cause.message).slice(0, 100) + ')' : ''),
-  });
+  chip.dataset.tip = translateTemplate(
+    'PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다',
+    {
+      reason: translate(message) + (cause && cause.message ? ' (' + String(cause.message).slice(0, 100) + ')' : ''),
+    },
+  );
 }
 // The draw state of a page (its canvases and the size they were drawn at), made on first use.
 function pageDrawState(pageNumber) {
-  let pageState = VEC.st.get(pageNumber);
+  let pageState = VECTOR_PDF.st.get(pageNumber);
   if (!pageState) {
     pageState = { base: null, bw: 0, bh: 0, dt: null, reg: null, dtCw: 0, dtK: 0, stale: false };
-    VEC.st.set(pageNumber, pageState);
+    VECTOR_PDF.st.set(pageNumber, pageState);
   }
   return pageState;
 }
@@ -47,59 +56,59 @@ function dropCanvas(canvas) {
   canvas.remove();
 }
 function releasePageCanvases(pageNumber) {
-  if (VEC.cur && VEC.cur.n === pageNumber) vecCancel();
-  const pageState = VEC.st.get(pageNumber);
+  if (VECTOR_PDF.cur && VECTOR_PDF.cur.n === pageNumber) cancelVectorDraw();
+  const pageState = VECTOR_PDF.st.get(pageNumber);
   if (!pageState) return;
   dropCanvas(pageState.base);
   dropCanvas(pageState.dt);
-  VEC.st.delete(pageNumber);
+  VECTOR_PDF.st.delete(pageNumber);
   const pageElement = document.getElementById('p' + pageNumber);
   if (pageElement) pageElement.classList.remove('drawn');
 }
-function vecReleaseAll() {
-  vecCancel();
-  Array.from(VEC.st.keys()).forEach(releasePageCanvases);
+function releaseAllVectorPages() {
+  cancelVectorDraw();
+  Array.from(VECTOR_PDF.st.keys()).forEach(releasePageCanvases);
 }
-function vecCancel() {
-  const drawing = VEC.cur;
-  VEC.cur = null;
+function cancelVectorDraw() {
+  const drawing = VECTOR_PDF.cur;
+  VECTOR_PDF.cur = null;
   if (drawing && drawing.task) {
     try {
       drawing.task.cancel();
     } catch (error) {}
   }
 }
-function vecObserve() {
-  if (VEC.io) VEC.io.disconnect();
-  vecReleaseAll();
-  VEC.near.clear();
+function observeVectorPages() {
+  if (VECTOR_PDF.io) VECTOR_PDF.io.disconnect();
+  releaseAllVectorPages();
+  VECTOR_PDF.near.clear();
   if (!window.IntersectionObserver) return;
-  const io = (VEC.io = new IntersectionObserver(
+  const io = (VECTOR_PDF.io = new IntersectionObserver(
     (entries) => {
       entries.forEach((en) => {
         const pageNumber = Number((en.target as HTMLElement).dataset.page);
-        if (en.isIntersecting) VEC.near.add(pageNumber);
+        if (en.isIntersecting) VECTOR_PDF.near.add(pageNumber);
         else {
-          VEC.near.delete(pageNumber);
+          VECTOR_PDF.near.delete(pageNumber);
           releasePageCanvases(pageNumber);
         }
       });
-      vecSchedule(0);
+      scheduleVectorDraw(0);
     },
-    { root: $('#left'), rootMargin: VEC_KEEP },
+    { root: $('#left'), rootMargin: VECTOR_KEEP_MARGIN },
   ));
   $$('.pg').forEach((pageElement) => io.observe(pageElement));
 }
-function vecSchedule(ms) {
-  clearTimeout(VEC.timer);
-  VEC.timer = setTimeout(pumpDrawJobs, ms || 0);
+function scheduleVectorDraw(ms) {
+  clearTimeout(VECTOR_PDF.timer);
+  VECTOR_PDF.timer = setTimeout(pumpDrawJobs, ms || 0);
 }
 // Zoom, window size or DPR changed: whatever was being drawn (at the old size) is discarded and redrawn shortly after.
 // Meanwhile, the old canvas is shown stretched.
-function vecInvalidate() {
-  if (!VEC.doc) return;
-  vecCancel();
-  vecSchedule(150);
+function invalidateVectorDraws() {
+  if (!VECTOR_PDF.doc) return;
+  cancelVectorDraw();
+  scheduleVectorDraw(150);
 }
 // Backing pixels per CSS pixel: the device pixel ratio times the browser's pinch scale.
 function backingScale() {
@@ -108,7 +117,7 @@ function backingScale() {
 }
 // The page canvas's backing size. If it exceeds the cap, it is scaled down proportionally and marked capped (the
 // detail canvas fills in the visible portion).
-function vecTarget(cssWidth, cssHeight, pixelRatio, cap) {
+function canvasBackingTarget(cssWidth, cssHeight, pixelRatio, cap) {
   let backingWidth = Math.round(cssWidth * pixelRatio),
     backingHeight = Math.round(cssHeight * pixelRatio),
     capped = false;
@@ -123,7 +132,7 @@ function vecTarget(cssWidth, cssHeight, pixelRatio, cap) {
 function pageBackingTarget(pageElement) {
   const cssWidth = pageElement.clientWidth,
     cssHeight = pageElement.clientHeight;
-  return cssWidth && cssHeight ? vecTarget(cssWidth, cssHeight, backingScale(), VEC_PIX_CAP) : null;
+  return cssWidth && cssHeight ? canvasBackingTarget(cssWidth, cssHeight, backingScale(), VECTOR_PIXEL_CAP) : null;
 }
 // The portion of a page visible on screen (page CSS px). margin is extra room relative to the viewport size (the
 // detail canvas is drawn a bit larger).
@@ -159,14 +168,14 @@ function regionCovers(region, visible) {
 }
 // The one thing to draw next: pages within the viewport first (nearest to center), page canvas before detail canvas.
 function nextDrawJob() {
-  if (!VEC.doc) return null;
+  if (!VECTOR_PDF.doc) return null;
   const pdfArea = $('#left'),
     areaRect = pdfArea.getBoundingClientRect(),
     top = areaRect.top,
     bottom = areaRect.top + pdfArea.clientHeight,
     centerY = (top + bottom) / 2;
   const list: { n: number; pg: HTMLElement; vis: any; d: number }[] = []; // vis: a boolean, subtracted to sort
-  VEC.near.forEach((pageNumber) => {
+  VECTOR_PDF.near.forEach((pageNumber) => {
     const pageElement = document.getElementById('p' + pageNumber);
     if (!pageElement) return;
     const pageRect = pageElement.getBoundingClientRect();
@@ -204,8 +213,8 @@ function nextDrawJob() {
 }
 // Runs the draw jobs one after another until none is left; one pump at a time.
 async function pumpDrawJobs() {
-  if (VEC.pumping || !VEC.doc) return;
-  VEC.pumping = true;
+  if (VECTOR_PDF.pumping || !VECTOR_PDF.doc) return;
+  VECTOR_PDF.pumping = true;
   try {
     for (let i = 0; i < 400; i++) {
       const job = nextDrawJob();
@@ -213,26 +222,26 @@ async function pumpDrawJobs() {
       await runDrawJob(job);
     }
   } finally {
-    VEC.pumping = false;
+    VECTOR_PDF.pumping = false;
   }
 }
 async function runDrawJob(job) {
   const pageNumber = job.n,
     pageElement = document.getElementById('p' + pageNumber),
-    doc = VEC.doc,
-    gen = VEC.gen;
+    doc = VECTOR_PDF.doc,
+    gen = VECTOR_PDF.gen;
   if (!pageElement || !doc) return;
-  // A page number past the document's last page means another document or build replaced it. vecOpen's generation
-  // check keeps that from happening; this only skips the case.
+  // A page number past the document's last page means another document or build replaced it. openVectorDocument's
+  // generation check keeps that from happening; this only skips the case.
   if (pageNumber > doc.numPages) return;
   let page;
   try {
     page = await doc.getPage(pageNumber);
   } catch (error) {
-    if (gen === VEC.gen) vecFail('쪽을 읽지 못했습니다', error);
+    if (gen === VECTOR_PDF.gen) failVector('쪽을 읽지 못했습니다', error);
     return;
   }
-  if (gen !== VEC.gen || !VEC.near.has(pageNumber) || !document.contains(pageElement)) return;
+  if (gen !== VECTOR_PDF.gen || !VECTOR_PDF.near.has(pageNumber) || !document.contains(pageElement)) return;
   const target = pageBackingTarget(pageElement);
   if (!target) return;
   const unitViewport = page.getViewport({ scale: 1 }),
@@ -249,11 +258,11 @@ async function runDrawJob(job) {
     scale = target.bw / unitViewport.width;
     transform = [1, 0, 0, target.bh / (unitViewport.height * scale), 0, 0];
   } else {
-    const visible = visiblePagePortion(pageElement, VEC_DT_MARGIN);
+    const visible = visiblePagePortion(pageElement, VECTOR_DETAIL_MARGIN);
     if (!visible) return;
     let pixelRatio = target.k;
-    if (visible.w * visible.h * pixelRatio * pixelRatio > VEC_PIX_CAP)
-      pixelRatio = Math.sqrt(VEC_PIX_CAP / (visible.w * visible.h));
+    if (visible.w * visible.h * pixelRatio * pixelRatio > VECTOR_PIXEL_CAP)
+      pixelRatio = Math.sqrt(VECTOR_PIXEL_CAP / (visible.w * visible.h));
     scale = (target.cw * pixelRatio) / unitViewport.width;
     canvas.width = Math.max(1, Math.round(visible.w * pixelRatio));
     canvas.height = Math.max(1, Math.round(visible.h * pixelRatio));
@@ -274,19 +283,19 @@ async function runDrawJob(job) {
     viewport: page.getViewport({ scale }),
     transform: transform,
   });
-  VEC.cur = { n: pageNumber, task };
+  VECTOR_PDF.cur = { n: pageNumber, task };
   try {
     await task.promise;
   } catch (error) {
-    if (VEC.cur && VEC.cur.task === task) VEC.cur = null;
+    if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) VECTOR_PDF.cur = null;
     dropCanvas(canvas);
     if (error && (error as Error).name === 'RenderingCancelledException') return;
-    if (gen === VEC.gen) vecFail('쪽을 그리지 못했습니다', error);
+    if (gen === VECTOR_PDF.gen) failVector('쪽을 그리지 못했습니다', error);
     return;
   }
-  if (VEC.cur && VEC.cur.task === task) VEC.cur = null;
+  if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) VECTOR_PDF.cur = null;
   const targetAfter =
-    gen === VEC.gen && VEC.near.has(pageNumber) && document.contains(pageElement)
+    gen === VECTOR_PDF.gen && VECTOR_PDF.near.has(pageNumber) && document.contains(pageElement)
       ? pageBackingTarget(pageElement)
       : null;
   // Zoom or window size changed while drawing.
@@ -294,14 +303,14 @@ async function runDrawJob(job) {
     dropCanvas(canvas);
     return;
   }
-  VEC.stats.push({
+  VECTOR_PDF.stats.push({
     n: pageNumber,
     kind: job.kind,
     ms: Math.round(performance.now() - startedAt),
     w: canvas.width,
     h: canvas.height,
   });
-  if (VEC.stats.length > 200) VEC.stats.splice(0, VEC.stats.length - 200);
+  if (VECTOR_PDF.stats.length > 200) VECTOR_PDF.stats.splice(0, VECTOR_PDF.stats.length - 200);
   const pageState = pageDrawState(pageNumber);
   if (job.kind === 'base') {
     dropCanvas(pageState.base);
@@ -312,7 +321,7 @@ async function runDrawJob(job) {
     canvas.className = 'vb';
     pageElement.prepend(canvas);
     pageElement.classList.add('drawn');
-    if (VEC.tFirst === null) VEC.tFirst = performance.now();
+    if (VECTOR_PDF.tFirst === null) VECTOR_PDF.tFirst = performance.now();
   } else {
     // A detail job always measures its region above.
     const drawnRegion = region as { x: number; y: number; w: number; h: number };
@@ -335,7 +344,7 @@ async function runDrawJob(job) {
 $('#left').addEventListener(
   'scroll',
   () => {
-    if (VEC.doc) vecSchedule(120);
+    if (VECTOR_PDF.doc) scheduleVectorDraw(120);
   },
   { passive: true },
 );
@@ -346,7 +355,7 @@ $('#left').addEventListener(
   matchMedia('(resolution: ' + (window.devicePixelRatio || 1) + 'dppx)').addEventListener(
     'change',
     () => {
-      vecInvalidate();
+      invalidateVectorDraws();
       watchDpr();
     },
     { once: true },
@@ -356,8 +365,17 @@ $('#left').addEventListener(
   const viewport = window.visualViewport;
   if (viewport)
     viewport.addEventListener('resize', () => {
-      if (VEC.doc) vecSchedule(300);
+      if (VECTOR_PDF.doc) scheduleVectorDraw(300);
     });
 }
 
-export { vecCancel, vecClose, vecFail, vecInvalidate, vecObserve, vecReleaseAll, vecSchedule, vecTarget };
+export {
+  cancelVectorDraw,
+  closeVectorDocument,
+  failVector,
+  invalidateVectorDraws,
+  observeVectorPages,
+  releaseAllVectorPages,
+  scheduleVectorDraw,
+  canvasBackingTarget,
+};

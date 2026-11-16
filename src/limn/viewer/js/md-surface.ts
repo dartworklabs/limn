@@ -5,22 +5,22 @@
 //   413 source_too_large and no lines). The lines this screen shows are the server's lines by construction: they are
 //   joined with "\n" for the parser and never split again from raw bytes.
 // - markdown-it parses in a worker of its own (GET /md-parse.mjs, this origin - no blob: worker, ADR-0026), within
-//   MD_LIMITS: nesting, block and inline tokens there; elements while the DOM is built here, with a yield to the
-//   browser after every MD_LIMITS.chunk units of work (a token, an inline child, a code line) wherever they fall; the
-//   time the worker takes. Over any of them the screen is the plain source-line view (lineView), over MD_LIMITS.lines
-//   lines not even that, but a notice with the count and the limit (documentNotice). Pins, cards and the agent's paths
-//   stay as they are. One formula's TeX is drawn only up to MD_LIMITS.tex characters (drawTexBox): past it that formula
-//   alone stays as its characters.
+//   MARKDOWN_LIMITS: nesting, block and inline tokens there; elements while the DOM is built here, with a yield to the
+//   browser after every MARKDOWN_LIMITS.chunk units of work (a token, an inline child, a code line) wherever they fall;
+//   the time the worker takes. Over any of them the screen is the plain source-line view (lineView), over
+//   MARKDOWN_LIMITS.lines lines not even that, but a notice with the count and the limit (documentNotice). Pins, cards
+//   and the agent's paths stay as they are. One formula's TeX is drawn only up to MARKDOWN_LIMITS.tex characters
+//   (drawTexBox): past it that formula alone stays as its characters.
 // - The DOM is built with createElement and textContent only: markdown-it's HTML renderer is never used, so the one
 //   innerHTML sink (markup.ts setHtml) stays the only one. Raw HTML is never drawn: a block is a placeholder that keeps
 //   its lines, an inline tag shows as code. A character that would hide or reorder text (hidden-chars.ts) stays in the
 //   drawn text inside its box (drawText), as on the text surface, and a notice above the document counts them. An image
 //   loads only when its source is a file of the manuscript tree with an image suffix, resolved against the document's
-//   own path (imageSource) and fetched from this origin's GET /api/asset (asked again on the light poll, mdPicCheck:
-//   one rewritten on disk shows without a reload); a remote or data: image, or one that leaves the tree, is its alt
-//   text (ADR-0030). A link opens only through the allowlist (linkAction) - another origin's http(s), mailto, an
-//   in-document #heading, another registered document of this instance (by its path, with its #heading), an image of
-//   the tree in a new tab; anything else is inert text.
+//   own path (imageSource) and fetched from this origin's GET /api/asset (asked again on the light poll,
+//   checkTreeImages: one rewritten on disk shows without a reload); a remote or data: image, or one that leaves the
+//   tree, is its alt text (ADR-0030). A link opens only through the allowlist (linkAction) - another origin's http(s),
+//   mailto, an in-document #heading, another registered document of this instance (by its path, with its #heading), an
+//   image of the tree in a new tab; anything else is inert text.
 // - Every block token's map becomes data-lo/data-hi on the element drawn for it. Inside a paragraph or heading each
 //   source line gets its own span (data-line) only when the inline token's line breaks match its source's line ends
 //   (inlineLines); otherwise the whole run is one span with its range. A code block's content lines are its source
@@ -35,12 +35,12 @@ import {
   DOC,
   DOCS,
   IME_ON_FREE,
-  LAST_PTR,
+  LAST_POINTER,
   LAYOUT,
   LAYOUT_MODE,
-  MD_LIMIT,
+  MARKDOWN_LIMIT,
   META,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   NOTICE_TOPIC,
   PICKSEQ,
   PINS,
@@ -55,16 +55,16 @@ import {
   setSnipOpen,
   showsSourceLines,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { CC_ANY, ccBox, ccClip, ccFind, ccPlain, ccScan } from './hidden-chars.ts';
-import { tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { ANY_HIDDEN, hiddenBox, clipMarkedText, findHidden, markHiddenPlain, scanHidden } from './hidden-chars.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import { endTopic } from './notices.ts';
 import { TIP, hideTip, showTip } from './tooltip.ts';
-import { docInfo, dq, isRegion, pdoc } from './doc-tabs.ts';
+import { docInfo, withDocQuery, isRegion, pdoc } from './doc-tabs.ts';
 import { drawPos, switchDoc, switchPending } from './doc-switch.ts';
 import { pinState } from './polling.ts';
-import { updMarks, updSourceRedrawn } from './updates.ts';
+import { tintChangedLines, compareRedrawnSource } from './updates.ts';
 import {
   OUTLINE_SELECTED,
   SCROLL_KEYS,
@@ -79,14 +79,23 @@ import {
 } from './outline.ts';
 import { applySide, setSide } from './layout.ts';
 import { BACK } from './gestures.ts';
-import { revealBox, selRoom } from './selection.ts';
-import { lvOf, rng, useLevel } from './levels.ts';
-import { isTextDoc, srcLines, txHint, txLevels, txMarksText, txNamesText, txNote, txView } from './text-surface.ts';
+import { revealBox, selectionRoom } from './selection.ts';
+import { levelOf, lineRange, useLevel } from './levels.ts';
+import {
+  isTextDoc,
+  srcLines,
+  showTextHint,
+  textLevels,
+  markedCharactersText,
+  namesViewText,
+  textNotice,
+  buildTextView,
+} from './text-surface.ts';
 import { COMPOSE, focusFell, focusHold, imeOpen, overlapsFor, renderComposer, setBusy } from './composer.ts';
 import { endJumpForScroll, renderVerdictRow } from './verdict.ts';
 import { marks } from './list.ts';
 import { bannerCompare } from './repick.ts';
-const MD_LIMITS = Object.freeze({
+const MARKDOWN_LIMITS = Object.freeze({
   nesting: 20,
   blocks: 30000,
   inlines: 150000,
@@ -96,17 +105,17 @@ const MD_LIMITS = Object.freeze({
   chunk: 2000,
   tex: 10000,
 });
-// MD: the document drawn (doc, file, name), its source lines and the src_mtime they were read at (mtime: set only by a
-// read that answered, so the light poll, polling.ts, sees a failed read as not done), the src_mtime a redraw was last
-// asked for (asked: the light poll asks once per change while that read is on its way, and a failed read clears it),
-// the reading line (at), the limit hit (limit), its headings, the worker and its parse in flight, whether a redraw
-// waits for a field (waiting), the elements built so far (els), the characters drawn in their boxes (marked) and
+// MARKDOWN_VIEW: the document drawn (doc, file, name), its source lines and the src_mtime they were read at (mtime: set
+// only by a read that answered, so the light poll, polling.ts, sees a failed read as not done), the src_mtime a redraw
+// was last asked for (asked: the light poll asks once per change while that read is on its way, and a failed read
+// clears it), the reading line (at), the limit hit (limit), its headings, the worker and its parse in flight, whether a
+// redraw waits for a field (waiting), the elements built so far (els), the characters drawn in their boxes (marked) and
 // whether the next text drawn may be the file's first, its byte-order mark kept (bom, drawText), the document #doc
 // shows now (shown: '' for none - a PDF document's pages, the wait line), the reading spot a kept view asks for once it
 // is drawn (want) and the reading spot as last read at the column's width and the pane's scroll offset then (spot,
-// readSpot: kept across a reflow and a redraw while hidden, mdSpotKeep; top tells a pane moved since,
+// readSpot: kept across a reflow and a redraw while hidden, keepReadingSpot; top tells a pane moved since,
 // refreshMovedSpot).
-const MD = {
+const MARKDOWN_VIEW = {
   gen: 0,
   doc: '' as string | null,
   file: '',
@@ -141,9 +150,9 @@ const MD = {
     sel: boolean;
     again: boolean;
   } | null,
-  // a heading a link from another document asked for, gone to once this document is drawn in that visit (mdGoDoc), and
-  // the heading a jump in flight is going to (mdGoHeading: an image that gets its size moves the destination, not the
-  // reading spot)
+  // a heading a link from another document asked for, gone to once this document is drawn in that visit (goToDocLink),
+  // and the heading a jump in flight is going to (goToHeading: an image that gets its size moves the destination, not
+  // the reading spot)
   headTo: null as { doc: string; id: string; seq: number } | null,
   goTo: null as { el: HTMLElement; doc: string | null } | null,
 };
@@ -151,8 +160,9 @@ const MD = {
 // far (els), the characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its
 // byte-order mark kept (bom, drawText), the headings (heads), and how many formulas were drawn - a count to draw them
 // on, null not to draw them at all (tex, ADR-0036 D3: the rendered compare keeps the source characters, which its block
-// keys and its word diff read). The renderer reads and writes only these; the document view's context is MD itself
-// (renderDocument), and the rendered compare (md-compare.ts) builds each side with a context of its own (mdRx).
+// keys and its word diff read). The renderer reads and writes only these; the document view's context is MARKDOWN_VIEW
+// itself (renderDocument), and the rendered compare (md-compare.ts) builds each side with a context of its own
+// (newRenderContext).
 type DrawnHeading = { level: number; lo: number; el: HTMLElement; title: string; slug: string };
 type RenderContext = {
   lines: string[];
@@ -163,74 +173,78 @@ type RenderContext = {
   tex: number | null;
 };
 // A fresh render context for lines: nothing built, its first text the file's first, its math kept as characters.
-function mdRx(lines: string[]): RenderContext {
+function newRenderContext(lines: string[]): RenderContext {
   return { lines, els: 0, marked: 0, bom: String(lines[0] || '').charCodeAt(0) === 0xfeff, heads: [], tex: null };
 }
-// The render context a drawn root was built with (the compare's sides, mdRxKeep); any other root is the document
-// view's, MD.
+// The render context a drawn root was built with (the compare's sides, keepRenderContext); any other root is the
+// document view's, MARKDOWN_VIEW.
 const ROOT_CONTEXTS = new WeakMap() as WeakMap<Element, RenderContext>;
-function mdRxKeep(root: Element, context: RenderContext) {
+function keepRenderContext(root: Element, context: RenderContext) {
   ROOT_CONTEXTS.set(root, context);
 }
 function renderContextOf(element: Element | null): RenderContext {
   const root = element && element.closest('.md');
-  return (root && ROOT_CONTEXTS.get(root)) || MD;
+  return (root && ROOT_CONTEXTS.get(root)) || MARKDOWN_VIEW;
 }
 // Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
 // instance.
-function isMdDoc() {
+function isMarkdownDoc() {
   return !!META && rendersInBrowser(META.kind);
 }
-function isMdPin(pin: Pin) {
+function isMarkdownPin(pin: Pin) {
   const entry = docInfo(pdoc(pin));
   return !!entry && rendersInBrowser(entry.kind);
 }
 // ---------------- The parse worker
-// Parses text in the worker within MD_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MD_LIMIT), or null when a newer
-// parse took the worker over. The worker is started the first time and kept; one that runs past MD_LIMITS.ms, fails to
-// load or is taken over is stopped (terminate) and a new one starts next time.
+// Parses text in the worker within MARKDOWN_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MARKDOWN_LIMIT), or null
+// when a newer parse took the worker over. The worker is started the first time and kept; one that runs past
+// MARKDOWN_LIMITS.ms, fails to load or is taken over is stopped (terminate) and a new one starts next time.
 function parseMarkdown(text: string): Promise<any> {
   stopMarkdownParse(null);
   return new Promise((resolve) => {
-    let worker = MD.worker;
+    let worker = MARKDOWN_VIEW.worker;
     try {
       if (!worker) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
-        MD.worker = worker;
+        MARKDOWN_VIEW.worker = worker;
         worker.onmessage = (message) => {
-          const job = MD.job;
+          const job = MARKDOWN_VIEW.job;
           if (!job || !message.data || message.data.id !== job.id) return;
           clearTimeout(job.t);
-          MD.job = null;
+          MARKDOWN_VIEW.job = null;
           job.resolve(message.data);
         };
         worker.onerror = (event) => {
           event.preventDefault();
-          stopMarkdownParse({ ok: false, limit: MD_LIMIT.LOAD });
+          stopMarkdownParse({ ok: false, limit: MARKDOWN_LIMIT.LOAD });
         };
       }
     } catch (error) {
-      resolve({ ok: false, limit: MD_LIMIT.LOAD });
+      resolve({ ok: false, limit: MARKDOWN_LIMIT.LOAD });
       return;
     }
-    const id = ++MD.seq;
-    MD.job = { id, resolve, t: setTimeout(() => stopMarkdownParse({ ok: false, limit: MD_LIMIT.TIME }), MD_LIMITS.ms) };
+    const id = ++MARKDOWN_VIEW.seq;
+    MARKDOWN_VIEW.job = {
+      id,
+      resolve,
+      t: setTimeout(() => stopMarkdownParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
+    };
     worker.postMessage({
       id,
       text,
-      limits: { nesting: MD_LIMITS.nesting, blocks: MD_LIMITS.blocks, inlines: MD_LIMITS.inlines },
+      limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
     });
   });
 }
 // Ends the parse in flight, if any, with answer (null: taken over), and stops its worker.
 function stopMarkdownParse(answer) {
-  const job = MD.job;
+  const job = MARKDOWN_VIEW.job;
   if (!job) return;
-  MD.job = null;
+  MARKDOWN_VIEW.job = null;
   clearTimeout(job.t);
-  if (MD.worker) {
-    MD.worker.terminate();
-    MD.worker = null;
+  if (MARKDOWN_VIEW.worker) {
+    MARKDOWN_VIEW.worker.terminate();
+    MARKDOWN_VIEW.worker = null;
   }
   job.resolve(answer);
 }
@@ -329,12 +343,13 @@ function blockTexBody(lines: string[]): string | null {
 // A <tag class=className> with the TeX of source drawn into it (tex: source without its delimiters) and source on
 // data-tex, or null when it is not drawn - then the caller shows source as characters (ADR-0036 D2). Not drawn when:
 // there is no renderer; the context does not draw math (context.tex null - the rendered compare keeps the source
-// characters, ADR-0036 D3); the TeX is not whole (tex null); the TeX is longer than MD_LIMITS.tex characters - KaTeX
-// lays a formula out in one call that cannot pause or be stopped, and past that length its time grows much faster than
-// the formula, which would hold the page still as no other part of the build may (ADR-0039); source holds a character
-// that hides or reorders text (CC_ANY, ADR-0029 D5) - drawn glyphs could show neither it nor its box, so such a formula
-// stays as its characters, each in its box; or KaTeX refuses it (throwOnError, so a refusal never draws its own red
-// markup and the style attribute that would carry its colour). The element is built outside countedElement and counted
+// characters, ADR-0036 D3); the TeX is not whole (tex null); the TeX is longer than MARKDOWN_LIMITS.tex characters -
+// KaTeX lays a formula out in one call that cannot pause or be stopped, and past that length its time grows much faster
+// than the formula, which would hold the page still as no other part of the build may (ADR-0039); source holds a
+// character that hides or reorders text (ANY_HIDDEN, ADR-0029 D5) - drawn glyphs could show neither it nor its box, so
+// such a formula stays as its characters, each in its box; or KaTeX refuses it (throwOnError, so a refusal never draws
+// its own red markup and the style attribute that would carry its colour). The element is built outside countedElement
+// and counted
 // - with everything KaTeX put in it - only once it is used, so a refusal leaves the count where it was (ADR-0036 D6).
 // trust false leaves \href, \url and \includegraphics as characters, so no link or image of KaTeX's own gets past the
 // viewer's allowlists; strict false draws a Korean word in math mode instead of refusing it.
@@ -351,8 +366,8 @@ function drawTexBox(
     TEX_RENDERER.state !== 'ready' ||
     tex === null ||
     !tex.trim() ||
-    tex.length > MD_LIMITS.tex ||
-    CC_ANY.test(source)
+    tex.length > MARKDOWN_LIMITS.tex ||
+    ANY_HIDDEN.test(source)
   )
     return null;
   const box = document.createElement(tag);
@@ -365,7 +380,7 @@ function drawTexBox(
   box.dataset.tex = source;
   context.els += 1 + box.querySelectorAll('*').length;
   context.tex++;
-  if (context.els > MD_LIMITS.elements) throw MD_OVER;
+  if (context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
   return box;
 }
 // A drawn formula cannot be broken over lines: KaTeX lays it out as one inline-block. One wider than the column reaches
@@ -379,7 +394,7 @@ function drawTexBox(
 // the pass settles at once.
 function fitWideFormulas() {
   const column = $('#md');
-  if (!column || !MD.tex) return;
+  if (!column || !MARKDOWN_VIEW.tex) return;
   const boxes = [...column.querySelectorAll('code.md-math.md-tex')] as HTMLElement[];
   if (!boxes.length) return;
   for (const box of boxes) box.classList.remove('md-tex-wide');
@@ -395,7 +410,7 @@ function fitWideFormulas() {
 // ---------------- Drawing the document
 // A yield to the browser between chunks of the DOM build: a message, not a timer, so a test's frozen clock does not
 // stop it.
-function mdYield() {
+function yieldToBrowser() {
   return new Promise((resolve) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => resolve(undefined);
@@ -428,17 +443,17 @@ document.addEventListener(
 );
 // Once that key lets its field go (IME_ON_FREE), a redraw that waited for it runs.
 IME_ON_FREE.push(() => {
-  if (MD.waiting && !isFieldBusy()) {
-    MD.waiting = false;
-    if (isMdDoc()) mdBuild();
+  if (MARKDOWN_VIEW.waiting && !isFieldBusy()) {
+    MARKDOWN_VIEW.waiting = false;
+    if (isMarkdownDoc()) buildMarkdownDoc();
   }
 });
 document.addEventListener('compositionend', () => {
-  if (MD.waiting)
+  if (MARKDOWN_VIEW.waiting)
     setTimeout(() => {
-      if (MD.waiting && !isFieldBusy()) {
-        MD.waiting = false;
-        if (isMdDoc()) mdBuild();
+      if (MARKDOWN_VIEW.waiting && !isFieldBusy()) {
+        MARKDOWN_VIEW.waiting = false;
+        if (isMarkdownDoc()) buildMarkdownDoc();
       }
     }, 0);
 });
@@ -446,87 +461,90 @@ document.addEventListener('compositionend', () => {
 // worker and built here, or the line view or a notice when a limit is hit. A newer draw (another document, newer
 // source) drops an older one at each wait. A redraw that would take a field being typed in waits until the field is let
 // go (isFieldBusy).
-async function mdBuild() {
+async function buildMarkdownDoc() {
   if (isFieldBusy()) {
-    MD.waiting = true;
+    MARKDOWN_VIEW.waiting = true;
     return;
   }
-  const generation = ++MD.gen,
+  const generation = ++MARKDOWN_VIEW.gen,
     docKey = DOC,
-    stale = () => generation !== MD.gen || docKey !== DOC || !isMdDoc();
+    stale = () => generation !== MARKDOWN_VIEW.gen || docKey !== DOC || !isMarkdownDoc();
   document.body.classList.add('md-surface');
   const doc = $('#doc');
-  if (MD.shown !== docKey || !doc.querySelector('#md')) {
-    MD.shown = '';
-    doc.replaceChildren(mdWait(tr('원문을 읽는 중입니다.')));
+  if (MARKDOWN_VIEW.shown !== docKey || !doc.querySelector('#md')) {
+    MARKDOWN_VIEW.shown = '';
+    doc.replaceChildren(waitLine(translate('원문을 읽는 중입니다.')));
   }
   let answer;
   try {
-    answer = await api(dq('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api(withDocQuery('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
   } catch (error) {
     if (!stale()) {
-      MD.asked = null;
-      MD.mtime = null;
-      showDocumentNode(documentNotice(tr('원문을 읽지 못했습니다'), ''));
+      MARKDOWN_VIEW.asked = null;
+      MARKDOWN_VIEW.mtime = null;
+      showDocumentNode(documentNotice(translate('원문을 읽지 못했습니다'), ''));
     }
     return;
-    // not read: no read answers for this source now (MD.mtime too, or an unchanged source on a return to the document
-    // never matches again), so the next light poll asks again
+    // not read: no read answers for this source now (MARKDOWN_VIEW.mtime too, or an unchanged source on a return to the
+    // document never matches again), so the next light poll asks again
   }
   if (stale()) return;
   if (answer.status === 413) {
-    MD.lines = [];
-    MD.heads = [];
-    MD.mtime = MD.asked;
+    MARKDOWN_VIEW.lines = [];
+    MARKDOWN_VIEW.heads = [];
+    MARKDOWN_VIEW.mtime = MARKDOWN_VIEW.asked;
     showDocumentNode(
       documentNotice(
-        tl('이 문서는 {size}라 그리지 않습니다(한도 {limit})', {
-          size: mdMiB(answer.data.bytes),
-          limit: mdMiB(answer.data.limit),
+        translateTemplate('이 문서는 {size}라 그리지 않습니다(한도 {limit})', {
+          size: formatMebibytes(answer.data.bytes),
+          limit: formatMebibytes(answer.data.limit),
         }),
-        MD_LIMIT.BYTES,
+        MARKDOWN_LIMIT.BYTES,
       ),
     );
     return;
   }
   const source = answer.data,
     // the lines this source replaces (updates.ts)
-    before = MD.doc === docKey && MD.mtime !== null && MD.mtime !== source.src_mtime ? MD.lines : null;
-  MD.doc = docKey;
-  MD.mtime = source.src_mtime;
-  MD.file = String(source.file || '');
-  MD.name = MD.file.split('/').pop() || MD.file;
-  MD.lines = Array.isArray(source.lines) ? source.lines.map(String) : [];
+    before =
+      MARKDOWN_VIEW.doc === docKey && MARKDOWN_VIEW.mtime !== null && MARKDOWN_VIEW.mtime !== source.src_mtime
+        ? MARKDOWN_VIEW.lines
+        : null;
+  MARKDOWN_VIEW.doc = docKey;
+  MARKDOWN_VIEW.mtime = source.src_mtime;
+  MARKDOWN_VIEW.file = String(source.file || '');
+  MARKDOWN_VIEW.name = MARKDOWN_VIEW.file.split('/').pop() || MARKDOWN_VIEW.file;
+  MARKDOWN_VIEW.lines = Array.isArray(source.lines) ? source.lines.map(String) : [];
   if (isTextDoc()) {
-    MD.heads = []; // a text document is never parsed: its lines are its view (text-surface.ts)
-    if (MD.lines.length > MD_LIMITS.lines) {
+    MARKDOWN_VIEW.heads = []; // a text document is never parsed: its lines are its view (text-surface.ts)
+    if (MARKDOWN_VIEW.lines.length > MARKDOWN_LIMITS.lines) {
       showDocumentNode(
         documentNotice(
-          tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)', {
-            lines: mdCount(MD.lines.length),
-            limit: mdCount(MD_LIMITS.lines),
+          translateTemplate('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)', {
+            lines: formatCount(MARKDOWN_VIEW.lines.length),
+            limit: formatCount(MARKDOWN_LIMITS.lines),
           }),
-          MD_LIMIT.LINES,
+          MARKDOWN_LIMIT.LINES,
         ),
       );
       return;
     }
-    const view = await txView(stale, source.line_ends);
+    const view = await buildTextView(stale, source.line_ends);
     if (view && !stale()) {
       showDocumentNode(view);
-      updSourceRedrawn(docKey || '', before, MD.lines);
+      compareRedrawnSource(docKey || '', before, MARKDOWN_VIEW.lines);
     }
     return;
   }
   // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to
   // put it back by, so the document would read another character than its source has. The line view keeps it, in its
   // box.
-  const parsed = MD.lines.some((line) => line.includes('\0'))
-    ? { ok: false, limit: MD_LIMIT.NUL }
-    : await parseMarkdown(MD.lines.join('\n'));
+  const parsed = MARKDOWN_VIEW.lines.some((line) => line.includes('\0'))
+    ? { ok: false, limit: MARKDOWN_LIMIT.NUL }
+    : await parseMarkdown(MARKDOWN_VIEW.lines.join('\n'));
   if (stale() || !parsed) return;
   let root = null as HTMLElement | null,
-    limit = parsed.ok ? null : String(parsed.limit || MD_LIMIT.ERROR);
+    limit = parsed.ok ? null : String(parsed.limit || MARKDOWN_LIMIT.ERROR);
   // The TeX renderer is fetched before the build, which is synchronous once it starts (drawTexBox): only a document
   // whose tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1,
   // D2).
@@ -537,18 +555,18 @@ async function mdBuild() {
   if (parsed.ok) {
     root = await renderDocument(parsed.tokens, stale);
     if (stale()) return;
-    if (!root) limit = MD_LIMIT.ELEMENTS;
+    if (!root) limit = MARKDOWN_LIMIT.ELEMENTS;
   }
   if (!root) {
-    MD.heads = [];
-    if (MD.lines.length > MD_LIMITS.lines) {
+    MARKDOWN_VIEW.heads = [];
+    if (MARKDOWN_VIEW.lines.length > MARKDOWN_LIMITS.lines) {
       showDocumentNode(
         documentNotice(
-          tl('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)', {
-            lines: mdCount(MD.lines.length),
-            limit: mdCount(MD_LIMITS.lines),
+          translateTemplate('이 문서는 원문이 {lines}줄이라 그리지 않습니다(한도 {limit}줄)', {
+            lines: formatCount(MARKDOWN_VIEW.lines.length),
+            limit: formatCount(MARKDOWN_LIMITS.lines),
           }),
-          MD_LIMIT.LINES,
+          MARKDOWN_LIMIT.LINES,
         ),
       );
       return;
@@ -557,22 +575,22 @@ async function mdBuild() {
     if (!root || stale()) return;
   }
   showDocumentNode(root);
-  updSourceRedrawn(docKey || '', before, MD.lines);
+  compareRedrawnSource(docKey || '', before, MARKDOWN_VIEW.lines);
 }
 // Puts node in #doc, keeping the reading spot (the source line at the pane's top, and how far down it), then the marks,
 // the outline, the strip and the chosen lines. While the column is hidden (under the changes view) nothing can be
-// measured: the spot read before it was hidden (MD.spot, or the view a return asks for) is kept as its line and marked
-// to be put back on that line's new element once the column is shown, at whatever width (mdSpotKeep).
+// measured: the spot read before it was hidden (MARKDOWN_VIEW.spot, or the view a return asks for) is kept as its line
+// and marked to be put back on that line's new element once the column is shown, at whatever width (keepReadingSpot).
 function showDocumentNode(node: HTMLElement) {
-  const want = MD.want,
+  const want = MARKDOWN_VIEW.want,
     shown = isColumnShown();
-  MD.want = null;
-  MD.limit = node.dataset.limit || null;
-  const anchor = shown ? want || (MD.shown === DOC ? mdAnchor() : null) : null;
+  MARKDOWN_VIEW.want = null;
+  MARKDOWN_VIEW.limit = node.dataset.limit || null;
+  const anchor = shown ? want || (MARKDOWN_VIEW.shown === DOC ? readingAnchor() : null) : null;
   if (!shown) {
-    const spot = MD.spot;
+    const spot = MARKDOWN_VIEW.spot;
     if (want)
-      MD.spot = {
+      MARKDOWN_VIEW.spot = {
         doc: DOC,
         w: 0,
         top: 0,
@@ -585,43 +603,44 @@ function showDocumentNode(node: HTMLElement) {
         sel: false,
         again: true,
       };
-    else if (spot && spot.doc === DOC && MD.shown === DOC) {
+    else if (spot && spot.doc === DOC && MARKDOWN_VIEW.shown === DOC) {
       spot.el = null;
       spot.again = true;
-    } else MD.spot = null;
+    } else MARKDOWN_VIEW.spot = null;
   }
   $('#doc').replaceChildren(node);
-  MD.shown = DOC;
+  MARKDOWN_VIEW.shown = DOC;
   fitWideFormulas();
   restoreReadingAnchor(anchor);
   if (COLUMN_OBSERVER) COLUMN_OBSERVER.observe(node);
   drawOutline();
   marks();
-  mdRelevel();
-  mdSelMark(mdSelShown());
-  mdStrip();
+  relevelForLineView();
+  markChosenLines(shownChoice());
+  updateMarkdownStrip();
   readSpot(true);
-  updMarks();
-  const jump = MD.jumpTo;
-  MD.jumpTo = null;
-  if (jump && jump.doc === DOC && jump.seq === SWITCHSEQ) mdJump(jump.id); // a jump asked before the draw (mdJump)
-  const heading = MD.headTo;
+  tintChangedLines();
+  const jump = MARKDOWN_VIEW.jumpTo;
+  MARKDOWN_VIEW.jumpTo = null;
+  // a jump asked before the draw (jumpToPinLines)
+  if (jump && jump.doc === DOC && jump.seq === SWITCHSEQ) jumpToPinLines(jump.id);
+  const heading = MARKDOWN_VIEW.headTo;
   if (heading && heading.doc === DOC) {
-    MD.headTo = null;
+    MARKDOWN_VIEW.headTo = null;
     if (heading.seq === SWITCHSEQ) goToLinkHeading(heading.id);
   }
-} // a link from another document (mdGoDoc)
+} // a link from another document (goToDocLink)
 // The line view offers the chosen lines alone (lineView): a pick of this document whose ladder came from the drawn
 // document (a draft kept from before the parser failed) keeps its lines but takes the ladder a pick there gives - those
 // lines, as lines.
-function mdRelevel() {
+function relevelForLineView() {
   const selection = COMPOSE.current;
   if (
     !selection ||
     REPICK ||
     isRegion(selection) ||
     selection.doc !== DOC ||
-    selection.file !== MD.file ||
+    selection.file !== MARKDOWN_VIEW.file ||
     !$('#md.md-lines')
   )
     return;
@@ -639,7 +658,7 @@ function mdRelevel() {
   useLevel(selection, 'raw');
   renderComposer();
 }
-function mdWait(text) {
+function waitLine(text) {
   const line = document.createElement('div');
   line.className = 'md-wait dim';
   line.textContent = text;
@@ -657,17 +676,17 @@ function documentNotice(text: string, limit: string) {
   return notice;
 }
 // A size in MiB as the notices say it: '1.5 MiB', '1 MiB'.
-function mdMiB(bytes) {
+function formatMebibytes(bytes) {
   const mebibytes = (+bytes || 0) / 1048576;
   return (Math.round(mebibytes * 10) / 10).toLocaleString('en') + ' MiB';
 }
-function mdCount(count) {
+function formatCount(count) {
   return Number(count).toLocaleString('en');
 }
 // The plain source-line view: every server line as a line span (data-line), numbered by CSS, under a line naming the
-// limit that was hit - each marked character in its box, or past MD_LIMITS.elements every one by its name (srcLines, as
-// the text surface draws its lines), with the notice that says which. Pins, the composer and suggested edits work as
-// ever; the ladder has the chosen lines only. null when a newer draw came (stale) while it was built.
+// limit that was hit - each marked character in its box, or past MARKDOWN_LIMITS.elements every one by its name
+// (srcLines, as the text surface draws its lines), with the notice that says which. Pins, the composer and suggested
+// edits work as ever; the ladder has the chosen lines only. null when a newer draw came (stale) while it was built.
 async function lineView(limit: string, stale: () => boolean): Promise<HTMLElement | null> {
   const drawn = await srcLines(lineViewSpan, 'md-src', stale);
   if (!drawn) return null;
@@ -680,12 +699,14 @@ async function lineView(limit: string, stale: () => boolean): Promise<HTMLElemen
   const head = document.createElement('div');
   head.className = 'md-limit';
   head.setAttribute('role', 'status');
-  head.textContent = mdLimitText(limit);
+  head.textContent = limitText(limit);
   head.lang = document.documentElement.lang;
   root.appendChild(head); // the viewer's words, in the screen's language
-  MD.marked = drawn.marked;
+  MARKDOWN_VIEW.marked = drawn.marked;
   if (drawn.marked)
-    root.appendChild(txNote('marks', drawn.names ? txNamesText(drawn.marked) : txMarksText(drawn.marked)));
+    root.appendChild(
+      textNotice('marks', drawn.names ? namesViewText(drawn.marked) : markedCharactersText(drawn.marked)),
+    );
   root.appendChild(drawn.body);
   return root;
 }
@@ -696,25 +717,33 @@ function lineViewSpan(text: string, line: number) {
   span.dataset.line = String(line);
   return span;
 }
-// The line view's head line for limit (MD_LIMIT).
-function mdLimitText(limit) {
+// The line view's head line for limit (MARKDOWN_LIMIT).
+function limitText(limit) {
   switch (limit) {
-    case MD_LIMIT.NESTING:
-      return tl('중첩이 {max}단을 넘어 원문 줄로 보입니다', { max: MD_LIMITS.nesting });
-    case MD_LIMIT.BLOCKS:
-      return tl('블록이 너무 많아 원문 줄로 보입니다(한도 {max}개)', { max: mdCount(MD_LIMITS.blocks) });
-    case MD_LIMIT.INLINES:
-      return tl('글 조각이 너무 많아 원문 줄로 보입니다(한도 {max}개)', { max: mdCount(MD_LIMITS.inlines) });
-    case MD_LIMIT.ELEMENTS:
-      return tl('그릴 요소가 너무 많아 원문 줄로 보입니다(한도 {max}개)', { max: mdCount(MD_LIMITS.elements) });
-    case MD_LIMIT.TIME:
-      return tl('읽는 데 {s}초가 넘게 걸려 원문 줄로 보입니다', { s: MD_LIMITS.ms / 1000 });
-    case MD_LIMIT.LOAD:
-      return tr('Markdown 파서를 불러오지 못해 원문 줄로 보입니다');
-    case MD_LIMIT.NUL:
-      return tr('원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다');
+    case MARKDOWN_LIMIT.NESTING:
+      return translateTemplate('중첩이 {max}단을 넘어 원문 줄로 보입니다', { max: MARKDOWN_LIMITS.nesting });
+    case MARKDOWN_LIMIT.BLOCKS:
+      return translateTemplate('블록이 너무 많아 원문 줄로 보입니다(한도 {max}개)', {
+        max: formatCount(MARKDOWN_LIMITS.blocks),
+      });
+    case MARKDOWN_LIMIT.INLINES:
+      return translateTemplate('글 조각이 너무 많아 원문 줄로 보입니다(한도 {max}개)', {
+        max: formatCount(MARKDOWN_LIMITS.inlines),
+      });
+    case MARKDOWN_LIMIT.ELEMENTS:
+      return translateTemplate('그릴 요소가 너무 많아 원문 줄로 보입니다(한도 {max}개)', {
+        max: formatCount(MARKDOWN_LIMITS.elements),
+      });
+    case MARKDOWN_LIMIT.TIME:
+      return translateTemplate('읽는 데 {s}초가 넘게 걸려 원문 줄로 보입니다', { s: MARKDOWN_LIMITS.ms / 1000 });
+    case MARKDOWN_LIMIT.LOAD:
+      return translate('Markdown 파서를 불러오지 못해 원문 줄로 보입니다');
+    case MARKDOWN_LIMIT.NUL:
+      return translate(
+        '원문에 NUL 문자(U+0000)가 있어 원문 줄로 보입니다. Markdown으로 그리면 그 문자가 U+FFFD로 바뀝니다',
+      );
     default:
-      return tr('Markdown을 읽지 못해 원문 줄로 보입니다');
+      return translate('Markdown을 읽지 못해 원문 줄로 보입니다');
   }
 }
 // The elements that carry lines, in document order (line spans and blocks). Their tops never decrease in that order - a
@@ -740,9 +769,9 @@ function lineElementAt(elements: HTMLElement[], y: number) {
 }
 // The reading spot: the line span or block at the pane's top (lineElementAt), its first line and the px of it above
 // that top.
-function mdAnchor() {
+function readingAnchor() {
   const pane = $('#left');
-  if (!$('#md') || !MD.lines.length) return null;
+  if (!$('#md') || !MARKDOWN_VIEW.lines.length) return null;
   const top = pane.getBoundingClientRect().top,
     element = lineElementAt(lineElements(), top);
   return element
@@ -758,7 +787,7 @@ function restoreReadingAnchor(anchor) {
   if (!anchor) {
     return;
   }
-  const element = mdLeaves(anchor.line, anchor.line)[0];
+  const element = lineLeaves(anchor.line, anchor.line)[0];
   if (!element) {
     pane.scrollTop = anchor.top;
     return;
@@ -769,25 +798,25 @@ function restoreReadingAnchor(anchor) {
 // The column reflows the moment its width changes - a rotation, the panel collapsing beside it, a window resized, the
 // outline opening - and the scroll offset alone then stands on other lines (the top line moves by tens of lines). So
 // the spot is read while the width stands - on each scroll's frame and after each draw (readSpot) - and put back once
-// the width has moved (mdSpotKeep): from relayout, and from the column's ResizeObserver, which runs after the layout
-// and before the paint. A scroll the reflow itself makes (an offset cut back to the new height) reads only after the
-// spot is back. Reads the spot now: the line element at the document area's top (lineElementAt) and how far down it the
-// top is (frac, 0-1, and past: the px below the element's end when the top falls in the room after it - the rest of a
-// line's leading, a block's margin, which no reflow changes; el null at the very top), the column's width and the
+// the width has moved (keepReadingSpot): from relayout, and from the column's ResizeObserver, which runs after the
+// layout and before the paint. A scroll the reflow itself makes (an offset cut back to the new height) reads only after
+// the spot is back. Reads the spot now: the line element at the document area's top (lineElementAt) and how far down it
+// the top is (frac, 0-1, and past: the px below the element's end when the top falls in the room after it - the rest of
+// a line's leading, a block's margin, which no reflow changes; el null at the very top), the column's width and the
 // pane's scroll offset (top), and whether the chosen lines (.md-sel) are on screen. A read at a width that is not the
-// spot's is left for mdSpotKeep - the reflow moved what it would read - unless force (a new draw: nothing to keep).
-// While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read before
-// stays - a redraw there too (showDocumentNode) - for mdSpotKeep to put back once the column is shown again. A spot a
-// hidden redraw left to be put back (again) is not read over before that, even at its width: the scroll the column's
-// showing makes is not the person's.
+// spot's is left for keepReadingSpot - the reflow moved what it would read - unless force (a new draw: nothing to
+// keep). While the column is not laid out (hidden under the changes view, or 0 wide) nothing is read: the spot read
+// before stays - a redraw there too (showDocumentNode) - for keepReadingSpot to put back once the column is shown
+// again. A spot a hidden redraw left to be put back (again) is not read over before that, even at its width: the scroll
+// the column's showing makes is not the person's.
 function readSpot(force?: boolean) {
   const column = $('#md'),
     pane = $('#left');
-  if (!isMdDoc() || !column || MD.shown !== DOC) {
-    MD.spot = null;
+  if (!isMarkdownDoc() || !column || MARKDOWN_VIEW.shown !== DOC) {
+    MARKDOWN_VIEW.spot = null;
     return;
   }
-  const spot = MD.spot,
+  const spot = MARKDOWN_VIEW.spot,
     width = column.getBoundingClientRect().width;
   if (!isColumnLaidOut(width)) return;
   if (!force && spot && spot.doc === DOC && (spot.w !== width || spot.again)) return;
@@ -795,7 +824,7 @@ function readSpot(force?: boolean) {
     element = pane.scrollTop > 0 ? lineElementAt(lineElements(), top) : null,
     rect = element && element.getBoundingClientRect(),
     into = rect ? top - rect.top : 0;
-  MD.spot = {
+  MARKDOWN_VIEW.spot = {
     doc: DOC,
     w: width,
     top: pane.scrollTop,
@@ -810,15 +839,15 @@ function readSpot(force?: boolean) {
   };
 }
 // The element that stands for the spot's line now: its element if still drawn, else the one a redraw drew for that line
-// - the same kind (a line span, a block starting there), else the first that carries the line (mdLeaves), else - the
+// - the same kind (a line span, a block starting there), else the first that carries the line (lineLeaves), else - the
 // line is gone, the source got shorter - the nearest line kept before it (nearestLineElement). null: the very top.
-function spotElement(spot: NonNullable<typeof MD.spot>) {
+function spotElement(spot: NonNullable<typeof MARKDOWN_VIEW.spot>) {
   if (spot.el && spot.el.isConnected) return spot.el;
   if (!spot.line) return null;
   const column = $('#md'),
     attribute = spot.key === 'lo' ? 'data-lo' : 'data-line',
     element = (column && column.querySelector('[' + attribute + '="' + spot.line + '"]')) as HTMLElement | null;
-  return element || mdLeaves(spot.line, spot.line)[0] || nearestLineElement(spot.line);
+  return element || lineLeaves(spot.line, spot.line)[0] || nearestLineElement(spot.line);
 }
 // The last line element that starts at or before line (lineElements are in document order, their first lines never
 // going back), or null when none does.
@@ -843,13 +872,13 @@ function carriesLine(element: HTMLElement, line: number) {
 // back into view (revealBox, every layout), and reads the spot at the new width. Nothing moves while the width is the
 // spot's - unless the document was drawn again while the column was hidden (again: the scroll offset then stands on
 // other lines even at the same width) - nor while the column is not laid out (isColumnLaidOut): the spot waits for the
-// column's next width. A write is held under half a pixel. During a jump to a heading (MD.goTo) the spot is only a
-// point the scroll passes: the jump is aimed again at its heading instead (goOnToHeading).
-function mdSpotKeep() {
-  const spot = MD.spot,
+// column's next width. A write is held under half a pixel. During a jump to a heading (MARKDOWN_VIEW.goTo) the spot is
+// only a point the scroll passes: the jump is aimed again at its heading instead (goOnToHeading).
+function keepReadingSpot() {
+  const spot = MARKDOWN_VIEW.spot,
     column = $('#md'),
     pane = $('#left');
-  if (!spot || spot.doc !== DOC || !column || !isMdDoc() || MD.shown !== DOC) return;
+  if (!spot || spot.doc !== DOC || !column || !isMarkdownDoc() || MARKDOWN_VIEW.shown !== DOC) return;
   const width = column.getBoundingClientRect().width;
   if ((width === spot.w && !spot.again) || !isColumnLaidOut(width)) return;
   if (goOnToHeading()) {
@@ -874,14 +903,14 @@ function mdSpotKeep() {
   readSpot(true);
 }
 // Something above the reading spot changed its height while the width stood - an image that got its size or gave way to
-// its alt text (onImageLoad, onImageError): the spot is put back as after a reflow (mdSpotKeep), one model for both.
-// While the column is hidden (under the changes view) nothing can be measured: the spot waits, marked again, for the
-// column to be shown. The spot put back is the one refreshMovedSpot made sure of just before the change.
+// its alt text (onImageLoad, onImageError): the spot is put back as after a reflow (keepReadingSpot), one model for
+// both. While the column is hidden (under the changes view) nothing can be measured: the spot waits, marked again, for
+// the column to be shown. The spot put back is the one refreshMovedSpot made sure of just before the change.
 function putSpotBack() {
-  const spot = MD.spot;
+  const spot = MARKDOWN_VIEW.spot;
   if (!spot || spot.doc !== DOC) return;
   spot.again = true;
-  mdSpotKeep();
+  keepReadingSpot();
 }
 // Just before the page changes the column's layout (an image's new size, onImageLoad, onImageError): when the pane
 // stands elsewhere than where the spot was read (top, to 1px), something has moved the pane since - a scroll whose
@@ -893,19 +922,19 @@ function putSpotBack() {
 // document may have moved the offset itself: the browser cuts an offset the pane can no longer scroll to back to its
 // new end. That one cut, and no other offset, is not taken for a move: the offset read before beyond what the pane can
 // scroll now (its end, scrollHeight - clientHeight) and the pane standing at that end, to 1px. The spot read before is
-// then kept for putSpotBack to put back across the reflow, as after a width's (mdSpotKeep); a move to the end made
+// then kept for putSpotBack to put back across the reflow, as after a width's (keepReadingSpot); a move to the end made
 // before the same frame - End, or a scroll the cut then ate - goes back with it. Any other offset is a move, the cut's
 // too once a move took the pane from that end (Home after a font's reflow), whatever reflowed the column: told by the
 // offset and the scroll range alone, the check asks nothing of the page's other changes - whether they read the spot
 // again after them. An image's own change reads it after (putSpotBack, or afterImageChange during a heading jump), so
 // the next image's check starts from the layout this one left, and an End after a failed image shortened the document
-// is not taken for a cut. Not while the width moved (a reflow is mdSpotKeep's), nor while a redraw or a load under the
-// hidden column waits (again), nor while the column is not laid out (a hidden pane's offset reads 0).
+// is not taken for a cut. Not while the width moved (a reflow is keepReadingSpot's), nor while a redraw or a load under
+// the hidden column waits (again), nor while the column is not laid out (a hidden pane's offset reads 0).
 function refreshMovedSpot() {
-  const spot = MD.spot,
+  const spot = MARKDOWN_VIEW.spot,
     column = $('#md'),
     pane = $('#left');
-  if (!spot || spot.doc !== DOC || spot.again || !column || !isMdDoc() || MD.shown !== DOC) return;
+  if (!spot || spot.doc !== DOC || spot.again || !column || !isMarkdownDoc() || MARKDOWN_VIEW.shown !== DOC) return;
   const width = column.getBoundingClientRect().width;
   if (width !== spot.w || !isColumnLaidOut(width)) return;
   const end = pane.scrollHeight - pane.clientHeight;
@@ -920,17 +949,18 @@ function isColumnLaidOut(width: number) {
 function isColumnShown() {
   return $('#left').getClientRects().length > 0;
 }
-// Whether any of the chosen lines (.md-sel) stands in the part of the document area they can be seen in (selRoom).
+// Whether any of the chosen lines (.md-sel) stands in the part of the document area they can be seen in
+// (selectionRoom).
 function isChosenSeen() {
   const chosen = document.querySelector('#md .md-sel');
   if (!chosen) return false;
   const rect = chosen.getBoundingClientRect(),
-    room = selRoom();
+    room = selectionRoom();
   return rect.bottom > room.top && rect.top < room.bottom - 8;
 }
-// Builds article#md from the worker's tokens (mdRender, with MD as its render context), with a yield to the browser and
-// a check for a newer draw whenever mdRender pauses, or null when the elements built pass MD_LIMITS.elements (stale():
-// a newer draw - then whatever was built is dropped too).
+// Builds article#md from the worker's tokens (renderTokens, with MARKDOWN_VIEW as its render context), with a yield to
+// the browser and a check for a newer draw whenever renderTokens pauses, or null when the elements built pass
+// MARKDOWN_LIMITS.elements (stale(): a newer draw - then whatever was built is dropped too).
 async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('article');
   root.className = 'md';
@@ -938,32 +968,32 @@ async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTML
   root.setAttribute('translate', 'no');
   // the document's language is not known (docs/handbook/viewer.md §그리기): not the screen's (<html lang>)
   root.lang = '';
-  MD.els = 0;
-  MD.marked = 0;
-  MD.tex = 0;
-  MD.bom = String(MD.lines[0] || '').charCodeAt(0) === 0xfeff;
-  MD.heads = [];
-  const work = mdRender(root, tokens, MD);
+  MARKDOWN_VIEW.els = 0;
+  MARKDOWN_VIEW.marked = 0;
+  MARKDOWN_VIEW.tex = 0;
+  MARKDOWN_VIEW.bom = String(MARKDOWN_VIEW.lines[0] || '').charCodeAt(0) === 0xfeff;
+  MARKDOWN_VIEW.heads = [];
+  const work = renderTokens(root, tokens, MARKDOWN_VIEW);
   try {
     for (const pause of work) {
       void pause;
-      await mdYield();
+      await yieldToBrowser();
       if (stale()) return null;
     }
   } catch (error) {
-    if (error === MD_OVER) return null;
+    if (error === OVER_ELEMENT_LIMIT) return null;
     throw error;
   }
   // the text surface's notice (text-surface.ts), above the first block
-  if (MD.marked) root.prepend(txNote('marks', txMarksText(MD.marked)));
+  if (MARKDOWN_VIEW.marked) root.prepend(textNotice('marks', markedCharactersText(MARKDOWN_VIEW.marked)));
   return root;
 }
-// The DOM build as a generator that pauses after every MD_LIMITS.chunk units of work - a token, an inline child, a code
-// line, one block of a raw HTML run - counted on one counter (work, mdDue) wherever they fall: one paragraph of 120,000
-// inline tokens or one code block of 30,000 lines pauses inside itself. Two or more raw HTML blocks in a row are one
-// run (htmlRunElement). context is the draw's render context (RenderContext): its lines, its element count, its marked
-// characters and its headings.
-function* mdRender(root: HTMLElement, tokens: any[], context: RenderContext): Generator<void, void, void> {
+// The DOM build as a generator that pauses after every MARKDOWN_LIMITS.chunk units of work - a token, an inline child,
+// a code line, one block of a raw HTML run - counted on one counter (work, isPauseDue) wherever they fall: one
+// paragraph of 120,000 inline tokens or one code block of 30,000 lines pauses inside itself. Two or more raw HTML
+// blocks in a row are one run (htmlRunElement). context is the draw's render context (RenderContext): its lines, its
+// element count, its marked characters and its headings.
+function* renderTokens(root: HTMLElement, tokens: any[], context: RenderContext): Generator<void, void, void> {
   const renderer = makeRenderer(root, context),
     work = { n: 0 };
   for (let i = 0; i < tokens.length; i++) {
@@ -974,20 +1004,20 @@ function* mdRender(root: HTMLElement, tokens: any[], context: RenderContext): Ge
       yield* renderer.run(tokens.slice(i, last + 1), work);
       i = last;
     } else yield* renderer.token(token, work);
-    if (mdDue(work)) yield;
+    if (isPauseDue(work)) yield;
   }
 }
-// One unit of work on counter work: true when MD_LIMITS.chunk of them have been done since the last pause (and the
-// count restarts).
-function mdDue(work: { n: number }) {
-  if (++work.n < MD_LIMITS.chunk) return false;
+// One unit of work on counter work: true when MARKDOWN_LIMITS.chunk of them have been done since the last pause (and
+// the count restarts).
+function isPauseDue(work: { n: number }) {
+  if (++work.n < MARKDOWN_LIMITS.chunk) return false;
   work.n = 0;
   return true;
 }
-const MD_OVER = { over: true }; // thrown by countedElement past MD_LIMITS.elements
-// One element of the drawn document, counted against MD_LIMITS.elements on the draw's render context.
+const OVER_ELEMENT_LIMIT = { over: true }; // thrown by countedElement past MARKDOWN_LIMITS.elements
+// One element of the drawn document, counted against MARKDOWN_LIMITS.elements on the draw's render context.
 function countedElement(tag: string, context: RenderContext): HTMLElement {
-  if (++context.els > MD_LIMITS.elements) throw MD_OVER;
+  if (++context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
   return document.createElement(tag);
 }
 // ---------------- Hidden characters in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
@@ -995,23 +1025,23 @@ function countedElement(tag: string, context: RenderContext): HTMLElement {
 // link's, inline and block code, a raw HTML placeholder's first line, an image's alt text - goes in through drawText,
 // pausing with the rest of the build (drawTextNow only for the placeholder's first line, 120 characters at most): a
 // character of hidden-chars.ts's repertoire stays in the text - a selection, a copy and a pin's quote keep it - inside
-// its box (ccBox), so no line reads in another order than its source; a box is two elements against MD_LIMITS.elements
-// (markedBox) and one unit of work (mdDue). A string with none of them, nearly every one, is one text node after one
-// native test (isPlainText). The byte-order mark that starts the file is kept as on the text surface
-// (isKeptInSequence's first): line 1 is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the
-// first text drawn (the render context's bom). A marked character's box, counted on the draw's render context.
+// its box (hiddenBox), so no line reads in another order than its source; a box is two elements against
+// MARKDOWN_LIMITS.elements (markedBox) and one unit of work (isPauseDue). A string with none of them, nearly every one,
+// is one text node after one native test (isPlainText). The byte-order mark that starts the file is kept as on the text
+// surface (isKeptInSequence's first): line 1 is then a paragraph (the mark is no indent, no '#', no '<'), so the mark
+// is the first text drawn (the render context's bom). A marked character's box, counted on the draw's render context.
 function markedBox(character: string, context: RenderContext): HTMLElement {
-  if ((context.els += 2) > MD_LIMITS.elements) throw MD_OVER;
+  if ((context.els += 2) > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
   context.marked++;
-  return ccBox(character);
+  return hiddenBox(character);
 }
 // Whether text goes in as one text node: no character of the repertoire, nor a draw whose first text is still to come
 // (context.bom).
 function isPlainText(text: string, context: RenderContext) {
-  return !context.bom && !CC_ANY.test(text);
+  return !context.bom && !ANY_HIDDEN.test(text);
 }
-// Text piece into parent, each marked character in its box, pausing (work: mdRender's counter) after every
-// MD_LIMITS.chunk units; work null: no pause. context is the draw's render context.
+// Text piece into parent, each marked character in its box, pausing (work: renderTokens's counter) after every
+// MARKDOWN_LIMITS.chunk units; work null: no pause. context is the draw's render context.
 function* drawText(
   parent: Node,
   piece: string,
@@ -1021,13 +1051,13 @@ function* drawText(
   const text = String(piece),
     first = context.bom && text.charCodeAt(0) === 0xfeff;
   context.bom = false;
-  if (!CC_ANY.test(text)) {
+  if (!ANY_HIDDEN.test(text)) {
     if (text) parent.appendChild(document.createTextNode(text));
     return;
   }
   let at = 0;
-  for (const hidden of ccScan(text, first)) {
-    if (work && mdDue(work)) yield;
+  for (const hidden of scanHidden(text, first)) {
+    if (work && isPauseDue(work)) yield;
     if (!hidden) continue;
     if (hidden.at > at) parent.appendChild(document.createTextNode(text.slice(at, hidden.at)));
     parent.appendChild(markedBox(hidden.ch, context));
@@ -1039,11 +1069,11 @@ function drawTextNow(parent: Node, piece: string, context: RenderContext) {
   for (const pause of drawText(parent, piece, null, context)) void pause;
 } // work null: it never pauses
 // Text piece into parent once the document is drawn (an image's alt text when it fails), counted on the render context
-// of the draw it is in (renderContextOf): boxes while MD_LIMITS.elements holds them, else the names as plain text
-// (ccPlain).
+// of the draw it is in (renderContextOf): boxes while MARKDOWN_LIMITS.elements holds them, else the names as plain text
+// (markHiddenPlain).
 function drawTextLate(parent: Node, piece: string, context: RenderContext) {
-  if (context.els + 2 * ccFind(piece).length > MD_LIMITS.elements) {
-    parent.appendChild(document.createTextNode(ccPlain(piece)));
+  if (context.els + 2 * findHidden(piece).length > MARKDOWN_LIMITS.elements) {
+    parent.appendChild(document.createTextNode(markHiddenPlain(piece)));
     return;
   }
   drawTextNow(parent, piece, context);
@@ -1155,7 +1185,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
           span.appendChild(document.createTextNode('\n'));
         }
         code.appendChild(span);
-        if (mdDue(work)) yield;
+        if (isPauseDue(work)) yield;
       }
       return;
     }
@@ -1181,7 +1211,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
     if (spans.some((span) => !span)) {
       for (const htmlToken of tokens) {
         yield* token(htmlToken, work);
-        if (mdDue(work)) yield;
+        if (isPauseDue(work)) yield;
       }
       return;
     }
@@ -1197,7 +1227,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
       const placeholder = htmlPlaceholder(htmlToken, context);
       holdHtmlLines(placeholder, false);
       body.appendChild(placeholder);
-      if (mdDue(work)) yield;
+      if (isPauseDue(work)) yield;
     }
   }
   return { token, run };
@@ -1222,7 +1252,7 @@ function* drawFrontMatter(
   const head = countedElement('div', context);
   head.className = 'md-front-l';
   head.lang = document.documentElement.lang; // the viewer's words, in the screen's language
-  head.textContent = tl('머리 정보 · YAML {n}줄', { n: Math.max(0, last - first + 1) });
+  head.textContent = translateTemplate('머리 정보 · YAML {n}줄', { n: Math.max(0, last - first + 1) });
   const pre = countedElement('pre', context),
     code = countedElement('code', context);
   pre.dataset.lang = 'yaml';
@@ -1240,7 +1270,7 @@ function* drawFrontMatter(
       span.appendChild(document.createTextNode('\n'));
     } // hidden characters in their boxes, as a code line's
     code.appendChild(span);
-    if (mdDue(work)) yield;
+    if (isPauseDue(work)) yield;
   }
 }
 // Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032, ADR-0036): the block's lines
@@ -1287,7 +1317,7 @@ function* drawMathBlock(
       span.appendChild(document.createTextNode('\n'));
     } // hidden characters in their boxes, as a code line's
     code.appendChild(span);
-    if (mdDue(work)) yield;
+    if (isPauseDue(work)) yield;
   }
 }
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML
@@ -1304,7 +1334,7 @@ function htmlPlaceholder(token: any, context: RenderContext): HTMLElement {
         .find((line) => line.trim()) || '';
   const label = countedElement('span', context);
   label.className = 'md-html-l';
-  label.textContent = tl('HTML {lines}줄 · 그리지 않습니다', { lines: count });
+  label.textContent = translateTemplate('HTML {lines}줄 · 그리지 않습니다', { lines: count });
   let head = '';
   let taken = 0;
   for (const character of first.trim()) {
@@ -1317,7 +1347,7 @@ function htmlPlaceholder(token: any, context: RenderContext): HTMLElement {
   return box;
 }
 // Two or more raw HTML blocks in a row (a README's head of badges and pictures) are one placeholder, closed: a button
-// naming the blocks and their lines (HTML 블록 N개 · M줄) that opens it (mdHtmlRun), each block then its own
+// naming the blocks and their lines (HTML 블록 N개 · M줄) that opens it (toggleHtmlRun), each block then its own
 // placeholder that takes a pin. Only what is on screen carries lines (data-lo/hi): closed, the run stands for all its
 // lines as one HTML block; open, each block for its own (holdHtmlLines keeps the other's in data-r-lo/hi). So the
 // marks, the picks, the ladder and the reading line read whatever is shown and nothing hidden.
@@ -1335,7 +1365,7 @@ function htmlRunElement(count: number, first: number, last: number, context: Ren
   button.setAttribute('aria-expanded', 'false');
   setHtml(
     button,
-    html`${ic('chevron-right')}<span>${tl('HTML 블록 {n}개 · {lines}줄 · 그리지 않습니다', { n: count, lines: last - first + 1 })}</span>`,
+    html`${lucideIcon('chevron-right')}<span>${translateTemplate('HTML 블록 {n}개 · {lines}줄 · 그리지 않습니다', { n: count, lines: last - first + 1 })}</span>`,
   ); // the chevron turns down when open (CSS)
   const body = countedElement('div', context);
   body.className = 'md-html-body';
@@ -1359,7 +1389,7 @@ function holdHtmlLines(element: HTMLElement, on: boolean) {
 }
 // Opens or closes the run of raw HTML blocks whose button is button (data-act md-html-run), then draws the marks, the
 // chosen lines and the strip again over what is shown.
-function mdHtmlRun(button: HTMLElement) {
+function toggleHtmlRun(button: HTMLElement) {
   const run = button.closest('.md-html-run') as HTMLElement | null,
     body = run && (run.querySelector('.md-html-body') as HTMLElement | null);
   if (!run || !body) return;
@@ -1368,9 +1398,9 @@ function mdHtmlRun(button: HTMLElement) {
   body.querySelectorAll('.md-html').forEach((placeholder) => holdHtmlLines(placeholder as HTMLElement, open));
   body.hidden = !open;
   button.setAttribute('aria-expanded', String(open));
-  mdMarks();
-  mdSelMark(mdSelShown());
-  mdStrip();
+  drawPinMarks();
+  markChosenLines(shownChoice());
+  updateMarkdownStrip();
 }
 // ---------------- Rendered text -> source lines
 // The source line each child of an inline token starts on (pure): the token's first line plus the line breaks
@@ -1527,7 +1557,7 @@ function* drawInline(
       default:
         if (child.content) yield* drawText(top, child.content, work, context);
     }
-    if (mdDue(work)) yield;
+    if (isPauseDue(work)) yield;
   }
 }
 // ---------------- Links: the allowlist
@@ -1760,30 +1790,30 @@ function* drawImage(token: any, work: { n: number }, context: RenderContext): Ge
     return box;
   }
   const fallback = countedElement('span', context),
-    shownSource = ccPlain(raw);
+    shownSource = markHiddenPlain(raw);
   fallback.className = 'md-img';
-  fallback.append(tr('그림') + ': ');
+  fallback.append(translate('그림') + ': ');
   // the alt text is drawn text, as the paragraph's, its marked characters in their boxes, pausing as it does
   yield* drawText(fallback, alt || raw, work, context);
   fallback.dataset.tip =
     place.why === 'remote'
-      ? tl('원격 그림은 불러오지 않습니다 · {src}', { src: shownSource })
+      ? translateTemplate('원격 그림은 불러오지 않습니다 · {src}', { src: shownSource })
       : place.why === 'out'
-        ? tl('원고 밖의 그림은 불러오지 않습니다 · {src}', { src: shownSource })
-        : tl('이 그림은 불러오지 않습니다 · {src}', { src: shownSource });
+        ? translateTemplate('원고 밖의 그림은 불러오지 않습니다 · {src}', { src: shownSource })
+        : translateTemplate('이 그림은 불러오지 않습니다 · {src}', { src: shownSource });
   fallback.dataset.tipUrl = shownSource;
   return fallback;
 }
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps
 // their places.
 const IMAGE_SIZES = new Map() as Map<string, { w: number; h: number }>;
-// An image has loaded: its size is kept (IMAGE_SIZES) and given to its box, and the reading spot (MD.spot, as readSpot
-// last read it, or read again just before the change when the pane was moved since: refreshMovedSpot) is put back
-// (putSpotBack) - only an image above it moves anything. During a jump to a heading (mdGoHeading) the spot is a point
-// the scroll passes on its way: the jump goes on to its heading's new place instead (goOnToHeading, afterImageChange).
-// A box drawn at a size an earlier load learned is checked too: the file may have changed since (a new size under the
-// same path), and then it is resized and the spot put back as for a first load. Only a size that held changes nothing.
-// The marks follow through the column's ResizeObserver (COLUMN_OBSERVER).
+// An image has loaded: its size is kept (IMAGE_SIZES) and given to its box, and the reading spot (MARKDOWN_VIEW.spot,
+// as readSpot last read it, or read again just before the change when the pane was moved since: refreshMovedSpot) is
+// put back (putSpotBack) - only an image above it moves anything. During a jump to a heading (goToHeading) the spot is
+// a point the scroll passes on its way: the jump goes on to its heading's new place instead (goOnToHeading,
+// afterImageChange). A box drawn at a size an earlier load learned is checked too: the file may have changed since (a
+// new size under the same path), and then it is resized and the spot put back as for a first load. Only a size that
+// held changes nothing. The marks follow through the column's ResizeObserver (COLUMN_OBSERVER).
 function onImageLoad(event: Event) {
   const img = event.target as HTMLImageElement,
     box = img.parentElement;
@@ -1800,7 +1830,7 @@ function onImageLoad(event: Event) {
     +(img.getAttribute('height') || 0) === height
   )
     return;
-  const here = box.isConnected && isMdDoc();
+  const here = box.isConnected && isMarkdownDoc();
   if (here) refreshMovedSpot();
   sizeImage(img, width, height);
   box.classList.add('md-pic-ok');
@@ -1819,8 +1849,8 @@ function afterImageChange() {
 // aspect ratio its box keeps (CSSOM --md-pic-r, md-surface.css). With height:auto the attributes alone give way to the
 // ratio of whatever picture the element shows (aspect-ratio: auto width / height), and the browser takes a new
 // picture's ratio as soon as it knows its size, before the load event: a box drawn at a size an earlier load learned,
-// or given a new address by a check (mdPicCheck), would change shape outside onImageLoad - a document's end cut back
-// before refreshMovedSpot, which takes that cut for the layout's and undoes with it a move to that end made before
+// or given a new address by a check (checkTreeImages), would change shape outside onImageLoad - a document's end cut
+// back before refreshMovedSpot, which takes that cut for the layout's and undoes with it a move to that end made before
 // (End). Held to width / height, the box changes only here, after the check. 0 x 0 (no natural size): none of the
 // three.
 function sizeImage(img: HTMLImageElement, width: number, height: number) {
@@ -1889,22 +1919,22 @@ async function fetchImageTag(url: string, cache: RequestCache): Promise<string> 
   }
 }
 // A tree image has loaded from address url: the tag of the picture it shows, from the answer the <img> left in the
-// cache, unless a check already knows it (IMAGE_TAGS). Nothing cached: it stays unknown (mdPicCheck).
+// cache, unless a check already knows it (IMAGE_TAGS). Nothing cached: it stays unknown (checkTreeImages).
 async function noteShownTag(url: string) {
   if (!url || IMAGE_TAGS.has(url)) return;
   const tag = await fetchImageTag(url, 'only-if-cached');
   if (tag && !IMAGE_TAGS.has(url)) keepRecent(IMAGE_TAGS, url, tag);
 }
 // One check of the tree images near the document area (the header above): how many were given a new address.
-async function mdPicCheck(): Promise<number> {
+async function checkTreeImages(): Promise<number> {
   const now = performance.now(),
     docKey = DOC;
   if (
     IMAGE_CHECK.busy ||
     now - IMAGE_CHECK.last < IMAGE_CHECK.gap ||
-    !isMdDoc() ||
+    !isMarkdownDoc() ||
     isTextDoc() ||
-    MD.shown !== docKey ||
+    MARKDOWN_VIEW.shown !== docKey ||
     !isColumnShown() ||
     document.hidden
   )
@@ -1956,7 +1986,7 @@ async function mdPicCheck(): Promise<number> {
       const was = IMAGE_TAGS.get(url) || '';
       IMAGE_CHECK.asked++;
       const tag = await fetchImageTag(url, 'no-cache');
-      if (docKey !== DOC || MD.shown !== docKey) break; // another document since: its images are its own
+      if (docKey !== DOC || MARKDOWN_VIEW.shown !== docKey) break; // another document since: its images are its own
       if (!tag) continue;
       if (tag === was) {
         keepRecent(IMAGE_TAGS, url, was);
@@ -1987,22 +2017,23 @@ function onImageError(event: Event) {
   const fallback = document.createElement('span'),
     path = box.dataset.path || '';
   fallback.className = 'md-img';
-  fallback.append(tr('그림') + ': ');
+  fallback.append(translate('그림') + ': ');
   drawTextLate(fallback, img.alt || path, renderContextOf(box));
-  const plainPath = ccPlain(path);
-  fallback.dataset.tip = tl('그림을 불러오지 못했습니다 · {src}', { src: plainPath });
+  const plainPath = markHiddenPlain(path);
+  fallback.dataset.tip = translateTemplate('그림을 불러오지 못했습니다 · {src}', { src: plainPath });
   fallback.dataset.tipUrl = plainPath;
-  const here = isMdDoc();
+  const here = isMarkdownDoc();
   if (here) refreshMovedSpot(); // the spot where the pane stands, before the alt text takes the box's place
   box.replaceWith(fallback);
   if (here) afterImageChange();
 }
 // Every tip of an image or a link below names the hidden characters of the source text it shows again - a path or a
-// '#…' decoded once, a document's name (ccPlain, hidden-chars.ts, ADR-0029 D5); the drawn text, an alt text too, is the
-// document's. A link element for href (linkAction): a web or mail link opens in a new tab without a referrer or opener;
-// an in-document '#…' goes to the heading it names (data-act md-anchor: a click or Enter, the global key handler asking
-// imeKey first); another registered document is data-act md-doc (mdGoDoc), the same way; an image of the tree opens in
-// a new tab from GET /api/asset; anything else is inert text with its target, and why, in the tip.
+// '#…' decoded once, a document's name (markHiddenPlain, hidden-chars.ts, ADR-0029 D5); the drawn text, an alt text
+// too, is the document's. A link element for href (linkAction): a web or mail link opens in a new tab without a
+// referrer or opener; an in-document '#…' goes to the heading it names (data-act md-anchor: a click or Enter, the
+// global key handler asking imeKey first); another registered document is data-act md-doc (goToDocLink), the same way;
+// an image of the tree opens in a new tab from GET /api/asset; anything else is inert text with its target, and why, in
+// the tip.
 function drawLink(href: unknown, context: RenderContext): HTMLElement {
   const target = linkAction(href, location.origin, documentTreePath(), DOCS);
   if (target.open === 'web' || target.open === 'mail') {
@@ -2010,7 +2041,7 @@ function drawLink(href: unknown, context: RenderContext): HTMLElement {
     link.href = target.href;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    link.dataset.tip = link.dataset.tipUrl = ccPlain(target.href);
+    link.dataset.tip = link.dataset.tipUrl = markHiddenPlain(target.href);
     return link;
   }
   if (target.open === 'anchor') {
@@ -2031,8 +2062,9 @@ function drawLink(href: unknown, context: RenderContext): HTMLElement {
     link.setAttribute('role', 'link');
     link.tabIndex = 0;
     link.dataset.tip =
-      tl('문서로 이동 · {name}', { name: ccPlain(target.name || '') }) + (target.id ? ' #' + ccPlain(target.id) : '');
-    link.dataset.tipUrl = ccPlain(target.href);
+      translateTemplate('문서로 이동 · {name}', { name: markHiddenPlain(target.name || '') }) +
+      (target.id ? ' #' + markHiddenPlain(target.id) : '');
+    link.dataset.tipUrl = markHiddenPlain(target.href);
     return link;
   }
   if (target.open === 'asset') {
@@ -2042,21 +2074,21 @@ function drawLink(href: unknown, context: RenderContext): HTMLElement {
     link.href = url;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
-    const path = ccPlain(target.href);
-    link.dataset.tip = tl('그림을 새 탭에서 엽니다 · {path}', { path });
+    const path = markHiddenPlain(target.href);
+    link.dataset.tip = translateTemplate('그림을 새 탭에서 엽니다 · {path}', { path });
     link.dataset.tipUrl = path;
     return link;
   }
   // A link that does not open: a disabled link to assistive technology, reachable by Tab (the focus shows its
   // description, as a hover does), and a tap shows the description instead of picking the block (pickSelection).
-  const shown = ccPlain(target.href),
+  const shown = markHiddenPlain(target.href),
     inert = countedElement('span', context),
     tip =
       target.why === 'out'
-        ? tl('원고 밖을 가리켜 열지 않습니다 · {href}', { href: shown })
+        ? translateTemplate('원고 밖을 가리켜 열지 않습니다 · {href}', { href: shown })
         : target.why === 'unregistered'
-          ? tl('등록된 문서가 아니라 열지 않습니다 · {href}', { href: shown })
-          : tl('이 링크는 열지 않습니다 · {href}', { href: shown });
+          ? translateTemplate('등록된 문서가 아니라 열지 않습니다 · {href}', { href: shown })
+          : translateTemplate('이 링크는 열지 않습니다 · {href}', { href: shown });
   inert.className = 'md-rel';
   inert.dataset.tip = tip;
   inert.dataset.tipUrl = shown;
@@ -2067,13 +2099,13 @@ function drawLink(href: unknown, context: RenderContext): HTMLElement {
   return inert;
 }
 // A link to another registered document (data-act md-doc): that document, at its '#heading' once it is drawn here
-// (MD.headTo, showDocumentNode), with a history entry of its own - the browser's back returns to the document left
-// through the hashchange switch (doc-switch.ts), and a back before the document has opened ends that switch (NAVGEN).
-// While a back layer holds the entry on top (a sheet on a phone, gestures.ts) no entry is added, as a tab switch adds
-// none; the layer's entry must stay the top one. Followed again while the switch it started still waits for that
-// document (a double click, switchPending), it adds no second entry and starts no second switch: it only names the
-// heading to go to.
-function mdGoDoc(link: HTMLElement) {
+// (MARKDOWN_VIEW.headTo, showDocumentNode), with a history entry of its own - the browser's back returns to the
+// document left through the hashchange switch (doc-switch.ts), and a back before the document has opened ends that
+// switch (NAVGEN). While a back layer holds the entry on top (a sheet on a phone, gestures.ts) no entry is added, as a
+// tab switch adds none; the layer's entry must stay the top one. Followed again while the switch it started still waits
+// for that document (a double click, switchPending), it adds no second entry and starts no second switch: it only names
+// the heading to go to.
+function goToDocLink(link: HTMLElement) {
   const docKey = String(link.dataset.doc || ''),
     id = String(link.dataset.anchor || ''),
     entry = docInfo(docKey);
@@ -2086,7 +2118,7 @@ function mdGoDoc(link: HTMLElement) {
     if (!BACK) history.pushState(null, '', location.pathname + location.search + '#doc=' + docKey);
     void switchDoc(docKey);
   }
-  MD.headTo = rendersInBrowser(entry.kind)
+  MARKDOWN_VIEW.headTo = rendersInBrowser(entry.kind)
     ? { doc: docKey, id: showsSourceLines(entry.kind) ? '' : id, seq: SWITCHSEQ }
     : null;
 } // a text document has no headings
@@ -2102,7 +2134,7 @@ function goToLinkHeading(id: string) {
     pane = $('#left');
   if (COMPOSE.current || COMPOSE.picking || !$('#composer').hidden || imeOpen()) return;
   if (document.activeElement !== pane && !focusFell()) return;
-  const heading = MD.heads[index];
+  const heading = MARKDOWN_VIEW.heads[index];
   focusHold(heading ? heading.el : pane);
 }
 // GitHub's heading slug: lower case, punctuation dropped, spaces to '-'. Pure.
@@ -2115,7 +2147,7 @@ function headingSlug(title) {
 }
 // An in-document link to '#id': the first heading whose slug is id (or id percent-decoded), as GitHub numbers repeats
 // (slug, slug-1, ...). Nothing when no heading has it.
-function mdGoAnchor(link: HTMLElement) {
+function goToAnchor(link: HTMLElement) {
   goToSlug(String(link.dataset.anchor || ''));
 }
 function goToSlug(id: string): number {
@@ -2126,13 +2158,13 @@ function goToSlug(id: string): number {
   want = want.toLowerCase();
   const seen = new Map();
   let at = -1;
-  MD.heads.forEach((heading, index) => {
+  MARKDOWN_VIEW.heads.forEach((heading, index) => {
     if (at >= 0) return;
     const repeats = seen.get(heading.slug) || 0;
     seen.set(heading.slug, repeats + 1);
     if ((repeats ? heading.slug + '-' + repeats : heading.slug) === want) at = index;
   });
-  if (at >= 0) mdGoHeading(at);
+  if (at >= 0) goToHeading(at);
   return at;
 }
 // ---------------- Picking: selection -> lines, and the ladder
@@ -2201,11 +2233,11 @@ const BLOCK_LABEL = {
   front: '머리 정보',
   math: '수식',
 };
-function mdSnippet(first, last) {
+function lineSnippet(first, last) {
   const out: string[] = [];
   for (let line = first; line <= Math.min(last, first + 79); line++)
-    out.push(String(line).padStart(5, ' ') + '  ' + (MD.lines[line - 1] || ''));
-  if (last - first + 1 > 80) out.push('      … ' + tl('{n}줄 더', { n: last - first + 1 - 80 }));
+    out.push(String(line).padStart(5, ' ') + '  ' + (MARKDOWN_VIEW.lines[line - 1] || ''));
+  if (last - first + 1 > 80) out.push('      … ' + translateTemplate('{n}줄 더', { n: last - first + 1 - 80 }));
   return out.join('\n');
 }
 // The section around lines first..last: from the nearest heading at or above first to the line before the next heading
@@ -2213,19 +2245,19 @@ function mdSnippet(first, last) {
 // heading, or when last is past it.
 function sectionAround(first, last) {
   let heading = null as { level: number; lo: number; title: string } | null;
-  for (const head of MD.heads) {
+  for (const head of MARKDOWN_VIEW.heads) {
     if (head.lo <= first) heading = head;
     else break;
   }
   if (!heading) return null;
-  let end = MD.lines.length;
-  for (const head of MD.heads) {
+  let end = MARKDOWN_VIEW.lines.length;
+  for (const head of MARKDOWN_VIEW.heads) {
     if (head.lo > heading.lo && head.level <= heading.level) {
       end = head.lo - 1;
       break;
     }
   }
-  while (end > heading.lo && !String(MD.lines[end - 1] || '').trim()) end--;
+  while (end > heading.lo && !String(MARKDOWN_VIEW.lines[end - 1] || '').trim()) end--;
   if (end < last) return null;
   return { lo: heading.lo, hi: end, title: heading.title };
 }
@@ -2242,7 +2274,7 @@ function markdownLevels(
   endBlock: HTMLElement | null,
   tapped?: boolean,
 ) {
-  if (isTextDoc()) return txLevels(range); // a text document's rungs come from its lines alone
+  if (isTextDoc()) return textLevels(range); // a text document's rungs come from its lines alone
   const rungs = [] as any[];
   const add = (level, label, first, last, env) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
@@ -2256,7 +2288,7 @@ function markdownLevels(
       lo: first,
       hi: last,
       n: last - first + 1,
-      snippet: mdSnippet(first, last),
+      snippet: lineSnippet(first, last),
       env: env || null,
     });
   };
@@ -2273,15 +2305,16 @@ function markdownLevels(
     if (blocks.length > 1)
       add(
         'blocks',
-        tl('블록 {n}개', { n: blocks.length }),
+        translateTemplate('블록 {n}개', { n: blocks.length }),
         Math.min(range.lo, ...blocks.map((block) => +(block.dataset.lo || 0))),
         Math.max(range.hi, ...blocks.map((block) => +(block.dataset.hi || 0))),
         null,
       );
   }
   const section = sectionAround(range.lo, range.hi);
-  // the heading's hidden characters by name (ccClip, ADR-0029 D5)
-  if (section) add('section', tr('절') + ' · ' + ccClip(section.title, 18), section.lo, section.hi, null);
+  // the heading's hidden characters by name (clipMarkedText, ADR-0029 D5)
+  if (section)
+    add('section', translate('절') + ' · ' + clipMarkedText(section.title, 18), section.lo, section.hi, null);
   return rungs;
 }
 // Fills the composer with lines range of the document on screen, as pick() does with a /api/pick answer; tapped: a tap
@@ -2293,14 +2326,14 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 160);
-  const head = tapped && MD.heads.some((heading) => heading.lo === range.lo && heading.lo === range.hi);
+  const head = tapped && MARKDOWN_VIEW.heads.some((heading) => heading.lo === range.lo && heading.lo === range.hi);
   const defaultLevel =
     // a tap on a text document picks its line
-    tapped && !isTextDoc() && lvOf({ levels }, head ? 'section' : 'block') ? (head ? 'section' : 'block') : 'raw';
+    tapped && !isTextDoc() && levelOf({ levels }, head ? 'section' : 'block') ? (head ? 'section' : 'block') : 'raw';
   const selection = {
     doc: DOC,
-    file: MD.file,
-    name: MD.name,
+    file: MARKDOWN_VIEW.file,
+    name: MARKDOWN_VIEW.name,
     lo: range.lo,
     hi: range.hi,
     raw_lo: range.lo,
@@ -2308,10 +2341,10 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
     kind: 'lines',
     score: null,
     warn: null,
-    snippet: mdSnippet(range.lo, range.hi),
+    snippet: lineSnippet(range.lo, range.hi),
     levels,
     default_level: defaultLevel,
-    n_lines: MD.lines.length,
+    n_lines: MARKDOWN_VIEW.lines.length,
     quote: quoted,
     overlaps: [],
   } as unknown as Selection;
@@ -2343,15 +2376,15 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
   // the chosen lines out from under the sheet (compact), as a PDF box is
   revealBox(document.querySelector('#md .md-sel') as HTMLElement | null);
-  if (LAST_PTR === 'mouse') $('#note').focus({ preventScroll: true });
+  if (LAST_POINTER === 'mouse') $('#note').focus({ preventScroll: true });
 }
 // The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (markdownLevels), or
 // none when the document on screen is another or is not drawn (the line view, a notice) - the card then keeps the lines
 // it has.
-function mdEditLevels(edit: { doc?: string | null; lo?: number | null; hi?: number | null }) {
-  if (!isMdDoc() || edit.doc !== DOC || typeof edit.lo !== 'number' || typeof edit.hi !== 'number') return null;
-  const first = mdLeaves(edit.lo, edit.lo)[0],
-    last = mdLeaves(edit.hi, edit.hi)[0];
+function editCardLevels(edit: { doc?: string | null; lo?: number | null; hi?: number | null }) {
+  if (!isMarkdownDoc() || edit.doc !== DOC || typeof edit.lo !== 'number' || typeof edit.hi !== 'number') return null;
+  const first = lineLeaves(edit.lo, edit.lo)[0],
+    last = lineLeaves(edit.hi, edit.hi)[0];
   if (!first && !last) return null;
   const rungs = markdownLevels(
     { lo: edit.lo, hi: edit.hi },
@@ -2362,26 +2395,26 @@ function mdEditLevels(edit: { doc?: string | null; lo?: number | null; hi?: numb
 }
 // What the document marks as chosen: a re-place's candidate while there is one - the lines of the rung its banner names
 // (bannerCompare), as the PDF surface draws its box - else the composer's selection (null: nothing).
-function mdSelShown(): { file?: string; lo?: number | null; hi?: number | null; kind?: string } | null {
+function shownChoice(): { file?: string; lo?: number | null; hi?: number | null; kind?: string } | null {
   const candidate = REPICK && REPICK.cand;
   if (!candidate) return COMPOSE.current;
-  const level = lvOf(candidate, candidate.default_level) || candidate;
+  const level = levelOf(candidate, candidate.default_level) || candidate;
   return { file: candidate.file, lo: level.lo, hi: level.hi, kind: candidate.kind };
 }
 // The chosen lines drawn on the document: their line spans and blocks get .md-sel (null clears), and the reading spot
-// learns whether they are on screen (mdSpotKeep brings them back after a reflow only then).
-function mdSelMark(
+// learns whether they are on screen (keepReadingSpot brings them back after a reflow only then).
+function markChosenLines(
   chosen: { file?: string; lo?: number | null; hi?: number | null; kind?: string; pdf?: string } | null,
 ) {
   $$('#md .md-sel').forEach((element) => element.classList.remove('md-sel'));
-  if (chosen && isMdDoc() && chosen.file === MD.file && !isRegion(chosen))
-    mdLeaves(chosen.lo as number, chosen.hi as number).forEach((element) => element.classList.add('md-sel'));
-  if (MD.spot && MD.spot.doc === DOC && isColumnShown()) MD.spot.sel = isChosenSeen();
+  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen))
+    lineLeaves(chosen.lo as number, chosen.hi as number).forEach((element) => element.classList.add('md-sel'));
+  if (MARKDOWN_VIEW.spot && MARKDOWN_VIEW.spot.doc === DOC && isColumnShown()) MARKDOWN_VIEW.spot.sel = isChosenSeen();
 } // hidden, nothing is on screen: what was stays
 // The elements that stand for lines first..last: each line span in range, and each block in range that has no line
 // spans of its own and no smaller block in range (a rule, an HTML block) - the smallest things on screen that carry
 // those lines. A table cell's line stands for its row: the row is what is tinted, so a pinned row reads as one band.
-function mdLeaves(first, last) {
+function lineLeaves(first, last) {
   const column = $('#md');
   if (!column) return [];
   const lines = [...column.querySelectorAll('[data-line]')].filter((element) => {
@@ -2408,7 +2441,7 @@ function mdLeaves(first, last) {
 // where its line is - appended at the column's end they would come after the last link, in pin order (#1 L3, #2 L55, #4
 // L9). The badge's name and description (its tip: '#1 · L3-L5 · <note>') are what marks the pinned lines for them,
 // colour aside.
-function mdMarks() {
+function drawPinMarks() {
   const column = $('#md');
   if (!column) return;
   column.querySelectorAll('.md-badges').forEach((element) => element.remove());
@@ -2419,7 +2452,7 @@ function mdMarks() {
   const rows = new Map() as Map<number, HTMLElement>,
     top = column.getBoundingClientRect().top;
   for (const pin of pins) {
-    const leaves = mdLeaves(pin.lo as number, pin.hi as number);
+    const leaves = lineLeaves(pin.lo as number, pin.hi as number);
     if (!leaves.length) continue;
     const inReview = pinState(pin) === PIN_STATE.REVIEW,
       lost = !!pin.stale;
@@ -2448,7 +2481,7 @@ function mdMarks() {
     badge.dataset.id = String(pin.id);
     badge.dataset.pin = String(pin.id);
     badge.textContent = String(pin.id);
-    badge.setAttribute('aria-label', tl('핀 #{id} 카드로 이동', { id: pin.id }));
+    badge.setAttribute('aria-label', translateTemplate('핀 #{id} 카드로 이동', { id: pin.id }));
     const note = String(pin.note || '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -2456,9 +2489,9 @@ function mdMarks() {
       '#' +
       pin.id +
       ' · ' +
-      rng(pin.lo as number, pin.hi as number) +
+      lineRange(pin.lo as number, pin.hi as number) +
       ' · ' +
-      (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : tr('(메모 없음)'));
+      (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : translate('(메모 없음)'));
     box.appendChild(badge);
   }
 }
@@ -2479,39 +2512,39 @@ function topBlockOf(column: HTMLElement, element: Element): Element | null {
   return child;
 }
 // The column reflows when its width changes (a panel, a rotation): the reading spot comes back at once, before the
-// paint (mdSpotKeep), and the badges follow their lines.
+// paint (keepReadingSpot), and the badges follow their lines.
 let MARK_REDRAW_TIMER = 0;
 const COLUMN_OBSERVER = window.ResizeObserver
   ? new ResizeObserver(() => {
-      mdSpotKeep();
+      keepReadingSpot();
       clearTimeout(MARK_REDRAW_TIMER);
       MARK_REDRAW_TIMER = setTimeout(() => {
-        if (isMdDoc()) {
+        if (isMarkdownDoc()) {
           fitWideFormulas();
-          mdMarks();
+          drawPinMarks();
         }
       }, 120);
     })
   : null;
-// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch, mdShowLines). A jump asked
+// Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch, showLines). A jump asked
 // before this document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read
 // and drawn - waits for the draw (showDocumentNode) of this visit; another switch drops it.
-function mdJump(id) {
-  if (MD.shown !== DOC || !$('#md')) {
-    MD.jumpTo = { id, doc: DOC, seq: SWITCHSEQ };
+function jumpToPinLines(id) {
+  if (MARKDOWN_VIEW.shown !== DOC || !$('#md')) {
+    MARKDOWN_VIEW.jumpTo = { id, doc: DOC, seq: SWITCHSEQ };
     return;
   }
   const pin = PINS.find((candidate) => candidate.id === id) || REVIEW_ALL.find((candidate) => candidate.id === id);
   if (!pin || typeof pin.lo !== 'number' || typeof pin.hi !== 'number') return;
-  const leaves = mdLeaves(pin.lo, pin.hi);
-  if (leaves.length) mdShowLines(leaves);
+  const leaves = lineLeaves(pin.lo, pin.hi);
+  if (leaves.length) showLines(leaves);
 }
 // Scrolls the first of the line elements to the reading depth (30% down the document area) and flashes them - a pin's
-// [보기] (mdJump) and [바뀐 곳] (goToNextChange, updates.ts) - and reads the reading spot where that put the pane: the
-// page's own jump is over at once, so its place is the spot before the scroll's frame reads it (as a heading jump's
-// once it lands, endLandedJump). A width that changes before that frame puts back the jump's place (mdSpotKeep), not
-// the one read before it.
-function mdShowLines(elements: HTMLElement[]) {
+// [보기] (jumpToPinLines) and [바뀐 곳] (goToNextChange, updates.ts) - and reads the reading spot where that put the
+// pane: the page's own jump is over at once, so its place is the spot before the scroll's frame reads it (as a heading
+// jump's once it lands, endLandedJump). A width that changes before that frame puts back the jump's place
+// (keepReadingSpot), not the one read before it.
+function showLines(elements: HTMLElement[]) {
   const pane = $('#left'),
     paneRect = pane.getBoundingClientRect(),
     rect = elements[0].getBoundingClientRect();
@@ -2526,7 +2559,7 @@ function mdShowLines(elements: HTMLElement[]) {
   setTimeout(() => elements.forEach((element) => element.classList.remove('md-flash')), 1200);
 }
 // ---------------- Outline from headings, the strip and the position button
-// A heading as its outline row and the strip name it: plain text, its marked characters by name (ccClip,
+// A heading as its outline row and the strip name it: plain text, its marked characters by name (clipMarkedText,
 // hidden-chars.ts), at most HEADING_CLIP characters - the row and the strip cut it to one line anyway, and the name
 // never reads in another order.
 const HEADING_CLIP = 120;
@@ -2535,8 +2568,8 @@ function drawOutline() {
   setOutlineBuild((META && META.pages_build) || '');
   setOutlineCut(0);
   setOutlineEntries(
-    MD.heads.map((heading, index) => ({
-      title: ccClip(heading.title, HEADING_CLIP),
+    MARKDOWN_VIEW.heads.map((heading, index) => ({
+      title: clipMarkedText(heading.title, HEADING_CLIP),
       number: '',
       depth: Math.max(0, heading.level - 1),
       page: index + 1,
@@ -2558,43 +2591,43 @@ function readingLine() {
 }
 // The section strip and the phone's position button (updateSectionStrip's branch): the heading above the reading line
 // is the outline's current entry and the strip's title; the button reads [L<line>/<lines>].
-function mdStrip() {
-  if (!isMdDoc()) return;
-  MD.at = readingLine();
+function updateMarkdownStrip() {
+  if (!isMarkdownDoc()) return;
+  MARKDOWN_VIEW.at = readingLine();
   let index = -1;
-  MD.heads.forEach((heading, at) => {
-    if (heading.lo <= MD.at) index = at;
+  MARKDOWN_VIEW.heads.forEach((heading, at) => {
+    if (heading.lo <= MARKDOWN_VIEW.at) index = at;
   });
   if (index !== OUTLINE_SELECTED) {
     setOutlineSelected(index);
     markOutline();
   }
-  const heading = MD.heads[index];
+  const heading = MARKDOWN_VIEW.heads[index];
   // the heading's title; a text document, which has no headings, its file name; above the first heading, the start
   $('#section-current').textContent = heading
-    ? ccClip(heading.title, HEADING_CLIP)
+    ? clipMarkedText(heading.title, HEADING_CLIP)
     : isTextDoc()
-      ? ccClip(MD.name, HEADING_CLIP)
-      : tr('문서 처음');
+      ? clipMarkedText(MARKDOWN_VIEW.name, HEADING_CLIP)
+      : translate('문서 처음');
   drawPos();
 }
 let STRIP_FRAME = 0;
 $('#left').addEventListener(
   'scroll',
   () => {
-    if (!isMdDoc() || STRIP_FRAME) return;
+    if (!isMarkdownDoc() || STRIP_FRAME) return;
     STRIP_FRAME = requestAnimationFrame(() => {
       STRIP_FRAME = 0;
       endLandedJump();
-      mdStrip();
+      updateMarkdownStrip();
       readSpot();
     });
   },
   { passive: true },
 );
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is
-// not known yet - with the document's name as posLabel puts it. Pure but for tl.
-function mdPosLabel(doc: string, line: number, lineCount: number, multi: boolean, wide: boolean) {
+// not known yet - with the document's name as posLabel puts it. Pure but for translateTemplate.
+function markdownPositionLabel(doc: string, line: number, lineCount: number, multi: boolean, wide: boolean) {
   const name = multi && wide ? doc : '',
     shownLine = line || '–',
     shownCount = lineCount || '–';
@@ -2602,18 +2635,18 @@ function mdPosLabel(doc: string, line: number, lineCount: number, multi: boolean
     name,
     pages: 'L' + shownLine + '/' + shownCount,
     label: name
-      ? tl('이동 · {doc} · {line} / {lines}줄', { doc: name, line: shownLine, lines: shownCount })
-      : tl('이동 · {line} / {lines}줄', { line: shownLine, lines: shownCount }),
+      ? translateTemplate('이동 · {doc} · {line} / {lines}줄', { doc: name, line: shownLine, lines: shownCount })
+      : translateTemplate('이동 · {line} / {lines}줄', { line: shownLine, lines: shownCount }),
   };
 }
 // The empty list's help (#empty) speaks of dragging on the PDF; this document gets its own words, and a PDF document
 // the page's own back (kept as served).
 let PDF_HINT_NODES = null as Node[] | null;
-function mdHint() {
+function showMarkdownHint() {
   const help = $('#empty');
   if (!help) return;
   if (!PDF_HINT_NODES) PDF_HINT_NODES = [...help.childNodes].map((node) => node.cloneNode(true));
-  if (!isMdDoc()) {
+  if (!isMarkdownDoc()) {
     if (help.dataset.md) {
       help.replaceChildren(...PDF_HINT_NODES.map((node) => node.cloneNode(true)));
       delete help.dataset.md;
@@ -2624,25 +2657,25 @@ function mdHint() {
   if (help.dataset.md === want) return;
   help.dataset.md = want;
   if (want === 'tx') {
-    txHint();
+    showTextHint();
     return;
   } // a text document's own words (text-surface.js)
   setHtml(
     help,
-    html`<span class="t-mouse">${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄을,')} <b>${tr('블록을 누르면')}</b> ${tr('그 블록을 고르고')}</span><span class="t-touch"><b>${tr('블록을 누르면')}</b> ${tr('그 블록을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
-    ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`,
+    html`<span class="t-mouse">${translate('글을')} <b>${translate('끌어')}</b> ${translate('고르면 그 줄을,')} <b>${translate('블록을 누르면')}</b> ${translate('그 블록을 고르고')}</span><span class="t-touch"><b>${translate('블록을 누르면')}</b> ${translate('그 블록을,')} <b>${translate('길게 눌러')}</b> ${translate('글을 고르면 그 줄을 고르고')}</span> ${translate('그 자리의')} <b>${translate('원문 줄 번호')}</b>${translate('가 핀의 위치가 됩니다.')}<br>
+    ${translate('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${translate('를 누르면 도움말.')}</span><span class="t-touch">${translate('도움말은 [더보기]에 있습니다.')}</span>`,
   );
 }
 // Goes to heading index: the pane scrolls (smoothly unless reduced motion is asked for) until the heading stands 8px
-// under its top. The jump is kept in flight (MD.goTo) until it lands there (endLandedJump) or the person scrolls: an
-// image that gets its size on the way - a lazy one the scroll passes - moves the heading, and the jump goes on to its
-// new place (goOnToHeading).
-function mdGoHeading(index: number) {
-  const heading = MD.heads[index];
+// under its top. The jump is kept in flight (MARKDOWN_VIEW.goTo) until it lands there (endLandedJump) or the person
+// scrolls: an image that gets its size on the way - a lazy one the scroll passes - moves the heading, and the jump goes
+// on to its new place (goOnToHeading).
+function goToHeading(index: number) {
+  const heading = MARKDOWN_VIEW.heads[index];
   if (!heading) return;
   setOutlineSelected(index);
   markOutline();
-  MD.goTo = { el: heading.el, doc: DOC };
+  MARKDOWN_VIEW.goTo = { el: heading.el, doc: DOC };
   goOnToHeading();
   endLandedJump();
 }
@@ -2655,10 +2688,10 @@ function headingScrollTop(element: HTMLElement) {
 // Scrolls on to the destination of the jump in flight, measured again; false when there is none (or its heading is
 // gone).
 function goOnToHeading() {
-  const jump = MD.goTo;
+  const jump = MARKDOWN_VIEW.goTo;
   if (!jump) return false;
   if (jump.doc !== DOC || !jump.el.isConnected) {
-    MD.goTo = null;
+    MARKDOWN_VIEW.goTo = null;
     return false;
   }
   endJumpForScroll();
@@ -2667,14 +2700,14 @@ function goOnToHeading() {
 }
 // The jump in flight has landed when the pane stands at its destination: it ends, and that is the reading spot.
 function endLandedJump() {
-  const jump = MD.goTo;
+  const jump = MARKDOWN_VIEW.goTo;
   if (!jump) return;
   if (jump.doc !== DOC || !jump.el.isConnected) {
-    MD.goTo = null;
+    MARKDOWN_VIEW.goTo = null;
     return;
   }
   if (Math.abs($('#left').scrollTop - headingScrollTop(jump.el)) <= 1) {
-    MD.goTo = null;
+    MARKDOWN_VIEW.goTo = null;
     readSpot(true);
   }
 }
@@ -2686,8 +2719,8 @@ function endLandedJump() {
 // sends the compositor nothing, and the scroll would go on to the heading with the key's or the wheel's own step added.
 // A write that moves the offset ends it there, in every engine.
 function stopHeadingJump() {
-  if (!MD.goTo) return;
-  MD.goTo = null;
+  if (!MARKDOWN_VIEW.goTo) return;
+  MARKDOWN_VIEW.goTo = null;
   const pane = $('#left'),
     top = pane.scrollTop;
   pane.scrollTo({ top: top > 0 ? top - 1 : top + 1, behavior: 'instant' });
@@ -2727,14 +2760,14 @@ function pickSelection(tapTarget) {
     }
     let first = Math.min(startLines.lo, endLines.lo),
       last = Math.max(startLines.hi, endLines.hi);
-    while (last > first && !String(MD.lines[last - 1] || '').trim()) last--;
+    while (last > first && !String(MARKDOWN_VIEW.lines[last - 1] || '').trim()) last--;
     // A document that drew math reads its quote through rangeText, where each drawn formula gives back its source TeX;
     // one that drew none reads the selection's own text (ADR-0036 D4).
     pickLines(
       { lo: first, hi: last },
       blockAt(range.startContainer),
       blockAt(range.endContainer),
-      range === selected && !MD.tex ? selection.toString() : rangeText(widenToFormulas(range)),
+      range === selected && !MARKDOWN_VIEW.tex ? selection.toString() : rangeText(widenToFormulas(range)),
       false,
     );
     return true;
@@ -2742,14 +2775,16 @@ function pickSelection(tapTarget) {
   if (tapTarget) {
     const target = tapTarget as Element;
     const inertLink = target.closest('#md .md-rel') as HTMLElement | null;
-    if (inertLink && LAST_PTR !== 'mouse') {
+    if (inertLink && LAST_POINTER !== 'mouse') {
       showInertTip(inertLink);
       return true;
     } // a finger has no hover
     if (target.closest('a,button,[data-act],.md-badges,.md-limit')) return false;
     const carrier = target.closest('#md [data-lo],#md [data-line]') as HTMLElement | null;
     if (!carrier) return false;
-    const head = MD.heads.find((heading) => heading.el === target.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'));
+    const head = MARKDOWN_VIEW.heads.find(
+      (heading) => heading.el === target.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'),
+    );
     const lines = head
         ? { lo: head.lo, hi: head.lo }
         : linesAt(target) || { lo: +(carrier.dataset.lo || 0), hi: +(carrier.dataset.hi || 0) },
@@ -2787,9 +2822,9 @@ function documentPart(range: Range, column: HTMLElement) {
 // document's own .md rules (an HTML placeholder's label and code stack as on screen), and read as innerText. A range's
 // toString runs blocks together ('First.Last.'), the renderer putting no whitespace between them; the selection itself
 // is not touched, as changing it would set off the touch screen's resting-selection pick again. The pin badges standing
-// between blocks (mdMarks) are the viewer's, not the document's text: they are left out. A marked character's box
-// (ccBox) gives its character, where it stands. innerText does not: Chromium reads the box's hidden child, out of the
-// line's flow, as a block of its own ('x\n\u202e\ny'), and Firefox drops a bidirectional control from innerText
+// between blocks (drawPinMarks) are the viewer's, not the document's text: they are left out. A marked character's box
+// (hiddenBox) gives its character, where it stands. innerText does not: Chromium reads the box's hidden child, out of
+// the line's flow, as a block of its own ('x\n\u202e\ny'), and Firefox drops a bidirectional control from innerText
 // altogether. So each box stands in the copy as U+FFF0 - a character of the repertoire, which the document's own text
 // therefore never holds raw - and gets its character back after. A drawn formula (data-tex, ADR-0036 D4) goes the same
 // way, as U+FFF1, and gets its source TeX back: innerText would read the glyphs KaTeX drew (and the MathML copy beside
@@ -2882,14 +2917,14 @@ $('#doc').addEventListener('mousedown', (event) => {
   if (event.button === 0) PRESS_COUNT++;
 });
 $('#doc').addEventListener('mouseup', (event) => {
-  if (!isMdDoc() || event.button !== 0) return;
+  if (!isMarkdownDoc() || event.button !== 0) return;
   const press = PRESS_COUNT;
   setTimeout(() => {
     if (press === PRESS_COUNT) pickSelection(null);
   }, 0);
 });
 $('#doc').addEventListener('click', (event) => {
-  if (!isMdDoc()) return;
+  if (!isMarkdownDoc()) return;
   const selection = window.getSelection();
   if (selection && !selection.isCollapsed) return;
   pickSelection(event.target);
@@ -2897,7 +2932,7 @@ $('#doc').addEventListener('click', (event) => {
 // A finger: the long-press handles make a selection with no mouseup; it is picked once it rests.
 let SELECTION_TIMER = 0;
 document.addEventListener('selectionchange', () => {
-  if (!isMdDoc() || !MQ_COARSE.matches) return;
+  if (!isMarkdownDoc() || !COARSE_POINTER_QUERY.matches) return;
   clearTimeout(SELECTION_TIMER);
   SELECTION_TIMER = setTimeout(() => {
     const selection = window.getSelection();
@@ -2905,38 +2940,38 @@ document.addEventListener('selectionchange', () => {
   }, 500);
 });
 export {
-  MD,
-  MD_LIMITS,
-  MD_OVER,
-  isMdDoc,
-  isMdPin,
-  mdAnchor,
-  mdBuild,
-  mdCount,
-  mdDue,
-  mdEditLevels,
-  mdGoAnchor,
-  mdGoDoc,
-  mdGoHeading,
-  mdHint,
-  mdHtmlRun,
-  mdJump,
-  mdLeaves,
-  mdLimitText,
-  mdMarks,
-  mdMiB,
-  mdPicCheck,
-  mdPosLabel,
-  mdRelevel,
-  mdRender,
-  mdRx,
-  mdRxKeep,
-  mdSelMark,
-  mdSelShown,
-  mdShowLines,
-  mdSnippet,
-  mdSpotKeep,
-  mdStrip,
-  mdWait,
-  mdYield,
+  MARKDOWN_VIEW,
+  MARKDOWN_LIMITS,
+  OVER_ELEMENT_LIMIT,
+  isMarkdownDoc,
+  isMarkdownPin,
+  readingAnchor,
+  buildMarkdownDoc,
+  formatCount,
+  isPauseDue,
+  editCardLevels,
+  goToAnchor,
+  goToDocLink,
+  goToHeading,
+  showMarkdownHint,
+  toggleHtmlRun,
+  jumpToPinLines,
+  lineLeaves,
+  limitText,
+  drawPinMarks,
+  formatMebibytes,
+  checkTreeImages,
+  markdownPositionLabel,
+  relevelForLineView,
+  renderTokens,
+  newRenderContext,
+  keepRenderContext,
+  markChosenLines,
+  shownChoice,
+  showLines,
+  lineSnippet,
+  keepReadingSpot,
+  updateMarkdownStrip,
+  waitLine,
+  yieldToBrowser,
 };

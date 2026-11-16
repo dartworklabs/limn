@@ -1,16 +1,16 @@
 import { $, DIFF_FORMAT } from './core.ts';
-import { tl } from './i18n.ts';
-import { REV, REV_PDF, revTargetNote, revisionCurrent } from './revisions.ts';
+import { translateTemplate } from './i18n.ts';
+import { REVISION_VIEW, COMPARISON_PDF, drawPinGuide, revisionCurrent } from './revisions.ts';
 import { ZOOM_STEP } from './pages.ts';
-import { VEC_PIX_CAP } from './pdf-open.ts';
-import { vecTarget } from './pdf-draw.ts';
+import { VECTOR_PIXEL_CAP } from './pdf-open.ts';
+import { canvasBackingTarget } from './pdf-draw.ts';
 import { wheelFactor } from './zoom.ts';
 // ------------------------------------------------ The comparison PDF's zoom (docs/handbook/viewer.md §변경 보기)
 // The changes view's own page geometry, zoom and rendering: its ratio is the comparison's alone, and nothing here
-// writes the manuscript's zoom or any other preference. RZ: the ratio, the fit width and pane height it was laid out
-// at, the generation stale work compares against (gen), the generation a paint runs for (busy), the frame a paint waits
-// on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a layout (anchor)
-// and the reset of the gesture state (resetInput).
+// writes the manuscript's zoom or any other preference. REVISION_ZOOM: the ratio, the fit width and pane height it was
+// laid out at, the generation stale work compares against (gen), the generation a paint runs for (busy), the frame a
+// paint waits on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a
+// layout (anchor) and the reset of the gesture state (resetInput).
 type RevisionPage = {
   el: HTMLElement;
   page: any;
@@ -19,7 +19,7 @@ type RevisionPage = {
   task: any;
 };
 type RevisionAnchor = { el: HTMLElement; fx: number; fy: number; x: number; y: number };
-const RZ = {
+const REVISION_ZOOM = {
   ratio: 1,
   fit: 0,
   height: 0,
@@ -39,16 +39,20 @@ function revisionRatio(ratio) {
 
 /** Only a ready, visible comparison PDF owns PDF zoom input. */
 function revisionPdfActive() {
-  return document.body.classList.contains('revision-open') && REV.format === DIFF_FORMAT.PDF && RZ.pages.length > 0;
+  return (
+    document.body.classList.contains('revision-open') &&
+    REVISION_VIEW.format === DIFF_FORMAT.PDF &&
+    REVISION_ZOOM.pages.length > 0
+  );
 }
 
 /** Synchronize the comparison toolbar without touching manuscript controls. */
 function drawRevisionZoom() {
-  $('#revision-zoom').hidden = REV.format !== DIFF_FORMAT.PDF;
+  $('#revision-zoom').hidden = REVISION_VIEW.format !== DIFF_FORMAT.PDF;
   const ready = revisionPdfActive();
-  $('#revision-zoom-value').textContent = Math.round(RZ.ratio * 100) + '%';
-  $('#revision-zoom-out').disabled = !ready || RZ.ratio <= 0.5;
-  $('#revision-zoom-in').disabled = !ready || RZ.ratio >= 5;
+  $('#revision-zoom-value').textContent = Math.round(REVISION_ZOOM.ratio * 100) + '%';
+  $('#revision-zoom-out').disabled = !ready || REVISION_ZOOM.ratio <= 0.5;
+  $('#revision-zoom-in').disabled = !ready || REVISION_ZOOM.ratio >= 5;
   $('#revision-fit').disabled = !ready;
 }
 
@@ -56,7 +60,7 @@ function drawRevisionZoom() {
 function dropRevisionPage(item) {
   if (item.task) {
     item.task.cancel();
-    REV_PDF.tasks.delete(item.task);
+    COMPARISON_PDF.tasks.delete(item.task);
     item.task = null;
   }
   if (item.canvas) {
@@ -69,17 +73,17 @@ function dropRevisionPage(item) {
 
 /** Invalidate asynchronous work and retained gesture anchors for a document visit. */
 function disposeRevisionZoom() {
-  ++RZ.gen;
-  RZ.resetInput();
-  RZ.repaint = false;
-  if (RZ.frame) {
-    cancelAnimationFrame(RZ.frame);
-    RZ.frame = 0;
+  ++REVISION_ZOOM.gen;
+  REVISION_ZOOM.resetInput();
+  REVISION_ZOOM.repaint = false;
+  if (REVISION_ZOOM.frame) {
+    cancelAnimationFrame(REVISION_ZOOM.frame);
+    REVISION_ZOOM.frame = 0;
   }
-  RZ.pages.forEach(dropRevisionPage);
-  RZ.pages = [];
-  RZ.anchor = null;
-  RZ.fit = RZ.height = 0;
+  REVISION_ZOOM.pages.forEach(dropRevisionPage);
+  REVISION_ZOOM.pages = [];
+  REVISION_ZOOM.anchor = null;
+  REVISION_ZOOM.fit = REVISION_ZOOM.height = 0;
   drawRevisionZoom();
 }
 
@@ -91,7 +95,7 @@ function revisionAnchor(x?, y?) {
   y = y ?? boxRect.top + box.clientHeight / 2;
   let nearest = null as HTMLElement | null,
     distance = Infinity;
-  for (const item of RZ.pages) {
+  for (const item of REVISION_ZOOM.pages) {
     const pageRect = item.el.getBoundingClientRect(),
       gap = Math.max(pageRect.top - y, y - pageRect.bottom, 0);
     if (gap < distance) {
@@ -130,7 +134,7 @@ function revisionFitWidth() {
 /** Move the retained reading point to the resized viewport's new center. */
 function resizeRevisionPdf() {
   const box = $('#revision-pdf'),
-    anchor = RZ.anchor ? { ...RZ.anchor, x: box.clientWidth / 2, y: box.clientHeight / 2 } : null;
+    anchor = REVISION_ZOOM.anchor ? { ...REVISION_ZOOM.anchor, x: box.clientWidth / 2, y: box.clientHeight / 2 } : null;
   layoutRevisionPdf(anchor);
 }
 
@@ -142,21 +146,21 @@ function layoutRevisionPdf(anchor) {
   const box = $('#revision-pdf'),
     fit = revisionFitWidth();
   if (fit <= 0) return;
-  RZ.fit = fit;
-  RZ.height = box.clientHeight;
-  ++RZ.gen;
-  RZ.pages.forEach(dropRevisionPage);
-  const width = fit * RZ.ratio,
+  REVISION_ZOOM.fit = fit;
+  REVISION_ZOOM.height = box.clientHeight;
+  ++REVISION_ZOOM.gen;
+  REVISION_ZOOM.pages.forEach(dropRevisionPage);
+  const width = fit * REVISION_ZOOM.ratio,
     group = box.firstElementChild,
-    widest = Math.max(...RZ.pages.map((item) => item.base.width));
+    widest = Math.max(...REVISION_ZOOM.pages.map((item) => item.base.width));
   if (group instanceof HTMLElement) group.style.width = width + 'px';
-  for (const item of RZ.pages) {
+  for (const item of REVISION_ZOOM.pages) {
     const pageWidth = (width * item.base.width) / widest;
     item.el.style.width = pageWidth + 'px';
     item.el.style.height = (pageWidth * item.base.height) / item.base.width + 'px';
   }
   restoreRevisionAnchor(anchor);
-  RZ.anchor = revisionAnchor();
+  REVISION_ZOOM.anchor = revisionAnchor();
   drawRevisionZoom();
   scheduleRevisionPaint();
 }
@@ -165,52 +169,52 @@ function layoutRevisionPdf(anchor) {
 function revisionZoomTo(ratio, x?, y?, anchor?) {
   if (!revisionPdfActive()) return;
   const point = anchor || revisionAnchor(x, y);
-  RZ.ratio = revisionRatio(ratio);
+  REVISION_ZOOM.ratio = revisionRatio(ratio);
   layoutRevisionPdf(point);
   if (anchor) {
     restoreRevisionAnchor(anchor, x, y);
-    RZ.anchor = revisionAnchor();
+    REVISION_ZOOM.anchor = revisionAnchor();
   }
 }
 
 /** Apply the same button step as the manuscript, or restore fit width. */
 function revisionZoom(action) {
-  revisionZoomTo(action === 'fit' ? 1 : RZ.ratio * (action === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP));
+  revisionZoomTo(action === 'fit' ? 1 : REVISION_ZOOM.ratio * (action === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP));
 }
 
 /** Obtain page geometry without allocating canvases; abandon stale PDF visits. */
 async function mountRevisionPdf(pdf, seq, docKey, id) {
-  const generation = RZ.gen,
+  const generation = REVISION_ZOOM.gen,
     pages = [] as RevisionPage[];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const page = await pdf.getPage(pageNumber);
-    if (generation !== RZ.gen || !revisionCurrent(seq, docKey, id)) return;
+    if (generation !== REVISION_ZOOM.gen || !revisionCurrent(seq, docKey, id)) return;
     const pageElement = document.createElement('div');
     pageElement.className = 'revision-page';
     pageElement.dataset.page = String(pageNumber);
-    pageElement.setAttribute('aria-label', tl('비교 PDF {page}쪽', { page: pageNumber }));
+    pageElement.setAttribute('aria-label', translateTemplate('비교 PDF {page}쪽', { page: pageNumber }));
     pages.push({ el: pageElement, page, base: page.getViewport({ scale: 1 }), canvas: null, task: null });
   }
   const group = document.createElement('div');
   group.className = 'revision-pages';
   for (const item of pages) group.append(item.el);
   $('#revision-pdf').replaceChildren(group);
-  RZ.pages = pages;
+  REVISION_ZOOM.pages = pages;
   layoutRevisionPdf(null);
   drawRevisionZoom();
-  if (REV.target && REV.target.page) {
-    pages[Math.min(REV.target.page, pages.length) - 1]?.el.scrollIntoView({ block: 'start' });
-    revTargetNote();
+  if (REVISION_VIEW.target && REVISION_VIEW.target.page) {
+    pages[Math.min(REVISION_VIEW.target.page, pages.length) - 1]?.el.scrollIntoView({ block: 'start' });
+    drawPinGuide();
   }
-  RZ.anchor = revisionAnchor();
+  REVISION_ZOOM.anchor = revisionAnchor();
   scheduleRevisionPaint();
 }
 
 /** Coalesce scroll/layout updates and release canvases outside a viewport margin. */
 function scheduleRevisionPaint() {
-  if (RZ.frame || !revisionPdfActive()) return;
-  RZ.frame = requestAnimationFrame(() => {
-    RZ.frame = 0;
+  if (REVISION_ZOOM.frame || !revisionPdfActive()) return;
+  REVISION_ZOOM.frame = requestAnimationFrame(() => {
+    REVISION_ZOOM.frame = 0;
     void paintRevisionPdf();
   });
 }
@@ -218,18 +222,18 @@ function scheduleRevisionPaint() {
 /** Render near pages serially with a pixel cap; canceled work never reports errors. */
 async function paintRevisionPdf() {
   if (!revisionPdfActive()) return;
-  if (RZ.busy === RZ.gen) {
-    RZ.repaint = true;
+  if (REVISION_ZOOM.busy === REVISION_ZOOM.gen) {
+    REVISION_ZOOM.repaint = true;
     return;
   }
-  RZ.repaint = false;
-  const generation = RZ.gen;
-  RZ.busy = generation;
+  REVISION_ZOOM.repaint = false;
+  const generation = REVISION_ZOOM.gen;
+  REVISION_ZOOM.busy = generation;
   try {
     const box = $('#revision-pdf'),
       boxRect = box.getBoundingClientRect(),
       margin = box.clientHeight * 1.5;
-    const near = RZ.pages.filter((item) => {
+    const near = REVISION_ZOOM.pages.filter((item) => {
       const pageRect = item.el.getBoundingClientRect();
       const keep = pageRect.bottom >= boxRect.top - margin && pageRect.top <= boxRect.bottom + margin;
       if (!keep) dropRevisionPage(item);
@@ -241,14 +245,14 @@ async function paintRevisionPdf() {
         Math.abs(right.el.getBoundingClientRect().top - boxRect.top),
     );
     for (const item of near) {
-      if (generation !== RZ.gen || !revisionPdfActive()) return;
+      if (generation !== REVISION_ZOOM.gen || !revisionPdfActive()) return;
       if (item.canvas || item.el.dataset.state === 'error') continue;
       const pageRect = item.el.getBoundingClientRect();
       if (pageRect.bottom < boxRect.top - margin || pageRect.top > boxRect.bottom + margin) continue;
       const canvas = document.createElement('canvas'),
         width = item.el.clientWidth,
         height = item.el.clientHeight;
-      const target = vecTarget(width, height, Math.min(2, devicePixelRatio || 1), VEC_PIX_CAP);
+      const target = canvasBackingTarget(width, height, Math.min(2, devicePixelRatio || 1), VECTOR_PIXEL_CAP);
       canvas.width = target.bw;
       canvas.height = target.bh;
       item.canvas = canvas;
@@ -261,27 +265,27 @@ async function paintRevisionPdf() {
         transform: [target.bw / width, 0, 0, target.bh / height, 0, 0],
       });
       item.task = task;
-      REV_PDF.tasks.add(task);
+      COMPARISON_PDF.tasks.add(task);
       try {
         await task.promise;
-        if (generation === RZ.gen && item.canvas === canvas) item.el.dataset.state = 'ready';
+        if (generation === REVISION_ZOOM.gen && item.canvas === canvas) item.el.dataset.state = 'ready';
       } catch (error) {
-        if (generation === RZ.gen && item.canvas === canvas) {
+        if (generation === REVISION_ZOOM.gen && item.canvas === canvas) {
           item.el.dataset.state = 'error';
           $('#revision-status').textContent = '일부 비교 PDF 쪽을 그리지 못했습니다. 소스 diff를 확인할 수 있습니다.';
         }
       } finally {
-        REV_PDF.tasks.delete(task);
+        COMPARISON_PDF.tasks.delete(task);
         if (item.task === task) item.task = null;
       }
     }
   } catch (error) {
-    if (generation === RZ.gen && revisionPdfActive())
+    if (generation === REVISION_ZOOM.gen && revisionPdfActive())
       $('#revision-status').textContent = '일부 비교 PDF 쪽을 그리지 못했습니다. 소스 diff를 확인할 수 있습니다.';
   } finally {
-    if (RZ.busy === generation) {
-      RZ.busy = 0;
-      if (RZ.repaint) scheduleRevisionPaint();
+    if (REVISION_ZOOM.busy === generation) {
+      REVISION_ZOOM.busy = 0;
+      if (REVISION_ZOOM.repaint) scheduleRevisionPaint();
     }
   }
 }
@@ -301,9 +305,9 @@ async function paintRevisionPdf() {
       wheelPoint = point;
     pendingFactor = 1;
     point = null;
-    if (wheelPoint) revisionZoomTo(RZ.ratio * factor, wheelPoint[0], wheelPoint[1]);
+    if (wheelPoint) revisionZoomTo(REVISION_ZOOM.ratio * factor, wheelPoint[0], wheelPoint[1]);
   };
-  RZ.resetInput = () => {
+  REVISION_ZOOM.resetInput = () => {
     if (frame) cancelAnimationFrame(frame);
     frame = 0;
     pendingFactor = 1;
@@ -327,7 +331,7 @@ async function paintRevisionPdf() {
     (event) => {
       if (!revisionPdfActive()) return;
       event.preventDefault();
-      gesture = { ratio: RZ.ratio, anchor: revisionAnchor(event.clientX, event.clientY) };
+      gesture = { ratio: REVISION_ZOOM.ratio, anchor: revisionAnchor(event.clientX, event.clientY) };
     },
     { passive: false },
   );
@@ -362,7 +366,7 @@ async function paintRevisionPdf() {
       }
       if (event.cancelable) event.preventDefault();
       const pinch = points(event.touches);
-      touch = { distance: pinch.distance, ratio: RZ.ratio, anchor: revisionAnchor(pinch.x, pinch.y) };
+      touch = { distance: pinch.distance, ratio: REVISION_ZOOM.ratio, anchor: revisionAnchor(pinch.x, pinch.y) };
     },
     { passive: false },
   );
@@ -388,8 +392,8 @@ async function paintRevisionPdf() {
       if (revisionPdfActive()) {
         // A resize may clamp the scroll before its observer runs: the reading point read before stays until the layout
         // handles it.
-        if (Math.abs(revisionFitWidth() - RZ.fit) <= 0.5 && box.clientHeight === RZ.height)
-          RZ.anchor = revisionAnchor();
+        if (Math.abs(revisionFitWidth() - REVISION_ZOOM.fit) <= 0.5 && box.clientHeight === REVISION_ZOOM.height)
+          REVISION_ZOOM.anchor = revisionAnchor();
         scheduleRevisionPaint();
       }
     },
@@ -397,12 +401,13 @@ async function paintRevisionPdf() {
   );
   const observer = new ResizeObserver(() => {
     if (!revisionPdfActive()) return;
-    if (Math.abs(revisionFitWidth() - RZ.fit) > 0.5 || box.clientHeight !== RZ.height) resizeRevisionPdf();
+    if (Math.abs(revisionFitWidth() - REVISION_ZOOM.fit) > 0.5 || box.clientHeight !== REVISION_ZOOM.height)
+      resizeRevisionPdf();
   });
   observer.observe(box);
 })();
 export {
-  RZ,
+  REVISION_ZOOM,
   disposeRevisionZoom,
   drawRevisionZoom,
   mountRevisionPdf,

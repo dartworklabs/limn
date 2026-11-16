@@ -11,14 +11,14 @@
 // (PANEL_ENTER_ROOM, PANEL_EXIT_ROOM) so a width at the bar does not flip it. The wide band only: the foldable and
 // phone bands never take it. The line's words, keys, focus, save chip and reason are the line's own (verdict.ts,
 // verdict-reason.ts); this part decides when, places the panel and draws the summaries.
-import { $, $$, DOC, K, LAYOUT, LAYOUT_MODE, META, isFigureKind } from './core.ts';
+import { $, $$, DOC, PAGE_SCALE, LAYOUT, LAYOUT_MODE, META, isFigureKind } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { NOTICES, chipAway, drawChips } from './notices.ts';
-import { arrivalWatch, innerW, pageWidth, ptMax } from './pages.ts';
+import { arrivalWatch, pdfAreaInnerWidth, pageWidth, widestPagePoints } from './pages.ts';
 import { readingDepth } from './outline.ts';
 import { searchToPage } from './search.ts';
-import { BAND_T } from './layout.ts';
+import { BAND_TIMER } from './layout.ts';
 import {
   CHIP_WATCH,
   READING_LINE_PAGE,
@@ -80,15 +80,15 @@ let IS_BESIDE_PAGES = false; // the lines stand beside the pages now: one panel,
 function measureBesideRoom(): number | null {
   const area = $('#left');
   if (!META || !Array.isArray(META.pages) || !META.pages.length || !area.getClientRects().length) return null;
-  return innerW() - pageWidth(ptMax(), K);
+  return pdfAreaInnerWidth() - pageWidth(widestPagePoints(), PAGE_SCALE);
 }
 // Whether the lines should stand beside the pages: the wide band, a document with page lines, and the room - with
-// hysteresis around the bar. They stay as they are while the band settles (BAND_T): moved at the old band's new width
-// they would stack, the space under a page would grow, and the re-fit that follows would take its spot from there and
-// leave the page read off its place. bandSettle looks again once the band has settled.
+// hysteresis around the bar. They stay as they are while the band settles (BAND_TIMER): moved at the old band's new
+// width they would stack, the space under a page would grow, and the re-fit that follows would take its spot from there
+// and leave the page read off its place. bandSettle looks again once the band has settled.
 function shouldStandBeside() {
   // a syllable being composed in the reason keeps the lines where they are until it ends and its key lets the field go
-  if (isComposingNow() || BAND_T) return IS_BESIDE_PAGES;
+  if (isComposingNow() || BAND_TIMER) return IS_BESIDE_PAGES;
   if (LAYOUT !== LAYOUT_MODE.WIDE || !pageVerdictsOn()) return false;
   const room = measureBesideRoom();
   if (room === null) return IS_BESIDE_PAGES;
@@ -281,12 +281,12 @@ function fillPanel(map: Map<number, Pin[]>, verdicts: DocVerdicts) {
   panel.dataset.page = String(at || 0);
   delete panel.dataset.pin;
   panel.setAttribute('role', 'group');
-  panel.setAttribute('aria-label', at ? tl('{page}쪽 판정', { page: at }) : tr('판정'));
+  panel.setAttribute('aria-label', at ? translateTemplate('{page}쪽 판정', { page: at }) : translate('판정'));
   const title = at ? quietPageTitle(at) : '';
   setHtml(
     panel,
-    html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${at ? tl('{page}쪽', { page: at }) : ''}</span>${title ? html`<span class="pv-fig-t">${title}</span>` : ''}</span>\
-<span class="pv-t"><span class="pv-s pv-none">${tr('이 쪽은 판정을 받지 않습니다')}</span></span>`,
+    html`<span class="pv-fig" translate="no"><span class="pv-fig-id">${at ? translateTemplate('{page}쪽', { page: at }) : ''}</span>${title ? html`<span class="pv-fig-t">${title}</span>` : ''}</span>\
+<span class="pv-t"><span class="pv-s pv-none">${translate('이 쪽은 판정을 받지 않습니다')}</span></span>`,
   );
   placePanel();
   flashOnArrival(at);
@@ -343,7 +343,7 @@ function placePanel() {
     inset = Math.max(0, area.clientHeight - paddingTop - parseFloat(style.paddingBottom)) + 'px';
   if (at.style.bottom !== inset) at.style.bottom = inset;
   const rect = pageElement.getBoundingClientRect(),
-    right = rect.left + (rect.width + pageWidth(ptMax(), K)) / 2;
+    right = rect.left + (rect.width + pageWidth(widestPagePoints(), PAGE_SCALE)) / 2;
   const x =
     Math.round(
       Math.min(right + PANEL_GAP, areaRect.left + area.clientWidth - PANEL_WIDTH) - at.getBoundingClientRect().left,
@@ -436,8 +436,8 @@ function summaryLabel(page: number, list: Pin[] | undefined) {
     pageLineName(page).id +
     ' · ' +
     (cur && key
-      ? tr('판정') + ' #' + cur.id + ' ' + verdictLabel(key) + ' · ' + verdictStateWord(cur)
-      : tr('판정 없음'))
+      ? translate('판정') + ' #' + cur.id + ' ' + verdictLabel(key) + ' · ' + verdictStateWord(cur)
+      : translate('판정 없음'))
   );
 }
 // '6쪽 · PL17 · 판정 #7 채택 · 처리 대기' (or '판정 없음') under every page that takes a verdict, and '초안 있음' where
@@ -451,12 +451,12 @@ function summaryHtml(page: number, list: Pin[] | undefined) {
     sep = html`<span class="pv-sep" aria-hidden="true">·</span>`;
   const state =
     cur && key
-      ? html`${tr('판정')} #${cur.id} <b class="vd-w" translate="no">${verdictLabel(key)}</b>${sep}${verdictStateWord(cur)}`
-      : html`<span class="pv-none">${tr('판정 없음')}</span>`;
+      ? html`${translate('판정')} #${cur.id} <b class="vd-w" translate="no">${verdictLabel(key)}</b>${sep}${verdictStateWord(cur)}`
+      : html`<span class="pv-none">${translate('판정 없음')}</span>`;
   const ownDraft = cur && canCancelVerdict(cur) ? getDraft(DOC, cur.id) : null,
     draft =
       !!getDraft(DOC, 'p' + page) || (!!ownDraft && !!cur && ownDraft.text.trim() !== String(cur.note || '').trim());
-  return html`<span class="pv-sum-id" translate="no">${pageLineName(page).id}</span>${sep}<span class="pv-sum-s">${state}${draft ? html`${sep}<span class="pv-sum-draft">${tr('초안 있음')}</span>` : ''}</span>`;
+  return html`<span class="pv-sum-id" translate="no">${pageLineName(page).id}</span>${sep}<span class="pv-sum-s">${state}${draft ? html`${sep}<span class="pv-sum-draft">${translate('초안 있음')}</span>` : ''}</span>`;
 }
 // Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for
 // being far from the view (watchFarLines: a far row is skipped like a far line).
@@ -484,7 +484,7 @@ function drawSummaries(map: Map<number, Pin[]>) {
       summary.dataset.t = markup.text;
       setHtml(summary, markup);
     }
-    const say = tl('{state} · 판정 패널로', { state: summaryLabel(page, map.get(page)) });
+    const say = translateTemplate('{state} · 판정 패널로', { state: summaryLabel(page, map.get(page)) });
     summary.setAttribute('aria-label', say);
     summary.dataset.tipPress = say;
   });

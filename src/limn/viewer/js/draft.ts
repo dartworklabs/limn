@@ -10,7 +10,7 @@ import {
   ASSIGNEE_AGENT,
   DOC,
   KIND_NEW,
-  KIND_REQ,
+  REQUEST_KIND,
   LAYOUT,
   LAYOUT_MODE,
   META,
@@ -21,8 +21,8 @@ import {
 import { NOTICES, lineNote } from './notices.ts';
 import { applySide, setSide } from './layout.ts';
 import { drawBox, newBox, pendingBadge, revealBox } from './selection.ts';
-import { isMdDoc, mdRelevel } from './md-surface.ts';
-import { SG, suggestClear, suggestCopy } from './suggest.ts';
+import { isMarkdownDoc, relevelForLineView } from './md-surface.ts';
+import { SUGGEST_DRAFT, suggestClear, suggestCopy } from './suggest.ts';
 import { COMPOSE, cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind } from './composer.ts';
 import { ASSIGN_NEW, renderAssignNew } from './mentions.ts';
 import { autoGrow } from './edit.ts';
@@ -87,7 +87,7 @@ function draftRecord() {
     mentions: noteField._mentions ? Array.from(noteField._mentions) : [],
     kind: KIND_NEW,
     assign: { v: ASSIGN_NEW.v, touched: ASSIGN_NEW.touched },
-    sg: suggestCopy(SG),
+    sg: suggestCopy(SUGGEST_DRAFT),
   };
 }
 // Every edit schedules a write (no-op until the boot restore has run, so booting never overwrites the stored draft).
@@ -173,7 +173,7 @@ function openDraftDoc() {
   noteField._mentions = null;
   ASSIGN_NEW.v = ASSIGNEE_AGENT;
   ASSIGN_NEW.touched = false;
-  setKind(KIND_REQ.FIX);
+  setKind(REQUEST_KIND.FIX);
   suggestClear();
   renderAssignNew();
   autoGrow(noteField);
@@ -214,7 +214,7 @@ function restoreDraft() {
   noteField._mentions = record.mentions && record.mentions.length ? new Set(record.mentions) : null;
   setKind(record.kind);
   Object.assign(ASSIGN_NEW, record.assign || {});
-  if (record.sg && !picked) Object.assign(SG, suggestCopy(record.sg));
+  if (record.sg && !picked) Object.assign(SUGGEST_DRAFT, suggestCopy(record.sg));
   renderAssignNew();
   autoGrow(noteField);
   if (picked) saveDraftSoon();
@@ -241,7 +241,7 @@ function restoreDraft() {
     setSide(true);
     applySide();
     if (LAYOUT !== LAYOUT_MODE.WIDE) revealBox(COMPOSE.box);
-    if (isMdDoc()) mdRelevel();
+    if (isMarkdownDoc()) relevelForLineView();
   } // the Markdown surface's line view takes the kept lines as lines
   lineNote(
     how === 'full' || picked

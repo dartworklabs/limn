@@ -18,11 +18,11 @@ import {
   NOTICE_KIND,
   STATUS_KIND,
   SYNC_STATE,
-  T,
+  TIP_TEXT,
   buildsFromSource,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from './notices.ts';
 import { hideTip, showTipText } from './tooltip.ts';
 import { SYNC_REASON, isViewer } from './boot.ts';
@@ -151,19 +151,19 @@ function statusShown(list, wide) {
 }
 
 // A filled template's text as [label, tail], cut at the template's first placeholder: the words before it (without the
-// separator) are the label, the rest - the numbers - the tail. tl('쪽 {done}/{total}',{done:3,total:9}) is ['쪽', '
-// 3/9'].
+// separator) are the label, the rest - the numbers - the tail. translateTemplate('쪽 {done}/{total}',{done:3,total:9})
+// is ['쪽', ' 3/9'].
 function statusSplit(key, values) {
-  const template = tl(key, {}),
+  const template = translateTemplate(key, {}),
     brace = template.indexOf('{'),
     head = (brace < 0 ? template : template.slice(0, brace)).replace(/[\s·]+$/, ''),
-    full = tl(key, values);
+    full = translateTemplate(key, values);
   return [head, full.slice(head.length)];
 }
 
 // The text of an item in its long form (fit 'long') or its short one ('short'), as [label, tail]: the label is what a
-// screen reader hears when the item appears, the tail the seconds and pages that tick (drawn aria-hidden). Only tr/tl
-// beyond itself.
+// screen reader hears when the item appears, the tail the seconds and pages that tick (drawn aria-hidden). Only
+// translate/translateTemplate beyond itself.
 function statusText(item, fit) {
   const long = fit !== 'short';
   switch (item.kind) {
@@ -172,25 +172,30 @@ function statusText(item, fit) {
       return [long && notice.desc ? notice.title + ' · ' + notice.desc : notice.title, ''];
     } // already in the UI language
     case STATUS_KIND.FAILED:
-      return [long ? tr('빌드 실패 · 이전 PDF를 보는 중') : tr('빌드 실패'), ''];
+      return [long ? translate('빌드 실패 · 이전 PDF를 보는 중') : translate('빌드 실패'), ''];
     case STATUS_KIND.ERRORS:
-      return [long ? tl('LaTeX 오류 {n}건 · 새 PDF', { n: item.n }) : tl('LaTeX 오류 {n}', { n: item.n }), ''];
+      return [
+        long
+          ? translateTemplate('LaTeX 오류 {n}건 · 새 PDF', { n: item.n })
+          : translateTemplate('LaTeX 오류 {n}', { n: item.n }),
+        '',
+      ];
     case STATUS_KIND.OFFLINE:
-      return [long ? tr('연결 끊김 · 다시 잇는 중') : tr('연결 끊김'), ''];
+      return [long ? translate('연결 끊김 · 다시 잇는 중') : translate('연결 끊김'), ''];
     case STATUS_KIND.QUEUED:
       return [
         item.held
-          ? tl('오프라인 핀 {n}개 · {h}개는 확인이 필요합니다', { n: item.n, h: item.held })
+          ? translateTemplate('오프라인 핀 {n}개 · {h}개는 확인이 필요합니다', { n: item.n, h: item.held })
           : long
-            ? tl('오프라인 핀 {n}개 · 연결되면 반영합니다', { n: item.n })
-            : tl('오프라인 핀 {n}', { n: item.n }),
+            ? translateTemplate('오프라인 핀 {n}개 · 연결되면 반영합니다', { n: item.n })
+            : translateTemplate('오프라인 핀 {n}', { n: item.n }),
         '',
       ];
     case STATUS_KIND.OUTDATED:
       return [
         long
-          ? tl('Limn {v}(으)로 바뀌었습니다 · 새로 고치면 새 화면을 씁니다', { v: item.version })
-          : tr('Limn 업데이트됨'),
+          ? translateTemplate('Limn {v}(으)로 바뀌었습니다 · 새로 고치면 새 화면을 씁니다', { v: item.version })
+          : translate('Limn 업데이트됨'),
         '',
       ];
     case STATUS_KIND.RENDERING:
@@ -202,31 +207,35 @@ function statusText(item, fit) {
       }
     // falls through: no progress field - the seconds, as for any other phase
     case STATUS_KIND.BUILDING: {
-      const name = tr(
+      const name = translate(
         { pull: '원격 main 당겨오는 중', copy: '원고 복사 중', latex: 'LaTeX 컴파일 중', render: '쪽 그리는 중' }[
           item.phase
         ] || '재빌드 중',
       ).replace(/…$/, '');
-      const seconds = tl('{s}초', { s: item.el });
+      const seconds = translateTemplate('{s}초', { s: item.el });
       return [
         name,
-        long ? ' · ' + seconds + (item.last ? ' ' + tl('(지난번 {s}초)', { s: item.last }) : '') : ' ' + seconds,
+        long
+          ? ' · ' + seconds + (item.last ? ' ' + translateTemplate('(지난번 {s}초)', { s: item.last }) : '')
+          : ' ' + seconds,
       ];
     }
     case STATUS_KIND.SYNC_BLOCKED:
       return [
         long
-          ? tl('main 동기화 확인 필요 · {reason}', { reason: tr(SYNC_REASON[item.reason] || item.reason || '') })
-          : tr('main 동기화 막힘'),
+          ? translateTemplate('main 동기화 확인 필요 · {reason}', {
+              reason: translate(SYNC_REASON[item.reason] || item.reason || ''),
+            })
+          : translate('main 동기화 막힘'),
         '',
       ];
     case STATUS_KIND.UNCHANGED:
-      return [tr('변경 없음') + (long ? item.pull || '' : ''), ''];
+      return [translate('변경 없음') + (long ? item.pull || '' : ''), ''];
     case STATUS_KIND.STALE:
-      return [long ? tr('원고가 PDF보다 새롭습니다') : tr('원고 수정됨'), ''];
+      return [long ? translate('원고가 PDF보다 새롭습니다') : translate('원고 수정됨'), ''];
     case STATUS_KIND.SYNC:
       return [
-        tr(
+        translate(
           item.state === SYNC_STATE.UPDATING
             ? '최신 main PDF 반영 중'
             : item.state === SYNC_STATE.UPDATED
@@ -238,7 +247,7 @@ function statusText(item, fit) {
         '',
       ];
     case STATUS_KIND.PNG:
-      return [long ? tr('PNG로 보는 중 · 확대하면 흐릴 수 있습니다') : tr('PNG로 보는 중'), ''];
+      return [long ? translate('PNG로 보는 중 · 확대하면 흐릴 수 있습니다') : translate('PNG로 보는 중'), ''];
   }
   return ['', ''];
 }
@@ -251,21 +260,22 @@ function statusIcon(item) {
   if (item.kind === kinds.NOTICE)
     return html`<span class="st-ic nk-${item.notice.kind}">${noticeIcon(item.notice.kind)}</span>`;
   if (item.kind === kinds.FAILED || item.kind === kinds.ERRORS || item.kind === kinds.SYNC_BLOCKED)
-    return html`<span class="st-ic warn">${ic('triangle-alert')}</span>`;
-  if (item.kind === kinds.OFFLINE) return html`<span class="st-ic">${ic('wifi-off')}</span>`;
+    return html`<span class="st-ic warn">${lucideIcon('triangle-alert')}</span>`;
+  if (item.kind === kinds.OFFLINE) return html`<span class="st-ic">${lucideIcon('wifi-off')}</span>`;
   if (item.kind === kinds.QUEUED)
-    return html`<span class="st-ic${item.held ? ' warn' : ''}">${ic(item.held ? 'triangle-alert' : 'clock')}</span>`;
-  if (item.kind === kinds.OUTDATED) return html`<span class="st-ic warn">${ic('refresh-cw')}</span>`;
+    return html`<span class="st-ic${item.held ? ' warn' : ''}">${lucideIcon(item.held ? 'triangle-alert' : 'clock')}</span>`;
+  if (item.kind === kinds.OUTDATED) return html`<span class="st-ic warn">${lucideIcon('refresh-cw')}</span>`;
   if (item.kind === kinds.STALE) return html`<span class="st-ic"><i class="st-stale"></i></span>`;
-  if (item.kind === kinds.PNG) return html`<span class="st-ic">${ic('image')}</span>`;
+  if (item.kind === kinds.PNG) return html`<span class="st-ic">${lucideIcon('image')}</span>`;
   if (item.kind === kinds.UNCHANGED || (item.kind === kinds.SYNC && item.state === SYNC_STATE.UPDATED))
-    return html`<span class="st-ic">${ic('check')}</span>`;
+    return html`<span class="st-ic">${lucideIcon('check')}</span>`;
   return html`<span class="st-ic"><i class="spin"></i></span>`;
 }
 
 // An item's one action as a button (its data-act; [재빌드] is the line's one primary fill), or '' without one. [그래도
-// 빌드] carries the tip on what a cold build is for (T.buildanywaytip), [이유] the reason itself (statusWhy). A message
-// brings its own action and [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap height.
+// 빌드] carries the tip on what a cold build is for (TIP_TEXT.buildanywaytip), [이유] the reason itself (statusWhy). A
+// message brings its own action and [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap
+// height.
 function statusAct(item) {
   if (!item.act) return html``;
   if (item.kind === STATUS_KIND.NOTICE) return noticeButtons(item.notice, true);
@@ -275,22 +285,22 @@ function statusAct(item) {
   const flush = item.act === 'offline-flush';
   const name =
     item.act === 'rebuild'
-      ? tr('재빌드')
+      ? translate('재빌드')
       : why
-        ? tr('이유')
+        ? translate('이유')
         : force
-          ? tr(T.buildanyway)
+          ? translate(TIP_TEXT.buildanyway)
           : reload
-            ? tr('새로 고침')
+            ? translate('새로 고침')
             : flush
-              ? tr('지금 반영')
-              : tr('보기');
+              ? translate('지금 반영')
+              : translate('보기');
   const tip = force
-    ? html` data-tip="${T.buildanywaytip}"`
+    ? html` data-tip="${TIP_TEXT.buildanywaytip}"`
     : why
       ? html` data-tip="${syncWhyText(STATUS_SYNC)}"`
       : reload
-        ? html` data-tip="${T.reloadtip}"`
+        ? html` data-tip="${TIP_TEXT.reloadtip}"`
         : '';
   return html`<button class="btn-sm st-act ${item.act === 'rebuild' || reload ? 'btn-default' : 'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;
 }
@@ -388,10 +398,10 @@ function drawStatus() {
     STATUS_SIG = sig;
     const more =
       list.length > 1
-        ? html`<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="${tl('상태 {n}건 더 보기', { n: list.length - 1 })}"><span class="lbl">${tl('+{n}', { n: list.length - 1 })}</span></button>`
+        ? html`<button class="btn-sm btn-ghost st-more" data-act="status-more" aria-haspopup="dialog" aria-label="${translateTemplate('상태 {n}건 더 보기', { n: list.length - 1 })}"><span class="lbl">${translateTemplate('+{n}', { n: list.length - 1 })}</span></button>`
         : '';
     const bar = running
-      ? html`<span class="st-bar" role="progressbar" aria-label="${tr('빌드 진행')}"><i></i></span>`
+      ? html`<span class="st-bar" role="progressbar" aria-label="${translate('빌드 진행')}"><i></i></span>`
       : '';
     setHtml(body, html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);
   }
@@ -462,10 +472,16 @@ function drawStatusList(list) {
   );
 }
 // The sentence [이유] of blocked main sync explains: main sync is blocked, why (SYNC_REASON), and that the previous PDF
-// may be showing. Only tr/tl beyond its argument.
+// may be showing. Only translate/translateTemplate beyond its argument.
 function syncWhyText(sync: SyncStatus | null) {
   const reason = (sync && sync.reason) || '';
-  return tr('main 동기화 막힘') + ' — ' + tr(SYNC_REASON[reason] || reason) + ' · ' + tr('기존 PDF가 보일 수 있습니다');
+  return (
+    translate('main 동기화 막힘') +
+    ' — ' +
+    translate(SYNC_REASON[reason] || reason) +
+    ' · ' +
+    translate('기존 PDF가 보일 수 있습니다')
+  );
 }
 // [이유] of blocked main sync: its sentence (syncWhyText, also the button's description) shown right at the button -
 // or, pressed in the '+N' list, which has just folded, at the line - and read out.

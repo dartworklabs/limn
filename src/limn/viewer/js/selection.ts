@@ -5,15 +5,27 @@
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
-import { $, DOC, K, LAYOUT, LAYOUT_MODE, META, REPICK, REPLY, SELMODE, SIDE_OPEN, isFigureKind } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tr } from './i18n.ts';
+import {
+  $,
+  DOC,
+  PAGE_SCALE,
+  LAYOUT,
+  LAYOUT_MODE,
+  META,
+  REPICK,
+  REPLY,
+  SELMODE,
+  SIDE_OPEN,
+  isFigureKind,
+} from './core.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translate } from './i18n.ts';
 import { SWALLOW_CLICK, setSwallowClick } from './tooltip.ts';
-import { fitK, zoomTo } from './pages.ts';
-import { isMdDoc } from './md-surface.ts';
+import { fitScale, zoomTo } from './pages.ts';
+import { isMarkdownDoc } from './md-surface.ts';
 import { COMPOSE, discardSelection, pick } from './composer.ts';
 import { endJumpForScroll } from './verdict.ts';
-import { SEL_POP, openSelPop, selPopOpen } from './sel-popover.ts';
+import { SELECTION_POPOVER, openSelectionPopover, isSelectionPopoverOpen } from './sel-popover.ts';
 import { markBadgeIn, markBadgeRoom } from './list.ts';
 import { EDITOR } from './edit.ts';
 let DRAG = null as {
@@ -49,7 +61,7 @@ function newBox(pageElement) {
 // (pendingBadgeSide). The name is for screen readers only: a visible tag above the box would cover the text line above
 // it.
 function pendingBadge(box, name) {
-  setHtml(box, html`<i aria-hidden="true">${ic('plus')}</i><span class="sr-only">${tr(name)}</span>`);
+  setHtml(box, html`<i aria-hidden="true">${lucideIcon('plus')}</i><span class="sr-only">${translate(name)}</span>`);
   pendingBadgeSide(box);
 }
 // Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, its page's width and margin now.
@@ -71,7 +83,7 @@ function cancelDrag() {
   if (DRAG && DRAG.box) DRAG.box.remove();
   DRAG = null;
 }
-function cancelLP() {
+function cancelLongPress() {
   if (LONG_PRESS) {
     clearTimeout(LONG_PRESS.t);
     LONG_PRESS = null;
@@ -113,7 +125,7 @@ $('#doc').addEventListener('pointerdown', (event) => {
   // A second finger is a pinch: the box being drawn is discarded.
   if (!event.isPrimary) {
     cancelDrag();
-    cancelLP();
+    cancelLongPress();
     TAP = null;
     LAST_TAP = null;
     return;
@@ -142,7 +154,7 @@ $('#doc').addEventListener('pointerdown', (event) => {
     }
     return;
   }
-  cancelLP();
+  cancelLongPress();
   TAP = { id: event.pointerId, x: event.clientX, y: event.clientY, t: performance.now() };
   LONG_PRESS = {
     id: event.pointerId,
@@ -165,7 +177,7 @@ window.addEventListener('pointermove', (event) => {
     event.pointerId === LONG_PRESS.id &&
     Math.hypot(event.clientX - LONG_PRESS.cx, event.clientY - LONG_PRESS.cy) > 10
   )
-    cancelLP();
+    cancelLongPress();
   if (TAP && event.pointerId === TAP.id && Math.hypot(event.clientX - TAP.x, event.clientY - TAP.y) > TAP_SLOP)
     TAP = null;
   if (!DRAG || event.pointerId !== DRAG.id) return;
@@ -182,7 +194,7 @@ window.addEventListener('pointerup', (event) => {
   PRESS_OFF = null;
   // A long press has already picked: its release is no tap.
   const picked = LONG_PRESS_PICKED === event.pointerId;
-  if (LONG_PRESS && event.pointerId === LONG_PRESS.id) cancelLP();
+  if (LONG_PRESS && event.pointerId === LONG_PRESS.id) cancelLongPress();
   if (picked) {
     LONG_PRESS_PICKED = null;
     setSwallowClick(Date.now() + 400);
@@ -234,7 +246,7 @@ window.addEventListener('pointerup', (event) => {
 });
 window.addEventListener('pointercancel', (event) => {
   if (PRESS_OFF && PRESS_OFF.id === event.pointerId) PRESS_OFF = null;
-  if (LONG_PRESS && event.pointerId === LONG_PRESS.id) cancelLP();
+  if (LONG_PRESS && event.pointerId === LONG_PRESS.id) cancelLongPress();
   if (DRAG && event.pointerId === DRAG.id) cancelDrag();
   if (TAP && event.pointerId === TAP.id) TAP = null;
   if (LONG_PRESS_PICKED === event.pointerId) LONG_PRESS_PICKED = null;
@@ -269,7 +281,7 @@ function pressOutsideSelection(event) {
   const target = event.target as Element;
   if (!selectionOpen()) return false;
   // A press on the Markdown surface picks (md-surface.ts), never cancels.
-  if (isMdDoc() && target.closest('#md')) return false;
+  if (isMarkdownDoc() && target.closest('#md')) return false;
   if (target.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))
     return false;
   const pdfArea = $('#left');
@@ -278,7 +290,7 @@ function pressOutsideSelection(event) {
   const inside = [
     ...document.querySelectorAll('.mark'),
     ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i')] : []),
-    ...(selPopOpen() ? [SEL_POP] : []),
+    ...(isSelectionPopoverOpen() ? [SELECTION_POPOVER] : []),
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
 }
@@ -334,7 +346,7 @@ function doubleTapWidth(width, fit) {
 // Zooms around (x, y) to doubleTapWidth() of the scale; landing on the screen's own scale, compact stops counting as
 // zoomed and re-fits again (markZoomed, in zoomTo).
 function doubleTapZoom(x, y) {
-  zoomTo(doubleTapWidth(K, fitK()), x, y);
+  zoomTo(doubleTapWidth(PAGE_SCALE, fitScale()), x, y);
 }
 // Quick selection: calls the existing /api/pick with a small box around the pressed point (quickBox). The server's
 // default level is used as-is - 'paragraph' in body text, 'environment' inside a figure/table, the element under the
@@ -389,17 +401,18 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     doc: DOC || undefined,
   });
   // A mouse drag's note popover (sel-popover.ts); pick() has opened the composer.
-  if (!repick) openSelPop(box);
+  if (!repick) openSelectionPopover(box);
   return true;
 }
 // If the sheet or panel covers the selection box, the body scrolls up until the box is visible (compact only; with
-// wide, in every layout - the Markdown surface's chosen lines after a reflow, mdSpotKeep). The view's top is 28px into
-// the PDF area, or 8px under the select mode's bar while it shows, so the box never stays under the bar (selRoom).
+// wide, in every layout - the Markdown surface's chosen lines after a reflow, keepReadingSpot). The view's top is 28px
+// into the PDF area, or 8px under the select mode's bar while it shows, so the box never stays under the bar
+// (selectionRoom).
 function revealBox(box: HTMLElement | null, wide?: boolean) {
   if (!box || (LAYOUT === LAYOUT_MODE.WIDE && !wide) || !document.contains(box)) return;
   const pdfArea = $('#left'),
     boxRect = box.getBoundingClientRect(),
-    { top, bottom } = selRoom();
+    { top, bottom } = selectionRoom();
   if (boxRect.top >= top && boxRect.bottom <= bottom - 8) return;
   endJumpForScroll();
   pdfArea.scrollTop += boxRect.top - top - Math.max(0, (bottom - top - boxRect.height) / 3);
@@ -407,7 +420,7 @@ function revealBox(box: HTMLElement | null, wide?: boolean) {
 // The part of the document area a chosen place can be seen in, as viewport y's: from 28px under the area's top (or 8px
 // under the select mode's bar) down to the area's bottom - or to the sheet's top, where the narrow sheet is open over
 // it.
-function selRoom(): { top: number; bottom: number } {
+function selectionRoom(): { top: number; bottom: number } {
   const areaRect = $('#left').getBoundingClientRect(),
     bar = $('#sel-bar');
   let bottom = areaRect.bottom;
@@ -417,4 +430,14 @@ function selRoom(): { top: number; bottom: number } {
     bottom,
   };
 }
-export { LONGPRESS_MS, cancelDrag, cancelLP, drawBox, newBox, pendingBadge, pendingBadgeSide, revealBox, selRoom };
+export {
+  LONGPRESS_MS,
+  cancelDrag,
+  cancelLongPress,
+  drawBox,
+  newBox,
+  pendingBadge,
+  pendingBadgeSide,
+  revealBox,
+  selectionRoom,
+};

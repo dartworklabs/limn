@@ -13,12 +13,12 @@ import {
   PINS,
   PIN_STATE,
   REVIEW_ALL,
-  T,
+  TIP_TEXT,
   setOpenAll,
   setPins,
   setReviewAll,
 } from './core.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import {
   NOTICE_ACT_WAIT,
@@ -53,12 +53,12 @@ async function closePin(id) {
       retry: () => closePin(id),
     });
     if (!data.ok) {
-      bannerNote(NOTICE_HOST.LIST, tl('완료 실패 — 핀 #{id} 이 없습니다', { id }), NOTICE_KIND.ERR);
+      bannerNote(NOTICE_HOST.LIST, translateTemplate('완료 실패 — 핀 #{id} 이 없습니다', { id }), NOTICE_KIND.ERR);
     } else {
       markMine(id);
       undoNote(
         NOTICE_PLACE.ROW,
-        tl(
+        translateTemplate(
           data.state === PIN_STATE.REVIEW
             ? '핀 #{id} 검토 대기로 보냄 — 이 화면에 신원이 없어(로컬) 에이전트가 닫은 것으로 칩니다'
             : '핀 #{id} 완료',
@@ -87,8 +87,8 @@ const CONFIRMING_PIN = new Map() as Map<number, Pin>;
 // nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
 function confirmConflictText(id, pin) {
   return pin && pinState(pin) !== PIN_STATE.REVIEW
-    ? tl('핀 #{id} 은 이미 완료로 닫혔습니다 — 확인할 것이 없습니다', { id })
-    : tl('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요', { id });
+    ? translateTemplate('핀 #{id} 은 이미 완료로 닫혔습니다 — 확인할 것이 없습니다', { id })
+    : translateTemplate('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요', { id });
 }
 // What kind of banner that 409 conflict is, by the same rule as its text: closed again is a WARN that still asks for a
 // look ([변경 보기]); already done by a person is INFO with nothing to do. Pure.
@@ -103,7 +103,7 @@ function confirmConflict(id: number, pin: Pin | null | undefined) {
     NOTICE_HOST.REVIEW,
     confirmConflictText(id, pin),
     kind,
-    kind === NOTICE_KIND.WARN ? { label: '변경 보기', tip: T.change, fn: () => showChange(id) } : null,
+    kind === NOTICE_KIND.WARN ? { label: '변경 보기', tip: TIP_TEXT.change, fn: () => showChange(id) } : null,
   );
 }
 function confirmPin(id) {
@@ -128,10 +128,18 @@ function confirmPin(id) {
           body: pin && pin.done_at ? { done_at: pin.done_at } : {},
         });
         if (data && data.error === PIN_STATE.OPEN)
-          bannerNote(NOTICE_HOST.REVIEW, tl('핀 #{id} 은 이미 다시 열렸습니다', { id }), NOTICE_KIND.WARN);
+          bannerNote(
+            NOTICE_HOST.REVIEW,
+            translateTemplate('핀 #{id} 은 이미 다시 열렸습니다', { id }),
+            NOTICE_KIND.WARN,
+          );
         else if (data && data.error === 'conflict') confirmConflict(id, data.pin);
         else if (!data.ok)
-          bannerNote(NOTICE_HOST.REVIEW, tl('확인 실패 — 핀 #{id} 이 없습니다', { id }), NOTICE_KIND.ERR);
+          bannerNote(
+            NOTICE_HOST.REVIEW,
+            translateTemplate('확인 실패 — 핀 #{id} 이 없습니다', { id }),
+            NOTICE_KIND.ERR,
+          );
         else markMine(id);
       } catch (error) {}
       CONFIRMING.delete(id);
@@ -153,12 +161,12 @@ function confirmPin(id) {
         !now &&
         ![OPEN_ALL, REVIEW_ALL, DONE_ALL].some((list) => list.some((listed) => listed.id === id))
       )
-        lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다', { id }), NOTICE_KIND.WARN);
+        lineNote(translateTemplate('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다', { id }), NOTICE_KIND.WARN);
       drawPins();
       marks();
     },
   );
-  deferredNote(pendingConfirm, NOTICE_PLACE.ROW, tl('핀 #{id} 확인 · 완료로 옮겼습니다', { id }), {
+  deferredNote(pendingConfirm, NOTICE_PLACE.ROW, translateTemplate('핀 #{id} 확인 · 완료로 옮겼습니다', { id }), {
     pin: id,
     sec: 'review',
     prev: cardBefore,
@@ -173,7 +181,7 @@ async function reopenPin(id: number): Promise<boolean> {
     await api('/api/pins/' + id + '/reopen', { method: 'POST', what: '다시 열기', where: NOTICE_HOST.LIST });
     ok = true;
     markMine(id);
-    quietNote(tl('핀 #{id} 완료를 되돌렸습니다', { id }));
+    quietNote(translateTemplate('핀 #{id} 완료를 되돌렸습니다', { id }));
   } catch (error) {}
   await loadPins();
   return ok;
@@ -240,12 +248,12 @@ async function dropPin(
   }
   if (ok) {
     markMine(id);
-    if (undoSave) quietNote(tl('핀 #{id} 저장을 되돌렸습니다', { id }));
+    if (undoSave) quietNote(translateTemplate('핀 #{id} 저장을 되돌렸습니다', { id }));
     else if (options && options.say) options.say();
     else
       undoNote(
         NOTICE_PLACE.ROW,
-        tl('핀 #{id} 삭제됨 · 휴지통에 30일 보관', { id }),
+        translateTemplate('핀 #{id} 삭제됨 · 휴지통에 30일 보관', { id }),
         { label: '되돌리기', wait: true, fn: () => restorePin(id) },
         { pin: id, sec: 'open', prev: cardBefore, rec: record },
       );
@@ -279,7 +287,10 @@ function purgePin(id) {
       drawPins();
     },
   );
-  deferredNote(pendingPurge, NOTICE_PLACE.TRASH, tl('핀 #{id} 영구 삭제', { id }), { pin: id, prev: cardBefore });
+  deferredNote(pendingPurge, NOTICE_PLACE.TRASH, translateTemplate('핀 #{id} 영구 삭제', { id }), {
+    pin: id,
+    prev: cardBefore,
+  });
 }
 // [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is
 // there. Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure
@@ -298,7 +309,7 @@ async function restorePin(id: number | null, settled?: () => void): Promise<bool
     });
     ok = true;
     markMine(id);
-    quietNote(tl('핀 #{id} 되살림', { id }));
+    quietNote(translateTemplate('핀 #{id} 되살림', { id }));
   } catch (error) {}
   if (settled) settled();
   await loadPins();
@@ -315,7 +326,7 @@ async function trashRestore(id: number | null) {
   const source = NOTICE_LATE_SRC + 'restore:' + id,
     trash = $('#trash') as HTMLDialogElement;
   const say = () => {
-    const text = tr('되살리기의 답이 늦습니다') + ' · ' + tl('핀 #{id}', { id });
+    const text = translate('되살리기의 답이 늦습니다') + ' · ' + translateTemplate('핀 #{id}', { id });
     const message = bannerNote(NOTICE_HOST.LIST, text, NOTICE_KIND.WARN, null, { literal: true, source: source });
     if (message && message.place === NOTICE_PLACE.LINE) {
       message.title = text;
@@ -359,7 +370,7 @@ async function unclaimPin(id) {
       retry: () => unclaimPin(id),
     });
     markMine(id);
-    quietNote(tl('핀 #{id} 처리 중 표시를 풀었습니다', { id }));
+    quietNote(translateTemplate('핀 #{id} 처리 중 표시를 풀었습니다', { id }));
   } catch (error) {}
   await loadPins();
 }

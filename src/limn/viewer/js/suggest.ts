@@ -17,11 +17,11 @@ import {
   SUGGEST_STATE,
   isFigureKind,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { ccAdded, ccFind, ccHtml } from './hidden-chars.ts';
-import { errText, tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { countAddedHidden, findHidden, markHiddenHtml } from './hidden-chars.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
-import { docInfo, dq, isRegion, pdoc } from './doc-tabs.ts';
+import { docInfo, withDocQuery, isRegion, pdoc } from './doc-tabs.ts';
 import { findAnyPin } from './revisions.ts';
 import { isViewer } from './boot.ts';
 import { pinState } from './polling.ts';
@@ -61,7 +61,7 @@ function suggestDraft(): SuggestDraft {
     fail: null,
   };
 }
-const SG = suggestDraft(); // the composer's draft; an open edit card keeps its own (EditCard.sg)
+const SUGGEST_DRAFT = suggestDraft(); // the composer's draft; an open edit card keeps its own (EditCard.sg)
 /** A copy of a draft to keep (a discard's undo, the tab's stored draft): what it holds, without a read under way or its
  * failure. */
 function suggestCopy(draft: SuggestDraft): SuggestDraft {
@@ -73,8 +73,8 @@ function suggestCopy(draft: SuggestDraft): SuggestDraft {
     fail: null,
   };
 }
-/** The draft an edit card of a pin opens with: on and filled with the pin's suggestion when it has one (had keeps it, to
- * tell what a save changes), else an empty draft. */
+/** The draft an edit card of a pin opens with: on and filled with the pin's suggestion when it has one (had keeps it,
+ * to tell what a save changes), else an empty draft. */
 function suggestOfPin(pin: Pin): SuggestDraft {
   const empty = suggestDraft(),
     suggestion = pin.suggest;
@@ -186,23 +186,23 @@ function suggestFold(
 }
 // Diff rows as Html in the changes view's source-diff look (revisions.css .rd-line): a number column and the line with
 // its '+', '-' or ' ' mark, so a change never rests on colour alone. The lines are the manuscript's text
-// (translate="no"), each character that would hide or reorder it in its box (ccHtml), whatever the document's kind: a
-// suggestion that puts one in never reads as another text than the one an agent will apply.
+// (translate="no"), each character that would hide or reorder it in its box (markHiddenHtml), whatever the document's
+// kind: a suggestion that puts one in never reads as another text than the one an agent will apply.
 function suggestDiffHtml(rows: { k: string; t: string; n: number }[]): Html {
   return html`<div class="sg-diff" translate="no">${rows.map((row) =>
     row.k === 'fold'
-      ? html`<span class="rd-line rd-fold"><span class="rd-no" aria-hidden="true"></span><span class="rd-code">… ${tl('{n}줄', { n: row.n })}</span></span>`
-      : html`<span class="rd-line rd-${row.k === 'ctx' ? 'context' : row.k}"><span class="rd-no" aria-hidden="true">${row.n}</span><span class="rd-code">${row.k === 'add' ? '+' : row.k === 'del' ? '-' : ' '}${ccHtml(row.t)}</span></span>`,
+      ? html`<span class="rd-line rd-fold"><span class="rd-no" aria-hidden="true"></span><span class="rd-code">… ${translateTemplate('{n}줄', { n: row.n })}</span></span>`
+      : html`<span class="rd-line rd-${row.k === 'ctx' ? 'context' : row.k}"><span class="rd-no" aria-hidden="true">${row.n}</span><span class="rd-code">${row.k === 'add' ? '+' : row.k === 'del' ? '-' : ' '}${markHiddenHtml(row.t)}</span></span>`,
   )}</div>`;
 }
 // What a draft's text holds of the characters that would hide or reorder text (hidden-chars.ts), which the editor (a
 // textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name, count]],
-// ccAdded) and how many it has in all; null when it has none. Pure.
+// countAddedHidden) and how many it has in all; null when it has none. Pure.
 function suggestHidden(draft: SuggestDraft): { added: [string, number][]; n: number } | null {
   if (draft.base == null) return null;
   let count = 0;
-  for (const line of draft.text.split('\n')) count += ccFind(line).length;
-  return count ? { added: ccAdded(draft.text, draft.base), n: count } : null;
+  for (const line of draft.text.split('\n')) count += findHidden(line).length;
+  return count ? { added: countAddedHidden(draft.text, draft.base), n: count } : null;
 }
 // The line under the editor for hidden, what suggestHidden found in the draft on lines from first, as Html: the
 // characters the draft adds, with the draft's added lines that hold them in the diff look - each character in its box -
@@ -210,30 +210,30 @@ function suggestHidden(draft: SuggestDraft): { added: [string, number][]; n: num
 // agent too.
 function suggestHiddenHtml(draft: SuggestDraft, hidden: { added: [string, number][]; n: number }, first: number): Html {
   if (!hidden.added.length)
-    return html`<span>${tl('원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다', { n: hidden.n })}</span>`;
+    return html`<span>${translateTemplate('원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다', { n: hidden.n })}</span>`;
   const rows = suggestDiff(draft.base || '', draft.text, first)
-    .filter((row) => row.k === 'add' && ccFind(row.t).length)
+    .filter((row) => row.k === 'add' && findHidden(row.t).length)
     .slice(0, SUGGEST_FOLD);
-  return html`<span>${tl(
+  return html`<span>${translateTemplate(
     '제안 문안이 원문에 없는, 보이지 않거나 글 순서를 바꾸는 문자를 넣습니다: {list}. 이 칸에서는 보이지 않거나 글 순서가 바뀌어 보입니다',
-    { list: hidden.added.map(([name, count]) => name + ' ' + tl('{n}개', { n: count })).join(', ') },
+    { list: hidden.added.map(([name, count]) => name + ' ' + translateTemplate('{n}개', { n: count })).join(', ') },
   )}</span>${suggestDiffHtml(rows)}`;
 }
 
 // ---------------- A card's suggestion
-const SG_OPEN = new Set(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
+const SUGGEST_OPEN = new Set(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
 // A card's suggested edit, after its note: the diff of base -> text, folded past SUGGEST_FOLD rows with [제안 펼치기 ·
 // N줄] under it to unfold. null when the pin has none.
 function suggestView(pin: Pin): Html | null {
   const suggestion = pin.suggest;
   if (!suggestion) return null;
   const key = pdoc(pin) + ':' + pin.id,
-    open = SG_OPEN.has(key),
+    open = SUGGEST_OPEN.has(key),
     rows = suggestDiff(suggestion.base, suggestion.text, pin.lo || 1);
   const foot =
     rows.length > SUGGEST_FOLD
       ? html`<div class="sg-foot"><button class="btn-sm btn-ghost" data-act="sg-fold" data-key="${key}" aria-expanded="${String(open)}">\
-${open ? tr('제안 접기') : tr('제안 펼치기') + ' · ' + tl('{n}줄', { n: rows.length })}</button></div>`
+${open ? translate('제안 접기') : translate('제안 펼치기') + ' · ' + translateTemplate('{n}줄', { n: rows.length })}</button></div>`
       : null;
   return html`<div class="sg-view">${suggestWarnLine(pin)}${suggestDiffHtml(suggestFold(rows, open))}${foot}</div>`;
 }
@@ -259,10 +259,10 @@ function suggestWarnLine(pin: Pin): Html | null {
   const warning = suggestWarn(pin.suggest_state, pinState(pin), isViewer());
   if (!warning) return null;
   const go = warning.edit
-    ? html` · <button class="sg-warn-go hit" data-act="edit" data-tip="${tr('이 핀의 수정 칸을 엽니다 — 거기서 [지금 원문으로 맞추기]가 제안의 원문을 지금 그 줄들로 바꿉니다')}">\
-${tr('수정해서 원문에 맞추기')}</button>`
+    ? html` · <button class="sg-warn-go hit" data-act="edit" data-tip="${translate('이 핀의 수정 칸을 엽니다 — 거기서 [지금 원문으로 맞추기]가 제안의 원문을 지금 그 줄들로 바꿉니다')}">\
+${translate('수정해서 원문에 맞추기')}</button>`
     : null;
-  return html`<p class="sg-warn">${tr('에이전트는 넣지 않음')}${warning.reason ? ' · ' + tr(warning.reason) : null}${go}</p>`;
+  return html`<p class="sg-warn">${translate('에이전트는 넣지 않음')}${warning.reason ? ' · ' + translate(warning.reason) : null}${go}</p>`;
 }
 // A card's [제안 수정] badge, with the reason not to apply it when its lines' text differs from its base ('원문 바뀜')
 // or cannot be compared ('확인 불가'): a pin's `suggest_state`. A closed card shows the plain badge: a closed pin is
@@ -273,10 +273,10 @@ function suggestBadge(pin: Pin, closed: boolean): Html | null {
   if (!pin.suggest) return null;
   const state = closed ? SUGGEST_STATE.READY : pin.suggest_state;
   if (state === SUGGEST_STATE.CHANGED)
-    return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${tr('그사이 이 줄들이 바뀌어 제안의 원문과 다릅니다 — 에이전트는 넣지 않고 답글로 알립니다. [수정]에서 지금 원문으로 맞출 수 있습니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('원문 바뀜')}</span>`;
+    return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${translate('그사이 이 줄들이 바뀌어 제안의 원문과 다릅니다 — 에이전트는 넣지 않고 답글로 알립니다. [수정]에서 지금 원문으로 맞출 수 있습니다')}">${lucideIcon('triangle-alert')}${translate('제안 수정')} · ${translate('원문 바뀜')}</span>`;
   if (state === SUGGEST_STATE.UNKNOWN)
-    return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${tr('원문과 대조할 수 없습니다(위치를 잃었거나 파일을 읽지 못함) — 에이전트는 넣지 않고 알립니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('확인 불가')}</span>`;
-  return html`<span class="badge sg-badge" data-tip="${tr('작성자가 바꿀 글을 직접 썼습니다 — 에이전트가 이 줄 범위에 넣고, 명백한 오타·문장 오류만 고쳐 알립니다. 뜻이 걸린 문제는 넣기 전에 묻습니다')}">${tr('제안 수정')}</span>`;
+    return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${translate('원문과 대조할 수 없습니다(위치를 잃었거나 파일을 읽지 못함) — 에이전트는 넣지 않고 알립니다')}">${lucideIcon('triangle-alert')}${translate('제안 수정')} · ${translate('확인 불가')}</span>`;
+  return html`<span class="badge sg-badge" data-tip="${translate('작성자가 바꿀 글을 직접 썼습니다 — 에이전트가 이 줄 범위에 넣고, 명백한 오타·문장 오류만 고쳐 알립니다. 뜻이 걸린 문제는 넣기 전에 묻습니다')}">${translate('제안 수정')}</span>`;
 }
 
 // ---------------- The editor (composer and edit card)
@@ -295,7 +295,7 @@ async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns:
     fail = '';
   try {
     const { status, data } = await api(
-      dq(
+      withDocQuery(
         '/api/snippet?file=' +
           encodeURIComponent(String(owner.file)) +
           '&lo=' +
@@ -309,9 +309,9 @@ async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns:
     );
     if (status === 400) fail = errText(data);
     else if (data && typeof data.text === 'string') text = data.text;
-    else fail = tr('80줄이 넘는 범위는 원문을 받지 못합니다');
+    else fail = translate('80줄이 넘는 범위는 원문을 받지 못합니다');
   } catch (error) {
-    fail = tr('서버에 닿지 않습니다');
+    fail = translate('서버에 닿지 않습니다');
   }
   if (draft.reading !== key) return; // a newer read took over
   draft.reading = '';
@@ -359,11 +359,11 @@ function suggestRebase(draft: SuggestDraft, owner: any, owns: () => boolean, red
   else redraw();
 }
 // The one line under the editor of the draft on the owner, or null: what is under way or wrong first, then what a save
-// will do. Each is a Korean message (drawn through tr) and maybe the line's one action {act, label, tip}. isEdit: an
-// edit card, whose pin's suggest_state is `state`. While its draft keeps the pin's own base, an edit card of a pin the
-// agent will not apply says so first ('에이전트는 넣지 않음', `warn`: drawn in the warning colour, as on the card):
-// 'changed' with the rebase that ends it, 'unknown' with why. A rebase or a new range's source is a new base, and the
-// line goes, as the card's will once it is saved.
+// will do. Each is a Korean message (drawn through translate) and maybe the line's one action {act, label, tip}.
+// isEdit: an edit card, whose pin's suggest_state is `state`. While its draft keeps the pin's own base, an edit card of
+// a pin the agent will not apply says so first ('에이전트는 넣지 않음', `warn`: drawn in the warning colour, as on the
+// card): 'changed' with the rebase that ends it, 'unknown' with why. A rebase or a new range's source is a new base,
+// and the line goes, as the card's will once it is saved.
 function suggestLine(
   draft: SuggestDraft,
   owner: any,
@@ -388,7 +388,7 @@ function suggestLine(
   const failure = draft.fail;
   if (failure)
     return {
-      msg: tl('원문을 읽지 못했습니다 — {why}', { why: failure.why }),
+      msg: translateTemplate('원문을 읽지 못했습니다 — {why}', { why: failure.why }),
       act: {
         act: failure.fill ? 'sg-reload' : 'sg-rebase',
         label: '원문 다시 읽기',
@@ -451,7 +451,7 @@ function drawSuggest(
   elements.why.hidden = shown;
   if (!shown && off) {
     const why = SUGGEST_WHY[off];
-    elements.why.textContent = tr(why[0]);
+    elements.why.textContent = translate(why[0]);
     elements.why.dataset.tip = why[1];
   }
   const editing = draft.on && shown;
@@ -468,7 +468,7 @@ function drawSuggest(
     if (line)
       setHtml(
         elements.line,
-        html`<span>${tr(line.msg)}</span>${action ? html`<button class="hit" data-act="${action.act}" data-tip="${action.tip}">${tr(action.label)}</button>` : ''}`,
+        html`<span>${translate(line.msg)}</span>${action ? html`<button class="hit" data-act="${action.act}" data-tip="${action.tip}">${translate(action.label)}</button>` : ''}`,
       );
     else elements.line.replaceChildren();
   }
@@ -492,7 +492,7 @@ function drawSuggest(
   if (editing) suggestGrow(elements.ta);
 }
 
-// ---------------- The composer's draft (SG)
+// ---------------- The composer's draft (SUGGEST_DRAFT)
 /** The composer's suggestion elements. */
 function composerSuggestElements() {
   return {
@@ -518,19 +518,19 @@ function renderSuggest(selection: Selection) {
     renderOverlapBanner();
     saveDraftSoon();
   };
-  drawSuggest(SG, selection, off, composerSuggestElements(), false, undefined);
-  suggestFollow(SG, selection, off, owns, redraw);
+  drawSuggest(SUGGEST_DRAFT, selection, off, composerSuggestElements(), false, undefined);
+  suggestFollow(SUGGEST_DRAFT, selection, off, owns, redraw);
   renderVerdictRow(); // [제안 수정] on turns the verdict buttons off
   if (BAND === LAYOUT_BAND.TABLET_SHEET) applySheet();
 }
 // Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
 // ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).
 function suggestPending() {
-  return SG.on && suggestEdited(SG);
+  return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
 }
 // Empties the composer's draft (a save, a discard without undo, another document) and its editor.
 function suggestClear() {
-  Object.assign(SG, suggestDraft());
+  Object.assign(SUGGEST_DRAFT, suggestDraft());
   const editor = $('#c-sg-text') as HTMLTextAreaElement;
   editor.value = '';
   editor.style.height = '';
@@ -600,7 +600,7 @@ function suggestOwner(
   const selection = COMPOSE.current;
   if (!selection) return null;
   return {
-    sg: SG,
+    sg: SUGGEST_DRAFT,
     o: selection,
     owns: () => COMPOSE.current === selection,
     redraw: () => {
@@ -619,7 +619,7 @@ function suggestAct(control: HTMLElement, act: string) {
   if (act === 'sg-toggle') {
     owner.sg.on = !owner.sg.on;
     owner.sg.current = null;
-    if (owner.sg === SG) COMPOSE.intent++;
+    if (owner.sg === SUGGEST_DRAFT) COMPOSE.intent++;
     owner.redraw();
     return;
   } // the composer's switch ends a failed verdict save's retry
@@ -645,8 +645,8 @@ document.addEventListener('input', (event) => {
   owner.redraw();
 });
 export {
-  SG,
-  SG_OPEN,
+  SUGGEST_DRAFT,
+  SUGGEST_OPEN,
   editDocKind,
   renderEditSuggest,
   renderSuggest,

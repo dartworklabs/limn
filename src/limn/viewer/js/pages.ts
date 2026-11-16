@@ -3,7 +3,7 @@ import {
   $,
   $$,
   DOC,
-  K,
+  PAGE_SCALE,
   LAYOUT,
   LAYOUT_MODE,
   META,
@@ -11,18 +11,18 @@ import {
   ZOOMED,
   imeKey,
   isFigureKind,
-  setKState,
+  setPageScale,
   setZoomed,
 } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { tl } from './i18n.ts';
+import { translateTemplate } from './i18n.ts';
 import { prefs, savePrefs } from './prefs.ts';
 import { placeChips } from './notices.ts';
-import { dq } from './doc-tabs.ts';
+import { withDocQuery } from './doc-tabs.ts';
 import { setViewMode } from './revisions.ts';
 import { OUTLINE_PICK_GAP, spotTop } from './outline.ts';
-import { vecInvalidate, vecObserve } from './pdf-draw.ts';
-import { MD, isMdDoc, mdBuild } from './md-surface.ts';
+import { invalidateVectorDraws, observeVectorPages } from './pdf-draw.ts';
+import { MARKDOWN_VIEW, isMarkdownDoc, buildMarkdownDoc } from './md-surface.ts';
 import { COMPOSE } from './composer.ts';
 import {
   JUMP_TARGET,
@@ -40,20 +40,21 @@ import { restoreAnchor, topAnchor } from './rebuild.ts';
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {
   const build = META.pages_build;
-  return dq(
+  return withDocQuery(
     build
       ? '/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name)
       : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(META.built_at),
   );
 }
 // Page sizes (docs/handbook/viewer.md §PDF 영역 전용 확대): every page box is its own paper width (pt_w, in points)
-// times one scale K for the document on screen (CSS px per point), so the pages keep the sizes they have on paper
-// relative to each other - a one-column figure is half as wide as a two-column one, as in print. K = PT_PX is the print
-// size (1pt = 1/72in, the CSS inch 96px), which the zoom figure reads as 100%. Fit-width fits the widest page.
-const PT_PX = 96 / 72;
+// times one scale (PAGE_SCALE) for the document on screen (CSS px per point), so the pages keep the sizes they have on
+// paper relative to each other - a one-column figure is half as wide as a two-column one, as in print. PAGE_SCALE =
+// POINT_PX is the print size (1pt = 1/72in, the CSS inch 96px), which the zoom figure reads as 100%. Fit-width fits the
+// widest page.
+const POINT_PX = 96 / 72;
 // The widest page's width in points: fit-width fits it and the limits count it. 612 (a letter page) before there are
 // pages, only so that the arithmetic never divides by zero - nothing is drawn then.
-function ptMax() {
+function widestPagePoints() {
   const widest =
     META && META.pages ? META.pages.reduce((widestSeen, page) => Math.max(widestSeen, page.pt_w || 0), 0) : 0;
   return widest > 0 ? widest : 612;
@@ -78,7 +79,7 @@ function commonWidth(widths) {
 // The document's most common page width in points (commonWidth), else its widest.
 function commonPageWidth() {
   const common = META && META.pages ? commonWidth(META.pages.map((page) => page.pt_w)) : 0;
-  return common > 0 ? common : ptMax();
+  return common > 0 ? common : widestPagePoints();
 }
 // A page box's CSS width for a page ptw points wide at a scale: whole px, at least 1. Pure.
 function pageWidth(ptw, scale) {
@@ -89,13 +90,13 @@ function pageWidth(ptw, scale) {
 // page at its end - in one block with every page it would float over the next pages' lines.
 function buildDoc() {
   // A document the browser draws from its source has no pages (md-surface.ts).
-  if (isMdDoc()) {
+  if (isMarkdownDoc()) {
     COMPOSE.box = null;
-    mdBuild();
+    buildMarkdownDoc();
     return;
   }
-  MD.gen++;
-  MD.shown = '';
+  MARKDOWN_VIEW.gen++;
+  MARKDOWN_VIEW.shown = '';
   // A draw of the Markdown surface still on its way stops here.
   document.body.classList.remove('md-surface');
   // A focus in the reason popover comes back with the pages (restoreReasonFocus).
@@ -109,11 +110,11 @@ function buildDoc() {
     pageBox.id = 'p' + (index + 1);
     pageBox.dataset.page = String(index + 1);
     pageBox.dataset.ptw = String(page.pt_w);
-    pageBox.style.width = pageWidth(page.pt_w, K) + 'px';
+    pageBox.style.width = pageWidth(page.pt_w, PAGE_SCALE) + 'px';
     pageBox.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
     setHtml(
       pageBox,
-      html`<span class="no">${index + 1}</span><img loading="lazy" draggable="false" alt="${tl('{page}쪽', { page: index + 1 })}" src="${pageSrc(page)}">`,
+      html`<span class="no">${index + 1}</span><img loading="lazy" draggable="false" alt="${translateTemplate('{page}쪽', { page: index + 1 })}" src="${pageSrc(page)}">`,
     );
     const wrapper = document.createElement('div');
     wrapper.className = 'pgw';
@@ -123,7 +124,7 @@ function buildDoc() {
   });
   pageWidthVars();
   marks();
-  vecObserve();
+  observeVectorPages();
   drawZoom();
   restoreReasonFocus(focus);
 }
@@ -143,75 +144,75 @@ function widthBounds(fit, actual) {
   return [low, Math.max(low, fitted * ZOOM_MAX, actual)];
 }
 // The scale that fits the widest page to the PDF area (fitWidth).
-function fitK() {
-  return fitWidth() / ptMax();
+function fitScale() {
+  return fitWidth() / widestPagePoints();
 }
-// Sets the scale K within widthBounds and gives every page box its own width (pageWidth); saved in wide unless save is
-// false (saveScale). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines
+// Sets the scale PAGE_SCALE within widthBounds and gives every page box its own width (pageWidth); saved in wide unless
+// save is false (saveScale). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines
 // (sizePageLines), the save chips (placeChips) and [더보기]'s zoom figure (drawZoom).
-function setK(scale, save?) {
-  const widest = ptMax(),
-    bounds = widthBounds(fitWidth(), widest * PT_PX);
-  setKState(Math.min(bounds[1], Math.max(bounds[0], scale * widest)) / widest);
+function setScale(scale, save?) {
+  const widest = widestPagePoints(),
+    bounds = widthBounds(fitWidth(), widest * POINT_PX);
+  setPageScale(Math.min(bounds[1], Math.max(bounds[0], scale * widest)) / widest);
   SCALE_UNBOUNDED = false;
   sizePages();
   markBadgeSides();
   sizePageLines();
   placeChips();
   if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
-  vecInvalidate();
+  invalidateVectorDraws();
   drawZoom();
 }
-// Gives every page box its width at the scale K, bounded or not (setK bounds the scale first).
+// Gives every page box its width at the scale PAGE_SCALE, bounded or not (setScale bounds the scale first).
 function sizePages() {
-  const widest = ptMax();
+  const widest = widestPagePoints();
   $$('.pg').forEach((pageBox) => {
-    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, K) + 'px';
+    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, PAGE_SCALE) + 'px';
   });
   pageWidthVars();
 }
 // The page widths as the side column of the page verdict panel lays the blocks out (verdict-panel.css): each block's
 // page width (--pg-w) and the widest page's (--pg-max, on #doc), so that pages of different widths stand on one axis.
 function pageWidthVars() {
-  const widest = ptMax();
-  $('#doc').style.setProperty('--pg-max', pageWidth(widest, K) + 'px');
+  const widest = widestPagePoints();
+  $('#doc').style.setProperty('--pg-max', pageWidth(widest, PAGE_SCALE) + 'px');
   $$('#doc .pgw>.pg').forEach((pageBox) => {
     (pageBox.parentElement as HTMLElement).style.setProperty('--pg-w', (pageBox as HTMLElement).style.width);
   });
 }
-// Whether the pages stand at a scale K that no PDF-area width has bounded since their sizes changed (reapplyK). Only
-// the changes view brings it about: it hides the PDF area, and a scroller that is not drawn measures 0 wide, so
-// bounding the scale by that width would cut an 1800px page to the least it allows (816px, the print size of a letter
-// page).
+// Whether the pages stand at a scale PAGE_SCALE that no PDF-area width has bounded since their sizes changed
+// (reapplyScale). Only the changes view brings it about: it hides the PDF area, and a scroller that is not drawn
+// measures 0 wide, so bounding the scale by that width would cut an 1800px page to the least it allows (816px, the
+// print size of a letter page).
 let SCALE_UNBOUNDED = false;
-// Applies K again after the pages' paper sizes changed (a new build with the same page count). A drawn PDF area bounds
-// the scale (setK). A hidden one has no width to bound it by: the boxes take their new widths at K as it is, and the
-// bounds follow when the area shows again (boundK).
-function reapplyK() {
+// Applies PAGE_SCALE again after the pages' paper sizes changed (a new build with the same page count). A drawn PDF
+// area bounds the scale (setScale). A hidden one has no width to bound it by: the boxes take their new widths at
+// PAGE_SCALE as it is, and the bounds follow when the area shows again (boundScale).
+function reapplyScale() {
   if ($('#left').getClientRects().length) {
-    setK(K, false);
+    setScale(PAGE_SCALE, false);
     return;
   }
   sizePages();
   SCALE_UNBOUNDED = true;
 }
-// The PDF area shows again: bounds a scale reapplyK left alone by the width it has now, keeping the reading spot.
-function boundK() {
+// The PDF area shows again: bounds a scale reapplyScale left alone by the width it has now, keeping the reading spot.
+function boundScale() {
   if (!SCALE_UNBOUNDED || !$('#left').getClientRects().length) return;
   const anchor = topAnchor();
-  setK(K, false);
+  setScale(PAGE_SCALE, false);
   restoreAnchor(anchor);
 }
 // The zoom as [더보기] and the tool bar's zoom button show it: a scale against the print size, in percent, rounded; 100
 // before a scale is known. Pure.
 function zoomPercent(scale) {
-  return scale > 0 ? Math.round((scale / PT_PX) * 100) : 100;
+  return scale > 0 ? Math.round((scale / POINT_PX) * 100) : 100;
 }
 // Writes the zoom figure: [더보기]'s (a live region: it is read out as it changes) and the desktop tool bar's zoom
 // button, which shows the zoom now and goes to 100% - pressed (aria-pressed) while the figure is 100%. Its name and tip
 // say both.
 function drawZoom() {
-  const figure = zoomPercent(K) + '%',
+  const figure = zoomPercent(PAGE_SCALE) + '%',
     moreFigure = $('#m-zoom');
   if (moreFigure) moreFigure.textContent = figure;
   const button = $('#btn-actual');
@@ -219,8 +220,10 @@ function drawZoom() {
   const buttonFigure = button.querySelector('.z');
   if (buttonFigure) buttonFigure.textContent = figure;
   button.setAttribute('aria-pressed', String(figure === '100%'));
-  button.setAttribute('aria-label', tl('실제 크기(100%)로 · 지금 {pct}', { pct: figure }));
-  button.dataset.tip = tl('실제 크기(100%)로: PDF 쪽을 인쇄한 지면 크기로 봅니다 · 지금 {pct}', { pct: figure });
+  button.setAttribute('aria-label', translateTemplate('실제 크기(100%)로 · 지금 {pct}', { pct: figure }));
+  button.dataset.tip = translateTemplate('실제 크기(100%)로: PDF 쪽을 인쇄한 지면 크기로 봅니다 · 지금 {pct}', {
+    pct: figure,
+  });
 }
 // The saved scale of the document on screen (wide only), or null: a figure document keeps its zoom against the print
 // size (pinPrefs.figZoom), since print size is what a figure is checked at; any other document the widest page's width
@@ -229,42 +232,48 @@ function drawZoom() {
 function savedScale() {
   const preferences = prefs();
   if (isFigureKind(META.kind))
-    return typeof preferences.figZoom === 'number' && preferences.figZoom > 0 ? preferences.figZoom * PT_PX : null;
-  return typeof preferences.w === 'number' && preferences.w > 0 ? preferences.w / ptMax() : null;
+    return typeof preferences.figZoom === 'number' && preferences.figZoom > 0 ? preferences.figZoom * POINT_PX : null;
+  return typeof preferences.w === 'number' && preferences.w > 0 ? preferences.w / widestPagePoints() : null;
 }
 // Saves the scale on screen as savedScale reads it back.
 function saveScale() {
-  if (isFigureKind(META.kind)) savePrefs({ figZoom: Math.round((K / PT_PX) * 1e4) / 1e4 });
-  else savePrefs({ w: pageWidth(ptMax(), K) });
+  if (isFigureKind(META.kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
+  else savePrefs({ w: pageWidth(widestPagePoints(), PAGE_SCALE) });
 }
 // The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the
 // fitted width fit (px): a figure document at print size when its common page fits the PDF area - a wider outlier
 // scrolls sideways - else with the common page fitted; any other document with its widest page fitted - in wide (wide
 // true) at most 900px. Pure.
 function openScale(isFigure, common, widest, fit, wide) {
-  return isFigure ? Math.min(PT_PX, fit / common) : (wide ? Math.min(fit, 900) : fit) / widest;
+  return isFigure ? Math.min(POINT_PX, fit / common) : (wide ? Math.min(fit, 900) : fit) / widest;
 }
 // The scale the screen picks for the document on screen (openScale).
 function defaultScale() {
-  return openScale(isFigureKind(META.kind), commonPageWidth(), ptMax(), fitWidth(), LAYOUT === LAYOUT_MODE.WIDE);
+  return openScale(
+    isFigureKind(META.kind),
+    commonPageWidth(),
+    widestPagePoints(),
+    fitWidth(),
+    LAYOUT === LAYOUT_MODE.WIDE,
+  );
 }
 // In compact, whether the scale on screen is one the user chose rather than the one the screen picks (defaultScale):
 // only a chosen one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing
 // back on it is not.
 function markZoomed() {
-  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(K - defaultScale()) > K * 1e-3);
+  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
 }
 // The PDF area's width inside its padding (px).
-function innerW() {
+function pdfAreaInnerWidth() {
   const pdfArea = $('#left'),
     style = getComputedStyle(pdfArea);
   return pdfArea.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
 }
-// Fit-width: the scroller's inner width in whole px (innerW: its padding is the gap, which on touch keeps the page off
-// the handles' hit areas), on every band. It is measured inside the padding, not as clientWidth less a fixed allowance,
-// which would miss the padding and scroll a fitted page sideways.
+// Fit-width: the scroller's inner width in whole px (pdfAreaInnerWidth: its padding is the gap, which on touch keeps
+// the page off the handles' hit areas), on every band. It is measured inside the padding, not as clientWidth less a
+// fixed allowance, which would miss the padding and scroll a fitted page sideways.
 function fitWidth() {
-  return Math.floor(innerW());
+  return Math.floor(pdfAreaInnerWidth());
 }
 // compact always takes the screen's scale (defaultScale) unless the user chose another (ZOOMED). wide takes it too
 // unless a scale is saved. A scroller that is not drawn - the changes view hides it - has no width to fit: fitted to it
@@ -272,9 +281,9 @@ function fitWidth() {
 // take the reading spot from those small pages, bringing the manuscript back somewhere else (docs/handbook/viewer.md
 // §변경 보기). A scale it leaves alone still meets a new column width: the badges and page numbers are placed again
 // (markBadgeSides).
-function autoW() {
+function autoFitWidth() {
   if (!$('#left').getClientRects().length) return;
-  if (LAYOUT !== LAYOUT_MODE.WIDE ? !ZOOMED : savedScale() === null) setK(defaultScale(), false);
+  if (LAYOUT !== LAYOUT_MODE.WIDE ? !ZOOMED : savedScale() === null) setScale(defaultScale(), false);
   else markBadgeSides();
 }
 // The page number stands outside a page (.no-out) where a wider page leaves room left of it - a page centred under one
@@ -291,13 +300,13 @@ function pageNoSides() {
     if (no) pageBox.classList.toggle('no-out', (widest - widths[index]) / 2 >= no.offsetWidth + 8);
   });
 }
-// The scale to build a document's pages at before autoW looks again: a saved one in wide, else the screen's, else the
-// one on screen (a scroller that is not drawn has no width to take it from).
-function startK() {
+// The scale to build a document's pages at before autoFitWidth looks again: a saved one in wide, else the screen's,
+// else the one on screen (a scroller that is not drawn has no width to take it from).
+function startScale() {
   const saved = LAYOUT === LAYOUT_MODE.WIDE ? savedScale() : null;
   if (saved !== null) return saved;
   const screenScale = $('#left').getClientRects().length ? defaultScale() : 0;
-  return screenScale > 0 ? screenScale : K > 0 ? K : PT_PX;
+  return screenScale > 0 ? screenScale : PAGE_SCALE > 0 ? PAGE_SCALE : POINT_PX;
 }
 // Zoom anchor: the page under screen coordinates (clientX, clientY) and its fraction within that page. If the point
 // falls in the gap between pages, the vertically nearest page is used. Without coordinates, the center of the PDF area
@@ -344,23 +353,23 @@ function zoomRestore(anchor, clientX?, clientY?) {
 function zoomTo(scale, clientX?, clientY?) {
   arrivalLetGo();
   const anchor = zoomAnchor(clientX, clientY);
-  setK(scale);
+  setScale(scale);
   markZoomed();
   zoomRestore(anchor);
 }
 // Zooms by a number of ZOOM_STEPs (negative: out).
 function zoom(steps) {
-  zoomTo(K * Math.pow(ZOOM_STEP, steps));
+  zoomTo(PAGE_SCALE * Math.pow(ZOOM_STEP, steps));
 }
 // [100%]: the print size, around the middle of the PDF area as the zoom buttons.
 function actualSize() {
-  zoomTo(PT_PX);
+  zoomTo(POINT_PX);
 }
-// Fit width (fitK): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
-function fitW() {
+// Fit width (fitScale): keeps the viewed page/position (anchored at the top) and resets horizontal scroll to the start.
+function fitToWidth() {
   const anchor = topAnchor(),
     pdfArea = $('#left');
-  setK(fitK(), LAYOUT === LAYOUT_MODE.WIDE);
+  setScale(fitScale(), LAYOUT === LAYOUT_MODE.WIDE);
   markZoomed();
   restoreAnchor(anchor);
   pdfArea.scrollLeft = 0;
@@ -537,7 +546,7 @@ function clampPage(entry, pageCount) {
 }
 // The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed
 // does nothing.
-function navGo() {
+function goSheetPage() {
   const page = clampPage($('#ns-page-in').value, META && META.pages ? META.pages.length : 0);
   if (page === null) return;
   $('#nav-sheet').close();
@@ -547,37 +556,37 @@ function navGo() {
 $('#ns-page-in').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !imeKey(event)) {
     event.preventDefault();
-    navGo();
+    goSheetPage();
   }
 });
 
 export {
-  PT_PX,
+  POINT_PX,
   ZOOM_STEP,
   actualSize,
   arrivalLetGo,
   arrivalWatch,
   arrivePage,
-  autoW,
-  boundK,
+  autoFitWidth,
+  boundScale,
   buildDoc,
   clampPage,
   drawZoom,
   figureTop,
-  fitK,
-  fitW,
+  fitScale,
+  fitToWidth,
   goPage,
-  innerW,
+  pdfAreaInnerWidth,
   jumpOnItsWay,
   markZoomed,
-  navGo,
+  goSheetPage,
   pageNoSides,
   pageSrc,
   pageWidth,
-  ptMax,
-  reapplyK,
-  setK,
-  startK,
+  widestPagePoints,
+  reapplyScale,
+  setScale,
+  startScale,
   zoom,
   zoomAnchor,
   zoomRestore,

@@ -14,7 +14,7 @@ body.selmode .pg{touch-action:none}
 /* The select mode (docs/handbook/viewer.md §모바일 레이아웃 선택 모드). While it is on (body.selmode), the PDF area (#sel-mode, laid
    over #left in #pdf-center) draws a thin accent frame and, 8px under its top, the mode bar: the dashed square, '선택 중 · 끌면
    영역 · 탭하면 문단' and [끝내기]. The bar floats over the pages, which scroll under it, and #left reserves the bar's height
-   above page 1 (--sel-bar-h, setSelMode), so at the top page 1's first line is never under it. The area is the part of the
+   above page 1 (--sel-bar-h, setSelectMode), so at the top page 1's first line is never under it. The area is the part of the
    PDF nothing else covers: under the phone's instance stripe (or its notch), under the wide section strip, above the sheet
    and its status line, left of an overlay panel and its 8px handle. The frame lets every press through to the pages; the
    bar takes only its own. The live region (#sel-sr) stays drawn, so it is read as the mode turns on.
@@ -193,7 +193,7 @@ body.revision-open :is(#btn-actual,#m-actual){display:none}   /* the comparison 
   #grip.hit::after{left:auto;right:0;transform:translateY(-50%)}
   #outline-grip.hit::after{left:0;transform:translateY(-50%)}
   /* ...and the PDF scroller keeps the page out of that box, so a swipe or a long press at the page's right edge scrolls or
-     picks instead of grabbing the handle (the page fits the padded width, innerW and fitWidth): beside the open side panel, 40px of right
+     picks instead of grabbing the handle (the page fits the padded width, pdfAreaInnerWidth and fitWidth): beside the open side panel, 40px of right
      padding (the hit's 36px plus 4); over the overlay panel while composing, the panel width plus the 8px bar plus the same 40px (below, after that rule); in
      wide (and its collapsed rail), 48px. The outline handle's hit (38px past its bar) ends inside #left's 44px left padding.
      Beside the side panel the left matches it, so the fitted page stays in the middle of its column (UX audit R3). */

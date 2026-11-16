@@ -1,15 +1,15 @@
 // ------------------------------------------------ Range levels
-import { T, UI_LANG, VIA, captureVisit, currentVisit } from './core.ts';
+import { TIP_TEXT, UI_LANG, VIA, captureVisit, currentVisit } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { LANG, tl, tr } from './i18n.ts';
+import { LANG, translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
-import { dq } from './doc-tabs.ts';
-import { elName, rungTip } from './figure.ts';
-import { isMdDoc } from './md-surface.ts';
+import { withDocQuery } from './doc-tabs.ts';
+import { elementName, rungTip } from './figure.ts';
+import { isMarkdownDoc } from './md-surface.ts';
 import { COMPOSE } from './composer.ts';
 import { EDITOR } from './edit.ts';
-import { segFocusAt, segKeep, segRove } from './events.ts';
-function lvOf(owner, key) {
+import { segmentFocusAt, keepSegmentFocus, roveSegment } from './events.ts';
+function levelOf(owner, key) {
   return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
 }
 // A Markdown document's rungs (md-surface.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a
@@ -29,10 +29,10 @@ function kindFor(scope, env) {
 // The name of the owner's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope
 // 'lines'), whose lines alone say what they are.
 function scopeLabel(owner) {
-  const rung = owner.scope && lvOf(owner, owner.scope);
+  const rung = owner.scope && levelOf(owner, owner.scope);
   if (rung) return levelLabel(rung.label);
   if (owner.scope === 'lines') return '';
-  return tr(
+  return translate(
     { float: '그림/표', block: '환경 블록', paragraph: '문단', none: '생성 파일', lines: '줄' }[owner.kind] ||
       owner.kind ||
       '',
@@ -44,20 +44,22 @@ function levelLabel(label) {
   if (LANG !== UI_LANG.EN) return label;
   const match = /^환경 (.+?)( \(바깥( 2)?\))?$/.exec(label);
   return match
-    ? tl(match[3] ? '환경 {env} (바깥 2)' : match[2] ? '환경 {env} (바깥)' : '환경 {env}', { env: match[1] })
-    : tr(label);
+    ? translateTemplate(match[3] ? '환경 {env} (바깥 2)' : match[2] ? '환경 {env} (바깥)' : '환경 {env}', {
+        env: match[1],
+      })
+    : translate(label);
 }
 // The rung matching the owner's range, shown as pressed: with a scope, that scope's rung (when the range matches it
 // too); otherwise the first rung whose lo/hi match (shown as '지금 범위' on an edit card).
 function currentRung(owner) {
   const rungs = owner.levels || [];
-  const scopeRung = owner.scope && lvOf(owner, owner.scope);
+  const scopeRung = owner.scope && levelOf(owner, owner.scope);
   if (scopeRung && scopeRung.lo === owner.lo && scopeRung.hi === owner.hi) return scopeRung;
   return rungs.find((rung) => rung.lo === owner.lo && rung.hi === owner.hi) || null;
 }
 // Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left
 // as-is).
-function rng(first, last) {
+function lineRange(first, last) {
   return 'L' + first + (last !== first ? '-L' + last : '');
 }
 // Segment-control labels are kept short - '환경 abstract' -> 'abstract'. When the same environment name appears more
@@ -65,15 +67,15 @@ function rng(first, last) {
 // description (data-tip)/aria-label and the location line. A figure rung is named by its element as the server labelled
 // it (a person's words, not run through levelLabel).
 function levelName(rung, all) {
-  if (rung.el) return String(rung.label || elName(rung.el));
+  if (rung.el) return String(rung.label || elementName(rung.el));
   if (!rung.env || rung.level === 'block') return levelLabel(rung.label);
   const dup = (all || []).filter((other) => other.env === rung.env).length > 1;
   return dup ? levelLabel(rung.label).replace(/^(환경|Environment) /, '') : rung.env;
 }
 // The range ladder's segments (composer and edit card) as Html, one radio button per rung, the rung matching the range
 // checked. A figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the
-// rung has no n. A Markdown document's rungs have descriptions of their own (T.mdraw: no drag area there, a tap chose
-// the line too).
+// rung has no n. A Markdown document's rungs have descriptions of their own (TIP_TEXT.mdraw: no drag area there, a tap
+// chose the line too).
 function rungButtons(owner, isEdit) {
   const current = currentRung(owner),
     rungs = owner.levels || [];
@@ -83,17 +85,17 @@ function rungButtons(owner, isEdit) {
     const tip = rung.el
       ? rungTip(rung)
       : isEdit && rung.level === 'raw'
-        ? T.cur
+        ? TIP_TEXT.cur
         : rung.level.startsWith('env')
-          ? T.env
-          : rung.level === 'raw' && isMdDoc()
-            ? T.mdraw
-            : // a rung may name its own description (a text document's paragraphs, txLevels)
-              T[rung.tip || rung.level] || '';
-    const label = isEdit && rung.level === 'raw' ? tr('지금 범위') : levelName(rung, rungs),
-      linesText = tl('{n}줄', { n: lineCount });
-    return html`<button class="${on ? 'on' : ''}" data-act="level" data-level="${rung.level}" role="radio" aria-checked="${on}" aria-label="${label + ' ' + rng(rung.lo, rung.hi) + ' · ' + linesText}" \
-data-tip="${rng(rung.lo, rung.hi) + (tip ? ' · ' + tr(tip) : '')}">${label} <span class="k${lineCount > 50 ? ' wn' : ''}">· ${linesText}</span></button>`;
+          ? TIP_TEXT.env
+          : rung.level === 'raw' && isMarkdownDoc()
+            ? TIP_TEXT.mdraw
+            : // a rung may name its own description (a text document's paragraphs, textLevels)
+              TIP_TEXT[rung.tip || rung.level] || '';
+    const label = isEdit && rung.level === 'raw' ? translate('지금 범위') : levelName(rung, rungs),
+      linesText = translateTemplate('{n}줄', { n: lineCount });
+    return html`<button class="${on ? 'on' : ''}" data-act="level" data-level="${rung.level}" role="radio" aria-checked="${on}" aria-label="${label + ' ' + lineRange(rung.lo, rung.hi) + ' · ' + linesText}" \
+data-tip="${lineRange(rung.lo, rung.hi) + (tip ? ' · ' + translate(tip) : '')}">${label} <span class="k${lineCount > 50 ? ' wn' : ''}">· ${linesText}</span></button>`;
   });
 }
 // A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
@@ -105,16 +107,16 @@ function rungLines(rung) {
 // rung (rangeCap). data-rungs keeps the count for the CSS and the tests. The box is a scroll box and carries
 // tabindex="-1" in its markup: Firefox makes a box that overflows a Tab stop of its own, so an overflowing ladder would
 // take two stops - the box, then the chosen rung. The chosen rung shows itself as the focus or the range moves
-// (segReveal).
+// (revealSegment).
 function drawLadder(box, owner, isEdit) {
   const rungCount = (owner.levels || []).length,
-    at = segFocusAt(box);
+    at = segmentFocusAt(box);
   box.dataset.rungs = String(rungCount);
   box.hidden = rungCount < 2;
   setHtml(box, rungCount < 2 ? html`` : html`<div class="lad-t">${rungButtons(owner, isEdit)}</div>`);
-  if (rungCount >= 2) segReveal(box); // .lad-t: the drawn track inside the scroll box
-  segRove(box);
-  segKeep(box, at);
+  if (rungCount >= 2) revealSegment(box); // .lad-t: the drawn track inside the scroll box
+  roveSegment(box);
+  keepSegmentFocus(box, at);
 } // one Tab stop, the rung matching the range (else the first), and the focus kept (events.ts)
 // The range caption over the ladder (composer and edit card): '범위 L5-L6 · 2줄' - the lines a save will hand over and
 // their count, whatever set them (a rung or the excerpt). When the ladder is hidden (one rung) and the range is that
@@ -132,20 +134,20 @@ function setCap(caption, markup) {
 function rangeCap(owner, isEdit) {
   const rungs = owner.levels || [],
     current = currentRung(owner),
-    range = rng(owner.lo, owner.hi);
+    range = lineRange(owner.lo, owner.hi);
   const named =
     rungs.length < 2 && current && !(isEdit && current.level === 'raw') ? ' · ' + levelName(current, rungs) : '';
   const rangeHtml = isEdit
-    ? html`<span class="e-range loc" tabindex="0" data-copy="${owner.name + ' L' + owner.lo + '-L' + owner.hi}" data-tip="${tr('저장하면 핀이 가리킬 원문 줄. 누르면 복사')}">${range}</span>`
+    ? html`<span class="e-range loc" tabindex="0" data-copy="${owner.name + ' L' + owner.lo + '-L' + owner.hi}" data-tip="${translate('저장하면 핀이 가리킬 원문 줄. 누르면 복사')}">${range}</span>`
     : html`<span class="rg-v">${range}</span>`;
-  return html`<b class="rg-l">${tr('범위')}</b> ${rangeHtml} · ${tl('{n}줄', { n: owner.hi - owner.lo + 1 })}${named}`;
+  return html`<b class="rg-l">${translate('범위')}</b> ${rangeHtml} · ${translateTemplate('{n}줄', { n: owner.hi - owner.lo + 1 })}${named}`;
 }
 const SEGMENT_FADE = 32; // how wide a scrolling segment control's edge fade is at most (composer.css)
 // Scrolls a horizontally overflowing segment control so the selected segment is visible (vertical scroll is left
 // untouched). A control that asks for the whole segment (data-reveal="whole": the assignee row, whose segments are
 // names nearly as long as the row) brings it clear of the edge fades too - a fade's width in from an edge that has more
 // to scroll to, or centred when it is too long for that; fadeSegmentEdges then keeps each fade off it.
-function segReveal(control) {
+function revealSegment(control) {
   const on = control && control.querySelector('.on');
   if (!on) {
     fadeSegmentEdges(control);
@@ -204,7 +206,7 @@ document.addEventListener(
 // Applies rung `key` to the owner (the composer's selection or an edit card): its lines, scope and source; a figure
 // rung also selects its element (elSel), which lines later set in the excerpt keep (setLines).
 function useLevel(owner, key) {
-  const rung = lvOf(owner, key);
+  const rung = levelOf(owner, key);
   if (!rung) return;
   if ('score' in rung) owner.score = rung.score;
   owner.lo = rung.lo;
@@ -223,7 +225,10 @@ function refetchSnip(owner, after) {
   SNIPPET_TIMER = setTimeout(async () => {
     try {
       const { data } = await api(
-        dq('/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi, owner.doc),
+        withDocQuery(
+          '/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
+          owner.doc,
+        ),
         { what: '원문 읽기' },
       );
       if (
@@ -241,7 +246,7 @@ function snipText(text, open) {
   const rungs = String(text || '').split('\n');
   return open || rungs.length <= 8
     ? rungs.join('\n')
-    : rungs.slice(0, 8).join('\n') + '\n      … ' + tl('{n}줄 접힘', { n: rungs.length - 8 });
+    : rungs.slice(0, 8).join('\n') + '\n      … ' + translateTemplate('{n}줄 접힘', { n: rungs.length - 8 });
 }
 // Location match-rate badge: hidden at 90% or above (a number on a location you can trust is just noise). Below that,
 // '위치 불확실'; below 30%, the warning color. The description is whole sentences in this order: how the place was
@@ -281,25 +286,25 @@ function viaTag(pick) {
     map = pick.via === VIA.MAP;
   const how =
     pick.via === VIA.SYNCTEX
-      ? tr(T.synctex)
+      ? translate(TIP_TEXT.synctex)
       : pick.via === VIA.TEXT
-        ? tr(T.text)
+        ? translate(TIP_TEXT.text)
         : map
-          ? tr(T.map)
-          : tl('이 화면이 모르는 방법({via})으로 찾은 위치입니다.', { via: pick.via });
+          ? translate(TIP_TEXT.map)
+          : translateTemplate('이 화면이 모르는 방법({via})으로 찾은 위치입니다.', { via: pick.via });
   const match = lines
-    ? tl('드래그한 글자 중 {pct}%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다).', { pct: percent })
+    ? translateTemplate('드래그한 글자 중 {pct}%가 이 줄들에 있습니다(드문 낱말일수록 크게 셉니다).', { pct: percent })
     : map
-      ? tl('드래그한 영역 중 {pct}%가 이 요소 안에 있습니다.', { pct: percent })
-      : tl('드래그와 맞는 정도는 {pct}%입니다.', { pct: percent });
+      ? translateTemplate('드래그한 영역 중 {pct}%가 이 요소 안에 있습니다.', { pct: percent })
+      : translateTemplate('드래그와 맞는 정도는 {pct}%입니다.', { pct: percent });
   const check = lines
-    ? tr('원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.')
+    ? translate('원문 칸에서 고칠 곳이 이 줄들에 들어 있는지 확인하세요.')
     : map
-      ? tr('고른 상자가 고칠 곳을 덮는지 확인하세요.')
-      : tr('고칠 곳이 이 범위에 들어 있는지 확인하세요.');
+      ? translate('고른 상자가 고칠 곳을 덮는지 확인하세요.')
+      : translate('고칠 곳이 이 범위에 들어 있는지 확인하세요.');
   return {
-    t: tr('위치 불확실'),
-    tip: [how, match, ...(low ? [tr('위치가 많이 어긋났을 수 있습니다.')] : []), check].join(' '),
+    t: translate('위치 불확실'),
+    tip: [how, match, ...(low ? [translate('위치가 많이 어긋났을 수 있습니다.')] : []), check].join(' '),
     low,
   };
 }
@@ -307,12 +312,12 @@ export {
   drawLadder,
   kindFor,
   levelLabel,
-  lvOf,
+  levelOf,
   rangeCap,
   refetchSnip,
-  rng,
+  lineRange,
   scopeLabel,
-  segReveal,
+  revealSegment,
   setCap,
   snipText,
   useLevel,

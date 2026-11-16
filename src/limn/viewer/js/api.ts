@@ -24,8 +24,8 @@
 // own request would draw the page a read's wait later, every time. The light poll always asks, and its answer - any
 // answer - takes API_OUT down.
 import { NOTICE_HOST, NOTICE_KIND } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { errText, tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
 import { bannerNote, lineNote, quietNote, sourceOk } from './notices.ts';
 import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from './offline.ts';
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
@@ -107,7 +107,7 @@ async function apiUnanswered(url: string, options: any, error: unknown): Promise
     sourceOk(options.source);
     return { status: kept.status, data: kept.data };
   }
-  if (!options.silent && !options.quietUnreached) apiFailed(options, tr('서버에 닿지 않습니다'), true);
+  if (!options.silent && !options.quietUnreached) apiFailed(options, translate('서버에 닿지 않습니다'), true);
   throw error;
 }
 // Says that a request failed ('{what} 실패 — {why}'): on the status line when options.where is NOTICE_HOST.LINE, else
@@ -118,7 +118,8 @@ function apiFailed(
   why: string,
   unreachable: boolean,
 ) {
-  const message = tl('{what} 실패', { what: tr(options.what || '요청').replace(/…$/, '') }) + ' — ' + why;
+  const message =
+    translateTemplate('{what} 실패', { what: translate(options.what || '요청').replace(/…$/, '') }) + ' — ' + why;
   const act = unreachable && options.retry ? { label: '다시 시도', fn: options.retry } : null,
     source = options.source || '';
   if (options.where === NOTICE_HOST.LINE) lineNote(message, NOTICE_KIND.ERR, act, { source });
@@ -139,7 +140,7 @@ async function copyText(text: string, control?: HTMLElement | null) {
     } catch (commandError) {}
     textarea.remove();
   }
-  quietNote(tl('복사함: {text}', { text: text }));
+  quietNote(translateTemplate('복사함: {text}', { text: text }));
   if (control) copiedMark(control);
 }
 const COPIED_MS = 1500; // how long a copy control says it copied
@@ -153,7 +154,7 @@ function copiedMark(control: HTMLElement) {
     control.style.minWidth = Math.ceil(control.getBoundingClientRect().width) + 'px';
   }
   control.classList.add('copied');
-  setHtml(control, html`${ic('check')}<span class="lbl">${tr('복사됨')}</span>`);
+  setHtml(control, html`${lucideIcon('check')}<span class="lbl">${translate('복사됨')}</span>`);
   control._copiedT = setTimeout(() => {
     control.classList.remove('copied');
     control.replaceChildren(...(control._copied || []));

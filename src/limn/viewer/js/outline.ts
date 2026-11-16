@@ -1,17 +1,17 @@
 // ------------------------------------------------ The outline: reading it, the section strip, picks and the filter
-import { $, BAND, DOC, LAYOUT_BAND, META, MQ_REDUCED, imeKey, isFigureKind, scrollMotion } from './core.ts';
+import { $, BAND, DOC, LAYOUT_BAND, META, REDUCED_MOTION_QUERY, imeKey, isFigureKind, scrollMotion } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
-import { docInfo, dq } from './doc-tabs.ts';
+import { docInfo, withDocQuery } from './doc-tabs.ts';
 import { setViewMode } from './revisions.ts';
-import { drawPos, navSheetFiltered } from './doc-switch.ts';
+import { drawPos, refitFilteredSheet } from './doc-switch.ts';
 import { arrivalWatch, goPage, jumpOnItsWay } from './pages.ts';
-import { VEC } from './pdf-open.ts';
+import { VECTOR_PDF } from './pdf-open.ts';
 import { refreshPageLists } from './page-list.ts';
-import { isMdDoc, mdGoHeading, mdStrip } from './md-surface.ts';
+import { isMarkdownDoc, goToHeading, updateMarkdownStrip } from './md-surface.ts';
 import { glideTo } from './verdict.ts';
-import { selPopArea } from './sel-popover.ts';
+import { popoverFreeArea } from './sel-popover.ts';
 import { topAnchor } from './rebuild.ts';
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
@@ -51,12 +51,14 @@ function outlineCount(item) {
 // outlineOnScreen).
 let OUTLINE_DOC = null as string | null,
   OUTLINE_BUILD = '';
-// Reads the outline of the PDF document opened as generation gen (VEC.gen) into OUTLINE_ENTRIES, with the numbers and
-// printed page labels the server reads for the build (mergeOutlineLabels), and draws it. A newer open drops it.
+// Reads the outline of the PDF document opened as generation gen (VECTOR_PDF.gen) into OUTLINE_ENTRIES, with the
+// numbers and printed page labels the server reads for the build (mergeOutlineLabels), and draws it. A newer open drops
+// it.
 async function loadOutline(doc, gen) {
   const docName = DOC,
     build = (META && META.pages_build) || '',
-    stale = () => gen !== VEC.gen || doc !== VEC.doc; // a newer open (another document or build) took over
+    // a newer open (another document or build) took over
+    stale = () => gen !== VECTOR_PDF.gen || doc !== VECTOR_PDF.doc;
   let entries: OutlineEntry[] = [],
     cut = 0;
   try {
@@ -73,7 +75,7 @@ async function loadOutline(doc, gen) {
         const pageHeight = META && META.pages && META.pages[page - 1] ? +META.pages[page - 1].pt_h : 0;
         if (!(Number.isInteger(page) && page >= 1 && page <= doc.numPages)) return null;
         return {
-          title: item.title || tr('제목 없음'),
+          title: item.title || translate('제목 없음'),
           page,
           depth: 0,
           up: -1,
@@ -120,7 +122,8 @@ async function loadOutline(doc, gen) {
   // The PDF's own outline is still usable when the numbering service cannot be reached.
   if (entries.length) {
     try {
-      const answer = (await api(dq('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true })).data;
+      const answer = (await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true }))
+        .data;
       if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
         entries = mergeOutlineLabels(entries, answer.labels || []);
     } catch (error) {}
@@ -138,10 +141,10 @@ async function loadOutline(doc, gen) {
   // A page list opened while this was read names its pages now.
   refreshPageLists();
 }
-// Drops the outline of the document that was on screen before, when another one comes on screen (vecOpen): the page
-// list and the section strip would otherwise name its pages by the old document's headings until the new outline is
-// read. The same document's new build keeps the old build's entries until its own are read - a rebuilt manuscript's
-// strip does not blank meanwhile.
+// Drops the outline of the document that was on screen before, when another one comes on screen (openVectorDocument):
+// the page list and the section strip would otherwise name its pages by the old document's headings until the new
+// outline is read. The same document's new build keeps the old build's entries until its own are read - a rebuilt
+// manuscript's strip does not blank meanwhile.
 function outlineForget() {
   if (OUTLINE_DOC === DOC) return;
   OUTLINE_ENTRIES = [];
@@ -228,7 +231,7 @@ function outlineList(box, filterText) {
     const note = outlineCutNote(false);
     if (note) setHtml(box, note);
     else
-      box.textContent = isMdDoc()
+      box.textContent = isMarkdownDoc()
         ? '이 문서에는 이동할 수 있는 제목이 없습니다.'
         : '이 PDF에는 이동할 수 있는 목차가 없습니다.';
     return;
@@ -240,7 +243,7 @@ function outlineList(box, filterText) {
   const note = outlineCutNote(!!query);
   if (!rows.length) {
     box.className = 'outline-empty';
-    if (note) setHtml(box, html`${tr('찾은 장·절이 없습니다.')}${note}`);
+    if (note) setHtml(box, html`${translate('찾은 장·절이 없습니다.')}${note}`);
     else box.textContent = '찾은 장·절이 없습니다.';
     return;
   }
@@ -253,8 +256,10 @@ function outlineList(box, filterText) {
         on = index === OUTLINE_SELECTED;
       const page = entry.pageLabel || String(entry.page),
         groupName = grouped && grouped.has(index) ? outlineGroupName(OUTLINE_ENTRIES[entry.up]) : '';
-      const isMarkdown = isMdDoc(),
-        line = isMarkdown ? tl('원문 {line}번째 줄', { line: String(entry.pageLabel || '').replace(/^L/, '') }) : null;
+      const isMarkdown = isMarkdownDoc(),
+        line = isMarkdown
+          ? translateTemplate('원문 {line}번째 줄', { line: String(entry.pageLabel || '').replace(/^L/, '') })
+          : null;
       return html`<button translate="no" class="ol-depth-${Math.min(entry.depth, 4)}${on ? ' ol-active' : ''}${groupName ? ' ol-grouped' : ''}" data-act="outline-page" data-index="${index}" data-page="${entry.page}" data-close="1" aria-current="${on ? 'location' : 'false'}" title="${groupName ? groupName + ' › ' + entry.title : entry.title}"${isMarkdown ? html` aria-description="${line}"` : ''}>${groupName ? html`<span class="ol-grp">${groupName} ›</span>` : ''}<span class="ol-no"${entry.number ? '' : html` aria-hidden="true"`}>${entry.number || '·'}</span><span class="ol-name">${entry.title}</span><span class="ol-page"${isMarkdown ? html` aria-hidden="true"` : ''}>${page}</span></button>`;
     })}${note}`,
   );
@@ -309,8 +314,11 @@ function outlineCutNote(filtered) {
   };
   return html`<p class="ol-more" role="note">${
     filtered
-      ? tl('생략한 목차 항목 {n}개는 검색하지 않았습니다 — 읽는 한도는 {max}개, {depth}단계입니다', values)
-      : tl('목차 항목 {n}개를 생략했습니다 — 읽는 한도는 {max}개, {depth}단계입니다', values)
+      ? translateTemplate(
+          '생략한 목차 항목 {n}개는 검색하지 않았습니다 — 읽는 한도는 {max}개, {depth}단계입니다',
+          values,
+        )
+      : translateTemplate('목차 항목 {n}개를 생략했습니다 — 읽는 한도는 {max}개, {depth}단계입니다', values)
   }</p>`;
 }
 // Moves the current-section mark to OUTLINE_SELECTED in both lists without drawing them again. The section strip
@@ -442,7 +450,7 @@ function outlineFollow(open?: boolean) {
   const list = $('#outline-items'),
     row = list.querySelector('.ol-active');
   if (!row) return;
-  const jump = !!open || OUTLINE_SNAP || MQ_REDUCED.matches;
+  const jump = !!open || OUTLINE_SNAP || REDUCED_MOTION_QUERY.matches;
   OUTLINE_FOLLOW_DUE = false;
   OUTLINE_SNAP = false;
   const box = $('#outline'),
@@ -642,8 +650,8 @@ const OUTLINE_PICK_GAP = 8;
 // Picks an entry of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
 function pickOutline(index) {
   // A heading of the Markdown surface.
-  if (isMdDoc()) {
-    mdGoHeading(index);
+  if (isMarkdownDoc()) {
+    goToHeading(index);
     return;
   }
   const entry = OUTLINE_ENTRIES[index];
@@ -673,16 +681,16 @@ function outlinePickTop(entry) {
   if (!pageBox || !(entry.frac > 0) || (docEntry && isFigureKind(docEntry.kind))) return null;
   return spotTop(pageBox, entry.frac, OUTLINE_PICK_GAP);
 }
-// #left's scrollTop that puts the place `frac` down a page box `gap` px under the top of the free PDF area (selPopArea:
-// under the section strip, the instance band or the select mode's bar) - lower when it stands near its page's bottom,
-// so that the reading line (readingDepth) still falls on its page and the strip names it - as far as the pages
-// scroll.
+// #left's scrollTop that puts the place `frac` down a page box `gap` px under the top of the free PDF area
+// (popoverFreeArea: under the section strip, the instance band or the select mode's bar) - lower when it stands near
+// its page's bottom, so that the reading line (readingDepth) still falls on its page and the strip names it - as far as
+// the pages scroll.
 function spotTop(pageBox: HTMLElement, frac: number, gap: number) {
   const pdfArea = $('#left'),
     rect = pageBox.getBoundingClientRect(),
     y = rect.top + frac * rect.height,
     read = pdfArea.getBoundingClientRect().top + readingDepth(pdfArea);
-  const want = Math.max(selPopArea().top + gap, read + 2 - (rect.bottom - y));
+  const want = Math.max(popoverFreeArea().top + gap, read + 2 - (rect.bottom - y));
   return Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, Math.round(pdfArea.scrollTop + y - want)));
 }
 // (Re)starts the wait after which a pick still on its way looks whether the pages rest (any scroll of the pages
@@ -724,8 +732,8 @@ function readingDepth(pane) {
 // position button (drawPos). Both page counts open the page list (openPageList).
 function updateSectionStrip() {
   // The Markdown surface's strip and position button.
-  if (isMdDoc()) {
-    mdStrip();
+  if (isMarkdownDoc()) {
+    updateMarkdownStrip();
     return;
   }
   const pdfArea = $('#left'),
@@ -745,12 +753,14 @@ function updateSectionStrip() {
     markOutline();
   }
   const entry = OUTLINE_ENTRIES[OUTLINE_SELECTED];
-  $('#section-current').textContent = entry ? (entry.number ? entry.number + '  ' : '') + entry.title : tr('원고');
+  $('#section-current').textContent = entry
+    ? (entry.number ? entry.number + '  ' : '') + entry.title
+    : translate('원고');
   const pageCount = META && META.pages ? META.pages.length : 0,
-    pageText = tl('{page} / {n}쪽', { page, n: pageCount });
+    pageText = translateTemplate('{page} / {n}쪽', { page, n: pageCount });
   $('#section-page-t').textContent = pageText;
   $('#nav-page').textContent = pageText;
-  const name = tl('쪽 번호로 이동 · {page} / {n}쪽', { page, n: pageCount });
+  const name = translateTemplate('쪽 번호로 이동 · {page} / {n}쪽', { page, n: pageCount });
   $('#section-page').setAttribute('aria-label', name);
   $('#nav-page').setAttribute('aria-label', name);
   drawPos();
@@ -826,8 +836,8 @@ function outlineSay(box: HTMLElement, filterText: string, status: HTMLElement) {
     words = !String(filterText || '').trim()
       ? ''
       : count
-        ? tl('결과 {n}개', { n: count })
-        : tr('찾은 장·절이 없습니다.');
+        ? translateTemplate('결과 {n}개', { n: count })
+        : translate('찾은 장·절이 없습니다.');
   // The same words are not set again: a live region would read '없습니다' at every keystroke.
   if (status.textContent !== words) status.textContent = words;
 }
@@ -835,9 +845,9 @@ outlineFilter($('#outline-search'), $('#outline-items'), $('#outline-sr'));
 // each filter works on its own list only
 outlineFilter($('#ns-outline-search'), $('#ns-outline-items'), $('#ns-outline-sr'));
 // The sheet's filter draws its list again with rows of other heights (a group's line): the open sheet is fitted to them
-// (navSheetFiltered), so none is left cut. After the filter's own drawing, which is set up just above.
+// (refitFilteredSheet), so none is left cut. After the filter's own drawing, which is set up just above.
 $('#ns-outline-search').addEventListener('input', () => {
-  navSheetFiltered();
+  refitFilteredSheet();
 });
 // The person's hand on the panel (outlineHeld). A scroll inside a hold is theirs going on - a fling, a smooth wheel -
 // and extends it; a follow never runs inside one, so its own scroll does not hold anything. A hand on the panel stops a

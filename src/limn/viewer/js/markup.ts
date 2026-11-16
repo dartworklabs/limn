@@ -1,11 +1,13 @@
-// ---------------------------------------------- Markup: html``, ic() and setHtml(), the one way the viewer writes HTML
+// -------------------------------------- Markup: html``, lucideIcon() and setHtml(), the one way the viewer writes HTML
 // docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so
 // a note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
-// and ic()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds every part to both.
+// and lucideIcon()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds every part to
+// both.
 import { ICONS, esc } from './core.ts';
 
-// Markup the viewer built: html`` escaped every value in it, or ic() drew it from the bundled icon table. toString()
-// gives the markup text (for tests and debugging); a string made from it is no Html, so setHtml() refuses it.
+// Markup the viewer built: html`` escaped every value in it, or lucideIcon() drew it from the bundled icon table.
+// toString() gives the markup text (for tests and debugging); a string made from it is no Html, so setHtml() refuses
+// it.
 class Html {
   declare text: string;
   constructor(text: string) {
@@ -38,7 +40,7 @@ function htmlValue(value) {
 
 // The Lucide icon `name` as an inline <svg> (same shape as the server's icon_svg(); CSS sets its size through .ic), or
 // empty Html when the bundled table has no such icon. `name` comes from this code, never from user text.
-function ic(name) {
+function lucideIcon(name) {
   const shapes = ICONS[name];
   return new Html(
     shapes
@@ -52,9 +54,9 @@ function ic(name) {
 }
 
 // Replaces an element's children with markup. Throws a TypeError for anything but Html, so a string built by hand
-// cannot reach the page through here. An empty element of the markup with data-cp (a code point in hex: ccHtml's box)
-// then gets that character as its text through the DOM, which keeps what the HTML parser would drop or change (a NUL, a
-// CR).
+// cannot reach the page through here. An empty element of the markup with data-cp (a code point in hex:
+// markHiddenHtml's box) then gets that character as its text through the DOM, which keeps what the HTML parser would
+// drop or change (a NUL, a CR).
 function setHtml(element, markup) {
   if (!(markup instanceof Html)) throw new TypeError('setHtml takes Html from html`` or ic()');
   element.innerHTML = markup.text;
@@ -66,4 +68,4 @@ function setHtml(element, markup) {
       box.textContent = String.fromCodePoint(codePoint);
   }
 }
-export { Html, html, ic, setHtml };
+export { Html, html, lucideIcon, setHtml };

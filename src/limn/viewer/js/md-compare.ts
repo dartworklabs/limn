@@ -1,42 +1,42 @@
 // ------------------------------------------------ The rendered compare of a Markdown document ([그린 비교])
 // The changes view's rendered compare (docs/handbook/viewer.md §변경 보기, ADR-0031). The document's own file on the
 // two sides the source diff compares (GET /api/revision-source: the commit's first parent and the commit, or a range's
-// old side and its commit) is parsed in a worker of its own and drawn by the Markdown surface's renderer (mdRender)
-// with a render context of its own per side (mdRx), pausing for the browser as the document view does; the two drawn
-// documents are then compared block by block (a paragraph, a heading, a list item's own text, a table row, a code
-// block, display math, the front matter, a rule, a raw HTML placeholder): a block the other side has as it is, one
+// old side and its commit) is parsed in a worker of its own and drawn by the Markdown surface's renderer (renderTokens)
+// with a render context of its own per side (newRenderContext), pausing for the browser as the document view does; the
+// two drawn documents are then compared block by block (a paragraph, a heading, a list item's own text, a table row, a
+// code block, display math, the front matter, a rule, a raw HTML placeholder): a block the other side has as it is, one
 // changed in place (its words marked), one added, one taken out, one moved. One column: the new side, with the
 // taken-out blocks put back where they were. Nothing here picks, pins or follows an in-document link: the view reads.
 // Images are the manuscript tree's files of now (GET /api/asset, as the Markdown surface draws them) on both sides -
 // the old side's own image files are not read; a line above the compare says so whenever a side has one. A character
 // that would hide or reorder text stays in its box (drawText) on both sides, and a changed one is a changed word.
-import { $, DIFF_FORMAT, LAYOUT, LAYOUT_MODE, MD_LIMIT, SCOPE_MODE, SCOPE_SOURCE, scrollMotion } from './core.ts';
+import { $, DIFF_FORMAT, LAYOUT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE, scrollMotion } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { ccHtml, ccPlain } from './hidden-chars.ts';
-import { errText, tl, tr } from './i18n.ts';
+import { markHiddenHtml, markHiddenPlain } from './hidden-chars.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
-import { dq } from './doc-tabs.ts';
-import { REV, hunkRanges, revKey, revTargetNote, revisionCurrent, revisionPinFor } from './revisions.ts';
+import { withDocQuery } from './doc-tabs.ts';
+import { REVISION_VIEW, hunkRanges, revisionKey, drawPinGuide, revisionCurrent, revisionPinFor } from './revisions.ts';
 import {
-  MD,
-  MD_LIMITS,
-  MD_OVER,
-  isMdDoc,
-  mdLimitText,
-  mdMiB,
-  mdRender,
-  mdRx,
-  mdRxKeep,
-  mdWait,
-  mdYield,
+  MARKDOWN_VIEW,
+  MARKDOWN_LIMITS,
+  OVER_ELEMENT_LIMIT,
+  isMarkdownDoc,
+  limitText,
+  formatMebibytes,
+  renderTokens,
+  newRenderContext,
+  keepRenderContext,
+  waitLine,
+  yieldToBrowser,
 } from './md-surface.ts';
-import { isTextDoc, txMarksText } from './text-surface.ts';
-// MDC: the compare on screen (key: revKey() it was drawn for), its parse worker and job, the change groups in order
-// (stops, each the blocks of one change) and the one the navigator is at, the drawn column (root) and the observer that
-// lays its gutter chips out again when its width changes (ro), the status line it said (line) and what it counted
-// (said: the answer and the counts, so a range's line can take the source diff's commit and file counts once they
-// come).
-const MDC = {
+import { isTextDoc, markedCharactersText } from './text-surface.ts';
+// RENDERED_COMPARE: the compare on screen (key: revisionKey() it was drawn for), its parse worker and job, the change
+// groups in order (stops, each the blocks of one change) and the one the navigator is at, the drawn column (root) and
+// the observer that lays its gutter chips out again when its width changes (ro), the status line it said (line) and
+// what it counted (said: the answer and the counts, so a range's line can take the source diff's commit and file counts
+// once they come).
+const RENDERED_COMPARE = {
   seq: 0,
   key: '',
   worker: null as Worker | null,
@@ -61,84 +61,88 @@ const REGROUP_BOX_TAGS = /^(?:BLOCKQUOTE|UL|OL|LI)$/;
 const CHIP_WORDS = { ins: '더함', del: '뺌', mod: '고침', move: '옮김' };
 // Whether the document on screen is drawn from Markdown (the rendered compare's documents): a text document shows its
 // lines as they are, and its source diff is that already.
-function mdcDrawn() {
-  return isMdDoc() && !isTextDoc();
+function isDrawnFromMarkdown() {
+  return isMarkdownDoc() && !isTextDoc();
 }
 // ---------------- Parsing both sides, apart from the Markdown surface's own worker
 function parseSide(text: string): Promise<any> {
   stopSideParse(null);
   return new Promise((resolve) => {
-    let worker = MDC.worker;
+    let worker = RENDERED_COMPARE.worker;
     try {
       if (!worker) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
-        MDC.worker = worker;
+        RENDERED_COMPARE.worker = worker;
         worker.onmessage = (message) => {
-          const job = MDC.job;
+          const job = RENDERED_COMPARE.job;
           if (!job || !message.data || message.data.id !== job.id) return;
           clearTimeout(job.t);
-          MDC.job = null;
+          RENDERED_COMPARE.job = null;
           job.resolve(message.data);
         };
         worker.onerror = (event) => {
           event.preventDefault();
-          stopSideParse({ ok: false, limit: MD_LIMIT.LOAD });
+          stopSideParse({ ok: false, limit: MARKDOWN_LIMIT.LOAD });
         };
       }
     } catch (error) {
-      resolve({ ok: false, limit: MD_LIMIT.LOAD });
+      resolve({ ok: false, limit: MARKDOWN_LIMIT.LOAD });
       return;
     }
-    const id = ++MD.seq;
-    MDC.job = { id, resolve, t: setTimeout(() => stopSideParse({ ok: false, limit: MD_LIMIT.TIME }), MD_LIMITS.ms) };
+    const id = ++MARKDOWN_VIEW.seq;
+    RENDERED_COMPARE.job = {
+      id,
+      resolve,
+      t: setTimeout(() => stopSideParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
+    };
     worker.postMessage({
       id,
       text,
-      limits: { nesting: MD_LIMITS.nesting, blocks: MD_LIMITS.blocks, inlines: MD_LIMITS.inlines },
+      limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
     });
   });
 }
 function stopSideParse(answer: any) {
-  const job = MDC.job;
+  const job = RENDERED_COMPARE.job;
   if (!job) return;
-  MDC.job = null;
+  RENDERED_COMPARE.job = null;
   clearTimeout(job.t);
-  if (MDC.worker) {
-    MDC.worker.terminate();
-    MDC.worker = null;
+  if (RENDERED_COMPARE.worker) {
+    RENDERED_COMPARE.worker.terminate();
+    RENDERED_COMPARE.worker = null;
   }
   job.resolve(answer);
 }
-// One side drawn with the Markdown surface's renderer (mdRender) into a root of its own, with a render context of its
-// own (mdRx: its lines, its element count, its marked characters, its headings - the document view's MD is never
-// touched), with a yield to the browser whenever mdRender pauses (every MD_LIMITS.chunk units of work, as the document
-// view builds) and live() asked after each: null past MD_LIMITS.elements, or once live() is false (a newer compare).
-// Ids go (a heading's: the surface keeps them), and an in-document heading or another document is a word here, so the
-// view never leaves for the manuscript.
+// One side drawn with the Markdown surface's renderer (renderTokens) into a root of its own, with a render context of
+// its own (newRenderContext: its lines, its element count, its marked characters, its headings - the document view's
+// MARKDOWN_VIEW is never touched), with a yield to the browser whenever renderTokens pauses (every
+// MARKDOWN_LIMITS.chunk units of work, as the document view builds) and live() asked after each: null past
+// MARKDOWN_LIMITS.elements, or once live() is false (a newer compare). Ids go (a heading's: the surface keeps them),
+// and an in-document heading or another document is a word here, so the view never leaves for the manuscript.
 async function buildSide(tokens: any[], lines: string[], live: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('div'),
-    context = mdRx(lines);
+    context = newRenderContext(lines);
   root.className = 'md mdc-doc';
   root.setAttribute('translate', 'no');
   root.lang = '';
   try {
-    for (const pause of mdRender(root, tokens, context)) {
+    for (const pause of renderTokens(root, tokens, context)) {
       void pause;
-      await mdYield();
+      await yieldToBrowser();
       if (!live()) return null;
     }
   } catch (error) {
-    if (error === MD_OVER) return null;
+    if (error === OVER_ELEMENT_LIMIT) return null;
     throw error;
   }
-  mdRxKeep(root, context); // an image that fails later draws its alt text on this side's count (onImageError)
+  keepRenderContext(root, context); // an image that fails later draws its alt text on this side's count (onImageError)
   root.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
   root.querySelectorAll('[data-act="md-anchor"],[data-act="md-doc"]').forEach((element) => {
     const link = element as HTMLElement;
     delete link.dataset.act;
     link.removeAttribute('role');
     link.removeAttribute('tabindex');
-    link.dataset.tip = tr('비교 화면에서는 문서 안 링크를 따라가지 않습니다');
+    link.dataset.tip = translate('비교 화면에서는 문서 안 링크를 따라가지 않습니다');
   });
   return root;
 }
@@ -360,7 +364,7 @@ function shapeLanguage(shape: string) {
 // boxes split or joined at it (how, markRegroups's) - '' when only its words changed (the marked words say what). Pure.
 function changeReason(oldUnit: CompareUnit, newUnit: CompareUnit, how?: string[]) {
   const box = (how || []).map((change) =>
-    change === 'split' ? tr('인용·목록이 둘로 갈라짐') : tr('인용·목록이 하나로 합쳐짐'),
+    change === 'split' ? translate('인용·목록이 둘로 갈라짐') : translate('인용·목록이 하나로 합쳐짐'),
   );
   return [ownChangeReason(oldUnit, newUnit), ...box].filter(Boolean).join(' · ');
 }
@@ -369,19 +373,19 @@ function changeReason(oldUnit: CompareUnit, newUnit: CompareUnit, how?: string[]
 // (the marked words say what). Pure.
 function ownChangeReason(oldUnit: CompareUnit, newUnit: CompareUnit) {
   if (oldUnit.text !== newUnit.text) return '';
-  if (oldUnit.alts !== newUnit.alts) return tr('그림 대체 글이 바뀜');
+  if (oldUnit.alts !== newUnit.alts) return translate('그림 대체 글이 바뀜');
   if (oldUnit.tag === 'PRE' && oldUnit.shape !== newUnit.shape)
     return shapeLanguage(oldUnit.shape) !== shapeLanguage(newUnit.shape)
-      ? tr('코드 언어가 바뀜')
-      : tr('코드의 공백·들여쓰기가 바뀜');
-  if (isLinedTag(oldUnit.tag) && oldUnit.shape !== newUnit.shape) return tr('줄의 공백·들여쓰기가 바뀜');
+      ? translate('코드 언어가 바뀜')
+      : translate('코드의 공백·들여쓰기가 바뀜');
+  if (isLinedTag(oldUnit.tag) && oldUnit.shape !== newUnit.shape) return translate('줄의 공백·들여쓰기가 바뀜');
   if (oldUnit.shape !== newUnit.shape && unalignedShape(oldUnit.shape) === unalignedShape(newUnit.shape))
-    return tr('표 칸 정렬이 바뀜');
-  if (oldUnit.shape !== newUnit.shape) return tr('글자 모양(굵게·기울임·코드·링크)이 바뀜');
+    return translate('표 칸 정렬이 바뀜');
+  if (oldUnit.shape !== newUnit.shape) return translate('글자 모양(굵게·기울임·코드·링크)이 바뀜');
   if (oldUnit.box !== newUnit.box)
     return oldUnit.box.replace(/OL\d+/g, 'OL') === newUnit.box.replace(/OL\d+/g, 'OL')
-      ? tr('목록 번호가 바뀜')
-      : tr('인용·목록 안팎으로 자리가 바뀜');
+      ? translate('목록 번호가 바뀜')
+      : translate('인용·목록 안팎으로 자리가 바뀜');
   return '';
 }
 // A shape (inlineShape) without its table cells' alignment. Pure.
@@ -912,7 +916,7 @@ function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
     const target = to(link);
     if (target && !oldTargets.has(target)) {
       link.classList.add('mdc-wl');
-      (link as HTMLElement).dataset.tip = tl('링크 대상이 바뀜 · {to}', { to: ccPlain(target) });
+      (link as HTMLElement).dataset.tip = translateTemplate('링크 대상이 바뀜 · {to}', { to: markHiddenPlain(target) });
     }
   }
   for (const link of oldLinks) {
@@ -920,12 +924,12 @@ function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
     if (target && !newTargets.has(target)) link.classList.add('mdc-wl-del');
   }
 }
-// A word mark (ins, del) holding text, each character that would hide or reorder it in its box (ccHtml), as the drawn
-// text has.
+// A word mark (ins, del) holding text, each character that would hide or reorder it in its box (markHiddenHtml), as the
+// drawn text has.
 function wordMark(tag: string, text: string) {
   const mark = document.createElement(tag);
   mark.className = 'mdc-w';
-  if (text) setHtml(mark, ccHtml(text));
+  if (text) setHtml(mark, markHiddenHtml(text));
   return mark;
 }
 // ---------------- Laying the marks
@@ -942,7 +946,7 @@ function markUnit(unit: HTMLElement, kind: string, why?: string) {
   const spoken = document.createElement('span');
   spoken.className = 'sr-only';
   spoken.textContent =
-    tr({ ins: '더한 블록', del: '뺀 블록', mod: '고친 블록', move: '옮긴 블록' }[kind] || '') +
+    translate({ ins: '더한 블록', del: '뺀 블록', mod: '고친 블록', move: '옮긴 블록' }[kind] || '') +
     (why ? ' (' + why + ')' : '') +
     ': ';
   if (unit.tagName === 'TR') {
@@ -1049,7 +1053,7 @@ function movedPlaceLine(unit: CompareUnit, to: CompareUnit) {
   line.className = 'mdc-ghost';
   line.dataset.toLo = String(to.lo);
   line.dataset.n = '1';
-  const text = tl('여기 있던 블록을 L{line}로 옮김', { line: to.lo }),
+  const text = translateTemplate('여기 있던 블록을 L{line}로 옮김', { line: to.lo }),
     box = tag === 'tr' ? document.createElement('td') : line;
   if (tag === 'tr') {
     (box as HTMLTableCellElement).colSpan = Math.max(1, unit.el.children.length);
@@ -1122,11 +1126,14 @@ function layColumn(
         lastLine = newUnits[operation.b].hi;
       previous.dataset.n = String(count);
       standFor(boxes, unit.el, previous);
-      (previous.querySelector('td') || previous).textContent = tl('여기 있던 블록 {n}개를 L{lo}–L{hi}로 옮김', {
-        n: count,
-        lo: firstLine,
-        hi: lastLine,
-      });
+      (previous.querySelector('td') || previous).textContent = translateTemplate(
+        '여기 있던 블록 {n}개를 L{lo}–L{hi}로 옮김',
+        {
+          n: count,
+          lo: firstLine,
+          hi: lastLine,
+        },
+      );
       return;
     }
     previous = placeTakenOut(
@@ -1144,7 +1151,7 @@ function layColumn(
 // The gutter chips: each marked block's kind as a word at its first line, in the column's left gutter (a layer of the
 // column, laid out again when its width changes). Not read aloud: the block itself carries its kind (markUnit).
 function layGutterChips() {
-  const root = MDC.root;
+  const root = RENDERED_COMPARE.root;
   if (!root) return;
   root.querySelectorAll(':scope>.mdc-chips').forEach((oldLayer) => oldLayer.remove());
   const layer = document.createElement('div');
@@ -1159,7 +1166,11 @@ function layGutterChips() {
     if (element.classList.contains('mdc-pin'))
       items.push({ y: rect.top - top, cls: 'pin', text: element.dataset.mdcPin || '' });
     if (element.dataset.mdc)
-      items.push({ y: rect.top - top, cls: element.dataset.mdc, text: tr(CHIP_WORDS[element.dataset.mdc] || '') });
+      items.push({
+        y: rect.top - top,
+        cls: element.dataset.mdc,
+        text: translate(CHIP_WORDS[element.dataset.mdc] || ''),
+      });
   }
   items.sort((first, second) => first.y - second.y || (first.cls === 'pin' ? 1 : -1));
   let last = -1e9;
@@ -1221,25 +1232,25 @@ function changeGroups(root: HTMLElement) {
 }
 // The navigator (#revision-nav): where it is among the change groups, and its buttons pressed only where there is a
 // next one.
-function mdcDrawNav() {
-  const count = MDC.stops.length,
+function drawCompareNavigator() {
+  const count = RENDERED_COMPARE.stops.length,
     box = $('#revision-nav');
-  box.hidden = REV.format !== DIFF_FORMAT.RENDERED || !count;
+  box.hidden = REVISION_VIEW.format !== DIFF_FORMAT.RENDERED || !count;
   $('#mdc-at').textContent = !count
     ? ''
-    : MDC.at < 0
-      ? tl('바뀐 곳 {n}곳', { n: count })
-      : tl('바뀐 곳 {at}/{n}', { at: MDC.at + 1, n: count });
-  ($('#mdc-prev') as HTMLButtonElement).disabled = MDC.at <= 0;
-  ($('#mdc-next') as HTMLButtonElement).disabled = MDC.at >= count - 1;
+    : RENDERED_COMPARE.at < 0
+      ? translateTemplate('바뀐 곳 {n}곳', { n: count })
+      : translateTemplate('바뀐 곳 {at}/{n}', { at: RENDERED_COMPARE.at + 1, n: count });
+  ($('#mdc-prev') as HTMLButtonElement).disabled = RENDERED_COMPARE.at <= 0;
+  ($('#mdc-next') as HTMLButtonElement).disabled = RENDERED_COMPARE.at >= count - 1;
 }
 // Goes to change group index: brings its first block to a third of the pane's height and, with ring, rings the group
 // for a moment.
 function goToChangeGroup(index: number, ring?: boolean) {
-  const group = MDC.stops[index];
+  const group = RENDERED_COMPARE.stops[index];
   if (!group) return;
-  MDC.at = index;
-  mdcDrawNav();
+  RENDERED_COMPARE.at = index;
+  drawCompareNavigator();
   document.querySelectorAll('#revision-rendered .mdc-cur').forEach((element) => element.classList.remove('mdc-cur'));
   if (ring) group.forEach((element) => element.classList.add('mdc-cur'));
   const pane = LAYOUT === LAYOUT_MODE.NARROW ? $('#revision-body') : $('#revision-rendered'),
@@ -1250,23 +1261,23 @@ function goToChangeGroup(index: number, ring?: boolean) {
     behavior: scrollMotion(),
   });
 }
-function mdcStep(step: number) {
-  if (!MDC.stops.length) return;
-  goToChangeGroup(Math.min(MDC.stops.length - 1, Math.max(0, MDC.at + step)), true);
+function stepChangeGroup(step: number) {
+  if (!RENDERED_COMPARE.stops.length) return;
+  goToChangeGroup(Math.min(RENDERED_COMPARE.stops.length - 1, Math.max(0, RENDERED_COMPARE.at + step)), true);
 }
 // Forgets the compare on screen (another commit, another document, the manuscript view).
-function mdcClear() {
-  ++MDC.seq;
-  MDC.key = '';
-  MDC.line = '';
-  MDC.said = null;
-  MDC.stops = [];
-  MDC.at = -1;
-  MDC.root = null;
+function clearRenderedCompare() {
+  ++RENDERED_COMPARE.seq;
+  RENDERED_COMPARE.key = '';
+  RENDERED_COMPARE.line = '';
+  RENDERED_COMPARE.said = null;
+  RENDERED_COMPARE.stops = [];
+  RENDERED_COMPARE.at = -1;
+  RENDERED_COMPARE.root = null;
   stopSideParse(null);
-  if (MDC.ro) {
-    MDC.ro.disconnect();
-    MDC.ro = null;
+  if (RENDERED_COMPARE.ro) {
+    RENDERED_COMPARE.ro.disconnect();
+    RENDERED_COMPARE.ro = null;
   }
   $('#revision-rendered').replaceChildren();
   $('#revision-nav').hidden = true;
@@ -1286,55 +1297,56 @@ function compareNotice(text: string) {
 function sideFailureText(side: any, which: string) {
   switch (side && side.reason) {
     case 'source_too_large':
-      return tl('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
+      return translateTemplate('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
         side: which,
-        size: mdMiB(side.bytes),
-        limit: mdMiB(side.limit),
+        size: formatMebibytes(side.bytes),
+        limit: formatMebibytes(side.limit),
       });
     case 'source_not_utf8':
-      return tl('{side}이 UTF-8이 아니라 그려 비교하지 않습니다', { side: which });
+      return translateTemplate('{side}이 UTF-8이 아니라 그려 비교하지 않습니다', { side: which });
     case 'not_a_file':
-      return tl('{side}에서 이 경로가 파일이 아니라 그려 비교하지 않습니다', { side: which });
+      return translateTemplate('{side}에서 이 경로가 파일이 아니라 그려 비교하지 않습니다', { side: which });
     default:
-      return tl('{side}을 읽지 못했습니다', { side: which });
+      return translateTemplate('{side}을 읽지 못했습니다', { side: which });
   }
 }
 // Parses and draws one side's lines (null: the file is not on that side - an empty document), as the document view
-// draws a document: a NUL in the source is not parsed (MD_LIMIT.NUL). {root} or {why}; {root:null,why:''} once live()
-// is false.
+// draws a document: a NUL in the source is not parsed (MARKDOWN_LIMIT.NUL). {root} or {why}; {root:null,why:''} once
+// live() is false.
 async function drawSide(
   lines: string[] | null,
   live: () => boolean,
 ): Promise<{ root: HTMLElement | null; why?: string }> {
   if (!lines) return { root: await buildSide([], [], live) };
-  if (lines.some((line) => line.includes('\0'))) return { root: null, why: mdLimitText(MD_LIMIT.NUL) };
+  if (lines.some((line) => line.includes('\0'))) return { root: null, why: limitText(MARKDOWN_LIMIT.NUL) };
   const parsed = await parseSide(lines.join('\n'));
   if (!parsed || !live()) return { root: null, why: '' };
-  if (!parsed.ok) return { root: null, why: mdLimitText(String(parsed.limit || MD_LIMIT.ERROR)) };
+  if (!parsed.ok) return { root: null, why: limitText(String(parsed.limit || MARKDOWN_LIMIT.ERROR)) };
   const root = await buildSide(parsed.tokens, lines, live);
-  return root ? { root } : { root: null, why: live() ? mdLimitText(MD_LIMIT.ELEMENTS) : '' };
+  return root ? { root } : { root: null, why: live() ? limitText(MARKDOWN_LIMIT.ELEMENTS) : '' };
 }
 // Shows the rendered compare of commit id (from base for a range) in #revision-rendered, for the visit seq of document
 // docKey: reads both sides, draws and compares them, lays them out in one column, rings a pin's blocks when the view
 // was opened for one ([변경 보기], then [그린 비교]), and says on the status line what changed.
-async function mdcShow(id: string, base: string, seq: number, docKey: string | null) {
+async function showRenderedCompare(id: string, base: string, seq: number, docKey: string | null) {
   const pane = $('#revision-rendered'),
-    key = revKey(),
-    mine = ++MDC.seq,
-    live = () => mine === MDC.seq && revisionCurrent(seq, docKey, id) && MDC.key === key;
-  MDC.key = key;
-  MDC.line = '';
-  MDC.said = null;
-  MDC.stops = [];
-  MDC.at = -1;
-  MDC.root = null;
-  if (MDC.ro) {
-    MDC.ro.disconnect();
-    MDC.ro = null;
+    key = revisionKey(),
+    mine = ++RENDERED_COMPARE.seq,
+    live = () => mine === RENDERED_COMPARE.seq && revisionCurrent(seq, docKey, id) && RENDERED_COMPARE.key === key;
+  RENDERED_COMPARE.key = key;
+  RENDERED_COMPARE.line = '';
+  RENDERED_COMPARE.said = null;
+  RENDERED_COMPARE.stops = [];
+  RENDERED_COMPARE.at = -1;
+  RENDERED_COMPARE.root = null;
+  if (RENDERED_COMPARE.ro) {
+    RENDERED_COMPARE.ro.disconnect();
+    RENDERED_COMPARE.ro = null;
   }
-  if (REV.target) REV.target.mdcMsg = ''; // the guide line says what this compare finds, once it has (ringPinBlocks)
-  pane.replaceChildren(mdWait(tr('두 판을 읽는 중입니다.')));
-  mdcDrawNav();
+  // the guide line says what this compare finds, once it has (ringPinBlocks)
+  if (REVISION_VIEW.target) REVISION_VIEW.target.mdcMsg = '';
+  pane.replaceChildren(waitLine(translate('두 판을 읽는 중입니다.')));
+  drawCompareNavigator();
   const pinTarget = revisionPinFor(id);
   let answer,
     scope = null;
@@ -1342,9 +1354,9 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
     const path =
       '/api/revision-source?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
     const [sides, pinDiff] = await Promise.all([
-      api(dq(path, docKey), { what: '두 판 읽기', silent: true }),
+      api(withDocQuery(path, docKey), { what: '두 판 읽기', silent: true }),
       pinTarget
-        ? api(dq('/api/revision-diff?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey), {
+        ? api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey), {
             what: '변경 내용 읽기',
             silent: true,
           }).catch(() => null)
@@ -1356,22 +1368,26 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
     if (live()) {
       const why = error && (error as ApiError).data ? errText((error as ApiError).data) : '';
       pane.replaceChildren(
-        compareNotice(why ? tl('두 판을 읽지 못했습니다: {error}', { error: why }) : tr('두 판을 읽지 못했습니다.')),
+        compareNotice(
+          why
+            ? translateTemplate('두 판을 읽지 못했습니다: {error}', { error: why })
+            : translate('두 판을 읽지 못했습니다.'),
+        ),
       );
     }
     return;
   }
   if (!live()) return;
   const bad = [
-    [answer.old, tr('옛 판')],
-    [answer.new, tr('새 판')],
+    [answer.old, translate('옛 판')],
+    [answer.new, translate('새 판')],
   ].find(([side]) => side && !Array.isArray(side.lines));
   if (bad) {
     pane.replaceChildren(compareNotice(sideFailureText(bad[0], bad[1])));
     sayCompareStatus(answer, null);
     return;
   }
-  pane.replaceChildren(mdWait(tr('두 판을 그려 견주는 중입니다.')));
+  pane.replaceChildren(waitLine(translate('두 판을 그려 견주는 중입니다.')));
   const oldSide = await drawSide(answer.old ? answer.old.lines : null, live);
   if (!live()) return;
   const newSide = oldSide.root ? await drawSide(answer.new ? answer.new.lines : null, live) : { root: null, why: '' };
@@ -1379,7 +1395,9 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
   if (!oldSide.root || !newSide.root) {
     pane.replaceChildren(
       compareNotice(
-        tl('그려 비교하지 못했습니다 — {why}', { why: oldSide.why || newSide.why || tr('파서를 쓸 수 없습니다') }),
+        translateTemplate('그려 비교하지 못했습니다 — {why}', {
+          why: oldSide.why || newSide.why || translate('파서를 쓸 수 없습니다'),
+        }),
       ),
     );
     sayCompareStatus(answer, null);
@@ -1399,45 +1417,49 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
   // read before the layout moves the old side's blocks
   const pics = !!(oldSide.root.querySelector('.md-pic') || newSide.root.querySelector('.md-pic'));
   const view = layColumn(oldSide.root, newSide.root, oldUnits, newUnits, ops, budget);
-  MDC.root = view;
+  RENDERED_COMPARE.root = view;
   const head = document.createElement('div');
   head.className = 'mdc-legend';
   head.setAttribute('aria-hidden', 'true');
   setHtml(
     head,
-    html`<span class="mdc-chip mdc-chip-ins">${tr('더함')}</span><span class="mdc-chip mdc-chip-del">${tr('뺌')}</span><span class="mdc-chip mdc-chip-mod">${tr('고침')}</span><span class="mdc-chip mdc-chip-move">${tr('옮김')}</span>`,
+    html`<span class="mdc-chip mdc-chip-ins">${translate('더함')}</span><span class="mdc-chip mdc-chip-del">${translate('뺌')}</span><span class="mdc-chip mdc-chip-mod">${translate('고침')}</span><span class="mdc-chip mdc-chip-move">${translate('옮김')}</span>`,
   );
   const frame = document.createElement('div');
   frame.className = 'mdc-frame';
   // read and seen: the old side's images are not its own (ADR-0031 D8) - a plain line, never the hidden legend's
   if (pics)
     frame.appendChild(
-      compareInfoLine(tr('그림은 두 판 모두 지금 원고 트리의 파일입니다 — 옛 판의 그림 파일은 읽지 않습니다.'), false),
+      compareInfoLine(
+        translate('그림은 두 판 모두 지금 원고 트리의 파일입니다 — 옛 판의 그림 파일은 읽지 않습니다.'),
+        false,
+      ),
     );
   // the characters drawn in their boxes in the column (the new side and the blocks and words put back): the document
   // view's notice
   const boxes = view.querySelectorAll('.cc').length;
-  if (boxes) frame.appendChild(compareInfoLine(txMarksText(boxes), false));
+  if (boxes) frame.appendChild(compareInfoLine(markedCharactersText(boxes), false));
   if (budget.left <= 0)
     frame.appendChild(
       compareInfoLine(
-        tr(
+        translate(
           '바뀐 곳이 많아 블록을 짝짓지 않고 더한 블록과 뺀 블록으로만 표시합니다. 낱말 단위는 [소스 diff]에 있습니다.',
         ),
       ),
     );
   if (!answer.old)
-    frame.appendChild(compareInfoLine(tr('이 커밋에서 파일이 처음 생겼습니다 — 모든 블록이 더한 블록입니다.')));
-  if (!answer.new) frame.appendChild(compareInfoLine(tr('이 커밋에서 파일을 지웠습니다 — 모든 블록이 뺀 블록입니다.')));
+    frame.appendChild(compareInfoLine(translate('이 커밋에서 파일이 처음 생겼습니다 — 모든 블록이 더한 블록입니다.')));
+  if (!answer.new)
+    frame.appendChild(compareInfoLine(translate('이 커밋에서 파일을 지웠습니다 — 모든 블록이 뺀 블록입니다.')));
   frame.append(head, view);
   pane.replaceChildren(frame);
-  MDC.stops = changeGroups(view);
+  RENDERED_COMPARE.stops = changeGroups(view);
   const at = ringPinBlocks(pinTarget, scope, newUnits, answer.new);
   sayCompareStatus(answer, counts);
-  if (!MDC.stops.length)
+  if (!RENDERED_COMPARE.stops.length)
     frame.insertBefore(
       compareInfoLine(
-        tr(
+        translate(
           '두 판의 그린 문서가 같습니다 — 줄 끝·공백·HTML 주석처럼 그리지 않는 곳만 바뀌었습니다. 정확한 변경은 [소스 diff]에 있습니다.',
         ),
       ),
@@ -1446,19 +1468,19 @@ async function mdcShow(id: string, base: string, seq: number, docKey: string | n
   requestAnimationFrame(() => {
     if (!live()) return;
     layGutterChips();
-    MDC.ro = window.ResizeObserver
+    RENDERED_COMPARE.ro = window.ResizeObserver
       ? new ResizeObserver(() => {
           if (live()) requestAnimationFrame(layGutterChips);
         })
       : null;
-    if (MDC.ro) MDC.ro.observe(view);
+    if (RENDERED_COMPARE.ro) RENDERED_COMPARE.ro.observe(view);
     if (at >= 0) goToChangeGroup(at);
     else {
-      MDC.at = -1;
-      mdcDrawNav();
+      RENDERED_COMPARE.at = -1;
+      drawCompareNavigator();
     }
   });
-  if (REV.target) revTargetNote();
+  if (REVISION_VIEW.target) drawPinGuide();
 }
 // A line above the compare: a status, read when it comes, unless status is false - then a standing note, read in its
 // place.
@@ -1470,42 +1492,44 @@ function compareInfoLine(text: string, status?: boolean) {
   return line;
 }
 // The status line of a compare: its two sides - a range's with the commits and files its source diff counted
-// (REV.rangeN, once that answer is in) - and what changed. Kept (MDC.said) so the range's counts can join it when they
-// come (mdcRestatus).
+// (REVISION_VIEW.rangeN, once that answer is in) - and what changed. Kept (RENDERED_COMPARE.said) so the range's counts
+// can join it when they come (restateCompareStatus).
 function sayCompareStatus(answer: any, counts: { ins: number; del: number; mod: number; move: number } | null) {
-  MDC.said = { r: answer, c: counts };
+  RENDERED_COMPARE.said = { r: answer, c: counts };
   const ends =
-      (answer.base ? String(answer.base).slice(0, 8) : tr('없음')) + ' → ' + String(answer.id || '').slice(0, 8),
-    rangeCounts = REV.base ? REV.rangeN : null;
+      (answer.base ? String(answer.base).slice(0, 8) : translate('없음')) + ' → ' + String(answer.id || '').slice(0, 8),
+    rangeCounts = REVISION_VIEW.base ? REVISION_VIEW.rangeN : null;
   let line = rangeCounts
-    ? tl('{base} → {head} · 커밋 {commits}개 · 파일 {files}개', {
+    ? translateTemplate('{base} → {head} · 커밋 {commits}개 · 파일 {files}개', {
         base: String(answer.base || '').slice(0, 8),
         head: String(answer.id || '').slice(0, 8),
         commits: rangeCounts.commits,
         files: rangeCounts.files,
       })
     : ends;
-  if (answer.merge_base) line += ' · ' + tl('공통 조상 {mb}부터 비교', { mb: String(answer.merge_base).slice(0, 8) });
+  if (answer.merge_base)
+    line += ' · ' + translateTemplate('공통 조상 {mb}부터 비교', { mb: String(answer.merge_base).slice(0, 8) });
   if (counts) {
     const total = counts.ins + counts.del + counts.mod + counts.move;
     line +=
       ' · ' +
       (total
-        ? tl('바뀐 블록 {n}곳 — 고침 {mod} · 더함 {ins} · 뺌 {del} · 옮김 {move}', {
+        ? translateTemplate('바뀐 블록 {n}곳 — 고침 {mod} · 더함 {ins} · 뺌 {del} · 옮김 {move}', {
             n: total,
             mod: counts.mod,
             ins: counts.ins,
             del: counts.del,
             move: counts.move,
           })
-        : tr('바뀐 블록 없음'));
+        : translate('바뀐 블록 없음'));
   }
-  MDC.line = line;
-  if (REV.format === DIFF_FORMAT.RENDERED) $('#revision-status').textContent = line;
+  RENDERED_COMPARE.line = line;
+  if (REVISION_VIEW.format === DIFF_FORMAT.RENDERED) $('#revision-status').textContent = line;
 }
 // The range's source diff has answered (loadRevisionSource): the compare's status line says its commits and files too.
-function mdcRestatus() {
-  if (MDC.said && MDC.key === revKey()) sayCompareStatus(MDC.said.r, MDC.said.c);
+function restateCompareStatus() {
+  if (RENDERED_COMPARE.said && RENDERED_COMPARE.key === revisionKey())
+    sayCompareStatus(RENDERED_COMPARE.said.r, RENDERED_COMPARE.said.c);
 }
 // The pin the view was opened for ([변경 보기], then [그린 비교]): its blocks on the new side - those whose lines meet
 // the pin's own changes (the server's hunks of the pin, scope) or else its lines - ringed in the review colour, the
@@ -1514,8 +1538,9 @@ function mdcRestatus() {
 // open at (-1: none), and leaves on the pin the line the guide says (pinTarget.mdcMsg).
 /** @param side the new side GET /api/revision-source gave */
 function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: CompareUnit[], side: any) {
-  const target = REV.target;
-  if (target && !pinTarget) target.mdcMsg = tl('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다', { id: target.id });
+  const target = REVISION_VIEW.target;
+  if (target && !pinTarget)
+    target.mdcMsg = translateTemplate('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다', { id: target.id });
   if (!pinTarget) return -1;
   // the pin's own hunks when it owns part of the commit; every hunk when it owns all of it; else its lines as they are
   // now. A hunk counts git's lines (LF only); the blocks count the screen's (the side's lines): gitToScreenRange turns
@@ -1537,21 +1562,32 @@ function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: Compar
   const shown = changed.length ? changed : meets;
   shown.forEach((unit) => {
     unit.el.classList.add('mdc-pin');
-    unit.el.dataset.mdcPin = tl('핀 #{id}', { id: pinTarget.id });
+    unit.el.dataset.mdcPin = translateTemplate('핀 #{id}', { id: pinTarget.id });
   });
   pinTarget.mdcMsg =
     (changed.length
-      ? tl('핀 #{id} 자리의 바뀐 블록 {n}곳을 보라 테두리로 표시했습니다', { id: pinTarget.id, n: changed.length }) +
+      ? translateTemplate('핀 #{id} 자리의 바뀐 블록 {n}곳을 보라 테두리로 표시했습니다', {
+          id: pinTarget.id,
+          n: changed.length,
+        }) +
         (scope && scope.hunks > 0
-          ? ' (' + tr(scope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') + ')'
+          ? ' (' + translate(scope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') + ')'
           : '')
       : meets.length
-        ? tr('핀 자리의 블록은 이 커밋에서 바뀌지 않았습니다 — 그 블록을 보라 테두리로 표시했습니다')
-        : tr('새 판에서 핀 자리를 찾지 못했습니다 — 정확한 줄은 [소스 diff]')) +
-    (part ? ' · ' + tr('그린 비교는 커밋 전체입니다 — 이 핀의 변경만은 [소스 diff]') : '');
+        ? translate('핀 자리의 블록은 이 커밋에서 바뀌지 않았습니다 — 그 블록을 보라 테두리로 표시했습니다')
+        : translate('새 판에서 핀 자리를 찾지 못했습니다 — 정확한 줄은 [소스 diff]')) +
+    (part ? ' · ' + translate('그린 비교는 커밋 전체입니다 — 이 핀의 변경만은 [소스 diff]') : '');
   const first = shown[0];
   if (!first) return -1;
-  const index = MDC.stops.findIndex((group) => group.includes(first.el));
+  const index = RENDERED_COMPARE.stops.findIndex((group) => group.includes(first.el));
   return index;
 }
-export { MDC, mdcClear, mdcDrawNav, mdcDrawn, mdcRestatus, mdcShow, mdcStep };
+export {
+  RENDERED_COMPARE,
+  clearRenderedCompare,
+  drawCompareNavigator,
+  isDrawnFromMarkdown,
+  restateCompareStatus,
+  showRenderedCompare,
+  stepChangeGroup,
+};

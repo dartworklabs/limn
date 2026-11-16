@@ -5,29 +5,29 @@ import {
   DOC,
   LAYOUT,
   LAYOUT_MODE,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   NOTICE_HOST,
   NOTICE_KIND,
   PICKSEQ,
   PIN_STATE,
   REPICK,
   SWITCHSEQ,
-  T,
+  TIP_TEXT,
   captureVisit,
   currentVisit,
   setPickseq,
   setRepick,
 } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import { bannerNote, quietNote } from './notices.ts';
 import { isRegion } from './doc-tabs.ts';
 import { switchDoc } from './doc-switch.ts';
-import { setSelMode, setSide } from './layout.ts';
-import { kindFor, levelLabel, lvOf, rng, scopeLabel } from './levels.ts';
-import { figureFields, pinPlace, repickEl, snapBox } from './figure.ts';
-import { isMdDoc, mdSelMark, mdSelShown } from './md-surface.ts';
+import { setSelectMode, setSide } from './layout.ts';
+import { kindFor, levelLabel, levelOf, lineRange, scopeLabel } from './levels.ts';
+import { figureFields, pinPlace, repickElement, snapBox } from './figure.ts';
+import { isMarkdownDoc, markChosenLines, shownChoice } from './md-surface.ts';
 import { COMPOSE, cancelSelection } from './composer.ts';
 import { loadPins } from './list.ts';
 import { EDITOR, editSnip } from './edit.ts';
@@ -40,31 +40,34 @@ function bannerRepick(err?) {
   if (!REPICK) return;
   const line = err ? html`<span class="errline flush">${err}</span>` : '';
   banner(
-    html`<span>${isMdDoc() ? tl('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소', { id: REPICK.id }) : tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소', { id: REPICK.id })}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`,
+    html`<span>${isMarkdownDoc() ? translateTemplate('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소', { id: REPICK.id }) : translateTemplate('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소', { id: REPICK.id })}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`,
   );
 }
-// The re-place banner compares the current and the new place (lines as the composer writes them, rng: L9, L3-L5); on a
-// figure the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked
-// (mdSelShown). A candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the
+// The re-place banner compares the current and the new place (lines as the composer writes them, lineRange: L9, L3-L5);
+// on a figure the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked
+// (shownChoice). A candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the
 // banner asks for another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
 function bannerCompare() {
   const repick = REPICK,
     candidate = repick && repick.cand;
   if (!repick || !candidate) return;
-  const level = lvOf(candidate, candidate.default_level) || candidate,
+  const level = levelOf(candidate, candidate.default_level) || candidate,
     isRegionPick = isRegion(candidate);
   if (isRegionPick !== !!repick.from.region) {
     repick.cand = null;
-    bannerRepick(tr(T.shape));
+    bannerRepick(translate(TIP_TEXT.shape));
     return;
   }
   const where = isRegionPick
-    ? tl('지금 쪽 {from} · 새 쪽 {to} 영역', { from: repick.from.page, to: candidate.page })
-    : tl('지금 {from} · 새 {to}', { from: rng(repick.from.lo, repick.from.hi), to: rng(level.lo, level.hi) });
+    ? translateTemplate('지금 쪽 {from} · 새 쪽 {to} 영역', { from: repick.from.page, to: candidate.page })
+    : translateTemplate('지금 {from} · 새 {to}', {
+        from: lineRange(repick.from.lo, repick.from.hi),
+        to: lineRange(level.lo, level.hi),
+      });
   const what = isRegionPick
     ? candidate.quote
       ? String(candidate.quote).slice(0, 40)
-      : tr('글자 없는 영역')
+      : translate('글자 없는 영역')
     : level.label
       ? levelLabel(level.label)
       : scopeLabel(candidate);
@@ -72,8 +75,8 @@ function bannerCompare() {
   banner(
     html`<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">${where}</span><span class="dim">(${what})</span><span class="sp"></span>${acts}`,
   );
-  snapBox(repick.box, repickEl(candidate));
-  mdSelMark(mdSelShown());
+  snapBox(repick.box, repickElement(candidate));
+  markChosenLines(shownChoice());
 } // the Markdown surface marks the candidate's lines as its box
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the
 // banner stays visible even on the collapsed sheet).
@@ -96,7 +99,7 @@ async function startRepick() {
     cand: null,
   });
   bannerRepick();
-  if (MQ_COARSE.matches) setSelMode(true);
+  if (COARSE_POINTER_QUERY.matches) setSelectMode(true);
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
 }
 // Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
@@ -107,9 +110,9 @@ function cancelRepick() {
   if (REPICK && REPICK.box) REPICK.box.remove();
   setRepick(null);
   $('#banner').hidden = true;
-  if (was) mdSelMark(mdSelShown());
+  if (was) markChosenLines(shownChoice());
   if (was) {
-    if (!COMPOSE.current) setSelMode(false);
+    if (!COMPOSE.current) setSelectMode(false);
     if (EDITOR.current && LAYOUT !== LAYOUT_MODE.WIDE) setSide(true);
   }
 }
@@ -122,7 +125,7 @@ async function applyRepick() {
   const repick = REPICK;
   if (!repick || !repick.cand) return;
   const candidate = repick.cand,
-    level = lvOf(candidate, candidate.default_level) || candidate;
+    level = levelOf(candidate, candidate.default_level) || candidate;
   const visit = captureVisit(),
     editing = EDITOR.current;
   let loc = {
@@ -151,7 +154,7 @@ async function applyRepick() {
       pdf_build: candidate.pdf_build || undefined,
     }; // view-only: only the region is re-placed
   // a new loc names its element or none: a loc without el drops the pin's el
-  figureFields(loc, repickEl(candidate), isRegion(candidate) || !level.el ? null : level);
+  figureFields(loc, repickElement(candidate), isRegion(candidate) || !level.el ? null : level);
   const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : 0;
   try {
     const { status, data } = await api('/api/pins/' + repick.id + '/edit', {
@@ -195,11 +198,11 @@ async function applyRepick() {
       editSnip(true);
     }
     quietNote(
-      tl('핀 #{id} 위치를 {where} 로 바꿨습니다', {
+      translateTemplate('핀 #{id} 위치를 {where} 로 바꿨습니다', {
         id: pin.id,
         where: isRegion(pin)
-          ? tl('쪽 {page} 영역', { page: pinPlace(pin).page })
-          : rng(pin.lo as number, pin.hi as number),
+          ? translateTemplate('쪽 {page} 영역', { page: pinPlace(pin).page })
+          : lineRange(pin.lo as number, pin.hi as number),
       }),
     );
     await loadPins();

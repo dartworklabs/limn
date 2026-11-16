@@ -1,26 +1,26 @@
 // ------------------------------------------------ Edit
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-import { KIND_REQ, NOTICE_HOST, NOTICE_KIND, PINS, PIN_STATE, T, rendersInBrowser } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { errText, tl, tr } from './i18n.ts';
+import { REQUEST_KIND, NOTICE_HOST, NOTICE_KIND, PINS, PIN_STATE, TIP_TEXT, rendersInBrowser } from './core.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import { bannerNote, quietNote } from './notices.ts';
-import { dq, isRegion, pdoc } from './doc-tabs.ts';
+import { withDocQuery, isRegion, pdoc } from './doc-tabs.ts';
 import { findAnyPin } from './revisions.ts';
 import { viaDoc } from './doc-switch.ts';
 import { viewerBlocked } from './boot.ts';
 import { pinState } from './polling.ts';
-import { drawLadder, kindFor, lvOf, rangeCap, setCap, snipText, wireScope } from './levels.ts';
+import { drawLadder, kindFor, levelOf, rangeCap, setCap, snipText, wireScope } from './levels.ts';
 import { drawExcerpt } from './excerpt.ts';
 import { pinPlace } from './figure.ts';
-import { mdEditLevels } from './md-surface.ts';
+import { editCardLevels } from './md-surface.ts';
 import { editDocKind, renderEditSuggest, suggestForEdit, suggestOfPin, suggestOff, suggestRebase } from './suggest.ts';
-import { qHint } from './composer.ts';
+import { syncQuestionHint } from './composer.ts';
 import { verdictOf } from './verdict.ts';
 import { assigneeOf, isQuestion, peopleName } from './card-parts.ts';
 import { drawPins, jumpPin, loadPins } from './list.ts';
 import { mentionHints, mentionPreview, renderAssignEdit } from './mentions.ts';
-import { segRove } from './events.ts';
+import { roveSegment } from './events.ts';
 const EDITOR = { current: null as EditCard | null, saving: false };
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
@@ -66,9 +66,9 @@ function openEdit(id) {
   setHtml(
     cardElement,
     html`<div class="e-kind seg kind-seg" role="radiogroup" aria-label="핀 종류"><button data-act="e-kind" data-kind="fix" role="radio" data-tip="고쳐 달라는 요청">수정 요청</button>\
-<button data-act="e-kind" data-kind="question" role="radio" data-tip="${T.question}">질문</button></div>\
+<button data-act="e-kind" data-kind="question" role="radio" data-tip="${TIP_TEXT.question}">질문</button></div>\
 <textarea class="e-note" rows="3" aria-label="메모 고치기" data-tip="메모를 고칩니다. ⌘ Enter / Ctrl+Enter 저장, Esc 취소"></textarea><div class="m-preview" aria-live="polite" hidden></div>\
-<div class="e-qhint q-hint" role="status" hidden>${ic('circle-question-mark')}<span>질문처럼 보입니다 —</span><button data-act="e-kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다">질문으로 보내기</button></div>\
+<div class="e-qhint q-hint" role="status" hidden>${lucideIcon('circle-question-mark')}<span>질문처럼 보입니다 —</span><button data-act="e-kind" data-kind="question" data-tip="이 핀을 질문으로 바꿉니다">질문으로 보내기</button></div>\
 <div class="e-assign assign-row" role="radiogroup" aria-label="담당" hidden></div>\
 <div class="e-sg-row sg-row"><button class="btn-ghost sg-tg hit" role="switch" aria-checked="false" data-act="sg-toggle" \
 data-tip="이 줄 범위를 바꿀 글을 직접 씁니다. 끄고 저장하면 이 핀의 제안 수정을 지웁니다"><span class="sg-sw" aria-hidden="true"></span><span class="lbl">제안 수정</span></button>\
@@ -80,10 +80,10 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
 <div class="rg-cap e-cap" aria-live="polite" aria-atomic="true"></div>\
 <div class="e-levels seg lad" role="radiogroup" aria-label="범위" data-rungs="0" tabindex="-1"></div>\
 <div class="xp e-xp" hidden></div>\
-<pre class="e-snip wrap" translate="no">${tr('원문 읽는 중…')}</pre>\
-<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="${T.repick}">위치 다시 잡기</button>\
-<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${T.ecancel}">취소</button>\
-<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${T.esave}">저장</button></div>`,
+<pre class="e-snip wrap" translate="no">${translate('원문 읽는 중…')}</pre>\
+<div class="e-acts"><button class="btn-sm b-repick" data-act="repick" data-tip="${TIP_TEXT.repick}">위치 다시 잡기</button>\
+<button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${TIP_TEXT.ecancel}">취소</button>\
+<button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${TIP_TEXT.esave}">저장</button></div>`,
   );
   const noteField = cardElement.querySelector('.e-note') as HTMLTextAreaElement;
   noteField.value = pin.note || '';
@@ -115,7 +115,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
       scope: pin.scope || null,
       note: pin.note || '',
       mentions: mentionHints(noteField),
-      kind_req: isQuestion(pin) ? KIND_REQ.QUESTION : KIND_REQ.FIX,
+      kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
       assignee: assigneeOf(pin),
     },
     assignee: assigneeOf(pin),
@@ -124,7 +124,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
     pinEl: pin.el || null,
     page: pinPlace(pin).page,
     quote: pin.quote || '',
-    kind_req: isQuestion(pin) ? KIND_REQ.QUESTION : KIND_REQ.FIX,
+    kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
     sg: suggestOfPin(pin),
   };
   if (EDITOR.current.region) cardElement.classList.add('region');
@@ -172,13 +172,15 @@ async function editSnip(withLevels) {
   const card = EDITOR.current;
   if (!card) return;
   if (card.region) {
-    card.snippet = card.quote ? tl('영역 글자: {text}', { text: card.quote }) : tr('(영역 글자 없음)');
+    card.snippet = card.quote
+      ? translateTemplate('영역 글자: {text}', { text: card.quote })
+      : translate('(영역 글자 없음)');
     renderEdit();
     return;
   } // view-only: there is no source line
   try {
     const { status, data } = await api(
-      dq(
+      withDocQuery(
         '/api/snippet?file=' +
           encodeURIComponent(String(card.file)) +
           '&lo=' +
@@ -192,18 +194,19 @@ async function editSnip(withLevels) {
     );
     if (EDITOR.current !== card) return;
     if (status === 400) {
-      card.snippet = tr('원문을 읽지 못했습니다') + ' — ' + errText(data) + '\n' + tr('위치 다시 잡기로 고치세요.');
+      card.snippet =
+        translate('원문을 읽지 못했습니다') + ' — ' + errText(data) + '\n' + translate('위치 다시 잡기로 고치세요.');
       renderEdit();
       return;
     }
     card.snippet = data.snippet;
     card.n_lines = data.n_lines;
     // a Markdown pin's rungs come from the drawn document
-    const markdownRungs = withLevels && rendersInBrowser(editDocKind(card)) ? mdEditLevels(card) : null;
+    const markdownRungs = withLevels && rendersInBrowser(editDocKind(card)) ? editCardLevels(card) : null;
     if (markdownRungs) card.levels = markdownRungs;
     else if (withLevels && data.levels && !rendersInBrowser(editDocKind(card))) {
       card.levels = data.levels;
-      if (!card.scope || !lvOf(card, card.scope)) {
+      if (!card.scope || !levelOf(card, card.scope)) {
         const matching = card.levels.find((rung) => rung.lo === card.lo && rung.hi === card.hi);
         if (matching && !card.scope) card.scope = null;
       }
@@ -223,15 +226,15 @@ function renderEdit() {
   const cardElement = card.el;
   syncEditSaveButton();
   (cardElement.querySelectorAll('.e-kind button') as NodeListOf<HTMLElement>).forEach((button) => {
-    const on = button.dataset.kind === (card.kind_req || KIND_REQ.FIX);
+    const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   });
-  segRove(cardElement.querySelector('.e-kind')); // the group's one Tab stop is the kind now chosen (events.ts)
+  roveSegment(cardElement.querySelector('.e-kind')); // the group's one Tab stop is the kind now chosen (events.ts)
   setCap(
     cardElement.querySelector('.e-cap'),
     card.region
-      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${tl('쪽 {page} · 영역', { page: card.page })}</span>`
+      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
       : rangeCap(card, true),
   );
   drawLadder(cardElement.querySelector('.e-levels'), card, true);
@@ -241,7 +244,7 @@ function renderEdit() {
   renderAssignEdit();
   drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
   renderEditSuggest(card); // the [제안 수정] switch and its editor (suggest.ts); a closed pin's suggestion read-only
-  qHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
+  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
   (cardElement.querySelector('.b-repick') as HTMLElement).hidden = closed;
@@ -341,7 +344,7 @@ async function saveEdit() {
       if (data && data.error === PIN_STATE.DONE) {
         bannerNote(
           NOTICE_HOST.LIST,
-          tl('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다', { id: card.id }),
+          translateTemplate('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다', { id: card.id }),
           NOTICE_KIND.WARN,
         );
         if (editorOwns(card)) {
@@ -358,7 +361,7 @@ async function saveEdit() {
             scope: pin.scope || null,
             note: pin.note || '',
             mentions: (pin.mentions || []).filter((login) => (pin.note || '').includes('@' + peopleName(login))),
-            kind_req: isQuestion(pin) ? KIND_REQ.QUESTION : KIND_REQ.FIX,
+            kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
             assignee: assigneeOf(pin),
           };
           editSnip(true);
@@ -418,13 +421,13 @@ async function saveEdit() {
           scope: pin.scope || null,
           note: pin.note || '',
           mentions: hints.slice(),
-          kind_req: isQuestion(pin) ? KIND_REQ.QUESTION : KIND_REQ.FIX,
+          kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
           assignee: assigneeOf(pin),
         };
         card.sg.had = pin.suggest ? { base: pin.suggest.base, text: pin.suggest.text } : null;
       }
     }
-    quietNote(tl('핀 #{id} 수정됨', { id: card.id }));
+    quietNote(translateTemplate('핀 #{id} 수정됨', { id: card.id }));
     await loadPins();
   } catch (error) {
   } finally {
@@ -438,9 +441,9 @@ function editTheirs(card: EditCard) {
   const theirs = card.theirs == null ? '' : card.theirs;
   bannerNote(
     NOTICE_HOST.LIST,
-    tl('핀 #{id} 메모를 저장하지 않았습니다 · 그사이 다른 곳에서 메모가 바뀌었습니다', { id: card.id }) +
+    translateTemplate('핀 #{id} 메모를 저장하지 않았습니다 · 그사이 다른 곳에서 메모가 바뀌었습니다', { id: card.id }) +
       ' — ' +
-      tl('지금 메모: {note}', { note: theirs || tr('(빈 메모)') }),
+      translateTemplate('지금 메모: {note}', { note: theirs || translate('(빈 메모)') }),
     NOTICE_KIND.WARN,
     {
       label: '내 메모로 덮어쓰기',
@@ -469,7 +472,9 @@ function editSuggestRefused(card: EditCard, data: any) {
   }
   bannerNote(
     NOTICE_HOST.LIST,
-    tl('핀 #{id} 수정 실패', { id: card.id }) + ' — ' + tr('그사이 그 줄들의 원문이 바뀌었습니다'),
+    translateTemplate('핀 #{id} 수정 실패', { id: card.id }) +
+      ' — ' +
+      translate('그사이 그 줄들의 원문이 바뀌었습니다'),
     NOTICE_KIND.ERR,
     {
       label: '지금 원문으로 맞추기',

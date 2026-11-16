@@ -13,7 +13,7 @@ import {
   DOC,
   META,
   META_BY,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   NOTICE_HOST,
   NOTICE_KIND,
   SIDE_OPEN,
@@ -22,17 +22,17 @@ import {
   setMeta,
 } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { tr } from './i18n.ts';
+import { translate } from './i18n.ts';
 import { api } from './api.ts';
 import { announce, lineNote, sourceOk } from './notices.ts';
-import { dq } from './doc-tabs.ts';
+import { withDocQuery } from './doc-tabs.ts';
 import { loadRevisions } from './revisions.ts';
 import { drawMeta } from './boot.ts';
 import { BUILD, pollBuild, pullSuffix } from './build-chip.ts';
-import { buildDoc, pageSrc, reapplyK } from './pages.ts';
-import { vecOpen } from './pdf-open.ts';
-import { vecReleaseAll } from './pdf-draw.ts';
-import { mdBuild } from './md-surface.ts';
+import { buildDoc, pageSrc, reapplyScale } from './pages.ts';
+import { openVectorDocument } from './pdf-open.ts';
+import { releaseAllVectorPages } from './pdf-draw.ts';
+import { buildMarkdownDoc } from './md-surface.ts';
 import { pageUnderReadingLine } from './verdict.ts';
 import { isComposingNow, afterComposition } from './verdict-reason.ts';
 import { setBuildReadingPage } from './verdict-panel.ts';
@@ -41,7 +41,7 @@ function topAnchor(offset?) {
   const scroller = $('#left'),
     scrollerTop = scroller.getBoundingClientRect().top,
     top = scrollerTop + (offset || 0),
-    atTop = MQ_COARSE.matches && scroller.scrollTop <= 0,
+    atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
     edge = offset ? 0 : 1;
   for (const pageElement of $$('.pg')) {
     const rect = pageElement.getBoundingClientRect();
@@ -116,14 +116,16 @@ async function refreshDoc(meta?) {
   const visitDoc = DOC,
     seq = SWITCHSEQ;
   const snapshot =
-    meta === undefined ? (await api(dq('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data : meta;
+    meta === undefined
+      ? (await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
+      : meta;
   if (visitDoc !== DOC || seq !== SWITCHSEQ) return;
   const gen = ++REFRESH_GEN;
   if (rendersInBrowser(snapshot.kind)) {
     META_BY.set(visitDoc, snapshot);
     setMeta(snapshot);
     drawMeta();
-    mdBuild();
+    buildMarkdownDoc();
     await loadPins();
     return;
   } // no pages: the source is drawn again
@@ -143,16 +145,16 @@ async function refreshDoc(meta?) {
   drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's
   // PDF is opened. A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale
-  // (reapplyK - which leaves the scale alone while the changes view hides the PDF area).
+  // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
-    vecReleaseAll();
+    releaseAllVectorPages();
     $$('.pg').forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
       pageElement.querySelector('img').src = pageSrc(page);
     });
-    reapplyK();
+    reapplyScale();
   } else {
     setBuildReadingPage(pageUnderReadingLine());
     try {
@@ -163,7 +165,7 @@ async function refreshDoc(meta?) {
     }
   } // the reading page held until its spot is back
   restoreAnchor(anchor);
-  vecOpen();
+  openVectorDocument();
   if (document.body.classList.contains('revision-open')) loadRevisions();
   await loadPins();
 }
@@ -197,13 +199,15 @@ function showBuildErr(build: any, say?: boolean) {
 // (api's source is the method and URL). A failed [PDF 재빌드] says itself under its own; an answered one clears it, and
 // so does a later build of that document, which refreshDoc shows.
 function rebuildSources(doc: string | null): string[] {
-  return ['/api/rebuild?async=1', '/api/rebuild?async=1&force=1'].map((url) => 'POST ' + dq(url, doc || undefined));
+  return ['/api/rebuild?async=1', '/api/rebuild?async=1&force=1'].map(
+    (url) => 'POST ' + withDocQuery(url, doc || undefined),
+  );
 }
 // The title of a build's failure (fail) or its LaTeX errors (ok_errors), with the pull's line: the error panel's, and
 // what showBuildErr reads out.
 function buildErrTitle(build: any): string {
   return (
-    tr(
+    translate(
       build.state === BUILD_STATE.FAIL
         ? '빌드 실패 — 화면은 이전 PDF입니다'
         : 'PDF를 재빌드했지만 LaTeX 오류가 있습니다',
@@ -233,7 +237,7 @@ async function rebuild(force?) {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    const { status } = await api(dq('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
+    const { status } = await api(withDocQuery('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
       method: 'POST',
       what: 'PDF 재빌드',
       where: NOTICE_HOST.LINE,
@@ -267,7 +271,7 @@ async function rebuild(force?) {
 function downloadPdf() {
   if (!META || !META.pages_build) return;
   const link = document.createElement('a');
-  link.href = dq('/pdf?build=' + encodeURIComponent(META.pages_build) + '&download=1');
+  link.href = withDocQuery('/pdf?build=' + encodeURIComponent(META.pages_build) + '&download=1');
   link.download = '';
   link.hidden = true;
   document.body.appendChild(link);

@@ -3,7 +3,7 @@ import {
   $,
   $$,
   DOCS,
-  KIND_REQ,
+  REQUEST_KIND,
   LAYOUT,
   LAYOUT_MODE,
   MENTION_ONLY,
@@ -31,11 +31,11 @@ import { bannerNote, noticeAct, noticeClose } from './notices.ts';
 import { TIP, focusGivenBack, hideTip } from './tooltip.ts';
 import { closeDocMenu, multiDoc, toggleDocMenu } from './doc-tabs.ts';
 import {
-  REV_SCOPE,
+  COMPARISON_SCOPE,
   moreRevisions,
   pressRevisionRow,
   renderRevisionFile,
-  revBack,
+  returnToManuscript,
   setRevisionFormat,
   setRevisionRange,
   setRevisionSide,
@@ -45,14 +45,14 @@ import {
   showRevision,
   toggleRevisionOther,
 } from './revisions.ts';
-import { cycleDoc, openNavSheet, switchDoc } from './doc-switch.ts';
+import { cycleDoc, openNavigationSheet, switchDoc } from './doc-switch.ts';
 import { boot, viewerBlocked } from './boot.ts';
 import { notifyToggle } from './notify.ts';
 import { BUILD } from './build-chip.ts';
 import { reloadForUpdate } from './updates.ts';
 import { drawStatus, statusWhy, toggleStatusList } from './status.ts';
 import { sizePreset, toggleOutline } from './panel-size.ts';
-import { actualSize, fitW, navGo, zoom } from './pages.ts';
+import { actualSize, fitToWidth, goSheetPage, zoom } from './pages.ts';
 import { pickOutline } from './outline.ts';
 import { closePageList, goListedPage, togglePageList } from './page-list.ts';
 import { searchClose, searchGo, searchOpen } from './search.ts';
@@ -63,7 +63,7 @@ import {
   headInk,
   openMore,
   outlineOverlay,
-  setSelMode,
+  setSelectMode,
   setSide,
   showSheet,
   toggleSide,
@@ -71,9 +71,9 @@ import {
 import { useLevel } from './levels.ts';
 import { applyRange, dropLine, widenTo } from './excerpt.ts';
 import { showElementBox } from './figure.ts';
-import { isMdDoc, mdGoAnchor, mdGoDoc, mdHtmlRun } from './md-surface.ts';
-import { mdcStep } from './md-compare.ts';
-import { SG_OPEN, suggestAct } from './suggest.ts';
+import { isMarkdownDoc, goToAnchor, goToDocLink, toggleHtmlRun } from './md-surface.ts';
+import { stepChangeGroup } from './md-compare.ts';
+import { SUGGEST_OPEN, suggestAct } from './suggest.ts';
 import {
   COMPOSE,
   discardSelection,
@@ -89,10 +89,10 @@ import { offlineFlush, offlinePrepare } from './offline.ts';
 import { cancelLineVerdict, undoFromLine, verdictPress } from './verdict.ts';
 import { actOnReason } from './verdict-reason.ts';
 import { goToSummaryPage } from './verdict-panel.ts';
-import { selPopMore } from './sel-popover.ts';
-import { MSG_OPEN } from './card-parts.ts';
+import { handPopoverToComposer } from './sel-popover.ts';
+import { MESSAGE_OPEN } from './card-parts.ts';
 import { ARC_OPEN, openTrash } from './cards.ts';
-import { RV_PICK, rvConfirm, rvPick, rvToCard } from './review-pick.ts';
+import { REVIEW_PICK, confirmTicked, setReviewPicking, goToReviewCard } from './review-pick.ts';
 import {
   cardNeighbour,
   drawPins,
@@ -104,7 +104,7 @@ import {
   loadPins,
   revealCard,
   setListOrder,
-  toggleSec,
+  toggleSection,
 } from './list.ts';
 import { MARKS, marksSet } from './marks-hide.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './actions.ts';
@@ -135,7 +135,7 @@ $('#help').addEventListener('close', () => {
 function zoomVisiblePdf(action) {
   if (document.body.classList.contains('revision-open')) {
     if (action !== 'actual') revisionZoom(action);
-  } else if (action === 'fit') fitW();
+  } else if (action === 'fit') fitToWidth();
   else if (action === 'actual') actualSize();
   else zoom(action === 'in' ? 1 : -1);
 }
@@ -172,11 +172,11 @@ document.addEventListener('click', (event) => {
       toggleSide();
       break;
     case 'selmode':
-      setSelMode(!SELMODE);
+      setSelectMode(!SELMODE);
       if (SELMODE && LAYOUT === LAYOUT_MODE.NARROW && !COMPOSE.current && !EDITOR.current) setSide(false);
       break;
     case 'selmode-end':
-      setSelMode(false);
+      setSelectMode(false);
       break; // the mode bar's [끝내기]: one press, no confirmation
     case 'more':
       openMore();
@@ -277,7 +277,7 @@ document.addEventListener('click', (event) => {
       undoFromLine(control);
       break; // a take-back's [되돌리기] on its line (verdict.ts)
     case 'pop-more':
-      selPopMore();
+      handPopoverToComposer();
       break; // the note popover by the box hands over to the composer in the panel
     case 'overlap-append': {
       const text = $('#note').value.trim();
@@ -311,8 +311,8 @@ document.addEventListener('click', (event) => {
     case 'sg-fold': {
       const key = control.dataset.key;
       if (!key) break;
-      if (SG_OPEN.has(key)) SG_OPEN.delete(key);
-      else SG_OPEN.add(key);
+      if (SUGGEST_OPEN.has(key)) SUGGEST_OPEN.delete(key);
+      else SUGGEST_OPEN.add(key);
       drawPins();
       break;
     } // a card's suggestion diff
@@ -364,13 +364,13 @@ document.addEventListener('click', (event) => {
       toggleDocMenu();
       break; // [+N]: the documents popover (doc-tabs.ts)
     case 'nav-sheet':
-      openNavSheet();
+      openNavigationSheet();
       break;
     case 'nav-sheet-close':
       $('#nav-sheet').close();
       break;
     case 'ns-go':
-      navGo();
+      goSheetPage();
       break;
     case 'page-list':
       togglePageList(control);
@@ -394,7 +394,7 @@ document.addEventListener('click', (event) => {
       searchGo(1);
       break;
     case 'rev-back':
-      revBack();
+      returnToManuscript();
       break;
     case 'outline':
       toggleOutline();
@@ -413,7 +413,7 @@ document.addEventListener('click', (event) => {
       setRevisionSide(control.dataset.side);
       break;
     case 'mdc-step':
-      mdcStep(Number(control.dataset.step) || 0);
+      stepChangeGroup(Number(control.dataset.step) || 0);
       break;
     case 'revision-row':
       pressRevisionRow(control.dataset.commit);
@@ -433,13 +433,13 @@ document.addEventListener('click', (event) => {
       drawPins();
       break;
     case 'review-pick':
-      rvPick(!RV_PICK);
+      setReviewPicking(!REVIEW_PICK);
       break;
     case 'rv-go':
-      rvConfirm();
+      confirmTicked();
       break;
     case 'rv-card':
-      if (id != null) rvToCard(id);
+      if (id != null) goToReviewCard(id);
       break; // confirming from result rows (review-pick.ts)
     case 'list-order':
       setListOrder(control.dataset.order);
@@ -465,8 +465,8 @@ document.addEventListener('click', (event) => {
     case 'msg-more': {
       const key = control.dataset.key;
       if (!key) break;
-      if (MSG_OPEN.has(key)) MSG_OPEN.delete(key);
-      else MSG_OPEN.add(key);
+      if (MESSAGE_OPEN.has(key)) MESSAGE_OPEN.delete(key);
+      else MESSAGE_OPEN.add(key);
       drawPins();
       break;
     }
@@ -477,7 +477,7 @@ document.addEventListener('click', (event) => {
       revisionZoom(control.dataset.zoom);
       break;
     case 'revision-whole':
-      setRevisionWhole(!REV_SCOPE.whole);
+      setRevisionWhole(!COMPARISON_SCOPE.whole);
       break;
     case 'mark-jump':
       revealCard(id);
@@ -504,8 +504,8 @@ document.addEventListener('click', (event) => {
     case 'kind': {
       const fromHint = !!control.closest('#c-qhint');
       setKind(control.dataset.kind);
-      // [질문으로 보내기] hides itself (qHint), which would drop focus to <body> and make Ctrl+Enter do nothing - back
-      // to the memo.
+      // [질문으로 보내기] hides itself (syncQuestionHint), which would drop focus to <body> and make Ctrl+Enter do
+      // nothing - back to the memo.
       if (fromHint) {
         const note = $('#note');
         note.focus({ preventScroll: true });
@@ -515,7 +515,8 @@ document.addEventListener('click', (event) => {
     }
     case 'e-kind':
       if (EDITOR.current) {
-        EDITOR.current.kind_req = control.dataset.kind === KIND_REQ.QUESTION ? KIND_REQ.QUESTION : KIND_REQ.FIX;
+        EDITOR.current.kind_req =
+          control.dataset.kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX;
         renderEdit();
       }
       break;
@@ -532,7 +533,7 @@ document.addEventListener('click', (event) => {
       if (id == null) break;
       const inGuide = !!control.closest('#revision-pin,#revision-acts'); // before confirmPin redraws the guide line
       confirmPin(id);
-      if (inGuide) revBack();
+      if (inGuide) returnToManuscript();
       break;
     } // the review ends where it is read: back to the manuscript
     case 'change':
@@ -568,13 +569,13 @@ document.addEventListener('click', (event) => {
       cancelEdit();
       break;
     case 'md-anchor':
-      mdGoAnchor(control);
+      goToAnchor(control);
       break; // an in-document #heading link of the Markdown surface
     case 'md-doc':
-      mdGoDoc(control);
+      goToDocLink(control);
       break; // a link to another registered document (md-surface.ts, ADR-0030)
     case 'md-html-run':
-      mdHtmlRun(control);
+      toggleHtmlRun(control);
       break; // a run of raw HTML blocks opens or closes (md-surface.ts)
     case 'repick':
       startRepick();
@@ -586,7 +587,7 @@ document.addEventListener('click', (event) => {
       applyRepick();
       break;
     case 'sec-toggle':
-      toggleSec(control.dataset.sec);
+      toggleSection(control.dataset.sec);
       break;
     case 'trash-open':
       openTrash();
@@ -624,14 +625,14 @@ $('#doc-select').addEventListener('change', (event) => switchDoc(event.target.va
 $('#revision-file').addEventListener('change', renderRevisionFile);
 // A segmented control is a radio group (docs/handbook/viewer.md §디자인 토큰과 컴포넌트): the whole group is one Tab
 // stop, the arrows move inside it and Home/End go to its ends. The one stop is a roving tabindex - the chosen word is
-// the one Tab reaches - set wherever a group is drawn or its choice changes (segRove), and the key that moves presses
-// the word it moves to, so the arrows and a click take the same path. A key that lands on the word already chosen (Home
-// on the first when it is the one, an arrow round a group of one) only moves the focus: pressing a chosen word is no
-// new choice. A group whose choice changes the context (data-seg-manual in the markup: [더보기]'s language reopens the
-// page, the phone's navigation sheet [원고 | 변경사항] changes the view and closes the sheet) is walked without
-// choosing, as tabs with manual activation are (WCAG 3.2.2): the keys only move the focus, and Enter or Space - the
-// word's own press - chooses. While the focus walks such a group the stop goes with it, so Tab leaves from where the
-// focus is in one step; when the focus leaves, the stop goes back to the chosen word (leaveManualSegment).
+// the one Tab reaches - set wherever a group is drawn or its choice changes (roveSegment), and the key that moves
+// presses the word it moves to, so the arrows and a click take the same path. A key that lands on the word already
+// chosen (Home on the first when it is the one, an arrow round a group of one) only moves the focus: pressing a chosen
+// word is no new choice. A group whose choice changes the context (data-seg-manual in the markup: [더보기]'s language
+// reopens the page, the phone's navigation sheet [원고 | 변경사항] changes the view and closes the sheet) is walked
+// without choosing, as tabs with manual activation are (WCAG 3.2.2): the keys only move the focus, and Enter or Space -
+// the word's own press - chooses. While the focus walks such a group the stop goes with it, so Tab leaves from where
+// the focus is in one step; when the focus leaves, the stop goes back to the chosen word (leaveManualSegment).
 const SEGMENT_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
 /** The words of a radio group that can take the focus: neither disabled nor hidden. */
 function offeredWords(group: Element) {
@@ -644,18 +645,18 @@ function shownWords(group: Element) {
   return offeredWords(group).filter((word) => word.getClientRects().length);
 }
 /** Where the focus is among the words a group shows (shownWords), -1 when it is not on one of them. */
-function segFocusAt(group: Element) {
+function segmentFocusAt(group: Element) {
   return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.ts
 // assigneeRowHtml), the range ladder with every range (levels.ts drawLadder - a pick that leaves the excerpt short of
 // lines draws it again once more when they come back, excerpt.ts excerptFetch) and [더보기]'s size on every pick and
-// relayout (panel-size.ts renderSizeSeg). The word with the focus goes with the old words, and the focus would land on
-// the body: an arrow's walk would end there, as would Enter or Space on the chosen word, and the next Tab would begin
-// again from the page's start. So each draw notes where the focus was (segFocusAt) and gives it back to the word now at
-// `index` - the last when there are fewer - as no new focus: a description shows only after a key (tooltip.ts
-// focusGivenBack). A group drawn away (no people left to assign) has none, and the focus stays.
-function segKeep(group: Element, index: number) {
+// relayout (panel-size.ts renderSizeSegment). The word with the focus goes with the old words, and the focus would land
+// on the body: an arrow's walk would end there, as would Enter or Space on the chosen word, and the next Tab would
+// begin again from the page's start. So each draw notes where the focus was (segmentFocusAt) and gives it back to the
+// word now at `index` - the last when there are fewer - as no new focus: a description shows only after a key
+// (tooltip.ts focusGivenBack). A group drawn away (no people left to assign) has none, and the focus stays.
+function keepSegmentFocus(group: Element, index: number) {
   if (index < 0) return;
   const words = shownWords(group),
     word = words[Math.min(index, words.length - 1)];
@@ -663,14 +664,14 @@ function segKeep(group: Element, index: number) {
 }
 /** Keep one Tab stop in a radio group: the chosen word, else the first one on offer. It reads the markup only, not the
  * layout, so a group drawn while its panel is closed holds its one stop before it shows. */
-function segRove(group: Element | null) {
+function roveSegment(group: Element | null) {
   if (!group) return;
   const words = offeredWords(group),
     on = words.find((word) => word.getAttribute('aria-checked') === 'true') || words[0];
   for (const word of words) word.tabIndex = word === on ? 0 : -1;
 }
-// the groups in the page's markup; a drawn one calls segRove itself
-for (const group of $$('[role=radiogroup]')) segRove(group);
+// the groups in the page's markup; a drawn one calls roveSegment itself
+for (const group of $$('[role=radiogroup]')) roveSegment(group);
 document.addEventListener('keydown', (event) => {
   const target = event.target as HTMLElement;
   if (imeKey(event) || event.ctrlKey || event.metaKey || event.altKey) return;
@@ -699,9 +700,9 @@ document.addEventListener('keydown', (event) => {
   } // the focus only
   word.tabIndex = 0;
   word.focus();
-  // a group the press draws again keeps the focus (segKeep)
+  // a group the press draws again keeps the focus (keepSegmentFocus)
   if (word.getAttribute('aria-checked') !== 'true') word.click();
-  segRove(group);
+  roveSegment(group);
 });
 // The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come
 // back to.
@@ -709,14 +710,14 @@ function leaveManualSegment(event: FocusEvent) {
   const target = event.target as HTMLElement,
     group = target && target.closest ? target.closest('[role=radiogroup][data-seg-manual]') : null;
   const to = event.relatedTarget as Node | null;
-  if (group && !(to && group.contains(to))) segRove(group);
+  if (group && !(to && group.contains(to))) roveSegment(group);
 }
 document.addEventListener('focusout', leaveManualSegment);
 // A ladder's scroll box (.seg.lad) is no Tab stop (tabindex="-1": Firefox makes a box that overflows one of its own),
 // but a press on it - the gap between two words, its edge - still gives it the focus, and from a focused box with
 // tabindex -1 Firefox's next Tab would begin again at the page's start. So the focus such a press gives the box goes on
-// to the group's one stop (segRove's word) as no new focus (focusGivenBack: no description), and Tab leaves from there,
-// as from a word.
+// to the group's one stop (roveSegment's word) as no new focus (focusGivenBack: no description), and Tab leaves from
+// there, as from a word.
 function passLadderBoxFocus(event: FocusEvent) {
   const box = event.target as HTMLElement;
   if (!box || !box.matches || !box.matches('.seg.lad[tabindex="-1"]')) return;
@@ -738,7 +739,7 @@ document.addEventListener('keydown', (event) => {
         target.isContentEditable);
   // Ctrl(Cmd) + = / - / 0 zooms/fits just the PDF page instead of the browser zoom. Left to the browser inside an input
   // field.
-  if ((event.ctrlKey || event.metaKey) && !event.altKey && !inField && !isMdDoc()) {
+  if ((event.ctrlKey || event.metaKey) && !event.altKey && !inField && !isMarkdownDoc()) {
     const zoomAction = zoomKey(event); // a Markdown document's text zooms with the browser
     if (zoomAction) {
       if (document.body.classList.contains('revision-open')) {
@@ -874,12 +875,12 @@ document.addEventListener('keydown', (event) => {
     }
     if (SELMODE) {
       event.preventDefault();
-      setSelMode(false);
+      setSelectMode(false);
       return;
     } // a keyboard ends the select mode as [끝내기] does
-    if (RV_PICK && target && target.closest && target.closest('#sec-review')) {
+    if (REVIEW_PICK && target && target.closest && target.closest('#sec-review')) {
       event.preventDefault();
-      rvPick(false);
+      setReviewPicking(false);
       return;
     } // the review section's pick, from inside it (review-pick.ts)
     // The 701-900px overlay panel covers the document: Esc collapses it (a selection above is cancelled first).
@@ -891,7 +892,7 @@ document.addEventListener('keydown', (event) => {
     }
     if (document.body.classList.contains('revision-open')) {
       event.preventDefault();
-      revBack();
+      returnToManuscript();
       return;
     } // Esc in [변경 보기] = [원고로]
     return;
@@ -902,4 +903,4 @@ document.addEventListener('keydown', (event) => {
   }
 });
 boot();
-export { segFocusAt, segKeep, segRove };
+export { segmentFocusAt, keepSegmentFocus, roveSegment };

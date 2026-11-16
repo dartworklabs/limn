@@ -36,10 +36,10 @@ css/text-surface.css    # the text surface: a text document's monospace lines, t
 css/md-compare.css      # the rendered compare of a Markdown document in the changes view: one column, block and word marks, gutter chips
 
 __APP_JS__
-js/core.ts              # DOM helpers, icons, shared state and its setters, the tooltip texts (T)
-js/markup.ts            # html``, ic() and setHtml(): markup with every value escaped, and its one sink
+js/core.ts              # DOM helpers, icons, shared state and its setters, the tooltip texts (TIP_TEXT)
+js/markup.ts            # html``, lucideIcon() and setHtml(): markup with every value escaped, and its one sink
 js/hidden-chars.ts      # characters that hide or reorder text: the repertoire, its exceptions, names, boxes (every document kind)
-js/i18n.ts              # UI language: tr/tl/trMsg, API error and pick warning text, the English observer
+js/i18n.ts              # UI language: translate/translateTemplate/translateMessage, API error and pick warning text, the English observer
 js/prefs.ts             # per-device preferences (pinPrefs), list-section state, theme
 js/api.ts               # api() and how a failed request is said, copy
 js/notices.ts           # messages in context: banners, undos where the action was, status-line messages, dots, deferred sends

@@ -3,27 +3,28 @@
 // surface's documents are (md-surface.ts: GET /api/source, the reading spot, marks, badges, picks, the composer), but
 // it is never parsed: every server line is one line span (data-line), numbered in the gutter by CSS, in a monospace
 // column that wraps.
-// - The DOM is built with createElement and textContent only, within the Markdown surface's limits (MD_LIMITS): over
-//   MD_LIMITS.lines lines there is no view but its notice; the elements drawn - one per line, two per marked character
-//   - stay under MD_LIMITS.elements, and past it the view is the names view (each marked character's name as plain
-//   text, one element per line); a yield to the browser after every MD_LIMITS.chunk units of work (a line, a character
-//   of the repertoire), within a long line too, and a newer draw (stale) drops the build at each yield.
+// - The DOM is built with createElement and textContent only, within the Markdown surface's limits (MARKDOWN_LIMITS):
+//   over MARKDOWN_LIMITS.lines lines there is no view but its notice; the elements drawn - one per line, two per marked
+//   character - stay under MARKDOWN_LIMITS.elements, and past it the view is the names view (each marked character's
+//   name as plain text, one element per line); a yield to the browser after every MARKDOWN_LIMITS.chunk units of work
+//   (a line, a character of the repertoire), within a long line too, and a newer draw (stale) drops the build at each
+//   yield.
 // - Nothing in the text is a link, an image or markup: it is only ever text.
 // - A character that would hide or reorder text (the repertoire of hidden-chars.ts) stays in the text, so a copy keeps
-//   it, inside an isolating span that shows its name (ccBox); a line of the view never reads in another order than its
-//   source. A notice above the lines counts them. Another notice names the line ends the server split on that are not
-//   LF or CRLF (/api/source line_ends): Limn numbers lines past them as str.splitlines() does, an editor that counts LF
-//   alone does not.
+//   it, inside an isolating span that shows its name (hiddenBox); a line of the view never reads in another order than
+//   its source. A notice above the lines counts them. Another notice names the line ends the server split on that are
+//   not LF or CRLF (/api/source line_ends): Limn numbers lines past them as str.splitlines() does, an editor that
+//   counts LF alone does not.
 // - A wrapped line's continuation hangs under its indentation, rounded down to a tab stop (hangColumns), so a tab lands
 //   on the same stop as in an editor whose tabs are TAB_COLUMNS columns wide.
 // - The ladder is: the chosen lines -> the paragraph between blank lines (para, or the paragraphs the lines meet:
-//   blocks, saved as lines) -> the indented block the lines head or stand in (indent). txLevels reads the server's
+//   blocks, saved as lines) -> the indented block the lines head or stand in (indent). textLevels reads the server's
 //   lines alone.
-import { $, MD_LIMIT, META, showsSourceLines } from './core.ts';
+import { $, MARKDOWN_LIMIT, META, showsSourceLines } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { ccBox, ccClip, ccName, ccScan } from './hidden-chars.ts';
-import { tl, tr } from './i18n.ts';
-import { MD, MD_LIMITS, mdCount, mdDue, mdSnippet, mdYield } from './md-surface.ts';
+import { hiddenBox, clipMarkedText, hiddenName, scanHidden } from './hidden-chars.ts';
+import { translateTemplate, translate } from './i18n.ts';
+import { MARKDOWN_VIEW, MARKDOWN_LIMITS, formatCount, isPauseDue, lineSnippet, yieldToBrowser } from './md-surface.ts';
 const TAB_COLUMNS = 4; // the columns a tab spans (CSS tab-size of the view, and indentColumns)
 const MAX_HANG_COLUMNS = 16; // the most columns a wrapped line's continuation hangs: a phone keeps room for the text
 const BLOCK_LABEL_CHARS = 12; // the most characters of a block's header its rung's label shows
@@ -31,7 +32,7 @@ const BLOCK_LABEL_CHARS = 12; // the most characters of a block's header its run
 function isTextDoc() {
   return !!META && showsSourceLines(META.kind);
 }
-// ---------------- Lines, columns and blocks: pure but for tl/tr
+// ---------------- Lines, columns and blocks: pure but for translateTemplate/translate
 // The columns a line's leading whitespace spans, a tab to the next multiple of tab, or -1 for a blank line (only
 // whitespace).
 function indentColumns(line: string, tab?: number) {
@@ -122,9 +123,9 @@ function indentBlockAround(lines: string[], first: number, last: number) {
 // meet, saved as lines) and their indented block, the shorter of the two first; a rung with the range of one before it
 // merges into that one (as markdownLevels does). Array.prototype.sort is stable, so rungs of one length keep that
 // order.
-function txLevels(range: { lo: number; hi: number }) {
+function textLevels(range: { lo: number; hi: number }) {
   const rungs = [] as any[],
-    lines = MD.lines;
+    lines = MARKDOWN_VIEW.lines;
   const add = (level: string, label: string, first: number, last: number, tip: string | null) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
     if (same) {
@@ -137,7 +138,7 @@ function txLevels(range: { lo: number; hi: number }) {
       lo: first,
       hi: last,
       n: last - first + 1,
-      snippet: mdSnippet(first, last),
+      snippet: lineSnippet(first, last),
       env: null,
       tip,
     });
@@ -145,15 +146,15 @@ function txLevels(range: { lo: number; hi: number }) {
   add('raw', '고른 줄', range.lo, range.hi, null);
   const paragraph = paragraphAround(lines, range.lo, range.hi);
   if (paragraph && paragraph.n > 1)
-    add('blocks', tl('문단 {n}개', { n: paragraph.n }), paragraph.lo, paragraph.hi, 'txparas');
-  // T.txpara: a text document's paragraph has no % comment rule
+    add('blocks', translateTemplate('문단 {n}개', { n: paragraph.n }), paragraph.lo, paragraph.hi, 'txparas');
+  // TIP_TEXT.txpara: a text document's paragraph has no % comment rule
   else if (paragraph) add('para', '문단', paragraph.lo, paragraph.hi, 'txpara');
   const block = indentBlockAround(lines, range.lo, range.hi);
-  // the header's hidden characters by name (ccClip)
+  // the header's hidden characters by name (clipMarkedText)
   if (block)
     add(
       'indent',
-      tr('블록') + ' · ' + ccClip(block.title, BLOCK_LABEL_CHARS),
+      translate('블록') + ' · ' + clipMarkedText(block.title, BLOCK_LABEL_CHARS),
       Math.min(block.lo, range.lo),
       Math.max(block.hi, range.hi),
       null,
@@ -172,32 +173,35 @@ function textLineSpan(text: string, line: number) {
   if (hang) span.style.setProperty('--hang', String(hang));
   return span;
 }
-// Builds article#md for the text document on screen from MD.lines (srcLines): each line's text, each marked character
-// in its box (ccBox), the text ending in "\n" so that a selection's text keeps its line ends. Within MD_LIMITS (the
-// header above): past MD_LIMITS.elements it gives the names view instead; null when a newer draw came (stale) at a
-// yield. ends: /api/source's line_ends.
-async function txView(stale: () => boolean, ends: Record<string, number> | undefined): Promise<HTMLElement | null> {
+// Builds article#md for the text document on screen from MARKDOWN_VIEW.lines (srcLines): each line's text, each marked
+// character in its box (hiddenBox), the text ending in "\n" so that a selection's text keeps its line ends. Within
+// MARKDOWN_LIMITS (the header above): past MARKDOWN_LIMITS.elements it gives the names view instead; null when a newer
+// draw came (stale) at a yield. ends: /api/source's line_ends.
+async function buildTextView(
+  stale: () => boolean,
+  ends: Record<string, number> | undefined,
+): Promise<HTMLElement | null> {
   const drawn = await srcLines(textLineSpan, 'tx-src', stale);
   if (!drawn) return null;
-  if (drawn.names) return textArticle(drawn.body, ends, txNamesText(drawn.marked), MD_LIMIT.ELEMENTS);
-  return textArticle(drawn.body, ends, drawn.marked ? txMarksText(drawn.marked) : '', null);
+  if (drawn.names) return textArticle(drawn.body, ends, namesViewText(drawn.marked), MARKDOWN_LIMIT.ELEMENTS);
+  return textArticle(drawn.body, ends, drawn.marked ? markedCharactersText(drawn.marked) : '', null);
 }
-// The source lines on screen (MD.lines) as line spans in a new div of class className - span(text, line) makes the
-// empty span of line number line - for the text surface (txView) and the Markdown surface's line view (lineView). Each
-// marked character (hidden-chars.ts) is its box (ccBox) while the elements drawn stay within MD_LIMITS.elements: one a
-// line, two a box, counted on every line, not only on a box (plain lines after a line of boxes). Past it, the names
-// form: each line one span whose text has every marked character as its name in angle brackets ('⟨U+200B⟩', ccPlain's
-// form) - one element a line, never a raw character that reorders the line; a copy of it gives the names, not the
-// characters (txNamesText says so). A yield to the browser after every MD_LIMITS.chunk units of work (a line, a
-// character of the repertoire), within a long line too. -> {body, marked (how many characters it marked), names (the
-// names form)}, or null when a newer draw came (stale) at a yield. The names form has no limit to pass, so the loop
-// always returns from it.
+// The source lines on screen (MARKDOWN_VIEW.lines) as line spans in a new div of class className - span(text, line)
+// makes the empty span of line number line - for the text surface (buildTextView) and the Markdown surface's line view
+// (lineView). Each marked character (hidden-chars.ts) is its box (hiddenBox) while the elements drawn stay within
+// MARKDOWN_LIMITS.elements: one a line, two a box, counted on every line, not only on a box (plain lines after a line
+// of boxes). Past it, the names form: each line one span whose text has every marked character as its name in angle
+// brackets ('⟨U+200B⟩', markHiddenPlain's form) - one element a line, never a raw character that reorders the line; a
+// copy of it gives the names, not the characters (namesViewText says so). A yield to the browser after every
+// MARKDOWN_LIMITS.chunk units of work (a line, a character of the repertoire), within a long line too. -> {body, marked
+// (how many characters it marked), names (the names form)}, or null when a newer draw came (stale) at a yield. The
+// names form has no limit to pass, so the loop always returns from it.
 async function srcLines(
   span: (text: string, line: number) => HTMLElement,
   className: string,
   stale: () => boolean,
 ): Promise<{ body: HTMLElement; marked: number; names: boolean } | null> {
-  const lines = MD.lines,
+  const lines = MARKDOWN_VIEW.lines,
     work = { n: 0 };
   for (const names of [false, true]) {
     const body = document.createElement('div');
@@ -210,24 +214,24 @@ async function srcLines(
         lineSpan = span(text, i + 1);
       let at = 0,
         out = '';
-      if (!names && ++elements > MD_LIMITS.elements) {
+      if (!names && ++elements > MARKDOWN_LIMITS.elements) {
         over = true;
         break;
       }
-      for (const hidden of ccScan(text, i === 0)) {
-        if (mdDue(work)) {
-          await mdYield();
+      for (const hidden of scanHidden(text, i === 0)) {
+        if (isPauseDue(work)) {
+          await yieldToBrowser();
           if (stale()) return null;
         }
         if (!hidden) continue;
-        if (names) out += text.slice(at, hidden.at) + '\u27e8' + ccName(hidden.ch.codePointAt(0) || 0) + '\u27e9';
+        if (names) out += text.slice(at, hidden.at) + '\u27e8' + hiddenName(hidden.ch.codePointAt(0) || 0) + '\u27e9';
         else {
-          if ((elements += 2) > MD_LIMITS.elements) {
+          if ((elements += 2) > MARKDOWN_LIMITS.elements) {
             over = true;
             break;
           }
           if (hidden.at > at) lineSpan.append(text.slice(at, hidden.at));
-          lineSpan.append(ccBox(hidden.ch));
+          lineSpan.append(hiddenBox(hidden.ch));
         }
         at = hidden.at + hidden.ch.length;
         marked++;
@@ -236,8 +240,8 @@ async function srcLines(
       if (names) lineSpan.textContent = out + text.slice(at) + '\n';
       else lineSpan.append(text.slice(at) + '\n');
       body.appendChild(lineSpan);
-      if (mdDue(work)) {
-        await mdYield();
+      if (isPauseDue(work)) {
+        await yieldToBrowser();
         if (stale()) return null;
       }
     }
@@ -246,19 +250,21 @@ async function srcLines(
   return null;
 }
 // What the notice above the lines says of the characters marked: count boxes, or the names form for count of them.
-function txMarksText(count: number) {
-  return tl('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다', { n: mdCount(count) });
+function markedCharactersText(count: number) {
+  return translateTemplate('보이지 않거나 글 순서를 바꾸는 문자 {n}개를 이름으로 표시했습니다', {
+    n: formatCount(count),
+  });
 }
-function txNamesText(count: number) {
-  return tl(
+function namesViewText(count: number) {
+  return translateTemplate(
     '보이지 않거나 글 순서를 바꾸는 문자가 {n}개라 이름을 글자로 보입니다(그릴 요소 한도 {max}개). 이 보기에서 복사하면 그 문자 대신 이름이 복사됩니다',
-    { n: mdCount(count), max: mdCount(MD_LIMITS.elements) },
+    { n: formatCount(count), max: formatCount(MARKDOWN_LIMITS.elements) },
   );
 }
 // A notice above a document's text (kind: its data-note - 'marks', 'ends'): out of the text, never selected or copied
 // with it, in the viewer's words and so in the screen's language. A Markdown document's notice is the same element
 // (renderDocument, lineView).
-function txNote(kind: string, text: string) {
+function textNotice(kind: string, text: string) {
   const notice = document.createElement('div');
   notice.className = 'md-limit tx-note';
   notice.dataset.note = kind;
@@ -276,12 +282,12 @@ function textArticle(body: HTMLElement, ends: Record<string, number> | undefined
   root.setAttribute('translate', 'no');
   root.lang = ''; // the text's language is not known, as for renderDocument's article
   if (limit) root.dataset.limit = limit;
-  root.style.setProperty('--gut', String(String(MD.lines.length).length + 1));
+  root.style.setProperty('--gut', String(String(MARKDOWN_VIEW.lines.length).length + 1));
   for (const [kind, text] of [
     ['marks', marks],
     ['ends', lineEndsText(ends)],
   ])
-    if (text) root.appendChild(txNote(kind, text));
+    if (text) root.appendChild(textNotice(kind, text));
   root.appendChild(body);
   return root;
 }
@@ -294,19 +300,28 @@ function lineEndsText(ends: Record<string, number> | undefined) {
   );
   if (!oddEnds.length) return '';
   const total = oddEnds.reduce((sum, [, count]) => sum + Number(count), 0);
-  return tl(
+  return translateTemplate(
     '줄 끝 {n}곳이 LF가 아닙니다({kinds}). Limn은 거기서 줄을 나누므로, 줄 번호가 LF만 세는 편집기·git과 다를 수 있고 복사하면 LF로 바뀝니다',
-    { n: mdCount(total), kinds: oddEnds.map(([name, count]) => name + ' ' + mdCount(count)).join(', ') },
+    { n: formatCount(total), kinds: oddEnds.map(([name, count]) => name + ' ' + formatCount(count)).join(', ') },
   );
 }
 // The empty list's help (#empty) for a text document: a line is picked by a press, lines by a drag.
-function txHint() {
+function showTextHint() {
   const help = $('#empty');
   if (!help) return;
   setHtml(
     help,
-    html`<span class="t-mouse"><b>${tr('줄을 누르면')}</b> ${tr('그 줄을,')} ${tr('글을')} <b>${tr('끌어')}</b> ${tr('고르면 그 줄들을 고르고')}</span><span class="t-touch"><b>${tr('줄을 누르면')}</b> ${tr('그 줄을,')} <b>${tr('길게 눌러')}</b> ${tr('글을 고르면 그 줄들을 고르고')}</span> ${tr('그 자리의')} <b>${tr('원문 줄 번호')}</b>${tr('가 핀의 위치가 됩니다.')}<br>
-    ${tr('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${tr('를 누르면 도움말.')}</span><span class="t-touch">${tr('도움말은 [더보기]에 있습니다.')}</span>`,
+    html`<span class="t-mouse"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} ${translate('글을')} <b>${translate('끌어')}</b> ${translate('고르면 그 줄들을 고르고')}</span><span class="t-touch"><b>${translate('줄을 누르면')}</b> ${translate('그 줄을,')} <b>${translate('길게 눌러')}</b> ${translate('글을 고르면 그 줄들을 고르고')}</span> ${translate('그 자리의')} <b>${translate('원문 줄 번호')}</b>${translate('가 핀의 위치가 됩니다.')}<br>
+    ${translate('메모를 달아 핀으로 저장하면, 에이전트가 pins.md 한 장만 읽고 작업합니다.')}<br><span class="t-mouse"><kbd>?</kbd> ${translate('를 누르면 도움말.')}</span><span class="t-touch">${translate('도움말은 [더보기]에 있습니다.')}</span>`,
   );
 }
-export { isTextDoc, srcLines, txHint, txLevels, txMarksText, txNamesText, txNote, txView };
+export {
+  isTextDoc,
+  srcLines,
+  showTextHint,
+  textLevels,
+  markedCharactersText,
+  namesViewText,
+  textNotice,
+  buildTextView,
+};

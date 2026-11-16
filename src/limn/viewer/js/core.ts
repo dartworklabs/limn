@@ -1,7 +1,7 @@
 'use strict';
 const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
-// Lucide icons (vendor/lucide/README.md), drawn by ic() in markup.ts.
+// Lucide icons (vendor/lucide/README.md), drawn by lucideIcon() in markup.ts.
 const ICONS = __LUCIDE_JSON__;
 const esc = (text) =>
   String(text == null ? '' : text).replace(
@@ -13,15 +13,15 @@ const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent
 // Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
 // applies to the next slide or scroll. The panel's slides are skipped, but thresholds and previews stay (§패널 폭과
 // 시트 높이).
-const MQ_REDUCED = matchMedia('(prefers-reduced-motion: reduce)');
+const REDUCED_MOTION_QUERY = matchMedia('(prefers-reduced-motion: reduce)');
 // How a scripted scroll moves - a jump of the pages, a heading, a card, a change group: smoothly, or at once ('auto':
 // nothing sets a smooth scroll-behavior, and responsive.css holds it auto) while reduced motion is asked for. Asked at
 // each scroll, never read once at load: a setting turned on later must stop every jump gliding, and one turned off must
 // let them glide again.
 function scrollMotion(): ScrollBehavior {
-  return MQ_REDUCED.matches ? 'auto' : 'smooth';
+  return REDUCED_MOTION_QUERY.matches ? 'auto' : 'smooth';
 }
-const MQ = matchMedia('(prefers-color-scheme: light)');
+const LIGHT_SCHEME_QUERY = matchMedia('(prefers-color-scheme: light)');
 // Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is
 // a member of one frozen table here, never a string literal at the comparison. The first group comes from the server
 // and must equal its strings exactly (src/limn/viewer/tests/test_viewer_source.py compares each table with the server's
@@ -49,10 +49,10 @@ const SCOPE_MODE = Object.freeze({ PIN: 'pin', COMMIT: 'commit' });
 // where a pin's change scope came from (scope.ScopeSource)
 const SCOPE_SOURCE = Object.freeze({ CHANGES: 'changes', INFERRED: 'inferred', NONE: 'none' });
 // a thread record's `ev` (pins.model.ThreadEv)
-const THREAD_EV = Object.freeze({ CLOSE: 'close', REOPEN: 'reopen', CONFIRM: 'confirm', ASSIGN: 'assign' });
+const THREAD_EVENT = Object.freeze({ CLOSE: 'close', REOPEN: 'reopen', CONFIRM: 'confirm', ASSIGN: 'assign' });
 // how two line ranges overlap (pins.position.selection_rel)
 const RANGE_REL = Object.freeze({ EQUAL: 'equal', INSIDE: 'inside', CONTAINS: 'contains', PARTIAL: 'partial' });
-const KIND_REQ = Object.freeze({ FIX: 'fix', QUESTION: 'question' }); // a pin's `kind_req` (pins.model.KindReq)
+const REQUEST_KIND = Object.freeze({ FIX: 'fix', QUESTION: 'question' }); // a pin's `kind_req` (pins.model.KindReq)
 // a person's `role` (access.ROLES)
 const ROLE = Object.freeze({ OWNER: 'owner', EDITOR: 'editor', VIEWER: 'viewer', AGENT: 'agent' });
 const EVENT_TYPE = Object.freeze({
@@ -68,7 +68,7 @@ const VIA = Object.freeze({ SYNCTEX: 'synctex', TEXT: 'text', MAP: 'map' });
 // a document's `kind` in /api/docs and /api/meta (limn.runtime.documents.DocKind)
 const DOC_KIND = Object.freeze({ TEX: 'tex', PDF: 'pdf', FIGURE: 'figure', MARKDOWN: 'markdown', TEXT: 'text' });
 // where a figure pin's element is in the current build: a pin's `el_sync` (limn.builds.figure_map.ElSync)
-const EL_SYNC = Object.freeze({ OK: 'ok', MOVED: 'moved', LOST: 'lost' });
+const ELEMENT_SYNC = Object.freeze({ OK: 'ok', MOVED: 'moved', LOST: 'lost' });
 // whether a pin's suggested edit still fits its lines: a pin's `suggest_state` (limn.pins.suggestion.SuggestState)
 const SUGGEST_STATE = Object.freeze({ READY: 'ready', CHANGED: 'changed', UNKNOWN: 'unknown' });
 // what a save of the composer's note does: a new pin, or the note joins the open pin the selection overlaps
@@ -89,7 +89,7 @@ const LAYOUT_BAND = Object.freeze({
 }); // BAND, by window width, height and primary pointer (layoutFor)
 // what a new window observation does to the band (settleBand)
 const BAND_STEP = Object.freeze({ KEEP: 'keep', WAIT: 'wait', SETTLE: 'settle' });
-// a card's status dot (stDot); also its CSS class
+// a card's status dot (stateDot); also its CSS class
 const CARD_DOT = Object.freeze({ OPEN: 'open', CLAIMED: 'claimed', REVIEW: 'review', LOST: 'lost' });
 // why a selection or an edit card's range can carry no suggested edit (suggestOff)
 const SUGGEST_OFF = Object.freeze({ PDF: 'pdf', FIGURE: 'figure', REGION: 'region', LONG: 'long' });
@@ -158,12 +158,12 @@ const NOTICE_DOT = Object.freeze({ SIDE: 'side', RV: 'rv' });
 // what a first-visit hint asks for (endTopic): a selection, the panel opened, a pin kept while cut off
 const NOTICE_TOPIC = Object.freeze({ PICK: 'pick', SIDE: 'side', OFFLINE: 'offline' });
 // where a verdict button is (verdict.ts): the composer's verdict row or a page verdict line
-const VD_WHERE = Object.freeze({ COMPOSER: 'composer', PAGE: 'page' });
+const VERDICT_PLACE = Object.freeze({ COMPOSER: 'composer', PAGE: 'page' });
 // the pin list's order (orderPins); index.html data-order
 const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' });
 // what a comment's time says (stampText); a .rt's data-form
 const STAMP_FORM = Object.freeze({ BOTH: 'both', SHORT: 'short', EDITED: 'edited' });
-const MD_LIMIT = Object.freeze({
+const MARKDOWN_LIMIT = Object.freeze({
   BYTES: 'bytes',
   LINES: 'lines',
   NESTING: 'nesting',
@@ -174,7 +174,7 @@ const MD_LIMIT = Object.freeze({
   LOAD: 'load',
   ERROR: 'error',
   NUL: 'nul',
-}); // the limit a Markdown document's drawing hit (md-surface.ts, MD_LIMITS): #md's data-limit
+}); // the limit a Markdown document's drawing hit (md-surface.ts, MARKDOWN_LIMITS): #md's data-limit
 // Each band's layout mode (docs/handbook/viewer.md §모바일 레이아웃): the sheet (narrow), the panel between the nav bar
 // and the action row (mid) or the desktop (wide). Code that only asks which of the three reads LAYOUT; code that
 // differs per band reads BAND.
@@ -422,18 +422,18 @@ let META = null as unknown as Meta,
   DROPPED = [] as Pin[],
   REPICK = null as Repick | null,
   PICKSEQ = 0;
-// K: the scale of the document on screen, CSS px per PDF point (pages.ts §page sizes); 0 until its first pages are
-// built.
+// PAGE_SCALE: the scale of the document on screen, CSS px per PDF point (pages.ts §page sizes); 0 until its first pages
+// are built.
 let SNIP_OPEN = false,
-  K = 0;
+  PAGE_SCALE = 0;
 // Mobile: BAND is a LAYOUT_BAND (layoutFor of BAND_IN, the settled {w,h,coarse} - settleBand) and LAYOUT its
 // LAYOUT_MODE (wide|mid|narrow, BAND_MODE), SIDE_OPEN is whether the panel/sheet is expanded, SELMODE is touch
 // selection mode, ZOOMED is whether the user changed the width via -/+ in compact (while true, it's never auto-fit to
 // the screen width).
-const MQ_COARSE = matchMedia('(pointer:coarse)');
+const COARSE_POINTER_QUERY = matchMedia('(pointer:coarse)');
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
 // mouseover, which would leave the description stuck over the list. Only long-press is used.
-const MQ_NOHOVER = matchMedia('(hover:none)');
+const NO_HOVER_QUERY = matchMedia('(hover:none)');
 let OUTLINE_MID_OPEN = false,
   MID_OVERLAY = false;
 let LAYOUT = null as string | null,
@@ -442,14 +442,14 @@ let LAYOUT = null as string | null,
   SIDE_OPEN = true,
   SELMODE = false,
   ZOOMED = false,
-  LAST_PTR = 'mouse',
-  LAST_TOUCH_T = 0;
+  LAST_POINTER = 'mouse',
+  LAST_TOUCH_AT = 0;
 const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
 // place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
 // field's text and selected recipient hints ('reply:12').
-let KIND_NEW = KIND_REQ.FIX as string,
+let KIND_NEW = REQUEST_KIND.FIX as string,
   REPLY = null as ReplyBox | null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members +
 // pin authors/actors), PEOPLE_KNOWN = that list has arrived (until then no tag resolves, which says nothing about the
@@ -495,7 +495,7 @@ const META_BY = new Map(),
   DOC_SEQ = new Map();
 window.__pinViewerBoot = Date.now(); // a marker for checking reload status from outside
 
-const T = {
+const TIP_TEXT = {
   stale:
     '핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
   ellost:
@@ -591,9 +591,9 @@ function setDropped<Value extends typeof DROPPED>(value: Value): Value {
   DROPPED = value;
   return value;
 }
-// Sets K, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setKState<Value extends typeof K>(value: Value): Value {
-  K = value;
+// Sets PAGE_SCALE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setPageScale<Value extends typeof PAGE_SCALE>(value: Value): Value {
+  PAGE_SCALE = value;
   return value;
 }
 // Sets KIND_NEW, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
@@ -601,14 +601,14 @@ function setKindNew<Value extends typeof KIND_NEW>(value: Value): Value {
   KIND_NEW = value;
   return value;
 }
-// Sets LAST_PTR, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastPtr<Value extends typeof LAST_PTR>(value: Value): Value {
-  LAST_PTR = value;
+// Sets LAST_POINTER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setLastPointer<Value extends typeof LAST_POINTER>(value: Value): Value {
+  LAST_POINTER = value;
   return value;
 }
-// Sets LAST_TOUCH_T, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastTouchT<Value extends typeof LAST_TOUCH_T>(value: Value): Value {
-  LAST_TOUCH_T = value;
+// Sets LAST_TOUCH_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setLastTouchAt<Value extends typeof LAST_TOUCH_AT>(value: Value): Value {
+  LAST_TOUCH_AT = value;
   return value;
 }
 // Sets LAYOUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
@@ -732,30 +732,30 @@ export {
   DONE,
   DONE_ALL,
   DROPPED,
-  EL_SYNC,
+  ELEMENT_SYNC,
   EVENT_TYPE,
   ICONS,
   IME_ON_FREE,
   IS_MAC,
-  K,
+  PAGE_SCALE,
   KIND_NEW,
-  KIND_REQ,
-  LAST_PTR,
-  LAST_TOUCH_T,
+  REQUEST_KIND,
+  LAST_POINTER,
+  LAST_TOUCH_AT,
   LAYOUT,
   LAYOUT_BAND,
   LAYOUT_MODE,
   LIST_ORDER,
   LOCAL_LOGIN,
-  MD_LIMIT,
+  MARKDOWN_LIMIT,
   MENTION_ONLY,
   META,
   META_BY,
   MID_OVERLAY,
-  MQ,
-  MQ_COARSE,
-  MQ_NOHOVER,
-  MQ_REDUCED,
+  LIGHT_SCHEME_QUERY,
+  COARSE_POINTER_QUERY,
+  NO_HOVER_QUERY,
+  REDUCED_MOTION_QUERY,
   NAVGEN,
   NOTICE_DOT,
   NOTICE_HOST,
@@ -797,11 +797,11 @@ export {
   SUGGEST_STATE,
   SWITCHSEQ,
   SYNC_STATE,
-  T,
-  THREAD_EV,
+  TIP_TEXT,
+  THREAD_EVENT,
   THREAD_OPEN,
   UI_LANG,
-  VD_WHERE,
+  VERDICT_PLACE,
   VIA,
   VIEW_BY,
   VIEW_MODE,
@@ -825,10 +825,10 @@ export {
   setDone,
   setDoneAll,
   setDropped,
-  setKState,
+  setPageScale,
   setKindNew,
-  setLastPtr,
-  setLastTouchT,
+  setLastPointer,
+  setLastTouchAt,
   setLayout,
   setMentionOnly,
   setMeta,

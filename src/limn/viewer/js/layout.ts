@@ -17,8 +17,8 @@ import {
   LAYOUT_MODE,
   META,
   MID_OVERLAY,
-  MQ_COARSE,
-  MQ_REDUCED,
+  COARSE_POINTER_QUERY,
+  REDUCED_MOTION_QUERY,
   NOTICE_DOT,
   NOTICE_KIND,
   NOTICE_TOPIC,
@@ -38,11 +38,11 @@ import {
   setSideOpen,
   setZoomed,
 } from './core.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { prefs, savePrefs } from './prefs.ts';
 import { lineNote, noticeSeen } from './notices.ts';
 import { hideTip } from './tooltip.ts';
-import { REV, renderCommitList, revTargetActs } from './revisions.ts';
+import { REVISION_VIEW, renderCommitList, drawPinGuideActions } from './revisions.ts';
 import { placeStatus } from './status.ts';
 import {
   SHEET_KEPT,
@@ -50,14 +50,14 @@ import {
   applyOutlineState,
   applySheet,
   applySideWidth,
-  renderSizeSeg,
+  renderSizeSegment,
   setSheetKept,
 } from './panel-size.ts';
-import { autoW, drawZoom } from './pages.ts';
+import { autoFitWidth, drawZoom } from './pages.ts';
 import { updateSectionStrip } from './outline.ts';
 import { SEARCH } from './search.ts';
 import { syncBackLayer } from './gestures.ts';
-import { mdSpotKeep } from './md-surface.ts';
+import { keepReadingSpot } from './md-surface.ts';
 import { COMPOSE, renderComposer } from './composer.ts';
 import { stickSoon } from './verdict.ts';
 import { drawPins, fitBarWords, updateReviewCount } from './list.ts';
@@ -85,7 +85,7 @@ function layoutFor(width, height, coarse) {
 }
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput() {
-  return { w: innerWidth, h: innerHeight, coarse: MQ_COARSE.matches };
+  return { w: innerWidth, h: innerHeight, coarse: COARSE_POINTER_QUERY.matches };
 }
 // Keeping the band steady on touch (docs/handbook/viewer.md §모바일 레이아웃): a height change under BAND_HOLD_PX from
 // the settled one is the address bar, and a new size or pointer must stay BAND_SETTLE_MS before the band follows it.
@@ -110,7 +110,7 @@ function settleBand(settled, observed, typing) {
 // takes the band's order (placeBarTools) and the status line the band's place (placeStatus); the phone's navigation
 // sheet closes when the band is no longer the phone (the nav bar does its job there); an open [더보기] stays open and
 // redraws its sheet-height or panel-width row; the changes view's guide-line buttons move to the thumb row or back
-// (revTargetActs). Returns whether the band or its overlay changed.
+// (drawPinGuideActions). Returns whether the band or its overlay changed.
 function applyLayout() {
   const input = BAND_IN || setBandIn(bandInput()),
     band = layoutFor(input.w, input.h, input.coarse),
@@ -148,11 +148,11 @@ function applyLayout() {
   stickTop();
   placeStatus();
   if ($('#more').open) {
-    renderSizeSeg();
+    renderSizeSegment();
     placeMore();
   }
-  if (REV.target) revTargetActs();
-  if (REV.rows.length) renderCommitList();
+  if (REVISION_VIEW.target) drawPinGuideActions();
+  if (REVISION_VIEW.rows.length) renderCommitList();
   // From the sheet straight to wide the bar shows only once applySide has drawn the panel: the focus goes back now.
   if (keep && document.activeElement !== keep) keep.focus({ preventScroll: true });
   return true;
@@ -218,13 +218,16 @@ function applySide() {
   // The toggles' names: the review count only where its pill sits inside them (the wide nav bar); every compact bar's
   // [핀 N] names what it shows first and leaves the count to its own half [검토 M].
   const label =
-      tr(open ? '패널 접기' : '패널 펴기') +
+      translate(open ? '패널 접기' : '패널 펴기') +
       ' · ' +
-      tl('열린 핀 {n}', { n: pinCount }) +
-      (reviewCount ? ' · ' + tl('검토 대기 {n}', { n: reviewCount }) : '') +
-      (dot ? ' · ' + tr('작성 중') : ''),
+      translateTemplate('열린 핀 {n}', { n: pinCount }) +
+      (reviewCount ? ' · ' + translateTemplate('검토 대기 {n}', { n: reviewCount }) : '') +
+      (dot ? ' · ' + translate('작성 중') : ''),
     sheet =
-      tl('핀 {n}', { n: pinCount }) + ' · ' + tr(open ? '패널 접기' : '패널 펴기') + (dot ? ' · ' + tr('작성 중') : '');
+      translateTemplate('핀 {n}', { n: pinCount }) +
+      ' · ' +
+      translate(open ? '패널 접기' : '패널 펴기') +
+      (dot ? ' · ' + translate('작성 중') : '');
   for (const toggle of [$('#btn-side'), $('#nav-side')]) {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', toggle.id === 'btn-side' && LAYOUT !== LAYOUT_MODE.WIDE ? sheet : label);
@@ -237,7 +240,7 @@ function applySide() {
   syncBackLayer();
   syncBuildErrChip();
 }
-// The open handle's hint (the markup's, translated by tr()).
+// The open handle's hint (the markup's, translated by translate()).
 const GRIP_TIP = $('#grip').dataset.tip;
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
 // wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
@@ -247,14 +250,14 @@ function gripAria() {
   if (!SIDE_OPEN) {
     grip.setAttribute('aria-valuenow', '0');
     grip.setAttribute('aria-valuemin', '0');
-    grip.setAttribute('aria-label', tr('패널 폭') + ' · ' + tr('접힘'));
-    grip.dataset.tip = tr(
+    grip.setAttribute('aria-label', translate('패널 폭') + ' · ' + translate('접힘'));
+    grip.dataset.tip = translate(
       '끌어서 핀 패널을 폅니다. 두 번 클릭(터치는 탭)하거나 Enter 를 누르면 전에 쓰던 폭으로 폅니다',
     );
     return;
   }
-  grip.setAttribute('aria-label', tr('패널 폭'));
-  grip.dataset.tip = tr(GRIP_TIP);
+  grip.setAttribute('aria-label', translate('패널 폭'));
+  grip.dataset.tip = translate(GRIP_TIP);
   if (shown) {
     grip.setAttribute('aria-valuenow', shown.w);
     grip.setAttribute('aria-valuemin', shown.min);
@@ -299,7 +302,7 @@ let SIDE_SLIDE = null as { kind: string; t: ReturnType<typeof setTimeout> } | nu
 // The slide's length for this layout in ms: 0 with reduced motion, beside the document (901-1099px) and for the narrow
 // sheet.
 function slideMs() {
-  return MQ_REDUCED.matches || !(LAYOUT === LAYOUT_MODE.WIDE || MID_OVERLAY) ? 0 : SLIDE_MS;
+  return REDUCED_MOTION_QUERY.matches || !(LAYOUT === LAYOUT_MODE.WIDE || MID_OVERLAY) ? 0 : SLIDE_MS;
 }
 // Starts the 'opening'/'closing' slide; when it ends the panel settles (a collapsed one gets its saved width back).
 function startSideSlide(kind, ms) {
@@ -351,17 +354,17 @@ function coachSideCollapsed() {
 }
 // Re-fits everything to the window: the layout (a changed one redraws the cards, whose action row is ordered per
 // layout), the panel and outline widths, the page width at the same reading spot (a Markdown column, reflowed by the
-// browser, at its own: mdSpotKeep), the composer, the stuck heads and the section strip - and keeps a panel text field
-// that has focus in view (the keyboard or the short band's hidden top row moves it).
+// browser, at its own: keepReadingSpot), the composer, the stuck heads and the section strip - and keeps a panel text
+// field that has focus in view (the keyboard or the short band's hidden top row moves it).
 function relayout() {
   const anchor = topAnchor(),
     changed = applyLayout();
   if (changed && META) drawPins();
   applySideWidth();
   applyOutlineState();
-  autoW();
+  autoFitWidth();
   restoreAnchor(anchor);
-  mdSpotKeep();
+  keepReadingSpot();
   hideTip();
   if (COMPOSE.current) renderComposer();
   stickTop();
@@ -403,7 +406,7 @@ if (window.ResizeObserver) {
   }).observe(row, { box: 'border-box' });
 }
 let RELAYOUT_FRAME = 0,
-  BAND_T = 0;
+  BAND_TIMER = 0;
 // Re-fits on the next frame after a resize, a pointer change or a panel/keyboard change - unless the band input is
 // waiting to settle (bandSettle), in which case the band and the page width stay as they are until it does.
 function scheduleRelayout() {
@@ -425,11 +428,11 @@ function refit() {
 function bandSettle() {
   const observed = bandInput(),
     step = settleBand(BAND_IN, observed, typingNow());
-  clearTimeout(BAND_T);
-  BAND_T = 0;
+  clearTimeout(BAND_TIMER);
+  BAND_TIMER = 0;
   if (step === BAND_STEP.WAIT) {
-    BAND_T = setTimeout(() => {
-      BAND_T = 0;
+    BAND_TIMER = setTimeout(() => {
+      BAND_TIMER = 0;
       stickSoon();
       if (typingNow()) return;
       setBandIn(bandInput());
@@ -446,7 +449,7 @@ function bandStale() {
   return !!BAND_IN && (input.w !== BAND_IN.w || input.h !== BAND_IN.h || input.coarse !== BAND_IN.coarse);
 }
 window.addEventListener('resize', scheduleRelayout);
-MQ_COARSE.addEventListener('change', scheduleRelayout);
+COARSE_POINTER_QUERY.addEventListener('change', scheduleRelayout);
 // Even a mere #left width change from expanding/collapsing the panel (compact) re-fits the page width. The layout is
 // never changed directly in the callback - it is deferred to the next frame (avoids a ResizeObserver loop warning).
 // wide reacts only to window-size changes. Never re-fit while the handle is being dragged (body.resizing) -
@@ -465,7 +468,7 @@ function onViewport() {
   if (!viewport) return;
   const layoutHeight = document.documentElement.clientHeight;
   let keyboardHeight = Math.round(layoutHeight - viewport.height * viewport.scale);
-  if (!(keyboardHeight >= 80) || !MQ_COARSE.matches) keyboardHeight = 0;
+  if (!(keyboardHeight >= 80) || !COARSE_POINTER_QUERY.matches) keyboardHeight = 0;
   const rootStyle = document.documentElement.style,
     previousKeyboard = rootStyle.getPropertyValue('--kb');
   rootStyle.setProperty('--kb', keyboardHeight + 'px');
@@ -680,7 +683,7 @@ document.addEventListener('focusout', () =>
 function keepFieldInView() {
   const field = panelField();
   // Touch only: a mouse window keeps its own scroll.
-  if (!field || !MQ_COARSE.matches) return;
+  if (!field || !COARSE_POINTER_QUERY.matches) return;
   if (field === $('#note') && BAND === LAYOUT_BAND.TABLET_SHEET)
     $('#composer .c-loc-row').scrollIntoView({ block: 'start' });
   field.scrollIntoView({ block: 'nearest' });
@@ -723,7 +726,7 @@ function coach(key: string, text: string) {
 // with the mode: scrolled to the top, page 1 moves below the bar; anywhere else the pages keep their place
 // (selectModeScrollTop). A focus left on the hidden bar's [끝내기] goes to the toggle. Idempotent; no coach mark - the
 // bar says what a drag and a tap do.
-function setSelMode(on) {
+function setSelectMode(on) {
   const was = SELMODE,
     pdfArea = $('#left'),
     doc = $('#doc'),
@@ -733,7 +736,7 @@ function setSelMode(on) {
   document.body.classList.toggle('selmode', SELMODE);
   const button = $('#btn-select');
   button.setAttribute('aria-pressed', String(SELMODE));
-  (button.querySelector('.lbl') as HTMLElement).textContent = tr(SELMODE ? '선택 중' : '선택');
+  (button.querySelector('.lbl') as HTMLElement).textContent = translate(SELMODE ? '선택 중' : '선택');
   $('#sel-sr').textContent = SELMODE ? $('#sel-bar-t').textContent : '';
   if (SELMODE) fitSelectModeBar();
   else if ($('#sel-bar').contains(document.activeElement)) button.focus({ preventScroll: true });
@@ -750,8 +753,8 @@ function selectModeScrollTop(top0, now, moved) {
 }
 // Fits the mode bar to what is around it: its width as --sel-bar-w (selectModeBarWidth, from its natural width and the
 // PDF area's) and its drawn height as --sel-bar-h, which the reserve above page 1 adds up (responsive.css). Once as the
-// mode turns on (setSelMode reads the height in the same task) and whenever the bar or the PDF area changes size (words
-// wrapping anew, a rotation, the overlay panel). A hidden bar (0 high) leaves the last values.
+// mode turns on (setSelectMode reads the height in the same task) and whenever the bar or the PDF area changes size
+// (words wrapping anew, a rotation, the overlay panel). A hidden bar (0 high) leaves the last values.
 function fitSelectModeBar() {
   const bar = $('#sel-bar');
   if (!bar.offsetHeight) return;
@@ -791,7 +794,7 @@ function openMore() {
   if (sheet.open) return;
   hideTip();
   drawZoom();
-  renderSizeSeg();
+  renderSizeSegment();
   placeMore();
   showSheet(sheet);
   footInk();
@@ -918,7 +921,7 @@ $('#nav-sheet').addEventListener('close', () => {
 });
 
 export {
-  BAND_T,
+  BAND_TIMER,
   SLIDE_MS,
   applyLayout,
   applySide,
@@ -933,7 +936,7 @@ export {
   outlineOverlay,
   panelField,
   relayout,
-  setSelMode,
+  setSelectMode,
   setSide,
   showSheet,
   toggleSide,

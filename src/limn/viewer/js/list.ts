@@ -17,7 +17,7 @@ import {
   LOCAL_LOGIN,
   MENTION_ONLY,
   META,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   NOTICE_DOT,
   NOTICE_HOST,
   NOTICE_KIND,
@@ -46,9 +46,18 @@ import {
   setReviewAll,
   setShowAll,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
-import { ORDER, SEC, SEC_DEFAULT, SEC_SEEN, listOrderOf, savePrefs, secNewCount, setOrder } from './prefs.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translateTemplate, translate } from './i18n.ts';
+import {
+  ORDER,
+  SECTION_OPEN,
+  SECTION_OPEN_DEFAULT,
+  SECTION_SEEN,
+  listOrderOf,
+  savePrefs,
+  countNewInSection,
+  setOrder,
+} from './prefs.ts';
 import { api } from './api.ts';
 import {
   NOTICES,
@@ -61,28 +70,28 @@ import {
   noticeSeen,
   offersIn,
 } from './notices.ts';
-import { TIP_AT, hideTip, keyInput, tipEl } from './tooltip.ts';
+import { TIP_AT, hideTip, keyInput, armedTipElement } from './tooltip.ts';
 import { docInfo, drawDocTabs, multiDoc, pdoc } from './doc-tabs.ts';
-import { REV, findAnyPin, revTargetActs, setViewMode } from './revisions.ts';
+import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from './revisions.ts';
 import { docTitle, switchDoc, viaDoc } from './doc-switch.ts';
 import { notePinChanges, noteReviewChanges, pinState } from './polling.ts';
-import { updNewPins } from './updates.ts';
+import { noteNewPins } from './updates.ts';
 import { arrivePage, pageNoSides } from './pages.ts';
 import { applySide, setSide } from './layout.ts';
 import { pendingBadgeSide } from './selection.ts';
-import { elLost, hasMark, isFrac, pinPlace } from './figure.ts';
-import { isMdDoc, mdJump, mdMarks } from './md-surface.ts';
+import { isElementLost, hasMark, isFrac, pinPlace } from './figure.ts';
+import { isMarkdownDoc, jumpToPinLines, drawPinMarks } from './md-surface.ts';
 import { COMPOSE, recomputeOverlap, renderOverlapBanner } from './composer.ts';
 import { drawPageVerdicts, jumpToPageLine, endJumpForScroll, isShownOnLine } from './verdict.ts';
 import { mentionsMe, who } from './card-parts.ts';
 import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './cards.ts';
-import { rvDraw } from './review-pick.ts';
+import { drawReviewPick } from './review-pick.ts';
 import { marksShow } from './marks-hide.ts';
 import { CONFIRMING, CONFIRMING_PIN, PURGING } from './actions.ts';
 import { renderAssignNew } from './mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './reply.ts';
 import { EDITOR, editDirty, renderEdit } from './edit.ts';
-import { segRove } from './events.ts';
+import { roveSegment } from './events.ts';
 import type { Html } from './markup.ts';
 
 async function loadPeople() {
@@ -137,7 +146,7 @@ function applyPinLists(rows, dropped, lists) {
     reviewBefore = REVIEW_ALL;
   notePinChanges(openBefore, rows, dropped);
   noteReviewChanges(reviewBefore, rows);
-  updNewPins(rows); // others' new pins (updates.ts)
+  noteNewPins(rows); // others' new pins (updates.ts)
   setOpenAll(lists.openAll);
   setReviewAll(lists.reviewAll);
   setDoneAll(lists.doneAll);
@@ -154,10 +163,10 @@ function applyPinLists(rows, dropped, lists) {
   });
   const card = EDITOR.current;
   if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
-    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SEC.open = true;
+    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
     else {
       lineNote(
-        tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
+        translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
         NOTICE_KIND.WARN,
         null,
         { dot: NOTICE_DOT.SIDE },
@@ -172,10 +181,10 @@ function applyPinLists(rows, dropped, lists) {
       dot: NOTICE_DOT.SIDE,
     });
   }
-  if (!SEC_SEEN.open) {
-    SEC_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
-    SEC_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
-    SEC_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
+  if (!SECTION_SEEN.open) {
+    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
+    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
+    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
   }
   drawPins();
   marks();
@@ -268,7 +277,7 @@ function holdSelectWidth() {
   const pressed = button.getAttribute('aria-pressed') || 'false',
     text = label.textContent;
   button.setAttribute('aria-pressed', 'true');
-  label.textContent = tr('선택 중');
+  label.textContent = translate('선택 중');
   const width = button.getBoundingClientRect().width;
   button.setAttribute('aria-pressed', pressed);
   label.textContent = text;
@@ -308,28 +317,29 @@ function updateReviewCount() {
     chip = $('#rv-chip');
   for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
     pill.hidden = !count;
-    setHtml(pill, html`${ic('eye')}${count}`);
-    pill.setAttribute('aria-label', tl('검토 대기 {n}', { n: count }));
+    setHtml(pill, html`${lucideIcon('eye')}${count}`);
+    pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
   }
   const reviewButton = $('#btn-rv');
   reviewButton.hidden = !count;
   reviewButton.querySelector('.rv-c').textContent = count;
   // the sheet bar's [검토 M] half: its name starts with what it shows
-  reviewButton.setAttribute('aria-label', tl('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
+  reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
   fitBarWords();
   const here = listReview().length;
   chip.hidden = !count || LAYOUT !== LAYOUT_MODE.WIDE || !SIDE_OPEN;
   chip.textContent =
-    tl('검토 대기 {n}', { n: count }) + (multiDoc() && here !== count ? ' ' + tl('(이 문서 {n})', { n: here }) : '');
+    translateTemplate('검토 대기 {n}', { n: count }) +
+    (multiDoc() && here !== count ? ' ' + translateTemplate('(이 문서 {n})', { n: here }) : '');
 }
 // [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes
 // (seen).
 function gotoReview() {
   noticeSeen(NOTICE_DOT.RV);
   if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
-  if (!SEC.review) {
-    SEC.review = true;
-    savePrefs({ sec: SEC });
+  if (!SECTION_OPEN.review) {
+    SECTION_OPEN.review = true;
+    savePrefs({ sec: SECTION_OPEN });
   }
   drawPins();
   setSide(true);
@@ -345,8 +355,10 @@ function isMe(person) {
   return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
 }
 function reviewerLabel(pin: Pin) {
-  if (!pin.author || !(pin.author.name || pin.author.login)) return tr('확인 필요');
-  return isMe(pin.author) ? tr('내 확인 차례') : tl('{name}님 확인 필요', { name: who(pin.author) });
+  if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
+  return isMe(pin.author)
+    ? translate('내 확인 차례')
+    : translateTemplate('{name}님 확인 필요', { name: who(pin.author) });
 }
 function listDropped() {
   return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
@@ -355,34 +367,34 @@ function listDropped() {
 // the section did not show when it was last expanded). The body it controls (aria-controls) is hidden while collapsed.
 const SECTION_NAME_ID = { open: 'list-h', review: 'review-h', done: 'done-h' };
 // ids = the pins this section lists now; all = the section's pins across every document. While expanded, everything is
-// marked seen (all, so switching documents never reads as arrivals); SEC_SEEN starts from the first load, so nothing is
-// 'new' at boot.
+// marked seen (all, so switching documents never reads as arrivals); SECTION_SEEN starts from the first load, so
+// nothing is 'new' at boot.
 function drawSectionHead(key, name, ids, all) {
   const toggle = document.getElementById(key + '-toggle');
   if (!toggle) return;
-  const open = !!SEC[key],
-    seen = SEC_SEEN[key];
+  const open = !!SECTION_OPEN[key],
+    seen = SECTION_SEEN[key];
   if (open && seen) (all || ids).forEach((id) => seen.add(id));
-  const newCount = open ? 0 : secNewCount(seen, ids);
-  const fresh = newCount ? html`<span class="sec-new">${tl('새 {n}', { n: newCount })}</span>` : '';
+  const newCount = open ? 0 : countNewInSection(seen, ids);
+  const fresh = newCount ? html`<span class="sec-new">${translateTemplate('새 {n}', { n: newCount })}</span>` : '';
   setHtml(
     toggle,
-    html`${ic(open ? 'chevron-down' : 'chevron-right')}<span class="sec-name" id="${SECTION_NAME_ID[key]}">${name} <span class="badge badge-secondary sec-n">${ids.length}</span></span>${fresh}`,
+    html`${lucideIcon(open ? 'chevron-down' : 'chevron-right')}<span class="sec-name" id="${SECTION_NAME_ID[key]}">${name} <span class="badge badge-secondary sec-n">${ids.length}</span></span>${fresh}`,
   );
   toggle.setAttribute('aria-expanded', String(open));
   const body = document.getElementById(toggle.getAttribute('aria-controls') || '');
   if (body) body.hidden = !open;
 }
-function toggleSec(key, force?) {
-  if (!(key in SEC_DEFAULT)) return;
-  SEC[key] = force === undefined ? !SEC[key] : !!force;
-  savePrefs({ sec: SEC });
+function toggleSection(key, force?) {
+  if (!(key in SECTION_OPEN_DEFAULT)) return;
+  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
+  savePrefs({ sec: SECTION_OPEN });
   drawPins();
 }
 // Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes
 // and the banners of notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin, its guide
-// line's buttons, whose [확인] follows that pin's state (revTargetActs). The status line's review arrivals follow the
-// review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+// line's buttons, whose [확인] follows that pin's state (drawPinGuideActions). The status line's review arrivals follow
+// the review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
 /** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
 function drawPins() {
   dropStaleReview();
@@ -400,8 +412,8 @@ function drawPins() {
   if (MENTION_ONLY && !mentioningMe.length) setMentionOnly(false);
   mentionFilter.hidden = !mentioningMe.length;
   mentionFilter.setAttribute('aria-pressed', String(MENTION_ONLY));
-  setHtml(mentionFilter, html`${ic('at-sign')}${mentioningMe.length}`);
-  mentionFilter.setAttribute('aria-label', tl('나를 부른 핀 {n}', { n: mentioningMe.length }));
+  setHtml(mentionFilter, html`${lucideIcon('at-sign')}${mentioningMe.length}`);
+  mentionFilter.setAttribute('aria-label', translateTemplate('나를 부른 핀 {n}', { n: mentioningMe.length }));
   const openShown = MENTION_ONLY ? OPEN_ALL.filter(mentionsMe) : openListed;
   // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing
   // (so auto-sync redrawing the list, or a layout change redrawing the cards, never interrupts typing).
@@ -421,19 +433,19 @@ function drawPins() {
     cardFocus = cardFocusKeep();
   drawSectionHead(
     'open',
-    tr(MENTION_ONLY ? '나를 부른 열린 핀' : SHOW_ALL && multiDoc() ? '모든 문서의 열린 핀' : '열린 핀'),
+    translate(MENTION_ONLY ? '나를 부른 열린 핀' : SHOW_ALL && multiDoc() ? '모든 문서의 열린 핀' : '열린 핀'),
     openShown.map((pin) => pin.id),
     OPEN_ALL.map((pin) => pin.id),
   );
   const allDocsButton = $('#all-docs');
   allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
-  setHtml(allDocsButton, html`${SHOW_ALL ? ic('check') : ''}${tr('모든 문서')}`);
+  setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
   $('#side-n').textContent = PINS.length;
   applySide();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
   $('#m-trash-n').textContent = trashCount;
-  $('#trash-link').textContent = tl('휴지통 {n}', { n: trashCount });
+  $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
   $('#trash-link').hidden = !trashCount;
   $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
   // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too. Only a note
@@ -442,7 +454,7 @@ function drawPins() {
     $('#pins'),
     openShown.length
       ? cardRows(openShown, 'open')
-      : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${tl('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
+      : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
   ); // with no card, an undo row still gets its slot (cardRows)
   if (EDITOR.current) {
     const slot = $('#pins .edit-slot');
@@ -462,23 +474,23 @@ function drawPins() {
   $('#sec-review').hidden = !reviewShown.length && !offersIn('review');
   drawSectionHead(
     'review',
-    tr('검토 대기'),
+    translate('검토 대기'),
     reviewShown.map((pin) => pin.id),
     REVIEW_ALL.map((pin) => pin.id),
   );
   // result rows while the section picks (review-pick.ts)
-  if (!rvDraw(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
-  drawOrderControl((SEC.open && openShown.length > 0) || (SEC.review && reviewShown.length > 0));
+  if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
+  drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
   updateReviewCount();
   // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
   $('#sec-done').hidden = !doneListed.length;
   drawSectionHead(
     'done',
-    tr('완료'),
+    translate('완료'),
     doneListed.map((pin) => pin.id),
     DONE_ALL.map((pin) => pin.id),
   );
-  if (SEC.done)
+  if (SECTION_OPEN.done)
     setHtml(
       $('#done-list'),
       doneListed.length ? html`${doneListed.slice().reverse().map(doneCard)}` : html`<div class="dim">없습니다.</div>`,
@@ -499,7 +511,7 @@ function drawPins() {
   drawBanners();
   lazyCards(keep);
   cardFocusBack(cardFocus);
-  if (REV.target) revTargetActs();
+  if (REVISION_VIEW.target) drawPinGuideActions();
 }
 // The pins of a list section in order (docs/handbook/viewer.md §목록 순서), list itself untouched. LIST_ORDER.NEW: the
 // newest `at` first, the later pin first within a minute, a pin with no readable time last. LIST_ORDER.PAGE: by page,
@@ -631,7 +643,7 @@ function drawOrderControl(any: boolean) {
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   }
-  segRove(control);
+  roveSegment(control);
 } // the group's one Tab stop is the order now chosen (events.ts)
 // A press on the order control: the list is drawn in that order, remembered for this browser, with the control where it
 // stood under the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it
@@ -851,7 +863,7 @@ function markBadgeRoom(page: Element | null) {
   return {
     pad: rect.left - pane.getBoundingClientRect().left - pane.clientLeft + pane.scrollLeft,
     w: rect.width,
-    reach: MQ_COARSE.matches ? 28 : 24,
+    reach: COARSE_POINTER_QUERY.matches ? 28 : 24,
   };
 }
 // Re-decides every page number's place (pageNoSides) and every drawn mark's badge side for its page's width and margin
@@ -991,7 +1003,7 @@ function markCoverSkip() {
     if (state.hid) MARK_HIDDEN.add(badge);
     else MARK_HIDDEN.delete(badge);
   });
-  for (const tipTarget of [TIP_AT && TIP_AT.el, tipEl])
+  for (const tipTarget of [TIP_AT && TIP_AT.el, armedTipElement])
     if (tipTarget && MARK_HIDDEN.has(tipTarget)) {
       hideTip();
       break;
@@ -1133,8 +1145,8 @@ function markHitSides() {
 // A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it
 // (drawPageVerdicts, first).
 function marks() {
-  if (isMdDoc()) {
-    mdMarks();
+  if (isMarkdownDoc()) {
+    drawPinMarks();
     drawChips();
     return;
   } // the Markdown surface marks its lines (md-surface.ts)
@@ -1149,7 +1161,7 @@ function marks() {
     if (!page || !isFrac(at.frac)) return;
     if (isShownOnLine(pin)) return;
     const est = isEstimated(pin) && !hasMark(pin),
-      lost = pin.stale || elLost(pin);
+      lost = pin.stale || isElementLost(pin);
     const mark = document.createElement('div');
     mark.className =
       'mark' + (lost ? ' st' : '') + (est ? ' est' : '') + (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '');
@@ -1168,12 +1180,12 @@ function marks() {
       '#' +
       pin.id +
       ' · ' +
-      (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : tr('(메모 없음)')) +
-      (est ? ' ' + tr('(PDF가 새로 만들어져 위치는 추정입니다)') : '') +
-      (elLost(pin) ? ' · ' + tr('요소 잃음') : '');
+      (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : translate('(메모 없음)')) +
+      (est ? ' ' + translate('(PDF가 새로 만들어져 위치는 추정입니다)') : '') +
+      (isElementLost(pin) ? ' · ' + translate('요소 잃음') : '');
     setHtml(
       mark,
-      html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${pin.id}" aria-label="${tl('핀 #{id} 카드로 이동', { id: pin.id })}" data-tip="${tip}">${pin.id}</button>`,
+      html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${pin.id}" aria-label="${translateTemplate('핀 #{id} 카드로 이동', { id: pin.id })}" data-tip="${tip}">${pin.id}</button>`,
     );
     page.appendChild(mark);
   }); // the tip carries the note
@@ -1201,9 +1213,9 @@ function openSectionFor(id) {
   if (!pin) return false;
   const state = pinState(pin),
     key = state === PIN_STATE.REVIEW ? 'review' : state === PIN_STATE.DONE ? 'done' : 'open';
-  if (SEC[key]) return false;
-  SEC[key] = true;
-  savePrefs({ sec: SEC });
+  if (SECTION_OPEN[key]) return false;
+  SECTION_OPEN[key] = true;
+  savePrefs({ sec: SECTION_OPEN });
   return true;
 }
 // A mark badge's card: opens its section and the panel (a collapsed one too); compact also expands the card.
@@ -1241,12 +1253,12 @@ function gotoPinRef(id: number, focus?: boolean) {
   }
   const state = pinState(pin);
   if (multiDoc() && DOC && pdoc(pin) !== DOC) setShowAll(true);
-  if (state === PIN_STATE.DONE) SEC.done = true;
+  if (state === PIN_STATE.DONE) SECTION_OPEN.done = true;
   else {
     OPEN_CARDS.add(id);
-    SEC[state === PIN_STATE.REVIEW ? 'review' : 'open'] = true;
+    SECTION_OPEN[state === PIN_STATE.REVIEW ? 'review' : 'open'] = true;
   }
-  savePrefs({ sec: SEC });
+  savePrefs({ sec: SECTION_OPEN });
   setSide(true);
   drawPins();
   requestAnimationFrame(() => {
@@ -1312,8 +1324,8 @@ function jumpPin(id) {
   marksShow(); // the way to a mark shows the marks (marks-hide.ts)
   // collapsed first so the sheet doesn't cover the page, then measured
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
-  if (isMdDoc()) {
-    mdJump(id);
+  if (isMarkdownDoc()) {
+    jumpToPinLines(id);
     return;
   } // its first line on the Markdown surface
   const mark = document.querySelector('.mark[data-pin="' + id + '"]') as HTMLElement;
@@ -1381,6 +1393,6 @@ export {
   revealCard,
   reviewerLabel,
   setListOrder,
-  toggleSec,
+  toggleSection,
   updateReviewCount,
 };

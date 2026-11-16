@@ -4,7 +4,7 @@ import {
   CARD_DOT,
   DOC,
   DROPPED,
-  KIND_REQ,
+  REQUEST_KIND,
   LOCAL_LOGIN,
   META,
   OPEN_ALL,
@@ -15,19 +15,19 @@ import {
   REPLY,
   SHOW_ALL,
   STAMP_FORM,
-  THREAD_EV,
+  THREAD_EVENT,
   THREAD_OPEN,
 } from './core.ts';
-import { html, ic } from './markup.ts';
-import { ccPlain } from './hidden-chars.ts';
-import { tl, tr } from './i18n.ts';
+import { html, lucideIcon } from './markup.ts';
+import { markHiddenPlain } from './hidden-chars.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { docInfo, isRegion, multiDoc, pdoc } from './doc-tabs.ts';
 import { findAnyPin } from './revisions.ts';
 import { isViewer } from './boot.ts';
 import { pinState } from './polling.ts';
-import { rng } from './levels.ts';
+import { lineRange } from './levels.ts';
 import { pinPlace } from './figure.ts';
-import { isMdPin } from './md-surface.ts';
+import { isMarkdownPin } from './md-surface.ts';
 import { quoteInner, shownQuote } from './composer.ts';
 import { relSpan, stampSpan } from './cards.ts';
 import { drawPins, isMe } from './list.ts';
@@ -37,7 +37,7 @@ import type { Html } from './markup.ts';
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
 function who(person) {
-  if (person && person.login === LOCAL_LOGIN) return tr(person.name || '로컬/에이전트');
+  if (person && person.login === LOCAL_LOGIN) return translate(person.name || '로컬/에이전트');
   return (person && (person.name || person.login)) || '';
 } // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
 // The avatar URLs that have failed: never requested again, so console errors do not pile up on every redraw.
@@ -50,7 +50,7 @@ function isAgent(person) {
 }
 function avatar(person) {
   if (!person || !(person.name || person.login)) return html``;
-  if (isAgent(person)) return html`<span class="av i agent" aria-hidden="true">${ic('bot')}</span>`;
+  if (isAgent(person)) return html`<span class="av i agent" aria-hidden="true">${lucideIcon('bot')}</span>`;
   const initial = (who(person).trim()[0] || '?').toUpperCase();
   return person.pic && !FAILED_AVATARS.has(person.pic)
     ? html`<img class="av" src="${person.pic}" alt="" referrerpolicy="no-referrer" data-ini="${initial}">`
@@ -74,9 +74,14 @@ document.addEventListener(
   true,
 );
 function authorTip(pin: Pin) {
-  let tip = tl('작성: {name} · {at}', { name: pin.author ? who(pin.author) : tr('기록 전'), at: pin.at || '?' });
+  let tip = translateTemplate('작성: {name} · {at}', {
+    name: pin.author ? who(pin.author) : translate('기록 전'),
+    at: pin.at || '?',
+  });
   if (pin.edited_at)
-    tip += ' / ' + tl('수정: {name} · {at}', { name: who(pin.edited_by) || tr('기록 전'), at: pin.edited_at });
+    tip +=
+      ' / ' +
+      translateTemplate('수정: {name} · {at}', { name: who(pin.edited_by) || translate('기록 전'), at: pin.edited_at });
   return tip;
 }
 // docs/handbook/api.md §겹친 핀과 덧붙이기: one representative among the rel entries - if there's an inside (the outer
@@ -105,7 +110,7 @@ function josaName(name: string, afterConsonant: string, afterVowel: string) {
   if (/[a-zA-Z]/.test(last)) return /[aeiouyAEIOUY]/.test(last) ? afterVowel : afterConsonant;
   return afterVowel;
 }
-function josaRo(number) {
+function josaToward(number) {
   return '036'.includes(String(number).slice(-1)) ? '으로' : '로';
 }
 function relBadge(rel, pin) {
@@ -124,7 +129,7 @@ function relBadge(rel, pin) {
       return {
         id: lowestId,
         rel: RANGE_REL.EQUAL,
-        label: tl('#{id}{p} 같은 범위', { id: lowestId, p: josa(lowestId, '과', '와') }),
+        label: translateTemplate('#{id}{p} 같은 범위', { id: lowestId, p: josa(lowestId, '과', '와') }),
       };
     }
   }
@@ -139,7 +144,7 @@ function relBadge(rel, pin) {
         candidateSpan = span(candidate);
       return candidateSpan < bestSpan || (candidateSpan === bestSpan && candidate.id < best.id) ? candidate : best;
     });
-    return { id: best.id, rel: RANGE_REL.INSIDE, label: tl('#{id} 범위 안', { id: best.id }) };
+    return { id: best.id, rel: RANGE_REL.INSIDE, label: translateTemplate('#{id} 범위 안', { id: best.id }) };
   }
   const partials = rel.filter((entry) => entry.rel === RANGE_REL.PARTIAL).sort((left, right) => left.id - right.id);
   if (partials.length) {
@@ -147,7 +152,7 @@ function relBadge(rel, pin) {
     return {
       id: firstId,
       rel: RANGE_REL.PARTIAL,
-      label: tl('#{id}{p} 일부 겹침', { id: firstId, p: josa(firstId, '과', '와') }),
+      label: translateTemplate('#{id}{p} 일부 겹침', { id: firstId, p: josa(firstId, '과', '와') }),
     };
   }
   return null;
@@ -177,46 +182,46 @@ function claimInfo(pin: Pin, now?: number) {
     startMs = typeof pin.claim_ts === 'number' ? pin.claim_ts * 1000 : null;
   const tail =
     ' · ' +
-    tl('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
+    translateTemplate('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
       time: clockTime((pin.claim_until as number) * 1000),
     }); // claimInfo runs for an active claim (claimActive)
   const head =
-    tl('처리하는 쪽: {name}', { name: claimer }) +
-    (startMs ? ' · ' + tl('시작 {time}', { time: clockTime(startMs) }) : '');
+    translateTemplate('처리하는 쪽: {name}', { name: claimer }) +
+    (startMs ? ' · ' + translateTemplate('시작 {time}', { time: clockTime(startMs) }) : '');
   if (typeof pin.eta_ts === 'number') {
     const eta = pin.eta_ts * 1000;
     if (now <= eta)
       return {
-        t: tl('처리 중 · 약 {n}분 · {time}쯤', {
+        t: translateTemplate('처리 중 · 약 {n}분 · {time}쯤', {
           n: ceil5((eta - now) / 60000),
           time: clockTime(Math.ceil(eta / 300000) * 300000),
         }),
         late: false,
-        tip: head + ' · ' + tl('예상 완료 {time}', { time: clockTime(eta) }) + tail,
+        tip: head + ' · ' + translateTemplate('예상 완료 {time}', { time: clockTime(eta) }) + tail,
       };
     return {
-      t: tl('예상보다 늦어짐 (+{n}분)', { n: ceil5((now - eta) / 60000) }),
+      t: translateTemplate('예상보다 늦어짐 (+{n}분)', { n: ceil5((now - eta) / 60000) }),
       late: true,
-      tip: head + ' · ' + tl('예상 완료 {time}였음', { time: clockTime(eta) }) + tail,
+      tip: head + ' · ' + translateTemplate('예상 완료 {time}였음', { time: clockTime(eta) }) + tail,
     };
   }
   if (startMs)
     return {
-      t: tl('처리 중 · {time}부터 ({n}분째)', {
+      t: translateTemplate('처리 중 · {time}부터 ({n}분째)', {
         time: clockTime(startMs),
         n: Math.max(1, Math.ceil((now - startMs) / 60000)),
       }),
       late: false,
-      tip: head + ' · ' + tr('예상 시간 없음') + tail,
+      tip: head + ' · ' + translate('예상 시간 없음') + tail,
     };
-  return { t: tr('처리 중'), late: false, tip: head + tail };
+  return { t: translate('처리 중'), late: false, tip: head + tail };
 }
 function claimLabel(pin: Pin, now?: number) {
   return claimInfo(pin, now).t;
 }
 function claimTag(pin: Pin) {
   const claim = claimInfo(pin);
-  return html`<span class="badge badge-claimed${claim.late ? ' late' : ''}" data-claim="${pin.id}" data-tip="${claim.tip}">${ic('clock')}<span class="ct">${claim.t}</span></span>`;
+  return html`<span class="badge badge-claimed${claim.late ? ' late' : ''}" data-claim="${pin.id}" data-tip="${claim.tip}">${lucideIcon('clock')}<span class="ct">${claim.t}</span></span>`;
 }
 // The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't
 // redrawn). The list is redrawn if any pin's lock has expired.
@@ -241,7 +246,7 @@ setInterval(tickClaims, 30000);
 // The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a region's page is the one its mark is on in the current build
 // (pinPlace), which a figure pin's element can move.
 function locText(pin: Pin) {
-  return isRegion(pin) ? tr('영역') : rng(pin.lo, pin.hi);
+  return isRegion(pin) ? translate('영역') : lineRange(pin.lo, pin.hi);
 }
 function locCopy(pin: Pin) {
   const name =
@@ -259,15 +264,15 @@ function docChip(pin: Pin) {
   const entry = docInfo(pdoc(pin)),
     other = pdoc(pin) !== DOC;
   const tip =
-    (entry ? entry.name + ' · ' + entry.path : tl('{doc} (설정에 없는 문서)', { doc: pdoc(pin) })) +
-    (other ? ' — ' + tr('#번호·[보기]를 누르면 이 문서로 바꿉니다') : '');
+    (entry ? entry.name + ' · ' + entry.path : translateTemplate('{doc} (설정에 없는 문서)', { doc: pdoc(pin) })) +
+    (other ? ' — ' + translate('#번호·[보기]를 누르면 이 문서로 바꿉니다') : '');
   return html`<span class="badge badge-secondary dchip${other ? ' other' : ''}" translate="no" data-tip="${tip}">${entry ? entry.name : pdoc(pin)}</span>`;
 }
 // Thread (docs/handbook/viewer.md §스레드와 검토): replies and state-transition records (close/reopen/confirm) form a
 // single line of history, built with html``. wide shows the last 3, compact shows only the last 1, expanded via [이전
 // N건] (THREAD_OPEN). The input field (REPLY) is inserted in place like EDITOR.current.
 function isQuestion(pin: Pin) {
-  return !!pin && pin.kind_req === KIND_REQ.QUESTION;
+  return !!pin && pin.kind_req === REQUEST_KIND.QUESTION;
 }
 // The current assignee - the recorded value (pin.assignee); for a legacy pin without one, the person the server
 // inferred (the first of pin.addressed); if neither, the agent.
@@ -280,11 +285,11 @@ function assigneeOf(pin: Pin) {
 // The words for an assignee: the agent, me, a person's name, and '미지정' for a record without one.
 function assigneeWord(assignee: string | null | undefined): string {
   return !assignee
-    ? tr('미지정')
+    ? translate('미지정')
     : assignee === ASSIGNEE_AGENT
-      ? tr('에이전트')
+      ? translate('에이전트')
       : assignee === meLogin()
-        ? tr('나')
+        ? translate('나')
         : peopleName(assignee);
 }
 /** Render the recorded assignee once as plain metadata, without inferring a legacy default.
@@ -296,22 +301,22 @@ function assigneeWord(assignee: string | null | undefined): string {
  * line can be trimmed to its cap height: a trim does not reach a bare text in the chip's flex row. */
 function assignChip(pin: Pin, pressable: boolean): Html {
   if (pin.assignee === ASSIGNEE_AGENT)
-    return html`<span class="cm-i as-chip sr-only">${tr('담당')} ${assigneeWord(pin.assignee)}</span>`;
+    return html`<span class="cm-i as-chip sr-only">${translate('담당')} ${assigneeWord(pin.assignee)}</span>`;
   if (!pin.assignee)
-    return html`<span class="cm-i as-chip"><span class="as-l">${tr('담당')} ${assigneeWord(null)}</span></span>`;
+    return html`<span class="cm-i as-chip"><span class="as-l">${translate('담당')} ${assigneeWord(null)}</span></span>`;
   const me = meLogin(),
     mine = pin.assignee === me,
     shared = !mine && nameShared(pin.assignee),
     name = assigneeWord(pin.assignee) + (shared ? ' ' + pin.assignee : '');
   const canEdit = pressable && !isViewer() && pinState(pin) === PIN_STATE.OPEN && (isMe(pin.author) || !me),
     tip =
-      tl('담당: {name} — 에이전트는 이 핀을 건너뜁니다', { name: name }) +
-      (canEdit ? tr('. 누르면 [수정]에서 담당을 바꿉니다') : '');
+      translateTemplate('담당: {name} — 에이전트는 이 핀을 건너뜁니다', { name: name }) +
+      (canEdit ? translate('. 누르면 [수정]에서 담당을 바꿉니다') : '');
   // a name another known person shares carries the login, as the composer's
   const shown = shared ? personLabel(pin.assignee) : html`${name}`;
   return canEdit
-    ? html`<button class="cm-i badge badge-assign as-chip${mine ? ' me' : ''}" data-act="edit" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span>${ic('pencil')}</button>`
-    : html`<span class="cm-i badge badge-assign as-chip${mine ? ' me' : ''}" data-tip="${tip}"><span class="as-l">${tr('담당')} </span><span class="as-n" translate="no">${shown}</span></span>`;
+    ? html`<button class="cm-i badge badge-assign as-chip${mine ? ' me' : ''}" data-act="edit" data-tip="${tip}"><span class="as-l">${translate('담당')} </span><span class="as-n" translate="no">${shown}</span>${lucideIcon('pencil')}</button>`
+    : html`<span class="cm-i badge badge-assign as-chip${mine ? ' me' : ''}" data-tip="${tip}"><span class="as-l">${translate('담당')} </span><span class="as-n" translate="no">${shown}</span></span>`;
 }
 /** Return the card's facts line: kind, assignee and status, of which only what differs from the default is drawn.
  * The default - a fix request, for the agent, open - is in the line for screen readers (.sr-only) and takes no room,
@@ -328,12 +333,12 @@ function cardMetadata(pin: Pin, statusLabel: string, pressable: boolean): Html {
   const facts = [
     {
       drawn: question,
-      part: html`<span class="cm-i card-meta-context${question ? '' : ' sr-only'}">${tr(question ? '질문' : '수정 요청')}</span>`,
+      part: html`<span class="cm-i card-meta-context${question ? '' : ' sr-only'}">${translate(question ? '질문' : '수정 요청')}</span>`,
     },
     { drawn: !agent, part: assignChip(pin, pressable) },
     {
       drawn: !open,
-      part: html`<span class="cm-i card-meta-context${open ? ' sr-only' : ''}">${tr(statusLabel)}</span>`,
+      part: html`<span class="cm-i card-meta-context${open ? ' sr-only' : ''}">${translate(statusLabel)}</span>`,
     },
   ];
   // Between two drawn facts ' · '; before any other fact a space only a screen reader meets, so the words never run
@@ -351,8 +356,8 @@ function cardMetadata(pin: Pin, statusLabel: string, pressable: boolean): Html {
 // Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the
 // same meaning in text once more.
 const CARD_STATE_NAME = { open: '열림', claimed: '처리 중', review: '검토 대기', lost: '위치 잃음' };
-function stDot(state) {
-  const label = tl('상태: {name}', { name: tr(CARD_STATE_NAME[state]) });
+function stateDot(state) {
+  const label = translateTemplate('상태: {name}', { name: translate(CARD_STATE_NAME[state]) });
   return html`<span class="st-dot${state === CARD_DOT.OPEN ? '' : ' ' + state}" role="img" aria-label="${label}" data-tip="${label}"></span>`;
 }
 // Did the current round start with a reopen (a pin that returned from review)? True if the thread's last close/reopen
@@ -361,7 +366,8 @@ function reopenedTurn(pin: Pin) {
   const thread = threadOf(pin);
   for (let i = thread.length - 1; i >= 0; i--) {
     const kind = thread[i].ev;
-    if (kind === THREAD_EV.CLOSE || kind === THREAD_EV.REOPEN) return kind === THREAD_EV.REOPEN ? thread[i] : null;
+    if (kind === THREAD_EVENT.CLOSE || kind === THREAD_EVENT.REOPEN)
+      return kind === THREAD_EVENT.REOPEN ? thread[i] : null;
   }
   return null;
 }
@@ -438,8 +444,8 @@ function fmtText(text, logins) {
       if (!token) continue;
       const mine = !!me && token.lg === me,
         tip = mine
-          ? tr('나를 부름 — 이 핀 알림이 나에게 옵니다')
-          : tl('@태그 — {name}에게 알림이 갑니다', { name: peopleName(token.lg) });
+          ? translate('나를 부름 — 이 핀 알림이 나에게 옵니다')
+          : translateTemplate('@태그 — {name}에게 알림이 갑니다', { name: peopleName(token.lg) });
       out.push(
         pinRefs(plain.slice(at, offset)),
         html`<span class="mention${mine ? ' me' : ''}" data-tip="${tip}">${match[0]}</span>`,
@@ -459,9 +465,9 @@ function pinRefs(text: string) {
     const id = +match[2],
       start = match.index + match[1].length;
     const ref = pinRefExists(id)
-      ? html`<span class="pin-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="${id}" data-tip="${tl('핀 #{id} 로 갑니다', { id })}">#${id}</span>`
+      ? html`<span class="pin-ref" role="link" tabindex="0" data-act="pin-ref" data-ref="${id}" data-tip="${translateTemplate('핀 #{id} 로 갑니다', { id })}">#${id}</span>`
       : pinRefGone(id)
-        ? html`<span class="pin-ref gone" role="link" tabindex="0" data-act="pin-ref" data-ref="${id}" data-tip="${tl('핀 #{id} 은 삭제되었습니다 — 누르면 휴지통에서 봅니다', { id })}">#${id} <small>${tr('삭제된 핀')}</small></span>`
+        ? html`<span class="pin-ref gone" role="link" tabindex="0" data-act="pin-ref" data-ref="${id}" data-tip="${translateTemplate('핀 #{id} 은 삭제되었습니다 — 누르면 휴지통에서 봅니다', { id })}">#${id} <small>${translate('삭제된 핀')}</small></span>`
         : null;
     if (!ref) continue;
     out.push(text.slice(at, start), ref);
@@ -493,10 +499,10 @@ function addressedTag(pin: Pin) {
     mine = to.includes(me),
     others = to.filter((login) => login !== me);
   const self = mine
-    ? html`<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">${ic('at-sign')}나를 부름</span>`
+    ? html`<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">${lucideIcon('at-sign')}나를 부름</span>`
     : '';
   const rest = others.length
-    ? html`<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">${ic('at-sign')}<span translate="no">${others.map(peopleName).join(', ')}</span></span>`
+    ? html`<span class="badge badge-mention" data-tip="사람을 부른 핀입니다 — 에이전트는 사용자가 따로 시키지 않으면 건너뜁니다">${lucideIcon('at-sign')}<span translate="no">${others.map(peopleName).join(', ')}</span></span>`
     : '';
   return html`${self}${rest}`;
 }
@@ -505,7 +511,7 @@ function addressedTag(pin: Pin) {
 function fyiTag(pin: Pin) {
   const to = pin.fyi || [];
   if (!to.length) return null;
-  return html`<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">${ic('at-sign')}${tl('참고 {names}', { names: to.map(peopleName).join(', ') })}</span>`;
+  return html`<span class="badge badge-mention" data-tip="참고로 부른 사람입니다 — 질문이 아니라 수정 요청이라 건너뛰지 않습니다">${lucideIcon('at-sign')}${translateTemplate('참고 {names}', { names: to.map(peopleName).join(', ') })}</span>`;
 }
 // Is the reference (ref) a meaningful value? '-' is a placeholder some callers use for "no reference" - shown as-is
 // it would produce meaningless text like '닫음 · -'. An empty or whitespace-only value is filtered out the same way.
@@ -523,16 +529,16 @@ function cardQuote(pin: Pin): Html | null {
   const key = pdoc(pin) + ':' + pin.id,
     open = QUOTE_OPEN.has(key);
   return html`<div class="quote hit${open ? ' open' : ''}" role="button" tabindex="0" data-act="quote" data-key="${key}" aria-expanded="${String(open)}"\
- data-tip="${open ? null : ccPlain(quote)}" translate="no">${quoteInner(quote, isMdPin(pin))}</div>`;
+ data-tip="${open ? null : markHiddenPlain(quote)}" translate="no">${quoteInner(quote, isMarkdownPin(pin))}</div>`;
 }
-// A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MSG_OPEN). If the author is me, '(나)'. The post
-// and its author's name are user text (translate="no"); '(나)' is translated here.
-const MSG_OPEN = new Set();
+// A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MESSAGE_OPEN). If the author is me, '(나)'. The
+// post and its author's name are user text (translate="no"); '(나)' is translated here.
+const MESSAGE_OPEN = new Set();
 // A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key
-// ('id:index') keeps it open across redraws (MSG_OPEN), and without a key it is drawn whole with no button.
-function msgBody(entry: ThreadEntry, key) {
+// ('id:index') keeps it open across redraws (MESSAGE_OPEN), and without a key it is drawn whole with no button.
+function messageBody(entry: ThreadEntry, key) {
   const long = String(entry.text || '').length > 280 || String(entry.text || '').split('\n').length > 6,
-    open = !key || MSG_OPEN.has(key);
+    open = !key || MESSAGE_OPEN.has(key);
   const more =
     long && key
       ? html`<button class="btn-sm btn-ghost msg-more" data-act="msg-more" data-key="${key}" aria-expanded="${open}">${open ? '접기' : '더 보기'}</button>`
@@ -541,13 +547,13 @@ function msgBody(entry: ThreadEntry, key) {
 }
 // One entry of an archive row's thread: a post (avatar, author, time, text) or a state record (who, what, reference,
 // time, optional text).
-function msgHtml(entry: ThreadEntry, key) {
+function messageHtml(entry: ThreadEntry, key) {
   const by = entry.by || {},
     name = who(by) || '?',
-    mine = isMe(by) ? html`<span class="me-tag"> ${tr('(나)')}</span>` : '';
+    mine = isMe(by) ? html`<span class="me-tag"> ${translate('(나)')}</span>` : '';
   if (entry.ev)
-    return html`<div class="msg ev ev-${entry.ev}"><div class="msg-h"><b translate="no">${name}${mine}</b><span>${tr(EVENT_LABEL[entry.ev] || entry.ev)}${hasRef(entry.ref) ? ' · ' + entry.ref : ''}</span>${relSpan(entry.at)}</div>${entry.text ? msgBody(entry, key) : ''}</div>`;
-  return html`<div class="msg">${avatar(by)}<div class="msg-b"><div class="msg-h"><b translate="no">${name}${mine}</b>${relSpan(entry.at)}</div>${msgBody(entry, key)}</div></div>`;
+    return html`<div class="msg ev ev-${entry.ev}"><div class="msg-h"><b translate="no">${name}${mine}</b><span>${translate(EVENT_LABEL[entry.ev] || entry.ev)}${hasRef(entry.ref) ? ' · ' + entry.ref : ''}</span>${relSpan(entry.at)}</div>${entry.text ? messageBody(entry, key) : ''}</div>`;
+  return html`<div class="msg">${avatar(by)}<div class="msg-b"><div class="msg-h"><b translate="no">${name}${mine}</b>${relSpan(entry.at)}</div>${messageBody(entry, key)}</div></div>`;
 }
 // A node of a card's timeline: the person's avatar, or for no recorded person an empty circle in its place, so the
 // column, the line and the indent of the text hold.
@@ -561,7 +567,7 @@ function nodeAvatar(person: Person | null | undefined): Html {
 // recorded person.
 function whoWhen(name: string, mine: boolean, tip: string, time: Html | string, className?: string): Html {
   // the space is the text's; drawn, the margin is
-  const me = mine ? html`<span class="me-tag"> ${tr('(나)')}</span>` : '';
+  const me = mine ? html`<span class="me-tag"> ${translate('(나)')}</span>` : '';
   return html`<span class="who"><b class="${className || ''}" translate="no" data-tip="${tip}"><span class="nm">${name}</span>${me}</b>${time}</span>`;
 }
 // The head of a card's first comment, a reply's: who wrote the note ('기록 전' for a pin with no recorded author),
@@ -569,20 +575,20 @@ function whoWhen(name: string, mine: boolean, tip: string, time: Html | string, 
 // says who edited it.
 function noteHead(pin: Pin): Html {
   const name = who(pin.author);
-  return html`<div class="msg-h note-h">${whoWhen(name || tr('기록 전'), isMe(pin.author), authorTip(pin), pin.at ? stampSpan(pin.at, STAMP_FORM.BOTH) : '', name ? '' : 'old')}\
+  return html`<div class="msg-h note-h">${whoWhen(name || translate('기록 전'), isMe(pin.author), authorTip(pin), pin.at ? stampSpan(pin.at, STAMP_FORM.BOTH) : '', name ? '' : 'old')}\
 ${pin.edited_at ? stampSpan(pin.edited_at, STAMP_FORM.EDITED) : ''}</div>`;
 }
 // One entry of a card's timeline: a post (avatar, then name and time over its text) or a state record (a dot in the
 // avatar's place, then name and time, what happened and its reference on the next line, any text under them).
-/** @param key - keeps a long post open across redraws (msgBody) */
+/** @param key - keeps a long post open across redraws (messageBody) */
 function timelineEntry(entry: ThreadEntry, key: string): Html {
   const by = entry.by || {},
     name = who(by) || '?';
   const head = html`<div class="msg-h">${whoWhen(name, isMe(by), name, stampSpan(entry.at, STAMP_FORM.BOTH))}</div>`;
   if (entry.ev)
     return html`<div class="msg ev ev-${entry.ev}"><span class="ev-dot" aria-hidden="true"></span><div class="msg-b">${head}\
-<div class="ev-l">${tr(EVENT_LABEL[entry.ev] || entry.ev)}${hasRef(entry.ref) ? html` · <span translate="no">${entry.ref}</span>` : ''}</div>${entry.text ? msgBody(entry, key) : ''}</div></div>`;
-  return html`<div class="msg">${nodeAvatar(by)}<div class="msg-b">${head}${msgBody(entry, key)}</div></div>`;
+<div class="ev-l">${translate(EVENT_LABEL[entry.ev] || entry.ev)}${hasRef(entry.ref) ? html` · <span translate="no">${entry.ref}</span>` : ''}</div>${entry.text ? messageBody(entry, key) : ''}</div></div>`;
+  return html`<div class="msg">${nodeAvatar(by)}<div class="msg-b">${head}${messageBody(entry, key)}</div></div>`;
 }
 // The thread of a pin as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless
 // THREAD_OPEN holds the pin; the button that shows the rest or folds them, in a row the timeline passes (.th-row); and
@@ -593,7 +599,7 @@ function threadHtml(pin: Pin, wide) {
     all = THREAD_OPEN.has(pin.id),
     hide = all ? 0 : Math.max(0, thread.length - keep);
   const more = hide
-    ? html`<div class="th-row"><button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">${tl('이전 {n}건 보기', { n: hide })}</button></div>`
+    ? html`<div class="th-row"><button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="false">${translateTemplate('이전 {n}건 보기', { n: hide })}</button></div>`
     : all && thread.length > keep
       ? html`<div class="th-row"><button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button></div>`
       : '';
@@ -602,7 +608,7 @@ function threadHtml(pin: Pin, wide) {
   return more || entries.length || slot ? html`<div class="thread">${more}${entries}${slot}</div>` : html``;
 }
 export {
-  MSG_OPEN,
+  MESSAGE_OPEN,
   QUOTE_OPEN,
   addressedTag,
   assigneeOf,
@@ -621,21 +627,21 @@ export {
   isQuestion,
   josa,
   josaName,
-  josaRo,
+  josaToward,
   locCopy,
   locText,
   meLogin,
   mentionAfterWord,
   mentionsMe,
-  msgBody,
-  msgHtml,
+  messageBody,
+  messageHtml,
   nodeAvatar,
   noteHead,
   peopleName,
   relBadge,
   reopenedTurn,
   replyCount,
-  stDot,
+  stateDot,
   threadHtml,
   threadOf,
   who,

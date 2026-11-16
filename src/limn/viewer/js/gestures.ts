@@ -16,32 +16,32 @@ import {
   LAYOUT_BAND,
   LAYOUT_MODE,
   MID_OVERLAY,
-  MQ_COARSE,
-  MQ_REDUCED,
+  COARSE_POINTER_QUERY,
+  REDUCED_MOTION_QUERY,
   OUTLINE_MID_OPEN,
   SIDE_OPEN,
 } from './core.ts';
 import { SWALLOW_CLICK, endPress, hideTip, setSwallowClick } from './tooltip.ts';
 import { setHash } from './doc-tabs.ts';
 import {
-  SHEET_CLOSE_F,
-  SHEET_F,
-  SHEET_MIN_F,
+  SHEET_CLOSE_FRACTION,
+  SHEET_FRACTIONS,
+  SHEET_MIN_FRACTION,
   applyOutlineState,
   applySheet,
   applySideWidth,
-  curSideW,
+  currentSideWidth,
   cycleSheet,
   cycleSideWidth,
   gripKey,
   keepSheet,
   outlineBounds,
   setOutlineWidth,
-  setSheetF,
+  setSheetFraction,
   setSideWidth,
-  sheetF,
+  sheetFraction,
   showOutlineWidth,
-  showSideW,
+  showSideWidth,
   sideBounds,
   snapSide,
   toggleOutline,
@@ -92,7 +92,7 @@ import { LONGPRESS_MS } from './selection.ts';
     drag = {
       id: event.pointerId,
       x: event.clientX,
-      w: SIDE_OPEN ? curSideW() : 0,
+      w: SIDE_OPEN ? currentSideWidth() : 0,
       rail: !SIDE_OPEN,
       moved: false,
       mouse: event.pointerType === 'mouse',
@@ -113,7 +113,7 @@ import { LONGPRESS_MS } from './selection.ts';
       snap = snapSide(drag.w + deltaX, bounds, draftOpen());
     drag.zone = snap.zone;
     if (drag.rail) preview(snap.zone === 'follow' || snap.zone === 'min');
-    showSideW(snap.w, bounds);
+    showSideWidth(snap.w, bounds);
     cue(snap.zone, drag.rail);
   });
   // The release: a cancel restores the state before the drag; a tap opens the rail or cycles the presets; a rail drag
@@ -148,7 +148,7 @@ import { LONGPRESS_MS } from './selection.ts';
         return;
       }
       setSide(true, true);
-      setSideWidth(curSideW());
+      setSideWidth(currentSideWidth());
       return;
     }
     if (released.zone === 'collapse') {
@@ -158,7 +158,7 @@ import { LONGPRESS_MS } from './selection.ts';
       coachSideCollapsed();
       return;
     }
-    setSideWidth(curSideW());
+    setSideWidth(currentSideWidth());
   };
   grip.addEventListener('pointerup', end);
   grip.addEventListener('pointercancel', end);
@@ -168,7 +168,7 @@ import { LONGPRESS_MS } from './selection.ts';
   });
   grip.addEventListener('keydown', (event) => {
     if (LAYOUT === LAYOUT_MODE.NARROW) return;
-    const action = gripKey(event.key, curSideW(), sideBounds(LAYOUT, innerWidth), !SIDE_OPEN);
+    const action = gripKey(event.key, currentSideWidth(), sideBounds(LAYOUT, innerWidth), !SIDE_OPEN);
     if (!action) return;
     event.preventDefault();
     if (action.act === 'collapse' || action.act === 'open') toggleSide();
@@ -243,18 +243,18 @@ function dragSample(samples, time, pos) {
 // 24px at 0.5px/ms or faster) collapses it - or, while a draft is open, stops it at 30% (a drag never hides a draft);
 // an upward fling goes to the next height stop; otherwise it stays where it was let go. Returns {close:true} or {f}.
 function sheetRelease(fraction, deltaY, speed, composing, keep) {
-  if (fraction < SHEET_CLOSE_F || (deltaY > 24 && speed >= 0.5))
-    return composing ? { f: SHEET_MIN_F } : { close: true };
+  if (fraction < SHEET_CLOSE_FRACTION || (deltaY > 24 && speed >= 0.5))
+    return composing ? { f: SHEET_MIN_FRACTION } : { close: true };
   if (deltaY < -24 && speed <= -0.5) {
-    const nextStop = SHEET_F.find((stop) => stop > fraction + 0.02);
+    const nextStop = SHEET_FRACTIONS.find((stop) => stop > fraction + 0.02);
     return { f: nextStop === undefined ? 1 : nextStop };
   }
-  return { f: Math.max(SHEET_MIN_F, Math.min(1, keep === undefined ? fraction : keep)) };
+  return { f: Math.max(SHEET_MIN_FRACTION, Math.min(1, keep === undefined ? fraction : keep)) };
 }
 // A released sheet's height for sheetRelease: f, the height it shows over the screen, which the close and fling
 // thresholds are judged on; keep, the height it stays at when it stays - 1 when it is held at its highest (max-height,
 // the visible height less --sheet-gap: under the document bar, the keyboard up or down), else the shown height plus
-// half a pixel, which saved at 1/10000 (setSheetF) CSS redraws on the same whole pixel (it rounds down).
+// half a pixel, which saved at 1/10000 (setSheetFraction) CSS redraws on the same whole pixel (it rounds down).
 function shownSheetFraction() {
   const panel = $('#right'),
     height = panel.getBoundingClientRect().height,
@@ -268,7 +268,7 @@ function settleSheet(shown, deltaY, speed) {
   if (outcome.close) {
     applySheet();
     setSide(false, true);
-  } else setSheetF(outcome.f);
+  } else setSheetFraction(outcome.f);
 }
 // The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway. A drag
 // ends the composing lift (keepSheet): from here the finger sets the height.
@@ -276,7 +276,7 @@ function dragSheetTo(height) {
   keepSheet();
   document.documentElement.style.setProperty(
     '--sheet-f',
-    String(Math.max(draftOpen() ? SHEET_MIN_F : 0.12, height / innerHeight)),
+    String(Math.max(draftOpen() ? SHEET_MIN_FRACTION : 0.12, height / innerHeight)),
   );
 }
 // Sheet height (narrow): the handle in the tool bar's row and the whole tool bar move the sheet. On the handle a drag
@@ -377,13 +377,13 @@ function dragSheetTo(height) {
   window.addEventListener('pointercancel', end);
   grip.addEventListener('keydown', (event) => {
     if (LAYOUT !== LAYOUT_MODE.NARROW) return;
-    const fraction = sheetF();
+    const fraction = sheetFraction();
     if (event.key === 'ArrowUp') {
       event.preventDefault();
-      setSheetF(fraction + 0.05);
+      setSheetFraction(fraction + 0.05);
     } else if (event.key === 'ArrowDown') {
       event.preventDefault();
-      setSheetF(fraction - 0.05);
+      setSheetFraction(fraction - 0.05);
     } else if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       cycleSheet();
@@ -536,7 +536,7 @@ function dismissOutcome(distance, size, speed) {
   const setX = (px) => document.documentElement.style.setProperty('--swipe-x', Math.round(px) + 'px');
   const settle = (out) => {
     const body = document.body,
-      ms = MQ_REDUCED.matches ? 0 : SLIDE_MS;
+      ms = REDUCED_MOTION_QUERY.matches ? 0 : SLIDE_MS;
     body.classList.remove('side-swiping');
     const done = () => {
       body.classList.remove('side-settling');
@@ -551,7 +551,7 @@ function dismissOutcome(distance, size, speed) {
       return;
     }
     body.classList.add('side-settling');
-    setX(out === 'close' ? curSideW() : 0);
+    setX(out === 'close' ? currentSideWidth() : 0);
     setTimeout(done, ms);
   };
   panel.addEventListener('pointerdown', (event) => {
@@ -588,7 +588,7 @@ function dismissOutcome(distance, size, speed) {
         return;
       }
       swipe.axis = axis;
-      swipe.w = curSideW();
+      swipe.w = currentSideWidth();
       document.body.classList.add('side-swiping');
       hideTip();
       endPress();
@@ -640,7 +640,7 @@ function sheetDialog() {
 // opening or closing; idempotent).
 function syncBackLayer() {
   const want =
-    MQ_COARSE.matches &&
+    COARSE_POINTER_QUERY.matches &&
     !!backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !window.CloseWatcher && !!sheetDialog());
   if (want && !BACK) armBack();
   else if (!want && BACK) disarmBack();

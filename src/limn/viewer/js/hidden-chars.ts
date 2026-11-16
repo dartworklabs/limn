@@ -4,10 +4,10 @@
 // (Trojan Source, CVE-2021-42574). Every place that shows a source's or a suggestion's text as it is - the text
 // surface's lines, the excerpt under the ladder, a suggestion's diff, a rung's label - marks them, for every document
 // kind, with this one repertoire, in one of two forms:
-// - ccBox, ccHtml: the character stays in the text (a copy keeps it) inside an isolating span (.cc) that shows its
-//   name.
-// - ccPlain: its name in angle brackets ('⟨U+202E⟩'), where only plain text can go (a label, a tooltip, a fallback
-//   view).
+// - hiddenBox, markHiddenHtml: the character stays in the text (a copy keeps it) inside an isolating span (.cc) that
+//   shows its name.
+// - markHiddenPlain: its name in angle brackets ('⟨U+202E⟩'), where only plain text can go (a label, a tooltip, a
+//   fallback view).
 // The repertoire (HIDDEN_RANGES), by code point: Unicode's Default_Ignorable_Code_Point (the soft hyphen, the combining
 // grapheme joiner, the Hangul fillers, the Khmer inherent vowels, the Mongolian variation selectors and vowel
 // separator, the zero-width characters and bidirectional marks, the bidirectional embeddings, overrides and isolates,
@@ -53,7 +53,7 @@ const HIDDEN_PATTERN = new RegExp(
     ']',
   'gu',
 );
-const CC_ANY = new RegExp(HIDDEN_PATTERN.source, 'u'); // the same, for a test that keeps no state
+const ANY_HIDDEN = new RegExp(HIDDEN_PATTERN.source, 'u'); // the same, for a test that keeps no state
 // The scripts whose ordinary text puts a zero-width joiner or non-joiner between two of its letters (Persian, Indic
 // conjuncts and half forms, Syriac, Mongolian), an emoji's pictograph, a Han ideograph and a Mongolian letter.
 const JOINING_SCRIPT =
@@ -63,7 +63,7 @@ const PICTOGRAPH = /\p{Extended_Pictographic}/u,
   MONGOLIAN_LETTER = /\p{sc=Mongolian}/u;
 // The name a marked character shows: a C0 control's picture (the U+2400 block), DEL's, else its code point (U+202E,
 // U+E0041). Pure.
-function ccName(codePoint: number) {
+function hiddenName(codePoint: number) {
   if (codePoint < 0x20) return String.fromCodePoint(0x2400 + codePoint);
   if (codePoint === 0x7f) return '␡';
   return 'U+' + codePoint.toString(16).toUpperCase().padStart(4, '0');
@@ -129,9 +129,9 @@ function isKeptInSequence(text: string, index: number, codePoint: number, first:
 // Every character of the input in the repertoire, in order: {at, ch} for one that is marked, null for one that is kept
 // (isKeptInSequence) - so a caller can count the work either costs and pause within a long line. first: the input is
 // line 1 of a file. A generator.
-function* ccScan(input: string, first?: boolean): Generator<{ at: number; ch: string } | null> {
+function* scanHidden(input: string, first?: boolean): Generator<{ at: number; ch: string } | null> {
   const text = String(input);
-  if (!CC_ANY.test(text)) return; // most lines hold none: one native test
+  if (!ANY_HIDDEN.test(text)) return; // most lines hold none: one native test
   const pattern = new RegExp(HIDDEN_PATTERN.source, 'gu');
   let match;
   while ((match = pattern.exec(text))) {
@@ -140,19 +140,19 @@ function* ccScan(input: string, first?: boolean): Generator<{ at: number; ch: st
   }
 }
 // The marked characters of the text, in order: [{at, ch}]. Pure.
-function ccFind(text: string, first?: boolean) {
+function findHidden(text: string, first?: boolean) {
   const out: { at: number; ch: string }[] = [];
-  for (const marked of ccScan(text, first)) if (marked) out.push(marked);
+  for (const marked of scanHidden(text, first)) if (marked) out.push(marked);
   return out;
 }
 // The input with each marked character as its name in angle brackets: plain text that never reads in another order than
 // the input. Pure.
-function ccPlain(input: string, first?: boolean) {
+function markHiddenPlain(input: string, first?: boolean) {
   const text = String(input);
   let out = '',
     at = 0;
-  for (const marked of ccFind(text, first)) {
-    out += text.slice(at, marked.at) + '⟨' + ccName(marked.ch.codePointAt(0) || 0) + '⟩';
+  for (const marked of findHidden(text, first)) {
+    out += text.slice(at, marked.at) + '⟨' + hiddenName(marked.ch.codePointAt(0) || 0) + '⟩';
     at = marked.at + marked.ch.length;
   }
   return out + text.slice(at);
@@ -160,7 +160,7 @@ function ccPlain(input: string, first?: boolean) {
 // The text as plain text cut to at most max characters of what it shows, a marked character's name counted whole and
 // never cut, with '…' when it was cut. Reads no more of the text than max + 2 characters (one past the cut keeps a
 // joiner's context). Pure.
-function ccClip(text: string, max: number) {
+function clipMarkedText(text: string, max: number) {
   let head = '',
     read = 0;
   for (const character of String(text)) {
@@ -169,8 +169,8 @@ function ccClip(text: string, max: number) {
   }
   const pieces = [] as string[];
   let at = 0;
-  for (const marked of ccFind(head)) {
-    pieces.push(...head.slice(at, marked.at), '\u27e8' + ccName(marked.ch.codePointAt(0) || 0) + '\u27e9');
+  for (const marked of findHidden(head)) {
+    pieces.push(...head.slice(at, marked.at), '\u27e8' + hiddenName(marked.ch.codePointAt(0) || 0) + '\u27e9');
     at = marked.at + marked.ch.length;
   }
   pieces.push(...head.slice(at));
@@ -187,12 +187,12 @@ function ccClip(text: string, max: number) {
 // How many marked characters of each name `text` holds more than `base`: [[name, count]] by first appearance in `text`,
 // [] when it adds none - what a suggestion's draft puts in that its lines do not have. Each line is read on its own, as
 // a diff shows it. Pure.
-function ccAdded(text: string, base: string): [string, number][] {
+function countAddedHidden(text: string, base: string): [string, number][] {
   const count = (text: string) => {
     const counts = new Map();
     for (const line of String(text).split('\n'))
-      for (const marked of ccFind(line)) {
-        const name = ccName(marked.ch.codePointAt(0) || 0);
+      for (const marked of findHidden(line)) {
+        const name = hiddenName(marked.ch.codePointAt(0) || 0);
         counts.set(name, (counts.get(name) || 0) + 1);
       }
     return counts;
@@ -208,32 +208,42 @@ function ccAdded(text: string, base: string): [string, number][] {
 }
 // A marked character as its box: an isolating span showing its name, the character itself in a .sr-only child - it
 // takes no room, and a copy of the text keeps it.
-function ccBox(character: string): HTMLElement {
+function hiddenBox(character: string): HTMLElement {
   const box = document.createElement('span');
   box.className = 'cc';
-  box.dataset.cc = ccName(character.codePointAt(0) || 0);
+  box.dataset.cc = hiddenName(character.codePointAt(0) || 0);
   const characterSpan = document.createElement('span');
   characterSpan.className = 'sr-only';
   characterSpan.textContent = character;
   box.append(characterSpan);
   return box;
 }
-// The input as Html: its text, each marked character as its box (ccBox's markup) with the character not in the markup
-// but as its code point (data-cp), which setHtml puts in as text - the HTML parser drops a NUL and turns a CR into a
-// line feed, so a box built from markup would show ␀ and copy nothing. Pure.
-function ccHtml(input: string): Html {
+// The input as Html: its text, each marked character as its box (hiddenBox's markup) with the character not in the
+// markup but as its code point (data-cp), which setHtml puts in as text - the HTML parser drops a NUL and turns a CR
+// into a line feed, so a box built from markup would show ␀ and copy nothing. Pure.
+function markHiddenHtml(input: string): Html {
   const text = String(input),
     out: (string | Html)[] = [];
   let at = 0;
-  for (const marked of ccFind(text)) {
+  for (const marked of findHidden(text)) {
     const codePoint = marked.ch.codePointAt(0) || 0;
     out.push(
       text.slice(at, marked.at),
-      html`<span class="cc" data-cc="${ccName(codePoint)}"><span class="sr-only" data-cp="${codePoint.toString(16)}"></span></span>`,
+      html`<span class="cc" data-cc="${hiddenName(codePoint)}"><span class="sr-only" data-cp="${codePoint.toString(16)}"></span></span>`,
     );
     at = marked.at + marked.ch.length;
   }
   out.push(text.slice(at));
   return html`${out}`;
 }
-export { CC_ANY, ccAdded, ccBox, ccClip, ccFind, ccHtml, ccName, ccPlain, ccScan };
+export {
+  ANY_HIDDEN,
+  countAddedHidden,
+  hiddenBox,
+  clipMarkedText,
+  findHidden,
+  markHiddenHtml,
+  hiddenName,
+  markHiddenPlain,
+  scanHidden,
+};

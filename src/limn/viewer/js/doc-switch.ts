@@ -8,7 +8,7 @@ import {
   DOC,
   DOCS,
   DONE_ALL,
-  K,
+  PAGE_SCALE,
   LAYOUT,
   LAYOUT_MODE,
   META,
@@ -24,31 +24,31 @@ import {
   ZOOMED,
   setDoc,
   setDone,
-  setKState,
+  setPageScale,
   setMeta,
   setNavgen,
   setPins,
   setSwitchseq,
   setZoomed,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { savePrefs } from './prefs.ts';
 import { api } from './api.ts';
 import { hideTip } from './tooltip.ts';
-import { docBadge, docInfo, dq, drawDocTabs, hashDoc, multiDoc, pdoc, setHash } from './doc-tabs.ts';
+import { docBadge, docInfo, withDocQuery, drawDocTabs, hashDoc, multiDoc, pdoc, setHash } from './doc-tabs.ts';
 import { loadRevisions, setViewMode } from './revisions.ts';
 import { drawMeta } from './boot.ts';
 import { resetBuildForDoc } from './build-chip.ts';
 import { checkDocUpdate } from './updates.ts';
-import { autoW, buildDoc, ptMax, startK } from './pages.ts';
-import { vecOpen } from './pdf-open.ts';
+import { autoFitWidth, buildDoc, widestPagePoints, startScale } from './pages.ts';
+import { openVectorDocument } from './pdf-open.ts';
 import { OUTLINE_ACTIVE_PAGE, markOutline } from './outline.ts';
 import { drawSheetPages, revealPageRow, tipCutTitles } from './page-list.ts';
 import { searchLeave, searchToPage } from './search.ts';
 import { showSheet } from './layout.ts';
 import { BACK, BACK_SKIP } from './gestures.ts';
-import { MD, isMdDoc, mdAnchor, mdPosLabel } from './md-surface.ts';
+import { MARKDOWN_VIEW, isMarkdownDoc, readingAnchor, markdownPositionLabel } from './md-surface.ts';
 import { COMPOSE, cancelSelection } from './composer.ts';
 import { openDraftDoc, parkDraft, restoreDraft } from './draft.ts';
 import { endJumpForScroll } from './verdict.ts';
@@ -56,14 +56,14 @@ import { drawPins, marks } from './list.ts';
 import { EDITOR, cancelEdit, editDirty } from './edit.ts';
 import { cancelRepick } from './repick.ts';
 import { refreshDoc, restoreAnchor, topAnchor } from './rebuild.ts';
-import { segRove } from './events.ts';
+import { roveSegment } from './events.ts';
 function drawDocsMenu() {
   $('#ns-docs').hidden = !multiDoc();
   setHtml(
     $('#ns-docs-list'),
     html`${DOCS.map((entry) => {
       const on = entry.key === DOC;
-      return html`<button class="dm-item${on ? ' on' : ''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${entry.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${entry.name}${on ? ic('check') : ''}</span><span class="ph" translate="no">${entry.path}</span></span>${docBadge(entry)}</button>`;
+      return html`<button class="dm-item${on ? ' on' : ''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${entry.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${entry.name}${on ? lucideIcon('check') : ''}</span><span class="ph" translate="no">${entry.path}</span></span>${docBadge(entry)}</button>`;
     })}`,
   );
 }
@@ -72,18 +72,18 @@ function drawDocsMenu() {
 // picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and the outline's current
 // section shows in the outline's own scroll while the rest keeps its place (revealSheetOutline); the page field gets no
 // focus, so no keyboard covers the sheet.
-function openNavSheet() {
+function openNavigationSheet() {
   const sheet = $('#nav-sheet');
   if (sheet.open) return;
   hideTip();
   drawDocsMenu();
-  drawNavView();
+  drawNavigationView();
   markOutline(); // its rows are drawn already (renderOutline when the outline was read): only the mark moves
   const pageCount = META && META.pages ? META.pages.length : 0,
     pageField = $('#ns-page-in');
   pageField.value = '';
   pageField.placeholder = String(OUTLINE_ACTIVE_PAGE || 1);
-  $('#ns-page-n').textContent = tl('/ {n}쪽', { n: pageCount });
+  $('#ns-page-n').textContent = translateTemplate('/ {n}쪽', { n: pageCount });
   drawSheetPages();
   showSheet(sheet);
   revealPageRow($('#ns-pages'));
@@ -278,7 +278,7 @@ for (const target of [window.visualViewport, window])
     });
 // The sheet's filter has drawn its list again (outline.ts): fitted from the first result, keeping the sheet's height -
 // or, emptied, back at the current section.
-function navSheetFiltered() {
+function refitFilteredSheet() {
   const sheet = $('#nav-sheet') as HTMLDialogElement;
   if (!sheet.open) return;
   if ($('#ns-outline-search').value.trim()) fitNavigationSheet(sheet, 0, false, true);
@@ -327,21 +327,22 @@ function sheetScrollStep(
   return Math.ceil(best < Infinity ? best : parts.length ? parts[parts.length - 1] : 0);
 }
 // The navigation sheet's view switch: the view on screen is the checked radio.
-function drawNavView() {
+function drawNavigationView() {
   const isRevisions = document.body.classList.contains('revision-open');
   for (const radio of $$('#ns-view [role=radio]')) {
     const on = (radio.dataset.mode === VIEW_MODE.REVISIONS) === isRevisions;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  segRove($('#ns-view')); // the group's one Tab stop is the view now chosen (events.ts)
+  roveSegment($('#ns-view')); // the group's one Tab stop is the view now chosen (events.ts)
 }
 // The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
 // several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
-// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for tr/tl.
+// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for
+// translate/translateTemplate.
 function posLabel(doc, page, pageCount, multi, wide, mode) {
   if (mode === VIEW_MODE.REVISIONS)
-    return { name: '', pages: tr('변경사항'), label: tr('이동') + ' · ' + tr('변경사항') };
+    return { name: '', pages: translate('변경사항'), label: translate('이동') + ' · ' + translate('변경사항') };
   const name = multi && wide ? doc : '',
     pageShown = pageCount ? page : '–',
     countShown = pageCount ? pageCount : '–';
@@ -349,13 +350,13 @@ function posLabel(doc, page, pageCount, multi, wide, mode) {
     name,
     pages: pageShown + '/' + countShown,
     label: name
-      ? tl('이동 · {doc} · {page} / {n}쪽', { doc: name, page: pageShown, n: countShown })
-      : tl('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
+      ? translateTemplate('이동 · {doc} · {page} / {n}쪽', { doc: name, page: pageShown, n: countShown })
+      : translateTemplate('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
   };
 }
 // Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when
 // another document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words
-// are tr()'d here.
+// are translate()'d here.
 function drawPos() {
   const button = $('#btn-pos');
   if (!button) return;
@@ -363,9 +364,15 @@ function drawPos() {
     pageCount = META && META.pages ? META.pages.length : 0,
     isRevisions = document.body.classList.contains('revision-open');
   const label =
-    isMdDoc() && !isRevisions
+    isMarkdownDoc() && !isRevisions
       ? // a Markdown document has lines, not pages
-        mdPosLabel(shown ? shown.name : '', MD.at, MD.lines.length, multiDoc(), innerWidth >= 400)
+        markdownPositionLabel(
+          shown ? shown.name : '',
+          MARKDOWN_VIEW.at,
+          MARKDOWN_VIEW.lines.length,
+          multiDoc(),
+          innerWidth >= 400,
+        )
       : posLabel(
           shown ? shown.name : '',
           OUTLINE_ACTIVE_PAGE || 1,
@@ -379,15 +386,15 @@ function drawPos() {
   nameSpan.hidden = !label.name;
   $('#btn-pos-p').textContent = label.pages;
   button.setAttribute('aria-label', label.label);
-  button.dataset.tip = tr('문서·보기·쪽·목차로 갑니다');
+  button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
   $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
 }
-// Viewed position: page/fraction anchored at the top, page scale (K), whether zoomed manually in compact, horizontal
-// scroll. Kept in sessionStorage so it survives a reload.
+// Viewed position: page/fraction anchored at the top, page scale (PAGE_SCALE), whether zoomed manually in compact,
+// horizontal scroll. Kept in sessionStorage so it survives a reload.
 function saveView() {
   if (!DOC || !META) return;
-  if (isMdDoc()) {
-    const anchor = MD.shown === DOC ? mdAnchor() : null;
+  if (isMarkdownDoc()) {
+    const anchor = MARKDOWN_VIEW.shown === DOC ? readingAnchor() : null;
     if (anchor) VIEW_BY.set(DOC, { line: anchor.line, off: anchor.off, lay: LAYOUT });
     saveViews();
     return;
@@ -397,7 +404,7 @@ function saveView() {
   VIEW_BY.set(DOC, {
     page: anchor ? anchor.page : 1,
     frac: anchor ? anchor.frac : 0,
-    k: K,
+    k: PAGE_SCALE,
     zoomed: ZOOMED,
     sl: $('#left').scrollLeft,
     lay: LAYOUT,
@@ -430,26 +437,26 @@ function viewScale(view, widest) {
       ? view.w / widest
       : 0;
 }
-// The page scale is decided first (buildDoc sizes pages by K). Only a scale viewed in the same layout is restored - so
-// a width fit for a folded screen is never applied on desktop; without one the document starts at its saved or default
-// scale (startK). Returns whether a kept view decided it.
+// The page scale is decided first (buildDoc sizes pages by PAGE_SCALE). Only a scale viewed in the same layout is
+// restored - so a width fit for a folded screen is never applied on desktop; without one the document starts at its
+// saved or default scale (startScale). Returns whether a kept view decided it.
 function applyViewWidth(view) {
   if (view && view.lay === LAYOUT && (LAYOUT === LAYOUT_MODE.WIDE || view.zoomed)) {
-    const scale = viewScale(view, ptMax());
+    const scale = viewScale(view, widestPagePoints());
     if (scale) {
-      setKState(scale);
+      setPageScale(scale);
       setZoomed(LAYOUT !== LAYOUT_MODE.WIDE && !!view.zoomed);
       return true;
     }
   }
   setZoomed(false);
-  setKState(startK());
+  setPageScale(startScale());
   return false;
 }
 function restoreView(view) {
   if (!view) return;
-  if (isMdDoc()) {
-    MD.want = typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
+  if (isMarkdownDoc()) {
+    MARKDOWN_VIEW.want = typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
     return;
   } // once it is drawn (showDocumentNode)
   restoreAnchor({ page: view.page, frac: view.frac });
@@ -484,7 +491,7 @@ async function switchDoc(doc) {
     SWITCH_TO = { k: doc, seq, nav: navigation };
     try {
       meta = (
-        await api(dq('/api/meta', doc), {
+        await api(withDocQuery('/api/meta', doc), {
           what: '문서 열기',
           where: NOTICE_HOST.LINE,
           retry: () => {
@@ -516,7 +523,7 @@ async function switchDoc(doc) {
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
     try {
-      const fresh = (await api(dq('/api/meta', doc), { what: '문서 열기', silent: true })).data;
+      const fresh = (await api(withDocQuery('/api/meta', doc), { what: '문서 열기', silent: true })).data;
       if (seq === SWITCHSEQ && DOC === doc) {
         const changed = fresh.pages_build !== META.pages_build || fresh.pages.length !== META.pages.length;
         META_BY.set(doc, fresh);
@@ -545,7 +552,7 @@ function showDoc(view) {
   drawMeta();
   const hadWidth = applyViewWidth(view);
   buildDoc();
-  if (!hadWidth) autoW();
+  if (!hadWidth) autoFitWidth();
   restoreView(view);
   if (!view && $('#left')) $('#left').scrollTop = 0;
   setPins(OPEN_ALL.filter((pin) => pdoc(pin) === DOC));
@@ -553,9 +560,9 @@ function showDoc(view) {
   drawPins();
   marks();
   drawDocTabs();
-  $('#outline-items').textContent = tr('PDF 목차를 읽는 중입니다.');
+  $('#outline-items').textContent = translate('PDF 목차를 읽는 중입니다.');
   if (document.body.classList.contains('revision-open')) loadRevisions();
-  vecOpen();
+  openVectorDocument();
   resetBuildForDoc(); // if a previous document's request is still in flight, queue after it
   docTitle(false);
 }
@@ -567,8 +574,8 @@ function docTitle(review) {
     (META.label ? META.label + ' · ' : '') +
     (multiDoc() ? META.doc_name || META.main : META.main) +
     ' · ' +
-    tl('열린 {n}', { n: PINS.length }) +
-    (review && REVIEW_ALL.length ? ' · ' + tl('검토 {n}', { n: REVIEW_ALL.length }) : '');
+    translateTemplate('열린 {n}', { n: PINS.length }) +
+    (review && REVIEW_ALL.length ? ' · ' + translateTemplate('검토 {n}', { n: REVIEW_ALL.length }) : '');
 }
 function cycleDoc(step) {
   if (!multiDoc()) return;
@@ -609,11 +616,11 @@ export {
   cycleDoc,
   docTitle,
   drawDocsMenu,
-  drawNavView,
+  drawNavigationView,
   drawPos,
   loadViews,
-  navSheetFiltered,
-  openNavSheet,
+  refitFilteredSheet,
+  openNavigationSheet,
   restoreView,
   switchDoc,
   switchPending,

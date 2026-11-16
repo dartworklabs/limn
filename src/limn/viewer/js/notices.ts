@@ -23,15 +23,15 @@ import {
   REPLY,
   REVIEW_ALL,
   SIDE_OPEN,
-  T,
+  TIP_TEXT,
 } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tr, trMsg } from './i18n.ts';
-import { SEC } from './prefs.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translate, translateMessage } from './i18n.ts';
+import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
 import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from './status.ts';
 import { searchToPage } from './search.ts';
-import { saveBtnLabel } from './save.ts';
+import { saveButtonLabel } from './save.ts';
 import { READING_LINE_PAGE, pageVerdictsOn } from './verdict.ts';
 import { focusLine, isReasonField } from './verdict-reason.ts';
 import { dropBareDayLines, placeRow } from './list.ts';
@@ -51,10 +51,10 @@ const BANNERS = new Map() as Map<string, Notice>; // NOTICE_HOST -> its one bann
 let NOTICE_SEQ = 0;
 // A message's lead icon by its kind (noticeIcon).
 const NOTICE_ICONS = {
-  [NOTICE_KIND.OK]: () => ic('circle-check'),
-  [NOTICE_KIND.WARN]: () => ic('triangle-alert'),
-  [NOTICE_KIND.ERR]: () => ic('circle-x'),
-  [NOTICE_KIND.INFO]: () => ic('info'),
+  [NOTICE_KIND.OK]: () => lucideIcon('circle-check'),
+  [NOTICE_KIND.WARN]: () => lucideIcon('triangle-alert'),
+  [NOTICE_KIND.ERR]: () => lucideIcon('circle-x'),
+  [NOTICE_KIND.INFO]: () => lucideIcon('info'),
 } as Record<string, () => Html>;
 // The lead icon of a message of `kind` (NOTICE_KIND); an unknown kind draws the success one.
 function noticeIcon(kind: string): Html {
@@ -183,7 +183,7 @@ function announce(text: string, assertive?: boolean) {
 
 // A success with nothing to undo: nothing is drawn - the change itself is on screen - but it is read out as before.
 function quietNote(message: string) {
-  announce(trMsg(message));
+  announce(translateMessage(message));
 }
 
 // Puts a message on the status line, newest first, and returns it - or null when it repeats one already there
@@ -200,7 +200,7 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
   options = options || {};
   const keys = options.keys || [],
     rank = options.rank || 1,
-    text = options.literal ? String(message) : trMsg(message);
+    text = options.literal ? String(message) : translateMessage(message);
   // gathered while a person was away (digestBegin): said once, together
   if (digestHold(message, kind, act, options)) return null;
   if (options.source) {
@@ -213,7 +213,7 @@ function lineNote(message: string, kind: string, act?: NoticeAct | null, options
   if (newsDupe(keys, rank, null)) return null;
   const notice = makeNotice({
     ...options,
-    msg: options.literal ? String(message) : trMsg(message),
+    msg: options.literal ? String(message) : translateMessage(message),
     kind,
     act: act || null,
     place: NOTICE_PLACE.LINE,
@@ -292,7 +292,7 @@ function bannerNote(
       dot: shownHost === NOTICE_HOST.REVIEW ? NOTICE_DOT.RV : NOTICE_DOT.SIDE,
     });
   // a source's repeat in the same words is the banner already there: not drawn or said again
-  const text = options.literal ? String(message) : trMsg(message);
+  const text = options.literal ? String(message) : translateMessage(message);
   if (options.source) {
     const same = sourceEntry(options.source);
     if (same) {
@@ -304,7 +304,7 @@ function bannerNote(
   if (old) endNotice(old, false);
   const notice = makeNotice({
     ...options,
-    msg: options.literal ? String(message) : trMsg(message),
+    msg: options.literal ? String(message) : translateMessage(message),
     kind,
     act: act || null,
     place: NOTICE_PLACE.BANNER,
@@ -321,13 +321,17 @@ function bannerNote(
 // screen, on the status line. options: pin, sec (its list section: 'open', 'review' or 'done') and prev (the pin drawn
 // before it), label (a chip's short text; the whole message is what is read out), life (TIMER: NOTICE_MS, unless given
 // - rule 2, no other press ends it), gone, pending (a chip whose mark comes only with the next list reload:
-// settleChip). act.tip defaults to T.undo; act.wait = its action sends a request, and the undo stays until that is
-// answered (noticeAct).
+// settleChip). act.tip defaults to TIP_TEXT.undo; act.wait = its action sends a request, and the undo stays until that
+// is answered (noticeAct).
 function undoNote(place: string, message: string, act: NoticeAct, options: Partial<Notice>): Notice {
-  const action = { tip: T.undo, ...act },
+  const action = { tip: TIP_TEXT.undo, ...act },
     life = options.life || NOTICE_LIFE.TIMER;
   if (
-    !offerSeen(place, { sideOpen: SIDE_OPEN, secOpen: !options.sec || !!SEC[options.sec], trashOpen: $('#trash').open })
+    !offerSeen(place, {
+      sideOpen: SIDE_OPEN,
+      secOpen: !options.sec || !!SECTION_OPEN[options.sec],
+      trashOpen: $('#trash').open,
+    })
   )
     // no keys: never suppressed
     return lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true }) as Notice;
@@ -335,7 +339,7 @@ function undoNote(place: string, message: string, act: NoticeAct, options: Parti
     ...options,
     life,
     undo: true,
-    msg: trMsg(message),
+    msg: translateMessage(message),
     kind: NOTICE_KIND.OK,
     act: action,
     place,
@@ -648,7 +652,7 @@ const NOTICE_LATE_SRC = 'notice-late:';
 // message per action: nothing is said twice. The line is not locked meanwhile, so there is nothing to give back.
 function noticeLate(notice: Notice, action: NoticeAct) {
   const what =
-    tr(
+    translate(
       action.label === '되살리기'
         ? '되살리기의 답이 늦습니다'
         : action.label === '다시 시도'
@@ -991,7 +995,7 @@ function regroup(
   still?: boolean,
 ) {
   const options = said.o || {},
-    [title, description] = splitMessage(options.literal ? String(said.msg) : trMsg(said.msg));
+    [title, description] = splitMessage(options.literal ? String(said.msg) : translateMessage(said.msg));
   const same = notice.title === title && notice.desc === description && notice.kind === said.kind;
   notice.title = title;
   notice.desc = description;
@@ -1089,7 +1093,7 @@ function digestEnd() {
 // The words a gathered message is named by in the gathered line: its brief (options.brief), else its title. Pure.
 function digestBrief(item: any[]): string {
   const options = item[3] || {};
-  return options.brief || splitMessage(options.literal ? String(item[0]) : trMsg(item[0]))[0];
+  return options.brief || splitMessage(options.literal ? String(item[0]) : translateMessage(item[0]))[0];
 }
 // The gathered line's description: each brief once, in the order they came, with how many - a brief that ends in a
 // count ('새 핀 1', one per document) adds its count up ('새 핀 2'), any other counts how many said it ('나를 부름 2').
@@ -1267,8 +1271,8 @@ function noticeButtons(notice: Notice, close: boolean): Html {
   const action = notice.act,
     tip = action && action.tip ? html` data-tip="${action.tip}"` : '',
     busy = notice.busy ? html` aria-busy="true"` : '';
-  return html`${action ? html`<button type="button" class="btn-sm btn-secondary nt-act" data-act="notice-act" data-n="${notice.n}"${tip}${busy}><span class="lbl">${tr(action.label)}</span></button>` : ''}\
-${close ? html`<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data-act="notice-x" data-n="${notice.n}" aria-label="알림 닫기">${ic('x')}</button>` : ''}`;
+  return html`${action ? html`<button type="button" class="btn-sm btn-secondary nt-act" data-act="notice-act" data-n="${notice.n}"${tip}${busy}><span class="lbl">${translate(action.label)}</span></button>` : ''}\
+${close ? html`<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data-act="notice-x" data-n="${notice.n}" aria-label="알림 닫기">${lucideIcon('x')}</button>` : ''}`;
 }
 
 // The focused element inside a drawn message, if any: a redraw that detaches it gives the focus back (noticeRefocus).
@@ -1306,7 +1310,7 @@ function drawBanners() {
   syncSaveButton();
   tipFollow();
 } // a banner moved (the review section hid: to the list's top) keeps its focus; what is under a banner moved down
-// The composer's [핀 저장] reads [다시 저장] while its banner is a failed save (saveBtnLabel), and goes back after.
+// The composer's [핀 저장] reads [다시 저장] while its banner is a failed save (saveButtonLabel), and goes back after.
 function syncSaveButton() {
   const button = $('#btn-save');
   if (!button || button.dataset.pending) return;
@@ -1315,7 +1319,7 @@ function syncSaveButton() {
   if ((button.dataset.retry === '1') !== retry) {
     if (retry) button.dataset.retry = '1';
     else delete button.dataset.retry;
-    setHtml(button, saveBtnLabel());
+    setHtml(button, saveButtonLabel());
   }
 }
 // A composer's banner belongs to its selection: when the composer closes (saved, cancelled), it goes with it.

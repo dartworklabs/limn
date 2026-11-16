@@ -1,23 +1,23 @@
 // ------------------------------------------------ UI language (Korean source, English table)
-// UI language (window.LIMN_LANG from the head script). Korean strings in this file are the source; in English
-// mode tr()/trMsg() look them up in I18N_EN (src/limn/viewer/ui_en.json) and a MutationObserver translates text
-// nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
+// UI language (window.LIMN_LANG from the head script). Korean strings in this file are the source; in English mode
+// translate()/translateMessage() look them up in I18N_EN (src/limn/viewer/ui_en.json) and a MutationObserver translates
+// text nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
 import { $, UI_LANG } from './core.ts';
-import { segRove } from './events.ts';
+import { roveSegment } from './events.ts';
 const LANG = window.LIMN_LANG === UI_LANG.EN ? UI_LANG.EN : UI_LANG.KO,
   I18N_EN = __UI_EN_JSON__,
   I18N_ATTRS = ['data-tip', 'aria-label', 'title', 'placeholder'];
-function tr(text) {
+function translate(text) {
   if (LANG !== UI_LANG.EN || typeof text !== 'string') return text;
   const trimmed = text.trim();
   if (!trimmed || !Object.prototype.hasOwnProperty.call(I18N_EN, trimmed) || typeof I18N_EN[trimmed] !== 'string')
     return text;
   return text.replace(trimmed, I18N_EN[trimmed]);
 }
-// Composed UI strings: tl('{n}쪽',{n:3}). The Korean key is the template and the Korean output; in English the
-// table value is the template - a string, or plural forms {"one":...,"other":...} picked by values.n. {x} placeholders
-// are filled from `values` (inserted as given - escape them first if the result goes into HTML).
-function tl(key, values) {
+// Composed UI strings: translateTemplate('{n}쪽',{n:3}). The Korean key is the template and the Korean output; in
+// English the table value is the template - a string, or plural forms {"one":...,"other":...} picked by values.n. {x}
+// placeholders are filled from `values` (inserted as given - escape them first if the result goes into HTML).
+function translateTemplate(key, values) {
   let pattern = key;
   if (LANG === UI_LANG.EN && Object.prototype.hasOwnProperty.call(I18N_EN, key)) {
     const entry = I18N_EN[key];
@@ -30,12 +30,12 @@ function tl(key, values) {
     values && values[field] != null ? String(values[field]) : placeholder,
   );
 }
-function trMsg(message) {
+function translateMessage(message) {
   if (LANG !== UI_LANG.EN || typeof message !== 'string') return message;
-  const english = tr(message);
+  const english = translate(message);
   if (english !== message) return english;
   for (const separator of [' — ', ' · ']) {
-    if (message.indexOf(separator) > 0) return message.split(separator).map(tr).join(separator);
+    if (message.indexOf(separator) > 0) return message.split(separator).map(translate).join(separator);
   }
   return message;
 }
@@ -49,11 +49,12 @@ function errText(body) {
     const english = I18N_EN['reason:' + body.reason];
     if (typeof english === 'string') return english;
   }
-  return trMsg(serverText);
+  return translateMessage(serverText);
 }
 // The pick's `warn` (a Korean UI hint, not an error body) is up to three sentences the server joins with a space, some
 // with numbers. Each Korean template here matches one server sentence ({x} = the number); English fills the table's
-// template through tl(). Korean shows the server text as is; a sentence no template matches stays as it is.
+// template through translateTemplate(). Korean shows the server text as is; a sentence no template matches stays as it
+// is.
 const PICK_WARNS = [
   '이 영역은 원문 대조가 약합니다({pct}%). 줄 범위를 눈으로 확인하세요.',
   '두 경로가 다른 곳을 가리킵니다(L{a} / L{b}). 확인이 필요합니다.',
@@ -75,7 +76,7 @@ function warnText(text) {
       'g',
     );
     text = text.replace(pattern, (...match) =>
-      tl(template, Object.fromEntries(names.map((name, index) => [name, match[index + 1]]))),
+      translateTemplate(template, Object.fromEntries(names.map((name, index) => [name, match[index + 1]]))),
     );
   }
   return text;
@@ -83,8 +84,8 @@ function warnText(text) {
 // What people wrote is never translated (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때): document names, notes, authors
 // and thread posts are drawn under translate="no", and the translator leaves that subtree - its text and its UI
 // attributes - alone, so a document named '그림' or a note that reads '완료' stays as written. The UI words drawn
-// inside it are tr()'d by the code that draws them. Asked of an element (an SVG one has no translate and counts as
-// translatable).
+// inside it are translate()'d by the code that draws them. Asked of an element (an SVG one has no translate and counts
+// as translatable).
 function i18nUser(element) {
   return !!element && element.translate === false;
 }
@@ -94,7 +95,7 @@ function translateAttributes(element) {
   for (const attribute of I18N_ATTRS) {
     const value = element.getAttribute(attribute);
     if (value) {
-      const english = trMsg(value);
+      const english = translateMessage(value);
       if (english !== value) element.setAttribute(attribute, english);
     }
   }
@@ -103,7 +104,7 @@ function translateAttributes(element) {
 function i18nText(node) {
   const parent = node.parentNode;
   if (!parent || /^(TEXTAREA|SCRIPT|STYLE)$/.test(parent.nodeName) || i18nUser(parent)) return;
-  const english = trMsg(node.nodeValue);
+  const english = translateMessage(node.nodeValue);
   if (english !== node.nodeValue) node.nodeValue = english;
 }
 // Translates root and everything under it in English mode, skipping whole user-text subtrees.
@@ -129,7 +130,7 @@ function i18nStart() {
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
-  segRove($('#m-lang')); // the group's one Tab stop is the language now chosen (events.ts)
+  roveSegment($('#m-lang')); // the group's one Tab stop is the language now chosen (events.ts)
   if (LANG !== UI_LANG.EN) return;
   i18nTree(document.body);
   new MutationObserver((mutations) => {
@@ -141,7 +142,7 @@ function i18nStart() {
           name = mutation.attributeName || '',
           value = element.getAttribute(name);
         if (value) {
-          const english = trMsg(value);
+          const english = translateMessage(value);
           if (english !== value) element.setAttribute(name, english);
         }
       }
@@ -169,4 +170,4 @@ function switchLang(lang) {
   if (address.href === location.href) location.reload();
   else location.replace(address.href);
 }
-export { LANG, errText, i18nStart, switchLang, tl, tr, trMsg, warnText };
+export { LANG, errText, i18nStart, switchLang, translateTemplate, translate, translateMessage, warnText };

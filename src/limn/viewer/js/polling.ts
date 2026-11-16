@@ -4,7 +4,7 @@ import {
   BUILD_STATE,
   DOC,
   DOC_SEQ,
-  EL_SYNC,
+  ELEMENT_SYNC,
   EVENT_TYPE,
   META_BY,
   NOTICE_DOT,
@@ -15,10 +15,10 @@ import {
   SYNC_STATE,
   rendersInBrowser,
 } from './core.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { API_WAIT, api } from './api.ts';
 import { announce, digestBegin, digestSoon, groupNote, lineNote } from './notices.ts';
-import { docInfo, dq, drawDocTabs } from './doc-tabs.ts';
+import { docInfo, withDocQuery, drawDocTabs } from './doc-tabs.ts';
 import { switchDoc } from './doc-switch.ts';
 import { updateStaleBadge, updateSyncBadge } from './boot.ts';
 import { notifyHandle, notifyOn, notifyQuery } from './notify.ts';
@@ -28,11 +28,11 @@ import {
   awayTitle,
   checkDocUpdate,
   checkVersion,
-  updExpect,
-  updPinMoved,
+  expectUpdate,
+  countPinMove,
   versionDue,
 } from './updates.ts';
-import { MD, isMdDoc, mdBuild, mdPicCheck } from './md-surface.ts';
+import { MARKDOWN_VIEW, isMarkdownDoc, buildMarkdownDoc, checkTreeImages } from './md-surface.ts';
 import { OFF, offlineFlush } from './offline.ts';
 import { josa, josaName, who } from './card-parts.ts';
 import { openTrash } from './cards.ts';
@@ -74,7 +74,11 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(dq('/api/meta?light=1') + notifyQuery(), { what: '알림 확인', silent: true, wait: API_WAIT.POLL })
+      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+        what: '알림 확인',
+        silent: true,
+        wait: API_WAIT.POLL,
+      })
     ).data;
   } catch (error) {
     return;
@@ -110,13 +114,18 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(dq('/api/meta?light=1') + notifyQuery(), { what: '상태 확인', silent: true, wait: API_WAIT.POLL })
+      await api(withDocQuery('/api/meta?light=1') + notifyQuery(), {
+        what: '상태 확인',
+        silent: true,
+        wait: API_WAIT.POLL,
+      })
     ).data;
   } catch (error) {
     if (back) digestSoon();
     if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
     POLL_FAILS++;
-    if (POLL_FAILS === 2) announce(tr('연결 끊김 · 다시 잇는 중'), true); // read out once, as it is lost (rule 1)
+    // read out once, as it is lost (rule 1)
+    if (POLL_FAILS === 2) announce(translate('연결 끊김 · 다시 잇는 중'), true);
     if (POLL_FAILS >= 2) $('#conn-lost').hidden = false;
     return;
   }
@@ -141,15 +150,17 @@ async function pollLightOnce() {
   // A failed or superseded pin refresh has not observed this revision; retry it on the next light poll.
   const needsPins = LAST_PINS_REVISION === null || meta.pins_rev !== LAST_PINS_REVISION || sig !== LAST_SRC_MTIME;
   if (sig !== LAST_SRC_MTIME || meta.building || (meta.sync && meta.sync.state === SYNC_STATE.UPDATING))
-    updExpect(sig !== LAST_SRC_MTIME); // its pins' moves wait for its update message
+    expectUpdate(sig !== LAST_SRC_MTIME); // its pins' moves wait for its update message
   const applied = !needsPins || (await loadPins());
   if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
   // Its source changed since the last read that answered: the Markdown surface reads and draws it again, asked once per
-  // change while that read is on its way (MD.asked), and again on the next poll if it failed (mdBuild clears MD.asked).
-  if (isMdDoc() && meta.src_mtime !== MD.mtime && meta.src_mtime !== MD.asked) {
-    MD.asked = meta.src_mtime;
-    mdBuild();
-  } else if (isMdDoc()) void mdPicCheck(); // a tree image rewritten on disk shows without a reload (md-surface.ts)
+  // change while that read is on its way (MARKDOWN_VIEW.asked), and again on the next poll if it failed
+  // (buildMarkdownDoc clears MARKDOWN_VIEW.asked).
+  if (isMarkdownDoc() && meta.src_mtime !== MARKDOWN_VIEW.mtime && meta.src_mtime !== MARKDOWN_VIEW.asked) {
+    MARKDOWN_VIEW.asked = meta.src_mtime;
+    buildMarkdownDoc();
+    // a tree image rewritten on disk shows without a reload (md-surface.ts)
+  } else if (isMarkdownDoc()) void checkTreeImages();
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;
     LAST_SRC_MTIME = sig;
@@ -192,7 +203,7 @@ function noteOtherDocs(list) {
     if (fresh.last_state === BUILD_STATE.OK) checkDocUpdate(fresh.key, {});
     else if (fresh.last_state === BUILD_STATE.OK_ERRORS || fresh.last_state === BUILD_STATE.FAIL)
       lineNote(
-        tl(fresh.last_state === BUILD_STATE.FAIL ? '{name} 빌드 실패' : '{name} 빌드에 LaTeX 오류', {
+        translateTemplate(fresh.last_state === BUILD_STATE.FAIL ? '{name} 빌드 실패' : '{name} 빌드에 LaTeX 오류', {
           name: stored.name,
         }),
         fresh.last_state === BUILD_STATE.FAIL ? NOTICE_KIND.ERR : NOTICE_KIND.WARN,
@@ -273,11 +284,11 @@ function notePinChanges(previous, listed, dropped) {
     numbers
       .slice(0, 3)
       .map((id) => '#' + id)
-      .join(', ') + (numbers.length > 3 ? ' ' + tl('외 {n}개', { n: numbers.length - 3 }) : '');
+      .join(', ') + (numbers.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: numbers.length - 3 }) : '');
   const some = (numbers: number[], one, many) =>
     numbers.length <= 3
-      ? tl(one, { ids: numbers.join(', #'), n: numbers.length })
-      : tl(many, { n: numbers.length }) + ' — ' + ids(numbers);
+      ? translateTemplate(one, { ids: numbers.join(', #'), n: numbers.length })
+      : translateTemplate(many, { n: numbers.length }) + ' — ' + ids(numbers);
   const merge = (older: any, newer: any) => ({ ...newer, ids: [...new Set([...older.ids, ...newer.ids])] });
   if (closed.length)
     groupNote(
@@ -291,7 +302,7 @@ function notePinChanges(previous, listed, dropped) {
           life: NOTICE_LIFE.TIMER,
           dot: NOTICE_DOT.SIDE,
           literal: true,
-          brief: tl('완료 {n}', { n: group.ids.length }),
+          brief: translateTemplate('완료 {n}', { n: group.ids.length }),
         },
       }),
       merge,
@@ -303,18 +314,20 @@ function notePinChanges(previous, listed, dropped) {
       (group) => ({
         msg:
           group.ids.length <= 3
-            ? tl('#{ids} 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요', {
+            ? translateTemplate('#{ids} 이 검토 대기로 넘어왔습니다 — 결과를 보고 [확인]하세요', {
                 ids: group.ids.join(', #'),
                 n: group.ids.length,
               })
-            : tl('핀 {n}개가 검토 대기로 넘어왔습니다', { n: group.ids.length }) + ' — ' + ids(group.ids),
+            : translateTemplate('핀 {n}개가 검토 대기로 넘어왔습니다', { n: group.ids.length }) +
+              ' — ' +
+              ids(group.ids),
         kind: NOTICE_KIND.OK,
         act: { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview },
         o: {
           keys: group.ids.map((id) => EVENT_TYPE.REVIEW_REQUESTED + ':' + id),
           dot: NOTICE_DOT.RV,
           literal: true,
-          brief: tl('검토 대기 {n}', { n: group.ids.length }),
+          brief: translateTemplate('검토 대기 {n}', { n: group.ids.length }),
         },
       }),
       merge,
@@ -328,7 +341,7 @@ function notePinChanges(previous, listed, dropped) {
         ids: droppedIds,
         names: droppedIds.map((id) => {
           const rec = dropById.get(id);
-          return (rec && who(rec.dropped_by)) || tr('다른 세션');
+          return (rec && who(rec.dropped_by)) || translate('다른 세션');
         }),
       },
       (group) => {
@@ -337,8 +350,17 @@ function notePinChanges(previous, listed, dropped) {
           id = group.ids[0];
         return {
           msg: one
-            ? tl('#{id}{o} {name}{p} 삭제함', { id, o: josa(id, '을', '를'), name, p: josaName(name, '이', '가') })
-            : tl('핀 {n}개를 {name}{p} 삭제함', { n: group.ids.length, name, p: josaName(name, '이', '가') }) +
+            ? translateTemplate('#{id}{o} {name}{p} 삭제함', {
+                id,
+                o: josa(id, '을', '를'),
+                name,
+                p: josaName(name, '이', '가'),
+              })
+            : translateTemplate('핀 {n}개를 {name}{p} 삭제함', {
+                n: group.ids.length,
+                name,
+                p: josaName(name, '이', '가'),
+              }) +
               ' — ' +
               ids(group.ids),
           kind: NOTICE_KIND.WARN,
@@ -349,10 +371,10 @@ function notePinChanges(previous, listed, dropped) {
             keys: group.ids.map((id) => EVENT_TYPE.DROPPED + ':' + id),
             dot: NOTICE_DOT.SIDE,
             literal: true,
-            brief: tl('삭제됨 {n}', { n: group.ids.length }),
+            brief: translateTemplate('삭제됨 {n}', { n: group.ids.length }),
           },
         };
-      }, // tl() spoke the UI language; the name is as written
+      }, // translateTemplate() spoke the UI language; the name is as written
       (older, newer) => {
         // names stay beside their ids
         const add = newer.ids.map((id, index) => index).filter((index) => !older.ids.includes(newer.ids[index]));
@@ -375,20 +397,22 @@ function notePinChanges(previous, listed, dropped) {
         lost.push(pin);
         return;
       }
-      if (was.el_sync !== EL_SYNC.LOST && pin.el_sync === EL_SYNC.LOST) {
+      if (was.el_sync !== ELEMENT_SYNC.LOST && pin.el_sync === ELEMENT_SYNC.LOST) {
         gone.push(pin);
         return;
       } // a re-render lost a figure pin's element
       const move = /^moved ([+-]\d+)$/.exec(pin.sync || ''),
         earlierMove = /^moved ([+-]\d+)$/.exec(was.sync || '');
-      if (move && pin.el_sync !== EL_SYNC.OK && (!earlierMove || earlierMove[1] !== move[1]))
+      if (move && pin.el_sync !== ELEMENT_SYNC.OK && (!earlierMove || earlierMove[1] !== move[1]))
         moved.push({ id: pin.id, delta: move[1], p: pin });
     });
   // A pin that lost its place asks for a new one: said on its own, and counted in its document's update message.
-  lost.forEach((pin) => updPinMoved(pin, true));
-  gone.forEach((pin) => updPinMoved(pin, true));
+  lost.forEach((pin) => countPinMove(pin, true));
+  gone.forEach((pin) => countPinMove(pin, true));
   const each = (numbers: number[], one, many) =>
-    numbers.length === 1 ? tl(one, { id: numbers[0] }) : tl(many, { n: numbers.length }) + ' — ' + ids(numbers);
+    numbers.length === 1
+      ? translateTemplate(one, { id: numbers[0] })
+      : translateTemplate(many, { n: numbers.length }) + ' — ' + ids(numbers);
   if (lost.length)
     groupNote(
       'lost',
@@ -397,7 +421,7 @@ function notePinChanges(previous, listed, dropped) {
         msg: each(group.ids, '#{id} 위치를 잃었습니다', '핀 {n}개가 위치를 잃었습니다'),
         kind: NOTICE_KIND.WARN,
         act: null,
-        o: { dot: NOTICE_DOT.SIDE, literal: true, brief: tl('위치 잃음 {n}', { n: group.ids.length }) },
+        o: { dot: NOTICE_DOT.SIDE, literal: true, brief: translateTemplate('위치 잃음 {n}', { n: group.ids.length }) },
       }),
       merge,
     );
@@ -409,12 +433,12 @@ function notePinChanges(previous, listed, dropped) {
         msg: each(group.ids, '#{id} 요소를 잃었습니다', '핀 {n}개가 요소를 잃었습니다'),
         kind: NOTICE_KIND.WARN,
         act: null,
-        o: { dot: NOTICE_DOT.SIDE, literal: true, brief: tl('요소 잃음 {n}', { n: group.ids.length }) },
+        o: { dot: NOTICE_DOT.SIDE, literal: true, brief: translateTemplate('요소 잃음 {n}', { n: group.ids.length }) },
       }),
       merge,
     );
   // Lines that moved with a document's update are said in its update message; others pass by as one message.
-  const said = moved.filter((x) => !updPinMoved(x.p, false));
+  const said = moved.filter((x) => !countPinMove(x.p, false));
   if (said.length)
     groupNote(
       'moved',
@@ -424,8 +448,8 @@ function notePinChanges(previous, listed, dropped) {
         return {
           msg:
             ms.length === 1
-              ? tl('#{id} 줄 {delta} 이동', { id: ms[0].id, delta: ms[0].delta })
-              : tl('핀 {n}개 줄 이동', { n: group.moves.length }) +
+              ? translateTemplate('#{id} 줄 {delta} 이동', { id: ms[0].id, delta: ms[0].delta })
+              : translateTemplate('핀 {n}개 줄 이동', { n: group.moves.length }) +
                 ' — ' +
                 ms.map((x: any) => '#' + x.id + ' ' + x.delta).join(', '),
           kind: NOTICE_KIND.OK,
@@ -464,14 +488,14 @@ function noteReviewChanges(previous, listed) {
   // Each is one message however many pins (groupNote): one pin with who did it, more as a count.
   const text = (entries: { id: number; by: string }[], one, many) =>
     entries.length === 1
-      ? tl(one, { id: entries[0].id }) + (entries[0].by ? ' · ' + entries[0].by : '')
-      : tl(many, { n: entries.length }) +
+      ? translateTemplate(one, { id: entries[0].id }) + (entries[0].by ? ' · ' + entries[0].by : '')
+      : translateTemplate(many, { n: entries.length }) +
         ' — ' +
         entries
           .slice(0, 3)
           .map((x) => '#' + x.id)
           .join(', ') +
-        (entries.length > 3 ? ' ' + tl('외 {n}개', { n: entries.length - 3 }) : '');
+        (entries.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: entries.length - 3 }) : '');
   const merge = (older: any, newer: any) => ({
     pins: [...older.pins, ...newer.pins.filter((x) => !older.pins.some((y) => y.id === x.id))],
   });
@@ -487,7 +511,7 @@ function noteReviewChanges(previous, listed) {
           life: NOTICE_LIFE.TIMER,
           dot: NOTICE_DOT.SIDE,
           literal: true,
-          brief: tl('확인됨 {n}', { n: group.pins.length }),
+          brief: translateTemplate('확인됨 {n}', { n: group.pins.length }),
         },
       }),
       merge,
@@ -504,7 +528,7 @@ function noteReviewChanges(previous, listed) {
           keys: group.pins.map((x) => EVENT_TYPE.REOPENED + ':' + x.id),
           dot: NOTICE_DOT.SIDE,
           literal: true,
-          brief: tl('다시 열림 {n}', { n: group.pins.length }),
+          brief: translateTemplate('다시 열림 {n}', { n: group.pins.length }),
         },
       }),
       merge,
@@ -513,7 +537,7 @@ function noteReviewChanges(previous, listed) {
 }
 // Sets LAST_PINS_REVISION, which this module declares, for another module that changes it (ADR-0042 D1); answers the
 // value.
-function setLastPinsRev<Value extends typeof LAST_PINS_REVISION>(value: Value): Value {
+function setLastPinsRevision<Value extends typeof LAST_PINS_REVISION>(value: Value): Value {
   LAST_PINS_REVISION = value;
   return value;
 }
@@ -529,7 +553,7 @@ export {
   noteReviewChanges,
   pinState,
   pollLight,
-  setLastPinsRev,
+  setLastPinsRevision,
   setLastSrcMtime,
   startLightPolling,
   syncHiddenNotifyTimer,

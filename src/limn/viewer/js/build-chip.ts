@@ -22,10 +22,10 @@ import {
   SWITCHSEQ,
   buildsFromSource,
 } from './core.ts';
-import { tl, tr } from './i18n.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import { lineNote } from './notices.ts';
-import { dq } from './doc-tabs.ts';
+import { withDocQuery } from './doc-tabs.ts';
 import { checkDocUpdate } from './updates.ts';
 import { buildUnchanged } from './status.ts';
 import { hideBuildErr, refreshDoc, showBuildErr } from './rebuild.ts';
@@ -67,8 +67,8 @@ function buildChipText(build) {
       build.phase
     ] || '재빌드 중';
   const elapsed = Math.round(build.elapsed_s || 0),
-    last = build.last_s ? ' ' + tl('(지난번 {s}초)', { s: Math.round(build.last_s) }) : '';
-  return tr(label) + ' · ' + tl('{s}초', { s: elapsed }) + last;
+    last = build.last_s ? ' ' + translateTemplate('(지난번 {s}초)', { s: Math.round(build.last_s) }) : '';
+  return translate(label) + ' · ' + translateTemplate('{s}초', { s: elapsed }) + last;
 }
 // --git-pull (docs/handbook/build-sync.md §재빌드 전 원격 main 당겨오기): appends one line about the pull result to the
 // build's completion (the status line's message, or the error panel's title). ok gets the applied commit range,
@@ -79,14 +79,14 @@ function pullSuffix(build) {
   if (pull.state === PULL_STATE.OK)
     return (
       ' · ' +
-      tl('원격 반영 {range}', {
+      translateTemplate('원격 반영 {range}', {
         range: String(pull.head_before || '?').slice(0, 7) + '..' + String(pull.head_after || '?').slice(0, 7),
       })
     );
   if (pull.state === PULL_STATE.SKIPPED || pull.state === PULL_STATE.ERROR)
     return (
       ' · ' +
-      tl(pull.state === PULL_STATE.ERROR ? 'git pull 실패({reason})' : 'git pull 건너뜀({reason})', {
+      translateTemplate(pull.state === PULL_STATE.ERROR ? 'git pull 실패({reason})' : 'git pull 건너뜀({reason})', {
         reason: pull.reason || '?',
       })
     );
@@ -114,7 +114,7 @@ async function pollBuildOnce() {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    build = (await api(dq('/api/build?log=1'), { what: '빌드 상태', silent: true })).data;
+    build = (await api(withDocQuery('/api/build?log=1'), { what: '빌드 상태', silent: true })).data;
   } catch (error) {
     return;
   }
@@ -161,11 +161,11 @@ async function pollBuildOnce() {
     if (build.state === BUILD_STATE.OK) {
       if (mine)
         lineNote(
-          tr(!buildsFromSource(META.kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
+          translate(!buildsFromSource(META.kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
             ' · ' +
-            tl('{n}쪽', { n: META.pages.length }) +
+            translateTemplate('{n}쪽', { n: META.pages.length }) +
             ' · ' +
-            tl('{s}초', { s: seconds }) +
+            translateTemplate('{s}초', { s: seconds }) +
             pullSuffix(build),
           NOTICE_KIND.OK,
           null,

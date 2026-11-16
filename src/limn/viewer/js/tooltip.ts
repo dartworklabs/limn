@@ -1,10 +1,10 @@
 // ------------------------------------------------ Tooltip
-import { $, LAST_PTR, LAST_TOUCH_T, MQ_NOHOVER, setLastPtr, setLastTouchT } from './core.ts';
+import { $, LAST_POINTER, LAST_TOUCH_AT, NO_HOVER_QUERY, setLastPointer, setLastTouchAt } from './core.ts';
 import { typingNow } from './layout.ts';
 import { MARK_HIDDEN } from './list.ts';
 const TIP = $('#tip');
 let tipTimer = undefined as ReturnType<typeof setTimeout> | undefined,
-  tipEl = null as HTMLElement | null,
+  armedTipElement = null as HTMLElement | null,
   MOUSE_AT = null as number[] | null;
 document.addEventListener(
   'mousemove',
@@ -31,7 +31,7 @@ function tipShown(on) {
 function hideTip() {
   clearTimeout(tipTimer);
   tipTimer = undefined;
-  tipEl = null;
+  armedTipElement = null;
   TIP_AT = null;
   tipShown(false);
 }
@@ -49,9 +49,9 @@ function tipFollow() {
   if (Math.abs(rect.left - TIP_AT.x) > 0.5 || Math.abs(rect.top - TIP_AT.y) > 0.5) hideTip();
 }
 // Shows an element's description over it. The box is translate="no": a description is already in the UI language (the
-// translator rewrote the attribute, or the code drew it with tr()), and one that quotes a note ('#38 · 완료') must not
-// be rewritten again. A mark badge a cover is over now (list.ts MARK_HIDDEN, markCoverSkip) shows none: it would float
-// over the cover.
+// translator rewrote the attribute, or the code drew it with translate()), and one that quotes a note ('#38 · 완료')
+// must not be rewritten again. A mark badge a cover is over now (list.ts MARK_HIDDEN, markCoverSkip) shows none: it
+// would float over the cover.
 function showTip(element) {
   if (MARK_HIDDEN.has(element)) return;
   showTipText(element, element.dataset.tip || '');
@@ -118,20 +118,20 @@ function showTipText(element: HTMLElement, text: string) {
   TIP.style.top = top + 'px';
 }
 function armTip(element) {
-  if (element === tipEl) return;
+  if (element === armedTipElement) return;
   hideTip();
   if (!element) return;
-  tipEl = element;
+  armedTipElement = element;
   tipTimer = setTimeout(() => showTip(element), 300);
 }
 // Hover/focus tooltips are never shown right after a touch: mobile Chrome simulates mouseover/focusin on every tap,
 // which would pop a description up at every press of a button. Touch relies on long-press instead (below).
-const touchRecent = () => Date.now() - LAST_TOUCH_T < 1500;
+const touchRecent = () => Date.now() - LAST_TOUCH_AT < 1500;
 document.addEventListener(
   'pointerdown',
   (event) => {
-    setLastPtr(event.pointerType || 'mouse');
-    if (LAST_PTR !== 'mouse') setLastTouchT(Date.now());
+    setLastPointer(event.pointerType || 'mouse');
+    if (LAST_POINTER !== 'mouse') setLastTouchAt(Date.now());
   },
   true,
 );
@@ -163,15 +163,15 @@ document.addEventListener('keydown', inputFromKey, true);
 // Whether the last input was a key that navigates (inputFromKey): a focus that follows it is the keyboard's.
 const keyInput = () => document.documentElement.dataset.input === 'key';
 document.addEventListener('mouseover', (event) => {
-  if (touchRecent() || MQ_NOHOVER.matches) return;
+  if (touchRecent() || NO_HOVER_QUERY.matches) return;
   const target = event.target as HTMLElement;
   armTip(target.closest ? target.closest('[data-tip]') : null);
 });
-// Puts the focus back on an element the page drew again in place of the control that had it (segKeep, events.ts). It is
-// no new focus: after a key it shows the element's description as the keyboard's focus does, after a press it shows
-// none. A rung chosen with the mouse is drawn again once more when the excerpt's lines come back (excerptFetch); by
-// then the pointer has gone elsewhere, and a box the focus given back armed would stand over the range caption and the
-// overlap's buttons.
+// Puts the focus back on an element the page drew again in place of the control that had it (keepSegmentFocus,
+// events.ts). It is no new focus: after a key it shows the element's description as the keyboard's focus does, after a
+// press it shows none. A rung chosen with the mouse is drawn again once more when the excerpt's lines come back
+// (excerptFetch); by then the pointer has gone elsewhere, and a box the focus given back armed would stand over the
+// range caption and the overlap's buttons.
 let FOCUS_GIVEN_BACK = false;
 function focusGivenBack(element: HTMLElement) {
   FOCUS_GIVEN_BACK = true;
@@ -190,7 +190,7 @@ function focusGivenBack(element: HTMLElement) {
 document.addEventListener('focusin', (event) => {
   const target = event.target as HTMLElement;
   if (FOCUS_GIVEN_BACK && !keyInput()) return;
-  if ((target && target.tagName === 'TEXTAREA') || (!keyInput() && (touchRecent() || MQ_NOHOVER.matches))) {
+  if ((target && target.tagName === 'TEXTAREA') || (!keyInput() && (touchRecent() || NO_HOVER_QUERY.matches))) {
     if (Date.now() >= SWALLOW_CLICK) hideTip();
     return;
   }
@@ -315,12 +315,12 @@ document.addEventListener(
 document.addEventListener(
   'mousedown',
   (event) => {
-    if (Date.now() < SWALLOW_CLICK && LAST_PTR !== 'mouse') event.preventDefault();
+    if (Date.now() < SWALLOW_CLICK && LAST_POINTER !== 'mouse') event.preventDefault();
   },
   true,
 );
 document.addEventListener('contextmenu', (event) => {
-  if (LAST_PTR === 'mouse') return;
+  if (LAST_POINTER === 'mouse') return;
   const target = event.target as HTMLElement;
   if (target && target.closest && (target.closest('.pg') || pressTarget(target))) event.preventDefault();
 });
@@ -332,7 +332,7 @@ document.addEventListener('focusout', hideTip);
 document.addEventListener(
   'scroll',
   () => {
-    const element = TIP.hidden ? tipEl : null;
+    const element = TIP.hidden ? armedTipElement : null;
     hideTip();
     if (element && element.contains(document.activeElement) && keyInput()) armTip(element);
   },
@@ -469,6 +469,6 @@ export {
   setSwallowClick,
   showTip,
   showTipText,
-  tipEl,
+  armedTipElement,
   tipFollow,
 };

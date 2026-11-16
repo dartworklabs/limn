@@ -23,11 +23,11 @@ import {
   PIN_STATE,
   SWITCHSEQ,
 } from './core.ts';
-import { tl, tr } from './i18n.ts';
-import { SEC, prefs, savePrefs } from './prefs.ts';
+import { translateTemplate, translate } from './i18n.ts';
+import { SECTION_OPEN, prefs, savePrefs } from './prefs.ts';
 import { api } from './api.ts';
 import { announce, groupNote, quietNote } from './notices.ts';
-import { docInfo, dq, hashDoc } from './doc-tabs.ts';
+import { docInfo, withDocQuery, hashDoc } from './doc-tabs.ts';
 import { findAnyPin } from './revisions.ts';
 import { switchDoc } from './doc-switch.ts';
 import { isViewer } from './boot.ts';
@@ -38,7 +38,7 @@ import { openTrash } from './cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from './list.ts';
 import { restorePin } from './actions.ts';
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
-let SW_REG = null as ServiceWorkerRegistration | null;
+let WORKER_REGISTRATION = null as ServiceWorkerRegistration | null;
 function notifySupported() {
   return !!(window.isSecureContext && 'serviceWorker' in navigator && 'Notification' in window);
 }
@@ -98,22 +98,27 @@ function pickNotifications(events, me, cursor) {
   return Array.from(by.values()).sort((earlier, later) => earlier.seq - later.seq);
 }
 function notifyText(event) {
-  const name = who(event.by) || tr('누군가'),
+  const name = who(event.by) || translate('누군가'),
     excerpt = String(event.excerpt || '')
       .split('\n')[0]
       .slice(0, 80),
     values = { name: name, text: excerpt };
   const body =
     {
-      mention: tl('{name}님이 불렀습니다: {text}', values),
-      review_requested: tl('검토 대기: {text}', { text: excerpt || tr('설명 없이 닫힘') }),
-      replied: tl('{name}님 답글: {text}', values),
-      reopened: excerpt ? tl('{name}님이 다시 열었습니다: {text}', values) : tl('{name}님이 다시 열었습니다', values),
-      assigned: tl('{name}님이 담당으로 지정했습니다: {text}', values),
-      dropped: tl('{name}님이 삭제했습니다: {text}', values),
+      mention: translateTemplate('{name}님이 불렀습니다: {text}', values),
+      review_requested: translateTemplate('검토 대기: {text}', { text: excerpt || translate('설명 없이 닫힘') }),
+      replied: translateTemplate('{name}님 답글: {text}', values),
+      reopened: excerpt
+        ? translateTemplate('{name}님이 다시 열었습니다: {text}', values)
+        : translateTemplate('{name}님이 다시 열었습니다', values),
+      assigned: translateTemplate('{name}님이 담당으로 지정했습니다: {text}', values),
+      dropped: translateTemplate('{name}님이 삭제했습니다: {text}', values),
     }[event.type] || excerpt;
   return {
-    title: tl('핀 #{id}', { id: event.pin }) + ' · ' + (event.doc_name || event.doc || (META && META.label) || ''),
+    title:
+      translateTemplate('핀 #{id}', { id: event.pin }) +
+      ' · ' +
+      (event.doc_name || event.doc || (META && META.label) || ''),
     body,
   };
 }
@@ -136,7 +141,7 @@ async function notifyShow(event) {
     return;
   }
   try {
-    const registration = SW_REG || (await navigator.serviceWorker.ready);
+    const registration = WORKER_REGISTRATION || (await navigator.serviceWorker.ready);
     await registration.showNotification(shown.title, {
       body: shown.body,
       tag: 'pin-' + event.pin,
@@ -147,7 +152,8 @@ async function notifyShow(event) {
           }) as HTMLLinkElement
       ).href,
       // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
-      actions: event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: tr('되살리기') }] : [],
+      actions:
+        event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: translate('되살리기') }] : [],
       data: {
         pin: event.pin,
         doc: event.doc,
@@ -196,10 +202,12 @@ function notifyLineView(group: { evs: any[] }) {
       events
         .slice(0, 3)
         .map((x) => '#' + x.pin)
-        .join(', ') + (count > 3 ? ' ' + tl('외 {n}개', { n: count - 3 }) : ''),
+        .join(', ') + (count > 3 ? ' ' + translateTemplate('외 {n}개', { n: count - 3 }) : ''),
     names = [...new Set(events.map((x) => who(x.by)).filter(Boolean))].slice(0, 2).join(', ');
   return {
-    msg: one ? shown.title + ' — ' + shown.body : tl(many, { n: count }) + ' — ' + ids + (names ? ' · ' + names : ''),
+    msg: one
+      ? shown.title + ' — ' + shown.body
+      : translateTemplate(many, { n: count }) + ' — ' + ids + (names ? ' · ' + names : ''),
     kind: drop ? NOTICE_KIND.WARN : NOTICE_KIND.OK,
     act,
     o: {
@@ -210,7 +218,7 @@ function notifyLineView(group: { evs: any[] }) {
         latest.type,
         events.some((x) => !x.doc || x.doc === DOC),
       ),
-      brief: tr(NOTIFY_BRIEF[latest.type] || '소식') + (one ? '' : ' ' + count),
+      brief: translate(NOTIFY_BRIEF[latest.type] || '소식') + (one ? '' : ' ' + count),
     },
   };
 }
@@ -240,8 +248,8 @@ function notifyHandle(meta) {
 async function notifyRegister() {
   if (!notifySupported()) return null;
   try {
-    SW_REG = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-    return SW_REG;
+    WORKER_REGISTRATION = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    return WORKER_REGISTRATION;
   } catch (error) {
     return null;
   }
@@ -276,11 +284,11 @@ function drawNotify() {
   }[state];
   const why =
     state === NOTIFY_STATE.BLOCKED
-      ? tr('브라우저가 막았습니다 — 주소창 자물쇠 → 알림 → 허용')
+      ? translate('브라우저가 막았습니다 — 주소창 자물쇠 → 알림 → 허용')
       : state === NOTIFY_STATE.UNSUPPORTED
-        ? tr('https 테일넷 주소나 http://127.0.0.1에서만 됩니다')
+        ? translate('https 테일넷 주소나 http://127.0.0.1에서만 됩니다')
         : state === NOTIFY_STATE.LOCAL
-          ? tr('테일넷 주소로 열면 켤 수 있습니다')
+          ? translate('테일넷 주소로 열면 켤 수 있습니다')
           : '';
   toggle.setAttribute('aria-checked', String(state === NOTIFY_STATE.ON));
   toggle.disabled = !!why;
@@ -316,13 +324,13 @@ async function notifyToggle() {
   } // only ever asked from within this click
   if (permission !== 'granted') {
     drawNotify();
-    notifyWhy(permission === 'denied' ? $('#m-notify-why').textContent : tr('알림 허용을 고르지 않았습니다'));
+    notifyWhy(permission === 'denied' ? $('#m-notify-why').textContent : translate('알림 허용을 고르지 않았습니다'));
     return;
   }
   await notifyRegister();
   savePrefs({ notify: true });
   try {
-    const meta = (await api(dq('/api/meta?light=1'), { silent: true })).data;
+    const meta = (await api(withDocQuery('/api/meta?light=1'), { silent: true })).data;
     if (notifyCursor() == null) setNotifyCursor(meta.ev_seq);
   } catch (error) {}
   drawNotify();
@@ -376,7 +384,7 @@ async function openPinFromLink(doc, pin, restore?) {
     return;
   }
   if (pinState(found) === PIN_STATE.DONE) {
-    SEC.done = true;
+    SECTION_OPEN.done = true;
   }
   OPEN_CARDS.add(pin);
   setSide(true);
@@ -396,13 +404,14 @@ window.addEventListener('hashchange', () => {
   const link = takeLinkHash();
   if (link.pin) openPinFromLink(link.doc, link.pin, link.restore);
 });
-// Sets SW_REG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSwReg<Value extends typeof SW_REG>(value: Value): Value {
-  SW_REG = value;
+// Sets WORKER_REGISTRATION, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
+function setWorkerRegistration<Value extends typeof WORKER_REGISTRATION>(value: Value): Value {
+  WORKER_REGISTRATION = value;
   return value;
 }
 export {
-  SW_REG,
+  WORKER_REGISTRATION,
   drawNotify,
   notifyCursor,
   notifyHandle,
@@ -413,6 +422,6 @@ export {
   notifySupported,
   notifyToggle,
   openPinFromLink,
-  setSwReg,
+  setWorkerRegistration,
   takeLinkHash,
 };

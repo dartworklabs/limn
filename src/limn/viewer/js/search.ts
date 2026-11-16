@@ -10,15 +10,15 @@
 // - Where the field is: in the nav bar when there is room (inline), folded to a magnifier when there is not (icon), and
 //   on the phone - which has no nav bar - a row in place of the sheet's bar, opened from the navigation sheet (dock).
 //   searchFit(). While the opened field lies over its neighbours in the bar they are taken off it whole (searchCover).
-// - Ends with: Esc or [검색 닫기] (cleared, focus back), another document or a new build (searchClear, from vecOpen),
-//   the changes view and a PDF that cannot be read (searchOffer hides it).
+// - Ends with: Esc or [검색 닫기] (cleared, focus back), another document or a new build (searchClear, from
+//   openVectorDocument), the changes view and a PDF that cannot be read (searchOffer hides it).
 import { $, $$, BAND, IS_MAC, LAYOUT_BAND, MID_OVERLAY, SIDE_OPEN, imeKey } from './core.ts';
-import { tl, tr } from './i18n.ts';
-import { VEC } from './pdf-open.ts';
+import { translateTemplate, translate } from './i18n.ts';
+import { VECTOR_PDF } from './pdf-open.ts';
 import { relayout, setSide } from './layout.ts';
-import { isMdDoc } from './md-surface.ts';
+import { isMarkdownDoc } from './md-surface.ts';
 import { endJumpForScroll } from './verdict.ts';
-import { SEL_POP_BOX, placeSelPop, selPopArea } from './sel-popover.ts';
+import { SELECTION_POPOVER_BOX, placeSelectionPopover, popoverFreeArea } from './sel-popover.ts';
 import { topAnchor } from './rebuild.ts';
 
 // The text as it is matched: Unicode NFKC (Hangul jamo composed, a letter and its combining mark joined, ligatures and
@@ -668,10 +668,10 @@ function searchUnread() {
 function searchOrder(first, second) {
   return first.page - second.page || first.line - second.line || first.a - second.a;
 }
-// The part of the PDF area nothing covers (selPopArea), above the phone's search rows - and the status line standing on
-// them - while they are up: where a hit is shown.
+// The part of the PDF area nothing covers (popoverFreeArea), above the phone's search rows - and the status line
+// standing on them - while they are up: where a hit is shown.
 function searchArea() {
-  const area = selPopArea(),
+  const area = popoverFreeArea(),
     navigationBar = $('#doc-nav'),
     dock = $('#status-dock');
   if (BAND === LAYOUT_BAND.PHONE && navigationBar.getClientRects().length) {
@@ -759,7 +759,7 @@ function searchPaint() {
     position = SEARCH.cur ? SEARCH.hits.indexOf(SEARCH.cur) + 1 : 0,
     busy = searchBusy(),
     lost = busy ? 0 : searchUnread();
-  const miss = lost ? ' · ' + tl('못 읽은 쪽 {n}', { n: lost }) : '';
+  const miss = lost ? ' · ' + translateTemplate('못 읽은 쪽 {n}', { n: lost }) : '';
   $('#search-count').textContent = SEARCH.q ? position + '/' + count + (busy ? '…' : miss) : '';
   $('#search-prev').disabled = $('#search-next').disabled = !count;
   SEARCH.near.forEach(searchDrawPage);
@@ -770,8 +770,12 @@ function searchPaint() {
   const say = !SEARCH.q
     ? ''
     : (count
-        ? tl('{m}개 중 {n}번째 · {page}쪽', { n: position, m: count, page: SEARCH.cur ? SEARCH.cur.page : 0 })
-        : tr('결과 없음')) + miss;
+        ? translateTemplate('{m}개 중 {n}번째 · {page}쪽', {
+            n: position,
+            m: count,
+            page: SEARCH.cur ? SEARCH.cur.page : 0,
+          })
+        : translate('결과 없음')) + miss;
   if (status.textContent !== say) status.textContent = say;
 }
 // A page's text in PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
@@ -802,7 +806,7 @@ async function searchRead() {
         if (!pages[candidate - 1] && !SEARCH.failed.has(candidate)) pageNumber = candidate;
       }
       if (!pageNumber) return;
-      while (VEC.pumping || VEC.cur) {
+      while (VECTOR_PDF.pumping || VECTOR_PDF.cur) {
         await new Promise((resolve) => setTimeout(resolve, 60));
         if (SEARCH.doc !== doc || !SEARCH.q) return;
       }
@@ -819,7 +823,7 @@ async function searchRead() {
           flow: searchFlow(lines),
         };
       } catch (error) {
-        if (VEC.doc !== doc) return;
+        if (VECTOR_PDF.doc !== doc) return;
         if (SEARCH.doc === doc) SEARCH.failed.add(pageNumber);
       }
       if (SEARCH.doc !== doc || !SEARCH.q) return;
@@ -842,7 +846,7 @@ const SEARCH_JAMO = /[\u1100-\u11FF\u3131-\u318E\uA960-\uA97F\uD7B0-\uD7FF]/;
 // or no PDF: no hits.
 function searchRun() {
   const field = $('#search-q') as HTMLInputElement,
-    doc = VEC.doc;
+    doc = VECTOR_PDF.doc;
   let value = field.value;
   if (SEARCH.composing) {
     const caret = field.selectionStart || 0;
@@ -1090,7 +1094,7 @@ function searchInk() {
 // the PDF on screen cannot be read (PNG fallback, or not open yet). Hides the field and the navigation sheet's row
 // otherwise, and a search that was open ends.
 function searchOffer() {
-  const off = document.body.classList.contains('revision-open') || !VEC.doc;
+  const off = document.body.classList.contains('revision-open') || !VECTOR_PDF.doc;
   if (off) searchClose(false);
   $('#doc-search').hidden = off;
   $('#ns-search').hidden = off;
@@ -1174,16 +1178,16 @@ function searchShown(element: HTMLElement) {
 // Brings what the search was opened from back into view when it went out of it meanwhile: the note popover with its
 // selection box (scrolled back to where [보기] puts a mark) or the composer's field in its panel.
 function searchBringBack(to: HTMLElement) {
-  if ($('#sel-pop').contains(to) && SEL_POP_BOX) {
-    const boxRect = SEL_POP_BOX.getBoundingClientRect(),
-      area = selPopArea(),
+  if ($('#sel-pop').contains(to) && SELECTION_POPOVER_BOX) {
+    const boxRect = SELECTION_POPOVER_BOX.getBoundingClientRect(),
+      area = popoverFreeArea(),
       pdfArea = $('#left');
     const off = boxRect.top < area.top + 8 || boxRect.bottom > area.bottom - 8,
       aside = boxRect.left < area.left + 8 || boxRect.right > area.right - 8;
     if (off || aside) endJumpForScroll();
     if (off) pdfArea.scrollTop += boxRect.top - (area.top + (area.bottom - area.top) * 0.3);
     if (aside) pdfArea.scrollLeft += (boxRect.left + boxRect.right) / 2 - (area.left + area.right) / 2;
-    placeSelPop();
+    placeSelectionPopover();
   } else if ($('#composer').contains(to)) to.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 // Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab
@@ -1225,8 +1229,8 @@ function searchClose(back) {
   // A control that would not take the focus leaves it on the page, never in the field.
   if (!next || document.activeElement !== next) searchToPage();
 }
-// Another build is on screen (vecOpen): the query, its hits and the reading of the old text end; the field stays open
-// while it has the focus, else it folds away with the bar whole again.
+// Another build is on screen (openVectorDocument): the query, its hits and the reading of the old text end; the field
+// stays open while it has the focus, else it folds away with the bar whole again.
 function searchClear() {
   ($('#search-q') as HTMLInputElement).value = '';
   searchRun();
@@ -1300,7 +1304,7 @@ $('#doc-search').addEventListener('keydown', (event) => {
 // The shortcut (searchKey): the field takes the focus instead of the browser's find, which finds nothing in a canvas.
 // Pressed again in the field, under a sheet, or where the search is not offered, it is the browser's.
 function searchShortcut(event: KeyboardEvent) {
-  if (!searchKey(event, IS_MAC) || isMdDoc()) return; // a Markdown document is searched with the browser's find
+  if (!searchKey(event, IS_MAC) || isMarkdownDoc()) return; // a Markdown document is searched with the browser's find
   if (document.activeElement === $('#search-q') || document.querySelector('dialog[open]')) return;
   if (searchOpen()) event.preventDefault();
 }

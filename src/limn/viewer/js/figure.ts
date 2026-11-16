@@ -3,14 +3,14 @@
 // element (levels[].el with id, path root first, label, part, impl and its box `frac` on the pick's page). The composer
 // shows that element without another request (docs/handbook/viewer.md §패널 정리): the pending box snaps to it - the
 // mark the pin will get - and the location line names its path. The selection keeps the element it shows as elSel.
-import { $, EL_SYNC, T } from './core.ts';
-import { html, ic } from './markup.ts';
-import { tl, tr } from './i18n.ts';
+import { $, ELEMENT_SYNC, TIP_TEXT } from './core.ts';
+import { html, lucideIcon } from './markup.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { drawBox, pendingBadgeSide } from './selection.ts';
-import { lvOf } from './levels.ts';
+import { levelOf } from './levels.ts';
 import { COMPOSE } from './composer.ts';
 import { endJumpForScroll } from './verdict.ts';
-import { selPopArea } from './sel-popover.ts';
+import { popoverFreeArea } from './sel-popover.ts';
 
 // Whether box is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
 function isFrac(box: unknown): box is number[] {
@@ -22,7 +22,7 @@ function isFrac(box: unknown): box is number[] {
 }
 // A person's name for an element: its label, else its part, else its id - the rule the pick answer's rung labels
 // follow.
-function elName(element) {
+function elementName(element) {
   return String((element && (element.label || element.part || element.id)) || '');
 }
 // The selected element's path, root first, as the location line shows it ('B2 › 달력 › 7월'). Each id is named by the
@@ -34,9 +34,9 @@ function elementPathText(selection) {
   const selectedElement = selection && selection.elSel;
   if (!selectedElement || !Array.isArray(selectedElement.path)) return '';
   const names = new Map();
-  if (selection.el && selection.el.id) names.set(selection.el.id, elName(selection.el));
+  if (selection.el && selection.el.id) names.set(selection.el.id, elementName(selection.el));
   (selection.levels || []).forEach((level) => {
-    if (level.el && level.el.id) names.set(level.el.id, String(level.label || elName(level.el)));
+    if (level.el && level.el.id) names.set(level.el.id, String(level.label || elementName(level.el)));
   });
   const ids = selection.el && Array.isArray(selection.el.path) ? selection.el.path : [],
     given = Array.isArray(selection.path_names) ? selection.path_names : [];
@@ -48,7 +48,7 @@ function elementPathText(selection) {
 }
 // A figure rung's tooltip text: the whole figure's lines for the page's root (its path is itself), else the element's.
 function rungTip(level) {
-  return Array.isArray(level.el.path) && level.el.path.length <= 1 ? T.fig : T.el;
+  return Array.isArray(level.el.path) && level.el.path.length <= 1 ? TIP_TEXT.fig : TIP_TEXT.el;
 }
 // Puts a pending box (the composer's '새 핀', a re-place's '새 위치') on the element it will pin, so the person sees
 // the mark before saving. An element without a usable box, or no box on screen, leaves the box as dragged.
@@ -66,8 +66,8 @@ function renderElement(selection, box) {
   line.hidden = !selectedElement;
   if (selectedElement) {
     line.textContent = elementPathText(selection) + ' ·';
-    line.dataset.tip = tl('요소 {id} · 누르면 쪽에서 이 상자를 보입니다', { id: selectedElement.id });
-    line.setAttribute('aria-description', tr('누르면 쪽에서 고른 요소의 상자를 보입니다'));
+    line.dataset.tip = translateTemplate('요소 {id} · 누르면 쪽에서 이 상자를 보입니다', { id: selectedElement.id });
+    line.setAttribute('aria-description', translate('누르면 쪽에서 고른 요소의 상자를 보입니다'));
   }
   snapBox(box, selectedElement);
   if (box) box.classList.toggle('hi', !!selectedElement && line.matches(':hover,:focus-visible'));
@@ -91,7 +91,7 @@ for (const [eventName, on] of [
 function showElementBox() {
   const box = COMPOSE.box;
   if (!box || !box.isConnected) return;
-  const area = selPopArea(),
+  const area = popoverFreeArea(),
     rect = box.getBoundingClientRect();
   if (rect.top < area.top || rect.bottom > area.bottom) {
     endJumpForScroll();
@@ -105,11 +105,11 @@ function showElementBox() {
 // The page badge of a region on a figure document (composer and card): '코드 없는 요소' when the map chose an element
 // it has no code lines for, '영역' when the map could not be read; null off figure documents without an element - the
 // caller keeps its view-only wording.
-function figRegionBadge(element, figure) {
+function figureRegionBadge(element, figure) {
   return element
-    ? { t: tr('코드 없는 요소'), tip: tr(T.elregion) }
+    ? { t: translate('코드 없는 요소'), tip: translate(TIP_TEXT.elregion) }
     : figure
-      ? { t: tr('영역'), tip: tr(T.figregion) }
+      ? { t: translate('영역'), tip: translate(TIP_TEXT.figregion) }
       : null;
 }
 // The `el` a pin stores (POST /api/pin, an edit's loc): the pick's element with only the fields the pin record defines,
@@ -143,13 +143,13 @@ function figureFields(body, element, rung) {
   return body;
 }
 // The rung the selection's scope names when it is a figure rung (it carries an element), else null.
-function figRung(selection) {
-  const level = selection && selection.scope && lvOf(selection, selection.scope);
+function figureRung(selection) {
+  const level = selection && selection.scope && levelOf(selection, selection.scope);
   return level && level.el ? level : null;
 }
 // The element a re-place candidate would move the pin to: its default rung's, else the answer's own (a region answer).
-function repickEl(candidate) {
-  const level = lvOf(candidate, candidate.default_level);
+function repickElement(candidate) {
+  const level = levelOf(candidate, candidate.default_level);
   return (level && level.el) || candidate.el || null;
 }
 // Whether the server found this figure pin's element in the current build: the read-time `mark` box on `mark_page`.
@@ -164,27 +164,27 @@ function pinPlace(pin: Pin) {
   return hasMark(pin) ? { page: pin.mark_page as number, frac: pin.mark } : { page: pin.page, frac: pin.frac };
 }
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
-function elLost(pin: Pin) {
-  return !!pin && pin.el_sync === EL_SYNC.LOST;
+function isElementLost(pin: Pin) {
+  return !!pin && pin.el_sync === ELEMENT_SYNC.LOST;
 }
 // The card badge of a lost element ('요소 잃음', the warning look of '위치 잃음'), or ''.
-function elLostTag(pin: Pin) {
-  return elLost(pin)
-    ? html`<span class="badge badge-warning" data-tip="${tr(T.ellost)}">${ic('triangle-alert')}${tr('요소 잃음')}</span>`
+function lostElementTag(pin: Pin) {
+  return isElementLost(pin)
+    ? html`<span class="badge badge-warning" data-tip="${translate(TIP_TEXT.ellost)}">${lucideIcon('triangle-alert')}${translate('요소 잃음')}</span>`
     : null;
 }
 export {
-  elLost,
-  elLostTag,
-  elName,
-  figRegionBadge,
-  figRung,
+  isElementLost,
+  lostElementTag,
+  elementName,
+  figureRegionBadge,
+  figureRung,
   figureFields,
   hasMark,
   isFrac,
   pinPlace,
   renderElement,
-  repickEl,
+  repickElement,
   rungTip,
   showElementBox,
   snapBox,

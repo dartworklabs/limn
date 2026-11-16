@@ -3,9 +3,9 @@
 // short and the tablet sheet: #nav-page) opens a popover (#page-pop): a page field on top and one row per page below
 // it, each with the sections that start on that page. The phone's navigation sheet carries the same rows under its page
 // field (#ns-pages). Choosing a row goes there at once - there is no confirm step.
-import { $, DOC, META, MQ_COARSE, VIEW_MODE, buildsFromSource, imeKey, isFigureKind } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { tl } from './i18n.ts';
+import { $, DOC, META, COARSE_POINTER_QUERY, VIEW_MODE, buildsFromSource, imeKey, isFigureKind } from './core.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { translateTemplate } from './i18n.ts';
 import { hideTip } from './tooltip.ts';
 import { docInfo } from './doc-tabs.ts';
 import { setViewMode } from './revisions.ts';
@@ -82,7 +82,7 @@ function pageRowsHtml(pageTotal, currentPage) {
       on = page === currentPage,
       verdictPin = verdictPins && (verdictPins.get(page) || [])[0],
       verdictKey = verdictPin && verdictOf(verdictPin);
-    return html`<button class="pl-row${on ? ' on' : ''}" role="option" aria-selected="${on}" tabindex="${on ? 0 : -1}" data-act="page-go" data-page="${page}" data-close="1"><span class="pl-n">${tl('{page}쪽', { page: page })}</span><span class="pl-s" translate="no">${names[index] || ''}</span>${verdictPin && verdictKey ? html`<span class="pl-v">#${verdictPin.id} <span translate="no">${verdictLabel(verdictKey)}</span></span>` : ''}${on ? ic('check') : ''}</button>`;
+    return html`<button class="pl-row${on ? ' on' : ''}" role="option" aria-selected="${on}" tabindex="${on ? 0 : -1}" data-act="page-go" data-page="${page}" data-close="1"><span class="pl-n">${translateTemplate('{page}쪽', { page: page })}</span><span class="pl-s" translate="no">${names[index] || ''}</span>${verdictPin && verdictKey ? html`<span class="pl-v">#${verdictPin.id} <span translate="no">${verdictLabel(verdictKey)}</span></span>` : ''}${on ? lucideIcon('check') : ''}</button>`;
   })}`;
 }
 // Scrolls list so that its selected row sits in the middle of the list's box (as far as the list can scroll).
@@ -111,7 +111,7 @@ function openPageList(from) {
   drawPopoverRows();
   revealPageRow(list);
   const row = list.querySelector('[aria-selected=true]') as HTMLElement | null;
-  (MQ_COARSE.matches && row ? row : pageField).focus({ preventScroll: true });
+  (COARSE_POINTER_QUERY.matches && row ? row : pageField).focus({ preventScroll: true });
 }
 // Draws the popover's rows - for the page on screen, the names and titles as they are now - and what depends on them:
 // the wider list that titles need (a figure's), its place under the page count, and the full title of each row that
@@ -202,7 +202,7 @@ function goListedPage(page) {
   if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
   goPage(page);
 }
-// The phone's navigation sheet: its page rows under the page field, scrolled to the current page (openNavSheet).
+// The phone's navigation sheet: its page rows under the page field, scrolled to the current page (openNavigationSheet).
 function drawSheetPages() {
   const box = $('#ns-pages'),
     pageTotal = pageCount();

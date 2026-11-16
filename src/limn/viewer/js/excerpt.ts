@@ -4,11 +4,11 @@
 // first or last line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer
 // and the edit card draw the same excerpt.
 import { $, SNIP_OPEN } from './core.ts';
-import { html, ic, setHtml } from './markup.ts';
-import { ccHtml } from './hidden-chars.ts';
-import { tl, tr } from './i18n.ts';
+import { html, lucideIcon, setHtml } from './markup.ts';
+import { markHiddenHtml } from './hidden-chars.ts';
+import { translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
-import { dq, isRegion } from './doc-tabs.ts';
+import { withDocQuery, isRegion } from './doc-tabs.ts';
 import { refetchSnip } from './levels.ts';
 import { COMPOSE, recomputeOverlap, renderComposer } from './composer.ts';
 import { EDITOR, renderEdit } from './edit.ts';
@@ -84,7 +84,7 @@ async function excerptFetch(owner) {
   try {
     for (const [from, to] of fetchWindows) {
       const { data } = await api(
-        dq('/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
+        withDocQuery('/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
         { what: '원문 읽기' },
       );
       excerptTake(owner, data.snippet);
@@ -148,21 +148,21 @@ function drawExcerpt(owner, box, isEdit) {
   const lines = excerptLines(owner),
     text = (line) => {
       const lineText = lines.get(line);
-      return lineText == null ? '…' : ccHtml(lineText);
+      return lineText == null ? '…' : markHiddenHtml(lineText);
     }; // a character that would hide or reorder the line in its box (hidden-chars.ts)
   const rows = excerptRows(owner.lo, owner.hi, owner.n_lines || owner.hi, !isEdit && SNIP_OPEN).map((row) =>
     row.kind === 'fold'
-      ? html`<div class="xp-fold">… ${tl('{n}줄', { n: row.n })}</div>`
+      ? html`<div class="xp-fold">… ${translateTemplate('{n}줄', { n: row.n })}</div>`
       : row.kind === 'ctx'
-        ? html`<button class="xp-row ctx" data-act="xp-to" data-line="${row.k}" aria-label="${tl('L{n}까지 넓히기', { n: row.k })}"><span class="ln">${row.k}</span>\
-<span class="tx">${text(row.k)}</span><span class="xp-chip add" aria-hidden="true">${ic('plus')}</span></button>`
+        ? html`<button class="xp-row ctx" data-act="xp-to" data-line="${row.k}" aria-label="${translateTemplate('L{n}까지 넓히기', { n: row.k })}"><span class="ln">${row.k}</span>\
+<span class="tx">${text(row.k)}</span><span class="xp-chip add" aria-hidden="true">${lucideIcon('plus')}</span></button>`
         : html`<div class="xp-row on" data-line="${row.k}"><span class="ln">${row.k}</span><span class="tx">${text(row.k)}</span>\
-${row.edge ? html`<button class="xp-chip xp-drop" data-act="xp-drop" data-line="${row.k}" aria-label="${tl('이 줄 빼기 (L{n})', { n: row.k })}">${ic('minus')}</button>` : html`<span></span>`}</div>`,
+${row.edge ? html`<button class="xp-chip xp-drop" data-act="xp-drop" data-line="${row.k}" aria-label="${translateTemplate('이 줄 빼기 (L{n})', { n: row.k })}">${lucideIcon('minus')}</button>` : html`<span></span>`}</div>`,
   );
   const hint =
     owner.hi > owner.lo
-      ? tr('흐린 줄을 누르면 그 줄까지 넓어지고, −를 누르면 그 줄이 빠집니다')
-      : tr('흐린 줄을 누르면 그 줄까지 넓어집니다');
+      ? translate('흐린 줄을 누르면 그 줄까지 넓어지고, −를 누르면 그 줄이 빠집니다')
+      : translate('흐린 줄을 누르면 그 줄까지 넓어집니다');
   setHtml(box, html`<div class="xp-hint">${hint}</div><div class="xp-list" translate="no">${rows}</div>`);
   if (had) {
     const target = excerptFocusTarget(
@@ -179,7 +179,9 @@ ${row.edge ? html`<button class="xp-chip xp-drop" data-act="xp-drop" data-line="
   if (!isEdit) {
     const bandSize = owner.hi - owner.lo + 1;
     $('#c-expand').hidden = bandSize <= 5;
-    $('#c-expand').textContent = SNIP_OPEN ? tr('원문 접기') : tr('원문 펼치기') + ' · ' + tl('{n}줄', { n: bandSize });
+    $('#c-expand').textContent = SNIP_OPEN
+      ? translate('원문 접기')
+      : translate('원문 펼치기') + ' · ' + translateTemplate('{n}줄', { n: bandSize });
   }
 }
 // Sets the owner's lines by hand: first..last, the scope 'lines' and no environment; a figure pick keeps its element

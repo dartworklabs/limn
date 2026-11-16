@@ -6,7 +6,7 @@
 // the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
 // Sending is deferred behind an undo in the card, where the box was (deferredNote).
 import {
-  KIND_REQ,
+  REQUEST_KIND,
   LOCAL_LOGIN,
   META,
   NOTICE_DOT,
@@ -24,7 +24,7 @@ import {
   setReply,
 } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { errText, tl, tr } from './i18n.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
 import { api } from './api.ts';
 import { bannerNote, deferred, deferredNote, lineNote } from './notices.ts';
 import { findAnyPin } from './revisions.ts';
@@ -51,7 +51,7 @@ function isHuman() {
 function replyReopens(pin: Pin, human: boolean, mentioned: string[], override?: boolean | null) {
   if (pinState(pin) === PIN_STATE.OPEN) return false;
   if (override !== undefined && override !== null) return !!override;
-  if (pin.kind_req === KIND_REQ.QUESTION || !human) return false;
+  if (pin.kind_req === REQUEST_KIND.QUESTION || !human) return false;
   return !(mentioned && mentioned.length);
 }
 // The outcome line: {text, toggle}, or null for an open pin (a reply never changes it). toggle names the one rare
@@ -66,21 +66,21 @@ function replyPreview(pin: Pin | null, human: boolean, mentioned: string[], flip
   if (flip && !reopens)
     return {
       text: mentions.length
-        ? tl('보내면 이 핀이 다시 열려 에이전트에게 가고, {names}에게 알림이 갑니다', { names })
-        : tr('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),
+        ? translateTemplate('보내면 이 핀이 다시 열려 에이전트에게 가고, {names}에게 알림이 갑니다', { names })
+        : translate('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),
       toggle,
     };
-  if (flip) return { text: tr('보내도 상태는 그대로입니다'), toggle };
-  if (reopens) return { text: tr('보내면 이 핀이 다시 열려 에이전트에게 갑니다'), toggle };
-  if (pin.kind_req === KIND_REQ.QUESTION) return { text: tr('답으로 남고 상태는 그대로입니다'), toggle };
-  if (!human) return { text: tr('이 화면은 에이전트로 보내므로 상태는 그대로입니다'), toggle };
-  return { text: tl('보내면 {names}에게 알림이 가고 상태는 그대로입니다', { names }), toggle };
+  if (flip) return { text: translate('보내도 상태는 그대로입니다'), toggle };
+  if (reopens) return { text: translate('보내면 이 핀이 다시 열려 에이전트에게 갑니다'), toggle };
+  if (pin.kind_req === REQUEST_KIND.QUESTION) return { text: translate('답으로 남고 상태는 그대로입니다'), toggle };
+  if (!human) return { text: translate('이 화면은 에이전트로 보내므로 상태는 그대로입니다'), toggle };
+  return { text: translateTemplate('보내면 {names}에게 알림이 가고 상태는 그대로입니다', { names }), toggle };
 }
 // The empty box's placeholder says the same outcome as the line under it would for a reply without @-tags.
 function replyPlaceholder(pin: Pin | null, human: boolean, flip: boolean) {
   const closed = !!pin && pinState(pin) !== PIN_STATE.OPEN,
     reopensByDefault = closed && replyReopens(pin, human, []);
-  return tr(
+  return translate(
     closed && (flip ? !reopensByDefault : reopensByDefault)
       ? '무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)'
       : '답글 (⌘/Ctrl+Enter 보내기)',
@@ -90,10 +90,10 @@ function replyPlaceholder(pin: Pin | null, human: boolean, flip: boolean) {
 // the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
 function replyServerNote(id, predicted, data) {
   if (!data || !data.ok || !!data.reopened === !!predicted) return null;
-  if (data.reopened) return tl('#{id} 은 그사이 닫혀서 이 답글이 다시 열었습니다', { id });
+  if (data.reopened) return translateTemplate('#{id} 은 그사이 닫혀서 이 답글이 다시 열었습니다', { id });
   return data.state === PIN_STATE.OPEN
-    ? tl('#{id} 은 그사이 이미 열려 있어 답글로만 남았습니다', { id })
-    : tl('#{id} 은 다시 열리지 않고 답글로만 남았습니다', { id });
+    ? translateTemplate('#{id} 은 그사이 이미 열려 있어 답글로만 남았습니다', { id })
+    : translateTemplate('#{id} 은 다시 열리지 않고 답글로만 남았습니다', { id });
 }
 // The post's @-tags that count as asking a person: without me and without agent-role accounts (as the server's rule).
 // Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the
@@ -152,8 +152,8 @@ function renderReplyOutcome() {
   );
   const flipButton = box.querySelector('[data-act=reply-flip]') as HTMLElement,
     keep = preview.toggle === 'keep';
-  flipButton.textContent = tr(keep ? '상태 유지' : '다시 열기');
-  flipButton.dataset.tip = tr(
+  flipButton.textContent = translate(keep ? '상태 유지' : '다시 열기');
+  flipButton.dataset.tip = translate(
     keep
       ? '보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)'
       : '보내면서 핀을 다시 열어 에이전트에게 보냅니다(드물게 씁니다)',
@@ -206,7 +206,7 @@ function sendReply() {
     text = field.value.trim();
   const errorLine = replyBox.el.querySelector('.r-err') as HTMLElement;
   if (!text) {
-    errorLine.textContent = tr('답글이 비어 있습니다');
+    errorLine.textContent = translate('답글이 비어 있습니다');
     errorLine.hidden = false;
     field.focus();
     return;
@@ -226,7 +226,10 @@ function sendReply() {
   const back = (err) => {
     if (REPLY_VISITS.get(id) !== visit) {
       if (err)
-        lineNote(tr('보내지 못했습니다') + ' — #' + id, NOTICE_KIND.ERR, null, { dot: NOTICE_DOT.SIDE, literal: true });
+        lineNote(translate('보내지 못했습니다') + ' — #' + id, NOTICE_KIND.ERR, null, {
+          dot: NOTICE_DOT.SIDE,
+          literal: true,
+        });
       return;
     }
     REPLY_DRAFT.set('reply:' + id, { text, mentions: hints });
@@ -267,7 +270,7 @@ function sendReply() {
           silent: true,
           keepalive: true,
         });
-        if (!data.ok) bannerNote(NOTICE_HOST.LIST, tl('핀 #{id} 이 없습니다', { id }), NOTICE_KIND.ERR);
+        if (!data.ok) bannerNote(NOTICE_HOST.LIST, translateTemplate('핀 #{id} 이 없습니다', { id }), NOTICE_KIND.ERR);
         else {
           const note = replyServerNote(id, reopens, data);
           if (note) bannerNote(NOTICE_HOST.LIST, note, NOTICE_KIND.WARN);
@@ -276,8 +279,8 @@ function sendReply() {
         const err = error as ApiError; // silent above: the box's own line says it, once
         back(
           err.status
-            ? tr('보내지 못했습니다') + ' — ' + (errText(err.data) || 'HTTP ' + err.status)
-            : tr('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'),
+            ? translate('보내지 못했습니다') + ' — ' + (errText(err.data) || 'HTTP ' + err.status)
+            : translate('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'),
         );
       }
       await loadPins();
@@ -287,7 +290,7 @@ function sendReply() {
   const note = deferredNote(
     pendingSend,
     NOTICE_PLACE.CARD,
-    tl(reopens ? '핀 #{id} 다시 열어 에이전트에게 보냄' : '#{id} 에 답글을 남겼습니다', { id }),
+    translateTemplate(reopens ? '핀 #{id} 다시 열어 에이전트에게 보냄' : '#{id} 에 답글을 남겼습니다', { id }),
     { pin: id, sec: section },
   );
   // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the reply still goes when its undo does.

@@ -243,7 +243,7 @@ def josa_ro(n: int) -> str:
     a number that does not end in 0 (일 이 삼 사 오 육 칠 팔 구: '으로' after 삼 and 육 only, the rest end in a vowel or
     ㄹ), 십·백·천 for one that ends in 0 inside its last group of four digits (all end in a consonant other than ㄹ:
     '으로'), and the unit of the last non-empty group of four otherwise: 만, 억, 경 ... take '으로', 조, 해 ... '로'
-    (10**12, 일조, takes '로'). Differs from the viewer's josaRo(), which reads the last digit only, for such a number;
+    (10**12, 일조, takes '로'). Differs from the viewer's josaToward(), which reads the last digit only, for such a number;
     a pin number never gets there. 0 (영) takes '으로'."""
     unit = 0
     while n and n % 10_000 == 0:

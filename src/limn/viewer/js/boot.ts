@@ -9,7 +9,7 @@ import {
   LOCAL_LOGIN,
   META,
   META_BY,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   NOTICE_HOST,
   NOTICE_KIND,
   ROLE,
@@ -21,26 +21,26 @@ import {
   setMeta,
 } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { i18nStart, tl, tr } from './i18n.ts';
+import { i18nStart, translateTemplate, translate } from './i18n.ts';
 import { applyTheme, prefs, savePrefs } from './prefs.ts';
 import { api } from './api.ts';
 import { DIGEST, bannerNote, digestBegin, digestSoon } from './notices.ts';
-import { dq, drawDocTabs, initialDoc, loadDocs, multiDoc, setHash } from './doc-tabs.ts';
+import { withDocQuery, drawDocTabs, initialDoc, loadDocs, multiDoc, setHash } from './doc-tabs.ts';
 import { applyViewWidth, loadViews, restoreView } from './doc-switch.ts';
-import { pollLight, setLastPinsRev, setLastSrcMtime, startLightPolling } from './polling.ts';
+import { pollLight, setLastPinsRevision, setLastSrcMtime, startLightPolling } from './polling.ts';
 import { drawNotify, notifyPerm, notifyRegister, notifySupported, openPinFromLink, takeLinkHash } from './notify.ts';
 import { BUILD, startBuildPolling } from './build-chip.ts';
 import { DIGEST_TAIL_MS, checkDocsSeen, visitedBefore } from './updates.ts';
 import { setStatusSync } from './status.ts';
 import { applyOutlineState, applySideWidth } from './panel-size.ts';
-import { autoW, buildDoc } from './pages.ts';
-import { vecBoot } from './pdf-open.ts';
+import { autoFitWidth, buildDoc } from './pages.ts';
+import { bootVector } from './pdf-open.ts';
 import { updateSectionStrip } from './outline.ts';
 import { applyLayout, coach } from './layout.ts';
-import { isMdDoc, mdHint } from './md-surface.ts';
+import { isMarkdownDoc, showMarkdownHint } from './md-surface.ts';
 import { isTextDoc } from './text-surface.ts';
 import { restoreDraft } from './draft.ts';
-import { saveBtnLabel } from './save.ts';
+import { saveButtonLabel } from './save.ts';
 import { offlineAskDown, offlineBoot } from './offline.ts';
 import { avatar, isAgent, who } from './card-parts.ts';
 import { loadPins } from './list.ts';
@@ -53,12 +53,12 @@ async function boot() {
   applyTheme();
   applyLayout();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
-  setHtml($('#btn-save'), saveBtnLabel());
+  setHtml($('#btn-save'), saveButtonLabel());
   await offlineAskDown(); // a page the worker answered from its copy starts from the stored reads (offline.ts)
   await loadDocs();
   setDoc(initialDoc());
   try {
-    setMeta((await api(dq('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
+    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
   } catch (error) {
     return;
   }
@@ -71,36 +71,37 @@ async function boot() {
     savePrefs({ lastDoc: DOC });
   }
   // A device that was here before hears what came since, gathered into one message (docs/handbook/viewer.md §새 소식).
-  if (visitedBefore()) digestBegin(tr('지난 방문 뒤'));
+  if (visitedBefore()) digestBegin(translate('지난 방문 뒤'));
   drawMeta();
   applySideWidth();
   applyOutlineState();
   const hadWidth = applyViewWidth(view);
   buildDoc();
-  if (!hadWidth) autoW();
-  vecBoot();
+  if (!hadWidth) autoFitWidth();
+  bootVector();
   const pinsLoaded = await loadPins();
   restoreView(view);
   drawDocTabs();
   updateSectionStrip();
   restoreDraft(); // the page count is there before the first scroll (mid shows it in the nav bar)
-  if (isMdDoc())
+  if (isMarkdownDoc())
     coach(
-      MQ_COARSE.matches ? 'touch' : 'mouse',
+      COARSE_POINTER_QUERY.matches ? 'touch' : 'mouse',
       isTextDoc()
-        ? MQ_COARSE.matches
+        ? COARSE_POINTER_QUERY.matches
           ? '줄을 누르면 그 줄을, 길게 눌러 글을 고르면 그 줄들을 고릅니다'
           : '누르면 그 줄을, 끌면 그 줄들을 고릅니다' // a text document: a press picks its line
-        : MQ_COARSE.matches
+        : COARSE_POINTER_QUERY.matches
           ? '블록을 누르면 그 블록을, 길게 눌러 글을 고르면 그 줄을 고릅니다'
           : '끌면 그 줄을, 누르면 그 블록을 고릅니다',
     );
-  else if (MQ_COARSE.matches) coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
+  else if (COARSE_POINTER_QUERY.matches)
+    coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   // a mouse user's first hint how to pin (the PDF also shows a crosshair)
   else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if (pinsLoaded) {
-    setLastPinsRev(META.pins_rev);
+    setLastPinsRevision(META.pins_rev);
     setLastSrcMtime(META.src_sig || META.src_mtime);
   }
   // the build count this tab has already "seen"
@@ -139,7 +140,7 @@ function updateStaleBadge(meta) {
   const age = typeof meta.src_age_s === 'number' ? meta.src_age_s : Date.now() / 1000 - meta.src_mtime;
   const minutes = Math.max(0, Math.round(age / 60));
   badge.hidden = false;
-  badge.textContent = tl('원고 수정됨 · {n}분 전', { n: minutes });
+  badge.textContent = translateTemplate('원고 수정됨 · {n}분 전', { n: minutes });
   rebuildButton.classList.add('btn-default');
 }
 const SYNC_REASON = {
@@ -168,8 +169,8 @@ function updateSyncBadge(sync) {
   }
   badge.hidden = false;
   badge.classList.toggle('badge-warning', sync.state === SYNC_STATE.BLOCKED || sync.state === SYNC_STATE.ERROR);
-  const reason = tr(SYNC_REASON[sync.reason] || sync.reason || '');
-  badge.textContent = tr(
+  const reason = translate(SYNC_REASON[sync.reason] || sync.reason || '');
+  badge.textContent = translate(
     sync.state === SYNC_STATE.UPDATING
       ? '최신 main PDF 반영 중'
       : sync.state === SYNC_STATE.UPDATED
@@ -181,7 +182,7 @@ function updateSyncBadge(sync) {
             : 'main 동기화 확인 필요',
   );
   badge.dataset.tip = reason
-    ? badge.textContent + ' · ' + reason + ' · ' + tr('기존 PDF가 보일 수 있습니다')
+    ? badge.textContent + ' · ' + reason + ' · ' + translate('기존 PDF가 보일 수 있습니다')
     : badge.textContent;
 }
 function isViewer() {
@@ -198,7 +199,7 @@ function canConfirmReview() {
 }
 /** Explain why this screen cannot confirm a reviewed result, without offering a request the server will refuse. */
 function confirmAccessText() {
-  return tr(
+  return translate(
     isViewer()
       ? '보기 권한만 있습니다 — 편집 권한이 있는 사람이 확인합니다'
       : '에이전트 권한으로 접속 중입니다 — 사람 신원으로 접속해 확인하세요',
@@ -219,29 +220,36 @@ function drawMeta() {
   document.body.classList.toggle('no-rebuild', !buildsFromSource(META.kind));
   // a figure document's marks are a frame with no tint (components.css)
   document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
-  document.body.classList.toggle('md-surface', isMdDoc());
-  mdHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
+  document.body.classList.toggle('md-surface', isMarkdownDoc());
+  showMarkdownHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   // the document area's name says what it holds
-  $('#left').setAttribute('aria-label', tr(isMdDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽'));
+  $('#left').setAttribute(
+    'aria-label',
+    translate(isMarkdownDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽'),
+  );
   document.body.classList.toggle('role-viewer', isViewer());
-  $('#m-download').disabled = !META.pages_build || isMdDoc(); // no build on screen, no PDF to save
+  $('#m-download').disabled = !META.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
   // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' ·
   // ').
   $('#meta-main').textContent = META.main;
-  $('#meta-main').dataset.tip = tr(isMdDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
-  const isText = isMdDoc() && isTextDoc(); // a text document's form is 텍스트 (text-surface.ts)
-  $('#meta-pages').textContent = isText ? tr('텍스트') : isMdDoc() ? 'Markdown' : tl('{n}쪽', { n: META.pages.length });
-  $('#meta-pages').dataset.tip = tr(
+  $('#meta-main').dataset.tip = translate(isMarkdownDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
+  const isText = isMarkdownDoc() && isTextDoc(); // a text document's form is 텍스트 (text-surface.ts)
+  $('#meta-pages').textContent = isText
+    ? translate('텍스트')
+    : isMarkdownDoc()
+      ? 'Markdown'
+      : translateTemplate('{n}쪽', { n: META.pages.length });
+  $('#meta-pages').dataset.tip = translate(
     isText
       ? '브라우저가 원문 줄을 그대로 보이는 문서 형식'
-      : isMdDoc()
+      : isMarkdownDoc()
         ? '브라우저가 원문에서 그리는 문서 형식'
         : '지금 화면에 있는 PDF의 쪽 수',
   );
   const head = commitShown(META.head);
   $('#meta-head').textContent = head;
   $('#meta-head-w').hidden = !head;
-  const built = isMdDoc()
+  const built = isMarkdownDoc()
     ? ''
     : String(META.built_at || '')
         .slice(0, 16)
@@ -250,9 +258,13 @@ function drawMeta() {
   $('#meta-built-w').hidden = !built; // a Markdown document is never built
   const me = META.me || ({} as Me);
   setHtml($('#me'), html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
-  $('#me').dataset.tip = tl('지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다', {
-    name: (isAgent(me) ? who(me) : me.name || '') + (me.login && me.login !== LOCAL_LOGIN ? ' (' + me.login + ')' : ''),
-  });
+  $('#me').dataset.tip = translateTemplate(
+    '지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',
+    {
+      name:
+        (isAgent(me) ? who(me) : me.name || '') + (me.login && me.login !== LOCAL_LOGIN ? ' (' + me.login + ')' : ''),
+    },
+  );
   updateStaleBadge(META);
   updateSyncBadge(META.sync);
   $('#help-pins-md').textContent = META.pins_md || '';
@@ -261,7 +273,7 @@ function drawMeta() {
 // [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time
 // · me. Each piece keeps its words together and the lines break only between pieces; a piece longer than the line (a
 // long file name) breaks after / . _ - (<wbr>), never cut at '…' with its rest only in a long-press tip. The words are
-// the viewer's (tr/tl), the names the user's: #more-info is translate="no".
+// the viewer's (translate/translateTemplate), the names the user's: #more-info is translate="no".
 function moreInfo(meta, me) {
   const built = String(meta.built_at || '')
     .slice(5, 16)
@@ -271,7 +283,7 @@ function moreInfo(meta, me) {
       .split(/([/._-])/)
       .map((part, index) => (index % 2 ? html`${part}<wbr>` : part))}</span>`;
   const line = (texts) => texts.filter(Boolean).map((text, index) => (index ? html` · ${piece(text)}` : piece(text)));
-  return html`${line([meta.main, tl('{n}쪽', { n: meta.pages.length }), commitShown(meta.head)])}<br>${line([built && built !== '?' ? built + ' ' + tr('빌드') : '', tl('나: {name}', { name: who(me) })])}`;
+  return html`${line([meta.main, translateTemplate('{n}쪽', { n: meta.pages.length }), commitShown(meta.head)])}<br>${line([built && built !== '?' ? built + ' ' + translate('빌드') : '', translateTemplate('나: {name}', { name: who(me) })])}`;
 }
 // The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing
 // before the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'.

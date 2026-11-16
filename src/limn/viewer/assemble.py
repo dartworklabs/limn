@@ -18,12 +18,12 @@ Placeholders filled in the page (viewer_html):
   in the top bar, the wordmark in the help header and [더보기]'s foot.
 - __LIMN_VERSION__: this Limn's version (limn.__version__), beside the wordmark in [더보기]'s foot.
 - __ICON_KEY__: the content key of the icon files (limn.viewer.mark.Brand.key), the ?v= of the favicon links.
-- {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS ic() builds.
+- {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS lucideIcon() builds.
 
 Placeholders filled in the script (viewer_script, GET /viewer.js: dist/viewer.js, which tools/build_viewer.mjs builds from
 the ES modules under js/ and the repository keeps):
 - __PDFJS_VERSION__ / __KATEX_VERSION__: as in the page, for the modules the script import()s.
-- __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
+- __LUCIDE_JSON__: the icon table, for the viewer's JS lucideIcon().
 - __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
 
 The service worker (sw.js, GET /sw.js) is read from the same folder by service_worker(), and the Markdown parse worker
@@ -215,7 +215,7 @@ ICON_TOKEN_RE = re.compile(r"\{\{ic:([a-z0-9-]+)\}\}")
 
 def icon_svg(name: str, icons: Mapping[str, str] = LUCIDE) -> str:
     """One icon of the table as an inline <svg>. Attributes are kept as-is; size is set by CSS (.ic).
-    Produces the same shape as the viewer's JS ic() (the regression tests compare them). An unknown name raises
+    Produces the same shape as the viewer's JS lucideIcon() (the regression tests compare them). An unknown name raises
     KeyError: a {{ic:...}} token the table lacks is a packaging defect."""
     return (
         '<svg class="ic ic-%s" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" '

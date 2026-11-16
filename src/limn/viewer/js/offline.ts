@@ -12,7 +12,7 @@ import {
   DEFAULT_DOC,
   DOC,
   DOCS,
-  LAST_PTR,
+  LAST_POINTER,
   META,
   NOTICE_HOST,
   NOTICE_KIND,
@@ -24,23 +24,23 @@ import {
   rendersInBrowser,
   setSnipOpen,
 } from './core.ts';
-import { errText, tl, tr } from './i18n.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
 import { API_WAIT, api, setApiOut } from './api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from './notices.ts';
-import { docInfo, dq, isRegion, pdoc } from './doc-tabs.ts';
+import { docInfo, withDocQuery, isRegion, pdoc } from './doc-tabs.ts';
 import { viewerBlocked } from './boot.ts';
-import { POLL_FAILS, setLastPinsRev } from './polling.ts';
-import { SW_REG, setSwReg } from './notify.ts';
+import { POLL_FAILS, setLastPinsRevision } from './polling.ts';
+import { WORKER_REGISTRATION, setWorkerRegistration } from './notify.ts';
 import { drawStatus } from './status.ts';
-import { VEC } from './pdf-open.ts';
+import { VECTOR_PDF } from './pdf-open.ts';
 import { pageText } from './search.ts';
-import { kindFor, lvOf, wireScope } from './levels.ts';
+import { kindFor, levelOf, wireScope } from './levels.ts';
 import { figureFields } from './figure.ts';
-import { MD } from './md-surface.ts';
+import { MARKDOWN_VIEW } from './md-surface.ts';
 import { COMPOSE, renderComposer } from './composer.ts';
 import { offlineUiSync } from './offline-ui.ts';
 import { topPinId } from './verdict.ts';
-import { SEL_POP_FIELD, selPopOpen } from './sel-popover.ts';
+import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from './sel-popover.ts';
 import { isMe, loadPins } from './list.ts';
 const OFF_DB = 'limnOffline',
   OFF_STORE = 'pins',
@@ -325,7 +325,7 @@ function offStaleSaid(at) {
   const readAt = new Date(at),
     two = (value: number) => String(value).padStart(2, '0');
   OFF.staleNote = lineNote(
-    tl('연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다', {
+    translateTemplate('연결이 없어 {time}에 읽어 둔 화면입니다 — 핀을 찍으면 쌓였다가 연결되면 반영됩니다', {
       time: two(readAt.getHours()) + ':' + two(readAt.getMinutes()),
     }),
     NOTICE_KIND.WARN,
@@ -344,7 +344,7 @@ function offlineBack() {
     endNotice(OFF.staleNote, false);
     OFF.staleNote = null;
   }
-  setLastPinsRev(null);
+  setLastPinsRevision(null);
 }
 
 // ---------------- The service worker
@@ -354,7 +354,9 @@ function offlineBack() {
 async function offlineWorker(): Promise<ServiceWorkerRegistration | null> {
   if (!('serviceWorker' in navigator)) return null;
   try {
-    return SW_REG || setSwReg(await navigator.serviceWorker.register('/sw.js', { scope: '/' }));
+    return (
+      WORKER_REGISTRATION || setWorkerRegistration(await navigator.serviceWorker.register('/sw.js', { scope: '/' }))
+    );
   } catch (error) {
     return null;
   }
@@ -426,14 +428,17 @@ function offlineUrls(): string[] {
   return Array.from(out);
 }
 // The PDF and the page images of a document as its meta names them - the very addresses the viewer asks for when that
-// document is on screen (pdf-open.ts vecOpen, pages.ts pageSrc), since a copy is found again by its address. Pure.
+// document is on screen (pdf-open.ts openVectorDocument, pages.ts pageSrc), since a copy is found again by its address.
+// Pure.
 function offlineDocFiles(docName: string | null, meta: any): string[] {
   const build = (meta && meta.pages_build) || '',
     out = [] as string[];
   if (!build) return out;
-  out.push(dq('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(meta.built_at || ''), docName));
+  out.push(
+    withDocQuery('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(meta.built_at || ''), docName),
+  );
   (meta.pages || []).forEach((page: any) =>
-    out.push(dq('/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name), docName)),
+    out.push(withDocQuery('/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name), docName)),
   );
   return out;
 }
@@ -479,7 +484,7 @@ async function offlinePrepare() {
       let meta = null as any;
       const seen = Date.now();
       try {
-        meta = (await api(dq('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+        meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
       } catch (error) {
         lost++;
         continue;
@@ -490,7 +495,7 @@ async function offlinePrepare() {
         key = (meta && meta.doc) || docName || '';
       if (rendersInBrowser(kind)) {
         try {
-          await api(dq('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+          await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
           got.push({ k: key, entry: { build: '', files: [], at: 0, src: (meta && meta.src_mtime) ?? null, seen } });
         } catch (error) {
           lost++;
@@ -500,7 +505,7 @@ async function offlinePrepare() {
       const files = offlineDocFiles(docName, meta);
       files.forEach((address) => urls.add(address));
       try {
-        await api(dq('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+        await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
       } catch (error) {}
       if (meta && meta.pages_build) {
         // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
@@ -523,7 +528,7 @@ async function offlinePrepare() {
     let kept = 0,
       failed = 0;
     for (let i = 0; i < all.length; i += OFF_KEEP_CHUNK) {
-      say(tl('오프라인용으로 받는 중… {n}/{m}', { n: i, m: all.length }));
+      say(translateTemplate('오프라인용으로 받는 중… {n}/{m}', { n: i, m: all.length }));
       const answer = await offlineAsk({ type: 'keep', urls: all.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS);
       if (!answer) {
         if (note) endNotice(note, false);
@@ -555,13 +560,16 @@ async function offlinePrepare() {
     const bad = failed + lost;
     lineNote(
       bad
-        ? tl('오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요', {
+        ? translateTemplate('오프라인용 {n}개 중 {m}개를 받지 못했습니다 — 연결을 확인하고 다시 받으세요', {
             n: all.length + lost,
             m: bad,
           })
         : held
-          ? tl('오프라인 준비됨 · 문서 {d}개 · 파일 {n}개 · PDF의 자리를 7일간 지킵니다', { d: docs, n: kept })
-          : tl('오프라인 준비됨 · 문서 {d}개 · 파일 {n}개', { d: docs, n: kept }),
+          ? translateTemplate('오프라인 준비됨 · 문서 {d}개 · 파일 {n}개 · PDF의 자리를 7일간 지킵니다', {
+              d: docs,
+              n: kept,
+            })
+          : translateTemplate('오프라인 준비됨 · 문서 {d}개 · 파일 {n}개', { d: docs, n: kept }),
       bad ? NOTICE_KIND.WARN : NOTICE_KIND.OK,
       null,
       { life: bad ? NOTICE_LIFE.CLICK : NOTICE_LIFE.TIMER },
@@ -651,7 +659,7 @@ function offKeptShow() {
   const keptMark = document.getElementById('m-offline-n');
   if (!keptMark) return;
   keptMark.hidden = !OFF.kept;
-  keptMark.textContent = OFF.kept ? tr('받아 둠') : '';
+  keptMark.textContent = OFF.kept ? translate('받아 둠') : '';
 }
 // What a meta answer says each document is on: the document it answers for and, with several documents, each one's
 // summary - the page build, the source time, the kind. Pure.
@@ -767,7 +775,7 @@ async function offHold(
 ): Promise<{ at: number; held: boolean } | null> {
   const holder = (await offHolderId()) || undefined;
   try {
-    const answer = await api(dq('/api/hold', docName), {
+    const answer = await api(withDocQuery('/api/hold', docName), {
       method: 'POST',
       body: { build: build, days, holder },
       what: '빌드 보류',
@@ -907,14 +915,14 @@ async function offFollowDoc(docName: string): Promise<boolean> {
   // When the server was asked: a reading asked later is the newer one (offKeptWith).
   const seen = Date.now();
   try {
-    meta = (await api(dq('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+    meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
   } catch (error) {
     return false;
   }
   if (!meta) return false;
   if (rendersInBrowser(meta.kind)) {
     try {
-      await api(dq('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+      await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
     } catch (error) {
       return false;
     }
@@ -927,7 +935,7 @@ async function offFollowDoc(docName: string): Promise<boolean> {
   // Nothing to keep.
   if (!build) return true;
   try {
-    await api(dq('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+    await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
   } catch (error) {}
   const files = offlineDocFiles(docName, meta);
   // Half a build is not kept: the one before stays whole, and what was fetched of this one is noted to go in turn.
@@ -1025,10 +1033,10 @@ function offFollowDone(ok: boolean) {
 // reads). The server's own quote comes from pdftotext at pick time; this one only has to say what was pinned while the
 // answer is still hours away, and the pick's quote replaces it when the pin is written.
 async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: number; y1: number }): Promise<string> {
-  if (!VEC.doc) return '';
+  if (!VECTOR_PDF.doc) return '';
   try {
     // The one reader of a page's text (search.ts).
-    const { items, vp: viewport } = await pageText(VEC.doc, page);
+    const { items, vp: viewport } = await pageText(VECTOR_PDF.doc, page);
     return quoteIn(items, viewport.height, rect);
   } catch (error) {
     return '';
@@ -1113,7 +1121,8 @@ async function offlinePick(drag: {
     life: NOTICE_LIFE.CLICK,
     topic: NOTICE_TOPIC.OFFLINE,
   });
-  if (LAST_PTR === 'mouse') (selPopOpen() ? SEL_POP_FIELD : $('#note')).focus({ preventScroll: true });
+  if (LAST_POINTER === 'mouse')
+    (isSelectionPopoverOpen() ? SELECTION_POPOVER_FIELD : $('#note')).focus({ preventScroll: true });
 }
 // [핀 저장] with no server: the pin goes to the queue with everything needed to write it later - where it was drawn, on
 // which build, its words, and what the composer asked (the note, its kind, its assignee and the @-tags). Answers
@@ -1131,7 +1140,7 @@ async function offlineQueueSave(
   if (OFF.n >= OFF_MAX) {
     bannerNote(
       NOTICE_HOST.COMPOSER,
-      tl('쌓아 둘 수 있는 핀은 {n}개까지입니다 — 연결되면 먼저 반영하세요', { n: OFF_MAX }),
+      translateTemplate('쌓아 둘 수 있는 핀은 {n}개까지입니다 — 연결되면 먼저 반영하세요', { n: OFF_MAX }),
       NOTICE_KIND.ERR,
       null,
       { save: true, source: 'offline-queue' },
@@ -1153,7 +1162,7 @@ async function offlineQueueSave(
   // A Markdown or text document has no page: its lines are the place, and the browser drew them from the source it
   // holds. The record keeps those lines' own text, so the send can tell whether they still read the same - and find
   // them again when lines were only added or removed above them.
-  const lined = found && typeof selection.page !== 'number' && MD.doc === (selection.doc || DOC);
+  const lined = found && typeof selection.page !== 'number' && MARKDOWN_VIEW.doc === (selection.doc || DOC);
   const firstLine = selection.lo as number,
     lastLine = selection.hi as number;
   const rec = {
@@ -1182,7 +1191,7 @@ async function offlineQueueSave(
           name: selection.name,
           lo: firstLine,
           hi: lastLine,
-          text: MD.lines.slice(firstLine - 1, lastLine).join('\n'),
+          text: MARKDOWN_VIEW.lines.slice(firstLine - 1, lastLine).join('\n'),
           kind: selection.scope ? kindFor(selection.scope, selection.env) : selection.kind,
           scope: selection.scope ? wireScope(selection.scope) : null,
         }
@@ -1193,7 +1202,7 @@ async function offlineQueueSave(
     // A line selection whose source this tab no longer holds: nothing to check it against later.
     bannerNote(
       NOTICE_HOST.COMPOSER,
-      tr('핀 저장 실패 — 이 문서의 원문을 다시 읽은 뒤 저장하세요'),
+      translate('핀 저장 실패 — 이 문서의 원문을 다시 읽은 뒤 저장하세요'),
       NOTICE_KIND.ERR,
       null,
       { save: true, source: 'offline-queue' },
@@ -1204,7 +1213,7 @@ async function offlineQueueSave(
   if (id === null) {
     bannerNote(
       NOTICE_HOST.COMPOSER,
-      tr('핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다'),
+      translate('핀 저장 실패 — 이 브라우저가 오프라인 보관을 막고 있습니다'),
       NOTICE_KIND.ERR,
       null,
       { save: true, source: 'offline-queue' },
@@ -1214,7 +1223,7 @@ async function offlineQueueSave(
   await offlineSync();
   undoNote(
     NOTICE_PLACE.LINE,
-    tl('쌓아 둠 · 오프라인 핀 {n}개 — 연결되면 반영합니다', { n: OFF.n }),
+    translateTemplate('쌓아 둠 · 오프라인 핀 {n}개 — 연결되면 반영합니다', { n: OFF.n }),
     {
       label: '되돌리기',
       wait: true,
@@ -1275,7 +1284,7 @@ function linesWhere(lines: string[], want: { lo: number; text: string }): { lo: 
 async function offlinePlaceLines(rec: any): Promise<any> {
   let answer;
   try {
-    answer = await api(dq('/api/source', rec.doc), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api(withDocQuery('/api/source', rec.doc), { what: '원문 읽기', silent: true, expect: [413] });
   } catch (error) {
     const apiError = error as ApiError,
       status = (apiError && apiError.status) || 0;
@@ -1362,7 +1371,7 @@ function offlineBody(rec: any, place: any): Record<string, unknown> {
   // when the element moves, and is never reported lost (pins/listing/projection.py element_marks). The rung is the
   // answer's default one, the rung an online save of an untouched selection is on.
   if (place.el) {
-    const level = place.default_level ? lvOf(place, place.default_level) : null;
+    const level = place.default_level ? levelOf(place, place.default_level) : null;
     figureFields(body, place.el, level && level.el ? level : null);
   }
   return body;
@@ -1421,7 +1430,7 @@ async function offlineFlush() {
   // event, and a server may have been rolled back to a Limn that drops the key it does not know. The answer sets
   // OFF.idem on its way through api() (offStash). No answer means the connection is not there after all.
   try {
-    await api(dq('/api/meta?light=1'), { what: '상태 확인', silent: true, wait: API_WAIT.POLL });
+    await api(withDocQuery('/api/meta?light=1'), { what: '상태 확인', silent: true, wait: API_WAIT.POLL });
   } catch (error) {
     OFF.flushing = false;
     return;
@@ -1484,7 +1493,7 @@ async function offlineFlush() {
         }
         if (!place) {
           rec.held = true;
-          rec.why = tr('그사이 그 줄들의 글이 바뀌었습니다');
+          rec.why = translate('그사이 그 줄들의 글이 바뀌었습니다');
           await offPut(rec);
           held++;
           continue;
@@ -1493,7 +1502,7 @@ async function offlineFlush() {
         const box = offlineBox(rec);
         if (!box) {
           rec.held = true;
-          rec.why = tr('위치를 찾지 못했습니다');
+          rec.why = translate('위치를 찾지 못했습니다');
           await offPut(rec);
           held++;
           continue;
@@ -1525,7 +1534,7 @@ async function offlineFlush() {
         }
         if (!place || place.error) {
           rec.held = true;
-          rec.why = errText(place) || tr('위치를 찾지 못했습니다');
+          rec.why = errText(place) || translate('위치를 찾지 못했습니다');
           await offPut(rec);
           held++;
           continue;
@@ -1649,22 +1658,24 @@ async function offlineFlush() {
   if (ids.length)
     lineNote(
       ids.length <= 3
-        ? tl('오프라인 핀 저장됨 · #{ids}', { ids: ids.join(', #') })
-        : tl('오프라인 핀 {n}개 저장됨', { n: ids.length }),
+        ? translateTemplate('오프라인 핀 저장됨 · #{ids}', { ids: ids.join(', #') })
+        : translateTemplate('오프라인 핀 {n}개 저장됨', { n: ids.length }),
       NOTICE_KIND.OK,
       null,
       { life: NOTICE_LIFE.TIMER, literal: true },
     );
   if (held)
     lineNote(
-      tl('오프라인 핀 {n}개는 반영하지 못했습니다 — 쌓인 핀 목록에서 까닭을 보고 다시 찍거나 버리세요', { n: held }),
+      translateTemplate('오프라인 핀 {n}개는 반영하지 못했습니다 — 쌓인 핀 목록에서 까닭을 보고 다시 찍거나 버리세요', {
+        n: held,
+      }),
       NOTICE_KIND.WARN,
       null,
       { literal: true },
     );
   if (failed)
     lineNote(
-      tl('오프라인 핀 {n}개를 아직 보내지 못했습니다 — 연결되면 다시 보냅니다', { n: failed }),
+      translateTemplate('오프라인 핀 {n}개를 아직 보내지 못했습니다 — 연결되면 다시 보냅니다', { n: failed }),
       NOTICE_KIND.WARN,
       {
         label: '지금 반영',

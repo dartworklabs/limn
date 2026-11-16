@@ -7,7 +7,7 @@
 .sec-head{position:sticky;top:var(--stick-top,0px);z-index:2;display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-1) var(--space-2);
   background:var(--sidebar);margin:0 calc(-1 * var(--space-3)) var(--space-1);padding:var(--space-1) var(--space-3);border-top:1px solid var(--border);scroll-margin-top:var(--stick-top,0px)}
 #sec-open>.sec-head{border-top:0}
-/* A jump to the review section ([검토 M], gotoReview; [골라서 확인], rvPick) scrolls the section itself to the top: its head is
+/* A jump to the review section ([검토 M], gotoReview; [골라서 확인], setReviewPicking) scrolls the section itself to the top: its head is
    sticky, and a stuck head is where it shows already, so scrolling the head moved nothing. Under the compact tool bar
    (--stick-top) the section stops that far down, so its head stands under the bar and its first card under the head - at
    0 the head stuck under the bar and covered the first card's top. */

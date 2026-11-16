@@ -7,9 +7,9 @@ import {
   DOC,
   IS_MAC,
   KIND_NEW,
-  KIND_REQ,
+  REQUEST_KIND,
   META,
-  MQ_COARSE,
+  COARSE_POINTER_QUERY,
   NOTICE_HOST,
   NOTICE_KIND,
   NOTICE_PLACE,
@@ -19,15 +19,15 @@ import {
   captureVisit,
 } from './core.ts';
 import { html, setHtml } from './markup.ts';
-import { errText, tl, tr } from './i18n.ts';
-import { SEC_SEEN } from './prefs.ts';
+import { errText, translateTemplate, translate } from './i18n.ts';
+import { SECTION_SEEN } from './prefs.ts';
 import { API_WAIT, api, apiFailed } from './api.ts';
 import { BANNERS, bannerNote, endNotice, focusRun, quietNote, settleChip, sourceOk, undoNote } from './notices.ts';
 import { isRegion, pdoc } from './doc-tabs.ts';
 import { viewerBlocked } from './boot.ts';
 import { kindFor, wireScope } from './levels.ts';
-import { figRung, figureFields } from './figure.ts';
-import { SG, renderSuggest, suggestForSave, suggestOff, suggestPending, suggestRebase } from './suggest.ts';
+import { figureRung, figureFields } from './figure.ts';
+import { SUGGEST_DRAFT, renderSuggest, suggestForSave, suggestOff, suggestPending, suggestRebase } from './suggest.ts';
 import {
   COMPOSE,
   cancelSelection,
@@ -112,9 +112,9 @@ async function appendToPin(id, text) {
     const after = closed ? focusClosed() : null; // a composer opened while the pins reload keeps the focus (focusPlace)
     const chip = undoNote(
       NOTICE_PLACE.CHIP,
-      tl('#{id} 에 덧붙였습니다', { id }),
+      translateTemplate('#{id} 에 덧붙였습니다', { id }),
       { label: '되돌리기', wait: true, fn: () => undoAppend(id, priorNote, data.pin.rev) },
-      { pin: id, pending: true, label: tr('덧붙임') },
+      { pin: id, pending: true, label: translate('덧붙임') },
     );
     await loadPins();
     settleChip(chip);
@@ -150,17 +150,17 @@ async function undoAppend(id: number, note: string, revision: number): Promise<b
       intent: 'append-undo',
     });
     ok = true;
-    quietNote(tl('#{id} 메모를 되돌렸습니다', { id }));
+    quietNote(translateTemplate('#{id} 메모를 되돌렸습니다', { id }));
   } catch (error) {}
   await loadPins();
   return ok;
 }
 // The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
 // banner says a save failed, else [핀 저장]; with the shortcut where there is a keyboard.
-function saveBtnLabel() {
+function saveButtonLabel() {
   const banner = BANNERS.get(NOTICE_HOST.COMPOSER),
-    label = tr(banner && banner.save ? '다시 저장' : '핀 저장');
-  return MQ_COARSE.matches
+    label = translate(banner && banner.save ? '다시 저장' : '핀 저장');
+  return COARSE_POINTER_QUERY.matches
     ? html`${label}`
     : html`${label} <span class="kh">${IS_MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>`;
 }
@@ -177,14 +177,14 @@ function togglePendingSave() {
   COMPOSE.pendingSave = true;
   const button = $('#btn-save');
   button.dataset.pending = '1';
-  setHtml(button, html`${tr('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
+  setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
 }
 function clearPendingSave() {
   if (!COMPOSE.pendingSave) return;
   COMPOSE.pendingSave = false;
   const button = $('#btn-save');
   delete button.dataset.pending;
-  setHtml(button, saveBtnLabel());
+  setHtml(button, saveButtonLabel());
 }
 // Saves the selection as a pin (or queues the save while pick runs). Saved: a chip '저장됨 [되돌리기]' on the new pin's
 // mark for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and - only once that
@@ -232,8 +232,8 @@ async function savePin(verdict?: string) {
     retry &&
     retry.gen === intent &&
     retry.sel === selection &&
-    KIND_NEW === KIND_REQ.FIX &&
-    !SG.on
+    KIND_NEW === REQUEST_KIND.FIX &&
+    !SUGGEST_DRAFT.on
   )
     verdict = retry.key;
   let body = {
@@ -266,7 +266,7 @@ async function savePin(verdict?: string) {
       pdf_build: selection.pdf_build || undefined,
     }; // view-only: page/region only
   // a figure pick: its element as el, the element's box as frac, its kind
-  figureFields(body, selection.elSel, isRegion(selection) ? null : figRung(selection));
+  figureFields(body, selection.elSel, isRegion(selection) ? null : figureRung(selection));
   body.doc = selection.doc || DOC || undefined;
   // The kind and the assignee are assignOutcome's answer for the note as it is at this moment - the answer the preview
   // line and the assignee row draw - never a value an earlier drawing left behind: a restored pick whose person cannot
@@ -292,7 +292,7 @@ async function savePin(verdict?: string) {
       done();
       bannerNote(
         NOTICE_HOST.COMPOSER,
-        tr('연결이 끊겨 판정은 쌓아 둘 수 없습니다 — 연결되면 판정 버튼을 다시 누릅니다'),
+        translate('연결이 끊겨 판정은 쌓아 둘 수 없습니다 — 연결되면 판정 버튼을 다시 누릅니다'),
         NOTICE_KIND.ERR,
         null,
         { save: true, source: 'POST /api/pin' },
@@ -301,11 +301,11 @@ async function savePin(verdict?: string) {
     }
     // A suggested edit is checked against the source when it is written, and the source may not be the one it was
     // written against by then. It is not kept either: the note alone can be, with the switch off.
-    if (!isRegion(selection) && suggestForSave(SG, suggestOff(selection, META ? META.kind : undefined))) {
+    if (!isRegion(selection) && suggestForSave(SUGGEST_DRAFT, suggestOff(selection, META ? META.kind : undefined))) {
       done();
       bannerNote(
         NOTICE_HOST.COMPOSER,
-        tr('연결이 끊겨 제안 수정은 쌓아 둘 수 없습니다 — [제안 수정]을 끄면 메모만 쌓아 둡니다'),
+        translate('연결이 끊겨 제안 수정은 쌓아 둘 수 없습니다 — [제안 수정]을 끄면 메모만 쌓아 둡니다'),
         NOTICE_KIND.ERR,
         null,
         { save: true, source: 'POST /api/pin' },
@@ -328,7 +328,9 @@ async function savePin(verdict?: string) {
     return;
   }
   const suggestion =
-    isRegion(selection) || verdict ? null : suggestForSave(SG, suggestOff(selection, META ? META.kind : undefined));
+    isRegion(selection) || verdict
+      ? null
+      : suggestForSave(SUGGEST_DRAFT, suggestOff(selection, META ? META.kind : undefined));
   if (suggestion) body.suggest = suggestion;
   // A plain pin - no verdict, no suggested edit - is one the queue can keep. It goes with a key where the server knows
   // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
@@ -337,14 +339,14 @@ async function savePin(verdict?: string) {
   if (plain && OFF.idem) body.idem = offlineKey();
   if (verdict) {
     body.verdict = verdict;
-    body.kind_req = KIND_REQ.FIX;
+    body.kind_req = REQUEST_KIND.FIX;
     // On a figure document the verdict is the figure's, whatever element the selection names (verdict.ts
     // figureVerdictBody).
     const figureBody = figureVerdictBody(selection);
     if (figureBody)
       body = Object.assign(
         figureBody,
-        { note, doc: body.doc, kind_req: KIND_REQ.FIX, assignee: body.assignee },
+        { note, doc: body.doc, kind_req: REQUEST_KIND.FIX, assignee: body.assignee },
         hints.length ? { mentions: hints } : {},
         { verdict },
       );
@@ -352,7 +354,7 @@ async function savePin(verdict?: string) {
   const snapshot = selectionSnapshot(),
     fields = composeFields(); // [되돌리기] takes the pin back and hands this selection and note back for another try
   const draft = savedDraftSnapshot();
-  const question = out.kind === KIND_REQ.QUESTION;
+  const question = out.kind === REQUEST_KIND.QUESTION;
   const top = topPinId(); // a save whose answer is lost is looked for above it before it is called a failure
   try {
     let status = 0,
@@ -416,7 +418,7 @@ async function savePin(verdict?: string) {
         }
         if (plain && !BANNERS.get(NOTICE_HOST.COMPOSER))
           // the queue said why it would not take it, if it did
-          apiFailed({ ...ask, source: 'POST /api/pin' }, tr('서버에 닿지 않습니다'), true);
+          apiFailed({ ...ask, source: 'POST /api/pin' }, translate('서버에 닿지 않습니다'), true);
         throw error;
       }
       status = 200;
@@ -444,7 +446,7 @@ async function savePin(verdict?: string) {
     } else clearSavedDraft(draft);
     // a composer opened while the pins reload keeps the focus (focusPlace)
     const after = cleared || restored ? focusClosed() : null;
-    if (SEC_SEEN.open) SEC_SEEN.open.add(id); // my own new pin is never 'new' on a collapsed header
+    if (SECTION_SEEN.open) SECTION_SEEN.open.add(id); // my own new pin is never 'new' on a collapsed header
     const undo: (run?: NoticeRun) => Promise<boolean> = verdict
       ? verdictUndo(id)
       : async (run) => {
@@ -469,24 +471,28 @@ async function savePin(verdict?: string) {
     const word = verdict ? verdictLabel(verdict) : '',
       figureRoot = verdict ? figureVerdictRoot(selection) : null; // a figure's verdict names the figure
     const said = figureRoot
-      ? tl('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
+      ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
           id,
           word: word,
           target: figureShort(selection.page, figureRoot),
         })
-      : tl('#{id} 저장됨 · {word} 판정', { id, word: word });
+      : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
     const chip = verdict
       ? undoNote(
           NOTICE_PLACE.CHIP,
           said,
           { label: '되돌리기', wait: true, fn: undo },
-          { pin: id, pending: true, label: tl('#{id} 저장됨 · {word}', { id, word: verdictLabel(verdict) }) },
+          {
+            pin: id,
+            pending: true,
+            label: translateTemplate('#{id} 저장됨 · {word}', { id, word: verdictLabel(verdict) }),
+          },
         )
       : undoNote(
           NOTICE_PLACE.CHIP,
-          tl(question ? '질문 #{id} 저장됨 · pins.md 갱신' : '핀 #{id} 저장됨 · pins.md 갱신', { id }),
+          translateTemplate(question ? '질문 #{id} 저장됨 · pins.md 갱신' : '핀 #{id} 저장됨 · pins.md 갱신', { id }),
           { label: '되돌리기', wait: true, fn: undo },
-          { pin: id, pending: true, label: tr('저장됨') },
+          { pin: id, pending: true, label: translate('저장됨') },
         );
     await loadPins();
     settleChip(chip);
@@ -509,7 +515,7 @@ async function savePin(verdict?: string) {
 // [다시 저장].
 function suggestSaveRefused(selection: Selection, data: any) {
   const source = 'POST /api/pin',
-    head = tl('{what} 실패', { what: tr('핀 저장') });
+    head = translateTemplate('{what} 실패', { what: translate('핀 저장') });
   if (!(data && data.reason === 'suggest_base_changed')) {
     bannerNote(NOTICE_HOST.COMPOSER, head + ' — ' + (errText(data) || 'HTTP 409'), NOTICE_KIND.ERR, null, {
       save: true,
@@ -518,7 +524,7 @@ function suggestSaveRefused(selection: Selection, data: any) {
     return;
   }
   if (COMPOSE.current === selection) {
-    SG.current = {
+    SUGGEST_DRAFT.current = {
       text: String(data.current || ''),
       file: selection.file || null,
       lo: selection.lo as number,
@@ -528,7 +534,7 @@ function suggestSaveRefused(selection: Selection, data: any) {
   }
   bannerNote(
     NOTICE_HOST.COMPOSER,
-    head + ' — ' + tr('그사이 그 줄들의 원문이 바뀌었습니다'),
+    head + ' — ' + translate('그사이 그 줄들의 원문이 바뀌었습니다'),
     NOTICE_KIND.ERR,
     {
       label: '지금 원문으로 맞추기',
@@ -537,7 +543,7 @@ function suggestSaveRefused(selection: Selection, data: any) {
         const current = COMPOSE.current;
         if (!current) return;
         suggestRebase(
-          SG,
+          SUGGEST_DRAFT,
           current,
           () => COMPOSE.current === current,
           () => {
@@ -552,4 +558,4 @@ function suggestSaveRefused(selection: Selection, data: any) {
     { save: true, source },
   );
 }
-export { appendToPin, clearPendingSave, saveBtnLabel, savePin, syncComposeSaveButtons };
+export { appendToPin, clearPendingSave, saveButtonLabel, savePin, syncComposeSaveButtons };
