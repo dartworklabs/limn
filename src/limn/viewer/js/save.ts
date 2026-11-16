@@ -155,8 +155,8 @@ async function undoAppend(id: number, note: string, revision: number): Promise<b
   await loadPins();
   return ok;
 }
-// The save-pin button's label (boot, clearing the pending state, syncSaveBtn): [다시 저장] while the composer's banner
-// says a save failed, else [핀 저장]; with the shortcut where there is a keyboard.
+// The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
+// banner says a save failed, else [핀 저장]; with the shortcut where there is a keyboard.
 function saveBtnLabel() {
   const banner = BANNERS.get(NOTICE_HOST.COMPOSER),
     label = tr(banner && banner.save ? '다시 저장' : '핀 저장');

@@ -997,9 +997,9 @@ function countedElement(tag: string, context: RenderContext): HTMLElement {
 // character of hidden-chars.ts's repertoire stays in the text - a selection, a copy and a pin's quote keep it - inside
 // its box (ccBox), so no line reads in another order than its source; a box is two elements against MD_LIMITS.elements
 // (markedBox) and one unit of work (mdDue). A string with none of them, nearly every one, is one text node after one
-// native test (isPlainText). The byte-order mark that starts the file is kept as on the text surface (ccKept's first):
-// line 1 is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the first text drawn (the render
-// context's bom). A marked character's box, counted on the draw's render context.
+// native test (isPlainText). The byte-order mark that starts the file is kept as on the text surface
+// (isKeptInSequence's first): line 1 is then a paragraph (the mark is no indent, no '#', no '<'), so the mark is the
+// first text drawn (the render context's bom). A marked character's box, counted on the draw's render context.
 function markedBox(character: string, context: RenderContext): HTMLElement {
   if ((context.els += 2) > MD_LIMITS.elements) throw MD_OVER;
   context.marked++;
@@ -2507,7 +2507,7 @@ function mdJump(id) {
   if (leaves.length) mdShowLines(leaves);
 }
 // Scrolls the first of the line elements to the reading depth (30% down the document area) and flashes them - a pin's
-// [보기] (mdJump) and [바뀐 곳] (updGoNext, updates.ts) - and reads the reading spot where that put the pane: the
+// [보기] (mdJump) and [바뀐 곳] (goToNextChange, updates.ts) - and reads the reading spot where that put the pane: the
 // page's own jump is over at once, so its place is the spot before the scroll's frame reads it (as a heading jump's
 // once it lands, endLandedJump). A width that changes before that frame puts back the jump's place (mdSpotKeep), not
 // the one read before it.

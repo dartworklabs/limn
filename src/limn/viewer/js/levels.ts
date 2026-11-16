@@ -12,7 +12,7 @@ import { segFocusAt, segKeep, segRove } from './events.ts';
 function lvOf(owner, key) {
   return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
 }
-// A Markdown document's rungs (md-surface.ts mdLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a
+// A Markdown document's rungs (md-surface.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's env), a
 // section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
 function wireScope(scope) {

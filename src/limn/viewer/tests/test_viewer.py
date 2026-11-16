@@ -575,7 +575,7 @@ class FrontendStructure(unittest.TestCase):
 
     def test_draw_pins_counts_the_trash(self):
         body = extract_js_fn("drawPins")
-        # LDROP = listDropped() (current document or all documents)
+        # droppedListed = listDropped() (current document or all documents)
         self.assertIn(sq("droppedListed.filter(pin=>!PURGING.has(pin.id)).length"), sq(body))
         self.assertIn(sq("tl('휴지통 {n}',{n:trashCount})"), sq(body))
         self.assertIn(sq("if($('#trash').open)drawTrash();"), sq(body))

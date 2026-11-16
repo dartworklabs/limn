@@ -625,7 +625,8 @@ function updSourceRedrawn(doc: string, before: string[] | null, now: string[]) {
   }
   if (!same) groupRedraw('upd:' + doc);
 } // its message says the places, on the line, gathered or folded
-// Tints the changed lines of the document on screen (after every draw of it, md-surface.ts mdShow), and only those.
+// Tints the changed lines of the document on screen (after every draw of it, md-surface.ts showDocumentNode), and only
+// those.
 function updMarks() {
   $$('#md .md-upd').forEach((line) => line.classList.remove('md-upd'));
   const changed = UPDATE_STATE.lines.get(DOC || '');

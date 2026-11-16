@@ -451,7 +451,7 @@ function restoreView(view) {
   if (isMdDoc()) {
     MD.want = typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
     return;
-  } // once it is drawn (mdShow)
+  } // once it is drawn (showDocumentNode)
   restoreAnchor({ page: view.page, frac: view.frac });
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }

@@ -15,7 +15,7 @@ import { selPopArea } from './sel-popover.ts';
 import { topAnchor } from './rebuild.ts';
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
-// Markdown heading (md-surface.ts mdOutline). up is the index of the entry it sits under (-1 at the top).
+// Markdown heading (md-surface.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
 type OutlineEntry = {
   title: string;
   page: number;
@@ -341,7 +341,7 @@ function markOutline() {
 // and a figure document's list is many times taller than it, so the mark alone would move out of sight. Only #outline
 // scrolls - Element.scrollIntoView moves every scrolling ancestor too, the pages among them - and the focus stays where
 // it is. A row clear of the margin moves nothing. The phone has no panel: its sheet is modal, so nothing moves under
-// it, and it brings its own row up as it opens (navSheetReveal).
+// it, and it brings its own row up as it opens (revealSheetOutline).
 // The list stays put this long after the person's own wheel, press, key or scroll in it.
 const OUTLINE_FOLLOW_HOLD_MS = 3000;
 // Px of the list kept between the current row and the panel's edges, at the least.

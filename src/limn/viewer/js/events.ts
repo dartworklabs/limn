@@ -648,13 +648,13 @@ function segFocusAt(group: Element) {
   return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note (mentions.ts
-// assignSeg), the range ladder with every range (levels.ts drawLadder - a pick that leaves the excerpt short of lines
-// draws it again once more when they come back, excerpt.ts excerptFetch) and [더보기]'s size on every pick and relayout
-// (panel-size.ts renderSizeSeg). The word with the focus goes with the old words, and the focus would land on the body:
-// an arrow's walk would end there, as would Enter or Space on the chosen word, and the next Tab would begin again from
-// the page's start. So each draw notes where the focus was (segFocusAt) and gives it back to the word now at `index` -
-// the last when there are fewer - as no new focus: a description shows only after a key (tooltip.ts focusGivenBack). A
-// group drawn away (no people left to assign) has none, and the focus stays.
+// assigneeRowHtml), the range ladder with every range (levels.ts drawLadder - a pick that leaves the excerpt short of
+// lines draws it again once more when they come back, excerpt.ts excerptFetch) and [더보기]'s size on every pick and
+// relayout (panel-size.ts renderSizeSeg). The word with the focus goes with the old words, and the focus would land on
+// the body: an arrow's walk would end there, as would Enter or Space on the chosen word, and the next Tab would begin
+// again from the page's start. So each draw notes where the focus was (segFocusAt) and gives it back to the word now at
+// `index` - the last when there are fewer - as no new focus: a description shows only after a key (tooltip.ts
+// focusGivenBack). A group drawn away (no people left to assign) has none, and the focus stays.
 function segKeep(group: Element, index: number) {
   if (index < 0) return;
   const words = shownWords(group),

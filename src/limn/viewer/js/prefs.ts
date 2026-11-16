@@ -17,7 +17,7 @@ function savePrefs(patch) {
 }
 // Applies the saved panel width, and drops the keys of the [줄바꿈] toggles (wrap, diffWrap) a stored pinPrefs may
 // still carry: the source and the diff always wrap. The saved page scale is read per document when its pages are built
-// (savedK).
+// (savedScale).
 (function () {
   const stored = prefs();
   if (stored.side) $('#right').style.width = stored.side + 'px';

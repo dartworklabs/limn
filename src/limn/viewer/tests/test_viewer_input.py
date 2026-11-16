@@ -92,13 +92,13 @@ def node_or_skip(test, js):
 
 
 class PanelSnapLogic(unittest.TestCase):
-    """snapSide(wRaw, bounds, composing): where a panel-handle drag lands. T = floor(min/2)."""
+    """snapSide(requestedWidth, bounds, composing): where a panel-handle drag lands. T = floor(min/2)."""
 
     WIDE = {"min": 280, "max": 954}
     MID = {"min": 300, "max": 440}
 
     def snap(self, cases):
-        """[(wRaw, bounds, composing)] -> [snapSide(...)] from the shipped source."""
+        """[(requestedWidth, bounds, composing)] -> [snapSide(...)] from the shipped source."""
         js = extract_js_fn(
             "snapSide"
         ) + "\nconsole.log(JSON.stringify(%s.map(c=>snapSide(c[0],c[1],c[2]))));" % json.dumps(cases)
@@ -756,7 +756,7 @@ class DesktopPanelCollapse(ViewerBase):
         for dev in (DESK, LAP):
             with self.subTest(width=dev["viewport"]["width"]):
                 page = self.view(dev, prefs={"side": 400})
-                # wRaw 200 (min zone), 100 (collapse preview), 200 (back above T), 100 again and release
+                # requestedWidth 200 (min zone), 100 (collapse preview), 200 (back above T), 100 again and release
                 mid, pre, back, _ = self.drag_grip(page, [200, 300, 200, 300])
                 self.assertEqual((mid["w"], mid["gripMin"], mid["preview"]), (280, True, False))
                 self.assertEqual(

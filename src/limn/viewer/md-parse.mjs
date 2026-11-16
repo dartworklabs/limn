@@ -82,9 +82,9 @@ function mdFirstAtOrAfter(a, x) {
 // '\[…\]' is display math only on lines of its own (mdMathBlock): in a line it is two escaped brackets, as before. The math
 // may run over line ends (a paragraph's): it becomes one math_inline token per source line, its text as written, delimiters
 // included, with a softbreak between them, so the inline token's line breaks still match its source's line ends and its lines
-// can be told (md-surface.js mdInlineLines, ADR-0025 D7). The pieces say how the formula was cut: one that needed no cutting
+// can be told (md-surface.ts inlineLines, ADR-0025 D7). The pieces say how the formula was cut: one that needed no cutting
 // carries info 'whole', one that was cut carries 'head' on the piece it starts in and 'tail' on each piece after it, so the
-// page can put them back together and draw the formula as one (md-surface.js mdTexRun, ADR-0036 D2). A code span, a link or
+// page can put them back together and draw the formula as one (md-surface.ts inlineTexRun, ADR-0036 D2). A code span, a link or
 // raw HTML that starts before the delimiter has taken its text already; one inside the math is math, but no delimiter inside
 // a code span closes it (mdMathEnd).
 function mdMathInline(state, silent) {
