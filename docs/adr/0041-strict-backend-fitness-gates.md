@@ -62,6 +62,6 @@
 
 ## 결과
 
-- 현재 규칙은 Handbook에 있다: [code-style-roadmap.md](../handbook/code-style-roadmap.md) §R4·§R8·§R11, [verification.md](../handbook/verification.md) §9·§11, [architecture.md](../handbook/architecture.md) §의존 방향.
+- 현재 규칙은 Handbook에 있다: [code-style-roadmap.md](../handbook/code-style-roadmap.md) §R4, §R8, §R11, [verification.md](../handbook/verification.md) §9·§11, [architecture.md](../handbook/architecture.md) §의존 방향.
 - 2단계(기준선 줄이기)는 슬라이스별로 나눠 맡는다. 역할이 없는 모듈의 이름 바꾸기와 나누기, `isinstance` 분기를 닫힌 타입의 `match`로 바꾸기, 판단·모델의 원시 타입을 NewType·`Literal`로 바꾸기, `Any`가 흘러드는 경계의 파싱이다.
 - 되돌릴 조건: basedpyright가 지원 Python(3.10)을 더 검사하지 못하게 되거나, 역할 어휘가 새 기능의 모양을 담지 못해 이름 바꾸기보다 예외가 더 늘면 어휘를 다시 정한다. 그때도 예외는 모듈 목록이 아니라 새 낱말로 더한다.
