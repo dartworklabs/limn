@@ -1,16 +1,23 @@
 {
   "name": "limn-viewer-dev",
   "private": true,
-  "description": "Development tools for the Limn viewer: the build of its one script from its ES modules (tools/build_viewer.mjs) and its checks. The built script is committed; installing or serving Limn needs none of this.",
+  "description": "Development tools for the Limn viewer: the build of its one script from its ES modules (tools/build_viewer.mjs) and its checks - tsc, ESLint and the module boundary check. The built script is committed; installing or serving Limn needs none of this.",
   "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "build": "node tools/build_viewer.mjs",
     "build:check": "node tools/build_viewer.mjs --check",
-    "typecheck": "tsc -p ."
+    "typecheck": "node node_modules/typescript-7/bin/tsc -p .",
+    "lint": "eslint --max-warnings 0 src/limn/viewer/js",
+    "boundaries": "node tools/check_viewer_boundaries.mjs",
+    "test": "node --test tools/tests/*.test.mjs"
   },
   "devDependencies": {
+    "eslint": "10.13.0",
+    "globals": "17.13.0",
     "rollup": "4.67.3",
-    "typescript": "7.0.2"
+    "typescript": "6.0.3",
+    "typescript-7": "npm:typescript@7.0.2",
+    "typescript-eslint": "8.72.1"
   }
 }
