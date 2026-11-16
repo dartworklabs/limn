@@ -5,7 +5,7 @@
 > **한눈에**
 >
 > - 머지를 막는 게이트와 정보만 주는 검사의 구분: §게이트와 정보 검사
-> - 자동 게이트: §1 파이썬 테스트, §2 인스턴스 관리자 테스트, §3 설치 스모크, §8 정적 검사, §9 타입 검사, §10 기능 경계 검사
+> - 자동 게이트: §1 파이썬 테스트, §2 인스턴스 관리자 테스트, §3 설치 스모크, §8 정적 검사, §9 타입 검사, §10 기능 경계 검사, §11 모듈 역할 검사
 > - 불안정한 테스트를 막는 규칙(상태를 기다리고, 시계를 얼린다): §브라우저 테스트의 기다림, 생긴 뒤의 처리: §불안정한 테스트
 > - 글자 너비에서 정해지는 검사의 전제(어떤 Chromium이든 소수 전진폭): §브라우저 테스트의 글자 너비
 > - 브라우저 시험이 페이지 정책(CSP)을 지키는지와 강제 시험: §브라우저 테스트의 페이지 정책
@@ -38,7 +38,8 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | macOS 실제 브라우저 키보드 흐름·대체 글꼴 잉크·테스트 글꼴 격리 | 게이트 | `uv run pytest -q -rs -n 2 -m browser src/limn/viewer/tests/test_viewer_search.py::SearchKeys src/limn/viewer/tests/test_viewer_search.py::SearchShortcutFocus src/limn/viewer/tests/test_viewer_search.py::SearchScope src/limn/viewer/tests/test_viewer_search.py::SearchInk::test_the_fields_text_is_on_its_neighbours_line_in_fallback_fonts src/limn/viewer/tests/test_viewer_doc_overflow.py::WithSearch src/limn/viewer/tests/test_viewer_assignee.py::TwoPeopleWithOneName src/limn/viewer/tests/test_viewer_input.py::HangulInkInClippingBoxes src/limn/viewer/tests/test_viewer_size_alignment.py::LabelInkCentre tests/test_browser_font.py::BrowserFontProvision` | `ci.yml`의 `macos-browser` 작업 |
 | §2 인스턴스 관리자 테스트 | 게이트 | `bash src/limn/administration/tests/test_instances.sh` | `ci.yml`의 `instances` 작업 |
 | §3 설치 스모크 | 게이트 | `uv tool install .` 뒤 설치된 명령과 패키지 내용 확인 | `ci.yml`의 `install` 작업 |
-| §8 정적 검사, §9 타입 검사, §10 기능 경계 검사 | 게이트 | §8–§10의 실행 행 | `ci.yml`의 `lint` 작업, `pyproject.toml`의 `[tool.ruff]`·`[tool.mypy]` |
+| §8 정적 검사, §9 타입 검사, §10 기능 경계 검사, §11 모듈 역할 검사 | 게이트 | §8–§11의 실행 행 | `ci.yml`의 `lint` 작업, `pyproject.toml`의 `[tool.ruff]`·`[tool.basedpyright]`, `.basedpyright/baseline.json`, `tools/check_fitness.py`와 `tools/fitness-baseline/` |
+| §9의 뷰어 빌드·타입·린트·경계 검사 | 게이트 | `npm ci --ignore-scripts` 뒤 `npm run build:check`, `npm run typecheck`, `npm test`, `uv run python tools/strict_ratchet.py` | `ci.yml`의 `lint` 작업, `package.json`·`package-lock.json`, `tsconfig.json`·`tsconfig.strict.json`, `eslint.config.mjs`, `tools/check_viewer_boundaries.mjs`, `tools/strict-baseline.json` |
 | §4·§5의 수동 대조, §7 Handbook 출판 | 정보 | 각 절의 실행 행 | CI 밖. 리뷰와 작성자가 돌린다 |
 | 커버리지 | 정보 | 필요할 때만 측정 | 설정 없음. 커버리지 수치는 실행 여부를 잴 뿐 검증을 재지 않으므로 게이트로 쓰지 않는다 |
 
@@ -46,7 +47,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 
 - 수정 중에는 바뀐 동작을 직접 보는 테스트와 관련 정적 검사부터 돌린다. 전체 게이트는 완료 전 한 번 돌리고, 같은 입력으로 반복하지 않는다. 실패 원인을 고친 뒤에는 영향을 받는 게이트만 다시 돌린다.
 - pytest는 기본 4개 worker와 `loadscope`로 실행한다. 같은 클래스의 브라우저·서버 자원을 한 worker 안에 유지하고 Chromium 과다 실행을 피하기 위해 CPU 개수 대신 고정 상한을 쓴다. `-n 0`은 직렬 디버깅, `-n 2`는 메모리가 작은 환경에서 쓴다.
-- CI는 일반 테스트(core), 브라우저(browser), 실제 TeX(tex), 인스턴스 관리자(instances), 정적 검사(lint), 설치(install)를 독립 작업으로 실행한다. Linux 일반 검사는 Python 3.10·3.12에서, 브라우저 검사는 3.12에서만 돈다. 브라우저 검사는 뷰어의 JS를 브라우저에서 확인하므로, 두 번째 버전에서 다시 돌리면 비용이 두 배가 되지만 더 잡는 것이 거의 없다. 3.10은 3.10의 일반 검사(`test (3.10, core, not browser and not tex, 4)`), 3.10을 대상으로 하는 `lint` 작업의 Ruff·mypy, `instances` 작업의 3.10 하한 검사가 맡는다. 브라우저 테스트만 닿는 서버 경로는 3.10에서 돌지 않는다. 일반 검사는 `-m "not browser and not tex"`, 브라우저는 `-m browser`, TeX는 `-m tex`로 분리한다. macOS 일반 검사는 러너의 CPU 수만큼 worker를 띄운다(`-n auto`). `macos-latest`는 3코어와 5코어 기계를 섞어 내주므로 고정한 수는 어느 한쪽에서 코어를 남기거나 넘친다. Linux 브라우저 검사의 각 부분과 TeX 검사도 2개 worker로 실행한다. 인스턴스 셸 검사는 Linux·macOS에서 독립적으로 돈다.
+- CI는 일반 테스트(core), 브라우저(browser), 실제 TeX(tex), 인스턴스 관리자(instances), 정적 검사(lint), 설치(install)를 독립 작업으로 실행한다. Linux 일반 검사는 Python 3.10·3.12에서, 브라우저 검사는 3.12에서만 돈다. 브라우저 검사는 뷰어의 JS를 브라우저에서 확인하므로, 두 번째 버전에서 다시 돌리면 비용이 두 배가 되지만 더 잡는 것이 거의 없다. 3.10은 3.10의 일반 검사(`test (3.10, core, not browser and not tex, 4)`), 3.10을 대상으로 하는 `lint` 작업의 Ruff·basedpyright, `instances` 작업의 3.10 하한 검사가 맡는다. 브라우저 테스트만 닿는 서버 경로는 3.10에서 돌지 않는다. 일반 검사는 `-m "not browser and not tex"`, 브라우저는 `-m browser`, TeX는 `-m tex`로 분리한다. macOS 일반 검사는 러너의 CPU 수만큼 worker를 띄운다(`-n auto`). `macos-latest`는 3코어와 5코어 기계를 섞어 내주므로 고정한 수는 어느 한쪽에서 코어를 남기거나 넘친다. Linux 브라우저 검사의 각 부분과 TeX 검사도 2개 worker로 실행한다. 인스턴스 셸 검사는 Linux·macOS에서 독립적으로 돈다.
 - Linux 브라우저 검사는 여러 작업으로 나뉘어 각자의 러너에서 동시에 돈다([`browser.yml`](../../.github/workflows/browser.yml)). Chromium 클래스는 여러 부분으로 나뉜다. 부분 i는 `uv run pytest -q -rs -n 2 -m "browser and not firefox and not webkit" --shard i/N`이고, 부분 수 N은 `browser.yml`의 shard 목록이 정본이다. `BROWSER_ENGINE`이 Firefox·WebKit인 클래스(`helpers_browser.py`)의 테스트에는 그 엔진의 표식 `firefox`·`webkit`이 붙고(`helpers_shards.py`), 이 클래스들은 `-m "browser and (firefox or webkit)"`로 작업 하나에서 돈다. 두 엔진과 그 시스템 라이브러리는 이 작업만 설치해, 이 클래스가 없는 부분은 그 설치를 기다리지 않는다. Chromium 부분은 러너 이미지의 Google Chrome으로 돌므로(§브라우저 테스트의 글자 너비) 브라우저를 내려받지 않는다. `playwright install-deps chromium`으로 Chromium의 시스템 패키지와, 모든 엔진에 함께 까는 글꼴을 설치한다. `--shard`([`helpers_shards.py`](../../tests/support/helpers_shards.py))는 `loadscope`가 한 worker에 두는 단위(클래스, 모듈의 함수들)를 통째로 한 부분에 넣는다. 단위별로 잰 시간([`shard_seconds.json`](../../tests/data/shard_seconds.json))을 보고 무거운 단위부터 지금까지 가장 가벼운 부분에 넣으며, 부분 안에서도 무거운 단위를 먼저 시작한다. 파일에 없는 단위(새 클래스)는 잰 단위의 테스트당 평균 시간에 테스트 수를 곱한 무게로 한 부분에 들어간다. 그래서 파일이 낡으면 균형만 흐트러지고 테스트는 빠지지 않는다. 단위별 시간은 CI의 러너에서 잰 값이다. 각 부분이 `--shard-record`로 제 클래스의 시간을 적어 `shard-seconds-<i>` 산출물로 남긴다. 클래스를 더하거나 빼거나 크게 느려지거나 빨라지게 했으면 통과한 CI 실행의 산출물을 받아 합친다(`helpers_shards.py`의 명령). 부분들은 서로 다른 클래스를 가지므로 합친 것이 전체다. 로컬 실행은 다른 기계의 비율을 잰다. 한 실행에서 테스트가 모두 건너뛴 단위는 파일에서 빠져 평균 무게를 받는다. 브랜치 보호가 요구하는 `test (3.12, browser, browser, 2)`는 모든 부분과 엔진 작업이 성공했을 때만 통과하는 작업이다. 그 실패·취소·건너뜀은 실패로 본다. [`test_ci_shards.py`](../../tests/architecture/test_ci_shards.py)가 어떤 N에서도 모든 Chromium 브라우저 테스트가 정확히 한 부분에 들어가는지(파일에 없는 단위, 매개변수·하위 테스트를 가진 테스트 포함), CI의 N에서 빈 부분이 없는지, 엔진 표식이 클래스의 `BROWSER_ENGINE`을 따르는지, 부분들과 엔진 작업의 선택을 합치면 겹침 없이 `-m browser` 전체인지, 두 워크플로가 3.12에서 한 번 모든 작업을 돌리고 그 결과로 필수 이름을 보고하는지 확인한다.
 - CI의 모든 작업에는 시간 한도(`timeout-minutes`)가 있어, 멈춘 작업은 GitHub 기본값 6시간을 기다리지 않고 실패한다. Ubuntu 저장소에서 내려받는 단계(Playwright의 `install-deps`·`--with-deps`, TeX 설치)는 따로 더 짧은 한도를 두어, 멈춘 단계가 실패로 표시된다. 이 단계 앞에서 apt는 지역 미러 대신 `archive.ubuntu.com`만 쓰고, 응답 없는 연결은 30초 뒤 다시 시도한다. CI의 pytest는 `-o faulthandler_timeout=600`으로 돌아, 한 테스트가 600초를 넘기면 모든 스레드의 스택을 로그에 남긴다. 실행은 멈추지 않으며, 그 스택이 멈춘 테스트와 줄을 가리킨다. 작업의 한도는 보통 걸리는 시간의 두 배쯤으로 두되 15분보다 짧게 두지 않고, 늦게 멈춘 테스트도 스택을 남기도록 보통 걸리는 시간 뒤에 이 600초가 남게 잡는다. 한도 값의 정본은 `ci.yml`과 `browser.yml`이다.
 - macOS의 `macos-browser`는 실제 Chromium으로 검색 키·초점 반환·문서 행·동명이인 태그 삽입과 삭제를 2개 worker에서 검증한다. `SearchInk`의 대체 글꼴 메서드는 컨트롤의 `sans-serif`·`monospace`를 DPR 1·2에서 그려 검색 안내의 실제 픽셀 가운데가 줄 가운데의 `0.5px` 안인지도 확인한다. 안내 자체는 시스템 UI 글꼴이므로 이 검사는 임의의 혼합 글꼴을 가운데 맞추는 보장이 아니다. `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_NODE=1`로 도구 부재를 실패로 다룬다. 호스트 플랫폼을 바꾸지 않는 검색 검사는 실제 `navigator.platform`과 Python 호스트를 대조한 뒤 native 단축키·힌트·검색 결과·Esc의 초점 반환을 확인한다. 이 제한된 게이트는 macOS의 전체 화면·모든 글꼴이나 브라우저 엔진, 실제 Linux·Windows의 시스템 글꼴 증거를 대신하지 않는다.
@@ -196,7 +197,7 @@ CI 러너에서 처음 띄우는 브라우저는 파일을 차갑게 읽어 느�
 | `tests/tools/` | 테스트 식별자 이동 대조·그림 선택 비교 도구 둘(재구성한 표본, 임계값 격자를 재는 D6 측정 도구), 익명 PoC 서버의 정확한 Host 허용·자원 allowlist·API 읽기와 쓰기 거부 경계 |
 | `tests/support/`, `tests/data/`, `tests/fixtures/` | 수집하지 않는 공용 테스트 도우미와 고정 입력·스냅샷·테스트 글꼴 출처와 라이선스, 브라우저 검사를 나누는 `--shard` 플러그인과 단위별 측정 시간. 그림 문서 fixture(그림 스크립트·공통 부품·요소 지도·빌드 폴더와, pick 답을 뷰어처럼 저장하는 도우미, 뷰어 테스트가 쓰는 세 문서(원고·그림·보기 전용 PDF)의 등록과 다시 렌더)는 [`tests/support/helpers_figure.py`](../../tests/support/helpers_figure.py)에 있다 |
 
-pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도우미를 찾는다. `--import-mode=importlib`는 패키지마다 같은 테스트 파일 이름을 허용한다. 테스트용 `__init__.py`는 필요하지 않다. wheel은 모든 `tests/`를 제외하고 sdist는 검증 소스를 포함한다. mypy는 동거 테스트를 제외한 모든 프로덕션 모듈을 엄격히 검사한다.
+pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도우미를 찾는다. `--import-mode=importlib`는 패키지마다 같은 테스트 파일 이름을 허용한다. 테스트용 `__init__.py`는 필요하지 않다. wheel은 모든 `tests/`를 제외하고 sdist는 검증 소스를 포함한다. basedpyright는 동거 테스트를 제외한 모든 프로덕션 모듈을 엄격히 검사한다(§9).
 
 파일이나 클래스를 옮길 때는 `pytest --collect-only -q -n 0`과 `tools/test_id_map.py`로 식별자 이동을 대조한다. 이전 테스트의 누락·중복이 없고 새 테스트만 더해져야 한다.
 
@@ -216,7 +217,7 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | --- | --- |
 | 측정 대상 | 패키지 빌드와 클린 가상환경 설치: `uv build`로 wheel/sdist가 생기는지, 깨끗한 환경에 설치해 `limn --help`와 `limn version`이 정상 실행되는지, 런타임 의존성이 비어 있는지 |
 | 적용 조건 | `pyproject.toml`, 패키지 구조, 진입점을 바꿀 때. PR과 CI의 `install` 작업에서 돈다 |
-| 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn help`를 실행하고, 설치된 패키지에 뷰어·브랜드·번들 라이브러리(PDF.js, markdown-it, KaTeX, Pretendard)·인스턴스 셸·systemd 템플릿 파일이 있고, Pretendard 조각이 `SHA256SUMS`와 바이트까지 같으며, 테스트 파일이 없는지 확인한다. 정확한 단계는 `ci.yml`의 `install` 작업이 정본이다. 로컬에서 빌드만 볼 때는 `uv build && uv run --isolated python -m limn --help` |
+| 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn help`를 실행하고, 설치된 패키지에 뷰어(지은 스크립트 `viewer/dist/viewer.js` 포함)·브랜드·번들 라이브러리(PDF.js, markdown-it, KaTeX, Pretendard)·인스턴스 셸·systemd 템플릿 파일이 있고, Pretendard 조각이 `SHA256SUMS`와 바이트까지 같으며, PATH에 아무것도 없는 환경(Node 없음)에서 시작 읽기가 지은 스크립트를 채우고 페이지가 그 내용 키로 가리키며 `GET /viewer.js` 처리기가 그것을 답하는지, 테스트 파일이 없는지 확인한다. 정확한 단계는 `ci.yml`의 `install` 작업이 정본이다. 로컬에서 빌드만 볼 때는 `uv build && uv run --isolated python -m limn --help` |
 | 합격 기준 | 설치가 성공하고, 설치된 명령이 오류 없이 출력하며, 빠진 패키지 파일과 새어 든 테스트 파일이 없어야 한다 |
 | 보장 범위 | 패키징과 진입점 연결을 보장한다. 인스턴스를 실제로 띄워 브라우저로 접속하는 것은 보장하지 않는다 |
 
@@ -290,21 +291,21 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | 파이썬 타입 힌트의 정합성: 함수 인자와 반환값의 타입 일치, `Optional` 처리, `None` 검사 누락, 닫힌 `Literal` 타입과의 비교 |
+| 측정 대상 | 파이썬 프로덕션 모듈의 타입 정합성을 basedpyright의 `all` 모드로: 함수 인자와 반환값의 타입 일치, `None` 검사 누락, 닫힌 합 타입·`Literal`·enum 위 `match`의 빠진 경우(`reportMatchNotExhaustive`), 닫힌 `Literal` 밖 값과의 `==`·`!=`·`in`(`reportUnnecessaryComparison`·`reportUnnecessaryContains`), 공급자가 소비자의 Protocol을 충족하는지, 명시한 `Any`와 `Any`가 흘러드는 값(`reportExplicitAny`·`reportAny`·`reportUnknown*`), 암묵적 재내보내기(`reportPrivateLocalImportUsage`). 끈 규칙 넷과 이유는 [code-style-roadmap.md](code-style-roadmap.md) §R4 |
 | 적용 조건 | 파이썬 코드를 바꿀 때. CI `lint` 작업에서 돈다 |
-| 실행 | `uv run mypy`, 이어서 `uv run mypy --platform darwin`. 표준 라이브러리 타입 정의는 플랫폼마다 선언하는 이름이 달라(`os.sched_getaffinity`는 macOS에 없다) CI의 Linux와 기여자의 macOS 양쪽 기준으로 검사한다. 플랫폼에 따라 없는 함수는 정적으로 부르지 않고 실행 시점에 찾는다 |
-| 합격 기준 | `Success: no issues found`로 끝나야 한다. `type: ignore`는 외부 라이브러리 타입 스텁 부재 등 불가피한 경우에만 이유 주석과 함께 허용한다 |
-| 보장 범위 | Linux와 macOS 기준의 정적 타입 규칙 위반을 잡는다. Windows는 지원 대상이 아니라 검사하지 않는다. 런타임 값의 범위나 비즈니스 불변식은 보장하지 않는다(§1 파이썬 테스트가 맡는다) |
+| 실행 | `uv run python tools/check_types.py`. basedpyright를 `--pythonplatform Linux`와 `Darwin`으로 차례로 돌린다. 표준 라이브러리 타입 정의는 플랫폼마다 선언하는 이름이 달라(`os.sched_getaffinity`는 macOS에 없다) CI의 Linux와 기여자의 macOS 양쪽 기준으로 검사한다. 플랫폼에 따라 없는 함수는 정적으로 부르지 않고 실행 시점에 찾는다. 설정은 `pyproject.toml`의 `[tool.basedpyright]`, basedpyright 버전은 `uv.lock`이 정한다. 검사기 설정이 보장을 지키는지는 `uv run pytest -q tests/architecture/test_type_gate.py`가 저장소 설정 그대로 넣어 본 위반으로 확인한다 |
+| 합격 기준 | 두 실행이 `0 errors`로 끝나고 `.basedpyright/baseline.json`이 바뀌지 않는다. 기준선에 없는 오류는 실패다. 기준선의 오류가 사라지면 basedpyright가 기준선을 내려 다시 쓰는데, 이것도 내린 기준선을 커밋할 때까지 실패다. 기준선은 basedpyright의 `--writebaseline`이 아니면 늘지 않고, 늘리는 변경은 설계 리뷰 대상이다. `# type: ignore`는 아무것도 막지 않으며(`enableTypeIgnoreComments = false`), `# pyright:` 주석과 `typing.cast`는 §11이 거부한다 |
+| 보장 범위 | Linux와 macOS 기준의 정적 타입 규칙 위반 가운데 기준선 밖의 것을 잡는다. 기준선 안의 오류는 막지 않는다. 한 플랫폼에서만 나는 오류는 기준선에 둘 수 없다. Windows는 지원 대상이 아니라 검사하지 않는다. 테스트 모듈은 검사하지 않는다. 런타임 값의 범위나 비즈니스 불변식은 보장하지 않는다(§1 파이썬 테스트가 맡는다) |
 
-뷰어 JS도 같은 절의 게이트다.
+뷰어 JS도 같은 절의 게이트다([viewer.md](viewer.md) §타입 검사·§모듈 경계, [ADR-0042](../adr/0042-viewer-es-modules.md)).
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `src/limn/viewer/js/` 조각: 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입([viewer.md](viewer.md) §타입 검사) |
-| 적용 조건 | 뷰어 JS나 `src/limn/viewer/types/`를 바꿀 때. CI `lint` 작업에서 돈다 |
-| 실행 | `npm ci --ignore-scripts` 뒤 `npm run typecheck`(`tsc -p .`)와 `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 조각별 오류 수가 `tools/strict-baseline.json`과 같은지). TypeScript 버전은 `package-lock.json`이 정한다 |
-| 합격 기준 | `typecheck`는 출력 없이 0으로 끝나고, 래칫은 기준과 같은 수를 알린다. 타입을 좁히는 JSDoc 캐스트(`/** @type {HTMLElement} */(e.target)`)는 쓰되, `@ts-ignore`·`@ts-expect-error`는 쓰지 않는다 |
-| 보장 범위 | `strict`의 하위 옵션 중 `tsconfig.json`에 켠 것만 본다. `strictNullChecks`는 켜져 있고, 암묵적 `any`(`noImplicitAny`)는 아직 보지 않는다. API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 전역 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
+| 측정 대상 | `src/limn/viewer/js/`의 ES 모듈과 지은 스크립트 `src/limn/viewer/dist/viewer.js`: 지은 파일이 모듈에서 다시 지은 바이트와 같은지, 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입, `strict` 전체의 위반, ESLint 규칙(`any` 값, JSDoc의 `any`·캐스트, 다른 모듈 상태에 쓰기, 헷갈리는 전역, 빠진 `switch` 멤버), 모듈 경계(순환, 나열하지 않은 기능 의존, 공용 모듈의 기능 의존, 역할 규칙, 제자리에 없는 모듈) |
+| 적용 조건 | 뷰어 JS, `src/limn/viewer/types/`, `parts.txt`의 `__APP_JS__`, 개발 도구 설정을 바꿀 때. CI `lint` 작업에서 돈다 |
+| 실행 | `npm ci --ignore-scripts` 뒤 `npm run build:check`(Rollup으로 다시 지어 커밋된 파일과 비교), `npm run typecheck`(`tsc -p .`, TypeScript 7), `npm test`(경계 검사와 ESLint 지역 규칙의 제 사례, `tools/tests/`), `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 오류, ESLint 규칙별 수, `tools/check_viewer_boundaries.mjs`의 규칙별 수가 파일마다 `tools/strict-baseline.json`과 같은지). 도구의 판은 `package-lock.json`이 정한다. 위반 메시지 자체는 `npm run lint`·`npm run boundaries`로 본다 |
+| 합격 기준 | `build:check`는 같다고 알리고, `typecheck`는 출력 없이 0으로 끝나며, `npm test`는 실패가 없고, 래칫은 기준과 같은 수를 알린다. 기준보다 많은 수(새 위반)와 적은 수(낮추지 않은 기준) 모두 실패다. `@ts-ignore`·`@ts-expect-error`·`eslint-disable` 주석은 쓰지 않는다(ESLint는 주석 설정을 읽지 않는다) |
+| 보장 범위 | `tsconfig.json`의 옵션은 전부, `strict`의 나머지와 ESLint·경계 규칙은 기준선이 허용한 수 밖에서만 막는다. 지은 파일이 모듈과 같다는 것은 §1의 `test_viewer_files`도 node 없이 본다(빈 줄을 뺀 글이 모듈 글의 순서 그대로인지). API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
 
 ## 10. 기능 경계 검사
 
@@ -314,7 +315,17 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | 적용 조건 | Python 파일·기능 경계를 바꿀 때. CI `lint`와 파이썬 테스트가 항상 실행한다 |
 | 실행 | `uv run python tools/check_boundaries.py`; 검사기 자체의 탐지 능력은 `uv run pytest -q tests/architecture/test_boundaries.py` |
 | 합격 기준 | 위반 0건, 검사 대상 소스가 존재한다. 다른 기능의 비공개 import, 다른 기능이 공개한 이름의 import, 공용 모듈을 거쳐 기능에 닿는 경계 코드, 서로 import하는 두 기능(직접, 그리고 공용 모듈 경유), 기능 모듈의 진입점 import, 승인된 importer가 없는 `__all__` 이름, 쓰이지 않는 진입점 승인, 미승인 진입점 import, 기능 밖 테스트가 import하지 않는 테스트용 export, 소유권 없는 모듈을 넣으면 실패하고 같은 기능의 내부 import는 통과한다. 루트 Python 파일은 버전 선언과 세 실행 진입점만 허용한다 |
-| 보장 범위 | Python AST에 드러나는 절대·상대 import와 전이 경로, 명시적인 빌드 marker·이력 파일명 문자열. 파일명을 동적으로 조립하는 코드는 이 검사만으로 차단하지 못하므로 리뷰가 확인한다. `ENTRYPOINT_IMPORTS`·`TEST_EXPORTS`의 변경은 설계 리뷰 대상이다. 테스트는 기능의 내부 모듈을 직접 import할 수 있고 검사기는 테스트의 import를 `TEST_EXPORTS`의 근거로만 읽는다. 공급자의 값이 소비자가 선언한 Protocol을 충족하는지는 이 검사가 아니라 `server.py`를 보는 mypy가 확인한다. 공급자 질의 테스트는 과거 발행본의 독립성·누락 marker의 기본값·원고 동등성 투영을, 참여자 성질 테스트는 신원 외 필드 배제를, 알림 테스트는 수신자·선택 필드·발췌를 확인한다. 동적 import 문자열·런타임 속성 접근·투영에 담는 정보의 적절성도 리뷰가 확인하며 API 동작 보존은 §4가 확인한다 |
+| 보장 범위 | Python AST에 드러나는 절대·상대 import와 전이 경로, 명시적인 빌드 marker·이력 파일명 문자열. 파일명을 동적으로 조립하는 코드는 이 검사만으로 차단하지 못하므로 리뷰가 확인한다. `ENTRYPOINT_IMPORTS`·`TEST_EXPORTS`의 변경은 설계 리뷰 대상이다. 테스트는 기능의 내부 모듈을 직접 import할 수 있고 검사기는 테스트의 import를 `TEST_EXPORTS`의 근거로만 읽는다. 공급자의 값이 소비자가 선언한 Protocol을 충족하는지는 이 검사가 아니라 `server.py`와 각 조립 모듈을 보는 basedpyright(§9)가 확인한다. 공급자 질의 테스트는 과거 발행본의 독립성·누락 marker의 기본값·원고 동등성 투영을, 참여자 성질 테스트는 신원 외 필드 배제를, 알림 테스트는 수신자·선택 필드·발췌를 확인한다. 동적 import 문자열·런타임 속성 접근·투영에 담는 정보의 적절성도 리뷰가 확인하며 API 동작 보존은 §4가 확인한다 |
+
+## 11. 모듈 역할 검사
+
+| 항목 | 내용 |
+| --- | --- |
+| 측정 대상 | 프로덕션 모듈마다 경로와 파일 이름이 정하는 역할과 그 역할의 규칙([code-style-roadmap.md](code-style-roadmap.md) §R11): 역할이 없는 이름(`role-unknown`), 역할이 import할 수 없는 역할의 모듈 import(`role-imports`), 순수 역할이 런타임 import 경로로 닿는 I/O와 그 밖 역할의 직접 I/O(`io`), 허용되지 않은 역할의 `limn.web` import(`web-import`), 파싱 역할 밖의 `isinstance`·`issubclass`(`isinstance`), `typing.cast`(`cast`), `# type: ignore`·`# pyright:` 주석(`ignore-comment`), 몸이 `assert_never(...)` 하나가 아닌 와일드카드 `case`(`wildcard-case`), 판단·모델·선언의 공개 서명과 필드의 `str`·`int`·`dict`(`primitive`, 별칭은 펼쳐서 본다) |
+| 적용 조건 | Python 파일을 더하거나 옮기거나 바꿀 때. CI `lint` 작업과 파이썬 테스트가 항상 실행한다 |
+| 실행 | `uv run python tools/check_fitness.py`. 기준선을 내릴 때는 `--update`, 모듈을 옮겼을 때는 `--update --rename src/limn/<옛 경로>=src/limn/<새 경로>`. 검사기 자체의 탐지 능력은 `uv run pytest -q tests/architecture/test_fitness.py` |
+| 합격 기준 | 모듈별·규칙별 수가 `tools/fitness-baseline/<슬라이스>.json`과 같다. 수가 기준선보다 많으면 실패하고 그 위반의 줄을 알린다. 적어도 실패하며 `--update`로 내릴 때까지 그렇다. `--update`는 수를 하나라도 올려야 하면 아무것도 쓰지 않고 실패한다. `PRIMITIVE_ALIASES`가 없는 별칭을 가리켜도 실패한다. 검사기 시험은 규칙마다 넣은 위반이 거부되고 같은 자리의 합법 코드가 통과하는지, 역할이 없는 이름이 거부되는지, 기준선이 오르지 않고 낡은 기준선이 실패하는지 확인한다 |
+| 보장 범위 | Python AST에 드러나는 파일 이름·import·호출·주석·`match`·타입 표기. 이름이 모듈의 실제 일과 맞는지, `Path` 값의 I/O 메서드 호출, 동적 import, 런타임 속성 접근은 리뷰가 본다. 원시 타입 규칙은 `str`·`int`·`dict`만 본다. 기준선 안의 위반은 막지 않는다. 기준선의 수를 늘리는 변경은 설계 리뷰 대상이다 |
 
 ## 구조 이동의 동작 불변 증명(차등 비교)
 

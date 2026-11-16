@@ -7,6 +7,16 @@
 // A collapsed wide panel leaves the handle as a 6px rail at the right edge: dragging it left past half the minimum opens
 // the panel at the minimum and then follows; a double-click (a tap on touch) opens it at the saved width. A tap on an open
 // handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
+import { $, $$, BAND, DOC, LAYOUT, LAYOUT_BAND, LAYOUT_MODE, MID_OVERLAY, MQ_COARSE, MQ_REDUCED, OUTLINE_MID_OPEN,
+  SIDE_OPEN } from './core.js';
+import { SWALLOW_CLICK, endPress, hideTip, setSwallowClick } from './tooltip.js';
+import { setHash } from './doc-tabs.js';
+import { SHEET_CLOSE_F, SHEET_F, SHEET_MIN_F, applyOutlineState, applySheet, applySideWidth, curSideW, cycleSheet,
+  cycleSideWidth, gripKey, keepSheet, outlineBounds, setOutlineWidth, setSheetF, setSideWidth, sheetF,
+  showOutlineWidth, showSideW, sideBounds, snapSide, toggleOutline } from './panel-size.js';
+import { SLIDE_MS, applySide, coachSideCollapsed, draftOpen, finishSideSlide, focusSideToggle, relayout, setSide,
+  toggleSide } from './layout.js';
+import { LONGPRESS_MS } from './selection.js';
 (function(){const g=$('#grip');
   let D=/** @type {{id:number,x:number,w:number,rail:boolean,moved:boolean,mouse:boolean,zone:string|null}|null} */(null);
   // The drag's cues: the handle turns primary once it stops at the minimum; the collapse preview fades the panel's contents
@@ -31,11 +41,11 @@
     if(e.type==='pointercancel'){applySide(); applySideWidth(); relayout(); return;}   // back to exactly how it was before the drag
     if(!d.moved){if(d.mouse||Date.now()<SWALLOW_CLICK)return;
       if(d.rail)setSide(true,true,true); else cycleSideWidth();
-      SWALLOW_CLICK=Date.now()+400;   // the tap moved the panel: the click that follows would land on whatever is under the finger now
+      setSwallowClick(Date.now()+400);   // the tap moved the panel: the click that follows would land on whatever is under the finger now
       return;}
     if(d.rail){if(d.zone==='collapse'||d.zone==='blocked'){applySide(); applySideWidth(); return;}
       setSide(true,true); setSideWidth(curSideW()); return;}
-    if(d.zone==='collapse'){SWALLOW_CLICK=Date.now()+400; setSide(false,true,true); focusSideToggle(); coachSideCollapsed(); return;}
+    if(d.zone==='collapse'){setSwallowClick(Date.now()+400); setSide(false,true,true); focusSideToggle(); coachSideCollapsed(); return;}
     setSideWidth(curSideW());};
   g.addEventListener('pointerup',end); g.addEventListener('pointercancel',end);
   g.addEventListener('dblclick',()=>{if(SIDE_OPEN)cycleSideWidth(); else setSide(true,true,true);});
@@ -43,7 +53,7 @@
     if(!k)return; e.preventDefault();
     if(k.act==='collapse'||k.act==='open')toggleSide();
     else if(k.act==='cycle')cycleSideWidth();
-    else{if(!SIDE_OPEN)setSide(true,true,true); setSideWidth(k.w);}});
+    else {if(!SIDE_OPEN)setSide(true,true,true); setSideWidth(k.w);}});
 })();
 // Outline width is independent of the right work panel's handle. While dragging, only the width changes; the PDF position is restored when it ends.
 (function(){const g=$('#outline-grip');
@@ -106,8 +116,8 @@ function dragSheetTo(h){keepSheet(); document.documentElement.style.setProperty(
     if(SIDE_OPEN)dragSheetTo(D.h+dy);});
   const end=e=>{if(!D||e.pointerId!==D.id)return; const d=D; D=null; d.el.classList.remove('on'); document.body.classList.remove('resizing');
     if(e.type==='pointercancel'){if(d.moved)applySheet(); return;}
-    if(!d.moved){if(d.lazy||Date.now()<SWALLOW_CLICK)return; if(!SIDE_OPEN)setSide(true,true); else cycleSheet(); SWALLOW_CLICK=Date.now()+400; return;}
-    SWALLOW_CLICK=Date.now()+400;   // a drag that started on a tool-bar button never also presses it
+    if(!d.moved){if(d.lazy||Date.now()<SWALLOW_CLICK)return; if(!SIDE_OPEN)setSide(true,true); else cycleSheet(); setSwallowClick(Date.now()+400); return;}
+    setSwallowClick(Date.now()+400);   // a drag that started on a tool-bar button never also presses it
     if(!SIDE_OPEN){applySheet(); return;}
     settleSheet(shownSheetF(),e.clientY-d.y,dragSpeed(d.pts));};
   window.addEventListener('pointerup',end); window.addEventListener('pointercancel',end);
@@ -137,7 +147,7 @@ function pullDown(box,ok,onStart,onMove,onEnd){let P=/** @type {{x:number,y:numb
     ()=>{h=$('#right').getBoundingClientRect().height; document.body.classList.add('resizing'); hideTip(); endPress();},
     dy=>dragSheetTo(h-dy),
     (dy,v)=>{document.body.classList.remove('resizing'); if(dy===null){applySheet(); return;}
-      SWALLOW_CLICK=Date.now()+400; settleSheet(shownSheetF(),dy,v);});
+      setSwallowClick(Date.now()+400); settleSheet(shownSheetF(),dy,v);});
 })();
 // The bottom sheets follow a pull-down and close on a release past 35% of their height or a flick (dismissOutcome): [더보기] and the
 // documents sheet always, help and the Trash where they are bottom sheets too (compact; the desktop centres them).
@@ -222,3 +232,4 @@ window.addEventListener('popstate',()=>{const ours=BACK_SKIP||(BACK&&BACK.kind==
   const d=/** @type {HTMLDialogElement} */(document.querySelector('dialog[open]')); if(d){d.close(); syncBackLayer(); return;}   // a dialog over the sheet closes first
   closeTopLayer();});
 
+export { BACK, BACK_SKIP, syncBackLayer };

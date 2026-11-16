@@ -1,6 +1,35 @@
 // ------------------------------------------------ Switching documents - the navigation sheet, remembered view positions (docs/handbook/domain.md §여러 문서)
 // Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One document
 // leaves the section out - there is nothing to switch to.
+import { $, $$, DOC, DOCS, DONE_ALL, K, LAYOUT, LAYOUT_MODE, META, META_BY, NAVGEN, NOTICE_HOST, OPEN_ALL, PINS,
+  REVIEW_ALL, SWITCHSEQ, VIEW_BY, VIEW_MODE, ZOOMED, setDoc, setDone, setKState, setMeta, setNavgen, setPins,
+  setSwitchseq, setZoomed } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { savePrefs } from './prefs.js';
+import { api } from './api.js';
+import { hideTip } from './tooltip.js';
+import { docBadge, docInfo, dq, drawDocTabs, hashDoc, multiDoc, pdoc, setHash } from './doc-tabs.js';
+import { loadRevisions, setViewMode } from './revisions.js';
+import { drawMeta } from './boot.js';
+import { resetBuildForDoc } from './build-chip.js';
+import { checkDocUpdate } from './updates.js';
+import { autoW, buildDoc, ptMax, startK } from './pages.js';
+import { vecOpen } from './pdf-open.js';
+import { OUTLINE_ACTIVE_PAGE, markOutline } from './outline.js';
+import { drawSheetPages, revealPageRow, tipCutTitles } from './page-list.js';
+import { searchLeave, searchToPage } from './search.js';
+import { showSheet } from './layout.js';
+import { BACK, BACK_SKIP } from './gestures.js';
+import { MD, isMdDoc, mdAnchor, mdPosLabel } from './md-surface.js';
+import { COMPOSE, cancelSelection } from './composer.js';
+import { openDraftDoc, parkDraft, restoreDraft } from './draft.js';
+import { pvShow } from './verdict.js';
+import { drawPins, marks } from './list.js';
+import { EDITOR, cancelEdit, editDirty } from './edit.js';
+import { cancelRepick } from './repick.js';
+import { refreshDoc, restoreAnchor, topAnchor } from './rebuild.js';
+import { segRove } from './events.js';
 function drawDocsMenu(){$('#ns-docs').hidden=!multiDoc();
   setHtml($('#ns-docs-list'),html`${DOCS.map(d=>{const on=d.key===DOC;
     return html`<button class="dm-item${on?' on':''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${d.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${d.name}${on?ic('check'):''}</span><span class="ph" translate="no">${d.path}</span></span>${docBadge(d)}</button>`;})}`);}
@@ -142,8 +171,8 @@ function viewScale(v,m){return typeof v.k==='number'&&v.k>0?v.k:typeof v.w==='nu
 // for a folded screen is never applied on desktop; without one the document starts at its saved or default scale (startK).
 // Returns whether a kept view decided it.
 function applyViewWidth(v){if(v&&v.lay===LAYOUT&&(LAYOUT===LAYOUT_MODE.WIDE||v.zoomed)){const k=viewScale(v,ptMax());
-    if(k){K=k; ZOOMED=LAYOUT!==LAYOUT_MODE.WIDE&&!!v.zoomed; return true;}}
-  ZOOMED=false; K=startK(); return false;}
+    if(k){setKState(k); setZoomed(LAYOUT!==LAYOUT_MODE.WIDE&&!!v.zoomed); return true;}}
+  setZoomed(false); setKState(startK()); return false;}
 function restoreView(v){if(!v)return; if(isMdDoc()){MD.want=typeof v.line==='number'?{line:v.line,off:+v.off||0,top:0}:null; return;}   // once it is drawn (mdShow)
   restoreAnchor({page:v.page,frac:v.frac}); if(typeof v.sl==='number')$('#left').scrollLeft=v.sl;}
 addEventListener('pagehide',saveView);
@@ -156,7 +185,7 @@ addEventListener('pagehide',saveView);
 // address already names where the traversal went, so the late answer neither opens its document nor puts its hash on that
 // entry, and the document left keeps its draft. While it waits, SWITCH_TO names it (switchPending).
 async function switchDoc(k){
-  if(!k||k===DOC||!docInfo(k))return; const seq=++SWITCHSEQ,nav=NAVGEN; searchLeave();   // the search belongs to the document left (search.js)
+  if(!k||k===DOC||!docInfo(k))return; const seq=setSwitchseq(SWITCHSEQ+1),nav=NAVGEN; searchLeave();   // the search belongs to the document left (search.js)
   const a=document.activeElement,inPages=!!a&&!!a.closest&&!!a.closest('#left');
   if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT);
   saveView(); parkDraft(); cancelRepick(); if(COMPOSE.current||!$('#composer').hidden)cancelSelection(false);
@@ -166,12 +195,12 @@ async function switchDoc(k){
     try{m=(await api(dq('/api/meta',k),{what:'문서 열기',where:NOTICE_HOST.LINE,retry:()=>{switchDoc(k);}})).data;}catch(e){if(seq===SWITCHSEQ)restoreDraft(); return;}
     finally{if(SWITCH_TO&&SWITCH_TO.seq===seq)SWITCH_TO=null;}
     if(seq!==SWITCHSEQ)return; if(nav!==NAVGEN){restoreDraft(); return;}}
-  DOC=k; META=m; META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
+  setDoc(k); setMeta(m); META_BY.set(k,m); savePrefs({lastDoc:k}); setHash(k);
   hideTip(); showDoc(VIEW_BY.get(k)); openDraftDoc(); checkDocUpdate(k,{});   // changed since this device last saw it (updates.js)
   if(inPages&&(!document.activeElement||document.activeElement===document.body))searchToPage();
   if(cached){try{const f=(await api(dq('/api/meta',k),{what:'문서 열기',silent:true})).data;
     if(seq===SWITCHSEQ&&DOC===k){const changed=f.pages_build!==META.pages_build||f.pages.length!==META.pages.length;
-      META_BY.set(k,f); if(changed)await refreshDoc(f); else{META=f; drawMeta();}}}catch(e){}}
+      META_BY.set(k,f); if(changed)await refreshDoc(f); else {setMeta(f); drawMeta();}}}catch(e){}}
 }
 // The switch waiting for its document's meta (switchDoc), or null.
 let SWITCH_TO=/** @type {{k:string,seq:number,nav:number}|null} */(null);
@@ -183,7 +212,7 @@ function switchPending(k){const s=SWITCH_TO; return !!s&&s.k===k&&s.seq===SWITCH
 function showDoc(v){
   pvShow(); drawMeta(); const hadW=applyViewWidth(v); buildDoc(); if(!hadW)autoW(); restoreView(v);
   if(!v&&$('#left'))$('#left').scrollTop=0;
-  PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); DONE=DONE_ALL.filter(p=>pdoc(p)===DOC);
+  setPins(OPEN_ALL.filter(p=>pdoc(p)===DOC)); setDone(DONE_ALL.filter(p=>pdoc(p)===DOC));
   drawPins(); marks(); drawDocTabs();
   $('#outline-items').textContent=tr('PDF 목차를 읽는 중입니다.');
   if(document.body.classList.contains('revision-open'))loadRevisions();
@@ -202,7 +231,7 @@ function cycleDoc(step){if(!multiDoc())return; const i=DOCS.findIndex(d=>d.key==
 // This listener runs before the layer's, so BACK and BACK_SKIP still say whose entry it was. A traversal then shows the
 // document its address names (followHash): between two entries of the same address no hashchange comes, and the switch it
 // just ended must not leave the address naming one document over another on screen.
-window.addEventListener('popstate',()=>{if(BACK_SKIP||(BACK&&BACK.kind==='history'))return; NAVGEN++; followHash();});
+window.addEventListener('popstate',()=>{if(BACK_SKIP||(BACK&&BACK.kind==='history'))return; setNavgen(NAVGEN+1); followHash();});
 window.addEventListener('hashchange',followHash);
 // Opens the document the address names (#doc=), unless it is on screen or a switch to it is on its way already.
 function followHash(){const k=hashDoc(); if(k&&k!==DOC&&docInfo(k)&&!switchPending(k))switchDoc(k);}
@@ -211,3 +240,5 @@ function viaDoc(id,then){const p=OPEN_ALL.find(x=>x.id===id);
   if(!p||pdoc(p)===DOC||!docInfo(pdoc(p)))return false;
   const k=pdoc(p),opening=switchDoc(k),visit=SWITCHSEQ;
   opening.then(()=>{if(DOC===k&&visit===SWITCHSEQ)then(id);}); return true;}
+export { applyViewWidth, cycleDoc, docTitle, drawDocsMenu, drawNavView, drawPos, loadViews, navSheetFiltered,
+  openNavSheet, restoreView, switchDoc, switchPending, viaDoc };

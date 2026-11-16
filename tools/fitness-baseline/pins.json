@@ -1,0 +1,195 @@
+{
+  "pins/application.py": {
+    "isinstance": 3
+  },
+  "pins/claims/http.py": {
+    "role-imports": 1
+  },
+  "pins/claims/rules.py": {
+    "role-imports": 1,
+    "primitive": 4
+  },
+  "pins/claims/service.py": {
+    "role-imports": 4,
+    "isinstance": 5
+  },
+  "pins/context.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "pins/contracts.py": {
+    "role-imports": 1,
+    "primitive": 3
+  },
+  "pins/editing/fields.py": {
+    "role-unknown": 1,
+    "web-import": 1,
+    "isinstance": 8
+  },
+  "pins/editing/http.py": {
+    "role-imports": 1
+  },
+  "pins/editing/input.py": {
+    "role-imports": 4,
+    "io": 2
+  },
+  "pins/editing/location.py": {
+    "role-unknown": 1,
+    "web-import": 2,
+    "isinstance": 29
+  },
+  "pins/editing/rules.py": {
+    "role-imports": 7,
+    "isinstance": 57,
+    "primitive": 76
+  },
+  "pins/editing/service.py": {
+    "role-imports": 8,
+    "isinstance": 6
+  },
+  "pins/element.py": {
+    "role-unknown": 1,
+    "isinstance": 8
+  },
+  "pins/idem.py": {
+    "role-unknown": 1,
+    "isinstance": 2
+  },
+  "pins/lifecycle/http.py": {
+    "role-imports": 1
+  },
+  "pins/lifecycle/input.py": {
+    "io": 3
+  },
+  "pins/lifecycle/rules.py": {
+    "role-imports": 1,
+    "isinstance": 9,
+    "primitive": 26
+  },
+  "pins/lifecycle/service.py": {
+    "role-imports": 4,
+    "isinstance": 12
+  },
+  "pins/listing/http.py": {
+    "role-imports": 1
+  },
+  "pins/listing/input.py": {
+    "io": 1
+  },
+  "pins/listing/markdown.py": {
+    "role-unknown": 1
+  },
+  "pins/listing/projection.py": {
+    "role-unknown": 1,
+    "isinstance": 3
+  },
+  "pins/listing/render.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "pins/listing/service.py": {
+    "role-imports": 3
+  },
+  "pins/location/figure.py": {
+    "role-unknown": 1,
+    "isinstance": 2
+  },
+  "pins/location/http.py": {
+    "role-imports": 3,
+    "isinstance": 1
+  },
+  "pins/location/input.py": {
+    "role-imports": 1,
+    "io": 1
+  },
+  "pins/location/lookup.py": {
+    "role-unknown": 1,
+    "isinstance": 9
+  },
+  "pins/location/mapping.py": {
+    "role-unknown": 1,
+    "isinstance": 3
+  },
+  "pins/location/position.py": {
+    "role-unknown": 1,
+    "isinstance": 7
+  },
+  "pins/location/range.py": {
+    "role-unknown": 1
+  },
+  "pins/location/resolve.py": {
+    "role-unknown": 1,
+    "isinstance": 2
+  },
+  "pins/location/service.py": {
+    "role-imports": 4
+  },
+  "pins/location/source.py": {
+    "role-unknown": 1
+  },
+  "pins/maintenance.py": {
+    "role-unknown": 1
+  },
+  "pins/mentions.py": {
+    "role-unknown": 1
+  },
+  "pins/model.py": {
+    "isinstance": 17,
+    "primitive": 75
+  },
+  "pins/needs.py": {
+    "role-imports": 3,
+    "io": 1,
+    "web-import": 1,
+    "primitive": 23
+  },
+  "pins/notice.py": {
+    "role-unknown": 1
+  },
+  "pins/pages.py": {
+    "role-unknown": 1
+  },
+  "pins/record.py": {
+    "role-unknown": 1,
+    "isinstance": 22
+  },
+  "pins/retention.py": {
+    "role-unknown": 1
+  },
+  "pins/revision.py": {
+    "role-unknown": 1,
+    "isinstance": 7
+  },
+  "pins/runtime.py": {
+    "role-unknown": 1,
+    "web-import": 1,
+    "isinstance": 2
+  },
+  "pins/store.py": {
+    "role-imports": 2,
+    "isinstance": 2
+  },
+  "pins/suggestion.py": {
+    "role-unknown": 1,
+    "isinstance": 5
+  },
+  "pins/thread.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "pins/trash/http.py": {
+    "role-imports": 1
+  },
+  "pins/trash/rules.py": {
+    "role-imports": 3,
+    "primitive": 6
+  },
+  "pins/trash/service.py": {
+    "role-imports": 4,
+    "isinstance": 7
+  },
+  "pins/verdict.py": {
+    "role-unknown": 1,
+    "isinstance": 12
+  }
+}

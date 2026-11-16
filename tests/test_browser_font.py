@@ -7,6 +7,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor
 from http.server import BaseHTTPRequestHandler
 from pathlib import Path
+from urllib.parse import urlparse
 
 import pytest
 
@@ -363,7 +364,9 @@ class BrowserFontProvision(BrowserBase):
         return result
 
     def test_the_deferred_classic_script_keeps_globals_and_executes_once_after_loading(self):
-        """Script preparation keeps original global bindings and runs exactly once with the loaded face."""
+        """Script preparation keeps original global bindings and runs exactly once with the loaded face: the page's
+        script element (`<script src="/viewer.js?v=...">`, as the viewer's page has it) is put back only after the face
+        loads, still a classic script of this origin."""
         font = fonts.provision_test_font()
         assert isinstance(font, fonts.VerifiedTestFont), font
         context = self.browser.new_context()
@@ -375,10 +378,12 @@ class BrowserFontProvision(BrowserBase):
           window.bootCount = (window.bootCount || 0) + 1;
           window.fontAtBoot = [...document.fonts].some(f => f.family.replaceAll('"', '') === 'Noto Sans CJK KR' && f.status === 'loaded');
         } boot();"""
-        html = "<html><body><script>" + source + "</script></body></html>"
+        html = '<html><body><script src="/viewer.js?v=0123456789abcdef"></script></body></html>'
 
         def viewer(route):
-            """Serve a real classic-script document through the same preparation adapter."""
+            """Serve a real classic-script document through the same preparation adapter, and its script."""
+            if urlparse(route.request.url).path == "/viewer.js":
+                return route.fulfill(status=200, headers={"content-type": "text/javascript"}, body=source.encode())
             route.fulfill(status=200, headers={"content-type": "text/html"}, body=html.encode())
 
         fonts.install_test_font(page, font, viewer)
@@ -387,5 +392,8 @@ class BrowserFontProvision(BrowserBase):
         assert page.evaluate("retainedGlobal") == 23
         assert page.evaluate("window.bootCount") == 1
         assert page.evaluate("window.fontAtBoot") is True
-        assert page.evaluate("[...document.scripts].filter(s => s.textContent === %s).length" % json.dumps(source)) == 1
+        assert (
+            page.evaluate("[...document.scripts].filter(s => s.src.endsWith('/viewer.js?v=0123456789abcdef')).length")
+            == 1
+        )
         assert errors == []

@@ -52,10 +52,10 @@ T = TypeVar("T")
 LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
 AGENT_LOGIN_PREFIX = "agent:"  # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 
-# The security values are closed types: a comparison with a value outside them is a type error (mypy strict, whose
-# strict_equality flags a non-overlapping ==, != or in). Text from outside - people.json, the command line - becomes
-# one of them only through is_role / is_auth_provider (role_value, access_options, member_add); the tuples are the
-# runtime side of the same sets.
+# The security values are closed types: a comparison with a value outside them is a type error (basedpyright's
+# reportUnnecessaryComparison and reportUnnecessaryContains flag a non-overlapping ==, != or in). Text from outside -
+# people.json, the command line - becomes one of them only through is_role / is_auth_provider (role_value,
+# access_options, member_add); the tuples are the runtime side of the same sets.
 AuthProvider: TypeAlias = Literal["tailscale", "local", "trusted-proxy"]  # the identity provider of an instance
 Role: TypeAlias = Literal["owner", "editor", "viewer", "agent"]  # what a principal may change (check_role)
 Via: TypeAlias = Literal["header", "token", "loopback-agent", "local-owner"]  # how identify() knew the principal
@@ -653,6 +653,7 @@ READ_PATHS = frozenset(
         "/api/version",
         "/sw.js",
         "/md-parse.mjs",
+        "/viewer.js",
         "/api/build",
         "/pdf",
         "/api/revisions",

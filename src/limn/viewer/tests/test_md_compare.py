@@ -14,12 +14,14 @@ import shutil
 import unittest
 
 from helpers import HTML, VIEWER, extract_js_fn, run_node
+from helpers_js import module_code
 
 
 def served() -> str:
-    """js/md-compare.js exactly as the page serves it, after revisionFormatFor (revisions.js)."""
-    part = (VIEWER / "js/md-compare.js").read_text(encoding="utf-8")
-    assert part in HTML  # the page joins its parts byte for byte (parts.txt)
+    """js/md-compare.js exactly as the page's script serves it (its import and export statements taken out), after
+    revisionFormatFor (revisions.js)."""
+    part = module_code((VIEWER / "js/md-compare.js").read_text(encoding="utf-8"))
+    assert part in HTML  # the build joins the modules' code byte for byte (tools/build_viewer.mjs)
     return extract_js_fn("revisionFormatFor") + "\n" + part
 
 

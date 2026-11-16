@@ -49,7 +49,7 @@ Limn은 원고를 PDF로 빌드해 쪽 이미지로 보여 주고, 그 위에 �
 
 ### 빌드 결과
 
-빌드 한 번은 값 하나로 끝난다. 상태 문자열이 든 dict를 돌려주지 않는다. 경우마다 frozen dataclass가 따로 있고, 코드는 `match` 로 타입을 가른다(mypy `exhaustive-match` 가 빠진 경우를 잡는다). 모두 [`src/limn/builds/values.py`](../../src/limn/builds/values.py)에 있다.
+빌드 한 번은 값 하나로 끝난다. 상태 문자열이 든 dict를 돌려주지 않는다. 경우마다 frozen dataclass가 따로 있고, 코드는 `match` 로 타입을 가른다(타입 검사의 `reportMatchNotExhaustive` 가 빠진 경우를 잡는다). 모두 [`src/limn/builds/values.py`](../../src/limn/builds/values.py)에 있다.
 
 | 값 | 뜻 | `state` |
 | --- | --- | --- |

@@ -10,6 +10,20 @@
 //   chip that leads to it ([핀 N], [검토 M]) until the person looks there.
 // - An undo lives its full NOTICE_MS window, or until the person dismisses or uses it; other presses never end it (rule 2).
 // Every message is a Notice in NOTICES, numbered n; its buttons carry data-act="notice-act"/"notice-x" and data-n.
+import { $, EVENT_TYPE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC, REPLY,
+  REVIEW_ALL, SIDE_OPEN, T } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tr, trMsg } from './i18n.js';
+import { SEC } from './prefs.js';
+import { tipFollow } from './tooltip.js';
+import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from './status.js';
+import { searchToPage } from './search.js';
+import { saveBtnLabel } from './save.js';
+import { PV_READ, pageVerdictsOn } from './verdict.js';
+import { pvFocusLine, pvIsReasonField } from './verdict-reason.js';
+import { dropBareDayLines, placeRow } from './list.js';
+import { EDITOR } from './edit.js';
+/** @typedef {import('./markup.js').Html} Html */
 const NOTICE_MS=6000;   // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long
 const NOTICE_HOLD_MAX=30000;   // a hold (a mouse on it, the '+N' list open) stretches a window by at most this: a send always goes
 const PV_CHIP_HOLD_MAX=4000;   // ...and a page verdict line's save chip by at most this: a mouse resting by the words kept it up for 30s
@@ -458,7 +472,7 @@ function regroup(n,v,still){const o=v.o||{},[t,d]=msgSplit(o.literal?String(v.ms
   if(o.keys)n.keys=o.keys; if(o.onEnd)n.onEnd=o.onEnd; if(o.life)n.life=o.life; n.back=!!o.back;
   const dot=noticeDot(o.dot||'',SIDE_OPEN); if(dot){n.dot=dot; document.body.classList.add('dot-'+dot);}
   const i=LINE.indexOf(n); if(i>=0&&!n.back&&!still){LINE.splice(i,1); LINE.splice(newsSlot(),0,n);}
-  STATUS_SIG=''; drawStatus(); if(still)return; armNotice(n);
+  setStatusSig(''); drawStatus(); if(still)return; armNotice(n);
   if(!same&&!o.quiet&&STATUS_TOP!==n.n)announce(noticeText(n));}
 
 // ---------------- Gathering while a person was away (docs/handbook/viewer.md §새 소식)
@@ -526,7 +540,7 @@ function digestDots(items){return [...new Set(items.map(a=>noticeDot((a[3]||{}).
 // its end: what took them out did).
 /** @param {Notice} n */
 function digestRetitle(n){const items=n.items||[]; if(!items.length){n.onEnd=null; endNotice(n,true); return;}
-  n.dots=digestDots(items); const [t,d]=msgSplit((n.digestTitle||n.title)+' — '+digestLine(items.map(digestBrief))); n.title=t; n.desc=d; STATUS_SIG=''; drawStatus();}
+  n.dots=digestDots(items); const [t,d]=msgSplit((n.digestTitle||n.title)+' — '+digestLine(items.map(digestBrief))); n.title=t; n.desc=d; setStatusSig(''); drawStatus();}
 
 // A CLICK message - a passing notice that is not an undo (a restored draft's [버리기]) - lasts until the next press somewhere
 // else: a click (a tap, Enter on a button) outside it ends it; a scroll does not. The press that made it has passed by the time
@@ -685,3 +699,8 @@ function deferredNote(d,place,msg,o){
 function flushDeferred(){Array.from(DEFERRED).forEach(d=>d.run());}
 window.addEventListener('pagehide',flushDeferred);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)flushDeferred();});
+export { BANNERS, DIGEST, GROUPS, LINE, NOTICES, NOTICE_ACT_WAIT, NOTICE_HOLD_MAX, NOTICE_LATE_SRC, NOTICE_MS,
+  announce, bannerNote, chipAway, deferred, deferredNote, digestBegin, digestSoon, drawBanners, drawChips, drawOffers,
+  drawTrashOffers, drawnBefore, dropStaleReview, endNotice, endTopic, flushDeferred, focusRun, groupNote, groupRedraw,
+  holdLine, lineNote, lineVisible, noticeAct, noticeButtons, noticeClose, noticeFocus, noticeIcon, noticeSeen,
+  offersIn, placeChips, quietNote, settleChip, sourceEntry, sourceOk, undoNote };

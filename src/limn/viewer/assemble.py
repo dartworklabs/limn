@@ -1,14 +1,16 @@
-"""The viewer page as one HTML string: index.html, its parts, the icons and the message table put together.
+"""The viewer as the server serves it: the page (index.html with its stylesheet parts), its script, the icons and the
+message table put together.
 
-viewer_html() is the whole assembly. It reads index.html and the parts parts.txt lists from the viewer folder and
-fills the page's build-time placeholders from its arguments - nothing else (no settings, no clock, no process state),
-so the same folder and arguments give the same string, byte for byte. The run-time placeholders (__LABEL__,
-__ACCENT__) are left for run_page(), which the composition root calls with the run's label and accent once they are
-known (server.start): the template (ViewerFiles) and the served page (ServedViewer) are separate values, and nothing
-here runs at import.
+viewer_html() and viewer_script() are the whole assembly. They read index.html, the parts parts.txt lists and the script
+from the viewer folder and fill the build-time placeholders from their arguments - nothing else (no settings, no clock, no
+process state), so the same folder and arguments give the same strings, byte for byte. The run-time placeholders
+(__LABEL__, __ACCENT__) are left for run_page(), which the composition root calls with the run's label and accent once
+they are known (server.start): the template (ViewerFiles) and the served page (ServedViewer) are separate values, and
+nothing here runs at import.
 
-Placeholders filled here:
-- __APP_CSS__ / __APP_JS__: the parts listed under each marker in parts.txt, joined in order (load_viewer_html).
+Placeholders filled in the page (viewer_html):
+- __APP_CSS__: the parts listed under it in parts.txt, joined in order (load_viewer_html).
+- __VIEWER_JS_KEY__: the content key of the script (script_key), the ?v= of the page's one <script src="/viewer.js">.
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
 - __KATEX_VERSION__: the vendored KaTeX version, the ?v= of every /vendor/katex/ URL the Markdown surface asks for.
 - __PRETENDARD_VERSION__: the vendored font's version, the ?v= of the stylesheet link to /vendor/pretendard/.
@@ -16,18 +18,22 @@ Placeholders filled here:
   in the top bar, the wordmark in the help header and [더보기]'s foot.
 - __LIMN_VERSION__: this Limn's version (limn.__version__), beside the wordmark in [더보기]'s foot.
 - __ICON_KEY__: the content key of the icon files (limn.viewer.mark.Brand.key), the ?v= of the favicon links.
-- __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
-- __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
 - {{ic:<name>}}: one icon as an inline <svg> (icon_svg), the same markup the JS ic() builds.
 
+Placeholders filled in the script (viewer_script, GET /viewer.js: dist/viewer.js, which tools/build_viewer.mjs builds from
+the ES modules under js/ and the repository keeps):
+- __PDFJS_VERSION__ / __KATEX_VERSION__: as in the page, for the modules the script import()s.
+- __LUCIDE_JSON__: the icon table, for the viewer's JS ic().
+- __UI_EN_JSON__: the ko -> en message table (ui_en.json), for the viewer's I18N_EN.
+
 The service worker (sw.js, GET /sw.js) is read from the same folder by service_worker(), and the Markdown parse worker
-(md-parse.mjs, GET /md-parse.mjs) by md_worker(), which fills its __MARKDOWN_IT_VERSION__; each is served on its own,
-not inlined.
+(md-parse.mjs, GET /md-parse.mjs) by md_worker(), which fills its __MARKDOWN_IT_VERSION__; each is served on its own.
 
 A missing or malformed viewer file is a packaging defect and raises (OSError / ValueError): the server fails at startup
 rather than serve a broken page.
 """
 
+import hashlib
 import html
 import json
 import re
@@ -80,9 +86,9 @@ def read_viewer() -> "ViewerFiles":
     """Read the viewer template, messages, worker and icons without import-time I/O."""
     messages = load_ui_messages(VIEWER_DIR / "ui_en.json")
     logo = read_brand()
+    script = viewer_script(VIEWER_DIR, messages, pdfjs_version=PDFJS_VERSION, katex_version=KATEX_VERSION, icons=LUCIDE)
     template = viewer_html(
         VIEWER_DIR,
-        messages,
         pdfjs_version=PDFJS_VERSION,
         katex_version=KATEX_VERSION,
         pretendard_version=PRETENDARD_VERSION,
@@ -90,17 +96,28 @@ def read_viewer() -> "ViewerFiles":
         icon_key=logo.key,
         icons=LUCIDE,
         version=__version__,
+        script_key=script_key(script),
     )
     return ViewerFiles(
-        template, service_worker(VIEWER_DIR), messages, logo.icons, md_worker(VIEWER_DIR, MARKDOWN_IT_VERSION)
+        template,
+        service_worker(VIEWER_DIR),
+        messages,
+        logo.icons,
+        md_worker(VIEWER_DIR, MARKDOWN_IT_VERSION),
+        script,
     )
 
 
 VIEWER_DIR = Path(__file__).resolve().parent  # this package's folder: index.html, parts.txt, css/, js/
 BRAND_DIR = VIEWER_DIR / "brand"
+# The manifest's sections: the stylesheet parts (__APP_CSS__, also the marker index.html carries in its one <style>) and
+# the script's ES modules (__APP_JS__, in the order they run), which tools/build_viewer.mjs builds into VIEWER_SCRIPT.
 VIEWER_MARKERS = ("__APP_CSS__", "__APP_JS__")
+PAGE_MARKERS = ("__APP_CSS__",)
 VIEWER_MANIFEST = "parts.txt"  # the ordered list of parts, beside index.html
 VIEWER_PART_RE = re.compile(r"[a-z0-9-]+/[a-z0-9-]+\.[a-z]+")  # folder/name.ext: never leaves the viewer folder
+# The built script GET /viewer.js serves (load_viewer_script): tools/build_viewer.mjs writes it, the repository keeps it.
+VIEWER_SCRIPT = "dist/viewer.js"
 # The service worker GET /sw.js serves, beside index.html. A script of its own, never a part of the page.
 SERVICE_WORKER = "sw.js"
 # The Markdown parse worker GET /md-parse.mjs serves, beside index.html: a module worker of its own (md_worker).
@@ -264,21 +281,64 @@ def viewer_manifest(directory: Path) -> dict[str, tuple[str, ...]]:
 
 
 def load_viewer_html(directory: Path) -> str:
-    """The viewer page with its stylesheet and main script inlined, as one HTML string.
+    """The viewer page with its stylesheet inlined, as one HTML string.
 
-    index.html carries one __APP_CSS__ and one __APP_JS__ marker. The parts listed under each marker in parts.txt
-    (viewer_manifest) are joined in that order, byte for byte, and put where the marker was - the CSS parts into the
-    one <style>, the JS parts into the one <script>, so no build step or module loader is involved. Inlining keeps
-    GET / a single response with no extra routes. A missing or malformed file is a packaging defect and raises
-    (OSError / ValueError).
+    index.html carries one __APP_CSS__ marker, inside its one <style>. The parts listed under it in parts.txt
+    (viewer_manifest) are joined in that order, byte for byte, and put where the marker was. The script is not in the
+    page: index.html loads it from this origin (<script src="/viewer.js?v=__VIEWER_JS_KEY__">, viewer_script). A missing
+    or malformed file is a packaging defect and raises (OSError / ValueError), as does a script marker in the page.
     """
     page = (directory / "index.html").read_text(encoding="utf-8")
-    for marker, names in viewer_manifest(directory).items():
-        text = "".join((directory / name).read_text(encoding="utf-8") for name in names)
+    manifest = viewer_manifest(directory)
+    for marker in VIEWER_MARKERS:
+        if marker not in PAGE_MARKERS and marker in page:
+            raise ValueError("viewer template marker %s must not appear in index.html" % marker)
+    for marker in PAGE_MARKERS:
+        text = "".join((directory / name).read_text(encoding="utf-8") for name in manifest[marker])
         if page.count(marker) != 1 or any(m in text for m in VIEWER_MARKERS):
             raise ValueError("viewer template marker %s must appear exactly once in index.html" % marker)
         page = page.replace(marker, text)
     return page
+
+
+def load_viewer_script(directory: Path) -> str:
+    """The viewer's script before its placeholders are filled: directory/dist/viewer.js, the one classic script
+    tools/build_viewer.mjs builds from the ES modules parts.txt lists under __APP_JS__ (docs/adr/0042-viewer-es-modules.md).
+    The built file is committed, so serving needs no build step and no Node. A missing file or a marker in it is a
+    packaging defect and raises (OSError / ValueError)."""
+    text = (directory / VIEWER_SCRIPT).read_text(encoding="utf-8")
+    if any(m in text for m in VIEWER_MARKERS):
+        raise ValueError("a viewer template marker must not appear in the script")
+    return text
+
+
+def viewer_script(
+    directory: Path,
+    messages: Mapping[str, Message],
+    *,
+    pdfjs_version: str,
+    katex_version: str,
+    icons: Mapping[str, str],
+) -> str:
+    """The script GET /viewer.js serves (load_viewer_script) with its placeholders filled: the PDF.js and KaTeX versions,
+    the icon table and the message table, in that order, and every {{ic:<name>}} token becomes its icon's <svg>, as in the
+    page. The JSON forms are sorted by key so the script does not depend on the tables' order, and the message table's
+    "</" is escaped ("<\\/", which a JS string reads back the same) as it was when the script sat inside the page. Raises
+    like load_viewer_script, and KeyError for an icon token the table lacks."""
+    script = load_viewer_script(directory)
+    script = script.replace("__PDFJS_VERSION__", pdfjs_version)
+    script = script.replace("__KATEX_VERSION__", katex_version)
+    script = script.replace("__LUCIDE_JSON__", json.dumps(dict(icons), sort_keys=True))
+    table = json.dumps(dict(messages), ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
+    script = script.replace("__UI_EN_JSON__", table)
+    return ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1), icons), script)
+
+
+def script_key(script: str) -> str:
+    """The content key of a filled script: the first 16 hex digits of the SHA-256 of its UTF-8 bytes. The page loads the
+    script as /viewer.js?v=<key>, so a new script is a new URL for the browser's and the service worker's copies, and a
+    page kept for offline reading is kept with the script it was served with."""
+    return hashlib.sha256(script.encode("utf-8")).hexdigest()[:16]
 
 
 def service_worker(directory: Path) -> str:
@@ -302,7 +362,6 @@ def md_worker(directory: Path, markdown_it_version: str) -> str:
 
 def viewer_html(
     directory: Path,
-    messages: Mapping[str, Message],
     *,
     pdfjs_version: str,
     katex_version: str,
@@ -311,18 +370,18 @@ def viewer_html(
     icon_key: str,
     icons: Mapping[str, str],
     version: str,
+    script_key: str,
 ) -> str:
     """The viewer page served at GET /, before the run-time placeholders: run_page() fills those per instance.
 
-    The page and its parts come from directory (load_viewer_html); pdfjs_version, katex_version, pretendard_version, the logo's inline
-    SVGs (marks: placeholder -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version, the favicon
-    links' icon_key, the icon table and the message table fill their placeholders, in that order, and every
-    {{ic:<name>}} token becomes its icon's <svg>.
-    The JSON forms are sorted by key so the page does not depend on the table's order; the message table's "</" is
-    escaped so a string can never close the <script> it sits in. Raises like load_viewer_html, and KeyError for an
-    icon token the table lacks.
+    The page and its stylesheet parts come from directory (load_viewer_html); the script's content key (script_key, of
+    viewer_script's answer), pdfjs_version, katex_version, pretendard_version, the logo's inline SVGs (marks: placeholder
+    -> markup, limn.viewer.mark.Brand.marks, in placeholder order), Limn's version and the favicon links' icon_key fill
+    their placeholders, in that order, and every {{ic:<name>}} token becomes its icon's <svg> (icons is the table).
+    The message table is not in the page: the script carries it (viewer_script). Raises like load_viewer_html, and KeyError for an icon token the table lacks.
     """
     page = load_viewer_html(directory)
+    page = page.replace("__VIEWER_JS_KEY__", script_key)
     page = page.replace("__PDFJS_VERSION__", pdfjs_version)
     page = page.replace("__KATEX_VERSION__", katex_version)
     page = page.replace("__PRETENDARD_VERSION__", pretendard_version)
@@ -330,9 +389,6 @@ def viewer_html(
         page = page.replace(placeholder, marks[placeholder])
     page = page.replace("__LIMN_VERSION__", html.escape(version, quote=True))
     page = page.replace("__ICON_KEY__", icon_key)
-    page = page.replace("__LUCIDE_JSON__", json.dumps(dict(icons), sort_keys=True))
-    table = json.dumps(dict(messages), ensure_ascii=False, sort_keys=True).replace("</", "<\\/")
-    page = page.replace("__UI_EN_JSON__", table)
     return ICON_TOKEN_RE.sub(lambda m: icon_svg(m.group(1), icons), page)
 
 
@@ -343,15 +399,16 @@ def viewer_html(
 class ViewerFiles:
     """The viewer package as read from disk once per process: the page template (viewer_html, the run-time
     placeholders still in it), the service worker (service_worker), the ko -> en message table (load_ui_messages),
-    the icon each favicon route serves (limn.viewer.mark.Brand.icons, by GET path; empty serves none) and the Markdown
-    parse worker (md_worker; empty serves none). The composition root reads it at startup (server.read_viewer), never at
-    import."""
+    the icon each favicon route serves (limn.viewer.mark.Brand.icons, by GET path; empty serves none), the Markdown
+    parse worker (md_worker; empty serves none) and the page's script (viewer_script; empty serves none). The composition
+    root reads it at startup (server.read_viewer), never at import."""
 
     template: str
     service_worker: str
     messages: dict[str, Message]
     icons: Mapping[str, Icon] = field(default_factory=dict)
     md_worker: str = ""
+    script: str = ""
 
 
 @dataclass(frozen=True)
@@ -359,13 +416,15 @@ class ServedViewer:
     """What the viewer routes of one run answer: the page GET / serves (the template with the run's interface language,
     label and accent, run_page), the service worker GET /sw.js serves, the message table a refused browser's page reads and the icon
     each favicon route serves (by GET path; the same for every run - the tile is never the instance colour) and the
-    Markdown parse worker GET /md-parse.mjs serves (empty: none, 404)."""
+    Markdown parse worker GET /md-parse.mjs serves (empty: none, 404) and the script GET /viewer.js serves (empty: none,
+    404) - the same for every run."""
 
     page: str
     service_worker: str
     messages: dict[str, Message]
     icons: Mapping[str, Icon] = field(default_factory=dict)
     md_worker: str = ""
+    script: str = ""
 
 
 def run_page(template: str, label: str, accent: str, ui_lang: str | None) -> str:
@@ -381,12 +440,13 @@ def run_page(template: str, label: str, accent: str, ui_lang: str | None) -> str
 
 def serve_viewer(files: ViewerFiles, label: str, accent: str, ui_lang: str | None) -> ServedViewer:
     """What a run labelled `label` in `accent` with interface language ui_lang (None = the browser's) serves from the
-    viewer files: the filled page (run_page), and the service worker, the message table, the icons and the Markdown
-    parse worker as read."""
+    viewer files: the filled page (run_page), and the service worker, the message table, the icons, the Markdown
+    parse worker and the script as read."""
     return ServedViewer(
         run_page(files.template, label, accent, ui_lang),
         files.service_worker,
         files.messages,
         files.icons,
         files.md_worker,
+        files.script,
     )

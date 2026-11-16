@@ -57,11 +57,18 @@ DOCS_DIR = ROOT / "docs" / "handbook"
 spec = importlib.util.spec_from_file_location("limn_server", PKG / "server.py")
 ps = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ps)
-# The viewer package, read once for every test: server.py reads it at startup (start), never at import. HTML is the page
-# template - the viewer's source as the tests read it, run-time placeholders (__LABEL__, __ACCENT__...) still in it;
-# UI_EN its ko -> en message table and SW_JS the service worker GET /sw.js serves.
+# The viewer package, read once for every test: server.py reads it at startup (start), never at import. PAGE is the page
+# template GET / serves, run-time placeholders (__LABEL__, __ACCENT__...) still in it, and SCRIPT the script it loads
+# (GET /viewer.js). HTML is the viewer's source as the tests read it - markup, stylesheet and script in one text: the page
+# with the script put back where its <script src> element is, as one inline <script>, so a test finds a function or a
+# string of the script the way it finds an element of the page. It is not what GET / sends (page_for is); UI_EN is the
+# ko -> en message table and SW_JS the service worker GET /sw.js serves.
 VIEWER_FILES = ps.read_viewer()
-HTML = VIEWER_FILES.template
+PAGE = VIEWER_FILES.template
+SCRIPT = VIEWER_FILES.script
+SCRIPT_ELEMENT = re.compile(r'<script src="/viewer\.js\?v=[0-9a-f]{16}"></script>')
+assert len(SCRIPT_ELEMENT.findall(PAGE)) == 1, "the page must load its script once, as /viewer.js?v=<key>"
+HTML = SCRIPT_ELEMENT.sub(lambda _: "<script>" + SCRIPT + "</script>", PAGE)
 UI_EN = VIEWER_FILES.messages
 SW_JS = VIEWER_FILES.service_worker
 # The viewer's closed-set tables (core.js: PIN_STATE, BUILD_STATE, LOCAL_LOGIN, ...), which extract_js_fn brings along.
@@ -78,7 +85,7 @@ def extract_js_fn(name: str) -> str:
     tables come along because a pulled function reads them from the page's shared scope, which a node harness lacks.
     """
     fn = helpers_js.function_source(HTML, name)
-    return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + fn
+    return helpers_js.closed_set_prelude(VIEWER_CLOSED_SETS, fn) + helpers_js.setter_prelude(HTML, fn) + fn
 
 
 # Stand-ins for the hooks of the viewer's update messages (js/updates.js; notices.js groupNote and the gathering) for a node
@@ -118,15 +125,15 @@ function apiUnanswered(url,o,e){API_OUT=true; if(!o.silent&&!o.quietUnreached)ap
 
 
 def js_markup() -> str:
-    """The viewer's markup part (js/markup.js: Html, html``, ic(), setHtml()) exactly as served, for node harnesses that
+    """The viewer's markup module (js/markup.js: Html, html``, ic(), setHtml()) as served (helpers_js.module_code), for node harnesses that
     run functions building markup. It needs esc() (js_esc()) and, to draw an icon, ICONS (js_icons() brings both)."""
-    return (VIEWER / "js" / "markup.js").read_text(encoding="utf-8")
+    return helpers_js.module_code((VIEWER / "js" / "markup.js").read_text(encoding="utf-8"))
 
 
 def js_hidden_chars() -> str:
-    """The viewer's hidden-character part (js/hidden-chars.js: the repertoire, ccHtml, ccPlain, ...) exactly as served, for
+    """The viewer's hidden-character module (js/hidden-chars.js: the repertoire, ccHtml, ccPlain, ...) as served (module_code), for
     node harnesses that run a function showing a source's or a suggestion's text. ccHtml needs js_markup() and js_esc()."""
-    return (VIEWER / "js" / "hidden-chars.js").read_text(encoding="utf-8")
+    return helpers_js.module_code((VIEWER / "js" / "hidden-chars.js").read_text(encoding="utf-8"))
 
 
 def js_icons() -> str:
@@ -286,7 +293,14 @@ def set_config(mod=None, **over) -> None:
 
 def page_for(label: str, accent: str, ui_lang: str | None = None) -> str:
     """The page GET / serves on a run labelled `label` in `accent` with --ui-lang ui_lang (None: not given;
-    limn.viewer.assemble.run_page over HTML)."""
+    limn.viewer.assemble.run_page over the template PAGE - the script stays a <script src> to GET /viewer.js)."""
+    return assemble.run_page(PAGE, label, accent, ui_lang)
+
+
+def script_page_for(label: str, accent: str, ui_lang: str | None = None) -> str:
+    """page_for with the script put back inline (run_page over HTML): for a test that serves the page itself
+    (route.fulfill, with no policy) and works on the script's text in it - takes boot() out, say - instead of letting
+    the browser load GET /viewer.js."""
     return assemble.run_page(HTML, label, accent, ui_lang)
 
 

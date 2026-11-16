@@ -5,7 +5,8 @@ a page image, pins.md, a vendored file, the base class's own error pages - carri
 nothing else is said, so a PDF a browser opens in its own viewer is not restricted. An HTML page Limn assembles (the
 viewer at GET /, the readable refusal page) carries page_policy(page), computed from the page's own text: its inline
 <script> and <style> elements are allowed by their SHA-256 hashes, so the page needs no 'unsafe-inline': inline code
-with any other text, an inline event handler, a style attribute and a script from another origin are refused. It
+with any other text, an inline event handler, a style attribute and a script from another origin are refused. A script
+the page loads from this origin (the viewer's own, GET /viewer.js) is allowed by 'self' and has nothing to hash. It
 narrows what injected markup can do and is not a sanitizer - a script element pointing at a file of this origin, or
 inline text matching one of the hashes, runs whoever inserted it (CSP3 matches a hash by content); keeping other
 people's text from becoming markup is the viewer's escaping (limn.viewer, docs/handbook/viewer.md).
@@ -28,9 +29,12 @@ HEADER = "Content-Security-Policy"
 # Every response that is not one of Limn's HTML pages: no framing (clickjacking), nothing else.
 FRAME_ONLY = "frame-ancestors 'none'"
 
-# An inline element whose text the browser runs or applies: <script> or <style> with no attributes - the only form
-# Limn's pages write. The text ends at the first closing tag, as the tokenizer's script data state ends it.
+# An inline element whose text the browser runs or applies: <script> or <style> with no attributes - the only inline
+# form Limn's pages write. The text ends at the first closing tag, as the tokenizer's script data state ends it.
 _INLINE = re.compile(r"<(script|style)>(.*?)</\1>", re.S)
+# The one other form: a classic script loaded from this origin - src one path that starts with a single "/" and holds
+# no quote, space or angle bracket - and no text. 'self' allows it; it needs no hash (the viewer's script, GET /viewer.js).
+_EXTERNAL = re.compile(r'<script src="/(?![/\\])[^"\s<>\\]*"></script>')
 # Any opening tag of the two, with or without attributes; page_policy refuses a page where they differ in number.
 _OPENING = re.compile(r"<(?:script|style)\b", re.I)
 # What would make the tokenizer end or escape an inline element's text elsewhere than _INLINE does.
@@ -47,12 +51,14 @@ def _digest(text: str) -> str:
 def inline_hashes(page: str) -> tuple[tuple[str, ...], tuple[str, ...]]:
     """(script hashes, style hashes) of page's inline elements, each in page order with repeats removed.
 
-    A page whose elements this cannot read the way the browser does - a <script>/<style> tag with attributes, an
-    element whose text holds another closing tag or an HTML comment opener - raises ValueError rather than give a
-    policy that blocks the page's own script. That is a packaging defect in Limn's own page: a run changes only an
+    A page whose elements this cannot read the way the browser does - a <script>/<style> tag with attributes other than
+    the one same-origin script form (_EXTERNAL: `<script src="/path"></script>`, which has no text to hash), an element
+    whose text holds another closing tag or an HTML comment opener - raises ValueError rather than give a policy that
+    blocks the page's own script. That is a packaging defect in Limn's own page: a run changes only an
     escaped label, a #rrggbb accent and ko/en, and web/tests/test_csp.py reads the packaged page under such runs."""
-    found = _INLINE.findall(page)
-    if len(found) != len(_OPENING.findall(page)) or any(_AMBIGUOUS.search(text) for _, text in found):
+    external = _EXTERNAL.findall(page)
+    found: list[tuple[str, str]] = _INLINE.findall(_EXTERNAL.sub("", page))
+    if len(found) + len(external) != len(_OPENING.findall(page)) or any(_AMBIGUOUS.search(text) for _, text in found):
         raise ValueError("an inline <script>/<style> of the page cannot be hashed as the browser reads it")
     scripts = dict.fromkeys(_digest(text) for kind, text in found if kind == "script")
     styles = dict.fromkeys(_digest(text) for kind, text in found if kind == "style")

@@ -5,6 +5,24 @@
 // name the page that line is on while any of it is. gap: with the edge in the space above that page (frac 0), how far under
 // it the page's top stands. y and h: where that page's top stood under the scroller's top and its height, so restoreAnchor
 // can tell a re-fit that moved nothing.
+import { $, $$, BUILD_ERR_BY, BUILD_STATE, DOC, META, META_BY, MQ_COARSE, NOTICE_HOST, NOTICE_KIND, SIDE_OPEN,
+  SWITCHSEQ, rendersInBrowser, setMeta } from './core.js';
+import { html, setHtml } from './markup.js';
+import { tr } from './i18n.js';
+import { api } from './api.js';
+import { announce, lineNote, sourceOk } from './notices.js';
+import { dq } from './doc-tabs.js';
+import { loadRevisions } from './revisions.js';
+import { drawMeta } from './boot.js';
+import { BUILD, pollBuild, pullSuffix } from './build-chip.js';
+import { buildDoc, pageSrc, reapplyK } from './pages.js';
+import { vecOpen } from './pdf-open.js';
+import { vecReleaseAll } from './pdf-draw.js';
+import { mdBuild } from './md-surface.js';
+import { pvReadingAt } from './verdict.js';
+import { pvComposingNow, pvReasonComposed } from './verdict-reason.js';
+import { setPvBuildAt } from './verdict-panel.js';
+import { loadPins } from './list.js';
 function topAnchor(off){const L=$('#left'),lt=L.getBoundingClientRect().top,top=lt+(off||0),atTop=MQ_COARSE.matches&&L.scrollTop<=0,edge=off?0:1;
   for(const pg of $$('.pg')){const r=pg.getBoundingClientRect(); if(r.bottom>top+edge)return {page:+pg.dataset.page,frac:Math.max(0,(top-r.top)/r.height),gap:Math.max(0,r.top-top),atTop,y:r.top-lt,h:r.height};}
   return null;}
@@ -37,19 +55,19 @@ async function refreshDoc(meta){let a=topAnchor(); const k=DOC,seq=SWITCHSEQ;
   const m=meta===undefined?(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data:meta;
   if(k!==DOC||seq!==SWITCHSEQ)return;
   const gen=++REFRESH_GEN;
-  if(rendersInBrowser(m.kind)){META_BY.set(k,m); META=m; drawMeta(); mdBuild(); await loadPins(); return;}   // no pages: the source is drawn again
+  if(rendersInBrowser(m.kind)){META_BY.set(k,m); setMeta(m); drawMeta(); mdBuild(); await loadPins(); return;}   // no pages: the source is drawn again
   // Building the pages again takes the reason field with them: a syllable being composed in it ends first, and the key that
   // ended it lets the field go (pvComposingNow), and the spot is read again after the wait. A newer snapshot that came meanwhile wins - applied at once (the same page
   // count) or waiting too: this one is dropped, never put back over it (a newer build was rolled back for good, #352 review).
   if(!(META&&m.pages.length===META.pages.length)&&pvComposingNow()){await pvReasonComposed(); if(k!==DOC||seq!==SWITCHSEQ||gen!==REFRESH_GEN)return; a=topAnchor();}
   rebuildSources(k).forEach(sourceOk); META_BY.set(k,m);
-  const same=META&&m.pages.length===META.pages.length; META=m; drawMeta();
+  const same=META&&m.pages.length===META.pages.length; setMeta(m); drawMeta();
   // The canvas was drawn from the old PDF - it's torn down to show the new PNG first, then redrawn once the new build's PDF is opened.
   // A page whose paper size changed (a figure drawn again larger) takes its new width at the same scale (reapplyK - which leaves
   // the scale alone while the changes view hides the PDF area).
   if(same){vecReleaseAll(); $$('.pg').forEach((pg,i)=>{const p=META.pages[i]; pg.dataset.ptw=String(p.pt_w); pg.style.aspectRatio=p.pt_w+' / '+p.pt_h; pg.querySelector('img').src=pageSrc(p);});
     reapplyK();}
-  else{PV_BUILD_AT=pvReadingAt(); try{buildDoc(); restoreAnchor(a);}finally{PV_BUILD_AT=0;}}   // the reading page held until its spot is back
+  else {setPvBuildAt(pvReadingAt()); try{buildDoc(); restoreAnchor(a);}finally{setPvBuildAt(0);}}   // the reading page held until its spot is back
   restoreAnchor(a); vecOpen(); if(document.body.classList.contains('revision-open'))loadRevisions(); await loadPins();}
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel is not on
@@ -106,3 +124,5 @@ function downloadPdf(){
   const a=document.createElement('a');
   a.href=dq('/pdf?build='+encodeURIComponent(META.pages_build)+'&download=1'); a.download=''; a.hidden=true;
   document.body.appendChild(a); a.click(); a.remove();}
+export { downloadPdf, hideBuildErr, keepSpot, rebuild, refreshDoc, restoreAnchor, returnToSpot, showBuildErr,
+  syncBuildErrChip, topAnchor };

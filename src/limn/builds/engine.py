@@ -684,8 +684,8 @@ def available_cpus() -> int:
     taskset narrows it), else os.cpu_count(), and one when neither is known.
 
     os.sched_getaffinity is looked up when called, not named statically: macOS and Windows lack it, and typeshed
-    declares it only for the other platforms, so a static reference fails mypy on a macOS checkout while CI (Linux)
-    passes."""
+    declares it only for the other platforms, so a static reference fails the type check as macOS while the Linux
+    run passes."""
     affinity = getattr(os, "sched_getaffinity", None)
     try:
         if affinity is not None:

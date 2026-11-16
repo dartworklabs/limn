@@ -3,6 +3,14 @@
 // element (levels[].el with id, path root first, label, part, impl and its box `frac` on the pick's page). The composer
 // shows that element without another request (docs/handbook/viewer.md §패널 정리): the pending box snaps to it - the mark
 // the pin will get - and the location line names its path. The selection keeps the element it shows as elSel.
+import { $, EL_SYNC, T } from './core.js';
+import { html, ic } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { drawBox, pendingBadgeSide } from './selection.js';
+import { lvOf } from './levels.js';
+import { COMPOSE } from './composer.js';
+import { pvShow } from './verdict.js';
+import { selPopArea } from './sel-popover.js';
 
 // Whether f is a page box [x, y, w, h] of four finite numbers - the shape of a pin's frac and an element's frac.
 /** @param {unknown} f @returns {f is number[]} */
@@ -85,3 +93,5 @@ function elLost(p){return !!p&&p.el_sync===EL_SYNC.LOST;}
 // The card badge of a lost element ('요소 잃음', the warning look of '위치 잃음'), or ''.
 /** @param {Pin} p */
 function elLostTag(p){return elLost(p)?html`<span class="badge badge-warning" data-tip="${tr(T.ellost)}">${ic('triangle-alert')}${tr('요소 잃음')}</span>`:null;}
+export { elLost, elLostTag, elName, figRegionBadge, figRung, figureFields, hasMark, isFrac, pinPlace, renderElement,
+  repickEl, rungTip, showElementBox, snapBox };

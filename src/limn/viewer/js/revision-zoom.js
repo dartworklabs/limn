@@ -1,3 +1,10 @@
+import { $, DIFF_FORMAT } from './core.js';
+import { tl } from './i18n.js';
+import { REV, REV_PDF, revTargetNote, revisionCurrent } from './revisions.js';
+import { ZOOM_STEP } from './pages.js';
+import { VEC_PIX_CAP } from './pdf-open.js';
+import { vecTarget } from './pdf-draw.js';
+import { wheelFactor } from './zoom.js';
 /** Comparison-only geometry and rendering; no manuscript preference writes.
  * @typedef {{el:HTMLElement,page:any,base:{width:number,height:number},canvas:HTMLCanvasElement|null,task:any}} RevisionPage
  * @typedef {{el:HTMLElement,fx:number,fy:number,x:number,y:number}} RevisionAnchor
@@ -186,3 +193,5 @@ async function paintRevisionPdf(){
     if(Math.abs(revisionFitWidth()-RZ.fit)>.5||box.clientHeight!==RZ.height)resizeRevisionPdf();
   });observer.observe(box);
 })();
+export { RZ, disposeRevisionZoom, drawRevisionZoom, mountRevisionPdf, resizeRevisionPdf, revisionPdfActive,
+  revisionZoom };

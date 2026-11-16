@@ -5,6 +5,22 @@
 // Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once edited a range change
 // keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line diff of base -> text in the
 // changes view's source-diff look, folded past five rows as the excerpt's band is.
+import { $, BAND, DOC, DOC_KIND, LAYOUT_BAND, META, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE,
+  isFigureKind } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { ccAdded, ccFind, ccHtml } from './hidden-chars.js';
+import { errText, tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { docInfo, dq, isRegion, pdoc } from './doc-tabs.js';
+import { findAnyPin } from './revisions.js';
+import { isViewer } from './boot.js';
+import { pinState } from './polling.js';
+import { applySheet } from './panel-size.js';
+import { COMPOSE, renderOverlapBanner } from './composer.js';
+import { saveDraftSoon } from './draft.js';
+import { renderVerdictRow } from './verdict.js';
+import { EDITOR } from './edit.js';
+/** @typedef {import('./markup.js').Html} Html */
 
 const SUGGEST_LINES=80;   // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_FOLD=5;     // a card's diff folds past this many rows to its first two and last two
@@ -71,7 +87,7 @@ function suggestDiff(base,text,lo){const a=suggestLines(base,false),b=suggestLin
   while(i<n||j<m){
     if(i<n&&j<m&&a[i]===b[j]){out.push({k:'ctx',t:b[j],n:lo+j}); i++; j++;}
     else if(i<n&&(j>=m||L[i+1][j]>=L[i][j+1])){out.push({k:'del',t:a[i],n:lo+i}); i++;}
-    else{out.push({k:'add',t:b[j],n:lo+j}); j++;}}
+    else {out.push({k:'add',t:b[j],n:lo+j}); j++;}}
   return out;}
 // The rows a diff shows: all of them when open or no more than SUGGEST_FOLD, else the first two and the last two round
 // {k:'fold', n} for the rows between - the excerpt's fold. Pure.
@@ -275,3 +291,6 @@ function suggestAct(el,act){const w=suggestOwner(el); if(!w)return;
 // draft follow.
 document.addEventListener('input',e=>{const t=/** @type {HTMLTextAreaElement} */(e.target); if(!t.classList||!t.classList.contains('sg-text'))return;
   const w=suggestOwner(t); if(!w)return; w.sg.text=t.value; w.redraw();});
+export { SG, SG_OPEN, editDocKind, renderEditSuggest, renderSuggest, suggestAct, suggestBadge, suggestClear,
+  suggestCopy, suggestDraft, suggestEdited, suggestForEdit, suggestForSave, suggestOfPin, suggestOff, suggestPending,
+  suggestRebase, suggestView };

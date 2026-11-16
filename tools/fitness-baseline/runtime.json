@@ -1,0 +1,18 @@
+{
+  "runtime/args.py": {
+    "role-imports": 1
+  },
+  "runtime/config.py": {
+    "role-imports": 1
+  },
+  "runtime/documents.py": {
+    "isinstance": 1
+  },
+  "runtime/resources.py": {
+    "role-imports": 2
+  },
+  "runtime/startup.py": {
+    "role-imports": 1,
+    "isinstance": 1
+  }
+}

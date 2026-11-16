@@ -1,0 +1,26 @@
+{
+  "web/answers.py": {
+    "isinstance": 2
+  },
+  "web/app.py": {
+    "role-imports": 2
+  },
+  "web/connection_policy.py": {
+    "isinstance": 11
+  },
+  "web/connections.py": {
+    "isinstance": 7
+  },
+  "web/errors.py": {
+    "isinstance": 1
+  },
+  "web/handler.py": {
+    "isinstance": 3
+  },
+  "web/parse.py": {
+    "io": 1
+  },
+  "web/routes.py": {
+    "role-imports": 1
+  }
+}

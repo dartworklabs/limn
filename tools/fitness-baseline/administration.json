@@ -1,0 +1,28 @@
+{
+  "administration/member_state.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "administration/members.py": {
+    "role-unknown": 1
+  },
+  "administration/migrate.py": {
+    "role-unknown": 1
+  },
+  "administration/serve_documents.py": {
+    "role-unknown": 1,
+    "isinstance": 7
+  },
+  "administration/targets.py": {
+    "role-unknown": 1
+  },
+  "administration/token_files.py": {
+    "role-unknown": 1
+  },
+  "administration/token_state.py": {
+    "role-unknown": 1
+  },
+  "administration/tokens.py": {
+    "role-unknown": 1
+  }
+}

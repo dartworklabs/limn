@@ -2,6 +2,7 @@
 // docs/handbook/viewer.md §마크업 만들기. A value put into html`` is text unless it is Html the viewer made itself, so a
 // note, a name or a PDF heading never becomes markup because one esc() was forgotten. Html is made only here (html``
 // and ic()), and setHtml() is the one sink; src/limn/viewer/tests/test_viewer_markup.py holds every part to both.
+import { ICONS, esc } from './core.js';
 
 // Markup the viewer built: html`` escaped every value in it, or ic() drew it from the bundled icon table. toString()
 // gives the markup text (for tests and debugging); a string made from it is no Html, so setHtml() refuses it.
@@ -45,3 +46,4 @@ function setHtml(el,markup){
   for(const k of el.querySelectorAll('[data-cp]')){const c=parseInt(k.getAttribute('data-cp')||'',16);
     k.removeAttribute('data-cp'); if(c>=0&&c<=0x10ffff&&!(c>=0xd800&&c<=0xdfff))k.textContent=String.fromCodePoint(c);}
 }
+export { Html, html, ic, setHtml };

@@ -1,4 +1,15 @@
 // ------------------------------------------------ Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
+import { $, $$, DEFAULT_DOC, DOC, DOCS, MQ_COARSE, OPEN_ALL, imeKey, isFigureKind, setDefaultDoc,
+  setDocs } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { LANG, tl, tr } from './i18n.js';
+import { prefs } from './prefs.js';
+import { api } from './api.js';
+import { hideTip } from './tooltip.js';
+import { drawDocsMenu, drawPos, switchDoc } from './doc-switch.js';
+import { closePageList } from './page-list.js';
+import { searchFit } from './search.js';
+/** @typedef {import('./markup.js').Html} Html */
 function multiDoc(){return DOCS.length>1;}
 function docInfo(k){return DOCS.find(d=>d.key===k)||null;}
 /** @param {Pin} p */
@@ -14,7 +25,7 @@ function setHash(k){if(!multiDoc())return; const h='#doc='+k; if(location.hash!=
 function initialDoc(){const h=hashDoc(); if(h&&docInfo(h))return h; const l=prefs().lastDoc; if(l&&docInfo(l))return l;
   return DOCS.length?DOCS[0].key:null;}
 async function loadDocs(){try{const r=(await api('/api/docs',{what:'문서 목록',silent:true})).data;
-    DOCS=Array.isArray(r.docs)?r.docs:[]; DEFAULT_DOC=r.default||(DOCS[0]&&DOCS[0].key)||'main';}catch(e){DOCS=[];}
+    setDocs(Array.isArray(r.docs)?r.docs:[]); setDefaultDoc(r.default||(DOCS[0]&&DOCS[0].key)||'main');}catch(e){setDocs([]);}
   document.body.classList.toggle('docs-multi',multiDoc()); $('#all-docs').hidden=!multiDoc();}
 function docCount(k){return OPEN_ALL.filter(p=>pdoc(p)===k).length;}
 // A document's build state in the documents lists: a spinner while it builds, else a dot when its manuscript is newer than its
@@ -140,9 +151,9 @@ function docFit(){const row=$('#doc-links'),more=$('#doc-more'),nav=$('#doc-nav'
     tabs.forEach((a,i)=>{a.hidden=!shown.includes(i);});
     as(mode,mode==='more'?'+'+N:mode==='name'?d.name:''); more.style.maxWidth=cap;
     if(mode==='more'){more.setAttribute('aria-label',tl('+{n} 문서 더 보기',{n:N})); more.removeAttribute('title');}
-    else{more.setAttribute('aria-label',d.name+' — '+tl('문서 {n}개 중 고르기',{n:DOCS.length})); more.setAttribute('title',docTip(d));}
+    else {more.setAttribute('aria-label',d.name+' — '+tl('문서 {n}개 중 고르기',{n:DOCS.length})); more.setAttribute('title',docTip(d));}
     more.hidden=mode==='more'&&!N; fit=[mode,shown.map(i=>tabs[i].dataset.doc).join(),N,cap,d.name,drop].join('|');}
-  else{tabs.forEach(a=>{a.hidden=false;}); more.hidden=true;}
+  else {tabs.forEach(a=>{a.hidden=false;}); more.hidden=true;}
   st.classList.toggle('st-words-off',drop);
   const lost=had instanceof HTMLElement&&(row.contains(had)?had.hidden:!more.hidden?false:$('#doc-pop').contains(had));
   if(more.hidden)closeDocMenu(false);
@@ -239,3 +250,5 @@ $('#doc-pop').addEventListener('focusout',e=>{const to=/** @type {Node|null} */(
 document.addEventListener('pointerdown',e=>{const t=/** @type {Node} */(e.target);
   if(!$('#doc-pop').hidden&&!$('#doc-pop').contains(t)&&!$('#doc-more').contains(t))closeDocMenu(false);},true);
 addEventListener('resize',placeDocMenu);
+export { closeDocMenu, docBadge, docInfo, dq, drawDocTabs, hashDoc, initialDoc, isRegion, loadDocs, multiDoc, pdoc,
+  setHash, toggleDocMenu };

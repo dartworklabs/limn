@@ -54,11 +54,13 @@ catalog_schema: 1
 | `src/limn/runtime/documents.py`, `src/limn/administration/instance_documents.sh` | 문서 종류와 능력, 그리고 텍스트 문서로 받는 닫힌 확장자 목록(서버의 `TEXT_SUFFIXES` 와 셸의 `DOC_TEXT_SUFFIXES` 두 벌, `tests/architecture/test_text_suffixes.py` 가 묶는다) | 문서 종류·능력·받는 확장자 변경(확장자는 더하기만 한다) | instances.md, operations.md, domain.md, purpose.md, skill/* |
 | `src/limn/runtime/**` | 시작·설정·실행별 문서·잠금·캐시·감시 수명·고정 상태 경로 | 실행 수명·설정·문서 경로 변경 | architecture.md, operations.md, domain.md |
 | `src/limn/security/**` | 신원·Host/Origin·역할·권한 발급·사람 사실·감사·인증 안내 | 신뢰·권한·사람 기록·감사 변경 | architecture.md, api.md, operations.md, SECURITY.md |
-| `src/limn/platform/**` | 원고 핸들(크기를 제한한 읽기 `read_bounded` 포함)·원자적 쓰기·실패 원복 교체·파일 잠금·읽기 효과 범위(`effects.py`)·제한된 진단(`diagnostics.py`)·Git 프로세스·숫자와 텍스트 장치 | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |
+| `src/limn/platform/**` | 원고 핸들(크기를 제한한 읽기 `read_bounded` 포함)·원자적 쓰기·실패 원복 교체·파일 잠금·읽기 효과 범위(`effects.py`)·제한된 진단(`diagnostics.py`)·Git 프로세스·숫자와 텍스트 장치·`match`의 마지막 팔 `assert_never`(`never.py`) | 파일 접근·프로세스 인자/환경·JSON 값 판정 변경 | domain.md, build-sync.md, architecture.md |
 | `src/limn/web/**` | 공통 HTTP 처리기·요청 경계 협력자·요청 파서·응답·경로 계약 | 요청 한도·디스패치·공통 오류 형식 변경 | api.md, architecture.md |
 | `src/limn/server.py`, `src/limn/cli.py`, `src/limn/__main__.py` | 실행 자원 생성·기능 조립·명령 전달 | 시작/종료 연결·기능별 조립 계약 변경 | architecture.md, operations.md, 연결된 기능 topic |
 | `src/limn/*/__init__.py` | 진입점과 다른 슬라이스의 테스트가 import하는 기능 표면, 요청한 값만 불러오는 지연 export | 진입점이 import하는 이름·테스트용 export·기능 소유권 변경 | architecture.md, code-style-roadmap.md, verification.md |
 | `tools/check_boundaries.py`, `tests/architecture/test_boundaries.py` | 기능 사이의 import 금지·진입점 import 승인 목록·테스트용 export 목록·승인된 importer가 없는 표면 이름·경계 코드의 기능 의존 검사 | import 해석·소유권·검증 규칙 변경 | verification.md, architecture.md |
+| `tools/check_fitness.py`, `tools/fitness-baseline/*`, `tests/architecture/test_fitness.py` | 파일 이름과 경로가 정하는 모듈 역할과 역할별 규칙(import·I/O·`isinstance`·`limn.web`·원시 타입, `cast`·무시 주석·와일드카드 `case`)의 검사와 슬라이스별 기준선 | 역할 어휘·역할 규칙·검토한 별칭·기준선 변경 | code-style-roadmap.md, verification.md, architecture.md |
+| `tools/check_types.py`, `.basedpyright/baseline.json`, `tests/architecture/test_type_gate.py` | basedpyright 타입 게이트의 두 플랫폼 실행, 줄기만 하는 기준선, 검사기 설정의 보장 시험 | 타입 규칙·끈 규칙·기준선 변경 | code-style-roadmap.md, verification.md |
 | `src/limn/vendor/**` | 번들한 PDF.js, markdown-it(번들에 든 의존성의 고지 `licenses/` 포함), KaTeX(모듈·스타일시트·글꼴), Pretendard 글꼴 조각과 스타일시트, Lucide 출처 | 버전 교체·파일 추가 | viewer.md, api.md, architecture.md, 해당 vendor README, `THIRD_PARTY_NOTICES.md` |
 | `src/limn/**/tests/**`, `tests/**` | 소유 패키지의 동작과 교차 기능 계약·구조 게이트 | 검사 추가·이동·합격 기준 변경 | verification.md |
 | `package.json`, `package-lock.json`, `tsconfig.json`, `tsconfig.strict.json`, `tools/strict_ratchet.py`, `tools/strict-baseline.json`, `src/limn/viewer/types/*` | 뷰어 JS 타입 검사 도구와 그 설정·선언(서버와 휠에 들어가지 않는다) | 검사 범위·도구 버전·전역 선언 변경 | viewer.md, verification.md |

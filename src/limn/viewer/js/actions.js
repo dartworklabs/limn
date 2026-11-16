@@ -1,6 +1,20 @@
 // [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with [되돌리기]
 // (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a banner on top
 // of the panel.
+import { $, DOC, DONE_ALL, DROPPED, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE, OPEN_ALL, PINS, PIN_STATE, REVIEW_ALL, T,
+  setOpenAll, setPins, setReviewAll } from './core.js';
+import { tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { NOTICE_ACT_WAIT, NOTICE_LATE_SRC, bannerNote, deferred, deferredNote, drawnBefore, endNotice, lineNote,
+  quietNote, sourceEntry, sourceOk, undoNote } from './notices.js';
+import { pdoc } from './doc-tabs.js';
+import { findAnyPin, showChange } from './revisions.js';
+import { markMine, pinState } from './polling.js';
+import { drawStatus } from './status.js';
+import { searchToPage } from './search.js';
+import { drawTrash } from './cards.js';
+import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './list.js';
+import { EDITOR } from './edit.js';
 async function closePin(id){const prev=drawnBefore($('#pins'),'.pin.card',id),rec=OPEN_ALL.find(p=>p.id===id)||null;
   try{const {data}=await api('/api/pins/'+id+'/close',{method:'POST',what:'완료',where:NOTICE_HOST.LIST,retry:()=>closePin(id)});
   if(!data.ok){bannerNote(NOTICE_HOST.LIST,tl('완료 실패 — 핀 #{id} 이 없습니다',{id}),NOTICE_KIND.ERR);}
@@ -32,7 +46,7 @@ function confirmConflict(id,pin){const kind=confirmConflictKind(pin);
   bannerNote(NOTICE_HOST.REVIEW,confirmConflictText(id,pin),kind,kind===NOTICE_KIND.WARN?{label:'변경 보기',tip:T.change,fn:()=>showChange(id)}:null);}
 function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIndex(p=>p.id===id),pin=at<0?null:REVIEW_ALL[at];
   const prev=drawnBefore($('#review-pins'),'.pin.card',id);
-  CONFIRMING.add(id); if(pin)CONFIRMING_PIN.set(id,pin); REVIEW_ALL=REVIEW_ALL.filter(p=>p.id!==id); drawPins(); marks();
+  CONFIRMING.add(id); if(pin)CONFIRMING_PIN.set(id,pin); setReviewAll(REVIEW_ALL.filter(p=>p.id!==id)); drawPins(); marks();
   const d=deferred(async()=>{
       try{const {data}=await api('/api/pins/'+id+'/confirm',{method:'POST',what:'확인',where:NOTICE_HOST.REVIEW,expect:[409],keepalive:true,
           body:pin&&pin.done_at?{done_at:pin.done_at}:{}});
@@ -45,7 +59,7 @@ function confirmPin(id){if(CONFIRMING.has(id))return; const at=REVIEW_ALL.findIn
     // awaiting review, it goes back where it was; gone from that list it is not brought back - the order stays as the
     // server has it - and a pin deleted elsewhere is said so (a reopened or confirmed one is on its own list already).
     ()=>{const now=CONFIRMING_PIN.get(id); CONFIRMING.delete(id); CONFIRMING_PIN.delete(id);
-      if(now&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),now,...REVIEW_ALL.slice(i)];}
+      if(now&&!REVIEW_ALL.some(p=>p.id===id)){const i=Math.min(at,REVIEW_ALL.length); setReviewAll([...REVIEW_ALL.slice(0,i),now,...REVIEW_ALL.slice(i)]);}
       else if(pin&&!now&&![OPEN_ALL,REVIEW_ALL,DONE_ALL].some(l=>l.some(p=>p.id===id)))lineNote(tl('핀 #{id} 은 그사이 다른 곳에서 지워졌습니다',{id}),NOTICE_KIND.WARN);
       drawPins(); marks();});
   deferredNote(d,NOTICE_PLACE.ROW,tl('핀 #{id} 확인 · 완료로 옮겼습니다',{id}),{pin:id,sec:'review',prev,rec:pin});}
@@ -61,7 +75,7 @@ async function reopenPin(id){let ok=false; try{await api('/api/pins/'+id+'/reope
 // [판정 취소], verdict.js pvCancel), o.where is where a failure is said and o.what what it names. Resolves with whether the pin was deleted.
 /** @param {number|null} id @param {boolean} undoSave @param {()=>unknown} [again] @param {{say?:()=>void,where?:string,what?:string}} [o] @returns {Promise<boolean>} */
 async function dropPin(id,undoSave,again,o){const was=OPEN_ALL,applied=PINS_APPLIED_SEQ,prev=drawnBefore($('#pins'),'.pin.card',id),rec=was.find(p=>p.id===id)||null; let ok=false,lost=false;
-  OPEN_ALL=OPEN_ALL.filter(p=>p.id!==id); PINS=PINS.filter(p=>p.id!==id); if(EDITOR.current&&EDITOR.current.id===id)EDITOR.current=null; drawPins(); marks();
+  setOpenAll(OPEN_ALL.filter(p=>p.id!==id)); setPins(PINS.filter(p=>p.id!==id)); if(EDITOR.current&&EDITOR.current.id===id)EDITOR.current=null; drawPins(); marks();
   markMine(id);   // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
   const src='POST /api/pins/'+id+'/drop';
   try{await api('/api/pins/'+id+'/drop',{method:'POST',what:o&&o.what||'삭제',where:o&&o.where||NOTICE_HOST.LIST,retry:again||(()=>{dropPin(id,undoSave,undefined,o);})});
@@ -70,8 +84,8 @@ async function dropPin(id,undoSave,again,o){const was=OPEN_ALL,applied=PINS_APPL
     if(PINS_APPLIED_SEQ===applied){const old=was.find(p=>p.id===id);
       if(old&&!OPEN_ALL.some(p=>p.id===id)){const next=was.slice(was.indexOf(old)+1).find(p=>OPEN_ALL.some(x=>x.id===p.id));
         const at=next?OPEN_ALL.findIndex(p=>p.id===next.id):OPEN_ALL.length;
-        OPEN_ALL=[...OPEN_ALL.slice(0,at),old,...OPEN_ALL.slice(at)];
-        PINS=OPEN_ALL.filter(p=>pdoc(p)===DOC); drawPins(); marks();}}}
+        setOpenAll([...OPEN_ALL.slice(0,at),old,...OPEN_ALL.slice(at)]);
+        setPins(OPEN_ALL.filter(p=>pdoc(p)===DOC)); drawPins(); marks();}}}
   await loadPins();
   // An answer lost on the way back: the list says whether the pin went. If it did the drop is done - its failure and its
   // [다시 시도] (which would find nothing to drop) go, and it is said as done.
@@ -115,3 +129,5 @@ async function trashRestore(id){const src=NOTICE_LATE_SRC+'restore:'+id,trash=/*
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
 async function unclaimPin(id){try{await api('/api/pins/'+id+'/unclaim',{method:'POST',what:'처리 중 풀기',where:NOTICE_HOST.LIST,retry:()=>unclaimPin(id)});
   markMine(id); quietNote(tl('핀 #{id} 처리 중 표시를 풀었습니다',{id}));}catch(e){} await loadPins();}
+export { CONFIRMING, CONFIRMING_PIN, PURGING, closePin, confirmPin, dropPin, purgePin, restorePin, trashRestore,
+  unclaimPin };

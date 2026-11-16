@@ -5,6 +5,43 @@
 // and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line, which saves a
 // verdict about the page's whole target and never touches the composer. The words are the manuscript's: they are drawn as
 // text, translate="no", and the names around them are put in the screen's language here.
+import { $, $$, ASSIGNEE_AGENT, DEFAULT_DOC, DOC, DOCS, DONE, DONE_ALL, KIND_NEW, KIND_REQ, LAYOUT, LAYOUT_MODE, META,
+  MQ_COARSE, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, OPEN_ALL, PINS, PIN_STATE, REPLY, REVIEW_ALL, ROLE,
+  T, VD_WHERE, captureVisit, currentVisit, imeKey, isFigureKind, isViewOnlyKind, scrollMotion } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { errText, tl, tr } from './i18n.js';
+import { SEC_SEEN } from './prefs.js';
+import { api } from './api.js';
+import { BANNERS, NOTICES, NOTICE_ACT_WAIT, NOTICE_HOLD_MAX, NOTICE_MS, announce, bannerNote, chipAway, lineNote,
+  noticeAct, settleChip, sourceOk, undoNote } from './notices.js';
+import { SWALLOW_CLICK, hideTip } from './tooltip.js';
+import { docInfo, isRegion, pdoc } from './doc-tabs.js';
+import { findAnyPin } from './revisions.js';
+import { viewerBlocked } from './boot.js';
+import { pinState } from './polling.js';
+import { arrivalLetGo, arrivalWatch, arrivePage, figureTop, innerW } from './pages.js';
+import { SCROLL_KEYS, readingDepth } from './outline.js';
+import { searchToPage } from './search.js';
+import { setSide, typingNow } from './layout.js';
+import { rng } from './levels.js';
+import { elLost, figureFields, isFrac, pinPlace } from './figure.js';
+import { isMdDoc } from './md-surface.js';
+import { SG } from './suggest.js';
+import { COMPOSE } from './composer.js';
+import { savePin } from './save.js';
+import { PV_KEY_SAVE, PV_REASON, PV_WITHDRAWN, pvFocusLine, pvIsReasonField, pvKeyGuarded, pvReasonAfterDraw,
+  pvReasonAfterLines, pvReasonAfterSave, pvReasonDirty, pvReasonEnterPages, pvReasonInline, pvReasonLeave, pvReasonOn,
+  pvReasonPop, pvReasonRevive, pvReasonSettle, pvReasonSync, pvReasonUnbound, pvReasonUncancel, pvReasonUncancelDraft,
+  pvReasonUncancelSettle, rdGet, rdPut, setPvKeyGuard, setPvReason } from './verdict-reason.js';
+import { PV_AT_HELD, PV_BUILD_AT, PV_SIDE, pvBring, pvFlashOn, pvHeldReadingPage, pvMarkStops, pvPanel, pvPanelFill,
+  pvPanelFit, pvPanelGone, pvPanelHeld, pvPanelPlace, pvPanelStale, pvSideApply, pvSideCheck, pvSideSettle, pvSideTurn,
+  pvSideTurned, pvSideWant, pvSumOn, pvSums } from './verdict-panel.js';
+import { claimActive, josa, josaRo, who } from './card-parts.js';
+import { relSpan } from './cards.js';
+import { PINS_APPLIED_SEQ, isMe, loadPins } from './list.js';
+import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from './actions.js';
+import { EDITOR } from './edit.js';
+import { refreshDoc, topAnchor } from './rebuild.js';
 
 const VD_ARM_MS=4000;   // how long a confirm word's first press waits for its second (D9)
 // The verdict words of document doc (default: the one on screen): the full meta's for the document on screen (it is read with
@@ -185,7 +222,7 @@ function armVerdict(key,where,page,label,kbd){disarmVerdict(false);
 /** @param {boolean} redraw @param {boolean} [say] */
 function disarmVerdict(redraw,say){const a=VD_ARM; if(!a)return; clearTimeout(a.timer); VD_ARM=null; if(redraw)vdRedraw(a.where); hideTip();
   if(say)announce(tl('{word} 확정을 풀었습니다',{word:a.label}));
-  else{const r=$('#sr-news'); if(r&&r.textContent===vdArmSaid(a.label))r.textContent='';}}
+  else {const r=$('#sr-news'); if(r&&r.textContent===vdArmSaid(a.label))r.textContent='';}}
 /** @param {string} where */
 function vdRedraw(where){if(where===VD_WHERE.COMPOSER)renderVerdictRow(); else drawPageVerdicts();}
 // A press anywhere but on the armed button lets it go; Esc does too, and does nothing else. The click a long press's release
@@ -383,7 +420,7 @@ function verdictUndo(id){const undo=async()=>{let was=null;
     try{was=(await api('/api/pins/'+id,{what:'핀 읽기',silent:true})).data.pin;}catch(e){}
     const r=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(r&&pvReasonDirty(r))rdPut(r.doc,id,r.text,r.base,r.rev,{mode:r.mode,tried:r.tried,from:r.via});
     PV_WITHDRAWN.add(id); const ok=await dropPin(id,true,undo); if(!ok)PV_WITHDRAWN.delete(id);
-    if(ok&&PV_REASON&&PV_REASON.id===id){PV_REASON=null; drawPageVerdicts();}   // a withdrawn verdict takes no reason
+    if(ok&&PV_REASON&&PV_REASON.id===id){setPvReason(null); drawPageVerdicts();}   // a withdrawn verdict takes no reason
     const d=ok?rdGet(DOC,id):null,k=was&&verdictOf(was),t=was?pageTargetOf(was,META?META.kind:undefined):null;
     if(d&&k)lineNote(tl('판정 #{id} {word} 저장 되돌림 · 쓰던 이유 보관 — {target}',{id,word:verdictLabel(k),target:t?pageTargetShort(t.page):'#'+id}),NOTICE_KIND.OK,
       {label:'되돌리기',tip:T.undo,wait:true,fn:async()=>{PV_WITHDRAWN.delete(id); const back=await restorePin(id); if(back)pvAfterRestore(id); return back;}},
@@ -626,7 +663,7 @@ async function pvCancelPin(id,page,had,byKey){const p=OPEN_ALL.find(x=>x.id===id
   // Its reason popover leaves with the line's verdict, but the session is kept until the server answers: a failed cancel
   // brings the verdict back and its unsent reason with it, or keeps that as a draft its line marks when something took its
   // place (pvReasonUncancel); a done one drops it - its draft stays kept (rdPut) for the [되돌리기].
-  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){PV_REASON=null; if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode,tried:kept.tried,from:kept.via});}
+  const kept=PV_REASON&&PV_REASON.id===id?PV_REASON:null; if(kept){setPvReason(null); if(pvReasonDirty(kept))rdPut(kept.doc,id,kept.text,kept.base,kept.rev,{mode:kept.mode,tried:kept.tried,from:kept.via});}
   PV_WITHDRAWN.add(id);
   // The take-back is said on the status line with its [되돌리기], which the line itself also offers for as long (PV_LINE_UNDO):
   // the status line is far away by Tab.
@@ -1046,7 +1083,7 @@ function pvChipPlace(lines){const chips=lines.map(l=>/** @type {HTMLElement|null
     const rooms=[]; const stack=l.classList.contains('pv-stack');
     if(!stack&&words.length){const y=(Math.min(...words.map(b=>b.top))+Math.max(...words.map(b=>b.bottom)))/2;
       rooms.push(room(y,parts.filter(b=>b.top<y&&b.bottom>y).reduce((m,b)=>Math.max(m,b.right),lr.left)+8,Math.min(...words.map(b=>b.left))-8));}
-    else{const t=[...l.querySelectorAll(':scope>.pv-t *')].filter(e=>shown(e)&&!e.closest('.pv-pop')).map(R).filter(b=>b.height>0);
+    else {const t=[...l.querySelectorAll(':scope>.pv-t *')].filter(e=>shown(e)&&!e.closest('.pv-pop')).map(R).filter(b=>b.height>0);
       if(t.length){const last=Math.max(...t.map(b=>b.top)),row=t.filter(b=>b.bottom>last+1),y=(Math.min(...row.map(b=>b.top))+Math.max(...row.map(b=>b.bottom)))/2;
         rooms.push(room(y,row.reduce((m,b)=>Math.max(m,b.right),lr.left)+8,lr.right));}}
     const id=l.querySelector(':scope>.pv-fig>.pv-fig-id'),ft=l.querySelector(':scope>.pv-fig>.pv-fig-t');
@@ -1111,7 +1148,7 @@ function drawPageVerdicts(){const v=pageVerdictsOn(),f=/** @type {HTMLElement|nu
   try{pvReasonSync(); const map=pageVerdictPins(); PV_READ=pvHeldReadingPage(); PV_KEYS=pvKeysPage(PV_READ);
     // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size mark.
     if(PV_SIDE){$$('#doc .pgw>.pv').forEach(e=>e.remove()); map.forEach(list=>list.forEach(p=>PV_SHOWN.add(p.id))); pvPanelFill(map,v);}
-    else{pvPanelGone();
+    else {pvPanelGone();
       $$('#doc .pg').forEach(pg=>{const page=+pg.dataset.page; let line=/** @type {HTMLElement|null} */(pg.nextElementSibling);
         if(!pageTakesVerdict(page)){if(line&&line.classList.contains('pv'))line.remove(); return;}   // the map says this page takes none
         if(!line||!line.classList.contains('pv')){line=document.createElement('div'); line.className='pv'; pg.after(line); if(PV_CHIP_WATCH)PV_CHIP_WATCH.observe(line,{childList:true});}
@@ -1142,7 +1179,7 @@ function jumpPv(id){if(!PV_SHOWN.has(id))return false; const p=PINS.find(x=>x.id
   if(PV_SIDE){if(!document.getElementById('p'+t.page))return false; if(fig)arrivePage(t.page); else pvBring(t.page,true); pvFlashOn(t.page); return true;}   // the panel flashes where the page lands (verdict-panel.js)
   const line=/** @type {HTMLElement|null} */(document.querySelector('#doc .pv[data-page="'+t.page+'"]')); if(!line)return false;
   const block=/** @type {HTMLElement} */(line.parentElement),L=$('#left'),how=block.getBoundingClientRect().height<=L.clientHeight?'center':'start';
-  if(fig)arrivePage(t.page); else{pvGlideInto(block,how); arrivalWatch(()=>block.isConnected?pvIntoTop(block,how):null);} flash(line); return true;}
+  if(fig)arrivePage(t.page); else {pvGlideInto(block,how); arrivalWatch(()=>block.isConnected?pvIntoTop(block,how):null);} flash(line); return true;}
 
 // ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
@@ -1232,7 +1269,7 @@ function pvStick(){if(pageVerdictsOn()&&pvSideCheck())return;   // the room cros
   // stopped on page 5), and on a phone a slow scroll down then never passed a page's end: the page above came back under the
   // reading line, the reading page flipped back and the line grew again, 466 times in 14 drags.
   // Two pages in a row that take no verdict read 0 here, one after the other: the panel names the page, so it asks too.
-  if(r!==PV_READ||k!==PV_KEYS||pvPanelStale(at)){if(r!==PV_READ)PV_KEY_GUARD=false;   // the person moved on: they are not typing on into a field that went
+  if(r!==PV_READ||k!==PV_KEYS||pvPanelStale(at)){if(r!==PV_READ)setPvKeyGuard(false);   // the person moved on: they are not typing on into a field that went
     const was=[PV_READ,PV_KEYS]; PV_READ=r; PV_KEYS=k; const map=pageVerdictPins(),v=pageVerdictsOn();
     const re=/** @type {HTMLElement[]} */([]);
     if(v&&PV_SIDE){pvPanelFill(map,v); re.push(pvPanel());}   // the panel shows the new reading page
@@ -1588,3 +1625,10 @@ addEventListener('keydown',e=>{if(e.key!=='Tab'||!e.shiftKey||e.ctrlKey||e.metaK
     const m=panel?pvMarkStops(Number(panel.dataset.page)):[]; if(m.length){e.preventDefault(); m[m.length-1].focus(); return;}}
   const to=pvOutStop(); if(!to)return; e.preventDefault(); to.focus({preventScroll:true});
   if(to.closest('#outline')||to.classList.contains('pv-sum')){pvShow(); to.scrollIntoView({block:'nearest'});}});   // an outline entry comes into the outline's view; the pages stay
+export { PV_BUSY, PV_CHIP_WATCH, PV_JUMP, PV_KEYS, PV_KEY_OUT, PV_READ, PV_SCROLLEND, PV_SCROLL_AT, PV_SCROLL_HAND,
+  PV_TABBABLE, PV_TEXT, canVerdict, drawPageVerdicts, figureShort, figureVerdictBody, figureVerdictRoot, fillPv,
+  jumpPv, pageTakesVerdict, pageTargetOf, pageTargetShort, pageVerdictPins, pageVerdictsOn, pvAutoScrolling, pvCame,
+  pvCanCancel, pvCancel, pvCurOn, pvFarWatch, pvFigParts, pvFocusStays, pvGlideInto, pvGlideTo, pvIntoTop, pvLineUndo,
+  pvQuietRel, pvReadingAt, pvReadingPage, pvSayGliding, pvShow, pvShows, pvSlot, pvStateWord, pvStick, pvStickSoon,
+  pvTabStop, pvTopId, renderVerdictRow, sizePv, vdWrapFit, verdictBadge, verdictDropped, verdictLabel, verdictOf,
+  verdictOldMarker, verdictPress, verdictTarget, verdictUndo };

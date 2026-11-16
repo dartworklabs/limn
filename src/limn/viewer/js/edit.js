@@ -1,5 +1,26 @@
 // ------------------------------------------------ Edit
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
+import { KIND_REQ, NOTICE_HOST, NOTICE_KIND, PINS, PIN_STATE, T, rendersInBrowser } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { errText, tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { bannerNote, quietNote } from './notices.js';
+import { dq, isRegion, pdoc } from './doc-tabs.js';
+import { findAnyPin } from './revisions.js';
+import { viaDoc } from './doc-switch.js';
+import { viewerBlocked } from './boot.js';
+import { pinState } from './polling.js';
+import { drawLadder, kindFor, lvOf, rangeCap, setCap, snipText, wireScope } from './levels.js';
+import { drawExcerpt } from './excerpt.js';
+import { pinPlace } from './figure.js';
+import { mdEditLevels } from './md-surface.js';
+import { editDocKind, renderEditSuggest, suggestForEdit, suggestOfPin, suggestOff, suggestRebase } from './suggest.js';
+import { qHint } from './composer.js';
+import { verdictOf } from './verdict.js';
+import { assigneeOf, isQuestion, peopleName } from './card-parts.js';
+import { drawPins, jumpPin, loadPins } from './list.js';
+import { mentionHints, mentionPreview, renderAssignEdit } from './mentions.js';
+import { segRove } from './events.js';
 const EDITOR={current:/** @type {EditCard|null} */(null),saving:false};
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card){return EDITOR.current===card;}
@@ -125,7 +146,7 @@ async function saveEdit(){const E=EDITOR.current; if(!E||EDITOR.saving||viewerBl
         E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',mentions:(p.mentions||[]).filter(l=>(p.note||'').includes('@'+peopleName(l))),kind_req:E.orig.kind_req,assignee:assigneeOf(p)}; editSnip(true);}
       await loadPins(); return;}
     if(editorOwns(E)){E.theirs=null; E.overwrite=false; if(editFields(E)===fields)EDITOR.current=null;
-      else{const p=data.pin; E.base_rev=p.rev; E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',mentions:hints.slice(),kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)};
+      else {const p=data.pin; E.base_rev=p.rev; E.orig={lo:p.lo,hi:p.hi,scope:p.scope||null,note:p.note||'',mentions:hints.slice(),kind_req:isQuestion(p)?KIND_REQ.QUESTION:KIND_REQ.FIX,assignee:assigneeOf(p)};
         E.sg.had=p.suggest?{base:p.suggest.base,text:p.suggest.text}:null;}}
     quietNote(tl('핀 #{id} 수정됨',{id:E.id})); await loadPins();
   }catch(e){} finally{EDITOR.saving=false; syncEditSaveButton();}
@@ -146,3 +167,4 @@ function editSuggestRefused(E,data){if(editorOwns(E)){E.sg.current={text:String(
     {label:'지금 원문으로 맞추기',tip:'쓰던 글은 그대로 두고, 이 제안이 바꿀 원문을 지금 그 줄들의 글로 바꿉니다. 그다음 다시 저장합니다',
       fn:()=>{if(editorOwns(E))suggestRebase(E.sg,E,()=>editorOwns(E),()=>{if(editorOwns(E))renderEditSuggest(E);});}},
     {source:'POST /api/pins/'+E.id+'/edit edit'});}
+export { EDITOR, autoGrow, cancelEdit, editDirty, editNote, editSnip, openEdit, renderEdit, saveEdit };

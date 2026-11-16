@@ -1,0 +1,78 @@
+{
+  "builds/answer.py": {
+    "role-imports": 1
+  },
+  "builds/application.py": {
+    "isinstance": 2
+  },
+  "builds/artifacts.py": {
+    "role-unknown": 1,
+    "isinstance": 20
+  },
+  "builds/built_source.py": {
+    "role-unknown": 1,
+    "isinstance": 4
+  },
+  "builds/completion.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "builds/contracts.py": {
+    "role-imports": 2,
+    "io": 1,
+    "web-import": 1,
+    "primitive": 30
+  },
+  "builds/document_facts.py": {
+    "role-unknown": 1
+  },
+  "builds/engine.py": {
+    "role-unknown": 1,
+    "isinstance": 6
+  },
+  "builds/figure.py": {
+    "role-unknown": 1,
+    "isinstance": 6
+  },
+  "builds/figure_map.py": {
+    "role-unknown": 1,
+    "isinstance": 19
+  },
+  "builds/holds.py": {
+    "role-unknown": 1,
+    "isinstance": 7
+  },
+  "builds/http.py": {
+    "role-imports": 3
+  },
+  "builds/input.py": {
+    "role-imports": 1,
+    "io": 3
+  },
+  "builds/png.py": {
+    "role-unknown": 1
+  },
+  "builds/queries.py": {
+    "role-imports": 4,
+    "web-import": 1,
+    "isinstance": 5
+  },
+  "builds/routes.py": {
+    "role-imports": 1
+  },
+  "builds/run.py": {
+    "role-imports": 4,
+    "isinstance": 5
+  },
+  "builds/service.py": {
+    "role-imports": 7,
+    "isinstance": 4
+  },
+  "builds/values.py": {
+    "primitive": 30
+  },
+  "builds/warm.py": {
+    "role-unknown": 1,
+    "isinstance": 9
+  }
+}

@@ -9,6 +9,20 @@
 // - others' new pins (a co-author's, an agent's), one message per document, [보기];
 // - this page is older than the Limn the server runs now (GET /api/version): a status item with [새로 고침] (status.js);
 // - back after a while, what came meanwhile is said as one message (notices.js digestBegin, polling.js).
+import { $$, DOC, DOCS, META, META_BY, NOTICE_DOT, NOTICE_KIND, REPLY, REPLY_DRAFT, SWITCHSEQ, VIEW_MODE, isFigureKind,
+  isViewOnlyKind, rendersInBrowser } from './core.js';
+import { tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from './notices.js';
+import { docInfo, dq, pdoc } from './doc-tabs.js';
+import { REV, REVISION_PAGE, loadRevisions, setViewMode } from './revisions.js';
+import { switchDoc } from './doc-switch.js';
+import { notifyCursor, openPinFromLink } from './notify.js';
+import { drawStatus } from './status.js';
+import { MD, isMdDoc, mdLeaves, mdShowLines } from './md-surface.js';
+import { josaName, who } from './card-parts.js';
+import { replyNote } from './reply.js';
+import { editDirty } from './edit.js';
 const UPD={moved:/** @type {Map<string,{moved:Set<number>,lost:Set<number>}>} */(new Map()),
   lines:/** @type {Map<string,{base:string[],ranges:{lo:number,hi:number}[],at:number}>} */(new Map()),expect:0,expectAt:0,
   seenAt:/** @type {Map<string,number>} */(new Map()),top:/** @type {number|null} */(null),
@@ -311,3 +325,5 @@ async function checkVersion(){if(VERSION.busy){VERSION.again=true; return;} VERS
 function reloadForUpdate(){const r=REPLY&&replyNote(REPLY),typing=!!(r&&r.value.trim())||REPLY_DRAFT.size>0||editDirty();
   if(typing){lineNote('쓰던 답글이나 수정이 있습니다 — 보내거나 저장한 뒤 새로 고치세요',NOTICE_KIND.WARN,null,{source:'reload-typing',digest:false}); return;}
   flushDeferred(); location.reload();}
+export { DIGEST_TAIL_MS, awayTitle, checkDocUpdate, checkDocsSeen, checkVersion, reloadForUpdate, updExpect, updMarks,
+  updNewPins, updPinMoved, updSourceRedrawn, versionDue, versionOutdated, visitedBefore };

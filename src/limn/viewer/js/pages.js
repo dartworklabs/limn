@@ -1,5 +1,21 @@
 // The URL of page image p of the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a year
 // because a build's images never change (docs/handbook/api.md). Without a build name, the old /pages/<name>?v=<built_at>.
+import { $, $$, DOC, K, LAYOUT, LAYOUT_MODE, META, VIEW_MODE, ZOOMED, imeKey, isFigureKind, setKState,
+  setZoomed } from './core.js';
+import { html, setHtml } from './markup.js';
+import { tl } from './i18n.js';
+import { prefs, savePrefs } from './prefs.js';
+import { placeChips } from './notices.js';
+import { dq } from './doc-tabs.js';
+import { setViewMode } from './revisions.js';
+import { OUTLINE_PICK_GAP, spotTop } from './outline.js';
+import { vecInvalidate, vecObserve } from './pdf-draw.js';
+import { MD, isMdDoc, mdBuild } from './md-surface.js';
+import { COMPOSE } from './composer.js';
+import { PV_JUMP, PV_SCROLL_HAND, pvAutoScrolling, pvGlideInto, pvGlideTo, pvIntoTop, sizePv } from './verdict.js';
+import { pvReasonFocusBack, pvReasonHoldFocus } from './verdict-reason.js';
+import { markBadgeSides, marks } from './list.js';
+import { restoreAnchor, topAnchor } from './rebuild.js';
 function pageSrc(p){const b=META.pages_build;
   return dq(b?'/pages/'+encodeURIComponent(b)+'/'+encodeURIComponent(p.name):'/pages/'+encodeURIComponent(p.name)+'?v='+encodeURIComponent(META.built_at));}
 // Page sizes (docs/handbook/viewer.md §PDF 영역 전용 확대): every page box is its own paper width (pt_w, in points) times one
@@ -45,7 +61,7 @@ function fitK(){return fitWidth()/ptMax();}
 // Sets the scale K within wBounds and gives every page box its own width (pageWidth); saved in wide unless save is false
 // (saveK). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines (sizePv), the save
 // chips (placeChips) and [더보기]'s zoom figure (drawZoom).
-function setK(k,save){const m=ptMax(),b=wBounds(fitWidth(),m*PT_PX); K=Math.min(b[1],Math.max(b[0],k*m))/m; K_UNBOUND=false;
+function setK(k,save){const m=ptMax(),b=wBounds(fitWidth(),m*PT_PX); setKState(Math.min(b[1],Math.max(b[0],k*m))/m); K_UNBOUND=false;
   sizePages(); markBadgeSides(); sizePv(); placeChips(); if(save!==false&&LAYOUT===LAYOUT_MODE.WIDE)saveK(); vecInvalidate(); drawZoom();}
 // Gives every page box its width at the scale K, bounded or not (setK bounds the scale first).
 function sizePages(){const m=ptMax(); $$('.pg').forEach(e=>{e.style.width=pageWidth(+e.dataset.ptw||m,K)+'px';}); pageWidthVars();}
@@ -88,7 +104,7 @@ function openScale(fig,common,widest,fit,wide){return fig?Math.min(PT_PX,fit/com
 function defaultK(){return openScale(isFigureKind(META.kind),ptCommon(),ptMax(),fitWidth(),LAYOUT===LAYOUT_MODE.WIDE);}
 // In compact, whether the scale on screen is one the user chose rather than the one the screen picks (defaultK): only a chosen
 // one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing back on it is not.
-function markZoomed(){if(LAYOUT!==LAYOUT_MODE.WIDE)ZOOMED=Math.abs(K-defaultK())>K*1e-3;}
+function markZoomed(){if(LAYOUT!==LAYOUT_MODE.WIDE)setZoomed(Math.abs(K-defaultK())>K*1e-3);}
 function innerW(){const L=$('#left'),cs=getComputedStyle(L); return L.clientWidth-parseFloat(cs.paddingLeft)-parseFloat(cs.paddingRight);}
 // Fit-width: the scroller's inner width in whole px (innerW: its padding is the gap, which on touch keeps the page off the
 // handles' hit areas), on every band. The mouse's #left.clientWidth minus 48px was 12px wider than the room inside its 44px
@@ -207,3 +223,6 @@ function navGo(){const p=clampPage($('#ns-page-in').value,META&&META.pages?META.
   $('#nav-sheet').close(); if(document.body.classList.contains('revision-open'))setViewMode(VIEW_MODE.MANUSCRIPT); goPage(p);}
 $('#ns-page-in').addEventListener('keydown',e=>{if(e.key==='Enter'&&!imeKey(e)){e.preventDefault(); navGo();}});
 
+export { PT_PX, ZOOM_STEP, actualSize, arrivalLetGo, arrivalWatch, arrivePage, autoW, boundK, buildDoc, clampPage,
+  drawZoom, figureTop, fitK, fitW, goPage, innerW, jumpOnItsWay, markZoomed, navGo, pageNoSides, pageSrc, pageWidth,
+  ptMax, reapplyK, setK, startK, zoom, zoomAnchor, zoomRestore, zoomTo };

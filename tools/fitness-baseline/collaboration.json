@@ -1,0 +1,19 @@
+{
+  "collaboration/contracts.py": {
+    "primitive": 8
+  },
+  "collaboration/directory.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "collaboration/events.py": {
+    "role-unknown": 1,
+    "isinstance": 1
+  },
+  "collaboration/http.py": {
+    "role-imports": 1
+  },
+  "collaboration/notices.py": {
+    "role-unknown": 1
+  }
+}

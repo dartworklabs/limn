@@ -9,13 +9,22 @@
 // The active document visit owns one poll timer, request and completion baseline; the error panel follows that visit.
 // BUILD.cur is the running build's last /api/build answer (null when none runs): the status line reads its phase and seconds.
 // BUILD.unchanged is {pull} while the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
+import { $, BUILD_ERR_BY, BUILD_STATE, DOC, DOC_SEQ, META, NOTICE_KIND, NOTICE_LIFE, PULL_STATE, SWITCHSEQ,
+  buildsFromSource } from './core.js';
+import { tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { lineNote } from './notices.js';
+import { dq } from './doc-tabs.js';
+import { checkDocUpdate } from './updates.js';
+import { buildUnchanged } from './status.js';
+import { hideBuildErr, refreshDoc, showBuildErr } from './rebuild.js';
 const BUILD={timer:/** @type {ReturnType<typeof setInterval>|null} */(null),error:/** @type {any} */(null),lastSeq:/** @type {number|null} */(null),booted:false,
   inflight:/** @type {Promise<void>|null} */(null),asked:false,cur:/** @type {BuildStatus|null} */(null),unchanged:/** @type {{pull:string}|null} */(null)};
 // Reset the visible build controls and baseline when a different document takes the screen.
 function resetBuildForDoc(){if(BUILD.timer){clearInterval(BUILD.timer);BUILD.timer=null;}
   BUILD.cur=null; BUILD.unchanged=null; $('#build-chip').hidden=true; $('#btn-rebuild').disabled=false;
   BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0; BUILD.asked=false; BUILD.error=BUILD_ERR_BY.get(DOC)||null;
-  if(BUILD.error)hideBuildErr(); else{$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
+  if(BUILD.error)hideBuildErr(); else {$('#build-err').hidden=true; $('#build-err-chip').hidden=true;}
   BUILD.booted=true; if(BUILD.inflight)BUILD.inflight.then(()=>pollBuild()); else pollBuild();}
 function buildChipText(b){
   const label={pull:'원격 main 당겨오는 중',copy:'원고 복사 중',latex:'LaTeX 컴파일 중',render:'쪽 그리는 중'}[b.phase]||'재빌드 중';
@@ -84,3 +93,4 @@ function startBuildPolling(){
   window.addEventListener('focus',()=>pollBuild());
   pollBuild();   // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
 }
+export { BUILD, pollBuild, pullSuffix, resetBuildForDoc, startBuildPolling };

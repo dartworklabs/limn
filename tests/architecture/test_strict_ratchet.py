@@ -1,7 +1,7 @@
-"""tools/strict_ratchet.py: the viewer's not-yet-strict type errors per file only go down.
+"""tools/strict_ratchet.py: the viewer's not-yet-met checks (strict tsc, ESLint, the module boundaries) per file only go down.
 
-The script's run of tsc needs node_modules (npm ci), which the CI lint job installs and runs it there; these tests
-check its counting and comparison on tsc's own output format without node.
+The script's runs need node_modules (npm ci), which the CI lint job installs and runs it there; these tests check its
+counting and comparison on the tools' own output formats without node.
 """
 
 import importlib.util
@@ -49,7 +49,50 @@ def test_equal_counts_pass():
     assert ratchet.compare({"a.js": 2}, {"a.js": 2, "b.js": 0}) == []
 
 
-def test_the_baseline_lists_only_viewer_parts_with_errors():
-    """The committed baseline names viewer JS parts only, each with a positive count (empty once an option is met)."""
+def test_eslint_counts_per_rule_and_file_and_refuses_a_file_it_could_not_check():
+    """ESLint's JSON report counts each message once for its rule and file (relative to the checkout); a message with
+    no rule is a file ESLint could not parse, which no count can stand for."""
+    report = [
+        {
+            "filePath": str(ROOT / "src/limn/viewer/js/a.js"),
+            "messages": [{"ruleId": "r1"}, {"ruleId": "r1"}, {"ruleId": "r2"}],
+        },
+        {"filePath": str(ROOT / "src/limn/viewer/js/b.js"), "messages": [{"ruleId": "r1"}]},
+        {"filePath": str(ROOT / "src/limn/viewer/js/c.js"), "messages": []},
+    ]
+    assert ratchet.eslint_counts(report) == {
+        "r1": {"src/limn/viewer/js/a.js": 2, "src/limn/viewer/js/b.js": 1},
+        "r2": {"src/limn/viewer/js/a.js": 1},
+    }
+    broken = [
+        {"filePath": str(ROOT / "src/limn/viewer/js/a.js"), "messages": [{"ruleId": None, "message": "Parsing error"}]}
+    ]
+    try:
+        ratchet.eslint_counts(broken)
+    except SystemExit as stop:
+        assert "could not check src/limn/viewer/js/a.js" in str(stop)
+    else:
+        raise AssertionError("a parse error must stop the ratchet")
+
+
+def test_every_check_and_rule_is_compared_and_a_new_rule_starts_at_zero():
+    """compare_all names the check and rule of each difference; a rule the baseline does not name has a baseline of 0,
+    and a rule that is met everywhere may leave the baseline."""
+    found = {"tsc-strict": {"a.js": 1}, "eslint": {"r1": {"a.js": 2}, "new": {"b.js": 1}}, "boundaries": {}}
+    baseline = {"tsc-strict": {"a.js": 1}, "eslint": {"r1": {"a.js": 2}}, "boundaries": {"cycle": {"c.js": 3}}}
+    assert ratchet.compare_all(found, baseline) == [
+        "eslint new: b.js: 1 errors, baseline 0 - the new code must meet new",
+        "boundaries cycle: c.js: 0 errors, baseline 3 - lower the baseline (--update)",
+    ]
+    assert ratchet.compare_all(found, found) == []
+
+
+def test_the_baseline_lists_only_viewer_modules_with_violations():
+    """The committed baseline holds the three checks, each naming viewer JS modules only with positive counts (a rule
+    leaves it once it is met)."""
     baseline = json.loads((ROOT / "tools" / "strict-baseline.json").read_text(encoding="utf-8"))
-    assert all(k.startswith("src/limn/viewer/js/") and k.endswith(".js") and v > 0 for k, v in baseline.items())
+    assert sorted(baseline) == ["boundaries", "eslint", "tsc-strict"]
+    tables = [baseline["tsc-strict"], *baseline["eslint"].values(), *baseline["boundaries"].values()]
+    for counts in tables:
+        assert counts
+        assert all(k.startswith("src/limn/viewer/js/") and k.endswith(".js") and v > 0 for k, v in counts.items())

@@ -50,13 +50,15 @@ CODE_IN_COMMENT = re.compile(r"[\w$\])]=[\w$.]+\(|[\w$\]]\((?:[^()]|\([^()]*\))*
 
 
 def part_sources() -> dict[str, str]:
-    """Every JS part of the page, by manifest path, in page order."""
-    return {name: (VIEWER / name).read_text(encoding="utf-8") for name in PARTS}
+    """Every JS module of the page's script, by manifest path, in run order, as the build puts it into the script: its
+    import and export statements taken out (helpers_js.module_code) - they name the module's bindings, they are not
+    uses of them."""
+    return {name: helpers_js.module_code((VIEWER / name).read_text(encoding="utf-8")) for name in PARTS}
 
 
 def head_scripts() -> list[str]:
-    """index.html's inline scripts other than the main one (the language and theme bootstraps in <head>)."""
-    return helpers_js.inline_scripts((VIEWER / "index.html").read_text(encoding="utf-8"))[:-1]
+    """index.html's inline scripts (the language and theme bootstraps in <head>; the viewer's own script is a file)."""
+    return helpers_js.inline_scripts((VIEWER / "index.html").read_text(encoding="utf-8"))
 
 
 def swallowed(src: str) -> list[tuple[int, str]]:

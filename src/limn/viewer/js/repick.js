@@ -1,5 +1,20 @@
 // ------------------------------------------------ Re-place location
 // Shows the re-place banner with markup (Html) as its content.
+import { $, DOC, LAYOUT, LAYOUT_MODE, MQ_COARSE, NOTICE_HOST, NOTICE_KIND, PICKSEQ, PIN_STATE, REPICK, SWITCHSEQ, T,
+  captureVisit, currentVisit, setPickseq, setRepick } from './core.js';
+import { html, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { bannerNote, quietNote } from './notices.js';
+import { isRegion } from './doc-tabs.js';
+import { switchDoc } from './doc-switch.js';
+import { setSelMode, setSide } from './layout.js';
+import { kindFor, levelLabel, lvOf, rng, scopeLabel } from './levels.js';
+import { figureFields, pinPlace, repickEl, snapBox } from './figure.js';
+import { isMdDoc, mdSelMark, mdSelShown } from './md-surface.js';
+import { COMPOSE, cancelSelection } from './composer.js';
+import { loadPins } from './list.js';
+import { EDITOR, editSnip } from './edit.js';
 function banner(markup){const b=$('#banner'); setHtml(b,markup); b.hidden=false;}
 function bannerRepick(err){if(!REPICK)return; const line=err?html`<span class="errline flush">${err}</span>`:'';
   banner(html`<span>${isMdDoc()?tl('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소',{id:REPICK.id}):tl('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소',{id:REPICK.id})}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`);}
@@ -21,11 +36,11 @@ async function startRepick(){if(!EDITOR.current)return;
   // Repick clears an unfinished drag or error panel; a completed selection remains available if repick is cancelled.
   if(COMPOSE.picking||(!COMPOSE.current&&!$('#composer').hidden))cancelSelection(false);
   if(REPICK)cancelRepick();
-  REPICK={id:EDITOR.current.id,from:{lo:EDITOR.current.lo,hi:EDITOR.current.hi,page:EDITOR.current.page,region:!!EDITOR.current.region},box:null,cand:null}; bannerRepick();
+  setRepick({id:EDITOR.current.id,from:{lo:EDITOR.current.lo,hi:EDITOR.current.hi,page:EDITOR.current.page,region:!!EDITOR.current.region},box:null,cand:null}); bannerRepick();
   if(MQ_COARSE.matches)setSelMode(true); if(LAYOUT===LAYOUT_MODE.NARROW)setSide(false);}
 // Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared re-place. The
 // Markdown surface's mark goes back to the composer's selection, if any.
-function cancelRepick(){const was=!!REPICK; if(was)PICKSEQ++; if(REPICK&&REPICK.box)REPICK.box.remove(); REPICK=null; $('#banner').hidden=true; if(was)mdSelMark(mdSelShown());
+function cancelRepick(){const was=!!REPICK; if(was)setPickseq(PICKSEQ+1); if(REPICK&&REPICK.box)REPICK.box.remove(); setRepick(null); $('#banner').hidden=true; if(was)mdSelMark(mdSelShown());
   if(was){if(!COMPOSE.current)setSelMode(false); if(EDITOR.current&&LAYOUT!==LAYOUT_MODE.WIDE)setSide(true);}}
 // Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the editor
 // holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the region on a
@@ -51,3 +66,4 @@ async function applyRepick(){const R=REPICK; if(!R||!R.cand)return; const c=R.ca
       E.orig.lo=p.lo;E.orig.hi=p.hi;E.orig.scope=p.scope||null; editSnip(true);}
     quietNote(tl('핀 #{id} 위치를 {where} 로 바꿨습니다',{id:p.id,where:isRegion(p)?tl('쪽 {page} 영역',{page:pinPlace(p).page}):rng(/** @type {number} */(p.lo),/** @type {number} */(p.hi))})); await loadPins();
   }catch(e){}}
+export { applyRepick, banner, bannerCompare, bannerRepick, cancelRepick, startRepick };

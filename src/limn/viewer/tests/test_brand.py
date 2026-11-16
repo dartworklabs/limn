@@ -22,7 +22,7 @@ from limn.security import access as access
 from limn.viewer import assemble, assemble as viewer_assemble, mark as mark, routes as viewer_shell_routes
 from limn.web.errors import HTTPError
 
-from helpers import page_for, ps, req, set_config, split_resp, viewer_text
+from helpers import page_for, ps, req, script_page_for, set_config, split_resp, viewer_text
 from helpers_access import AccessBase, talk_to
 from helpers_browser import ChromiumTestCase
 
@@ -503,7 +503,7 @@ class LogoInTheBrowser(ChromiumTestCase):
     def setUpClass(cls):
         """Start Chromium once (skip without Playwright or a browser, fail if LIMN_TEST_REQUIRE_BROWSER=1)."""
         super().setUpClass()
-        cls.html = page_for("A-DEMO", "#1d4ed8").replace("\nboot();", "\n")
+        cls.html = script_page_for("A-DEMO", "#1d4ed8").replace("\nboot();", "\n")
 
     def page(self, theme=None, scheme="light"):
         """The viewer markup alone (boot() off), desktop width, in theme (the viewer's own setting) and the browser's

@@ -22,16 +22,21 @@ from helpers_access import ALICE, CAROL, AccessBase, talk_to
 
 
 class _Inline(HTMLParser):
-    """The text of every inline <script> and <style> of a page, as the tokenizer gives it (CDATA content)."""
+    """The text of every inline <script> and <style> of a page, as the tokenizer gives it (CDATA content). A script
+    with a src runs the file it names, not its text, so it is listed apart (external), by its src."""
 
     def __init__(self) -> None:
         super().__init__(convert_charrefs=False)
         self.found: list[tuple[str, str]] = []
         self._open: str | None = None
         self._text: list[str] = []
+        self.external: list[str] = []
 
     def handle_starttag(self, tag, attrs):
-        if tag in ("script", "style"):
+        src = dict(attrs).get("src") if tag == "script" else None
+        if src is not None:
+            self.external.append(src)
+        elif tag in ("script", "style"):
             self._open, self._text = tag, []
 
     def handle_data(self, data):
@@ -54,6 +59,14 @@ def served_hashes(body: bytes) -> dict[str, set[str]]:
         digest = base64.b64encode(hashlib.sha256(text.encode("utf-8")).digest()).decode()
         out[tag + "-src"].add("'sha256-%s'" % digest)
     return out
+
+
+def external_scripts(body: bytes) -> list[str]:
+    """The src of every script element of a served body that loads a file, in page order."""
+    parser = _Inline()
+    parser.feed(body.decode("utf-8"))
+    parser.close()
+    return parser.external
 
 
 def directives(policy: str) -> dict[str, list[str]]:
@@ -79,12 +92,14 @@ class ViewerPagePolicy(AccessBase):
         return split_resp(talk_to(ps, req("GET", "/", b"", dict(headers, Accept="text/html"))))
 
     def test_the_header_allows_exactly_the_inline_scripts_and_styles_of_the_served_bytes(self):
-        """Three inline scripts (theme, language, the viewer) and one stylesheet, each hash in the header, no other."""
+        """Two inline scripts (theme, language) and one stylesheet, each hash in the header, no other; the viewer's own
+        script is one file of this origin (GET /viewer.js with its content key), which 'self' allows and no hash names."""
         code, hdrs, body = self.page()
         self.assertEqual(code, 200)
         got = served_hashes(body)
-        self.assertEqual((len(got["script-src"]), len(got["style-src"])), (3, 1))
+        self.assertEqual((len(got["script-src"]), len(got["style-src"])), (2, 1))
         self.assertEqual(header_hashes(hdrs["content-security-policy"]), got)
+        self.assertEqual(external_scripts(body), ["/viewer.js?v=" + assemble.script_key(VIEWER_FILES.script)])
 
     def test_the_directives(self):
         """What the viewer is allowed beyond its hashes: its own origin, and https: images for avatars. No plugin, no
@@ -122,7 +137,7 @@ class ViewerPagePolicy(AccessBase):
 
     def test_every_other_response_says_only_frame_ancestors(self):
         """JSON, pins.md, a vendored module and the service worker carry FRAME_ONLY: the policy is the page's."""
-        for path in ("/api/version", "/pins.md", "/vendor/pdfjs/pdf.min.mjs?v=1", "/sw.js"):
+        for path in ("/api/version", "/pins.md", "/vendor/pdfjs/pdf.min.mjs?v=1", "/sw.js", "/viewer.js?v=1"):
             code, hdrs, _ = split_resp(talk_to(ps, req("GET", path, b"", ALICE)))
             self.assertEqual(code, 200, path)
             self.assertEqual(hdrs["content-security-policy"], csp.FRAME_ONLY, path)
@@ -160,10 +175,16 @@ class InlineHashes(unittest.TestCase):
         self.assertEqual(scripts, csp.inline_hashes("<script>b</script><script>a</script>")[0])
 
     def test_a_page_it_cannot_read_as_the_browser_does_is_refused(self):
-        """A tag with attributes, a closing tag spelt otherwise inside the text, an HTML comment opener in a script:
-        the browser would read another text than the pattern, so the page is refused (a packaging defect)."""
+        """A tag with attributes (but the one same-origin script form), a closing tag spelt otherwise inside the text, an
+        HTML comment opener in a script: the browser would read another text than the pattern, so the page is refused (a
+        packaging defect)."""
         for page in (
-            '<script src="/x.js"></script>',
+            '<script src="/x.js" type="module"></script>',
+            '<script src="/x.js">a</script>',
+            '<script src="//other.example/x.js"></script>',
+            '<script src="https://other.example/x.js"></script>',
+            "<script src=/x.js></script>",
+            '<style src="/x.css"></style>',
             "<script type=module>a</script>",
             "<script>a</SCRIPT >b</script>",
             "<script>if(a<!--b)c</script>",
@@ -171,6 +192,14 @@ class InlineHashes(unittest.TestCase):
         ):
             with self.subTest(page=page), self.assertRaises(ValueError):
                 csp.inline_hashes(page)
+
+    def test_a_script_file_of_this_origin_needs_no_hash(self):
+        """`<script src="/path"></script>` - one src, a path of this origin, no text - runs a file 'self' allows: it adds
+        no hash, and the inline elements around it are hashed as before."""
+        alone = csp.inline_hashes("<script>a</script><style>s</style>")
+        self.assertEqual(
+            csp.inline_hashes('<script>a</script><script src="/viewer.js?v=0a1b"></script><style>s</style>'), alone
+        )
 
 
 if __name__ == "__main__":

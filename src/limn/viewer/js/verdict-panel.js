@@ -11,6 +11,21 @@
 // does not flip it. The wide band only: the foldable and phone bands never take it. The line's words, keys, focus, save
 // chip and reason are the line's own (verdict.js, verdict-reason.js); this part decides when, places the panel and draws
 // the summaries.
+import { $, $$, DOC, K, LAYOUT, LAYOUT_MODE, META, isFigureKind } from './core.js';
+import { html, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { NOTICES, chipAway, drawChips } from './notices.js';
+import { arrivalWatch, innerW, pageWidth, ptMax } from './pages.js';
+import { readingDepth } from './outline.js';
+import { searchToPage } from './search.js';
+import { BAND_T } from './layout.js';
+import { PV_CHIP_WATCH, PV_READ, PV_SCROLLEND, PV_SCROLL_AT, PV_TABBABLE, PV_TEXT, drawPageVerdicts, fillPv,
+  pageTakesVerdict, pageVerdictsOn, pvAutoScrolling, pvCame, pvCanCancel, pvFarWatch, pvFigParts, pvFocusStays,
+  pvGlideTo, pvReadingAt, pvReadingPage, pvShow, pvStateWord, pvStick, pvStickSoon, pvTabStop, vdWrapFit, verdictLabel,
+  verdictOf } from './verdict.js';
+import { PV_REASON, pvComposingNow, pvFocusLine, pvIsReasonField, pvReasonField, pvReasonLeave, rdGet,
+  setPvComposing } from './verdict-reason.js';
+import { topAnchor } from './rebuild.js';
 
 // The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a page
 // holds the panel and its gap, and the left margin keeps at least PV_SIDE_LEFT. The lines go beside the pages when the PDF
@@ -54,7 +69,7 @@ function pvSideTurn(){const on=pvSideWant(); if(on===PV_SIDE)return null;
   const L=$('#left'),a=/** @type {HTMLElement|null} */(document.activeElement),f=pvIsReasonField(a)?/** @type {HTMLTextAreaElement} */(a):null,at=pvReadingAt();
   const keep={spot:L.scrollTop>0?topAnchor(readingDepth(L)):null,inLine:!!a&&!!a.closest&&!!a.closest('#doc .pv'),caret:f?[f.selectionStart,f.selectionEnd]:null,
     popAct:!!a&&!!a.closest&&!!a.closest('#doc .pv-pop')&&!f&&a.dataset.act||'',ctl:pvControlOf(a)};
-  if(f)PV_COMPOSING=null; PV_AT_HELD=at; pvSideApply(on); return keep;}
+  if(f)setPvComposing(null); PV_AT_HELD=at; pvSideApply(on); return keep;}
 // The lines have moved and are fitted: the point that was under the reading line is there again, so the page in view does not
 // shift and the reading page is the one held (a rounded scroll position may fall a pixel off a page's edge: taken back). A
 // reading line in the space above the page (the spot's gap) stands that far above it again, as far as the new space keeps it
@@ -172,7 +187,7 @@ function pvPanelFit(l){l.classList.remove('pv-tight','pv-early-out','pv-t-kept',
 // (readingDepth), else centred on that line - so the reading page is that page. smooth: a glide (a card's [보기]).
 /** @param {number} page @param {boolean} [smooth] */
 function pvBring(page,smooth){const at=pvBringTop(page); if(at===null)return;
-  if(smooth){pvGlideTo(at); arrivalWatch(()=>pvBringTop(page));} else{pvShow(); $('#left').scrollTop=at;}}
+  if(smooth){pvGlideTo(at); arrivalWatch(()=>pvBringTop(page));} else {pvShow(); $('#left').scrollTop=at;}}
 /** The scrollTop of that reading place, or null without the page. @param {number} page @returns {number|null} */
 function pvBringTop(page){const L=$('#left'),pg=document.getElementById('p'+page); if(!pg)return null;
   const lr=L.getBoundingClientRect(),r=pg.getBoundingClientRect(),pad=parseFloat(getComputedStyle(L).paddingTop),d=readingDepth(L);
@@ -271,3 +286,9 @@ const PV_RING_ROOM=2;   // px kept clear past a revealed control's focus ring
 $('#doc').addEventListener('focusin',e=>{const t=/** @type {HTMLElement|null} */(e.target); if(t&&t.closest&&t.closest('#pv-panel.pv-tall'))requestAnimationFrame(pvPanelReveal);});
 // The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
 if(typeof ResizeObserver!=='undefined')new ResizeObserver(()=>{if(LAYOUT===LAYOUT_MODE.WIDE&&pageVerdictsOn())pvStickSoon();}).observe($('#left'));
+// Sets PV_BUILD_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PV_BUILD_AT} T @param {T} v @returns {T} */
+function setPvBuildAt(v){PV_BUILD_AT=v; return v;}
+export { PV_AT_HELD, PV_BUILD_AT, PV_SIDE, pvBring, pvFlashOn, pvHeldReadingPage, pvMarkStops, pvPanel, pvPanelFill,
+  pvPanelFit, pvPanelGone, pvPanelHeld, pvPanelPlace, pvPanelStale, pvSideApply, pvSideCheck, pvSideSettle, pvSideTurn,
+  pvSideTurned, pvSideWant, pvSumGo, pvSumOn, pvSums, setPvBuildAt };

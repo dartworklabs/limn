@@ -25,9 +25,9 @@ dev = [
     "playwright>=1.47",
     "ruff>=0.16",
     "shellcheck-py>=0.11",
-    "mypy>=2.3",
     "pytest-xdist>=3.8.0",
     "hypothesis>=6.168.3",
+    "basedpyright>=1.40.2",
 ]
 
 [build-system]
@@ -82,18 +82,27 @@ ignore = [
 combine-as-imports = true               # `from limn import access, server as ps` stays one line, as the code writes it
 known-local-folder = ["helpers", "helpers_*", "test_*"]   # the tests' shared modules, imported after limn
 
-[tool.mypy]
-# Coding rule R8 (docs/handbook/code-style-roadmap.md §R8): every module of the package is type-checked strictly -
-# server.py too (the composition root; its module is also checked against the handler's limn.web.app.App Protocol)
-# and the `limn` command. A new module under src/limn is checked without being listed.
-files = ["src/limn"]
-# Exclude colocated tests from discovery while keeping every production module strict.
-exclude = ['^src/limn/(?:.*/)?(?:tests/|test_[^/]*\.py$)']
-mypy_path = "src"
-python_version = "3.10"
-strict = true
-# strict turns on strict_equality: == or != between types that cannot overlap is an error, so a typo in a closed
-# security value (limn.security.access Role, Via, AuthProvider) fails the check. Stated again so it stays on without strict.
-strict_equality = true
-# A `match` over a union that misses a case is an error, not just a missing return (docs/handbook/verification.md §9).
-enable_error_code = ["exhaustive-match"]
+[tool.basedpyright]
+# Coding rule R8 (docs/handbook/code-style-roadmap.md §R8): every production module under src/limn is checked in
+# basedpyright's strictest mode, as Linux here and as macOS with --pythonplatform Darwin (tools/check_types.py runs
+# both). Colocated tests and vendored code are not checked. Errors that existed when the gate came in are recorded in
+# .basedpyright/baseline.json, which may only shrink (docs/handbook/verification.md §9); a new error fails.
+include = ["src/limn"]
+exclude = ["src/limn/vendor", "**/tests", "**/test_*.py", "**/__pycache__"]
+pythonVersion = "3.10"
+pythonPlatform = "Linux"
+typeCheckingMode = "all"
+# A `# type: ignore` comment silences nothing: the only escape is the reviewed baseline (`# pyright: ignore` is
+# rejected by tools/check_fitness.py).
+enableTypeIgnoreComments = false
+# Rules "all" turns on that this project turns off, one reason each:
+# @override is typing.override (Python 3.12) or typing_extensions; the runtime is Python 3.10 and the standard library.
+reportImplicitOverride = false
+# Layout, not types: Ruff format owns it, and adjacent literals are how the formatter wraps long contract messages.
+reportImplicitStringConcatenation = false
+# A discarded return value (os.write, list.pop, dict.setdefault) is not a type defect; unused coroutines and
+# expressions are still reported.
+reportUnusedCallResult = false
+# Cycles between slices are tools/check_boundaries.py's; pyright also counts TYPE_CHECKING-only imports, so every lazy
+# slice surface (docs/handbook/architecture.md §의존 방향) would read as a cycle that never runs.
+reportImportCycles = false
