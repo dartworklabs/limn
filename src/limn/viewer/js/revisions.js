@@ -7,6 +7,31 @@
 // commits the shown range compares (the server's commit_ids; null until it answers), rangeBase its old side; listOpen
 // whether the phone shows every loaded row; rangeLine the range's summary for the status line, and rangeN its commit and file
 // counts (the rendered compare's status line takes them, md-compare.js mdcStatus).
+import { $, $$, DIFF_FORMAT, DOC, DONE_ALL, LAYOUT, LAYOUT_MODE, OPEN_ALL, OVERLAY_SIDE, PIN_STATE, RANGE_MODE,
+  REVIEW_ALL, REVISION_STATE, SCOPE_MODE, SCOPE_SOURCE, SEEN_STATE, SWITCHSEQ, T, VIEW_MODE } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { ccHtml } from './hidden-chars.js';
+import { errText, tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { docInfo, dq, isRegion, pdoc } from './doc-tabs.js';
+import { drawNavView, drawPos, switchDoc } from './doc-switch.js';
+import { canConfirmReview, confirmAccessText } from './boot.js';
+import { pinState } from './polling.js';
+import { PT_PX, boundK } from './pages.js';
+import { PDFJS_V, VEC } from './pdf-open.js';
+import { updateSectionStrip } from './outline.js';
+import { vecSchedule } from './pdf-draw.js';
+import { searchOffer } from './search.js';
+import { RZ, disposeRevisionZoom, drawRevisionZoom, mountRevisionPdf, resizeRevisionPdf,
+  revisionPdfActive } from './revision-zoom.js';
+import { setSide } from './layout.js';
+import { rng } from './levels.js';
+import { pinPlace } from './figure.js';
+import { isMdDoc } from './md-surface.js';
+import { MDC, mdcClear, mdcDrawNav, mdcDrawn, mdcRestatus, mdcShow } from './md-compare.js';
+import { isMe, markHitSides } from './list.js';
+import { keepSpot, returnToSpot } from './rebuild.js';
+import { segRove } from './events.js';
 const REV={seq:0,files:/** @type {{name:string,text:string}[]} */([]),whole:'',commit:'',sourceCommit:'',format:/** @type {string} */(DIFF_FORMAT.PDF),scope:/** @type {any} */(null),other:'',target:/** @type {RevTarget|null} */(null),pdfCommit:'',back:/** @type {string|null} */(null),
   overlay:/** @type {RevisionOverlay|null} */(null),side:/** @type {string} */(OVERLAY_SIDE.CUR),history:false,
   base:'',rows:/** @type {RevisionRow[]} */([]),rowsDoc:'',more:false,range:/** @type {RevRange} */({mode:RANGE_MODE.ONE,start:'',end:'',endSet:false}),
@@ -121,7 +146,7 @@ function setViewMode(mode){
   $('#view-manuscript').setAttribute('aria-pressed',String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed',String(revisions));
   if(!revisions){REV.target=null; mdcClear();}
-  if(revisions)loadRevisions(); else{++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();boundK();returnToSpot();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
+  if(revisions)loadRevisions(); else {++REV.seq;clearRevisionPdf();setRevisionOverlay(null);$('#revision-pin').hidden=true;revTargetActs();boundK();returnToSpot();if(VEC.doc)vecSchedule(0);updateSectionStrip();markHitSides();}
   drawNavView(); drawPos(); searchOffer();   // the changes view has no search
 }
 // Reads the document's recent commits into the changes view. Without history (not Git, a view-only PDF, no recent commit, or
@@ -501,7 +526,7 @@ function revHighlight(tg){const rows=$$('#revision-diff .rd-line'); let first=/*
     if(n>=tg.lo&&n<=tg.hi){el.classList.add('rd-pin'); if(!first)first=el;}});
   tg.hit=!!first||touchesPin(REV.files,tg,5); tg.near=!first&&tg.hit;   // when only a neighboring line changed, it's never described as "the highlighted line" (there is none)
   if(!first){const f=pinFileIndex(REV.files,tg.file); if(f<0)tg.hit=false;
-    else{let best=/** @type {Element|null} */(null),dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
+    else {let best=/** @type {Element|null} */(null),dist=Infinity; rows.forEach(el=>{const n=+el.querySelector('.rd-no').textContent; if(!n)return; const d=Math.min(Math.abs(n-tg.lo),Math.abs(n-tg.hi)); if(d<dist){dist=d;best=el;}}); first=best;}}
   revTargetNote(); const top=first; if(top)requestAnimationFrame(()=>top.scrollIntoView({block:'center'}));}
 function findAnyPin(id){return OPEN_ALL.find(p=>p.id===id)||REVIEW_ALL.find(p=>p.id===id)||DONE_ALL.find(p=>p.id===id)||null;}
 // REV.back remembers the manuscript document that opened [변경 보기], so [원고로] returns there.
@@ -583,3 +608,7 @@ async function loadRevisionPdf(id,seq,k){
     statusBox.textContent=tl('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.',{error:data&&data.error?errText(data):e&&/** @type {Error} */(e).message?/** @type {Error} */(e).message:tr('표시하지 못했습니다.')});
   }}
 }
+export { REV, REVISION_PAGE, REV_PDF, REV_SCOPE, findAnyPin, hunkRanges, loadRevisions, moreRevisions,
+  pressRevisionRow, renderCommitList, renderRevisionFile, revBack, revKey, revTargetActs, revTargetNote,
+  revisionCurrent, revisionPinFor, setRevisionFormat, setRevisionRange, setRevisionSide, setRevisionWhole, setViewMode,
+  showChange, showRevision, toggleRevisionOther };

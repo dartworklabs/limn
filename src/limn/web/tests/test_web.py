@@ -282,6 +282,7 @@ GET_ROUTES = (
     "/api/meta",
     "/sw.js",
     "/md-parse.mjs",
+    "/viewer.js",
     "/api/revisions",
     "/api/revision-diff",
     "/api/revision-source",

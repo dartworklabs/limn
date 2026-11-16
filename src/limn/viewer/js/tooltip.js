@@ -1,4 +1,7 @@
 // ------------------------------------------------ Tooltip
+import { $, LAST_PTR, LAST_TOUCH_T, MQ_NOHOVER, setLastPtr, setLastTouchT } from './core.js';
+import { typingNow } from './layout.js';
+import { MARK_HIDDEN } from './list.js';
 const TIP=$('#tip'); let tipT=/** @type {ReturnType<typeof setTimeout>|undefined} */(undefined),tipEl=/** @type {HTMLElement|null} */(null),
   TIPXY=/** @type {number[]|null} */(null);
 document.addEventListener('mousemove',e=>{TIPXY=[e.clientX,e.clientY];},{passive:true});
@@ -49,7 +52,7 @@ function armTip(el){if(el===tipEl)return; hideTip(); if(!el)return; tipEl=el; ti
 // Hover/focus tooltips are never shown right after a touch - mobile Chrome simulates mouseover/focusin on every tap, so a
 // description used to pop up every time a button was pressed. Touch relies on long-press instead (below).
 const touchRecent=()=>Date.now()-LAST_TOUCH_T<1500;
-document.addEventListener('pointerdown',e=>{LAST_PTR=e.pointerType||'mouse'; if(LAST_PTR!=='mouse')LAST_TOUCH_T=Date.now();},true);
+document.addEventListener('pointerdown',e=>{setLastPtr(e.pointerType||'mouse'); if(LAST_PTR!=='mouse')setLastTouchT(Date.now());},true);
 // Whether a key press makes the keyboard the input the focus ring answers: any key outside a text field (Tab, a shortcut such
 // as '?'), and in a field only a key that leaves it or acts (Tab, Escape, or with Ctrl/⌘/Alt) - typing is not, nor a touch
 // keyboard's 'Unidentified' key or an IME's composing one. Pure.
@@ -189,3 +192,8 @@ new MutationObserver(ms=>{for(const m of ms){const t=m.target;
   .observe(document.body,{childList:true,subtree:true,characterData:true,attributes:true,
     attributeFilter:['data-tip','data-tip-press','aria-label','aria-describedby','tabindex']});
 tipDescribeTree(document.body);
+// Sets SWALLOW_CLICK, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SWALLOW_CLICK} T @param {T} v @returns {T} */
+function setSwallowClick(v){SWALLOW_CLICK=v; return v;}
+export { SWALLOW_CLICK, TIP, TIP_AT, endPress, focusGivenBack, hideTip, keyInput, setSwallowClick, showTip,
+  showTipText, tipEl, tipFollow };

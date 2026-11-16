@@ -5,6 +5,14 @@
 // and only the visible width is clamped within the limit. The limit: the minimum is the width where the panel's tool bar fits
 // on one line, the maximum is the width that leaves the body (PDF) side its minimum width.
 // The outline's width bounds: 220-320px as an overlay; beside the document at most what leaves the PDF 290px beside the panel.
+import { $, BAND, LAYOUT, LAYOUT_BAND, LAYOUT_MODE, MQ_COARSE, OUTLINE_MID_OPEN, SIDE_OPEN,
+  setOutlineMidOpen } from './core.js';
+import { html, setHtml } from './markup.js';
+import { prefs, savePrefs } from './prefs.js';
+import { gripAria, outlineOverlay, panelField, relayout, setSide } from './layout.js';
+import { syncBackLayer } from './gestures.js';
+import { restoreAnchor, topAnchor } from './rebuild.js';
+import { segFocusAt, segKeep, segRove } from './events.js';
 function outlineBounds(){if(outlineOverlay())return {min:220,max:320};const max=Math.max(180,Math.min(320,innerWidth-curSideW()-290));return {min:Math.min(220,max),max};}
 function showOutlineWidth(w){const b=outlineBounds();w=Math.round(Math.max(b.min,Math.min(b.max,w)));
   document.documentElement.style.setProperty('--outline-width',w+'px');
@@ -24,7 +32,7 @@ function setOutlineWidth(w){if(BAND===LAYOUT_BAND.PHONE)return;w=showOutlineWidt
 // Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin panel as it
 // opens; wide remembers it in pinPrefs.outlineClosed.
 function toggleOutline(){const a=topAnchor(),closed=!document.body.classList.contains('outline-collapsed');
-  if(outlineOverlay()){OUTLINE_MID_OPEN=!closed;if(!closed)setSide(false);}
+  if(outlineOverlay()){setOutlineMidOpen(!closed);if(!closed)setSide(false);}
   else savePrefs({outlineClosed:closed});
   applyOutlineState();relayout();restoreAnchor(a);$('#nav-toc-toggle').focus({preventScroll:true});}
 function sideBounds(layout,iw){const cl=(w,a,b)=>Math.round(Math.min(b,Math.max(a,w)));
@@ -117,7 +125,13 @@ function renderSizeSeg(){const box=$('#m-size'); if(!box)return; const narrow=LA
   $('#m-size-l').textContent=narrow?'시트 높이':'패널 폭'; box.setAttribute('aria-label',narrow?'시트 높이':'패널 폭');
   let names,cur;
   if(narrow){names=['낮게','보통','높게']; const f=sheetF(); cur=SHEET_F.findIndex(x=>Math.abs(x-f)<=0.02);}
-  else{names=['좁게','보통','넓게']; const b=sideBounds(LAYOUT,innerWidth); cur=presetIndex(b.presets,sideWidthFor(b));}
+  else {names=['좁게','보통','넓게']; const b=sideBounds(LAYOUT,innerWidth); cur=presetIndex(b.presets,sideWidthFor(b));}
   setHtml(box,html`${names.map((n,i)=>html`<button class="${i===cur?'on':''}" role="radio" aria-checked="${i===cur}" data-act="size-preset" data-i="${i}">${n}</button>`)}`);
   segRove(box); segKeep(box,at);}   // one Tab stop, the size chosen (else the first: a dragged width has none), and the focus kept (events.js)
 function sizePreset(i){if(LAYOUT===LAYOUT_MODE.NARROW){setSheetF(SHEET_F[i]);return;} setSideWidth(sideBounds(LAYOUT,innerWidth).presets[i]);}
+// Sets SHEET_KEPT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SHEET_KEPT} T @param {T} v @returns {T} */
+function setSheetKept(v){SHEET_KEPT=v; return v;}
+export { SHEET_CLOSE_F, SHEET_F, SHEET_KEPT, SHEET_MIN_F, SIDE_SHOWN, applyOutlineState, applySheet, applySideWidth,
+  curSideW, cycleSheet, cycleSideWidth, gripKey, keepSheet, outlineBounds, renderSizeSeg, setOutlineWidth, setSheetF,
+  setSheetKept, setSideWidth, sheetF, showOutlineWidth, showSideW, sideBounds, sizePreset, snapSide, toggleOutline };

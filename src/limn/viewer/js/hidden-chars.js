@@ -14,6 +14,8 @@
 // ties the two and checks this one against the engine's own Unicode properties.
 // A character a legitimate sequence needs is left as it is (ccKept). Nothing else is: a tag sequence (a subdivision flag)
 // shows its tags by name.
+import { html } from './markup.js';
+/** @typedef {import('./markup.js').Html} Html */
 /** @type {ReadonlyArray<readonly [number,number]>} */
 const CC_RANGES=Object.freeze([[0x00,0x08],[0x0b,0x1f],[0x7f,0x9f],[0xad,0xad],[0x34f,0x34f],[0x61c,0x61c],[0x115f,0x1160],
   [0x17b4,0x17b5],[0x180b,0x180f],[0x200b,0x200f],[0x2028,0x202e],[0x2060,0x206f],[0x3164,0x3164],[0xfe00,0xfe0f],[0xfeff,0xfeff],
@@ -98,3 +100,4 @@ function ccBox(ch){const e=document.createElement('span'); e.className='cc'; e.d
 function ccHtml(s){const str=String(s),out=[]; let at=0;
   for(const c of ccFind(str)){const cp=c.ch.codePointAt(0)||0; out.push(str.slice(at,c.at),html`<span class="cc" data-cc="${ccName(cp)}"><span class="sr-only" data-cp="${cp.toString(16)}"></span></span>`); at=c.at+c.ch.length;}
   out.push(str.slice(at)); return html`${out}`;}
+export { CC_ANY, ccAdded, ccBox, ccClip, ccFind, ccHtml, ccName, ccPlain, ccScan };

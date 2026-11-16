@@ -4,6 +4,16 @@
 // page - a reload, the back gesture past the sheet - never loses it, and this tab's next boot restores it (restoreDraft). Saving
 // clears it; a discard clears it once its undo window is over (DRAFT.holds has that document's undo). Only this tab sees it.
 // The tab owns the debounce timer and the active document's draft key; a discard's undo holds its own document's key.
+import { $, ASSIGNEE_AGENT, DOC, KIND_NEW, KIND_REQ, LAYOUT, LAYOUT_MODE, META, NOTICE_KIND, NOTICE_LIFE,
+  setSnipOpen } from './core.js';
+import { NOTICES, lineNote } from './notices.js';
+import { applySide, setSide } from './layout.js';
+import { drawBox, newBox, pendingBadge, revealBox } from './selection.js';
+import { isMdDoc, mdRelevel } from './md-surface.js';
+import { SG, suggestClear, suggestCopy } from './suggest.js';
+import { COMPOSE, cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind } from './composer.js';
+import { ASSIGN_NEW, renderAssignNew } from './mentions.js';
+import { autoGrow } from './edit.js';
 const DRAFT={timer:/** @type {ReturnType<typeof setTimeout>|0} */(0),ready:false,holds:new Map(),key:/** @type {string|null} */(null),
   origin:/** @type {{key:string|null,value:string|null,current:Selection|null}|null} */(null)};
 // Keep a discarded draft until its undo (note, on the status line) leaves, unless a newer draft replaced it first.
@@ -70,9 +80,11 @@ function restoreDraft(){let rec=/** @type {any} */(null),raw=/** @type {string|n
   if(picked)saveDraftSoon();
   if(how==='full'){const c=rec.cur,pg=document.getElementById('p'+c.page);
     if(pg&&Array.isArray(c.frac)){const b=newBox(pg),f=c.frac; drawBox(b,f[0],f[1],f[0]+f[2],f[1]+f[3]); b.classList.add('pending'); pendingBadge(b,'새 핀'); COMPOSE.box=b;}
-    COMPOSE.current=c; COMPOSE.intent++; recomputeOverlap(); SNIP_OPEN=false; $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
+    COMPOSE.current=c; COMPOSE.intent++; recomputeOverlap(); setSnipOpen(false); $('#c-err').hidden=true; $('#c-body').hidden=false; $('#composer').hidden=false;
     renderComposer(); DRAFT.origin={key:k,value:raw,current:c}; setSide(true); applySide(); if(LAYOUT!==LAYOUT_MODE.WIDE)revealBox(COMPOSE.box);
     if(isMdDoc())mdRelevel();}   // the Markdown surface's line view takes the kept lines as lines
   lineNote(how==='full'||picked?'작성 중이던 메모를 되살렸습니다':'작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',NOTICE_KIND.INFO,
-    {label:'버리기',tip:'되살린 선택과 메모를 버립니다',fn:()=>{if(!$('#composer').hidden)discardSelection(); else{cancelSelection(true); syncDraft();}}},
+    {label:'버리기',tip:'되살린 선택과 메모를 버립니다',fn:()=>{if(!$('#composer').hidden)discardSelection(); else {cancelSelection(true); syncDraft();}}},
     {life:NOTICE_LIFE.CLICK});}
+export { clearSavedDraft, holdDraftUntil, openDraftDoc, parkDraft, restoreDraft, restoredDraftOwns, saveDraftSoon,
+  savedDraftSnapshot, syncDraft };

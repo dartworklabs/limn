@@ -8,6 +8,9 @@
 // (components.css).
 // Off is this page's state only (never stored): a reload shows every mark.
 // Only the marks go. The pins, the cards, the page verdict lines and the selection box are as they were.
+import { $, NOTICE_KIND, NOTICE_LIFE } from './core.js';
+import { lineNote, quietNote, sourceOk } from './notices.js';
+import { searchToPage } from './search.js';
 const MARKS={off:false,held:/** @type {{code:string,at:number}|null} */(null)};
 const MARKS_HOLD_MS=350;   // a press this long is a look, not a switch
 const MARKS_SOURCE='marks-off';   // the status line's one reminder (sourceEntry)
@@ -36,7 +39,7 @@ function drawMarksSwitch(){const m=$('#m-marks'); m.setAttribute('aria-checked',
 /** @param {boolean} off */
 function marksSet(off){const was=MARKS.off; MARKS.off=off; MARKS.held=null; marksLook(off); drawMarksSwitch();
   if(off)lineNote('핀 표시를 숨겼습니다',NOTICE_KIND.INFO,{label:'다시 보이기',tip:'쪽 위의 핀 표시를 다시 보입니다 (H)',fn:()=>marksSet(false)},{life:NOTICE_LIFE.STICKY,source:MARKS_SOURCE,keep:true});
-  else{sourceOk(MARKS_SOURCE); if(was)quietNote('핀 표시를 다시 보입니다');}}
+  else {sourceOk(MARKS_SOURCE); if(was)quietNote('핀 표시를 다시 보입니다');}}
 // The marks come back because the way leads to one of them (a card's [보기]). Nothing when they already show.
 function marksShow(){if(MARKS.off||MARKS.held)marksSet(false);}
 // The marks key goes down: the marks flip at once, so a look starts with the press. Not in a text field, under a dialog or
@@ -56,3 +59,4 @@ function marksPressLost(){if(!MARKS.held)return; MARKS.held=null; marksLook(MARK
 addEventListener('keydown',marksKeyDown); addEventListener('keyup',marksKeyUp);
 addEventListener('blur',marksPressLost); document.addEventListener('visibilitychange',()=>{if(document.hidden)marksPressLost();});
 drawMarksSwitch();
+export { MARKS, marksSet, marksShow };

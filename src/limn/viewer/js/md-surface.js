@@ -25,6 +25,30 @@
 // - A text selection (a mouse drag, a phone's long-press handles) becomes lines lo..hi; a tap or click on a block picks that
 //   block. The ladder is: the chosen lines -> the block -> the heading's section (mdLevels). Saving is the ordinary POST
 //   /api/pin, with no page, frac or pdf_build (the server drops them for this document anyway, ADR-0025 D2).
+import { $, $$, DOC, DOCS, IME_ON_FREE, LAST_PTR, LAYOUT, LAYOUT_MODE, MD_LIMIT, META, MQ_COARSE, NOTICE_TOPIC,
+  PICKSEQ, PINS, PIN_STATE, REPICK, REVIEW_ALL, SWITCHSEQ, imeHeldIn, rendersInBrowser, scrollMotion, setPickseq,
+  setSnipOpen, showsSourceLines } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { CC_ANY, ccBox, ccClip, ccFind, ccPlain, ccScan } from './hidden-chars.js';
+import { tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { endTopic } from './notices.js';
+import { TIP, hideTip, showTip } from './tooltip.js';
+import { docInfo, dq, isRegion, pdoc } from './doc-tabs.js';
+import { drawPos, switchDoc, switchPending } from './doc-switch.js';
+import { pinState } from './polling.js';
+import { updMarks, updSourceRedrawn } from './updates.js';
+import { OUTLINE_SELECTED, SCROLL_KEYS, markOutline, readingDepth, renderOutline, setOutlineBuild, setOutlineCut,
+  setOutlineDoc, setOutlineEntries, setOutlineSelected } from './outline.js';
+import { applySide, setSide } from './layout.js';
+import { BACK } from './gestures.js';
+import { revealBox, selRoom } from './selection.js';
+import { lvOf, rng, useLevel } from './levels.js';
+import { isTextDoc, srcLines, txHint, txLevels, txMarksText, txNamesText, txNote, txView } from './text-surface.js';
+import { COMPOSE, focusFell, focusHold, imeOpen, overlapsFor, renderComposer, setBusy } from './composer.js';
+import { pvShow, renderVerdictRow } from './verdict.js';
+import { marks } from './list.js';
+import { bannerCompare } from './repick.js';
 const MD_LIMITS=Object.freeze({nesting:20,blocks:30000,inlines:150000,elements:60000,ms:2000,lines:50000,chunk:2000,tex:10000});
 // MD: the document drawn (doc, file, name), its source lines and the src_mtime they were read at (mtime: set only by a read
 // that answered, so the light poll, polling.js, sees a failed read as not done), the src_mtime a redraw was last asked for
@@ -328,7 +352,7 @@ function mdSpotKeep(){const s=MD.spot,md=$('#md'),L=$('#left'); if(!s||s.doc!==D
   if(mdGoOn()){mdSpotRead(true); return;}   // a jump in flight goes on to its heading's new place: the spot is a point it passes
   const e=mdSpotEl(s);
   if(!e){if(L.scrollTop>0)L.scrollTop=0;}
-  else{const r=e.getBoundingClientRect(),into=!s.line||mdCarries(e,s.line)?(s.off!==null?s.off:s.frac*r.height+s.past):0;   // a nearer line kept: its top
+  else {const r=e.getBoundingClientRect(),into=!s.line||mdCarries(e,s.line)?(s.off!==null?s.off:s.frac*r.height+s.past):0;   // a nearer line kept: its top
     const d=r.top+into-L.getBoundingClientRect().top; if(Math.abs(d)>=0.5)L.scrollTop+=d;}
   if(s.sel)revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')),true);
   mdSpotRead(true);}
@@ -455,7 +479,7 @@ function mdRenderer(root,cx){const stack=[root];
       pre.appendChild(code); top.appendChild(pre);
       const lines=t.content?String(t.content).replace(/\n$/,'').split('\n'):[];
       for(let i=0;i<lines.length;i++){const s=mdEl('span',cx),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
-        if(mdPlain(ln,cx))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w,cx); s.appendChild(document.createTextNode('\n'));}
+        if(mdPlain(ln,cx))s.textContent=ln+'\n'; else {yield* mdText(s,ln,w,cx); s.appendChild(document.createTextNode('\n'));}
         code.appendChild(s); if(mdDue(w))yield;}
       return;}
     if(t.type==='hr'){const hr=mdEl('hr',cx); mdMap(hr,t,'rule',cx); top.appendChild(hr); return;}
@@ -481,7 +505,7 @@ function* mdFront(t,top,w,cx){const box=mdEl('div',cx); box.className='md-front'
   head.textContent=tl('머리 정보 · YAML {n}줄',{n:Math.max(0,hi-lo+1)});
   const pre=mdEl('pre',cx),code=mdEl('code',cx); pre.dataset.lang='yaml'; pre.appendChild(code); box.append(head,pre); top.appendChild(box);
   for(let n=lo;n<=hi;n++){const sp=mdEl('span',cx),ln=String(cx.lines[n-1]||''); sp.className='ln'; sp.dataset.line=String(n);
-    if(mdPlain(ln,cx))sp.textContent=ln+'\n'; else{yield* mdText(sp,ln,w,cx); sp.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
+    if(mdPlain(ln,cx))sp.textContent=ln+'\n'; else {yield* mdText(sp,ln,w,cx); sp.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
     code.appendChild(sp); if(mdDue(w))yield;}}
 // Display math (the worker's math_block token, mdMathBlock in md-parse.mjs; ADR-0032, ADR-0036): the block's lines
 // (data-lo..hi, kind math - a block of its own, md:math) either drawn by KaTeX in one box (mdTexBox, with the source TeX on
@@ -495,7 +519,7 @@ function* mdMath(t,top,w,cx){const first=t.map?t.map[0]+1:0,lines=String(t.conte
   if(box){mdMap(box,t,'math',cx); top.appendChild(box); return;}
   const pre=mdEl('pre',cx),code=mdEl('code',cx); pre.className='md-math-block'; mdMap(pre,t,'math',cx); pre.appendChild(code); top.appendChild(pre);
   for(let i=0;i<lines.length;i++){const s=mdEl('span',cx),ln=lines[i]; s.className='ln'; if(first)s.dataset.line=String(first+i);
-    if(mdPlain(ln,cx))s.textContent=ln+'\n'; else{yield* mdText(s,ln,w,cx); s.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
+    if(mdPlain(ln,cx))s.textContent=ln+'\n'; else {yield* mdText(s,ln,w,cx); s.appendChild(document.createTextNode('\n'));}   // hidden characters in their boxes, as a code line's
     code.appendChild(s); if(mdDue(w))yield;}}
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML itself.
 /** @param {any} t @param {MdRx} cx @returns {HTMLElement} */
@@ -517,7 +541,7 @@ function mdHtmlRunEl(n,lo,hi,cx){const el=mdEl('div',cx); el.className='md-html-
 // Shows (on) or hides (off) element e's lines: data-lo/hi from its kept data-r-lo/hi, or none.
 /** @param {HTMLElement} e @param {boolean} on */
 function mdHtmlHold(e,on){if(!e.dataset.rLo){e.dataset.rLo=e.dataset.lo||''; e.dataset.rHi=e.dataset.hi||'';}
-  if(on){e.dataset.lo=e.dataset.rLo; e.dataset.hi=e.dataset.rHi||'';} else{delete e.dataset.lo; delete e.dataset.hi;}}
+  if(on){e.dataset.lo=e.dataset.rLo; e.dataset.hi=e.dataset.rHi||'';} else {delete e.dataset.lo; delete e.dataset.hi;}}
 // Opens or closes the run of raw HTML blocks whose button btn is (data-act md-html-run), then draws the marks, the chosen lines
 // and the strip again over what is shown.
 /** @param {HTMLElement} btn */
@@ -912,7 +936,7 @@ function mdLevels(r,b0,b1,tapped){if(isTextDoc())return txLevels(r);   // a text
   const blockFirst=!!(tapped&&k&&blo===r.lo&&bhi===r.hi); if(blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);
   add('raw','고른 줄',r.lo,r.hi,null);
   if(k){if(!blockFirst)add('block',MD_BLOCK_LABEL[k]||'블록',blo,bhi,k);}
-  else{const bs=mdBlocksIn(r.lo,r.hi); if(bs.length>1)add('blocks',tl('블록 {n}개',{n:bs.length}),Math.min(r.lo,...bs.map(e=>+(e.dataset.lo||0))),Math.max(r.hi,...bs.map(e=>+(e.dataset.hi||0))),null);}
+  else {const bs=mdBlocksIn(r.lo,r.hi); if(bs.length>1)add('blocks',tl('블록 {n}개',{n:bs.length}),Math.min(r.lo,...bs.map(e=>+(e.dataset.lo||0))),Math.max(r.hi,...bs.map(e=>+(e.dataset.hi||0))),null);}
   const s=mdSection(r.lo,r.hi); if(s)add('section',tr('절')+' · '+ccClip(s.title,18),s.lo,s.hi,null);   // the heading's hidden characters by name (ccClip, ADR-0029 D5)
   return ls;}
 // Fills the composer with lines r of the document on screen, as pick() does with a /api/pick answer; tapped: a tap picked a
@@ -924,10 +948,10 @@ function mdPick(r,b0,b1,quote,tapped){const levels=mdLevels(r,b0,b1,tapped),q=St
   const sel=/** @type {Selection} */(/** @type {unknown} */({doc:DOC,file:MD.file,name:MD.name,lo:r.lo,hi:r.hi,raw_lo:r.lo,raw_hi:r.hi,kind:'lines',
     score:null,warn:null,snippet:mdSnippet(r.lo,r.hi),levels,default_level:def,n_lines:MD.lines.length,quote:q,overlaps:[]}));
   if(REPICK){REPICK.cand=sel; bannerCompare(); return;}
-  endTopic(NOTICE_TOPIC.PICK); PICKSEQ++;
+  endTopic(NOTICE_TOPIC.PICK); setPickseq(PICKSEQ+1);
   COMPOSE.current=sel; COMPOSE.intent++; COMPOSE.picking=false; sel.scope=null; sel.elSel=null; useLevel(sel,def);
   $('#composer').hidden=false; setBusy(false); $('#c-err').hidden=true; $('#c-body').hidden=false;
-  setSide(true); applySide(); COMPOSE.dismissedOverlap=null; sel.overlaps=overlapsFor(sel,PINS); SNIP_OPEN=false;
+  setSide(true); applySide(); COMPOSE.dismissedOverlap=null; sel.overlaps=overlapsFor(sel,PINS); setSnipOpen(false);
   renderComposer(); renderVerdictRow(); $('#composer').scrollTop=0; if(LAYOUT!==LAYOUT_MODE.WIDE)$('#right').scrollTop=0;
   revealBox(/** @type {HTMLElement|null} */(document.querySelector('#md .md-sel')));   // the chosen lines out from under the sheet (compact), as a PDF box is
   if(LAST_PTR==='mouse')$('#note').focus({preventScroll:true});}
@@ -1008,9 +1032,9 @@ function mdShowLines(els){const L=$('#left'),lr=L.getBoundingClientRect(),r=els[
 // A heading as its outline row and the strip name it: plain text, its marked characters by name (ccClip, hidden-chars.js), at
 // most MD_HEAD_CLIP characters - the row and the strip cut it to one line anyway, and the name never reads in another order.
 const MD_HEAD_CLIP=120;
-function mdOutline(){OUTLINE_DOC=DOC; OUTLINE_BUILD=(META&&META.pages_build)||''; OUTLINE_CUT=0;
-  OUTLINE_ENTRIES=MD.heads.map((h,i)=>({title:ccClip(h.title,MD_HEAD_CLIP),number:'',depth:Math.max(0,h.level-1),page:i+1,pageLabel:'L'+h.lo,frac:0,up:-1}));
-  OUTLINE_SELECTED=-1; renderOutline();}
+function mdOutline(){setOutlineDoc(DOC); setOutlineBuild((META&&META.pages_build)||''); setOutlineCut(0);
+  setOutlineEntries(MD.heads.map((h,i)=>({title:ccClip(h.title,MD_HEAD_CLIP),number:'',depth:Math.max(0,h.level-1),page:i+1,pageLabel:'L'+h.lo,frac:0,up:-1})));
+  setOutlineSelected(-1); renderOutline();}
 // The source line at the reading line (readingDepth under the pane's top): the last line span or block, in document order, whose
 // top is at or above it. 0 before the document is drawn.
 function mdReadingLine(){const L=$('#left'); if(!$('#md'))return 0; const e=mdAt(mdLineEls(),L.getBoundingClientRect().top+readingDepth(L));
@@ -1018,7 +1042,7 @@ function mdReadingLine(){const L=$('#left'); if(!$('#md'))return 0; const e=mdAt
 // The section strip and the phone's position button (updateSectionStrip's branch): the heading above the reading line is the
 // outline's current entry and the strip's title; the button reads [L<line>/<lines>].
 function mdStrip(){if(!isMdDoc())return; MD.at=mdReadingLine();
-  let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){OUTLINE_SELECTED=i; markOutline();}
+  let i=-1; MD.heads.forEach((h,j)=>{if(h.lo<=MD.at)i=j;}); if(i!==OUTLINE_SELECTED){setOutlineSelected(i); markOutline();}
   const h=MD.heads[i]; $('#section-current').textContent=h?ccClip(h.title,MD_HEAD_CLIP):isTextDoc()?ccClip(MD.name,MD_HEAD_CLIP):tr('문서 처음'); drawPos();}   // a text document has no headings: its file   // above the first heading
 let MD_STRIP_F=0; $('#left').addEventListener('scroll',()=>{if(!isMdDoc()||MD_STRIP_F)return; MD_STRIP_F=requestAnimationFrame(()=>{MD_STRIP_F=0; mdGoLanded(); mdStrip(); mdSpotRead();});},{passive:true});
 // posLabel's shape for this document: [L37/164 ▾] - the reading line's source line of the file's lines, '–' for what is not
@@ -1038,7 +1062,7 @@ function mdHint(){const e=$('#empty'); if(!e)return; if(!MD_HINT_PDF)MD_HINT_PDF
 // The jump is kept in flight (MD.goTo) until it lands there (mdGoLanded) or the person scrolls: an image that gets its size
 // on the way - a lazy one the scroll passes - moves the heading, and the jump goes on to its new place (mdGoOn).
 /** @param {number} i */
-function mdGoHeading(i){const h=MD.heads[i]; if(!h)return; OUTLINE_SELECTED=i; markOutline();
+function mdGoHeading(i){const h=MD.heads[i]; if(!h)return; setOutlineSelected(i); markOutline();
   MD.goTo={el:h.el,doc:DOC}; mdGoOn(); mdGoLanded();}
 // The scroll top that puts element el 8px under the pane's top, within what the pane can scroll.
 /** @param {HTMLElement} el */
@@ -1154,3 +1178,7 @@ $('#doc').addEventListener('click',e=>{if(!isMdDoc())return; const s=window.getS
 let MD_SEL_T=0;
 document.addEventListener('selectionchange',()=>{if(!isMdDoc()||!MQ_COARSE.matches)return; clearTimeout(MD_SEL_T);
   MD_SEL_T=setTimeout(()=>{const s=window.getSelection(); if(s&&!s.isCollapsed)mdSelectionPick(null);},500);});
+export { MD, MD_LIMITS, MD_OVER, isMdDoc, isMdPin, mdAnchor, mdBuild, mdCount, mdDue, mdEditLevels, mdGoAnchor,
+  mdGoDoc, mdGoHeading, mdHint, mdHtmlRun, mdJump, mdLeaves, mdLimitText, mdMarks, mdMiB, mdPicCheck, mdPosLabel,
+  mdRelevel, mdRender, mdRx, mdRxKeep, mdSelMark, mdSelShown, mdShowLines, mdSnippet, mdSpotKeep, mdStrip, mdWait,
+  mdYield };

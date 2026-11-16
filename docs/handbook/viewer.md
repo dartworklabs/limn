@@ -4,7 +4,8 @@
 
 > **한눈에**
 >
-> - 고치기 전에 볼 곳과 가드: §뷰어 규칙을 바꿀 때
+> - 고치기 전에 볼 곳과 가드, 모듈과 빌드: §뷰어 규칙을 바꿀 때
+> - 타입·린트 검사와 줄기만 하는 기준선, 모듈의 기능·역할과 경계: §타입 검사, §모듈 경계
 > - 공저자에게 안내할 조작 요약: §조작 한눈에
 > - 화면 크기·방향·입력 장치에 따른 배치: §레이아웃 (모바일 레이아웃, 펼친 화면 레이아웃)
 > - 오른쪽 패널·시트·목록, 쪽 목록: §패널과 목록 (패널 정리, 패널 폭과 시트 높이, 목록 구획, 목록 순서, 쪽 목록, 보관함)
@@ -23,23 +24,25 @@
 
 ## 뷰어 규칙을 바꿀 때
 
-뷰어는 [`src/limn/viewer/parts.txt`](../../src/limn/viewer/parts.txt)의 정적 파일을 서버가 한 장의 HTML로 조립한다. 번들러·모듈 로더·CDN은 쓰지 않는다. [`parts.txt`](../../src/limn/viewer/parts.txt)가 CSS·JS 조각의 실행 순서와 책임을 정한다. `start()`가 조각을 읽어 인스턴스 라벨·색·영어 메시지를 채우므로 import만으로 뷰어 자원이 생기지 않는다. 조각의 누락·중복이나 잘못된 자리 표시자는 서버 시작과 [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)가 거절한다.
+뷰어는 페이지 한 장(`index.html`과 스타일시트)과 스크립트 한 파일이다. 스타일시트는 [`src/limn/viewer/parts.txt`](../../src/limn/viewer/parts.txt)의 `__APP_CSS__` 목록을 서버가 이어 인라인 `<style>` 하나로 넣는다. 스크립트는 `js/`의 ES 모듈이고, 번들러(Rollup)가 `parts.txt`의 `__APP_JS__` 목록 순서대로 이어 지은 한 파일 `dist/viewer.js`를 저장소에 둔다([ADR-0042](../adr/0042-viewer-es-modules.md)). 페이지는 그 파일을 같은 출처에서 고전 스크립트로 불러온다(`<script src="/viewer.js?v=<내용 키>">`). CDN과 UI 프레임워크는 쓰지 않는다. `start()`가 페이지와 지은 스크립트를 읽어 인스턴스 라벨·색·영어 메시지·아이콘 표를 채우므로 import만으로 뷰어 자원이 생기지 않는다. 목록의 누락·중복, 잘못된 자리 표시자, 모듈과 맞지 않는 지은 파일은 서버 시작과 [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)가 거절한다.
 
 > **주의**
 >
-> 조각은 모듈이 아니다. JS 조각은 모두 고전 스크립트 하나의 범위를 나눠 쓴다. 함수 선언은 어느 조각에서나 보이지만, 최상위 코드(`let`·`const`, 리스너 등록, 바로 부르는 함수)는 목록 순서대로 실행된다. 그래서 위쪽 조각의 `let`·`const`만 쓸 수 있고, 순서를 바꾸면 페이지가 시작하다 멈출 수 있다. 새 코드는 맡은 일이 같은 조각에 넣고, 새 조각을 만들면 `parts.txt`에 줄을 더한다.
+> 모듈을 고치면 `npm run build`로 다시 지어 `dist/viewer.js`를 같은 커밋에 넣는다. 설치·배포는 지은 파일만 읽으므로 Node가 필요 없고, CI는 다시 지어 바이트가 다르면 실패한다(`npm run build:check`). 동시에 고친 PR 둘이 이 파일에서 충돌하면 원본을 합친 뒤 다시 지어 푼다.
 
-조각은 마지막 줄바꿈으로 끝나야 한다. 그래야 이어 붙일 때 앞 조각의 끝 줄이 다음 조각의 첫 줄과 붙지 않는다. `css/`·`js/`에 있는데 목록에 없는 파일, 목록에 두 번 나온 파일, 형식에 맞지 않는 목록 줄은 테스트나 서버 시작에서 실패한다. 조각은 제 내용을 가리키는 구역 배너 주석으로 시작한다(예: `i18n.js`는 'UI language', `card-parts.js`는 'Pin card parts').
+**모듈과 실행 순서.** 모듈은 다른 모듈의 이름을 명시한 `import`로만 쓰고, 다른 모듈이 쓰는 이름만 파일 끝의 `export { … }` 목록에 둔다. 다른 모듈의 `let`은 다시 대입할 수 없다. 상태는 선언한 모듈이 소유하고, 다른 모듈은 그 모듈이 내보낸 함수(설정 함수 `setPins` 등 포함)로만 바꾼다. 최상위 코드(`let`·`const` 초기값, 리스너 등록, 바로 부르는 함수)는 `__APP_JS__` 목록 순서대로 돈다. 빌드가 각 모듈 앞에 목록의 바로 앞 모듈을 가리키는 맨 `import`를 넣기 때문이다. ES 모듈은 import의 깊이 우선 후위 순서로 도는데, 모듈 대부분이 서로 기대는 지금은 그 순서가 그래프에 따라 달라진다. 이 사슬이 있으면 어느 모듈이든 그 위의 모듈이 모두 먼저 돈다. 그래서 위쪽 모듈의 `let`·`const`만 최상위 코드에서 쓸 수 있고, 같은 대상에 건 리스너는 목록 순서로 불린다. 순서를 바꾸면 페이지가 시작하다 멈추거나 키 처리 순서가 바뀔 수 있다. 빌드는 이은 순서가 목록과 다르면 실패한다. 지은 파일은 `'use strict'`로 시작하는 고전 스크립트이고 최상위 이름은 한 스크립트 범위에 있다. 브라우저 시험이 그 이름(`PINS`, `switchDoc()`)으로 상태를 읽고 바꾼다. 새 코드는 맡은 일이 같은 모듈에 넣고, 새 모듈을 만들면 `parts.txt`에 줄을 더하고 자리를 정한다(§모듈 경계).
+
+모듈은 마지막 줄바꿈으로 끝나고 제 내용을 가리키는 구역 배너 주석으로 시작한다(예: `i18n.js`는 'UI language', `card-parts.js`는 'Pin card parts'). `import` 줄은 배너 아래에 둔다. 지은 파일은 모듈의 글을 그대로 잇고 `import`·`export` 문만 걷어 낸다(트리 셰이킹·압축·이름 바꾸기 없음). 그래서 모듈의 코드는 지은 파일에 바이트 그대로 있고, 시험은 함수와 문자열을 그 글에서 찾는다. Rollup은 블록 앞의 `else` 뒤에 늘 공백을 넣으므로 원본도 `else {`로 쓴다. `css/`·`js/`에 있는데 목록에 없는 파일, 목록에 두 번 나온 파일, 형식에 맞지 않는 목록 줄은 테스트나 서버 시작에서 실패한다.
 
 > **핵심**
 >
 > 화면 규칙을 바꾸면 세 곳을 같은 diff에서 맞춘다: `src/limn/viewer/`의 파일, `src/limn/viewer/tests/test_viewer.py`의 `Frontend*` 가드, 그리고 이 문서의 해당 절.
 
-**CSS는 조각 여러 개지만, 페이지에는 인라인 `<style>` 하나로 들어간다.** 그 맨 앞, 첫 조각 `css/tokens.css`에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 테마 색 리터럴은 앞의 두 테마 블록 안 변수 정의에만, 테마와 무관한 색(브랜드 색 `--limn-*`, 이름표 위 글자 `--brand-foreground`)은 척도 블록에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
+**CSS는 조각 여러 개지만, 페이지에는 인라인 `<style>` 하나로 들어간다.** 조각은 마지막 줄바꿈으로 끝나야 이어 붙일 때 앞 조각의 끝 줄이 다음 조각의 첫 줄과 붙지 않는다. 그 맨 앞, 첫 조각 `css/tokens.css`에 토큰 블록 세 개가 있다. 다크 테마 `:root`, 라이트 테마 `:root[data-theme=light]`, 테마와 무관한 척도 `:root`이다. 테마 색 리터럴은 앞의 두 테마 블록 안 변수 정의에만, 테마와 무관한 색(브랜드 색 `--limn-*`, 이름표 위 글자 `--brand-foreground`)은 척도 블록에만 둘 수 있다. 나머지 규칙은 모두 `var(--…)`를 쓴다(§토큰).
 
 **UI 문자열은 한국어가 원본이고, 영어는 메시지 표로 바꾼다.** 템플릿과 JS에 적힌 한국어 문자열이 정본이다. 영어 화면에서는 [`src/limn/viewer/ui_en.json`](../../src/limn/viewer/ui_en.json)의 "한국어 → 영어" 표를 찾아 바꾼다. 동작 방식은 이렇다.
 
-- 서버가 시작할 때(`server.read_viewer()`) `load_ui_messages()`(`limn/viewer/assemble.py`)가 표를 읽고, `viewer_html()`이 `__UI_EN_JSON__` 자리를 JS 객체 `I18N_EN`으로 채운다. 거부된 첫 화면도 같은 표(`ServedViewer.messages`)를 읽는다.
+- 서버가 시작할 때(`server.read_viewer()`) `load_ui_messages()`(`limn/viewer/assemble.py`)가 표를 읽고, `viewer_script()`가 지은 스크립트의 `__UI_EN_JSON__` 자리를 JS 객체 `I18N_EN`으로 채운다. 거부된 첫 화면도 같은 표(`ServedViewer.messages`)를 읽는다.
 - 영어 모드에서 `tr()`·`trMsg()`가 표를 찾는다. `trMsg()`는 문자열 전체가 표에 없으면 ` — ` 또는 ` · `로 나눈 조각마다 다시 찾는다. 그래서 조합한 문구도 조각 단위로 번역된다.
 - `MutationObserver`가 새로 그려지는 글자 노드와 UI 속성(`data-tip`·`aria-label`·`title`·`placeholder`)을 번역한다. 메시지(`notices.js`, §알림 자리)는 만들 때 `trMsg`를 거친 뒤 `translate="no"`로 그린다. 설명을 화면 낭독기에 주는 복사(`aria-description`)는 번역된 뒤의 `data-tip`에서 만들므로 따로 번역하지 않는다(§설명과 접근성).
 - 실행 중에 조합하는 문구는 `tl('<한국어 틀>', {값})`으로 만든다. 틀 안의 `{name}` 자리에 값을 넣는다(예: `tl('{n}쪽', {n: 3})`). 영어 값은 `{"one": ..., "other": ...}` 복수형일 수 있고, `n`으로 고른다. 문서 탭 이름·메모·답글·원고처럼 사용자가 쓴 글은 번역하지 않는다. 문서 이름·메모·작성자·스레드 글, 원문 조각과 소스 diff, PDF 목차 제목과 절 표시줄, 인스턴스 이름표는 `translate="no"` 요소 안에 그리고, `i18nTree`·`i18nText`와 속성 번역이 그 아래를 건너뛴다(`i18nUser`). 설명 상자(`#tip`)와 메시지(§알림 자리, 브라우저 알림 경로의 상태 줄 메시지 `lineNote(…, {literal: true})` 포함)도 `translate="no"`다. 둘 다 이미 화면 언어로 된 글을 받고, 그 글이 메모나 문서 이름을 인용하기 때문이다. 그래서 이름이 `그림`인 문서나 `완료` 한 낱말 메모가 표의 낱말과 같아도 그대로 보인다. 그 안에 함께 그리는 UI 낱말(`(메모 없음)`, `(나)`, 설명)은 그리는 코드가 `tr()`로 미리 옮긴다(`EnglishChrome.test_user_text_reads_as_written_even_when_it_is_a_ui_word`).
@@ -51,7 +54,7 @@
 
 [`src/limn/viewer/tests/test_i18n.py`](../../src/limn/viewer/tests/test_i18n.py)가 이 연결을 지킨다. 정적 마크업(`<body>`부터 첫 `<script>`까지)의 한국어 글자와 UI 속성은 전부 표에 있어야 한다. `trMsg()`처럼 ` — `·` · ` 조각 단위로 찾아도 된다. 표의 값에는 한글이 없어야 하고, 키에는 `__` 자리표가 없어야 한다. `tl()` 틀에 번역이 없어도 실패하고, 실제 뷰어를 영어로 띄워 사용자 글 밖에 한글이 남으면 실패하는 브라우저 테스트(데스크톱·폴더블·휴대폰)도 있다. 같은 브라우저 테스트가 흔한 거절(`403` 보기 권한, `409` `base_rev` 충돌, `400` 입력 검사, `404` 없는 핀, `422` 핀 단위 비교)의 오류 알림도 본다. 영어에서는 `reason` 의 영어 문장이고 한글이 없어야 하며, 한국어에서는 서버 문장 그대로여야 한다. [`src/limn/web/tests/test_errors.py`](../../src/limn/web/tests/test_errors.py)는 서버가 내는 코드마다 영어 문장이 있는지 본다. 그래도 `tl()`·`tr()`을 거치지 않은 JS 문구는 잡히지 않을 수 있으니, 새 문구는 늘 이 함수들을 거치고 `viewer/ui_en.json`에 추가한다.
 
-화면 규칙은 [`test_viewer.py`](../../src/limn/viewer/tests/test_viewer.py)의 구조·순수 판단 검사와 실제 Chromium 레이아웃 검사로 확인한다. [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)는 조각 목록·조립 결과와 내보낸 스크립트의 `node --check`를, [`test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)는 중복·죽은 함수와 주석에 삼켜진 코드를 본다. 브라우저·node 실행 조건과 합격 범위는 [verification.md](verification.md) §1이 정한다. 번역 대응과 영어 화면은 [`test_i18n.py`](../../src/limn/viewer/tests/test_i18n.py)가 확인한다.
+화면 규칙은 [`test_viewer.py`](../../src/limn/viewer/tests/test_viewer.py)의 구조·순수 판단 검사와 실제 Chromium 레이아웃 검사로 확인한다. [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)는 목록·조립 결과, 지은 파일이 모듈의 글과 같은지, 내보낸 스크립트와 모듈의 `node --check`를, [`test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)는 중복·죽은 함수와 주석에 삼켜진 코드를 본다. 브라우저·node 실행 조건과 합격 범위는 [verification.md](verification.md) §1이 정한다. 번역 대응과 영어 화면은 [`test_i18n.py`](../../src/limn/viewer/tests/test_i18n.py)가 확인한다.
 
 **리터럴 예외를 바꾸면 두 곳을 고친다.** 토큰 밖에 리터럴을 허용하는 자리는 §리터럴 예외(허용 목록)의 표와 `src/limn/viewer/tests/test_viewer.py`의 허용 목록 상수(`TOKEN_SELECTORS`·`RADIUS_OK`)에 함께 있다. 간격·컨트롤 높이의 리터럴은 [`raw_css_allowlist.json`](../../src/limn/viewer/tests/raw_css_allowlist.json)이 자리마다 이유와 함께 적는다. 한쪽만 고치면 문서와 가드가 어긋난다. JS가 재서 넣는 CSS 변수(`--kb`·`--side-w` 등)는 따로 적지 않는다. 가드가 코드의 `setProperty('--…')` 호출에서 목록을 뽑는다.
 
@@ -114,30 +117,51 @@
 
 - **`style` 속성을 쓰지 않는다.** 템플릿, `` html`…` ``, `setAttribute('style', …)` 모두다. 모양은 CSS 규칙으로 주고, 실행 중에 정하는 값(폭, 위치, 재서 넣는 변수)은 CSSOM(`el.style.x = …`, `style.setProperty('--…')`)으로 넣는다. CSSOM은 정책이 다루지 않는다. 인스턴스 색도 속성이 아니라 `tokens.css` 의 `--brand` 로 받는다(§리터럴 예외(허용 목록)).
 - **인라인 이벤트 처리기(`onclick=` 등)와 `javascript:` 주소를 쓰지 않는다.** 클릭은 `data-act` 로 나눈다(`js/events.js`).
-- **JS 조각은 `<script>`·`<style>` 요소를 만들지 않는다.** 마크업으로도 `createElement` 로도 마찬가지다. 정책은 이 가운데 일부만 막는다. 글이 해시와 다른 인라인 요소는 막히지만, 같은 출처의 파일을 가리키는 스크립트 요소와 글이 페이지의 해시와 같은 요소는 누가 만들었든 돈다. 그래서 이 규칙은 정적 검사가 지킨다. 모듈은 같은 출처에서 `import()` 한다(PDF.js, 그리고 Markdown 파싱 worker가 가져오는 markdown-it).
+- **JS 모듈은 `<script>`·`<style>` 요소를 만들지 않는다.** 마크업으로도 `createElement` 로도 마찬가지다. 정책은 이 가운데 일부만 막는다. 글이 해시와 다른 인라인 요소는 막히지만, 같은 출처의 파일을 가리키는 스크립트 요소와 글이 페이지의 해시와 같은 요소는 누가 만들었든 돈다. 그래서 이 규칙은 정적 검사가 지킨다. 모듈은 같은 출처에서 `import()` 한다(PDF.js, 그리고 Markdown 파싱 worker가 가져오는 markdown-it).
 - **`eval`·`new Function`·글자로 준 타이머·WebAssembly를 쓰지 않는다.** PDF.js는 `isEvalSupported:false`, `useWasm:false` 로 연다.
 - **다른 출처에서 받는 것은 사람 사진(`https:` 그림)뿐이다.** 글꼴·스크립트·연결·worker는 같은 출처다. worker는 같은 출처의 파일(PDF.js의 번들 worker, Markdown 파싱 worker `GET /md-parse.mjs`)로 띄우고 `blob:` worker는 쓰지 않는다. worker 안은 페이지 정책이 아니라 worker 응답의 정책을 따르기 때문이다. Markdown 문서의 그림은 원고 트리 안의 것만 같은 출처의 읽기 경로 `GET /api/asset` 에서 받고, 원격 그림은 받지 않는다(§그림).
 
-템플릿(`index.html`)의 인라인 `<script>`·`<style>` 은 속성 없는 꼴로만 쓴다. 해시는 사람이 적지 않는다. `limn/web/csp.py` 의 `page_policy` 가 `GET /` 가 보내는 바로 그 글에서 요소마다 SHA-256을 재어 `script-src`·`style-src` 에 싣는다. 실행이 채우는 자리표시(머리 스크립트의 `__UI_LANG__`, `tokens.css` 의 `__ACCENT__`)를 채운 뒤이고, 줄바꿈은 브라우저의 토크나이저처럼 LF로 바꾼 뒤다. 그래서 인라인 글을 고치거나 새 인라인 요소를 더해도 정책은 저절로 맞는다. 속성 붙은 `<script>`·`<style>`, 글 안의 `</script`·`</style`, `<!--` 는 브라우저가 다르게 읽을 수 있어 해시하지 않고 거부한다. 꾸러미 페이지 시험([`web/tests/test_csp.py`](../../src/limn/web/tests/test_csp.py)의 `PackagedPagePolicy`)이 이를 잡는다.
+뷰어의 스크립트는 같은 출처의 파일이다(`GET /viewer.js?v=<내용 키>`, 키는 채운 글의 SHA-256 앞 16자리). `script-src 'self'`가 허용하고 해시할 글이 없다. 템플릿(`index.html`)에 남은 인라인 `<script>`(테마, 언어)·`<style>` 은 속성 없는 꼴로만 쓴다. 속성이 붙은 요소 가운데 `limn/web/csp.py`가 받는 것은 같은 출처 경로 하나를 가리키는 `<script src="/경로"></script>` 한 꼴뿐이다. 해시는 사람이 적지 않는다. `limn/web/csp.py` 의 `page_policy` 가 `GET /` 가 보내는 바로 그 글에서 요소마다 SHA-256을 재어 `script-src`·`style-src` 에 싣는다. 실행이 채우는 자리표시(머리 스크립트의 `__UI_LANG__`, `tokens.css` 의 `__ACCENT__`)를 채운 뒤이고, 줄바꿈은 브라우저의 토크나이저처럼 LF로 바꾼 뒤다. 그래서 인라인 글을 고치거나 새 인라인 요소를 더해도 정책은 저절로 맞는다. 속성 붙은 `<script>`·`<style>`, 글 안의 `</script`·`</style`, `<!--` 는 브라우저가 다르게 읽을 수 있어 해시하지 않고 거부한다. 꾸러미 페이지 시험([`web/tests/test_csp.py`](../../src/limn/web/tests/test_csp.py)의 `PackagedPagePolicy`)이 이를 잡는다.
 
-이 규칙은 세 겹으로 지킨다. [`test_viewer_csp.py`](../../src/limn/viewer/tests/test_viewer_csp.py)의 `StaticGuards` 는 템플릿·JS 조각·아이콘(`assemble.py`)·거절 페이지(`web/errors.py`)에서 `style` 속성, 인라인 처리기, `javascript:` 주소를, JS 조각과 템플릿의 인라인 스크립트에서 `<script>`·`<style>` 마크업, `createElement(NS)` 로 만드는 `script`·`style` 요소, `setAttribute(NS)` 로 넣는 `style`·`on…` 속성을 찾는다. JS는 토큰으로 읽는다(`tests/support/helpers_js.py`). 모든 문자열·템플릿 리터럴을 이스케이프를 푼 뒤 마크업으로 보고, 속성 이름은 대소문자를 가리지 않으며 값은 따옴표가 없어도 된다. 호출은 괄호 앞의 공백·주석, `?.`, `['…']` 와 따옴표·템플릿 인자를 가리지 않는다. 실행 중에 만드는 이름(변수로 준 태그, `+` 로 이은 글)은 보지 못한다. JS 속성과 CSSOM(`el.style.x`, `el.style.cssText`, 생성 스타일시트, `el.onclick`)은 걸리지 않는다. 브라우저 시험이 지나지 않는 흐름(위치 다시 잡기의 오류 줄이 그랬다)을 이 검사가 덮는다. 모든 브라우저 시험은 정책 위반이 하나라도 보고되면 실패하고, 강제 시험이 세 엔진에서 실제 헤더 그대로 뷰어를 띄운다([verification.md](verification.md) §브라우저 테스트의 페이지 정책).
+이 규칙은 세 겹으로 지킨다. [`test_viewer_csp.py`](../../src/limn/viewer/tests/test_viewer_csp.py)의 `StaticGuards` 는 템플릿·JS 모듈·아이콘(`assemble.py`)·거절 페이지(`web/errors.py`)에서 `style` 속성, 인라인 처리기, `javascript:` 주소를, JS 모듈과 템플릿의 인라인 스크립트에서 `<script>`·`<style>` 마크업, `createElement(NS)` 로 만드는 `script`·`style` 요소, `setAttribute(NS)` 로 넣는 `style`·`on…` 속성을 찾는다. JS는 토큰으로 읽는다(`tests/support/helpers_js.py`). 모든 문자열·템플릿 리터럴을 이스케이프를 푼 뒤 마크업으로 보고, 속성 이름은 대소문자를 가리지 않으며 값은 따옴표가 없어도 된다. 호출은 괄호 앞의 공백·주석, `?.`, `['…']` 와 따옴표·템플릿 인자를 가리지 않는다. 실행 중에 만드는 이름(변수로 준 태그, `+` 로 이은 글)은 보지 못한다. JS 속성과 CSSOM(`el.style.x`, `el.style.cssText`, 생성 스타일시트, `el.onclick`)은 걸리지 않는다. 브라우저 시험이 지나지 않는 흐름(위치 다시 잡기의 오류 줄이 그랬다)을 이 검사가 덮는다. 모든 브라우저 시험은 정책 위반이 하나라도 보고되면 실패하고, 강제 시험이 세 엔진에서 실제 헤더 그대로 뷰어를 띄운다([verification.md](verification.md) §브라우저 테스트의 페이지 정책).
 
 페이지에 `<style>`·`<script>` 를 넣는 브라우저 확장(다크 모드, 문법 검사)은 이 페이지에서 일부 막히고 콘솔에 보고가 남는다. 뷰어의 동작에는 영향이 없다.
 
 ### 타입 검사
 
-뷰어 JS는 빌드 없이 그대로 내보내지만, 개발할 때 TypeScript의 `tsc`가 조각의 타입을 검사한다(`npm run typecheck`, [verification.md](verification.md) §9). `tsc`는 아무것도 만들지 않으므로 서버와 배포에는 Node나 npm이 필요 없다. 설정은 저장소 루트의 `tsconfig.json`이고, `js/*.js`를 `checkJs`로 하나의 전역 범위에서 읽는다. 조각이 실제로 고전 스크립트 하나의 범위를 나눠 쓰기 때문이다(§뷰어 규칙을 바꿀 때).
+뷰어 코드는 백엔드와 같은 수준으로 검사한다([ADR-0042](../adr/0042-viewer-es-modules.md) D7). 원본은 JS이고 타입은 JSDoc으로 단다. TypeScript가 `checkJs`로 그 타입을 검사하고, 지은 파일은 원본의 글 그대로다. 개발 도구는 `package.json`에 정확한 판으로 고정하고 `npm ci --ignore-scripts`로 설치한다. 서버와 배포에는 Node나 npm이 필요 없다. 명령은 [verification.md](verification.md) §9에 있다.
 
-- 조각이 스스로 말할 수 없는 것은 [`types/globals.d.ts`](../../src/limn/viewer/types/globals.d.ts)에 선언한다. 서버가 채우는 자리 표시자(`__LUCIDE_JSON__` 등), 머리 스크립트와 테스트가 쓰는 `window` 속성, 뷰어가 자기 요소에 붙이는 필드(`_gone` 등), `api()` 오류의 모양이다. 이 폴더는 휠에 들어가지 않는다.
-- API 응답의 모양은 [`types/api.d.ts`](../../src/limn/viewer/types/api.d.ts)에 있다. 핀은 `Pin`·`ThreadEntry`·`Person`, 문서·빌드·사람 응답은 `Meta`·`DocsAnswer`·`BuildStatus`·`RebuildAnswer`·`PeopleAnswer`와 그 안의 값들이다. 전역 상태(`META`, `DOCS`, `PEOPLE`, 핀 목록들)와 핀을 받는 함수(`/** @param {Pin} p */`)가 이 타입을 달아, 없는 필드를 읽으면(`p.claim_untill`, `META.pins_revv`) `tsc`가 실패한다.
+- **`npm run typecheck`** 는 저장소 루트의 `tsconfig.json`으로 `tsc`(TypeScript 7)를 돌린다. 오류가 하나도 없어야 한다. 켠 옵션은 `tsconfig.json`이 정본이다(`strictNullChecks`·`noImplicitThis`·`useUnknownInCatchVariables`·`noUnusedLocals` 등). 닫힌 값 표의 오타(`PIN_STATE.REVEIW`), 없는 함수, 타입이 다른 인자(`pinState(42)`), 쓰지 않는 지역 변수는 지금도 실패한다. `noFallthroughCasesInSwitch`는 상태 줄의 의도된 fall-through 때문에 켜지 않는다.
+- **줄기만 하는 기준선.** 지금 코드가 아직 지키지 못하는 검사는 [`tools/strict_ratchet.py`](../../tools/strict_ratchet.py)가 파일마다 센다. 셋이다: `tsconfig.strict.json`의 `strict` 전체(`noImplicitAny`·`strictPropertyInitialization` 등), [`eslint.config.mjs`](../../eslint.config.mjs)의 규칙마다, 모듈 경계 검사의 규칙마다(§모듈 경계). 수는 [`tools/strict-baseline.json`](../../tools/strict-baseline.json)과 비교한다. 기준보다 많으면 새 코드가 그 규칙을 지키지 않은 것이라 실패하고, 적으면 `--update`로 기준을 낮추라며 실패한다. 그래서 수는 줄기만 한다. 기준선에 없는 파일·규칙의 기준은 0이다. 한 검사의 기준이 비면 그 검사를 바로 거는 쪽(`tsconfig.json`이나 ESLint 오류)으로 옮긴다.
+- **ESLint 규칙.** 타입 정보를 쓰는 typescript-eslint(TypeScript 6.0을 읽는다)다. `any` 값을 쓰지 않는다(`no-unsafe-*` 다섯, JSDoc 주석으로 왔든 `JSON.parse`로 왔든 같다). JSDoc 타입에 `any`·`*`를 쓰지 않는다(`limn/no-jsdoc-any`). 타입 단언을 탈출구로 쓰지 않는다. JS의 단언은 JSDoc 캐스트 `/** @type {T} */(x)`이고(`limn/no-jsdoc-cast`), 새 코드는 가드(`instanceof HTMLElement`, 값 검사)로 좁힌다. 다른 모듈의 상태를 그 바인딩으로 바꾸지 않는다(`no-import-assign`, `limn/no-imported-state-write`: `OFF.n = 1` 같은 쓰기). 선언 없는 이름과 지역 변수처럼 읽히는 브라우저 전역(`event`·`name`·`status`·`top` 등)을 쓰지 않는다(`no-undef`, `no-restricted-globals`, 쓸 때는 `window.`를 붙인다). 닫힌 합집합의 `switch`는 모든 멤버를 다루고 `default`가 빠진 멤버를 대신하지 않는다(`switch-exhaustiveness-check`). 주석으로 규칙을 끄는 길은 없다(`noInlineConfig`).
+- 모듈이 스스로 말할 수 없는 것은 [`types/globals.d.ts`](../../src/limn/viewer/types/globals.d.ts)에 선언한다. 서버가 채우는 자리 표시자(`__LUCIDE_JSON__` 등), 머리 스크립트와 테스트가 쓰는 `window` 속성, 뷰어가 자기 요소에 붙이는 필드(`_gone` 등), `api()` 오류의 모양이다. 이 폴더는 휠에 들어가지 않는다. 다른 모듈의 클래스를 타입으로만 쓰면 `/** @typedef {import('./markup.js').Html} Html */`처럼 가져온다.
+- API 응답의 모양은 [`types/api.d.ts`](../../src/limn/viewer/types/api.d.ts)에 있다. 핀은 `Pin`·`ThreadEntry`·`Person`, 문서·빌드·사람 응답은 `Meta`·`DocsAnswer`·`BuildStatus`·`RebuildAnswer`·`PeopleAnswer`와 그 안의 값들이다. 상태(`META`, `DOCS`, `PEOPLE`, 핀 목록들)와 핀을 받는 함수(`/** @param {Pin} p */`)가 이 타입을 달아, 없는 필드를 읽으면(`p.claim_untill`, `META.pins_revv`) `tsc`가 실패한다.
 - [`test_viewer_types.py`](../../src/limn/viewer/tests/test_viewer_types.py)가 선언을 서버와 대조한다. 핀은 계약 스냅샷(`tests/data/contract_snapshot*.json`)의 실제 응답과, 문서·빌드·사람 응답은 실제 처리기를 몇 가지 상태(빌드 전, 여러 문서와 쪽 그림과 사람, LaTeX 오류가 난 빌드 뒤)로 불러 받은 응답과, 동기화 기록은 `limn.sync.rules`가 돌려주는 값과 맞춘다. 응답에 선언에 없는 필드나 다른 JSON 타입이 있으면 실패하고, 선언 필드는 응답에 나오거나(핀은 서버 레코드 표에 있거나) 나오지 않는 이유가 테스트의 `UNSEEN`에 있어야 한다. 서버 응답을 바꾸면 이 선언도 같은 변경에서 고친다.
-- DOM이 넓은 타입을 돌려주는 자리(`e.target`, `querySelector`, `closest`)는 JSDoc 캐스트로 좁힌다. 예: `const t=/** @type {HTMLElement} */(e.target);`. 주석이라 실행 코드는 바뀌지 않는다.
-- 리터럴 하나로 시작해 나중에 다른 값이 들어가는 변수는 시작 값에서 타입을 넓힌다. 예: `let KIND_NEW=/** @type {string} */(KIND_REQ.FIX)`.
-- 함수 객체에 속성을 붙여 상태를 두지 않는다(`f.held=true`). 같은 일은 조각의 `let` 변수로 한다.
-- `strict` 묶음은 하위 옵션을 하나씩 켠다. 조각이 한 전역 범위를 나눠 쓰므로 파일마다 따로 켤 수 없기 때문이다. 켠 옵션은 `tsconfig.json`이 정본이다. `strictNullChecks`도 켜져 있어 `null`이 될 수 있는 값을 확인 없이 읽으면 실패한다. 아직 꺼 둔 것은 `noImplicitAny`와 `strictPropertyInitialization`(클래스 필드용)이고, `noFallthroughCasesInSwitch`는 상태 줄의 의도된 fall-through 때문에 켜지 않는다. 그래도 닫힌 값 표의 오타(`PIN_STATE.REVEIW`), 없는 함수, `Html`이 아닌 값을 기대하는 인자, 쓰지 않는 지역 변수는 지금도 실패한다.
-- 다음에 켤 옵션은 `tsconfig.strict.json`에 미리 켜 둔다(지금은 비어 있다). [`tools/strict_ratchet.py`](../../tools/strict_ratchet.py)가 그 설정으로 `tsc`를 돌려 조각마다 오류 수를 [`tools/strict-baseline.json`](../../tools/strict-baseline.json)과 비교한다. 기준보다 많으면 새 코드가 그 규칙을 지키지 않은 것이라 실패하고, 적으면 `--update`로 기준을 낮추라며 실패한다. 그래서 수는 줄기만 한다. 기준이 비면 그 옵션을 `tsconfig.json`으로 옮기고 다음 옵션을 올린다.
-- 처음에 `null`인 상태 변수는 잡을 값의 타입을 선언과 함께 적는다(`let X=/** @type {T|null} */(null)`). 화면 상태 객체의 모양은 [`types/state.d.ts`](../../src/limn/viewer/types/state.d.ts)에 둔다. 의미상 늘 있는 값(고정 마크업 안의 요소, 바로 위에서 정한 값)은 캐스트로 단언하고, 실제로 없을 수 있는 값은 가드로 거른다.
-- `catch(e)`의 `e`는 `unknown`이다. 속성을 읽을 때는 `/** @type {Error} */(e).message`처럼 좁힌다.
+- 리터럴 하나로 시작해 나중에 다른 값이 들어가는 변수와 처음에 `null`인 상태 변수는 선언에 타입을 단다(`/** @type {Repick|null} */ let REPICK=null;`). 화면 상태 객체의 모양은 [`types/state.d.ts`](../../src/limn/viewer/types/state.d.ts)에 둔다. 실제로 없을 수 있는 값은 가드로 거른다.
+- 함수 객체에 속성을 붙여 상태를 두지 않는다(`f.held=true`). 같은 일은 모듈의 `let` 변수로 한다.
+- `catch(e)`의 `e`는 `unknown`이다. 속성을 읽을 때는 `e instanceof Error`로 좁힌다.
+
+### 모듈 경계
+
+모듈의 import 그래프는 [`tools/check_viewer_boundaries.mjs`](../../tools/check_viewer_boundaries.mjs)가 읽는다. 백엔드의 `tools/check_boundaries.py`와 같은 생각이다([architecture.md](architecture.md) §의존 방향). 모듈마다 **기능**(무엇을 위한 코드인가)과 **역할**(그 안에서 무엇을 하는가)이 있고, 자리가 둘을 말한다.
+
+| 자리 | 기능 | 역할 |
+| --- | --- | --- |
+| `js/<기능>/<역할>.js`, `js/<기능>/<역할>-<주제>.js` | 그 폴더 | 이름의 첫 낱말 |
+| `js/platform/<이름>.js` | `platform`(공용 장치) | `lib` |
+| `js/main.js` | `entry` | `main` |
+
+기능은 아래에서 위로 `platform`(마크업·말·요청·설정·알림·설명 상자), `app`(공유 상태와 닫힌 값 표, `core.js`), `layout`(틀: 폭, 패널과 시트, 그 손짓), `documents`(열린 문서와 그 meta·빌드, 상태 줄, 전환과 새로 고침), `pdf`(PDF의 쪽: 열기·그리기·확대·목차·쪽 목록·검색·고르기), `markdown`, `text`, `revisions`(변경 보기), `composer`(고른 자리에서 핀 만들기), `pins`(핀 목록과 카드, 스레드, 동작), `verdict`(판정 핀과 판정 패널), `offline`(끊긴 채 보기와 핀 쌓기), `entry`다. 역할은 `rules`(값을 받아 값을 내는 순수 판단, DOM·요청·자기 상태 없음), `state`(모듈 상태와 그 변경 함수), `api`(서버 요청과 답 읽기), `view`(DOM 그리기), `input`(포인터·키·손짓), `flow`(기능 안의 단계), `lib`, `main`이다.
+
+검사하는 규칙은 다섯이고 모두 줄기만 하는 기준선에 든다(§타입 검사).
+
+- `cycle`: import가 모듈의 순환을 닫는다. 지금은 57개 중 54개가 한 순환에 든다.
+- `feature-dependency`: 다른 기능의 모듈을 가져오는데 그 방향이 `ALLOWED`에 없다. `ALLOWED`는 방향마다 업무상의 이유를 적고, 모든 기능은 `platform`과 `app`을 가져올 수 있으며, 나열한 방향끼리는 순환이 없어야 한다. 새 방향은 diff에 새 줄로 보인다.
+- `platform-isolation`: 공용 모듈이 기능의 모듈을 가져오거나, 다른 공용 모듈을 거쳐 닿는다.
+- `role`: `rules`가 제 기능의 `rules`와 `platform` 밖을 가져오거나, `state`·`api`가 제 기능·`app`·`platform`의 `rules`·`state` 밖을 가져오거나, 누구든 입구를 가져온다.
+- `unplaced`: 아직 제자리에 없는 평평한 모듈이다. 변환이 남긴 57개는 `LEGACY` 표가 기능과 역할을 대신 말하고, 하나씩 옮길 때마다 표에서 줄이 빠진다. 표에 없는 평평한 모듈은 검사가 바로 거절한다.
+
+표 자체의 실수(모르는 기능·역할, 이유 없는 방향, 한 쌍의 두 방향, `ALLOWED`의 순환, 없는 파일의 `LEGACY` 줄)는 검사를 바로 실패시킨다. 규칙과 표는 `tools/tests/viewer_checks.test.mjs`(`npm test`)가 제 사례로 지킨다. 같은 파일이 ESLint의 지역 규칙(`limn/no-jsdoc-any`·`no-jsdoc-cast`·`no-imported-state-write`)도 본다.
 
 ## 조작 한눈에
 
@@ -1313,7 +1337,7 @@ LaTeX·Markdown·텍스트 문서의 줄 핀은 그 줄 범위를 바꿀 글을 
 - 작성 패널의 줄은 맨 앞에 담당을 말한다. `담당 Bob Park  @ 알림 Carol Lee`처럼 맡는 사람과 알림만 받는 사람을 가르고, 에이전트가 맡으면 `담당 에이전트  @ 알림 Bob Park`이다. 담당이 된 사람은 `알림` 쪽에 되풀이하지 않는다. 서버는 담당에게도 부름(`mention`)과 담당 알림(`assigned`)을 함께 쓰지만, 그 사람에게는 담당 알림이 앞서므로(§담당 **에이전트와 알림**) 줄에서는 담당으로 한 번만 말한다. `에이전트`는 알약이 아닌 보통 글자다. 알약은 부른 사람이다. 태그가 하나도 없으면 줄도 없다. 편집과 답글은 담당을 정하지 않으므로 알림 받을 사람만 보인다.
 - 줄의 라벨·알약·글은 하나씩 배지처럼 한 줄짜리 블록 컨테이너다. 줄을 대문자 높이로 다듬고(`text-box`) 배지와 같은 줄 높이(`--line-label` + 2px, 12px에서 18px)의 상자가 그것을 가운데 둔다. `알림` 앞 `@` 아이콘은 같은 대문자 높이 가운데에 선다(`vertical-align: calc(.5cap - 6px)`). 그래서 어느 글꼴에서도 줄의 모든 항목이 한 대문자 높이 가운데에 선다(§글자 가운데). 본문의 1.55 줄 상자로 두면 한 줄이 18.6px라, 두 줄로 넘친 줄(태블릿 시트의 긴 이름들) 아래 블록이 픽셀 사이에서 시작했고 글은 줄 가운데보다 0.6px 높았다.
 - 미리 보기는 저장·보내기가 실어 보내는 힌트(`mentionHints`)로 푼다. 그래서 줄에 뜬 사람이 곧 서버가 적을 사람이다.
-- 쓰는 중인 `@말`(커서가 그 끝에 있다)은 아직 알리지 않는다. 커서가 떠나거나(방향키·누르기) 칸을 벗어나면 알린다(`mentionBadSettled`). `@Sa`를 치며 목록에서 고르는 동안 경고가 먼저 뜨지 않게 하려는 것이다. 상자 곁 메모 칸에서 쓰는 `@말`도 작성 패널의 줄이 같은 규칙으로 알린다. JS 조각의 주석 끝에 코드 문장이 붙지 않았는지 [`src/limn/viewer/tests/test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)가 확인한다.
+- 쓰는 중인 `@말`(커서가 그 끝에 있다)은 아직 알리지 않는다. 커서가 떠나거나(방향키·누르기) 칸을 벗어나면 알린다(`mentionBadSettled`). `@Sa`를 치며 목록에서 고르는 동안 경고가 먼저 뜨지 않게 하려는 것이다. 상자 곁 메모 칸에서 쓰는 `@말`도 작성 패널의 줄이 같은 규칙으로 알린다. JS 모듈의 주석 끝에 코드 문장이 붙지 않았는지 [`src/limn/viewer/tests/test_viewer_source.py`](../../src/limn/viewer/tests/test_viewer_source.py)가 확인한다.
 - 나를 쓴 태그는 `(나 — 알림 없음)`이다.
 - 표시 이름이 같은 사람이 둘 이상이면, 줄의 알약과 담당 칸의 이름 뒤에 로그인을 흐리게 붙인다(`personLabel`, `.ml`). 카드의 사실 줄(`담당 Sam Jung sam2@example.com`)과 그 설명도 같다. @ 자동 완성 목록이 같은 자리에서 쓰는 구분이다. 이름만 쓰면 `@Sam Jung | @Sam Jung`처럼 누가 누구인지 알 수 없다.
 
@@ -1650,7 +1674,7 @@ LaTeX·Markdown·텍스트 문서의 줄 핀은 그 줄 범위를 바꿀 글을 
 
 서버는 연구실 머신에서 계속 돌고, 사람은 휴대 기기로 테일넷을 거쳐 붙는다. 그 기기가 몇 시간 끊기는 일(비행)이 실제 사용 조건이다. 그래서 뷰어는 연결이 없어도 받아 둔 문서를 보이고, 그동안 찍은 핀을 그 브라우저에 쌓아 두었다가 연결되면 쓴다. 코드는 [`js/offline.js`](../../src/limn/viewer/js/offline.js)와 서비스 워커 [`sw.js`](../../src/limn/viewer/sw.js)다. 범위는 **새 핀 만들기**까지다. 완료·답글·메모 수정·판정은 쌓지 않는다. 그것들은 `base_rev` 충돌을 사람이 보고 풀어야 하는 일이라 몇 시간 뒤의 일괄 전송과 성격이 다르다.
 
-**받아 두기.** [더보기] → `오프라인으로 받기`가 **이 인스턴스의 모든 문서**를 연결 없이 읽을 수 있게 둔다. 비행 중에는 문서 사이를 오가기 때문이다. 받는 것은 페이지 자체, 페이지가 이미 같은 출처에서 불러온 파일(PDF.js·글꼴·KaTeX·Markdown 파싱 worker), 문서마다 지금 빌드의 PDF와 쪽 그림이다. 문서마다의 읽기(meta, 목차 번호, Markdown·텍스트 문서의 원문)와 모든 문서가 함께 쓰는 목록(문서, 핀, 휴지통, 사람)은 `api()` 로 읽어 그 답이 저장되게 한다(아래 저장해 둔 읽기). 캐시가 쓰기를 거절한 파일(저장 공간)은 받지 못한 파일로 센다. 받은 것으로 세면 쪽이 빠진 빌드가 다 받은 빌드로 기록되고, 따라가기가 마지막 온전한 빌드를 치운다. 파일 목록은 하드코딩하지 않는다. 페이지의 것은 `performance.getEntriesByType('resource')` 에서 읽고, 문서의 것은 그 문서가 화면에 있을 때 뷰어가 묻는 바로 그 주소로 짓는다(`offlineDocFiles`). 사본은 주소로 다시 찾기 때문이다. 파일은 워커에 12개씩 보내고 그때마다 상태 줄이 `받는 중… n/m` 을 말한다. 한 번에 다 보내고 3초를 기다리면 루프백에서는 되지만 테일넷 너머의 휴대 기기에서는 아직 받는 중인 것을 실패라고 한다. 문서마다 서버에 그 빌드를 7일간 붙잡아 달라고 한다(`POST /api/hold`, [build-sync.md](build-sync.md) §쪽 교체). 붙잡지 못해도(그 경로가 없는 옛 서버) 받아 두기는 실패가 아니고, 알림이 자리를 지킨다는 말만 뺀다. 끝나면 `오프라인 준비됨 · 문서 d개 · 파일 n개 · PDF의 자리를 7일간 지킵니다` 다.
+**받아 두기.** [더보기] → `오프라인으로 받기`가 **이 인스턴스의 모든 문서**를 연결 없이 읽을 수 있게 둔다. 비행 중에는 문서 사이를 오가기 때문이다. 받는 것은 페이지 자체, 페이지가 이미 같은 출처에서 불러온 파일(뷰어 스크립트·PDF.js·글꼴·KaTeX·Markdown 파싱 worker), 문서마다 지금 빌드의 PDF와 쪽 그림이다. 문서마다의 읽기(meta, 목차 번호, Markdown·텍스트 문서의 원문)와 모든 문서가 함께 쓰는 목록(문서, 핀, 휴지통, 사람)은 `api()` 로 읽어 그 답이 저장되게 한다(아래 저장해 둔 읽기). 캐시가 쓰기를 거절한 파일(저장 공간)은 받지 못한 파일로 센다. 받은 것으로 세면 쪽이 빠진 빌드가 다 받은 빌드로 기록되고, 따라가기가 마지막 온전한 빌드를 치운다. 파일 목록은 하드코딩하지 않는다. 페이지의 것은 `performance.getEntriesByType('resource')` 에서 읽고, 문서의 것은 그 문서가 화면에 있을 때 뷰어가 묻는 바로 그 주소로 짓는다(`offlineDocFiles`). 사본은 주소로 다시 찾기 때문이다. 파일은 워커에 12개씩 보내고 그때마다 상태 줄이 `받는 중… n/m` 을 말한다. 한 번에 다 보내고 3초를 기다리면 루프백에서는 되지만 테일넷 너머의 휴대 기기에서는 아직 받는 중인 것을 실패라고 한다. 문서마다 서버에 그 빌드를 7일간 붙잡아 달라고 한다(`POST /api/hold`, [build-sync.md](build-sync.md) §쪽 교체). 붙잡지 못해도(그 경로가 없는 옛 서버) 받아 두기는 실패가 아니고, 알림이 자리를 지킨다는 말만 뺀다. 끝나면 `오프라인 준비됨 · 문서 d개 · 파일 n개 · PDF의 자리를 7일간 지킵니다` 다.
 
 **스스로 최신으로.** 한 번 누르면 그 인스턴스는 "받아 둔 인스턴스"가 되고(IndexedDB `limnOffline` 의 `state` 에 `kept` 기록: 문서마다 받아 둔 빌드, 그 빌드의 파일 주소, 붙잡기를 마지막으로 물은 때, Markdown·텍스트 문서는 원문 시각, 그리고 아직 치우지 않은 옛 빌드), 연결된 동안 사본이 스스로 최신을 따라간다. 재빌드 뒤 다시 누르지 않고 끊겨도 새 빌드를 붙잡은 채 떠나게 하기 위해서다. 누르지 않은 인스턴스는 아무것도 스스로 받지 않는다 — 원고가 기기에 남는 것은 사람이 고른 일이어야 한다. 따라가기는 조용하므로, 켜져 있는지는 [더보기]의 [오프라인으로 받기] 줄 끝이 말한다: 받아 둔 인스턴스면 `받아 둠`, 아니면 아무것도 없다(`offKeptShow`). 따라갈 신호는 따로 묻지 않는다. 뷰어가 이미 받는 meta 답(라이트 폴링의 것 포함)이 문서마다 지금 빌드를 말하고, 그 답이 지나는 `offStash` 가 받아 둔 것과 견준다. 방문을 시작할 때도 기록을 읽어 한 번 견준다. 받아 둔 빌드가 뒤처졌거나, 붙잡기를 다시 물을 때가 됐거나(하루에 한 번, 붙잡기는 7일), 치울 옛 빌드가 있으면 10초 동안 더 바뀌지 않기를 기다렸다가 한 번 따라간다. 빌드가 잇달아 바뀌면 마지막 것만 받는다. 아무것도 뒤처지지 않았으면 요청도 저장소 읽기도 없다. 따라가기는 누를 때 하는 일을 문서 하나에 대해 조용히 하는 것이다 — meta와 목차 번호를 읽어 저장하고, 새 빌드의 PDF와 쪽 그림을 워커에 받고, 새 빌드를 붙잡는다(`POST /api/hold`). Markdown·텍스트 문서는 원문을 다시 읽어 저장한다. 서버 목록에 새로 든 문서도 받고, 빠진 문서는 건드리지 않는다. 규칙은 다섯이다.
 
@@ -1673,7 +1697,7 @@ LaTeX·Markdown·텍스트 문서의 줄 핀은 그 줄 범위를 바꿀 글을 
 
 한도를 주지 않은 요청(재빌드, 리비전의 diff와 빌드)은 서버가 걸리는 만큼 기다린다. 요청 하나가 답 없이 끝나면 뷰어는 그것을 적어 둔다(`API_OUT`). 어떤 요청이든 답을 받으면 지운다. 그동안에는 두 가지를 기다리지 않는다. 드래그는 서버에 묻지 않고 바로 끊긴 채의 선택으로 열리고(폴링이 두 번을 세기 전에도), 저장본이 답하는 때의 읽기는 요청 없이 저장본으로 답한다. 방문의 첫 읽기들은 차례로 나가므로, 하나씩 한도를 다 기다리면 화면이 그만큼씩 늦게 그려진다. 라이트 폴링은 늘 묻고, 그 답이 이 상태를 끝낸다.
 
-**캐시는 네트워크가 답하지 못할 때만 답한다.** 서비스 워커는 같은 출처의 `GET`을 늘 네트워크로 먼저 보내고, 성공한 응답의 사본을 둔다. 사본은 네트워크가 실패했거나, 사본이 있는 요청에 4초 안에 답을 시작하지 않았거나, 답의 본문이 4초 넘게 멈췄을 때만 쓰인다. 답이 오는 중에 연결이 끊기면 머리만 오고 본문은 끝나지 않는데, 페이지에 넘긴 답은 되돌릴 수 없다. 그래서 사본이 있는 요청의 답은 워커가 끝까지 읽은 뒤에 넘긴다(조각마다 4초). 사본이 없는 요청은 전과 같이 흘려 넘긴다. 한 번 그렇게 답하면 20초 동안은 사본이 있는 요청을 묻지 않고 사본으로 답한다 — 다시 연 탭이 파일마다 4초씩 기다리지 않게 하기 위해서다. 네트워크의 어떤 답이든 그 창을 닫는다. 사본이 없는 요청은 전과 같이 네트워크를 기다린다. 페이지는 부팅의 첫 읽기 전에 워커에게 지금 그 창 안인지 묻고(`down` 메시지), 그렇다면 저장본에서 바로 시작한다. 그래서 연결된 동안 낡은 화면을 보는 일은, 사본이 있는 파일에 서버가 4초 넘게 답하지 못한 직후의 20초로 한정된다. **`/api/*`는 사본을 두지도, 사본으로 답하지도 않는다.** 낡은 핀 목록이 지금 목록으로 읽히면 안 되기 때문이다. 페이지는 모든 부품이 한 HTML에 들어 있고 문서는 쿼리(`?doc=`)로 고르므로, HTML 응답은 쿼리와 무관하게 한 키로 둔다. 사본은 응답을 넘기기 전에 뜬다. 넘긴 뒤에는 본문을 이미 읽기 시작해 복제할 수 없다.
+**캐시는 네트워크가 답하지 못할 때만 답한다.** 서비스 워커는 같은 출처의 `GET`을 늘 네트워크로 먼저 보내고, 성공한 응답의 사본을 둔다. 사본은 네트워크가 실패했거나, 사본이 있는 요청에 4초 안에 답을 시작하지 않았거나, 답의 본문이 4초 넘게 멈췄을 때만 쓰인다. 답이 오는 중에 연결이 끊기면 머리만 오고 본문은 끝나지 않는데, 페이지에 넘긴 답은 되돌릴 수 없다. 그래서 사본이 있는 요청의 답은 워커가 끝까지 읽은 뒤에 넘긴다(조각마다 4초). 사본이 없는 요청은 전과 같이 흘려 넘긴다. 한 번 그렇게 답하면 20초 동안은 사본이 있는 요청을 묻지 않고 사본으로 답한다 — 다시 연 탭이 파일마다 4초씩 기다리지 않게 하기 위해서다. 네트워크의 어떤 답이든 그 창을 닫는다. 사본이 없는 요청은 전과 같이 네트워크를 기다린다. 페이지는 부팅의 첫 읽기 전에 워커에게 지금 그 창 안인지 묻고(`down` 메시지), 그렇다면 저장본에서 바로 시작한다. 그래서 연결된 동안 낡은 화면을 보는 일은, 사본이 있는 파일에 서버가 4초 넘게 답하지 못한 직후의 20초로 한정된다. **`/api/*`는 사본을 두지도, 사본으로 답하지도 않는다.** 낡은 핀 목록이 지금 목록으로 읽히면 안 되기 때문이다. 페이지는 모든 문서에 같은 HTML이고 문서는 쿼리(`?doc=`)로 고르므로, HTML 응답은 쿼리와 무관하게 한 키로 둔다. 페이지가 불러오는 스크립트(`/viewer.js?v=<내용 키>`)는 다른 정적 파일처럼 주소째 사본을 두므로, 사본으로 연 페이지는 그 페이지가 가리키는 판의 스크립트를 받는다. 사본은 응답을 넘기기 전에 뜬다. 넘긴 뒤에는 본문을 이미 읽기 시작해 복제할 수 없다.
 
 **다시 연 탭은 저장해 둔 읽기로 그린다.** 긴 비행에서 휴대 기기는 탭을 버린다. 다시 열면 페이지는 사본으로 오지만 문서 읽기는 API라 사본이 없다. 그래서 부팅 경로의 읽기 일곱(`/api/meta`·`/api/docs`·`/api/pins`·`/api/pins/dropped`·`/api/people`·`/api/outline-labels`·`/api/source`)은 마지막 답을 그 브라우저에 저장해 두고(IndexedDB `limnOffline`의 `state`), 네트워크가 답하지 못한(거절했거나 한도를 넘긴) 그 읽기만 저장본으로 답한다. 규칙은 다섯이다.
 

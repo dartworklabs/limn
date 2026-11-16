@@ -16,6 +16,7 @@ import fcntl
 import hashlib
 import json
 import os
+import re
 import stat
 import sys
 import tempfile
@@ -215,18 +216,17 @@ def prefetch_test_font(
 
 
 def prepare_font_document(html: str) -> str:
-    """Defer the final classic viewer script intact until the page's FontFace loads.
+    """Defer the viewer's script - the page's final script element, `<script src="/viewer.js?v=...">` - until the page's
+    FontFace loads.
 
-    Appending a classic script retains its original global bindings. The document
-    and original init scripts still establish styles/preferences before boot;
-    only an explicitly provisioned test document takes this preparation path.
+    The loader appends a classic script element with the same src once the face is in, so the script still runs as a
+    classic script of this origin with its original global bindings. The document and original init scripts still
+    establish styles/preferences before boot; only an explicitly provisioned test document takes this preparation path.
     """
-    opening = html.rfind("<script>")
-    closing = html.rfind("</script>")
-    if opening < 0 or closing < opening:
-        raise ValueError("font fixture requires a final inline classic viewer script")
-    source = html[opening + len("<script>") : closing]
-    literal = json.dumps(source).replace("</", "<\\/")
+    found = list(re.finditer(r'<script src="(/viewer\.js\?v=[0-9a-f]+)"></script>', html))
+    if len(found) != 1 or html.rfind("<script") != found[0].start():
+        raise ValueError("font fixture requires the viewer's script as the page's final script element")
+    element = found[0]
     loader = """<script>
 window.__limnTestFontReady = (async () => {
   try {
@@ -235,14 +235,17 @@ window.__limnTestFontReady = (async () => {
     if (document.readyState === 'loading')
       await new Promise(resolve => document.addEventListener('DOMContentLoaded', resolve, {once: true}));
     window.__limnTestFontBeforeViewer = face.status === 'loaded' && document.fonts.has(face);
-    const script = document.createElement('script'); script.textContent = %s;
-    document.body.appendChild(script);
+    const script = document.createElement('script'); script.src = %s;
+    await new Promise((resolve, reject) => {
+      script.onload = resolve; script.onerror = () => reject(new Error('the viewer script did not load'));
+      document.body.appendChild(script);
+    });
     return null;
   } catch (error) { return String(error); }
   finally { window.__limnTestFontSettled = true; }
 })();
-</script>""" % (json.dumps(FONT_FAMILY), json.dumps('url("%s")' % FONT_ROUTE), literal)
-    return html[:opening] + loader + html[closing + len("</script>") :]
+</script>""" % (json.dumps(FONT_FAMILY), json.dumps('url("%s")' % FONT_ROUTE), json.dumps(element.group(1)))
+    return html[: element.start()] + loader + html[element.end() :]
 
 
 class _FontDocumentRoute:

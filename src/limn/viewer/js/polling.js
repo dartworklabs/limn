@@ -1,4 +1,22 @@
 // ------------------------------------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
+import { $, BUILD_STATE, DOC, DOC_SEQ, EL_SYNC, EVENT_TYPE, META_BY, NOTICE_DOT, NOTICE_KIND, NOTICE_LIFE, PIN_STATE,
+  SWITCHSEQ, SYNC_STATE, rendersInBrowser } from './core.js';
+import { tl, tr } from './i18n.js';
+import { API_WAIT, api } from './api.js';
+import { announce, digestBegin, digestSoon, groupNote, lineNote } from './notices.js';
+import { docInfo, dq, drawDocTabs } from './doc-tabs.js';
+import { switchDoc } from './doc-switch.js';
+import { updateStaleBadge, updateSyncBadge } from './boot.js';
+import { notifyHandle, notifyOn, notifyQuery } from './notify.js';
+import { BUILD, pollBuild } from './build-chip.js';
+import { DIGEST_TAIL_MS, awayTitle, checkDocUpdate, checkVersion, updExpect, updPinMoved,
+  versionDue } from './updates.js';
+import { MD, isMdDoc, mdBuild, mdPicCheck } from './md-surface.js';
+import { OFF, offlineFlush } from './offline.js';
+import { josa, josaName, who } from './card-parts.js';
+import { openTrash } from './cards.js';
+import { gotoReview, loadPins } from './list.js';
+import { restorePin } from './actions.js';
 let LAST_PINS_REV=/** @type {string|null} */(null),LAST_SRC_MTIME=/** @type {string|number|null} */(null),POLL_FAILS=0,
   LIGHT_TIMER=/** @type {ReturnType<typeof setInterval>|undefined} */(undefined),LIGHT_INFLIGHT=/** @type {Promise<void>|null} */(null);
 // Single-flight: same pattern as pollBuild - even if visibilitychange/focus/the 5-second timer overlap and
@@ -176,3 +194,11 @@ function noteReviewChanges(prev,d){if(!prev||!prev.length)return; const known=ne
   if(ok.length)groupNote('confirmed',{pins:ok},g=>({msg:text(g.pins,'#{id} 확인됨','핀 {n}개 확인됨'),kind:NOTICE_KIND.OK,act:null,o:{life:NOTICE_LIFE.TIMER,dot:NOTICE_DOT.SIDE,literal:true,brief:tl('확인됨 {n}',{n:g.pins.length})}}),merge);
   if(back.length)groupNote('reopened',{pins:back},g=>({msg:text(g.pins,'#{id} 다시 열림','핀 {n}개 다시 열림'),kind:NOTICE_KIND.WARN,act:null,
     o:{keys:g.pins.map(x=>EVENT_TYPE.REOPENED+':'+x.id),dot:NOTICE_DOT.SIDE,literal:true,brief:tl('다시 열림 {n}',{n:g.pins.length})}}),merge,newsWithout(EVENT_TYPE.REOPENED,'pins'));}
+// Sets LAST_PINS_REV, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof LAST_PINS_REV} T @param {T} v @returns {T} */
+function setLastPinsRev(v){LAST_PINS_REV=v; return v;}
+// Sets LAST_SRC_MTIME, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof LAST_SRC_MTIME} T @param {T} v @returns {T} */
+function setLastSrcMtime(v){LAST_SRC_MTIME=v; return v;}
+export { POLL_FAILS, markMine, notePinChanges, noteReviewChanges, pinState, pollLight, setLastPinsRev, setLastSrcMtime,
+  startLightPolling, syncHiddenNotifyTimer };

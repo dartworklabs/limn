@@ -1,10 +1,19 @@
-"""Hold the viewer's not-yet-strict type errors to a per-file count that only goes down (docs/handbook/viewer.md §타입 검사).
+"""Hold the viewer's not-yet-met checks to per-file counts that only go down (docs/adr/0042-viewer-es-modules.md D7,
+docs/handbook/viewer.md §타입 검사).
 
-The viewer's JS parts share one global scope, so a stricter tsc option cannot be turned on one file at a time. Instead
-tsconfig.strict.json turns the next options on, and this script runs it and compares each part's error count with
-tools/strict-baseline.json: a part with more errors than its baseline fails (new code must meet the stricter rule), and
-a part with fewer fails too until the baseline is lowered with --update, so the count never creeps back. A part not in
-the baseline has a baseline of 0.
+Three checks run over the viewer's ES modules, and the existing code does not meet all of them yet:
+
+- tsc-strict: `tsc -p tsconfig.strict.json` - the full TypeScript `strict` set (noImplicitAny and the rest) on top of
+  tsconfig.json, which itself must stay clean (npm run typecheck).
+- eslint: every rule eslint.config.mjs turns on (no any, no JSDoc cast, no write to another module's state, no
+  confusing global, an exhaustive switch over a closed union), per rule.
+- boundaries: tools/check_viewer_boundaries.mjs - import cycles, feature dependencies ALLOWED does not list, platform
+  importing a feature, role rules, modules not yet in their feature folder - per rule.
+
+This script runs all three and compares each file's count, per check and rule, with tools/strict-baseline.json. A
+count above its baseline fails: new code must meet the rule. A count below fails too, until the baseline is lowered
+with --update, so it cannot creep back. A file or rule the baseline does not name has a baseline of 0. A check that
+fails without giving counts (a broken config, a parse error, a mistake in the boundary tables) fails this run.
 
 Run: npm ci --ignore-scripts && uv run python tools/strict_ratchet.py [--update]
 """
@@ -19,35 +28,75 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = ROOT / "tools" / "strict-baseline.json"
-TSC = ROOT / "node_modules" / ".bin" / "tsc"
+NODE_MODULES = ROOT / "node_modules"
+TSC = NODE_MODULES / "typescript-7" / "bin" / "tsc"  # the type checker npm run typecheck runs
+ESLINT = NODE_MODULES / "eslint" / "bin" / "eslint.js"
+BOUNDARIES = ROOT / "tools" / "check_viewer_boundaries.mjs"
+VIEWER_JS = "src/limn/viewer/js"
 ERROR = re.compile(r"^(?P<file>[^\s(]+)\(\d+,\d+\): error TS\d+:", re.M)
 
+Counts = dict[str, int]  # file -> count
+RuleCounts = dict[str, Counts]  # rule -> file -> count
 
-def error_counts(output: str) -> dict[str, int]:
+
+def error_counts(output: str) -> Counts:
     """Errors per file in tsc's plain (--pretty false) output, by the path tsc prints."""
     return dict(Counter(m["file"] for m in ERROR.finditer(output)))
 
 
-def compare(counts: Mapping[str, int], baseline: Mapping[str, int]) -> list[str]:
-    """Each file whose error count differs from its baseline (0 when unlisted), as a line saying which way; empty when
-    every count equals its baseline."""
+def eslint_counts(report: list[dict], root: Path = ROOT) -> RuleCounts:
+    """Messages per rule and file in ESLint's JSON report, files relative to root. Raises SystemExit for a message
+    with no rule (a file ESLint could not parse) - a count cannot stand for it."""
+    out: dict[str, Counter[str]] = {}
+    for result in report:
+        name = Path(result["filePath"]).resolve().relative_to(root).as_posix()
+        for message in result["messages"]:
+            if not message.get("ruleId"):
+                raise SystemExit("eslint could not check %s: %s" % (name, message.get("message")))
+            out.setdefault(message["ruleId"], Counter())[name] += 1
+    return {rule: dict(sorted(c.items())) for rule, c in sorted(out.items())}
+
+
+def compare(counts: Mapping[str, int], baseline: Mapping[str, int], what: str = "tsconfig.strict.json") -> list[str]:
+    """Each file whose count differs from its baseline (0 when unlisted), as a line saying which way; empty when every
+    count equals its baseline. what names the rule in the line."""
     out = []
     for name in sorted(set(counts) | set(baseline)):
         now, base = counts.get(name, 0), baseline.get(name, 0)
         if now > base:
-            out.append("%s: %d errors, baseline %d - the new code must meet tsconfig.strict.json" % (name, now, base))
+            out.append("%s: %d errors, baseline %d - the new code must meet %s" % (name, now, base, what))
         elif now < base:
             out.append("%s: %d errors, baseline %d - lower the baseline (--update)" % (name, now, base))
     return out
 
 
+def compare_all(found: Mapping[str, object], baseline: Mapping[str, object]) -> list[str]:
+    """compare() over every check and rule: found and baseline hold 'tsc-strict' as file counts and 'eslint' and
+    'boundaries' as rule counts. A rule only one side names is compared with nothing (0) on the other."""
+    out = []
+    for check in ("tsc-strict", "eslint", "boundaries"):
+        now, base = found.get(check, {}), baseline.get(check, {})
+        assert isinstance(now, Mapping) and isinstance(base, Mapping)
+        if check == "tsc-strict":
+            out += ["tsc-strict: " + line for line in compare(now, base)]
+            continue
+        for rule in sorted(set(now) | set(base)):
+            out += ["%s %s: %s" % (check, rule, line) for line in compare(now.get(rule, {}), base.get(rule, {}), rule)]
+    return out
+
+
+def _require(path: Path) -> None:
+    """Raise SystemExit when a tool npm ci installs is missing."""
+    if not path.exists():
+        raise SystemExit("%s is not installed: run `npm ci --ignore-scripts` first" % path.relative_to(ROOT))
+
+
 def run_tsc() -> str:
     """tsc -p tsconfig.strict.json's output, type errors included. Raises SystemExit when tsc is not installed (npm ci)
     or fails without listing type errors (a broken config)."""
-    if not TSC.exists():
-        raise SystemExit("tsc is not installed: run `npm ci --ignore-scripts` first")
+    _require(TSC)
     proc = subprocess.run(
-        [str(TSC), "-p", "tsconfig.strict.json", "--pretty", "false"],
+        ["node", str(TSC), "-p", "tsconfig.strict.json", "--pretty", "false"],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -58,18 +107,59 @@ def run_tsc() -> str:
     return proc.stdout
 
 
+def run_eslint() -> list[dict]:
+    """ESLint's JSON report on the viewer's modules. Raises SystemExit when ESLint is not installed or stops without a
+    report (exit 2: a broken config)."""
+    _require(ESLINT)
+    proc = subprocess.run(
+        ["node", str(ESLINT), "--format", "json", VIEWER_JS], cwd=ROOT, capture_output=True, text=True, check=False
+    )
+    if proc.returncode not in (0, 1):
+        raise SystemExit("eslint failed (exit %d):\n%s%s" % (proc.returncode, proc.stdout, proc.stderr))
+    return json.loads(proc.stdout)
+
+
+def run_boundaries() -> RuleCounts:
+    """The boundary check's counts. Raises SystemExit when it refuses its own tables (exit 2) or fails."""
+    _require(NODE_MODULES / "rollup")
+    proc = subprocess.run(["node", str(BOUNDARIES), "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        raise SystemExit("the boundary check failed (exit %d):\n%s%s" % (proc.returncode, proc.stdout, proc.stderr))
+    counts = json.loads(proc.stdout)
+    return {rule: c for rule, c in counts.items() if c}
+
+
+def measure() -> dict[str, object]:
+    """Every check's counts now: {'tsc-strict': counts, 'eslint': rule counts, 'boundaries': rule counts}."""
+    return {
+        "tsc-strict": error_counts(run_tsc()),
+        "eslint": eslint_counts(run_eslint()),
+        "boundaries": run_boundaries(),
+    }
+
+
+def total(found: Mapping[str, object], check: str) -> int:
+    """The sum of one check's counts."""
+    value = found.get(check, {})
+    assert isinstance(value, Mapping)
+    if check == "tsc-strict":
+        return sum(value.values())
+    return sum(n for c in value.values() for n in c.values())
+
+
 def main(argv: list[str]) -> int:
     """Compare the counts with the baseline (exit 1 on any difference), or with --update write them as the baseline."""
-    counts = error_counts(run_tsc())
+    found = measure()
+    summary = ", ".join("%s %d" % (check, total(found, check)) for check in ("tsc-strict", "eslint", "boundaries"))
     if "--update" in argv:
-        BASELINE.write_text(json.dumps(dict(sorted(counts.items())), indent=2) + "\n", encoding="utf-8")
-        print("wrote %s: %d errors in %d files" % (BASELINE.name, sum(counts.values()), len(counts)))
+        BASELINE.write_text(json.dumps(found, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        print("wrote %s: %s" % (BASELINE.name, summary))
         return 0
-    problems = compare(counts, json.loads(BASELINE.read_text(encoding="utf-8")))
+    problems = compare_all(found, json.loads(BASELINE.read_text(encoding="utf-8")))
     for line in problems:
         print(line)
     if not problems:
-        print("strict ratchet: %d errors in %d files, as the baseline says" % (sum(counts.values()), len(counts)))
+        print("strict ratchet: %s, as the baseline says" % summary)
     return 1 if problems else 0
 
 

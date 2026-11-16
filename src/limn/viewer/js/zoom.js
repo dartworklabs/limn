@@ -7,6 +7,10 @@
 //   point under the midpoint of the two fingers follows the fingers (drag while zooming). A page in selection mode has touch-action:none, so it goes through the same path.
 // - A Markdown document (md-surface.js) has no pages to scale: every one of these leaves its input to the browser - Ctrl+wheel,
 //   a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch there).
+import { $, K } from './core.js';
+import { ZOOM_STEP, markZoomed, setK, zoomAnchor, zoomRestore, zoomTo } from './pages.js';
+import { cancelDrag, cancelLP } from './selection.js';
+import { isMdDoc } from './md-surface.js';
 function zoomKey(e){const k=e.key,c=e.code;
   if(k==='='||k==='+'||c==='Equal'||c==='NumpadAdd')return 'in';
   if(k==='-'||k==='_'||c==='Minus'||c==='NumpadSubtract')return 'out';
@@ -42,3 +46,4 @@ function wheelFactor(dy,mode){if(!dy)return 1;
   L.addEventListener('touchend',end); L.addEventListener('touchcancel',end);
 })();
 
+export { wheelFactor, zoomKey };

@@ -1,4 +1,58 @@
 // ------------------------------------------------ Help
+import { $, $$, DOCS, KIND_REQ, LAYOUT, LAYOUT_MODE, MENTION_ONLY, MID_OVERLAY, NOTICE_HOST, NOTICE_KIND, OPEN_CARDS,
+  OUTLINE_MID_OPEN, REPICK, REPLY, SELMODE, SHOW_ALL, SIDE_OPEN, SNIP_OPEN, THREAD_OPEN, imeKey, setMentionOnly,
+  setShowAll, setSnipOpen } from './core.js';
+import { switchLang } from './i18n.js';
+import { setTheme } from './prefs.js';
+import { copyText } from './api.js';
+import { bannerNote, noticeAct, noticeClose } from './notices.js';
+import { TIP, focusGivenBack, hideTip } from './tooltip.js';
+import { closeDocMenu, multiDoc, toggleDocMenu } from './doc-tabs.js';
+import { REV_SCOPE, moreRevisions, pressRevisionRow, renderRevisionFile, revBack, setRevisionFormat, setRevisionRange,
+  setRevisionSide, setRevisionWhole, setViewMode, showChange, showRevision,
+  toggleRevisionOther } from './revisions.js';
+import { cycleDoc, openNavSheet, switchDoc } from './doc-switch.js';
+import { boot, viewerBlocked } from './boot.js';
+import { notifyToggle } from './notify.js';
+import { BUILD } from './build-chip.js';
+import { reloadForUpdate } from './updates.js';
+import { drawStatus, statusWhy, toggleStatusList } from './status.js';
+import { sizePreset, toggleOutline } from './panel-size.js';
+import { actualSize, fitW, navGo, zoom } from './pages.js';
+import { pickOutline } from './outline.js';
+import { closePageList, goListedPage, togglePageList } from './page-list.js';
+import { searchClose, searchGo, searchOpen } from './search.js';
+import { revisionPdfActive, revisionZoom } from './revision-zoom.js';
+import { zoomKey } from './zoom.js';
+import { focusSideToggle, headInk, openMore, outlineOverlay, setSelMode, setSide, showSheet,
+  toggleSide } from './layout.js';
+import { useLevel } from './levels.js';
+import { applyRange, dropLine, widenTo } from './excerpt.js';
+import { showElementBox } from './figure.js';
+import { isMdDoc, mdGoAnchor, mdGoDoc, mdHtmlRun } from './md-surface.js';
+import { mdcStep } from './md-compare.js';
+import { SG_OPEN, suggestAct } from './suggest.js';
+import { COMPOSE, discardSelection, recomputeOverlap, renderComposer, renderOverlapBanner, setKind,
+  toggleQuote } from './composer.js';
+import { saveDraftSoon } from './draft.js';
+import { appendToPin, savePin } from './save.js';
+import { offlineFlush, offlinePrepare } from './offline.js';
+import { pvCancel, pvLineUndo, verdictPress } from './verdict.js';
+import { pvReasonAct } from './verdict-reason.js';
+import { pvSumGo } from './verdict-panel.js';
+import { selPopMore } from './sel-popover.js';
+import { MSG_OPEN } from './card-parts.js';
+import { ARC_OPEN, openTrash } from './cards.js';
+import { RV_PICK, rvConfirm, rvPick, rvToCard } from './review-pick.js';
+import { cardNeighbour, drawPins, focusCard, gotoPinRef, gotoReview, jumpPin, jumpToCard, loadPins, revealCard,
+  setListOrder, toggleSec } from './list.js';
+import { MARKS, marksSet } from './marks-hide.js';
+import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './actions.js';
+import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './mentions.js';
+import { closeReply, openReply, renderReplyOutcome, sendReply } from './reply.js';
+import { EDITOR, cancelEdit, openEdit, renderEdit, saveEdit } from './edit.js';
+import { applyRepick, cancelRepick, startRepick } from './repick.js';
+import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './rebuild.js';
 let HELP_BACK=/** @type {HTMLElement|null} */(null);
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp(){const d=$('#help'); if(d.open)return; HELP_BACK=/** @type {HTMLElement|null} */(document.activeElement); hideTip(); showSheet(d); headInk();}
@@ -52,7 +106,7 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
       appendToPin(Number(a.dataset.oid),text);break;}
     case 'overlap-separate':COMPOSE.dismissedOverlap=a.dataset.key||null;renderOverlapBanner();break;
     case 'copy-cur':if(COMPOSE.current)copyText(COMPOSE.current.name+' L'+COMPOSE.current.lo+'-L'+COMPOSE.current.hi,a);break;
-    case 'expand':SNIP_OPEN=!SNIP_OPEN;renderComposer();break;
+    case 'expand':setSnipOpen(!SNIP_OPEN);renderComposer();break;
     case 'quote':toggleQuote(a);break;   // the dragged PDF text's line: open in full, or fold back to one line
     case 'sg-toggle':case 'sg-reload':case 'sg-rebase':suggestAct(a,String(a.dataset.act));break;   // a suggested edit's switch and line (suggest.js)
     case 'sg-fold':{const k=a.dataset.key; if(!k)break; if(SG_OPEN.has(k))SG_OPEN.delete(k); else SG_OPEN.add(k); drawPins(); break;}   // a card's suggestion diff
@@ -82,8 +136,8 @@ document.addEventListener('click',e=>{const target=/** @type {HTMLElement} */(e.
     case 'revision-row':pressRevisionRow(a.dataset.commit);break;
     case 'revision-range':setRevisionRange(a.dataset.range);break;
     case 'revision-more':moreRevisions();break;
-    case 'all-docs':SHOW_ALL=!SHOW_ALL;drawPins();break;
-    case 'mention-filter':MENTION_ONLY=!MENTION_ONLY;drawPins();break;
+    case 'all-docs':setShowAll(!SHOW_ALL);drawPins();break;
+    case 'mention-filter':setMentionOnly(!MENTION_ONLY);drawPins();break;
     case 'review-pick':rvPick(!RV_PICK);break; case 'rv-go':rvConfirm();break; case 'rv-card':if(id!=null)rvToCard(id);break;   // confirming from result rows (review-pick.js)
     case 'list-order':setListOrder(a.dataset.order);break;
     case 'mention-pick':mentionApply(Number(a.dataset.i));break;
@@ -231,3 +285,4 @@ document.addEventListener('keydown',e=>{
   if(e.key==='?'&&!inField&&!e.metaKey&&!e.ctrlKey&&!e.altKey){e.preventDefault();openHelp();}
 });
 boot();
+export { segFocusAt, segKeep, segRove };

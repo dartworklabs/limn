@@ -1,6 +1,20 @@
 // How much of a PDF's outline the viewer reads (docs/handbook/viewer.md §모바일 레이아웃): the first OUTLINE_MAX_ENTRIES entries in outline
 // order, down to level OUTLINE_MAX_DEPTH (0 is the top level, so five levels). What is left unread is counted (OUTLINE_CUT) and said at
 // the end of the outline and of its filter's results (outlineCutNote) - never dropped without a word.
+import { $, BAND, DOC, LAYOUT_BAND, META, MQ_REDUCED, imeKey, isFigureKind, scrollMotion } from './core.js';
+import { html, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { docInfo, dq } from './doc-tabs.js';
+import { setViewMode } from './revisions.js';
+import { drawPos, navSheetFiltered } from './doc-switch.js';
+import { arrivalWatch, goPage, jumpOnItsWay } from './pages.js';
+import { VEC } from './pdf-open.js';
+import { refreshPageLists } from './page-list.js';
+import { isMdDoc, mdGoHeading, mdStrip } from './md-surface.js';
+import { pvGlideTo } from './verdict.js';
+import { selPopArea } from './sel-popover.js';
+import { topAnchor } from './rebuild.js';
 const OUTLINE_MAX_ENTRIES=2000, OUTLINE_MAX_DEPTH=4;
 const OUTLINE_BATCH=100;   // sibling entries whose destinations are resolved at once (each is a round trip to the PDF.js worker)
 // How many entries that name a place (a destination) lie in item and below it. Counts without resolving anything, and with a stack
@@ -389,3 +403,21 @@ const SCROLL_KEYS=new Set(['ArrowUp','ArrowDown','PageUp','PageDown','Home','End
 addEventListener('keydown',e=>{const a=document.activeElement;
   if(SCROLL_KEYS.has(e.key)&&(!a||a===document.body||$('#left').contains(a)))dropOutlinePick();});
 addEventListener('resize',dropOutlinePick);
+// Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof OUTLINE_BUILD} T @param {T} v @returns {T} */
+function setOutlineBuild(v){OUTLINE_BUILD=v; return v;}
+// Sets OUTLINE_CUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof OUTLINE_CUT} T @param {T} v @returns {T} */
+function setOutlineCut(v){OUTLINE_CUT=v; return v;}
+// Sets OUTLINE_DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof OUTLINE_DOC} T @param {T} v @returns {T} */
+function setOutlineDoc(v){OUTLINE_DOC=v; return v;}
+// Sets OUTLINE_ENTRIES, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof OUTLINE_ENTRIES} T @param {T} v @returns {T} */
+function setOutlineEntries(v){OUTLINE_ENTRIES=v; return v;}
+// Sets OUTLINE_SELECTED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof OUTLINE_SELECTED} T @param {T} v @returns {T} */
+function setOutlineSelected(v){OUTLINE_SELECTED=v; return v;}
+export { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, OUTLINE_PICK_GAP, OUTLINE_SELECTED, SCROLL_KEYS, loadOutline,
+  markOutline, outlineForget, outlineOnScreen, pickOutline, readingDepth, renderOutline, setOutlineBuild,
+  setOutlineCut, setOutlineDoc, setOutlineEntries, setOutlineSelected, spotTop, updateSectionStrip };

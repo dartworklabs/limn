@@ -59,10 +59,19 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
-      - name: Install viewer type checker
+      - name: Install viewer dev tools
         run: npm ci --ignore-scripts
+      # The viewer's script is built from its ES modules and committed (docs/adr/0042-viewer-es-modules.md): build it
+      # again and fail if the committed bytes differ, so an instance never serves a script its modules no longer make.
+      - name: Viewer build is fresh
+        run: npm run build:check
       - name: Viewer type check
         run: npm run typecheck
+      # The viewer checks' own cases (tools/tests): the boundary rules and tables, and the local ESLint rules.
+      - name: Viewer check tests
+        run: npm test
+      # Strict tsc, ESLint and the module boundary check (tools/check_viewer_boundaries.mjs), each file's count held to
+      # tools/strict-baseline.json: a new violation fails, and so does a count that fell without the baseline lowered.
       - name: Viewer strict ratchet
         run: uv run python tools/strict_ratchet.py
       # The Handbook's publishing check (docs/handbook/verification.md §7). Past the index it parses every chapter with
@@ -97,7 +106,7 @@ jobs:
             markers: "not browser and not tex"
             workers: 4
     env:
-      # The node --check of the served page's inline scripts (src/limn/viewer/tests/test_viewer_files.py) must run here: node 22 is set up below.
+      # The node --check of the served page's scripts and the viewer's modules (src/limn/viewer/tests/test_viewer_files.py) must run here: node 22 is set up below.
       LIMN_TEST_REQUIRE_NODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -290,7 +299,7 @@ jobs:
                    vendor/pretendard/PretendardVariable.subset.0.woff2 administration/systemd/limn@.service administration/instances.sh \
                    administration/instance_update.sh administration/instance_documents.sh \
                    administration/instance_lifecycle.sh administration/instance_inspection.sh \
-                   viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/js/events.js \
+                   viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/dist/viewer.js \
                    viewer/brand/SHA256SUMS viewer/brand/favicon.ico viewer/brand/favicon-16.png viewer/brand/favicon-32.png viewer/brand/apple-touch-icon.png \
                    viewer/brand/limn-wordmark-light-20.svg; do
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
@@ -304,6 +313,27 @@ jobs:
           # What start() reads before it serves: the viewer package and every brand file limn.viewer.mark names. A file the
           # wheel dropped fails here instead of on every instance's restart after `limn update`.
           "$python_dir/bin/python" -c "from limn import server; from limn.viewer import mark; v = server.read_viewer(); assert sorted(v.icons) == sorted(mark.ICON_ROUTES), sorted(v.icons); print('startup read:', len(v.icons), 'icons,', len(v.template), 'bytes of page')"
+          # The viewer's script is the built file the wheel carries, served without Node: with nothing on PATH the
+          # startup read still fills it, the page names it by its content key and GET /viewer.js answers it.
+          no_tools=$(mktemp -d)
+          env -i PATH="$no_tools" HOME="$HOME" "$python_dir/bin/python" -c "
+          import shutil
+          from limn import server
+          from limn.viewer import assemble, routes
+          assert shutil.which('node') is None and shutil.which('npm') is None
+          v = assemble.serve_viewer(server.read_viewer(), 'Smoke', '#2563eb', None)
+          key = assemble.script_key(v.script)
+          assert '<script src=\"/viewer.js?v=%s\"></script>' % key in v.page
+          assert v.script.startswith(\"'use strict';\") and '__LUCIDE_JSON__' not in v.script, v.script[:80]
+          class App:
+              APP_NAME = 'Limn'
+              def viewer(self): return v
+          class Request:
+              path = '/viewer.js'
+          reply = routes.get(Request(), App())
+          assert reply.code == 200 and reply.body == v.script.encode() and reply.ctype.startswith('text/javascript')
+          print('viewer script served without node:', len(reply.body), 'bytes, key', key)
+          "
 
           if find "$python_dir" -path "*/limn/*" \( -path "*/tests/*" -o -name "test_*.py" \) | grep -q .; then
             echo "test files leaked into the installed package"

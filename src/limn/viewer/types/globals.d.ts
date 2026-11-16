@@ -1,12 +1,12 @@
-// What `tsc` (tsconfig.json) needs to know about the viewer's page that the JS parts cannot say themselves
+// What `tsc` (tsconfig.json) needs to know about the viewer's page that its ES modules cannot say themselves
 // (docs/handbook/viewer.md §타입 검사). Types only: nothing here reaches the served page.
 
-// Placeholders the server fills when it assembles the page (limn/viewer/assemble.py viewer_html).
+// Placeholders the server fills in the built script (limn/viewer/assemble.py viewer_script).
 declare const __LUCIDE_JSON__: Record<string, string>;
 declare const __UI_EN_JSON__: Record<string, string | { one: string; other: string }>;
 declare const __PDFJS_VERSION__: string;
 
-// The head scripts set LIMN_LANG; the parts leave the boot time and the PDF.js state for tests that read them from outside.
+// The head scripts set LIMN_LANG; the modules leave the boot time and the PDF.js state for tests that read them from outside.
 interface Window {
   LIMN_LANG?: string;
   __pinViewerBoot: number;

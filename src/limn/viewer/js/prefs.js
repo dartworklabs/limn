@@ -1,4 +1,7 @@
 // ------------------------------------------------ Preferences (merged save): per-device pinPrefs, list-section state, theme
+import { $, $$, LIST_ORDER, MQ } from './core.js';
+import { tl, tr } from './i18n.js';
+import { segRove } from './events.js';
 function prefs(){try{const p=JSON.parse(localStorage.getItem('pinPrefs')||'{}');return p&&typeof p==='object'?p:{};}catch(e){return {};}}
 function savePrefs(patch){try{localStorage.setItem('pinPrefs',JSON.stringify(Object.assign(prefs(),patch)));}catch(e){}}
 // The saved panel width, and the keys of the [줄바꿈] toggles an older release stored (wrap, diffWrap) dropped: the source and
@@ -34,3 +37,8 @@ MQ.addEventListener('change',applyTheme);
 // segment its undo.
 function setTheme(t){if(!THEMES.includes(t))return; savePrefs({theme:t}); applyTheme();}
 
+// Sets ORDER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof ORDER} T @param {T} v @returns {T} */
+function setOrder(v){ORDER=v; return v;}
+export { ORDER, SEC, SEC_DEFAULT, SEC_SEEN, applyTheme, listOrderOf, prefs, savePrefs, secNewCount, setOrder,
+  setTheme };

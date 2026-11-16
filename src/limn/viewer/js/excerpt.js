@@ -3,6 +3,15 @@
 // one dimmed line above and below. A tap or click on a dimmed line widens the range to it; the '−' on the band's first or last
 // line drops that line; with a keyboard, Enter or Space on the row or the '−' does the same. The composer and the edit card
 // draw the same excerpt.
+import { $, SNIP_OPEN } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { ccHtml } from './hidden-chars.js';
+import { tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { dq, isRegion } from './doc-tabs.js';
+import { refetchSnip } from './levels.js';
+import { COMPOSE, recomputeOverlap, renderComposer } from './composer.js';
+import { EDITOR, renderEdit } from './edit.js';
 
 // The range lo..hi widened to line k: [min(lo,k), max(hi,k)]. Pure.
 function widenTo(lo,hi,k){return [Math.min(lo,k),Math.max(hi,k)];}
@@ -76,3 +85,4 @@ function applyRange(o,r,anchor){if(!o||!r)return; const n=o.n_lines||Math.max(r[
   setLines(o,lo,hi); if(o===COMPOSE.current){COMPOSE.intent++; recomputeOverlap();} excerptRedraw(o);
   const r1=row(); if(r0&&r1)$('#right').scrollTop+=r1.getBoundingClientRect().top-y0;
   refetchSnip(o,()=>excerptRedraw(o));}
+export { applyRange, drawExcerpt, dropLine, widenTo };

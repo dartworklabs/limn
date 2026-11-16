@@ -14,6 +14,16 @@
 // each the blocks of one change) and the one the navigator is at, the drawn column (root) and the observer that lays its
 // gutter chips out again when its width changes, the status line it said (line) and what it counted (said: the answer and
 // the counts, so a range's line can take the source diff's commit and file counts once they come).
+import { $, DIFF_FORMAT, LAYOUT, LAYOUT_MODE, MD_LIMIT, SCOPE_MODE, SCOPE_SOURCE, scrollMotion } from './core.js';
+import { html, setHtml } from './markup.js';
+import { ccHtml, ccPlain } from './hidden-chars.js';
+import { errText, tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { dq } from './doc-tabs.js';
+import { REV, hunkRanges, revKey, revTargetNote, revisionCurrent, revisionPinFor } from './revisions.js';
+import { MD, MD_LIMITS, MD_OVER, isMdDoc, mdLimitText, mdMiB, mdRender, mdRx, mdRxKeep, mdWait,
+  mdYield } from './md-surface.js';
+import { isTextDoc, txMarksText } from './text-surface.js';
 const MDC={seq:0,key:'',worker:/** @type {Worker|null} */(null),job:/** @type {{id:number,resolve:(r:any)=>void,t:ReturnType<typeof setTimeout>}|null} */(null),
   stops:/** @type {HTMLElement[][]} */([]),at:-1,ro:/** @type {ResizeObserver|null} */(null),root:/** @type {HTMLElement|null} */(null),line:'',
   said:/** @type {{r:any,c:{ins:number,del:number,mod:number,move:number}|null}|null} */(null)};
@@ -210,10 +220,10 @@ function mdcLcs(a,b,eq,budget){const ops=[]; let s=0; while(s<a.length&&s<b.leng
   if(budget)budget.left-=a.length+b.length;   // the ends just walked
   if(n*m>MDC_DIFF_CELLS||budget&&n*m>budget.left){if(budget&&n*m)budget.left=0;
     for(let i=s;i<ea;i++)ops.push({t:'del',a:i,b:-1}); for(let j=s;j<eb;j++)ops.push({t:'ins',a:-1,b:j});}
-  else{if(budget)budget.left-=n*m; const w=m+1,L=new Uint32Array((n+1)*w);
+  else {if(budget)budget.left-=n*m; const w=m+1,L=new Uint32Array((n+1)*w);
     for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)L[i*w+j]=eq(a[s+i],b[s+j])?L[(i+1)*w+j+1]+1:Math.max(L[(i+1)*w+j],L[i*w+j+1]);
     let i=0,j=0; while(i<n&&j<m){if(eq(a[s+i],b[s+j])){ops.push({t:'eq',a:s+i,b:s+j}); i++; j++;}
-      else if(L[(i+1)*w+j]>=L[i*w+j+1]){ops.push({t:'del',a:s+i,b:-1}); i++;} else{ops.push({t:'ins',a:-1,b:s+j}); j++;}}
+      else if(L[(i+1)*w+j]>=L[i*w+j+1]){ops.push({t:'del',a:s+i,b:-1}); i++;} else {ops.push({t:'ins',a:-1,b:s+j}); j++;}}
     for(;i<n;i++)ops.push({t:'del',a:s+i,b:-1}); for(;j<m;j++)ops.push({t:'ins',a:-1,b:s+j});}
   for(let k=0;k<a.length-ea;k++)ops.push({t:'eq',a:ea+k,b:eb+k});
   return ops;}
@@ -527,7 +537,7 @@ async function mdcShow(id,base,seq,k){const pane=$('#revision-rendered'),key=rev
   requestAnimationFrame(()=>{if(!live())return; mdcChips();
     MDC.ro=window.ResizeObserver?new ResizeObserver(()=>{if(live())requestAnimationFrame(mdcChips);}):null;
     if(MDC.ro)MDC.ro.observe(view);
-    if(at>=0)mdcGo(at); else{MDC.at=-1; mdcDrawNav();}});
+    if(at>=0)mdcGo(at); else {MDC.at=-1; mdcDrawNav();}});
   if(REV.target)revTargetNote();}
 // A line above the compare: a status, read when it comes, unless status is false - then a standing note, read in its place.
 /** @param {string} text @param {boolean} [status] */
@@ -562,3 +572,4 @@ function mdcTarget(tg,scope,nu,side){const t=REV.target; if(t&&!tg)t.mdcMsg=tl('
     (part?' · '+tr('그린 비교는 커밋 전체입니다 — 이 핀의 변경만은 [소스 diff]'):'');
   const first=shown[0]; if(!first)return -1;
   const i=MDC.stops.findIndex(g=>g.includes(first.el)); return i;}
+export { MDC, mdcClear, mdcDrawNav, mdcDrawn, mdcRestatus, mdcShow, mdcStep };

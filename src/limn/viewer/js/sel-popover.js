@@ -6,6 +6,15 @@
 // pick's tag is kept on the composer's note (mentions.js mentionModel). [자세히 →] hands over to the composer in the panel,
 // which keeps the kind, the range and the overlap. Esc and a short click off the box cancel the selection as before; a press
 // on the popover is a press inside the box (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
+import { $, KIND_NEW, LAST_PTR, LAYOUT, LAYOUT_MODE, REPICK } from './core.js';
+import { tl, tr } from './i18n.js';
+import { isRegion } from './doc-tabs.js';
+import { applySide, setSide } from './layout.js';
+import { rng } from './levels.js';
+import { COMPOSE, qHint } from './composer.js';
+import { saveDraftSoon } from './draft.js';
+import { MENTION, mentionClose, mentionEdited, mentionPlace, renderAssignNew } from './mentions.js';
+import { autoGrow } from './edit.js';
 const SEL_POP=$('#sel-pop'),SEL_POP_FIELD=/** @type {HTMLTextAreaElement} */(SEL_POP.querySelector('textarea')),SEL_POP_GAP=8;
 SEL_POP_FIELD._mirrorOf=/** @type {HTMLTextAreaElement} */($('#note'));   // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
@@ -60,3 +69,5 @@ function selPopMore(){closeSelPop(); setSide(true); applySide(); $('#note').focu
 $('#left').addEventListener('scroll',placeSelPop,{passive:true});
 addEventListener('resize',placeSelPop);
 new ResizeObserver(placeSelPop).observe($('#doc'));   // a zoom moves the box with its page
+export { SEL_POP, SEL_POP_BOX, SEL_POP_FIELD, closeSelPop, drawSelPop, openSelPop, placeSelPop, selPopArea, selPopMore,
+  selPopOpen };

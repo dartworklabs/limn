@@ -24,6 +24,11 @@
 // with a stored answer is answered from it without asking: a visit's first reads are made one after another, and each
 // waiting out its own request drew the page a read's wait later, every time. The light poll always asks, and its
 // answer - any answer - takes API_OUT down.
+import { NOTICE_HOST, NOTICE_KIND } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { errText, tl, tr } from './i18n.js';
+import { bannerNote, lineNote, quietNote, sourceOk } from './notices.js';
+import { offReadKey, offStaleSaid, offStash, offStashed, offlineBack, offlineMayServe } from './offline.js';
 const API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000};
 let API_OUT=false;
 /** @returns {Promise<{status: number, data: any}>} */
@@ -81,7 +86,11 @@ const COPIED_MS=1500;   // how long a copy control says it copied
 // out by copyText.
 /** @param {HTMLElement} el */
 function copiedMark(el){if(el._copiedT)clearTimeout(el._copiedT);
-  else{el._copied=[...el.childNodes]; el.style.minWidth=Math.ceil(el.getBoundingClientRect().width)+'px';}
+  else {el._copied=[...el.childNodes]; el.style.minWidth=Math.ceil(el.getBoundingClientRect().width)+'px';}
   el.classList.add('copied'); setHtml(el,html`${ic('check')}<span class="lbl">${tr('복사됨')}</span>`);
   el._copiedT=setTimeout(()=>{el.classList.remove('copied'); el.replaceChildren(...(el._copied||[])); el._copied=undefined; el._copiedT=undefined; el.style.minWidth='';},COPIED_MS);}
 
+// Sets API_OUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof API_OUT} T @param {T} v @returns {T} */
+function setApiOut(v){API_OUT=v; return v;}
+export { API_OUT, API_WAIT, api, apiFailed, copyText, setApiOut };

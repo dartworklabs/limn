@@ -4,6 +4,26 @@
 // the rows whose result they have read and confirms them together with [N건 확인] in the section head's second line
 // (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed again
 // since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the rules.
+import { $, DONE_ALL, MENTION_ONLY, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE, OPEN_ALL, OPEN_CARDS, PIN_STATE,
+  REVIEW_ALL, T, setReviewAll } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { errText, tl, tr } from './i18n.js';
+import { ORDER, SEC, savePrefs } from './prefs.js';
+import { api } from './api.js';
+import { bannerNote, deferred, deferredNote, lineNote, quietNote } from './notices.js';
+import { pdoc } from './doc-tabs.js';
+import { showChange } from './revisions.js';
+import { canConfirmReview } from './boot.js';
+import { markMine, pinState } from './polling.js';
+import { rng } from './levels.js';
+import { pinPlace } from './figure.js';
+import { isMdPin } from './md-surface.js';
+import { suggestBadge } from './suggest.js';
+import { verdictBadge, verdictOf, verdictOldMarker, verdictTarget } from './verdict.js';
+import { docChip, fmtText, isQuestion, locText, mentionsMe, msgBody } from './card-parts.js';
+import { drawPins, jumpToCard, listReview, loadPins, marks, orderPins } from './list.js';
+import { CONFIRMING, CONFIRMING_PIN } from './actions.js';
+/** @typedef {import('./markup.js').Html} Html */
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a close
 // with none). null while the section shows cards.
@@ -110,7 +130,7 @@ function rvToCard(id){rvPick(false); OPEN_CARDS.add(id); drawPins(); jumpToCard(
 /** @param {HTMLInputElement} box */
 function rvTick(box){if(!RV_PICK)return; const list=listReviewShown();
   if(box.id==='rv-all'){RV_PICK=new Map(box.checked?list.filter(rvShowsResult).map(p=>[p.id,String(p.done_at||'')]):[]);}
-  else{const id=Number(box.dataset.pick),p=list.find(q=>q.id===id); if(!p)return;
+  else {const id=Number(box.dataset.pick),p=list.find(q=>q.id===id); if(!p)return;
     if(box.checked)RV_PICK.set(id,String(p.done_at||'')); else RV_PICK.delete(id);}
   drawPins();}
 
@@ -127,7 +147,7 @@ function rvConfirm(){if(!RV_PICK)return;
   if(!items.length)return;
   const where=new Map(items.map(x=>[x.pin.id,REVIEW_ALL.indexOf(x.pin)])),ticks=new Map(items.map(x=>[x.pin.id,x.at]));
   for(const {pin} of items){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin); RV_PICK.delete(pin.id);}
-  REVIEW_ALL=REVIEW_ALL.filter(p=>!where.has(p.id)); drawPins(); marks();
+  setReviewAll(REVIEW_ALL.filter(p=>!where.has(p.id))); drawPins(); marks();
   const d=deferred(()=>{rvSend(items);},()=>rvUndo(items,where,ticks));
   const n=deferredNote(d,NOTICE_PLACE.ROW,tl('핀 {n}건 확인 · 완료로 옮겼습니다',{n:items.length}),{sec:'review',prev:null,rec:null});
   const sec=$('#sec-review'); if(!sec.hidden)sec.scrollIntoView({block:'start'});   // the undo row is the section's first
@@ -144,7 +164,7 @@ function rvUndo(items,where,ticks){const back=[],lost=[];
     if(now&&!REVIEW_ALL.some(p=>p.id===pin.id))back.push(now);
     else if(!now&&![OPEN_ALL,REVIEW_ALL,DONE_ALL].some(l=>l.some(p=>p.id===pin.id)))lost.push(pin.id);}
   back.sort((a,b)=>(where.get(a.id)||0)-(where.get(b.id)||0));
-  for(const p of back){const i=Math.min(where.get(p.id)||0,REVIEW_ALL.length); REVIEW_ALL=[...REVIEW_ALL.slice(0,i),p,...REVIEW_ALL.slice(i)];}
+  for(const p of back){const i=Math.min(where.get(p.id)||0,REVIEW_ALL.length); setReviewAll([...REVIEW_ALL.slice(0,i),p,...REVIEW_ALL.slice(i)]);}
   if(RV_PICK)for(const p of back)RV_PICK.set(p.id,ticks.get(p.id)||'');
   drawPins(); marks();
   const to=/** @type {HTMLElement|null} */(RV_PICK?$('#rv-go'):$('#review-pick'));   // the undo row that had the focus is gone
@@ -215,10 +235,11 @@ function rvSaid(res){const of=(/** @type {string} */k)=>res.filter(r=>r.out===k)
 function rvRetry(items){const moved=(/** @type {number} */id)=>[DONE_ALL,OPEN_ALL].some(l=>l.some(p=>p.id===id));
   const still=items.filter(x=>!CONFIRMING.has(x.pin.id)&&!moved(x.pin.id)); if(!still.length)return Promise.resolve();
   for(const {pin} of still){CONFIRMING.add(pin.id); CONFIRMING_PIN.set(pin.id,pin); if(RV_PICK)RV_PICK.delete(pin.id);}
-  REVIEW_ALL=REVIEW_ALL.filter(p=>!CONFIRMING.has(p.id)); drawPins(); marks(); return rvSend(still);}
+  setReviewAll(REVIEW_ALL.filter(p=>!CONFIRMING.has(p.id))); drawPins(); marks(); return rvSend(still);}
 
 // A box's change (a click on it or its label, Space on it) ticks or clears it.
 /** @param {Event} e */
 function rvChange(e){const t=/** @type {HTMLInputElement} */(e.target);
   if(t&&t.type==='checkbox'&&t.closest&&t.closest('#sec-review'))rvTick(t);}
 document.addEventListener('change',rvChange);
+export { RV_PICK, rvConfirm, rvDraw, rvPick, rvToCard };

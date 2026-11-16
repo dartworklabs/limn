@@ -2,6 +2,8 @@
 // UI language (window.LIMN_LANG from the head script). Korean strings in this file are the source; in English
 // mode tr()/trMsg() look them up in I18N_EN (src/limn/viewer/ui_en.json) and a MutationObserver translates text
 // nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
+import { $, UI_LANG } from './core.js';
+import { segRove } from './events.js';
 const LANG=window.LIMN_LANG===UI_LANG.EN?UI_LANG.EN:UI_LANG.KO, I18N_EN=__UI_EN_JSON__, I18N_ATTRS=['data-tip','aria-label','title','placeholder'];
 function tr(s){if(LANG!==UI_LANG.EN||typeof s!=='string')return s; const t=s.trim();
   if(!t||!Object.prototype.hasOwnProperty.call(I18N_EN,t)||typeof I18N_EN[t]!=='string')return s; return s.replace(t,I18N_EN[t]);}
@@ -68,3 +70,4 @@ function switchLang(lang){if(lang!==UI_LANG.KO&&lang!==UI_LANG.EN||lang===LANG)r
   try{localStorage.setItem('limnLang',lang);}catch(e){}
   const u=new URL(location.href); u.searchParams.delete('lang');
   if(u.href===location.href)location.reload(); else location.replace(u.href);}
+export { LANG, errText, i18nStart, switchLang, tl, tr, trMsg, warnText };

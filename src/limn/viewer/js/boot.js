@@ -1,6 +1,33 @@
 // ------------------------------------------------ Document
 // Starts the viewer: language, theme and layout, the document list and meta, pages, pins, this tab's kept draft, the first-visit
 // hint (touch or mouse), polling and notifications, then a pin link from the hash (#doc=&pin=) if there was one.
+import { $, DOC, DOC_SEQ, LOCAL_LOGIN, META, META_BY, MQ_COARSE, NOTICE_HOST, NOTICE_KIND, ROLE, SYNC_STATE, VIEW_BY,
+  buildsFromSource, isFigureKind, setDoc, setMeta } from './core.js';
+import { html, setHtml } from './markup.js';
+import { i18nStart, tl, tr } from './i18n.js';
+import { applyTheme, prefs, savePrefs } from './prefs.js';
+import { api } from './api.js';
+import { DIGEST, bannerNote, digestBegin, digestSoon } from './notices.js';
+import { dq, drawDocTabs, initialDoc, loadDocs, multiDoc, setHash } from './doc-tabs.js';
+import { applyViewWidth, loadViews, restoreView } from './doc-switch.js';
+import { pollLight, setLastPinsRev, setLastSrcMtime, startLightPolling } from './polling.js';
+import { drawNotify, notifyPerm, notifyRegister, notifySupported, openPinFromLink, takeLinkHash } from './notify.js';
+import { BUILD, startBuildPolling } from './build-chip.js';
+import { DIGEST_TAIL_MS, checkDocsSeen, visitedBefore } from './updates.js';
+import { setStatusSync } from './status.js';
+import { applyOutlineState, applySideWidth } from './panel-size.js';
+import { autoW, buildDoc } from './pages.js';
+import { vecBoot } from './pdf-open.js';
+import { updateSectionStrip } from './outline.js';
+import { applyLayout, coach } from './layout.js';
+import { isMdDoc, mdHint } from './md-surface.js';
+import { isTextDoc } from './text-surface.js';
+import { restoreDraft } from './draft.js';
+import { saveBtnLabel } from './save.js';
+import { offlineAskDown, offlineBoot } from './offline.js';
+import { avatar, isAgent, who } from './card-parts.js';
+import { loadPins } from './list.js';
+import { isHuman } from './reply.js';
 async function boot(){i18nStart();
   // A link /#doc=<key>&pin=<n>[&act=restore] (a notification clicked with no tab open) is read first: the boot below rewrites the
   // hash to #doc=<key> on an instance with several documents, which used to lose pin= (0.2.1 and earlier).
@@ -9,9 +36,9 @@ async function boot(){i18nStart();
   // There's no keyboard shortcut on a touch device - "핀 저장 Ctrl+Enter" would just get clipped at phone width.
   setHtml($('#btn-save'),saveBtnLabel());
   await offlineAskDown();   // a page the worker answered from its copy starts from the stored reads (offline.js)
-  await loadDocs(); DOC=initialDoc();
-  try{META=(await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data;}catch(e){return;}
-  if(META.doc)DOC=META.doc; META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
+  await loadDocs(); setDoc(initialDoc());
+  try{setMeta((await api(dq('/api/meta'),{what:'화면 정보 읽기',where:NOTICE_HOST.LINE})).data);}catch(e){return;}
+  if(META.doc)setDoc(META.doc); META_BY.set(DOC,META); loadViews(); const v=VIEW_BY.get(DOC);
   if(multiDoc()){setHash(DOC); savePrefs({lastDoc:DOC});}
   // A device that was here before hears what came since, gathered into one message (docs/handbook/viewer.md §새 소식).
   if(visitedBefore())digestBegin(tr('지난 방문 뒤'));
@@ -22,7 +49,7 @@ async function boot(){i18nStart();
   else if(MQ_COARSE.matches)coach('touch','PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   else coach('mouse','PDF를 끌어서 고칠 곳을 고르세요');   // first-time mouse users had no hint how to pin (the PDF also shows a crosshair)
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
-  if(pinsLoaded){LAST_PINS_REV=META.pins_rev; LAST_SRC_MTIME=META.src_sig||META.src_mtime;}
+  if(pinsLoaded){setLastPinsRev(META.pins_rev); setLastSrcMtime(META.src_sig||META.src_mtime);}
   BUILD.lastSeq=(typeof META.build_seq==='number')?META.build_seq:0;   // the build count this tab has already "seen"
   (META.docs||[]).forEach(d=>DOC_SEQ.set(d.key,d.build_seq));
   startLightPolling(); startBuildPolling(); offlineBoot();
@@ -38,7 +65,7 @@ function updateStaleBadge(m){
   const badge=$('#meta-stale'), btn=$('#btn-rebuild');
   let stale;
   if(typeof m.stale_build==='boolean')stale=m.stale_build;
-  else{const ref=(typeof m.build_src_mtime==='number')?m.build_src_mtime:builtAtEpoch(META&&META.built_at);
+  else {const ref=(typeof m.build_src_mtime==='number')?m.build_src_mtime:builtAtEpoch(META&&META.built_at);
     stale=ref!=null&&typeof m.src_mtime==='number'&&m.src_mtime>ref+2;}
   if(!stale){badge.hidden=true; btn.classList.remove('btn-default'); return;}
   const age=(typeof m.src_age_s==='number')?m.src_age_s:(Date.now()/1000-m.src_mtime);
@@ -53,7 +80,7 @@ const SYNC_REASON={not_git:'Git 저장소가 아닙니다',no_upstream:'main 업
   building:'다른 PDF 빌드가 진행 중입니다',build_failed:'새 원고의 PDF 빌드가 실패했습니다'};
 // The main sync badge (--git-pull) from a meta's `sync` {state, reason}: hidden when off or current, a warning when blocked or
 // failed. It also keeps s for the status line (STATUS_SYNC), which words the same state on compact bands.
-function updateSyncBadge(s){STATUS_SYNC=s||null; const b=$('#meta-sync'); if(!b)return;
+function updateSyncBadge(s){setStatusSync(s||null); const b=$('#meta-sync'); if(!b)return;
   if(!s||s.state===SYNC_STATE.DISABLED||s.state===SYNC_STATE.CURRENT){b.hidden=true; return;}
   b.hidden=false; b.classList.toggle('badge-warning',s.state===SYNC_STATE.BLOCKED||s.state===SYNC_STATE.ERROR);
   const reason=tr(SYNC_REASON[s.reason]||s.reason||'');
@@ -108,3 +135,5 @@ function moreInfo(m,me){const built=String(m.built_at||'').slice(5,16).replace('
 // The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing before
 // the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'. Pure.
 function commitShown(h){const s=String(h==null?'':h).trim(); return s==='-'||s==='?'?'':s;}
+export { SYNC_REASON, boot, canConfirmReview, confirmAccessText, drawMeta, isAgentRole, isViewer, updateStaleBadge,
+  updateSyncBadge, viewerBlocked };

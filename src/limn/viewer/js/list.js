@@ -1,8 +1,42 @@
 // ------------------------------------------------ Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
 // If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead of a name -
 // and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when none of its tags resolves yet.
+import { $, $$, DEFAULT_DOC, DOC, DOCS, DONE, DONE_ALL, DROPPED, LAYOUT, LAYOUT_MODE, LIST_ORDER, LOCAL_LOGIN,
+  MENTION_ONLY, META, MQ_COARSE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE, OPEN_ALL, OPEN_CARDS, PEOPLE,
+  PEOPLE_KNOWN, PINS, PIN_STATE, REPLY, REVIEW_ALL, SHOW_ALL, SIDE_OPEN, SWITCHSEQ, VIEW_MODE, scrollMotion, setDone,
+  setDoneAll, setDropped, setMentionOnly, setOpenAll, setPeople, setPeopleKnown, setPins, setReviewAll,
+  setShowAll } from './core.js';
+import { html, ic, setHtml } from './markup.js';
+import { tl, tr } from './i18n.js';
+import { ORDER, SEC, SEC_DEFAULT, SEC_SEEN, listOrderOf, savePrefs, secNewCount, setOrder } from './prefs.js';
+import { api } from './api.js';
+import { NOTICES, drawBanners, drawChips, drawOffers, dropStaleReview, lineNote, noticeFocus, noticeSeen,
+  offersIn } from './notices.js';
+import { TIP_AT, hideTip, keyInput, tipEl } from './tooltip.js';
+import { docInfo, drawDocTabs, multiDoc, pdoc } from './doc-tabs.js';
+import { REV, findAnyPin, revTargetActs, setViewMode } from './revisions.js';
+import { docTitle, switchDoc, viaDoc } from './doc-switch.js';
+import { notePinChanges, noteReviewChanges, pinState } from './polling.js';
+import { updNewPins } from './updates.js';
+import { arrivePage, pageNoSides } from './pages.js';
+import { applySide, setSide } from './layout.js';
+import { pendingBadgeSide } from './selection.js';
+import { elLost, hasMark, isFrac, pinPlace } from './figure.js';
+import { isMdDoc, mdJump, mdMarks } from './md-surface.js';
+import { COMPOSE, recomputeOverlap, renderOverlapBanner } from './composer.js';
+import { drawPageVerdicts, jumpPv, pvShow, pvShows } from './verdict.js';
+import { mentionsMe, who } from './card-parts.js';
+import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './cards.js';
+import { rvDraw } from './review-pick.js';
+import { marksShow } from './marks-hide.js';
+import { CONFIRMING, CONFIRMING_PIN, PURGING } from './actions.js';
+import { renderAssignNew } from './mentions.js';
+import { closeReply, renderReplyOutcome, replyNote } from './reply.js';
+import { EDITOR, editDirty, renderEdit } from './edit.js';
+import { segRove } from './events.js';
+/** @typedef {import('./markup.js').Html} Html */
 async function loadPeople(){try{const r=(await api('/api/people',{what:'사람 목록',silent:true})).data;
-  if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE),first=!PEOPLE_KNOWN; PEOPLE=r.people; PEOPLE_KNOWN=true;
+  if(Array.isArray(r.people)){const was=JSON.stringify(PEOPLE),first=!PEOPLE_KNOWN; setPeople(r.people); setPeopleKnown(true);
     const changed=JSON.stringify(PEOPLE)!==was; if(changed)drawPins(); if(changed||first)renderAssignNew();}}catch(e){}}
 // A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no snapshot.
 let PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0;
@@ -22,14 +56,14 @@ function derivePinLists(rows,doc,defaultDoc,confirming){
 function applyPinLists(rows,dropped,lists){
   const prevOpen=OPEN_ALL,prevReview=REVIEW_ALL;
   notePinChanges(prevOpen,rows,dropped); noteReviewChanges(prevReview,rows); updNewPins(rows);   // others' new pins (updates.js)
-  OPEN_ALL=lists.openAll; REVIEW_ALL=lists.reviewAll; DONE_ALL=lists.doneAll; DROPPED=dropped;
-  PINS=lists.openHere; DONE=lists.doneHere;
+  setOpenAll(lists.openAll); setReviewAll(lists.reviewAll); setDoneAll(lists.doneAll); setDropped(dropped);
+  setPins(lists.openHere); setDone(lists.doneHere);
   // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still awaiting
   // review - and leaves it once the snapshot no longer has it so (deleted from another window, reopened, confirmed elsewhere).
   CONFIRMING_PIN.forEach((_,id)=>{const r=rows.find(x=>x.id===id); if(r&&pinState(r)===PIN_STATE.REVIEW)CONFIRMING_PIN.set(id,r); else CONFIRMING_PIN.delete(id);});
   const E=EDITOR.current; if(E&&!OPEN_ALL.some(p=>p.id===E.id)){
     if(rows.some(p=>p.id===E.id)&&(EDITOR.saving||editDirty()))SEC.open=true;
-    else{lineNote(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE}); EDITOR.current=null;}}
+    else {lineNote(tl('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)',{id:E.id}),NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE}); EDITOR.current=null;}}
   const R=REPLY; if(R&&!rows.some(p=>p.id===R.id)){closeReply(false); lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다',NOTICE_KIND.WARN,null,{dot:NOTICE_DOT.SIDE});}
   if(!SEC_SEEN.open){SEC_SEEN.open=new Set(OPEN_ALL.map(p=>p.id)); SEC_SEEN.review=new Set(REVIEW_ALL.map(p=>p.id)); SEC_SEEN.done=new Set(DONE_ALL.map(p=>p.id));}
   drawPins(); marks(); drawDocTabs();
@@ -93,7 +127,7 @@ function updateReviewCount(){const n=REVIEW_ALL.length,chip=$('#rv-chip');
   fitBarWords();
   const here=listReview().length; chip.hidden=!n||LAYOUT!==LAYOUT_MODE.WIDE||!SIDE_OPEN; chip.textContent=tl('검토 대기 {n}',{n})+(multiDoc()&&here!==n?' '+tl('(이 문서 {n})',{n:here}):'');}
 // [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes (seen).
-function gotoReview(){noticeSeen(NOTICE_DOT.RV); if(!listReview().length&&REVIEW_ALL.length&&multiDoc())SHOW_ALL=true;
+function gotoReview(){noticeSeen(NOTICE_DOT.RV); if(!listReview().length&&REVIEW_ALL.length&&multiDoc())setShowAll(true);
   if(!SEC.review){SEC.review=true; savePrefs({sec:SEC});} drawPins();
   setSide(true); requestAnimationFrame(()=>{const t=$('#sec-review'); if(t&&!t.hidden)t.scrollIntoView({block:'start',behavior:scrollMotion()});});}
 // The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm the author, '내 확인 차례'.
@@ -125,7 +159,7 @@ function drawPins(){dropStaleReview();
   const nfocus=noticeFocus();   // a focus in an undo row or note, given back once they are drawn again (drawOffers)
   // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a cross-document inbox).
   const MINE=OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),mf=$('#mention-filter');
-  if(MENTION_ONLY&&!MINE.length)MENTION_ONLY=false;
+  if(MENTION_ONLY&&!MINE.length)setMentionOnly(false);
   mf.hidden=!MINE.length; mf.setAttribute('aria-pressed',String(MENTION_ONLY)); setHtml(mf,html`${ic('at-sign')}${MINE.length}`); mf.setAttribute('aria-label',tl('나를 부른 핀 {n}',{n:MINE.length}));
   const SHOWN=MENTION_ONLY?OPEN_ALL.filter(mentionsMe):LIST;
   // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing (so auto-sync
@@ -213,7 +247,7 @@ function drawOrderControl(any){const c=$('#list-order'); c.hidden=!any;
 // A press on the order control: the list is drawn in order o, remembered for this browser, with the control where it stood under
 // the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it is not redrawn).
 /** @param {string|undefined} o - a LIST_ORDER value */
-function setListOrder(o){const next=listOrderOf(o); if(next===ORDER)return; ORDER=next; savePrefs({order:next});
+function setListOrder(o){const next=listOrderOf(o); if(next===ORDER)return; setOrder(next); savePrefs({order:next});
   const c=$('#list-order'),y=c.getBoundingClientRect().top; drawPins();
   listScroller().scrollTop+=c.getBoundingClientRect().top-y;}
 // Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does not
@@ -417,7 +451,7 @@ function markHitRooms(boxes,reach){const rooms=boxes.map(()=>({t:null,r:null,b:n
   boxes.forEach((a,i)=>{for(let j=i+1;j<boxes.length;j++){const b=boxes[j];
     const dx=b.x+b.w/2-(a.x+a.w/2),dy=b.y+b.h/2-(a.y+a.h/2); if(Math.abs(dx)>=reach||Math.abs(dy)>=reach)continue;
     if(Math.abs(dy)>=Math.abs(dx)){const v=Math.max(0,(Math.abs(dy)-(a.h+b.h)/2)/2); cut(rooms[i],dy>=0?'b':'t',v); cut(rooms[j],dy>=0?'t':'b',v);}
-    else{const v=Math.max(0,(Math.abs(dx)-(a.w+b.w)/2)/2); cut(rooms[i],dx>=0?'r':'l',v); cut(rooms[j],dx>=0?'l':'r',v);}}});
+    else {const v=Math.max(0,(Math.abs(dx)-(a.w+b.w)/2)/2); cut(rooms[i],dx>=0?'r':'l',v); cut(rooms[j],dx>=0?'l':'r',v);}}});
   return rooms;}
 // Gives every drawn badge its sides' room (markHitRooms) as --room-t/-r/-b/-l, which the badge's ::after caps its reach by
 // (components.css); a side no neighbour limits has no property and reaches the whole way. The boxes are read in the
@@ -473,8 +507,8 @@ function jumpToCard(id){if(secOpenFor(id))drawPins();
 /** @param {number} id @param {boolean} [focus] - by keyboard: the focus goes to the card (its number) */
 function gotoPinRef(id,focus){const p=findAnyPin(id); if(!p){if(DROPPED.some(x=>x.id===id))openTrash(id); return;}
   const st=pinState(p);
-  if(multiDoc()&&DOC&&pdoc(p)!==DOC)SHOW_ALL=true;
-  if(st===PIN_STATE.DONE)SEC.done=true; else{OPEN_CARDS.add(id); SEC[st===PIN_STATE.REVIEW?'review':'open']=true;} savePrefs({sec:SEC});
+  if(multiDoc()&&DOC&&pdoc(p)!==DOC)setShowAll(true);
+  if(st===PIN_STATE.DONE)SEC.done=true; else {OPEN_CARDS.add(id); SEC[st===PIN_STATE.REVIEW?'review':'open']=true;} savePrefs({sec:SEC});
   setSide(true); drawPins();
   requestAnimationFrame(()=>{const el=/** @type {HTMLElement} */(document.querySelector('.pin[data-id="'+id+'"],.arc-row[data-id="'+id+'"],.rv-row[data-id="'+id+'"]')); if(!el)return;
     el.scrollIntoView({behavior:scrollMotion(),block:'nearest'}); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
@@ -517,3 +551,7 @@ $('#pins').addEventListener('mouseover',e=>{const c=e.target.closest('.pin'); if
 $('#pins').addEventListener('mouseout',e=>{const c=e.target.closest('.pin'); if(!c)return;
   const p=PINS.find(x=>x.id===+c.dataset.id); if(!p)return;
   markIdsFor(p).forEach(id=>{const m=document.querySelector('.mark[data-pin="'+id+'"]'); if(m)m.classList.remove('hi');});});
+export { MARK_HIDDEN, PINS_APPLIED_SEQ, cardNeighbour, drawPins, dropBareDayLines, fitBarWords, focusCard, gotoPinRef,
+  gotoReview, isMe, jumpPin, jumpToCard, listDropped, listReview, loadPins, loadPinsNow, markBadgeIn, markBadgeRoom,
+  markBadgeSides, markHitSides, marks, orderPins, placeRow, revealCard, reviewerLabel, setListOrder, toggleSec,
+  updateReviewCount };

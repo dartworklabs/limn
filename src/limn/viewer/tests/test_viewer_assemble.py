@@ -1,8 +1,9 @@
-"""limn/viewer/assemble.py: the viewer page as one string, from the viewer folder and the explicit inputs only.
+"""limn/viewer/assemble.py: the viewer page and its script, from the viewer folder and the explicit inputs only.
 
-viewer_html() joins index.html with its parts and fills the build-time placeholders (PDF.js, KaTeX and font versions, the logo's
-inline SVGs and icon key, the icon table, the message table, {{ic:...}} tokens) from its arguments; the run-time ones
-(label, accent) are left for run_page(). These tests drive it with a small viewer folder of their own, so the contract is
+viewer_html() joins index.html with its stylesheet parts and fills the build-time placeholders (the script's content key,
+PDF.js, KaTeX and font versions, the logo's inline SVGs and icon key, {{ic:...}} tokens) from its arguments; the run-time
+ones (label, accent) are left for run_page(). viewer_script() is the script GET /viewer.js serves, with the PDF.js and KaTeX
+versions, the icon table, the message table and {{ic:...}} tokens filled. These tests drive it with a small viewer folder of their own, so the contract is
 checked apart from the real page; src/limn/viewer/tests/test_viewer_files.py checks the packaged page itself.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_assemble.py
@@ -21,27 +22,35 @@ BRAND_DIR = Path(mark.__file__).with_name("brand")  # the vendored logo files (s
 PAGE = (
     "<html><style>__APP_CSS__</style><title>__LABEL__</title>{{ic:x}}<i>__LIMN_MARK_16__</i><b>__LIMN_WORDMARK__</b><u>v__LIMN_VERSION__</u>"
     '<link href="/favicon.ico?v=__ICON_KEY__"><link rel="stylesheet" href="/f.css?v=__PRETENDARD_VERSION__">'
-    "<script>const V='__PDFJS_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\n"
-    "__APP_JS__</script></html>"
+    '<script src="/viewer.js?v=__VIEWER_JS_KEY__"></script></html>'
+)
+# The script's modules: placeholders in the first, an icon token in the second. The built script (dist/viewer.js) is
+# their text joined, as tools/build_viewer.mjs writes it for modules with no import or export.
+SCRIPT_PARTS = (
+    "const V='__PDFJS_VERSION__',W='__KATEX_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\nf();\n",
+    "g({{ic:a}});\n",
 )
 ICONS = {"x": '<path d="M1 1"/>', "a": '<path d="M2 2"/>'}
 
 
 def viewer_folder(root: Path, page: str = PAGE) -> Path:
-    """A minimal viewer folder under root: index.html, one CSS part, two JS parts and their manifest."""
+    """A minimal viewer folder under root: index.html, one CSS part, two JS modules, their manifest and the built script."""
     (root / "css").mkdir()
     (root / "js").mkdir()
+    (root / "dist").mkdir()
+    (root / "dist" / "viewer.js").write_text("".join(SCRIPT_PARTS), encoding="utf-8")
     (root / "index.html").write_text(page, encoding="utf-8")
     (root / "css" / "a.css").write_text("b{}\n", encoding="utf-8")
-    (root / "js" / "one.js").write_text("f();\n", encoding="utf-8")
-    (root / "js" / "two.js").write_text("g({{ic:a}});\n", encoding="utf-8")
+    (root / "js" / "one.js").write_text(SCRIPT_PARTS[0], encoding="utf-8")
+    (root / "js" / "two.js").write_text(SCRIPT_PARTS[1], encoding="utf-8")
     (root / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/one.js\njs/two.js\n", encoding="utf-8")
     return root
 
 
 class ViewerHtml(unittest.TestCase):
     """viewer_html(directory, messages, pdfjs_version=, katex_version=, pretendard_version=, marks=, icon_key=, icons=,
-    version=) -> the page before run_page()."""
+    version=, script_key=) -> the page before run_page(); viewer_script(directory, messages, pdfjs_version=,
+    katex_version=, icons=) -> the script GET /viewer.js serves."""
 
     def setUp(self):
         """A fresh viewer folder per test."""
@@ -61,68 +70,107 @@ class ViewerHtml(unittest.TestCase):
             icon_key="0123456789ab",
             icons=icons,
             version="1.2.3",
+            script_key="00112233aabbccdd",
+        )
+
+    def script(self, messages=None, icons=ICONS):
+        """The test folder's script with fixed inputs."""
+        return assemble.viewer_script(
+            self.dir,
+            {"가": "A"} if messages is None else messages,
+            pdfjs_version="9.9.9",
+            katex_version="7.7.7",
+            icons=icons,
         )
 
     def test_every_build_time_placeholder_is_filled_from_the_arguments(self):
-        """The exact page: parts joined in order, the PDF.js and font versions, each logo placeholder its markup, Limn's version
-        ([더보기]'s foot), the icon key, both JSON tables (sorted), icon tokens in the page and inside a part replaced - and the run-time __LABEL__ left for
-        run_page()."""
+        """The exact page: the stylesheet parts joined in order, the script's key, the font version, each logo placeholder
+        its markup, Limn's version ([더보기]'s foot), the icon key and the page's icon tokens - and the run-time __LABEL__
+        left for run_page(). The exact script: the built script (dist/viewer.js) with the PDF.js and KaTeX versions, both JSON
+        tables (sorted) and the icon token inside it replaced."""
         svg = lambda name: assemble.icon_svg(name, ICONS)  # noqa: E731 - a local shorthand
-        expected = (
+        page = (
             "<html><style>b{}\n</style><title>__LABEL__</title>"
             + svg("x")
             + "<i><svg id=m/></i><b><svg id=w/></b><u>v1.2.3</u>"
             '<link href="/favicon.ico?v=0123456789ab"><link rel="stylesheet" href="/f.css?v=8.8.8">'
-            "<script>const V='9.9.9';const ICONS="
+            '<script src="/viewer.js?v=00112233aabbccdd"></script></html>'
+        )
+        self.assertEqual(self.html(), page)
+        script = (
+            "const V='9.9.9',W='7.7.7';const ICONS="
             + json.dumps(ICONS, sort_keys=True)
             + ';const I18N_EN={"가": "A"};\nf();\ng('
             + svg("a")
-            + ");\n</script></html>"
+            + ");\n"
         )
-        self.assertEqual(self.html(), expected)
+        self.assertEqual(self.script(), script)
 
-    def test_the_same_inputs_give_the_same_page_whatever_the_table_order(self):
+    def test_the_script_key_is_its_content_hash(self):
+        """script_key is the first 16 hex digits of the script's SHA-256: the same script, the same key; another, another."""
+        self.assertEqual(assemble.script_key("a"), "ca978112ca1bbdca")
+        self.assertNotEqual(assemble.script_key(self.script()), assemble.script_key(self.script({"나": "B"})))
+
+    def test_the_same_inputs_give_the_same_script_whatever_the_table_order(self):
         """The JSON forms are sorted by key, so two tables with the same entries give the same bytes."""
-        a = self.html({"b": "B", "a": {"one": "x", "other": "y"}}, dict(sorted(ICONS.items())))
-        b = self.html({"a": {"one": "x", "other": "y"}, "b": "B"}, dict(reversed(sorted(ICONS.items()))))
+        a = self.script({"b": "B", "a": {"one": "x", "other": "y"}}, dict(sorted(ICONS.items())))
+        b = self.script({"a": {"one": "x", "other": "y"}, "b": "B"}, dict(reversed(sorted(ICONS.items()))))
         self.assertEqual(a, b)
         self.assertIn('{"a": {"one": "x", "other": "y"}, "b": "B"}', a)
 
-    def test_a_message_can_never_close_the_script(self):
-        """ "</" in a message is written as "<\\/", which the JS string reads back the same."""
-        out = self.html({"</script>": "</b>"})
+    def test_a_message_keeps_its_closing_tag_escaped(self):
+        """ "</" in a message is written as "<\\/", which the JS string reads back the same: the table is written as it
+        was when the script sat inside the page, so a copy of the script put back inline still cannot be closed by it."""
+        out = self.script({"</script>": "</b>"})
         self.assertIn('{"<\\/script>": "<\\/b>"}', out)
-        self.assertEqual(out.count("</script>"), 1)
+        self.assertNotIn("</script", out)
 
     def test_an_icon_token_the_table_lacks_is_a_packaging_error(self):
-        """{{ic:x}} with no "x" in the table raises instead of serving a page with a hole."""
+        """{{ic:x}} with no "x" in the table raises instead of serving a page with a hole, and so does {{ic:a}} in the
+        script."""
         with self.assertRaises(KeyError):
             self.html(icons={"a": ICONS["a"]})
+        with self.assertRaises(KeyError):
+            self.script(icons={"x": ICONS["x"]})
 
     def test_a_malformed_folder_raises(self):
-        """A missing manifest (OSError) or a template without its marker (ValueError) fails at assembly."""
+        """A missing manifest or built script (OSError), a template without its stylesheet marker or with the script's
+        (ValueError) fails at assembly."""
+        (self.dir / "dist" / "viewer.js").unlink()
+        with self.assertRaises(OSError):
+            self.script()
         (self.dir / "parts.txt").unlink()
         with self.assertRaises(OSError):
             self.html()
-        with tempfile.TemporaryDirectory() as d:
-            broken = viewer_folder(Path(d), PAGE.replace("__APP_JS__", ""))
-            with self.assertRaises(ValueError):
-                assemble.viewer_html(
-                    broken,
-                    {},
-                    pdfjs_version="1",
-                    katex_version="1",
-                    pretendard_version="1",
-                    marks={},
-                    icon_key="k",
-                    icons=ICONS,
-                    version="1",
-                )
+        for page in (PAGE.replace("__APP_CSS__", ""), PAGE.replace("</html>", "<script>__APP_JS__</script></html>")):
+            with self.subTest(page=page[-60:]), tempfile.TemporaryDirectory() as d:
+                broken = viewer_folder(Path(d), page)
+                with self.assertRaises(ValueError):
+                    assemble.viewer_html(
+                        broken,
+                        {},
+                        pdfjs_version="1",
+                        katex_version="1",
+                        pretendard_version="1",
+                        marks={},
+                        icon_key="k",
+                        icons=ICONS,
+                        version="1",
+                        script_key="k",
+                    )
 
     def test_the_packaged_page_keeps_only_the_run_time_placeholders(self):
-        """The real folder with the real tables and logo: no build-time placeholder or icon token survives, and the
-        two placeholders run_page() fills are still there."""
+        """The real folder with the real tables and logo: no build-time placeholder or icon token survives in the page or
+        the script, and the placeholders run_page() fills are still in the page (and none in the script, which every run
+        serves the same)."""
         logo = mark.brand({name: (BRAND_DIR / name).read_bytes() for name in mark.FILES})
+        script = assemble.viewer_script(
+            assemble.VIEWER_DIR,
+            {},
+            pdfjs_version=assemble.PDFJS_VERSION,
+            katex_version=assemble.KATEX_VERSION,
+            icons=assemble.LUCIDE,
+        )
         out = assemble.viewer_html(
             assemble.VIEWER_DIR,
             {},
@@ -133,6 +181,7 @@ class ViewerHtml(unittest.TestCase):
             icon_key=logo.key,
             icons=assemble.LUCIDE,
             version="0.0.0",
+            script_key=assemble.script_key(script),
         )
         for gone in (
             "__APP_CSS__",
@@ -144,10 +193,14 @@ class ViewerHtml(unittest.TestCase):
             "__LUCIDE_JSON__",
             "__UI_EN_JSON__",
             "{{ic:",
+            "__VIEWER_JS_KEY__",
+            "__KATEX_VERSION__",
         ):
             self.assertNotIn(gone, out)
+            self.assertNotIn(gone, script)
         for kept in ("__LABEL__", "__ACCENT__", "__UI_LANG__"):
             self.assertIn(kept, out)
+            self.assertNotIn(kept, script)
         for gone in ("__ACCENT_KEY__", "__FAVICON_HREF__"):
             self.assertNotIn(gone, out)
 
@@ -192,7 +245,18 @@ class Independence(unittest.TestCase):
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
         self.assertEqual(
             modules,
-            {"html", "json", "re", "collections.abc", "dataclasses", "pathlib", "typing", "limn", "limn.viewer.mark"},
+            {
+                "hashlib",
+                "html",
+                "json",
+                "re",
+                "collections.abc",
+                "dataclasses",
+                "pathlib",
+                "typing",
+                "limn",
+                "limn.viewer.mark",
+            },
         )
         froms = {(n.module, a.name) for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) for a in n.names}
         self.assertIn(("limn", "__version__"), froms)

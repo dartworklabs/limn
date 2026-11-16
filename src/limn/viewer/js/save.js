@@ -1,6 +1,27 @@
 // Append a note to an existing pin; a late response must leave any newer selection on screen. Its undo is a chip on that pin's
 // mark ('덧붙임 [되돌리기]', docs/handbook/viewer.md §알림 자리), and a failure a banner over the composer's save row. A focus the
 // closed composer took goes to that pin's mark (focusPlace).
+import { $, DEFAULT_DOC, DOC, IS_MAC, KIND_NEW, KIND_REQ, META, MQ_COARSE, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE,
+  OPEN_ALL, PINS, SAVE_MODE, captureVisit } from './core.js';
+import { html, setHtml } from './markup.js';
+import { errText, tl, tr } from './i18n.js';
+import { SEC_SEEN } from './prefs.js';
+import { API_WAIT, api, apiFailed } from './api.js';
+import { BANNERS, bannerNote, endNotice, focusRun, quietNote, settleChip, sourceOk, undoNote } from './notices.js';
+import { isRegion, pdoc } from './doc-tabs.js';
+import { viewerBlocked } from './boot.js';
+import { kindFor, wireScope } from './levels.js';
+import { figRung, figureFields } from './figure.js';
+import { SG, renderSuggest, suggestForSave, suggestOff, suggestPending, suggestRebase } from './suggest.js';
+import { COMPOSE, cancelSelection, composeFields, composeOwns, focusClosed, focusPlace, renderOverlapBanner,
+  restoreSelection, selectionSnapshot } from './composer.js';
+import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './draft.js';
+import { OFF, offlineKey, offlineNow, offlineQueueSave } from './offline.js';
+import { figureShort, figureVerdictBody, figureVerdictRoot, pvTopId, renderVerdictRow, verdictDropped, verdictLabel,
+  verdictOf, verdictUndo } from './verdict.js';
+import { isMe, loadPins } from './list.js';
+import { dropPin } from './actions.js';
+import { assignOutcome, composeAsk, mentionHints } from './mentions.js';
 /** Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior note. */
 async function appendToPin(id,text){
   if(COMPOSE.saving||viewerBlocked())return;
@@ -179,3 +200,4 @@ function suggestSaveRefused(d,data){const source='POST /api/pin',head=tl('{what}
     {label:'지금 원문으로 맞추기',tip:'쓰던 글은 그대로 두고, 이 제안이 바꿀 원문을 지금 그 줄들의 글로 바꿉니다. 그다음 다시 저장합니다',
       fn:()=>{const c=COMPOSE.current; if(!c)return; suggestRebase(SG,c,()=>COMPOSE.current===c,()=>{if(COMPOSE.current!==c)return; renderSuggest(c); renderOverlapBanner(); saveDraftSoon();});}},
     {save:true,source});}
+export { appendToPin, clearPendingSave, saveBtnLabel, savePin, syncComposeSaveButtons };

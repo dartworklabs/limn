@@ -39,6 +39,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | §2 인스턴스 관리자 테스트 | 게이트 | `bash src/limn/administration/tests/test_instances.sh` | `ci.yml`의 `instances` 작업 |
 | §3 설치 스모크 | 게이트 | `uv tool install .` 뒤 설치된 명령과 패키지 내용 확인 | `ci.yml`의 `install` 작업 |
 | §8 정적 검사, §9 타입 검사, §10 기능 경계 검사, §11 모듈 역할 검사 | 게이트 | §8–§11의 실행 행 | `ci.yml`의 `lint` 작업, `pyproject.toml`의 `[tool.ruff]`·`[tool.basedpyright]`, `.basedpyright/baseline.json`, `tools/check_fitness.py`와 `tools/fitness-baseline/` |
+| §9의 뷰어 빌드·타입·린트·경계 검사 | 게이트 | `npm ci --ignore-scripts` 뒤 `npm run build:check`, `npm run typecheck`, `npm test`, `uv run python tools/strict_ratchet.py` | `ci.yml`의 `lint` 작업, `package.json`·`package-lock.json`, `tsconfig.json`·`tsconfig.strict.json`, `eslint.config.mjs`, `tools/check_viewer_boundaries.mjs`, `tools/strict-baseline.json` |
 | §4·§5의 수동 대조, §7 Handbook 출판 | 정보 | 각 절의 실행 행 | CI 밖. 리뷰와 작성자가 돌린다 |
 | 커버리지 | 정보 | 필요할 때만 측정 | 설정 없음. 커버리지 수치는 실행 여부를 잴 뿐 검증을 재지 않으므로 게이트로 쓰지 않는다 |
 
@@ -216,7 +217,7 @@ pytest는 `tests`와 `src/limn`을 수집하고 `tests/support`에서 공용 도
 | --- | --- |
 | 측정 대상 | 패키지 빌드와 클린 가상환경 설치: `uv build`로 wheel/sdist가 생기는지, 깨끗한 환경에 설치해 `limn --help`와 `limn version`이 정상 실행되는지, 런타임 의존성이 비어 있는지 |
 | 적용 조건 | `pyproject.toml`, 패키지 구조, 진입점을 바꿀 때. PR과 CI의 `install` 작업에서 돈다 |
-| 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn help`를 실행하고, 설치된 패키지에 뷰어·브랜드·번들 라이브러리(PDF.js, markdown-it, KaTeX, Pretendard)·인스턴스 셸·systemd 템플릿 파일이 있고, Pretendard 조각이 `SHA256SUMS`와 바이트까지 같으며, 테스트 파일이 없는지 확인한다. 정확한 단계는 `ci.yml`의 `install` 작업이 정본이다. 로컬에서 빌드만 볼 때는 `uv build && uv run --isolated python -m limn --help` |
+| 실행 | `uv tool install .` 뒤 `limn version`, `limn serve --help`, `limn help`를 실행하고, 설치된 패키지에 뷰어(지은 스크립트 `viewer/dist/viewer.js` 포함)·브랜드·번들 라이브러리(PDF.js, markdown-it, KaTeX, Pretendard)·인스턴스 셸·systemd 템플릿 파일이 있고, Pretendard 조각이 `SHA256SUMS`와 바이트까지 같으며, PATH에 아무것도 없는 환경(Node 없음)에서 시작 읽기가 지은 스크립트를 채우고 페이지가 그 내용 키로 가리키며 `GET /viewer.js` 처리기가 그것을 답하는지, 테스트 파일이 없는지 확인한다. 정확한 단계는 `ci.yml`의 `install` 작업이 정본이다. 로컬에서 빌드만 볼 때는 `uv build && uv run --isolated python -m limn --help` |
 | 합격 기준 | 설치가 성공하고, 설치된 명령이 오류 없이 출력하며, 빠진 패키지 파일과 새어 든 테스트 파일이 없어야 한다 |
 | 보장 범위 | 패키징과 진입점 연결을 보장한다. 인스턴스를 실제로 띄워 브라우저로 접속하는 것은 보장하지 않는다 |
 
@@ -296,15 +297,15 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | 합격 기준 | 두 실행이 `0 errors`로 끝나고 `.basedpyright/baseline.json`이 바뀌지 않는다. 기준선에 없는 오류는 실패다. 기준선의 오류가 사라지면 basedpyright가 기준선을 내려 다시 쓰는데, 이것도 내린 기준선을 커밋할 때까지 실패다. 기준선은 basedpyright의 `--writebaseline`이 아니면 늘지 않고, 늘리는 변경은 설계 리뷰 대상이다. `# type: ignore`는 아무것도 막지 않으며(`enableTypeIgnoreComments = false`), `# pyright:` 주석과 `typing.cast`는 §11이 거부한다 |
 | 보장 범위 | Linux와 macOS 기준의 정적 타입 규칙 위반 가운데 기준선 밖의 것을 잡는다. 기준선 안의 오류는 막지 않는다. 한 플랫폼에서만 나는 오류는 기준선에 둘 수 없다. Windows는 지원 대상이 아니라 검사하지 않는다. 테스트 모듈은 검사하지 않는다. 런타임 값의 범위나 비즈니스 불변식은 보장하지 않는다(§1 파이썬 테스트가 맡는다) |
 
-뷰어 JS도 같은 절의 게이트다.
+뷰어 JS도 같은 절의 게이트다([viewer.md](viewer.md) §타입 검사·§모듈 경계, [ADR-0042](../adr/0042-viewer-es-modules.md)).
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `src/limn/viewer/js/` 조각: 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입([viewer.md](viewer.md) §타입 검사) |
-| 적용 조건 | 뷰어 JS나 `src/limn/viewer/types/`를 바꿀 때. CI `lint` 작업에서 돈다 |
-| 실행 | `npm ci --ignore-scripts` 뒤 `npm run typecheck`(`tsc -p .`)와 `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 조각별 오류 수가 `tools/strict-baseline.json`과 같은지). TypeScript 버전은 `package-lock.json`이 정한다 |
-| 합격 기준 | `typecheck`는 출력 없이 0으로 끝나고, 래칫은 기준과 같은 수를 알린다. 타입을 좁히는 JSDoc 캐스트(`/** @type {HTMLElement} */(e.target)`)는 쓰되, `@ts-ignore`·`@ts-expect-error`는 쓰지 않는다 |
-| 보장 범위 | `strict`의 하위 옵션 중 `tsconfig.json`에 켠 것만 본다. `strictNullChecks`는 켜져 있고, 암묵적 `any`(`noImplicitAny`)는 아직 보지 않는다. API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 전역 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
+| 측정 대상 | `src/limn/viewer/js/`의 ES 모듈과 지은 스크립트 `src/limn/viewer/dist/viewer.js`: 지은 파일이 모듈에서 다시 지은 바이트와 같은지, 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입, `strict` 전체의 위반, ESLint 규칙(`any` 값, JSDoc의 `any`·캐스트, 다른 모듈 상태에 쓰기, 헷갈리는 전역, 빠진 `switch` 멤버), 모듈 경계(순환, 나열하지 않은 기능 의존, 공용 모듈의 기능 의존, 역할 규칙, 제자리에 없는 모듈) |
+| 적용 조건 | 뷰어 JS, `src/limn/viewer/types/`, `parts.txt`의 `__APP_JS__`, 개발 도구 설정을 바꿀 때. CI `lint` 작업에서 돈다 |
+| 실행 | `npm ci --ignore-scripts` 뒤 `npm run build:check`(Rollup으로 다시 지어 커밋된 파일과 비교), `npm run typecheck`(`tsc -p .`, TypeScript 7), `npm test`(경계 검사와 ESLint 지역 규칙의 제 사례, `tools/tests/`), `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 오류, ESLint 규칙별 수, `tools/check_viewer_boundaries.mjs`의 규칙별 수가 파일마다 `tools/strict-baseline.json`과 같은지). 도구의 판은 `package-lock.json`이 정한다. 위반 메시지 자체는 `npm run lint`·`npm run boundaries`로 본다 |
+| 합격 기준 | `build:check`는 같다고 알리고, `typecheck`는 출력 없이 0으로 끝나며, `npm test`는 실패가 없고, 래칫은 기준과 같은 수를 알린다. 기준보다 많은 수(새 위반)와 적은 수(낮추지 않은 기준) 모두 실패다. `@ts-ignore`·`@ts-expect-error`·`eslint-disable` 주석은 쓰지 않는다(ESLint는 주석 설정을 읽지 않는다) |
+| 보장 범위 | `tsconfig.json`의 옵션은 전부, `strict`의 나머지와 ESLint·경계 규칙은 기준선이 허용한 수 밖에서만 막는다. 지은 파일이 모듈과 같다는 것은 §1의 `test_viewer_files`도 node 없이 본다(빈 줄을 뺀 글이 모듈 글의 순서 그대로인지). API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
 
 ## 10. 기능 경계 검사
 

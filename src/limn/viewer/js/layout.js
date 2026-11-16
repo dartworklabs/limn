@@ -10,6 +10,28 @@
 // the orientation too, first match wins: under 600px wide a phone at any height; under 480px high the short band (a landscape
 // phone); up to 839px, or up to 900px in portrait (h > w; a square window is landscape), the tablet sheet; up to 900px the
 // overlay panel (an unfolded foldable); up to 1366px the side panel; wider, the desktop.
+import { $, BAND, BAND_IN, BAND_MODE, BAND_STEP, IS_MAC, LAYOUT, LAYOUT_BAND, LAYOUT_MODE, META, MID_OVERLAY,
+  MQ_COARSE, MQ_REDUCED, NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC, PINS, REPICK, REPLY, REVIEW_ALL, SELMODE, SIDE_OPEN,
+  scrollMotion, setBand, setBandIn, setLayout, setMidOverlay, setOutlineMidOpen, setSelmodeState, setSideOpen,
+  setZoomed } from './core.js';
+import { tl, tr } from './i18n.js';
+import { prefs, savePrefs } from './prefs.js';
+import { lineNote, noticeSeen } from './notices.js';
+import { hideTip } from './tooltip.js';
+import { REV, renderCommitList, revTargetActs } from './revisions.js';
+import { placeStatus } from './status.js';
+import { SHEET_KEPT, SIDE_SHOWN, applyOutlineState, applySheet, applySideWidth, renderSizeSeg,
+  setSheetKept } from './panel-size.js';
+import { autoW, drawZoom } from './pages.js';
+import { updateSectionStrip } from './outline.js';
+import { SEARCH } from './search.js';
+import { syncBackLayer } from './gestures.js';
+import { mdSpotKeep } from './md-surface.js';
+import { COMPOSE, renderComposer } from './composer.js';
+import { pvStickSoon } from './verdict.js';
+import { drawPins, fitBarWords, updateReviewCount } from './list.js';
+import { EDITOR } from './edit.js';
+import { restoreAnchor, syncBuildErrChip, topAnchor } from './rebuild.js';
 function layoutFor(w,h,coarse){
   if(!coarse){if(w<=700)return LAYOUT_BAND.PHONE; if(w<=900)return LAYOUT_BAND.MID_OVERLAY; if(w<=1099)return LAYOUT_BAND.MID_SIDE; return LAYOUT_BAND.WIDE;}
   if(w<600)return LAYOUT_BAND.PHONE; if(h<480)return LAYOUT_BAND.SHORT;
@@ -33,14 +55,14 @@ function settleBand(C,N,typing){if(!C||(!C.coarse&&!N.coarse))return BAND_STEP.S
 // is no longer the phone (the nav bar does its job there); an open [더보기] stays open and redraws its sheet-height or panel-width
 // row; the changes view's guide-line buttons move to the thumb row or back (revTargetActs). Returns whether the band or its
 // overlay changed.
-function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
+function applyLayout(){const o=BAND_IN||setBandIn(bandInput()),band=layoutFor(o.w,o.h,o.coarse),L=BAND_MODE[band],overlay=L===LAYOUT_MODE.MID&&o.w<=900;
   if(band===BAND&&overlay===MID_OVERLAY)return false;
   const sheetToSheet=L===LAYOUT_MODE.NARROW&&LAYOUT===LAYOUT_MODE.NARROW,wasOpen=SIDE_OPEN;
-  BAND=band; LAYOUT=L; MID_OVERLAY=overlay; OUTLINE_MID_OPEN=false; const b=document.body,p=prefs(); ZOOMED=false; endSideSlide();
+  setBand(band); setLayout(L); setMidOverlay(overlay); setOutlineMidOpen(false); const b=document.body,p=prefs(); setZoomed(false); endSideSlide();
   Object.values(LAYOUT_MODE).forEach(k=>b.classList.toggle('lay-'+k,k===L)); Object.values(LAYOUT_BAND).forEach(k=>b.classList.toggle('band-'+k,k===band));
   b.classList.toggle('mid-overlay',overlay); b.classList.toggle('compact',L!==LAYOUT_MODE.WIDE);
-  SIDE_OPEN=L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen);
-  if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))SIDE_OPEN=true;   // an in-progress note/edit/reply is never left hidden collapsed
+  setSideOpen(L===LAYOUT_MODE.WIDE?p.sideClosed!==true:(L===LAYOUT_MODE.MID?(typeof p.midClosed==='boolean'?!p.midClosed:!overlay):sheetToSheet&&wasOpen));
+  if(!REPICK&&(COMPOSE.current||EDITOR.current||REPLY||!$('#composer').hidden))setSideOpen(true);   // an in-progress note/edit/reply is never left hidden collapsed
   if(band!==LAYOUT_BAND.PHONE&&$('#nav-sheet').open)$('#nav-sheet').close();
   const keep=placeBarTools(); applySide(); stickTop(); placeStatus(); if($('#more').open){renderSizeSeg(); placeMore();} if(REV.target)revTargetActs(); if(REV.rows.length)renderCommitList();
   if(keep&&document.activeElement!==keep)keep.focus({preventScroll:true});   // from the sheet straight to wide the bar shows only once applySide has drawn the panel
@@ -53,7 +75,7 @@ function applyLayout(){if(!BAND_IN)BAND_IN=bandInput(); const o=BAND_IN,band=lay
 function placeBarTools(){const bar=$('#bar1'),l=/** @type {HTMLElement} */(bar.querySelector('.bar-l')),r=/** @type {HTMLElement} */(bar.querySelector('.bar-r'));
   const sel=$('#btn-select'),a=/** @type {HTMLElement|null} */(document.activeElement),had=!!a&&bar.contains(a);
   if(LAYOUT===LAYOUT_MODE.MID){if(bar.firstElementChild!==sel)bar.prepend(sel); if(bar.lastElementChild!==l||l.previousElementSibling!==r)bar.append(r,l);}
-  else{if(l.lastElementChild!==sel)l.append(sel); if(bar.firstElementChild!==l)bar.prepend(l);
+  else {if(l.lastElementChild!==sel)l.append(sel); if(bar.firstElementChild!==l)bar.prepend(l);
     if(LAYOUT===LAYOUT_MODE.WIDE){if(bar.lastElementChild!==r)bar.append(r);} else if(l.nextElementSibling!==$('#sheet-grip')||$('#sheet-grip').nextElementSibling!==r)$('#sheet-grip').after(r);}
   if(had&&a&&document.activeElement!==a)a.focus({preventScroll:true});
   return had&&a&&document.activeElement!==a?a:null;}   // a focus that could not go back yet (its bar not shown before applySide): applyLayout tries again
@@ -71,7 +93,7 @@ function draftOpen(){return !$('#composer').hidden||!!EDITOR.current||!!REPLY||!
 // Idempotent and cheap: drawPins() calls it on every redraw. The panel keeps its open layout while it slides out.
 function applySide(){const open=SIDE_OPEN,b=document.body,dot=!open&&draftOpen(),n=PINS.length,rv=REVIEW_ALL.length,composing=!$('#composer').hidden;
   b.classList.toggle('side-open',open||!!(SIDE_SLIDE&&SIDE_SLIDE.kind==='closing')); b.classList.toggle('composing',composing);
-  if(!composing)SHEET_KEPT=false; b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
+  if(!composing)setSheetKept(false); b.classList.toggle('sheet-up',composing&&!SHEET_KEPT&&BAND===LAYOUT_BAND.PHONE);   // the phone sheet's composing lift; the tablet sheet's is tabletLift (panel-size.js)
   // The toggles' names: the review count only where its pill sits inside them (the wide nav bar); every compact bar's [핀 N]
   // names what it shows first and leaves the count to its own half [검토 M].
   const label=tr(open?'패널 접기':'패널 펴기')+' · '+tl('열린 핀 {n}',{n})+(rv?' · '+tl('검토 대기 {n}',{n:rv}):'')+(dot?' · '+tr('작성 중'):''),
@@ -96,10 +118,10 @@ function gripAria(){const g=$('#grip'),s=SIDE_SHOWN;
 // once collapsed, the panel's width is put back to it for the next opening. Opening counts as seeing the list (noticeSeen).
 function setSide(open,remember,slide){open=!!open;
   if(open)noticeSeen(NOTICE_DOT.SIDE);   // the panel is on screen: [핀 N]'s dot and the hint on how to open it go
-  if(open&&outlineOverlay()){OUTLINE_MID_OPEN=false;applyOutlineState();}
+  if(open&&outlineOverlay()){setOutlineMidOpen(false);applyOutlineState();}
   if(remember&&LAYOUT===LAYOUT_MODE.MID)savePrefs({midClosed:!open});
   if(remember&&LAYOUT===LAYOUT_MODE.WIDE)savePrefs({sideClosed:!open});
-  if(SIDE_OPEN===open)return; SIDE_OPEN=open; const cut=!!SIDE_SLIDE&&SIDE_SLIDE.kind==='closing'; endSideSlide();
+  if(SIDE_OPEN===open)return; setSideOpen(open); const cut=!!SIDE_SLIDE&&SIDE_SLIDE.kind==='closing'; endSideSlide();
   if(open)document.documentElement.style.setProperty('--swipe-x','0px');   // never reopen an overlay still offset by a swipe
   const ms=slideMs(); if(ms&&slide)startSideSlide(open?'opening':'closing',ms);
   applySide(); hideTip(); if((!open&&!SIDE_SLIDE)||(open&&cut))applySideWidth();}   // reopened mid-slide: back from a drag's minimum to the saved width
@@ -156,8 +178,8 @@ function refit(){if(META)relayout(); else applyLayout();}
 // window came back). Wait: (re)starts BAND_SETTLE_MS; when it runs out with no text field focused, BAND_IN takes the window's input,
 // the page re-fits once and the page lines follow (pvSideWant holds them meanwhile). Returns whether the caller may re-fit now.
 function bandSettle(){const N=bandInput(),step=settleBand(BAND_IN,N,typingNow()); clearTimeout(BAND_T); BAND_T=0;
-  if(step===BAND_STEP.WAIT){BAND_T=setTimeout(()=>{BAND_T=0; pvStickSoon(); if(typingNow())return; BAND_IN=bandInput(); refit();},BAND_SETTLE_MS); return false;}
-  if(step===BAND_STEP.SETTLE)BAND_IN=N; return true;}
+  if(step===BAND_STEP.WAIT){BAND_T=setTimeout(()=>{BAND_T=0; pvStickSoon(); if(typingNow())return; setBandIn(bandInput()); refit();},BAND_SETTLE_MS); return false;}
+  if(step===BAND_STEP.SETTLE)setBandIn(N); return true;}
 // Whether the window differs from the settled band input (a band change may be due).
 function bandStale(){const o=bandInput(); return !!BAND_IN&&(o.w!==BAND_IN.w||o.h!==BAND_IN.h||o.coarse!==BAND_IN.coarse);}
 window.addEventListener('resize',scheduleRelayout);
@@ -181,7 +203,7 @@ function onViewport(){const vv=window.visualViewport; if(!vv)return;
     requestAnimationFrame(()=>a.scrollIntoView({block:'center'}));}
 {const vv=window.visualViewport; if(vv){vv.addEventListener('resize',onViewport); vv.addEventListener('scroll',onViewport);}}
 document.addEventListener('focusin',e=>{const t=/** @type {HTMLElement} */(e.target);
-  if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else{t.scrollIntoView({block:'center'}); if(t===$('#note'))noteRowInView();}},350);});
+  if(LAYOUT!==LAYOUT_MODE.WIDE&&t&&t.tagName==='TEXTAREA'&&$('#right').contains(t))setTimeout(()=>{if(BAND===LAYOUT_BAND.TABLET_SHEET)keepFieldInView(); else {t.scrollIntoView({block:'center'}); if(t===$('#note'))noteRowInView();}},350);});
 // The first key of a field puts the caret back where it already stands, which takes the document's selection in with
 // it. Leaving a field is a press on static text (the range caption: the composer's leave), which puts the document's
 // selection in that text; a tap back into the field moved the focus but left the selection there, and until something
@@ -307,7 +329,7 @@ function coach(key,text){const seen=Object.assign({},prefs().coach||{}); if(seen
 // the top, page 1 moves below the bar; anywhere else the pages keep their place (selModeScrollTop). A focus left on the
 // hidden bar's [끝내기] goes to the toggle. Idempotent; no coach mark - the bar says what a drag and a tap do.
 function setSelMode(on){const was=SELMODE,L=$('#left'),doc=$('#doc'),top0=L.scrollTop,y0=doc.getBoundingClientRect().top;
-  SELMODE=!!on; document.body.classList.toggle('selmode',SELMODE);
+  setSelmodeState(!!on); document.body.classList.toggle('selmode',SELMODE);
   const b=$('#btn-select'); b.setAttribute('aria-pressed',String(SELMODE)); /** @type {HTMLElement} */(b.querySelector('.lbl')).textContent=tr(SELMODE?'선택 중':'선택');
   $('#sel-sr').textContent=SELMODE?$('#sel-bar-t').textContent:'';
   if(SELMODE)selBarFit(); else if($('#sel-bar').contains(document.activeElement))b.focus({preventScroll:true});
@@ -387,3 +409,6 @@ for(const sel of ['#more','#help','#nav-sheet','#status-list'])$(sel).addEventLi
 $('#nav-sheet').addEventListener('close',()=>{const b=$('#btn-pos'); if(SEARCH.open)return;   // its search row put the focus in the search field
   if(b.getClientRects().length)b.focus({preventScroll:true});});
 
+export { BAND_T, SLIDE_MS, applyLayout, applySide, coach, coachSideCollapsed, draftOpen, finishSideSlide,
+  focusSideToggle, gripAria, headInk, openMore, outlineOverlay, panelField, relayout, setSelMode, setSide, showSheet,
+  toggleSide, typingNow };

@@ -1,3 +1,20 @@
+import { $$, ASSIGNEE_AGENT, CARD_DOT, DOC, DROPPED, KIND_REQ, LOCAL_LOGIN, META, OPEN_ALL, PEOPLE, PINS, PIN_STATE,
+  RANGE_REL, REPLY, SHOW_ALL, STAMP_FORM, THREAD_EV, THREAD_OPEN } from './core.js';
+import { html, ic } from './markup.js';
+import { ccPlain } from './hidden-chars.js';
+import { tl, tr } from './i18n.js';
+import { docInfo, isRegion, multiDoc, pdoc } from './doc-tabs.js';
+import { findAnyPin } from './revisions.js';
+import { isViewer } from './boot.js';
+import { pinState } from './polling.js';
+import { rng } from './levels.js';
+import { pinPlace } from './figure.js';
+import { isMdPin } from './md-surface.js';
+import { quoteInner, shownQuote } from './composer.js';
+import { relSpan, stampSpan } from './cards.js';
+import { drawPins, isMe } from './list.js';
+import { nameShared, personLabel } from './mentions.js';
+/** @typedef {import('./markup.js').Html} Html */
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
 function who(a){if(a&&a.login===LOCAL_LOGIN)return tr(a.name||'로컬/에이전트'); return (a&&(a.name||a.login))||'';}   // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
@@ -264,3 +281,7 @@ function threadHtml(p,wide){const th=threadOf(p),keep=wide?3:1,all=THREAD_OPEN.h
     :all&&th.length>keep?html`<div class="th-row"><button class="btn-sm btn-ghost th-more" data-act="thread-more" aria-expanded="true">스레드 접기</button></div>`:'';
   const msgs=th.slice(hide).map((m,i)=>tlMsg(m,p.id+':'+(i+hide))),slot=REPLY&&REPLY.id===p.id?html`<div class="reply-slot"></div>`:'';
   return more||msgs.length||slot?html`<div class="thread">${more}${msgs}${slot}</div>`:html``;}
+export { MSG_OPEN, QUOTE_OPEN, addressedTag, assigneeOf, authorTip, avatar, cardMetadata, cardQuote, claimActive,
+  claimLabel, claimTag, docChip, fmtText, fyiTag, hasRef, isAgent, isQuestion, josa, josaName, josaRo, locCopy, locText, meLogin,
+  mentionAfterWord, mentionsMe, msgBody, msgHtml, nodeAvatar, noteHead, peopleName, relBadge, reopenedTurn, replyCount,
+  stDot, threadHtml, threadOf, who };

@@ -2,6 +2,8 @@ __pycache__/
 *.pyc
 .venv/
 dist/
+# ... but the viewer's built script is kept: it is what an instance serves (docs/adr/0042-viewer-es-modules.md)
+!/src/limn/viewer/dist/
 build/
 .pytest_cache/
 *.egg-info/

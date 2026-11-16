@@ -255,3 +255,113 @@ const T={
   buildanywaytip:'남겨 둔 LaTeX 부산물을 지우고 처음부터 다시 빌드합니다. 빌드가 비교하지 않는 것(셸 탈출로 도는 프로그램이 읽는 파일 등)을 바꿨을 때 씁니다',
   reloadtip:'이 탭을 새로 읽어 서버의 새 Limn 화면을 씁니다. 작성 패널의 글과 읽던 자리는 남고, 쓰던 답글·수정이 있으면 먼저 알립니다'
 };
+// Sets BAND, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof BAND} T @param {T} v @returns {T} */
+function setBand(v){BAND=v; return v;}
+// Sets BAND_IN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof BAND_IN} T @param {T} v @returns {T} */
+function setBandIn(v){BAND_IN=v; return v;}
+// Sets DEFAULT_DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof DEFAULT_DOC} T @param {T} v @returns {T} */
+function setDefaultDoc(v){DEFAULT_DOC=v; return v;}
+// Sets DOC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof DOC} T @param {T} v @returns {T} */
+function setDoc(v){DOC=v; return v;}
+// Sets DOCS, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof DOCS} T @param {T} v @returns {T} */
+function setDocs(v){DOCS=v; return v;}
+// Sets DONE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof DONE} T @param {T} v @returns {T} */
+function setDone(v){DONE=v; return v;}
+// Sets DONE_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof DONE_ALL} T @param {T} v @returns {T} */
+function setDoneAll(v){DONE_ALL=v; return v;}
+// Sets DROPPED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof DROPPED} T @param {T} v @returns {T} */
+function setDropped(v){DROPPED=v; return v;}
+// Sets K, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof K} T @param {T} v @returns {T} */
+function setKState(v){K=v; return v;}
+// Sets KIND_NEW, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof KIND_NEW} T @param {T} v @returns {T} */
+function setKindNew(v){KIND_NEW=v; return v;}
+// Sets LAST_PTR, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof LAST_PTR} T @param {T} v @returns {T} */
+function setLastPtr(v){LAST_PTR=v; return v;}
+// Sets LAST_TOUCH_T, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof LAST_TOUCH_T} T @param {T} v @returns {T} */
+function setLastTouchT(v){LAST_TOUCH_T=v; return v;}
+// Sets LAYOUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof LAYOUT} T @param {T} v @returns {T} */
+function setLayout(v){LAYOUT=v; return v;}
+// Sets MENTION_ONLY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof MENTION_ONLY} T @param {T} v @returns {T} */
+function setMentionOnly(v){MENTION_ONLY=v; return v;}
+// Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof META} T @param {T} v @returns {T} */
+function setMeta(v){META=v; return v;}
+// Sets MID_OVERLAY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof MID_OVERLAY} T @param {T} v @returns {T} */
+function setMidOverlay(v){MID_OVERLAY=v; return v;}
+// Sets NAVGEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof NAVGEN} T @param {T} v @returns {T} */
+function setNavgen(v){NAVGEN=v; return v;}
+// Sets OPEN_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof OPEN_ALL} T @param {T} v @returns {T} */
+function setOpenAll(v){OPEN_ALL=v; return v;}
+// Sets OUTLINE_MID_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof OUTLINE_MID_OPEN} T @param {T} v @returns {T} */
+function setOutlineMidOpen(v){OUTLINE_MID_OPEN=v; return v;}
+// Sets PEOPLE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PEOPLE} T @param {T} v @returns {T} */
+function setPeople(v){PEOPLE=v; return v;}
+// Sets PEOPLE_KNOWN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PEOPLE_KNOWN} T @param {T} v @returns {T} */
+function setPeopleKnown(v){PEOPLE_KNOWN=v; return v;}
+// Sets PICKSEQ, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PICKSEQ} T @param {T} v @returns {T} */
+function setPickseq(v){PICKSEQ=v; return v;}
+// Sets PINS, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof PINS} T @param {T} v @returns {T} */
+function setPins(v){PINS=v; return v;}
+// Sets REPICK, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof REPICK} T @param {T} v @returns {T} */
+function setRepick(v){REPICK=v; return v;}
+// Sets REPLY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof REPLY} T @param {T} v @returns {T} */
+function setReply(v){REPLY=v; return v;}
+// Sets REVIEW_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof REVIEW_ALL} T @param {T} v @returns {T} */
+function setReviewAll(v){REVIEW_ALL=v; return v;}
+// Sets SELMODE, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SELMODE} T @param {T} v @returns {T} */
+function setSelmodeState(v){SELMODE=v; return v;}
+// Sets SHOW_ALL, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SHOW_ALL} T @param {T} v @returns {T} */
+function setShowAll(v){SHOW_ALL=v; return v;}
+// Sets SIDE_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SIDE_OPEN} T @param {T} v @returns {T} */
+function setSideOpen(v){SIDE_OPEN=v; return v;}
+// Sets SNIP_OPEN, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SNIP_OPEN} T @param {T} v @returns {T} */
+function setSnipOpen(v){SNIP_OPEN=v; return v;}
+// Sets SWITCHSEQ, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof SWITCHSEQ} T @param {T} v @returns {T} */
+function setSwitchseq(v){SWITCHSEQ=v; return v;}
+// Sets ZOOMED, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+/** @template {typeof ZOOMED} T @param {T} v @returns {T} */
+function setZoomed(v){ZOOMED=v; return v;}
+export { $, $$, ASSIGNEE_AGENT, BAND, BAND_IN, BAND_MODE, BAND_STEP, BUILD_ERR_BY, BUILD_STATE, CARD_DOT, DEFAULT_DOC,
+  DIFF_FORMAT, DOC, DOCS, DOC_KIND, DOC_SEQ, DONE, DONE_ALL, DROPPED, EL_SYNC, EVENT_TYPE, ICONS, IME_ON_FREE, IS_MAC,
+  K, KIND_NEW, KIND_REQ, LAST_PTR, LAST_TOUCH_T, LAYOUT, LAYOUT_BAND, LAYOUT_MODE, LIST_ORDER, LOCAL_LOGIN, MD_LIMIT,
+  MENTION_ONLY, META, META_BY, MID_OVERLAY, MQ, MQ_COARSE, MQ_NOHOVER, MQ_REDUCED, NAVGEN, NOTICE_DOT, NOTICE_HOST,
+  NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC, NOTIFY_STATE, OPEN_ALL, OPEN_CARDS, OUTLINE_MID_OPEN,
+  OVERLAY_SIDE, PEOPLE, PEOPLE_KNOWN, PICKSEQ, PINS, PIN_STATE, PULL_STATE, RANGE_MODE, RANGE_REL, REPICK, REPLY,
+  REPLY_DRAFT, REPLY_VISITS, REVIEW_ALL, REVISION_STATE, ROLE, SAVE_MODE, SCOPE_MODE, SCOPE_SOURCE, SEEN_STATE,
+  SELMODE, SHOW_ALL, SIDE_OPEN, SNIP_OPEN, STAMP_FORM, STATUS_KIND, SUGGEST_OFF, SUGGEST_STATE, SWITCHSEQ, SYNC_STATE,
+  T, THREAD_EV, THREAD_OPEN, UI_LANG, VD_WHERE, VIA, VIEW_BY, VIEW_MODE, ZOOMED, buildsFromSource, captureVisit,
+  currentVisit, esc, imeHeldIn, imeKey, imeTail, isFigureKind, isViewOnlyKind, rendersInBrowser, scrollMotion, setBand,
+  setBandIn, setDefaultDoc, setDoc, setDocs, setDone, setDoneAll, setDropped, setKState, setKindNew, setLastPtr,
+  setLastTouchT, setLayout, setMentionOnly, setMeta, setMidOverlay, setNavgen, setOpenAll, setOutlineMidOpen,
+  setPeople, setPeopleKnown, setPickseq, setPins, setRepick, setReply, setReviewAll, setSelmodeState, setShowAll,
+  setSideOpen, setSnipOpen, setSwitchseq, setZoomed, showsSourceLines };

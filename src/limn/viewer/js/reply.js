@@ -5,6 +5,20 @@
 // reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with the same rule
 // (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false. Sending is deferred behind an
 // undo in the card, where the box was (deferredNote).
+import { KIND_REQ, LOCAL_LOGIN, META, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE, OPEN_CARDS, PEOPLE,
+  PIN_STATE, REPLY, REPLY_DRAFT, REPLY_VISITS, ROLE, SIDE_OPEN, setReply } from './core.js';
+import { html, setHtml } from './markup.js';
+import { errText, tl, tr } from './i18n.js';
+import { api } from './api.js';
+import { bannerNote, deferred, deferredNote, lineNote } from './notices.js';
+import { findAnyPin } from './revisions.js';
+import { viewerBlocked } from './boot.js';
+import { markMine, pinState } from './polling.js';
+import { setSide } from './layout.js';
+import { meLogin, peopleName } from './card-parts.js';
+import { drawPins, loadPins } from './list.js';
+import { mentionHints, mentionPreview, mentionScan } from './mentions.js';
+import { autoGrow } from './edit.js';
 function isHuman(){const me=typeof META!=='undefined'&&META&&META.me; return !!(me&&me.login&&me.login!==LOCAL_LOGIN&&!String(me.login).startsWith('agent:')&&me.role!==ROLE.AGENT);}
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false) wins; otherwise a person's reply
 // on a closed pin reopens it unless it tags a person or the pin is a question. mentioned = the post's resolved @-tags without me.
@@ -65,14 +79,14 @@ function openReply(id){
   if(REPLY)closeReply(false);
   const p=findAnyPin(id);
   REPLY_VISITS.set(id,(REPLY_VISITS.get(id)||0)+1);
-  REPLY={id,flip:false,toggle:null,el:replyEl(p)}; OPEN_CARDS.add(id); setSide(true); drawPins();
-  const ta=replyNote(REPLY),draft=REPLY_DRAFT.get('reply:'+id); ta.value=draft?draft.text:''; ta._mentions=new Set(draft?draft.mentions:[]);
+  setReply({id,flip:false,toggle:null,el:replyEl(p)}); OPEN_CARDS.add(id); setSide(true); drawPins();
+  const ta=replyNote(/** @type {ReplyBox} */(REPLY)),draft=REPLY_DRAFT.get('reply:'+id); ta.value=draft?draft.text:''; ta._mentions=new Set(draft?draft.mentions:[]);
   autoGrow(ta); mentionPreview(ta); renderReplyOutcome(); ta.focus();
-  REPLY.el.scrollIntoView({block:'nearest'});}
+  /** @type {ReplyBox} */(REPLY).el.scrollIntoView({block:'nearest'});}
 /** Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing. */
 function closeReply(redraw){if(!REPLY)return; const ta=replyNote(REPLY);
   if(ta&&ta.value.trim())REPLY_DRAFT.set('reply:'+REPLY.id,{text:ta.value,mentions:mentionHints(ta)}); else REPLY_DRAFT.delete('reply:'+REPLY.id);
-  REPLY=null; if(redraw!==false)drawPins();}
+  setReply(null); if(redraw!==false)drawPins();}
 /** Defer a nonblank reply; recover its input only before a newer visit, reporting a late failure on the status line. */
 function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=replyNote(R),text=ta.value.trim();
   const rerr=/** @type {HTMLElement} */(R.el.querySelector('.r-err'));
@@ -93,12 +107,12 @@ function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=repl
     if(REPLY&&REPLY.id===id){const t=replyNote(REPLY); t._mentions=new Set(mh); REPLY.flip=flip; mentionPreview(t); renderReplyOutcome();
       if(e){e.textContent=err||''; e.hidden=!err;}}
     if(err&&!(SIDE_OPEN&&e&&e.getClientRects().length))lineNote(err,NOTICE_KIND.ERR,null,{dot:NOTICE_DOT.SIDE,literal:true});};
-  REPLY_DRAFT.delete('reply:'+id); REPLY=null; drawPins();          // the box closes at once; the post waits for its undo
+  REPLY_DRAFT.delete('reply:'+id); setReply(null); drawPins();          // the box closes at once; the post waits for its undo
   const sec=!p?'open':pinState(p)===PIN_STATE.REVIEW?'review':pinState(p)===PIN_STATE.DONE?'done':'open';
   const d=deferred(async()=>{markMine(id);
       try{const {data}=await api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true});
         if(!data.ok)bannerNote(NOTICE_HOST.LIST,tl('핀 #{id} 이 없습니다',{id}),NOTICE_KIND.ERR);
-        else{const note=replyServerNote(id,reopens,data); if(note)bannerNote(NOTICE_HOST.LIST,note,NOTICE_KIND.WARN);}}
+        else {const note=replyServerNote(id,reopens,data); if(note)bannerNote(NOTICE_HOST.LIST,note,NOTICE_KIND.WARN);}}
       catch(e){const err=/** @type {ApiError} */(e);   // silent above: the box's own line says it, once
         back(err.status?tr('보내지 못했습니다')+' — '+(errText(err.data)||'HTTP '+err.status)
           :tr('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'));}
@@ -107,3 +121,4 @@ function sendReply(){const R=REPLY; if(!R||viewerBlocked())return; const ta=repl
   const n=deferredNote(d,NOTICE_PLACE.CARD,tl(reopens?'핀 #{id} 다시 열어 에이전트에게 보냄':'#{id} 에 답글을 남겼습니다',{id}),{pin:id,sec});
   // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the reply still goes when its undo does.
   const b=document.querySelector('[data-act="notice-act"][data-n="'+n.n+'"]'); if(b)/** @type {HTMLElement} */(b).focus({preventScroll:true});}
+export { closeReply, isHuman, openReply, renderReplyOutcome, replyNote, sendReply };
