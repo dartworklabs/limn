@@ -40,7 +40,7 @@ import { autoFitWidth, buildDoc, widestPagePoints, startScale } from '../pdf/vie
 import { openVectorDocument } from '../pdf/flow-open.ts';
 import { OUTLINE_ACTIVE_PAGE, markOutline } from '../pdf/view-outline.ts';
 import { drawSheetPages, revealPageRow, tipCutTitles } from '../pdf/view-page-list.ts';
-import { searchLeave, searchToPage } from '../pdf/flow.ts';
+import { searchLeave } from '../pdf/flow.ts';
 import { showSheet } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
 import { MARKDOWN_VIEW, readingAnchor, markdownPositionLabel } from '../markdown/view.ts';
@@ -52,7 +52,7 @@ import { cancelEdit, editDirty, EDITOR } from '../pins/flow-edit.ts';
 import { cancelRepick } from '../composer/flow-repick.ts';
 import { refreshDoc, restoreAnchor, topAnchor } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, searchToPage } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';

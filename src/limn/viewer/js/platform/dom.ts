@@ -22,5 +22,13 @@ function typingNow() {
     !/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(focused.type || '')
   );
 }
+// Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab
+// stop and draws no ring (search.css).
+function searchToPage() {
+  const pdfArea = $('#left');
+  pdfArea.tabIndex = -1;
+  pdfArea.addEventListener('blur', () => pdfArea.removeAttribute('tabindex'), { once: true });
+  pdfArea.focus({ preventScroll: true });
+}
 
-export { $, $$, ICONS, esc, typingNow };
+export { $, $$, ICONS, esc, typingNow, searchToPage };

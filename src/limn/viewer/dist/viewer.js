@@ -478,9 +478,7 @@ let LAYOUT = null,
   BAND_IN = null,
   SIDE_OPEN = true,
   SELMODE = false,
-  ZOOMED = false,
-  LAST_POINTER = 'mouse',
-  LAST_TOUCH_AT = 0;
+  ZOOMED = false;
 const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
@@ -580,16 +578,6 @@ function setPageScale(value) {
 // Sets KIND_NEW, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setKindNew(value) {
   KIND_NEW = value;
-  return value;
-}
-// Sets LAST_POINTER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastPointer(value) {
-  LAST_POINTER = value;
-  return value;
-}
-// Sets LAST_TOUCH_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastTouchAt(value) {
-  LAST_TOUCH_AT = value;
   return value;
 }
 // Sets LAYOUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
@@ -762,6 +750,14 @@ function typingNow() {
     focused.tagName === 'INPUT' &&
     !/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(focused.type || '')
   );
+}
+// Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab
+// stop and draws no ring (search.css).
+function searchToPage() {
+  const pdfArea = $('#left');
+  pdfArea.tabIndex = -1;
+  pdfArea.addEventListener('blur', () => pdfArea.removeAttribute('tabindex'), { once: true });
+  pdfArea.focus({ preventScroll: true });
 }
 
 // -------------------------------------- Markup: html``, lucideIcon() and setHtml(), the one way the viewer writes HTML
@@ -3150,6 +3146,21 @@ document.addEventListener('visibilitychange', () => {
 });
 
 // ------------------------------------------------ Tooltip
+let LAST_POINTER = 'mouse',
+  LAST_TOUCH_AT = 0;
+// Sets LAST_POINTER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setLastPointer(value) {
+  LAST_POINTER = value;
+  return value;
+}
+// Sets LAST_TOUCH_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setLastTouchAt(value) {
+  LAST_TOUCH_AT = value;
+  return value;
+}
+// The elements whose tooltip does not show: pin mark badges a cover is over (pins/flow-list.ts markCoverSkip keeps it).
+const MARK_HIDDEN = new WeakSet();
+
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
 // mouseover, which would leave the description stuck over the list. Only long-press is used.
 const NO_HOVER_QUERY = matchMedia('(hover:none)');
@@ -3202,7 +3213,7 @@ function tipFollow() {
 }
 // Shows an element's description over it. The box is translate="no": a description is already in the UI language (the
 // translator rewrote the attribute, or the code drew it with translate()), and one that quotes a note ('#38 · 완료')
-// must not be rewritten again. A mark badge a cover is over now (pins/flow-list.ts MARK_HIDDEN, markCoverSkip) shows
+// must not be rewritten again. A mark badge a cover is over now (MARK_HIDDEN, pins/flow-list.ts markCoverSkip) shows
 // none: it would float over the cover.
 function showTip(element) {
   if (MARK_HIDDEN.has(element)) return;
@@ -12724,14 +12735,6 @@ function searchBringBack(to) {
     if (aside) pdfArea.scrollLeft += (boxRect.left + boxRect.right) / 2 - (area.left + area.right) / 2;
     placeSelectionPopover();
   } else if ($('#composer').contains(to)) to.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-}
-// Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab
-// stop and draws no ring (search.css).
-function searchToPage() {
-  const pdfArea = $('#left');
-  pdfArea.tabIndex = -1;
-  pdfArea.addEventListener('blur', () => pdfArea.removeAttribute('tabindex'), { once: true });
-  pdfArea.focus({ preventScroll: true });
 }
 // Esc, [검색 닫기] and leaving the manuscript: the query and its hits go and the field folds away. back moves the focus
 // out of the closed field: to what had it before the field was entered if that is still on screen - the note popover or
@@ -34192,7 +34195,6 @@ function markShift(
   }
   return best;
 }
-const MARK_HIDDEN = new WeakSet();
 function markCoverSkip() {
   const pane = $('#left');
   if (!pane) return;

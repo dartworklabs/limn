@@ -21,11 +21,10 @@ import {
 import { findAnyPin, showChange } from '../revisions/flow.ts';
 import { markMine } from '../documents/flow-polling.ts';
 import { drawStatus } from '../documents/view-status.ts';
-import { searchToPage } from '../pdf/flow.ts';
 import { drawTrash } from './view-cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, searchToPage } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';

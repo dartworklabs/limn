@@ -17,14 +17,13 @@ import { translate, translateMessage, TIP_TEXT } from './i18n.ts';
 import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
 import { STATUS_TOP, drawStatus, setStatusSig, toggleStatusList } from '../documents/view-status.ts';
-import { searchToPage } from '../pdf/flow.ts';
 import { saveButtonLabel } from '../composer/flow-save.ts';
 import { READING_LINE_PAGE, pageVerdictsOn } from '../verdict/flow-line.ts';
 import { focusLine, isReasonField } from '../verdict/flow-reason.ts';
 import { dropBareDayLines, placeRow } from '../pins/flow-list.ts';
 import type { Html } from './markup.ts';
 import { EVENT_TYPE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from './tables.ts';
-import { $ } from './dom.ts';
+import { $, searchToPage } from './dom.ts';
 import { EDITOR } from '../pins/flow-edit.ts';
 
 // the undo window: a deferred send goes when it ends (deferred()), and a save's chip stays as long

@@ -8,7 +8,6 @@
 import {
   DOC,
   KIND_NEW,
-  LAST_POINTER,
   LAYOUT,
   META,
   MID_OVERLAY,
@@ -28,7 +27,7 @@ import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, warnText, josa } from '../platform/i18n.ts';
 import { API_OUT, API_WAIT, api } from '../platform/api.ts';
 import { endTopic, lineNote } from '../platform/notices.ts';
-import { hideTip } from '../platform/tooltip.ts';
+import { hideTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
 import { applySide, relayout, setSelectMode, setSide } from '../layout/flow.ts';
 import { revealBox } from '../pdf/input-selection.ts';

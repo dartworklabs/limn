@@ -33,7 +33,6 @@ import {
   DOC,
   DOCS,
   IME_ON_FREE,
-  LAST_POINTER,
   LAYOUT,
   META,
   COARSE_POINTER_QUERY,
@@ -61,7 +60,7 @@ import {
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { endTopic } from '../platform/notices.ts';
-import { TIP, hideTip, showTip } from '../platform/tooltip.ts';
+import { TIP, hideTip, showTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { drawPos, switchDoc, switchPending } from '../documents/flow-switch.ts';
 import { tintChangedLines, compareRedrawnSource } from '../documents/flow-updates.ts';
 import {

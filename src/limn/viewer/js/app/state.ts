@@ -275,9 +275,7 @@ let LAYOUT = null as string | null,
   BAND_IN = null as { w: number; h: number; coarse: boolean } | null,
   SIDE_OPEN = true,
   SELMODE = false,
-  ZOOMED = false,
-  LAST_POINTER = 'mouse',
-  LAST_TOUCH_AT = 0;
+  ZOOMED = false;
 const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
@@ -377,16 +375,6 @@ function setPageScale<Value extends typeof PAGE_SCALE>(value: Value): Value {
 // Sets KIND_NEW, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setKindNew<Value extends typeof KIND_NEW>(value: Value): Value {
   KIND_NEW = value;
-  return value;
-}
-// Sets LAST_POINTER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastPointer<Value extends typeof LAST_POINTER>(value: Value): Value {
-  LAST_POINTER = value;
-  return value;
-}
-// Sets LAST_TOUCH_AT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setLastTouchAt<Value extends typeof LAST_TOUCH_AT>(value: Value): Value {
-  LAST_TOUCH_AT = value;
   return value;
 }
 // Sets LAYOUT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
@@ -507,8 +495,6 @@ export {
   IS_MAC,
   PAGE_SCALE,
   KIND_NEW,
-  LAST_POINTER,
-  LAST_TOUCH_AT,
   LAYOUT,
   MENTION_ONLY,
   META,
@@ -557,8 +543,6 @@ export {
   setDropped,
   setPageScale,
   setKindNew,
-  setLastPointer,
-  setLastTouchAt,
   setLayout,
   setMentionOnly,
   setMeta,
