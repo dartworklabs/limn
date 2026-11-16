@@ -15,56 +15,138 @@ import { loadOutline, outlineForget } from './outline.js';
 import { vecCancel, vecClose, vecFail, vecSchedule } from './pdf-draw.js';
 import { searchClear, searchOffer } from './search.js';
 import { isMdDoc } from './md-surface.js';
-const PDFJS_V='__PDFJS_VERSION__';
-const VEC_PIX_CAP=16777216, VEC_KEEP='150% 0px', VEC_DT_MARGIN=0.25;
+const PDFJS_V = '__PDFJS_VERSION__';
+const VEC_PIX_CAP = 16777216,
+  VEC_KEEP = '150% 0px',
+  VEC_DT_MARGIN = 0.25;
 // PDF.js has no type declarations here, so its library, document and render task are `any`.
-const VEC={lib:/** @type {any} */(null),doc:/** @type {any} */(null),build:/** @type {string|null} */(null),gen:0,failed:/** @type {string|null} */(null),
-  io:/** @type {IntersectionObserver|null} */(null),near:new Set(),st:new Map(),cur:/** @type {{n:number,task:any}|null} */(null),
-  pumping:false,timer:0,stats:/** @type {{n:number,kind:string,ms:number,w:number,h:number}[]} */([]),tFirst:/** @type {number|null} */(null),tDoc:/** @type {number|null} */(null),cache:new Map()};
+const VEC = {
+  lib: /** @type {any} */ (null),
+  doc: /** @type {any} */ (null),
+  build: /** @type {string|null} */ (null),
+  gen: 0,
+  failed: /** @type {string|null} */ (null),
+  io: /** @type {IntersectionObserver|null} */ (null),
+  near: new Set(),
+  st: new Map(),
+  cur: /** @type {{n:number,task:any}|null} */ (null),
+  pumping: false,
+  timer: 0,
+  stats: /** @type {{n:number,kind:string,ms:number,w:number,h:number}[]} */ ([]),
+  tFirst: /** @type {number|null} */ (null),
+  tDoc: /** @type {number|null} */ (null),
+  cache: new Map(),
+};
 // Multiple documents: holds up to VEC_CACHE_MAX recently opened PDF document objects keyed by 'document|build' - switching tabs back
 // draws immediately without re-fetching. Beyond that, the least recently used is closed first (worker memory). An old build of the same document is closed when a new build opens.
-const VEC_CACHE_MAX=3;
-function vecCacheKey(k,b){return (k||'')+'|'+(b||'');}
-function vecCachePut(key,doc){const c=VEC.cache; c.delete(key); c.set(key,doc);
-  const pre=key.split('|')[0]+'|';
-  Array.from(c.keys()).forEach(x=>{if(x!==key&&x.startsWith(pre)){const d=c.get(x); c.delete(x); if(d!==VEC.doc)vecClose(d);}});
-  while(c.size>VEC_CACHE_MAX){const x=c.keys().next().value,d=c.get(x); c.delete(x); if(d!==VEC.doc&&d!==doc)vecClose(d);}}
-function vecCached(doc){for(const d of VEC.cache.values())if(d===doc)return true; return false;}
-function vecForget(doc){VEC.cache.forEach((d,x)=>{if(d===doc)VEC.cache.delete(x);});}
-window.__pinVec=VEC;   // for measurement (Playwright) - canvas count, render time
-async function vecBoot(){
-  if(!window.IntersectionObserver){vecFail('이 브라우저는 IntersectionObserver 가 없습니다');return;}
-  try{VEC.lib=await import('/vendor/pdfjs/pdf.min.mjs?v='+PDFJS_V);
-    VEC.lib.GlobalWorkerOptions.workerSrc='/vendor/pdfjs/pdf.worker.min.mjs?v='+PDFJS_V;}
-  catch(e){VEC.lib=null; vecFail('pdf.js 를 불러오지 못했습니다',e); return;}
+const VEC_CACHE_MAX = 3;
+function vecCacheKey(k, b) {
+  return (k || '') + '|' + (b || '');
+}
+function vecCachePut(key, doc) {
+  const c = VEC.cache;
+  c.delete(key);
+  c.set(key, doc);
+  const pre = key.split('|')[0] + '|';
+  Array.from(c.keys()).forEach((x) => {
+    if (x !== key && x.startsWith(pre)) {
+      const d = c.get(x);
+      c.delete(x);
+      if (d !== VEC.doc) vecClose(d);
+    }
+  });
+  while (c.size > VEC_CACHE_MAX) {
+    const x = c.keys().next().value,
+      d = c.get(x);
+    c.delete(x);
+    if (d !== VEC.doc && d !== doc) vecClose(d);
+  }
+}
+function vecCached(doc) {
+  for (const d of VEC.cache.values()) if (d === doc) return true;
+  return false;
+}
+function vecForget(doc) {
+  VEC.cache.forEach((d, x) => {
+    if (d === doc) VEC.cache.delete(x);
+  });
+}
+window.__pinVec = VEC; // for measurement (Playwright) - canvas count, render time
+async function vecBoot() {
+  if (!window.IntersectionObserver) {
+    vecFail('이 브라우저는 IntersectionObserver 가 없습니다');
+    return;
+  }
+  try {
+    VEC.lib = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_V);
+    VEC.lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_V;
+  } catch (e) {
+    VEC.lib = null;
+    vecFail('pdf.js 를 불러오지 못했습니다', e);
+    return;
+  }
   await vecOpen();
 }
 // Opens the PDF for the currently displayed build (META.pages_build). Never used if the page count differs from what's on screen (coordinates would be off).
-async function vecOpen(){
+async function vecOpen() {
   // A Markdown document has no PDF: the PDF work still pending for the document left (its fetch, outline, pages) is
   // stale from here, or its outline would land over the Markdown headings.
-  if(isMdDoc()){VEC.gen++; vecCancel(); return;}
-  if(!VEC.lib||!META)return;
-  const gen=++VEC.gen, build=META.pages_build||'', n=META.pages.length, key=vecCacheKey(DOC,build); let doc=VEC.cache.get(key);
-  vecCancel(); searchClear();   // another document or build: its search starts empty (search.js)
-  outlineForget();   // and the outline and page names of the document left behind are not the new one's (outline.js)
-  if(!doc){
+  if (isMdDoc()) {
+    VEC.gen++;
+    vecCancel();
+    return;
+  }
+  if (!VEC.lib || !META) return;
+  const gen = ++VEC.gen,
+    build = META.pages_build || '',
+    n = META.pages.length,
+    key = vecCacheKey(DOC, build);
+  let doc = VEC.cache.get(key);
+  vecCancel();
+  searchClear(); // another document or build: its search starts empty (search.js)
+  outlineForget(); // and the outline and page names of the document left behind are not the new one's (outline.js)
+  if (!doc) {
     // The old document (a different document/old build) is never used for the new page DOM - PNG is shown while fetching.
-    const prev=VEC.doc; VEC.doc=null; VEC.build=null; if(prev&&!vecCached(prev))vecClose(prev);
-    try{const r=await fetch(dq('/pdf?build='+encodeURIComponent(build)+'&v='+encodeURIComponent(META.built_at||'')));
-      if(!r.ok)throw new Error('PDF HTTP '+r.status);
-      const data=new Uint8Array(await r.arrayBuffer()); if(gen!==VEC.gen)return;
-      doc=await VEC.lib.getDocument({data,isEvalSupported:false,useWasm:false,enableXfa:false}).promise;}
-    catch(e){if(gen===VEC.gen)vecFail('PDF 를 벡터로 열지 못했습니다',e); return;}
-    if(gen!==VEC.gen){vecClose(doc); return;}
-    if(doc.numPages!==n){vecClose(doc); vecFail(tl('PDF 쪽 수({pdf})가 화면({view})과 다릅니다',{pdf:doc.numPages,view:n})); return;}
-    vecCachePut(key,doc);
-  }else vecCachePut(key,doc);           // promoted as most recently used
-  if(gen!==VEC.gen)return;
-  const old=VEC.doc; VEC.doc=doc; VEC.build=build; VEC.failed=null; VEC.tDoc=performance.now(); $('#vec-chip').hidden=true;
-  loadOutline(doc,gen); searchOffer();   // its text can be searched now
-  VEC.st.forEach(s=>{s.stale=true;});
-  if(old&&old!==doc&&!vecCached(old))vecClose(old);
+    const prev = VEC.doc;
+    VEC.doc = null;
+    VEC.build = null;
+    if (prev && !vecCached(prev)) vecClose(prev);
+    try {
+      const r = await fetch(
+        dq('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(META.built_at || '')),
+      );
+      if (!r.ok) throw new Error('PDF HTTP ' + r.status);
+      const data = new Uint8Array(await r.arrayBuffer());
+      if (gen !== VEC.gen) return;
+      doc = await VEC.lib.getDocument({ data, isEvalSupported: false, useWasm: false, enableXfa: false }).promise;
+    } catch (e) {
+      if (gen === VEC.gen) vecFail('PDF 를 벡터로 열지 못했습니다', e);
+      return;
+    }
+    if (gen !== VEC.gen) {
+      vecClose(doc);
+      return;
+    }
+    if (doc.numPages !== n) {
+      vecClose(doc);
+      vecFail(tl('PDF 쪽 수({pdf})가 화면({view})과 다릅니다', { pdf: doc.numPages, view: n }));
+      return;
+    }
+    vecCachePut(key, doc);
+  } else vecCachePut(key, doc); // promoted as most recently used
+  if (gen !== VEC.gen) return;
+  const old = VEC.doc;
+  VEC.doc = doc;
+  VEC.build = build;
+  VEC.failed = null;
+  VEC.tDoc = performance.now();
+  $('#vec-chip').hidden = true;
+  loadOutline(doc, gen);
+  searchOffer(); // its text can be searched now
+  VEC.st.forEach((s) => {
+    s.stale = true;
+  });
+  if (old && old !== doc && !vecCached(old)) vecClose(old);
   vecSchedule(0);
 }
 export { PDFJS_V, VEC, VEC_DT_MARGIN, VEC_KEEP, VEC_PIX_CAP, vecBoot, vecForget, vecOpen };

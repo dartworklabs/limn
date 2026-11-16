@@ -81,17 +81,17 @@ export const ALLOWED = [
   ['revisions', 'text', "a text document's changes are shown as its lines"],
   ['composer', 'layout', 'the composer opens in the panel or sheet the frame shows'],
   ['composer', 'documents', 'a pin is made on the open document and its build'],
-  ['composer', 'pdf', 'a selection on a PDF page becomes the composer\'s place'],
-  ['composer', 'markdown', 'a selection on a Markdown document becomes the composer\'s place'],
+  ['composer', 'pdf', "a selection on a PDF page becomes the composer's place"],
+  ['composer', 'markdown', "a selection on a Markdown document becomes the composer's place"],
   ['composer', 'revisions', 'a suggested edit is shown as a diff'],
   ['pins', 'layout', 'the pin list sits in the panel or sheet the frame shows'],
-  ['pins', 'documents', "pins belong to a document and follow its builds"],
+  ['pins', 'documents', 'pins belong to a document and follow its builds'],
   ['pins', 'pdf', 'a pin is marked on its page and jumped to'],
   ['pins', 'markdown', 'a pin of a Markdown document is marked on its lines'],
   ['pins', 'revisions', "a pin's [변경 보기] opens the changes view"],
   ['pins', 'composer', 'editing or re-placing a pin reopens the composer'],
   ['verdict', 'layout', 'the verdict panel stands beside the pages when the frame has room'],
-  ['verdict', 'documents', "verdict words come from the open document"],
+  ['verdict', 'documents', 'verdict words come from the open document'],
   ['verdict', 'pdf', 'a page verdict belongs to the page being read'],
   ['verdict', 'markdown', 'a verdict reads the Markdown reading position'],
   ['verdict', 'composer', "a verdict is saved from the composer's verdict row"],
@@ -177,7 +177,10 @@ export function listedModules(viewer = VIEWER) {
   for (const raw of readFileSync(join(viewer, 'parts.txt'), 'utf8').split('\n')) {
     const line = raw.split('#')[0].trim();
     if (!line) continue;
-    if (/^__[A-Z_]+__$/.test(line)) { inJs = line === '__APP_JS__'; continue; }
+    if (/^__[A-Z_]+__$/.test(line)) {
+      inJs = line === '__APP_JS__';
+      continue;
+    }
     if (inJs) out.push(line);
   }
   return out;
@@ -211,7 +214,8 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
   const features = new Set(Object.keys(FEATURES));
   const pairs = new Set();
   for (const [from, to, why] of allowed) {
-    if ((from !== ANY && !features.has(from)) || (to !== ANY && !features.has(to))) errors.push(`ALLOWED names an unknown feature: ${from} -> ${to}`);
+    if ((from !== ANY && !features.has(from)) || (to !== ANY && !features.has(to)))
+      errors.push(`ALLOWED names an unknown feature: ${from} -> ${to}`);
     if (!why || !why.trim()) errors.push(`ALLOWED ${from} -> ${to} has no reason`);
     if (pairs.has(`${to} ${from}`)) errors.push(`ALLOWED lists both ${from} -> ${to} and ${to} -> ${from}`);
     pairs.add(`${from} ${to}`);
@@ -219,25 +223,38 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
   // The listed directions between named features must be acyclic.
   const next = new Map();
   for (const [from, to] of allowed) if (from !== ANY && to !== ANY) next.set(from, [...(next.get(from) || []), to]);
-  const seen = new Set(), stack = new Set();
-  const visit = f => {
-    if (stack.has(f)) { errors.push(`ALLOWED has a cycle through ${f}`); return; }
+  const seen = new Set(),
+    stack = new Set();
+  const visit = (f) => {
+    if (stack.has(f)) {
+      errors.push(`ALLOWED has a cycle through ${f}`);
+      return;
+    }
     if (seen.has(f)) return;
-    seen.add(f); stack.add(f);
+    seen.add(f);
+    stack.add(f);
     for (const t of next.get(f) || []) visit(t);
     stack.delete(f);
   };
   for (const f of next.keys()) visit(f);
   for (const [path, [feature, role]] of Object.entries(legacy)) {
-    if (!features.has(feature) || !(role in ROLES)) errors.push(`LEGACY ${path}: unknown feature or role ${feature}/${role}`);
+    if (!features.has(feature) || !(role in ROLES))
+      errors.push(`LEGACY ${path}: unknown feature or role ${feature}/${role}`);
     if (!existsSync(join(viewer, path))) errors.push(`LEGACY ${path}: no such file - take its line out`);
   }
   for (const path of modules) {
     const place = placeOf(path, legacy);
-    if (!place) { errors.push(`${path}: a flat module LEGACY does not name - put it in js/<feature>/<role>.js`); continue; }
+    if (!place) {
+      errors.push(`${path}: a flat module LEGACY does not name - put it in js/<feature>/<role>.js`);
+      continue;
+    }
     if (!features.has(place.feature)) errors.push(`${path}: unknown feature ${place.feature}`);
-    else if (!(place.role in ROLES)) errors.push(`${path}: unknown role ${place.role} (one of ${Object.keys(ROLES).join(', ')})`);
-    else if ((place.role === 'lib') !== (place.feature === 'platform') || (place.role === 'main') !== (place.feature === 'entry')) {
+    else if (!(place.role in ROLES))
+      errors.push(`${path}: unknown role ${place.role} (one of ${Object.keys(ROLES).join(', ')})`);
+    else if (
+      (place.role === 'lib') !== (place.feature === 'platform') ||
+      (place.role === 'main') !== (place.feature === 'entry')
+    ) {
       errors.push(`${path}: role ${place.role} does not belong in ${place.feature}`);
     }
   }
@@ -257,10 +274,17 @@ export function importGraph(modules, viewer = VIEWER) {
     const ast = parseAst(readFileSync(file, 'utf8'));
     const targets = [];
     for (const node of ast.body) {
-      if (node.type !== 'ImportDeclaration' && !(node.type === 'ExportNamedDeclaration' && node.source) && node.type !== 'ExportAllDeclaration') continue;
+      if (
+        node.type !== 'ImportDeclaration' &&
+        !(node.type === 'ExportNamedDeclaration' && node.source) &&
+        node.type !== 'ExportAllDeclaration'
+      )
+        continue;
       const spec = String(node.source.value);
       if (!spec.startsWith('.')) throw new Error(`${path}: imports ${spec}, which is not a module of the viewer`);
-      const target = relative(viewer, resolve(dirname(file), spec)).split(sep).join('/');
+      const target = relative(viewer, resolve(dirname(file), spec))
+        .split(sep)
+        .join('/');
       if (!targets.includes(target)) targets.push(target);
     }
     graph.set(path, targets);
@@ -274,18 +298,31 @@ export function importGraph(modules, viewer = VIEWER) {
  */
 function components(graph) {
   let index = 0;
-  const order = new Map(), low = new Map(), onStack = new Set(), stack = [], comp = new Map();
+  const order = new Map(),
+    low = new Map(),
+    onStack = new Set(),
+    stack = [],
+    comp = new Map();
   let n = 0;
-  const strong = v => {
-    order.set(v, index); low.set(v, index); index++;
-    stack.push(v); onStack.add(v);
+  const strong = (v) => {
+    order.set(v, index);
+    low.set(v, index);
+    index++;
+    stack.push(v);
+    onStack.add(v);
     for (const w of graph.get(v) || []) {
-      if (!order.has(w)) { strong(w); low.set(v, Math.min(low.get(v), low.get(w))); }
-      else if (onStack.has(w)) low.set(v, Math.min(low.get(v), order.get(w)));
+      if (!order.has(w)) {
+        strong(w);
+        low.set(v, Math.min(low.get(v), low.get(w)));
+      } else if (onStack.has(w)) low.set(v, Math.min(low.get(v), order.get(w)));
     }
     if (low.get(v) === order.get(v)) {
       let w;
-      do { w = stack.pop(); onStack.delete(w); comp.set(w, n); } while (w !== v);
+      do {
+        w = stack.pop();
+        onStack.delete(w);
+        comp.set(w, n);
+      } while (w !== v);
       n++;
     }
   };
@@ -302,14 +339,22 @@ function components(graph) {
  * @returns {Array<[string, string[]]>}
  */
 function reachedThroughPlatform(graph, start, legacy) {
-  const out = [], seen = new Set([start]), queue = [[start, []]];
+  const out = [],
+    seen = new Set([start]),
+    queue = [[start, []]];
   while (queue.length) {
     const [module, via] = queue.shift();
     const place = placeOf(module, legacy);
     if (!place) continue;
-    if (place.feature !== 'platform') { out.push([module, via]); continue; }
+    if (place.feature !== 'platform') {
+      out.push([module, via]);
+      continue;
+    }
     for (const next of graph.get(module) || []) {
-      if (!seen.has(next)) { seen.add(next); queue.push([next, [...via, module]]); }
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push([next, [...via, module]]);
+      }
     }
   }
   return out;
@@ -324,7 +369,8 @@ function reachedThroughPlatform(graph, start, legacy) {
 export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
   const out = [];
   const comp = components(graph);
-  const may = (from, to) => from === to || to === 'platform' || allowed.some(([a, b]) => (a === ANY || a === from) && (b === ANY || b === to));
+  const may = (from, to) =>
+    from === to || to === 'platform' || allowed.some(([a, b]) => (a === ANY || a === from) && (b === ANY || b === to));
   for (const [path, targets] of graph) {
     const place = placeOf(path, legacy);
     if (!place) continue;
@@ -337,17 +383,36 @@ export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
         // Paths count, not only direct imports: a platform module that reaches a feature through other platform
         // modules depends on it as much as the one that imports it.
         for (const [reached, via] of reachedThroughPlatform(graph, target, legacy)) {
-          out.push(['platform-isolation', path, `${path} (platform) reaches ${reached} (${placeOf(reached, legacy).feature})${via.length ? ' through ' + via.join(' -> ') : ''}`]);
+          out.push([
+            'platform-isolation',
+            path,
+            `${path} (platform) reaches ${reached} (${placeOf(reached, legacy).feature})${via.length ? ' through ' + via.join(' -> ') : ''}`,
+          ]);
         }
       } else if (!may(place.feature, to.feature)) {
-        out.push(['feature-dependency', path, `${path} (${place.feature}) imports ${target} (${to.feature}): ALLOWED has no ${place.feature} -> ${to.feature}`]);
+        out.push([
+          'feature-dependency',
+          path,
+          `${path} (${place.feature}) imports ${target} (${to.feature}): ALLOWED has no ${place.feature} -> ${to.feature}`,
+        ]);
       }
       const sameOrShared = to.feature === place.feature || to.feature === 'platform';
       if (to.role === 'main') out.push(['role', path, `${path} imports the entry point ${target}`]);
       else if (place.role === 'rules' && !(sameOrShared && (to.role === 'rules' || to.role === 'lib'))) {
-        out.push(['role', path, `${path} (rules) imports ${target} (${to.feature} ${to.role}): rules import only rules of their feature and platform`]);
-      } else if ((place.role === 'state' || place.role === 'api') && !((sameOrShared || to.feature === 'app') && ['rules', 'state', 'lib'].includes(to.role))) {
-        out.push(['role', path, `${path} (${place.role}) imports ${target} (${to.feature} ${to.role}): ${place.role} imports only rules and state of its feature, app and platform`]);
+        out.push([
+          'role',
+          path,
+          `${path} (rules) imports ${target} (${to.feature} ${to.role}): rules import only rules of their feature and platform`,
+        ]);
+      } else if (
+        (place.role === 'state' || place.role === 'api') &&
+        !((sameOrShared || to.feature === 'app') && ['rules', 'state', 'lib'].includes(to.role))
+      ) {
+        out.push([
+          'role',
+          path,
+          `${path} (${place.role}) imports ${target} (${to.feature} ${to.role}): ${place.role} imports only rules and state of its feature, app and platform`,
+        ]);
       }
     }
   }
@@ -359,7 +424,7 @@ export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
  * @param {Array<[string, string, string]>} found
  */
 export function counts(found) {
-  const out = Object.fromEntries(RULES.map(r => [r, {}]));
+  const out = Object.fromEntries(RULES.map((r) => [r, {}]));
   for (const [rule, path] of found) {
     const key = `src/limn/viewer/${path}`;
     out[rule][key] = (out[rule][key] || 0) + 1;
@@ -382,8 +447,10 @@ function main(argv) {
   }
   for (const [rule, , message] of found) console.log(`${rule}: ${message}`);
   const c = counts(found);
-  console.log(RULES.map(r => `${r} ${Object.values(c[r]).reduce((a, b) => a + b, 0)}`).join(', ') +
-    ` - tools/strict_ratchet.py holds these to tools/strict-baseline.json`);
+  console.log(
+    RULES.map((r) => `${r} ${Object.values(c[r]).reduce((a, b) => a + b, 0)}`).join(', ') +
+      ` - tools/strict_ratchet.py holds these to tools/strict-baseline.json`,
+  );
   return 0;
 }
 

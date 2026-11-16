@@ -201,7 +201,7 @@
       "src/limn/viewer/js/levels.js": 11,
       "src/limn/viewer/js/list.js": 24,
       "src/limn/viewer/js/markup.js": 1,
-      "src/limn/viewer/js/md-compare.js": 24,
+      "src/limn/viewer/js/md-compare.js": 23,
       "src/limn/viewer/js/md-surface.js": 46,
       "src/limn/viewer/js/mentions.js": 22,
       "src/limn/viewer/js/notices.js": 23,
@@ -233,7 +233,7 @@
       "src/limn/viewer/js/updates.js": 12,
       "src/limn/viewer/js/verdict-panel.js": 8,
       "src/limn/viewer/js/verdict-reason.js": 31,
-      "src/limn/viewer/js/verdict.js": 85,
+      "src/limn/viewer/js/verdict.js": 84,
       "src/limn/viewer/js/zoom.js": 2
     },
     "@typescript-eslint/no-unsafe-assignment": {
@@ -258,7 +258,7 @@
       "src/limn/viewer/js/list.js": 61,
       "src/limn/viewer/js/marks-hide.js": 1,
       "src/limn/viewer/js/markup.js": 3,
-      "src/limn/viewer/js/md-compare.js": 47,
+      "src/limn/viewer/js/md-compare.js": 45,
       "src/limn/viewer/js/md-surface.js": 110,
       "src/limn/viewer/js/mentions.js": 29,
       "src/limn/viewer/js/notices.js": 52,
@@ -290,7 +290,7 @@
       "src/limn/viewer/js/updates.js": 44,
       "src/limn/viewer/js/verdict-panel.js": 12,
       "src/limn/viewer/js/verdict-reason.js": 69,
-      "src/limn/viewer/js/verdict.js": 123,
+      "src/limn/viewer/js/verdict.js": 120,
       "src/limn/viewer/js/zoom.js": 7
     },
     "@typescript-eslint/no-unsafe-call": {
@@ -314,7 +314,7 @@
       "src/limn/viewer/js/list.js": 63,
       "src/limn/viewer/js/marks-hide.js": 1,
       "src/limn/viewer/js/markup.js": 4,
-      "src/limn/viewer/js/md-compare.js": 19,
+      "src/limn/viewer/js/md-compare.js": 16,
       "src/limn/viewer/js/md-surface.js": 60,
       "src/limn/viewer/js/mentions.js": 24,
       "src/limn/viewer/js/notices.js": 26,
@@ -343,7 +343,7 @@
       "src/limn/viewer/js/updates.js": 15,
       "src/limn/viewer/js/verdict-panel.js": 10,
       "src/limn/viewer/js/verdict-reason.js": 22,
-      "src/limn/viewer/js/verdict.js": 109,
+      "src/limn/viewer/js/verdict.js": 108,
       "src/limn/viewer/js/zoom.js": 14
     },
     "@typescript-eslint/no-unsafe-member-access": {
@@ -369,7 +369,7 @@
       "src/limn/viewer/js/list.js": 188,
       "src/limn/viewer/js/marks-hide.js": 2,
       "src/limn/viewer/js/markup.js": 7,
-      "src/limn/viewer/js/md-compare.js": 136,
+      "src/limn/viewer/js/md-compare.js": 125,
       "src/limn/viewer/js/md-surface.js": 227,
       "src/limn/viewer/js/mentions.js": 75,
       "src/limn/viewer/js/notices.js": 90,
@@ -401,7 +401,7 @@
       "src/limn/viewer/js/updates.js": 90,
       "src/limn/viewer/js/verdict-panel.js": 30,
       "src/limn/viewer/js/verdict-reason.js": 111,
-      "src/limn/viewer/js/verdict.js": 286,
+      "src/limn/viewer/js/verdict.js": 278,
       "src/limn/viewer/js/zoom.js": 44
     },
     "@typescript-eslint/no-unsafe-return": {
@@ -449,7 +449,7 @@
       "src/limn/viewer/js/updates.js": 4,
       "src/limn/viewer/js/verdict-panel.js": 1,
       "src/limn/viewer/js/verdict-reason.js": 9,
-      "src/limn/viewer/js/verdict.js": 20
+      "src/limn/viewer/js/verdict.js": 19
     },
     "@typescript-eslint/switch-exhaustiveness-check": {
       "src/limn/viewer/js/events.js": 1
@@ -620,7 +620,7 @@
     "src/limn/viewer/js/levels.js": 38,
     "src/limn/viewer/js/list.js": 46,
     "src/limn/viewer/js/markup.js": 6,
-    "src/limn/viewer/js/md-compare.js": 7,
+    "src/limn/viewer/js/md-compare.js": 5,
     "src/limn/viewer/js/md-surface.js": 40,
     "src/limn/viewer/js/mentions.js": 31,
     "src/limn/viewer/js/notices.js": 1,

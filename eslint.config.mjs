@@ -25,7 +25,8 @@ const ANY_IN_TYPE = /(^|[^\w$.])(any|\*)(?![\w$])/;
 function jsdocTypes(text) {
   const out = [];
   for (const m of text.matchAll(/@\w+\s*\{/g)) {
-    let depth = 1, i = m.index + m[0].length;
+    let depth = 1,
+      i = m.index + m[0].length;
     const start = i;
     for (; i < text.length && depth; i++) {
       if (text[i] === '{') depth++;
@@ -40,7 +41,11 @@ function jsdocTypes(text) {
 export const limnRules = {
   // `any` or `*` in a JSDoc type: the escape hatch typescript-eslint's no-explicit-any cannot see in a comment.
   'no-jsdoc-any': {
-    meta: { type: 'problem', messages: { any: 'A JSDoc type says any ({{type}}): name the type, or unknown and narrow it.' }, schema: [] },
+    meta: {
+      type: 'problem',
+      messages: { any: 'A JSDoc type says any ({{type}}): name the type, or unknown and narrow it.' },
+      schema: [],
+    },
     create(context) {
       return {
         Program() {
@@ -57,7 +62,11 @@ export const limnRules = {
   // `/** @type {T} */(expr)`: TypeScript reads a JSDoc @type right before a parenthesised expression as a type
   // assertion - it says the value has a type without checking it. Narrow with a guard instead (instanceof, a test).
   'no-jsdoc-cast': {
-    meta: { type: 'problem', messages: { cast: 'A JSDoc cast asserts a type without checking it: narrow with a guard.' }, schema: [] },
+    meta: {
+      type: 'problem',
+      messages: { cast: 'A JSDoc cast asserts a type without checking it: narrow with a guard.' },
+      schema: [],
+    },
     create(context) {
       const source = context.sourceCode;
       return {
@@ -65,7 +74,8 @@ export const limnRules = {
           for (const c of source.getAllComments()) {
             if (c.type !== 'Block' || !c.value.startsWith('*') || !/@type\s*\{/.test(c.value)) continue;
             const next = source.getTokenAfter(c, { includeComments: false });
-            if (next && next.value === '(' && next.range[0] >= c.range[1]) context.report({ loc: c.loc, messageId: 'cast' });
+            if (next && next.value === '(' && next.range[0] >= c.range[1])
+              context.report({ loc: c.loc, messageId: 'cast' });
           }
         },
       };
@@ -75,12 +85,16 @@ export const limnRules = {
   // belongs to the module that declares it and changes through the functions it exports (ADR-0042 D1). A write to
   // the imported binding itself is no-import-assign's (and a TypeError at run time).
   'no-imported-state-write': {
-    meta: { type: 'problem', messages: { write: '{{name}} is another module\'s state: change it through a function {{from}} exports.' }, schema: [] },
+    meta: {
+      type: 'problem',
+      messages: { write: "{{name}} is another module's state: change it through a function {{from}} exports." },
+      schema: [],
+    },
     create(context) {
       /** @type {Map<string, string>} */
       const imported = new Map();
       /** @param {import('estree').Node} node */
-      const root = node => {
+      const root = (node) => {
         let n = node;
         while (n.type === 'MemberExpression') n = n.object;
         return n.type === 'Identifier' ? n : null;
@@ -91,16 +105,22 @@ export const limnRules = {
         const id = root(target);
         if (!id || !imported.has(id.name)) return;
         const variable = findVariable(context.sourceCode.getScope(at), id.name);
-        if (!variable || !variable.defs.some(d => d.type === 'ImportBinding')) return; // a local of the same name
+        if (!variable || !variable.defs.some((d) => d.type === 'ImportBinding')) return; // a local of the same name
         context.report({ node: at, messageId: 'write', data: { name: id.name, from: imported.get(id.name) } });
       };
       return {
         ImportDeclaration(node) {
           for (const s of node.specifiers) imported.set(s.local.name, String(node.source.value));
         },
-        AssignmentExpression(node) { check(node.left, node); },
-        UpdateExpression(node) { check(node.argument, node); },
-        UnaryExpression(node) { if (node.operator === 'delete') check(node.argument, node); },
+        AssignmentExpression(node) {
+          check(node.left, node);
+        },
+        UpdateExpression(node) {
+          check(node.argument, node);
+        },
+        UnaryExpression(node) {
+          if (node.operator === 'delete') check(node.argument, node);
+        },
       };
     },
   },
@@ -122,12 +142,63 @@ function findVariable(scope, name) {
 // Browser globals whose names read like a local variable, so a missing declaration would silently use the window's
 // (`event`, `name`, `status`, ...): code says window.x when it means the window's.
 const CONFUSING_GLOBALS = [
-  'addEventListener', 'blur', 'close', 'closed', 'confirm', 'defaultStatus', 'event', 'external', 'find', 'focus',
-  'frameElement', 'frames', 'history', 'innerHeight', 'innerWidth', 'length', 'location', 'locationbar', 'menubar',
-  'moveBy', 'moveTo', 'name', 'onblur', 'onerror', 'onfocus', 'onload', 'onresize', 'onunload', 'open', 'opener',
-  'opera', 'outerHeight', 'outerWidth', 'pageXOffset', 'pageYOffset', 'parent', 'print', 'removeEventListener',
-  'resizeBy', 'resizeTo', 'screen', 'screenLeft', 'screenTop', 'screenX', 'screenY', 'scroll', 'scrollbars', 'scrollBy',
-  'scrollTo', 'scrollX', 'scrollY', 'self', 'status', 'statusbar', 'stop', 'toolbar', 'top',
+  'addEventListener',
+  'blur',
+  'close',
+  'closed',
+  'confirm',
+  'defaultStatus',
+  'event',
+  'external',
+  'find',
+  'focus',
+  'frameElement',
+  'frames',
+  'history',
+  'innerHeight',
+  'innerWidth',
+  'length',
+  'location',
+  'locationbar',
+  'menubar',
+  'moveBy',
+  'moveTo',
+  'name',
+  'onblur',
+  'onerror',
+  'onfocus',
+  'onload',
+  'onresize',
+  'onunload',
+  'open',
+  'opener',
+  'opera',
+  'outerHeight',
+  'outerWidth',
+  'pageXOffset',
+  'pageYOffset',
+  'parent',
+  'print',
+  'removeEventListener',
+  'resizeBy',
+  'resizeTo',
+  'screen',
+  'screenLeft',
+  'screenTop',
+  'screenX',
+  'screenY',
+  'scroll',
+  'scrollbars',
+  'scrollBy',
+  'scrollTo',
+  'scrollX',
+  'scrollY',
+  'self',
+  'status',
+  'statusbar',
+  'stop',
+  'toolbar',
+  'top',
 ];
 
 export default [
@@ -167,7 +238,11 @@ export default [
       // A switch over a closed union handles every member, and a default does not stand in for a missing one.
       '@typescript-eslint/switch-exhaustiveness-check': [
         'error',
-        { allowDefaultCaseForExhaustiveSwitch: false, considerDefaultExhaustiveForUnions: false, requireDefaultForNonUnion: false },
+        {
+          allowDefaultCaseForExhaustiveSwitch: false,
+          considerDefaultExhaustiveForUnions: false,
+          requireDefaultForNonUnion: false,
+        },
       ],
     },
   },

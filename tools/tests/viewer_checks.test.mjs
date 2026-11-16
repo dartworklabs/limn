@@ -43,14 +43,26 @@ test('a platform module importing a feature is refused, directly or through anot
     'js/platform/b.js': ['js/pins/state.js'],
     'js/pins/state.js': [],
   };
-  assert.deepEqual(rulesOf(graph, [['*', 'pins', 'any']]).sort(), ['platform-isolation js/platform/a.js', 'platform-isolation js/platform/b.js']);
+  assert.deepEqual(rulesOf(graph, [['*', 'pins', 'any']]).sort(), [
+    'platform-isolation js/platform/a.js',
+    'platform-isolation js/platform/b.js',
+  ]);
 });
 
 test("a rules module importing another feature's code is refused, its surface included, even where ALLOWED lets the feature", () => {
   const graph = { 'js/pins/rules.js': ['js/pdf/rules.js'], 'js/pdf/rules.js': [] };
   assert.deepEqual(rulesOf(graph, [['pins', 'pdf', 'r']]), ['role js/pins/rules.js']);
-  assert.deepEqual(rulesOf({ 'js/pins/rules.js': ['js/pins/view.js'], 'js/pins/view.js': [] }), ['role js/pins/rules.js']);
-  assert.deepEqual(rulesOf({ 'js/pins/rules.js': ['js/pins/rules-order.js', 'js/platform/m.js'], 'js/pins/rules-order.js': [], 'js/platform/m.js': [] }), []);
+  assert.deepEqual(rulesOf({ 'js/pins/rules.js': ['js/pins/view.js'], 'js/pins/view.js': [] }), [
+    'role js/pins/rules.js',
+  ]);
+  assert.deepEqual(
+    rulesOf({
+      'js/pins/rules.js': ['js/pins/rules-order.js', 'js/platform/m.js'],
+      'js/pins/rules-order.js': [],
+      'js/platform/m.js': [],
+    }),
+    [],
+  );
 });
 
 test('nothing imports the entry point, and a flat module counts as unplaced', () => {
@@ -77,7 +89,13 @@ test('a mistake in the tables fails the check itself', () => {
   assert.deepEqual(tableErrors(base), []);
   const errors = tableErrors({
     ...base,
-    allowed: [['pins', 'pdf', 'r'], ['pdf', 'pins', 'r'], ['pdf', 'layout', ''], ['layout', 'pins', 'r'], ['nope', 'pdf', 'r']],
+    allowed: [
+      ['pins', 'pdf', 'r'],
+      ['pdf', 'pins', 'r'],
+      ['pdf', 'layout', ''],
+      ['layout', 'pins', 'r'],
+      ['nope', 'pdf', 'r'],
+    ],
     legacy: { ...base.legacy, 'js/gone.js': ['pins', 'view'], 'js/odd.js': ['pins', 'lib'] },
     modules: ['js/kept.js', 'js/new.js', 'js/pins/painter.js', 'js/pins/lib.js'],
   });
@@ -91,14 +109,20 @@ test('a mistake in the tables fails the check itself', () => {
     'js/pins/painter.js: unknown role painter',
     'js/pins/lib.js: role lib does not belong in pins',
   ]) {
-    assert.ok(errors.some(e => e.includes(expected)), `${expected}\n${errors.join('\n')}`);
+    assert.ok(
+      errors.some((e) => e.includes(expected)),
+      `${expected}\n${errors.join('\n')}`,
+    );
   }
 });
 
 test('the import graph reads named and bare imports and refuses one from outside the viewer', () => {
   const viewer = mkdtempSync(join(tmpdir(), 'limn-graph-'));
   mkdirSync(join(viewer, 'js', 'pins'), { recursive: true });
-  writeFileSync(join(viewer, 'js', 'pins', 'view.js'), "import { a } from './state.js';\nimport '../main.js';\nexport { a };\n");
+  writeFileSync(
+    join(viewer, 'js', 'pins', 'view.js'),
+    "import { a } from './state.js';\nimport '../main.js';\nexport { a };\n",
+  );
   writeFileSync(join(viewer, 'js', 'pins', 'state.js'), 'const a = 1;\nexport { a };\n');
   writeFileSync(join(viewer, 'js', 'main.js'), '');
   const graph = importGraph(['js/pins/view.js', 'js/pins/state.js', 'js/main.js'], viewer);
@@ -118,17 +142,22 @@ function lint(code) {
         rules: { 'limn/no-jsdoc-any': 'error', 'limn/no-jsdoc-cast': 'error', 'limn/no-imported-state-write': 'error' },
       },
     ])
-    .map(m => m.ruleId || `fatal: ${m.message}`);
+    .map((m) => m.ruleId || `fatal: ${m.message}`);
 }
 
 test('an any or * in a JSDoc type is refused; a named type passes', () => {
   assert.deepEqual(lint('/** @param {any} x */\nfunction f(x){return x;}\nf(1);\n'), ['limn/no-jsdoc-any']);
   assert.deepEqual(lint('/** @type {Array<*>} */\nconst a=[];\nexport { a };\n'), ['limn/no-jsdoc-any']);
-  assert.deepEqual(lint('/** @param {{many: number, anyway: string}} x */\nfunction f(x){return x;}\nf({many:1,anyway:""});\n'), []);
+  assert.deepEqual(
+    lint('/** @param {{many: number, anyway: string}} x */\nfunction f(x){return x;}\nf({many:1,anyway:""});\n'),
+    [],
+  );
 });
 
 test('a JSDoc cast is refused; a typed declaration is not a cast', () => {
-  assert.deepEqual(lint('const e=document.body;\nconst t=/** @type {HTMLElement} */(e);\nexport { t };\n'), ['limn/no-jsdoc-cast']);
+  assert.deepEqual(lint('const e=document.body;\nconst t=/** @type {HTMLElement} */(e);\nexport { t };\n'), [
+    'limn/no-jsdoc-cast',
+  ]);
   assert.deepEqual(lint('/** @type {HTMLElement|null} */\nlet t=null;\nexport { t };\n'), []);
 });
 
@@ -138,5 +167,8 @@ test("a write through another module's binding is refused; a local of the same n
     'limn/no-imported-state-write',
     'limn/no-imported-state-write',
   ]);
-  assert.deepEqual(lint("import { OFF } from './offline.js';\nfunction f(OFF){OFF.n=1;}\nf({});\nconst n=OFF.n;\nexport { n };\n"), []);
+  assert.deepEqual(
+    lint("import { OFF } from './offline.js';\nfunction f(OFF){OFF.n=1;}\nf({});\nconst n=OFF.n;\nexport { n };\n"),
+    [],
+  );
 });

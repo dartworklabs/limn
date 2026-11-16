@@ -36,7 +36,10 @@ function moduleOrder() {
   for (const raw of readFileSync(join(VIEWER, 'parts.txt'), 'utf8').split('\n')) {
     const line = raw.split('#')[0].trim();
     if (!line) continue;
-    if (/^__[A-Z_]+__$/.test(line)) { inJs = line === '__APP_JS__'; continue; }
+    if (/^__[A-Z_]+__$/.test(line)) {
+      inJs = line === '__APP_JS__';
+      continue;
+    }
     if (inJs) out.push(line);
   }
   if (!out.length) throw new Error('parts.txt lists no module under __APP_JS__');
@@ -44,7 +47,7 @@ function moduleOrder() {
 }
 
 /** The viewer-relative POSIX path of an absolute module id. */
-const rel = id => relative(VIEWER, id).split(sep).join('/');
+const rel = (id) => relative(VIEWER, id).split(sep).join('/');
 
 /**
  * The Rollup plugin that makes the list's order the run order: each listed module but the first gets a bare import of
@@ -73,7 +76,7 @@ function listOrder(order) {
       if (!spec.startsWith('.')) spec = './' + spec;
       // In front of the module's first import (Rollup drops the text between two imports it removes, so the banner
       // comment above the imports stays only if nothing is put before it), or at the top of a module with none.
-      const first = this.parse(code).body.find(node => node.type === 'ImportDeclaration');
+      const first = this.parse(code).body.find((node) => node.type === 'ImportDeclaration');
       const at = first ? first.start : 0;
       return { code: `${code.slice(0, at)}import '${spec}';\n${code.slice(at)}`, map: null };
     },
@@ -96,7 +99,7 @@ export async function build() {
     const { output } = await bundle.generate({ format: 'es', banner: BANNER, sourcemap: false });
     if (output.length !== 1) throw new Error(`rollup wrote ${output.length} files, not one`);
     const [chunk] = output;
-    const ran = chunk.moduleIds.filter(id => id !== ENTRY).map(rel);
+    const ran = chunk.moduleIds.filter((id) => id !== ENTRY).map(rel);
     if (ran.join('\n') !== order.join('\n')) {
       throw new Error(`the modules would run in another order than parts.txt lists them:\n${ran.join('\n')}`);
     }
@@ -113,7 +116,11 @@ async function main(argv) {
   const code = await build();
   if (argv.includes('--check')) {
     let committed = '';
-    try { committed = readFileSync(OUT, 'utf8'); } catch { /* a missing file is stale */ }
+    try {
+      committed = readFileSync(OUT, 'utf8');
+    } catch {
+      /* a missing file is stale */
+    }
     if (committed !== code) {
       console.error(`${relative(ROOT, OUT)} is not what the modules build: run \`npm run build\` and commit it`);
       return 1;
