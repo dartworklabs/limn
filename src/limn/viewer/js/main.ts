@@ -26,6 +26,12 @@ import {
   VIEW_BY,
   COARSE_POINTER_QUERY,
   DOC_SEQ,
+  COMPOSE,
+  EDITOR,
+  setComposeDismissedOverlap,
+  setComposeIntent,
+  setEditAssignee,
+  setEditRequestKind,
 } from './app/state.ts';
 import { switchLang, i18nStart, translate } from './platform/i18n.ts';
 import { setTheme, applyTheme, savePrefs, prefs } from './platform/prefs.ts';
@@ -154,7 +160,6 @@ import {
   renderOverlapBanner,
   setKind,
   toggleQuote,
-  COMPOSE,
   cancelSelection,
 } from './composer/flow-pick.ts';
 import { saveDraftSoon, restoreDraft, parkDraft, openDraftDoc } from './composer/flow-draft.ts';
@@ -206,7 +211,7 @@ import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './pins/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
-import { cancelEdit, openEdit, renderEdit, saveEdit, EDITOR, editDirty } from './pins/flow-edit.ts';
+import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty } from './pins/flow-edit.ts';
 import { applyRepick, cancelRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
@@ -491,7 +496,7 @@ document.addEventListener('click', (event) => {
       break;
     }
     case 'overlap-separate':
-      COMPOSE.dismissedOverlap = control.dataset.key || null;
+      setComposeDismissedOverlap(control.dataset.key || null);
       renderOverlapBanner();
       break;
     case 'copy-cur':
@@ -523,7 +528,7 @@ document.addEventListener('click', (event) => {
       if (!draft) break;
       useLevel(draft, control.dataset.level);
       if (!inEdit) {
-        COMPOSE.intent++;
+        setComposeIntent(COMPOSE.intent + 1);
         recomputeOverlap();
       }
       inEdit ? renderEdit() : renderComposer();
@@ -660,7 +665,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'assign-edit':
       if (EDITOR.current) {
-        EDITOR.current.assignee = control.dataset.v || 'agent';
+        setEditAssignee(EDITOR.current, control.dataset.v || 'agent');
         renderAssignEdit();
       }
       break;
@@ -717,8 +722,10 @@ document.addEventListener('click', (event) => {
     }
     case 'e-kind':
       if (EDITOR.current) {
-        EDITOR.current.kind_req =
-          control.dataset.kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX;
+        setEditRequestKind(
+          EDITOR.current,
+          control.dataset.kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
+        );
         renderEdit();
       }
       break;

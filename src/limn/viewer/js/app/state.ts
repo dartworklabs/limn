@@ -478,8 +478,82 @@ function setZoomed<Value extends typeof ZOOMED>(value: Value): Value {
   ZOOMED = value;
   return value;
 }
+// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
+// counter every change to what the composer asks bumps (setComposeIntent) - a new, cleared or restored selection (pick,
+// cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
+// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
+// was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
+// unchanged (savePin).
+const COMPOSE = {
+  current: null as Selection | null,
+  box: null as HTMLElement | null,
+  picking: false,
+  pendingSave: false,
+  saving: false,
+  dismissedOverlap: null as string | null,
+  intent: 0,
+  retryVerdict: null as { key: string; sel: Selection; gen: number } | null,
+};
+// The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
+const EDITOR = { current: null as EditCard | null, saving: false };
+// Each sets one field of COMPOSE or EDITOR, which this module declares, for another module that changes it (ADR-0042
+// D1): the assignment the caller wrote, nothing more.
+function setComposeCurrent(value: typeof COMPOSE.current) {
+  COMPOSE.current = value;
+}
+function setComposeBox(value: typeof COMPOSE.box) {
+  COMPOSE.box = value;
+}
+function setComposePicking(value: boolean) {
+  COMPOSE.picking = value;
+}
+function setComposePendingSave(value: boolean) {
+  COMPOSE.pendingSave = value;
+}
+function setComposeSaving(value: boolean) {
+  COMPOSE.saving = value;
+}
+function setComposeDismissedOverlap(value: typeof COMPOSE.dismissedOverlap) {
+  COMPOSE.dismissedOverlap = value;
+}
+function setComposeIntent(value: number) {
+  COMPOSE.intent = value;
+}
+function setComposeRetryVerdict(value: typeof COMPOSE.retryVerdict) {
+  COMPOSE.retryVerdict = value;
+}
+// Sets the overlapping pins of selection (the composer's current one, COMPOSE.current).
+function setSelectionOverlaps(selection: Selection, overlaps: Selection['overlaps']) {
+  selection.overlaps = overlaps;
+}
+function setEditorCurrent(value: typeof EDITOR.current) {
+  EDITOR.current = value;
+}
+function setEditorSaving(value: boolean) {
+  EDITOR.saving = value;
+}
+// Sets the assignee and the requested kind of card (the open edit card, EDITOR.current).
+function setEditAssignee(card: EditCard, assignee: EditCard['assignee']) {
+  card.assignee = assignee;
+}
+function setEditRequestKind(card: EditCard, kind: EditCard['kind_req']) {
+  card.kind_req = kind;
+}
 
 export {
+  setComposeCurrent,
+  setComposeBox,
+  setComposePicking,
+  setComposePendingSave,
+  setComposeSaving,
+  setComposeDismissedOverlap,
+  setComposeIntent,
+  setComposeRetryVerdict,
+  setSelectionOverlaps,
+  setEditorCurrent,
+  setEditorSaving,
+  setEditAssignee,
+  setEditRequestKind,
   BAND,
   BAND_IN,
   BAND_MODE,
@@ -564,4 +638,6 @@ export {
   setSwitchseq,
   setZoomed,
   showsSourceLines,
+  COMPOSE,
+  EDITOR,
 };

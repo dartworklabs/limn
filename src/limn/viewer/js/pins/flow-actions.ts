@@ -1,7 +1,19 @@
 // [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with
 // [되돌리기] (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a
 // banner on top of the panel.
-import { DOC, DONE_ALL, DROPPED, OPEN_ALL, PINS, REVIEW_ALL, setOpenAll, setPins, setReviewAll } from '../app/state.ts';
+import {
+  DOC,
+  DONE_ALL,
+  DROPPED,
+  OPEN_ALL,
+  PINS,
+  REVIEW_ALL,
+  setOpenAll,
+  setPins,
+  setReviewAll,
+  EDITOR,
+  setEditorCurrent,
+} from '../app/state.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import {
@@ -27,7 +39,6 @@ import { $, searchToPage } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
-import { EDITOR } from './flow-edit.ts';
 import { markMine } from './flow-changes.ts';
 async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
@@ -193,7 +204,7 @@ async function dropPin(
     lost = false;
   setOpenAll(OPEN_ALL.filter((pin) => pin.id !== id));
   setPins(PINS.filter((pin) => pin.id !== id));
-  if (EDITOR.current && EDITOR.current.id === id) EDITOR.current = null;
+  if (EDITOR.current && EDITOR.current.id === id) setEditorCurrent(null);
   drawPins();
   marks();
   // this person's own drop: the next list never says someone else deleted it, also when the answer is lost

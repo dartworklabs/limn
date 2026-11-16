@@ -11,6 +11,8 @@ import {
   currentVisit,
   setPickseq,
   setRepick,
+  COMPOSE,
+  EDITOR,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
@@ -21,9 +23,9 @@ import { setSelectMode, setSide } from '../layout/flow.ts';
 import { kindFor, levelLabel, scopeLabel } from './view-levels.ts';
 import { figureFields, pinPlace, repickElement, snapBox } from '../pdf/view-figure.ts';
 import { markChosenLines, shownChoice } from '../markdown/view.ts';
-import { cancelSelection, COMPOSE } from './flow-pick.ts';
+import { cancelSelection } from './flow-pick.ts';
 import { loadPins } from '../pins/flow-list.ts';
-import { editSnip, EDITOR } from '../pins/flow-edit.ts';
+import { editSnip } from '../pins/flow-edit.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE } from '../app/rules-tables.ts';

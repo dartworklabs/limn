@@ -7,7 +7,21 @@
 // queue is replayed in the order it was written: each record's own coordinates go to POST /api/pick with the build they
 // were drawn on, and its answer to POST /api/pin. A record whose place cannot be found again is kept and counted, never
 // dropped.
-import { DEFAULT_DOC, DOC, DOCS, META, OPEN_ALL, PICKSEQ, rendersInBrowser, setSnipOpen } from '../app/state.ts';
+import {
+  DEFAULT_DOC,
+  DOC,
+  DOCS,
+  META,
+  OPEN_ALL,
+  PICKSEQ,
+  rendersInBrowser,
+  setSnipOpen,
+  COMPOSE,
+  setComposeCurrent,
+  setComposeDismissedOverlap,
+  setComposeIntent,
+  setComposePicking,
+} from '../app/state.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { API_WAIT, api, setApiOut } from '../platform/api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/notices.ts';
@@ -19,7 +33,7 @@ import { pageText } from '../pdf/flow.ts';
 import { kindFor, wireScope } from '../composer/view-levels.ts';
 import { figureFields } from '../pdf/view-figure.ts';
 import { MARKDOWN_VIEW } from '../markdown/view.ts';
-import { renderComposer, COMPOSE } from '../composer/flow-pick.ts';
+import { renderComposer } from '../composer/flow-pick.ts';
 import { offlineUiSync } from './view.ts';
 import { topPinId } from '../verdict/flow-line.ts';
 import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
@@ -1090,10 +1104,10 @@ async function offlinePick(drag: {
     n_lines: 0,
     default_level: null,
   } as any;
-  COMPOSE.current = selection as Selection;
-  COMPOSE.intent++;
-  COMPOSE.picking = false;
-  COMPOSE.dismissedOverlap = null;
+  setComposeCurrent(selection as Selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  setComposePicking(false);
+  setComposeDismissedOverlap(null);
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;

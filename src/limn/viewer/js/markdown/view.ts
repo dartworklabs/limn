@@ -47,6 +47,11 @@ import {
   setPickseq,
   setSnipOpen,
   showsSourceLines,
+  COMPOSE,
+  setComposeCurrent,
+  setComposeDismissedOverlap,
+  setComposeIntent,
+  setComposePicking,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import {
@@ -87,7 +92,7 @@ import {
   textNotice,
   buildTextView,
 } from '../text/view.ts';
-import { renderComposer, setBusy, COMPOSE } from '../composer/flow-pick.ts';
+import { renderComposer, setBusy } from '../composer/flow-pick.ts';
 import { imeOpen } from '../platform/composition.ts';
 import { endJumpForScroll, renderVerdictRow } from '../verdict/flow-line.ts';
 import { marks } from '../pins/flow-list.ts';
@@ -2353,9 +2358,9 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   }
   endTopic(NOTICE_TOPIC.PICK);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
-  COMPOSE.picking = false;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  setComposePicking(false);
   selection.scope = null;
   selection.elSel = null;
   useLevel(selection, defaultLevel);
@@ -2365,7 +2370,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   $('#c-body').hidden = false;
   setSide(true);
   applySide();
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   setSnipOpen(false);
   renderComposer();

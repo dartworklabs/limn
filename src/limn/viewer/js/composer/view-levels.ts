@@ -1,5 +1,5 @@
 // ------------------------------------------------ Range levels
-import { captureVisit, currentVisit } from '../app/state.ts';
+import { captureVisit, currentVisit, COMPOSE, EDITOR } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
@@ -10,8 +10,6 @@ import { VIA } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
-import { COMPOSE } from './flow-pick.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.

@@ -25,6 +25,8 @@ import {
   setPins,
   setSwitchseq,
   setZoomed,
+  COMPOSE,
+  EDITOR,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
@@ -37,9 +39,7 @@ import { resetBuildForDoc } from './view-build-chip.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
 import { endJumpForScroll } from '../verdict/flow-line.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 import { refreshDoc } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';

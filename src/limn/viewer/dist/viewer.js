@@ -681,6 +681,67 @@ function setZoomed(value) {
   ZOOMED = value;
   return value;
 }
+// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
+// counter every change to what the composer asks bumps (setComposeIntent) - a new, cleared or restored selection (pick,
+// cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
+// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
+// was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
+// unchanged (savePin).
+const COMPOSE = {
+  current: null,
+  box: null,
+  picking: false,
+  pendingSave: false,
+  saving: false,
+  dismissedOverlap: null,
+  intent: 0,
+  retryVerdict: null,
+};
+// The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
+const EDITOR = { current: null, saving: false };
+// Each sets one field of COMPOSE or EDITOR, which this module declares, for another module that changes it (ADR-0042
+// D1): the assignment the caller wrote, nothing more.
+function setComposeCurrent(value) {
+  COMPOSE.current = value;
+}
+function setComposeBox(value) {
+  COMPOSE.box = value;
+}
+function setComposePicking(value) {
+  COMPOSE.picking = value;
+}
+function setComposePendingSave(value) {
+  COMPOSE.pendingSave = value;
+}
+function setComposeSaving(value) {
+  COMPOSE.saving = value;
+}
+function setComposeDismissedOverlap(value) {
+  COMPOSE.dismissedOverlap = value;
+}
+function setComposeIntent(value) {
+  COMPOSE.intent = value;
+}
+function setComposeRetryVerdict(value) {
+  COMPOSE.retryVerdict = value;
+}
+// Sets the overlapping pins of selection (the composer's current one, COMPOSE.current).
+function setSelectionOverlaps(selection, overlaps) {
+  selection.overlaps = overlaps;
+}
+function setEditorCurrent(value) {
+  EDITOR.current = value;
+}
+function setEditorSaving(value) {
+  EDITOR.saving = value;
+}
+// Sets the assignee and the requested kind of card (the open edit card, EDITOR.current).
+function setEditAssignee(card, assignee) {
+  card.assignee = assignee;
+}
+function setEditRequestKind(card, kind) {
+  card.kind_req = kind;
+}
 
 // ------------------------------------------------ People
 // Who a login is (a name, an agent or a human) and whether it is the viewer themself, read from the page's shared
@@ -9514,7 +9575,7 @@ function pageWidth(ptw, scale) {
 function buildDoc() {
   // A document the browser draws from its source has no pages (markdown/view.ts).
   if (isMarkdownDoc()) {
-    COMPOSE.box = null;
+    setComposeBox(null);
     buildMarkdownDoc();
     return;
   }
@@ -9526,7 +9587,7 @@ function buildDoc() {
   const doc = $('#doc'),
     focus = holdReasonFocus();
   doc.replaceChildren();
-  COMPOSE.box = null;
+  setComposeBox(null);
   META.pages.forEach((page, index) => {
     const pageBox = document.createElement('div');
     pageBox.className = 'pg';
@@ -15451,7 +15512,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     pendingBadge(box, '새 위치');
   } else {
     if (COMPOSE.box) COMPOSE.box.remove();
-    COMPOSE.box = box;
+    setComposeBox(box);
     pendingBadge(box, '새 핀');
   }
   const page = +pageElement.dataset.page,
@@ -15997,7 +16058,7 @@ function applyRange(owner, range, anchor) {
     topBefore = rowBefore && rowBefore.getBoundingClientRect().top;
   setLines(owner, first, last);
   if (owner === COMPOSE.current) {
-    COMPOSE.intent++;
+    setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
   }
   excerptRedraw(owner);
@@ -18423,9 +18484,9 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   }
   endTopic(NOTICE_TOPIC.PICK);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
-  COMPOSE.picking = false;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  setComposePicking(false);
   selection.scope = null;
   selection.elSel = null;
   useLevel(selection, defaultLevel);
@@ -18435,7 +18496,7 @@ function pickLines(range, startBlock, endBlock, quote, tapped) {
   $('#c-body').hidden = false;
   setSide(true);
   applySide();
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   setSnipOpen(false);
   renderComposer();
@@ -21444,7 +21505,7 @@ function suggestAct(control, act) {
   if (act === 'sg-toggle') {
     owner.sg.on = !owner.sg.on;
     owner.sg.current = null;
-    if (owner.sg === SUGGEST_DRAFT) COMPOSE.intent++;
+    if (owner.sg === SUGGEST_DRAFT) setComposeIntent(COMPOSE.intent + 1);
     owner.redraw();
     return;
   } // the composer's switch ends a failed verdict save's retry
@@ -21507,22 +21568,6 @@ function imeOpen() {
 }
 
 // ------------------------------------------------ composer
-// The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
-// counter every change to what the composer asks bumps (COMPOSE.intent++) - a new, cleared or restored selection (pick,
-// cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
-// (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
-// was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
-// unchanged (savePin).
-const COMPOSE = {
-  current: null,
-  box: null,
-  picking: false,
-  pendingSave: false,
-  saving: false,
-  dismissedOverlap: null,
-  intent: 0,
-  retryVerdict: null,
-};
 
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
@@ -21568,11 +21613,11 @@ async function pick(region) {
   if (repick) {
     banner(html`<span>되짚는 중…</span>`);
   } else {
-    COMPOSE.current = null;
-    COMPOSE.intent++;
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
     $('#composer').hidden = false;
     setBusy(true);
-    COMPOSE.picking = true;
+    setComposePicking(true);
     $('#c-err').hidden = true;
     $('#c-body').hidden = false;
     // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
@@ -21608,7 +21653,7 @@ async function pick(region) {
     if (seq !== PICKSEQ) return;
     setBusy(false);
     if (!repick) {
-      COMPOSE.picking = false;
+      setComposePicking(false);
       clearPendingSave();
     }
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
@@ -21624,7 +21669,7 @@ async function pick(region) {
     } else {
       if (COMPOSE.box) {
         COMPOSE.box.remove();
-        COMPOSE.box = null;
+        setComposeBox(null);
       }
       if (!COMPOSE.current) {
         $('#composer').hidden = true;
@@ -21636,7 +21681,7 @@ async function pick(region) {
   }
   if (seq !== PICKSEQ) return;
   setBusy(false);
-  if (!repick) COMPOSE.picking = false;
+  if (!repick) setComposePicking(false);
   if (answer.error) {
     if (answer.pdf_build_gone) {
       try {
@@ -21648,7 +21693,7 @@ async function pick(region) {
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
         COMPOSE.box.remove();
-        COMPOSE.box = null;
+        setComposeBox(null);
       }
     }
     if (repick) {
@@ -21656,8 +21701,8 @@ async function pick(region) {
       return;
     }
     // A failed pick never carries out a pending save - only the error panel is shown, so a save never fails silently.
-    COMPOSE.current = null;
-    COMPOSE.intent++;
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
     clearPendingSave();
     $('#c-err').textContent = errText(answer);
     $('#c-err').hidden = false;
@@ -21671,8 +21716,8 @@ async function pick(region) {
     return;
   }
   const selection = answer;
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
   selection.scope = null;
   selection.elSel = answer.el || null;
   if (!isRegion(answer)) {
@@ -21683,7 +21728,7 @@ async function pick(region) {
     }
   }
   // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
   // re-fetched - loadPins recomputes overlap too.
@@ -21743,7 +21788,7 @@ function overlapText(rel, id) {
 // the relationship, and reset on a fresh drag (pick), so one press never silences it for every later selection.
 
 function recomputeOverlap() {
-  if (COMPOSE.current) COMPOSE.current.overlaps = overlapsFor(COMPOSE.current, PINS);
+  if (COMPOSE.current) setSelectionOverlaps(COMPOSE.current, overlapsFor(COMPOSE.current, PINS));
 }
 // The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
 // or null without one, and once the author chose [따로 저장] for it.
@@ -21974,7 +22019,7 @@ function setKind(kind) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
-  if (KIND_NEW !== was) COMPOSE.intent++; // a failed verdict save's retry is for the intent it was pressed with
+  if (KIND_NEW !== was) setComposeIntent(COMPOSE.intent + 1); // a failed verdict save's retry is for the intent it was pressed with
   $$('#c-kind button').forEach((button) => {
     const on = button.dataset.kind === KIND_NEW;
     button.classList.toggle('on', on);
@@ -22011,17 +22056,17 @@ function cancelSelection(clearNote) {
   if (REPICK) cancelRepick();
   closeSelectionPopover();
   markChosenLines(null);
-  COMPOSE.current = null;
-  COMPOSE.intent++;
+  setComposeCurrent(null);
+  setComposeIntent(COMPOSE.intent + 1);
   setPickseq(PICKSEQ + 1);
-  COMPOSE.picking = false;
+  setComposePicking(false);
   clearPendingSave();
   if (COMPOSE.box) {
     COMPOSE.box.remove();
-    COMPOSE.box = null;
+    setComposeBox(null);
   }
   saveDraftSoon();
-  COMPOSE.dismissedOverlap = null;
+  setComposeDismissedOverlap(null);
   setBusy(false);
   $('#composer').hidden = true;
   if (clearNote) {
@@ -22078,13 +22123,13 @@ function restoreSelection(snapshot, focus) {
     return true;
   }
   if (COMPOSE.box) COMPOSE.box.remove();
-  COMPOSE.box = null;
+  setComposeBox(null);
   if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {
-    COMPOSE.box = snapshot.box;
+    setComposeBox(snapshot.box);
     snapshot.page.appendChild(snapshot.box);
   }
-  COMPOSE.current = snapshot.cur;
-  COMPOSE.intent++;
+  setComposeCurrent(snapshot.cur);
+  setComposeIntent(COMPOSE.intent + 1);
   recomputeOverlap();
   setSnipOpen(false);
   $('#c-err').hidden = true;
@@ -22367,10 +22412,10 @@ function restoreDraft() {
       drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
       box.classList.add('pending');
       pendingBadge(box, '새 핀');
-      COMPOSE.box = box;
+      setComposeBox(box);
     }
-    COMPOSE.current = keptPick;
-    COMPOSE.intent++;
+    setComposeCurrent(keptPick);
+    setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
     setSnipOpen(false);
     $('#c-err').hidden = true;
@@ -22417,7 +22462,7 @@ async function appendToPin(id, text) {
     await loadPins();
     return;
   }
-  COMPOSE.saving = true;
+  setComposeSaving(true);
   syncComposeSaveButtons();
   const visit = captureVisit(),
     selection = COMPOSE.current,
@@ -22452,7 +22497,7 @@ async function appendToPin(id, text) {
     }
     const closed = composeOwns(selection, box, visit, fields) || restoredDraftOwns(draft);
     if (composeOwns(selection, box, visit, fields)) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -22472,7 +22517,7 @@ async function appendToPin(id, text) {
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to that pin's mark
   } catch (error) {
   } finally {
-    COMPOSE.saving = false;
+    setComposeSaving(false);
     syncComposeSaveButtons();
   }
 }
@@ -22525,14 +22570,14 @@ function togglePendingSave() {
     clearPendingSave();
     return;
   }
-  COMPOSE.pendingSave = true;
+  setComposePendingSave(true);
   const button = $('#btn-save');
   button.dataset.pending = '1';
   setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
 }
 function clearPendingSave() {
   if (!COMPOSE.pendingSave) return;
-  COMPOSE.pendingSave = false;
+  setComposePendingSave(false);
   const button = $('#btn-save');
   delete button.dataset.pending;
   setHtml(button, saveButtonLabel());
@@ -22564,7 +22609,7 @@ async function savePin(verdict) {
     if (COMPOSE.picking) togglePendingSave();
     return;
   } // pick hasn't finished yet - queue it (toggle) or cancel the pending save
-  COMPOSE.saving = true;
+  setComposeSaving(true);
   const visit = captureVisit();
   syncComposeSaveButtons();
   const selection = COMPOSE.current,
@@ -22577,7 +22622,7 @@ async function savePin(verdict) {
   // retry at all (the catch).
   const intent = COMPOSE.intent,
     retry = COMPOSE.retryVerdict;
-  COMPOSE.retryVerdict = null;
+  setComposeRetryVerdict(null);
   if (
     verdict === undefined &&
     retry &&
@@ -22636,7 +22681,7 @@ async function savePin(verdict) {
   // the same selection twice, under two keys, and reconnecting would write two pins.
   if ((selection).offline || offlineNow()) {
     const done = () => {
-      COMPOSE.saving = false;
+      setComposeSaving(false);
       syncComposeSaveButtons();
     };
     if (verdict) {
@@ -22670,7 +22715,7 @@ async function savePin(verdict) {
       done();
     }
     if (kept) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -22756,7 +22801,7 @@ async function savePin(verdict) {
           const cleared = composeOwns(selection, box, visit, fields),
             restored = restoredDraftOwns(draft);
           if (cleared) {
-            COMPOSE.box = null;
+            setComposeBox(null);
             cancelSelection(true);
             if (box) box.remove();
             syncDraft();
@@ -22786,7 +22831,7 @@ async function savePin(verdict) {
     const cleared = composeOwns(selection, box, visit, fields),
       restored = restoredDraftOwns(draft);
     if (cleared) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -22850,12 +22895,12 @@ async function savePin(verdict) {
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to the new pin's mark
   } catch (error) {
     if (verdict) {
-      if (COMPOSE.intent === intent) COMPOSE.retryVerdict = { key: verdict, sel: selection, gen: intent };
+      if (COMPOSE.intent === intent) setComposeRetryVerdict({ key: verdict, sel: selection, gen: intent });
       else verdictDropped();
     }
   } finally {
     // [다시 저장] saves this verdict again, or the banner says it was dropped
-    COMPOSE.saving = false;
+    setComposeSaving(false);
     syncComposeSaveButtons();
   }
 }
@@ -23970,10 +24015,10 @@ async function offlinePick(drag) {
     n_lines: 0,
     default_level: null,
   };
-  COMPOSE.current = selection;
-  COMPOSE.intent++;
-  COMPOSE.picking = false;
-  COMPOSE.dismissedOverlap = null;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  setComposePicking(false);
+  setComposeDismissedOverlap(null);
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
@@ -25837,7 +25882,7 @@ if (typeof ResizeObserver !== 'undefined') {
 function dropStaleRetry() {
   const retry = COMPOSE.retryVerdict;
   if (!retry || retry.gen === COMPOSE.intent) return;
-  COMPOSE.retryVerdict = null;
+  setComposeRetryVerdict(null);
   verdictDropped();
 }
 // The composer's failed-save banner when the verdict it was for is not asked for any more - dropped after the failure,
@@ -33591,7 +33636,7 @@ function applyPinLists(rows, dropped, lists) {
         null,
         { dot: NOTICE_DOT.SIDE },
       );
-      EDITOR.current = null;
+      setEditorCurrent(null);
     }
   }
   const replyBox = REPLY;
@@ -35058,7 +35103,7 @@ async function dropPin(
     lost = false;
   setOpenAll(OPEN_ALL.filter((pin) => pin.id !== id));
   setPins(PINS.filter((pin) => pin.id !== id));
-  if (EDITOR.current && EDITOR.current.id === id) EDITOR.current = null;
+  if (EDITOR.current && EDITOR.current.id === id) setEditorCurrent(null);
   drawPins();
   marks();
   // this person's own drop: the next list never says someone else deleted it, also when the answer is lost
@@ -36159,8 +36204,6 @@ function sendReply() {
 }
 
 // ------------------------------------------------ Edit
-// The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-const EDITOR = { current: null, saving: false };
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
@@ -36230,7 +36273,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   noteField._mentions = new Set(pin.mentions || []);
   autoGrow(noteField);
   mentionPreview(noteField);
-  EDITOR.current = {
+  const card = {
     id,
     el: cardElement,
     base_rev: pin.rev || 0,
@@ -36267,7 +36310,8 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
     kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
     sg: suggestOfPin(pin),
   };
-  if (EDITOR.current.region) cardElement.classList.add('region');
+  setEditorCurrent(card);
+  if (card.region) cardElement.classList.add('region');
   // a verdict pin keeps its verdict and target (D3): only the note and the assignee are edited
   if (verdictOf(pin)) cardElement.classList.add('verdict');
   drawPins();
@@ -36396,7 +36440,7 @@ function renderEdit() {
   }
 }
 function cancelEdit() {
-  EDITOR.current = null;
+  setEditorCurrent(null);
   drawPins();
 }
 // Saves the open edit card (POST /api/pins/<id>/edit with `base_rev`): only what changed is sent - the note and its
@@ -36456,7 +36500,7 @@ async function saveEdit() {
   }
   const fields = editFields(card),
     hints = mentionHints(editNote(card));
-  EDITOR.saving = true;
+  setEditorSaving(true);
   syncEditSaveButton();
   try {
     const { status, data } = await api('/api/pins/' + card.id + '/edit', {
@@ -36542,7 +36586,7 @@ async function saveEdit() {
     if (editorOwns(card)) {
       card.theirs = null;
       card.overwrite = false;
-      if (editFields(card) === fields) EDITOR.current = null;
+      if (editFields(card) === fields) setEditorCurrent(null);
       else {
         const pin = data.pin;
         card.base_rev = pin.rev;
@@ -36562,7 +36606,7 @@ async function saveEdit() {
     await loadPins();
   } catch (error) {
   } finally {
-    EDITOR.saving = false;
+    setEditorSaving(false);
     syncEditSaveButton();
   }
 }
@@ -37275,7 +37319,7 @@ document.addEventListener('click', (event) => {
       break;
     }
     case 'overlap-separate':
-      COMPOSE.dismissedOverlap = control.dataset.key || null;
+      setComposeDismissedOverlap(control.dataset.key || null);
       renderOverlapBanner();
       break;
     case 'copy-cur':
@@ -37307,7 +37351,7 @@ document.addEventListener('click', (event) => {
       if (!draft) break;
       useLevel(draft, control.dataset.level);
       if (!inEdit) {
-        COMPOSE.intent++;
+        setComposeIntent(COMPOSE.intent + 1);
         recomputeOverlap();
       }
       inEdit ? renderEdit() : renderComposer();
@@ -37444,7 +37488,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'assign-edit':
       if (EDITOR.current) {
-        EDITOR.current.assignee = control.dataset.v || 'agent';
+        setEditAssignee(EDITOR.current, control.dataset.v || 'agent');
         renderAssignEdit();
       }
       break;
@@ -37501,8 +37545,10 @@ document.addEventListener('click', (event) => {
     }
     case 'e-kind':
       if (EDITOR.current) {
-        EDITOR.current.kind_req =
-          control.dataset.kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX;
+        setEditRequestKind(
+          EDITOR.current,
+          control.dataset.kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
+        );
         renderEdit();
       }
       break;

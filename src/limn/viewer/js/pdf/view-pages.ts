@@ -1,5 +1,16 @@
 // ------------------------------------------------ PDF pages: their boxes, scale and zoom, and arriving at one
-import { DOC, PAGE_SCALE, LAYOUT, META, ZOOMED, imeKey, isFigureKind, setPageScale, setZoomed } from '../app/state.ts';
+import {
+  DOC,
+  PAGE_SCALE,
+  LAYOUT,
+  META,
+  ZOOMED,
+  imeKey,
+  isFigureKind,
+  setPageScale,
+  setZoomed,
+  setComposeBox,
+} from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
@@ -22,7 +33,6 @@ import { markBadgeSides, marks } from '../pins/flow-list.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
 import { restoreAnchor, topAnchor } from '../layout/flow.ts';
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
@@ -79,7 +89,7 @@ function pageWidth(ptw, scale) {
 function buildDoc() {
   // A document the browser draws from its source has no pages (markdown/view.ts).
   if (isMarkdownDoc()) {
-    COMPOSE.box = null;
+    setComposeBox(null);
     buildMarkdownDoc();
     return;
   }
@@ -91,7 +101,7 @@ function buildDoc() {
   const doc = $('#doc'),
     focus = holdReasonFocus();
   doc.replaceChildren();
-  COMPOSE.box = null;
+  setComposeBox(null);
   META.pages.forEach((page, index) => {
     const pageBox = document.createElement('div');
     pageBox.className = 'pg';

@@ -5,14 +5,14 @@
 // that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
 // edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
 // diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
-import { BAND, DOC, META, isFigureKind } from '../app/state.ts';
+import { BAND, DOC, META, isFigureKind, COMPOSE, EDITOR, setComposeIntent } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { countAddedHidden, findHidden, markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
-import { renderOverlapBanner, COMPOSE } from './flow-pick.ts';
+import { renderOverlapBanner } from './flow-pick.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import { renderVerdictRow } from '../verdict/flow-line.ts';
 import type { Html } from '../platform/markup.ts';
@@ -20,7 +20,6 @@ import { $ } from '../platform/dom.ts';
 import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;
@@ -609,7 +608,7 @@ function suggestAct(control: HTMLElement, act: string) {
   if (act === 'sg-toggle') {
     owner.sg.on = !owner.sg.on;
     owner.sg.current = null;
-    if (owner.sg === SUGGEST_DRAFT) COMPOSE.intent++;
+    if (owner.sg === SUGGEST_DRAFT) setComposeIntent(COMPOSE.intent + 1);
     owner.redraw();
     return;
   } // the composer's switch ends a failed verdict save's retry

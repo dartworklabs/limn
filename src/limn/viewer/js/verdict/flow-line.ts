@@ -25,6 +25,9 @@ import {
   isFigureKind,
   isViewOnlyKind,
   scrollMotion,
+  COMPOSE,
+  EDITOR,
+  setComposeRetryVerdict,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
@@ -124,8 +127,6 @@ import {
   viewerBlocked,
   isMarkdownDoc,
 } from '../documents/state.ts';
-import { COMPOSE } from '../composer/flow-pick.ts';
-import { EDITOR } from '../pins/flow-edit.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // The page verdict line is drawn for a document whose words say page: true (the server sets it only for a figure
@@ -853,7 +854,7 @@ if (typeof ResizeObserver !== 'undefined') {
 function dropStaleRetry() {
   const retry = COMPOSE.retryVerdict;
   if (!retry || retry.gen === COMPOSE.intent) return;
-  COMPOSE.retryVerdict = null;
+  setComposeRetryVerdict(null);
   verdictDropped();
 }
 // The composer's failed-save banner when the verdict it was for is not asked for any more - dropped after the failure,

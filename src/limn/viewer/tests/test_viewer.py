@@ -528,15 +528,17 @@ class FrontendStructure(unittest.TestCase):
 
     def test_pick_resets_overlap_dismissed_and_recounts(self):
         body = sq(js_fn_body("pick"))
-        cur_idx = body.index("COMPOSE.current=selection;")
-        self.assertGreater(body.index("COMPOSE.dismissedOverlap=null"), cur_idx)
+        cur_idx = body.index("setComposeCurrent(selection);")
+        self.assertGreater(body.index("setComposeDismissedOverlap(null)"), cur_idx)
         self.assertGreater(body.index("selection.overlaps=overlapsFor(selection,PINS)"), cur_idx)
 
     def test_level_and_excerpt_lines_recount_overlap_only_for_composer(self):
         # ...and only the composer's change counts as a new intent (a failed verdict save's retry is for the old one, savePin)
-        self.assertIn(sq("if(!inEdit){COMPOSE.intent++;recomputeOverlap();}"), sq(js_case_block("level")))
         self.assertIn(
-            sq("if(owner===COMPOSE.current){COMPOSE.intent++;recomputeOverlap();}"),
+            sq("if(!inEdit){setComposeIntent(COMPOSE.intent+1);recomputeOverlap();}"), sq(js_case_block("level"))
+        )
+        self.assertIn(
+            sq("if(owner===COMPOSE.current){setComposeIntent(COMPOSE.intent+1);recomputeOverlap();}"),
             sq(extract_js_fn("applyRange")),
         )
 
@@ -4111,7 +4113,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertIn("clearPendingSave();", pick_body)
         self.assertRegex(
             sq(pick_body),
-            r"catch\(error\)\{if\(seq!==PICKSEQ\)return;setBusy\(false\);if\(!repick\)\{COMPOSE.picking=false;clearPendingSave\(\);\}",
+            r"catch\(error\)\{if\(seq!==PICKSEQ\)return;setBusy\(false\);if\(!repick\)\{setComposePicking\(false\);clearPendingSave\(\);\}",
         )
 
     def _harness(self, extra_body):

@@ -11,6 +11,11 @@ import {
   OPEN_ALL,
   PINS,
   captureVisit,
+  COMPOSE,
+  setComposeBox,
+  setComposePendingSave,
+  setComposeRetryVerdict,
+  setComposeSaving,
 } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
@@ -45,7 +50,6 @@ import {
   renderOverlapBanner,
   restoreSelection,
   selectionSnapshot,
-  COMPOSE,
 } from './flow-pick.ts';
 import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
 import { OFF, offlineKey, offlineQueueSave } from '../offline/flow.ts';
@@ -79,7 +83,7 @@ async function appendToPin(id, text) {
     await loadPins();
     return;
   }
-  COMPOSE.saving = true;
+  setComposeSaving(true);
   syncComposeSaveButtons();
   const visit = captureVisit(),
     selection = COMPOSE.current,
@@ -114,7 +118,7 @@ async function appendToPin(id, text) {
     }
     const closed = composeOwns(selection, box, visit, fields) || restoredDraftOwns(draft);
     if (composeOwns(selection, box, visit, fields)) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -134,7 +138,7 @@ async function appendToPin(id, text) {
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to that pin's mark
   } catch (error) {
   } finally {
-    COMPOSE.saving = false;
+    setComposeSaving(false);
     syncComposeSaveButtons();
   }
 }
@@ -187,14 +191,14 @@ function togglePendingSave() {
     clearPendingSave();
     return;
   }
-  COMPOSE.pendingSave = true;
+  setComposePendingSave(true);
   const button = $('#btn-save');
   button.dataset.pending = '1';
   setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
 }
 function clearPendingSave() {
   if (!COMPOSE.pendingSave) return;
-  COMPOSE.pendingSave = false;
+  setComposePendingSave(false);
   const button = $('#btn-save');
   delete button.dataset.pending;
   setHtml(button, saveButtonLabel());
@@ -226,7 +230,7 @@ async function savePin(verdict?: string) {
     if (COMPOSE.picking) togglePendingSave();
     return;
   } // pick hasn't finished yet - queue it (toggle) or cancel the pending save
-  COMPOSE.saving = true;
+  setComposeSaving(true);
   const visit = captureVisit();
   syncComposeSaveButtons();
   const selection = COMPOSE.current,
@@ -239,7 +243,7 @@ async function savePin(verdict?: string) {
   // retry at all (the catch).
   const intent = COMPOSE.intent,
     retry = COMPOSE.retryVerdict;
-  COMPOSE.retryVerdict = null;
+  setComposeRetryVerdict(null);
   if (
     verdict === undefined &&
     retry &&
@@ -298,7 +302,7 @@ async function savePin(verdict?: string) {
   // the same selection twice, under two keys, and reconnecting would write two pins.
   if ((selection as any).offline || offlineNow()) {
     const done = () => {
-      COMPOSE.saving = false;
+      setComposeSaving(false);
       syncComposeSaveButtons();
     };
     if (verdict) {
@@ -332,7 +336,7 @@ async function savePin(verdict?: string) {
       done();
     }
     if (kept) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -418,7 +422,7 @@ async function savePin(verdict?: string) {
           const cleared = composeOwns(selection, box, visit, fields),
             restored = restoredDraftOwns(draft);
           if (cleared) {
-            COMPOSE.box = null;
+            setComposeBox(null);
             cancelSelection(true);
             if (box) box.remove();
             syncDraft();
@@ -448,7 +452,7 @@ async function savePin(verdict?: string) {
     const cleared = composeOwns(selection, box, visit, fields),
       restored = restoredDraftOwns(draft);
     if (cleared) {
-      COMPOSE.box = null;
+      setComposeBox(null);
       cancelSelection(true);
       if (box) box.remove();
       syncDraft();
@@ -512,12 +516,12 @@ async function savePin(verdict?: string) {
     if (after) focusPlace(selection, id, after); // a focus the closed composer took goes to the new pin's mark
   } catch (error) {
     if (verdict) {
-      if (COMPOSE.intent === intent) COMPOSE.retryVerdict = { key: verdict, sel: selection, gen: intent };
+      if (COMPOSE.intent === intent) setComposeRetryVerdict({ key: verdict, sel: selection, gen: intent });
       else verdictDropped();
     }
   } finally {
     // [다시 저장] saves this verdict again, or the banner says it was dropped
-    COMPOSE.saving = false;
+    setComposeSaving(false);
     syncComposeSaveButtons();
   }
 }

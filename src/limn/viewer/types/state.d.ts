@@ -1,7 +1,7 @@
 // Shapes of the viewer's own screen state (docs/handbook/viewer.md §여러 문서 전환, 화면 상태의 소유자). Types only;
 // none of this is stored or sent as it is.
 
-// The open edit card (pins/flow-edit.ts EDITOR.current): the pin it edits, its card element, the request's base revision, the
+// The open edit card (app/state.ts EDITOR.current): the pin it edits, its card element, the request's base revision, the
 // range being edited with its ladder and snippet, the values it opened with (orig) to tell what changed.
 /** An active card keeps original values and copied mention hints so later changes can be saved against its baseline. */
 interface EditCard {
@@ -49,7 +49,7 @@ interface SuggestDraft {
   fail: { key: string; fill: boolean; why: string } | null;
 }
 
-// The composer's selection (composer/flow-pick.ts COMPOSE.current): the pick's answer plus what the composer chose on it - the
+// The composer's selection (app/state.ts COMPOSE.current): the pick's answer plus what the composer chose on it - the
 // ladder rung (scope) and its environment, the element the range follows (elSel), and the overlap it reports (rel).
 interface Selection extends PickAnswer {
   scope?: string | null;
