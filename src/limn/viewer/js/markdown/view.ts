@@ -94,7 +94,7 @@ import {
 } from '../text/view.ts';
 import { renderComposer, setBusy } from '../composer/flow-pick.ts';
 import { imeOpen } from '../platform/composition.ts';
-import { endJumpForScroll, renderVerdictRow } from '../verdict/flow-line.ts';
+import { renderVerdictRow } from '../verdict/flow-line.ts';
 import { marks } from '../pins/flow-list.ts';
 import { bannerCompare } from '../composer/flow-repick.ts';
 import { NOTICE_TOPIC } from '../platform/tables.ts';
@@ -103,6 +103,7 @@ import { LAYOUT_MODE, MARKDOWN_LIMIT, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, lineRange, overlapsFor } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isTextDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
 import { levelOf, useLevel } from '../documents/rules.ts';
+import { endJumpForScroll } from '../layout/flow-scroll.ts';
 const MARKDOWN_LIMITS = Object.freeze({
   nesting: 20,
   blocks: 30000,

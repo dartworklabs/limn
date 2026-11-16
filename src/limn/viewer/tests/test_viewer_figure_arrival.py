@@ -210,7 +210,7 @@ class FigurePages(BrowserBase):
 
 class EveryJump(FigurePages):
     """Every jump ends where it asked, with or without a figure, though a line above its place is fitted on the way: a pass
-    may not write to a glide, so the settling measures the place when it rests (pdf/view-pages.ts arrivalSettle, #357)."""
+    may not write to a glide, so the settling measures the place when it rests (layout/flow-scroll.ts arrivalSettle, #357)."""
 
     def setUp(self):
         super().setUp()

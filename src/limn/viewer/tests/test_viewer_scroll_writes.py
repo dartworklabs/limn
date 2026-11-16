@@ -1,6 +1,6 @@
 """Every scripted scroll in the viewer's JavaScript, sorted by what it does to a jump of the PDF area (docs/handbook/viewer.md §그림 쪽 도착).
 
-A jump's settling (pdf/view-pages.ts arrivalSettle) glides the pages back to its place when they rest elsewhere, so it has to know why
+A jump's settling (layout/flow-scroll.ts arrivalSettle) glides the pages back to its place when they rest elsewhere, so it has to know why
 they moved. A write that shows something ends the jump first (SHOWS: endJumpForScroll, no input need come before it: a search hit lands
 when the PDF's text has been read). A write that keeps what is on screen across a layout change moves with the place (KEEPS). A
 new scripted scroll fails here until it is put in one of these lists, so that nobody adds one the settling would undo.
@@ -48,7 +48,7 @@ KEEPS = {
     ("verdict/flow-line.ts", "letLineBlocks"): 1,
 }
 # The jump's own glide.
-GLIDES = {("verdict/flow-line.ts", "glideInto"): 1, ("verdict/flow-line.ts", "glideTo"): 1}
+GLIDES = {("layout/flow-scroll.ts", "glideInto"): 1, ("layout/flow-scroll.ts", "glideTo"): 1}
 # Another scroller than the PDF area: the pin panel and its cards, a sheet, a menu, a list, the changes view, a field.
 OTHERS = {
     ("pins/view-cards.ts", "openTrash"): 1,

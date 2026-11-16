@@ -52,13 +52,11 @@ import {
   pageTargetOf,
   pageTargetShort,
   pageVerdictPins,
-  isAutoScrolling,
   canCancelVerdict,
   currentVerdictOn,
   pageUnderReadingLine,
   readingPageWithLine,
   sayGliding,
-  endJumpForScroll,
   pageLineSlot,
   stickReadingLine,
   pageVerdictsOn,
@@ -70,6 +68,7 @@ import { $, typingNow, searchToPage } from '../platform/dom.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, verdictLabel, viewerBlocked } from '../documents/state.ts';
+import { isAutoScrolling, endJumpForScroll } from '../layout/flow-scroll.ts';
 
 // ---------------- Drafts kept per pin (sessionStorage)
 // One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The

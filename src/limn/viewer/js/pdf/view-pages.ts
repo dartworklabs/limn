@@ -1,6 +1,5 @@
 // ------------------------------------------------ PDF pages: their boxes, scale and zoom, and arriving at one
 import {
-  DOC,
   PAGE_SCALE,
   LAYOUT,
   META,
@@ -19,21 +18,25 @@ import { setViewMode } from '../revisions/flow.ts';
 import { OUTLINE_PICK_GAP, spotTop } from './view-outline.ts';
 import { invalidateVectorDraws, observeVectorPages } from './view-draw.ts';
 import { MARKDOWN_VIEW, buildMarkdownDoc } from '../markdown/view.ts';
-import {
-  JUMP_TARGET,
-  HAND_SCROLL_AT,
-  isAutoScrolling,
-  glideInto,
-  glideTo,
-  scrollTopFor,
-  sizePageLines,
-} from '../verdict/flow-line.ts';
+import { sizePageLines } from '../verdict/flow-line.ts';
 import { restoreReasonFocus, holdReasonFocus } from '../verdict/flow-reason.ts';
 import { markBadgeSides, marks } from '../pins/flow-list.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { restoreAnchor, topAnchor } from '../layout/flow.ts';
+import {
+  FIGURE_REST_PX,
+  ARRIVAL,
+  arrivalWatch,
+  arrivalSoon,
+  arrivalLetGo,
+  JUMP_TARGET,
+  isAutoScrolling,
+  glideInto,
+  glideTo,
+  scrollTopFor,
+} from '../layout/flow-scroll.ts';
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {
@@ -398,98 +401,9 @@ function arrivePage(pageNumber: number) {
 }
 // The points of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element.
 const FIGURE_ROOM_POINTS = 24;
-// The pages rest on a jump's place within this (a glide ends on or next to its pixel).
-const FIGURE_REST_PX = 2;
-// Every jump of the PDF area - a page, an outline entry's place, a card's [보기]; each glide starts this watch with its
-// place, a function that measures it now - lands where it says once the pages rest. The glide's place is reckoned at
-// its start, and the layout can still move under it: a save's list reload redraws hundreds of lines and stalls the
-// glide past its guard (JUMP_TARGET lapses after a second), which gives scroll anchoring back, and the anchoring's
-// adjustment can leave the figure tens to hundreds of pixels off; a line fitted on the way moves the pages after it,
-// and a glide may not be written to (letLineBlocks). So each time the pages come to rest - after ARRIVAL_REST_MS
-// without a scroll, the glide guard down - it measures the place again and glides the rest (glideTo: the guard and the
-// held anchoring again), at most ARRIVAL_FIXES times, until ARRIVAL_SETTLE_MS after the rest that found nothing to do:
-// each correction counts the window again from its own rest, which is always measured. A window counted from the first
-// rest would close on a correction stopped on its way, whose guard lapses up to two seconds later, and leave the figure
-// short by what remains. It only settles what nobody asked for: anything the person does meanwhile - a press, a key, a
-// wheel or a touch anywhere, a window resize - lets it go (arrivalLetGo), for that starts a move of its own (a card's
-// mark, a search hit, a zoom, another page) the watch must not undo; so do the person's scroll (HAND_ON_PAGES), another
-// document and the pages not shown. A script that scrolls to show something lets it go too, with no input before it
-// (endJumpForScroll: a search hit landing as the PDF's text is read, in the middle of a jump); a script that only keeps
-// what is on screen does not, and may stop the glide: the place moved with it, and the settling goes on. A scroll by
-// anything else, once the pages have rested at the place, lets it go at that rest: the place stayed and the pages left
-// it, which is no layout's doing (at). A new jump replaces it. An instant jump needs no watch: nothing is on its way
-// when a pass comes, and the pass keeps the view itself.
-const ARRIVAL_REST_MS = 120,
-  ARRIVAL_SETTLE_MS = 2000,
-  ARRIVAL_FIXES = 3;
-let ARRIVAL = null as {
-    place: () => number | null;
-    hand: number;
-    doc: string | null;
-    fixes: number;
-    until: number;
-    at: number | null;
-  } | null,
-  ARRIVAL_TIMER = 0;
-/** @param place - the scrollTop the jump goes to, measured now; null once it is gone */
-function arrivalWatch(place: () => number | null) {
-  ARRIVAL = { place, hand: HAND_SCROLL_AT, doc: DOC, fixes: 0, until: 0, at: null };
-  arrivalSoon();
-}
-// Measures again at the next rest: ARRIVAL_REST_MS from now, unless another scroll comes first.
-function arrivalSoon() {
-  clearTimeout(ARRIVAL_TIMER);
-  ARRIVAL_TIMER = setTimeout(arrivalSettle, ARRIVAL_REST_MS);
-}
-// Ends the watch: the person or a script has started a move of its own.
-function arrivalLetGo() {
-  if (!ARRIVAL) return;
-  ARRIVAL = null;
-  clearTimeout(ARRIVAL_TIMER);
-}
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
   addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
 addEventListener('resize', arrivalLetGo);
-// The watch at a rest: lets go, waits for the glide, records the pages at the place, or glides the rest.
-function arrivalSettle() {
-  const arrival = ARRIVAL,
-    pdfArea = $('#left');
-  if (!arrival) return;
-  if (arrival.hand !== HAND_SCROLL_AT || arrival.doc !== DOC || !pdfArea.getClientRects().length) {
-    ARRIVAL = null;
-    return;
-  }
-  // Still on its way.
-  if (JUMP_TARGET !== null || isAutoScrolling()) {
-    arrivalSoon();
-    return;
-  }
-  const now = performance.now();
-  if (!arrival.until) arrival.until = now + ARRIVAL_SETTLE_MS;
-  else if (now > arrival.until) {
-    ARRIVAL = null;
-    return;
-  }
-  const place = arrival.place();
-  if (place === null) {
-    ARRIVAL = null;
-    return;
-  }
-  const to = Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, place));
-  if (Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX) {
-    arrival.at = to;
-    return;
-  }
-  if (arrival.fixes >= ARRIVAL_FIXES || (arrival.at !== null && Math.abs(arrival.at - to) <= FIGURE_REST_PX)) {
-    ARRIVAL = null;
-    return;
-  }
-  arrival.fixes++;
-  arrival.until = 0;
-  arrival.at = null;
-  glideTo(to);
-  arrivalSoon();
-}
 // Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its
 // watch has neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no
 // rest while either holds, however long: a busy machine's frames come late. An outline pick waits on this before it
@@ -562,8 +476,6 @@ export {
   POINT_PX,
   ZOOM_STEP,
   actualSize,
-  arrivalLetGo,
-  arrivalWatch,
   arrivePage,
   autoFitWidth,
   boundScale,

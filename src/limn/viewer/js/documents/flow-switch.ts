@@ -39,7 +39,6 @@ import { resetBuildForDoc } from './view-build-chip.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
-import { endJumpForScroll } from '../verdict/flow-line.ts';
 import { refreshDoc } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
@@ -54,6 +53,7 @@ import {
   pageNavigation,
   pageSurface,
 } from './state-seams.ts';
+import { endJumpForScroll } from '../layout/flow-scroll.ts';
 function drawDocsMenu() {
   $('#ns-docs').hidden = !multiDoc();
   setHtml(
