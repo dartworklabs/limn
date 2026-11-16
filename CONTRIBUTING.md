@@ -13,7 +13,8 @@ uv run ruff check                         # lint (the rules in pyproject.toml)
 uv run ruff format --check                # formatting; `uv run ruff format` applies it
 uv run shellcheck src/limn/administration/instances.sh src/limn/administration/instance_*.sh src/limn/administration/tests/test_instances.sh
 uv run python tools/check_boundaries.py    # public feature exports and import graph
-uv run mypy                               # strict type check of the package (files in pyproject.toml)
+uv run python tools/check_fitness.py      # module roles from file names; per-slice baseline may only go down
+uv run python tools/check_types.py        # basedpyright as Linux and macOS; its baseline may only go down
 npm ci --ignore-scripts && npm run typecheck   # type check of the viewer's JS parts (tsconfig.json; dev only, Node 22)
 uv run python tools/strict_ratchet.py     # stricter options' errors per viewer part may only go down (tsconfig.strict.json)
 git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips the whole-tree reformat

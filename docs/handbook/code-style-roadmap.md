@@ -22,9 +22,11 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 ## R4 기계적 규칙은 도구가 집행
 
-설정의 정본은 [`pyproject.toml`](../../pyproject.toml)의 Ruff·mypy 절, 실행과 합격 기준은 [verification.md](verification.md) §8·9다. Ruff는 프로덕션의 공개 docstring 누락과 테스트 모듈·클래스의 누락을 검사한다. private 도우미와 테스트 함수·메서드의 누락 및 docstring 내용은 현재 리뷰에서 확인한다. 뷰어 JavaScript는 린터 없이 문법·소스 가드와 브라우저 테스트로 확인한다.
+설정의 정본은 [`pyproject.toml`](../../pyproject.toml)의 Ruff·basedpyright 절과 [`tools/check_fitness.py`](../../tools/check_fitness.py)의 역할 표, 실행과 합격 기준은 [verification.md](verification.md) §8·9·11이다. Ruff는 프로덕션의 공개 docstring 누락과 테스트 모듈·클래스의 누락을 검사한다. private 도우미와 테스트 함수·메서드의 누락 및 docstring 내용은 현재 리뷰에서 확인한다. 뷰어 JavaScript는 린터 없이 문법·소스 가드와 브라우저 테스트로 확인한다. 규칙 하나의 주인은 도구 하나다. 타입은 basedpyright, 모듈의 역할과 그 규칙은 적합성 검사(§R11), 기능 사이의 import는 경계 검사가 맡는다.
 
 `E501`은 포매터가 코드 줄을 정리하므로 끈다. `UP030`–`UP032`는 계약 메시지의 포매팅 바이트를, `UP042`는 enum 문자열 결과를 보존하려고 끈다. `server.py`의 `E402`는 파일 경로 실행 전에 `sys.path`를 준비해야 해서 예외다. `tools/handbook-publish/`와 번들 vendor 코드는 외부 소유라 검사 대상에서 뺐다. 테스트 함수·메서드의 docstring 누락 규칙은 기존 누락이 많아 테스트 경로에서 제외한다. 새로 쓰거나 고친 테스트는 §R9를 따른다.
+
+basedpyright는 `all`에서 네 규칙만 끈다. `reportImplicitOverride`는 `@override`가 Python 3.12의 `typing`이나 `typing_extensions`에만 있어 3.10·표준 라이브러리 런타임에서 쓸 수 없어서다. `reportImplicitStringConcatenation`은 배치 규칙이라 Ruff format의 몫이고, 긴 계약 문장을 이웃한 문자열로 감싸는 것이 포매터의 방식이라서다. `reportUnusedCallResult`는 버린 반환값(`os.write`·`list.pop`)이 타입 결함이 아니어서다. `reportImportCycles`는 슬라이스 사이의 순환이 경계 검사의 몫이고, pyright가 `TYPE_CHECKING` 아래의 import까지 세어 지연 로드하는 모든 슬라이스 표면을 실행되지 않는 순환으로 보고하기 때문이다. 이유는 `pyproject.toml`의 각 줄 위에도 있다.
 
 ## R5 보이지 않는 전역 상태를 명시적 인자로
 
@@ -35,7 +37,7 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 함께 바뀌는 것을 함께 두는 배치를 기본값으로 삼는다(Common Closure Principle, Locality of Behaviour). 기능별 세로 슬라이스는 규칙·서비스·HTTP·테스트를 함께 소유한다.
 
 - **공개 경계:** 기능은 다른 기능을 import하지 않는다. 각 슬라이스의 `__init__.py`와 `__all__`는 조립 지점이 import하는 이름과 `tools/check_boundaries.py`의 `TEST_EXPORTS`에 적은 테스트용 이름만 선언한다. 다른 기능의 값을 받는 슬라이스는 읽을 멤버만 자기 `needs.py`에 읽기 전용 Protocol로 선언하고 조립 지점이 공급자를 주입한다. 조회는 소비자의 목적에 맞는 완성된 답을 돌려준다. 원본 레코드·이력·상태·지도 그래프·저장소·파서·렌더 구현을 넘기지 않는다. 저장 표현의 해석과 사실 추출은 소유 기능에서 수행한다. 문서용·핀용 빌드 질의, 핀 개수·변경 토큰, 비교용 핀 사실을 구별하며 참여자는 평탄한 신원 사실로 전달한다. 알림은 내보내는 핀이 값 `PinNotice`를 소유하고, 받는 협업이 읽는 필드를 `Notice` Protocol로 선언한다. 공통 HTTP 계약은 기능의 구체 구현을 import하지 않는다. 검사기는 기능 사이의 import, 진입점의 승인 밖 import, 승인된 importer가 없는 `__all__` 이름, 공통 코드의 기능 의존을 모든 슬라이스에서 검사한다([verification.md](verification.md) §10).
-- **슬라이스 내부의 계층은 폴더가 아니라 의존 방향 규칙이다.** 슬라이스 안에서 순수 판단은 I/O를 import하지 않는다. 기능을 `routes/`, `services/`, `models/`처럼 가로 레이어 폴더로 흩뿌리지 않는다.
+- **슬라이스 내부의 계층은 폴더가 아니라 의존 방향 규칙이다.** 슬라이스 안에서 순수 판단은 I/O를 import하지 않는다. 기능을 `routes/`, `services/`, `models/`처럼 가로 레이어 폴더로 흩뿌리지 않는다. 모듈의 계층(역할)은 파일 이름이 말하고 적합성 검사가 집행한다(§R11).
 - **추상화보다 복제가 싸다 (AHA, Sandi Metz).** 모양이 닮았다는 이유만으로 섣불리 공통 도우미, 유틸리티, 베이스 클래스를 만들지 않는다. 변경 이유가 실제로 같음이 확인될 때만 승격한다.
 - **테스트 동거 (Test Colocation).** 새 기능 슬라이스나 이행되는 슬라이스는 해당 슬라이스를 검증하는 테스트를 슬라이스의 `tests/`에 둔다. 기능 독립 장치와 보안·HTTP·실행 자원도 자기 패키지에 테스트를 둔다. 여러 기능을 관통하는 계약·구조 검사는 루트 `tests/`에 둔다. 수집·패키징 규칙은 [verification.md](verification.md) §테스트 파일의 배치가 정한다.
 - 경로별 책임과 변경 trigger는 [index.md](index.md) §파일 지도에 있다. 파일 길이만으로 분리하지 않고, 서로 다른 변경 이유, 수명 주기 또는 의존 경계가 확인될 때 나누며, 이동은 [verification.md](verification.md) §구조 이동의 동작 불변 증명(차등 비교)으로 확인한다.
@@ -46,7 +48,14 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 ## R8 정확한 타입 표기
 
-지원 범위는 Python 3.10 이상이다([`pyproject.toml`](../../pyproject.toml)). `mypy --strict`가 `src/limn/` 전체와 합 타입의 `match` 누락을 검사한다. 공개 경계와 추론이 어려운 값에 타입을 적고, 외부 값은 경계에서 내부 표현으로 바꾼다. 테스트는 루트 수집 트리와 기능 안의 `tests/` 모두 mypy 탐색 대상에서 제외한다. 프로덕션 코드의 엄격 검사는 유지한다. 검사 명령과 보장 범위는 [verification.md](verification.md) §9에 있다.
+지원 범위는 Python 3.10 이상이다([`pyproject.toml`](../../pyproject.toml)). basedpyright가 `typeCheckingMode = "all"`로 `src/limn/`의 프로덕션 모듈 전체를 Linux와 macOS 두 플랫폼 기준으로 검사한다. 테스트는 루트 수집 트리와 기능 안의 `tests/` 모두 검사 대상에서 제외한다. 공개 경계와 추론이 어려운 값에 타입을 적고, 외부 값은 경계에서 내부 표현으로 바꾼다.
+
+- **빠짐없는 `match`.** 닫힌 합 타입·`Literal`·enum 위의 `match`가 경우를 빠뜨리면 실패한다(`reportMatchNotExhaustive`). 와일드카드 `case _`는 몸이 `assert_never(...)` 하나일 때만 쓴다(§R11). `typing.assert_never`는 3.11부터 있으므로 같은 서명의 [`limn.platform.never.assert_never`](../../src/limn/platform/never.py)를 쓴다. 검사기가 이미 빠짐없음을 증명하면 그 팔을 더하지 않는다.
+- **닫힌 값과의 비교.** 닫힌 `Literal`(`Role`·`Via`·`AuthProvider`) 밖의 값과 `==`·`!=`·`in`으로 비교하면 실패한다(`reportUnnecessaryComparison`·`reportUnnecessaryContains`).
+- **타입 검사를 피하는 길이 없다.** `# type: ignore`는 아무것도 막지 않고(`enableTypeIgnoreComments = false`), `# pyright:` 주석과 `typing.cast`는 적합성 검사가 거부한다. `Any`는 쓰지 않는다(`reportExplicitAny`·`reportAny`). 밖의 값은 경계에서 파싱한다(§R3).
+- **기준선은 줄기만 한다.** 게이트가 들어올 때 있던 오류는 `.basedpyright/baseline.json`에 있다. 새 오류는 실패하고, 기준선의 오류를 고치면 기준선을 내려 커밋할 때까지 실패한다. 한 플랫폼에서만 나는 오류는 기준선에 둘 수 없다.
+
+검사 명령과 보장 범위는 [verification.md](verification.md) §9에 있다. 결정의 경위는 [ADR-0041](../adr/0041-strict-backend-fitness-gates.md) D1–D4다.
 
 ## R9 구조가 아닌 동작을 고정하는 테스트
 
@@ -75,6 +84,35 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 - **비밀은 키에만 두고 필요한 데이터만 유지 (Kerckhoffs):** 표준 암호 프리미티브와 상수 시간 비교를 사용하며, 토큰 원문이나 불필요한 민감 정보를 로그나 응답에 남기지 않는다. 서버 바인드와 인증의 멈춤 신호는 [architecture.md](architecture.md) §멈춤 신호, 실제 HTTP 계약은 [api.md](api.md) §인증이 정한다.
 
 
+## R11 파일 이름이 모듈의 역할을 말한다
+
+모듈의 역할은 경로와 파일 이름이 정한다. 계층은 의존 규칙이지 폴더가 아니므로 `routes/`·`services/`·`models/` 폴더를 만들지 않고, 슬라이스 안의 파일 이름에 역할 낱말을 둔다. 낱말은 이름 전체(`rules.py`)이거나 밑줄 뒤의 끝(`claim_rules.py`)이다. 진입점은 경로로, `__init__.py`는 표면으로 정하고, 낱말이 없으면 경계 패키지가 정한다. 어느 것으로도 역할이 정해지지 않는 이름은 위반이다. [`tools/check_fitness.py`](../../tools/check_fitness.py)가 역할마다 아래 규칙을 집행한다.
+
+| 역할 | 이름 | import해도 되는 역할 | I/O | `isinstance` | `limn.web` | 원시 타입 검사 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 진입점 | `server.py`·`cli.py`·`__main__.py`(루트) | 모두 | 함 | 안 됨 | 됨 | — |
+| 표면 | `__init__.py` | 모두 | 스스로는 안 함 | 안 됨 | 됨 | — |
+| 조립 | `application` | 모두 | 함 | 안 됨 | 됨 | — |
+| 판단 | `rules` | 판단·모델·선언·플랫폼 | 어떤 경로로도 닿지 않음 | 안 됨 | 안 됨 | 함 |
+| 모델 | `values`·`model` | 모델·선언·플랫폼 | 어떤 경로로도 닿지 않음 | 안 됨 | 안 됨 | 함 |
+| 선언 | `needs`·`contracts` | 모델·선언·플랫폼 | 어떤 경로로도 닿지 않음 | 안 됨 | 안 됨 | 함 |
+| 파싱 | `input`·`parse` | 판단·모델·선언·플랫폼·파싱·전송 | 어떤 경로로도 닿지 않음 | 됨 | 됨 | — |
+| HTTP | `http`·`routes`·`answer` | 판단·모델·선언·플랫폼·HTTP·파싱·셸·전송·실행 자원 | 스스로는 안 함 | 안 됨 | 됨 | — |
+| 셸 | `service`·`run` | 판단·모델·선언·플랫폼·셸·저장·파싱·실행 자원 | 함 | 안 됨 | 안 됨 | — |
+| 저장 | `store`·`queries` | 판단·모델·선언·플랫폼·저장·파싱·실행 자원 | 함 | 안 됨 | 안 됨 | — |
+| 플랫폼 | `platform/`의 나머지 | 플랫폼·모델·선언·파싱 | 함 | 안 됨 | 안 됨 | — |
+| 전송 | `web/`의 나머지 | 판단·모델·선언·플랫폼·전송·HTTP·파싱·실행 자원·저장 | 함 | 안 됨 | 됨 | — |
+| 실행 자원 | `runtime/`의 나머지 | 판단·모델·선언·플랫폼·실행 자원·파싱·저장 | 함 | 안 됨 | 안 됨 | — |
+
+- **I/O.** I/O는 파일·프로세스·소켓·스레드·시계·난수·프로세스 상태를 다루는 표준 라이브러리 모듈의 import와 `open`·`print`·`input`·`datetime.now()` 호출이다. "어떤 경로로도 닿지 않음"은 런타임 import를 따라가 그런 모듈에 닿는 limn 모듈(패키지 초기화 포함)도 import하지 않는다는 뜻이다. `TYPE_CHECKING` 아래 import는 실행되지 않으므로 I/O로 세지 않지만, 역할 사이의 의존으로는 센다. `pathlib`·`json`은 값과 계산이라 I/O로 세지 않는다.
+- **`isinstance`는 파싱 역할만 쓴다.** 밖의 데이터나 저장된 데이터를 타입 있는 값으로 바꾸는 곳이다. 그 밖에서는 닫힌 타입 위의 `match`로 좁힌다. 결과 하나만 처리하고 나머지를 넘기는 셸도 나머지 경우를 패턴으로 적는다.
+- **모든 역할에서.** `typing.cast`, `# type: ignore`·`# pyright:` 주석, 몸이 `assert_never(...)` 하나가 아닌 와일드카드 `case`(`case _`, 이름 하나만 받는 `case x`, 그것을 품은 or 패턴)는 쓰지 않는다.
+- **원시 타입.** 판단·모델·선언 모듈의 공개 함수, 공개 클래스의 공개 메서드(`__init__`·`__call__`·`__new__` 포함)의 매개변수와 반환, 공개 클래스의 필드에 `str`·`int`·`dict`를 쓰지 않는다. 별칭 뒤에 숨은 원시 타입도 어느 모듈의 별칭이든 펼쳐서 본다. 도메인 개념은 NewType·값 타입·`Literal`로 적는다. 사람이 쓰고 코드가 뜻을 읽지 않는 글(메모·답글·닫는 이유)은 [`limn.platform.text.FreeText`](../../src/limn/platform/text.py)로 적는다. 이 예외의 목록은 검사기의 `PRIMITIVE_ALIASES`이고, 항목을 더하는 것은 설계 리뷰 대상이다. `Any`는 basedpyright가 모든 모듈에서 맡는다(§R8).
+- **역할이 없는 모듈.** 이름이 역할을 말하지 않는 모듈은 역할 자체가 위반이고, 역할의 import·I/O·원시 타입 규칙을 받지 않는다. 다른 역할이 그 모듈을 import하는 것도 위반이다(판단으로 확인되지 않은 것을 판단이 쓸 수 없다). 이름을 바꾸면 새 역할의 규칙이 그 모듈에 걸린다.
+- **기준선.** 규칙이 들어올 때 있던 위반은 최상위 패키지마다 파일 하나인 `tools/fitness-baseline/<슬라이스>.json`(루트 파일은 `root.json`)에 모듈별·규칙별 수로 있다. 수가 오르면 실패하고, 내려가도 `--update`로 기준선을 내릴 때까지 실패한다. `--update`는 수를 올리지 않는다. 모듈을 옮길 때는 `--rename OLD=NEW`로 그 수를 옮기며, 새 이름의 역할이 새로 보는 규칙의 위반은 옮겨 오지 않으므로 먼저 고친다.
+
+결정의 경위는 [ADR-0041](../adr/0041-strict-backend-fitness-gates.md) D2–D5다.
+
 ## 경계 집행과 검증의 한계
 
 요청의 중복 JSON 키·반복 쿼리·단일값 보안 헤더와 잘못된 인코딩은 `web/request_input.py`와 처리기가 거부한다. 정상 클라이언트 형식과 거절 순서는 [api.md](api.md)가 정한다. `security/access.py`의 명시적 경로 목록은 새 등록을 기본 거부하고, 변경 진입점은 `PostAuthority`의 작업·대상·실행 범위를 검사한다. 일반 actor mapping은 저장용 데이터이며 변경 권한으로 받지 않는다.
@@ -94,3 +132,5 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 CI는 검토한 액션 코드를 실행한다. 워크플로 토큰은 `contents: read`이고 비밀을 쓰지 않는다. 외부 액션은 태그가 아니라 커밋 SHA로 고정한다. 태그는 검토 뒤에도 다른 코드로 옮겨질 수 있기 때문이다. 체크아웃은 `persist-credentials: false`로 토큰을 `.git/config`에 남기지 않는다. 액션 고정값은 Dependabot([`.github/dependabot.yml`](../../.github/dependabot.yml))이 매주 올린다. CI의 `setup-uv`는 uv `0.12.23`을 설치하고 [`pyproject.toml`](../../pyproject.toml)의 빌드 백엔드는 Hatchling `1.32.4`로 고정한다. 설치 게이트가 잠금 파일 밖에서 임의의 최신 도구·백엔드를 고르지 않게 하기 위해서다. [`test_ci_pins.py`](../../tests/architecture/test_ci_pins.py)는 액션·체크아웃 규칙과 이 도구·백엔드 버전 고정을 검사한다. 버전 고정은 다운로드한 배포 파일의 바이트까지 검증한다는 뜻은 아니다.
 
 입력·권한 정책을 강화하는 변경은 동작 보존 리팩토링과 구분하고 [architecture.md](architecture.md) §멈춤 신호에 따라 설계한다.
+
+적합성 검사(§R11)는 이름이 말하는 역할을 코드가 지키는지를 볼 뿐, 그 이름이 모듈이 하는 일과 맞는지는 리뷰가 본다. 검사는 AST만 읽으므로 `Path` 값의 I/O 메서드(`read_text`)·동적 import·런타임 속성 접근을 보지 못한다. 원시 타입 규칙은 `str`·`int`·`dict`만 보고 `float`·`bytes`·`object`는 보지 않는다. 기준선 파일의 수를 손으로 올리는 변경은 검사가 막지 못하므로 `ENTRYPOINT_IMPORTS`의 변경처럼 설계 리뷰 대상이다.
