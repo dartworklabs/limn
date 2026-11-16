@@ -19,8 +19,8 @@ import { REQUEST_KIND, PIN_STATE, ROLE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { meLogin, peopleName, isHuman } from '../app/state-people.ts';
 import { viewerBlocked } from '../documents/state.ts';
-import { markMine } from './flow-changes.ts';
 import { autoGrow } from '../composer/view-text.ts';
+import { markMine } from './state.ts';
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false)
 // wins; otherwise a person's reply on a closed pin reopens it unless it tags a person or the pin is a question.
 // mentioned = the post's resolved @-tags without me.

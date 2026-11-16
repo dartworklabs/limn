@@ -1,4 +1,4 @@
-import { DOC, DROPPED, META, OPEN_ALL, PEOPLE, PINS, REPLY, SHOW_ALL, THREAD_OPEN } from '../app/state.ts';
+import { DOC, DROPPED, META, PEOPLE, PINS, REPLY, SHOW_ALL, THREAD_OPEN } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
 import { markHiddenPlain } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate, josa } from '../platform/i18n.ts';
@@ -7,11 +7,8 @@ import { findAnyPin } from '../revisions/flow.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { quoteInner, shownQuote } from '../composer/flow-pick.ts';
-import { relSpan, stampSpan } from './view-cards.ts';
-import { drawPins } from './flow-list.ts';
 import { nameShared, personLabel, mentionAfterWord } from '../composer/input-mentions.ts';
 import type { Html } from '../platform/markup.ts';
-import { $$ } from '../platform/dom.ts';
 import {
   ASSIGNEE_AGENT,
   CARD_DOT,
@@ -27,6 +24,7 @@ import { who, peopleName, meLogin, isMe } from '../app/state-people.ts';
 import { FAILED_AVATARS, avatar } from '../app/view-people.ts';
 import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { QUOTE_OPEN } from '../composer/view-text.ts';
+import { relSpan, stampSpan } from './view-time.ts';
 
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
@@ -172,25 +170,6 @@ function claimTag(pin: Pin) {
   const claim = claimInfo(pin);
   return html`<span class="badge badge-claimed${claim.late ? ' late' : ''}" data-claim="${pin.id}" data-tip="${claim.tip}">${lucideIcon('clock')}<span class="ct">${claim.t}</span></span>`;
 }
-// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't
-// redrawn). The list is redrawn if any pin's lock has expired.
-function tickClaims() {
-  if (document.hidden) return;
-  let gone = false;
-  $$('.badge-claimed[data-claim]').forEach((badge) => {
-    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
-    if (!pin || !claimActive(pin)) {
-      gone = true;
-      return;
-    }
-    const claim = claimInfo(pin);
-    badge.querySelector('.ct').textContent = claim.t;
-    badge.dataset.tip = claim.tip;
-    badge.classList.toggle('late', claim.late);
-  });
-  if (gone) drawPins();
-}
-setInterval(tickClaims, 30000);
 // A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field).
 // The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a region's page is the one its mark is on in the current build
 // (pinPlace), which a figure pin's element can move.
@@ -526,6 +505,13 @@ function threadHtml(pin: Pin, wide) {
     slot = REPLY && REPLY.id === pin.id ? html`<div class="reply-slot"></div>` : '';
   return more || entries.length || slot ? html`<div class="thread">${more}${entries}${slot}</div>` : html``;
 }
+function reviewerLabel(pin: Pin) {
+  if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
+  return isMe(pin.author)
+    ? translate('내 확인 차례')
+    : translateTemplate('{name}님 확인 필요', { name: who(pin.author) });
+}
+
 export {
   MESSAGE_OPEN,
   addressedTag,
@@ -555,4 +541,6 @@ export {
   stateDot,
   threadHtml,
   threadOf,
+  reviewerLabel,
+  claimInfo,
 };

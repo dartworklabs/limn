@@ -9,6 +9,7 @@ import { who } from '../app/state-people.ts';
 import { restorePin } from './flow-actions.ts';
 import { openTrash } from './view-cards.ts';
 import { countPinMove } from '../documents/flow-updates.ts';
+import { MY_ACTIONS } from './state.ts';
 // A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
 // named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
 // Pure.
@@ -22,15 +23,6 @@ function newsWithout(type: string, field: string, ...also: string[]): (group: an
     });
     return out;
   };
-}
-// This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s notePinChanges
-// never announces the same transition again: only the first notePinChanges judgment right after markMine(id) is
-// swallowed (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (a
-// lost response), it's given up on and later values are announced normally. An action from another tab isn't in this
-// map, so it's shown as usual.
-const MY_ACTIONS = new Map();
-function markMine(id) {
-  MY_ACTIONS.set(id, Date.now() + 10000);
 }
 function consumeMine(id) {
   const until = MY_ACTIONS.get(id);
@@ -316,4 +308,4 @@ function noteReviewChanges(previous, listed) {
       newsWithout(EVENT_TYPE.REOPENED, 'pins'),
     );
 }
-export { markMine, notePinChanges, noteReviewChanges };
+export { notePinChanges, noteReviewChanges };

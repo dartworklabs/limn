@@ -6993,6 +6993,27 @@ function pinVerdicts() {
   return PIN_VERDICTS;
 }
 
+// ------------------------------------------------ The pin actions in flight, and this tab's own
+// What a deferred action keeps while its undo row stands, and the actions this tab made itself, which the pin-change
+// messages leave out (pins/flow-actions.ts, pins/flow-changes.ts).
+// The pins whose [확인] is out, by id: kept out of every pin snapshot meanwhile (derivePinLists; confirmPin,
+// pins/flow-actions.ts).
+const CONFIRMING = new Set();
+// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
+// them (verdict/flow-line.ts).
+const CONFIRMING_PIN = new Map();
+// The pins whose [영구 삭제] is out, by id: the Trash leaves them out meanwhile (purgePin, pins/flow-actions.ts).
+const PURGING = new Set();
+// This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s notePinChanges
+// never announces the same transition again: only the first notePinChanges judgment right after markMine(id) is
+// swallowed (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (a
+// lost response), it's given up on and later values are announced normally. An action from another tab isn't in this
+// map, so it's shown as usual.
+const MY_ACTIONS = new Map();
+function markMine(id) {
+  MY_ACTIONS.set(id, Date.now() + 10000);
+}
+
 // --------------------------------------- Pins changed elsewhere: what the status line says between two list refreshes
 // A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
 // named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
@@ -7007,15 +7028,6 @@ function newsWithout(type, field, ...also) {
     });
     return out;
   };
-}
-// This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s notePinChanges
-// never announces the same transition again: only the first notePinChanges judgment right after markMine(id) is
-// swallowed (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (a
-// lost response), it's given up on and later values are announced normally. An action from another tab isn't in this
-// map, so it's shown as usual.
-const MY_ACTIONS = new Map();
-function markMine(id) {
-  MY_ACTIONS.set(id, Date.now() + 10000);
 }
 function consumeMine(id) {
   const until = MY_ACTIONS.get(id);
@@ -32352,6 +32364,77 @@ function autoGrow(field) {
   field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';
 }
 
+// ------------------------------------------------ When, said on a card
+// A card's times: how long ago ('3분 전') with the exact time as its tip, and a timestamp's own line, in the person's
+// time zone.
+// Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute
+// time is in the description (hover). The original string is kept in data-at and re-computed every 60 seconds
+// (tickRel). The archive and the verdict line say this; a comment says stampText.
+function relTime(stamp, now) {
+  stamp = String(stamp || '');
+  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(stamp);
+  if (!match) return stamp;
+  const then = new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
+    minutes = Math.max(0, ((now == null ? Date.now() : now) - then) / 60000);
+  if (minutes < 1) return translate('방금');
+  if (minutes < 60) return translateTemplate('{n}분 전', { n: Math.floor(minutes) });
+  if (minutes < 24 * 60) return translateTemplate('{n}시간 전', { n: Math.floor(minutes / 60) });
+  if (minutes < 7 * 24 * 60) return translateTemplate('{n}일 전', { n: Math.floor(minutes / 1440) });
+  return +match[2] + '-' + +match[3];
+}
+function relSpan(stamp, className, tip) {
+  return html`<span class="rt${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-tip="${(tip ? tip + ' ' : '') + (stamp || '?')}">${relTime(stamp)}</span>`;
+}
+// A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM',
+// t}), or null for a string that is no time. Pure but for the device's time zone.
+function timeParts(stamp) {
+  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(stamp || ''));
+  if (!match) return null;
+  return {
+    y: +match[1],
+    mo: +match[2],
+    d: +match[3],
+    md: match[2] + '-' + match[3],
+    hm: match[4] + ':' + match[5],
+    t: new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
+  };
+}
+// The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A
+// string that is no time comes back as it is. now is injected by tests.
+function timeAbs(stamp, now) {
+  const parts = timeParts(stamp);
+  if (!parts) return String(stamp || '');
+  return (
+    (parts.y === new Date(now == null ? Date.now() : now).getFullYear() ? '' : parts.y + '-') +
+    parts.md +
+    ' ' +
+    parts.hm
+  );
+}
+// The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected
+// by tests.
+function timeAgo(stamp, now) {
+  const parts = timeParts(stamp);
+  return parts && (now == null ? Date.now() : now) - parts.t < 7 * 24 * 60 * 60000 ? relTime(stamp, now) : '';
+}
+// What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute
+// part from seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else
+// the absolute.
+/** @param form - a STAMP_FORM value */
+function stampText(stamp, form, now) {
+  const ago = timeAgo(stamp, now),
+    abs = timeAbs(stamp, now);
+  if (form === STAMP_FORM.SHORT) return ago || abs;
+  const both = ago ? ago + ' · ' + abs : abs;
+  return form === STAMP_FORM.EDITED ? translateTemplate('수정 {time}', { time: both }) : both;
+}
+// A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its
+// description.
+/** @param form - a STAMP_FORM value */
+function stampSpan(stamp, form, className) {
+  return html`<span class="rt ts${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-form="${form}" data-tip="${stamp || '?'}">${stampText(stamp, form)}</span>`;
+}
+
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
 
@@ -32496,25 +32579,6 @@ function claimTag(pin) {
   const claim = claimInfo(pin);
   return html`<span class="badge badge-claimed${claim.late ? ' late' : ''}" data-claim="${pin.id}" data-tip="${claim.tip}">${lucideIcon('clock')}<span class="ct">${claim.t}</span></span>`;
 }
-// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't
-// redrawn). The list is redrawn if any pin's lock has expired.
-function tickClaims() {
-  if (document.hidden) return;
-  let gone = false;
-  $$('.badge-claimed[data-claim]').forEach((badge) => {
-    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
-    if (!pin || !claimActive(pin)) {
-      gone = true;
-      return;
-    }
-    const claim = claimInfo(pin);
-    badge.querySelector('.ct').textContent = claim.t;
-    badge.dataset.tip = claim.tip;
-    badge.classList.toggle('late', claim.late);
-  });
-  if (gone) drawPins();
-}
-setInterval(tickClaims, 30000);
 // A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field).
 // The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a region's page is the one its mark is on in the current build
 // (pinPlace), which a figure pin's element can move.
@@ -32850,6 +32914,34 @@ function threadHtml(pin, wide) {
     slot = REPLY && REPLY.id === pin.id ? html`<div class="reply-slot"></div>` : '';
   return more || entries.length || slot ? html`<div class="thread">${more}${entries}${slot}</div>` : html``;
 }
+function reviewerLabel(pin) {
+  if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
+  return isMe(pin.author)
+    ? translate('내 확인 차례')
+    : translateTemplate('{name}님 확인 필요', { name: who(pin.author) });
+}
+
+// ------------------------------------------------ The claim badges' clock
+// A claimed pin's badge says how long its claim has left or has run over; this keeps that text current.
+// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't
+// redrawn). The list is redrawn if any pin's lock has expired.
+function tickClaims() {
+  if (document.hidden) return;
+  let gone = false;
+  $$('.badge-claimed[data-claim]').forEach((badge) => {
+    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
+    if (!pin || !claimActive(pin)) {
+      gone = true;
+      return;
+    }
+    const claim = claimInfo(pin);
+    badge.querySelector('.ct').textContent = claim.t;
+    badge.dataset.tip = claim.tip;
+    badge.classList.toggle('late', claim.late);
+  });
+  if (gone) drawPins();
+}
+setInterval(tickClaims, 30000);
 
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;
@@ -33075,73 +33167,6 @@ function cardActs(claimed, compact, canDrop = true, verdict = false) {
 // note is only shown by pressing [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it
 // survives a redraw.
 const ARC_OPEN = new Set();
-// Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute
-// time is in the description (hover). The original string is kept in data-at and re-computed every 60 seconds
-// (tickRel). The archive and the verdict line say this; a comment says stampText.
-function relTime(stamp, now) {
-  stamp = String(stamp || '');
-  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(stamp);
-  if (!match) return stamp;
-  const then = new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
-    minutes = Math.max(0, ((now == null ? Date.now() : now) - then) / 60000);
-  if (minutes < 1) return translate('방금');
-  if (minutes < 60) return translateTemplate('{n}분 전', { n: Math.floor(minutes) });
-  if (minutes < 24 * 60) return translateTemplate('{n}시간 전', { n: Math.floor(minutes / 60) });
-  if (minutes < 7 * 24 * 60) return translateTemplate('{n}일 전', { n: Math.floor(minutes / 1440) });
-  return +match[2] + '-' + +match[3];
-}
-function relSpan(stamp, className, tip) {
-  return html`<span class="rt${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-tip="${(tip ? tip + ' ' : '') + (stamp || '?')}">${relTime(stamp)}</span>`;
-}
-// A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM',
-// t}), or null for a string that is no time. Pure but for the device's time zone.
-function timeParts(stamp) {
-  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(stamp || ''));
-  if (!match) return null;
-  return {
-    y: +match[1],
-    mo: +match[2],
-    d: +match[3],
-    md: match[2] + '-' + match[3],
-    hm: match[4] + ':' + match[5],
-    t: new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
-  };
-}
-// The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A
-// string that is no time comes back as it is. now is injected by tests.
-function timeAbs(stamp, now) {
-  const parts = timeParts(stamp);
-  if (!parts) return String(stamp || '');
-  return (
-    (parts.y === new Date(now == null ? Date.now() : now).getFullYear() ? '' : parts.y + '-') +
-    parts.md +
-    ' ' +
-    parts.hm
-  );
-}
-// The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected
-// by tests.
-function timeAgo(stamp, now) {
-  const parts = timeParts(stamp);
-  return parts && (now == null ? Date.now() : now) - parts.t < 7 * 24 * 60 * 60000 ? relTime(stamp, now) : '';
-}
-// What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute
-// part from seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else
-// the absolute.
-/** @param form - a STAMP_FORM value */
-function stampText(stamp, form, now) {
-  const ago = timeAgo(stamp, now),
-    abs = timeAbs(stamp, now);
-  if (form === STAMP_FORM.SHORT) return ago || abs;
-  const both = ago ? ago + ' · ' + abs : abs;
-  return form === STAMP_FORM.EDITED ? translateTemplate('수정 {time}', { time: both }) : both;
-}
-// A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its
-// description.
-/** @param form - a STAMP_FORM value */
-function stampSpan(stamp, form, className) {
-  return html`<span class="rt ts${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-form="${form}" data-tip="${stamp || '?'}">${stampText(stamp, form)}</span>`;
-}
 // The name of the day a stored time falls on, as a day line of the list says it: 오늘, 어제, '10월 31일', and '2025년
 // 9월 25일' in another year; '' for a string that is no time. A time ahead of this device's clock counts as today. now
 // is injected by tests.
@@ -33424,6 +33449,9 @@ $('#trash').addEventListener('click', (event) => {
   )
     trash.close();
 });
+function listDropped() {
+  return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
+}
 
 // ------------------------------------------- Confirming several pins awaiting review from their result rows (ADR-0035)
 // The review section's [골라서 확인] (#review-pick) turns its cards into result rows: a box with #N and the place, the
@@ -34145,15 +34173,6 @@ function gotoReview() {
     const section = $('#sec-review');
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
-}
-function reviewerLabel(pin) {
-  if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
-  return isMe(pin.author)
-    ? translate('내 확인 차례')
-    : translateTemplate('{name}님 확인 필요', { name: who(pin.author) });
-}
-function listDropped() {
-  return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
 // One section header (docs/handbook/viewer.md §목록 구획): chevron, name, count and - while collapsed - 'new N' (ids
 // the section did not show when it was last expanded). The body it controls (aria-controls) is hidden while collapsed.
@@ -35225,17 +35244,6 @@ async function closePin(id) {
   } catch (error) {}
   await loadPins();
 }
-// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
-// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
-// once (CONFIRMING keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
-// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
-// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
-// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
-// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
-const CONFIRMING = new Set();
-// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
-// them (verdict/flow-line.ts).
-const CONFIRMING_PIN = new Map();
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
 // nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
@@ -35260,6 +35268,13 @@ function confirmConflict(id, pin) {
     kind === NOTICE_KIND.WARN ? { label: '변경 보기', tip: TIP_TEXT.change, fn: () => showChange(id) } : null,
   );
 }
+// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
+// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
+// once (CONFIRMING, pins/state.ts, keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
+// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
+// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
+// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
+// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
 function confirmPin(id) {
   if (CONFIRMING.has(id)) return;
   const at = REVIEW_ALL.findIndex((listed) => listed.id === id),
@@ -35414,9 +35429,8 @@ async function dropPin(
   }
   return ok;
 }
-// [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out
-// when that row does (deferred, NOTICE_MS).
-const PURGING = new Set();
+// [영구 삭제] (owner): the row leaves the Trash at once (PURGING, pins/state.ts) and a row in its place offers
+// [되돌리기]; the request goes out when that row does (deferred, NOTICE_MS).
 function purgePin(id) {
   const cardBefore = drawnBefore($('#trash-list'), '.arc-row', id);
   PURGING.add(id);
@@ -36473,6 +36487,76 @@ function sendReply() {
   if (undoButton) (undoButton).focus({ preventScroll: true });
 }
 
+// ------------------------------------------------ The edit card, drawn
+// The open edit card (EDITOR.current) drawn from what it holds now - its kind, its range, its suggestion, its save
+// button - and whether it holds changes not saved yet. pins/flow-edit.ts opens, saves and closes it.
+/** Reflect the editor's shared request lifetime on whichever card is currently visible. */
+function syncEditSaveButton() {
+  const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
+  if (button) (button).disabled = EDITOR.saving;
+}
+// Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
+/**
+ * Report unsaved note, mention hints, range, scope, kind, assignee or suggested-edit changes before a card may close or
+ * change documents.
+ */
+function editDirty() {
+  const card = EDITOR.current;
+  if (!card) return false;
+  const noteField = editNote(card);
+  return (
+    (noteField && noteField.value !== card.orig.note) ||
+    JSON.stringify(mentionHints(noteField)) !== JSON.stringify(card.orig.mentions || []) ||
+    card.lo !== card.orig.lo ||
+    card.hi !== card.orig.hi ||
+    (card.scope || null) !== (card.orig.scope || null) ||
+    card.kind_req !== card.orig.kind_req ||
+    card.assignee !== card.orig.assignee ||
+    suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
+  );
+}
+// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the
+// ladder - shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee
+// and question hints.
+/**
+ * Draw current editable fields and their save availability, including a card opened while an earlier edit is pending.
+ */
+function renderEdit() {
+  const card = EDITOR.current;
+  if (!card) return;
+  const cardElement = card.el;
+  syncEditSaveButton();
+  (cardElement.querySelectorAll('.e-kind button')).forEach((button) => {
+    const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', String(on));
+  });
+  // the group's one Tab stop is the kind now chosen (platform/segments.ts)
+  roveSegment(cardElement.querySelector('.e-kind'));
+  setCap(
+    cardElement.querySelector('.e-cap'),
+    card.region
+      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
+      : rangeCap(card, true),
+  );
+  drawLadder(cardElement.querySelector('.e-levels'), card, true);
+  const pre = cardElement.querySelector('.e-snip');
+  pre.className = 'e-snip wrap';
+  pre.textContent = snipText(card.snippet, false);
+  renderAssignEdit();
+  drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
+  // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
+  renderEditSuggest(card);
+  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
+  const pin = findAnyPin(card.id),
+    closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
+  (cardElement.querySelector('.b-repick')).hidden = closed;
+  if (closed) {
+    (cardElement.querySelector('.e-levels')).hidden = true;
+    (cardElement.querySelector('.e-xp')).hidden = true;
+  }
+}
+
 // ------------------------------------------------ Edit
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
@@ -36492,11 +36576,6 @@ function editFields(card) {
     assignee: card.assignee,
     sg: { on: card.sg.on, text: card.sg.text, base: card.sg.base },
   });
-}
-/** Reflect the editor's shared request lifetime on whichever card is currently visible. */
-function syncEditSaveButton() {
-  const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
-  if (button) (button).disabled = EDITOR.saving;
 }
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card
 // markup, records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element)
@@ -36585,26 +36664,6 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   noteField.focus();
   editSnip(true);
 }
-// Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
-/**
- * Report unsaved note, mention hints, range, scope, kind, assignee or suggested-edit changes before a card may close or
- * change documents.
- */
-function editDirty() {
-  const card = EDITOR.current;
-  if (!card) return false;
-  const noteField = editNote(card);
-  return (
-    (noteField && noteField.value !== card.orig.note) ||
-    JSON.stringify(mentionHints(noteField)) !== JSON.stringify(card.orig.mentions || []) ||
-    card.lo !== card.orig.lo ||
-    card.hi !== card.orig.hi ||
-    (card.scope || null) !== (card.orig.scope || null) ||
-    card.kind_req !== card.orig.kind_req ||
-    card.assignee !== card.orig.assignee ||
-    suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
-  );
-}
 document.addEventListener('input', (event) => {
   const target = event.target;
   if (
@@ -36658,47 +36717,6 @@ async function editSnip(withLevels) {
     }
     renderEdit();
   } catch (error) {}
-}
-// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the
-// ladder - shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee
-// and question hints.
-/**
- * Draw current editable fields and their save availability, including a card opened while an earlier edit is pending.
- */
-function renderEdit() {
-  const card = EDITOR.current;
-  if (!card) return;
-  const cardElement = card.el;
-  syncEditSaveButton();
-  (cardElement.querySelectorAll('.e-kind button')).forEach((button) => {
-    const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
-    button.classList.toggle('on', on);
-    button.setAttribute('aria-checked', String(on));
-  });
-  // the group's one Tab stop is the kind now chosen (platform/segments.ts)
-  roveSegment(cardElement.querySelector('.e-kind'));
-  setCap(
-    cardElement.querySelector('.e-cap'),
-    card.region
-      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
-      : rangeCap(card, true),
-  );
-  drawLadder(cardElement.querySelector('.e-levels'), card, true);
-  const pre = cardElement.querySelector('.e-snip');
-  pre.className = 'e-snip wrap';
-  pre.textContent = snipText(card.snippet, false);
-  renderAssignEdit();
-  drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
-  // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
-  renderEditSuggest(card);
-  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
-  const pin = findAnyPin(card.id),
-    closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
-  (cardElement.querySelector('.b-repick')).hidden = closed;
-  if (closed) {
-    (cardElement.querySelector('.e-levels')).hidden = true;
-    (cardElement.querySelector('.e-xp')).hidden = true;
-  }
 }
 function cancelEdit() {
   setEditorCurrent(null);

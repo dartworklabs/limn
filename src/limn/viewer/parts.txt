@@ -58,6 +58,7 @@ js/documents/flow-switch.ts            # the documents sheet, remembered view po
 js/documents/view-meta.ts              # the header: meta, stale and sync badges, viewer role
 js/documents/flow-polling.ts           # meta polling, other documents' builds
 js/pins/state-seams.ts                 # what the pin list asks the verdicts: a verdict's badge, figure and old mark, its page lines
+js/pins/state.ts                       # the pin actions in flight (a confirm, a purge) and this tab's own recent actions
 js/pins/flow-changes.ts                # status-line messages for pins changed elsewhere, this tab's own actions kept from them
 js/pins/flow-notification.ts           # browser notifications and pin links (#doc=&pin=)
 js/documents/view-build-chip.ts        # build progress polling and its chip
@@ -101,7 +102,9 @@ js/verdict/view-panel.ts               # the page verdict panel beside the pages
 js/composer/view-selection-popover.ts  # the note popover by the selection box (mouse layouts)
 js/app/view-people.ts                  # a person's avatar
 js/composer/view-text.ts               # the text fields a pin is written in: their height, the open quote lines
+js/pins/view-time.ts                   # when, said on a card: how long ago, the exact time, a timestamp's line
 js/pins/view-card-parts.ts             # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
+js/pins/flow-claims.ts                 # the claim badges' clock: their text every 30 seconds, the list when a claim ends
 js/pins/view-cards.ts                  # the open and review card, archive and Trash rows, the Trash dialog
 js/pins/flow-review-pick.ts            # confirming several pins awaiting review from their result rows (ADR-0035)
 js/pins/flow-list.ts                   # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
@@ -109,6 +112,7 @@ js/pins/input-hide-marks.ts            # taking the pin marks off the page for a
 js/pins/flow-actions.ts                # close, confirm, reopen, drop, purge, restore, unclaim
 js/composer/input-mentions.ts          # @-tag autocomplete, preview and the assignee choice
 js/pins/flow-reply.ts                  # the reply box and its outcome line
+js/pins/view-edit.ts                   # the edit card drawn from what it holds, and whether it has unsaved changes
 js/pins/flow-edit.ts                   # the edit card
 js/composer/flow-repick.ts             # re-placing a pin's location
 js/documents/flow-rebuild.ts           # view anchors, refreshing the document, the build error panel, rebuild

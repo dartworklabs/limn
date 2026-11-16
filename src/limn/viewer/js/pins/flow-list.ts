@@ -72,25 +72,25 @@ import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts'
 import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
 import { recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
 import { mentionsMe } from './view-card-parts.ts';
-import { card, dayName, doneCard, drawTrash, openTrash, timeParts } from './view-cards.ts';
+import { card, dayName, doneCard, drawTrash, openTrash, listDropped } from './view-cards.ts';
 import { drawReviewPick } from './flow-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
-import { CONFIRMING, CONFIRMING_PIN, PURGING } from './flow-actions.ts';
 import { renderAssignNew } from '../composer/input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
-import { editDirty, renderEdit } from './flow-edit.ts';
 import type { Html } from '../platform/markup.ts';
 import { LIST_ORDER, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
-import { who, isMe } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
 import { notePinChanges, noteReviewChanges } from './flow-changes.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { markBadgeRoom, markBadgeIn, markHitSides } from '../pdf/view-badges.ts';
 import { pinVerdicts } from './state-seams.ts';
+import { CONFIRMING, CONFIRMING_PIN, PURGING } from './state.ts';
+import { timeParts } from './view-time.ts';
+import { editDirty, renderEdit } from './view-edit.ts';
 
 async function loadPeople() {
   try {
@@ -345,15 +345,6 @@ function gotoReview() {
     const section = $('#sec-review');
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
-}
-function reviewerLabel(pin: Pin) {
-  if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
-  return isMe(pin.author)
-    ? translate('내 확인 차례')
-    : translateTemplate('{name}님 확인 필요', { name: who(pin.author) });
-}
-function listDropped() {
-  return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
 // One section header (docs/handbook/viewer.md §목록 구획): chevron, name, count and - while collapsed - 'new N' (ids
 // the section did not show when it was last expanded). The body it controls (aria-controls) is hidden while collapsed.
@@ -1292,7 +1283,6 @@ export {
   gotoReview,
   jumpPin,
   jumpToCard,
-  listDropped,
   listReview,
   loadPins,
   loadPinsNow,
@@ -1301,7 +1291,6 @@ export {
   orderPins,
   placeRow,
   revealCard,
-  reviewerLabel,
   setListOrder,
   toggleSection,
   updateReviewCount,

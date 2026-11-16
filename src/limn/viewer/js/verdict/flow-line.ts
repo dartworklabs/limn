@@ -109,9 +109,8 @@ import {
   drawSummaries,
 } from './view-panel.ts';
 import { claimActive, josaToward } from '../pins/view-card-parts.ts';
-import { relSpan } from '../pins/view-cards.ts';
 import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
-import { CONFIRMING, CONFIRMING_PIN, dropPin, restorePin } from '../pins/flow-actions.ts';
+import { dropPin, restorePin } from '../pins/flow-actions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
 import { $, $$, typingNow, searchToPage, TABBABLE, isTabStop } from '../platform/dom.ts';
@@ -141,6 +140,8 @@ import {
   setGliding,
   setLastScrollAt,
 } from '../layout/flow-scroll.ts';
+import { CONFIRMING, CONFIRMING_PIN } from '../pins/state.ts';
+import { relSpan } from '../pins/view-time.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
