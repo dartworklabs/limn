@@ -23,6 +23,7 @@ from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing.projection import pin_state
 from limn.security.access import LOCAL_ACTOR
 
+import helpers_js
 from helpers import JS_OFFLINE_STUBS, add_pin, edit_stored, extract_js_fn, find_record, js_i18n, ps, run_node
 from helpers_access import ALICE, actor
 from helpers_authority import post_authority
@@ -824,7 +825,7 @@ class ReviewPickOutcome(unittest.TestCase):
             [
                 js_i18n(lang),
                 extract_js_fn("pinState"),
-                re.search(r"const RV_OUT=Object\.freeze\(\{.*?\}\);", open_review_pick(), re.S).group(0),
+                helpers_js.module_declaration(open_review_pick(), "RV_OUT"),
                 extract_js_fn("rvOutcome"),
                 extract_js_fn("rvSaid"),
                 "console.log(JSON.stringify(%s));" % expr,

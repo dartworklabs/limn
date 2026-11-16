@@ -13,6 +13,8 @@ import re
 import unittest
 from pathlib import Path
 
+import helpers_js
+
 JS = Path(__file__).resolve().parents[1] / "js"
 WRITE = re.compile(r"\.scroll(?:Top|Left)\s*[-+]?=(?!=)|\.scrollTo\(|\.scrollBy\(|\.scrollIntoView\(")
 FUNCTION = re.compile(r"^(?:async\s+)?function\s+(\w+)")
@@ -130,7 +132,7 @@ class ScrollWrites(unittest.TestCase):
         allowed = ("'auto'", "'instant'", "scrollMotion()", "pvGlideArm(", "land?'auto':scrollMotion()")
         for path in sorted(JS.glob("*.js")):
             for m in re.finditer(r"\bbehavior\s*:\s*", path.read_text(encoding="utf-8")):
-                rest = m.string[m.end() : m.end() + 40]
+                rest = helpers_js.squash(m.string[m.end() : m.end() + 120], fragment=True)[:40]
                 with self.subTest(file=path.name, at=rest):
                     self.assertTrue(rest.startswith(allowed), rest)
         for path in sorted((JS.parent / "css").glob("*.css")):

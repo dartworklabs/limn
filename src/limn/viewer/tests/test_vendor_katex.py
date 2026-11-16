@@ -26,7 +26,7 @@ import unittest
 
 from limn.viewer import assemble
 
-from helpers import PKG, ROOT, Base, req, split_resp
+from helpers import PKG, ROOT, Base, req, split_resp, sq
 
 VENDOR = PKG / "vendor" / "katex"
 SUMS = VENDOR / "SHA256SUMS"
@@ -219,9 +219,10 @@ class VendorKatex(Base):
             sorted(set(re.findall(r"/vendor/katex/[A-Za-z0-9_.-]+", page))),
             ["/vendor/katex/katex.css", "/vendor/katex/katex.mjs"],
         )
-        self.assertIn("'/vendor/katex/katex.mjs?v='+KATEX_V", page)
-        self.assertIn("'/vendor/katex/katex.css?v='+KATEX_V", page)
-        self.assertIn("const KATEX_V='%s';" % V, page)
+        script = sq(files.script)
+        self.assertIn(sq("'/vendor/katex/katex.mjs?v='+KATEX_V"), script)
+        self.assertIn(sq("'/vendor/katex/katex.css?v='+KATEX_V"), script)
+        self.assertIn(sq("const KATEX_V='%s';" % V), script)
 
 
 class KatexInventory(unittest.TestCase):

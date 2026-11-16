@@ -12,6 +12,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_md_tree_refs.py
 
 import json
 import os
+import re
 import shutil
 import unittest
 from pathlib import Path
@@ -19,6 +20,7 @@ from pathlib import Path
 import limn
 from limn.documents.assets import ASSET_TYPES, AssetPath, asset_path
 
+import helpers_js
 from helpers import extract_js_fn, run_node
 
 BUNDLE = Path(limn.__file__).resolve().parent / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs"
@@ -159,8 +161,9 @@ class TreeReferenceRules(unittest.TestCase):
     def test_the_viewers_image_suffixes_are_the_servers(self):
         """The suffixes mdImgPath loads are the ones GET /api/asset serves - the served constant, read from the file."""
         src = (Path(limn.__file__).resolve().parent / "viewer" / "js" / "md-surface.js").read_text(encoding="utf-8")
-        line = next(ln for ln in src.splitlines() if ln.startswith("const MD_IMG_EXT="))
-        exts = json.loads(line.split("Object.freeze(", 1)[1].split(")", 1)[0].replace("'", '"'))
+        init = helpers_js.statement_init(helpers_js.module_declaration(src, "MD_IMG_EXT"), "MD_IMG_EXT")
+        self.assertTrue(init.startswith("Object.freeze("), init)
+        exts = re.findall(r"'([^']+)'", init)
         self.assertEqual({"." + e for e in exts}, set(ASSET_TYPES))
 
     def test_a_link_opens_a_registered_document_an_image_or_nothing(self):

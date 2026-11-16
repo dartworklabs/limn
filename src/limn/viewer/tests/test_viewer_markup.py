@@ -78,6 +78,8 @@ def markup_misuse(sources: dict[str, str]) -> list[str]:
                 found.append("%s: esc outside markup.js" % name)
             if t.text != "html" or prev in (".", "?.", "function"):
                 continue
+            if prev in ("{", ",") and nxt is not None and nxt.text == ":":  # an object's key named html, not a use
+                continue
             if nxt is None or nxt.kind != "template" or not nxt.text.startswith("`"):
                 found.append("%s: html not used as a tag" % name)
                 continue

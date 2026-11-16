@@ -20,6 +20,7 @@ from pathlib import Path
 
 from limn.administration import serve_documents as startup_documents
 
+import helpers_js
 from helpers import add_pin, extract_js_fn, ps, run_node
 from helpers_access import ALICE, actor
 from helpers_browser import BrowserBase, settle
@@ -54,10 +55,9 @@ def fns(*names):
 
 
 def hold_ms():
-    """The source line of marks-hide.js that defines MARKS_HOLD_MS."""
+    """The statement of marks-hide.js that declares MARKS_HOLD_MS."""
     src = (Path(__file__).resolve().parents[1] / "js" / "marks-hide.js").read_text(encoding="utf-8")
-    (line,) = [x for x in src.splitlines() if x.startswith("const MARKS_HOLD_MS=")]
-    return line
+    return helpers_js.module_declaration(src, "MARKS_HOLD_MS")
 
 
 class MarksKeyRule(unittest.TestCase):

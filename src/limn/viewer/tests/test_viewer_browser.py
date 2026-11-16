@@ -31,7 +31,7 @@ from limn.revisions import core as revisions, execution as revision_execution
 from limn.security.access import LOCAL_ACTOR
 
 import helpers_figure
-from helpers import SW_JS, add_pin, blank_png, edit_stored, find_record, minimal_pdf, ps, records, trash_records
+from helpers import SW_JS, add_pin, blank_png, edit_stored, find_record, minimal_pdf, ps, records, sq, trash_records
 from helpers_access import ALICE, BOB, CAROL, REPO_NEW as NEW, REPO_OLD as OLD, actor
 from helpers_authority import post_authority
 from helpers_browser import (
@@ -968,7 +968,7 @@ class ColdDeepLink(BrowserBase):
         self.assertEqual(find_record(ps.APP.snapshot_pins(), pid)["note"], "Saved during switch")
 
     def test_service_worker_carries_the_restore_action_into_a_new_window(self):
-        self.assertIn("e.action==='restore'?'&act=restore':''", SW_JS)
+        self.assertIn(sq("e.action==='restore'?'&act=restore':''"), sq(SW_JS))
 
 
 class PreviewEqualsServer(BrowserBase):

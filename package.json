@@ -10,11 +10,14 @@
     "typecheck": "node node_modules/typescript-7/bin/tsc -p .",
     "lint": "eslint --max-warnings 0 src/limn/viewer/js",
     "boundaries": "node tools/check_viewer_boundaries.mjs",
-    "test": "node --test tools/tests/*.test.mjs"
+    "test": "node --test tools/tests/*.test.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
   },
   "devDependencies": {
     "eslint": "10.13.0",
     "globals": "17.13.0",
+    "prettier": "3.9.10",
     "rollup": "4.67.3",
     "typescript": "6.0.3",
     "typescript-7": "npm:typescript@7.0.2",

@@ -23,7 +23,7 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, viewer_text
+from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, sq, viewer_text
 from helpers_js import inline_scripts, module_code
 
 EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".js"}
@@ -283,7 +283,7 @@ class ServiceWorkerRoute(Base):
         self.assertIn("notificationclick", js)
         self.assertIn("clients.openWindow", js)
         # v0.2.2: [되살리기] on a 'dropped' notification
-        self.assertIn("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'", js)
+        self.assertIn(sq("postMessage({type:e.action==='restore'?'restore-pin':'open-pin'"), sq(js))
         self.assertIn("addEventListener('fetch'", js)  # keeps the document for reading with no network
         self.assertIn("startsWith('/api/')", js)  # but never a pin or meta answer: a stale list is not the current one
         code, _, _ = self.get("/sw.js", {"Host": "evil.example"})

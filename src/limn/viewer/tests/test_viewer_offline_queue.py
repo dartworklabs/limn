@@ -11,6 +11,7 @@ import shutil
 import unittest
 from pathlib import Path
 
+import helpers_js
 from helpers import extract_js_fn, run_node
 
 # The page scope a pulled offline function reads: the queue (an array standing in for IndexedDB), the server (api), the
@@ -1261,9 +1262,7 @@ class KeyedSend(unittest.TestCase):
 def _shipped_const(name):
     """The line of offline.js declaring name - the constants a pulled function reads, as shipped."""
     src = (Path(__file__).resolve().parent.parent / "js" / "offline.js").read_text(encoding="utf-8")
-    m = re.search(r"^const %s=[^;]*;" % name, src, re.M)
-    assert m, name
-    return m.group(0)
+    return helpers_js.module_declaration(src, name)
 
 
 # The page scope the follow runs in: the kept record and the queue (stand-ins for the state store and the pins store), the
@@ -2089,9 +2088,14 @@ class StoredReads(unittest.TestCase):
     def off_reads(self):
         """The paths offline.js stores, read from the shipped source."""
         src = (Path(__file__).resolve().parent.parent / "js" / "offline.js").read_text(encoding="utf-8")
-        m = re.search(r"const OFF_READS=\[(.*?)\];", src, re.S)
-        self.assertIsNotNone(m, "OFF_READS is not declared as a literal list any more")
-        return set(re.findall(r"'([^']+)'", m.group(1)))
+        try:
+            init = helpers_js.statement_init(helpers_js.module_declaration(src, "OFF_READS"), "OFF_READS")
+        except (LookupError, ValueError):
+            init = ""
+        self.assertTrue(
+            init.startswith("[") and init.endswith("]"), "OFF_READS is not declared as a literal list any more"
+        )
+        return set(re.findall(r"'([^']+)'", init))
 
     def test_every_read_loadpins_makes_is_stored(self):
         """Both of loadPins' reads, whatever they are, have to be in the list."""

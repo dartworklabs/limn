@@ -38,6 +38,7 @@ from hypothesis import given, settings, strategies as st
 from limn.viewer.tests import search_corpus
 
 import helpers_figure
+import helpers_js
 from helpers import blank_png, extract_js_fn, minimal_pdf, needs_tex, needs_tex_files, ps, run_node
 from helpers_browser import (
     MISSES_44,
@@ -256,11 +257,9 @@ def fns(*names):
 
 
 def consts(*names):
-    """The source lines of search.js that define the named constants (`const NAME=...;` on one line), joined."""
+    """The statements of search.js that declare the named constants, whole and as written, joined."""
     src = (Path(__file__).resolve().parents[1] / "js" / "search.js").read_text(encoding="utf-8")
-    found = [line for line in src.splitlines() for n in names if line.startswith("const %s=" % n)]
-    assert len(found) == len(names), names
-    return "\n".join(found)
+    return "\n".join(dict.fromkeys(helpers_js.module_declaration(src, n) for n in names))
 
 
 class SearchLogic(unittest.TestCase):

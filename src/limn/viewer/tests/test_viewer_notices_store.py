@@ -18,11 +18,10 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_notices_store.py
 """
 
 import json
-import re
 import time
 import unittest
 
-from helpers import HTML, extract_js_fn, js_i18n, run_node
+from helpers import extract_js_fn, js_const, js_i18n, run_node
 from helpers_browser import BrowserBase, settle
 from helpers_notices import COUNT_CONFIRMS, SEEN, WATCH_ALERTS, NoticePage, node_or_skip
 
@@ -34,7 +33,7 @@ STORE_FNS = [
     "flushDeferred", "isUndo", "lineCap", "sameWords", "realMove", "digestHold", "noticeDots", "holdsDot", "newsDupe",
     "foldedNews", "gatheredDupe", "gatheredLess", "dotHeld", "digestDots",
 ]  # fmt: skip
-STORE_CONSTS = r"^const (?:NOTICE_MS|NOTICE_HOLD_MAX|LINE_MAX)=\d+;"
+STORE_CONSTS = ("NOTICE_MS", "NOTICE_HOLD_MAX", "LINE_MAX")
 
 # A fake clock (setTimeout, clearTimeout, Date.now; tick(ms) runs what falls due, in order) and the page around the store,
 # stubbed: a closed panel, a hidden '+N' list, no drawing. drawStatus shows the line while it has messages, as the real one.
@@ -107,7 +106,7 @@ class NoticeStoreModel(unittest.TestCase):
         never neither by the end), and none is sent before its window ended unless dismissed or flushed by pagehide;
         no pause survives the line hiding; a resting pointer never starts one; at most one entry per error source; no
         error survives a later success of its source."""
-        consts = "\n".join(re.findall(STORE_CONSTS, HTML, re.M))
+        consts = "\n".join(dict.fromkeys(js_const(n) for n in STORE_CONSTS))
         script = "\n".join(
             [js_i18n("ko"), MODEL_PRELUDE, consts]
             + [extract_js_fn(n) for n in STORE_FNS]
