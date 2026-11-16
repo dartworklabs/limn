@@ -4380,7 +4380,7 @@ addEventListener('resize', placeDocMenu);
 
 // ------------------------------------------------ The open document's facts
 // Read from the page's shared state: the document entries and their kinds, the document a pin belongs to, the query
-// that names a document, its verdict words, and the viewer role.
+// that names a document, its verdict words, and the viewer role - and the last sync the status line says.
 // Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
 // instance.
 function isMarkdownDoc() {
@@ -4444,6 +4444,13 @@ function pageVerdictsOn() {
   const verdicts = docVerdicts();
   return verdicts && verdicts.page ? verdicts : null;
 } // a Markdown document has no pages
+// The last meta `sync` the status line says (documents/view-status.ts statusText).
+let STATUS_SYNC = null;
+// Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setStatusSync(value) {
+  STATUS_SYNC = value;
+  return value;
+}
 
 // ------------------------------------------------ What documents asks the features above it
 // documents decides which document is open and when it is drawn, saved, left and refreshed; drawing it, its outline
@@ -8683,8 +8690,7 @@ function reloadForUpdate() {
 // of platform/notices.ts (LINE): background events, first-visit hints and an undo whose place has left the screen - the
 // only items the desktop's line shows besides a rebuild's 'no changes', a new Limn and the pins kept while cut off,
 // since its chips say the rest (statusShown).
-let STATUS_SYNC = null,
-  STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
+let STATUS_SIG = ''; // the drawn item's kind, action and count
 // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
 let STATUS_TOP = 0;
 // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
@@ -9280,11 +9286,6 @@ if (window.ResizeObserver)
 // Sets STATUS_SIG, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setStatusSig(value) {
   STATUS_SIG = value;
-  return value;
-}
-// Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setStatusSync(value) {
-  STATUS_SYNC = value;
   return value;
 }
 

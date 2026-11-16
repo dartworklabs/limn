@@ -19,10 +19,9 @@ import { versionOutdated } from './flow-updates.ts';
 import { NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
-import { isViewer } from './state.ts';
+import { isViewer, STATUS_SYNC } from './state.ts';
 import { offlineQueue } from './state-seams.ts';
-let STATUS_SYNC = null as SyncStatus | null,
-  STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
+let STATUS_SIG = ''; // the drawn item's kind, action and count
 // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
 let STATUS_TOP = 0;
 // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
@@ -640,18 +639,4 @@ function setStatusSig<Value extends typeof STATUS_SIG>(value: Value): Value {
   STATUS_SIG = value;
   return value;
 }
-// Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setStatusSync<Value extends typeof STATUS_SYNC>(value: Value): Value {
-  STATUS_SYNC = value;
-  return value;
-}
-export {
-  STATUS_TOP,
-  buildUnchanged,
-  drawStatus,
-  placeStatus,
-  setStatusSig,
-  setStatusSync,
-  statusWhy,
-  toggleStatusList,
-};
+export { STATUS_TOP, buildUnchanged, drawStatus, placeStatus, setStatusSig, statusWhy, toggleStatusList };

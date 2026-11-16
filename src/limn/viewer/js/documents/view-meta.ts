@@ -3,12 +3,11 @@
 import { META, buildsFromSource, isFigureKind } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { setStatusSync } from './view-status.ts';
 import { $ } from '../platform/dom.ts';
 import { LOCAL_LOGIN, ROLE, SYNC_STATE } from '../app/rules-tables.ts';
 import { isAgent, who, isHuman } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
-import { isMarkdownDoc, isTextDoc, isViewer } from './state.ts';
+import { isMarkdownDoc, isTextDoc, isViewer, setStatusSync } from './state.ts';
 import { markdownSurface } from './state-seams.ts';
 function builtAtEpoch(builtAt) {
   const parsed = Date.parse(String(builtAt || '').replace(' ', 'T'));
