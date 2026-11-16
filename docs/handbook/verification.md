@@ -39,7 +39,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | §2 인스턴스 관리자 테스트 | 게이트 | `bash src/limn/administration/tests/test_instances.sh` | `ci.yml`의 `instances` 작업 |
 | §3 설치 스모크 | 게이트 | `uv tool install .` 뒤 설치된 명령과 패키지 내용 확인 | `ci.yml`의 `install` 작업 |
 | §8 정적 검사, §9 타입 검사, §10 기능 경계 검사, §11 모듈 역할 검사 | 게이트 | §8–§11의 실행 행 | `ci.yml`의 `lint` 작업, `pyproject.toml`의 `[tool.ruff]`·`[tool.basedpyright]`, `.basedpyright/baseline.json`, `tools/check_fitness.py`와 `tools/fitness-baseline/` |
-| §9의 뷰어 빌드·타입·린트·경계 검사 | 게이트 | `npm ci --ignore-scripts` 뒤 `npm run build:check`, `npm run typecheck`, `npm test`, `uv run python tools/strict_ratchet.py` | `ci.yml`의 `lint` 작업, `package.json`·`package-lock.json`, `tsconfig.json`·`tsconfig.strict.json`, `eslint.config.mjs`, `tools/check_viewer_boundaries.mjs`, `tools/strict-baseline.json` |
+| §9의 뷰어 빌드·타입·린트·경계 검사 | 게이트 | `npm ci --ignore-scripts` 뒤 `npm run build:check`, `npm run typecheck`, `npm run format:check`, `npm test`, `uv run python tools/strict_ratchet.py` | `ci.yml`의 `lint` 작업, `package.json`·`package-lock.json`, `tsconfig.json`·`tsconfig.strict.json`, `eslint.config.mjs`, `.prettierrc.json`·`.prettierignore`, `tools/check_viewer_boundaries.mjs`, `tools/strict-baseline.json` |
 | §4·§5의 수동 대조, §7 Handbook 출판 | 정보 | 각 절의 실행 행 | CI 밖. 리뷰와 작성자가 돌린다 |
 | 커버리지 | 정보 | 필요할 때만 측정 | 설정 없음. 커버리지 수치는 실행 여부를 잴 뿐 검증을 재지 않으므로 게이트로 쓰지 않는다 |
 
@@ -301,10 +301,10 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `src/limn/viewer/js/`의 ES 모듈과 지은 스크립트 `src/limn/viewer/dist/viewer.js`: 지은 파일이 모듈에서 다시 지은 바이트와 같은지, 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입, `strict` 전체의 위반, ESLint 규칙(`any` 값, JSDoc의 `any`·캐스트, 다른 모듈 상태에 쓰기, 헷갈리는 전역, 빠진 `switch` 멤버), 모듈 경계(순환, 나열하지 않은 기능 의존, 공용 모듈의 기능 의존, 역할 규칙, 제자리에 없는 모듈) |
+| 측정 대상 | `src/limn/viewer/js/`의 ES 모듈과 지은 스크립트 `src/limn/viewer/dist/viewer.js`: 지은 파일이 모듈에서 다시 지은 바이트와 같은지, 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입, `strict` 전체의 위반, ESLint 규칙(`any` 값, JSDoc의 `any`·캐스트, 다른 모듈 상태에 쓰기, 헷갈리는 전역, 빠진 `switch` 멤버), 모듈 경계(순환, 나열하지 않은 기능 의존, 공용 모듈의 기능 의존, 역할 규칙, 제자리에 없는 모듈), 그리고 모듈·서비스 워커·파싱 워커·`.mjs` 도구의 글이 Prettier의 출력과 같은지 |
 | 적용 조건 | 뷰어 JS, `src/limn/viewer/types/`, `parts.txt`의 `__APP_JS__`, 개발 도구 설정을 바꿀 때. CI `lint` 작업에서 돈다 |
-| 실행 | `npm ci --ignore-scripts` 뒤 `npm run build:check`(Rollup으로 다시 지어 커밋된 파일과 비교), `npm run typecheck`(`tsc -p .`, TypeScript 7), `npm test`(경계 검사와 ESLint 지역 규칙의 제 사례, `tools/tests/`), `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 오류, ESLint 규칙별 수, `tools/check_viewer_boundaries.mjs`의 규칙별 수가 파일마다 `tools/strict-baseline.json`과 같은지). 도구의 판은 `package-lock.json`이 정한다. 위반 메시지 자체는 `npm run lint`·`npm run boundaries`로 본다 |
-| 합격 기준 | `build:check`는 같다고 알리고, `typecheck`는 출력 없이 0으로 끝나며, `npm test`는 실패가 없고, 래칫은 기준과 같은 수를 알린다. 기준보다 많은 수(새 위반)와 적은 수(낮추지 않은 기준) 모두 실패다. `@ts-ignore`·`@ts-expect-error`·`eslint-disable` 주석은 쓰지 않는다(ESLint는 주석 설정을 읽지 않는다) |
+| 실행 | `npm ci --ignore-scripts` 뒤 `npm run build:check`(Rollup으로 다시 지어 커밋된 파일과 비교), `npm run typecheck`(`tsc -p .`, TypeScript 7), `npm run format:check`(`prettier --check .`, 범위는 `.prettierignore`가 정하고 서식은 `.prettierrc.json`이 정한다. 어긋나면 `npm run format`이 고친다), `npm test`(경계 검사와 ESLint 지역 규칙의 제 사례, `tools/tests/`), `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 오류, ESLint 규칙별 수, `tools/check_viewer_boundaries.mjs`의 규칙별 수가 파일마다 `tools/strict-baseline.json`과 같은지). 도구의 판은 `package-lock.json`이 정한다. 위반 메시지 자체는 `npm run lint`·`npm run boundaries`로 본다 |
+| 합격 기준 | `build:check`는 같다고 알리고, `typecheck`는 출력 없이 0으로 끝나며, `format:check`는 모든 파일이 서식에 맞는다고 알리고, `npm test`는 실패가 없고, 래칫은 기준과 같은 수를 알린다. 기준보다 많은 수(새 위반)와 적은 수(낮추지 않은 기준) 모두 실패다. `@ts-ignore`·`@ts-expect-error`·`eslint-disable` 주석은 쓰지 않는다(ESLint는 주석 설정을 읽지 않는다) |
 | 보장 범위 | `tsconfig.json`의 옵션은 전부, `strict`의 나머지와 ESLint·경계 규칙은 기준선이 허용한 수 밖에서만 막는다. 지은 파일이 모듈과 같다는 것은 §1의 `test_viewer_files`도 node 없이 본다(빈 줄을 뺀 글이 모듈 글의 순서 그대로인지). API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
 
 ## 10. 기능 경계 검사

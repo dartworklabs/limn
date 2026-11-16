@@ -67,6 +67,9 @@ jobs:
         run: npm run build:check
       - name: Viewer type check
         run: npm run typecheck
+      # Prettier's output is the viewer modules' layout (.prettierrc.json; .prettierignore names what it covers).
+      - name: Viewer format
+        run: npm run format:check
       # The viewer checks' own cases (tools/tests): the boundary rules and tables, and the local ESLint rules.
       - name: Viewer check tests
         run: npm test

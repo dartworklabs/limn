@@ -18,6 +18,7 @@ uv run python tools/check_types.py        # basedpyright as Linux and macOS; its
 npm ci --ignore-scripts && npm run typecheck   # type check of the viewer's ES modules (tsconfig.json; dev only, Node 22)
 npm run build                             # after changing src/limn/viewer/js: rebuild src/limn/viewer/dist/viewer.js and commit it
 npm run build:check                       # the committed built script is what the modules build (CI runs this)
+npm run format:check                      # Prettier (.prettierrc.json) over the viewer modules and the repo's .mjs tools; `npm run format` applies it
 npm test                                  # the viewer checks' own cases (tools/tests)
 uv run python tools/strict_ratchet.py     # strict tsc, ESLint and module-boundary counts per viewer module may only go down
 git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips the whole-tree reformat

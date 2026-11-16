@@ -6,3 +6,5 @@
 b6455ea16a4849c2fb77bda603b49407e6a36258
 # Format the tree with ruff format
 f015ac503ef002374e4217db9c392a4d608810c4
+# Format the viewer sources with Prettier
+483e44f2b3f3c7076b8ce46820fa7a8151bf48fc
