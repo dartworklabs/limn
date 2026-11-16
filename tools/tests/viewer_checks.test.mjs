@@ -10,7 +10,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
-import { importGraph, placeOf, tableErrors, violations } from '../check_viewer_boundaries.mjs';
+import { importGraph, main, placeOf, tableErrors, violations } from '../check_viewer_boundaries.mjs';
 import { limnRules } from '../../eslint.config.mjs';
 
 /** The rules found for a graph given as {module: [imports]}, with these tables. */
@@ -70,6 +70,81 @@ test('nothing imports the entry point', () => {
     'feature-dependency js/pins/flow.ts',
     'role js/pins/flow.ts',
   ]);
+});
+
+/**
+ * A viewer of its own in a temporary folder: parts.txt lists `modules` ({path: source}) under __APP_JS__ in order.
+ * Returns the check's exit code and what it said, on stdout and on stderr.
+ */
+function checkOf(modules, argv = []) {
+  const viewer = mkdtempSync(join(tmpdir(), 'limn-check-'));
+  writeFileSync(join(viewer, 'parts.txt'), '__APP_JS__\n' + Object.keys(modules).join('\n') + '\n');
+  for (const [path, source] of Object.entries(modules)) {
+    mkdirSync(join(viewer, path, '..'), { recursive: true });
+    writeFileSync(join(viewer, path), source);
+  }
+  const out = [],
+    err = [];
+  const [log, error, write] = [console.log, console.error, process.stdout.write];
+  console.log = (line) => out.push(String(line));
+  console.error = (line) => err.push(String(line));
+  process.stdout.write = (text) => out.push(String(text)) > 0;
+  try {
+    return { code: main(argv, viewer), out: out.join('\n'), err: err.join('\n') };
+  } finally {
+    [console.log, console.error, process.stdout.write] = [log, error, write];
+  }
+}
+
+test('a feature dependency ALLOWED does not list fails the check outright, naming the rule and both modules', () => {
+  const got = checkOf({
+    'js/pins/view-cards.ts': 'export const card = 1;\n',
+    'js/pdf/view-pages.ts': "import { card } from '../pins/view-cards.ts';\nexport const page = card;\n",
+  });
+  assert.equal(got.code, 2);
+  assert.match(
+    got.err,
+    /^feature-dependency: js\/pdf\/view-pages\.ts \(pdf\) imports js\/pins\/view-cards\.ts \(pins\)/m,
+  );
+  for (const argv of [[], ['--json']])
+    assert.equal(
+      checkOf({ 'js/pins/view-cards.ts': '', 'js/pdf/view-pages.ts': "import '../pins/view-cards.ts';\n" }, argv).code,
+      2,
+    );
+});
+
+test('a platform module reaching a feature fails the check outright, naming the rule and both modules', () => {
+  const got = checkOf({
+    'js/pins/state.ts': 'export const x = 1;\n',
+    'js/platform/dom.ts': "import { x } from '../pins/state.ts';\nexport const y = x;\n",
+  });
+  assert.equal(got.code, 2);
+  assert.match(
+    got.err,
+    /^platform-isolation: js\/platform\/dom\.ts \(platform\) reaches js\/pins\/state\.ts \(pins\)/m,
+  );
+});
+
+test('a role rule broken fails the check outright, naming the rule and both modules', () => {
+  const got = checkOf({
+    'js/pins/view-cards.ts': 'export const card = 1;\n',
+    'js/pins/rules-order.ts': "import { card } from './view-cards.ts';\nexport const order = card;\n",
+  });
+  assert.equal(got.code, 2);
+  assert.match(got.err, /^role: js\/pins\/rules-order\.ts \(rules\) imports js\/pins\/view-cards\.ts \(pins view\)/m);
+});
+
+test('a cycle is counted for the ratchet, not failed: the check passes and its counts hold only cycle', () => {
+  const modules = {
+    'js/pins/view-cards.ts': "import { list } from './flow-list.ts';\nexport const card = () => list;\n",
+    'js/pins/flow-list.ts': "import { card } from './view-cards.ts';\nexport const list = () => card;\n",
+  };
+  assert.equal(checkOf(modules).code, 0);
+  const got = checkOf(modules, ['--json']);
+  assert.equal(got.code, 0);
+  assert.deepEqual(JSON.parse(got.out), {
+    cycle: { 'src/limn/viewer/js/pins/flow-list.ts': 1, 'src/limn/viewer/js/pins/view-cards.ts': 1 },
+  });
 });
 
 test('the path says feature and role; a path that is no place says nothing', () => {

@@ -6,7 +6,10 @@ counting and comparison on the tools' own output formats without node.
 
 import importlib.util
 import json
+import subprocess
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 SPEC = importlib.util.spec_from_file_location("strict_ratchet", ROOT / "tools" / "strict_ratchet.py")
@@ -132,3 +135,21 @@ def test_the_baseline_lists_only_viewer_modules_with_violations():
     for counts in tables:
         assert counts
         assert all(k.startswith("src/limn/viewer/js/") and k.endswith(".ts") and v > 0 for k, v in counts.items())
+
+
+def test_the_boundary_baseline_holds_only_cycle():
+    """feature-dependency, platform-isolation and role are invariants the boundary check fails on outright, so the
+    baseline counts only cycle."""
+    baseline = json.loads((ROOT / "tools" / "strict-baseline.json").read_text(encoding="utf-8"))
+    assert sorted(baseline["boundaries"]) == ["cycle"]
+
+
+def test_a_broken_boundary_invariant_fails_the_run(monkeypatch):
+    """The boundary check's exit 2 (a table mistake or a broken invariant) is no count: the run stops with what it said."""
+    said = "feature-dependency: js/pdf/view.ts (pdf) imports js/pins/view.ts (pins): ALLOWED has no pdf -> pins"
+    monkeypatch.setattr(ratchet, "_require", lambda path: None)
+    monkeypatch.setattr(
+        ratchet.subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 2, stdout="", stderr=said + "\n")
+    )
+    with pytest.raises(SystemExit, match="feature-dependency: js/pdf/view.ts"):
+        ratchet.run_boundaries()

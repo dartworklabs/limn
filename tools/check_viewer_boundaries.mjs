@@ -15,14 +15,15 @@
 //   role                a rules module imports anything but rules of its feature or platform; a state or api module
 //                       anything but rules or state of its feature, app's shared state or platform; any module
 //                       imports the entry point
-// These count per importing module (per imported module for the import rules). tools/strict_ratchet.py holds every
-// count to tools/strict-baseline.json, which only goes down: a new violation fails, and so does a count that fell
-// without the baseline being lowered. A mistake in the tables here (an unknown feature or role, an ALLOWED direction
-// without a reason, two directions between one pair, a cycle among the ALLOWED directions, a module with no place)
-// fails the check outright.
+// feature-dependency, platform-isolation and role are invariants: any violation of one fails the check outright, with
+// the rule, the importing and the imported module, as a mistake in the tables here does (an unknown feature or role,
+// an ALLOWED direction without a reason, two directions between one pair, a cycle among the ALLOWED directions, a
+// module with no place). cycle is the one rule the code does not meet yet: it counts per importing module, and
+// tools/strict_ratchet.py holds every count to tools/strict-baseline.json, which only goes down - a new cycle edge
+// fails, and so does a count that fell without the baseline being lowered.
 //
-// Run: node tools/check_viewer_boundaries.mjs          (the violations, by rule and module)
-//      node tools/check_viewer_boundaries.mjs --json   ({rule: {module path: count}} for the ratchet)
+// Run: node tools/check_viewer_boundaries.mjs          (the cycle edges, by module; exit 2 on an invariant or table error)
+//      node tools/check_viewer_boundaries.mjs --json   ({cycle: {module path: count}} for the ratchet)
 import { readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -108,6 +109,10 @@ export const ALLOWED = [
 ];
 
 export const RULES = ['cycle', 'feature-dependency', 'platform-isolation', 'role'];
+/** The rules the code meets: a violation of one fails the check outright. */
+export const INVARIANTS = ['feature-dependency', 'platform-isolation', 'role'];
+/** The rules still counted against tools/strict-baseline.json. */
+export const RATCHETED = RULES.filter((rule) => !INVARIANTS.includes(rule));
 
 /** The modules parts.txt lists under __APP_JS__, as viewer-relative paths, in order. */
 export function listedModules(viewer = VIEWER) {
@@ -352,36 +357,60 @@ export function violations(graph, { allowed = ALLOWED } = {}) {
 }
 
 /**
- * The counts the ratchet compares: {rule: {src/limn/viewer/<module>: n}}, every rule present.
+ * The counts the ratchet compares: {rule: {src/limn/viewer/<module>: n}}, every ratcheted rule present.
  * @param {Array<[string, string, string]>} found
  */
 export function counts(found) {
-  const out = Object.fromEntries(RULES.map((r) => [r, {}]));
+  const out = Object.fromEntries(RATCHETED.map((r) => [r, {}]));
   for (const [rule, path] of found) {
+    if (!RATCHETED.includes(rule)) continue;
     const key = `src/limn/viewer/${path}`;
     out[rule][key] = (out[rule][key] || 0) + 1;
   }
-  for (const rule of RULES) out[rule] = Object.fromEntries(Object.entries(out[rule]).sort());
+  for (const rule of RATCHETED) out[rule] = Object.fromEntries(Object.entries(out[rule]).sort());
   return out;
 }
 
-function main(argv) {
-  const modules = listedModules();
+/**
+ * The violations of the invariant rules, as messages naming the rule, the importing and the imported module ([] when
+ * the code meets them).
+ * @param {Array<[string, string, string]>} found
+ */
+export function invariantErrors(found) {
+  return found.filter(([rule]) => INVARIANTS.includes(rule)).map(([rule, , message]) => `${rule}: ${message}`);
+}
+
+/**
+ * Runs the check over the viewer at `viewer`: 2 when its tables or an invariant rule fail (each said on stderr), else
+ * 0 with the cycle edges (or, with --json, their counts) on stdout.
+ * @param {string[]} argv
+ * @param {string} [viewer]
+ */
+export function main(argv, viewer = VIEWER) {
+  const modules = listedModules(viewer);
   const errors = tableErrors({ allowed: ALLOWED, modules });
   if (errors.length) {
     for (const e of errors) console.error(e);
     return 2;
   }
-  const found = violations(importGraph(modules));
+  const found = violations(importGraph(modules, viewer));
+  const broken = invariantErrors(found);
+  if (broken.length) {
+    for (const e of broken) console.error(e);
+    console.error(
+      `${INVARIANTS.join(', ')} are invariants: a violation fails the check (docs/handbook/viewer.md §모듈 경계)`,
+    );
+    return 2;
+  }
+  const c = counts(found);
   if (argv.includes('--json')) {
-    process.stdout.write(JSON.stringify(counts(found), null, 2) + '\n');
+    process.stdout.write(JSON.stringify(c, null, 2) + '\n');
     return 0;
   }
   for (const [rule, , message] of found) console.log(`${rule}: ${message}`);
-  const c = counts(found);
   console.log(
-    RULES.map((r) => `${r} ${Object.values(c[r]).reduce((a, b) => a + b, 0)}`).join(', ') +
-      ` - tools/strict_ratchet.py holds these to tools/strict-baseline.json`,
+    RATCHETED.map((r) => `${r} ${Object.values(c[r]).reduce((a, b) => a + b, 0)}`).join(', ') +
+      ` - tools/strict_ratchet.py holds this to tools/strict-baseline.json; ${INVARIANTS.join(', ')} 0 (invariants)`,
   );
   return 0;
 }

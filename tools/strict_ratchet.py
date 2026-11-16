@@ -9,13 +9,15 @@ meet all of them yet:
 - eslint: every rule eslint.config.mjs turns on (no any, no type assertion, no write to another module's state, no
   confusing global, an exhaustive switch over a closed union, a declared name of whole words, a comment with no
   history - limn/plain-names and limn/no-history-comment, tools/viewer-names.json), per rule.
-- boundaries: tools/check_viewer_boundaries.mjs - import cycles, feature dependencies ALLOWED does not list, platform
-  importing a feature, role rules - per rule.
+- boundaries: tools/check_viewer_boundaries.mjs - import cycles, the one boundary rule the code does not meet yet. Its
+  other rules (feature dependencies ALLOWED does not list, platform importing a feature, role rules) are invariants:
+  the check fails outright on any violation of one, so this run fails with it and nothing of them is counted.
 
 This script runs all three and compares each file's count, per check and rule, with tools/strict-baseline.json. A
 count above its baseline fails: new code must meet the rule. A count below fails too, until the baseline is lowered
 with --update, so it cannot creep back. A file or rule the baseline does not name has a baseline of 0. A check that
-fails without giving counts (a broken config, a parse error, a mistake in the boundary tables) fails this run.
+fails without giving counts (a broken config, a parse error, a mistake in the boundary tables, a broken boundary
+invariant) fails this run.
 
 Run: npm ci --ignore-scripts && uv run python tools/strict_ratchet.py [--update]
 """
@@ -122,7 +124,8 @@ def run_eslint() -> list[dict]:
 
 
 def run_boundaries() -> RuleCounts:
-    """The boundary check's counts. Raises SystemExit when it refuses its own tables (exit 2) or fails."""
+    """The boundary check's counts (cycle). Raises SystemExit when it refuses its own tables or an invariant rule is
+    broken (exit 2), or it fails."""
     _require(NODE_MODULES / "rollup")
     proc = subprocess.run(["node", str(BOUNDARIES), "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
