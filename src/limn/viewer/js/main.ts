@@ -267,7 +267,7 @@ import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from 
 import { cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
 import { setPinVerdicts } from './pins/state-seams.ts';
-import { applyRepick, cancelRepick, startRepick, bannerCompare } from './composer/flow-repick.ts';
+import { applyRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
@@ -295,6 +295,7 @@ import { setPageChanges, setPageMarkdown, setPageMarks, setPageSelection, setPag
 import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } from './documents/flow-polling.ts';
 import { drawMeta } from './documents/view-meta.ts';
 import { renderEdit, editDirty } from './pins/view-edit.ts';
+import { cancelRepick, bannerCompare } from './composer/flow-repick-banner.ts';
 
 // The seams platform calls the features through (docs/handbook/viewer.md §모듈 경계), each registered here once. This
 // runs before boot() and before any listener can fire (no code that runs while the script loads calls one), so no

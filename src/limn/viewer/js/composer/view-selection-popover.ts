@@ -10,7 +10,6 @@
 import { KIND_NEW, LAYOUT, REPICK, COMPOSE } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { applySide, setSide } from '../layout/flow.ts';
-import { syncQuestionHint } from './flow-pick.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import { MENTION, mentionClose, mentionEdited, mentionPlace, renderAssignNew } from './input-mentions.ts';
 import { $ } from '../platform/dom.ts';
@@ -20,6 +19,7 @@ import { isRegion } from '../documents/state.ts';
 import { LAST_POINTER } from '../platform/tooltip.ts';
 import { popoverFreeArea } from '../pdf/view-area.ts';
 import { autoGrow } from './view-text.ts';
+import { syncQuestionHint } from './view-note-hints.ts';
 const SELECTION_POPOVER = $('#sel-pop'),
   SELECTION_POPOVER_FIELD = SELECTION_POPOVER.querySelector('textarea') as HTMLTextAreaElement,
   SELECTION_POPOVER_GAP = 8;

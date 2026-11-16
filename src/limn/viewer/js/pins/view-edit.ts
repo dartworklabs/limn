@@ -11,9 +11,9 @@ import { setCap, rangeCap, drawLadder, snipText } from '../composer/view-levels.
 import { html } from '../platform/markup.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { drawExcerpt } from '../composer/view-excerpt.ts';
-import { syncQuestionHint } from '../composer/flow-pick.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { pinState } from '../app/rules-pins.ts';
+import { syncQuestionHint } from '../composer/view-note-hints.ts';
 /** Reflect the editor's shared request lifetime on whichever card is currently visible. */
 function syncEditSaveButton() {
   const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');

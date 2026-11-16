@@ -16017,6 +16017,51 @@ function pinFields() {
   return PIN_FIELDS;
 }
 
+// ------------------------------------------------ What the note's hints read
+// The pin a selection would add to (its overlap, unless dismissed) and whether a note reads like a question: the
+// composer's append row and question hint, and the edit card's and the popover's, draw from these.
+// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
+// (the smallest id).
+function pickOverlap(overlaps) {
+  if (!overlaps || !overlaps.length) return null;
+  const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
+  if (equal.length) return equal.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
+  const insides = overlaps.filter((overlap) => overlap.rel === RANGE_REL.INSIDE);
+  if (insides.length)
+    return insides.reduce((best, candidate) => (candidate.hi - candidate.lo < best.hi - best.lo ? candidate : best));
+  const contains = overlaps.filter((overlap) => overlap.rel === RANGE_REL.CONTAINS);
+  if (contains.length)
+    return contains.reduce((best, candidate) => (candidate.hi - candidate.lo > best.hi - best.lo ? candidate : best));
+  const partials = overlaps.filter((overlap) => overlap.rel === RANGE_REL.PARTIAL);
+  if (partials.length) return partials.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
+  return null;
+}
+// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
+// or null without one, and once the author chose [따로 저장] for it.
+function appendTarget() {
+  const selection = COMPOSE.current,
+    overlap = selection ? pickOverlap(selection.overlaps) : null;
+  return overlap && COMPOSE.dismissedOverlap !== overlap.id + ':' + overlap.rel ? overlap : null;
+}
+// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
+// ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
+// bracket/quote and a trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind
+// itself.
+function looksQuestion(text) {
+  let trimmed = String(text || '').trim();
+  for (let i = 0; i < 3; i++)
+    trimmed = trimmed
+      .replace(/[\s.…~!。)\]"'”’]+$/, '')
+      .replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
+  return /[?？]$/.test(trimmed) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(trimmed);
+}
+// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. It
+// never changes the kind itself - only a click does. It goes once the kind is a question or the text does not read like
+// one.
+function syncQuestionHint(box, text, kind) {
+  if (box) box.hidden = kind === REQUEST_KIND.QUESTION || !looksQuestion(text);
+}
+
 // ------------------------------------------------ Range levels
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
@@ -21404,28 +21449,9 @@ function ringPinBlocks(pinTarget, scope, newUnits, side) {
   return index;
 }
 
-// ------------------------------------------------ Suggested edits (docs/handbook/viewer.md §제안 수정, ADR-0020)
-// A LaTeX line pin may carry the exact text that replaces its lines lo..hi: `suggest` {base, text}, base being the
-// lines the author saw (docs/handbook/api.md §제안 수정 (`suggest`)). The composer and an open edit card each write one
-// draft (SuggestDraft): the [제안 수정] switch, the editor's text, the text it was filled from (base) and the lines
-// that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
-// edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
-// diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
-
-// the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
-const SUGGEST_LINES = 80;
-const SUGGEST_FOLD = 5; // a card's diff folds past this many rows to its first two and last two
-// The short reason drawn where the switch would be when a selection can carry no suggested edit, and its tooltip.
-const SUGGEST_WHY = {
-  pdf: ['보기 전용 PDF에는 제안 수정 없음', '보기 전용 PDF에는 LaTeX 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
-  figure: [
-    '그림 문서에는 제안 수정 없음',
-    '그림 스크립트에는 공통 부품과 다시 그리기 규칙이 따로 있어, 그림 문서에는 바꿀 글을 둘 수 없습니다',
-  ],
-  region: ['영역에는 제안 수정 없음', '영역에는 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
-  long: ['제안 수정은 80줄까지', '제안 수정은 80줄까지의 범위만 바꿉니다. 범위를 줄이면 켤 수 있습니다'],
-};
-
+// ------------------------------------------------ The suggested edit's draft
+// The composer's suggested edit (SUGGEST_DRAFT): an empty one, a copy to keep, and clearing it with its editor.
+// composer/flow-suggest.ts draws and saves it.
 /** A draft with nothing in it: off, empty, never filled. */
 function suggestDraft() {
   return {
@@ -21453,6 +21479,36 @@ function suggestCopy(draft) {
     fail: null,
   };
 }
+// Empties the composer's draft (a save, a discard without undo, another document) and its editor.
+function suggestClear() {
+  Object.assign(SUGGEST_DRAFT, suggestDraft());
+  const editor = $('#c-sg-text');
+  editor.value = '';
+  editor.style.height = '';
+}
+
+// ------------------------------------------------ Suggested edits (docs/handbook/viewer.md §제안 수정, ADR-0020)
+// A LaTeX line pin may carry the exact text that replaces its lines lo..hi: `suggest` {base, text}, base being the
+// lines the author saw (docs/handbook/api.md §제안 수정 (`suggest`)). The composer and an open edit card each write one
+// draft (SuggestDraft): the [제안 수정] switch, the editor's text, the text it was filled from (base) and the lines
+// that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
+// edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
+// diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
+
+// the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
+const SUGGEST_LINES = 80;
+const SUGGEST_FOLD = 5; // a card's diff folds past this many rows to its first two and last two
+// The short reason drawn where the switch would be when a selection can carry no suggested edit, and its tooltip.
+const SUGGEST_WHY = {
+  pdf: ['보기 전용 PDF에는 제안 수정 없음', '보기 전용 PDF에는 LaTeX 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
+  figure: [
+    '그림 문서에는 제안 수정 없음',
+    '그림 스크립트에는 공통 부품과 다시 그리기 규칙이 따로 있어, 그림 문서에는 바꿀 글을 둘 수 없습니다',
+  ],
+  region: ['영역에는 제안 수정 없음', '영역에는 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
+  long: ['제안 수정은 80줄까지', '제안 수정은 80줄까지의 범위만 바꿉니다. 범위를 줄이면 켤 수 있습니다'],
+};
+
 /** The draft an edit card of a pin opens with: on and filled with the pin's suggestion when it has one (had keeps it,
  * to tell what a save changes), else an empty draft. */
 function suggestOfPin(pin) {
@@ -21900,13 +21956,6 @@ function renderSuggest(selection) {
 function suggestPending() {
   return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
 }
-// Empties the composer's draft (a save, a discard without undo, another document) and its editor.
-function suggestClear() {
-  Object.assign(SUGGEST_DRAFT, suggestDraft());
-  const editor = $('#c-sg-text');
-  editor.value = '';
-  editor.style.height = '';
-}
 
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of an edit card's document (an unknown one is LaTeX).
@@ -22238,22 +22287,6 @@ async function pick(region) {
     savePin();
   }
 }
-// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
-// (the smallest id).
-function pickOverlap(overlaps) {
-  if (!overlaps || !overlaps.length) return null;
-  const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
-  if (equal.length) return equal.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
-  const insides = overlaps.filter((overlap) => overlap.rel === RANGE_REL.INSIDE);
-  if (insides.length)
-    return insides.reduce((best, candidate) => (candidate.hi - candidate.lo < best.hi - best.lo ? candidate : best));
-  const contains = overlaps.filter((overlap) => overlap.rel === RANGE_REL.CONTAINS);
-  if (contains.length)
-    return contains.reduce((best, candidate) => (candidate.hi - candidate.lo > best.hi - best.lo ? candidate : best));
-  const partials = overlaps.filter((overlap) => overlap.rel === RANGE_REL.PARTIAL);
-  if (partials.length) return partials.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
-  return null;
-}
 // Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를
 // 감쌈' - '#4와 일부 겹침'. The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range
 // as open pin #4'.
@@ -22275,13 +22308,6 @@ function overlapText(rel, id) {
 
 function recomputeOverlap() {
   if (COMPOSE.current) setSelectionOverlaps(COMPOSE.current, overlapsFor(COMPOSE.current, PINS));
-}
-// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
-// or null without one, and once the author chose [따로 저장] for it.
-function appendTarget() {
-  const selection = COMPOSE.current,
-    overlap = selection ? pickOverlap(selection.overlaps) : null;
-  return overlap && COMPOSE.dismissedOverlap !== overlap.id + ':' + overlap.rel ? overlap : null;
 }
 // Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (three lines would
 // take too much room above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its
@@ -22517,24 +22543,6 @@ function setKind(kind) {
   syncQuestionHint($('#c-qhint'), $('#note').value, KIND_NEW);
   composerVerdict().drawRow();
 } // a question takes no verdict
-// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
-// ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
-// bracket/quote and a trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind
-// itself.
-function looksQuestion(text) {
-  let trimmed = String(text || '').trim();
-  for (let i = 0; i < 3; i++)
-    trimmed = trimmed
-      .replace(/[\s.…~!。)\]"'”’]+$/, '')
-      .replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
-  return /[?？]$/.test(trimmed) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(trimmed);
-}
-// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. It
-// never changes the kind itself - only a click does. It goes once the kind is a question or the text does not read like
-// one.
-function syncQuestionHint(box, text, kind) {
-  if (box) box.hidden = kind === REQUEST_KIND.QUESTION || !looksQuestion(text);
-}
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the
 // tablet sheet's composing lift ends with the composer, also when an open edit card keeps the sheet open.
@@ -36949,8 +36957,9 @@ function editSuggestRefused(card, data) {
   );
 }
 
-// ------------------------------------------------ Re-place location
-// Shows the re-place banner with markup (Html) as its content.
+// ------------------------------------------------ A re-place's banner, and its end
+// While a pin's place is being chosen again (REPICK, composer/flow-repick.ts) the banner over the pages says so and
+// compares the old place with the new one; ending the re-place takes its box and banner away.
 function banner(markup) {
   const bannerBox = $('#banner');
   setHtml(bannerBox, markup);
@@ -36998,6 +37007,23 @@ function bannerCompare() {
   snapBox(repick.box, repickElement(candidate));
   markChosenLines(shownChoice());
 } // the Markdown surface marks the candidate's lines as its box
+// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
+// re-place. The Markdown surface's mark goes back to the composer's selection, if any.
+function cancelRepick() {
+  const was = !!REPICK;
+  if (was) setPickseq(PICKSEQ + 1);
+  if (REPICK && REPICK.box) REPICK.box.remove();
+  setRepick(null);
+  $('#banner').hidden = true;
+  if (was) markChosenLines(shownChoice());
+  if (was) {
+    if (!COMPOSE.current) setSelectMode(false);
+    if (EDITOR.current && LAYOUT !== LAYOUT_MODE.WIDE) setSide(true);
+  }
+}
+
+// ------------------------------------------------ Re-place location
+// Shows the re-place banner with markup (Html) as its content.
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the
 // banner stays visible even on the collapsed sheet).
 async function startRepick() {
@@ -37021,20 +37047,6 @@ async function startRepick() {
   bannerRepick();
   if (COARSE_POINTER_QUERY.matches) setSelectMode(true);
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
-}
-// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
-// re-place. The Markdown surface's mark goes back to the composer's selection, if any.
-function cancelRepick() {
-  const was = !!REPICK;
-  if (was) setPickseq(PICKSEQ + 1);
-  if (REPICK && REPICK.box) REPICK.box.remove();
-  setRepick(null);
-  $('#banner').hidden = true;
-  if (was) markChosenLines(shownChoice());
-  if (was) {
-    if (!COMPOSE.current) setSelectMode(false);
-    if (EDITOR.current && LAYOUT !== LAYOUT_MODE.WIDE) setSide(true);
-  }
 }
 // Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the
 // editor holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the

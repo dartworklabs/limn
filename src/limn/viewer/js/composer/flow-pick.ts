@@ -37,15 +37,7 @@ import { drawLadder, rangeCap, scopeLabel, setCap, snipText, viaTag } from './vi
 import { drawExcerpt } from './view-excerpt.ts';
 import { figureRegionBadge, renderElement } from '../pdf/view-figure.ts';
 import { lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
-import {
-  SUGGEST_DRAFT,
-  renderSuggest,
-  suggestClear,
-  suggestCopy,
-  suggestDraft,
-  suggestEdited,
-  suggestPending,
-} from './flow-suggest.ts';
+import { renderSuggest, suggestEdited, suggestPending } from './flow-suggest.ts';
 import { holdDraftUntil, saveDraftSoon, syncDraft } from './flow-draft.ts';
 import { clearPendingSave, savePin, syncComposeSaveButtons } from './flow-save.ts';
 import {
@@ -55,7 +47,6 @@ import {
   isSelectionPopoverOpen,
 } from './view-selection-popover.ts';
 import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
-import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
@@ -69,6 +60,9 @@ import { useLevel } from '../documents/rules.ts';
 import { imeOpen } from '../platform/composition.ts';
 import { QUOTE_OPEN, autoGrow } from './view-text.ts';
 import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
+import { SUGGEST_DRAFT, suggestClear, suggestCopy, suggestDraft } from './state-suggest.ts';
+import { syncQuestionHint, appendTarget } from './view-note-hints.ts';
+import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick-banner.ts';
 
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
@@ -253,22 +247,6 @@ async function pick(region) {
     savePin();
   }
 }
-// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
-// (the smallest id).
-function pickOverlap(overlaps) {
-  if (!overlaps || !overlaps.length) return null;
-  const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
-  if (equal.length) return equal.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
-  const insides = overlaps.filter((overlap) => overlap.rel === RANGE_REL.INSIDE);
-  if (insides.length)
-    return insides.reduce((best, candidate) => (candidate.hi - candidate.lo < best.hi - best.lo ? candidate : best));
-  const contains = overlaps.filter((overlap) => overlap.rel === RANGE_REL.CONTAINS);
-  if (contains.length)
-    return contains.reduce((best, candidate) => (candidate.hi - candidate.lo > best.hi - best.lo ? candidate : best));
-  const partials = overlaps.filter((overlap) => overlap.rel === RANGE_REL.PARTIAL);
-  if (partials.length) return partials.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
-  return null;
-}
 // Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를
 // 감쌈' - '#4와 일부 겹침'. The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range
 // as open pin #4'.
@@ -290,13 +268,6 @@ function overlapText(rel, id) {
 
 function recomputeOverlap() {
   if (COMPOSE.current) setSelectionOverlaps(COMPOSE.current, overlapsFor(COMPOSE.current, PINS));
-}
-// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
-// or null without one, and once the author chose [따로 저장] for it.
-function appendTarget(): { id: number; lo: number; hi: number; rel: string } | null {
-  const selection = COMPOSE.current,
-    overlap = selection ? pickOverlap(selection.overlaps) : null;
-  return overlap && COMPOSE.dismissedOverlap !== overlap.id + ':' + overlap.rel ? overlap : null;
 }
 // Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (three lines would
 // take too much room above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its
@@ -532,24 +503,6 @@ function setKind(kind) {
   syncQuestionHint($('#c-qhint'), $('#note').value, KIND_NEW);
   composerVerdict().drawRow();
 } // a question takes no verdict
-// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
-// ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
-// bracket/quote and a trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind
-// itself.
-function looksQuestion(text) {
-  let trimmed = String(text || '').trim();
-  for (let i = 0; i < 3; i++)
-    trimmed = trimmed
-      .replace(/[\s.…~!。)\]"'”’]+$/, '')
-      .replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
-  return /[?？]$/.test(trimmed) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(trimmed);
-}
-// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. It
-// never changes the kind itself - only a click does. It goes once the kind is a question or the text does not read like
-// one.
-function syncQuestionHint(box, text, kind) {
-  if (box) box.hidden = kind === REQUEST_KIND.QUESTION || !looksQuestion(text);
-}
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the
 // tablet sheet's composing lift ends with the composer, also when an open edit card keeps the sheet open.
@@ -705,7 +658,6 @@ function discardSelection() {
   if (note) holdDraftUntil(note);
 } // the kept draft goes when the window does
 export {
-  appendTarget,
   cancelSelection,
   composeFields,
   composeOwns,
@@ -713,7 +665,6 @@ export {
   focusClosed,
   focusPlace,
   pick,
-  syncQuestionHint,
   quoteInner,
   recomputeOverlap,
   renderComposer,

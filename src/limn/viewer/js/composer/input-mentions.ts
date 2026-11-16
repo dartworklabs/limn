@@ -11,7 +11,6 @@ import { KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, imeKey, imeTail, EDITOR } f
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { revealSegment } from './view-levels.ts';
-import { appendTarget, syncQuestionHint } from './flow-pick.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import type { Html } from '../platform/markup.ts';
 import { $ } from '../platform/dom.ts';
@@ -21,6 +20,7 @@ import { meLogin, peopleName } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
 import { autoGrow, editNote } from './view-text.ts';
 import { pinFields } from './state-seams.ts';
+import { appendTarget, syncQuestionHint } from './view-note-hints.ts';
 // Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
 // letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
 // character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.

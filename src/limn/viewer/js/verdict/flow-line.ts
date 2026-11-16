@@ -54,7 +54,6 @@ import { arrivePage, figureTop, pdfAreaInnerWidth } from '../pdf/view-pages.ts';
 import { SCROLL_KEYS, readingDepth } from '../pdf/view-outline.ts';
 import { setSide, topAnchor } from '../layout/flow.ts';
 import { isElementLost, figureFields, isFrac, pinPlace } from '../pdf/view-figure.ts';
-import { SUGGEST_DRAFT } from '../composer/flow-suggest.ts';
 import { savePin } from '../composer/flow-save.ts';
 import {
   LAST_KEY_SAVE,
@@ -142,6 +141,7 @@ import {
 } from '../layout/flow-scroll.ts';
 import { CONFIRMING, CONFIRMING_PIN } from '../pins/state.ts';
 import { relSpan } from '../pins/view-time.ts';
+import { SUGGEST_DRAFT } from '../composer/state-suggest.ts';
 
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).

@@ -31,7 +31,7 @@ interface EditCard {
   overwrite?: boolean; // the person chose [내 메모로 덮어쓰기] after seeing theirs
 }
 
-// A suggested edit being written (composer/flow-suggest.ts; the composer's SUGGEST_DRAFT, an edit card's sg): whether its editor is on, the text it
+// A suggested edit being written (composer/flow-suggest.ts; the composer's SUGGEST_DRAFT, composer/state-suggest.ts; an edit card's sg): whether its editor is on, the text it
 // holds, the text it was filled from (base, null before the first fill) and the lines that base is (file, lo, hi), the
 // suggestion the pin had when its edit card opened (had), the current text a 409 answered with and the lines it is
 // (current), the lines being read now ('file:lo-hi', reading) and the last read that failed: its lines, whether it was

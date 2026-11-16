@@ -82,6 +82,7 @@ js/layout/input.ts                     # handle, outline-handle and sheet drags,
 js/pdf/input-selection.ts              # drag and quick selection on the PDF, double-tap zoom
 js/documents/rules.ts                  # the range ladder's levels of a document's source
 js/composer/state-seams.ts             # what the composer asks the features above it: the verdict row and a verdict's save, the pin list, the queue, the edit card and reply
+js/composer/view-note-hints.ts         # what the note's hints read: the pin a selection would add to, a note that reads like a question
 js/composer/view-levels.ts             # the range ladder, line nudges, source snippets, the location-confidence badge
 js/composer/view-excerpt.ts            # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/pdf/view-figure.ts                  # figure documents: the chosen element's box and path
@@ -89,6 +90,7 @@ js/markdown/state-seams.ts             # what the Markdown surface asks the feat
 js/markdown/view.ts                    # the Markdown surface: drawing a document from its source (parse worker, limits), lines, links, picks, marks; the source lines and notices a text document shares
 js/text/view.ts                        # the text surface: a text document's lines as they are (limits, the names view, notices), its ladder (paragraph, indented block)
 js/revisions/view-rendered-compare.ts  # the rendered compare of a Markdown document ([그린 비교]): both sides drawn, compared block by block and word by word
+js/composer/state-suggest.ts           # the suggested edit's draft: empty, copied, cleared
 js/composer/flow-suggest.ts            # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/platform/composition.ts             # whether an input method's composition is open: the element it is in, kept by three listeners
 js/composer/flow-pick.ts               # pick() and the composer: overlap banner, kind, question hint, discard and restore
@@ -114,6 +116,7 @@ js/composer/input-mentions.ts          # @-tag autocomplete, preview and the ass
 js/pins/flow-reply.ts                  # the reply box and its outcome line
 js/pins/view-edit.ts                   # the edit card drawn from what it holds, and whether it has unsaved changes
 js/pins/flow-edit.ts                   # the edit card
+js/composer/flow-repick-banner.ts      # a re-place's banner and its end
 js/composer/flow-repick.ts             # re-placing a pin's location
 js/documents/flow-rebuild.ts           # view anchors, refreshing the document, the build error panel, rebuild
 js/main.ts                             # help dialog, the click and key dispatch, boot() and its call
