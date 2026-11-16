@@ -140,7 +140,8 @@
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 10,
       "src/limn/viewer/js/text/view.ts": 1,
       "src/limn/viewer/js/verdict/flow-line.ts": 2,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 3
+      "src/limn/viewer/js/verdict/flow-reason.ts": 1,
+      "src/limn/viewer/js/verdict/state-drafts.ts": 2
     },
     "@typescript-eslint/no-unsafe-argument": {
       "src/limn/viewer/js/app/rules-pins.ts": 1,
@@ -208,7 +209,8 @@
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 23,
       "src/limn/viewer/js/text/view.ts": 5,
       "src/limn/viewer/js/verdict/flow-line.ts": 51,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 31,
+      "src/limn/viewer/js/verdict/flow-reason.ts": 30,
+      "src/limn/viewer/js/verdict/state-drafts.ts": 1,
       "src/limn/viewer/js/verdict/view-far-lines.ts": 1,
       "src/limn/viewer/js/verdict/view-panel.ts": 8
     },
@@ -284,7 +286,8 @@
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 42,
       "src/limn/viewer/js/text/view.ts": 4,
       "src/limn/viewer/js/verdict/flow-line.ts": 87,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 64,
+      "src/limn/viewer/js/verdict/flow-reason.ts": 55,
+      "src/limn/viewer/js/verdict/state-drafts.ts": 9,
       "src/limn/viewer/js/verdict/view-far-lines.ts": 4,
       "src/limn/viewer/js/verdict/view-panel.ts": 9,
       "src/limn/viewer/js/verdict/view-pins.ts": 3
@@ -354,7 +357,8 @@
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 16,
       "src/limn/viewer/js/text/view.ts": 1,
       "src/limn/viewer/js/verdict/flow-line.ts": 67,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 22,
+      "src/limn/viewer/js/verdict/flow-reason.ts": 18,
+      "src/limn/viewer/js/verdict/state-drafts.ts": 4,
       "src/limn/viewer/js/verdict/view-panel.ts": 10,
       "src/limn/viewer/js/verdict/view-pins.ts": 1
     },
@@ -432,7 +436,8 @@
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 119,
       "src/limn/viewer/js/text/view.ts": 7,
       "src/limn/viewer/js/verdict/flow-line.ts": 194,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 111,
+      "src/limn/viewer/js/verdict/flow-reason.ts": 72,
+      "src/limn/viewer/js/verdict/state-drafts.ts": 39,
       "src/limn/viewer/js/verdict/view-far-lines.ts": 1,
       "src/limn/viewer/js/verdict/view-panel.ts": 28,
       "src/limn/viewer/js/verdict/view-pins.ts": 3
@@ -488,7 +493,8 @@
       "src/limn/viewer/js/revisions/view-rendered-compare.ts": 12,
       "src/limn/viewer/js/text/view.ts": 2,
       "src/limn/viewer/js/verdict/flow-line.ts": 14,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 9,
+      "src/limn/viewer/js/verdict/flow-reason.ts": 8,
+      "src/limn/viewer/js/verdict/state-drafts.ts": 1,
       "src/limn/viewer/js/verdict/view-panel.ts": 1,
       "src/limn/viewer/js/verdict/view-pins.ts": 3
     },

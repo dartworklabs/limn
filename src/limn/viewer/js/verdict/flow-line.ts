@@ -75,8 +75,6 @@ import {
   bringBackReason,
   placeFailedCancelDraft,
   settleFailedCancelDraft,
-  getDraft,
-  putDraft,
   setKeyGuard,
   setReasonSession,
 } from './flow-reason.ts';
@@ -151,6 +149,7 @@ import {
   verdictStateWord,
 } from './view-pins.ts';
 import { FAR_OBSERVER, FAR_HEIGHT, holdFarLines, letFarLinesGo, watchFarLines } from './view-far-lines.ts';
+import { getDraft, putDraft } from './state-drafts.ts';
 
 // The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
 // card's [보기] goes to the line (marks, jumpPin).

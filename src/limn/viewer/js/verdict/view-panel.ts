@@ -40,7 +40,6 @@ import {
   isReasonField,
   findReasonField,
   leaveReason,
-  getDraft,
   setComposingField,
 } from './flow-reason.ts';
 import { $, $$, searchToPage, TABBABLE, isTabStop } from '../platform/dom.ts';
@@ -58,6 +57,7 @@ import {
 import { readingDepth } from '../pdf/view-page-jump.ts';
 import { pageTakesVerdict, verdictStateWord } from './view-pins.ts';
 import { watchFarLines } from './view-far-lines.ts';
+import { getDraft } from './state-drafts.ts';
 
 // The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
 // page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages

@@ -103,6 +103,7 @@ js/offline/view.ts                     # the queued pins on screen: their marks 
 js/verdict/view-pins.ts                # a verdict pin as the lists draw it: what it is about, its order among one target's verdicts, its badges
 js/verdict/view-far-lines.ts           # the page verdict lines far from the view, which the browser skips until they come near
 js/verdict/flow-line.ts                # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
+js/verdict/state-drafts.ts             # a verdict reason's drafts kept per pin for this tab (sessionStorage): reading, keeping, moving them
 js/verdict/flow-reason.ts              # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
 js/verdict/view-panel.ts               # the page verdict panel beside the pages on a wide desktop: when (room, hysteresis), the panel, the summaries
 js/composer/view-selection-popover.ts  # the note popover by the selection box (mouse layouts)

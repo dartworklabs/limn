@@ -29040,30 +29040,12 @@ addEventListener('keydown', (event) => {
   }
 }); // an outline entry comes into the outline's view; the pages stay
 
-// -------------------------------------------- A verdict's reason (docs/handbook/viewer.md §판정 핀 — 판정과 함께 이유)
-// After a save on a page verdict line a person may say why in a short text that becomes the pin's note. It is written
-// in a small popover over the line (.pv-pop: inside the line and laid above it, so it never pushes the page down or
-// makes the floating line taller). No save opens it by itself: the line offers [이유 추가] after a click and, while the
-// keys act on the line, 'Enter 이유 쓰기' - Enter opens it with the focus. Once open, every character typed in it is
-// text, digits too (a data plot's reason often starts with one: '12월 값이 튐'); before it opens the digits are the
-// line's verdict keys. The verdict's saved reason (a check and its first line, a pencil) opens it again to change it or
-// clear it ([지우기]). One popover at a time: the session (REASON_SESSION) belongs to its pin, document and visit and
-// keeps what is typed. A draft is never lost without a word:
-// - it is kept per pin in this tab (sessionStorage, getDraft and putDraft) and a reload brings it back; leaving the
-//   page with one asks first (beforeunload);
-// - with text, Esc takes two presses - the first lets the focus go (the keys then change the verdict) and says what the
-//   second does, which drops it; [접기] folds it away behind the line's '초안 있음' (and it stays folded after a
-//   reload);
-// - changing the verdict while it is being typed moves it to the new verdict (followSaveWithReason);
-// - [되돌리기] of a cancel or of the save chip brings it back with its verdict (reviveReason);
-// - a verdict taken back elsewhere while its reason is being typed leaves the text as its page's draft, said in one
-//   line, and the keys typed after the field went are not verdict keys (isKeyGuarded);
-// - a write that fails - unreachable, refused, too long, a note changed elsewhere - keeps it, and the line marks it
-//   '초안 있음'.
-// Moving on - the reading page leaving the popover's page after it was there, another save on another page, another
-// document - closes it and writes what was typed, said in one line; a folded draft waits for the person.
+// ------------------------------------------------ A verdict reason's drafts, kept per pin (sessionStorage)
+// A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's
+// writes whose answer was lost - the evidence that one may have put it there already.
+// A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre,
+// then the stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
 
-// ---------------- Drafts kept per pin (sessionStorage)
 // One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The
 // key is '<doc>:<pin id>' for a verdict's draft, '<doc>:p<page>' for a page's (the draft of a verdict taken back
 // elsewhere, waiting for the next verdict on that page). text: typed and not written yet; base: the reason it was typed
@@ -29085,8 +29067,6 @@ addEventListener('keydown', (event) => {
 // taken out once written, dropped (Esc twice, [지우기]), moved to a new verdict, or when its pin is found gone from the
 // lists (restoreKeptDrafts).
 const DRAFT_VERSION = 1;
-// A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's
-// writes whose answer was lost - the evidence that one may have put it there already.
 function draftStorageKey() {
   return 'limnReason:' + encodeURIComponent((META && META.label) || '');
 }
@@ -29363,6 +29343,30 @@ function cutWrittenDrafts(doc, id, text) {
   }
   if (changed) saveAllDrafts(drafts);
 }
+
+// -------------------------------------------- A verdict's reason (docs/handbook/viewer.md §판정 핀 — 판정과 함께 이유)
+// After a save on a page verdict line a person may say why in a short text that becomes the pin's note. It is written
+// in a small popover over the line (.pv-pop: inside the line and laid above it, so it never pushes the page down or
+// makes the floating line taller). No save opens it by itself: the line offers [이유 추가] after a click and, while the
+// keys act on the line, 'Enter 이유 쓰기' - Enter opens it with the focus. Once open, every character typed in it is
+// text, digits too (a data plot's reason often starts with one: '12월 값이 튐'); before it opens the digits are the
+// line's verdict keys. The verdict's saved reason (a check and its first line, a pencil) opens it again to change it or
+// clear it ([지우기]). One popover at a time: the session (REASON_SESSION) belongs to its pin, document and visit and
+// keeps what is typed. A draft is never lost without a word:
+// - it is kept per pin in this tab (sessionStorage, getDraft and putDraft) and a reload brings it back; leaving the
+//   page with one asks first (beforeunload);
+// - with text, Esc takes two presses - the first lets the focus go (the keys then change the verdict) and says what the
+//   second does, which drops it; [접기] folds it away behind the line's '초안 있음' (and it stays folded after a
+//   reload);
+// - changing the verdict while it is being typed moves it to the new verdict (followSaveWithReason);
+// - [되돌리기] of a cancel or of the save chip brings it back with its verdict (reviveReason);
+// - a verdict taken back elsewhere while its reason is being typed leaves the text as its page's draft, said in one
+//   line, and the keys typed after the field went are not verdict keys (isKeyGuarded);
+// - a write that fails - unreachable, refused, too long, a note changed elsewhere - keeps it, and the line marks it
+//   '초안 있음'.
+// Moving on - the reading page leaving the popover's page after it was there, another save on another page, another
+// document - closes it and writes what was typed, said in one line; a folded draft waits for the person.
+
 // A pin's write lost its answer (`attempt`): every part moved off its key keeps it as evidence, stored and in a session
 // - also in the texts a session's field may come back to (updateEvidence).
 function addLostWrite(doc, id, attempt) {
@@ -29403,8 +29407,6 @@ function addLostWrite(doc, id, attempt) {
 // part out of this one (takeWrittenText). hist: the texts its field held since its text or parts were last set from
 // elsewhere, with their parts (placeParts).
 // What a session's field held, for its undo and redo (placeParts).
-// A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre,
-// then the stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
 let REASON_SESSION = null;
 let SESSION_SEQUENCE = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
