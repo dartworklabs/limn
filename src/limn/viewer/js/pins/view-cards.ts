@@ -9,7 +9,6 @@ import { viaTag } from '../composer/view-levels.ts';
 import { isElementLost, lostElementTag, figureRegionBadge, pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { suggestBadge, suggestView } from '../composer/flow-suggest.ts';
-import { dropPageLineOverlaps, verdictBadge, verdictOldMarker, verdictTarget } from '../verdict/flow-line.ts';
 import {
   addressedTag,
   authorTip,
@@ -44,13 +43,14 @@ import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
 import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
+import { pinVerdicts } from './state-seams.ts';
 
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;
  * UI words inside those regions are translated before rendering. */
 /** Render a pin's request, status and available actions; confirmation is offered only to a person with write access. */
 function card(pin: Pin) {
-  pin = dropPageLineOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict/flow-line.ts)
+  pin = pinVerdicts().dropOverlaps(pin); // no overlap badge between two verdicts about one page target (verdict/flow-line.ts)
   const loc = 'L' + pin.lo + '-L' + pin.hi,
     name =
       pin.name ||
@@ -124,8 +124,8 @@ function card(pin: Pin) {
   // on a line of its own, cut to one line (.sum-note). A superseded verdict says so folded too: its badge, '이전 판정 ·
   // #4로 대체됨', then '메모 있음' when it has a note (shown when opened). A row that does not clip, so the '#4' link
   // answers its whole touch area (.sum-vd, responsive.css).
-  const oldMarker = verdictOldMarker(pin),
-    targetTag = verdictTarget(pin),
+  const oldMarker = pinVerdicts().oldMarker(pin),
+    targetTag = pinVerdicts().target(pin),
     isVerdict = !!verdictOf(pin),
     hasNote = oldMarker && pin.note ? html`<span class="sum-has">${translate('메모 있음')}</span>` : '';
   const why =
@@ -134,7 +134,7 @@ function card(pin: Pin) {
       : '';
   // It starts with when the note was written, the short form: a folded card has no comment head to say so.
   const noteTime = pin.at ? stampSpan(pin.at, STAMP_FORM.SHORT, 'sum-t') : '';
-  const sum = html`<div class="sum${isVerdict ? ' sum-vd' : ''}" translate="no" data-act="card-toggle">${noteTime}${isVerdict ? html`${verdictBadge(pin)}${oldMarker}${targetTag}${hasNote}${why}` : first ? fmtText(first, pin.mentions) : noNote}</div>`;
+  const sum = html`<div class="sum${isVerdict ? ' sum-vd' : ''}" translate="no" data-act="card-toggle">${noteTime}${isVerdict ? html`${pinVerdicts().badge(pin)}${oldMarker}${targetTag}${hasNote}${why}` : first ? fmtText(first, pin.mentions) : noNote}</div>`;
   if (isRegion(pin)) {
     // a figure region: element without code, or map unreadable
     const regionBadge = figureRegionBadge(pin.el, isFigureKind((docInfo(pdoc(pin)) || {}).kind));
@@ -148,7 +148,7 @@ function card(pin: Pin) {
     tags.unshift(
       html`<span class="badge badge-question" data-tip="${TIP_TEXT.question}">${lucideIcon('circle-question-mark')}질문</span>`,
     );
-  const verdictTag = verdictBadge(pin);
+  const verdictTag = pinVerdicts().badge(pin);
   if (targetTag) tags.unshift(targetTag);
   if (oldMarker) tags.unshift(oldMarker);
   // '판정 채택' in the question badge's place, then '이전 판정 · #4로 대체됨', then the figure it is about
@@ -432,13 +432,13 @@ function doneCard(pin: Pin) {
   const thread = threadOpen
     ? html`<div class="arc-thread"><div class="thread">${entries.map((entry, index) => messageHtml(entry, pin.id + ':' + index))}${replying ? html`<div class="reply-slot"></div>` : ''}</div></div>`
     : '';
-  const oldMarker = verdictOldMarker(pin),
-    targetTag = verdictTarget(pin),
+  const oldMarker = pinVerdicts().oldMarker(pin),
+    targetTag = pinVerdicts().target(pin),
     numberTag = html`${lucideIcon('check')}<span class="n" data-tip="완료한 핀 번호">#${pin.id}</span>`;
-  const where = html`${docChip(pin)}${!oldMarker ? html`${verdictBadge(pin)}${targetTag}` : ''}${arcLoc(pin)}${ref}${relSpan(pin.done_at, 'arc-t', translateTemplate('닫은 사람 {name} · 닫은 시각', { name: who(pin.closed_by) || translate('기록 전') }))}`;
+  const where = html`${docChip(pin)}${!oldMarker ? html`${pinVerdicts().badge(pin)}${targetTag}` : ''}${arcLoc(pin)}${ref}${relSpan(pin.done_at, 'arc-t', translateTemplate('닫은 사람 {name} · 닫은 시각', { name: who(pin.closed_by) || translate('기록 전') }))}`;
   const replyButton = html`<span class="sp"></span><button class="btn-sm btn-secondary arc-b b-reply" data-act="reply-open" data-tip="${TIP_TEXT.reply}">답글</button>`;
   return html`<div class="arc-row done" data-id="${pin.id}" data-doc="${pdoc(pin)}" data-tip="${authorTip(pin)}">\
-${oldMarker ? html`<div class="arc-l1"><span class="arc-head">${numberTag}${verdictBadge(pin)}${oldMarker}${targetTag}</span>${replyButton}</div><div class="arc-l1b">${where}</div>` : html`<div class="arc-l1">${numberTag}${where}${replyButton}</div>`}\
+${oldMarker ? html`<div class="arc-l1"><span class="arc-head">${numberTag}${pinVerdicts().badge(pin)}${oldMarker}${targetTag}</span>${replyButton}</div><div class="arc-l1b">${where}</div>` : html`<div class="arc-l1">${numberTag}${where}${replyButton}</div>`}\
 <div class="arc-l2">${reply}${originalToggle}<button class="arc-orig-t b-change" data-act="change" data-tip="${TIP_TEXT.change}">변경 보기</button>${threadToggle}</div>${original}${thread}</div>`;
 }
 // A Trash row (docs/handbook/viewer.md §휴지통): who deleted it and when, how many days are left before it is purged,

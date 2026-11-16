@@ -57,6 +57,7 @@ js/revisions/flow.ts                   # the changes view: source diff, comparis
 js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents
 js/documents/view-meta.ts              # the header: meta, stale and sync badges, viewer role
 js/documents/flow-polling.ts           # meta polling, other documents' builds
+js/pins/state-seams.ts                 # what the pin list asks the verdicts: a verdict's badge, figure and old mark, its page lines
 js/pins/flow-changes.ts                # status-line messages for pins changed elsewhere, this tab's own actions kept from them
 js/pins/flow-notification.ts           # browser notifications and pin links (#doc=&pin=)
 js/documents/view-build-chip.ts        # build progress polling and its chip
@@ -79,6 +80,7 @@ js/layout/flow.ts                      # layout by width, the panel's open state
 js/layout/input.ts                     # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
 js/pdf/input-selection.ts              # drag and quick selection on the PDF, double-tap zoom
 js/documents/rules.ts                  # the range ladder's levels of a document's source
+js/composer/state-seams.ts             # what the composer asks the features above it: the verdict row and a verdict's save, the pin list, the queue, the edit card and reply
 js/composer/view-levels.ts             # the range ladder, line nudges, source snippets, the location-confidence badge
 js/composer/view-excerpt.ts            # the range excerpt: the band of selected lines between dimmed neighbours, tapped to widen or narrow
 js/pdf/view-figure.ts                  # figure documents: the chosen element's box and path

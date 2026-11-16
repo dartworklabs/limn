@@ -50,6 +50,7 @@ from helpers import (
     js_icons,
     js_listener_body,
     js_markup,
+    js_seams_wired,
     js_thread,
     page_for,
     ps,
@@ -59,6 +60,10 @@ from helpers import (
     sq,
 )
 from helpers_browser import ChromiumTestCase
+
+# The seams the composer and the pin list call the features above them through, wired into a harness as js/main.ts does.
+COMPOSER_SEAMS = "composer/state-seams.ts"
+PIN_SEAMS = "pins/state-seams.ts"
 
 # ---------------------------------------------------------------- frontend pure logic (run the real source under node)
 #
@@ -1308,6 +1313,7 @@ class FrontendMobileLogic(unittest.TestCase):
                 extract_js_fn("isFigureKind"),
                 extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)
                 extract_js_fn("cardQuote"),
+                js_seams_wired(PIN_SEAMS),  # the pin list's seams, wired as js/main.ts does
                 extract_js_fn("card"),
                 extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
@@ -3303,6 +3309,7 @@ class FrontendFigure(unittest.TestCase):
               createElement:()=>({dataset:{},style:{},className:'',set innerHTML(v){}})};""",
                 js_markup(),
                 js_i18n(),
+                js_seams_wired(PIN_SEAMS),  # the pin list's seams, wired as js/main.ts does
                 *[
                     extract_js_fn(n)
                     for n in (
@@ -3792,6 +3799,7 @@ class FrontendArchive(unittest.TestCase):
                 extract_js_fn("trashDaysLeft"),
                 extract_js_fn("isOwner"),
                 extract_js_fn("isViewer"),
+                js_seams_wired(PIN_SEAMS),  # the pin list's seams, wired as js/main.ts does
                 extract_js_fn("doneCard"),
                 extract_js_fn("droppedCard"),
                 script,
@@ -4130,7 +4138,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             let LAYOUT='wide', LAST_POINTER='mouse', SNIP_OPEN=false, PINS=[], DOC=undefined, SWITCHSEQ=0; const EDITOR={current:null,saving:false};
             let KIND_NEW='fix'; function setKind(k){KIND_NEW=k==='question'?'question':'fix';} function mentionHints(){return [];}
             const ASSIGN_NEW={v:'agent',touched:false}; function renderAssignNew(){} function mentionPreview(){}
-            function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (verdict/flow-line.ts)
+            function topPinId(){return 0;}   // the mark a lost save's answer is looked for above (app/state.ts)
             function offlineNow(){return false;} function offlinePick(){return Promise.resolve();}   // connected (offline/flow.ts)
             var OFF={idem:false};   // a server that knows no write by its key: the save carries none
             function isMarkdownDoc(){return false;}
@@ -4167,6 +4175,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
+                js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                 extract_js_fn("savePin"),
                 extract_js_fn("cancelSelection"),
                 JS_API_WAIT + extract_js_fn("pick"),
@@ -4208,6 +4217,24 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         self.assertTrue(data["autoSaved"])
         self.assertEqual(data["pinCallsAfterResolve"], 1)  # once pick resolves, the queued save fires automatically
         self.assertTrue(data["btnLabelRestored"])
+
+    def test_a_selection_the_server_cannot_be_reached_for_goes_to_the_queue(self):
+        """A new selection whose pick request gets no answer opens the composer through the queue (offlinePick, wired
+        by js/main.ts's own setComposerQueue), with the selection's drag, and pick ends there."""
+        js = self._harness(r"""
+            const queued=[]; offlinePick=(drag)=>{queued.push(drag.page); return Promise.resolve();};
+            (async()=>{
+              const p = pick({page:4,x0:0,y0:0,x1:1,y1:1});
+              await Promise.resolve(); await Promise.resolve();
+              pickReject(new Error('unreached'));
+              await p;
+              console.log(JSON.stringify({queued, err: els['#c-err'].hidden}));
+            })();
+            """)
+        out = run_node(js)
+        if out is None:
+            self.skipTest("node not available")
+        self.assertEqual(json.loads(out), {"queued": [4], "err": True})
 
     def test_pick_failure_clears_queued_save_without_saving(self):
         js = self._harness(r"""
@@ -4751,6 +4778,7 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("isFigureKind"),
                 extract_js_fn("shownQuote"),  # the card's quote line (none here: these pins carry no quote)
                 extract_js_fn("cardQuote"),
+                js_seams_wired(PIN_SEAMS),  # the pin list's seams, wired as js/main.ts does
                 extract_js_fn("card"),
                 extract_js_fn("cardActs"),  # the open card's action row (its visual order per layout)
                 js_icons(),
@@ -5850,6 +5878,7 @@ class ViewerFunctions2(unittest.TestCase):
                 extract_js_fn("isOwner"),
                 extract_js_fn("isViewer"),
                 "function verdictOf(){return null;}",  # an ordinary pin (app/rules-pins.ts): its [되살리기] whatever the role
+                js_seams_wired(PIN_SEAMS),  # the pin list's seams, wired as js/main.ts does
                 extract_js_fn("droppedCard"),
                 r"""
             const h=String(droppedCard({id:4,file:'/m.tex',name:'m.tex',lo:2,hi:9,page:1,note:'메모',dropped_at:'2026-09-25 09:00:00',dropped_by:{name:'Bob Park'},expires_ts:Date.now()/1000+30*86400-60}));

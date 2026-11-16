@@ -10,9 +10,9 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { refetchSnip } from './view-levels.ts';
 import { recomputeOverlap, renderComposer } from './flow-pick.ts';
-import { renderEdit } from '../pins/flow-edit.ts';
 import { $ } from '../platform/dom.ts';
 import { withDocQuery, isRegion } from '../documents/state.ts';
+import { pinFields } from './state-seams.ts';
 
 // The range first..last widened to line: [min(first, line), max(last, line)]. Pure.
 function widenTo(first, last, line) {
@@ -101,7 +101,7 @@ async function excerptFetch(owner) {
 // Redraws the panel the owner belongs to (the composer's selection or the open edit card); a stale owner draws nothing.
 function excerptRedraw(owner) {
   if (owner === COMPOSE.current) renderComposer();
-  else if (owner === EDITOR.current) renderEdit();
+  else if (owner === EDITOR.current) pinFields().drawEdit();
 }
 // The owner's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
 function excerptBox(owner) {

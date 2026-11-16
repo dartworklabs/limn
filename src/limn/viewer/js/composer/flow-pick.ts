@@ -48,15 +48,12 @@ import {
 } from './flow-suggest.ts';
 import { holdDraftUntil, saveDraftSoon, syncDraft } from './flow-draft.ts';
 import { clearPendingSave, savePin, syncComposeSaveButtons } from './flow-save.ts';
-import { offlinePick } from '../offline/flow.ts';
-import { renderVerdictRow } from '../verdict/flow-line.ts';
 import {
   SELECTION_POPOVER_FIELD,
   closeSelectionPopover,
   drawSelectionPopover,
   isSelectionPopoverOpen,
 } from './view-selection-popover.ts';
-import { loadPins } from '../pins/flow-list.ts';
 import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
 import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
@@ -71,6 +68,7 @@ import { offlineNow } from '../documents/flow-polling.ts';
 import { useLevel } from '../documents/rules.ts';
 import { imeOpen } from '../platform/composition.ts';
 import { QUOTE_OPEN, autoGrow } from './view-text.ts';
+import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
 
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
  * and snippet updates do not count as new input. */
@@ -124,7 +122,7 @@ async function pick(region) {
     $('#c-err').hidden = true;
     $('#c-body').hidden = false;
     // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
-    renderVerdictRow();
+    composerVerdict().drawRow();
     setSide(true);
     applySide(); // a collapsed panel opens for a new selection in every layout (wide included)
     // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
@@ -164,7 +162,7 @@ async function pick(region) {
     // (offline/flow.ts).
     const failure = error as ApiError;
     if (!repick && !(failure && failure.status) && !isMarkdownDoc()) {
-      void offlinePick(region);
+      void composerQueue().pick(region);
       return;
     }
     if (repick) {
@@ -235,7 +233,7 @@ async function pick(region) {
   selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
   // re-fetched - loadPins recomputes overlap too.
-  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) loadPins();
+  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) composerPins().load();
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
@@ -532,7 +530,7 @@ function setKind(kind) {
   $('#note').placeholder =
     KIND_NEW === REQUEST_KIND.QUESTION ? '무엇이 궁금한지 적어 주세요' : '메모: 여기를 어떻게 고칠지 (비워도 됩니다)';
   syncQuestionHint($('#c-qhint'), $('#note').value, KIND_NEW);
-  renderVerdictRow();
+  composerVerdict().drawRow();
 } // a question takes no verdict
 // A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
 // ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing

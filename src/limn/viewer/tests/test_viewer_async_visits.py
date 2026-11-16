@@ -8,6 +8,7 @@ import unittest
 from helpers import JS_OFFLINE_STUBS, JS_UPDATE_STUBS, extract_js_fn, js_seams_wired, run_node
 
 DOCUMENT_SEAMS = "documents/state-seams.ts"
+COMPOSER_SEAMS = "composer/state-seams.ts"
 
 
 class AsyncDocumentVisits(unittest.TestCase):
@@ -138,7 +139,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
-                "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (verdict/flow-line.ts)
+                "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (app/state.ts)
+                js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
@@ -248,6 +250,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 extract_js_fn("isViewer"),
                 extract_js_fn("viewerBlocked"),
+                js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                 extract_js_fn("appendToPin"),
                 """
                 let DOC='a',SWITCHSEQ=1,PINS=[{id:7,note:'old'}]; const COMPOSE={current:{doc:'a'},box:{remove(){removed++;}}};
@@ -428,6 +431,7 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
+                js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                 extract_js_fn("applyRepick"),
                 extract_js_fn("lineRange"),
                 """
@@ -468,6 +472,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("isFrac"),
                         extract_js_fn("hasMark"),
                         extract_js_fn("pinPlace"),
+                        js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                         extract_js_fn("applyRepick"),
                         extract_js_fn("lineRange"),
                         """
@@ -495,6 +500,7 @@ class VisitLocalContinuations(unittest.TestCase):
                     [
                         extract_js_fn("captureVisit"),
                         extract_js_fn("currentVisit"),
+                        js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                         extract_js_fn("applyRepick"),
                         extract_js_fn("lineRange"),
                         """

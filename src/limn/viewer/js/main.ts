@@ -193,6 +193,9 @@ import {
   offlineAskDown,
   offlineBoot,
   OFF,
+  offlinePick,
+  offlineQueueSave,
+  offlineKey,
 } from './offline/flow.ts';
 import {
   cancelLineVerdict,
@@ -204,6 +207,18 @@ import {
   sizePageLines,
   pageVerdictPins,
   renderVerdictRow,
+  figureVerdictBody,
+  figureVerdictRoot,
+  figureShort,
+  verdictUndo,
+  verdictDropped,
+  verdictBadge,
+  verdictTarget,
+  verdictOldMarker,
+  dropPageLineOverlaps,
+  drawPageVerdicts,
+  isShownOnLine,
+  jumpToPageLine,
 } from './verdict/flow-line.ts';
 import {
   actOnReason,
@@ -249,7 +264,9 @@ import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
-import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty } from './pins/flow-edit.ts';
+import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty, editSnip } from './pins/flow-edit.ts';
+import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
+import { setPinVerdicts } from './pins/state-seams.ts';
 import { applyRepick, cancelRepick, startRepick, bannerCompare } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
@@ -404,6 +421,29 @@ setPageChanges({ setMode: setViewMode });
 setTextSurface({ build: buildTextView, levels: textLevels });
 setLinePick({ compare: bannerCompare, setBusy, renderComposer, renderVerdictRow });
 setLineMarks({ draw: marks });
+// The composer's seams (composer/state-seams.ts) and the pin list's (pins/state-seams.ts): the verdict row and the
+// verdict a save carries, the pin list a save changes, the queue a save goes into while cut off, the edit card and the
+// reply that share the composer's text tools, and what a verdict adds to the pin list.
+setComposerVerdict({
+  drawRow: renderVerdictRow,
+  figureBody: figureVerdictBody,
+  figureRoot: figureVerdictRoot,
+  figureShort,
+  undo: verdictUndo,
+  dropped: verdictDropped,
+});
+setComposerPins({ load: loadPins, drop: dropPin });
+setComposerQueue({ pick: offlinePick, save: offlineQueueSave, keyed: () => OFF.idem, key: offlineKey });
+setPinFields({ drawEdit: renderEdit, snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
+setPinVerdicts({
+  badge: verdictBadge,
+  target: verdictTarget,
+  oldMarker: verdictOldMarker,
+  dropOverlaps: dropPageLineOverlaps,
+  drawLines: drawPageVerdicts,
+  shownOnLine: isShownOnLine,
+  jumpToLine: jumpToPageLine,
+});
 let HELP_BACK = null as HTMLElement | null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
