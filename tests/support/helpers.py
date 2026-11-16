@@ -205,7 +205,7 @@ def js_esc() -> str:
 
 def js_thread() -> str:
     """The native thread and card context renderers; callers supply actors, icons, and viewer state."""
-    ev, st, mo = js_const("EV_LABEL"), js_const("ST_NAME"), js_const("MSG_OPEN")
+    ev, st, mo = js_const("EVENT_LABEL"), js_const("CARD_STATE_NAME"), js_const("MSG_OPEN")
     return "\n".join(
         [ev, st, mo, "let PEOPLE=[];", extract_js_fn("hasRef")]
         + [
@@ -233,20 +233,20 @@ def js_thread() -> str:
                 "threadOf",
                 "allMentions",
                 "replyCount",
-                "msgText",
+                "entryText",
                 "msgHtml",
                 "nodeAvatar",
                 "whoWhen",
                 "noteHead",
-                "tlMsg",
+                "timelineEntry",
                 "threadHtml",
                 "pinState",
                 "isMe",
                 "reviewerLabel",
                 "peopleName",
-                "mentionToks",
+                "mentionTokensOf",
                 "mentionAfterWord",
-                "reEsc",
+                "escapeRegExp",
                 "meLogin",
                 "pinRefExists",
                 "pinRefGone",

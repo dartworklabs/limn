@@ -221,7 +221,7 @@ class FunctionExtraction(unittest.TestCase):
         still ends at the function's own closing brace (the last character) and holds the whole body."""
         body = extract_js_fn("card")
         self.assertTrue(body.endswith("}"))
-        self.assertIn(sq("function card(p){"), sq(body))
+        self.assertIn(sq("function card(pin){"), sq(body))
         self.assertIn("${head}${body}</div>`;\n}", body)
 
     def test_the_tables_a_function_reads_come_with_it(self):
@@ -277,7 +277,7 @@ class DeadAndDoubledFunctions(unittest.TestCase):
         reported as unreferenced."""
         sources = part_sources()
         src = sources["js/mentions.ts"]
-        call = re.search(r"\n\s*(r\.bad\s*=\s*mentionBadSettled\([^;]*\);)", src)
+        call = re.search(r"\n\s*(scan\.bad\s*=\s*mentionBadSettled\([^;]*\);)", src)
         self.assertIsNotNone(call)
         sources["js/mentions.ts"] = src.replace(
             call.group(0), " // the same hints " + " ".join(call.group(1).split()), 1

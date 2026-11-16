@@ -26,69 +26,72 @@ const MENTION = {
   items: [] as PersonSeen[],
   sel: 0,
 };
-function mentionQuery(ta) {
-  const pos = ta.selectionStart;
-  if (pos == null || pos !== ta.selectionEnd) return null;
-  const m = /(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(ta.value.slice(0, pos));
-  return m ? { start: pos - m[2].length - 1, q: m[2] } : null;
+function mentionQuery(field) {
+  const pos = field.selectionStart;
+  if (pos == null || pos !== field.selectionEnd) return null;
+  const match = /(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(field.value.slice(0, pos));
+  return match ? { start: pos - match[2].length - 1, q: match[2] } : null;
 }
-function mentionMatches(q, people, meLogin) {
-  q = String(q || '').toLowerCase();
+function mentionMatches(query, people, meLogin) {
+  query = String(query || '').toLowerCase();
   const rows = people
-    .filter((p) => p.login !== meLogin)
-    .map((p) => {
-      const n = String(p.name || '').toLowerCase(),
-        l = p.login.toLowerCase();
-      const at = Math.min(...[n.indexOf(q), l.indexOf(q)].filter((i) => i >= 0).concat([99]));
-      const word = n.split(/\s+/).some((w) => w.startsWith(q));
-      return { p, rank: !q ? 0 : at === 0 ? 0 : word ? 1 : at < 99 ? 2 : 9 };
+    .filter((person) => person.login !== meLogin)
+    .map((person) => {
+      const name = String(person.name || '').toLowerCase(),
+        login = person.login.toLowerCase();
+      const at = Math.min(
+        ...[name.indexOf(query), login.indexOf(query)].filter((position) => position >= 0).concat([99]),
+      );
+      const word = name.split(/\s+/).some((part) => part.startsWith(query));
+      return { p: person, rank: !query ? 0 : at === 0 ? 0 : word ? 1 : at < 99 ? 2 : 9 };
     });
   return rows
-    .filter((r) => r.rank < 9)
-    .sort((a, b) => a.rank - b.rank || String(a.p.name).localeCompare(String(b.p.name)))
+    .filter((row) => row.rank < 9)
+    .sort((left, right) => left.rank - right.rank || String(left.p.name).localeCompare(String(right.p.name)))
     .slice(0, 6)
-    .map((r) => r.p);
+    .map((row) => row.p);
 }
 // The hints a send carries: the logins of the field's tags that are tags in its text now (an '@name' right after a letter
 // is none, as for the server; typing a new tag right before an old one makes one for a moment), in text order.
-function mentionHints(ta: HTMLTextAreaElement | null): string[] {
-  if (!ta) return [];
-  const v = ta.value;
+function mentionHints(field: HTMLTextAreaElement | null): string[] {
+  if (!field) return [];
+  const text = field.value;
   return [
     ...new Set(
-      mentionTags(ta)
-        .filter((t) => !mentionAfterWord(v, t.at))
-        .map((t) => t.login),
+      mentionTags(field)
+        .filter((tag) => !mentionAfterWord(text, tag.at))
+        .map((tag) => tag.login),
     ),
   ];
 }
 // The field's tags for the text it holds. When its text or its logins were set from outside (a draft, a stored pin, a
 // reply's draft) the tags are worked out again from the logins, which are in text order: each takes the next '@name' of
 // its name that no earlier one took.
-function mentionTags(ta: HTMLTextAreaElement): MentionTag[] {
-  if (ta._tags && ta._tagsFor === ta.value && ta._tagsFrom === ta._mentions) return ta._tags;
-  ta._tags = mentionBind(
-    Array.from(ta._mentions || []).map((l) => ({ login: l, tok: '@' + peopleName(l) })),
-    ta.value,
+function mentionTags(field: HTMLTextAreaElement): MentionTag[] {
+  if (field._tags && field._tagsFor === field.value && field._tagsFrom === field._mentions) return field._tags;
+  field._tags = mentionBind(
+    Array.from(field._mentions || []).map((login) => ({ login: login, tok: '@' + peopleName(login) })),
+    field.value,
   );
-  ta._tagsFor = ta.value;
-  ta._tagsFrom = ta._mentions;
-  return ta._tags;
+  field._tagsFor = field.value;
+  field._tagsFrom = field._mentions;
+  return field._tags;
 }
 // Each of picks ({login, tok}) bound to the first '@name' (tok) in text that a tag can start at and no earlier pick took;
 // a pick whose name is not there is dropped. Pure.
 function mentionBind(picks: { login: string; tok: string }[], text: string): MentionTag[] {
   const taken = new Set(),
     out = [] as MentionTag[];
-  for (const p of picks) {
-    let i = text.indexOf(p.tok);
-    while (i >= 0 && (taken.has(i) || mentionAfterWord(text, i))) i = text.indexOf(p.tok, i + 1);
-    if (i >= 0) {
-      taken.add(i);
-      out.push({ login: p.login, at: i, tok: p.tok });
+  for (const pick of picks) {
+    let position = text.indexOf(pick.tok);
+    while (position >= 0 && (taken.has(position) || mentionAfterWord(text, position)))
+      position = text.indexOf(pick.tok, position + 1);
+    if (position >= 0) {
+      taken.add(position);
+      out.push({ login: pick.login, at: position, tok: pick.tok });
     }
   }
-  return out.sort((a, b) => a.at - b.at);
+  return out.sort((left, right) => left.at - right.at);
 }
 // The tags of old after an edit made it now, with the caret at caret afterwards: the edit is the one span where the two
 // differ. Typing, pasting and deleting leave the caret at its end, so of two equal '@name's the one at the caret is the one
@@ -97,71 +100,81 @@ function mentionBind(picks: { login: string; tok: string }[], text: string): Men
 // away. A tag whose '@name' is not where it moved to is dropped too; one that a letter now precedes stays (it is no tag
 // until that letter goes: mentionHints). Pure.
 function mentionShift(tags: MentionTag[], old: string, now: string, caret: number): MentionTag[] {
-  const m = Math.min(old.length, now.length);
+  const minLength = Math.min(old.length, now.length);
   const span = (tail: number) => {
-    let p = 0,
-      s = 0;
-    while (s < m && s < tail && old[old.length - 1 - s] === now[now.length - 1 - s]) s++;
-    while (p < m - s && old[p] === now[p]) p++;
-    return { p, s, size: old.length + now.length - 2 * (p + s) };
+    let prefix = 0,
+      suffix = 0;
+    while (suffix < minLength && suffix < tail && old[old.length - 1 - suffix] === now[now.length - 1 - suffix])
+      suffix++;
+    while (prefix < minLength - suffix && old[prefix] === now[prefix]) prefix++;
+    return { p: prefix, s: suffix, size: old.length + now.length - 2 * (prefix + suffix) };
   };
   const at = span(Math.max(0, now.length - caret)),
-    free = span(Math.max(0, m - mentionCommonStart(old, now))),
-    { p, s } = free.size < at.size ? free : at;
-  const end = old.length - s,
-    d = now.length - old.length;
+    free = span(Math.max(0, minLength - mentionCommonStart(old, now))),
+    { p: prefix, s: suffix } = free.size < at.size ? free : at;
+  const end = old.length - suffix,
+    delta = now.length - old.length;
   return tags
-    .filter((t) => (end > p ? !(t.at < end && p < t.at + t.tok.length) : !(t.at < p && p < t.at + t.tok.length)))
-    .map((t) => (t.at >= end ? { login: t.login, at: t.at + d, tok: t.tok } : t))
-    .filter((t) => now.startsWith(t.tok, t.at));
+    .filter((tag) =>
+      end > prefix
+        ? !(tag.at < end && prefix < tag.at + tag.tok.length)
+        : !(tag.at < prefix && prefix < tag.at + tag.tok.length),
+    )
+    .map((tag) => (tag.at >= end ? { login: tag.login, at: tag.at + delta, tok: tag.tok } : tag))
+    .filter((tag) => now.startsWith(tag.tok, tag.at));
 }
 // How many characters old and now share from their start. Pure.
 function mentionCommonStart(old: string, now: string): number {
-  let p = 0;
-  const m = Math.min(old.length, now.length);
-  while (p < m && old[p] === now[p]) p++;
-  return p;
+  let shared = 0;
+  const minLength = Math.min(old.length, now.length);
+  while (shared < minLength && old[shared] === now[shared]) shared++;
+  return shared;
 }
 // Follows an edit of ta's text (an input event, or the note popover's text copied in): its tags move with the edit or
 // drop out, and its logins become theirs. caret is where the edit left the caret.
-function mentionEdited(ta: HTMLTextAreaElement, caret?: number) {
-  const known = ta._tags && ta._tagsFrom === ta._mentions && ta._tagsFor != null;
+function mentionEdited(field: HTMLTextAreaElement, caret?: number) {
+  const known = field._tags && field._tagsFrom === field._mentions && field._tagsFor != null;
   const tags = known
-    ? mentionShift(ta._tags as MentionTag[], ta._tagsFor as string, ta.value, caret == null ? ta.selectionStart : caret)
-    : mentionTags(ta);
-  mentionKeep(ta, tags);
+    ? mentionShift(
+        field._tags as MentionTag[],
+        field._tagsFor as string,
+        field.value,
+        caret == null ? field.selectionStart : caret,
+      )
+    : mentionTags(field);
+  mentionKeep(field, tags);
 }
 // Stores tags as ta's own for its present text, with the logins they name (in text order) as ta._mentions.
-function mentionKeep(ta: HTMLTextAreaElement, tags: MentionTag[]) {
-  ta._tags = tags;
-  ta._tagsFor = ta.value;
-  ta._mentions = ta._tagsFrom = tags.length ? new Set(tags.map((t) => t.login)) : null;
+function mentionKeep(field: HTMLTextAreaElement, tags: MentionTag[]) {
+  field._tags = tags;
+  field._tagsFor = field.value;
+  field._mentions = field._tagsFrom = tags.length ? new Set(tags.map((tag) => tag.login)) : null;
 }
 // The field that keeps ta's tags and sends them: the field ta mirrors (ta._mirrorOf, whose text ta's own listener keeps equal
 // to ta's), else ta itself.
-function mentionModel(ta: HTMLTextAreaElement): HTMLTextAreaElement {
-  return ta._mirrorOf || ta;
+function mentionModel(field: HTMLTextAreaElement): HTMLTextAreaElement {
+  return field._mirrorOf || field;
 }
 // Shows m's text in each field that mirrors it. A mirror's own listeners copy only what is typed in m (an input event), and
 // a pick writes m's text from code.
-function mentionMirror(m: HTMLTextAreaElement) {
-  document.querySelectorAll('textarea').forEach((f) => {
-    if (f._mirrorOf === m && f.value !== m.value) f.value = m.value;
+function mentionMirror(model: HTMLTextAreaElement) {
+  document.querySelectorAll('textarea').forEach((mirror) => {
+    if (mirror._mirrorOf === model && mirror.value !== model.value) mirror.value = model.value;
   });
 }
 // Whether the caret of the open list's field still ends the '@word' the list was drawn for.
 function mentionCurrent() {
-  const ta = MENTION.ta,
-    q = ta && mentionQuery(ta);
-  return !!q && q.start === MENTION.start && q.q === MENTION.q;
+  const field = MENTION.ta,
+    query = field && mentionQuery(field);
+  return !!query && query.start === MENTION.start && query.q === MENTION.q;
 }
 // An '@word' still being typed (the cursor sits at its end) is never flagged as '등록된 사람이 아님' yet - the warning
 // used to appear while still picking (QA 2026-09-25). It's flagged once the cursor leaves it or the field. If the same word appears earlier too (an already-finished '@word'), it's still flagged as usual.
-function mentionBadSettled(bad, text, q) {
-  if (!q) return bad;
-  const w = q.q,
-    before = String(text || '').slice(0, q.start);
-  return bad.filter((x) => x !== w || before.includes('@' + w));
+function mentionBadSettled(bad, text, typing) {
+  if (!typing) return bad;
+  const typed = typing.q,
+    before = String(text || '').slice(0, typing.start);
+  return bad.filter((badWord) => badWord !== typed || before.includes('@' + typed));
 }
 function mentionClose() {
   MENTION.ta = null;
@@ -184,9 +197,9 @@ function mentionResolve(
   byHint: boolean,
 ): { hit: string[]; bad: string[] } {
   text = String(text || '');
-  const toks = mentionTokens(people),
+  const tokens = mentionTokens(people),
     order = [...hints],
-    hs = new Set(order);
+    hinted = new Set(order);
   const hit = [] as string[],
     bad = [] as string[],
     low = text.toLowerCase();
@@ -194,24 +207,28 @@ function mentionResolve(
     if (text[i] !== '@' || mentionAfterWord(text, i)) continue;
     const rest = low.slice(i + 1);
     let got = null as string[] | null;
-    for (const x of toks) {
-      if (!rest.startsWith(x.t)) continue;
-      const nx = rest.charAt(x.t.length);
-      if (/[a-z0-9]$/.test(x.t) && /[a-z0-9_]/.test(nx)) continue;
+    for (const token of tokens) {
+      if (!rest.startsWith(token.t)) continue;
+      const after = rest.charAt(token.t.length);
+      if (/[a-z0-9]$/.test(token.t) && /[a-z0-9_]/.test(after)) continue;
       const pick =
-        x.lg.length === 1 ? x.lg : byHint ? order.filter((l) => x.lg.includes(l)) : x.lg.filter((l) => hs.has(l));
+        token.lg.length === 1
+          ? token.lg
+          : byHint
+            ? order.filter((login) => token.lg.includes(login))
+            : token.lg.filter((login) => hinted.has(login));
       if (pick.length) {
         got = pick;
         break;
       }
     }
     if (got)
-      got.forEach((l) => {
-        if (!hit.includes(l)) hit.push(l);
+      got.forEach((login) => {
+        if (!hit.includes(login)) hit.push(login);
       });
     else {
-      const w = /^[^\s@]{1,30}/.exec(text.slice(i + 1));
-      if (w && !bad.includes(w[0])) bad.push(w[0]);
+      const word = /^[^\s@]{1,30}/.exec(text.slice(i + 1));
+      if (word && !bad.includes(word[0])) bad.push(word[0]);
     }
   }
   return { hit, bad };
@@ -222,18 +239,20 @@ function mentionResolve(
 // bob@example.com), and a candidate several people share lists them all (sorted) - it then needs a hint.
 function mentionTokens(people) {
   const by = new Map();
-  (people || []).forEach((p) => {
-    const lg = String(p.login),
-      nm = String(p.name || ''),
-      w = nm.split(/\s+/).filter(Boolean);
-    [nm, lg, lg.split('@')[0]].concat(w.length > 1 ? [w[0]] : []).forEach((t) => {
-      if ([...t].length < 2) return;
-      const k = t.toLowerCase();
-      if (!by.has(k)) by.set(k, new Set());
-      by.get(k).add(lg);
+  (people || []).forEach((person) => {
+    const login = String(person.login),
+      name = String(person.name || ''),
+      words = name.split(/\s+/).filter(Boolean);
+    [name, login, login.split('@')[0]].concat(words.length > 1 ? [words[0]] : []).forEach((candidate) => {
+      if ([...candidate].length < 2) return;
+      const key = candidate.toLowerCase();
+      if (!by.has(key)) by.set(key, new Set());
+      by.get(key).add(login);
     });
   });
-  return [...by].map(([t, s]) => ({ t, lg: [...s].sort() })).sort((a, b) => [...b.t].length - [...a.t].length);
+  return [...by]
+    .map(([candidate, logins]) => ({ t: candidate, lg: [...logins].sort() }))
+    .sort((left, right) => [...right.t].length - [...left.t].length);
 }
 // The colleagues a note tags, in the order it first names them - whom an assignee row offers. A colleague is a resolved
 // @-tag that is not me (the server drops a tag of its author too), so an unresolved word, a tag taken out of the text and a
@@ -245,7 +264,7 @@ function assignPeople(
   me: string | null,
   keep?: string,
 ): string[] {
-  const out = mentionResolve(text, hints, people, true).hit.filter((l) => l !== me);
+  const out = mentionResolve(text, hints, people, true).hit.filter((login) => login !== me);
   if (keep && keep !== ASSIGNEE_AGENT && !out.includes(keep)) out.push(keep);
   return out;
 }
@@ -259,7 +278,7 @@ function assignPeople(
 // - SAVE_MODE.APPEND, the note joins an existing pin: that pin's assignee (stored) and kind stay as they are, there is nobody
 //   to choose (people is empty), and every colleague the note tags is told.
 // Pure.
-function assignOutcome(q: {
+function assignOutcome(inputs: {
   text: string;
   kind: string;
   hints: string[];
@@ -269,27 +288,34 @@ function assignOutcome(q: {
   pick: { v: string; touched: boolean };
   stored?: string | null;
 }): { mode: string; kind: string | null; people: string[]; assignee: string | null; told: string[]; kept: boolean } {
-  const tagged = assignPeople(q.text, q.hints, q.people, q.me);
-  if (q.mode === SAVE_MODE.APPEND)
-    return { mode: q.mode, kind: null, people: [], assignee: q.stored || null, told: tagged, kept: false };
-  const kept = q.pick.touched && (q.pick.v === ASSIGNEE_AGENT || tagged.includes(q.pick.v)),
-    assignee = kept ? q.pick.v : tagged.length ? tagged[0] : ASSIGNEE_AGENT;
-  return { mode: q.mode, kind: q.kind, people: tagged, assignee, told: tagged.filter((l) => l !== assignee), kept };
+  const tagged = assignPeople(inputs.text, inputs.hints, inputs.people, inputs.me);
+  if (inputs.mode === SAVE_MODE.APPEND)
+    return { mode: inputs.mode, kind: null, people: [], assignee: inputs.stored || null, told: tagged, kept: false };
+  const kept = inputs.pick.touched && (inputs.pick.v === ASSIGNEE_AGENT || tagged.includes(inputs.pick.v)),
+    assignee = kept ? inputs.pick.v : tagged.length ? tagged[0] : ASSIGNEE_AGENT;
+  return {
+    mode: inputs.mode,
+    kind: inputs.kind,
+    people: tagged,
+    assignee,
+    told: tagged.filter((login) => login !== assignee),
+    kept,
+  };
 }
 // assignOutcome's inputs as the composer holds them at this moment, for a save in mode; an append reads the pin it joins.
 function composeAsk(mode: string): Parameters<typeof assignOutcome>[0] {
-  const ta = $('#note') as HTMLTextAreaElement,
-    ov = mode === SAVE_MODE.APPEND ? appendTarget() : null,
-    p = ov ? PINS.find((x) => x.id === ov.id) : null;
+  const noteField = $('#note') as HTMLTextAreaElement,
+    overlap = mode === SAVE_MODE.APPEND ? appendTarget() : null,
+    pin = overlap ? PINS.find((listed) => listed.id === overlap.id) : null;
   return {
-    text: ta.value,
+    text: noteField.value,
     kind: KIND_NEW,
-    hints: mentionHints(ta),
+    hints: mentionHints(noteField),
     people: PEOPLE,
     me: meLogin(),
     mode,
     pick: { v: ASSIGN_NEW.v, touched: ASSIGN_NEW.touched },
-    stored: p ? p.assignee || null : null,
+    stored: pin ? pin.assignee || null : null,
   };
 }
 // A person's name where the reader must tell people apart (an assignee row, the composer's preview line): the name, with the
@@ -299,28 +325,28 @@ function personLabel(login: string): Html {
 }
 // Whether another known person has login's displayed name.
 function nameShared(login: string): boolean {
-  const nm = peopleName(login);
-  return PEOPLE.some((p) => p.login !== login && p.name === nm);
+  const name = peopleName(login);
+  return PEOPLE.some((person) => person.login !== login && person.name === name);
 }
 // The assignee row (Html) for people, value pressed; empty Html without people. Each option carries act as its data-act.
 // The track scrolls sideways inside the row when it is longer (.lad, the range ladder's rule), so every name reads in full;
 // its scroll box is out of the Tab order as the ladder's is (levels.js drawLadder).
 // A segment's words are in .as-t, trimmed to their cap height like the row's label, so the two share one centre in any font.
-function assignSeg(people: string[], value: string, act: string): Html {
+function assigneeRowHtml(people: string[], value: string, act: string): Html {
   if (!people.length) return html``;
-  const opt = (v, label, tip) =>
-    html`<button type="button" role="radio" data-act="${act}" data-v="${v}" aria-checked="${v === value}"${v === value ? html` class="on"` : ''} data-tip="${tip}"><span class="as-t">${label}</span></button>`;
+  const opt = (text, label, tip) =>
+    html`<button type="button" role="radio" data-act="${act}" data-v="${text}" aria-checked="${text === value}"${text === value ? html` class="on"` : ''} data-tip="${tip}"><span class="as-t">${label}</span></button>`;
   const agent = opt(
     ASSIGNEE_AGENT,
     tr('에이전트'),
     tr('에이전트가 이 핀을 처리합니다 — @태그한 사람에게는 알림만 갑니다'),
   );
-  const others = people.map((l) =>
+  const others = people.map((login) =>
     opt(
-      l,
-      html`@${personLabel(l)}`,
+      login,
+      html`@${personLabel(login)}`,
       tl('{name}에게 맡깁니다 — 에이전트는 이 핀을 건너뜁니다', {
-        name: peopleName(l) + (nameShared(l) ? ' (' + l + ')' : ''),
+        name: peopleName(login) + (nameShared(login) ? ' (' + login + ')' : ''),
       }),
     ),
   );
@@ -336,17 +362,17 @@ const ASSIGN_NEW = { v: ASSIGNEE_AGENT, touched: false };
 // has arrived (PEOPLE_KNOWN) no pick is dropped: a draft restored at boot keeps its pick until its person can be looked up
 // (loadPeople draws the row again). savePin() does not read what is settled here: it asks assignOutcome itself.
 function renderAssignNew() {
-  const ta = $('#note'),
+  const noteField = $('#note'),
     box = $('#c-assign');
-  if (!ta || !box) return;
-  const o = assignOutcome(composeAsk(SAVE_MODE.NEW));
+  if (!noteField || !box) return;
+  const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW));
   if (PEOPLE_KNOWN) {
-    ASSIGN_NEW.v = o.assignee as string;
-    ASSIGN_NEW.touched = o.kept;
+    ASSIGN_NEW.v = outcome.assignee as string;
+    ASSIGN_NEW.touched = outcome.kept;
   }
-  if (o.people.length && !appendTarget()) {
+  if (outcome.people.length && !appendTarget()) {
     const at = segFocusAt(box);
-    setHtml(box, assignSeg(o.people, o.assignee as string, 'assign-new'));
+    setHtml(box, assigneeRowHtml(outcome.people, outcome.assignee as string, 'assign-new'));
     box.hidden = false;
     segRove(box);
     segKeep(box, at);
@@ -356,24 +382,24 @@ function renderAssignNew() {
     box.hidden = true;
     box.replaceChildren();
   }
-  mentionPreview(ta);
+  mentionPreview(noteField);
 }
 // The edit card's assignee row: the stored assignee stays pressed until the author changes it - a stored pin never takes the
 // new pin's default.
 function renderAssignEdit() {
-  const E = EDITOR.current;
-  if (!E) return;
-  const ta = editNote(E),
-    box = E.el.querySelector('.e-assign') as HTMLElement;
-  if (!ta || !box) return;
-  const ppl = assignPeople(ta.value, mentionHints(ta), PEOPLE, meLogin(), E.assignee);
-  if (!ppl.length) {
+  const card = EDITOR.current;
+  if (!card) return;
+  const noteField = editNote(card),
+    box = card.el.querySelector('.e-assign') as HTMLElement;
+  if (!noteField || !box) return;
+  const people = assignPeople(noteField.value, mentionHints(noteField), PEOPLE, meLogin(), card.assignee);
+  if (!people.length) {
     box.hidden = true;
     box.replaceChildren();
     return;
   }
   const at = segFocusAt(box);
-  setHtml(box, assignSeg(ppl, E.assignee, 'assign-edit'));
+  setHtml(box, assigneeRowHtml(people, card.assignee, 'assign-edit'));
   box.hidden = false;
   segRove(box);
   segKeep(box, at);
@@ -388,61 +414,65 @@ function renderAssignEdit() {
 // that never break inside: the line breaks only after the separator, which ends the first, and a group wider than the
 // line cuts its names with an ellipsis (their whole text stays). An edit or a reply assigns nobody and lists whom it notifies. Hidden while the text
 // has no '@' word to report.
-function mentionPreview(ta) {
-  if (!ta) return;
-  const box = ta.nextElementSibling;
+function mentionPreview(field) {
+  if (!field) return;
+  const box = field.nextElementSibling;
   if (!box || !box.classList.contains('m-preview')) return;
-  const r = mentionScan(ta.value, mentionHints(ta)),
+  const scan = mentionScan(field.value, mentionHints(field)),
     me = meLogin(); // the same hints the save/send carries
-  const f = document.activeElement as HTMLTextAreaElement | null; // ta, or a field that mirrors it, being typed in
-  r.bad = mentionBadSettled(r.bad, ta.value, f && mentionModel(f) === ta ? mentionQuery(f) : null);
-  if (!r.hit.length && !r.bad.length) {
+  const focused = document.activeElement as HTMLTextAreaElement | null; // ta, or a field that mirrors it, being typed in
+  scan.bad = mentionBadSettled(
+    scan.bad,
+    field.value,
+    focused && mentionModel(focused) === field ? mentionQuery(focused) : null,
+  );
+  if (!scan.hit.length && !scan.bad.length) {
     box.hidden = true;
     box.replaceChildren();
     return;
   }
-  const o = ta.id === 'note' ? assignOutcome(composeAsk(SAVE_MODE.NEW)) : null,
-    join = o && appendTarget() ? assignOutcome(composeAsk(SAVE_MODE.APPEND)) : null;
-  const told = o && !join ? r.hit.filter((l) => l !== o.assignee) : r.hit;
-  const name = (l) =>
-    l === ASSIGNEE_AGENT
+  const outcome = field.id === 'note' ? assignOutcome(composeAsk(SAVE_MODE.NEW)) : null,
+    join = outcome && appendTarget() ? assignOutcome(composeAsk(SAVE_MODE.APPEND)) : null;
+  const told = outcome && !join ? scan.hit.filter((login) => login !== outcome.assignee) : scan.hit;
+  const name = (login) =>
+    login === ASSIGNEE_AGENT
       ? html`<span class="m-who">${tr('에이전트')}</span>`
-      : html`<span class="mention">${personLabel(l)}</span>`;
+      : html`<span class="mention">${personLabel(login)}</span>`;
   const hits = told.length
-    ? html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map((l) => html`<span class="mention${l === me ? ' me' : ''}">${personLabel(l)}${l === me ? ' ' + tr('(나 — 알림 없음)') : ''}</span>`)}`
+    ? html`<span class="m-lab">${ic('at-sign')}알림</span>${told.map((login) => html`<span class="mention${login === me ? ' me' : ''}">${personLabel(login)}${login === me ? ' ' + tr('(나 — 알림 없음)') : ''}</span>`)}`
     : '';
-  const assigns = o
-    ? html`<span class="m-lab">${tr(join ? '따로 저장하면 담당' : '담당')}</span>${name(o.assignee as string)}`
+  const assigns = outcome
+    ? html`<span class="m-lab">${tr(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee as string)}`
     : html``;
-  const head = !o
+  const head = !outcome
     ? hits
     : !join
       ? html`${assigns}${hits}`
       : join.told.length
         ? html`<span class="m-grp">${hits}<span class="m-sep">·</span></span><span class="m-grp">${assigns}</span>`
         : hits;
-  const bad = r.bad.map(
-    (w) =>
-      html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 핀이나 답글을 남긴 적 있는 사람과 멤버로 등록된 사람만 부를 수 있습니다">@${w}</span>`,
+  const bad = scan.bad.map(
+    (word) =>
+      html`<span class="mention-bad" data-tip="등록된 사람이 아님 — 이 이름으로는 알림이 가지 않습니다. 핀이나 답글을 남긴 적 있는 사람과 멤버로 등록된 사람만 부를 수 있습니다">@${word}</span>`,
   );
-  setHtml(box, html`${head}${bad}${r.bad.length ? html`<span class="m-note">등록된 사람이 아님</span>` : ''}`);
+  setHtml(box, html`${head}${bad}${scan.bad.length ? html`<span class="m-note">등록된 사람이 아님</span>` : ''}`);
   box.hidden = false;
 }
-function mentionUpdate(ta) {
-  const q = mentionQuery(ta);
-  if (!q) {
-    if (MENTION.ta === ta) mentionClose();
+function mentionUpdate(field) {
+  const query = mentionQuery(field);
+  if (!query) {
+    if (MENTION.ta === field) mentionClose();
     return;
   }
   const me = META && META.me && META.me.login;
-  MENTION.ta = ta;
-  MENTION.start = q.start;
-  MENTION.q = q.q;
-  MENTION.items = mentionMatches(q.q, PEOPLE, me);
+  MENTION.ta = field;
+  MENTION.start = query.start;
+  MENTION.q = query.q;
+  MENTION.items = mentionMatches(query.q, PEOPLE, me);
   MENTION.sel = Math.min(MENTION.sel, Math.max(0, MENTION.items.length - 1));
   const pop = $('#mention-pop');
   const none =
-    (q.q ? tl("'{q}' 와 맞는 사람이 없습니다", { q: q.q }) : tr('부를 수 있는 사람이 없습니다')) +
+    (query.q ? tl("'{q}' 와 맞는 사람이 없습니다", { q: query.q }) : tr('부를 수 있는 사람이 없습니다')) +
     ' — ' +
     tr('핀이나 답글을 남긴 적 있는 사람과 멤버로 등록된 사람만 부를 수 있습니다');
   setHtml(
@@ -450,10 +480,10 @@ function mentionUpdate(ta) {
     MENTION.items.length
       ? html`${MENTION.items.map(
           (
-            p,
-            i,
-          ) => html`<button type="button" role="option" aria-selected="${i === MENTION.sel}" data-act="mention-pick" data-i="${i}">\
-${avatar(p)}<span>${p.name}</span><span class="ml">${p.login}</span></button>`,
+            person,
+            index,
+          ) => html`<button type="button" role="option" aria-selected="${index === MENTION.sel}" data-act="mention-pick" data-i="${index}">\
+${avatar(person)}<span>${person.name}</span><span class="ml">${person.login}</span></button>`,
         )}`
       : html`<div class="dim">${none}</div>`,
   );
@@ -464,71 +494,73 @@ ${avatar(p)}<span>${p.name}</span><span class="ml">${p.login}</span></button>`,
 // highlighted row in view), inside the window's width. Also run when the field moves under the list (the note popover
 // follows its box: placeSelPop).
 function mentionPlace() {
-  const ta = MENTION.ta,
+  const field = MENTION.ta,
     pop = $('#mention-pop');
-  if (!ta || pop.hidden) return;
+  if (!field || pop.hidden) return;
   const was = pop.scrollTop;
   pop.style.maxHeight = '';
-  const r = ta.getBoundingClientRect(),
-    h = pop.offsetHeight,
-    w = pop.offsetWidth,
-    vv = window.visualViewport,
-    g = mentionGuard(ta);
-  const gr = g ? g.getBoundingClientRect() : null,
-    top = vv ? vv.offsetTop : 0,
-    bot = vv ? vv.offsetTop + vv.height : innerHeight;
-  const at = ta.closest('#sel-pop')
-    ? mentionRoom(r, gr, h, top, bot)
-    : { top: mentionTop(r, gr, h, top, bot), max: null };
+  const fieldRect = field.getBoundingClientRect(),
+    listHeight = pop.offsetHeight,
+    listWidth = pop.offsetWidth,
+    viewport = window.visualViewport,
+    guard = mentionGuard(field);
+  const guardRect = guard ? guard.getBoundingClientRect() : null,
+    top = viewport ? viewport.offsetTop : 0,
+    bottom = viewport ? viewport.offsetTop + viewport.height : innerHeight;
+  const at = field.closest('#sel-pop')
+    ? mentionRoom(fieldRect, guardRect, listHeight, top, bottom)
+    : { top: mentionTop(fieldRect, guardRect, listHeight, top, bottom), max: null };
   pop.style.top = at.top + 'px';
-  pop.style.left = Math.max(4, Math.min(r.left, innerWidth - w - 4)) + 'px';
+  pop.style.left = Math.max(4, Math.min(fieldRect.left, innerWidth - listWidth - 4)) + 'px';
   if (at.max == null) return;
   pop.style.maxHeight = at.max + 'px';
-  const s = pop.querySelector('[aria-selected=true]') as HTMLElement | null;
-  pop.scrollTop = s ? Math.min(s.offsetTop, Math.max(was, s.offsetTop + s.offsetHeight - pop.clientHeight)) : was;
+  const selected = pop.querySelector('[aria-selected=true]') as HTMLElement | null;
+  pop.scrollTop = selected
+    ? Math.min(selected.offsetTop, Math.max(was, selected.offsetTop + selected.offsetHeight - pop.clientHeight))
+    : was;
 }
 // The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], the note
 // popover by the box [자세히 →][저장], composer panel [취소][핀 저장].
-function mentionGuard(ta) {
-  const box = ta.closest('.reply-box,.edit,#sel-pop');
-  return box ? box.querySelector('.r-acts,.e-acts,.sp-acts') : ta.id === 'note' ? $('#c-actions') : null;
+function mentionGuard(field) {
+  const box = field.closest('.reply-box,.edit,#sel-pop');
+  return box ? box.querySelector('.r-acts,.e-acts,.sp-acts') : field.id === 'note' ? $('#c-actions') : null;
 }
 // The @-list's top (docs/handbook/viewer.md §@태그). A spot that never covers the action row (guard) is chosen in this order -
 // (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the action row
 // (4) if nothing fits, below the input field (the old spot; the note popover's field takes mentionRoom instead). A reply
 // field has [취소][보내기] right below it, so (1) never fits and (2) is used instead (the list used to cover both buttons,
 // QA 2026-09-25).
-function mentionTop(r, g, h, top, bot) {
+function mentionTop(fieldRect, guardRect, listHeight, top, bottom) {
   const gap = 4,
-    lim = g && g.top >= r.bottom ? Math.min(bot, g.top) : bot;
-  if (r.bottom + gap + h <= lim) return r.bottom + gap;
-  if (r.top - gap - h >= top + gap) return r.top - gap - h;
-  if (g && g.bottom + gap + h <= bot) return g.bottom + gap;
-  return Math.max(top + gap, Math.min(r.bottom + gap, bot - h - gap));
+    limit = guardRect && guardRect.top >= fieldRect.bottom ? Math.min(bottom, guardRect.top) : bottom;
+  if (fieldRect.bottom + gap + listHeight <= limit) return fieldRect.bottom + gap;
+  if (fieldRect.top - gap - listHeight >= top + gap) return fieldRect.top - gap - listHeight;
+  if (guardRect && guardRect.bottom + gap + listHeight <= bottom) return guardRect.bottom + gap;
+  return Math.max(top + gap, Math.min(fieldRect.bottom + gap, bottom - listHeight - gap));
 }
 // The @-list's spot by the note popover's field, whose action row g ([자세히 →][저장]) it never covers: mentionTop's spot
 // when one of (1)-(3) holds all h px of the list (max null). Otherwise (a short window) not mentionTop's (4), which covers
 // the field and that row, but the roomiest of (1)-(3), the list cut to its room (max px; the list scrolls). Pure.
 function mentionRoom(
-  r: { top: number; bottom: number },
-  g: { top: number; bottom: number } | null,
-  h: number,
+  fieldRect: { top: number; bottom: number },
+  guardRect: { top: number; bottom: number } | null,
+  listHeight: number,
   top: number,
-  bot: number,
+  bottom: number,
 ): { top: number; max: number | null } {
   const gap = 4,
-    lim = g && g.top >= r.bottom ? Math.min(bot, g.top) : bot;
+    limit = guardRect && guardRect.top >= fieldRect.bottom ? Math.min(bottom, guardRect.top) : bottom;
   // Each spot's room, and its edge: the list's top there, or (up) its bottom.
   const spots = [
-    { room: lim - r.bottom - gap, edge: r.bottom + gap, up: false },
-    { room: r.top - gap - (top + gap), edge: r.top - gap, up: true },
+    { room: limit - fieldRect.bottom - gap, edge: fieldRect.bottom + gap, up: false },
+    { room: fieldRect.top - gap - (top + gap), edge: fieldRect.top - gap, up: true },
   ];
-  if (g) spots.push({ room: bot - g.bottom - gap, edge: g.bottom + gap, up: false });
-  const whole = spots.find((s) => s.room >= h);
-  if (whole) return { top: whole.up ? whole.edge - h : whole.edge, max: null };
-  const s = spots.reduce((a, b) => (b.room > a.room ? b : a)),
-    n = Math.max(0, Math.floor(s.room));
-  return { top: s.up ? s.edge - n : s.edge, max: n };
+  if (guardRect) spots.push({ room: bottom - guardRect.bottom - gap, edge: guardRect.bottom + gap, up: false });
+  const whole = spots.find((spot) => spot.room >= listHeight);
+  if (whole) return { top: whole.up ? whole.edge - listHeight : whole.edge, max: null };
+  const roomiest = spots.reduce((best, spot) => (spot.room > best.room ? spot : best)),
+    fitted = Math.max(0, Math.floor(roomiest.room));
+  return { top: roomiest.up ? roomiest.edge - fitted : roomiest.edge, max: fitted };
 }
 // Inserts the picked person as '@name ' at the cursor, remembers the login as a hint with the place of its tag (the tags
 // after it move along) on the field's model (mentionModel: a mirror field's text goes to the field it mirrors, which keeps
@@ -536,89 +568,92 @@ function mentionRoom(
 // assignee, the reply outcome; the note's draft). When the caret no longer ends the '@word' the list was drawn for (it
 // moved, and no keyup or click has redrawn the list yet), nothing is inserted - the name would land where the caret went,
 // spliced into the text - and the list follows the caret instead.
-function mentionApply(i) {
-  const ta = MENTION.ta,
-    p = MENTION.items[i];
-  if (!ta || !p) return;
+function mentionApply(index) {
+  const field = MENTION.ta,
+    person = MENTION.items[index];
+  if (!field || !person) return;
   if (!mentionCurrent()) {
-    mentionUpdate(ta);
+    mentionUpdate(field);
     return;
   }
-  const m = mentionModel(ta),
-    pos = ta.selectionStart,
-    ins = '@' + p.name + ' ';
-  const old = ta.value,
-    before = mentionTags(m);
-  ta.value = old.slice(0, MENTION.start) + ins + old.slice(pos);
-  const c = MENTION.start + ins.length;
-  ta.setSelectionRange(c, c);
-  if (m !== ta) m.value = ta.value;
-  mentionMirror(m);
-  const tags = mentionShift(before, old, ta.value, c)
-    .concat([{ login: p.login, at: MENTION.start, tok: '@' + p.name }])
-    .sort((a, b) => a.at - b.at);
-  mentionKeep(m, tags);
+  const model = mentionModel(field),
+    pos = field.selectionStart,
+    inserted = '@' + person.name + ' ';
+  const old = field.value,
+    before = mentionTags(model);
+  field.value = old.slice(0, MENTION.start) + inserted + old.slice(pos);
+  const caret = MENTION.start + inserted.length;
+  field.setSelectionRange(caret, caret);
+  if (model !== field) model.value = field.value;
+  mentionMirror(model);
+  const tags = mentionShift(before, old, field.value, caret)
+    .concat([{ login: person.login, at: MENTION.start, tok: '@' + person.name }])
+    .sort((left, right) => left.at - right.at);
+  mentionKeep(model, tags);
   mentionClose();
-  ta.focus();
-  autoGrow(m);
-  if (m.id === 'note') {
+  field.focus();
+  autoGrow(model);
+  if (model.id === 'note') {
     renderAssignNew();
     saveDraftSoon();
     return;
   } // the composer's row draws its preview line too
-  mentionPreview(m);
-  if (m.classList.contains('e-note')) renderAssignEdit();
-  else if (m.classList.contains('r-text')) renderReplyOutcome();
+  mentionPreview(model);
+  if (model.classList.contains('e-note')) renderAssignEdit();
+  else if (model.classList.contains('r-text')) renderReplyOutcome();
 }
-const isMentionField = (t) =>
-  !!t &&
-  t.tagName === 'TEXTAREA' &&
-  (t.id === 'note' || t.classList.contains('e-note') || t.classList.contains('r-text') || !!t._mirrorOf);
+const isMentionField = (target) =>
+  !!target &&
+  target.tagName === 'TEXTAREA' &&
+  (target.id === 'note' ||
+    target.classList.contains('e-note') ||
+    target.classList.contains('r-text') ||
+    !!target._mirrorOf);
 // A mirror field's own listener has copied its text and the edit into its model (sel-popover.js); here it only gets the list.
-document.addEventListener('input', (e) => {
-  const t = e.target as HTMLTextAreaElement;
-  if (!isMentionField(t)) return;
-  if (mentionModel(t) !== t) {
-    mentionUpdate(t);
+document.addEventListener('input', (event) => {
+  const field = event.target as HTMLTextAreaElement;
+  if (!isMentionField(field)) return;
+  if (mentionModel(field) !== field) {
+    mentionUpdate(field);
     return;
   }
-  mentionEdited(t);
-  mentionUpdate(t);
-  if (t.id === 'note') {
+  mentionEdited(field);
+  mentionUpdate(field);
+  if (field.id === 'note') {
     renderAssignNew();
-    qHint($('#c-qhint'), t.value, KIND_NEW);
+    qHint($('#c-qhint'), field.value, KIND_NEW);
     saveDraftSoon();
     return;
   } // the row draws the preview line too
-  mentionPreview(t);
-  if (t.classList.contains('e-note')) {
+  mentionPreview(field);
+  if (field.classList.contains('e-note')) {
     renderAssignEdit();
-    if (EDITOR.current) qHint(EDITOR.current.el.querySelector('.e-qhint'), t.value, EDITOR.current.kind_req);
-  } else if (t.classList.contains('r-text')) renderReplyOutcome();
+    if (EDITOR.current) qHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
+  } else if (field.classList.contains('r-text')) renderReplyOutcome();
 });
 window.addEventListener(
   'keydown',
-  (e) => {
-    if (!MENTION.ta || e.target !== MENTION.ta || $('#mention-pop').hidden) return;
-    if (imeKey(e)) {
-      if (imeTail(e)) e.preventDefault();
+  (event) => {
+    if (!MENTION.ta || event.target !== MENTION.ta || $('#mention-pop').hidden) return;
+    if (imeKey(event)) {
+      if (imeTail(event)) event.preventDefault();
       return;
     } // the Enter that ended a composition neither picks nor breaks the line (core.js)
-    const n = MENTION.items.length;
-    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-      if (!n) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
-      MENTION.sel = (MENTION.sel + (e.key === 'ArrowDown' ? 1 : n - 1)) % n;
+    const count = MENTION.items.length;
+    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+      if (!count) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      MENTION.sel = (MENTION.sel + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
       mentionUpdate(MENTION.ta);
-    } else if ((e.key === 'Enter' && !e.metaKey && !e.ctrlKey) || e.key === 'Tab') {
-      if (!n) return;
-      e.preventDefault();
-      e.stopImmediatePropagation();
+    } else if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey) || event.key === 'Tab') {
+      if (!count) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
       mentionApply(MENTION.sel);
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopImmediatePropagation();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopImmediatePropagation();
       mentionClose();
     }
   },
@@ -627,21 +662,21 @@ window.addEventListener(
 // When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at that point
 // (a mirror field's: its model's preview), and an open list follows the caret: it is drawn again for the '@word' the caret
 // now ends, or closes when there is none.
-['keyup', 'click', 'focusout'].forEach((t) =>
-  document.addEventListener(t, (e) => {
-    const f = e.target as HTMLTextAreaElement;
-    if (!isMentionField(f)) return;
-    if (t !== 'focusout' && MENTION.ta === f && !mentionCurrent()) mentionUpdate(f);
-    setTimeout(() => mentionPreview(mentionModel(f)), 0);
+['keyup', 'click', 'focusout'].forEach((eventType) =>
+  document.addEventListener(eventType, (event) => {
+    const field = event.target as HTMLTextAreaElement;
+    if (!isMentionField(field)) return;
+    if (eventType !== 'focusout' && MENTION.ta === field && !mentionCurrent()) mentionUpdate(field);
+    setTimeout(() => mentionPreview(mentionModel(field)), 0);
   }),
 );
-document.addEventListener('focusout', (e) => {
-  if (e.target === MENTION.ta)
+document.addEventListener('focusout', (event) => {
+  if (event.target === MENTION.ta)
     setTimeout(() => {
       if (document.activeElement !== MENTION.ta) mentionClose();
     }, 150);
 });
-$('#mention-pop').addEventListener('pointerdown', (e) => e.preventDefault());
+$('#mention-pop').addEventListener('pointerdown', (event) => event.preventDefault());
 
 export {
   ASSIGN_NEW,

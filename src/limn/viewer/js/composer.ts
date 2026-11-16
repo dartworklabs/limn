@@ -82,14 +82,21 @@ const COMPOSE = {
 /** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap and
  * snippet updates do not count as new input. */
 function composeFields() {
-  const d = COMPOSE.current,
-    n = $('#note');
+  const selection = COMPOSE.current,
+    noteField = $('#note');
   return JSON.stringify({
-    note: n.value,
-    mentions: Array.from(n._mentions || []),
+    note: noteField.value,
+    mentions: Array.from(noteField._mentions || []),
     kind: KIND_NEW,
     assign: { ...ASSIGN_NEW },
-    range: d && { lo: d.lo, hi: d.hi, scope: d.scope, kind: d.kind, env: d.env, elSel: d.elSel },
+    range: selection && {
+      lo: selection.lo,
+      hi: selection.hi,
+      scope: selection.scope,
+      kind: selection.kind,
+      env: selection.env,
+      elSel: selection.elSel,
+    },
     sg: { on: SG.on, text: SG.text, base: SG.base },
   });
 }
@@ -104,14 +111,14 @@ function setBusy(on) {
 // Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner.
 // A new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it. The
 // first-visit hint on how to pick goes (endTopic): it has been done.
-async function pick(r) {
+async function pick(region) {
   const seq = setPickseq(PICKSEQ + 1),
-    rp = REPICK;
+    repick = REPICK;
   endTopic(NOTICE_TOPIC.PICK); // the first-visit hint on how to pick has been done
   // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared right away - so that a [핀 저장] within
   // this window (~1.1s) never silently saves the stale COMPOSE.current, and instead goes through the COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to
   // save the just-chosen new location (regression: the old location used to get saved on a re-select).
-  if (rp) {
+  if (repick) {
     banner(html`<span>되짚는 중…</span>`);
   } else {
     COMPOSE.current = null;
@@ -130,7 +137,7 @@ async function pick(r) {
       revealBox(COMPOSE.box);
     }
   }
-  let d;
+  let answer;
   // A new selection the server cannot be reached for is not a failure: offlinePick opens the composer on it and says
   // what happens next, so the call does not say '위치 찾기 실패' over that. A re-place and a Markdown or text
   // document have no such way on, and say it.
@@ -138,31 +145,31 @@ async function pick(r) {
   // counted its two failures yet), the server is not asked at all: each drag would wait out a request that cannot be
   // answered before its composer opened. And a request that is asked waits no longer than API_WAIT.PICK.
   try {
-    if (!rp && !isMdDoc() && (offlineNow() || API_OUT)) throw new Error('cut off');
-    d = (
+    if (!repick && !isMdDoc() && (offlineNow() || API_OUT)) throw new Error('cut off');
+    answer = (
       await api('/api/pick', {
         method: 'POST',
-        body: r,
+        body: region,
         what: '위치 찾기',
-        quietUnreached: !rp && !isMdDoc(),
+        quietUnreached: !repick && !isMdDoc(),
         wait: API_WAIT.PICK,
       })
     ).data;
-  } catch (e) {
+  } catch (error) {
     if (seq !== PICKSEQ) return;
     setBusy(false);
-    if (!rp) {
+    if (!repick) {
       COMPOSE.picking = false;
       clearPendingSave();
     }
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the composer
     // opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back (offline.js).
-    const x = e as ApiError;
-    if (!rp && !(x && x.status) && !isMdDoc()) {
-      void offlinePick(r);
+    const failure = error as ApiError;
+    if (!repick && !(failure && failure.status) && !isMdDoc()) {
+      void offlinePick(region);
       return;
     }
-    if (rp) {
+    if (repick) {
       bannerRepick();
     } else {
       if (COMPOSE.box) {
@@ -179,56 +186,56 @@ async function pick(r) {
   }
   if (seq !== PICKSEQ) return;
   setBusy(false);
-  if (!rp) COMPOSE.picking = false;
-  if (d.error) {
-    if (d.pdf_build_gone) {
+  if (!repick) COMPOSE.picking = false;
+  if (answer.error) {
+    if (answer.pdf_build_gone) {
       try {
         await refreshDoc();
-      } catch (e) {}
+      } catch (error) {}
       if (seq !== PICKSEQ) return;
-      if (rp && rp.box) {
-        rp.box.remove();
-        rp.box = null;
-      } else if (!rp && COMPOSE.box) {
+      if (repick && repick.box) {
+        repick.box.remove();
+        repick.box = null;
+      } else if (!repick && COMPOSE.box) {
         COMPOSE.box.remove();
         COMPOSE.box = null;
       }
     }
-    if (rp) {
-      bannerRepick(errText(d));
+    if (repick) {
+      bannerRepick(errText(answer));
       return;
     }
     // Even a pending save is never carried out if pick fails - only the existing error panel is shown (regression: prevents a silent save failure).
     COMPOSE.current = null;
     COMPOSE.intent++;
     clearPendingSave();
-    $('#c-err').textContent = errText(d);
+    $('#c-err').textContent = errText(answer);
     $('#c-err').hidden = false;
     $('#c-body').hidden = true;
     drawSelPop();
     return;
   }
-  if (rp) {
-    rp.cand = d;
+  if (repick) {
+    repick.cand = answer;
     bannerCompare();
     return;
   }
-  const sel = d as Selection;
-  COMPOSE.current = sel;
+  const selection = answer as Selection;
+  COMPOSE.current = selection;
   COMPOSE.intent++;
-  sel.scope = null;
-  sel.elSel = d.el || null;
-  if (!isRegion(d)) {
-    useLevel(sel, d.default_level);
-    if (!sel.scope) {
-      sel.lo = d.lo;
-      sel.hi = d.hi;
+  selection.scope = null;
+  selection.elSel = answer.el || null;
+  if (!isRegion(answer)) {
+    useLevel(selection, answer.default_level);
+    if (!selection.scope) {
+      selection.lo = answer.lo;
+      selection.hi = answer.hi;
     }
   }
   COMPOSE.dismissedOverlap = null; // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
-  sel.overlaps = overlapsFor(sel, PINS);
+  selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is re-fetched - loadPins recomputes overlap too.
-  if ((d.overlaps || []).some((o) => !PINS.some((p) => p.id === o.id))) loadPins();
+  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) loadPins();
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
@@ -250,47 +257,49 @@ async function pick(r) {
 // it only once at pick time meant switching levels to produce the exact same range as an existing pin never showed
 // the banner, and a duplicate pin got saved (observed). The rule matches the server's selection_rel (a regression
 // test compares them): equal (same range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
-function selRel(lo, hi, blo, bhi) {
-  if (hi < blo || bhi < lo) return null;
-  if (lo === blo && hi === bhi) return RANGE_REL.EQUAL;
-  if (blo <= lo && hi <= bhi) return RANGE_REL.INSIDE;
-  if (lo <= blo && bhi <= hi) return RANGE_REL.CONTAINS;
+function rangeRelation(first, last, pinFirst, pinLast) {
+  if (last < pinFirst || pinLast < first) return null;
+  if (first === pinFirst && last === pinLast) return RANGE_REL.EQUAL;
+  if (pinFirst <= first && last <= pinLast) return RANGE_REL.INSIDE;
+  if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
   return RANGE_REL.PARTIAL;
 }
-function overlapsFor(o, pins) {
+function overlapsFor(selection, pins) {
   const out: PickOverlap[] = [];
-  if (!o || !o.file) return out; // a selection on a view-only PDF has no line
-  (pins || []).forEach((p) => {
-    if (pinState(p) !== PIN_STATE.OPEN || p.file !== o.file) return;
-    const rel = selRel(o.lo, o.hi, p.lo, p.hi);
-    if (rel) out.push({ id: p.id, lo: p.lo, hi: p.hi, rel: rel });
+  if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
+  (pins || []).forEach((pin) => {
+    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== selection.file) return;
+    const rel = rangeRelation(selection.lo, selection.hi, pin.lo, pin.hi);
+    if (rel) out.push({ id: pin.id, lo: pin.lo, hi: pin.hi, rel: rel });
   });
   return out;
 }
 // One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap (the smallest id).
-function pickOverlap(ovs) {
-  if (!ovs || !ovs.length) return null;
-  const eq = ovs.filter((o) => o.rel === RANGE_REL.EQUAL);
-  if (eq.length) return eq.reduce((a, b) => (b.id < a.id ? b : a));
-  const insides = ovs.filter((o) => o.rel === RANGE_REL.INSIDE);
-  if (insides.length) return insides.reduce((a, b) => (b.hi - b.lo < a.hi - a.lo ? b : a));
-  const contains = ovs.filter((o) => o.rel === RANGE_REL.CONTAINS);
-  if (contains.length) return contains.reduce((a, b) => (b.hi - b.lo > a.hi - a.lo ? b : a));
-  const partials = ovs.filter((o) => o.rel === RANGE_REL.PARTIAL);
-  if (partials.length) return partials.reduce((a, b) => (b.id < a.id ? b : a));
+function pickOverlap(overlaps) {
+  if (!overlaps || !overlaps.length) return null;
+  const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
+  if (equal.length) return equal.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
+  const insides = overlaps.filter((overlap) => overlap.rel === RANGE_REL.INSIDE);
+  if (insides.length)
+    return insides.reduce((best, candidate) => (candidate.hi - candidate.lo < best.hi - best.lo ? candidate : best));
+  const contains = overlaps.filter((overlap) => overlap.rel === RANGE_REL.CONTAINS);
+  if (contains.length)
+    return contains.reduce((best, candidate) => (candidate.hi - candidate.lo > best.hi - best.lo ? candidate : best));
+  const partials = overlaps.filter((overlap) => overlap.rel === RANGE_REL.PARTIAL);
+  if (partials.length) return partials.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
   return null;
 }
 // Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침'.
 // The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range as open pin #4'.
 function overlapText(rel, id) {
-  const k =
+  const template =
     {
       equal: '열린 핀 #{id}{p} 같은 범위입니다',
       inside: '열린 핀 #{id} 범위 안입니다',
       contains: '열린 핀 #{id}{p} 감쌉니다',
       partial: '열린 핀 #{id}{p} 일부 겹칩니다',
     }[rel] || '열린 핀 #{id}{p} 겹칩니다';
-  return tl(k, { id, p: rel === RANGE_REL.CONTAINS ? josa(id, '을', '를') : josa(id, '과', '와') });
+  return tl(template, { id, p: rel === RANGE_REL.CONTAINS ? josa(id, '을', '를') : josa(id, '과', '와') });
 }
 // [별도 핀으로 저장] turns off "that relationship with that pin" (id:rel). Re-announced if changing the range changes the
 // relationship, and reset on a fresh drag (pick) - prevents a regression where one press permanently silenced it for every later selection.
@@ -301,9 +310,9 @@ function recomputeOverlap() {
 // The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for - or
 // null without one, and once the author chose [따로 저장] for it.
 function appendTarget(): { id: number; lo: number; hi: number; rel: string } | null {
-  const d = COMPOSE.current,
-    ov = d ? pickOverlap(d.overlaps) : null;
-  return ov && COMPOSE.dismissedOverlap !== ov.id + ':' + ov.rel ? ov : null;
+  const selection = COMPOSE.current,
+    overlap = selection ? pickOverlap(selection.overlaps) : null;
+  return overlap && COMPOSE.dismissedOverlap !== overlap.id + ':' + overlap.rel ? overlap : null;
 }
 // Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (diagnosis P2: three lines
 // took 72px above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its tooltip) and the two
@@ -312,73 +321,76 @@ function appendTarget(): { id: number; lo: number; hi: number; rel: string } | n
  *  row and the preview line follow it (renderAssignNew): while an append is on offer they say what it does. */
 function renderOverlapBanner() {
   const box = $('#c-overlap'),
-    ov = appendTarget();
-  if (!ov) {
+    overlap = appendTarget();
+  if (!overlap) {
     box.hidden = true;
     renderAssignNew();
     return;
   }
   box.hidden = false;
-  box.dataset.rel = ov.rel;
+  box.dataset.rel = overlap.rel;
   const one = LAYOUT === LAYOUT_MODE.NARROW,
-    full = overlapText(ov.rel, ov.id) + ' (L' + ov.lo + '-L' + ov.hi + ')';
+    full = overlapText(overlap.rel, overlap.id) + ' (L' + overlap.lo + '-L' + overlap.hi + ')';
   box.classList.toggle('one', one);
   const text = one
-    ? html`<span class="ov-t" data-tip="${full}">${overlapShort(ov.rel, ov.id)}</span>`
-    : html`<span>${overlapText(ov.rel, ov.id)} <span class="dim">(L${ov.lo}-L${ov.hi})</span></span>`;
+    ? html`<span class="ov-t" data-tip="${full}">${overlapShort(overlap.rel, overlap.id)}</span>`
+    : html`<span>${overlapText(overlap.rel, overlap.id)} <span class="dim">(L${overlap.lo}-L${overlap.hi})</span></span>`;
   // A suggested edit belongs to this selection's lines and is saved with a new pin only: while one is written, [덧붙이기] waits.
-  const sg = suggestPending(),
-    appendTip = sg
+  const isSuggesting = suggestPending(),
+    appendTip = isSuggesting
       ? tr('제안 수정은 새 핀으로만 저장합니다 — 덧붙이려면 제안 수정을 끄세요')
-      : tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다', { id: ov.id });
+      : tl('이 선택의 메모를 #{id} 에 덧붙이고, 지금 선택은 새 핀으로 만들지 않습니다', { id: overlap.id });
   setHtml(
     box,
     html`${text}\
-<button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="${ov.id}" data-tip="${appendTip}"${COMPOSE.saving || sg ? html` disabled` : ''}>${one ? tr('덧붙이기') : tl('#{id} 메모에 덧붙이기', { id: ov.id })}</button>\
-<button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="${ov.id + ':' + ov.rel}" data-tip="겹쳐도 별도 핀으로 저장합니다">${one ? tr('따로 저장') : '별도 핀으로 저장'}</button>`,
+<button class="btn-sm btn-secondary hit" data-act="overlap-append" data-oid="${overlap.id}" data-tip="${appendTip}"${COMPOSE.saving || isSuggesting ? html` disabled` : ''}>${one ? tr('덧붙이기') : tl('#{id} 메모에 덧붙이기', { id: overlap.id })}</button>\
+<button class="btn-sm btn-secondary hit" data-act="overlap-separate" data-key="${overlap.id + ':' + overlap.rel}" data-tip="겹쳐도 별도 핀으로 저장합니다">${one ? tr('따로 저장') : '별도 핀으로 저장'}</button>`,
   );
   renderAssignNew();
 }
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침' (the card badges' wording).
 function overlapShort(rel, id) {
-  const k =
+  const template =
     { equal: '#{id}{p} 같은 범위', inside: '#{id} 범위 안', contains: '#{id}{p} 감쌈', partial: '#{id}{p} 일부 겹침' }[
       rel
     ] || '#{id}{p} 일부 겹침';
-  return tl(k, { id, p: rel === RANGE_REL.CONTAINS ? josa(id, '을', '를') : josa(id, '과', '와') });
+  return tl(template, { id, p: rel === RANGE_REL.CONTAINS ? josa(id, '을', '를') : josa(id, '과', '와') });
 }
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated: the range
 // caption (rangeCap) under it says them, and the ladder's pressed segment. The dragged line goes into the description.
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source field. The range ladder and excerpt are hidden.
-function renderRegionComposer(d) {
+function renderRegionComposer(selection) {
   $('#composer').classList.add('region');
   // A selection made while cut off (offline.js offlinePick) has this shape and no file yet: its lines are found when it is sent.
-  $('#c-loc').textContent = (d.name ? d.name + ' · ' : '') + tl('쪽 {page} 영역', { page: d.page });
-  $('#c-loc').dataset.copy = (d.name ? d.name + ' ' : '') + '쪽 ' + d.page;
+  $('#c-loc').textContent =
+    (selection.name ? selection.name + ' · ' : '') + tl('쪽 {page} 영역', { page: selection.page });
+  $('#c-loc').dataset.copy = (selection.name ? selection.name + ' ' : '') + '쪽 ' + selection.page;
   // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
-  const pg = $('#c-page'),
-    fb = figRegionBadge(d.el, isFigureKind(META && META.kind));
-  pg.hidden = false;
-  pg.textContent = d.offline ? tr('오프라인') : fb ? fb.t : tr('보기 전용');
-  pg.dataset.tip = d.offline
+  const pageTag = $('#c-page'),
+    regionBadge = figRegionBadge(selection.el, isFigureKind(META && META.kind));
+  pageTag.hidden = false;
+  pageTag.textContent = selection.offline ? tr('오프라인') : regionBadge ? regionBadge.t : tr('보기 전용');
+  pageTag.dataset.tip = selection.offline
     ? '연결이 끊긴 채 고른 자리입니다 — 저장하면 쌓아 두었다가, 연결되면 이 PDF로 줄을 찾아 핀으로 씁니다'
-    : fb
-      ? fb.tip
+    : regionBadge
+      ? regionBadge.tip
       : 'LaTeX 소스가 없는 PDF입니다 — 줄 번호 없이 쪽·영역과 영역 글자로 핀을 남깁니다';
   $('#c-tag').hidden = true;
-  $('#c-warn').hidden = !d.warn;
-  $('#c-warn').textContent = warnText(d.warn);
+  $('#c-warn').hidden = !selection.warn;
+  $('#c-warn').textContent = warnText(selection.warn);
   $('#c-overlap').hidden = true;
   $('#c-levels').replaceChildren();
   setCap($('#c-cap'), html``);
   drawExcerpt(null, $('#c-xp'), false);
   const pre = $('#c-snip');
   pre.className = 'wrap open';
-  pre.textContent = d.quote ? tl('영역 글자: {text}', { text: d.quote }) : tr('(이 영역에는 글자가 없습니다)');
+  pre.textContent = selection.quote
+    ? tl('영역 글자: {text}', { text: selection.quote })
+    : tr('(이 영역에는 글자가 없습니다)');
   $('#c-expand').hidden = true;
-  drawComposerQuote(d);
-  renderElement(d, COMPOSE.box);
-  renderSuggest(d);
+  drawComposerQuote(selection);
+  renderElement(selection, COMPOSE.box);
+  renderSuggest(selection);
   drawSelPop();
 }
 // Draws the composer from COMPOSE.current (location, ladder, range excerpt, overlap) and schedules the draft write - every change
@@ -386,131 +398,131 @@ function renderRegionComposer(d) {
 // screen shows on every layout (docs/handbook/viewer.md §패널 정리), so Tab follows it.
 /** Render and persist the chosen location without enabling a new submission while another create or append is pending. */
 function renderComposer() {
-  const d = COMPOSE.current;
-  if (!d) return;
+  const selection = COMPOSE.current;
+  if (!selection) return;
   saveDraftSoon();
   syncComposeSaveButtons();
-  if (isRegion(d)) {
-    renderRegionComposer(d);
+  if (isRegion(selection)) {
+    renderRegionComposer(selection);
     return;
   }
   $('#composer').classList.remove('region');
-  const copy = d.name + ' L' + d.lo + '-L' + d.hi;
-  $('#c-loc').textContent = d.name + ' ' + rng(d.lo, d.hi);
+  const copy = selection.name + ' L' + selection.lo + '-L' + selection.hi;
+  $('#c-loc').textContent = selection.name + ' ' + rng(selection.lo, selection.hi);
   $('#c-loc').dataset.copy = copy;
-  renderElement(d, COMPOSE.box);
-  const pg = $('#c-page'),
-    pgn = typeof d.page === 'number' ? tl('{page}쪽', { page: d.page }) : '',
-    sc = scopeLabel(d);
-  pg.textContent = pgn;
-  pg.hidden = !pgn; // a Markdown document's lines have no page: the file and lines say it
-  pg.dataset.tip =
-    pgn +
-    (sc ? ' · ' + sc : '') +
+  renderElement(selection, COMPOSE.box);
+  const pageTag = $('#c-page'),
+    pageText = typeof selection.page === 'number' ? tl('{page}쪽', { page: selection.page }) : '',
+    scope = scopeLabel(selection);
+  pageTag.textContent = pageText;
+  pageTag.hidden = !pageText; // a Markdown document's lines have no page: the file and lines say it
+  pageTag.dataset.tip =
+    pageText +
+    (scope ? ' · ' + scope : '') +
     ' · ' +
-    tl('{n}줄', { n: (d.hi as number) - (d.lo as number) + 1 }) +
+    tl('{n}줄', { n: (selection.hi as number) - (selection.lo as number) + 1 }) +
     ' · ' +
-    tl('드래그한 줄 {range}', { range: rng(d.raw_lo, d.raw_hi) });
-  const v = viaTag(d),
-    tg = $('#c-tag');
-  tg.hidden = !v;
-  if (v) {
-    tg.textContent = v.t;
-    tg.dataset.tip = v.tip;
-    tg.classList.toggle('badge-warning', !!v.low);
+    tl('드래그한 줄 {range}', { range: rng(selection.raw_lo, selection.raw_hi) });
+  const locationTag = viaTag(selection),
+    tagElement = $('#c-tag');
+  tagElement.hidden = !locationTag;
+  if (locationTag) {
+    tagElement.textContent = locationTag.t;
+    tagElement.dataset.tip = locationTag.tip;
+    tagElement.classList.toggle('badge-warning', !!locationTag.low);
   }
-  $('#c-warn').hidden = !d.warn;
-  $('#c-warn').textContent = warnText(d.warn);
+  $('#c-warn').hidden = !selection.warn;
+  $('#c-warn').textContent = warnText(selection.warn);
   renderOverlapBanner();
-  setCap($('#c-cap'), rangeCap(d, false));
-  drawLadder($('#c-levels'), d, false);
+  setCap($('#c-cap'), rangeCap(selection, false));
+  drawLadder($('#c-levels'), selection, false);
   const pre = $('#c-snip');
   pre.className = 'wrap' + (SNIP_OPEN ? ' open' : '');
-  pre.textContent = snipText(d.snippet, SNIP_OPEN);
+  pre.textContent = snipText(selection.snippet, SNIP_OPEN);
   // A collapsed source is cut to 4 lines by CSS. Whether it was cut is measured after rendering (a manuscript where one long line wraps into several is common).
   const over = SNIP_OPEN || pre.scrollHeight > pre.clientHeight + 2,
-    nl = String(d.snippet || '').split('\n').length;
+    lineCount = String(selection.snippet || '').split('\n').length;
   pre.classList.toggle('clip', !SNIP_OPEN && over);
   $('#c-expand').hidden = !over;
   $('#c-expand').textContent = SNIP_OPEN
     ? tr('원문 접기')
-    : tr('원문 펼치기') + (nl > 1 ? ' · ' + tl('{n}줄', { n: nl }) : '');
-  drawExcerpt(d, $('#c-xp'), false); // the range excerpt (excerpt.js)
-  drawComposerQuote(d);
-  renderSuggest(d); // the [제안 수정] switch and its editor follow the range (suggest.js)
+    : tr('원문 펼치기') + (lineCount > 1 ? ' · ' + tl('{n}줄', { n: lineCount }) : '');
+  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (excerpt.js)
+  drawComposerQuote(selection);
+  renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (suggest.js)
   drawSelPop(); // the popover by the box shows the same location
   mdSelMark(mdSelShown()); // the chosen lines on the Markdown surface (a re-place's candidate while it has one)
 }
 // ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자', issue #185)
 // The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range change
 // (the same object) keeps it open.
-let QUOTE_SEL = null as Selection | null;
+let QUOTE_OPEN_SELECTION = null as Selection | null;
 // What a pick or a pin shows of its quote (the dragged PDF text, whitespace-normalized by the server): the text trimmed, or ''
 // for none - no text (a tap or a long press), a region (a view-only PDF or a figure region shows its text as the source
 // already) or a line of a figure document (its quote is the element's name, which the location line names). A document of
 // an unknown kind is a LaTeX one. Pure.
 function shownQuote(
-  p: { kind?: string; file?: string; pdf?: string; quote?: string } | null,
+  pickOrPin: { kind?: string; file?: string; pdf?: string; quote?: string } | null,
   docKind: string | undefined,
 ): string {
-  if (!p || isRegion(p) || isFigureKind(docKind)) return '';
-  return String(p.quote || '').trim();
+  if (!pickOrPin || isRegion(pickOrPin) || isFigureKind(docKind)) return '';
+  return String(pickOrPin.quote || '').trim();
 }
 // The quote line's inside: the icon, a name for screen readers and the text. The line is the manuscript's text and is drawn
 // translate="no", so the name is put in the screen's language here (tr); it says where the text was chosen - in the PDF, or
 // in a document drawn in the browser (md: Markdown or text), which has none. A character in the text that would hide or
 // reorder it is in its box (ccHtml), and its tooltip names it (ccPlain). CSS cuts the text to one line until it is opened.
-function quoteInner(q: string, md: boolean): Html {
-  return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr(md ? '문서에서 고른 글자' : 'PDF에서 고른 글자')}: </span><span class="q-t">${ccHtml(q)}</span>`;
+function quoteInner(quote: string, drawnInBrowser: boolean): Html {
+  return html`<span class="q-ic" aria-hidden="true">${ic('text-quote')}</span><span class="sr-only">${tr(drawnInBrowser ? '문서에서 고른 글자' : 'PDF에서 고른 글자')}: </span><span class="q-t">${ccHtml(quote)}</span>`;
 }
 // Opens or folds a quote line (the composer's #c-quote or a card's .quote) where it is, without redrawing, so the focus stays
 // on it. Open, the whole text is on screen and the tooltip that repeated it goes; folded, it comes back. The state is kept
-// for the next draw: the composer's per selection (QUOTE_SEL), a card's per pin (QUOTE_OPEN).
-function toggleQuote(el: HTMLElement) {
-  const open = el.getAttribute('aria-expanded') !== 'true',
-    t = el.querySelector('.q-t');
-  el.classList.toggle('open', open);
-  el.setAttribute('aria-expanded', String(open));
+// for the next draw: the composer's per selection (QUOTE_OPEN_SELECTION), a card's per pin (QUOTE_OPEN).
+function toggleQuote(line: HTMLElement) {
+  const open = line.getAttribute('aria-expanded') !== 'true',
+    text = line.querySelector('.q-t');
+  line.classList.toggle('open', open);
+  line.setAttribute('aria-expanded', String(open));
   hideTip();
-  if (open) delete el.dataset.tip;
-  else el.dataset.tip = t ? ccPlain(t.textContent || '') : '';
-  if (el.id === 'c-quote') QUOTE_SEL = open ? COMPOSE.current : null;
+  if (open) delete line.dataset.tip;
+  else line.dataset.tip = text ? ccPlain(text.textContent || '') : '';
+  if (line.id === 'c-quote') QUOTE_OPEN_SELECTION = open ? COMPOSE.current : null;
   else {
-    const k = el.dataset.key || '';
-    if (open) QUOTE_OPEN.add(k);
-    else QUOTE_OPEN.delete(k);
+    const key = line.dataset.key || '';
+    if (open) QUOTE_OPEN.add(key);
+    else QUOTE_OPEN.delete(key);
   }
 }
 // The composer's quote line, right under the location line: shown for a LaTeX line pick with text, open if it was opened for
 // this selection. Nothing, and no gap, otherwise.
-function drawComposerQuote(d: Selection | null) {
-  const el = $('#c-quote'),
-    q = shownQuote(d, META ? META.kind : undefined);
-  el.hidden = !q;
-  if (!q) {
-    el.replaceChildren();
-    delete el.dataset.tip;
+function drawComposerQuote(selection: Selection | null) {
+  const line = $('#c-quote'),
+    quote = shownQuote(selection, META ? META.kind : undefined);
+  line.hidden = !quote;
+  if (!quote) {
+    line.replaceChildren();
+    delete line.dataset.tip;
     return;
   }
-  const open = !!d && QUOTE_SEL === d;
-  setHtml(el, quoteInner(q, isMdDoc()));
-  el.classList.toggle('open', open);
-  el.setAttribute('aria-expanded', String(open));
-  if (open) delete el.dataset.tip;
-  else el.dataset.tip = ccPlain(q);
+  const open = !!selection && QUOTE_OPEN_SELECTION === selection;
+  setHtml(line, quoteInner(quote, isMdDoc()));
+  line.classList.toggle('open', open);
+  line.setAttribute('aria-expanded', String(open));
+  if (open) delete line.dataset.tip;
+  else line.dataset.tip = ccPlain(quote);
 }
 // When a selection ends via save/cancel/append, selection mode is turned off (scrolling resumes) and the narrow sheet collapses (the body comes forward again).
 // The composer panel's pin kind (fix request / question). Reverts to fix request on save or discard (the default for the next pin).
 // The kind says what the note is, not who handles it: the assignee does not follow it (mentions.js).
-function setKind(k) {
+function setKind(kind) {
   const was = KIND_NEW;
-  setKindNew(k === KIND_REQ.QUESTION ? KIND_REQ.QUESTION : KIND_REQ.FIX);
+  setKindNew(kind === KIND_REQ.QUESTION ? KIND_REQ.QUESTION : KIND_REQ.FIX);
   saveDraftSoon();
   if (KIND_NEW !== was) COMPOSE.intent++; // a failed verdict save's retry is for the intent it was pressed with
-  $$('#c-kind button').forEach((b) => {
-    const on = b.dataset.kind === KIND_NEW;
-    b.classList.toggle('on', on);
-    b.setAttribute('aria-checked', String(on));
+  $$('#c-kind button').forEach((button) => {
+    const on = button.dataset.kind === KIND_NEW;
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', String(on));
   });
   segRove($('#c-kind')); // the group's one Tab stop is the kind now chosen (events.js)
   $('#note').placeholder =
@@ -522,10 +534,12 @@ function setKind(k) {
 // Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing bracket/quote and a
 // trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind itself.
 function looksQuestion(text) {
-  let t = String(text || '').trim();
+  let trimmed = String(text || '').trim();
   for (let i = 0; i < 3; i++)
-    t = t.replace(/[\s.…~!。)\]"'”’]+$/, '').replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
-  return /[?？]$/.test(t) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(t);
+    trimmed = trimmed
+      .replace(/[\s.…~!。)\]"'”’]+$/, '')
+      .replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
+  return /[?？]$/.test(trimmed) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(trimmed);
 }
 // If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. Never
 // auto-changes it - only changes on click (author feedback 2026-09-25: "...표현한 의도가 있는건가?" got saved as a fix
@@ -570,13 +584,13 @@ function cancelSelection(clearNote) {
 // @-tag hints, the kind, the assignee choice and the suggested edit's draft, and the document/build the box belongs to. null when there is no selection.
 function selectionSnapshot() {
   if (!COMPOSE.current && !COMPOSE.picking && $('#composer').hidden) return null;
-  const n = $('#note');
+  const noteField = $('#note');
   return {
     cur: COMPOSE.current,
     box: COMPOSE.box,
     page: COMPOSE.box && COMPOSE.box.parentNode,
-    note: n.value,
-    mentions: n._mentions || null,
+    note: noteField.value,
+    mentions: noteField._mentions || null,
     kind: KIND_NEW,
     assign: { v: ASSIGN_NEW.v, touched: ASSIGN_NEW.touched },
     sg: suggestCopy(SG),
@@ -588,28 +602,28 @@ function selectionSnapshot() {
 // composer when they still belong to the pages on screen (same document and build; the box if its page is still there). Never over
 // a newer selection - that one wins. When only the note can come back (the PDF changed), the status line says so.
 // Returns whether anything came back. focus false: the note field does not take the focus (a late undo's answer, save.js).
-function restoreSelection(snap, focus?: boolean) {
-  if (!snap || COMPOSE.current || COMPOSE.picking || REPICK || !$('#composer').hidden) return false;
-  const n = $('#note');
-  if (n.value) return false; // a note-only draft also belongs to the current document
-  n.value = snap.note;
-  n._mentions = snap.mentions;
-  setKind(snap.kind);
-  Object.assign(ASSIGN_NEW, snap.assign);
-  Object.assign(SG, suggestCopy(snap.sg || suggestDraft()));
+function restoreSelection(snapshot, focus?: boolean) {
+  if (!snapshot || COMPOSE.current || COMPOSE.picking || REPICK || !$('#composer').hidden) return false;
+  const noteField = $('#note');
+  if (noteField.value) return false; // a note-only draft also belongs to the current document
+  noteField.value = snapshot.note;
+  noteField._mentions = snapshot.mentions;
+  setKind(snapshot.kind);
+  Object.assign(ASSIGN_NEW, snapshot.assign);
+  Object.assign(SG, suggestCopy(snapshot.sg || suggestDraft()));
   renderAssignNew();
-  autoGrow(n);
-  if (!(snap.cur && snap.doc === DOC && META && snap.build === META.pages_build)) {
+  autoGrow(noteField);
+  if (!(snapshot.cur && snapshot.doc === DOC && META && snapshot.build === META.pages_build)) {
     lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다', NOTICE_KIND.WARN);
     return true;
   }
   if (COMPOSE.box) COMPOSE.box.remove();
   COMPOSE.box = null;
-  if (snap.box && snap.page && document.contains(snap.page)) {
-    COMPOSE.box = snap.box;
-    snap.page.appendChild(snap.box);
+  if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {
+    COMPOSE.box = snapshot.box;
+    snapshot.page.appendChild(snapshot.box);
   }
-  COMPOSE.current = snap.cur;
+  COMPOSE.current = snapshot.cur;
   COMPOSE.intent++;
   recomputeOverlap();
   setSnipOpen(false);
@@ -620,7 +634,7 @@ function restoreSelection(snap, focus?: boolean) {
   setSide(true);
   applySide();
   if (LAYOUT !== LAYOUT_MODE.WIDE) revealBox(COMPOSE.box);
-  if (LAST_PTR === 'mouse' && focus !== false) n.focus({ preventScroll: true });
+  if (LAST_PTR === 'mouse' && focus !== false) noteField.focus({ preventScroll: true });
   return true;
 }
 // Whether the focus has nowhere left to stay: on <body>, or inside the composer or the popover by the box, which have just
@@ -632,37 +646,38 @@ function focusClosed() {
 // The element an input method's composition is open in (compositionstart, not ended since), else null. A composition is over
 // once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no compositionend (a switch
 // of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at the moment it is asked.
-let IME_EL = null as Element | null;
+let COMPOSITION_ELEMENT = null as Element | null;
 addEventListener(
   'compositionstart',
-  (e) => {
-    IME_EL = e.target instanceof Element ? e.target : null;
+  (event) => {
+    COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
   },
   true,
 );
 addEventListener(
   'compositionend',
-  (e) => {
-    if (e.target === IME_EL) IME_EL = null;
+  (event) => {
+    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
   },
   true,
 );
 addEventListener(
   'focusout',
-  (e) => {
-    if (e.target === IME_EL) IME_EL = null;
+  (event) => {
+    if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
   },
   true,
 );
 function imeOpen() {
-  const e = IME_EL,
-    a = document.activeElement;
-  if (e && (!e.isConnected || !(a === e || (a && e.contains(a))))) IME_EL = null;
-  return !!IME_EL;
+  const composing = COMPOSITION_ELEMENT,
+    focused = document.activeElement;
+  if (composing && (!composing.isConnected || !(focused === composing || (focused && composing.contains(focused)))))
+    COMPOSITION_ELEMENT = null;
+  return !!COMPOSITION_ELEMENT;
 }
 function focusFell() {
-  const a = document.activeElement;
-  return !a || a === document.body || $('#composer').contains(a) || $('#sel-pop').contains(a);
+  const focused = document.activeElement;
+  return !focused || focused === document.body || $('#composer').contains(focused) || $('#sel-pop').contains(focused);
 }
 // Puts a focus that fell (focusFell) when the composer closed - Esc, [취소], a save, an append - where its work was, so the next
 // Tab goes on from there, not from the page's start (<body>, then the sidebar's first control): the pin saved or appended to
@@ -674,7 +689,7 @@ function focusFell() {
 // composer's intent just after the close (focusClosed) - nothing moves unless both are still those, no composer or pick is
 // open and no input method's composition is (imeOpen).
 function focusPlace(
-  d: Selection | null | undefined,
+  selection: Selection | null | undefined,
   id: number | null,
   closed?: { visit: { doc: string | null; seq: number }; intent: number },
 ) {
@@ -688,22 +703,22 @@ function focusPlace(
     return;
   }
   let at = null as HTMLElement | null;
-  if (d && (d.doc || DOC) === DOC) {
+  if (selection && (selection.doc || DOC) === DOC) {
     if (isMdDoc()) {
-      const n = typeof d.raw_lo === 'number' ? d.raw_lo : d.lo;
-      if (!isRegion(d) && typeof n === 'number') at = mdLeaves(n, n)[0] || null;
-    } else if (typeof d.page === 'number') at = document.getElementById('p' + d.page);
+      const line = typeof selection.raw_lo === 'number' ? selection.raw_lo : selection.lo;
+      if (!isRegion(selection) && typeof line === 'number') at = mdLeaves(line, line)[0] || null;
+    } else if (typeof selection.page === 'number') at = document.getElementById('p' + selection.page);
   }
   focusHold(at && at.getClientRects().length ? at : $('#left'));
 }
 // Focuses el without scrolling; an element that takes no focus of its own takes it for as long as it has it (tabindex -1,
 // dropped on blur), as the PDF area does for a search (searchToPage).
-function focusHold(el: HTMLElement) {
-  if (!el.hasAttribute('tabindex')) {
-    el.tabIndex = -1;
-    el.addEventListener('blur', () => el.removeAttribute('tabindex'), { once: true });
+function focusHold(target: HTMLElement) {
+  if (!target.hasAttribute('tabindex')) {
+    target.tabIndex = -1;
+    target.addEventListener('blur', () => target.removeAttribute('tabindex'), { once: true });
   }
-  el.focus({ preventScroll: true });
+  target.focus({ preventScroll: true });
 }
 // Esc and [취소] on a selection (docs/handbook/viewer.md §패널 정리): it goes at once, and when its note had text or its suggested edit
 // an edited text the status line offers [되돌리기] for NOTICE_MS, which no other press ends (its place, the composer, is gone),
@@ -712,20 +727,20 @@ function focusHold(el: HTMLElement) {
 // composer took with it goes to the place the selection stood (focusPlace).
 function discardSelection() {
   syncDraft();
-  const snap = selectionSnapshot();
+  const snapshot = selectionSnapshot();
   cancelSelection(true);
-  focusPlace(snap && snap.cur, null);
-  if (!(snap && snap.cur && (snap.note.trim() || (snap.sg.on && suggestEdited(snap.sg))))) {
+  focusPlace(snapshot && snapshot.cur, null);
+  if (!(snapshot && snapshot.cur && (snapshot.note.trim() || (snapshot.sg.on && suggestEdited(snapshot.sg))))) {
     syncDraft();
     return;
   }
-  const n = lineNote(
+  const note = lineNote(
     '선택 취소됨',
     NOTICE_KIND.OK,
-    { label: '되돌리기', tip: '선택과 메모를 되살립니다', fn: () => restoreSelection(snap) },
+    { label: '되돌리기', tip: '선택과 메모를 되살립니다', fn: () => restoreSelection(snapshot) },
     { life: NOTICE_LIFE.TIMER, undo: true },
   );
-  if (n) holdDraftUntil(n);
+  if (note) holdDraftUntil(note);
 } // the kept draft goes when the window does
 export {
   COMPOSE,

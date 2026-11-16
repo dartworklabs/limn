@@ -63,24 +63,30 @@ function suggestDraft(): SuggestDraft {
 const SG = suggestDraft(); // the composer's draft; an open edit card keeps its own (EditCard.sg)
 /** A copy of draft sg to keep (a discard's undo, the tab's stored draft): what it holds, without a read under way or its
  * failure. */
-function suggestCopy(sg: SuggestDraft): SuggestDraft {
-  return { ...sg, had: sg.had && { ...sg.had }, current: sg.current && { ...sg.current }, reading: '', fail: null };
+function suggestCopy(draft: SuggestDraft): SuggestDraft {
+  return {
+    ...draft,
+    had: draft.had && { ...draft.had },
+    current: draft.current && { ...draft.current },
+    reading: '',
+    fail: null,
+  };
 }
 /** The draft an edit card of pin p opens with: on and filled with the pin's suggestion when it has one (had keeps it, to tell
  * what a save changes), else an empty draft. */
-function suggestOfPin(p: Pin): SuggestDraft {
-  const d = suggestDraft(),
-    s = p.suggest;
-  if (!s) return d;
+function suggestOfPin(pin: Pin): SuggestDraft {
+  const empty = suggestDraft(),
+    suggestion = pin.suggest;
+  if (!suggestion) return empty;
   return {
-    ...d,
+    ...empty,
     on: true,
-    text: s.text,
-    base: s.base,
-    file: p.file || null,
-    lo: p.lo || 0,
-    hi: p.hi || 0,
-    had: { base: s.base, text: s.text },
+    text: suggestion.text,
+    base: suggestion.base,
+    file: pin.file || null,
+    lo: pin.lo || 0,
+    hi: pin.hi || 0,
+    had: { base: suggestion.base, text: suggestion.text },
   };
 }
 
@@ -88,75 +94,80 @@ function suggestOfPin(p: Pin): SuggestDraft {
 // document, an area (a region pick or pin, or no lines), or a range of more than SUGGEST_LINES lines. docKind is the document's
 // kind; an unknown one is a LaTeX document. Pure.
 function suggestOff(
-  o: { kind?: string; file?: string; pdf?: string; region?: boolean; lo?: number; hi?: number } | null,
+  owner: { kind?: string; file?: string; pdf?: string; region?: boolean; lo?: number; hi?: number } | null,
   docKind: string | undefined,
 ): string | null {
   if (docKind === DOC_KIND.PDF) return SUGGEST_OFF.PDF;
   if (isFigureKind(docKind)) return SUGGEST_OFF.FIGURE;
-  if (!o || o.region || isRegion(o) || o.lo == null || o.hi == null) return SUGGEST_OFF.REGION;
-  return o.hi - o.lo + 1 > SUGGEST_LINES ? SUGGEST_OFF.LONG : null;
+  if (!owner || owner.region || isRegion(owner) || owner.lo == null || owner.hi == null) return SUGGEST_OFF.REGION;
+  return owner.hi - owner.lo + 1 > SUGGEST_LINES ? SUGGEST_OFF.LONG : null;
 }
 /** Whether draft sg holds a text other than the one it was filled from (a draft never filled is not edited). Pure. */
-function suggestEdited(sg: SuggestDraft): boolean {
-  return sg.base != null && sg.text !== sg.base;
+function suggestEdited(draft: SuggestDraft): boolean {
+  return draft.base != null && draft.text !== draft.base;
 }
 /** The lines o is, as a draft records them: 'file:lo-hi'. Pure. */
-function suggestKey(o: { file?: string | null; lo?: number; hi?: number }): string {
-  return String(o.file) + ':' + o.lo + '-' + o.hi;
+function suggestKey(owner: { file?: string | null; lo?: number; hi?: number }): string {
+  return String(owner.file) + ':' + owner.lo + '-' + owner.hi;
 }
 /** Whether o's lines are not the ones draft sg's base was read from. Pure. */
-function suggestMoved(sg: SuggestDraft, o: { file?: string | null; lo?: number; hi?: number } | null): boolean {
-  return sg.base != null && !!o && suggestKey(sg) !== suggestKey(o);
+function suggestMoved(draft: SuggestDraft, owner: { file?: string | null; lo?: number; hi?: number } | null): boolean {
+  return draft.base != null && !!owner && suggestKey(draft) !== suggestKey(owner);
 }
 // What a new pin's save sends as `suggest` for draft sg on a selection that is `off`: {base, text} when the editor is on, was
 // filled and holds another text; null otherwise (nothing to suggest, or a selection that can carry none). A range over
 // SUGGEST_LINES still sends it: the server's refusal (suggest_too_long) says why on the save row, and the draft stays. Pure.
-function suggestForSave(sg: SuggestDraft, off: string | null): PinSuggest | null {
-  if (!sg.on || sg.base == null || (off && off !== SUGGEST_OFF.LONG) || sg.text === sg.base) return null;
-  return { base: sg.base, text: sg.text };
+function suggestForSave(draft: SuggestDraft, off: string | null): PinSuggest | null {
+  if (!draft.on || draft.base == null || (off && off !== SUGGEST_OFF.LONG) || draft.text === draft.base) return null;
+  return { base: draft.base, text: draft.text };
 }
 // What an edit's save sends as `suggest` for card draft sg: undefined (the stored suggestion stays as it is), null (remove it)
 // or {base, text}. Switched off, or left with the source's own text, removes the pin's suggestion and sends nothing when it
 // had none; the pin's own base and text send nothing; a draft not filled yet sends nothing. Pure.
-function suggestForEdit(sg: SuggestDraft, off: string | null): PinSuggest | null | undefined {
-  const had = sg.had;
-  if (!sg.on) return had ? null : undefined;
-  if (sg.base == null || (off && off !== SUGGEST_OFF.LONG)) return undefined;
-  if (sg.text === sg.base) return had ? null : undefined;
-  if (had && had.base === sg.base && had.text === sg.text) return undefined;
-  return { base: sg.base, text: sg.text };
+function suggestForEdit(draft: SuggestDraft, off: string | null): PinSuggest | null | undefined {
+  const had = draft.had;
+  if (!draft.on) return had ? null : undefined;
+  if (draft.base == null || (off && off !== SUGGEST_OFF.LONG)) return undefined;
+  if (draft.text === draft.base) return had ? null : undefined;
+  if (had && had.base === draft.base && had.text === draft.text) return undefined;
+  return { base: draft.base, text: draft.text };
 }
 
 // The lines of a suggestion's string: an empty text is no line (it deletes the range); a base always has its range's lines.
 // Pure.
-function suggestLines(s: string, isText: boolean): string[] {
-  return isText && s === '' ? [] : String(s).split('\n');
+function suggestLines(value: string, isText: boolean): string[] {
+  return isText && value === '' ? [] : String(value).split('\n');
 }
 // A line diff of base -> text, top to bottom: rows {k:'ctx'|'del'|'add', t: the line, n: its number} - a base line numbered
 // from lo as it is in the file, a text line from lo as it would be after the change; in a changed run the deleted lines come
 // first. The longest common subsequence of whole lines. Pure.
-function suggestDiff(base: string, text: string, lo: number): { k: string; t: string; n: number }[] {
-  const a = suggestLines(base, false),
-    b = suggestLines(text, true),
-    n = a.length,
-    m = b.length;
-  const L = Array.from({ length: n + 1 }, () => new Int32Array(m + 1)); // L[i][j]: the common lines of a[i..] and b[j..]
-  for (let i = n - 1; i >= 0; i--)
-    for (let j = m - 1; j >= 0; j--) L[i][j] = a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+function suggestDiff(base: string, text: string, first: number): { k: string; t: string; n: number }[] {
+  const baseLines = suggestLines(base, false),
+    textLines = suggestLines(text, true),
+    baseCount = baseLines.length,
+    textCount = textLines.length;
+  const common = Array.from({ length: baseCount + 1 }, () => new Int32Array(textCount + 1)); // L[i][j]: the common lines of a[i..] and b[j..]
+  for (let i = baseCount - 1; i >= 0; i--)
+    for (let j = textCount - 1; j >= 0; j--)
+      common[i][j] =
+        baseLines[i] === textLines[j] ? common[i + 1][j + 1] + 1 : Math.max(common[i + 1][j], common[i][j + 1]);
   const out: { k: string; t: string; n: number }[] = [];
-  let i = 0,
-    j = 0;
-  while (i < n || j < m) {
-    if (i < n && j < m && a[i] === b[j]) {
-      out.push({ k: 'ctx', t: b[j], n: lo + j });
-      i++;
-      j++;
-    } else if (i < n && (j >= m || L[i + 1][j] >= L[i][j + 1])) {
-      out.push({ k: 'del', t: a[i], n: lo + i });
-      i++;
+  let baseIndex = 0,
+    textIndex = 0;
+  while (baseIndex < baseCount || textIndex < textCount) {
+    if (baseIndex < baseCount && textIndex < textCount && baseLines[baseIndex] === textLines[textIndex]) {
+      out.push({ k: 'ctx', t: textLines[textIndex], n: first + textIndex });
+      baseIndex++;
+      textIndex++;
+    } else if (
+      baseIndex < baseCount &&
+      (textIndex >= textCount || common[baseIndex + 1][textIndex] >= common[baseIndex][textIndex + 1])
+    ) {
+      out.push({ k: 'del', t: baseLines[baseIndex], n: first + baseIndex });
+      baseIndex++;
     } else {
-      out.push({ k: 'add', t: b[j], n: lo + j });
-      j++;
+      out.push({ k: 'add', t: textLines[textIndex], n: first + textIndex });
+      textIndex++;
     }
   }
   return out;
@@ -175,33 +186,33 @@ function suggestFold(
 // character that would hide or reorder it in its box (ccHtml), whatever the document's kind: a suggestion that puts one in
 // never reads as another text than the one an agent will apply.
 function suggestDiffHtml(rows: { k: string; t: string; n: number }[]): Html {
-  return html`<div class="sg-diff" translate="no">${rows.map((r) =>
-    r.k === 'fold'
-      ? html`<span class="rd-line rd-fold"><span class="rd-no" aria-hidden="true"></span><span class="rd-code">… ${tl('{n}줄', { n: r.n })}</span></span>`
-      : html`<span class="rd-line rd-${r.k === 'ctx' ? 'context' : r.k}"><span class="rd-no" aria-hidden="true">${r.n}</span><span class="rd-code">${r.k === 'add' ? '+' : r.k === 'del' ? '-' : ' '}${ccHtml(r.t)}</span></span>`,
+  return html`<div class="sg-diff" translate="no">${rows.map((row) =>
+    row.k === 'fold'
+      ? html`<span class="rd-line rd-fold"><span class="rd-no" aria-hidden="true"></span><span class="rd-code">… ${tl('{n}줄', { n: row.n })}</span></span>`
+      : html`<span class="rd-line rd-${row.k === 'ctx' ? 'context' : row.k}"><span class="rd-no" aria-hidden="true">${row.n}</span><span class="rd-code">${row.k === 'add' ? '+' : row.k === 'del' ? '-' : ' '}${ccHtml(row.t)}</span></span>`,
   )}</div>`;
 }
 // What draft sg's text holds of the characters that would hide or reorder text (hidden-chars.js), which the editor (a
 // textarea) shows as the browser does - unseen, or the text reordered: the ones it adds to its base ([[name, count]], ccAdded)
 // and how many it has in all; null when it has none. Pure.
-function suggestHidden(sg: SuggestDraft): { added: [string, number][]; n: number } | null {
-  if (sg.base == null) return null;
-  let n = 0;
-  for (const ln of sg.text.split('\n')) n += ccFind(ln).length;
-  return n ? { added: ccAdded(sg.text, sg.base), n } : null;
+function suggestHidden(draft: SuggestDraft): { added: [string, number][]; n: number } | null {
+  if (draft.base == null) return null;
+  let count = 0;
+  for (const line of draft.text.split('\n')) count += ccFind(line).length;
+  return count ? { added: ccAdded(draft.text, draft.base), n: count } : null;
 }
 // The line under the editor for h, what suggestHidden found in draft sg on lines from lo, as Html: the characters the draft
 // adds, with the draft's added lines that hold them in the diff look - each character in its box - so the person sees where
 // they are; or, when it only keeps its base's, how many. pins.md flags an added one for the agent too.
-function suggestHiddenHtml(sg: SuggestDraft, h: { added: [string, number][]; n: number }, lo: number): Html {
-  if (!h.added.length)
-    return html`<span>${tl('원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다', { n: h.n })}</span>`;
-  const rows = suggestDiff(sg.base || '', sg.text, lo)
-    .filter((r) => r.k === 'add' && ccFind(r.t).length)
+function suggestHiddenHtml(draft: SuggestDraft, hidden: { added: [string, number][]; n: number }, first: number): Html {
+  if (!hidden.added.length)
+    return html`<span>${tl('원문에 있던, 보이지 않거나 글 순서를 바꾸는 문자 {n}개가 제안 문안에 그대로 있습니다. 이 칸에서는 보이지 않습니다', { n: hidden.n })}</span>`;
+  const rows = suggestDiff(draft.base || '', draft.text, first)
+    .filter((row) => row.k === 'add' && ccFind(row.t).length)
     .slice(0, SUGGEST_FOLD);
   return html`<span>${tl(
     '제안 문안이 원문에 없는, 보이지 않거나 글 순서를 바꾸는 문자를 넣습니다: {list}. 이 칸에서는 보이지 않거나 글 순서가 바뀌어 보입니다',
-    { list: h.added.map(([k, c]) => k + ' ' + tl('{n}개', { n: c })).join(', ') },
+    { list: hidden.added.map(([name, count]) => name + ' ' + tl('{n}개', { n: count })).join(', ') },
   )}</span>${suggestDiffHtml(rows)}`;
 }
 
@@ -209,18 +220,18 @@ function suggestHiddenHtml(sg: SuggestDraft, h: { added: [string, number][]; n: 
 const SG_OPEN = new Set(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
 // A card's suggested edit, after its note: the diff of base -> text, folded past SUGGEST_FOLD rows with [제안 펼치기 · N줄]
 // under it to unfold. null when the pin has none.
-function suggestView(p: Pin): Html | null {
-  const s = p.suggest;
-  if (!s) return null;
-  const k = pdoc(p) + ':' + p.id,
-    open = SG_OPEN.has(k),
-    rows = suggestDiff(s.base, s.text, p.lo || 1);
+function suggestView(pin: Pin): Html | null {
+  const suggestion = pin.suggest;
+  if (!suggestion) return null;
+  const key = pdoc(pin) + ':' + pin.id,
+    open = SG_OPEN.has(key),
+    rows = suggestDiff(suggestion.base, suggestion.text, pin.lo || 1);
   const foot =
     rows.length > SUGGEST_FOLD
-      ? html`<div class="sg-foot"><button class="btn-sm btn-ghost" data-act="sg-fold" data-key="${k}" aria-expanded="${String(open)}">\
+      ? html`<div class="sg-foot"><button class="btn-sm btn-ghost" data-act="sg-fold" data-key="${key}" aria-expanded="${String(open)}">\
 ${open ? tr('제안 접기') : tr('제안 펼치기') + ' · ' + tl('{n}줄', { n: rows.length })}</button></div>`
       : null;
-  return html`<div class="sg-view">${suggestWarnLine(p)}${suggestDiffHtml(suggestFold(rows, open))}${foot}</div>`;
+  return html`<div class="sg-view">${suggestWarnLine(pin)}${suggestDiffHtml(suggestFold(rows, open))}${foot}</div>`;
 }
 // The line over the diff of an open pin whose suggestion the agent will not apply (docs/handbook/viewer.md §제안 수정): that
 // the agent will not apply it ('에이전트는 넣지 않음'), then why or what to do. 'unknown': why, '원문과 대조 불가' (`reason`).
@@ -229,36 +240,36 @@ ${open ? tr('제안 접기') : tr('제안 펼치기') + ' · ' + tl('{n}줄', { 
 // the first part alone. The warning badge's explanation, said on screen for everyone, short enough for one line in the
 // desktop panel and at 320px. null for a ready suggestion or a pin that is not open (a closed pin is not re-synced). Pure.
 function suggestWarn(
-  st: string | undefined,
-  pinSt: string,
+  suggestState: string | undefined,
+  stateOfPin: string,
   viewer: boolean,
 ): { reason: string | null; edit: boolean } | null {
-  if (pinSt !== PIN_STATE.OPEN) return null;
-  if (st === SUGGEST_STATE.CHANGED) return { reason: null, edit: !viewer };
-  if (st === SUGGEST_STATE.UNKNOWN) return { reason: '원문과 대조 불가', edit: false };
+  if (stateOfPin !== PIN_STATE.OPEN) return null;
+  if (suggestState === SUGGEST_STATE.CHANGED) return { reason: null, edit: !viewer };
+  if (suggestState === SUGGEST_STATE.UNKNOWN) return { reason: '원문과 대조 불가', edit: false };
   return null;
 }
 /** suggestWarn's line for p, in the screen's language; null when it has none. */
-function suggestWarnLine(p: Pin): Html | null {
-  const w = suggestWarn(p.suggest_state, pinState(p), isViewer());
-  if (!w) return null;
-  const go = w.edit
+function suggestWarnLine(pin: Pin): Html | null {
+  const warning = suggestWarn(pin.suggest_state, pinState(pin), isViewer());
+  if (!warning) return null;
+  const go = warning.edit
     ? html` · <button class="sg-warn-go hit" data-act="edit" data-tip="${tr('이 핀의 수정 칸을 엽니다 — 거기서 [지금 원문으로 맞추기]가 제안의 원문을 지금 그 줄들로 바꿉니다')}">\
 ${tr('수정해서 원문에 맞추기')}</button>`
     : null;
-  return html`<p class="sg-warn">${tr('에이전트는 넣지 않음')}${w.reason ? ' · ' + tr(w.reason) : null}${go}</p>`;
+  return html`<p class="sg-warn">${tr('에이전트는 넣지 않음')}${warning.reason ? ' · ' + tr(warning.reason) : null}${go}</p>`;
 }
 // A card's [제안 수정] badge, with the reason not to apply it when its lines no longer read as its base ('원문 바뀜') or
 // cannot be compared ('확인 불가'): a pin's `suggest_state`. A closed card shows the plain badge: a closed pin is not re-synced, and
 // one whose suggestion was applied reads as changed. null without a suggestion. The two warning badges are .tip-shown: the
 // card's line over the diff (suggestWarnLine) says what their explanation says, so they carry no words for a screen reader
 // (tooltip.js); their explanation box stays.
-function suggestBadge(p: Pin, closed: boolean): Html | null {
-  if (!p.suggest) return null;
-  const st = closed ? SUGGEST_STATE.READY : p.suggest_state;
-  if (st === SUGGEST_STATE.CHANGED)
+function suggestBadge(pin: Pin, closed: boolean): Html | null {
+  if (!pin.suggest) return null;
+  const state = closed ? SUGGEST_STATE.READY : pin.suggest_state;
+  if (state === SUGGEST_STATE.CHANGED)
     return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${tr('그사이 이 줄들이 바뀌어 제안의 원문과 다릅니다 — 에이전트는 넣지 않고 답글로 알립니다. [수정]에서 지금 원문으로 맞출 수 있습니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('원문 바뀜')}</span>`;
-  if (st === SUGGEST_STATE.UNKNOWN)
+  if (state === SUGGEST_STATE.UNKNOWN)
     return html`<span class="badge badge-warning sg-badge tip-shown" data-tip="${tr('원문과 대조할 수 없습니다(위치를 잃었거나 파일을 읽지 못함) — 에이전트는 넣지 않고 알립니다')}">${ic('triangle-alert')}${tr('제안 수정')} · ${tr('확인 불가')}</span>`;
   return html`<span class="badge sg-badge" data-tip="${tr('작성자가 바꿀 글을 직접 썼습니다 — 에이전트가 이 줄 범위에 넣고, 명백한 오타·문장 오류만 고쳐 알립니다. 뜻이 걸린 문제는 넣기 전에 묻습니다')}">${tr('제안 수정')}</span>`;
 }
@@ -268,68 +279,78 @@ function suggestBadge(p: Pin, closed: boolean): Html | null {
 // when `fill` - then redraws its owner. Only while owns() (the selection or the edit card is still on screen), o still has
 // those lines and, for a fill, the text was not typed meanwhile: otherwise the next draw decides again. A failure keeps the
 // draft and says why on its line (fail), with [원문 다시 읽기].
-async function suggestRead(sg: SuggestDraft, o: any, fill: boolean, owns: () => boolean, redraw: () => void) {
-  const key = suggestKey(o),
-    was = sg.text;
-  if (sg.reading === key) return;
-  sg.reading = key;
-  sg.fail = null;
+async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns: () => boolean, redraw: () => void) {
+  const key = suggestKey(owner),
+    was = draft.text;
+  if (draft.reading === key) return;
+  draft.reading = key;
+  draft.fail = null;
   redraw();
   let text = null as string | null,
     fail = '';
   try {
     const { status, data } = await api(
-      dq('/api/snippet?file=' + encodeURIComponent(String(o.file)) + '&lo=' + o.lo + '&hi=' + o.hi + '&text=1', o.doc),
+      dq(
+        '/api/snippet?file=' +
+          encodeURIComponent(String(owner.file)) +
+          '&lo=' +
+          owner.lo +
+          '&hi=' +
+          owner.hi +
+          '&text=1',
+        owner.doc,
+      ),
       { what: '원문 읽기', expect: [400], silent: true },
     );
     if (status === 400) fail = errText(data);
     else if (data && typeof data.text === 'string') text = data.text;
     else fail = tr('80줄이 넘는 범위는 원문을 받지 못합니다');
-  } catch (e) {
+  } catch (error) {
     fail = tr('서버에 닿지 않습니다');
   }
-  if (sg.reading !== key) return; // a newer read took over
-  sg.reading = '';
+  if (draft.reading !== key) return; // a newer read took over
+  draft.reading = '';
   if (!owns()) return;
-  if (suggestKey(o) !== key || (fill && sg.text !== was)) {
+  if (suggestKey(owner) !== key || (fill && draft.text !== was)) {
     redraw();
     return;
   }
   if (text == null) {
-    sg.fail = { key, fill, why: fail };
+    draft.fail = { key, fill, why: fail };
     redraw();
     return;
   }
-  sg.base = text;
-  sg.file = o.file || null;
-  sg.lo = o.lo;
-  sg.hi = o.hi;
-  sg.current = null;
-  if (fill) sg.text = text;
+  draft.base = text;
+  draft.file = owner.file || null;
+  draft.lo = owner.lo;
+  draft.hi = owner.hi;
+  draft.current = null;
+  if (fill) draft.text = text;
   redraw();
 }
 // Keeps draft sg on o's lines while its text is the source's own: an editor turned on and never filled, or not edited since
 // and now on other lines, reads them as its text and base. Nothing while off, on a selection that can carry no suggestion,
 // during a read, or after a read of these lines failed (its [원문 다시 읽기] tries again).
-function suggestFollow(sg: SuggestDraft, o: any, off: string | null, owns: () => boolean, redraw: () => void) {
-  if (!sg.on || off || sg.reading) return;
-  if (sg.fail && sg.fail.key === suggestKey(o)) return;
-  if (sg.base == null || (suggestMoved(sg, o) && !suggestEdited(sg))) suggestRead(sg, o, true, owns, redraw);
+function suggestFollow(draft: SuggestDraft, owner: any, off: string | null, owns: () => boolean, redraw: () => void) {
+  if (!draft.on || off || draft.reading) return;
+  if (draft.fail && draft.fail.key === suggestKey(owner)) return;
+  if (draft.base == null || (suggestMoved(draft, owner) && !suggestEdited(draft)))
+    suggestRead(draft, owner, true, owns, redraw);
 }
 // [지금 원문으로 맞추기]: draft sg keeps its text and takes the current lines of o as its base - the text a 409 answered with
 // when it is o's lines, else read now.
-function suggestRebase(sg: SuggestDraft, o: any, owns: () => boolean, redraw: () => void) {
-  const c = sg.current;
-  sg.current = null;
-  if (c && o && suggestKey(c) === suggestKey(o)) {
-    sg.base = c.text;
-    sg.file = c.file;
-    sg.lo = c.lo;
-    sg.hi = c.hi;
+function suggestRebase(draft: SuggestDraft, owner: any, owns: () => boolean, redraw: () => void) {
+  const current = draft.current;
+  draft.current = null;
+  if (current && owner && suggestKey(current) === suggestKey(owner)) {
+    draft.base = current.text;
+    draft.file = current.file;
+    draft.lo = current.lo;
+    draft.hi = current.hi;
     redraw();
     return;
   }
-  if (o) suggestRead(sg, o, false, owns, redraw);
+  if (owner) suggestRead(draft, owner, false, owns, redraw);
   else redraw();
 }
 // The one line under the editor of draft sg on o, or null: what is under way or wrong first, then what a save will do. Each is
@@ -338,8 +359,8 @@ function suggestRebase(sg: SuggestDraft, o: any, owns: () => boolean, redraw: ()
 // first ('에이전트는 넣지 않음', `warn`: drawn in the warning colour, as on the card): 'changed' with the rebase that ends it, 'unknown' with
 // why. A rebase or a new range's source is a new base, and the line goes, as the card's will once it is saved.
 function suggestLine(
-  sg: SuggestDraft,
-  o: any,
+  draft: SuggestDraft,
+  owner: any,
   off: string | null,
   isEdit: boolean,
   state: string | undefined,
@@ -354,28 +375,32 @@ function suggestLine(
     label: '지금 원문으로 맞추기',
     tip: '쓰던 글은 그대로 두고, 이 제안이 바꿀 원문을 지금 그 줄들의 글로 바꿉니다',
   };
-  if (!sg.on) return isEdit && sg.had ? { msg: '저장하면 이 핀의 제안 수정을 지웁니다', act: null } : null;
+  if (!draft.on) return isEdit && draft.had ? { msg: '저장하면 이 핀의 제안 수정을 지웁니다', act: null } : null;
   if (off === SUGGEST_OFF.LONG)
     return { msg: '범위가 80줄을 넘어 이대로는 저장되지 않습니다 — 범위를 줄이거나 제안 수정을 끄세요', act: null };
-  if (sg.reading && sg.base == null) return { msg: '원문 읽는 중…', act: null };
-  const f = sg.fail;
-  if (f)
+  if (draft.reading && draft.base == null) return { msg: '원문 읽는 중…', act: null };
+  const failure = draft.fail;
+  if (failure)
     return {
-      msg: tl('원문을 읽지 못했습니다 — {why}', { why: f.why }),
-      act: { act: f.fill ? 'sg-reload' : 'sg-rebase', label: '원문 다시 읽기', tip: '이 줄들의 원문을 다시 읽습니다' },
+      msg: tl('원문을 읽지 못했습니다 — {why}', { why: failure.why }),
+      act: {
+        act: failure.fill ? 'sg-reload' : 'sg-rebase',
+        label: '원문 다시 읽기',
+        tip: '이 줄들의 원문을 다시 읽습니다',
+      },
     };
-  if (sg.current && o && suggestKey(sg.current) === suggestKey(o))
+  if (draft.current && owner && suggestKey(draft.current) === suggestKey(owner))
     return { msg: '그사이 원문이 바뀌었습니다 — 아래는 지금 원문과 이 글의 차이입니다', act: rebase };
-  if (suggestMoved(sg, o)) return { msg: '범위가 바뀌었습니다', act: reload };
-  const own = isEdit && !!sg.had && sg.base === sg.had.base;
+  if (suggestMoved(draft, owner)) return { msg: '범위가 바뀌었습니다', act: reload };
+  const own = isEdit && !!draft.had && draft.base === draft.had.base;
   if (own && state === SUGGEST_STATE.CHANGED)
     return { msg: '에이전트는 넣지 않음 · 그사이 원문이 바뀌었습니다', act: rebase, warn: true };
   if (own && state === SUGGEST_STATE.UNKNOWN)
     return { msg: '에이전트는 넣지 않음 · 원문과 대조 불가', act: null, warn: true };
-  if (sg.base != null && sg.text === sg.base)
+  if (draft.base != null && draft.text === draft.base)
     return {
       msg:
-        isEdit && sg.had
+        isEdit && draft.had
           ? '원문과 같아 저장하면 이 핀의 제안 수정을 지웁니다'
           : '원문 그대로입니다 — 고친 글만 제안 수정으로 보냅니다',
       act: null,
@@ -383,15 +408,15 @@ function suggestLine(
   return null;
 }
 // Grows a suggestion editor to its text, from two lines up to twelve (then it scrolls).
-function suggestGrow(ta: HTMLTextAreaElement) {
-  if (ta.hidden || !ta.getClientRects().length) return;
-  const cs = getComputedStyle(ta),
-    px = (v) => parseFloat(v) || 0;
-  const lh = px(cs.lineHeight) || 18,
-    edge = px(cs.paddingTop) + px(cs.paddingBottom) + px(cs.borderTopWidth) + px(cs.borderBottomWidth);
-  ta.style.height = 'auto';
-  const need = ta.scrollHeight + px(cs.borderTopWidth) + px(cs.borderBottomWidth);
-  ta.style.height = Math.min(12 * lh + edge, Math.max(2 * lh + edge, need)) + 'px';
+function suggestGrow(editor: HTMLTextAreaElement) {
+  if (editor.hidden || !editor.getClientRects().length) return;
+  const style = getComputedStyle(editor),
+    px = (value) => parseFloat(value) || 0;
+  const lineHeight = px(style.lineHeight) || 18,
+    edge = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth);
+  editor.style.height = 'auto';
+  const need = editor.scrollHeight + px(style.borderTopWidth) + px(style.borderBottomWidth);
+  editor.style.height = Math.min(12 * lineHeight + edge, Math.max(2 * lineHeight + edge, need)) + 'px';
 }
 // Draws draft sg on o into its elements (els): the switch - or, when o can carry no suggestion, the short reason in its place -
 // the editor while on, the one line under it, the characters the editor cannot show (suggestHiddenHtml) and, after a 409, the
@@ -399,10 +424,10 @@ function suggestGrow(ta: HTMLTextAreaElement) {
 // SUGGEST_LINES keeps the switch while it is on, so it can be switched off. The editor is read-only until its first fill. The
 // line is a polite live region, so it is written only when what it says changes (typing redraws it on every key).
 function drawSuggest(
-  sg: SuggestDraft,
-  o: any,
+  draft: SuggestDraft,
+  owner: any,
   off: string | null,
-  els: {
+  elements: {
     tg: HTMLElement;
     why: HTMLElement;
     box: HTMLElement;
@@ -414,54 +439,55 @@ function drawSuggest(
   isEdit: boolean,
   state: string | undefined,
 ) {
-  const shown = !off || (off === SUGGEST_OFF.LONG && sg.on);
-  els.tg.hidden = !shown;
-  els.tg.setAttribute('aria-checked', String(sg.on));
-  els.why.hidden = shown;
+  const shown = !off || (off === SUGGEST_OFF.LONG && draft.on);
+  elements.tg.hidden = !shown;
+  elements.tg.setAttribute('aria-checked', String(draft.on));
+  elements.why.hidden = shown;
   if (!shown && off) {
-    const w = SUGGEST_WHY[off];
-    els.why.textContent = tr(w[0]);
-    els.why.dataset.tip = w[1];
+    const why = SUGGEST_WHY[off];
+    elements.why.textContent = tr(why[0]);
+    elements.why.dataset.tip = why[1];
   }
-  const editing = sg.on && shown;
-  els.ta.hidden = !editing;
-  if (els.ta.value !== sg.text) els.ta.value = sg.text;
-  els.ta.readOnly = sg.base == null;
-  const line = shown ? suggestLine(sg, o, off, isEdit, state) : null,
+  const editing = draft.on && shown;
+  elements.ta.hidden = !editing;
+  if (elements.ta.value !== draft.text) elements.ta.value = draft.text;
+  elements.ta.readOnly = draft.base == null;
+  const line = shown ? suggestLine(draft, owner, off, isEdit, state) : null,
     said = line ? line.msg + '\n' + (line.act ? line.act.act : '') : '';
-  els.line.hidden = !line;
-  els.line.classList.toggle('sg-note-warn', !!(line && line.warn));
-  if (els.line.dataset.said !== said) {
-    els.line.dataset.said = said;
-    const a = line && line.act;
+  elements.line.hidden = !line;
+  elements.line.classList.toggle('sg-note-warn', !!(line && line.warn));
+  if (elements.line.dataset.said !== said) {
+    elements.line.dataset.said = said;
+    const action = line && line.act;
     if (line)
       setHtml(
-        els.line,
-        html`<span>${tr(line.msg)}</span>${a ? html`<button class="hit" data-act="${a.act}" data-tip="${a.tip}">${tr(a.label)}</button>` : ''}`,
+        elements.line,
+        html`<span>${tr(line.msg)}</span>${action ? html`<button class="hit" data-act="${action.act}" data-tip="${action.tip}">${tr(action.label)}</button>` : ''}`,
       );
-    else els.line.replaceChildren();
+    else elements.line.replaceChildren();
   }
-  const hid = editing ? suggestHidden(sg) : null,
-    cc = hid ? suggestHiddenHtml(sg, hid, sg.lo || (o && o.lo) || 1) : null,
-    ccSaid = cc ? cc.text : '';
-  els.cc.hidden = !cc;
-  els.cc.classList.toggle('sg-cc-warn', !!hid && hid.added.length > 0); // in the warning colour when it adds some
-  if (els.cc.dataset.said !== ccSaid) {
-    els.cc.dataset.said = ccSaid;
-    if (cc) setHtml(els.cc, cc);
-    else els.cc.replaceChildren();
+  const hiddenChars = editing ? suggestHidden(draft) : null,
+    hiddenHtml = hiddenChars ? suggestHiddenHtml(draft, hiddenChars, draft.lo || (owner && owner.lo) || 1) : null,
+    hiddenSaid = hiddenHtml ? hiddenHtml.text : '';
+  elements.cc.hidden = !hiddenHtml;
+  elements.cc.classList.toggle('sg-cc-warn', !!hiddenChars && hiddenChars.added.length > 0); // in the warning colour when it adds some
+  if (elements.cc.dataset.said !== hiddenSaid) {
+    elements.cc.dataset.said = hiddenSaid;
+    if (hiddenHtml) setHtml(elements.cc, hiddenHtml);
+    else elements.cc.replaceChildren();
   } // a live region: written when it changes
-  const c = editing && sg.current && o && suggestKey(sg.current) === suggestKey(o) ? sg.current : null;
-  els.cur.hidden = !c;
-  if (c) setHtml(els.cur, suggestDiffHtml(suggestDiff(c.text, sg.text, c.lo)));
-  else els.cur.replaceChildren();
-  els.box.hidden = els.ta.hidden && els.line.hidden && els.cc.hidden && els.cur.hidden;
-  if (editing) suggestGrow(els.ta);
+  const current =
+    editing && draft.current && owner && suggestKey(draft.current) === suggestKey(owner) ? draft.current : null;
+  elements.cur.hidden = !current;
+  if (current) setHtml(elements.cur, suggestDiffHtml(suggestDiff(current.text, draft.text, current.lo)));
+  else elements.cur.replaceChildren();
+  elements.box.hidden = elements.ta.hidden && elements.line.hidden && elements.cc.hidden && elements.cur.hidden;
+  if (editing) suggestGrow(elements.ta);
 }
 
 // ---------------- The composer's draft (SG)
 /** The composer's suggestion elements. */
-function composerSuggestEls() {
+function composerSuggestElements() {
   return {
     tg: $('#c-sg-tg'),
     why: $('#c-sg-why'),
@@ -475,17 +501,17 @@ function composerSuggestEls() {
 // Draws the composer's suggestion for selection d (renderComposer and renderRegionComposer call it on every draw) and keeps an
 // unedited draft on d's lines. A read's answer redraws it, the overlap notice ([덧붙이기] waits on an edited suggestion) and the
 // stored draft. The tablet sheet's height follows the editor as it opens, fills, grows and closes (applySheet, tabletLift).
-function renderSuggest(d: Selection) {
-  const off = suggestOff(d, META ? META.kind : undefined),
-    owns = () => COMPOSE.current === d;
+function renderSuggest(selection: Selection) {
+  const off = suggestOff(selection, META ? META.kind : undefined),
+    owns = () => COMPOSE.current === selection;
   const redraw = () => {
     if (!owns()) return;
-    renderSuggest(d);
+    renderSuggest(selection);
     renderOverlapBanner();
     saveDraftSoon();
   };
-  drawSuggest(SG, d, off, composerSuggestEls(), false, undefined);
-  suggestFollow(SG, d, off, owns, redraw);
+  drawSuggest(SG, selection, off, composerSuggestElements(), false, undefined);
+  suggestFollow(SG, selection, off, owns, redraw);
   renderVerdictRow(); // [제안 수정] on turns the verdict buttons off
   if (BAND === LAYOUT_BAND.TABLET_SHEET) applySheet();
 }
@@ -497,78 +523,80 @@ function suggestPending() {
 // Empties the composer's draft (a save, a discard without undo, another document) and its editor.
 function suggestClear() {
   Object.assign(SG, suggestDraft());
-  const ta = $('#c-sg-text') as HTMLTextAreaElement;
-  ta.value = '';
-  ta.style.height = '';
+  const editor = $('#c-sg-text') as HTMLTextAreaElement;
+  editor.value = '';
+  editor.style.height = '';
 }
 
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of edit card E's document (an unknown one is LaTeX).
-function editDocKind(E: EditCard): string | undefined {
-  const d = docInfo(E.doc);
-  return d ? d.kind : E.doc === DOC && META ? META.kind : undefined;
+function editDocKind(card: EditCard): string | undefined {
+  const entry = docInfo(card.doc);
+  return entry ? entry.kind : card.doc === DOC && META ? META.kind : undefined;
 }
 /** Edit card E's suggestion elements. */
-function editSuggestEls(E: EditCard) {
-  const q = (s) => E.el.querySelector(s) as HTMLElement;
+function editSuggestElements(card: EditCard) {
+  const find = (selector) => card.el.querySelector(selector) as HTMLElement;
   return {
-    tg: q('.e-sg-row .sg-tg'),
-    why: q('.e-sg-row .sg-why'),
-    box: q('.e-sg'),
-    ta: q('.e-sg-text') as HTMLTextAreaElement,
-    line: q('.e-sg .sg-note'),
-    cc: q('.e-sg .sg-cc'),
-    cur: q('.e-sg .sg-cur'),
+    tg: find('.e-sg-row .sg-tg'),
+    why: find('.e-sg-row .sg-why'),
+    box: find('.e-sg'),
+    ta: find('.e-sg-text') as HTMLTextAreaElement,
+    line: find('.e-sg .sg-note'),
+    cc: find('.e-sg .sg-cc'),
+    cur: find('.e-sg .sg-cur'),
   };
 }
 // Draws edit card E's suggestion (renderEdit): the switch and the editor on an open pin; a closed pin's suggestion read-only
 // (its diff, no switch), as it can only take memo edits.
-function renderEditSuggest(E: EditCard) {
-  const pin = findAnyPin(E.id),
+function renderEditSuggest(card: EditCard) {
+  const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN,
-    els = editSuggestEls(E);
-  const row = E.el.querySelector('.e-sg-row') as HTMLElement,
-    ro = E.el.querySelector('.e-sg-ro') as HTMLElement;
+    elements = editSuggestElements(card);
+  const row = card.el.querySelector('.e-sg-row') as HTMLElement,
+    readOnly = card.el.querySelector('.e-sg-ro') as HTMLElement;
   row.hidden = closed;
   const view = closed && pin ? suggestView(pin) : null;
-  ro.hidden = !view;
-  if (view) setHtml(ro, view);
-  else ro.replaceChildren();
+  readOnly.hidden = !view;
+  if (view) setHtml(readOnly, view);
+  else readOnly.replaceChildren();
   if (closed) {
-    els.box.hidden = true;
+    elements.box.hidden = true;
     return;
   }
-  const off = suggestOff(E, editDocKind(E)),
-    owns = () => EDITOR.current === E,
+  const off = suggestOff(card, editDocKind(card)),
+    owns = () => EDITOR.current === card,
     redraw = () => {
-      if (owns()) renderEditSuggest(E);
+      if (owns()) renderEditSuggest(card);
     };
-  drawSuggest(E.sg, E, off, els, true, pin ? pin.suggest_state : undefined);
-  suggestFollow(E.sg, E, off, owns, redraw);
+  drawSuggest(card.sg, card, off, elements, true, pin ? pin.suggest_state : undefined);
+  suggestFollow(card.sg, card, off, owns, redraw);
 }
 // The draft and the selection or card an editor control belongs to: the open edit card's when el is inside it, else the composer's.
-function suggestOwner(el: HTMLElement): { sg: SuggestDraft; o: any; owns: () => boolean; redraw: () => void } | null {
-  if (el.closest('.edit')) {
-    const E = EDITOR.current;
-    if (!E) return null;
+function suggestOwner(
+  control: HTMLElement,
+): { sg: SuggestDraft; o: any; owns: () => boolean; redraw: () => void } | null {
+  if (control.closest('.edit')) {
+    const card = EDITOR.current;
+    if (!card) return null;
     return {
-      sg: E.sg,
-      o: E,
-      owns: () => EDITOR.current === E,
+      sg: card.sg,
+      o: card,
+      owns: () => EDITOR.current === card,
       redraw: () => {
-        if (EDITOR.current === E) renderEditSuggest(E);
+        if (EDITOR.current === card) renderEditSuggest(card);
       },
     };
   }
-  const d = COMPOSE.current;
-  if (!d) return null;
+  const selection = COMPOSE.current;
+  if (!selection) return null;
   return {
     sg: SG,
-    o: d,
-    owns: () => COMPOSE.current === d,
+    o: selection,
+    owns: () => COMPOSE.current === selection,
     redraw: () => {
-      if (COMPOSE.current !== d) return;
-      renderSuggest(d);
+      if (COMPOSE.current !== selection) return;
+      renderSuggest(selection);
       renderOverlapBanner();
       saveDraftSoon();
     },
@@ -576,36 +604,36 @@ function suggestOwner(el: HTMLElement): { sg: SuggestDraft; o: any; owns: () => 
 }
 // The editor's controls: the switch, [원문 다시 불러오기] (fill from the range's lines) and [지금 원문으로 맞추기] (rebase), for the
 // draft el belongs to.
-function suggestAct(el: HTMLElement, act: string) {
-  const w = suggestOwner(el);
-  if (!w) return;
+function suggestAct(control: HTMLElement, act: string) {
+  const owner = suggestOwner(control);
+  if (!owner) return;
   if (act === 'sg-toggle') {
-    w.sg.on = !w.sg.on;
-    w.sg.current = null;
-    if (w.sg === SG) COMPOSE.intent++;
-    w.redraw();
+    owner.sg.on = !owner.sg.on;
+    owner.sg.current = null;
+    if (owner.sg === SG) COMPOSE.intent++;
+    owner.redraw();
     return;
   } // the composer's switch ends a failed verdict save's retry
   if (act === 'sg-reload') {
-    w.sg.current = null;
-    w.sg.fail = null;
-    suggestRead(w.sg, w.o, true, w.owns, w.redraw);
+    owner.sg.current = null;
+    owner.sg.fail = null;
+    suggestRead(owner.sg, owner.o, true, owner.owns, owner.redraw);
     return;
   }
   if (act === 'sg-rebase') {
-    w.sg.fail = null;
-    suggestRebase(w.sg, w.o, w.owns, w.redraw);
+    owner.sg.fail = null;
+    suggestRebase(owner.sg, owner.o, owner.owns, owner.redraw);
   }
 }
 // Typing in an editor: its draft takes the text; the line under it and - in the composer - the overlap notice and the tab's
 // draft follow.
-document.addEventListener('input', (e) => {
-  const t = e.target as HTMLTextAreaElement;
-  if (!t.classList || !t.classList.contains('sg-text')) return;
-  const w = suggestOwner(t);
-  if (!w) return;
-  w.sg.text = t.value;
-  w.redraw();
+document.addEventListener('input', (event) => {
+  const editor = event.target as HTMLTextAreaElement;
+  if (!editor.classList || !editor.classList.contains('sg-text')) return;
+  const owner = suggestOwner(editor);
+  if (!owner) return;
+  owner.sg.text = editor.value;
+  owner.redraw();
 });
 export {
   SG,
