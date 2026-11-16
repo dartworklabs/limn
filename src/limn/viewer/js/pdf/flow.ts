@@ -16,12 +16,12 @@ import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
-import { SELECTION_POPOVER_BOX, placeSelectionPopover } from '../composer/view-selection-popover.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { popoverFreeArea } from './view-area.ts';
+import { pageSelection } from './state-seams.ts';
 
 // The text as it is matched: Unicode NFKC (Hangul jamo composed, a letter and its combining mark joined, ligatures and
 // full-width forms unfolded), lower case, curly quotes and dashes as ' " and -, soft hyphens and zero-width marks
@@ -1180,8 +1180,10 @@ function searchShown(element: HTMLElement) {
 // Brings what the search was opened from back into view when it went out of it meanwhile: the note popover with its
 // selection box (scrolled back to where [보기] puts a mark) or the composer's field in its panel.
 function searchBringBack(to: HTMLElement) {
-  if ($('#sel-pop').contains(to) && SELECTION_POPOVER_BOX) {
-    const boxRect = SELECTION_POPOVER_BOX.getBoundingClientRect(),
+  // the box the note popover stands by, read only when the popover holds `to`
+  const popoverBox = $('#sel-pop').contains(to) ? pageSelection().popoverBox() : null;
+  if (popoverBox) {
+    const boxRect = popoverBox.getBoundingClientRect(),
       area = popoverFreeArea(),
       pdfArea = $('#left');
     const off = boxRect.top < area.top + 8 || boxRect.bottom > area.bottom - 8,
@@ -1189,7 +1191,7 @@ function searchBringBack(to: HTMLElement) {
     if (off || aside) endJumpForScroll();
     if (off) pdfArea.scrollTop += boxRect.top - (area.top + (area.bottom - area.top) * 0.3);
     if (aside) pdfArea.scrollLeft += (boxRect.left + boxRect.right) / 2 - (area.left + area.right) / 2;
-    placeSelectionPopover();
+    pageSelection().placePopover();
   } else if ($('#composer').contains(to)) to.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 // Esc, [검색 닫기] and leaving the manuscript: the query and its hits go and the field folds away. back moves the focus

@@ -67,6 +67,7 @@ js/layout/flow-scroll.ts               # scrolling the reading area: a jump's ta
 js/pdf/view-pages.ts                   # the page elements, page width and zoom steps, page jump
 js/pdf/view-area.ts                    # the part of the PDF area nothing covers
 js/pdf/view-badges.ts                  # where a mark's badge stands on its page and how far its press area reaches
+js/pdf/state-seams.ts                  # what the page surface asks the features above it: the pins' marks, the verdict lines, the composer, the Markdown surface, the changes view
 js/pdf/flow-open.ts                    # PDF.js: loading, the document cache, opening the current build
 js/pdf/view-outline.ts                 # the PDF outline and the section strip
 js/pdf/view-page-list.ts               # the page list: the page counts' popover and the navigation sheet's page rows

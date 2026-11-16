@@ -9718,6 +9718,7 @@ function setLastScrollAt(value) {
 }
 
 // ------------------------------------------------ PDF pages: their boxes, scale and zoom, and arriving at one
+
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {
@@ -9774,16 +9775,16 @@ function buildDoc() {
   // A document the browser draws from its source has no pages (markdown/view.ts).
   if (isMarkdownDoc()) {
     setComposeBox(null);
-    buildMarkdownDoc();
+    pageMarkdown().build();
     return;
   }
-  MARKDOWN_VIEW.gen++;
-  MARKDOWN_VIEW.shown = '';
+  pageMarkdown().drawn().gen++;
+  pageMarkdown().drawn().shown = '';
   // A draw of the Markdown surface still on its way stops here.
   document.body.classList.remove('md-surface');
   // A focus in the reason popover comes back with the pages (restoreReasonFocus).
   const doc = $('#doc'),
-    focus = holdReasonFocus();
+    focus = pageVerdicts().holdReasonFocus();
   doc.replaceChildren();
   setComposeBox(null);
   META.pages.forEach((page, index) => {
@@ -9805,10 +9806,10 @@ function buildDoc() {
     doc.appendChild(wrapper);
   });
   pageWidthVars();
-  marks();
+  pageMarks().draw();
   observeVectorPages();
   drawZoom();
-  restoreReasonFocus(focus);
+  pageVerdicts().restoreReasonFocus(focus);
 }
 // save=false is auto-fit - never saved. If a width fit for a narrow first window persisted into a wider window, the
 // pages would look too small. The scale is never saved in compact (mid/narrow) - so a width fit for a folded screen
@@ -9838,8 +9839,8 @@ function setScale(scale, save) {
   setPageScale(Math.min(bounds[1], Math.max(bounds[0], scale * widest)) / widest);
   SCALE_UNBOUNDED = false;
   sizePages();
-  markBadgeSides();
-  sizePageLines();
+  pageMarks().placeBadges();
+  pageVerdicts().sizeLines();
   placeChips();
   if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
   invalidateVectorDraws();
@@ -9966,7 +9967,7 @@ function fitWidth() {
 function autoFitWidth() {
   if (!$('#left').getClientRects().length) return;
   if (LAYOUT !== LAYOUT_MODE.WIDE ? !ZOOMED : savedScale() === null) setScale(defaultScale(), false);
-  else markBadgeSides();
+  else pageMarks().placeBadges();
 }
 // The page number stands outside a page (.no-out) where a wider page leaves room left of it - a page centred under one
 // at least the number's width and 8px wider on each side - and in the page's corner otherwise: on the widest pages, and
@@ -10143,7 +10144,7 @@ function goSheetPage() {
   const page = clampPage($('#ns-page-in').value, META && META.pages ? META.pages.length : 0);
   if (page === null) return;
   $('#nav-sheet').close();
-  if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
+  if (document.body.classList.contains('revision-open')) pageChanges().setMode(VIEW_MODE.MANUSCRIPT);
   goPage(page);
 }
 $('#ns-page-in').addEventListener('keydown', (event) => {
@@ -10247,6 +10248,80 @@ function markHitSides() {
     badge.style.setProperty('--room-b', px(room.b));
     badge.style.setProperty('--room-l', px(room.l));
   });
+}
+
+// ------------------------------------------------ What the page surface asks the features above it
+// pdf draws a document's pages, sizes them, takes a selection on them and goes to a page; the pins' marks on them, the
+// verdict's page lines and reason field, the composer that takes a selection, the Markdown surface a document drawn in
+// the browser hands to, and the changes view the pages leave are the features above (pins, verdict, composer,
+// markdown, revisions). pdf may not import them (docs/handbook/viewer.md §모듈 경계), so each need is a seam here: an
+// interface for what pdf asks, a registration function and an accessor. js/main.ts registers every seam once, at its
+// top level before boot() runs (no code that runs while the script loads reaches one), and pdf calls the registered
+// function at the point, with the arguments and in the order it called the feature function directly. An accessor
+// called before its registration throws, naming the seam.
+
+// The pins' marks on the pages (pins/flow-list.ts): drawing them, and their badges' sides for the pages' width now.
+let PAGE_MARKS = null;
+// Registers the pins' marks; js/main.ts calls it once.
+function setPageMarks(marks) {
+  PAGE_MARKS = marks;
+}
+// The registered marks; throws before setPageMarks() has run.
+function pageMarks() {
+  if (!PAGE_MARKS) throw new Error('setPageMarks() has not run: the pages have no pin marks to draw');
+  return PAGE_MARKS;
+}
+
+// The verdict on the pages (verdict/flow-reason.ts, verdict/flow-line.ts): a focus in the reason popover kept across a
+// rebuild of the pages, the page lines' size, and each page's verdict pins for the page list.
+let PAGE_VERDICTS = null;
+// Registers the verdict on the pages; js/main.ts calls it once.
+function setPageVerdicts(verdicts) {
+  PAGE_VERDICTS = verdicts;
+}
+// The registered verdict on the pages; throws before setPageVerdicts() has run.
+function pageVerdicts() {
+  if (!PAGE_VERDICTS) throw new Error('setPageVerdicts() has not run: the pages have no verdict lines');
+  return PAGE_VERDICTS;
+}
+
+// The composer a selection on the pages goes to (composer/flow-pick.ts, composer/view-selection-popover.ts): the pick
+// of a dragged region, dropping it, and the note popover by the selection box.
+let PAGE_SELECTION = null;
+// Registers the composer a selection goes to; js/main.ts calls it once.
+function setPageSelection(selection) {
+  PAGE_SELECTION = selection;
+}
+// The registered composer; throws before setPageSelection() has run.
+function pageSelection() {
+  if (!PAGE_SELECTION) throw new Error('setPageSelection() has not run: a selection on the pages has no composer');
+  return PAGE_SELECTION;
+}
+
+// What pdf writes into the Markdown surface's state when it draws pages (markdown/view.ts MARKDOWN_VIEW): the draw
+// generation, which a draw still on its way checks, and the document it shows.
+// A document the browser draws from its source (markdown/view.ts), which the page surface hands to.
+let PAGE_MARKDOWN = null;
+// Registers the Markdown surface; js/main.ts calls it once.
+function setPageMarkdown(markdown) {
+  PAGE_MARKDOWN = markdown;
+}
+// The registered Markdown surface; throws before setPageMarkdown() has run.
+function pageMarkdown() {
+  if (!PAGE_MARKDOWN) throw new Error('setPageMarkdown() has not run: the page surface has no Markdown surface');
+  return PAGE_MARKDOWN;
+}
+
+// The changes view the pages leave when one is gone to (revisions/flow.ts).
+let PAGE_CHANGES = null;
+// Registers the changes view; js/main.ts calls it once.
+function setPageChanges(changes) {
+  PAGE_CHANGES = changes;
+}
+// The registered changes view; throws before setPageChanges() has run.
+function pageChanges() {
+  if (!PAGE_CHANGES) throw new Error('setPageChanges() has not run: the pages cannot leave the changes view');
+  return PAGE_CHANGES;
 }
 
 // ------------------------------------------------ Vector rendering (PDF.js) - docs/handbook/viewer.md §벡터 렌더링
@@ -11038,7 +11113,7 @@ const OUTLINE_PICK_GAP = 8;
 function pickOutline(index) {
   // A heading of the Markdown surface.
   if (isMarkdownDoc()) {
-    goToHeading(index);
+    pageMarkdown().goToHeading(index);
     return;
   }
   const entry = OUTLINE_ENTRIES[index];
@@ -11049,7 +11124,7 @@ function pickOutline(index) {
   outlinePickWait();
   markOutline();
   updateSectionStrip();
-  setViewMode('manuscript');
+  pageChanges().setMode('manuscript');
   const top = outlinePickTop(entry);
   if (top === null) {
     goPage(entry.page);
@@ -11120,7 +11195,7 @@ function readingDepth(pane) {
 function updateSectionStrip() {
   // The Markdown surface's strip and position button.
   if (isMarkdownDoc()) {
-    updateMarkdownStrip();
+    pageMarkdown().updateStrip();
     return;
   }
   const pdfArea = $('#left'),
@@ -11438,7 +11513,7 @@ function pageCount() {
 // verdicts at a glance.
 function pageRowsHtml(pageTotal, currentPage) {
   const names = pageNames(pageTotal),
-    verdictPins = pageVerdictsOn() ? pageVerdictPins() : null;
+    verdictPins = pageVerdictsOn() ? pageVerdicts().pagePins() : null;
   return html`${Array.from({ length: pageTotal }, (_, index) => {
     const page = index + 1,
       on = page === currentPage,
@@ -11561,7 +11636,7 @@ function togglePageList(from) {
 // leaves the changes view for the manuscript, and scrolls to the page.
 function goListedPage(page) {
   closePageList(true);
-  if (document.body.classList.contains('revision-open')) setViewMode(VIEW_MODE.MANUSCRIPT);
+  if (document.body.classList.contains('revision-open')) pageChanges().setMode(VIEW_MODE.MANUSCRIPT);
   goPage(page);
 }
 // The phone's navigation sheet: its page rows under the page field, scrolled to the current page (openNavigationSheet).
@@ -13154,8 +13229,10 @@ function searchShown(element) {
 // Brings what the search was opened from back into view when it went out of it meanwhile: the note popover with its
 // selection box (scrolled back to where [보기] puts a mark) or the composer's field in its panel.
 function searchBringBack(to) {
-  if ($('#sel-pop').contains(to) && SELECTION_POPOVER_BOX) {
-    const boxRect = SELECTION_POPOVER_BOX.getBoundingClientRect(),
+  // the box the note popover stands by, read only when the popover holds `to`
+  const popoverBox = $('#sel-pop').contains(to) ? pageSelection().popoverBox() : null;
+  if (popoverBox) {
+    const boxRect = popoverBox.getBoundingClientRect(),
       area = popoverFreeArea(),
       pdfArea = $('#left');
     const off = boxRect.top < area.top + 8 || boxRect.bottom > area.bottom - 8,
@@ -13163,7 +13240,7 @@ function searchBringBack(to) {
     if (off || aside) endJumpForScroll();
     if (off) pdfArea.scrollTop += boxRect.top - (area.top + (area.bottom - area.top) * 0.3);
     if (aside) pdfArea.scrollLeft += (boxRect.left + boxRect.right) / 2 - (area.left + area.right) / 2;
-    placeSelectionPopover();
+    pageSelection().placePopover();
   } else if ($('#composer').contains(to)) to.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 // Esc, [검색 닫기] and leaving the manuscript: the query and its hits go and the field folds away. back moves the focus
@@ -15408,6 +15485,7 @@ window.addEventListener('popstate', () => {
 // handled by this code, two fingers by the app zoom - §PDF 영역 전용 확대).
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
+
 let DRAG = null,
   LONG_PRESS = null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
@@ -15660,7 +15738,7 @@ function pressOutsideSelection(event) {
   const inside = [
     ...document.querySelectorAll('.mark'),
     ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i')] : []),
-    ...(isSelectionPopoverOpen() ? [SELECTION_POPOVER] : []),
+    ...(pageSelection().popoverOpen() ? [pageSelection().popover()] : []),
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
 }
@@ -15679,7 +15757,7 @@ $('#left').addEventListener('pointerdown', (event) => {
 // Cancels the selection the press began on, if it is still the one open and still the thing to close.
 function clickOffNow(box) {
   if (!selectionOpen() || COMPOSE.box !== box) return;
-  discardSelection();
+  pageSelection().discard();
   // The panel may move under the click that follows.
   setSwallowClick(Date.now() + 400);
 }
@@ -15760,7 +15838,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
   const page = +pageElement.dataset.page,
     pageInfo = META.pages[page - 1],
     repick = !!REPICK;
-  pick({
+  pageSelection().pick({
     page,
     x0: Math.min(startX, x) * pageInfo.pt_w,
     y0: Math.min(startY, y) * pageInfo.pt_h,
@@ -15771,7 +15849,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     doc: DOC || undefined,
   });
   // A mouse drag's note popover (composer/view-selection-popover.ts); pick() has opened the composer.
-  if (!repick) openSelectionPopover(box);
+  if (!repick) pageSelection().openPopover(box);
   return true;
 }
 // If the sheet or panel covers the selection box, the body scrolls up until the box is visible (compact only; with
@@ -37212,6 +37290,25 @@ setFrameHost({
   searchOpen: () => SEARCH.open,
   setHash,
 });
+// The seams the page surface calls the features above it through (pdf/state-seams.ts).
+setPageMarks({ draw: marks, placeBadges: markBadgeSides });
+setPageVerdicts({ holdReasonFocus, restoreReasonFocus, sizeLines: sizePageLines, pagePins: pageVerdictPins });
+setPageSelection({
+  pick,
+  discard: discardSelection,
+  openPopover: openSelectionPopover,
+  popoverOpen: isSelectionPopoverOpen,
+  popover: () => SELECTION_POPOVER,
+  popoverBox: () => SELECTION_POPOVER_BOX,
+  placePopover: placeSelectionPopover,
+});
+setPageMarkdown({
+  drawn: () => MARKDOWN_VIEW,
+  build: buildMarkdownDoc,
+  goToHeading,
+  updateStrip: updateMarkdownStrip,
+});
+setPageChanges({ setMode: setViewMode });
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
