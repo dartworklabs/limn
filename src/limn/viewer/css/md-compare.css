@@ -1,4 +1,4 @@
-/* ---------------- The rendered compare of a Markdown document ([그린 비교], md-compare.js): the two sides drawn as the Markdown
+/* ---------------- The rendered compare of a Markdown document ([그린 비교], revisions/view-rendered-compare.ts): the two sides drawn as the Markdown
    surface draws a document, in one column - the new side with the taken-out blocks put back where they were. Never sideways.
    A change is a tint over the block and a word in the column's left gutter (a chip) - never a coloured band on the box's
    edge; taken-out text is also struck through, so the kinds read without colour. The pin the view was opened for is ringed
@@ -32,7 +32,7 @@ body.lay-narrow #revision-view[data-format=rendered] #revision-rendered{flex:non
 .mdc-doc tr.mdc-ghost{display:table-row}
 .mdc-doc .mdc-pin{outline:2px solid var(--status-review);outline-offset:2px;border-radius:var(--radius-sm)}
 .mdc-doc .mdc-cur{box-shadow:0 0 0 4px var(--card),0 0 0 6px var(--primary)}
-/* The gutter chips: each changed block's kind at its first line, in the column's left gutter (laid by md-compare.js). */
+/* The gutter chips: each changed block's kind at its first line, in the column's left gutter (laid by revisions/view-rendered-compare.ts). */
 .mdc-chips{position:absolute;left:0;top:0;width:calc(var(--space-6) + var(--space-5));pointer-events:none;user-select:none;-webkit-user-select:none}
 .mdc-chip{position:absolute;left:var(--space-1);display:inline-block;padding:0 var(--space-1);border-radius:var(--radius-sm);font-size:var(--text-xs);line-height:18px;
   font-weight:600;white-space:nowrap;text-decoration:none}

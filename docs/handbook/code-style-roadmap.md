@@ -115,7 +115,7 @@ basedpyright는 `all`에서 네 규칙만 끈다. `reportImplicitOverride`는 `@
 
 ## R12 뷰어의 이름은 온전한 낱말이고 주석에는 이력이 없다
 
-뷰어 모듈(`src/limn/viewer/js/*.ts`)의 선언한 이름은 온전한 낱말이다. 낱말은 세 글자 이상이거나 `tools/viewer-names.json`의 허용 목록에 있는 두 글자 이하의 말이고, 허용 목록이 이 규칙의 유일한 예외다. 약어 목록의 낱말(`sel`·`msg`·`btn`·`vec` 등)은 길이와 상관없이 쓰지 않는다. 주석은 코드가 지금 무엇을 왜 하는지 쓰고, 릴리스 번호·이슈와 PR 번호·날짜 도장 같은 이력은 담지 않는다. 이력은 PR과 CHANGELOG에 있고, 현재 규칙은 Handbook 절과 ADR 번호로 가리킨다. 두 규칙은 ESLint 지역 규칙(`limn/plain-names`·`limn/no-history-comment`)이고 줄기만 하는 기준선이 센다(§R4). 규칙의 정의와 목록은 [viewer.md](viewer.md) §이름과 주석, 결정의 경위는 [ADR-0044](../adr/0044-viewer-name-and-comment-gates.md)다.
+뷰어 모듈(`src/limn/viewer/js/**/*.ts`)의 선언한 이름은 온전한 낱말이다. 낱말은 세 글자 이상이거나 `tools/viewer-names.json`의 허용 목록에 있는 두 글자 이하의 말이고, 허용 목록이 이 규칙의 유일한 예외다. 약어 목록의 낱말(`sel`·`msg`·`btn`·`vec` 등)은 길이와 상관없이 쓰지 않는다. 주석은 코드가 지금 무엇을 왜 하는지 쓰고, 릴리스 번호·이슈와 PR 번호·날짜 도장 같은 이력은 담지 않는다. 이력은 PR과 CHANGELOG에 있고, 현재 규칙은 Handbook 절과 ADR 번호로 가리킨다. 두 규칙은 ESLint 지역 규칙(`limn/plain-names`·`limn/no-history-comment`)이고 줄기만 하는 기준선이 센다(§R4). 규칙의 정의와 목록은 [viewer.md](viewer.md) §이름과 주석, 결정의 경위는 [ADR-0044](../adr/0044-viewer-name-and-comment-gates.md)다.
 
 ## 경계 집행과 검증의 한계
 

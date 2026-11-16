@@ -26,7 +26,7 @@ git config blame.ignoreRevsFile .git-blame-ignore-revs   # once: git blame skips
 
 The server is stdlib-only Python 3.10+ (the modules in `src/limn/`, wired together by `src/limn/server.py`);
 the viewer is static files in `src/limn/viewer/` plus one script built from its ES modules, written in TypeScript
-(`src/limn/viewer/js/*.ts`, erasable syntax only: the build takes the types out), and committed
+(`src/limn/viewer/js/**/*.ts`, erasable syntax only: the build takes the types out), and committed
 (`src/limn/viewer/dist/viewer.js`, docs/adr/0042-viewer-es-modules.md, docs/adr/0043-viewer-typescript.md), so
 installing and serving need no Node. The Python tests that read a module's code read it without its types, so they need
 `npm ci --ignore-scripts` too; without it they skip. Please

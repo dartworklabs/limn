@@ -14,17 +14,17 @@ interface Window {
   CloseWatcher?: typeof CloseWatcher;
 }
 
-// The back-gesture hook of Chromium (gestures.js); the DOM library does not have it yet.
+// The back-gesture hook of Chromium (layout/input.ts); the DOM library does not have it yet.
 declare class CloseWatcher {
   onclose: (() => void) | null;
   destroy(): void;
 }
 
-// Fields the viewer keeps on its own elements: a card's flash timers (list.js), a note field's @-tags picked from the @-list
-// (mentions.js: the logins, and each one's place in the text with the text and the logins it was worked out for), the field
-// whose text a field mirrors and which keeps its @-tags (sel-popover.js: the note popover's field mirrors the composer's
-// note; mentions.js mentionModel), a copy control's own content and timer while it says '복사됨' (api.js copiedMark), a page
-// verdict line's timer for its pressed word's context (verdict.js showPressedHint).
+// Fields the viewer keeps on its own elements: a card's flash timers (pins/flow-list.ts), a note field's @-tags picked from the @-list
+// (pins/input-mentions.ts: the logins, and each one's place in the text with the text and the logins it was worked out for), the field
+// whose text a field mirrors and which keeps its @-tags (composer/view-selection-popover.ts: the note popover's field mirrors the composer's
+// note; pins/input-mentions.ts mentionModel), a copy control's own content and timer while it says '복사됨' (platform/api.ts copiedMark), a page
+// verdict line's timer for its pressed word's context (verdict/flow-line.ts showPressedHint).
 interface HTMLElement {
   _curT?: ReturnType<typeof setTimeout>;
   _flT?: ReturnType<typeof setTimeout>;
@@ -38,20 +38,20 @@ interface HTMLElement {
   _copiedT?: ReturnType<typeof setTimeout>;
 }
 
-// An @-tag picked from the @-list (mentions.js): whom it names, where its '@name' starts in the text, and that '@name'.
+// An @-tag picked from the @-list (pins/input-mentions.ts): whom it names, where its '@name' starts in the text, and that '@name'.
 interface MentionTag {
   login: string;
   at: number;
   tok: string;
 }
 
-// A notification's buttons (notify.js), which the DOM library leaves out of NotificationOptions though the service
+// A notification's buttons (documents/flow-notification.ts), which the DOM library leaves out of NotificationOptions though the service
 // worker's showNotification() takes them.
 interface NotificationOptions {
   actions?: { action: string; title: string }[];
 }
 
-// An api() failure (api.js): the HTTP status and the parsed body ride on the Error.
+// An api() failure (platform/api.ts): the HTTP status and the parsed body ride on the Error.
 interface ApiError extends Error {
   status?: number;
   data?: unknown;

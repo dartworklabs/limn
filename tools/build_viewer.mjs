@@ -1,7 +1,7 @@
 // Builds the viewer's one script, src/limn/viewer/dist/viewer.js, from its ES modules (docs/adr/0042-viewer-es-modules.md,
 // docs/adr/0043-viewer-typescript.md, docs/handbook/viewer.md §뷰어 규칙을 바꿀 때).
 //
-// The modules are src/limn/viewer/js/*.ts, listed in parts.txt under __APP_JS__ in the order they run. Each module's
+// The modules are src/limn/viewer/js/**/*.ts, listed in parts.txt under __APP_JS__ in the order they run. Each module's
 // types are taken out first (tools/strip_types.mjs: only the types, every other byte as written), then Rollup (the exact
 // version package-lock.json pins) joins them into one file: no tree-shaking, no minifying, no renaming - every module's
 // code goes in as written, with its types, imports and exports taken out. The order is parts.txt's: the build puts a

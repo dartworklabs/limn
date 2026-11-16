@@ -113,7 +113,7 @@ body.compact .pin:not(.open):not(.editing) .card-meta.hide-folded{position:absol
 @media (hover:hover){.pin .card-meta button.as-chip:where(:not(:disabled,[aria-disabled="true"])):hover{background:transparent;color:var(--primary);text-decoration:underline}}
 /* The pressable assignee's 44px touch hit comes from the hit utility (button.badge::after) and never from padding, so the line
    is as tall on every card. The assignee is a button only where that box has room: in a folded card, where nothing else by the
-   line is pressed (cards.js). */
+   line is pressed (pins/view-cards.ts). */
 /* The assignee row (docs/handbook/viewer.md §담당): its label and the standard segmented track, which scrolls sideways inside
    the row when the names are longer than it (.seg.lad, the range ladder's rule) - the row never grows past the composer. The
    label's and the segments' words are trimmed to their cap height (text-box), so they share the track's middle in any font. The
@@ -201,7 +201,7 @@ body.compact #trash-link{display:none}   /* compact: the Trash is in [⋯], like
 .cmt{position:relative;display:flex;align-items:flex-start;gap:var(--space-2);margin-top:var(--space-2)}
 .cmt-b{flex:1;min-width:0}
 .note-h{line-height:1.5}   /* a whole number of px, as a reply's head: the note under it starts on a whole pixel */
-/* Who and when on one line (card-parts.js whoWhen): it wraps as one item, so a long name never pushes its time to another line;
+/* Who and when on one line (pins/view-card-parts.ts whoWhen): it wraps as one item, so a long name never pushes its time to another line;
    the name gives way to an ellipsis, '(나)' and the time keep their width. A following edit time wraps under them. */
 .tl .msg-h .who{display:flex;align-items:baseline;gap:0 var(--space-2);min-width:0;max-width:100%}
 .tl .msg-h .who>b{display:flex;min-width:0}
@@ -271,7 +271,7 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .edit .e-cap{margin:0 0 var(--space-1)}   /* the line range (.e-range) never wraps character by character (.rg-cap) */
 .pg-link{color:var(--primary);font-size:var(--text-sm);cursor:pointer}
 .au{display:inline-flex;align-items:center;flex:none}
-/* The person on the meta row (#me, boot.js), at the row's end: the avatar is the chips' height (20px) and stands --space-2
+/* The person on the meta row (#me, documents/flow-boot.ts), at the row's end: the avatar is the chips' height (20px) and stands --space-2
    from the name, as a comment's avatar and its writer do; the name is the meta text's size, and its cap height stands on the
    avatar's centre (trimmed, so the row centres the letters, not their line box - the padding keeps a Hangul name's ink inside
    the box that cuts a long name to an ellipsis). With no rule of its own the name touched the avatar (0px) in the body's size,
@@ -287,13 +287,13 @@ button.th-more{align-self:flex-start;color:var(--muted-foreground)}
 .av.agent .ic{width:13px;height:13px}
 .me-tag{color:var(--muted-foreground);font-weight:400}
 .edit{margin-top:var(--space-2)}
-/* A verdict pin's badge ('판정 채택', verdict.js): the question badge's shape, the words carry the meaning - no colour of its own. */
+/* A verdict pin's badge ('판정 채택', verdict/flow-line.ts): the question badge's shape, the words carry the meaning - no colour of its own. */
 .badge-verdict{color:var(--foreground)}
 .badge-verdict .vd-w{font-weight:600}
-/* A superseded verdict's marker ('이전 판정 · #4로 대체됨', verdict.js): a neutral badge - no colour of its own, the words carry it;
+/* A superseded verdict's marker ('이전 판정 · #4로 대체됨', verdict/flow-line.ts): a neutral badge - no colour of its own, the words carry it;
    the number is the viewer's link (.pin-ref). */
 .vd-old .vd-old-ref{font-weight:600}
-/* What a figure document's verdict is about, by name ('[후보] PL26 · …', verdict.js verdictTarget): plain words after the
+/* What a figure document's verdict is about, by name ('[후보] PL26 · …', verdict/flow-line.ts verdictTarget): plain words after the
    badges, one line cut with an ellipsis (its tip names the figure's id). */
 .vd-target{min-width:0;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;align-self:center;font-size:var(--text-sm);color:var(--foreground)}
 /* A verdict pin's edit card keeps its verdict and target (D3): the note and the assignee only. */

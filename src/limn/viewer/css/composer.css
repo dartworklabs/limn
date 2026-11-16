@@ -4,7 +4,7 @@
 .c-loc-main{flex:1;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-1) var(--space-2)}
 .c-loc-main .loc{font-weight:600}
 #c-path{color:var(--muted-foreground);font-size:var(--text-sm);overflow-wrap:anywhere}   /* a figure element's path before its code lines */
-#c-path:focus-visible{color:var(--foreground);text-decoration:underline}   /* it answers a pointer: the element's box on the page is drawn stronger (figure.js) */
+#c-path:focus-visible{color:var(--foreground);text-decoration:underline}   /* it answers a pointer: the element's box on the page is drawn stronger (pdf/view-figure.ts) */
 @media (hover:hover){#c-path:where(:not(:disabled,[aria-disabled="true"])):hover{color:var(--foreground);text-decoration:underline}}
 #c-page{color:var(--muted-foreground);font-size:var(--text-sm);text-box:trim-both cap alphabetic}   /* on the location's centre beside it */
 /* The PDF text a drag chose (#c-quote under the location line, a card's .quote above its note, issue #185): an icon and one
@@ -76,7 +76,7 @@ button.tg[aria-pressed=true]{border-color:var(--border-strong)}
 .errline{color:var(--destructive);font-size:var(--text-base);margin-top:var(--space-2)}
 .errline.flush{margin:0}   /* in a row of its own (the re-place banner), no gap above */
 .pin{position:relative;padding:var(--space-2) var(--space-3);margin-bottom:var(--space-2)}   /* shape follows .card */
-/* The range excerpt (excerpt.js, docs/handbook/viewer.md §패널 정리 범위 발췌): on every layout it is the source in the composer
+/* The range excerpt (composer/view-excerpt.ts, docs/handbook/viewer.md §패널 정리 범위 발췌): on every layout it is the source in the composer
    and the edit card (a region keeps its text), the mouse desktop's too. One row per source line - its number,
    its text (four lines at most, a dimmed neighbour two) and a 44px margin on the right for the row's chip: a tinted '+' on a
    dimmed line (the row is the button), a neutral '−' on the band's first and last lines (its own button). Each chip is a
@@ -108,7 +108,7 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 .xp-chip.add{background:color-mix(in srgb,var(--primary) 16%,transparent);color:var(--primary)}
 .xp-chip.xp-drop{background:var(--popover);color:var(--foreground);box-shadow:inset 0 0 0 1px var(--border-strong)}
 @media (hover:hover){button.xp-row:where(:not(:disabled,[aria-disabled="true"])):hover .xp-chip.add{background:color-mix(in srgb,var(--primary) 24%,transparent)}}
-/* The note popover by the selection box (#sel-pop, sel-popover.js, docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모'): a
+/* The note popover by the selection box (#sel-pop, composer/view-selection-popover.ts, docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모'): a
    floating surface on the popover tokens, 320px wide, three rows on one left and one right edge at its 12px padding - the
    location and [Esc], the note field (two lines), [자세히 →] ... [저장]. [자세히]'s ghost padding is pulled out so its text
    stands on that edge with the location's; each row centres its text. Placed by JS in the PDF area's free part. */
@@ -124,7 +124,7 @@ button.xp-row{cursor:pointer;min-width:0;justify-content:stretch}
 #sel-pop [data-act=pop-more]{gap:var(--space-1);margin-left:calc(-1 * var(--space-2) - 1px);color:var(--muted-foreground)}   /* its padding and 1px border */
 #sel-pop [data-act=pop-more] .ic{width:14px;height:14px}
 @media not all and (pointer:coarse){#sel-pop .sp-acts button{min-height:var(--control-h-sm)}}   /* a mouse hit of 24px; touch keeps its 44px */
-/* The composer's verdict row (#c-verdict-row, verdict.js; docs/handbook/viewer.md §패널 정리): after the note and its lines,
+/* The composer's verdict row (#c-verdict-row, verdict/flow-line.ts; docs/handbook/viewer.md §패널 정리): after the note and its lines,
    before the kind row - '판정 바로 저장' and one outline button per word in file order. A confirm word is the danger colour's
    text, and while its first press is armed it reads '<낱말> 확정' on a light danger fill; the accent stays [핀 저장]'s. The
    buttons are one group sharing the row's room: beside the label when they fit, else on the line under it, and only where
@@ -149,7 +149,7 @@ button.vd-confirm.armed{background:color-mix(in srgb,var(--destructive) 10%,tran
      thumb, often one-handed, and a 36px box read smaller than what it answered. */
   body.band-phone .vd-btns button{height:var(--hit)}}
 /* On a figure document the lead names the figure whose verdict it is, whatever element is selected ('· [후보] PL35 · … 전체',
-   verdict.js): the name gives way (ellipsis) before the lead leaves the panel. */
+   verdict/flow-line.ts): the name gives way (ellipsis) before the lead leaves the panel. */
 #c-verdict-row:has(.vd-fig) .vd-l{display:inline-flex;align-items:baseline;flex:0 1 auto;min-width:0;max-width:100%;white-space:nowrap}
 .vd-scope{display:inline-flex;align-items:baseline;min-width:0;white-space:pre}
 .vd-fig{min-width:0;max-width:16em;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--foreground)}
