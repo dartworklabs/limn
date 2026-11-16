@@ -4,7 +4,6 @@ import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
-import { goPage, jumpOnItsWay } from './view-pages.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
 import { $ } from '../platform/dom.ts';
@@ -12,8 +11,8 @@ import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from '../documents/state.ts';
 import { topAnchor } from '../layout/flow.ts';
 import { arrivalWatch, glideTo } from '../layout/flow-scroll.ts';
-import { popoverFreeArea } from './view-area.ts';
 import { pageChanges, pageMarkdown } from './state-seams.ts';
+import { goPage, jumpOnItsWay, OUTLINE_PICK_GAP, spotTop, readingDepth } from './view-page-jump.ts';
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
 // Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
@@ -646,8 +645,6 @@ let OUTLINE_PINNED = null as { page: number; index: number; reached: boolean } |
   OUTLINE_PICK_WAIT = 0;
 // A smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest.
 const OUTLINE_PICK_SETTLE_MS = 250;
-// Px between the top of the free PDF area and a picked heading.
-const OUTLINE_PICK_GAP = 8;
 // Picks an entry of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
 function pickOutline(index) {
   // A heading of the Markdown surface.
@@ -682,18 +679,6 @@ function outlinePickTop(entry) {
   if (!pageBox || !(entry.frac > 0) || (docEntry && isFigureKind(docEntry.kind))) return null;
   return spotTop(pageBox, entry.frac, OUTLINE_PICK_GAP);
 }
-// #left's scrollTop that puts the place `frac` down a page box `gap` px under the top of the free PDF area
-// (popoverFreeArea: under the section strip, the instance band or the select mode's bar) - lower when it stands near
-// its page's bottom, so that the reading line (readingDepth) still falls on its page and the strip names it - as far as
-// the pages scroll.
-function spotTop(pageBox: HTMLElement, frac: number, gap: number) {
-  const pdfArea = $('#left'),
-    rect = pageBox.getBoundingClientRect(),
-    y = rect.top + frac * rect.height,
-    read = pdfArea.getBoundingClientRect().top + readingDepth(pdfArea);
-  const want = Math.max(popoverFreeArea().top + gap, read + 2 - (rect.bottom - y));
-  return Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, Math.round(pdfArea.scrollTop + y - want)));
-}
 // (Re)starts the wait after which a pick still on its way looks whether the pages rest (any scroll of the pages
 // restarts it).
 function outlinePickWait() {
@@ -723,10 +708,6 @@ function dropOutlinePick() {
   if (!OUTLINE_PINNED || OUTLINE_PINNED.reached) return;
   OUTLINE_PINNED = null;
   updateSectionStrip();
-}
-// How far under the top of the PDF pane the reading line is: a quarter of the pane's height, at most 160px.
-function readingDepth(pane) {
-  return pane ? Math.min(160, pane.clientHeight / 4) : 0;
 }
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's
 // highlight; mid has no strip, so the same page count also goes to the nav bar's right end (#nav-page) and the phone's
@@ -985,7 +966,6 @@ function setOutlineSelected<Value extends typeof OUTLINE_SELECTED>(value: Value)
 export {
   OUTLINE_ACTIVE_PAGE,
   OUTLINE_ENTRIES,
-  OUTLINE_PICK_GAP,
   OUTLINE_SELECTED,
   SCROLL_KEYS,
   loadOutline,
@@ -993,13 +973,11 @@ export {
   outlineForget,
   outlineOnScreen,
   pickOutline,
-  readingDepth,
   renderOutline,
   setOutlineBuild,
   setOutlineCut,
   setOutlineDoc,
   setOutlineEntries,
   setOutlineSelected,
-  spotTop,
   updateSectionStrip,
 };

@@ -12,7 +12,6 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { NOTICE_HOLD_MAX, NOTICE_MS, announce, lineNote, noticeIcon } from '../platform/notices.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
-import { arrivePage } from '../pdf/view-pages.ts';
 import { setSide } from '../layout/flow.ts';
 import { setKind } from '../composer/flow-pick.ts';
 import { saveDraftSoon } from '../composer/flow-draft.ts';
@@ -24,6 +23,7 @@ import { $, $$ } from '../platform/dom.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo } from '../documents/state.ts';
 import { autoGrow } from '../composer/view-text.ts';
+import { arrivePage } from '../pdf/view-page-jump.ts';
 /** A record just dropped ([버리기]) or taken back ([다시 찍기], redo: its note text is in the composer), standing as
  * its undo row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a
  * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).

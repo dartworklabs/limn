@@ -7,13 +7,13 @@ import { DOC, META, COARSE_POINTER_QUERY, buildsFromSource, imeKey, isFigureKind
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { clampPage, goPage } from './view-pages.ts';
 import { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, outlineOnScreen } from './view-outline.ts';
 import { $ } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { docInfo, verdictLabel, pageVerdictsOn } from '../documents/state.ts';
 import { pageChanges, pageVerdicts } from './state-seams.ts';
+import { clampPage, goPage } from './view-page-jump.ts';
 
 // The names a row shows for each of pageTotal pages, index 0 for page 1: the top-level headings that start on the page
 // joined with ' · ' ('1 Introduction · 2 Related work'), else the one the page continues ('… 2 Related work'); ''

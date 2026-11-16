@@ -3331,7 +3331,7 @@ function setLastTouchAt(value) {
   LAST_TOUCH_AT = value;
   return value;
 }
-// The elements whose tooltip does not show: pin mark badges a cover is over (pins/flow-list.ts markCoverSkip keeps it).
+// The elements whose tooltip does not show: pin mark badges a cover is over (pins/view-mark-covers.ts markCoverSkip keeps it).
 const MARK_HIDDEN = new WeakSet();
 
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
@@ -3386,7 +3386,7 @@ function tipFollow() {
 }
 // Shows an element's description over it. The box is translate="no": a description is already in the UI language (the
 // translator rewrote the attribute, or the code drew it with translate()), and one that quotes a note ('#38 · 완료')
-// must not be rewritten again. A mark badge a cover is over now (MARK_HIDDEN, pins/flow-list.ts markCoverSkip) shows
+// must not be rewritten again. A mark badge a cover is over now (MARK_HIDDEN, pins/view-mark-covers.ts markCoverSkip) shows
 // none: it would float over the cover.
 function showTip(element) {
   if (MARK_HIDDEN.has(element)) return;
@@ -4380,7 +4380,7 @@ addEventListener('resize', placeDocMenu);
 
 // ------------------------------------------------ The open document's facts
 // Read from the page's shared state: the document entries and their kinds, the document a pin belongs to, the query
-// that names a document, its verdict words, and the viewer role.
+// that names a document, its verdict words, and the viewer role - and the last sync the status line says.
 // Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
 // instance.
 function isMarkdownDoc() {
@@ -4444,6 +4444,13 @@ function pageVerdictsOn() {
   const verdicts = docVerdicts();
   return verdicts && verdicts.page ? verdicts : null;
 } // a Markdown document has no pages
+// The last meta `sync` the status line says (documents/view-status.ts statusText).
+let STATUS_SYNC = null;
+// Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setStatusSync(value) {
+  STATUS_SYNC = value;
+  return value;
+}
 
 // ------------------------------------------------ What documents asks the features above it
 // documents decides which document is open and when it is drawn, saved, left and refreshed; drawing it, its outline
@@ -6993,6 +7000,27 @@ function pinVerdicts() {
   return PIN_VERDICTS;
 }
 
+// ------------------------------------------------ The pin actions in flight, and this tab's own
+// What a deferred action keeps while its undo row stands, and the actions this tab made itself, which the pin-change
+// messages leave out (pins/flow-actions.ts, pins/flow-changes.ts).
+// The pins whose [확인] is out, by id: kept out of every pin snapshot meanwhile (derivePinLists; confirmPin,
+// pins/flow-actions.ts).
+const CONFIRMING = new Set();
+// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
+// them (verdict/flow-line.ts).
+const CONFIRMING_PIN = new Map();
+// The pins whose [영구 삭제] is out, by id: the Trash leaves them out meanwhile (purgePin, pins/flow-actions.ts).
+const PURGING = new Set();
+// This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s notePinChanges
+// never announces the same transition again: only the first notePinChanges judgment right after markMine(id) is
+// swallowed (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (a
+// lost response), it's given up on and later values are announced normally. An action from another tab isn't in this
+// map, so it's shown as usual.
+const MY_ACTIONS = new Map();
+function markMine(id) {
+  MY_ACTIONS.set(id, Date.now() + 10000);
+}
+
 // --------------------------------------- Pins changed elsewhere: what the status line says between two list refreshes
 // A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
 // named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
@@ -7007,15 +7035,6 @@ function newsWithout(type, field, ...also) {
     });
     return out;
   };
-}
-// This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s notePinChanges
-// never announces the same transition again: only the first notePinChanges judgment right after markMine(id) is
-// swallowed (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (a
-// lost response), it's given up on and later values are announced normally. An action from another tab isn't in this
-// map, so it's shown as usual.
-const MY_ACTIONS = new Map();
-function markMine(id) {
-  MY_ACTIONS.set(id, Date.now() + 10000);
 }
 function consumeMine(id) {
   const until = MY_ACTIONS.get(id);
@@ -8671,8 +8690,7 @@ function reloadForUpdate() {
 // of platform/notices.ts (LINE): background events, first-visit hints and an undo whose place has left the screen - the
 // only items the desktop's line shows besides a rebuild's 'no changes', a new Limn and the pins kept while cut off,
 // since its chips say the rest (statusShown).
-let STATUS_SYNC = null,
-  STATUS_SIG = ''; // the last meta `sync`; the drawn item's kind, action and count
+let STATUS_SIG = ''; // the drawn item's kind, action and count
 // the number of the message the line shows (0: none, or another item): lineNote reads out one it does not
 let STATUS_TOP = 0;
 // a passing answer (no changes) stays on the line as long as an undo's window (NOTICE_MS)
@@ -9270,11 +9288,6 @@ function setStatusSig(value) {
   STATUS_SIG = value;
   return value;
 }
-// Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setStatusSync(value) {
-  STATUS_SYNC = value;
-  return value;
-}
 
 // ------------------------------------------------ Panel width (docs/handbook/viewer.md §패널 폭과 시트 높이)
 // wide/mid adjusts the right panel's width; narrow adjusts the bottom sheet's height. Width is remembered separately
@@ -9763,6 +9776,90 @@ function setLastScrollAt(value) {
   LAST_SCROLL_AT = value;
 }
 
+// ------------------------------------------------ Going to a page, or a spot on one
+// Where a page, a figure or a picked heading lands in the PDF area: under the free area's top with the reading line on
+// it, a figure page at its figure. The outline, the page field and list, and a card's [보기] go through these.
+// Px between the top of the free PDF area and a picked heading.
+const OUTLINE_PICK_GAP = 8;
+// #left's scrollTop that puts the place `frac` down a page box `gap` px under the top of the free PDF area
+// (popoverFreeArea: under the section strip, the instance band or the select mode's bar) - lower when it stands near
+// its page's bottom, so that the reading line (readingDepth) still falls on its page and the strip names it - as far as
+// the pages scroll.
+function spotTop(pageBox, frac, gap) {
+  const pdfArea = $('#left'),
+    rect = pageBox.getBoundingClientRect(),
+    y = rect.top + frac * rect.height,
+    read = pdfArea.getBoundingClientRect().top + readingDepth(pdfArea);
+  const want = Math.max(popoverFreeArea().top + gap, read + 2 - (rect.bottom - y));
+  return Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, Math.round(pdfArea.scrollTop + y - want)));
+}
+// How far under the top of the PDF pane the reading line is: a quarter of the pane's height, at most 160px.
+function readingDepth(pane) {
+  return pane ? Math.min(160, pane.clientHeight / 4) : 0;
+}
+
+// Arriving at a page - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin,
+// jumpToPageLine): a figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any
+// other page at its top.
+// The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
+// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (glideTo, glideInto), so the keys wait for it to end.
+function arrivePage(pageNumber) {
+  const pageBox = document.getElementById('p' + pageNumber);
+  if (!pageBox) return;
+  const to = figureTop(pageNumber),
+    pdfArea = $('#left');
+  const pageTop = () => {
+    const currentBox = document.getElementById('p' + pageNumber);
+    return currentBox ? scrollTopFor(currentBox) : null;
+  };
+  if (to === null) {
+    glideInto(pageBox);
+    arrivalWatch(pageTop);
+    return;
+  }
+  const top = !isAutoScrolling() && Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX;
+  if (top) glideInto(pageBox);
+  else glideTo(to);
+  arrivalWatch(top ? pageTop : () => figureTop(pageNumber));
+}
+// The points of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element.
+const FIGURE_ROOM_POINTS = 24;
+// Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its
+// watch has neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no
+// rest while either holds, however long: a busy machine's frames come late. An outline pick waits on this before it
+// lets go (outlinePickRest).
+function jumpOnItsWay() {
+  return JUMP_TARGET !== null || isAutoScrolling() || (ARRIVAL !== null && ARRIVAL.at === null);
+}
+// #left's scrollTop of a page's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up
+// to FIGURE_ROOM_POINTS of the page above it, down to the element above (figure_above) or else the page's top, and at
+// least OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's
+// at every zoom. Room past the page's top would stand the page below the reading line at a large zoom: the line would
+// read the page before it.
+function figureTop(pageNumber) {
+  const pageBox = document.getElementById('p' + pageNumber),
+    pageFacts = META && META.pages ? META.pages[pageNumber - 1] : null;
+  if (!pageBox || !pageFacts || typeof pageFacts.figure_top !== 'number' || !(pageFacts.pt_h > 0)) return null;
+  const height = pageBox.getBoundingClientRect().height,
+    free = (pageFacts.figure_top - (typeof pageFacts.figure_above === 'number' ? pageFacts.figure_above : 0)) * height;
+  return spotTop(
+    pageBox,
+    pageFacts.figure_top,
+    Math.max(OUTLINE_PICK_GAP, Math.min((FIGURE_ROOM_POINTS * height) / pageFacts.pt_h, free)),
+  );
+}
+// Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
+function goPage(entry) {
+  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
+}
+// The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
+// empty or non-number entry, which goes nowhere. Pure.
+function clampPage(entry, pageCount) {
+  const text = String(entry == null ? '' : entry).trim();
+  if (!/^-?\d+$/.test(text) || !(pageCount >= 1)) return null;
+  return Math.min(pageCount, Math.max(1, parseInt(text, 10)));
+}
+
 // ------------------------------------------------ PDF pages: their boxes, scale and zoom, and arriving at one
 
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
@@ -10103,42 +10200,9 @@ function fitToWidth() {
   restoreAnchor(anchor);
   pdfArea.scrollLeft = 0;
 }
-// Arriving at a page - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin,
-// jumpToPageLine): a figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any
-// other page at its top.
-// The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
-// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (glideTo, glideInto), so the keys wait for it to end.
-function arrivePage(pageNumber) {
-  const pageBox = document.getElementById('p' + pageNumber);
-  if (!pageBox) return;
-  const to = figureTop(pageNumber),
-    pdfArea = $('#left');
-  const pageTop = () => {
-    const currentBox = document.getElementById('p' + pageNumber);
-    return currentBox ? scrollTopFor(currentBox) : null;
-  };
-  if (to === null) {
-    glideInto(pageBox);
-    arrivalWatch(pageTop);
-    return;
-  }
-  const top = !isAutoScrolling() && Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX;
-  if (top) glideInto(pageBox);
-  else glideTo(to);
-  arrivalWatch(top ? pageTop : () => figureTop(pageNumber));
-}
-// The points of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element.
-const FIGURE_ROOM_POINTS = 24;
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
   addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
 addEventListener('resize', arrivalLetGo);
-// Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its
-// watch has neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no
-// rest while either holds, however long: a busy machine's frames come late. An outline pick waits on this before it
-// lets go (outlinePickRest).
-function jumpOnItsWay() {
-  return JUMP_TARGET !== null || isAutoScrolling() || (ARRIVAL !== null && ARRIVAL.at === null);
-}
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a
 // person's scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no
 // scroll at all: a line pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what
@@ -10153,37 +10217,9 @@ $('#left').addEventListener(
 new ResizeObserver(() => {
   if (ARRIVAL) arrivalSoon();
 }).observe($('#doc'));
-// #left's scrollTop of a page's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up
-// to FIGURE_ROOM_POINTS of the page above it, down to the element above (figure_above) or else the page's top, and at
-// least OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's
-// at every zoom. Room past the page's top would stand the page below the reading line at a large zoom: the line would
-// read the page before it.
-function figureTop(pageNumber) {
-  const pageBox = document.getElementById('p' + pageNumber),
-    pageFacts = META && META.pages ? META.pages[pageNumber - 1] : null;
-  if (!pageBox || !pageFacts || typeof pageFacts.figure_top !== 'number' || !(pageFacts.pt_h > 0)) return null;
-  const height = pageBox.getBoundingClientRect().height,
-    free = (pageFacts.figure_top - (typeof pageFacts.figure_above === 'number' ? pageFacts.figure_above : 0)) * height;
-  return spotTop(
-    pageBox,
-    pageFacts.figure_top,
-    Math.max(OUTLINE_PICK_GAP, Math.min((FIGURE_ROOM_POINTS * height) / pageFacts.pt_h, free)),
-  );
-}
-// Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
-function goPage(entry) {
-  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
-}
 $('#jump').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !imeKey(event)) goPage();
 });
-// The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
-// empty or non-number entry, which goes nowhere. Pure.
-function clampPage(entry, pageCount) {
-  const text = String(entry == null ? '' : entry).trim();
-  if (!/^-?\d+$/.test(text) || !(pageCount >= 1)) return null;
-  return Math.min(pageCount, Math.max(1, parseInt(text, 10)));
-}
 // The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed
 // does nothing.
 function goSheetPage() {
@@ -11153,8 +11189,6 @@ let OUTLINE_PINNED = null,
   OUTLINE_PICK_WAIT = 0;
 // A smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest.
 const OUTLINE_PICK_SETTLE_MS = 250;
-// Px between the top of the free PDF area and a picked heading.
-const OUTLINE_PICK_GAP = 8;
 // Picks an entry of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
 function pickOutline(index) {
   // A heading of the Markdown surface.
@@ -11189,18 +11223,6 @@ function outlinePickTop(entry) {
   if (!pageBox || !(entry.frac > 0) || (docEntry && isFigureKind(docEntry.kind))) return null;
   return spotTop(pageBox, entry.frac, OUTLINE_PICK_GAP);
 }
-// #left's scrollTop that puts the place `frac` down a page box `gap` px under the top of the free PDF area
-// (popoverFreeArea: under the section strip, the instance band or the select mode's bar) - lower when it stands near
-// its page's bottom, so that the reading line (readingDepth) still falls on its page and the strip names it - as far as
-// the pages scroll.
-function spotTop(pageBox, frac, gap) {
-  const pdfArea = $('#left'),
-    rect = pageBox.getBoundingClientRect(),
-    y = rect.top + frac * rect.height,
-    read = pdfArea.getBoundingClientRect().top + readingDepth(pdfArea);
-  const want = Math.max(popoverFreeArea().top + gap, read + 2 - (rect.bottom - y));
-  return Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, Math.round(pdfArea.scrollTop + y - want)));
-}
 // (Re)starts the wait after which a pick still on its way looks whether the pages rest (any scroll of the pages
 // restarts it).
 function outlinePickWait() {
@@ -11230,10 +11252,6 @@ function dropOutlinePick() {
   if (!OUTLINE_PINNED || OUTLINE_PINNED.reached) return;
   OUTLINE_PINNED = null;
   updateSectionStrip();
-}
-// How far under the top of the PDF pane the reading line is: a quarter of the pane's height, at most 160px.
-function readingDepth(pane) {
-  return pane ? Math.min(160, pane.clientHeight / 4) : 0;
 }
 // The section strip under the nav bar (the section at the reading line and 'page / pages') and the outline's
 // highlight; mid has no strip, so the same page count also goes to the nav bar's right end (#nav-page) and the phone's
@@ -16005,6 +16023,51 @@ function pinFields() {
   return PIN_FIELDS;
 }
 
+// ------------------------------------------------ What the note's hints read
+// The pin a selection would add to (its overlap, unless dismissed) and whether a note reads like a question: the
+// composer's append row and question hint, and the edit card's and the popover's, draw from these.
+// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
+// (the smallest id).
+function pickOverlap(overlaps) {
+  if (!overlaps || !overlaps.length) return null;
+  const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
+  if (equal.length) return equal.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
+  const insides = overlaps.filter((overlap) => overlap.rel === RANGE_REL.INSIDE);
+  if (insides.length)
+    return insides.reduce((best, candidate) => (candidate.hi - candidate.lo < best.hi - best.lo ? candidate : best));
+  const contains = overlaps.filter((overlap) => overlap.rel === RANGE_REL.CONTAINS);
+  if (contains.length)
+    return contains.reduce((best, candidate) => (candidate.hi - candidate.lo > best.hi - best.lo ? candidate : best));
+  const partials = overlaps.filter((overlap) => overlap.rel === RANGE_REL.PARTIAL);
+  if (partials.length) return partials.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
+  return null;
+}
+// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
+// or null without one, and once the author chose [따로 저장] for it.
+function appendTarget() {
+  const selection = COMPOSE.current,
+    overlap = selection ? pickOverlap(selection.overlaps) : null;
+  return overlap && COMPOSE.dismissedOverlap !== overlap.id + ':' + overlap.rel ? overlap : null;
+}
+// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
+// ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
+// bracket/quote and a trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind
+// itself.
+function looksQuestion(text) {
+  let trimmed = String(text || '').trim();
+  for (let i = 0; i < 3; i++)
+    trimmed = trimmed
+      .replace(/[\s.…~!。)\]"'”’]+$/, '')
+      .replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
+  return /[?？]$/.test(trimmed) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(trimmed);
+}
+// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. It
+// never changes the kind itself - only a click does. It goes once the kind is a question or the text does not read like
+// one.
+function syncQuestionHint(box, text, kind) {
+  if (box) box.hidden = kind === REQUEST_KIND.QUESTION || !looksQuestion(text);
+}
+
 // ------------------------------------------------ Range levels
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
@@ -16707,6 +16770,94 @@ function setLineMarks(marks) {
 function lineMarks() {
   if (!LINE_MARKS) throw new Error('setLineMarks() has not run: the drawn document has no pin marks to draw');
   return LINE_MARKS;
+}
+
+// ------------------------------------------------ A Markdown link's allowlist (docs/handbook/viewer.md §링크와 관문)
+// What a link in the document may do (pure; origin is the viewer page's location.origin). Every link token comes here -
+// an ordinary link, an autolink, a reference link - and this allowlist is the gate. markdown-it's own validateLink is a
+// denylist (javascript:, vbscript:, file:, data: but data:image/gif|png|jpeg|webp) and lets ftp:, any custom scheme and
+// those images through, so it is not relied on.
+// - '#…' is an in-document heading: {open:'anchor', id}.
+// - mailto: is {open:'mail', href}.
+// - An absolute http(s) URL is {open:'web', href} when it names an origin other than the viewer's, no loopback host and
+//   no user or password. href is the URL as parsed here, so what the browser follows is what was checked: a raw
+//   'https:/api/meta' would resolve against the page to the viewer's own origin, while parsed alone it is
+//   https://api/meta.
+// - Anything else is {open:null}, inert text with its target in the tip: a relative path, a scheme-relative '//host',
+//   another scheme, the viewer's own origin (Limn's API answers GETs with the reader's identity and some of them write
+//   - a full /api/meta re-syncs pins, / records the visit), a loopback host (on the server's machine that is Limn
+//   again, as the local agent).
+// Both checks compare hosts by one spelling (hostKey), the destination's and the viewer's alike: 'localhost.:18920' and
+// 'x.ts.net.:18020' are Limn again (its Host check reads a name with its trailing dots dropped), not another origin.
+function linkHref(raw, origin) {
+  const text = String(raw == null ? '' : raw).trim();
+  if (/^#[^#]*$/.test(text)) return { open: 'anchor', href: text, id: text.slice(1) };
+  if (!/^(https?|mailto):/i.test(text)) return { open: null, href: text };
+  let url;
+  try {
+    url = new URL(text);
+  } catch (error) {
+    return { open: null, href: text };
+  }
+  if (url.protocol === 'mailto:') return { open: 'mail', href: url.href };
+  if (url.username || url.password || isSameOrigin(url, origin) || isLoopbackHost(url.hostname))
+    return { open: null, href: text };
+  return { open: 'web', href: url.href };
+}
+// A host's one spelling (URL.hostname, or a Host header's name): lower case, without IPv6 brackets or trailing dots.
+// The URL parser already folds case, full-width letters, percent escapes and every IPv4 spelling (127.1, 0x7f.1,
+// 017700000001, 2130706433, '127.0.0.1.') into dotted form, and IPv6 into its short hex form; the trailing dot of a
+// name ('localhost.', also from 'localhost%2e' or 'localhost。') it keeps. DNS reads 'name.' as 'name', and so does
+// Limn's Host and Origin check (security/access.py split_host, origin_ok: name.rstrip('.')): this rule is that one.
+// Pure.
+function hostKey(host) {
+  return String(host == null ? '' : host)
+    .toLowerCase()
+    .replace(/^\[|\]$/g, '')
+    .replace(/\.+$/, '');
+}
+// Whether url has the viewer page's origin (location.origin): scheme, host by one spelling (hostKey) and port (the URL
+// parser leaves a default port out of both). An origin that does not parse ('null') counts as the same: every link is
+// inert rather than one let through unchecked. Pure.
+function isSameOrigin(url, origin) {
+  let page;
+  try {
+    page = new URL(origin);
+  } catch (error) {
+    return true;
+  }
+  return url.protocol === page.protocol && hostKey(url.hostname) === hostKey(page.hostname) && url.port === page.port;
+}
+// Whether a URL's host (URL.hostname) is this machine: localhost and *.localhost, 0.0.0.0/8 and 127.0.0.0/8, and in
+// IPv6 :: and ::1 and an IPv4-mapped (::ffff:a.b.c.d) or -compatible (::a.b.c.d) address of those. Hosts are compared
+// by hostKey's spelling; the URL parser has put every address in one form (hostKey). A name a hosts file maps to
+// loopback (ip6-localhost, the machine's own name) is not listed: Limn's Host check admits only localhost, 127.0.0.1
+// and ::1 as loopback and answers any other such name 403. Pure.
+function isLoopbackHost(host) {
+  const key = hostKey(host);
+  if (key === 'localhost' || key.endsWith('.localhost')) return true;
+  if (/^(127|0)\.\d+\.\d+\.\d+$/.test(key)) return true;
+  const groups = ipv6Groups(key);
+  if (!groups) return false;
+  if (groups.slice(0, 5).every((group) => group === 0) && (groups[5] === 0xffff || groups[5] === 0)) {
+    const highByte = groups[6] >> 8;
+    return highByte === 127 || highByte === 0;
+  } // also :: and ::1
+  return false;
+}
+// An IPv6 address in the URL parser's form (hex groups, one '::' at most, no brackets) -> its eight 16-bit groups; null
+// for anything else. Pure.
+function ipv6Groups(host) {
+  if (!/^[0-9a-f:]+$/.test(host) || !host.includes(':')) return null;
+  const parts = host.split('::');
+  if (parts.length > 2) return null;
+  const head = parts[0] ? parts[0].split(':') : [],
+    tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
+  const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null;
+  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  if (groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
+  return groups.map((group) => parseInt(group, 16));
 }
 
 // --------------------------------------------- The Markdown surface (docs/handbook/viewer.md §Markdown 화면, ADR-0025)
@@ -18173,93 +18324,6 @@ function* drawInline(
     }
     if (isPauseDue(work)) yield;
   }
-}
-// ---------------- Links: the allowlist
-// What a link in the document may do (pure; origin is the viewer page's location.origin). Every link token comes here -
-// an ordinary link, an autolink, a reference link - and this allowlist is the gate. markdown-it's own validateLink is a
-// denylist (javascript:, vbscript:, file:, data: but data:image/gif|png|jpeg|webp) and lets ftp:, any custom scheme and
-// those images through, so it is not relied on.
-// - '#…' is an in-document heading: {open:'anchor', id}.
-// - mailto: is {open:'mail', href}.
-// - An absolute http(s) URL is {open:'web', href} when it names an origin other than the viewer's, no loopback host and
-//   no user or password. href is the URL as parsed here, so what the browser follows is what was checked: a raw
-//   'https:/api/meta' would resolve against the page to the viewer's own origin, while parsed alone it is
-//   https://api/meta.
-// - Anything else is {open:null}, inert text with its target in the tip: a relative path, a scheme-relative '//host',
-//   another scheme, the viewer's own origin (Limn's API answers GETs with the reader's identity and some of them write
-//   - a full /api/meta re-syncs pins, / records the visit), a loopback host (on the server's machine that is Limn
-//   again, as the local agent).
-// Both checks compare hosts by one spelling (hostKey), the destination's and the viewer's alike: 'localhost.:18920' and
-// 'x.ts.net.:18020' are Limn again (its Host check reads a name with its trailing dots dropped), not another origin.
-function linkHref(raw, origin) {
-  const text = String(raw == null ? '' : raw).trim();
-  if (/^#[^#]*$/.test(text)) return { open: 'anchor', href: text, id: text.slice(1) };
-  if (!/^(https?|mailto):/i.test(text)) return { open: null, href: text };
-  let url;
-  try {
-    url = new URL(text);
-  } catch (error) {
-    return { open: null, href: text };
-  }
-  if (url.protocol === 'mailto:') return { open: 'mail', href: url.href };
-  if (url.username || url.password || isSameOrigin(url, origin) || isLoopbackHost(url.hostname))
-    return { open: null, href: text };
-  return { open: 'web', href: url.href };
-}
-// A host's one spelling (URL.hostname, or a Host header's name): lower case, without IPv6 brackets or trailing dots.
-// The URL parser already folds case, full-width letters, percent escapes and every IPv4 spelling (127.1, 0x7f.1,
-// 017700000001, 2130706433, '127.0.0.1.') into dotted form, and IPv6 into its short hex form; the trailing dot of a
-// name ('localhost.', also from 'localhost%2e' or 'localhost。') it keeps. DNS reads 'name.' as 'name', and so does
-// Limn's Host and Origin check (security/access.py split_host, origin_ok: name.rstrip('.')): this rule is that one.
-// Pure.
-function hostKey(host) {
-  return String(host == null ? '' : host)
-    .toLowerCase()
-    .replace(/^\[|\]$/g, '')
-    .replace(/\.+$/, '');
-}
-// Whether url has the viewer page's origin (location.origin): scheme, host by one spelling (hostKey) and port (the URL
-// parser leaves a default port out of both). An origin that does not parse ('null') counts as the same: every link is
-// inert rather than one let through unchecked. Pure.
-function isSameOrigin(url, origin) {
-  let page;
-  try {
-    page = new URL(origin);
-  } catch (error) {
-    return true;
-  }
-  return url.protocol === page.protocol && hostKey(url.hostname) === hostKey(page.hostname) && url.port === page.port;
-}
-// Whether a URL's host (URL.hostname) is this machine: localhost and *.localhost, 0.0.0.0/8 and 127.0.0.0/8, and in
-// IPv6 :: and ::1 and an IPv4-mapped (::ffff:a.b.c.d) or -compatible (::a.b.c.d) address of those. Hosts are compared
-// by hostKey's spelling; the URL parser has put every address in one form (hostKey). A name a hosts file maps to
-// loopback (ip6-localhost, the machine's own name) is not listed: Limn's Host check admits only localhost, 127.0.0.1
-// and ::1 as loopback and answers any other such name 403. Pure.
-function isLoopbackHost(host) {
-  const key = hostKey(host);
-  if (key === 'localhost' || key.endsWith('.localhost')) return true;
-  if (/^(127|0)\.\d+\.\d+\.\d+$/.test(key)) return true;
-  const groups = ipv6Groups(key);
-  if (!groups) return false;
-  if (groups.slice(0, 5).every((group) => group === 0) && (groups[5] === 0xffff || groups[5] === 0)) {
-    const highByte = groups[6] >> 8;
-    return highByte === 127 || highByte === 0;
-  } // also :: and ::1
-  return false;
-}
-// An IPv6 address in the URL parser's form (hex groups, one '::' at most, no brackets) -> its eight 16-bit groups; null
-// for anything else. Pure.
-function ipv6Groups(host) {
-  if (!/^[0-9a-f:]+$/.test(host) || !host.includes(':')) return null;
-  const parts = host.split('::');
-  if (parts.length > 2) return null;
-  const head = parts[0] ? parts[0].split(':') : [],
-    tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
-  const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
-  if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null;
-  const groups = [...head, ...Array(fill).fill('0'), ...tail];
-  if (groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
-  return groups.map((group) => parseInt(group, 16));
 }
 // ---------------- Relative references: the manuscript tree (ADR-0030)
 // A relative reference of the document whose file is at tree path base ('docs/guide.md'), resolved in the manuscript
@@ -21392,28 +21456,9 @@ function ringPinBlocks(pinTarget, scope, newUnits, side) {
   return index;
 }
 
-// ------------------------------------------------ Suggested edits (docs/handbook/viewer.md §제안 수정, ADR-0020)
-// A LaTeX line pin may carry the exact text that replaces its lines lo..hi: `suggest` {base, text}, base being the
-// lines the author saw (docs/handbook/api.md §제안 수정 (`suggest`)). The composer and an open edit card each write one
-// draft (SuggestDraft): the [제안 수정] switch, the editor's text, the text it was filled from (base) and the lines
-// that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
-// edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
-// diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
-
-// the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
-const SUGGEST_LINES = 80;
-const SUGGEST_FOLD = 5; // a card's diff folds past this many rows to its first two and last two
-// The short reason drawn where the switch would be when a selection can carry no suggested edit, and its tooltip.
-const SUGGEST_WHY = {
-  pdf: ['보기 전용 PDF에는 제안 수정 없음', '보기 전용 PDF에는 LaTeX 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
-  figure: [
-    '그림 문서에는 제안 수정 없음',
-    '그림 스크립트에는 공통 부품과 다시 그리기 규칙이 따로 있어, 그림 문서에는 바꿀 글을 둘 수 없습니다',
-  ],
-  region: ['영역에는 제안 수정 없음', '영역에는 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
-  long: ['제안 수정은 80줄까지', '제안 수정은 80줄까지의 범위만 바꿉니다. 범위를 줄이면 켤 수 있습니다'],
-};
-
+// ------------------------------------------------ The suggested edit's draft
+// The composer's suggested edit (SUGGEST_DRAFT): an empty one, a copy to keep, and clearing it with its editor.
+// composer/flow-suggest.ts draws and saves it.
 /** A draft with nothing in it: off, empty, never filled. */
 function suggestDraft() {
   return {
@@ -21441,6 +21486,36 @@ function suggestCopy(draft) {
     fail: null,
   };
 }
+// Empties the composer's draft (a save, a discard without undo, another document) and its editor.
+function suggestClear() {
+  Object.assign(SUGGEST_DRAFT, suggestDraft());
+  const editor = $('#c-sg-text');
+  editor.value = '';
+  editor.style.height = '';
+}
+
+// ------------------------------------------------ Suggested edits (docs/handbook/viewer.md §제안 수정, ADR-0020)
+// A LaTeX line pin may carry the exact text that replaces its lines lo..hi: `suggest` {base, text}, base being the
+// lines the author saw (docs/handbook/api.md §제안 수정 (`suggest`)). The composer and an open edit card each write one
+// draft (SuggestDraft): the [제안 수정] switch, the editor's text, the text it was filled from (base) and the lines
+// that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
+// edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
+// diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
+
+// the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
+const SUGGEST_LINES = 80;
+const SUGGEST_FOLD = 5; // a card's diff folds past this many rows to its first two and last two
+// The short reason drawn where the switch would be when a selection can carry no suggested edit, and its tooltip.
+const SUGGEST_WHY = {
+  pdf: ['보기 전용 PDF에는 제안 수정 없음', '보기 전용 PDF에는 LaTeX 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
+  figure: [
+    '그림 문서에는 제안 수정 없음',
+    '그림 스크립트에는 공통 부품과 다시 그리기 규칙이 따로 있어, 그림 문서에는 바꿀 글을 둘 수 없습니다',
+  ],
+  region: ['영역에는 제안 수정 없음', '영역에는 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
+  long: ['제안 수정은 80줄까지', '제안 수정은 80줄까지의 범위만 바꿉니다. 범위를 줄이면 켤 수 있습니다'],
+};
+
 /** The draft an edit card of a pin opens with: on and filled with the pin's suggestion when it has one (had keeps it,
  * to tell what a save changes), else an empty draft. */
 function suggestOfPin(pin) {
@@ -21888,13 +21963,6 @@ function renderSuggest(selection) {
 function suggestPending() {
   return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
 }
-// Empties the composer's draft (a save, a discard without undo, another document) and its editor.
-function suggestClear() {
-  Object.assign(SUGGEST_DRAFT, suggestDraft());
-  const editor = $('#c-sg-text');
-  editor.value = '';
-  editor.style.height = '';
-}
 
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of an edit card's document (an unknown one is LaTeX).
@@ -22226,22 +22294,6 @@ async function pick(region) {
     savePin();
   }
 }
-// One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
-// (the smallest id).
-function pickOverlap(overlaps) {
-  if (!overlaps || !overlaps.length) return null;
-  const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
-  if (equal.length) return equal.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
-  const insides = overlaps.filter((overlap) => overlap.rel === RANGE_REL.INSIDE);
-  if (insides.length)
-    return insides.reduce((best, candidate) => (candidate.hi - candidate.lo < best.hi - best.lo ? candidate : best));
-  const contains = overlaps.filter((overlap) => overlap.rel === RANGE_REL.CONTAINS);
-  if (contains.length)
-    return contains.reduce((best, candidate) => (candidate.hi - candidate.lo > best.hi - best.lo ? candidate : best));
-  const partials = overlaps.filter((overlap) => overlap.rel === RANGE_REL.PARTIAL);
-  if (partials.length) return partials.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
-  return null;
-}
 // Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를
 // 감쌈' - '#4와 일부 겹침'. The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range
 // as open pin #4'.
@@ -22263,13 +22315,6 @@ function overlapText(rel, id) {
 
 function recomputeOverlap() {
   if (COMPOSE.current) setSelectionOverlaps(COMPOSE.current, overlapsFor(COMPOSE.current, PINS));
-}
-// The open pin the composer's note may join instead of becoming a pin: the overlap its notice offers [덧붙이기] for -
-// or null without one, and once the author chose [따로 저장] for it.
-function appendTarget() {
-  const selection = COMPOSE.current,
-    overlap = selection ? pickOverlap(selection.overlaps) : null;
-  return overlap && COMPOSE.dismissedOverlap !== overlap.id + ':' + overlap.rel ? overlap : null;
 }
 // Draws the overlap notice for the current selection, or hides it. On the phone sheet it is one line (three lines would
 // take too much room above the note): the short relation ('#4와 같은 범위', the full sentence and the lines in its
@@ -22505,24 +22550,6 @@ function setKind(kind) {
   syncQuestionHint($('#c-qhint'), $('#note').value, KIND_NEW);
   composerVerdict().drawRow();
 } // a question takes no verdict
-// A note that reads like a question (docs/handbook/viewer.md §스레드와 검토 - suggesting the kind). True if it ends in
-// ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
-// bracket/quote and a trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind
-// itself.
-function looksQuestion(text) {
-  let trimmed = String(text || '').trim();
-  for (let i = 0; i < 3; i++)
-    trimmed = trimmed
-      .replace(/[\s.…~!。)\]"'”’]+$/, '')
-      .replace(/(?:\s*@[^\s@?？]+(?:\s+[A-Za-z][A-Za-z.'-]*)?)+$/, '');
-  return /[?？]$/.test(trimmed) || /(는가|나요|까요|인가|건가|니|냐|까)$/.test(trimmed);
-}
-// If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. It
-// never changes the kind itself - only a click does. It goes once the kind is a question or the text does not read like
-// one.
-function syncQuestionHint(box, text, kind) {
-  if (box) box.hidden = kind === REQUEST_KIND.QUESTION || !looksQuestion(text);
-}
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the
 // tablet sheet's composing lift ends with the composer, also when an open edit card keeps the sheet open.
@@ -25632,14 +25659,10 @@ $('#doc').addEventListener('click', (event) => {
 // pages, and which records this document and build draw has changed - both are drawn again.
 new MutationObserver(() => offUiDraw()).observe($('#doc'), { childList: true });
 
-// ------------------------------------------------ Verdict pins (docs/handbook/viewer.md §판정 핀, domain.md §판정 핀)
-// A document may declare verdict words (its word file, served as `verdicts` on /api/docs and the full /api/meta). A
-// verdict pin is a pin saved with one of them (`verdict`); its verdict and target are fixed when it is made. The viewer
-// offers the words in two places: the composer's verdict row (#c-verdict-row), which saves the selection and its note
-// as that verdict, and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line,
-// which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
-// they are drawn as text, translate="no", and the names around them are put in the screen's language here.
-
+// ------------------------------------------------ A verdict pin, as the lists draw it (domain.md §판정 핀)
+// Who may make a verdict, what a verdict pin is about - its page's whole target, or a figure - and where it stands
+// among the verdicts of one target (the current one, the ones it replaced), with the badges and marks that say so.
+// verdict/flow-line.ts draws the composer's verdict row and the page verdict lines from these.
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict() {
@@ -25653,7 +25676,6 @@ function verdictBadge(pin) {
   if (!key) return null;
   return html`<span class="badge badge-verdict" data-tip="${translate('버튼으로 고른 판정입니다. 판정과 대상은 바뀌지 않고 메모만 고칠 수 있습니다')}">${translate('판정')} <span class="vd-w" translate="no">${verdictLabel(key, pdoc(pin))}</span></span>`;
 }
-
 // A verdict card's target by name, so a person finds the figure they gave a verdict: on a figure document the figure it
 // is about (figureRootOf) - its title in the map ('[후보] PL26 · …') while the page it is on still shows it, else '그림
 // <id>'. null for any other pin or document: a view-only PDF's page and a LaTeX range are in the card's head already.
@@ -25680,7 +25702,6 @@ function dropPageLineOverlaps(pin) {
   const rel = pin.rel.filter((x) => !list.some((linePin) => linePin.id === x.id));
   return rel.length === pin.rel.length ? pin : { ...pin, rel };
 }
-
 // ---------------- The page's whole target (domain.md §쪽 전체 대상)
 const WHOLE_PAGE = [0, 0, 1, 1];
 // The figure a figure document's pin is about: the root of its element's path (el.path[0]). A figure document is one
@@ -25869,10 +25890,6 @@ function verdictOldMarker(pin) {
   return html`<span class="badge vd-old" role="note" aria-label="${description}" data-tip="${description}">${parts[0]}<span class="pin-ref vd-old-ref hit" role="link" tabindex="0" \
 data-act="pin-ref" data-ref="${id}" aria-label="${translateTemplate('지금 판정 #{id} 카드로 갑니다', { id })}">#${id}</span>${parts[1] || ''}</span>`;
 }
-// The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
-// card's [보기] goes to the line (marks, jumpPin).
-let SHOWN_ON_PAGE_LINES = new Set();
-let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 // A pin's state on the line: what the dot would say, in the line's words. The pin is the page target's newest verdict.
 function verdictStateWord(pin) {
   const state = pinState(pin);
@@ -25880,6 +25897,111 @@ function verdictStateWord(pin) {
   if (state === PIN_STATE.DONE) return translate('처리됨');
   return claimActive(pin) ? translate('처리 중') : translate('처리 대기');
 }
+
+// ------------------------------------------------ Page verdict lines far from the view (docs/handbook/viewer.md §판정 핀)
+// A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
+// content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws
+// for the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the
+// text in the page again: skipped like the far cards (pins/view-list-scroll.ts lazyCards), the lines far from the view are not
+// laid out at each of those. A skipped line breaks none of the line's rules, because it is never another size than the
+// one it is drawn at:
+// - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its
+//   box is its content box), or the size the browser last drew it at (content-visibility:auto keeps it:
+//   contain-intrinsic-size auto), which is the same. Whatever changes what a line shows or its width fits it again
+//   (fillPageLine, sizePageLines: fitPageLines), and fitPageLines lays out every line it measures - a skipped one too
+//   (holdFarLines) - and keeps its height as it lets go of it (letFarLinesGo); a line that goes far keeps the height
+//   the observer saw instead, where that is the later one. So a skip never moves the pages and nothing scrolls to make
+//   up for one; and every line is still measured as the reading line (#doc.pv-measure).
+// - Skipping contains a line (paint containment): it draws its parts on whole pixels and clips what reaches past its
+//   box (a focus ring, the pressed word's hint, the reason popover, a save chip). So no line in or near the view is
+//   skipped (the observer's margin), and - whatever the observer said last - neither is the reading line, which floats,
+//   a line holding the focus, its reason popover or a save chip, or a line fitPageLines is measuring (components.css).
+//   A script's measure inside a skipped line lays it out for the answer (the keys' Tab stops), but the innerText of
+//   what is skipped is empty.
+// Without IntersectionObserver no line is skipped.
+let FAR_OBSERVER = null,
+  FAR_HEIGHT = -1;
+const FAR_WATCHED = new Set(); // the lines the observer watches
+// when fitPageLines last kept each line's height (performance.now())
+const FITTED_AT = new WeakMap();
+// The lines fitPageLines is about to measure are laid out, skipped or not (.pv-fitting).
+function holdFarLines(lines) {
+  if (typeof IntersectionObserver === 'undefined') return;
+  lines.forEach((line) => line.classList.add('pv-fitting'));
+}
+// fitPageLines is done with lines: each keeps the height it is drawn at now (one not laid out - the changes view -
+// keeps the one it had), may be skipped again, and is watched - a new line too; a line no longer in the page (another
+// document, a rebuild) is no longer watched. Read before any is written.
+function letFarLinesGo(lines) {
+  if (typeof IntersectionObserver === 'undefined') return;
+  const heights = lines.map((line) => line.getBoundingClientRect().height),
+    at = performance.now();
+  const area = $('#left'),
+    viewHeight = area.clientHeight;
+  lines.forEach((line, index) => {
+    if (heights[index]) {
+      line.style.setProperty('--pv-h', heights[index] + 'px');
+      FITTED_AT.set(line, at);
+    }
+    line.classList.remove('pv-fitting');
+  });
+  watchFarLines(lines, viewHeight);
+}
+// Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height,
+// in px above and below its view (a percentage would be of its width): it is made again, watching every line, when that
+// height changes.
+function watchFarLines(lines, viewHeight) {
+  if (!FAR_OBSERVER || FAR_HEIGHT !== viewHeight) {
+    if (FAR_OBSERVER) FAR_OBSERVER.disconnect();
+    FAR_WATCHED.clear();
+    FAR_HEIGHT = viewHeight;
+    FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
+    lines = $$('#doc .pgw>.pv,#doc .pv-sum');
+  } // a line or a summary under a page; never the panel
+  const io = FAR_OBSERVER;
+  FAR_WATCHED.forEach((line) => {
+    if (!line.isConnected) {
+      io.unobserve(line);
+      FAR_WATCHED.delete(line);
+    }
+  });
+  lines.forEach((line) => {
+    if (!FAR_WATCHED.has(line) && line.isConnected) {
+      io.observe(line);
+      FAR_WATCHED.add(line);
+    }
+  });
+}
+// The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that
+// went further is skipped, at the height the observer saw when that is later than fitPageLines's - not one not laid out
+// (no height to stand at) or no longer in the page.
+function sortFarLines(entries) {
+  for (const entry of entries) {
+    const line = entry.target;
+    if (!line.isConnected) continue;
+    if (entry.isIntersecting) {
+      line.classList.remove('pv-far');
+      continue;
+    }
+    if (line.classList.contains('pv-far') || !entry.boundingClientRect.height) continue;
+    if (entry.time > (FITTED_AT.get(line) || -1))
+      line.style.setProperty('--pv-h', entry.boundingClientRect.height + 'px');
+    line.classList.add('pv-far');
+  }
+}
+
+// ------------------------------------------------ Verdict pins (docs/handbook/viewer.md §판정 핀, domain.md §판정 핀)
+// A document may declare verdict words (its word file, served as `verdicts` on /api/docs and the full /api/meta). A
+// verdict pin is a pin saved with one of them (`verdict`); its verdict and target are fixed when it is made. The viewer
+// offers the words in two places: the composer's verdict row (#c-verdict-row), which saves the selection and its note
+// as that verdict, and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line,
+// which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
+// they are drawn as text, translate="no", and the names around them are put in the screen's language here.
+
+// The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
+// card's [보기] goes to the line (marks, jumpPin).
+let SHOWN_ON_PAGE_LINES = new Set();
+let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VERDICT_PLACE) and - on a page line - the page, with the document, build and
@@ -28119,80 +28241,6 @@ function jumpToPageLine(id) {
   return true;
 }
 
-// ---------------- Lines far from the view (docs/handbook/viewer.md §판정 핀)
-// A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
-// content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws
-// for the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the
-// text in the page again: skipped like the far cards (pins/flow-list.ts lazyCards), the lines far from the view are not
-// laid out at each of those. A skipped line breaks none of the line's rules, because it is never another size than the
-// one it is drawn at:
-// - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its
-//   box is its content box), or the size the browser last drew it at (content-visibility:auto keeps it:
-//   contain-intrinsic-size auto), which is the same. Whatever changes what a line shows or its width fits it again
-//   (fillPageLine, sizePageLines: fitPageLines), and fitPageLines lays out every line it measures - a skipped one too
-//   (holdFarLines) - and keeps its height as it lets go of it (letFarLinesGo); a line that goes far keeps the height
-//   the observer saw instead, where that is the later one. So a skip never moves the pages and nothing scrolls to make
-//   up for one; and every line is still measured as the reading line (#doc.pv-measure).
-// - Skipping contains a line (paint containment): it draws its parts on whole pixels and clips what reaches past its
-//   box (a focus ring, the pressed word's hint, the reason popover, a save chip). So no line in or near the view is
-//   skipped (the observer's margin), and - whatever the observer said last - neither is the reading line, which floats,
-//   a line holding the focus, its reason popover or a save chip, or a line fitPageLines is measuring (components.css).
-//   A script's measure inside a skipped line lays it out for the answer (the keys' Tab stops), but the innerText of
-//   what is skipped is empty.
-// Without IntersectionObserver no line is skipped.
-let FAR_OBSERVER = null,
-  FAR_HEIGHT = -1;
-const FAR_WATCHED = new Set(); // the lines the observer watches
-// when fitPageLines last kept each line's height (performance.now())
-const FITTED_AT = new WeakMap();
-// The lines fitPageLines is about to measure are laid out, skipped or not (.pv-fitting).
-function holdFarLines(lines) {
-  if (typeof IntersectionObserver === 'undefined') return;
-  lines.forEach((line) => line.classList.add('pv-fitting'));
-}
-// fitPageLines is done with lines: each keeps the height it is drawn at now (one not laid out - the changes view -
-// keeps the one it had), may be skipped again, and is watched - a new line too; a line no longer in the page (another
-// document, a rebuild) is no longer watched. Read before any is written.
-function letFarLinesGo(lines) {
-  if (typeof IntersectionObserver === 'undefined') return;
-  const heights = lines.map((line) => line.getBoundingClientRect().height),
-    at = performance.now();
-  const area = $('#left'),
-    viewHeight = area.clientHeight;
-  lines.forEach((line, index) => {
-    if (heights[index]) {
-      line.style.setProperty('--pv-h', heights[index] + 'px');
-      FITTED_AT.set(line, at);
-    }
-    line.classList.remove('pv-fitting');
-  });
-  watchFarLines(lines, viewHeight);
-}
-// Watches lines (new ones; one no longer in the page is let go) with an observer whose margin is the PDF area's height,
-// in px above and below its view (a percentage would be of its width): it is made again, watching every line, when that
-// height changes.
-function watchFarLines(lines, viewHeight) {
-  if (!FAR_OBSERVER || FAR_HEIGHT !== viewHeight) {
-    if (FAR_OBSERVER) FAR_OBSERVER.disconnect();
-    FAR_WATCHED.clear();
-    FAR_HEIGHT = viewHeight;
-    FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
-    lines = $$('#doc .pgw>.pv,#doc .pv-sum');
-  } // a line or a summary under a page; never the panel
-  const io = FAR_OBSERVER;
-  FAR_WATCHED.forEach((line) => {
-    if (!line.isConnected) {
-      io.unobserve(line);
-      FAR_WATCHED.delete(line);
-    }
-  });
-  lines.forEach((line) => {
-    if (!FAR_WATCHED.has(line) && line.isConnected) {
-      io.observe(line);
-      FAR_WATCHED.add(line);
-    }
-  });
-}
 // The PDF area's height can change with no line fitted again - a window made only shorter while a scale is saved keeps
 // that scale (autoFitWidth), so sizePageLines does not run: the margin follows it here, so far still means a view's
 // height away.
@@ -28201,23 +28249,6 @@ if (window.ResizeObserver && window.IntersectionObserver)
     const viewHeight = $('#left').clientHeight;
     if (FAR_OBSERVER && viewHeight && viewHeight !== FAR_HEIGHT) watchFarLines([], viewHeight);
   }).observe($('#left'));
-// The observer's reports: a line that came within a view's height of the PDF area's view is drawn as it is; one that
-// went further is skipped, at the height the observer saw when that is later than fitPageLines's - not one not laid out
-// (no height to stand at) or no longer in the page.
-function sortFarLines(entries) {
-  for (const entry of entries) {
-    const line = entry.target;
-    if (!line.isConnected) continue;
-    if (entry.isIntersecting) {
-      line.classList.remove('pv-far');
-      continue;
-    }
-    if (line.classList.contains('pv-far') || !entry.boundingClientRect.height) continue;
-    if (entry.time > (FITTED_AT.get(line) || -1))
-      line.style.setProperty('--pv-h', entry.boundingClientRect.height + 'px');
-    line.classList.add('pv-far');
-  }
-}
 
 // ---------------- The line that floats, and the keys (docs/handbook/viewer.md §판정 핀)
 // Only the reading page's line floats: the page under the reading line, the one the section strip names and the keys
@@ -29009,30 +29040,12 @@ addEventListener('keydown', (event) => {
   }
 }); // an outline entry comes into the outline's view; the pages stay
 
-// -------------------------------------------- A verdict's reason (docs/handbook/viewer.md §판정 핀 — 판정과 함께 이유)
-// After a save on a page verdict line a person may say why in a short text that becomes the pin's note. It is written
-// in a small popover over the line (.pv-pop: inside the line and laid above it, so it never pushes the page down or
-// makes the floating line taller). No save opens it by itself: the line offers [이유 추가] after a click and, while the
-// keys act on the line, 'Enter 이유 쓰기' - Enter opens it with the focus. Once open, every character typed in it is
-// text, digits too (a data plot's reason often starts with one: '12월 값이 튐'); before it opens the digits are the
-// line's verdict keys. The verdict's saved reason (a check and its first line, a pencil) opens it again to change it or
-// clear it ([지우기]). One popover at a time: the session (REASON_SESSION) belongs to its pin, document and visit and
-// keeps what is typed. A draft is never lost without a word:
-// - it is kept per pin in this tab (sessionStorage, getDraft and putDraft) and a reload brings it back; leaving the
-//   page with one asks first (beforeunload);
-// - with text, Esc takes two presses - the first lets the focus go (the keys then change the verdict) and says what the
-//   second does, which drops it; [접기] folds it away behind the line's '초안 있음' (and it stays folded after a
-//   reload);
-// - changing the verdict while it is being typed moves it to the new verdict (followSaveWithReason);
-// - [되돌리기] of a cancel or of the save chip brings it back with its verdict (reviveReason);
-// - a verdict taken back elsewhere while its reason is being typed leaves the text as its page's draft, said in one
-//   line, and the keys typed after the field went are not verdict keys (isKeyGuarded);
-// - a write that fails - unreachable, refused, too long, a note changed elsewhere - keeps it, and the line marks it
-//   '초안 있음'.
-// Moving on - the reading page leaving the popover's page after it was there, another save on another page, another
-// document - closes it and writes what was typed, said in one line; a folded draft waits for the person.
+// ------------------------------------------------ A verdict reason's drafts, kept per pin (sessionStorage)
+// A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's
+// writes whose answer was lost - the evidence that one may have put it there already.
+// A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre,
+// then the stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
 
-// ---------------- Drafts kept per pin (sessionStorage)
 // One record per instance label for this tab: {v:1, d:{<key>: {text, base, rev, mode, folded, at, tried, from}}}. The
 // key is '<doc>:<pin id>' for a verdict's draft, '<doc>:p<page>' for a page's (the draft of a verdict taken back
 // elsewhere, waiting for the next verdict on that page). text: typed and not written yet; base: the reason it was typed
@@ -29054,8 +29067,6 @@ addEventListener('keydown', (event) => {
 // taken out once written, dropped (Esc twice, [지우기]), moved to a new verdict, or when its pin is found gone from the
 // lists (restoreKeptDrafts).
 const DRAFT_VERSION = 1;
-// A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's
-// writes whose answer was lost - the evidence that one may have put it there already.
 function draftStorageKey() {
   return 'limnReason:' + encodeURIComponent((META && META.label) || '');
 }
@@ -29332,6 +29343,30 @@ function cutWrittenDrafts(doc, id, text) {
   }
   if (changed) saveAllDrafts(drafts);
 }
+
+// -------------------------------------------- A verdict's reason (docs/handbook/viewer.md §판정 핀 — 판정과 함께 이유)
+// After a save on a page verdict line a person may say why in a short text that becomes the pin's note. It is written
+// in a small popover over the line (.pv-pop: inside the line and laid above it, so it never pushes the page down or
+// makes the floating line taller). No save opens it by itself: the line offers [이유 추가] after a click and, while the
+// keys act on the line, 'Enter 이유 쓰기' - Enter opens it with the focus. Once open, every character typed in it is
+// text, digits too (a data plot's reason often starts with one: '12월 값이 튐'); before it opens the digits are the
+// line's verdict keys. The verdict's saved reason (a check and its first line, a pencil) opens it again to change it or
+// clear it ([지우기]). One popover at a time: the session (REASON_SESSION) belongs to its pin, document and visit and
+// keeps what is typed. A draft is never lost without a word:
+// - it is kept per pin in this tab (sessionStorage, getDraft and putDraft) and a reload brings it back; leaving the
+//   page with one asks first (beforeunload);
+// - with text, Esc takes two presses - the first lets the focus go (the keys then change the verdict) and says what the
+//   second does, which drops it; [접기] folds it away behind the line's '초안 있음' (and it stays folded after a
+//   reload);
+// - changing the verdict while it is being typed moves it to the new verdict (followSaveWithReason);
+// - [되돌리기] of a cancel or of the save chip brings it back with its verdict (reviveReason);
+// - a verdict taken back elsewhere while its reason is being typed leaves the text as its page's draft, said in one
+//   line, and the keys typed after the field went are not verdict keys (isKeyGuarded);
+// - a write that fails - unreachable, refused, too long, a note changed elsewhere - keeps it, and the line marks it
+//   '초안 있음'.
+// Moving on - the reading page leaving the popover's page after it was there, another save on another page, another
+// document - closes it and writes what was typed, said in one line; a folded draft waits for the person.
+
 // A pin's write lost its answer (`attempt`): every part moved off its key keeps it as evidence, stored and in a session
 // - also in the texts a session's field may come back to (updateEvidence).
 function addLostWrite(doc, id, attempt) {
@@ -29372,8 +29407,6 @@ function addLostWrite(doc, id, attempt) {
 // part out of this one (takeWrittenText). hist: the texts its field held since its text or parts were last set from
 // elsewhere, with their parts (placeParts).
 // What a session's field held, for its undo and redo (placeParts).
-// A new reason's write whose answer was lost: text, sent against the pin's rev `rev`, would have made the note pre,
-// then the stamp a note_append puts first when stamp ('(추가 12:30) ', the time the server's), then text, then post.
 let REASON_SESSION = null;
 let SESSION_SEQUENCE = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
@@ -32352,6 +32385,77 @@ function autoGrow(field) {
   field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';
 }
 
+// ------------------------------------------------ When, said on a card
+// A card's times: how long ago ('3분 전') with the exact time as its tip, and a timestamp's own line, in the person's
+// time zone.
+// Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute
+// time is in the description (hover). The original string is kept in data-at and re-computed every 60 seconds
+// (tickRel). The archive and the verdict line say this; a comment says stampText.
+function relTime(stamp, now) {
+  stamp = String(stamp || '');
+  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(stamp);
+  if (!match) return stamp;
+  const then = new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
+    minutes = Math.max(0, ((now == null ? Date.now() : now) - then) / 60000);
+  if (minutes < 1) return translate('방금');
+  if (minutes < 60) return translateTemplate('{n}분 전', { n: Math.floor(minutes) });
+  if (minutes < 24 * 60) return translateTemplate('{n}시간 전', { n: Math.floor(minutes / 60) });
+  if (minutes < 7 * 24 * 60) return translateTemplate('{n}일 전', { n: Math.floor(minutes / 1440) });
+  return +match[2] + '-' + +match[3];
+}
+function relSpan(stamp, className, tip) {
+  return html`<span class="rt${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-tip="${(tip ? tip + ' ' : '') + (stamp || '?')}">${relTime(stamp)}</span>`;
+}
+// A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM',
+// t}), or null for a string that is no time. Pure but for the device's time zone.
+function timeParts(stamp) {
+  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(stamp || ''));
+  if (!match) return null;
+  return {
+    y: +match[1],
+    mo: +match[2],
+    d: +match[3],
+    md: match[2] + '-' + match[3],
+    hm: match[4] + ':' + match[5],
+    t: new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
+  };
+}
+// The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A
+// string that is no time comes back as it is. now is injected by tests.
+function timeAbs(stamp, now) {
+  const parts = timeParts(stamp);
+  if (!parts) return String(stamp || '');
+  return (
+    (parts.y === new Date(now == null ? Date.now() : now).getFullYear() ? '' : parts.y + '-') +
+    parts.md +
+    ' ' +
+    parts.hm
+  );
+}
+// The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected
+// by tests.
+function timeAgo(stamp, now) {
+  const parts = timeParts(stamp);
+  return parts && (now == null ? Date.now() : now) - parts.t < 7 * 24 * 60 * 60000 ? relTime(stamp, now) : '';
+}
+// What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute
+// part from seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else
+// the absolute.
+/** @param form - a STAMP_FORM value */
+function stampText(stamp, form, now) {
+  const ago = timeAgo(stamp, now),
+    abs = timeAbs(stamp, now);
+  if (form === STAMP_FORM.SHORT) return ago || abs;
+  const both = ago ? ago + ' · ' + abs : abs;
+  return form === STAMP_FORM.EDITED ? translateTemplate('수정 {time}', { time: both }) : both;
+}
+// A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its
+// description.
+/** @param form - a STAMP_FORM value */
+function stampSpan(stamp, form, className) {
+  return html`<span class="rt ts${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-form="${form}" data-tip="${stamp || '?'}">${stampText(stamp, form)}</span>`;
+}
+
 /** Native pin-card markup, including participant text, state badges and threads.
  * User-provided names and notes enter markup only through the escaping Html template. */
 
@@ -32496,25 +32600,6 @@ function claimTag(pin) {
   const claim = claimInfo(pin);
   return html`<span class="badge badge-claimed${claim.late ? ' late' : ''}" data-claim="${pin.id}" data-tip="${claim.tip}">${lucideIcon('clock')}<span class="ct">${claim.t}</span></span>`;
 }
-// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't
-// redrawn). The list is redrawn if any pin's lock has expired.
-function tickClaims() {
-  if (document.hidden) return;
-  let gone = false;
-  $$('.badge-claimed[data-claim]').forEach((badge) => {
-    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
-    if (!pin || !claimActive(pin)) {
-      gone = true;
-      return;
-    }
-    const claim = claimInfo(pin);
-    badge.querySelector('.ct').textContent = claim.t;
-    badge.dataset.tip = claim.tip;
-    badge.classList.toggle('late', claim.late);
-  });
-  if (gone) drawPins();
-}
-setInterval(tickClaims, 30000);
 // A card's location text: 'L12-L18' for a LaTeX pin, '영역' for a view-only PDF's pin (the page is a separate field).
 // The copy format is 'file L12-L18' / 'x.pdf 쪽 3'; a region's page is the one its mark is on in the current build
 // (pinPlace), which a figure pin's element can move.
@@ -32850,6 +32935,34 @@ function threadHtml(pin, wide) {
     slot = REPLY && REPLY.id === pin.id ? html`<div class="reply-slot"></div>` : '';
   return more || entries.length || slot ? html`<div class="thread">${more}${entries}${slot}</div>` : html``;
 }
+function reviewerLabel(pin) {
+  if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
+  return isMe(pin.author)
+    ? translate('내 확인 차례')
+    : translateTemplate('{name}님 확인 필요', { name: who(pin.author) });
+}
+
+// ------------------------------------------------ The claim badges' clock
+// A claimed pin's badge says how long its claim has left or has run over; this keeps that text current.
+// The remaining/elapsed minutes change with time - only the badge text is updated every 30 seconds (the card isn't
+// redrawn). The list is redrawn if any pin's lock has expired.
+function tickClaims() {
+  if (document.hidden) return;
+  let gone = false;
+  $$('.badge-claimed[data-claim]').forEach((badge) => {
+    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
+    if (!pin || !claimActive(pin)) {
+      gone = true;
+      return;
+    }
+    const claim = claimInfo(pin);
+    badge.querySelector('.ct').textContent = claim.t;
+    badge.dataset.tip = claim.tip;
+    badge.classList.toggle('late', claim.late);
+  });
+  if (gone) drawPins();
+}
+setInterval(tickClaims, 30000);
 
 /** Native active/review cards and archive rows preserve their state-specific actions.
  * Notes and participant names use escaping Html templates and disable browser translation;
@@ -33075,73 +33188,6 @@ function cardActs(claimed, compact, canDrop = true, verdict = false) {
 // note is only shown by pressing [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it
 // survives a redraw.
 const ARC_OPEN = new Set();
-// Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute
-// time is in the description (hover). The original string is kept in data-at and re-computed every 60 seconds
-// (tickRel). The archive and the verdict line say this; a comment says stampText.
-function relTime(stamp, now) {
-  stamp = String(stamp || '');
-  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(stamp);
-  if (!match) return stamp;
-  const then = new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
-    minutes = Math.max(0, ((now == null ? Date.now() : now) - then) / 60000);
-  if (minutes < 1) return translate('방금');
-  if (minutes < 60) return translateTemplate('{n}분 전', { n: Math.floor(minutes) });
-  if (minutes < 24 * 60) return translateTemplate('{n}시간 전', { n: Math.floor(minutes / 60) });
-  if (minutes < 7 * 24 * 60) return translateTemplate('{n}일 전', { n: Math.floor(minutes / 1440) });
-  return +match[2] + '-' + +match[3];
-}
-function relSpan(stamp, className, tip) {
-  return html`<span class="rt${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-tip="${(tip ? tip + ' ' : '') + (stamp || '?')}">${relTime(stamp)}</span>`;
-}
-// A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM',
-// t}), or null for a string that is no time. Pure but for the device's time zone.
-function timeParts(stamp) {
-  const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(stamp || ''));
-  if (!match) return null;
-  return {
-    y: +match[1],
-    mo: +match[2],
-    d: +match[3],
-    md: match[2] + '-' + match[3],
-    hm: match[4] + ':' + match[5],
-    t: new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime(),
-  };
-}
-// The absolute part of a comment's time: 'MM-DD HH:MM', with the year ('2025-09-25 00:01') when it is not now's. A
-// string that is no time comes back as it is. now is injected by tests.
-function timeAbs(stamp, now) {
-  const parts = timeParts(stamp);
-  if (!parts) return String(stamp || '');
-  return (
-    (parts.y === new Date(now == null ? Date.now() : now).getFullYear() ? '' : parts.y + '-') +
-    parts.md +
-    ' ' +
-    parts.hm
-  );
-}
-// The relative part of a comment's time, relTime's words, for a time less than seven days old; else ''. now is injected
-// by tests.
-function timeAgo(stamp, now) {
-  const parts = timeParts(stamp);
-  return parts && (now == null ? Date.now() : now) - parts.t < 7 * 24 * 60 * 60000 ? relTime(stamp, now) : '';
-}
-// What a comment's time says (docs/handbook/viewer.md §뜻과 모양): BOTH '14시간 전 · 11-01 20:41', only the absolute
-// part from seven days on; EDITED the same after '수정'; SHORT, a folded card's preview, the relative part if any, else
-// the absolute.
-/** @param form - a STAMP_FORM value */
-function stampText(stamp, form, now) {
-  const ago = timeAgo(stamp, now),
-    abs = timeAbs(stamp, now);
-  if (form === STAMP_FORM.SHORT) return ago || abs;
-  const both = ago ? ago + ' · ' + abs : abs;
-  return form === STAMP_FORM.EDITED ? translateTemplate('수정 {time}', { time: both }) : both;
-}
-// A comment's time as Html: stampText's words, kept current by tickRel, with the whole stored string as its
-// description.
-/** @param form - a STAMP_FORM value */
-function stampSpan(stamp, form, className) {
-  return html`<span class="rt ts${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-form="${form}" data-tip="${stamp || '?'}">${stampText(stamp, form)}</span>`;
-}
 // The name of the day a stored time falls on, as a day line of the list says it: 오늘, 어제, '10월 31일', and '2025년
 // 9월 25일' in another year; '' for a string that is no time. A time ahead of this device's clock counts as today. now
 // is injected by tests.
@@ -33424,6 +33470,9 @@ $('#trash').addEventListener('click', (event) => {
   )
     trash.close();
 });
+function listDropped() {
+  return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
+}
 
 // ------------------------------------------- Confirming several pins awaiting review from their result rows (ADR-0035)
 // The review section's [골라서 확인] (#review-pick) turns its cards into result rows: a box with #N and the place, the
@@ -33887,29 +33936,9 @@ function tickChangedBox(event) {
 }
 document.addEventListener('change', tickChangedBox);
 
-// ----------------------------------- Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
-// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead
-// of a name - and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when
-// none of its tags resolves yet.
-
-async function loadPeople() {
-  try {
-    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
-    if (Array.isArray(answer.people)) {
-      const was = JSON.stringify(PEOPLE),
-        first = !PEOPLE_KNOWN;
-      setPeople(answer.people);
-      setPeopleKnown(true);
-      const changed = JSON.stringify(PEOPLE) !== was;
-      if (changed) drawPins();
-      if (changed || first) renderAssignNew();
-    }
-  } catch (error) {}
-}
-// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no
-// snapshot.
-let PINS_LOAD_SEQ = 0,
-  PINS_APPLIED_SEQ = 0;
+// ------------------------------------------------ The pin list's sections (docs/handbook/viewer.md §목록 구획)
+// Which pins each section lists - open, awaiting review, done, from the lists as this tab shows them (derivePinLists) -
+// in the chosen order, drawn as day-grouped rows under a section head with its count and order control.
 // Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to
 // defaultDoc. confirming (optional) holds the ids whose [확인] waits for its undo (CONFIRMING): they stay out of the
 // review list.
@@ -33934,120 +33963,6 @@ function derivePinLists(rows, doc, defaultDoc, confirming) {
   }
   return { openAll, reviewAll, doneAll, openHere, doneHere };
 }
-// Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply
-// whose pin left says so there too, with a dot on [핀 N]), then redraws the current document.
-/**
- * Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close.
- */
-function applyPinLists(rows, dropped, lists) {
-  const openBefore = OPEN_ALL,
-    reviewBefore = REVIEW_ALL;
-  notePinChanges(openBefore, rows, dropped);
-  noteReviewChanges(reviewBefore, rows);
-  noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
-  setOpenAll(lists.openAll);
-  setReviewAll(lists.reviewAll);
-  setDoneAll(lists.doneAll);
-  setDropped(dropped);
-  setPins(lists.openHere);
-  setDone(lists.doneHere);
-  // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still
-  // awaiting review - and leaves it once the snapshot does not have it so (deleted from another window, reopened,
-  // confirmed elsewhere).
-  CONFIRMING_PIN.forEach((_, id) => {
-    const fresh = rows.find((row) => row.id === id);
-    if (fresh && pinState(fresh) === PIN_STATE.REVIEW) CONFIRMING_PIN.set(id, fresh);
-    else CONFIRMING_PIN.delete(id);
-  });
-  const card = EDITOR.current;
-  if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
-    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
-    else {
-      lineNote(
-        translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
-        NOTICE_KIND.WARN,
-        null,
-        { dot: NOTICE_DOT.SIDE },
-      );
-      setEditorCurrent(null);
-    }
-  }
-  const replyBox = REPLY;
-  if (replyBox && !rows.some((pin) => pin.id === replyBox.id)) {
-    closeReply(false);
-    lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다', NOTICE_KIND.WARN, null, {
-      dot: NOTICE_DOT.SIDE,
-    });
-  }
-  if (!SECTION_SEEN.open) {
-    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
-    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
-    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
-  }
-  drawPins();
-  marks();
-  drawDocTabs();
-  if (COMPOSE.current) {
-    recomputeOverlap();
-    renderOverlapBanner();
-  } // if the list changes (someone else's save/completion), overlap is recomputed too
-  docTitle(true);
-}
-// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it: a
-// read another one started later overtook (a light poll's, an action's) returns false and draws nothing, and the list
-// stays as the newer one drew it. A failed read is a banner on top of the panel with [다시 시도].
-async function loadPins() {
-  const seq = ++PINS_LOAD_SEQ;
-  let rows;
-  try {
-    rows = (
-      await api('/api/pins?all=1', {
-        what: '핀 읽기',
-        where: NOTICE_HOST.LIST,
-        retry: () => {
-          loadPins();
-        },
-      })
-    ).data;
-  } catch (error) {
-    return false;
-  }
-  if (seq < PINS_APPLIED_SEQ) return false;
-  let dropped = [];
-  // Said, not silent: this read failing stops the whole snapshot from being applied, and a refresh that stops
-  // without a word looks like a list that simply did not change (docs/handbook/viewer.md §알림 자리).
-  try {
-    dropped =
-      (
-        await api('/api/pins/dropped', {
-          what: '삭제한 핀',
-          where: NOTICE_HOST.LIST,
-          retry: () => {
-            loadPins();
-          },
-        })
-      ).data.dropped || [];
-  } catch (error) {
-    return false;
-  }
-  if (seq < PINS_APPLIED_SEQ) return false;
-  loadPeople();
-  // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
-  // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
-  PINS_APPLIED_SEQ = seq;
-  applyPinLists(rows, dropped, derivePinLists(rows, DOC, DEFAULT_DOC, CONFIRMING));
-  return true;
-}
-// Reads the list again for a caller that goes on to act on it as it stands (a pin link opening its card). Resolves true
-// when the list now shows a snapshot asked for by this call or a later one - its own read applied, or a newer read that
-// overtook it did - and false only when none since the call has applied (the read failed and said so). loadPins' own
-// answer is false when overtaken, the light poll's cue to read that revision again (docs/handbook/build-sync.md §자동
-// 동기화 (가벼운 meta 폴링)), so a caller that waits for the list itself reads it with this.
-async function loadPinsNow() {
-  const since = PINS_LOAD_SEQ;
-  await loadPins();
-  return PINS_APPLIED_SEQ > since;
-}
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is
 // kept even from another document (so the draft text doesn't disappear).
 function listOpen() {
@@ -34061,100 +33976,7 @@ function listDone() {
 function listReview() {
   return SHOW_ALL && multiDoc() ? REVIEW_ALL : REVIEW_ALL.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
-// Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next
-// to [핀 N] (compact) / the tool bar chip (wide). [⬚ 선택] keeps the width of its pressed face [⬚ 선택 중] wherever it
-// shows its label (docs/handbook/viewer.md §모바일 레이아웃 선택 모드), so pressing it moves neither it nor its
-// neighbours - on the landscape phone's top row a wider face would move the button itself under the finger. Effect:
-// --sel-w on the button, measured with the pressed face drawn for a moment (in the interface language), or removed
-// where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
-function holdSelectWidth() {
-  const button = $('#btn-select'),
-    label = button.querySelector('.lbl');
-  button.style.removeProperty('--sel-w');
-  if (!button.getClientRects().length || getComputedStyle(label).display === 'none') return;
-  const pressed = button.getAttribute('aria-pressed') || 'false',
-    text = label.textContent;
-  button.setAttribute('aria-pressed', 'true');
-  label.textContent = translate('선택 중');
-  const width = button.getBoundingClientRect().width;
-  button.setAttribute('aria-pressed', pressed);
-  label.textContent = text;
-  button.style.setProperty('--sel-w', Math.ceil(width) + 'px');
-}
-// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit
-// counts, a folded cover): first [⬚ 선택] drops its label for the 36px icon the phone has (#bar1.bar-sel-icon) - the
-// chip never shrinks for it; then the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug);
-// then the words '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review
-// (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
-// its width (holdSelectWidth, every band); decoration only - nothing moves.
-function fitBarWords() {
-  const bar = $('#bar1'),
-    leftCell = bar.querySelector('.bar-l');
-  bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
-  holdSelectWidth();
-  if (LAYOUT !== LAYOUT_MODE.NARROW) return;
-  const over = () => {
-    // the last control's edge, not scrollWidth: the hits overflow too
-    const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
-    return (
-      shown.length > 0 &&
-      shown[shown.length - 1].getBoundingClientRect().right > leftCell.getBoundingClientRect().right + 0.05
-    );
-  }; // past the cell, [⬚]'s hit reaches the grabber's column
-  for (const step of ['bar-sel-icon', 'bar-snug', 'bar-tight']) {
-    if (!over()) return;
-    bar.classList.add(step);
-    if (step === 'bar-sel-icon') holdSelectWidth();
-  }
-}
-// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's
-// bar shows the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's. The pill is the
-// eye icon and the count, so it never reads as part of the open count beside it ('11 1').
-function updateReviewCount() {
-  const count = REVIEW_ALL.length,
-    chip = $('#rv-chip');
-  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
-    pill.hidden = !count;
-    setHtml(pill, html`${lucideIcon('eye')}${count}`);
-    pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
-  }
-  const reviewButton = $('#btn-rv');
-  reviewButton.hidden = !count;
-  reviewButton.querySelector('.rv-c').textContent = count;
-  // the sheet bar's [검토 M] half: its name starts with what it shows
-  reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
-  fitBarWords();
-  const here = listReview().length;
-  chip.hidden = !count || LAYOUT !== LAYOUT_MODE.WIDE || !SIDE_OPEN;
-  chip.textContent =
-    translateTemplate('검토 대기 {n}', { n: count }) +
-    (multiDoc() && here !== count ? ' ' + translateTemplate('(이 문서 {n})', { n: here }) : '');
-}
-// [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes
-// (seen).
-function gotoReview() {
-  noticeSeen(NOTICE_DOT.RV);
-  if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
-  if (!SECTION_OPEN.review) {
-    SECTION_OPEN.review = true;
-    savePrefs({ sec: SECTION_OPEN });
-  }
-  drawPins();
-  setSide(true);
-  requestAnimationFrame(() => {
-    const section = $('#sec-review');
-    if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
-  });
-}
-function reviewerLabel(pin) {
-  if (!pin.author || !(pin.author.name || pin.author.login)) return translate('확인 필요');
-  return isMe(pin.author)
-    ? translate('내 확인 차례')
-    : translateTemplate('{name}님 확인 필요', { name: who(pin.author) });
-}
-function listDropped() {
-  return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
-}
+
 // One section header (docs/handbook/viewer.md §목록 구획): chevron, name, count and - while collapsed - 'new N' (ids
 // the section did not show when it was last expanded). The body it controls (aria-controls) is hidden while collapsed.
 const SECTION_NAME_ID = { open: 'list-h', review: 'review-h', done: 'done-h' };
@@ -34176,134 +33998,6 @@ function drawSectionHead(key, name, ids, all) {
   toggle.setAttribute('aria-expanded', String(open));
   const body = document.getElementById(toggle.getAttribute('aria-controls') || '');
   if (body) body.hidden = !open;
-}
-function toggleSection(key, force) {
-  if (!(key in SECTION_OPEN_DEFAULT)) return;
-  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
-  savePrefs({ sec: SECTION_OPEN });
-  drawPins();
-}
-// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes
-// and the banners of platform/notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin,
-// its guide line's buttons, whose [확인] follows that pin's state (drawPinGuideActions). The status line's review
-// arrivals follow the review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
-/** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
-function drawPins() {
-  dropStaleReview();
-  // the rows in the list's view: one of them is put back where it stood once the cards are drawn (lazyCards)
-  const keep = listKeep();
-  const openListed = listOpen(),
-    doneListed = listDone(),
-    droppedListed = listDropped();
-  // a focus in an undo row or note, given back once they are drawn again (drawOffers)
-  const keptNoticeFocus = noticeFocus();
-  // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a
-  // cross-document inbox).
-  const mentioningMe = OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),
-    mentionFilter = $('#mention-filter');
-  if (MENTION_ONLY && !mentioningMe.length) setMentionOnly(false);
-  mentionFilter.hidden = !mentioningMe.length;
-  mentionFilter.setAttribute('aria-pressed', String(MENTION_ONLY));
-  setHtml(mentionFilter, html`${lucideIcon('at-sign')}${mentioningMe.length}`);
-  mentionFilter.setAttribute('aria-label', translateTemplate('나를 부른 핀 {n}', { n: mentioningMe.length }));
-  const openShown = MENTION_ONLY ? OPEN_ALL.filter(mentionsMe) : openListed;
-  // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing
-  // (so auto-sync redrawing the list, or a layout change redrawing the cards, never interrupts typing).
-  const replyField = REPLY && replyNote(REPLY),
-    replyFocus =
-      replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
-  // The edit card's note or suggested-edit field keeps its focus and selection the same way.
-  const editField =
-    EDITOR.current &&
-    document.activeElement &&
-    EDITOR.current.el.contains(document.activeElement) &&
-    document.activeElement.matches('.e-note,.e-sg-text')
-      ? (document.activeElement)
-      : null;
-  const editArea = editField,
-    editFocus = editArea ? [editArea.selectionStart, editArea.selectionEnd] : null,
-    cardFocus = cardFocusKeep();
-  drawSectionHead(
-    'open',
-    translate(MENTION_ONLY ? '나를 부른 열린 핀' : SHOW_ALL && multiDoc() ? '모든 문서의 열린 핀' : '열린 핀'),
-    openShown.map((pin) => pin.id),
-    OPEN_ALL.map((pin) => pin.id),
-  );
-  const allDocsButton = $('#all-docs');
-  allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
-  setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
-  $('#side-n').textContent = PINS.length;
-  applySide();
-  // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
-  const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
-  $('#m-trash-n').textContent = trashCount;
-  $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
-  $('#trash-link').hidden = !trashCount;
-  $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
-  // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too. Only a note
-  // that another document has pins is left.
-  setHtml(
-    $('#pins'),
-    openShown.length
-      ? cardRows(openShown, 'open')
-      : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
-  ); // with no card, an undo row still gets its slot (cardRows)
-  if (EDITOR.current) {
-    const slot = $('#pins .edit-slot');
-    if (slot) slot.replaceWith(EDITOR.current.el);
-    else $('#pins').appendChild(EDITOR.current.el);
-    renderEdit();
-    if (editFocus && editArea && document.contains(editArea)) {
-      editArea.focus();
-      try {
-        editArea.setSelectionRange(editFocus[0], editFocus[1]);
-      } catch (error) {}
-    }
-  }
-  // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands
-  // in it (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
-  const reviewShown = MENTION_ONLY ? REVIEW_ALL.filter(mentionsMe) : listReview();
-  $('#sec-review').hidden = !reviewShown.length && !offersIn('review');
-  drawSectionHead(
-    'review',
-    translate('검토 대기'),
-    reviewShown.map((pin) => pin.id),
-    REVIEW_ALL.map((pin) => pin.id),
-  );
-  // result rows while the section picks (pins/flow-review-pick.ts)
-  if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
-  drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
-  updateReviewCount();
-  // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
-  $('#sec-done').hidden = !doneListed.length;
-  drawSectionHead(
-    'done',
-    translate('완료'),
-    doneListed.map((pin) => pin.id),
-    DONE_ALL.map((pin) => pin.id),
-  );
-  if (SECTION_OPEN.done)
-    setHtml(
-      $('#done-list'),
-      doneListed.length ? html`${doneListed.slice().reverse().map(doneCard)}` : html`<div class="dim">없습니다.</div>`,
-    );
-  if ($('#trash').open) drawTrash();
-  if (REPLY) {
-    const slot = document.querySelector('#list .reply-slot');
-    if (slot) slot.replaceWith(REPLY.el);
-    renderReplyOutcome(); // the pin may have changed state meanwhile
-    if (replyFocus && replyField && document.contains(replyField)) {
-      replyField.focus();
-      try {
-        replyField.setSelectionRange(replyFocus[0], replyFocus[1]);
-      } catch (error) {}
-    }
-  }
-  drawOffers(keptNoticeFocus);
-  drawBanners();
-  lazyCards(keep);
-  cardFocusBack(cardFocus);
-  if (REVISION_VIEW.target) drawPinGuideActions();
 }
 // The pins of a list section in order (docs/handbook/viewer.md §목록 순서), list itself untouched. LIST_ORDER.NEW: the
 // newest `at` first, the later pin first within a minute, a pin with no readable time last. LIST_ORDER.PAGE: by page,
@@ -34437,20 +34131,10 @@ function drawOrderControl(any) {
   }
   roveSegment(control);
 } // the group's one Tab stop is the order now chosen (main.ts)
-// A press on the order control: the list is drawn in that order, remembered for this browser, with the control where it
-// stood under the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it
-// is not redrawn).
-/** @param order - a LIST_ORDER value */
-function setListOrder(order) {
-  const next = listOrderOf(order);
-  if (next === ORDER) return;
-  setOrder(next);
-  savePrefs({ order: next });
-  const control = $('#list-order'),
-    y = control.getBoundingClientRect().top;
-  drawPins();
-  listScroller().scrollTop += control.getBoundingClientRect().top - y;
-}
+
+// ------------------------------------------------ The pin list's scroll
+// What the list keeps of its scroll across a redraw (the row at its top, the section it is in), and the cards far from
+// its view, which the browser skips until they come near.
 // Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does
 // not lay them out or paint them until they come near the view. Their markup stays whole and current all the while - a
 // card coming back is drawn from what it holds then - and a focus, a find or a selection reaching into one draws it at
@@ -34545,27 +34229,6 @@ function lazyAgain() {
   $$('#list .pin.card.lazy').forEach((card) => card.classList.remove('lazy'));
   lazyCards(keep);
 }
-// The scroller's height changed (a window, the sheet dragged): the observer's margin follows it.
-if (window.ResizeObserver) {
-  const listResize = new ResizeObserver(() => {
-    const list = $('#list'),
-      width = list.getClientRects().length ? list.clientWidth : 0;
-    if (width && width !== LAZY_WIDTH) lazyAgain();
-    else if (LAZY_IO && listScroller().clientHeight !== LAZY_HEIGHT) lazyWatch();
-  });
-  listResize.observe($('#list'));
-  listResize.observe($('#right'));
-}
-document.fonts.addEventListener('loadingdone', (event) => {
-  if (!$$('#list .pin.card.lazy').length) return;
-  const listFonts = getComputedStyle($('#list')).fontFamily;
-  if (
-    (event).fontfaces.some((face) =>
-      listFonts.includes(face.family.replace(/^["']|["']$/g, '')),
-    )
-  )
-    lazyAgain();
-});
 // The box the list scrolls in: the list itself, or in compact the panel (#right), which holds the tool bar above it.
 function listScroller() {
   return document.body.classList.contains('compact') ? $('#right') : $('#list');
@@ -34601,41 +34264,10 @@ function listSection(row) {
   const section = row.closest('#pins,#review-pins,#done-list');
   return section ? section.id : '';
 }
-// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
-// drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
-// anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
-// focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
-function cardFocusKeep() {
-  const focused = document.activeElement,
-    cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]')) : null;
-  const act = focused && focused.dataset ? focused.dataset.act || '' : '';
-  if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
-  return {
-    el: focused,
-    id: cardElement.dataset.id || '',
-    act,
-    i: [...cardElement.querySelectorAll('[data-act="' + CSS.escape(act) + '"]')].indexOf(focused),
-  };
-}
-function cardFocusBack(kept) {
-  const focused = document.activeElement;
-  if (!kept || (focused && focused !== document.body)) return;
-  if (document.contains(kept.el)) {
-    kept.el.focus({ preventScroll: true });
-    return;
-  } // the edit card or the reply, put back in its slot
-  const cardElement = document.querySelector('#list .pin[data-id="' + CSS.escape(kept.id) + '"]'),
-    same = cardElement ? cardElement.querySelectorAll('[data-act="' + CSS.escape(kept.act) + '"]') : null;
-  const target = (same && (same[Math.max(0, kept.i)] || same[0]));
-  if (target) target.focus({ preventScroll: true });
-}
-// Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
-// manuscript fingerprint of the build the pin was placed on with the current build). The viewer does not judge it by
-// wall clock - the browser's time zone, a note-only edited_at and a pin placed on a stale PDF would all mislead it -
-// and renders the value it is given.
-function isEstimated(pin) {
-  return pin.est === true;
-}
+
+// ------------------------------------------------ Marks a badge or card covers
+// A pin's mark on the page sits under its badge, the open composer or the panel: where the badge stands (markBadgeSides),
+// which marks something covers, and bringing a covered mark into view; the mark Tab stops among them.
 // Re-decides every page number's place (pageNoSides) and every drawn mark's badge side for its page's width and margin
 // now (a zoom, a re-fit or a band change moves both), then how far each badge's press area reaches (markHitSides: the
 // badges' distances follow the same width). A mark on a page that is not laid out keeps its side until the page shows
@@ -34810,12 +34442,6 @@ function markTabKey(event) {
     MARK_TAB = false;
   }, 0);
 }
-document.addEventListener('keydown', markTabKey, true);
-$('#left').addEventListener('focusin', (event) => {
-  const badge = event.target;
-  if (!MARK_TAB || !(badge instanceof HTMLElement) || !badge.matches('.mark button.mark-jump')) return;
-  markReveal(badge);
-});
 // What the covers cover changes without the marks being drawn again: the sheet opens, closes or is dragged to another
 // height, the status line comes or goes, the overlay panel slides in, the window is resized, or the pages scroll under
 // them. The covers' sizes are watched (the sheet's open and closed heights differ, a status line goes from none to its
@@ -34829,6 +34455,437 @@ function markCoversMoved() {
   const focused = document.activeElement;
   if (focused instanceof HTMLElement && MARK_HIDDEN.has(focused) && keyInput()) markReveal(focused);
 }
+
+// ------------------------------------------------ The bar's pin and review counts
+// The panel toggles' and the sheet bar's counts of open pins and of pins awaiting review, and the bar's words fitted to
+// its width (the select button's width held while the bar is measured).
+// Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next
+// to [핀 N] (compact) / the tool bar chip (wide). [⬚ 선택] keeps the width of its pressed face [⬚ 선택 중] wherever it
+// shows its label (docs/handbook/viewer.md §모바일 레이아웃 선택 모드), so pressing it moves neither it nor its
+// neighbours - on the landscape phone's top row a wider face would move the button itself under the finger. Effect:
+// --sel-w on the button, measured with the pressed face drawn for a moment (in the interface language), or removed
+// where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
+function holdSelectWidth() {
+  const button = $('#btn-select'),
+    label = button.querySelector('.lbl');
+  button.style.removeProperty('--sel-w');
+  if (!button.getClientRects().length || getComputedStyle(label).display === 'none') return;
+  const pressed = button.getAttribute('aria-pressed') || 'false',
+    text = label.textContent;
+  button.setAttribute('aria-pressed', 'true');
+  label.textContent = translate('선택 중');
+  const width = button.getBoundingClientRect().width;
+  button.setAttribute('aria-pressed', pressed);
+  label.textContent = text;
+  button.style.setProperty('--sel-w', Math.ceil(width) + 'px');
+}
+// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit
+// counts, a folded cover): first [⬚ 선택] drops its label for the 36px icon the phone has (#bar1.bar-sel-icon) - the
+// chip never shrinks for it; then the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug);
+// then the words '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review
+// (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
+// its width (holdSelectWidth, every band); decoration only - nothing moves.
+function fitBarWords() {
+  const bar = $('#bar1'),
+    leftCell = bar.querySelector('.bar-l');
+  bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
+  holdSelectWidth();
+  if (LAYOUT !== LAYOUT_MODE.NARROW) return;
+  const over = () => {
+    // the last control's edge, not scrollWidth: the hits overflow too
+    const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
+    return (
+      shown.length > 0 &&
+      shown[shown.length - 1].getBoundingClientRect().right > leftCell.getBoundingClientRect().right + 0.05
+    );
+  }; // past the cell, [⬚]'s hit reaches the grabber's column
+  for (const step of ['bar-sel-icon', 'bar-snug', 'bar-tight']) {
+    if (!over()) return;
+    bar.classList.add(step);
+    if (step === 'bar-sel-icon') holdSelectWidth();
+  }
+}
+// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's
+// bar shows the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's. The pill is the
+// eye icon and the count, so it never reads as part of the open count beside it ('11 1').
+function updateReviewCount() {
+  const count = REVIEW_ALL.length,
+    chip = $('#rv-chip');
+  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
+    pill.hidden = !count;
+    setHtml(pill, html`${lucideIcon('eye')}${count}`);
+    pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
+  }
+  const reviewButton = $('#btn-rv');
+  reviewButton.hidden = !count;
+  reviewButton.querySelector('.rv-c').textContent = count;
+  // the sheet bar's [검토 M] half: its name starts with what it shows
+  reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
+  fitBarWords();
+  const here = listReview().length;
+  chip.hidden = !count || LAYOUT !== LAYOUT_MODE.WIDE || !SIDE_OPEN;
+  chip.textContent =
+    translateTemplate('검토 대기 {n}', { n: count }) +
+    (multiDoc() && here !== count ? ' ' + translateTemplate('(이 문서 {n})', { n: here }) : '');
+}
+
+// ----------------------------------- Pin list: loading pins, drawing the list, marks on the PDF, jumping to a pin or card
+// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead
+// of a name - and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when
+// none of its tags resolves yet.
+
+async function loadPeople() {
+  try {
+    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
+    if (Array.isArray(answer.people)) {
+      const was = JSON.stringify(PEOPLE),
+        first = !PEOPLE_KNOWN;
+      setPeople(answer.people);
+      setPeopleKnown(true);
+      const changed = JSON.stringify(PEOPLE) !== was;
+      if (changed) drawPins();
+      if (changed || first) renderAssignNew();
+    }
+  } catch (error) {}
+}
+// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no
+// snapshot.
+let PINS_LOAD_SEQ = 0,
+  PINS_APPLIED_SEQ = 0;
+// Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply
+// whose pin left says so there too, with a dot on [핀 N]), then redraws the current document.
+/**
+ * Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close.
+ */
+function applyPinLists(rows, dropped, lists) {
+  const openBefore = OPEN_ALL,
+    reviewBefore = REVIEW_ALL;
+  notePinChanges(openBefore, rows, dropped);
+  noteReviewChanges(reviewBefore, rows);
+  noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
+  setOpenAll(lists.openAll);
+  setReviewAll(lists.reviewAll);
+  setDoneAll(lists.doneAll);
+  setDropped(dropped);
+  setPins(lists.openHere);
+  setDone(lists.doneHere);
+  // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still
+  // awaiting review - and leaves it once the snapshot does not have it so (deleted from another window, reopened,
+  // confirmed elsewhere).
+  CONFIRMING_PIN.forEach((_, id) => {
+    const fresh = rows.find((row) => row.id === id);
+    if (fresh && pinState(fresh) === PIN_STATE.REVIEW) CONFIRMING_PIN.set(id, fresh);
+    else CONFIRMING_PIN.delete(id);
+  });
+  const card = EDITOR.current;
+  if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
+    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
+    else {
+      lineNote(
+        translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
+        NOTICE_KIND.WARN,
+        null,
+        { dot: NOTICE_DOT.SIDE },
+      );
+      setEditorCurrent(null);
+    }
+  }
+  const replyBox = REPLY;
+  if (replyBox && !rows.some((pin) => pin.id === replyBox.id)) {
+    closeReply(false);
+    lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다', NOTICE_KIND.WARN, null, {
+      dot: NOTICE_DOT.SIDE,
+    });
+  }
+  if (!SECTION_SEEN.open) {
+    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
+    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
+    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
+  }
+  drawPins();
+  marks();
+  drawDocTabs();
+  if (COMPOSE.current) {
+    recomputeOverlap();
+    renderOverlapBanner();
+  } // if the list changes (someone else's save/completion), overlap is recomputed too
+  docTitle(true);
+}
+// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it: a
+// read another one started later overtook (a light poll's, an action's) returns false and draws nothing, and the list
+// stays as the newer one drew it. A failed read is a banner on top of the panel with [다시 시도].
+async function loadPins() {
+  const seq = ++PINS_LOAD_SEQ;
+  let rows;
+  try {
+    rows = (
+      await api('/api/pins?all=1', {
+        what: '핀 읽기',
+        where: NOTICE_HOST.LIST,
+        retry: () => {
+          loadPins();
+        },
+      })
+    ).data;
+  } catch (error) {
+    return false;
+  }
+  if (seq < PINS_APPLIED_SEQ) return false;
+  let dropped = [];
+  // Said, not silent: this read failing stops the whole snapshot from being applied, and a refresh that stops
+  // without a word looks like a list that simply did not change (docs/handbook/viewer.md §알림 자리).
+  try {
+    dropped =
+      (
+        await api('/api/pins/dropped', {
+          what: '삭제한 핀',
+          where: NOTICE_HOST.LIST,
+          retry: () => {
+            loadPins();
+          },
+        })
+      ).data.dropped || [];
+  } catch (error) {
+    return false;
+  }
+  if (seq < PINS_APPLIED_SEQ) return false;
+  loadPeople();
+  // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
+  // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
+  PINS_APPLIED_SEQ = seq;
+  applyPinLists(rows, dropped, derivePinLists(rows, DOC, DEFAULT_DOC, CONFIRMING));
+  return true;
+}
+// Reads the list again for a caller that goes on to act on it as it stands (a pin link opening its card). Resolves true
+// when the list now shows a snapshot asked for by this call or a later one - its own read applied, or a newer read that
+// overtook it did - and false only when none since the call has applied (the read failed and said so). loadPins' own
+// answer is false when overtaken, the light poll's cue to read that revision again (docs/handbook/build-sync.md §자동
+// 동기화 (가벼운 meta 폴링)), so a caller that waits for the list itself reads it with this.
+async function loadPinsNow() {
+  const since = PINS_LOAD_SEQ;
+  await loadPins();
+  return PINS_APPLIED_SEQ > since;
+}
+// [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes
+// (seen).
+function gotoReview() {
+  noticeSeen(NOTICE_DOT.RV);
+  if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
+  if (!SECTION_OPEN.review) {
+    SECTION_OPEN.review = true;
+    savePrefs({ sec: SECTION_OPEN });
+  }
+  drawPins();
+  setSide(true);
+  requestAnimationFrame(() => {
+    const section = $('#sec-review');
+    if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
+  });
+}
+function toggleSection(key, force) {
+  if (!(key in SECTION_OPEN_DEFAULT)) return;
+  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
+  savePrefs({ sec: SECTION_OPEN });
+  drawPins();
+}
+// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes
+// and the banners of platform/notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin,
+// its guide line's buttons, whose [확인] follows that pin's state (drawPinGuideActions). The status line's review
+// arrivals follow the review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+/** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
+function drawPins() {
+  dropStaleReview();
+  // the rows in the list's view: one of them is put back where it stood once the cards are drawn (lazyCards)
+  const keep = listKeep();
+  const openListed = listOpen(),
+    doneListed = listDone(),
+    droppedListed = listDropped();
+  // a focus in an undo row or note, given back once they are drawn again (drawOffers)
+  const keptNoticeFocus = noticeFocus();
+  // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a
+  // cross-document inbox).
+  const mentioningMe = OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),
+    mentionFilter = $('#mention-filter');
+  if (MENTION_ONLY && !mentioningMe.length) setMentionOnly(false);
+  mentionFilter.hidden = !mentioningMe.length;
+  mentionFilter.setAttribute('aria-pressed', String(MENTION_ONLY));
+  setHtml(mentionFilter, html`${lucideIcon('at-sign')}${mentioningMe.length}`);
+  mentionFilter.setAttribute('aria-label', translateTemplate('나를 부른 핀 {n}', { n: mentioningMe.length }));
+  const openShown = MENTION_ONLY ? OPEN_ALL.filter(mentionsMe) : openListed;
+  // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing
+  // (so auto-sync redrawing the list, or a layout change redrawing the cards, never interrupts typing).
+  const replyField = REPLY && replyNote(REPLY),
+    replyFocus =
+      replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
+  // The edit card's note or suggested-edit field keeps its focus and selection the same way.
+  const editField =
+    EDITOR.current &&
+    document.activeElement &&
+    EDITOR.current.el.contains(document.activeElement) &&
+    document.activeElement.matches('.e-note,.e-sg-text')
+      ? (document.activeElement)
+      : null;
+  const editArea = editField,
+    editFocus = editArea ? [editArea.selectionStart, editArea.selectionEnd] : null,
+    cardFocus = cardFocusKeep();
+  drawSectionHead(
+    'open',
+    translate(MENTION_ONLY ? '나를 부른 열린 핀' : SHOW_ALL && multiDoc() ? '모든 문서의 열린 핀' : '열린 핀'),
+    openShown.map((pin) => pin.id),
+    OPEN_ALL.map((pin) => pin.id),
+  );
+  const allDocsButton = $('#all-docs');
+  allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
+  setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
+  $('#side-n').textContent = PINS.length;
+  applySide();
+  // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
+  const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
+  $('#m-trash-n').textContent = trashCount;
+  $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
+  $('#trash-link').hidden = !trashCount;
+  $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
+  // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too. Only a note
+  // that another document has pins is left.
+  setHtml(
+    $('#pins'),
+    openShown.length
+      ? cardRows(openShown, 'open')
+      : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
+  ); // with no card, an undo row still gets its slot (cardRows)
+  if (EDITOR.current) {
+    const slot = $('#pins .edit-slot');
+    if (slot) slot.replaceWith(EDITOR.current.el);
+    else $('#pins').appendChild(EDITOR.current.el);
+    renderEdit();
+    if (editFocus && editArea && document.contains(editArea)) {
+      editArea.focus();
+      try {
+        editArea.setSelectionRange(editFocus[0], editFocus[1]);
+      } catch (error) {}
+    }
+  }
+  // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands
+  // in it (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
+  const reviewShown = MENTION_ONLY ? REVIEW_ALL.filter(mentionsMe) : listReview();
+  $('#sec-review').hidden = !reviewShown.length && !offersIn('review');
+  drawSectionHead(
+    'review',
+    translate('검토 대기'),
+    reviewShown.map((pin) => pin.id),
+    REVIEW_ALL.map((pin) => pin.id),
+  );
+  // result rows while the section picks (pins/flow-review-pick.ts)
+  if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
+  drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
+  updateReviewCount();
+  // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
+  $('#sec-done').hidden = !doneListed.length;
+  drawSectionHead(
+    'done',
+    translate('완료'),
+    doneListed.map((pin) => pin.id),
+    DONE_ALL.map((pin) => pin.id),
+  );
+  if (SECTION_OPEN.done)
+    setHtml(
+      $('#done-list'),
+      doneListed.length ? html`${doneListed.slice().reverse().map(doneCard)}` : html`<div class="dim">없습니다.</div>`,
+    );
+  if ($('#trash').open) drawTrash();
+  if (REPLY) {
+    const slot = document.querySelector('#list .reply-slot');
+    if (slot) slot.replaceWith(REPLY.el);
+    renderReplyOutcome(); // the pin may have changed state meanwhile
+    if (replyFocus && replyField && document.contains(replyField)) {
+      replyField.focus();
+      try {
+        replyField.setSelectionRange(replyFocus[0], replyFocus[1]);
+      } catch (error) {}
+    }
+  }
+  drawOffers(keptNoticeFocus);
+  drawBanners();
+  lazyCards(keep);
+  cardFocusBack(cardFocus);
+  if (REVISION_VIEW.target) drawPinGuideActions();
+}
+// A press on the order control: the list is drawn in that order, remembered for this browser, with the control where it
+// stood under the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it
+// is not redrawn).
+/** @param order - a LIST_ORDER value */
+function setListOrder(order) {
+  const next = listOrderOf(order);
+  if (next === ORDER) return;
+  setOrder(next);
+  savePrefs({ order: next });
+  const control = $('#list-order'),
+    y = control.getBoundingClientRect().top;
+  drawPins();
+  listScroller().scrollTop += control.getBoundingClientRect().top - y;
+}
+// The scroller's height changed (a window, the sheet dragged): the observer's margin follows it.
+if (window.ResizeObserver) {
+  const listResize = new ResizeObserver(() => {
+    const list = $('#list'),
+      width = list.getClientRects().length ? list.clientWidth : 0;
+    if (width && width !== LAZY_WIDTH) lazyAgain();
+    else if (LAZY_IO && listScroller().clientHeight !== LAZY_HEIGHT) lazyWatch();
+  });
+  listResize.observe($('#list'));
+  listResize.observe($('#right'));
+}
+document.fonts.addEventListener('loadingdone', (event) => {
+  if (!$$('#list .pin.card.lazy').length) return;
+  const listFonts = getComputedStyle($('#list')).fontFamily;
+  if (
+    (event).fontfaces.some((face) =>
+      listFonts.includes(face.family.replace(/^["']|["']$/g, '')),
+    )
+  )
+    lazyAgain();
+});
+// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
+// drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
+// anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
+// focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
+function cardFocusKeep() {
+  const focused = document.activeElement,
+    cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]')) : null;
+  const act = focused && focused.dataset ? focused.dataset.act || '' : '';
+  if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
+  return {
+    el: focused,
+    id: cardElement.dataset.id || '',
+    act,
+    i: [...cardElement.querySelectorAll('[data-act="' + CSS.escape(act) + '"]')].indexOf(focused),
+  };
+}
+function cardFocusBack(kept) {
+  const focused = document.activeElement;
+  if (!kept || (focused && focused !== document.body)) return;
+  if (document.contains(kept.el)) {
+    kept.el.focus({ preventScroll: true });
+    return;
+  } // the edit card or the reply, put back in its slot
+  const cardElement = document.querySelector('#list .pin[data-id="' + CSS.escape(kept.id) + '"]'),
+    same = cardElement ? cardElement.querySelectorAll('[data-act="' + CSS.escape(kept.act) + '"]') : null;
+  const target = (same && (same[Math.max(0, kept.i)] || same[0]));
+  if (target) target.focus({ preventScroll: true });
+}
+// Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
+// manuscript fingerprint of the build the pin was placed on with the current build). The viewer does not judge it by
+// wall clock - the browser's time zone, a note-only edited_at and a pin placed on a stale PDF would all mislead it -
+// and renders the value it is given.
+function isEstimated(pin) {
+  return pin.est === true;
+}
+document.addEventListener('keydown', markTabKey, true);
+$('#left').addEventListener('focusin', (event) => {
+  const badge = event.target;
+  if (!MARK_TAB || !(badge instanceof HTMLElement) || !badge.matches('.mark button.mark-jump')) return;
+  markReveal(badge);
+});
 if (window.ResizeObserver) {
   const coverResize = new ResizeObserver(markCoversMoved);
   for (const selector of MARK_COVERS) {
@@ -35225,17 +35282,6 @@ async function closePin(id) {
   } catch (error) {}
   await loadPins();
 }
-// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
-// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
-// once (CONFIRMING keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
-// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
-// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
-// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
-// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
-const CONFIRMING = new Set();
-// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
-// them (verdict/flow-line.ts).
-const CONFIRMING_PIN = new Map();
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
 // nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
@@ -35260,6 +35306,13 @@ function confirmConflict(id, pin) {
     kind === NOTICE_KIND.WARN ? { label: '변경 보기', tip: TIP_TEXT.change, fn: () => showChange(id) } : null,
   );
 }
+// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
+// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
+// once (CONFIRMING, pins/state.ts, keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
+// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
+// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
+// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
+// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
 function confirmPin(id) {
   if (CONFIRMING.has(id)) return;
   const at = REVIEW_ALL.findIndex((listed) => listed.id === id),
@@ -35414,9 +35467,8 @@ async function dropPin(
   }
   return ok;
 }
-// [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out
-// when that row does (deferred, NOTICE_MS).
-const PURGING = new Set();
+// [영구 삭제] (owner): the row leaves the Trash at once (PURGING, pins/state.ts) and a row in its place offers
+// [되돌리기]; the request goes out when that row does (deferred, NOTICE_MS).
 function purgePin(id) {
   const cardBefore = drawnBefore($('#trash-list'), '.arc-row', id);
   PURGING.add(id);
@@ -36473,6 +36525,76 @@ function sendReply() {
   if (undoButton) (undoButton).focus({ preventScroll: true });
 }
 
+// ------------------------------------------------ The edit card, drawn
+// The open edit card (EDITOR.current) drawn from what it holds now - its kind, its range, its suggestion, its save
+// button - and whether it holds changes not saved yet. pins/flow-edit.ts opens, saves and closes it.
+/** Reflect the editor's shared request lifetime on whichever card is currently visible. */
+function syncEditSaveButton() {
+  const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
+  if (button) (button).disabled = EDITOR.saving;
+}
+// Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
+/**
+ * Report unsaved note, mention hints, range, scope, kind, assignee or suggested-edit changes before a card may close or
+ * change documents.
+ */
+function editDirty() {
+  const card = EDITOR.current;
+  if (!card) return false;
+  const noteField = editNote(card);
+  return (
+    (noteField && noteField.value !== card.orig.note) ||
+    JSON.stringify(mentionHints(noteField)) !== JSON.stringify(card.orig.mentions || []) ||
+    card.lo !== card.orig.lo ||
+    card.hi !== card.orig.hi ||
+    (card.scope || null) !== (card.orig.scope || null) ||
+    card.kind_req !== card.orig.kind_req ||
+    card.assignee !== card.orig.assignee ||
+    suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
+  );
+}
+// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the
+// ladder - shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee
+// and question hints.
+/**
+ * Draw current editable fields and their save availability, including a card opened while an earlier edit is pending.
+ */
+function renderEdit() {
+  const card = EDITOR.current;
+  if (!card) return;
+  const cardElement = card.el;
+  syncEditSaveButton();
+  (cardElement.querySelectorAll('.e-kind button')).forEach((button) => {
+    const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
+    button.classList.toggle('on', on);
+    button.setAttribute('aria-checked', String(on));
+  });
+  // the group's one Tab stop is the kind now chosen (platform/segments.ts)
+  roveSegment(cardElement.querySelector('.e-kind'));
+  setCap(
+    cardElement.querySelector('.e-cap'),
+    card.region
+      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
+      : rangeCap(card, true),
+  );
+  drawLadder(cardElement.querySelector('.e-levels'), card, true);
+  const pre = cardElement.querySelector('.e-snip');
+  pre.className = 'e-snip wrap';
+  pre.textContent = snipText(card.snippet, false);
+  renderAssignEdit();
+  drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
+  // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
+  renderEditSuggest(card);
+  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
+  const pin = findAnyPin(card.id),
+    closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
+  (cardElement.querySelector('.b-repick')).hidden = closed;
+  if (closed) {
+    (cardElement.querySelector('.e-levels')).hidden = true;
+    (cardElement.querySelector('.e-xp')).hidden = true;
+  }
+}
+
 // ------------------------------------------------ Edit
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
@@ -36492,11 +36614,6 @@ function editFields(card) {
     assignee: card.assignee,
     sg: { on: card.sg.on, text: card.sg.text, base: card.sg.base },
   });
-}
-/** Reflect the editor's shared request lifetime on whichever card is currently visible. */
-function syncEditSaveButton() {
-  const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
-  if (button) (button).disabled = EDITOR.saving;
 }
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card
 // markup, records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element)
@@ -36585,26 +36702,6 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   noteField.focus();
   editSnip(true);
 }
-// Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
-/**
- * Report unsaved note, mention hints, range, scope, kind, assignee or suggested-edit changes before a card may close or
- * change documents.
- */
-function editDirty() {
-  const card = EDITOR.current;
-  if (!card) return false;
-  const noteField = editNote(card);
-  return (
-    (noteField && noteField.value !== card.orig.note) ||
-    JSON.stringify(mentionHints(noteField)) !== JSON.stringify(card.orig.mentions || []) ||
-    card.lo !== card.orig.lo ||
-    card.hi !== card.orig.hi ||
-    (card.scope || null) !== (card.orig.scope || null) ||
-    card.kind_req !== card.orig.kind_req ||
-    card.assignee !== card.orig.assignee ||
-    suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
-  );
-}
 document.addEventListener('input', (event) => {
   const target = event.target;
   if (
@@ -36658,47 +36755,6 @@ async function editSnip(withLevels) {
     }
     renderEdit();
   } catch (error) {}
-}
-// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the
-// ladder - shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee
-// and question hints.
-/**
- * Draw current editable fields and their save availability, including a card opened while an earlier edit is pending.
- */
-function renderEdit() {
-  const card = EDITOR.current;
-  if (!card) return;
-  const cardElement = card.el;
-  syncEditSaveButton();
-  (cardElement.querySelectorAll('.e-kind button')).forEach((button) => {
-    const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
-    button.classList.toggle('on', on);
-    button.setAttribute('aria-checked', String(on));
-  });
-  // the group's one Tab stop is the kind now chosen (platform/segments.ts)
-  roveSegment(cardElement.querySelector('.e-kind'));
-  setCap(
-    cardElement.querySelector('.e-cap'),
-    card.region
-      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
-      : rangeCap(card, true),
-  );
-  drawLadder(cardElement.querySelector('.e-levels'), card, true);
-  const pre = cardElement.querySelector('.e-snip');
-  pre.className = 'e-snip wrap';
-  pre.textContent = snipText(card.snippet, false);
-  renderAssignEdit();
-  drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
-  // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
-  renderEditSuggest(card);
-  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
-  const pin = findAnyPin(card.id),
-    closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
-  (cardElement.querySelector('.b-repick')).hidden = closed;
-  if (closed) {
-    (cardElement.querySelector('.e-levels')).hidden = true;
-    (cardElement.querySelector('.e-xp')).hidden = true;
-  }
 }
 function cancelEdit() {
   setEditorCurrent(null);
@@ -36931,8 +36987,9 @@ function editSuggestRefused(card, data) {
   );
 }
 
-// ------------------------------------------------ Re-place location
-// Shows the re-place banner with markup (Html) as its content.
+// ------------------------------------------------ A re-place's banner, and its end
+// While a pin's place is being chosen again (REPICK, composer/flow-repick.ts) the banner over the pages says so and
+// compares the old place with the new one; ending the re-place takes its box and banner away.
 function banner(markup) {
   const bannerBox = $('#banner');
   setHtml(bannerBox, markup);
@@ -36980,6 +37037,23 @@ function bannerCompare() {
   snapBox(repick.box, repickElement(candidate));
   markChosenLines(shownChoice());
 } // the Markdown surface marks the candidate's lines as its box
+// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
+// re-place. The Markdown surface's mark goes back to the composer's selection, if any.
+function cancelRepick() {
+  const was = !!REPICK;
+  if (was) setPickseq(PICKSEQ + 1);
+  if (REPICK && REPICK.box) REPICK.box.remove();
+  setRepick(null);
+  $('#banner').hidden = true;
+  if (was) markChosenLines(shownChoice());
+  if (was) {
+    if (!COMPOSE.current) setSelectMode(false);
+    if (EDITOR.current && LAYOUT !== LAYOUT_MODE.WIDE) setSide(true);
+  }
+}
+
+// ------------------------------------------------ Re-place location
+// Shows the re-place banner with markup (Html) as its content.
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the
 // banner stays visible even on the collapsed sheet).
 async function startRepick() {
@@ -37003,20 +37077,6 @@ async function startRepick() {
   bannerRepick();
   if (COARSE_POINTER_QUERY.matches) setSelectMode(true);
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
-}
-// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
-// re-place. The Markdown surface's mark goes back to the composer's selection, if any.
-function cancelRepick() {
-  const was = !!REPICK;
-  if (was) setPickseq(PICKSEQ + 1);
-  if (REPICK && REPICK.box) REPICK.box.remove();
-  setRepick(null);
-  $('#banner').hidden = true;
-  if (was) markChosenLines(shownChoice());
-  if (was) {
-    if (!COMPOSE.current) setSelectMode(false);
-    if (EDITOR.current && LAYOUT !== LAYOUT_MODE.WIDE) setSide(true);
-  }
 }
 // Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the
 // editor holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the

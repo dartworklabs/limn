@@ -39,7 +39,7 @@ import { $, searchToPage } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
-import { markMine } from './flow-changes.ts';
+import { CONFIRMING, CONFIRMING_PIN, PURGING, markMine } from './state.ts';
 async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;
@@ -69,17 +69,6 @@ async function closePin(id) {
   } catch (error) {}
   await loadPins();
 }
-// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
-// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
-// once (CONFIRMING keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
-// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
-// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
-// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
-// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
-const CONFIRMING = new Set();
-// The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
-// them (verdict/flow-line.ts).
-const CONFIRMING_PIN = new Map() as Map<number, Pin>;
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
 // nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
@@ -104,6 +93,13 @@ function confirmConflict(id: number, pin: Pin | null | undefined) {
     kind === NOTICE_KIND.WARN ? { label: '변경 보기', tip: TIP_TEXT.change, fn: () => showChange(id) } : null,
   );
 }
+// Awaiting review -> done; the person who confirmed (confirmed_by) is recorded. The card's [확인] and the changes
+// view's guide line call this one function. Like a reply it is a deferred send: the card leaves the review section at
+// once (CONFIRMING, pins/state.ts, keeps it out of every pin snapshot meanwhile, derivePinLists), a row in its place offers [되돌리기]
+// for NOTICE_MS and the request goes when that row does; the undo puts the card back with nothing sent. The request
+// names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
+// instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
+// (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
 function confirmPin(id) {
   if (CONFIRMING.has(id)) return;
   const at = REVIEW_ALL.findIndex((listed) => listed.id === id),
@@ -258,9 +254,8 @@ async function dropPin(
   }
   return ok;
 }
-// [영구 삭제] (owner): the row leaves the Trash at once and a row in its place offers [되돌리기]; the request goes out
-// when that row does (deferred, NOTICE_MS).
-const PURGING = new Set();
+// [영구 삭제] (owner): the row leaves the Trash at once (PURGING, pins/state.ts) and a row in its place offers
+// [되돌리기]; the request goes out when that row does (deferred, NOTICE_MS).
 function purgePin(id) {
   const cardBefore = drawnBefore($('#trash-list'), '.arc-row', id);
   PURGING.add(id);
@@ -372,15 +367,4 @@ async function unclaimPin(id) {
   } catch (error) {}
   await loadPins();
 }
-export {
-  CONFIRMING,
-  CONFIRMING_PIN,
-  PURGING,
-  closePin,
-  confirmPin,
-  dropPin,
-  purgePin,
-  restorePin,
-  trashRestore,
-  unclaimPin,
-};
+export { closePin, confirmPin, dropPin, purgePin, restorePin, trashRestore, unclaimPin };

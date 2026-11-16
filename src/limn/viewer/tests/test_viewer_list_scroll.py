@@ -4,7 +4,7 @@ Each page PDF.js draws for the first time adds its embedded fonts to document.fo
 browser lay out all the text in the page again. With the pin panel open that was every card in it: 127 cards made the
 first wheel scroll through a 91-page figure document 77-84 long tasks (4.4-4.9s), and none with the panel folded. The
 cards more than a view's height from the list's view are now left for the browser to skip (content-visibility:auto) at
-the height each was drawn at (pins/flow-list.ts lazyCards).
+the height each was drawn at (pins/view-list-scroll.ts lazyCards).
 
 The cost is held by a count, not a duration: the layout objects the browser lays out after a font is added, read from a
 Chrome trace (the Layout event's dirtyObjects), against the nodes the cards hold. The test adds fonts as PDF.js does (a

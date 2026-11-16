@@ -14,25 +14,14 @@ import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
 import { placeChips } from '../platform/notices.ts';
-import { OUTLINE_PICK_GAP, spotTop } from './view-outline.ts';
 import { invalidateVectorDraws, observeVectorPages } from './view-draw.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { restoreAnchor, topAnchor } from '../layout/flow.ts';
-import {
-  FIGURE_REST_PX,
-  ARRIVAL,
-  arrivalWatch,
-  arrivalSoon,
-  arrivalLetGo,
-  JUMP_TARGET,
-  isAutoScrolling,
-  glideInto,
-  glideTo,
-  scrollTopFor,
-} from '../layout/flow-scroll.ts';
+import { ARRIVAL, arrivalSoon, arrivalLetGo } from '../layout/flow-scroll.ts';
 import { pageChanges, pageMarkdown, pageMarks, pageVerdicts } from './state-seams.ts';
+import { clampPage, goPage } from './view-page-jump.ts';
 
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
@@ -372,42 +361,9 @@ function fitToWidth() {
   restoreAnchor(anchor);
   pdfArea.scrollLeft = 0;
 }
-// Arriving at a page - from the outline, a page field or the page list (goPage) and from a card's [보기] (jumpPin,
-// jumpToPageLine): a figure page, one whose map names its figure body (meta figure_top), at its figure (figureTop); any
-// other page at its top.
-// The same arrival again while the pages rest on that figure goes to the page's top, and once more to the figure
-// (docs/handbook/viewer.md §그림 쪽 도착). Each is a glide (glideTo, glideInto), so the keys wait for it to end.
-function arrivePage(pageNumber: number) {
-  const pageBox = document.getElementById('p' + pageNumber);
-  if (!pageBox) return;
-  const to = figureTop(pageNumber),
-    pdfArea = $('#left');
-  const pageTop = () => {
-    const currentBox = document.getElementById('p' + pageNumber);
-    return currentBox ? scrollTopFor(currentBox) : null;
-  };
-  if (to === null) {
-    glideInto(pageBox);
-    arrivalWatch(pageTop);
-    return;
-  }
-  const top = !isAutoScrolling() && Math.abs(pdfArea.scrollTop - to) <= FIGURE_REST_PX;
-  if (top) glideInto(pageBox);
-  else glideTo(to);
-  arrivalWatch(top ? pageTop : () => figureTop(pageNumber));
-}
-// The points of the page kept above an arrived figure at most: its label line ('PL18 · 지금 판') has no element.
-const FIGURE_ROOM_POINTS = 24;
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
   addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
 addEventListener('resize', arrivalLetGo);
-// Whether the last jump is still on its way to its place: gliding (the guard, as above) or owed its settling - its
-// watch has neither found the pages at the place nor let it go, and may glide the rest. A stop between scrolls is no
-// rest while either holds, however long: a busy machine's frames come late. An outline pick waits on this before it
-// lets go (outlinePickRest).
-function jumpOnItsWay() {
-  return JUMP_TARGET !== null || isAutoScrolling() || (ARRIVAL !== null && ARRIVAL.at === null);
-}
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a
 // person's scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no
 // scroll at all: a line pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what
@@ -422,37 +378,9 @@ $('#left').addEventListener(
 new ResizeObserver(() => {
   if (ARRIVAL) arrivalSoon();
 }).observe($('#doc'));
-// #left's scrollTop of a page's figure arrival - its figure's top edge under the free PDF area's top (spotTop) with up
-// to FIGURE_ROOM_POINTS of the page above it, down to the element above (figure_above) or else the page's top, and at
-// least OUTLINE_PICK_GAP px - or null for a page without a figure body. In page points, so the room is the label line's
-// at every zoom. Room past the page's top would stand the page below the reading line at a large zoom: the line would
-// read the page before it.
-function figureTop(pageNumber: number) {
-  const pageBox = document.getElementById('p' + pageNumber),
-    pageFacts = META && META.pages ? META.pages[pageNumber - 1] : null;
-  if (!pageBox || !pageFacts || typeof pageFacts.figure_top !== 'number' || !(pageFacts.pt_h > 0)) return null;
-  const height = pageBox.getBoundingClientRect().height,
-    free = (pageFacts.figure_top - (typeof pageFacts.figure_above === 'number' ? pageFacts.figure_above : 0)) * height;
-  return spotTop(
-    pageBox,
-    pageFacts.figure_top,
-    Math.max(OUTLINE_PICK_GAP, Math.min((FIGURE_ROOM_POINTS * height) / pageFacts.pt_h, free)),
-  );
-}
-// Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
-function goPage(entry?) {
-  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
-}
 $('#jump').addEventListener('keydown', (event) => {
   if (event.key === 'Enter' && !imeKey(event)) goPage();
 });
-// The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
-// empty or non-number entry, which goes nowhere. Pure.
-function clampPage(entry, pageCount) {
-  const text = String(entry == null ? '' : entry).trim();
-  if (!/^-?\d+$/.test(text) || !(pageCount >= 1)) return null;
-  return Math.min(pageCount, Math.max(1, parseInt(text, 10)));
-}
 // The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed
 // does nothing.
 function goSheetPage() {
@@ -473,18 +401,13 @@ export {
   POINT_PX,
   ZOOM_STEP,
   actualSize,
-  arrivePage,
   autoFitWidth,
   boundScale,
   buildDoc,
-  clampPage,
   drawZoom,
-  figureTop,
   fitScale,
   fitToWidth,
-  goPage,
   pdfAreaInnerWidth,
-  jumpOnItsWay,
   markZoomed,
   goSheetPage,
   pageNoSides,

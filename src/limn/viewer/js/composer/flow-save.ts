@@ -34,14 +34,7 @@ import {
 } from '../platform/notices.ts';
 import { kindFor, wireScope } from './view-levels.ts';
 import { figureRung, figureFields } from '../pdf/view-figure.ts';
-import {
-  SUGGEST_DRAFT,
-  renderSuggest,
-  suggestForSave,
-  suggestOff,
-  suggestPending,
-  suggestRebase,
-} from './flow-suggest.ts';
+import { renderSuggest, suggestForSave, suggestOff, suggestPending, suggestRebase } from './flow-suggest.ts';
 import {
   cancelSelection,
   composeFields,
@@ -62,6 +55,7 @@ import { isMe } from '../app/state-people.ts';
 import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
+import { SUGGEST_DRAFT } from './state-suggest.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.

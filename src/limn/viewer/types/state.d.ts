@@ -31,7 +31,7 @@ interface EditCard {
   overwrite?: boolean; // the person chose [내 메모로 덮어쓰기] after seeing theirs
 }
 
-// A suggested edit being written (composer/flow-suggest.ts; the composer's SUGGEST_DRAFT, an edit card's sg): whether its editor is on, the text it
+// A suggested edit being written (composer/flow-suggest.ts; the composer's SUGGEST_DRAFT, composer/state-suggest.ts; an edit card's sg): whether its editor is on, the text it
 // holds, the text it was filled from (base, null before the first fill) and the lines that base is (file, lo, hi), the
 // suggestion the pin had when its edit card opened (had), the current text a 409 answered with and the lines it is
 // (current), the lines being read now ('file:lo-hi', reading) and the last read that failed: its lines, whether it was
@@ -193,7 +193,7 @@ interface RevSeen {
   at: string;
 }
 
-// The target a verdict pin is about (verdict/flow-line.ts verdictTargetOf): a key pins about one thing share, whether it is a page's
+// The target a verdict pin is about (verdict/view-pins.ts verdictTargetOf): a key pins about one thing share, whether it is a page's
 // whole target and its page, and for exact lines whether the pin is open (its lines matched to the text now) and its anchor.
 interface VerdictTarget {
   key: string;
@@ -202,7 +202,7 @@ interface VerdictTarget {
   lines: { open: boolean; anchor: string | null } | null;
 }
 
-// A document's verdict order (verdict/flow-line.ts verdictOrder): its resolved targets' pins, newest first, and every resolved pin's
+// A document's verdict order (verdict/view-pins.ts verdictOrder): its resolved targets' pins, newest first, and every resolved pin's
 // current verdict by pin id.
 interface VerdictOrder {
   groups: Map<string, { whole: boolean; page: number; pins: Pin[] }>;

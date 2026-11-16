@@ -16,7 +16,6 @@ import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { NOTICES, chipAway, drawChips } from '../platform/notices.ts';
 import { pdfAreaInnerWidth, pageWidth, widestPagePoints } from '../pdf/view-pages.ts';
-import { readingDepth } from '../pdf/view-outline.ts';
 import { BAND_TIMER, topAnchor } from '../layout/flow.ts';
 import {
   CHIP_WATCH,
@@ -24,15 +23,12 @@ import {
   LINE_TEXT,
   drawPageVerdicts,
   fillPageLine,
-  pageTakesVerdict,
   noteCameFrom,
   canCancelVerdict,
-  watchFarLines,
   pageLineName,
   keepFocusOnLine,
   pageUnderReadingLine,
   readingPageWithLine,
-  verdictStateWord,
   stickReadingLine,
   stickSoon,
   fitWrappedWords,
@@ -44,7 +40,6 @@ import {
   isReasonField,
   findReasonField,
   leaveReason,
-  getDraft,
   setComposingField,
 } from './flow-reason.ts';
 import { $, $$, searchToPage, TABBABLE, isTabStop } from '../platform/dom.ts';
@@ -59,6 +54,10 @@ import {
   glideTo,
   endJumpForScroll,
 } from '../layout/flow-scroll.ts';
+import { readingDepth } from '../pdf/view-page-jump.ts';
+import { pageTakesVerdict, verdictStateWord } from './view-pins.ts';
+import { watchFarLines } from './view-far-lines.ts';
+import { getDraft } from './state-drafts.ts';
 
 // The panel's room in px, as the CSS draws it (verdict-panel.css --pv-panel-w, --pv-panel-gap): the margin right of a
 // page holds the panel and its gap, and the left margin keeps at least PANEL_LEFT_MARGIN. The lines go beside the pages

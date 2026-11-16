@@ -205,17 +205,12 @@ import {
   pageUnderReadingLine,
   stickSoon,
   sizePageLines,
-  pageVerdictPins,
   renderVerdictRow,
   figureVerdictBody,
   figureVerdictRoot,
   figureShort,
   verdictUndo,
   verdictDropped,
-  verdictBadge,
-  verdictTarget,
-  verdictOldMarker,
-  dropPageLineOverlaps,
   drawPageVerdicts,
   isShownOnLine,
   jumpToPageLine,
@@ -253,21 +248,16 @@ import {
   revealCard,
   setListOrder,
   toggleSection,
-  dropBareDayLines,
-  placeRow,
   marks,
-  fitBarWords,
-  updateReviewCount,
-  markBadgeSides,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
-import { cancelEdit, openEdit, renderEdit, saveEdit, editDirty, editSnip } from './pins/flow-edit.ts';
+import { cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
 import { setPinVerdicts } from './pins/state-seams.ts';
-import { applyRepick, cancelRepick, startRepick, bannerCompare } from './composer/flow-repick.ts';
+import { applyRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$ } from './platform/dom.ts';
@@ -294,6 +284,18 @@ import { buildTextView, textLevels } from './text/view.ts';
 import { setPageChanges, setPageMarkdown, setPageMarks, setPageSelection, setPageVerdicts } from './pdf/state-seams.ts';
 import { setLastPinsRevision, setLastSrcMtime, startLightPolling, pollLight } from './documents/flow-polling.ts';
 import { drawMeta } from './documents/view-meta.ts';
+import { renderEdit, editDirty } from './pins/view-edit.ts';
+import { cancelRepick, bannerCompare } from './composer/flow-repick-banner.ts';
+import {
+  pageVerdictPins,
+  verdictBadge,
+  verdictTarget,
+  verdictOldMarker,
+  dropPageLineOverlaps,
+} from './verdict/view-pins.ts';
+import { fitBarWords, updateReviewCount } from './pins/view-bar.ts';
+import { dropBareDayLines, placeRow } from './pins/view-list-sections.ts';
+import { markBadgeSides } from './pins/view-mark-covers.ts';
 
 // The seams platform calls the features through (docs/handbook/viewer.md §모듈 경계), each registered here once. This
 // runs before boot() and before any listener can fire (no code that runs while the script loads calls one), so no

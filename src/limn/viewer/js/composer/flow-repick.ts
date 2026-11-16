@@ -4,80 +4,30 @@ import {
   DOC,
   LAYOUT,
   COARSE_POINTER_QUERY,
-  PICKSEQ,
   REPICK,
   SWITCHSEQ,
   captureVisit,
   currentVisit,
-  setPickseq,
   setRepick,
   COMPOSE,
   EDITOR,
 } from '../app/state.ts';
-import { html, setHtml } from '../platform/markup.ts';
-import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
+import { translateTemplate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
-import { kindFor, levelLabel, scopeLabel } from './view-levels.ts';
-import { figureFields, pinPlace, repickElement, snapBox } from '../pdf/view-figure.ts';
-import { markChosenLines, shownChoice } from '../markdown/view.ts';
+import { kindFor } from './view-levels.ts';
+import { figureFields, pinPlace, repickElement } from '../pdf/view-figure.ts';
 import { cancelSelection } from './flow-pick.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
-import { isMarkdownDoc, isRegion } from '../documents/state.ts';
+import { isRegion } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 import { composerPins, pinFields } from './state-seams.ts';
-function banner(markup) {
-  const bannerBox = $('#banner');
-  setHtml(bannerBox, markup);
-  bannerBox.hidden = false;
-}
-function bannerRepick(err?) {
-  if (!REPICK) return;
-  const line = err ? html`<span class="errline flush">${err}</span>` : '';
-  banner(
-    html`<span>${isMarkdownDoc() ? translateTemplate('핀 #{id} 의 새 위치를 문서에서 고르세요 · Esc 취소', { id: REPICK.id }) : translateTemplate('핀 #{id} 의 새 위치를 PDF에서 드래그하세요 · Esc 취소', { id: REPICK.id })}</span>${line}<span class="sp"></span><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`,
-  );
-}
-// The re-place banner compares the current and the new place (lines as the composer writes them, lineRange: L9, L3-L5);
-// on a figure the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked
-// (shownChoice). A candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the
-// banner asks for another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
-function bannerCompare() {
-  const repick = REPICK,
-    candidate = repick && repick.cand;
-  if (!repick || !candidate) return;
-  const level = levelOf(candidate, candidate.default_level) || candidate,
-    isRegionPick = isRegion(candidate);
-  if (isRegionPick !== !!repick.from.region) {
-    repick.cand = null;
-    bannerRepick(translate(TIP_TEXT.shape));
-    return;
-  }
-  const where = isRegionPick
-    ? translateTemplate('지금 쪽 {from} · 새 쪽 {to} 영역', { from: repick.from.page, to: candidate.page })
-    : translateTemplate('지금 {from} · 새 {to}', {
-        from: lineRange(repick.from.lo, repick.from.hi),
-        to: lineRange(level.lo, level.hi),
-      });
-  const what = isRegionPick
-    ? candidate.quote
-      ? String(candidate.quote).slice(0, 40)
-      : translate('글자 없는 영역')
-    : level.label
-      ? levelLabel(level.label)
-      : scopeLabel(candidate);
-  const acts = html`<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`;
-  banner(
-    html`<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">${where}</span><span class="dim">(${what})</span><span class="sp"></span>${acts}`,
-  );
-  snapBox(repick.box, repickElement(candidate));
-  markChosenLines(shownChoice());
-} // the Markdown surface marks the candidate's lines as its box
+import { bannerRepick, cancelRepick } from './flow-repick-banner.ts';
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the
 // banner stays visible even on the collapsed sheet).
 async function startRepick() {
@@ -101,20 +51,6 @@ async function startRepick() {
   bannerRepick();
   if (COARSE_POINTER_QUERY.matches) setSelectMode(true);
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
-}
-// Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
-// re-place. The Markdown surface's mark goes back to the composer's selection, if any.
-function cancelRepick() {
-  const was = !!REPICK;
-  if (was) setPickseq(PICKSEQ + 1);
-  if (REPICK && REPICK.box) REPICK.box.remove();
-  setRepick(null);
-  $('#banner').hidden = true;
-  if (was) markChosenLines(shownChoice());
-  if (was) {
-    if (!COMPOSE.current) setSelectMode(false);
-    if (EDITOR.current && LAYOUT !== LAYOUT_MODE.WIDE) setSide(true);
-  }
 }
 // Sends the re-place candidate as the pin's new location (POST /api/pins/<id>/edit with `loc` and the `base_rev` the
 // editor holds). The loc carries the candidate's range, its element and that element's box on a figure, or only the
@@ -208,4 +144,4 @@ async function applyRepick() {
     await composerPins().load();
   } catch (error) {}
 }
-export { applyRepick, banner, bannerCompare, bannerRepick, cancelRepick, startRepick };
+export { applyRepick, startRepick };

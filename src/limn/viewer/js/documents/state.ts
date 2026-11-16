@@ -1,6 +1,6 @@
 // ------------------------------------------------ The open document's facts
 // Read from the page's shared state: the document entries and their kinds, the document a pin belongs to, the query
-// that names a document, its verdict words, and the viewer role.
+// that names a document, its verdict words, and the viewer role - and the last sync the status line says.
 import { META, rendersInBrowser, showsSourceLines, DOCS, DEFAULT_DOC, DOC } from '../app/state.ts';
 import { ROLE } from '../app/rules-tables.ts';
 import { bannerNote } from '../platform/notices.ts';
@@ -68,6 +68,13 @@ function pageVerdictsOn(): DocVerdicts | null {
   const verdicts = docVerdicts();
   return verdicts && verdicts.page ? verdicts : null;
 } // a Markdown document has no pages
+// The last meta `sync` the status line says (documents/view-status.ts statusText).
+let STATUS_SYNC = null as SyncStatus | null;
+// Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setStatusSync<Value extends typeof STATUS_SYNC>(value: Value): Value {
+  STATUS_SYNC = value;
+  return value;
+}
 export {
   isMarkdownDoc,
   isTextDoc,
@@ -82,4 +89,6 @@ export {
   viewerBlocked,
   REVISION_PAGE,
   pageVerdictsOn,
+  setStatusSync,
+  STATUS_SYNC,
 };

@@ -20,6 +20,7 @@ import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '..
 import { pinState } from '../app/rules-pins.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { composerVerdict } from './state-seams.ts';
+import { SUGGEST_DRAFT, suggestDraft } from './state-suggest.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;
@@ -35,33 +36,6 @@ const SUGGEST_WHY = {
   long: ['제안 수정은 80줄까지', '제안 수정은 80줄까지의 범위만 바꿉니다. 범위를 줄이면 켤 수 있습니다'],
 };
 
-/** A draft with nothing in it: off, empty, never filled. */
-function suggestDraft(): SuggestDraft {
-  return {
-    on: false,
-    text: '',
-    base: null,
-    file: null,
-    lo: 0,
-    hi: 0,
-    had: null,
-    current: null,
-    reading: '',
-    fail: null,
-  };
-}
-const SUGGEST_DRAFT = suggestDraft(); // the composer's draft; an open edit card keeps its own (EditCard.sg)
-/** A copy of a draft to keep (a discard's undo, the tab's stored draft): what it holds, without a read under way or its
- * failure. */
-function suggestCopy(draft: SuggestDraft): SuggestDraft {
-  return {
-    ...draft,
-    had: draft.had && { ...draft.had },
-    current: draft.current && { ...draft.current },
-    reading: '',
-    fail: null,
-  };
-}
 /** The draft an edit card of a pin opens with: on and filled with the pin's suggestion when it has one (had keeps it,
  * to tell what a save changes), else an empty draft. */
 function suggestOfPin(pin: Pin): SuggestDraft {
@@ -517,13 +491,6 @@ function renderSuggest(selection: Selection) {
 function suggestPending() {
   return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
 }
-// Empties the composer's draft (a save, a discard without undo, another document) and its editor.
-function suggestClear() {
-  Object.assign(SUGGEST_DRAFT, suggestDraft());
-  const editor = $('#c-sg-text') as HTMLTextAreaElement;
-  editor.value = '';
-  editor.style.height = '';
-}
 
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of an edit card's document (an unknown one is LaTeX).
@@ -634,16 +601,12 @@ document.addEventListener('input', (event) => {
   owner.redraw();
 });
 export {
-  SUGGEST_DRAFT,
   SUGGEST_OPEN,
   editDocKind,
   renderEditSuggest,
   renderSuggest,
   suggestAct,
   suggestBadge,
-  suggestClear,
-  suggestCopy,
-  suggestDraft,
   suggestEdited,
   suggestForEdit,
   suggestForSave,

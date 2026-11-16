@@ -4,10 +4,8 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { viaDoc } from '../documents/flow-switch.ts';
-import { drawLadder, kindFor, rangeCap, setCap, snipText, wireScope } from '../composer/view-levels.ts';
-import { drawExcerpt } from '../composer/view-excerpt.ts';
+import { kindFor, wireScope } from '../composer/view-levels.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { editCardLevels } from '../markdown/view.ts';
 import {
@@ -18,18 +16,17 @@ import {
   suggestOff,
   suggestRebase,
 } from '../composer/flow-suggest.ts';
-import { syncQuestionHint } from '../composer/flow-pick.ts';
 import { assigneeOf, isQuestion } from './view-card-parts.ts';
 import { drawPins, jumpPin, loadPins } from './flow-list.ts';
-import { mentionHints, mentionPreview, renderAssignEdit } from '../composer/input-mentions.ts';
+import { mentionHints, mentionPreview } from '../composer/input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { roveSegment } from '../platform/segments.ts';
 import { REQUEST_KIND, PIN_STATE } from '../app/rules-tables.ts';
-import { pinState, verdictOf } from '../app/rules-pins.ts';
+import { verdictOf } from '../app/rules-pins.ts';
 import { peopleName } from '../app/state-people.ts';
 import { withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 import { editNote, autoGrow } from '../composer/view-text.ts';
+import { syncEditSaveButton, renderEdit } from './view-edit.ts';
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
 function editorOwns(card) {
@@ -48,11 +45,6 @@ function editFields(card) {
     assignee: card.assignee,
     sg: { on: card.sg.on, text: card.sg.text, base: card.sg.base },
   });
-}
-/** Reflect the editor's shared request lifetime on whichever card is currently visible. */
-function syncEditSaveButton() {
-  const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
-  if (button) (button as HTMLButtonElement).disabled = EDITOR.saving;
 }
 // Opens the edit card for pin `id` (the pin's document is switched to first) and focuses its note: builds the card
 // markup, records the pin's current values as the editor's baseline (EDITOR.current, including a figure pin's element)
@@ -141,26 +133,6 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   noteField.focus();
   editSnip(true);
 }
-// Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
-/**
- * Report unsaved note, mention hints, range, scope, kind, assignee or suggested-edit changes before a card may close or
- * change documents.
- */
-function editDirty() {
-  const card = EDITOR.current;
-  if (!card) return false;
-  const noteField = editNote(card);
-  return (
-    (noteField && noteField.value !== card.orig.note) ||
-    JSON.stringify(mentionHints(noteField)) !== JSON.stringify(card.orig.mentions || []) ||
-    card.lo !== card.orig.lo ||
-    card.hi !== card.orig.hi ||
-    (card.scope || null) !== (card.orig.scope || null) ||
-    card.kind_req !== card.orig.kind_req ||
-    card.assignee !== card.orig.assignee ||
-    suggestForEdit(card.sg, suggestOff(card, editDocKind(card))) !== undefined
-  );
-}
 document.addEventListener('input', (event) => {
   const target = event.target as HTMLElement;
   if (
@@ -214,47 +186,6 @@ async function editSnip(withLevels) {
     }
     renderEdit();
   } catch (error) {}
-}
-// Draws the open edit card from EDITOR.current: the kind, the range caption (a region's page and area instead), the
-// ladder - shown only with two or more rungs - the range excerpt (a region's text in the plain source) and the assignee
-// and question hints.
-/**
- * Draw current editable fields and their save availability, including a card opened while an earlier edit is pending.
- */
-function renderEdit() {
-  const card = EDITOR.current;
-  if (!card) return;
-  const cardElement = card.el;
-  syncEditSaveButton();
-  (cardElement.querySelectorAll('.e-kind button') as NodeListOf<HTMLElement>).forEach((button) => {
-    const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
-    button.classList.toggle('on', on);
-    button.setAttribute('aria-checked', String(on));
-  });
-  // the group's one Tab stop is the kind now chosen (platform/segments.ts)
-  roveSegment(cardElement.querySelector('.e-kind'));
-  setCap(
-    cardElement.querySelector('.e-cap'),
-    card.region
-      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
-      : rangeCap(card, true),
-  );
-  drawLadder(cardElement.querySelector('.e-levels'), card, true);
-  const pre = cardElement.querySelector('.e-snip') as HTMLElement;
-  pre.className = 'e-snip wrap';
-  pre.textContent = snipText(card.snippet, false);
-  renderAssignEdit();
-  drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
-  // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
-  renderEditSuggest(card);
-  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
-  const pin = findAnyPin(card.id),
-    closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
-  (cardElement.querySelector('.b-repick') as HTMLElement).hidden = closed;
-  if (closed) {
-    (cardElement.querySelector('.e-levels') as HTMLElement).hidden = true;
-    (cardElement.querySelector('.e-xp') as HTMLElement).hidden = true;
-  }
 }
 function cancelEdit() {
   setEditorCurrent(null);
@@ -497,4 +428,4 @@ function editSuggestRefused(card: EditCard, data: any) {
     { source: 'POST /api/pins/' + card.id + '/edit edit' },
   );
 }
-export { cancelEdit, editDirty, editSnip, openEdit, renderEdit, saveEdit };
+export { cancelEdit, editSnip, openEdit, saveEdit };
