@@ -2,10 +2,10 @@
 // §모듈 경계), in the spirit of tools/check_boundaries.py for the server.
 //
 // Each module has a feature (the capability it serves) and a role (what it does within it). The path says both:
-//   js/<feature>/<role>.js or js/<feature>/<role>-<topic>.js   a module of a feature
-//   js/platform/<name>.js                                      a shared mechanism (feature platform, role lib)
-//   js/main.js                                                 the entry point (feature entry, role main)
-// The 57 modules the conversion left flat (js/<name>.js) are not in place yet: LEGACY below says their feature and
+//   js/<feature>/<role>.ts or js/<feature>/<role>-<topic>.ts   a module of a feature
+//   js/platform/<name>.ts                                      a shared mechanism (feature platform, role lib)
+//   js/main.ts                                                 the entry point (feature entry, role main)
+// The 57 modules the conversion left flat (js/<name>.ts) are not in place yet: LEGACY below says their feature and
 // role instead, and each counts once as `unplaced` until it moves. A flat module LEGACY does not name is an error.
 //
 // The rules, over every import of every module listed in parts.txt (__APP_JS__):
@@ -190,16 +190,16 @@ export function listedModules(viewer = VIEWER) {
 /**
  * The feature and role of a module path, from its place or, for a flat module, from legacy; null for a flat module
  * legacy does not name.
- * @param {string} path a viewer-relative path such as js/pins/view-cards.js
+ * @param {string} path a viewer-relative path such as js/pins/view-cards.ts
  * @param {Record<string, string[]>} legacy
  * @returns {{feature: string, role: string, placed: boolean} | null}
  */
 export function placeOf(path, legacy = LEGACY) {
   const parts = path.split('/');
-  if (parts.length === 2 && /^main\.[jt]s$/.test(parts[1])) return { feature: 'entry', role: 'main', placed: true };
+  if (parts.length === 2 && parts[1] === 'main.ts') return { feature: 'entry', role: 'main', placed: true };
   if (parts.length === 3 && parts[1] === 'platform') return { feature: 'platform', role: 'lib', placed: true };
   if (parts.length === 3) {
-    const role = parts[2].replace(/\.[jt]s$/, '').split('-')[0];
+    const role = parts[2].replace(/\.ts$/, '').split('-')[0];
     return { feature: parts[1], role, placed: true };
   }
   const known = legacy[path];
@@ -246,7 +246,7 @@ export function tableErrors({ allowed, legacy, modules, viewer }) {
   for (const path of modules) {
     const place = placeOf(path, legacy);
     if (!place) {
-      errors.push(`${path}: a flat module LEGACY does not name - put it in js/<feature>/<role>.js`);
+      errors.push(`${path}: a flat module LEGACY does not name - put it in js/<feature>/<role>.ts`);
       continue;
     }
     if (!features.has(place.feature)) errors.push(`${path}: unknown feature ${place.feature}`);
@@ -376,7 +376,7 @@ export function violations(graph, { allowed = ALLOWED, legacy = LEGACY } = {}) {
   for (const [path, targets] of graph) {
     const place = placeOf(path, legacy);
     if (!place) continue;
-    if (!place.placed) out.push(['unplaced', path, `${path} belongs in js/${place.feature}/${place.role}.js (LEGACY)`]);
+    if (!place.placed) out.push(['unplaced', path, `${path} belongs in js/${place.feature}/${place.role}.ts (LEGACY)`]);
     for (const target of targets) {
       const to = placeOf(target, legacy);
       if (!to) continue;

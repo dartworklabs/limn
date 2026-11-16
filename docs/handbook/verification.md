@@ -60,7 +60,7 @@ Limn에서 "테스트가 녹색"은 합격의 필요조건이지 충분조건이
 | 측정 대상 | 도메인 순수 함수와 거절 값, 상태 머신 전이, 핀 저장 순서와 원자적 파일 교체, HTTP 처리기와 응답 형식, 에이전트 계약(`pins.md`, JSONL 스키마), 에이전트 토큰 파일, 뷰어 템플릿 조립·브랜드 파일 무결성과 프론트엔드 불변식, SyncTeX 역변환, Git 프로세스 호출, 인스턴스 앱 격리 |
 | 적용 조건 | 파이썬 코드, 뷰어 파일, 에이전트 계약, 테스트를 바꿀 때. PR 전과 CI에서 항상 돈다 |
 | 실행 | `uv run pytest -q -rs` (기본 4개 worker). 빠른 일반 검사: `uv run pytest -q -rs -m "not browser and not tex"`. 병렬 옵션의 정본은 `pyproject.toml`의 `addopts` |
-| 합격 기준 | 실패나 에러가 0건이어야 한다. 수집된 테스트가 0건인 실행(pytest 종료 코드 5)은 통과가 아니라 실패다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 로컬 환경에서 TeX 테스트 스킵). CI는 도구 부재를 건너뜀이 아니라 실패로 바꾼다. 브라우저·TeX 작업은 `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_TEX=1`, 모든 테스트 작업은 `LIMN_TEST_REQUIRE_NODE=1`을 둔다 |
+| 합격 기준 | 실패나 에러가 0건이어야 한다. 수집된 테스트가 0건인 실행(pytest 종료 코드 5)은 통과가 아니라 실패다. 건너뛴 테스트(`s`)가 있으면 그 이유가 합당해야 한다(예: TeX Live가 없는 로컬 환경에서 TeX 테스트 스킵). CI는 도구 부재를 건너뜀이 아니라 실패로 바꾼다. 브라우저·TeX 작업은 `LIMN_TEST_REQUIRE_BROWSER=1`·`LIMN_TEST_REQUIRE_TEX=1`, 모든 테스트 작업은 `LIMN_TEST_REQUIRE_NODE=1`을 둔다. 뷰어 모듈의 글을 읽는 테스트는 그 글을 빌드처럼 타입을 걷어 읽으므로(`helpers_js.module_texts`) node와 `npm ci --ignore-scripts`가 필요하고, Node를 둔 작업은 그것도 설치한다 |
 | 보장 범위 | 단위와 통합 수준의 동작 회귀를 막는다. 브라우저 표식의 테스트는 지정된 Chromium 동작·레이아웃과 Firefox·WebKit의 핵심 핀 생성·편집·덧붙임·되돌리기 흐름, Markdown 화면의 그리기·고르기·저장과 원고 트리의 그림·문서 사이 링크(Chromium과 Firefox, [viewer.md](viewer.md) §Markdown 화면), 판정 패널과 목차 따라가기의 핵심 흐름(§판정 패널과 목차의 엔진 검사), 그림 읽기 경로의 보안 시험(§원고 트리의 그림 경로), 세 엔진의 검색 안내 안쪽 간격(§검색 안내의 안쪽 간격), 세 엔진에서 강제한 페이지 정책 아래의 문서 그리기와 모든 브라우저 시험의 정책 위반 0건(§브라우저 테스트의 페이지 정책)을 확인한다. 실제 iOS 기기, 모든 엔진의 전체 화면과 실제 tailnet 환경은 보장하지 않는다(§5, §6) |
 
 ### 선택형 연결 입장과 실패 종료
@@ -297,15 +297,15 @@ CI는 uv `0.12.23`을 쓰고, 패키지 빌드는 Hatchling `1.32.4`를 요구�
 | 합격 기준 | 두 실행이 `0 errors`로 끝나고 `.basedpyright/baseline.json`이 바뀌지 않는다. 기준선에 없는 오류는 실패다. 기준선의 오류가 사라지면 basedpyright가 기준선을 내려 다시 쓰는데, 이것도 내린 기준선을 커밋할 때까지 실패다. 기준선은 basedpyright의 `--writebaseline`이 아니면 늘지 않고, 늘리는 변경은 설계 리뷰 대상이다. `# type: ignore`는 아무것도 막지 않으며(`enableTypeIgnoreComments = false`), `# pyright:` 주석과 `typing.cast`는 §11이 거부한다 |
 | 보장 범위 | Linux와 macOS 기준의 정적 타입 규칙 위반 가운데 기준선 밖의 것을 잡는다. 기준선 안의 오류는 막지 않는다. 한 플랫폼에서만 나는 오류는 기준선에 둘 수 없다. Windows는 지원 대상이 아니라 검사하지 않는다. 테스트 모듈은 검사하지 않는다. 런타임 값의 범위나 비즈니스 불변식은 보장하지 않는다(§1 파이썬 테스트가 맡는다) |
 
-뷰어 JS도 같은 절의 게이트다([viewer.md](viewer.md) §타입 검사·§모듈 경계, [ADR-0042](../adr/0042-viewer-es-modules.md)).
+뷰어의 TypeScript도 같은 절의 게이트다([viewer.md](viewer.md) §타입 검사·§모듈 경계, [ADR-0042](../adr/0042-viewer-es-modules.md), [ADR-0043](../adr/0043-viewer-typescript.md)).
 
 | 항목 | 내용 |
 | --- | --- |
-| 측정 대상 | `src/limn/viewer/js/`의 ES 모듈과 지은 스크립트 `src/limn/viewer/dist/viewer.js`: 지은 파일이 모듈에서 다시 지은 바이트와 같은지, 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입, `strict` 전체의 위반, ESLint 규칙(`any` 값, JSDoc의 `any`·캐스트, 다른 모듈 상태에 쓰기, 헷갈리는 전역, 빠진 `switch` 멤버), 모듈 경계(순환, 나열하지 않은 기능 의존, 공용 모듈의 기능 의존, 역할 규칙, 제자리에 없는 모듈), 그리고 모듈·서비스 워커·파싱 워커·`.mjs` 도구의 글이 Prettier의 출력과 같은지 |
+| 측정 대상 | `src/limn/viewer/js/`의 ES 모듈(`*.ts`)과 지은 스크립트 `src/limn/viewer/dist/viewer.js`: 지은 파일이 모듈에서 다시 지은 바이트와 같은지, 타입을 걷는 단계가 TypeScript의 출력과 같은 프로그램을 남기는지, 정의되지 않은 이름, 닫힌 값 표에 없는 멤버, 없는 속성 접근, 잘못된 인자 타입과 개수, 지울 수 없는 TypeScript 문법, `strict` 전체의 위반, ESLint 규칙(`any` 값과 타입에 쓴 `any`, 타입 단언·비널 단언, 검사기를 끄는 주석, JSDoc에 쓴 타입, 다른 모듈 상태에 쓰기, 헷갈리는 전역, 빠진 `switch` 멤버), 모듈 경계(순환, 나열하지 않은 기능 의존, 공용 모듈의 기능 의존, 역할 규칙, 제자리에 없는 모듈), 그리고 모듈·서비스 워커·파싱 워커·`.mjs` 도구의 글이 Prettier의 출력과 같은지 |
 | 적용 조건 | 뷰어 JS, `src/limn/viewer/types/`, `parts.txt`의 `__APP_JS__`, 개발 도구 설정을 바꿀 때. CI `lint` 작업에서 돈다 |
-| 실행 | `npm ci --ignore-scripts` 뒤 `npm run build:check`(Rollup으로 다시 지어 커밋된 파일과 비교), `npm run typecheck`(`tsc -p .`, TypeScript 7), `npm run format:check`(`prettier --check .`, 범위는 `.prettierignore`가 정하고 서식은 `.prettierrc.json`이 정한다. 어긋나면 `npm run format`이 고친다), `npm test`(경계 검사와 ESLint 지역 규칙의 제 사례, `tools/tests/`), `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 오류, ESLint 규칙별 수, `tools/check_viewer_boundaries.mjs`의 규칙별 수가 파일마다 `tools/strict-baseline.json`과 같은지). 도구의 판은 `package-lock.json`이 정한다. 위반 메시지 자체는 `npm run lint`·`npm run boundaries`로 본다 |
+| 실행 | `npm ci --ignore-scripts` 뒤 `npm run build:check`(Rollup으로 다시 지어 커밋된 파일과 비교), `npm run typecheck`(`tsc -p .`, TypeScript 7), `npm run format:check`(`prettier --check .`, 범위는 `.prettierignore`가 정하고 서식은 `.prettierrc.json`이 정한다. 어긋나면 `npm run format`이 고친다), `npm test`(경계 검사, ESLint 지역 규칙, 타입 걷기 단계의 제 사례와 모든 모듈에서 `transpileModule`과의 대조, `tools/tests/`), `uv run python tools/strict_ratchet.py`(`tsconfig.strict.json`의 오류, ESLint 규칙별 수, `tools/check_viewer_boundaries.mjs`의 규칙별 수가 파일마다 `tools/strict-baseline.json`과 같은지). 도구의 판은 `package-lock.json`이 정한다. 위반 메시지 자체는 `npm run lint`·`npm run boundaries`로 본다 |
 | 합격 기준 | `build:check`는 같다고 알리고, `typecheck`는 출력 없이 0으로 끝나며, `format:check`는 모든 파일이 서식에 맞는다고 알리고, `npm test`는 실패가 없고, 래칫은 기준과 같은 수를 알린다. 기준보다 많은 수(새 위반)와 적은 수(낮추지 않은 기준) 모두 실패다. `@ts-ignore`·`@ts-expect-error`·`eslint-disable` 주석은 쓰지 않는다(ESLint는 주석 설정을 읽지 않는다) |
-| 보장 범위 | `tsconfig.json`의 옵션은 전부, `strict`의 나머지와 ESLint·경계 규칙은 기준선이 허용한 수 밖에서만 막는다. 지은 파일이 모듈과 같다는 것은 §1의 `test_viewer_files`도 node 없이 본다(빈 줄을 뺀 글이 모듈 글의 순서 그대로인지). API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
+| 보장 범위 | `tsconfig.json`의 옵션은 전부, `strict`의 나머지와 ESLint·경계 규칙은 기준선이 허용한 수 밖에서만 막는다. 지은 파일이 모듈과 같다는 것은 §1의 `test_viewer_files`도 본다(빈 줄을 뺀 글이 타입을 걷은 모듈 글의 순서 그대로인지). API 응답의 모양(`types/api.d.ts`)은 그 타입을 단 상태와 함수에서만 보고, 그 선언이 실제 응답과 맞는지는 §1의 `test_viewer_types`가 계약 스냅샷·실제 처리기·동기화 생성 함수로 확인한다. 런타임 동작은 §1이 맡는다 |
 
 ## 10. 기능 경계 검사
 
