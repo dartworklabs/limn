@@ -17,7 +17,7 @@ import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
 import { suggestBadge } from '../composer/flow-suggest.ts';
 import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from './view-card-parts.ts';
-import { drawPins, jumpToCard, listReview, loadPins, marks, orderPins } from './flow-list.ts';
+import { drawPins, jumpToCard, loadPins, marks } from './flow-list.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
@@ -26,6 +26,7 @@ import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
 import { pinVerdicts } from './state-seams.ts';
 import { CONFIRMING, CONFIRMING_PIN, markMine } from './state.ts';
+import { orderPins, listReview } from './view-list-sections.ts';
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
 // close with none). null while the section shows cards.

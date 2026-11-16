@@ -248,12 +248,7 @@ import {
   revealCard,
   setListOrder,
   toggleSection,
-  dropBareDayLines,
-  placeRow,
   marks,
-  fitBarWords,
-  updateReviewCount,
-  markBadgeSides,
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
@@ -298,6 +293,9 @@ import {
   verdictOldMarker,
   dropPageLineOverlaps,
 } from './verdict/view-pins.ts';
+import { fitBarWords, updateReviewCount } from './pins/view-bar.ts';
+import { dropBareDayLines, placeRow } from './pins/view-list-sections.ts';
+import { markBadgeSides } from './pins/view-mark-covers.ts';
 
 // The seams platform calls the features through (docs/handbook/viewer.md §모듈 경계), each registered here once. This
 // runs before boot() and before any listener can fire (no code that runs while the script loads calls one), so no

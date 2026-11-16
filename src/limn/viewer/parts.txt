@@ -113,7 +113,11 @@ js/pins/view-card-parts.ts             # what a card is built from: people, badg
 js/pins/flow-claims.ts                 # the claim badges' clock: their text every 30 seconds, the list when a claim ends
 js/pins/view-cards.ts                  # the open and review card, archive and Trash rows, the Trash dialog
 js/pins/flow-review-pick.ts            # confirming several pins awaiting review from their result rows (ADR-0035)
-js/pins/flow-list.ts                   # loading pins, list sections, drawPins, marks on the PDF, jumping to a pin or card
+js/pins/view-list-sections.ts          # the pin list's sections: which pins each lists, in order, as day-grouped rows under its head
+js/pins/view-list-scroll.ts            # the pin list's scroll kept across a redraw, and the cards far from its view
+js/pins/view-mark-covers.ts            # marks a badge or card covers: the badges' sides, a covered mark brought into view, the mark Tab stops
+js/pins/view-bar.ts                    # the bar's pin and review counts, and its words fitted to its width
+js/pins/flow-list.ts                   # loading pins, drawPins, marks on the PDF, jumping to a pin or card
 js/pins/input-hide-marks.ts            # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
 js/pins/flow-actions.ts                # close, confirm, reopen, drop, purge, restore, unclaim
 js/composer/input-mentions.ts          # @-tag autocomplete, preview and the assignee choice

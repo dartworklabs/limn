@@ -2,7 +2,7 @@
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
 // content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws
 // for the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the
-// text in the page again: skipped like the far cards (pins/flow-list.ts lazyCards), the lines far from the view are not
+// text in the page again: skipped like the far cards (pins/view-list-scroll.ts lazyCards), the lines far from the view are not
 // laid out at each of those. A skipped line breaks none of the line's rules, because it is never another size than the
 // one it is drawn at:
 // - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its

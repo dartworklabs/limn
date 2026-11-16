@@ -3331,7 +3331,7 @@ function setLastTouchAt(value) {
   LAST_TOUCH_AT = value;
   return value;
 }
-// The elements whose tooltip does not show: pin mark badges a cover is over (pins/flow-list.ts markCoverSkip keeps it).
+// The elements whose tooltip does not show: pin mark badges a cover is over (pins/view-mark-covers.ts markCoverSkip keeps it).
 const MARK_HIDDEN = new WeakSet();
 
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
@@ -3386,7 +3386,7 @@ function tipFollow() {
 }
 // Shows an element's description over it. The box is translate="no": a description is already in the UI language (the
 // translator rewrote the attribute, or the code drew it with translate()), and one that quotes a note ('#38 · 완료')
-// must not be rewritten again. A mark badge a cover is over now (MARK_HIDDEN, pins/flow-list.ts markCoverSkip) shows
+// must not be rewritten again. A mark badge a cover is over now (MARK_HIDDEN, pins/view-mark-covers.ts markCoverSkip) shows
 // none: it would float over the cover.
 function showTip(element) {
   if (MARK_HIDDEN.has(element)) return;
@@ -25902,7 +25902,7 @@ function verdictStateWord(pin) {
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
 // content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws
 // for the first time adds its embedded fonts to document.fonts, and every font added makes the browser lay out all the
-// text in the page again: skipped like the far cards (pins/flow-list.ts lazyCards), the lines far from the view are not
+// text in the page again: skipped like the far cards (pins/view-list-scroll.ts lazyCards), the lines far from the view are not
 // laid out at each of those. A skipped line breaks none of the line's rules, because it is never another size than the
 // one it is drawn at:
 // - It stands at its drawn height: --pv-h (the contain-intrinsic-block-size; the line has no padding or border, so its
@@ -33934,29 +33934,9 @@ function tickChangedBox(event) {
 }
 document.addEventListener('change', tickChangedBox);
 
-// ----------------------------------- Pin list: loading pins, list sections, marks on the PDF, jumping to a pin or card
-// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead
-// of a name - and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when
-// none of its tags resolves yet.
-
-async function loadPeople() {
-  try {
-    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
-    if (Array.isArray(answer.people)) {
-      const was = JSON.stringify(PEOPLE),
-        first = !PEOPLE_KNOWN;
-      setPeople(answer.people);
-      setPeopleKnown(true);
-      const changed = JSON.stringify(PEOPLE) !== was;
-      if (changed) drawPins();
-      if (changed || first) renderAssignNew();
-    }
-  } catch (error) {}
-}
-// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no
-// snapshot.
-let PINS_LOAD_SEQ = 0,
-  PINS_APPLIED_SEQ = 0;
+// ------------------------------------------------ The pin list's sections (docs/handbook/viewer.md §목록 구획)
+// Which pins each section lists - open, awaiting review, done, from the lists as this tab shows them (derivePinLists) -
+// in the chosen order, drawn as day-grouped rows under a section head with its count and order control.
 // Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to
 // defaultDoc. confirming (optional) holds the ids whose [확인] waits for its undo (CONFIRMING): they stay out of the
 // review list.
@@ -33981,120 +33961,6 @@ function derivePinLists(rows, doc, defaultDoc, confirming) {
   }
   return { openAll, reviewAll, doneAll, openHere, doneHere };
 }
-// Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply
-// whose pin left says so there too, with a dot on [핀 N]), then redraws the current document.
-/**
- * Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close.
- */
-function applyPinLists(rows, dropped, lists) {
-  const openBefore = OPEN_ALL,
-    reviewBefore = REVIEW_ALL;
-  notePinChanges(openBefore, rows, dropped);
-  noteReviewChanges(reviewBefore, rows);
-  noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
-  setOpenAll(lists.openAll);
-  setReviewAll(lists.reviewAll);
-  setDoneAll(lists.doneAll);
-  setDropped(dropped);
-  setPins(lists.openHere);
-  setDone(lists.doneHere);
-  // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still
-  // awaiting review - and leaves it once the snapshot does not have it so (deleted from another window, reopened,
-  // confirmed elsewhere).
-  CONFIRMING_PIN.forEach((_, id) => {
-    const fresh = rows.find((row) => row.id === id);
-    if (fresh && pinState(fresh) === PIN_STATE.REVIEW) CONFIRMING_PIN.set(id, fresh);
-    else CONFIRMING_PIN.delete(id);
-  });
-  const card = EDITOR.current;
-  if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
-    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
-    else {
-      lineNote(
-        translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
-        NOTICE_KIND.WARN,
-        null,
-        { dot: NOTICE_DOT.SIDE },
-      );
-      setEditorCurrent(null);
-    }
-  }
-  const replyBox = REPLY;
-  if (replyBox && !rows.some((pin) => pin.id === replyBox.id)) {
-    closeReply(false);
-    lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다', NOTICE_KIND.WARN, null, {
-      dot: NOTICE_DOT.SIDE,
-    });
-  }
-  if (!SECTION_SEEN.open) {
-    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
-    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
-    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
-  }
-  drawPins();
-  marks();
-  drawDocTabs();
-  if (COMPOSE.current) {
-    recomputeOverlap();
-    renderOverlapBanner();
-  } // if the list changes (someone else's save/completion), overlap is recomputed too
-  docTitle(true);
-}
-// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it: a
-// read another one started later overtook (a light poll's, an action's) returns false and draws nothing, and the list
-// stays as the newer one drew it. A failed read is a banner on top of the panel with [다시 시도].
-async function loadPins() {
-  const seq = ++PINS_LOAD_SEQ;
-  let rows;
-  try {
-    rows = (
-      await api('/api/pins?all=1', {
-        what: '핀 읽기',
-        where: NOTICE_HOST.LIST,
-        retry: () => {
-          loadPins();
-        },
-      })
-    ).data;
-  } catch (error) {
-    return false;
-  }
-  if (seq < PINS_APPLIED_SEQ) return false;
-  let dropped = [];
-  // Said, not silent: this read failing stops the whole snapshot from being applied, and a refresh that stops
-  // without a word looks like a list that simply did not change (docs/handbook/viewer.md §알림 자리).
-  try {
-    dropped =
-      (
-        await api('/api/pins/dropped', {
-          what: '삭제한 핀',
-          where: NOTICE_HOST.LIST,
-          retry: () => {
-            loadPins();
-          },
-        })
-      ).data.dropped || [];
-  } catch (error) {
-    return false;
-  }
-  if (seq < PINS_APPLIED_SEQ) return false;
-  loadPeople();
-  // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
-  // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
-  PINS_APPLIED_SEQ = seq;
-  applyPinLists(rows, dropped, derivePinLists(rows, DOC, DEFAULT_DOC, CONFIRMING));
-  return true;
-}
-// Reads the list again for a caller that goes on to act on it as it stands (a pin link opening its card). Resolves true
-// when the list now shows a snapshot asked for by this call or a later one - its own read applied, or a newer read that
-// overtook it did - and false only when none since the call has applied (the read failed and said so). loadPins' own
-// answer is false when overtaken, the light poll's cue to read that revision again (docs/handbook/build-sync.md §자동
-// 동기화 (가벼운 meta 폴링)), so a caller that waits for the list itself reads it with this.
-async function loadPinsNow() {
-  const since = PINS_LOAD_SEQ;
-  await loadPins();
-  return PINS_APPLIED_SEQ > since;
-}
 // The list drawn in the sidebar: the current document by default, everything if 'all documents'. A pin being edited is
 // kept even from another document (so the draft text doesn't disappear).
 function listOpen() {
@@ -34108,91 +33974,7 @@ function listDone() {
 function listReview() {
   return SHOW_ALL && multiDoc() ? REVIEW_ALL : REVIEW_ALL.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
-// Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next
-// to [핀 N] (compact) / the tool bar chip (wide). [⬚ 선택] keeps the width of its pressed face [⬚ 선택 중] wherever it
-// shows its label (docs/handbook/viewer.md §모바일 레이아웃 선택 모드), so pressing it moves neither it nor its
-// neighbours - on the landscape phone's top row a wider face would move the button itself under the finger. Effect:
-// --sel-w on the button, measured with the pressed face drawn for a moment (in the interface language), or removed
-// where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
-function holdSelectWidth() {
-  const button = $('#btn-select'),
-    label = button.querySelector('.lbl');
-  button.style.removeProperty('--sel-w');
-  if (!button.getClientRects().length || getComputedStyle(label).display === 'none') return;
-  const pressed = button.getAttribute('aria-pressed') || 'false',
-    text = label.textContent;
-  button.setAttribute('aria-pressed', 'true');
-  label.textContent = translate('선택 중');
-  const width = button.getBoundingClientRect().width;
-  button.setAttribute('aria-pressed', pressed);
-  label.textContent = text;
-  button.style.setProperty('--sel-w', Math.ceil(width) + 'px');
-}
-// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit
-// counts, a folded cover): first [⬚ 선택] drops its label for the 36px icon the phone has (#bar1.bar-sel-icon) - the
-// chip never shrinks for it; then the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug);
-// then the words '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review
-// (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
-// its width (holdSelectWidth, every band); decoration only - nothing moves.
-function fitBarWords() {
-  const bar = $('#bar1'),
-    leftCell = bar.querySelector('.bar-l');
-  bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
-  holdSelectWidth();
-  if (LAYOUT !== LAYOUT_MODE.NARROW) return;
-  const over = () => {
-    // the last control's edge, not scrollWidth: the hits overflow too
-    const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
-    return (
-      shown.length > 0 &&
-      shown[shown.length - 1].getBoundingClientRect().right > leftCell.getBoundingClientRect().right + 0.05
-    );
-  }; // past the cell, [⬚]'s hit reaches the grabber's column
-  for (const step of ['bar-sel-icon', 'bar-snug', 'bar-tight']) {
-    if (!over()) return;
-    bar.classList.add(step);
-    if (step === 'bar-sel-icon') holdSelectWidth();
-  }
-}
-// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's
-// bar shows the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's. The pill is the
-// eye icon and the count, so it never reads as part of the open count beside it ('11 1').
-function updateReviewCount() {
-  const count = REVIEW_ALL.length,
-    chip = $('#rv-chip');
-  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
-    pill.hidden = !count;
-    setHtml(pill, html`${lucideIcon('eye')}${count}`);
-    pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
-  }
-  const reviewButton = $('#btn-rv');
-  reviewButton.hidden = !count;
-  reviewButton.querySelector('.rv-c').textContent = count;
-  // the sheet bar's [검토 M] half: its name starts with what it shows
-  reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
-  fitBarWords();
-  const here = listReview().length;
-  chip.hidden = !count || LAYOUT !== LAYOUT_MODE.WIDE || !SIDE_OPEN;
-  chip.textContent =
-    translateTemplate('검토 대기 {n}', { n: count }) +
-    (multiDoc() && here !== count ? ' ' + translateTemplate('(이 문서 {n})', { n: here }) : '');
-}
-// [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes
-// (seen).
-function gotoReview() {
-  noticeSeen(NOTICE_DOT.RV);
-  if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
-  if (!SECTION_OPEN.review) {
-    SECTION_OPEN.review = true;
-    savePrefs({ sec: SECTION_OPEN });
-  }
-  drawPins();
-  setSide(true);
-  requestAnimationFrame(() => {
-    const section = $('#sec-review');
-    if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
-  });
-}
+
 // One section header (docs/handbook/viewer.md §목록 구획): chevron, name, count and - while collapsed - 'new N' (ids
 // the section did not show when it was last expanded). The body it controls (aria-controls) is hidden while collapsed.
 const SECTION_NAME_ID = { open: 'list-h', review: 'review-h', done: 'done-h' };
@@ -34214,134 +33996,6 @@ function drawSectionHead(key, name, ids, all) {
   toggle.setAttribute('aria-expanded', String(open));
   const body = document.getElementById(toggle.getAttribute('aria-controls') || '');
   if (body) body.hidden = !open;
-}
-function toggleSection(key, force) {
-  if (!(key in SECTION_OPEN_DEFAULT)) return;
-  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
-  savePrefs({ sec: SECTION_OPEN });
-  drawPins();
-}
-// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes
-// and the banners of platform/notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin,
-// its guide line's buttons, whose [확인] follows that pin's state (drawPinGuideActions). The status line's review
-// arrivals follow the review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
-/** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
-function drawPins() {
-  dropStaleReview();
-  // the rows in the list's view: one of them is put back where it stood once the cards are drawn (lazyCards)
-  const keep = listKeep();
-  const openListed = listOpen(),
-    doneListed = listDone(),
-    droppedListed = listDropped();
-  // a focus in an undo row or note, given back once they are drawn again (drawOffers)
-  const keptNoticeFocus = noticeFocus();
-  // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a
-  // cross-document inbox).
-  const mentioningMe = OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),
-    mentionFilter = $('#mention-filter');
-  if (MENTION_ONLY && !mentioningMe.length) setMentionOnly(false);
-  mentionFilter.hidden = !mentioningMe.length;
-  mentionFilter.setAttribute('aria-pressed', String(MENTION_ONLY));
-  setHtml(mentionFilter, html`${lucideIcon('at-sign')}${mentioningMe.length}`);
-  mentionFilter.setAttribute('aria-label', translateTemplate('나를 부른 핀 {n}', { n: mentioningMe.length }));
-  const openShown = MENTION_ONLY ? OPEN_ALL.filter(mentionsMe) : openListed;
-  // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing
-  // (so auto-sync redrawing the list, or a layout change redrawing the cards, never interrupts typing).
-  const replyField = REPLY && replyNote(REPLY),
-    replyFocus =
-      replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
-  // The edit card's note or suggested-edit field keeps its focus and selection the same way.
-  const editField =
-    EDITOR.current &&
-    document.activeElement &&
-    EDITOR.current.el.contains(document.activeElement) &&
-    document.activeElement.matches('.e-note,.e-sg-text')
-      ? (document.activeElement)
-      : null;
-  const editArea = editField,
-    editFocus = editArea ? [editArea.selectionStart, editArea.selectionEnd] : null,
-    cardFocus = cardFocusKeep();
-  drawSectionHead(
-    'open',
-    translate(MENTION_ONLY ? '나를 부른 열린 핀' : SHOW_ALL && multiDoc() ? '모든 문서의 열린 핀' : '열린 핀'),
-    openShown.map((pin) => pin.id),
-    OPEN_ALL.map((pin) => pin.id),
-  );
-  const allDocsButton = $('#all-docs');
-  allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
-  setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
-  $('#side-n').textContent = PINS.length;
-  applySide();
-  // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
-  const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
-  $('#m-trash-n').textContent = trashCount;
-  $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
-  $('#trash-link').hidden = !trashCount;
-  $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
-  // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too. Only a note
-  // that another document has pins is left.
-  setHtml(
-    $('#pins'),
-    openShown.length
-      ? cardRows(openShown, 'open')
-      : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
-  ); // with no card, an undo row still gets its slot (cardRows)
-  if (EDITOR.current) {
-    const slot = $('#pins .edit-slot');
-    if (slot) slot.replaceWith(EDITOR.current.el);
-    else $('#pins').appendChild(EDITOR.current.el);
-    renderEdit();
-    if (editFocus && editArea && document.contains(editArea)) {
-      editArea.focus();
-      try {
-        editArea.setSelectionRange(editFocus[0], editFocus[1]);
-      } catch (error) {}
-    }
-  }
-  // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands
-  // in it (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
-  const reviewShown = MENTION_ONLY ? REVIEW_ALL.filter(mentionsMe) : listReview();
-  $('#sec-review').hidden = !reviewShown.length && !offersIn('review');
-  drawSectionHead(
-    'review',
-    translate('검토 대기'),
-    reviewShown.map((pin) => pin.id),
-    REVIEW_ALL.map((pin) => pin.id),
-  );
-  // result rows while the section picks (pins/flow-review-pick.ts)
-  if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
-  drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
-  updateReviewCount();
-  // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
-  $('#sec-done').hidden = !doneListed.length;
-  drawSectionHead(
-    'done',
-    translate('완료'),
-    doneListed.map((pin) => pin.id),
-    DONE_ALL.map((pin) => pin.id),
-  );
-  if (SECTION_OPEN.done)
-    setHtml(
-      $('#done-list'),
-      doneListed.length ? html`${doneListed.slice().reverse().map(doneCard)}` : html`<div class="dim">없습니다.</div>`,
-    );
-  if ($('#trash').open) drawTrash();
-  if (REPLY) {
-    const slot = document.querySelector('#list .reply-slot');
-    if (slot) slot.replaceWith(REPLY.el);
-    renderReplyOutcome(); // the pin may have changed state meanwhile
-    if (replyFocus && replyField && document.contains(replyField)) {
-      replyField.focus();
-      try {
-        replyField.setSelectionRange(replyFocus[0], replyFocus[1]);
-      } catch (error) {}
-    }
-  }
-  drawOffers(keptNoticeFocus);
-  drawBanners();
-  lazyCards(keep);
-  cardFocusBack(cardFocus);
-  if (REVISION_VIEW.target) drawPinGuideActions();
 }
 // The pins of a list section in order (docs/handbook/viewer.md §목록 순서), list itself untouched. LIST_ORDER.NEW: the
 // newest `at` first, the later pin first within a minute, a pin with no readable time last. LIST_ORDER.PAGE: by page,
@@ -34475,20 +34129,10 @@ function drawOrderControl(any) {
   }
   roveSegment(control);
 } // the group's one Tab stop is the order now chosen (main.ts)
-// A press on the order control: the list is drawn in that order, remembered for this browser, with the control where it
-// stood under the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it
-// is not redrawn).
-/** @param order - a LIST_ORDER value */
-function setListOrder(order) {
-  const next = listOrderOf(order);
-  if (next === ORDER) return;
-  setOrder(next);
-  savePrefs({ order: next });
-  const control = $('#list-order'),
-    y = control.getBoundingClientRect().top;
-  drawPins();
-  listScroller().scrollTop += control.getBoundingClientRect().top - y;
-}
+
+// ------------------------------------------------ The pin list's scroll
+// What the list keeps of its scroll across a redraw (the row at its top, the section it is in), and the cards far from
+// its view, which the browser skips until they come near.
 // Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does
 // not lay them out or paint them until they come near the view. Their markup stays whole and current all the while - a
 // card coming back is drawn from what it holds then - and a focus, a find or a selection reaching into one draws it at
@@ -34583,27 +34227,6 @@ function lazyAgain() {
   $$('#list .pin.card.lazy').forEach((card) => card.classList.remove('lazy'));
   lazyCards(keep);
 }
-// The scroller's height changed (a window, the sheet dragged): the observer's margin follows it.
-if (window.ResizeObserver) {
-  const listResize = new ResizeObserver(() => {
-    const list = $('#list'),
-      width = list.getClientRects().length ? list.clientWidth : 0;
-    if (width && width !== LAZY_WIDTH) lazyAgain();
-    else if (LAZY_IO && listScroller().clientHeight !== LAZY_HEIGHT) lazyWatch();
-  });
-  listResize.observe($('#list'));
-  listResize.observe($('#right'));
-}
-document.fonts.addEventListener('loadingdone', (event) => {
-  if (!$$('#list .pin.card.lazy').length) return;
-  const listFonts = getComputedStyle($('#list')).fontFamily;
-  if (
-    (event).fontfaces.some((face) =>
-      listFonts.includes(face.family.replace(/^["']|["']$/g, '')),
-    )
-  )
-    lazyAgain();
-});
 // The box the list scrolls in: the list itself, or in compact the panel (#right), which holds the tool bar above it.
 function listScroller() {
   return document.body.classList.contains('compact') ? $('#right') : $('#list');
@@ -34639,41 +34262,10 @@ function listSection(row) {
   const section = row.closest('#pins,#review-pins,#done-list');
   return section ? section.id : '';
 }
-// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
-// drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
-// anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
-// focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
-function cardFocusKeep() {
-  const focused = document.activeElement,
-    cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]')) : null;
-  const act = focused && focused.dataset ? focused.dataset.act || '' : '';
-  if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
-  return {
-    el: focused,
-    id: cardElement.dataset.id || '',
-    act,
-    i: [...cardElement.querySelectorAll('[data-act="' + CSS.escape(act) + '"]')].indexOf(focused),
-  };
-}
-function cardFocusBack(kept) {
-  const focused = document.activeElement;
-  if (!kept || (focused && focused !== document.body)) return;
-  if (document.contains(kept.el)) {
-    kept.el.focus({ preventScroll: true });
-    return;
-  } // the edit card or the reply, put back in its slot
-  const cardElement = document.querySelector('#list .pin[data-id="' + CSS.escape(kept.id) + '"]'),
-    same = cardElement ? cardElement.querySelectorAll('[data-act="' + CSS.escape(kept.act) + '"]') : null;
-  const target = (same && (same[Math.max(0, kept.i)] || same[0]));
-  if (target) target.focus({ preventScroll: true });
-}
-// Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
-// manuscript fingerprint of the build the pin was placed on with the current build). The viewer does not judge it by
-// wall clock - the browser's time zone, a note-only edited_at and a pin placed on a stale PDF would all mislead it -
-// and renders the value it is given.
-function isEstimated(pin) {
-  return pin.est === true;
-}
+
+// ------------------------------------------------ Marks a badge or card covers
+// A pin's mark on the page sits under its badge, the open composer or the panel: where the badge stands (markBadgeSides),
+// which marks something covers, and bringing a covered mark into view; the mark Tab stops among them.
 // Re-decides every page number's place (pageNoSides) and every drawn mark's badge side for its page's width and margin
 // now (a zoom, a re-fit or a band change moves both), then how far each badge's press area reaches (markHitSides: the
 // badges' distances follow the same width). A mark on a page that is not laid out keeps its side until the page shows
@@ -34848,12 +34440,6 @@ function markTabKey(event) {
     MARK_TAB = false;
   }, 0);
 }
-document.addEventListener('keydown', markTabKey, true);
-$('#left').addEventListener('focusin', (event) => {
-  const badge = event.target;
-  if (!MARK_TAB || !(badge instanceof HTMLElement) || !badge.matches('.mark button.mark-jump')) return;
-  markReveal(badge);
-});
 // What the covers cover changes without the marks being drawn again: the sheet opens, closes or is dragged to another
 // height, the status line comes or goes, the overlay panel slides in, the window is resized, or the pages scroll under
 // them. The covers' sizes are watched (the sheet's open and closed heights differ, a status line goes from none to its
@@ -34867,6 +34453,437 @@ function markCoversMoved() {
   const focused = document.activeElement;
   if (focused instanceof HTMLElement && MARK_HIDDEN.has(focused) && keyInput()) markReveal(focused);
 }
+
+// ------------------------------------------------ The bar's pin and review counts
+// The panel toggles' and the sheet bar's counts of open pins and of pins awaiting review, and the bar's words fitted to
+// its width (the select button's width held while the bar is measured).
+// Awaiting-review count: counted across documents (the inbox of work for a person to confirm). The purple number next
+// to [핀 N] (compact) / the tool bar chip (wide). [⬚ 선택] keeps the width of its pressed face [⬚ 선택 중] wherever it
+// shows its label (docs/handbook/viewer.md §모바일 레이아웃 선택 모드), so pressing it moves neither it nor its
+// neighbours - on the landscape phone's top row a wider face would move the button itself under the finger. Effect:
+// --sel-w on the button, measured with the pressed face drawn for a moment (in the interface language), or removed
+// where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
+function holdSelectWidth() {
+  const button = $('#btn-select'),
+    label = button.querySelector('.lbl');
+  button.style.removeProperty('--sel-w');
+  if (!button.getClientRects().length || getComputedStyle(label).display === 'none') return;
+  const pressed = button.getAttribute('aria-pressed') || 'false',
+    text = label.textContent;
+  button.setAttribute('aria-pressed', 'true');
+  label.textContent = translate('선택 중');
+  const width = button.getBoundingClientRect().width;
+  button.setAttribute('aria-pressed', pressed);
+  label.textContent = text;
+  button.style.setProperty('--sel-w', Math.ceil(width) + 'px');
+}
+// The phone and tablet sheet bar's left cell steps down until [핀 N | 검토 M] and [⬚] fit it (English, three-digit
+// counts, a folded cover): first [⬚ 선택] drops its label for the 36px icon the phone has (#bar1.bar-sel-icon) - the
+// chip never shrinks for it; then the chip's halves pad one 4px step less and the cell's gap is 4px (#bar1.bar-snug);
+// then the words '핀' and '검토' give way to a dot each - green for the open pins, purple for those awaiting review
+// (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
+// its width (holdSelectWidth, every band); decoration only - nothing moves.
+function fitBarWords() {
+  const bar = $('#bar1'),
+    leftCell = bar.querySelector('.bar-l');
+  bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
+  holdSelectWidth();
+  if (LAYOUT !== LAYOUT_MODE.NARROW) return;
+  const over = () => {
+    // the last control's edge, not scrollWidth: the hits overflow too
+    const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
+    return (
+      shown.length > 0 &&
+      shown[shown.length - 1].getBoundingClientRect().right > leftCell.getBoundingClientRect().right + 0.05
+    );
+  }; // past the cell, [⬚]'s hit reaches the grabber's column
+  for (const step of ['bar-sel-icon', 'bar-snug', 'bar-tight']) {
+    if (!over()) return;
+    bar.classList.add(step);
+    if (step === 'bar-sel-icon') holdSelectWidth();
+  }
+}
+// The pill rides on both [핀 N] toggles (the tool bar's and the collapsed wide nav bar's); the phone and tablet sheet's
+// bar shows the count as its own half [검토 M] (#btn-rv) instead; the chip is the open wide panel's. The pill is the
+// eye icon and the count, so it never reads as part of the open count beside it ('11 1').
+function updateReviewCount() {
+  const count = REVIEW_ALL.length,
+    chip = $('#rv-chip');
+  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
+    pill.hidden = !count;
+    setHtml(pill, html`${lucideIcon('eye')}${count}`);
+    pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
+  }
+  const reviewButton = $('#btn-rv');
+  reviewButton.hidden = !count;
+  reviewButton.querySelector('.rv-c').textContent = count;
+  // the sheet bar's [검토 M] half: its name starts with what it shows
+  reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
+  fitBarWords();
+  const here = listReview().length;
+  chip.hidden = !count || LAYOUT !== LAYOUT_MODE.WIDE || !SIDE_OPEN;
+  chip.textContent =
+    translateTemplate('검토 대기 {n}', { n: count }) +
+    (multiDoc() && here !== count ? ' ' + translateTemplate('(이 문서 {n})', { n: here }) : '');
+}
+
+// ----------------------------------- Pin list: loading pins, drawing the list, marks on the PDF, jumping to a pin or card
+// If the people list changes (a new person/name), the list is redrawn - the very first render can show a login instead
+// of a name - and so is the composer's assignee row: a draft restored at boot is read before the list arrives, when
+// none of its tags resolves yet.
+
+async function loadPeople() {
+  try {
+    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
+    if (Array.isArray(answer.people)) {
+      const was = JSON.stringify(PEOPLE),
+        first = !PEOPLE_KNOWN;
+      setPeople(answer.people);
+      setPeopleKnown(true);
+      const changed = JSON.stringify(PEOPLE) !== was;
+      if (changed) drawPins();
+      if (changed || first) renderAssignNew();
+    }
+  } catch (error) {}
+}
+// A refresh that started earlier must not replace one already applied from a newer request. A failed request claims no
+// snapshot.
+let PINS_LOAD_SEQ = 0,
+  PINS_APPLIED_SEQ = 0;
+// Applies an accepted snapshot: announces transitions on the status line, keeps active editors honest (an edit or reply
+// whose pin left says so there too, with a dot on [핀 N]), then redraws the current document.
+/**
+ * Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close.
+ */
+function applyPinLists(rows, dropped, lists) {
+  const openBefore = OPEN_ALL,
+    reviewBefore = REVIEW_ALL;
+  notePinChanges(openBefore, rows, dropped);
+  noteReviewChanges(reviewBefore, rows);
+  noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
+  setOpenAll(lists.openAll);
+  setReviewAll(lists.reviewAll);
+  setDoneAll(lists.doneAll);
+  setDropped(dropped);
+  setPins(lists.openHere);
+  setDone(lists.doneHere);
+  // A pin whose [확인] waits for its undo stays in the verdict order (verdictOrder) as this snapshot has it - still
+  // awaiting review - and leaves it once the snapshot does not have it so (deleted from another window, reopened,
+  // confirmed elsewhere).
+  CONFIRMING_PIN.forEach((_, id) => {
+    const fresh = rows.find((row) => row.id === id);
+    if (fresh && pinState(fresh) === PIN_STATE.REVIEW) CONFIRMING_PIN.set(id, fresh);
+    else CONFIRMING_PIN.delete(id);
+  });
+  const card = EDITOR.current;
+  if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
+    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
+    else {
+      lineNote(
+        translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
+        NOTICE_KIND.WARN,
+        null,
+        { dot: NOTICE_DOT.SIDE },
+      );
+      setEditorCurrent(null);
+    }
+  }
+  const replyBox = REPLY;
+  if (replyBox && !rows.some((pin) => pin.id === replyBox.id)) {
+    closeReply(false);
+    lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다', NOTICE_KIND.WARN, null, {
+      dot: NOTICE_DOT.SIDE,
+    });
+  }
+  if (!SECTION_SEEN.open) {
+    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
+    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
+    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
+  }
+  drawPins();
+  marks();
+  drawDocTabs();
+  if (COMPOSE.current) {
+    recomputeOverlap();
+    renderOverlapBanner();
+  } // if the list changes (someone else's save/completion), overlap is recomputed too
+  docTitle(true);
+}
+// Fetches one pin snapshot and its Trash. Returns whether it applied; only a newer applied snapshot supersedes it: a
+// read another one started later overtook (a light poll's, an action's) returns false and draws nothing, and the list
+// stays as the newer one drew it. A failed read is a banner on top of the panel with [다시 시도].
+async function loadPins() {
+  const seq = ++PINS_LOAD_SEQ;
+  let rows;
+  try {
+    rows = (
+      await api('/api/pins?all=1', {
+        what: '핀 읽기',
+        where: NOTICE_HOST.LIST,
+        retry: () => {
+          loadPins();
+        },
+      })
+    ).data;
+  } catch (error) {
+    return false;
+  }
+  if (seq < PINS_APPLIED_SEQ) return false;
+  let dropped = [];
+  // Said, not silent: this read failing stops the whole snapshot from being applied, and a refresh that stops
+  // without a word looks like a list that simply did not change (docs/handbook/viewer.md §알림 자리).
+  try {
+    dropped =
+      (
+        await api('/api/pins/dropped', {
+          what: '삭제한 핀',
+          where: NOTICE_HOST.LIST,
+          retry: () => {
+            loadPins();
+          },
+        })
+      ).data.dropped || [];
+  } catch (error) {
+    return false;
+  }
+  if (seq < PINS_APPLIED_SEQ) return false;
+  loadPeople();
+  // All-document lists drive notices; only the current document's open and done pins drive its marks and rows.
+  // before the redraw it makes: a page verdict line stops reading '판정 읽는 중…' with this list (pageLineHtml)
+  PINS_APPLIED_SEQ = seq;
+  applyPinLists(rows, dropped, derivePinLists(rows, DOC, DEFAULT_DOC, CONFIRMING));
+  return true;
+}
+// Reads the list again for a caller that goes on to act on it as it stands (a pin link opening its card). Resolves true
+// when the list now shows a snapshot asked for by this call or a later one - its own read applied, or a newer read that
+// overtook it did - and false only when none since the call has applied (the read failed and said so). loadPins' own
+// answer is false when overtaken, the light poll's cue to read that revision again (docs/handbook/build-sync.md §자동
+// 동기화 (가벼운 meta 폴링)), so a caller that waits for the list itself reads it with this.
+async function loadPinsNow() {
+  const since = PINS_LOAD_SEQ;
+  await loadPins();
+  return PINS_APPLIED_SEQ > since;
+}
+// [검토 M], the review chip and a review message's [보기]: the review section, opened and scrolled to; its dot goes
+// (seen).
+function gotoReview() {
+  noticeSeen(NOTICE_DOT.RV);
+  if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
+  if (!SECTION_OPEN.review) {
+    SECTION_OPEN.review = true;
+    savePrefs({ sec: SECTION_OPEN });
+  }
+  drawPins();
+  setSide(true);
+  requestAnimationFrame(() => {
+    const section = $('#sec-review');
+    if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
+  });
+}
+function toggleSection(key, force) {
+  if (!(key in SECTION_OPEN_DEFAULT)) return;
+  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
+  savePrefs({ sec: SECTION_OPEN });
+  drawPins();
+}
+// Redraws the pin panel from the lists (sections, counts, the Trash count, a reply in progress, the undo rows and notes
+// and the banners of platform/notices.ts, keeping a focus that was in one) - and, while the changes view shows a pin,
+// its guide line's buttons, whose [확인] follows that pin's state (drawPinGuideActions). The status line's review
+// arrivals follow the review list it draws: those whose pins left it go, with [검토 M]'s dot (dropStaleReview).
+/** Redraw active lists and retain the live editor, even when a rival close moved its pin out of the open list. */
+function drawPins() {
+  dropStaleReview();
+  // the rows in the list's view: one of them is put back where it stood once the cards are drawn (lazyCards)
+  const keep = listKeep();
+  const openListed = listOpen(),
+    doneListed = listDone(),
+    droppedListed = listDropped();
+  // a focus in an undo row or note, given back once they are drawn again (drawOffers)
+  const keptNoticeFocus = noticeFocus();
+  // The '나를 부른 핀' filter: only the open/awaiting-review pins across every document that @-tagged me (a
+  // cross-document inbox).
+  const mentioningMe = OPEN_ALL.concat(REVIEW_ALL).filter(mentionsMe),
+    mentionFilter = $('#mention-filter');
+  if (MENTION_ONLY && !mentioningMe.length) setMentionOnly(false);
+  mentionFilter.hidden = !mentioningMe.length;
+  mentionFilter.setAttribute('aria-pressed', String(MENTION_ONLY));
+  setHtml(mentionFilter, html`${lucideIcon('at-sign')}${mentioningMe.length}`);
+  mentionFilter.setAttribute('aria-label', translateTemplate('나를 부른 핀 {n}', { n: mentioningMe.length }));
+  const openShown = MENTION_ONLY ? OPEN_ALL.filter(mentionsMe) : openListed;
+  // If the cursor was in the reply input field or the edit card's note, it's restored to that position after redrawing
+  // (so auto-sync redrawing the list, or a layout change redrawing the cards, never interrupts typing).
+  const replyField = REPLY && replyNote(REPLY),
+    replyFocus =
+      replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
+  // The edit card's note or suggested-edit field keeps its focus and selection the same way.
+  const editField =
+    EDITOR.current &&
+    document.activeElement &&
+    EDITOR.current.el.contains(document.activeElement) &&
+    document.activeElement.matches('.e-note,.e-sg-text')
+      ? (document.activeElement)
+      : null;
+  const editArea = editField,
+    editFocus = editArea ? [editArea.selectionStart, editArea.selectionEnd] : null,
+    cardFocus = cardFocusKeep();
+  drawSectionHead(
+    'open',
+    translate(MENTION_ONLY ? '나를 부른 열린 핀' : SHOW_ALL && multiDoc() ? '모든 문서의 열린 핀' : '열린 핀'),
+    openShown.map((pin) => pin.id),
+    OPEN_ALL.map((pin) => pin.id),
+  );
+  const allDocsButton = $('#all-docs');
+  allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
+  setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
+  $('#side-n').textContent = PINS.length;
+  applySide();
+  // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
+  const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
+  $('#m-trash-n').textContent = trashCount;
+  $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
+  $('#trash-link').hidden = !trashCount;
+  $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
+  // Empty list: the header's count already says it - a separate '아직 없습니다.' line is never added too. Only a note
+  // that another document has pins is left.
+  setHtml(
+    $('#pins'),
+    openShown.length
+      ? cardRows(openShown, 'open')
+      : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
+  ); // with no card, an undo row still gets its slot (cardRows)
+  if (EDITOR.current) {
+    const slot = $('#pins .edit-slot');
+    if (slot) slot.replaceWith(EDITOR.current.el);
+    else $('#pins').appendChild(EDITOR.current.el);
+    renderEdit();
+    if (editFocus && editArea && document.contains(editArea)) {
+      editArea.focus();
+      try {
+        editArea.setSelectionRange(editFocus[0], editFocus[1]);
+      } catch (error) {}
+    }
+  }
+  // Awaiting-review section: between open pins and done. Hidden when empty - but not while a confirm's undo row stands
+  // in it (offersIn). The card looks the same as an open pin (thread/replies); only the actions are [확인]/[답글].
+  const reviewShown = MENTION_ONLY ? REVIEW_ALL.filter(mentionsMe) : listReview();
+  $('#sec-review').hidden = !reviewShown.length && !offersIn('review');
+  drawSectionHead(
+    'review',
+    translate('검토 대기'),
+    reviewShown.map((pin) => pin.id),
+    REVIEW_ALL.map((pin) => pin.id),
+  );
+  // result rows while the section picks (pins/flow-review-pick.ts)
+  if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
+  drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
+  updateReviewCount();
+  // Done section: hidden header and all if empty. The header stays stuck to the top while scrolling.
+  $('#sec-done').hidden = !doneListed.length;
+  drawSectionHead(
+    'done',
+    translate('완료'),
+    doneListed.map((pin) => pin.id),
+    DONE_ALL.map((pin) => pin.id),
+  );
+  if (SECTION_OPEN.done)
+    setHtml(
+      $('#done-list'),
+      doneListed.length ? html`${doneListed.slice().reverse().map(doneCard)}` : html`<div class="dim">없습니다.</div>`,
+    );
+  if ($('#trash').open) drawTrash();
+  if (REPLY) {
+    const slot = document.querySelector('#list .reply-slot');
+    if (slot) slot.replaceWith(REPLY.el);
+    renderReplyOutcome(); // the pin may have changed state meanwhile
+    if (replyFocus && replyField && document.contains(replyField)) {
+      replyField.focus();
+      try {
+        replyField.setSelectionRange(replyFocus[0], replyFocus[1]);
+      } catch (error) {}
+    }
+  }
+  drawOffers(keptNoticeFocus);
+  drawBanners();
+  lazyCards(keep);
+  cardFocusBack(cardFocus);
+  if (REVISION_VIEW.target) drawPinGuideActions();
+}
+// A press on the order control: the list is drawn in that order, remembered for this browser, with the control where it
+// stood under the pointer - a card kept in place (lazyCards) would scroll it away - and its button keeps the focus (it
+// is not redrawn).
+/** @param order - a LIST_ORDER value */
+function setListOrder(order) {
+  const next = listOrderOf(order);
+  if (next === ORDER) return;
+  setOrder(next);
+  savePrefs({ order: next });
+  const control = $('#list-order'),
+    y = control.getBoundingClientRect().top;
+  drawPins();
+  listScroller().scrollTop += control.getBoundingClientRect().top - y;
+}
+// The scroller's height changed (a window, the sheet dragged): the observer's margin follows it.
+if (window.ResizeObserver) {
+  const listResize = new ResizeObserver(() => {
+    const list = $('#list'),
+      width = list.getClientRects().length ? list.clientWidth : 0;
+    if (width && width !== LAZY_WIDTH) lazyAgain();
+    else if (LAZY_IO && listScroller().clientHeight !== LAZY_HEIGHT) lazyWatch();
+  });
+  listResize.observe($('#list'));
+  listResize.observe($('#right'));
+}
+document.fonts.addEventListener('loadingdone', (event) => {
+  if (!$$('#list .pin.card.lazy').length) return;
+  const listFonts = getComputedStyle($('#list')).fontFamily;
+  if (
+    (event).fontfaces.some((face) =>
+      listFonts.includes(face.family.replace(/^["']|["']$/g, '')),
+    )
+  )
+    lazyAgain();
+});
+// A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
+// drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
+// anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
+// focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
+function cardFocusKeep() {
+  const focused = document.activeElement,
+    cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]')) : null;
+  const act = focused && focused.dataset ? focused.dataset.act || '' : '';
+  if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
+  return {
+    el: focused,
+    id: cardElement.dataset.id || '',
+    act,
+    i: [...cardElement.querySelectorAll('[data-act="' + CSS.escape(act) + '"]')].indexOf(focused),
+  };
+}
+function cardFocusBack(kept) {
+  const focused = document.activeElement;
+  if (!kept || (focused && focused !== document.body)) return;
+  if (document.contains(kept.el)) {
+    kept.el.focus({ preventScroll: true });
+    return;
+  } // the edit card or the reply, put back in its slot
+  const cardElement = document.querySelector('#list .pin[data-id="' + CSS.escape(kept.id) + '"]'),
+    same = cardElement ? cardElement.querySelectorAll('[data-act="' + CSS.escape(kept.act) + '"]') : null;
+  const target = (same && (same[Math.max(0, kept.i)] || same[0]));
+  if (target) target.focus({ preventScroll: true });
+}
+// Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
+// manuscript fingerprint of the build the pin was placed on with the current build). The viewer does not judge it by
+// wall clock - the browser's time zone, a note-only edited_at and a pin placed on a stale PDF would all mislead it -
+// and renders the value it is given.
+function isEstimated(pin) {
+  return pin.est === true;
+}
+document.addEventListener('keydown', markTabKey, true);
+$('#left').addEventListener('focusin', (event) => {
+  const badge = event.target;
+  if (!MARK_TAB || !(badge instanceof HTMLElement) || !badge.matches('.mark button.mark-jump')) return;
+  markReveal(badge);
+});
 if (window.ResizeObserver) {
   const coverResize = new ResizeObserver(markCoversMoved);
   for (const selector of MARK_COVERS) {
