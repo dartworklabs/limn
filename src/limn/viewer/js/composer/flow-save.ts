@@ -21,7 +21,7 @@ import {
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
-import { API_WAIT, api, apiFailed, isApiError } from '../platform/api.ts';
+import { API_WAIT, api, apiFailed, isApiError, isRefusal } from '../platform/api.ts';
 import {
   BANNERS,
   bannerNote,
@@ -359,7 +359,7 @@ async function savePin(verdict?: string) {
   const top = topPinId(); // a save whose answer is lost is looked for above it before it is called a failure
   try {
     let status = 0,
-      data = null as any;
+      data: PinSaved | SaveConflict | null = null;
     const ask = {
       body,
       what: verdict ? '판정 저장' : '핀 저장',
@@ -424,10 +424,13 @@ async function savePin(verdict?: string) {
       data = { id: got.id };
       sourceOk('POST /api/pin');
     }
-    if (status === 409) {
-      suggestSaveRefused(selection, data);
+    // the expected 409 (a suggested edit's lines changed meanwhile) is a refusal's body (isRefusal); a pin saved is not
+    if (status === 409 || isRefusal(data)) {
+      suggestSaveRefused(selection, isRefusal(data) ? data : null);
       return;
     }
+    // a 2xx whose body was no JSON names no pin: the save ends as one that failed, unsaid (below)
+    if (!data) throw new Error('POST /api/pin answered no pin');
     const id = data.id,
       failed = BANNERS.get(NOTICE_HOST.COMPOSER);
     if (failed && failed.save) endNotice(failed, false); // this save went through: its earlier failure is over
