@@ -132,7 +132,7 @@ class SnippetBoxes(SnippetBase):
 
     def test_a_line_several_rungs_hold_is_read_once_for_the_whole_answer(self):
         """A ladder of three nested rungs - the dragged line, its paragraph, the float around it - holds L4 in all
-        three and L5 in two: asked once per rung per line that would be 8 calls, each a process; every distinct line
+        three and L5 in two: asked once per rung per line that would be 6 calls, each a process; every distinct line
         of text is asked for once instead, so the per-rung cap bounds the answer too. The float's own \\begin and
         \\end lines (L3, L8) are not asked. This route is what the viewer
         opens an edit card with."""
@@ -273,7 +273,8 @@ class MixedPageSizes(SnippetBase):
         """The piece on page 2 is divided by page 2's width and height: measured against page 1's it would be at
         0.107 x 0.410 of a page it is not on, and clipped to page 1's shorter box. The pieces come page by page, so
         the first is still the top of the range. The range is one whole environment, so L12 and L16, its own \\begin
-        and \\end, are not asked: page 2 holds L15 alone, a lone line grown by a share of its height."""
+        and \\end, are not asked: page 2 holds L15 alone, grown by the range's own 3.0 pt
+        padding, which the 16 pt leading on page 1 gives (measured once over all the range's rows, not per page)."""
         with self.viewed(self.SPLIT):
             body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
         wide = next(lv for lv in body["levels"] if lv["level"] == "env")

@@ -175,7 +175,7 @@ class CachedAcrossRequests(ListingBase):
     pass again for every poll would hold up every other GET in the process."""
 
     def test_the_second_request_for_the_same_build_and_range_runs_synctex_once(self):
-        """Two listings of the same pin on the same build: the five lines are asked for once, not ten times."""
+        """Two listings of the same pin on the same build: the three lines are asked for once, not six times."""
         self.keep_built_source()
         pid = self.add(12, 16)
         with self.viewed(TABLE_BOXES):

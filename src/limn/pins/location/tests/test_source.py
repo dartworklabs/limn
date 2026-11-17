@@ -285,3 +285,21 @@ def test_an_environment_range_answers_two_pieces(monkeypatch):
     """Two is the limit, not what it refuses: a float split across a page break still draws both of its pieces."""
     viewing(monkeypatch, {line: SCATTER_ROWS[line] for line in (2, 3)})
     assert len(for_range(SCATTERED, 1, 5)) == 2
+
+
+def test_a_delimiter_line_that_also_carries_ink_is_still_asked(monkeypatch):
+    """Dropping a delimiter is right only because it has no box of its own. A \\begin line carrying a header row, or
+    an \\end line carrying a last row, has boxes of its own: it is asked, and only a bare delimiter is dropped."""
+    rows = {line: [(1, 56.69, 100.0 + 16.0 * line, 481.89, 11.5)] for line in range(1, 6)}
+    cases = (
+        (["\\begin{tabular}{lcc} Alpha & Beta \\\\", "delta \\\\", "\\end{tabular}"], [1, 2]),
+        (["\\begin{tabular}{lcc}", "delta \\\\", "last row \\\\ \\end{tabular}"], [2, 3]),
+        (["\\begin{itemize}\\item First point", "Second.", "\\end{itemize}"], [1, 2]),
+        (["\\begin{tabular}{lcc} Alpha \\\\", "delta \\\\", "last \\\\ \\end{tabular}"], [1, 2, 3]),
+        (["\\begin{figure}[t]", "delta \\\\", "\\end{figure} % done"], [2]),
+        (["\\begin{tabular}{lcc}", "delta \\\\", "\\end{tabular}"], [2]),
+    )
+    for lines, asked in cases:
+        calls = viewing(monkeypatch, rows)
+        for_range(lines, 1, 3)
+        assert calls == asked, lines

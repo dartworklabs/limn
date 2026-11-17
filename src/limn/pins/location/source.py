@@ -162,6 +162,10 @@ def _page_size(pages: Sequence[tuple[float, float]], page: int) -> tuple[float, 
     return (page_w, page_h) if page_w > 0 and page_h > 0 else None
 
 
+# What may follow an environment's \\begin{name} on a line that is still only its delimiter: its arguments.
+_ENV_ARGS_RE = re.compile(r"(\s*(\[[^\]]*\]|\{[^{}]*\}))*")
+
+
 def environment_delimiters(now: Sequence[str], lo: int, hi: int) -> frozenset[int]:
     """The lines of lo..hi that are the range's own \\begin and \\end, or none when it is not one whole environment.
 
@@ -173,17 +177,31 @@ def environment_delimiters(now: Sequence[str], lo: int, hi: int) -> frozenset[in
     from no other (\\centering, \\caption, \\label, \\includegraphics and the tabular and booktabs lines gave
     none). It is read from the range itself and not from a list of float environments because a listing's binder has
     no such list. A one-line environment is not a pair of delimiters - its one line carries the content - and a range
-    that opens one environment and closes another, or only one end, has no pair to drop."""
+    that opens one environment and closes another, or only one end, has no pair to drop.
+
+    Each of the two lines is dropped only when it is the delimiter and nothing else: \\begin{X} followed by at most its
+    own [optional] and {mandatory} arguments, \\end{X} alone. A line that also carries ink (a tabular's header row
+    after its \\begin, a last row before its \\end) has a box of its own, so asking it is right and dropping it would
+    leave the mark short of the range's ink."""
     if lo >= hi:
         return frozenset()
-    first = list(ENV_TOK_RE.finditer(strip_comment(now[lo - 1]).strip()))
-    last = list(ENV_TOK_RE.finditer(strip_comment(now[hi - 1]).strip()))
+    top = strip_comment(now[lo - 1]).strip()
+    bottom = strip_comment(now[hi - 1]).strip()
+    first = list(ENV_TOK_RE.finditer(top))
+    last = list(ENV_TOK_RE.finditer(bottom))
     if not first or not last:
         return frozenset()
     opens, closes = first[0], last[-1]
     if opens.group(1) != "begin" or opens.start() != 0 or closes.group(1) != "end":
         return frozenset()
-    return frozenset((lo, hi)) if opens.group(2).strip() == closes.group(2).strip() else frozenset()
+    if opens.group(2).strip() != closes.group(2).strip():
+        return frozenset()
+    own: set[int] = set()
+    if _ENV_ARGS_RE.fullmatch(top, opens.end()):
+        own.add(lo)
+    if closes.start() == 0 and closes.end() == len(bottom):
+        own.add(hi)
+    return frozenset(own)
 
 
 def boxes_for_range(
