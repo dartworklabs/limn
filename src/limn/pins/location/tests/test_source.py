@@ -138,11 +138,21 @@ def test_build_copy_name_falls_back_to_the_checkout_path_outside_the_build_root(
     assert source.build_copy_name(build, src, beside) == str(beside)
 
 
-def test_boxes_for_range_answers_nothing_for_a_page_of_no_size(monkeypatch):
+def test_boxes_for_range_answers_nothing_when_no_page_has_a_size(monkeypatch):
     """A page width or height of zero means a broken page list, not a mark to draw: every other box path fails soft,
-    so this one answers no boxes instead of dividing - and spawns no process to do it."""
+    so a build whose pages all read that way answers no boxes instead of dividing - and spawns no process to do it."""
     calls = []
     monkeypatch.setattr(source, "synctex_view", lambda *a: calls.append(a) or [])
-    for size in ((0.0, 800.0), (600.0, 0.0), (-1.0, 800.0)):
-        assert source.boxes_for_range(Path("main.pdf"), "main.tex", None, ["text"], 1, 1, *size, 8) == ()
+    for pages in ([(0.0, 800.0)], [(600.0, 0.0)], [(-1.0, 800.0)], []):
+        assert source.boxes_for_range(Path("main.pdf"), "main.tex", None, ["text"], 1, 1, pages, 8) == ()
     assert calls == []
+
+
+def test_boxes_for_range_drops_the_boxes_of_a_page_it_has_no_size_for(monkeypatch):
+    """SyncTeX names a page the page list does not size - a .synctex.gz older than the page images, a manifest that
+    sized a page at zero: those boxes cannot become fractions of anything, so they are left out while the pages that
+    do have a size still answer."""
+    rows = [(1, 10.0, 20.0, 30.0, 10.0), (2, 10.0, 20.0, 30.0, 10.0), (3, 10.0, 20.0, 30.0, 10.0)]
+    monkeypatch.setattr(source, "synctex_view", lambda *a: rows)
+    pieces = source.boxes_for_range(Path("main.pdf"), "main.tex", None, ["text"], 1, 1, [(100.0, 100.0), (0.0, 0.0)], 8)
+    assert [page for page, _ in pieces] == [1]

@@ -51,7 +51,7 @@ class PinLocationService:
         if on_screen is not None:
             publication = ctx.builds.publication(doc, on_screen.build, ctx.state)
             built = publication.built_lines(rng.file)
-            boxes = range_boxes(doc, rng.file, rng.lines, built, publication.pdf, on_screen.size)
+            boxes = range_boxes(doc, rng.file, built, rng.lines, publication.pdf, on_screen.pages)
         return source_range.snippet_api(rng, levels, ctx.envs, source_ladder, text, boxes)
 
     def overlaps(self, rng: SourceRange) -> dict[str, Any]:

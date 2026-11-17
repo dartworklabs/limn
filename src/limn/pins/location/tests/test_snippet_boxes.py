@@ -30,15 +30,30 @@ from helpers import TEX, Base, ps, req, split_resp
 
 PAGE_PX = (1500, 1000)  # the page image the build on screen left
 PAGE_W, PAGE_H = 720.0, 480.0  # its size in points at the fixture's 150 dpi
+PAGES = ((PAGE_W, PAGE_H),)  # that build's pages, as a request and a snippet's answer carry them
+# A second page of another size, as a landscape appendix or an \includepdf page leaves: 480 x 960 pt.
+TALL_PX = (1000, 2000)
+TALL_W, TALL_H = 480.0, 960.0
 # One box per line of the manuscript's table (L12-L16), 16 pt apart - the leading the mark's padding is measured from.
 TABLE_BOXES = {line: (1, 60.0, 100.0 + 16.0 * (line - 12), 300.0, 10.0) for line in range(12, 17)}
 # A row added inside the tabular after the build read the file: its line is one no build ever read.
 INSERTED = "cell deltaunique \\\\\nextra row epsilonrow \\\\"
+# A manuscript whose ladder for L4 is three nested rungs: the line (4), its paragraph (4-5), the float (3-8).
+NESTED = """\\documentclass{article}
+\\begin{document}
+\\begin{figure}
+Alpha one uniquealpha.
+Alpha two uniquebeta.
+
+Beta three uniquegamma.
+\\end{figure}
+\\end{document}
+"""
 
 
-def frac(x, y, w, h):
-    """A box in points as the answer gives it: page-relative [x, y, w, h] of a PAGE_W x PAGE_H page."""
-    return [x / PAGE_W, y / PAGE_H, w / PAGE_W, h / PAGE_H]
+def frac(x, y, w, h, page_w=PAGE_W, page_h=PAGE_H):
+    """A box in points as the answer gives it: page-relative [x, y, w, h] of a page_w x page_h page."""
+    return [x / page_w, y / page_h, w / page_w, h / page_h]
 
 
 def paragraph(rows):
@@ -98,9 +113,8 @@ class SnippetBoxes(SnippetBase):
 
     def test_every_rung_carries_the_boxes_of_its_own_range(self):
         """The ladder of L14 is the cell's own line and the table around it: each rung's mark covers that rung's own
-        lines, so the wider rung starts higher on the page and is taller - and each rung's text lines are what was
-        asked for, in ladder order. The single line is grown by a share of its height, the five by half the blank
-        their 16 pt leading leaves."""
+        lines, so the wider rung starts higher on the page and is taller. The single line is grown by a share of its
+        height, the five by half the blank their 16 pt leading leaves."""
         with self.viewed(TABLE_BOXES):
             body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
         self.assertEqual(
@@ -113,7 +127,19 @@ class SnippetBoxes(SnippetBase):
                 [{"page": 1, "frac": frac(57.0, 97.0, 306.0, 80.0)}],
             ],
         )
-        self.assertEqual(self.calls, [(self.built_tex(), line) for line in (14, 12, 13, 14, 15, 16)])
+        self.assertEqual(sorted(line for _, line in self.calls), [12, 13, 14, 15, 16])
+
+    def test_a_line_several_rungs_hold_is_read_once_for_the_whole_answer(self):
+        """A ladder of three nested rungs - the dragged line, its paragraph, the float around it - holds L4 in all
+        three and L5 in two: asked once per rung per line that would be 8 calls, each a process; every distinct line
+        of text is asked for once instead, so the per-rung cap bounds the answer too. This route is what the viewer
+        opens an edit card with."""
+        self.write(NESTED)
+        with self.viewed():
+            body = self.snippet("file=main.tex&lo=4&hi=4&levels=1")
+        rungs = [(lv["level"], lv["lo"], lv["hi"]) for lv in body["levels"]]
+        self.assertEqual(rungs, [("raw", 4, 4), ("para", 4, 5), ("env", 3, 8)])
+        self.assertEqual(self.calls, [(self.built_tex(), line) for line in (4, 5, 3, 7, 8)])
 
     def test_a_rung_has_no_boxes_when_the_forward_pass_is_silent(self):
         """A build whose .synctex.gz is gone or holds nothing for those lines: the key is absent from every rung,
@@ -135,7 +161,7 @@ class SnippetBoxes(SnippetBase):
     def test_a_rung_and_a_pick_answer_the_same_boxes_for_the_same_range(self):
         """The same file and the same lo..hi give the same mark through both paths: a drag traced to the table and the
         snippet of the lines that drag answered carry the same pieces (Review Focus 4)."""
-        request = location_input.PickRequest(self.pages, 1, (10.0, 20.0, 150.0, 60.0), (PAGE_W, PAGE_H), None)
+        request = location_input.PickRequest(self.pages, 1, (10.0, 20.0, 150.0, 60.0), (PAGE_W, PAGE_H), None, PAGES)
         with self.viewed(TABLE_BOXES):
             with (
                 mock.patch.object(pick_source, "by_synctex", return_value=(self.built_tex(), 14, 14)),
@@ -201,12 +227,12 @@ class SnippetBoxes(SnippetBase):
 
         with mock.patch.object(pick_source, "boxes_for_range", record):
             self.snippet("file=main.tex&lo=14&hi=14&levels=1")
-        pdf, tex, built, now, lo, hi, page_w, page_h, limit = asked[0]
+        pdf, tex, built, now, lo, hi, pages, limit, _view = asked[0]
         self.assertEqual((pdf, tex), (self.pages / self.D.pdf_name, self.built_tex()))
         self.assertEqual((len(built), len(now)), (20, 21))
         self.assertNotIn("epsilonrow", "\n".join(built))
         self.assertIn("epsilonrow", "\n".join(now))
-        self.assertEqual((lo, hi, page_w, page_h, limit), (14, 14, PAGE_W, PAGE_H, BOX_LIMIT))
+        self.assertEqual((lo, hi, tuple(pages), limit), (14, 14, PAGES, BOX_LIMIT))
 
     def test_the_default_provider_of_snippet_api_adds_nothing(self):
         """A caller with no build facts (the pure callers of range.snippet_api) answers exactly the ladder it did
@@ -215,6 +241,58 @@ class SnippetBoxes(SnippetBase):
         plain = source_range.snippet_api(rng, True, ps.APP.C.envs)
         self.assertEqual(plain, source_range.snippet_api(rng, True, ps.APP.C.envs, boxes=source_range.no_boxes))
         self.assertEqual([lv for lv in plain["levels"] if "boxes" in lv], [])
+
+
+class MixedPageSizes(SnippetBase):
+    """A build whose two pages are different sizes - a landscape appendix, an \\includepdf page - with the table's
+    first three lines printing on page 1 and its last two on page 2."""
+
+    # The range's boxes, 16 pt apart on each page: L12-L14 on page 1, L15-L16 on the narrower, taller page 2.
+    SPLIT = {
+        12: (1, 60.0, 100.0, 300.0, 10.0),
+        13: (1, 60.0, 116.0, 300.0, 10.0),
+        14: (1, 60.0, 132.0, 300.0, 10.0),
+        15: (2, 80.0, 200.0, 200.0, 10.0),
+        16: (2, 80.0, 216.0, 200.0, 10.0),
+    }
+    # What they merge into: one piece per page, each grown by the 3.0 pt padding the range's 16 pt leading gives.
+    PIECES = [
+        {"page": 1, "frac": frac(57.0, 97.0, 306.0, 48.0)},
+        {"page": 2, "frac": frac(77.0, 197.0, 206.0, 32.0, TALL_W, TALL_H)},
+    ]
+
+    def setUp(self):
+        """A second page image of another size beside the first."""
+        super().setUp()
+        (self.pages / "page-2.png").write_bytes(helpers_figure.png_header(*TALL_PX))
+
+    def test_each_piece_of_a_mark_is_measured_against_its_own_page(self):
+        """The piece on page 2 is divided by page 2's width and height: measured against page 1's it would be at
+        0.107 x 0.410 of a page it is not on, and clipped to page 1's shorter box. The pieces come page by page, so
+        the first is still the top of the range."""
+        with self.viewed(self.SPLIT):
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+        wide = next(lv for lv in body["levels"] if lv["level"] == "env")
+        self.assertEqual(wide["boxes"], self.PIECES)
+        self.assertNotEqual(self.PIECES[1]["frac"], frac(77.0, 197.0, 206.0, 32.0))  # not page 1's size
+
+    def test_a_rung_and_a_pick_agree_on_a_document_whose_pages_differ(self):
+        """A drag made on page 2 and the snippet of the lines it answered carry the same pieces, though the pick
+        knows the page dragged on and the snippet knows none: both measure each piece against its own page."""
+        pages = (PAGES[0], (TALL_W, TALL_H))
+        request = location_input.PickRequest(self.pages, 2, (10.0, 20.0, 150.0, 60.0), (TALL_W, TALL_H), None, pages)
+        with self.viewed(self.SPLIT):
+            with (
+                mock.patch.object(pick_source, "by_synctex", return_value=(self.built_tex(), 14, 14)),
+                mock.patch.object(pick_source, "region_text", return_value=""),
+            ):
+                picked = pick_resolve.pick(self.D, request, ps.APP.location_service.context())
+            body = location_http.pick_answer(picked)
+            rungs = self.snippet("file=main.tex&lo=%d&hi=%d&levels=1" % (body["lo"], body["hi"]))["levels"]
+        default = next(lv for lv in body["levels"] if lv["level"] == body["default_level"])
+        same_range = next(lv for lv in rungs if (lv["lo"], lv["hi"]) == (body["lo"], body["hi"]))
+        self.assertEqual(default["boxes"], self.PIECES)
+        self.assertEqual(same_range["boxes"], default["boxes"])
 
 
 class FigureSnippetBoxes(SnippetBase):

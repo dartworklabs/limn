@@ -66,17 +66,17 @@ def overlaps(app: LocationApp, doc: Doc, query: Query) -> Body:
 
 
 def _page_on_screen(facts: DocumentFacts) -> PageOnScreen | None:
-    """The build on screen and the page size one answer's marks are fractions of, or None when the document has no
+    """The build on screen and the pages one answer's marks are measured against, or None when the document has no
     page to measure against (never built, a document the viewer draws from its source, a build slimmed to nothing).
 
-    One size for the whole answer, as a pick uses the size of the page the drag was made on: a snippet names a file
-    and a line range, never a page, and looking a size up per piece would cost a read per rung for a difference only a
-    document of mixed page sizes ever shows."""
+    Every page, not one: the sizes come in a single read (limn.builds.document_facts.DocumentFacts.pick_pages) that a
+    snippet makes anyway, and each piece of a mark is measured against the page it prints on - a document whose pages
+    differ in size would otherwise have its marks placed and clipped by the first page's box."""
     found = facts.pick_pages(None)
     if found is None:
         return None
     pdir, pages = found
-    return PageOnScreen(pdir.name, pages[0]) if pages else None
+    return PageOnScreen(pdir.name, tuple(pages)) if pages else None
 
 
 # The sentences a pick's `warn` is made of (a UI hint in a 200 body, not an error). The viewer translates each by its

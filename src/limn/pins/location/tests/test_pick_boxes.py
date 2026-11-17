@@ -26,6 +26,7 @@ from helpers import TEX, Base, ps
 
 # The page the drag is made on, and one line box per line of the range, whose fractions of that page are short decimals.
 PAGE_W, PAGE_H = 600.0, 800.0
+PAGES = ((PAGE_W, PAGE_H),)  # the build's one page, as the request carries every page's size
 TWO_LINES = {8: (1, 60.0, 100.0, 300.0, 10.0), 9: (1, 60.0, 116.0, 300.0, 10.0)}
 # What those two boxes become: joined, grown by the 3.0 pt padding their 16 pt leading gives, as page fractions.
 ONE_PIECE = [{"page": 1, "frac": [0.095, 0.12125, 0.51, 0.04]}]
@@ -99,7 +100,7 @@ class PickBoxes(Base):
     def picked(self, lo, hi, text=""):
         """pick for a box on page 1 of the build on screen, SyncTeX answering lines lo..hi of the build copy's
         main.tex and pdftotext printing text ("" - a region whose words decide nothing, so SyncTeX's range wins)."""
-        request = location_input.PickRequest(self.pages, 1, (10.0, 20.0, 150.0, 60.0), (PAGE_W, PAGE_H), None)
+        request = location_input.PickRequest(self.pages, 1, (10.0, 20.0, 150.0, 60.0), (PAGE_W, PAGE_H), None, PAGES)
         with (
             mock.patch.object(pick_source, "by_synctex", return_value=(str(self.D.build / "main.tex"), lo, hi)),
             mock.patch.object(pick_source, "region_text", return_value=text),
@@ -233,7 +234,9 @@ class PickOutsideTheBuildRoot(Base):
             calls.append((tex, line))
             return []
 
-        request = location_input.PickRequest(D.dir / "pages", 1, (10.0, 20.0, 150.0, 60.0), (PAGE_W, PAGE_H), None)
+        request = location_input.PickRequest(
+            D.dir / "pages", 1, (10.0, 20.0, 150.0, 60.0), (PAGE_W, PAGE_H), None, PAGES
+        )
         with (
             mock.patch.object(pick_source, "by_synctex", return_value=(str(shared), 8, 9)),
             mock.patch.object(pick_source, "region_text", return_value=""),

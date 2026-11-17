@@ -488,8 +488,10 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
 
 
 def rung_ladder(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequence[str]) -> tuple[list[Level], Level, str]:
-    """The range ladder as values - every rung, the default rung, the kind: dragged line / paragraph (trailing comments excluded) / enclosing environments, innermost to outermost, up to 3 levels. envs are the float
-    environments (--float-envs) a selection expands to.
+    """The range ladder as values: every rung, the default rung, and the kind.
+
+    The rungs are the dragged line / the paragraph (trailing comments excluded) / the enclosing environments,
+    innermost to outermost, up to 3 levels. envs are the float environments (--float-envs) a selection expands to.
 
     Snippets are included up front so the client can switch levels without a server round trip. There is no
     section level - that would easily produce hundred-line ranges, against the "hand over only a line range" principle."""

@@ -5,9 +5,10 @@ import html
 import re
 import subprocess
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import TypeAlias
 
 from limn.pins.location.mapping import (
     FORWARD_LINES_MAX,
@@ -119,6 +120,12 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
 # SyncTeX the other way round: a pin's mark is the area its line range covers on the page, so an answer that
 # carries a mark asks here (docs/adr/0045-pin-marks-follow-the-range.md).
 
+# Reads the PDF boxes of one source line the way synctex_view does: (pdf, the name the build knows the file by, line)
+# -> that line's boxes in points. boxes_for_range takes one so a caller can answer from lines it has already read -
+# limn.pins.location.resolve.range_boxes memoizes one answer's lines this way, because the ladder's rungs nest and
+# would otherwise ask the same line once per rung.
+LineBoxes: TypeAlias = Callable[[Path, str, int], list[Box]]
+
 
 def build_copy_name(build: Path, src: Path, file: Path) -> str:
     """The name `synctex view -i` selects the manuscript file `file` by: that file as it lies inside the build copy
@@ -142,6 +149,17 @@ def build_copy_name(build: Path, src: Path, file: Path) -> str:
         return str(file)
 
 
+def _page_size(pages: Sequence[tuple[float, float]], page: int) -> tuple[float, float] | None:
+    """The (width, height) in points of page `page` (1-based) of a build, or None when the page list has no usable
+    size for it: a page number beyond the pages that build left (a .synctex.gz older than the page images), or one the
+    build's own manifest sized at zero. Its boxes are then dropped rather than divided by, which is how every other
+    box path answers what it cannot place."""
+    if not 1 <= page <= len(pages):
+        return None
+    page_w, page_h = pages[page - 1]
+    return (page_w, page_h) if page_w > 0 and page_h > 0 else None
+
+
 def boxes_for_range(
     pdf: Path,
     tex: str,
@@ -149,18 +167,30 @@ def boxes_for_range(
     now: Sequence[str],
     lo: int,
     hi: int,
-    page_w: float,
-    page_h: float,
+    pages: Sequence[tuple[float, float]],
     limit: int,
+    view: LineBoxes | None = None,
 ) -> tuple[MarkPiece, ...]:
     """Where lines lo..hi (1-based, inclusive) of the file as it is today (now) print on the PDF of the build that
-    read `built`: the mark's pieces as (page, frac) pairs, each frac a box in fractions of the page page_w x page_h.
-    Empty when there is no answer, and the mark then falls back to the rectangle that was dragged.
+    read `built`: the mark's pieces as (page, frac) pairs, each frac a box in fractions of its own page. Empty when
+    there is no answer, and the mark then falls back to the rectangle that was dragged.
 
     Every answer that carries a mark computes it here - a pick's default range and each rung of a snippet - so the
     same lines of the same file always draw the same box (docs/adr/0045-pin-marks-follow-the-range.md). `tex` is the
-    name SyncTeX selects the file by (build_copy_name) and `limit` the most pieces a mark may have, which the caller
-    owns.
+    name SyncTeX selects the file by (build_copy_name), `pages` every page of that build as (width, height) in points
+    with page 1 first, `limit` the most pieces a mark may have, and `view` an already-read answer for a line
+    (LineBoxes; synctex_view itself when None).
+
+    Each page is measured by its own size: the body-box filter against that page's height, the joining and the clip
+    against that page's box, and the fractions by that page's width and height. A document with a landscape appendix
+    or an \\includepdf page has pages of different sizes, and one size for the whole answer would put every mark on
+    such a page in the wrong place and clip it to the first page's box - and would answer a pick (which knows the
+    page dragged on) and a snippet (which knows no page) different fractions for the same lines. The padding stays
+    one leading for the whole range, measured over every page's boxes: it is a property of the text, and
+    mapping.range_pad only ever compares boxes on one page anyway. The piece count is the whole answer's, checked
+    after the pages are joined, so a range that crosses a page cannot answer twice the limit; the pieces come page by
+    page in ascending order, so the (page, y, x) order inside a page is the order of the answer, and the first piece
+    is still the top of the range.
 
     The range is one the agent receives - a pick's default level, a rung of the ladder - not SyncTeX's own narrower
     range, and the text path has none at all. So it is read back into the lines that build read
@@ -174,10 +204,10 @@ def boxes_for_range(
     answered 17 boxes which were the printed lines of the paragraph *before* it (another answered 44, the page and
     column bodies among them). They are ordinary text boxes, so the height filter leaves them, and the 3.12 pt between
     them and the real paragraph is inside the adjacency threshold - the mark would have become one piece covering both
-    paragraphs. Over FORWARD_LINES_MAX lines of text the range is left unmarked rather than paid for. A page of no
-    width or height is a broken page list rather than a mark to draw, and is answered like every other box path that
-    has no answer: with none, and without running the tool."""
-    if page_w <= 0 or page_h <= 0:
+    paragraphs. Over FORWARD_LINES_MAX lines of text the range is left unmarked rather than paid for. A build whose
+    page list holds no usable size at all is a broken manifest rather than a mark to draw, and is answered like every
+    other box path that has no answer: with none, and without running the tool."""
+    if not any(page_w > 0 and page_h > 0 for page_w, page_h in pages):
         return ()
     lo, hi = max(1, lo), min(hi, len(now))
     if lo > hi:
@@ -189,12 +219,29 @@ def boxes_for_range(
     asked = [i + shift for i in range(lo, hi + 1) if strip_comment(now[i - 1]).strip()]
     if not asked or len(asked) > FORWARD_LINES_MAX:
         return ()
+    read = synctex_view if view is None else view
     rows: list[Box] = []
     for line in asked:
-        rows.extend(synctex_view(pdf, tex, line))
-    kept = line_boxes(rows, page_h)
-    pieces = merge_boxes(kept, range_pad(kept), page_w, page_h, limit)
-    return tuple((page, (x / page_w, y / page_h, w / page_w, h / page_h)) for page, x, y, w, h in pieces)
+        rows.extend(read(pdf, tex, line))
+    sizes: dict[int, tuple[float, float]] = {}
+    on_page: dict[int, list[Box]] = {}
+    for row in rows:
+        size = _page_size(pages, row[0])
+        if size is None:  # a page the build has no usable size for: its boxes cannot become fractions of anything
+            continue
+        sizes[row[0]] = size
+        on_page.setdefault(row[0], []).append(row)
+    kept = {page: line_boxes(here, sizes[page][1]) for page, here in on_page.items()}
+    pad = range_pad([row for page in sorted(kept) for row in kept[page]])
+    pieces: list[MarkPiece] = []
+    for page in sorted(kept):
+        here = kept[page]
+        page_w, page_h = sizes[page]
+        # len(here) as the per-page cap: the limit is the whole answer's, checked below, and a page never merges into
+        # more pieces than it has boxes, so this call never gives up on its own.
+        for _, x, y, w, h in merge_boxes(here, pad, page_w, page_h, len(here)):
+            pieces.append((page, (x / page_w, y / page_h, w / page_w, h / page_h)))
+    return () if len(pieces) > limit else tuple(pieces)
 
 
 # ---------------------------------------------------------------- Reverse mapping 2: rendered text

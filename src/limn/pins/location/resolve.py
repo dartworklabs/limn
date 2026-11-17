@@ -10,6 +10,7 @@ from limn.pins.element import PinElement
 from limn.pins.location import figure, source
 from limn.pins.location.mapping import (
     BOX_LIMIT,
+    Box,
     MarkPiece,
     Traced,
     carry_range,
@@ -27,8 +28,8 @@ from limn.runtime.documents import Doc, to_source
 
 class Selection(Protocol):
     """A validated drag (limn.pins.location.input.PickRequest): the page directory it is traced in, the page (1-based), the box
-    (x0, y0, x1, y1) in points clamped to the page, the page size (width, height) in points, and the viewer's frac as
-    sent (None if absent)."""
+    (x0, y0, x1, y1) in points clamped to the page, the page size (width, height) in points, the viewer's frac as
+    sent (None if absent), and every page of that build."""
 
     @property
     def pdir(self) -> Path:
@@ -55,6 +56,12 @@ class Selection(Protocol):
         """The viewer's page-relative box, or None."""
         ...
 
+    @property
+    def pages(self) -> Sequence[tuple[float, float]]:
+        """Every page of the build dragged on, (width, height) in points, page 1 first: the mark's pieces are
+        measured against the page each one is on, which is not always the page dragged on."""
+        ...
+
 
 @dataclass(frozen=True)
 class PickContext:
@@ -74,15 +81,17 @@ class PickContext:
 
 @dataclass(frozen=True)
 class PageOnScreen:
-    """The one page size an answer measures its marks against, and the build those pages belong to: the name of the
-    page directory on screen and the (width, height) in points of its first page.
+    """The pages an answer measures its marks against: the name of the page directory on screen and every page of
+    that build as (width, height) in points, page 1 first.
 
-    A snippet names no page - it is a file and a line range - so the run reads the build on screen and takes one page
-    size for the whole answer, as a pick takes the size of the page the drag was made on. A document with no pages has
-    none of this and answers no marks (limn.pins.location.http.snippet)."""
+    A snippet names no page - it is a file and a line range - so it takes the build on screen with all of its pages
+    and measures each piece of a mark against the page that piece is on. One size for the whole answer would misplace
+    every mark on a document whose pages differ in size (a landscape appendix, an \\includepdf page) and would answer
+    fractions a pick, which knows the page dragged on, does not. A document with no pages has none of this and
+    answers no marks (limn.pins.location.http.snippet)."""
 
     build: str
-    size: tuple[float, float]
+    pages: tuple[tuple[float, float], ...]
 
 
 @dataclass(frozen=True)
@@ -247,7 +256,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     traced = trace_range(tw, lines, synctex, ctx.envs)
     if traced is None:
         return NoSourceHere()
-    marks = range_boxes(D, found.path, lines, built, pdf, (pw, ph))
+    marks = range_boxes(D, found.path, built, lines, pdf, request.pages)
 
     return Picked(
         file=found.path,
@@ -268,27 +277,41 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
 def range_boxes(
     D: Doc,
     file: Path,
-    now: Sequence[str],
     built: Sequence[str] | None,
+    now: Sequence[str],
     pdf: Path,
-    size: tuple[float, float],
+    pages: Sequence[tuple[float, float]],
 ) -> RangeBoxes:
     """Where a range of manuscript file `file` prints on `pdf`, bound to the facts of one answer: (lo, hi) -> the
-    mark's pieces, empty when there is none. `now` is the file as it is today, `built` its lines as the build whose
-    PDF this is read them (None when that build kept no record) and `size` the page size the pieces are fractions of.
+    mark's pieces, empty when there is none. `built` is the file as the build whose PDF this is read it (None when
+    that build kept no record), `now` the file as it is today - the same order as source.boxes_for_range takes them,
+    because both are lines of one file and a swap would type-check - and `pages` every page of that build, so each
+    piece can be measured against the page it is on.
 
     Both answers that carry a mark bind it here - POST /api/pick for its default range (above) and GET /api/snippet
     once per rung (service.PinLocationService.snippet) - so the two cannot drift: the PDF, the name the build copy
-    gives the file and the lines that build read are chosen once, in one place, and the computation itself is shared
-    (source.boxes_for_range). Binding also keeps the cost to one read of the build's facts per answer, not one per
-    rung. The mark's piece count is BOX_LIMIT for both; a reader that wants another cap calls the computation
-    directly (docs/adr/0045-pin-marks-follow-the-range.md)."""
+    gives the file, the lines that build read and the page sizes are chosen once, in one place, and the computation
+    itself is shared (source.boxes_for_range). Binding also keeps the cost to one read of the build's facts per
+    answer, not one per rung. The mark's piece count is BOX_LIMIT for both; a reader that wants another cap calls the
+    computation directly (docs/adr/0045-pin-marks-follow-the-range.md).
+
+    A line is read from SyncTeX once per answer, not once per rung: the ladder's rungs nest, so a snippet's three
+    rungs ask for the drag's own line three times and for the paragraph's lines twice, and each call is a process
+    (13 ms measured on a 35-page document). The memo lives in this binding, so it is gone when the answer is - a GET
+    changes nothing that outlives it, and a cache across requests is the pin listing's to add, not this route's."""
     tex = source.build_copy_name(D.build, D.src, file)
-    page_w, page_h = size
+    seen: dict[tuple[str, int], list[Box]] = {}
+
+    def view(on: Path, named: str, line: int) -> list[Box]:
+        """That line's boxes, read once per (file name, line) for this answer."""
+        key = (named, line)
+        if key not in seen:
+            seen[key] = source.synctex_view(on, named, line)
+        return seen[key]
 
     def pieces(lo: int, hi: int) -> tuple[MarkPiece, ...]:
-        """The pieces of lines lo..hi, as fractions of the page."""
-        return source.boxes_for_range(pdf, tex, built, now, lo, hi, page_w, page_h, BOX_LIMIT)
+        """The pieces of lines lo..hi, each as fractions of the page it prints on."""
+        return source.boxes_for_range(pdf, tex, built, now, lo, hi, pages, BOX_LIMIT, view)
 
     return pieces
 
