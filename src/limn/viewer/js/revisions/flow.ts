@@ -40,7 +40,7 @@ import {
   showRenderedCompare,
 } from './view-rendered-compare.ts';
 import { keepSpot, returnToSpot } from '../documents/flow-rebuild.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, findElement } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import {
   DIFF_FORMAT,
@@ -205,7 +205,9 @@ function drawRevisionOther(scope: RevisionOtherScope | null) {
       : '';
   toggle.hidden = !REVISION_VIEW.other;
   if (scope && REVISION_VIEW.other)
-    toggle.querySelector('span').textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', { n: scope.other });
+    findElement(toggle, 'span', HTMLSpanElement).textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', {
+      n: scope.other,
+    });
 }
 function toggleRevisionOther() {
   const toggle = $('#revision-other-toggle'),
@@ -1274,7 +1276,7 @@ function drawPinGuide(message?: string) {
     box,
     html`<span><b>${translateTemplate('핀 #{id}', { id: target.id })}</b> · ${where}${target.ref ? ' · ' + translateTemplate('참조 {ref}', { ref: target.ref }) : ''}${via ? ' · ' + via : ''}</span><span class="rp-msg">${text}${access ? html` <span class="review-access">${access}</span>` : ''}</span>`,
   );
-  box.dataset.id = target.id;
+  box.dataset.id = String(target.id);
   box.hidden = false;
   drawPinGuideActions();
 }
@@ -1307,7 +1309,7 @@ function drawPinGuideActions() {
     html`<button class="btn-sm" data-act="rev-back" data-tip="${back ? translateTemplate('{name} 원고 보기로 돌아갑니다', { name: back }) : translate('원고 보기로 돌아갑니다')}">${back ? translateTemplate('{name}(으)로', { name: back }) : translate('원고로')}</button>${confirmButton}`,
   );
   (narrow ? row : $('#revision-pin')).appendChild(actionBox);
-  row.dataset.id = target.id;
+  row.dataset.id = String(target.id);
   row.hidden = !narrow;
   document.body.classList.toggle('rev-thumb', narrow);
 }
@@ -1493,8 +1495,10 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
     if (status.head && status.head !== id) throw new Error(translate('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings = Array.isArray(status.warnings) ? status.warnings : [];
     warningBox.hidden = !warnings.length;
-    warningBox.querySelector('summary').textContent = translateTemplate('빌드 경고 {n}건 보기', { n: warnings.length });
-    warningBox.querySelector('pre').textContent = warnings.join('\n');
+    findElement(warningBox, 'summary', HTMLElement).textContent = translateTemplate('빌드 경고 {n}건 보기', {
+      n: warnings.length,
+    });
+    findElement(warningBox, 'pre', HTMLPreElement).textContent = warnings.join('\n');
     warningBox.open = false;
     statusBox.textContent = '비교 PDF를 읽는 중입니다.';
     const response = await fetch(withDocQuery('/api/revision-pdf?commit=' + encodeURIComponent(id) + query, docKey));
