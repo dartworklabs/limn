@@ -92,7 +92,7 @@ function drawSelectionPopover() {
     ? translate('찾는 중')
     : isRegion(selection)
       ? translateTemplate('쪽 {page} 영역', { page: selection.page })
-      : selection.name + ' ' + lineRange(selection.lo as number, selection.hi as number);
+      : selection.name + ' ' + lineRange(selection.lo, selection.hi);
   SELECTION_POPOVER_FIELD.placeholder = $('#note').placeholder;
   SELECTION_POPOVER.hidden = false;
   placeSelectionPopover();

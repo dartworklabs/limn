@@ -474,13 +474,14 @@ async function savePin(verdict?: string) {
         };
     const word = verdict ? verdictLabel(verdict) : '',
       figureRoot = verdict ? composerVerdict().figureRoot(selection) : null; // a figure's verdict names the figure
-    const said = figureRoot
-      ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
-          id,
-          word: word,
-          target: composerVerdict().figureShort(selection.page, figureRoot),
-        })
-      : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
+    const said =
+      figureRoot && selection.page !== undefined
+        ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
+            id,
+            word: word,
+            target: composerVerdict().figureShort(selection.page, figureRoot),
+          })
+        : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
     const chip = verdict
       ? undoNote(
           NOTICE_PLACE.CHIP,
@@ -527,12 +528,12 @@ function suggestSaveRefused(selection: ComposerSelection, data: SaveConflict | n
     });
     return;
   }
-  if (COMPOSE.current === selection) {
+  if (COMPOSE.current === selection && typeof selection.lo === 'number' && typeof selection.hi === 'number') {
     setSuggestCurrent({
       text: String(data.current || ''),
       file: selection.file || null,
-      lo: selection.lo as number,
-      hi: selection.hi as number,
+      lo: selection.lo,
+      hi: selection.hi,
     });
     renderSuggest(selection);
   }

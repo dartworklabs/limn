@@ -33,7 +33,7 @@ import { hideTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
 import { applySide, relayout, setSelectMode, setSide } from '../layout/flow.ts';
 import { revealBox } from '../pdf/input-selection.ts';
-import { drawLadder, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
+import { drawLadder, onLines, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
 import { drawExcerpt } from './view-excerpt.ts';
 import { figureRegionBadge, renderElement } from '../pdf/view-figure.ts';
 import { lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
@@ -391,7 +391,7 @@ function renderComposer() {
     pageText +
     (scope ? ' · ' + scope : '') +
     ' · ' +
-    translateTemplate('{n}줄', { n: (selection.hi as number) - (selection.lo as number) + 1 }) +
+    translateTemplate('{n}줄', { n: onLines(selection) ? selection.hi - selection.lo + 1 : NaN }) +
     ' · ' +
     translateTemplate('드래그한 줄 {range}', { range: lineRange(selection.raw_lo, selection.raw_hi) });
   const locationTag = viaTag(selection),

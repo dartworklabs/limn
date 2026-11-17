@@ -499,7 +499,7 @@ function pressedAsOf(pin: Pin) {
 // page's region, else its file and lines.
 function selectionTargetName(selection: ComposerSelection) {
   const figureRoot = figureVerdictRoot(selection);
-  if (figureRoot) return figureName(selection.page, figureRoot);
+  if (figureRoot && selection.page !== undefined) return figureName(selection.page, figureRoot);
   return isRegion(selection)
     ? translateTemplate('{page}쪽 영역', { page: selection.page })
     : selection.name + ' ' + lineRange(selection.lo, selection.hi);
@@ -594,7 +594,12 @@ function renderVerdictRow() {
     !!verdicts &&
     canVerdict() &&
     !$('#composer').hidden &&
-    !(selection && isFigureKind(docKindOf(selection.doc || DOC || '')) && !pageTakesVerdict(selection.page));
+    !(
+      selection &&
+      isFigureKind(docKindOf(selection.doc || DOC || '')) &&
+      selection.page !== undefined &&
+      !pageTakesVerdict(selection.page)
+    );
   row.hidden = !show;
   if (ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.COMPOSER && (!show || !armStillHolds(ARMED_VERDICT)))
     disarmVerdict(false);
@@ -615,7 +620,7 @@ function renderVerdictRow() {
     mark = '\u0001',
     parts = translateTemplate('{name} 전체', { name: mark }).split(mark);
   const scope =
-    figureRoot && selection
+    figureRoot && selection && selection.page !== undefined
       ? html`<span class="vd-scope"> · ${parts[0]}<span class="vd-fig" translate="no">${figureShort(selection.page, figureRoot)}</span>${parts[1] || ''}</span>`
       : isFigureKind(docKindOf((selection && selection.doc) || DOC || '')) && !selection
         ? html`<span class="vd-scope"> · ${translate('그림 전체')}</span>`

@@ -1493,7 +1493,7 @@ async function offlineQueueSave(
   // as placed and points elsewhere. So the record carries the box as page fractions (frac, which every drag has) and
   // the page's size in points on the build it was drawn on, which together rebuild that pick request exactly. The
   // lines a pick already found are kept only to tell the person what the pin used to point at if its place is lost.
-  const pageFacts = META && META.pages && META.pages[selection.page - 1];
+  const pageFacts = META && META.pages && selection.page !== undefined && META.pages[selection.page - 1];
   const found =
     !selection.offline &&
     !isRegion(selection) &&
@@ -1503,9 +1503,8 @@ async function offlineQueueSave(
   // A Markdown or text document has no page: its lines are the place, and the browser drew them from the source it
   // holds. The record keeps those lines' own text, so the send can tell whether they still read the same - and find
   // them again when lines were only added or removed above them.
-  const lined = found && typeof selection.page !== 'number' && MARKDOWN_VIEW.doc === (selection.doc || DOC);
-  const firstLine = selection.lo as number,
-    lastLine = selection.hi as number;
+  const lined =
+    found && selection.page === undefined && MARKDOWN_VIEW.doc === (selection.doc || DOC) ? selection : null;
   const rec: Omit<QueuedPin, 'id'> = {
     v: 1,
     label: META ? META.label : '',
@@ -1528,13 +1527,13 @@ async function offlineQueueSave(
     place: found ? { file: selection.file, name: selection.name, lo: selection.lo, hi: selection.hi } : null,
     lines: lined
       ? {
-          file: selection.file,
-          name: selection.name,
-          lo: firstLine,
-          hi: lastLine,
-          text: MARKDOWN_VIEW.lines.slice(firstLine - 1, lastLine).join('\n'),
-          kind: selection.scope ? kindFor(selection.scope, selection.env) : selection.kind,
-          scope: selection.scope ? wireScope(selection.scope) : null,
+          file: lined.file,
+          name: lined.name,
+          lo: lined.lo,
+          hi: lined.hi,
+          text: MARKDOWN_VIEW.lines.slice(lined.lo - 1, lined.hi).join('\n'),
+          kind: lined.scope ? kindFor(lined.scope, lined.env) : lined.kind,
+          scope: lined.scope ? wireScope(lined.scope) : null,
         }
       : null,
     idem: (tried && tried.idem) || offlineKey(),

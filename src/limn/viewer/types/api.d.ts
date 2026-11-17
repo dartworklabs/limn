@@ -80,7 +80,7 @@ interface Pin {
   kind?: string;
   scope?: string;
   via?: string;
-  score?: number;
+  score?: number | null;
   fill?: number;
   rival?: boolean;
   quote?: string;
@@ -374,7 +374,7 @@ interface Rung {
   n: number;
   label: string;
   snippet: string;
-  env?: string;
+  env?: string | null;
   el?: PinElement;
   merged?: string[];
   score?: number | null;
@@ -400,7 +400,7 @@ interface PickAnswer {
   raw_hi?: number;
   kind: string;
   via?: string;
-  score?: number;
+  score?: number | null;
   fill?: number;
   rival?: boolean;
   warn: string;

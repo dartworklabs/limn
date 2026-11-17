@@ -734,6 +734,8 @@ function relevelForLineView() {
     isRegion(selection) ||
     selection.doc !== DOC ||
     selection.file !== MARKDOWN_VIEW.file ||
+    typeof selection.lo !== 'number' ||
+    typeof selection.hi !== 'number' ||
     !$('#md.md-lines')
   )
     return;
@@ -743,7 +745,7 @@ function relevelForLineView() {
     )
   )
     return;
-  const range = { lo: selection.lo as number, hi: selection.hi as number };
+  const range = { lo: selection.lo, hi: selection.hi };
   selection.levels = markdownLevels(range, null, null);
   selection.raw_lo = range.lo;
   selection.raw_hi = range.hi;
@@ -2292,7 +2294,7 @@ function markdownLevels(
   tapped?: boolean,
 ) {
   if (isTextDoc()) return textSurface().levels(range); // a text document's rungs come from its lines alone
-  const rungs = [] as any[];
+  const rungs: Rung[] = [];
   const add = (level: string, label: string, first: number, last: number, env: string | null) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
     if (same) {
@@ -2353,7 +2355,7 @@ function pickLines(
   const defaultLevel =
     // a tap on a text document picks its line
     tapped && !isTextDoc() && levelOf({ levels }, head ? 'section' : 'block') ? (head ? 'section' : 'block') : 'raw';
-  const selection = {
+  const selection: LinePick = {
     doc: DOC,
     file: MARKDOWN_VIEW.file,
     name: MARKDOWN_VIEW.name,
@@ -2370,7 +2372,7 @@ function pickLines(
     n_lines: MARKDOWN_VIEW.lines.length,
     quote: quoted,
     overlaps: [],
-  } as unknown as ComposerSelection;
+  };
   if (REPICK) {
     setRepickCandidate(REPICK, selection);
     linePick().compare();
