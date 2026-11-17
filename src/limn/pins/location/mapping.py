@@ -258,27 +258,27 @@ def range_pad(rows: Sequence[Box]) -> float:
 
     A text line's box is about 8.86 pt high with about 11.96 pt between baselines in 10 pt body text, so the blank
     between two lines is about 3.10 pt. Half of it on each side makes the boxes of neighbouring lines meet exactly, so
-    a range reads as one block with no stripes, and a mark never reaches into the line above or below it. The blank is
-    measured, as the middle of the gaps between lines of one column, because the leading changes with the font size and
-    the layout. The gap between a column's last line and the next column's first line is not a blank between lines and
-    is left out, as is any gap taller than a line. With no such gap (a single line) the padding is a share of the line's
-    height instead."""
+    a range reads as one block with no stripes, and a mark never reaches into the line above or below it. The padding
+    is measured from the range's own leading, never assumed, because the leading follows the font size and the line
+    spacing: at line spacing 1.8 the blank is 12.66 pt and the padding 6.33 pt, in \\Large text 1.0 pt and 0.50 pt. The
+    line advance is the middle of the steps down from one box to the next in the same column (so one big skip inside a
+    long range does not move it); the blank is that advance less the mean box height. A step that is not downward means
+    the boxes restarted at the top of a column or page, which is no leading, and is left out. With no step (a single
+    line) the padding is a share of the line's height instead."""
     ordered = sorted(rows, key=lambda r: (r[0], r[2], r[1]))
-    gaps = [
-        _gap_below(a, b)
-        for a, b in zip(ordered, ordered[1:], strict=False)
-        if _overlaps_across(a, b) and 0 <= _gap_below(a, b) <= min(a[4], b[4])
-    ]
-    if gaps:
-        return round(_median(gaps) / 2, 2)
+    steps = [b[2] - a[2] for a, b in zip(ordered, ordered[1:], strict=False) if _overlaps_across(a, b) and b[2] > a[2]]
+    if steps:
+        mean_h = sum(row[4] for row in ordered) / len(ordered)
+        return round(max(0.0, (_median(steps) - mean_h) / 2), 2)
     if not ordered:
         return 0.0
     return round(_median([row[4] for row in ordered]) * _LONE_LINE_PAD_SHARE, 2)
 
 
-def _touch(a: Box, b: Box) -> bool:
-    """True when a and b are one block: the same column on one page, with no more than a line's height between them."""
-    return _overlaps_across(a, b) and _gap_below(a, b) <= max(a[4], b[4])
+def _touch(a: Box, b: Box, pad: float) -> bool:
+    """True when a and b are one block: the same column on one page, and the blank between them no wider than the
+    one between two lines of this range - 2 * pad (the leading) plus the taller box."""
+    return _overlaps_across(a, b) and _gap_below(a, b) <= 2 * pad + max(a[4], b[4])
 
 
 def _union(a: Box, b: Box) -> Box:
@@ -291,23 +291,30 @@ def _union(a: Box, b: Box) -> Box:
 def merge_boxes(rows: Sequence[Box], pad: float, page_w: float, page_h: float, limit: int) -> list[Box]:
     """The mark's pieces: line boxes joined into blocks, grown by pad and cut to the page - or [] over limit boxes.
 
-    Boxes join when they lie on one page, their horizontal spans meet and the blank between them is at most a line
-    high: the lines of a paragraph become one block, while a range that runs from one column into the next stays two
-    pieces, one per column, and one that crosses a page stays one per page. The join is repeated until nothing more
-    touches, so a block grows from both ends. Padding is added after joining, and clipped to 0..page_w and 0..page_h
+    Boxes join when they lie on one page, their horizontal spans meet and the blank between them is at most the one between
+    two lines of the range (2 * pad plus the taller box): the lines of a paragraph become one block, while a range that runs from one column into the next stays two
+    pieces, one per column, and one that crosses a page stays one per page. Touching is judged between the
+    boxes as given and joins chain, so a tall block does not widen the threshold for what lies below it. Padding is added after joining, and clipped to 0..page_w and 0..page_h
     so a mark at the page's edge does not leave the page. More than limit pieces is a range scattered over the
     document, and there the mark gives up: [] means "draw nothing", not "nothing found". Pieces are rounded to 2
     decimals and sorted by (page, y, x), so the pin's number badge sits on the first one, the top of the range."""
-    blocks = list(rows)
-    merged = True
-    while merged:
-        merged = False
-        for i, a in enumerate(blocks):
-            j = next((j for j in range(i + 1, len(blocks)) if _touch(a, blocks[j])), None)
-            if j is not None:
-                blocks[i] = _union(a, blocks.pop(j))
-                merged = True
-                break
+    parent = list(range(len(rows)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, a in enumerate(rows):
+        for j in range(i + 1, len(rows)):
+            if _touch(a, rows[j], pad):
+                parent[find(j)] = find(i)
+    groups: dict[int, Box] = {}
+    for i, row in enumerate(rows):
+        root = find(i)
+        groups[root] = _union(groups[root], row) if root in groups else row
+    blocks = list(groups.values())
     grown: list[Box] = []
     for page, x, y, w, h in blocks:
         x0, y0 = max(0.0, x - pad), max(0.0, y - pad)

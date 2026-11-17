@@ -42,6 +42,22 @@ def test_range_pad_ignores_the_gap_between_columns():
     assert range_pad(rows) == 1.55
 
 
+def test_range_pad_follows_loose_line_spacing():
+    # line spacing 1.8: boxes 8.86 high, 12.66 pt of blank between lines
+    rows = [(1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 252.52, 228.6, 8.86)]
+    assert range_pad(rows) == 6.33
+
+
+def test_range_pad_follows_large_text():
+    rows = [(1, 72.0, 231.0, 228.6, 21.0), (1, 72.0, 253.0, 228.6, 21.0)]
+    assert range_pad(rows) == 0.50
+
+
+def test_merge_boxes_joins_a_loosely_spaced_paragraph_into_one_piece():
+    rows = [(1, 72.0, 100.0 + 21.52 * i, 228.6, 8.86) for i in range(10)]
+    assert len(merge_boxes(rows, 6.33, PAGE_W, PAGE_H, 8)) == 1
+
+
 def test_merge_boxes_joins_one_column_and_keeps_two():
     # first column's last line, then the second column's block
     rows = [(1, 72.0, 665.8, 228.6, 8.86), (1, 310.6, 127.9, 228.6, 8.86), (1, 310.6, 139.8, 228.6, 8.86)]
