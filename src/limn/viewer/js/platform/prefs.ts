@@ -13,7 +13,7 @@ function prefs() {
     return {};
   }
 }
-function savePrefs(patch) {
+function savePrefs(patch: Record<string, unknown>) {
   try {
     localStorage.setItem('pinPrefs', JSON.stringify(Object.assign(prefs(), patch)));
   } catch (error) {}
@@ -37,16 +37,16 @@ function savePrefs(patch) {
 // the first load plus everything the section held while expanded - while collapsed, a listed id not in it is counted as
 // 'new N' on the header.
 const SECTION_OPEN_DEFAULT = { open: true, review: true, done: false };
-function readSectionsExpanded(saved) {
-  const expanded = Object.assign({}, SECTION_OPEN_DEFAULT);
+function readSectionsExpanded(saved?: Record<string, unknown> | null) {
+  const expanded: Record<string, boolean> = Object.assign({}, SECTION_OPEN_DEFAULT);
   if (saved && typeof saved === 'object')
     for (const section in SECTION_OPEN_DEFAULT)
       if (typeof saved[section] === 'boolean') expanded[section] = saved[section];
   return expanded;
 }
-function countNewInSection(seen, ids) {
+function countNewInSection(seen: Set<number> | null, ids: number[]) {
   if (!seen) return 0;
-  return ids.filter((id) => !seen.has(id)).length;
+  return ids.filter((id: number) => !seen.has(id)).length;
 }
 let SECTION_OPEN = readSectionsExpanded(prefs().sec);
 const SECTION_SEEN = {
