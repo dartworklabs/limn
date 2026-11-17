@@ -209,6 +209,139 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
     return lo + 1, hi + 1, score_range(tw, lines, lo + 1, hi + 1)
 
 
+# ---------------------------------------------------------------- A pin's mark: boxes on the PDF
+
+# One box on the PDF: (page, x, y, w, h) in PDF points from the page's top left, as SyncTeX's forward search gives it.
+Box: TypeAlias = tuple[int, float, float, float, float]
+
+# The most boxes a pin's mark is drawn with. A range that merges into more pieces than this is scattered over the
+# document (a float's lines and its text far apart); one mark of many bits says less than none.
+BOX_LIMIT = 8
+
+# A box this wide and this tall, as a share of the page, is the page or column body, not a line of text.
+_BODY_WIDTH_SHARE = 0.70
+_BODY_HEIGHT_SHARE = 0.25
+# With a single line there is no blank between lines to measure; the padding is this share of the line's height.
+_LONE_LINE_PAD_SHARE = 0.175
+
+
+def line_boxes(rows: Sequence[Box], page_w: float, page_h: float) -> list[Box]:
+    """The boxes of rows that are lines of text, without the boxes that are the page or a column body.
+
+    SyncTeX answers a line like \\begin{table} with the box of the whole page or column body it opens (observed: a box
+    467 pt wide and 548 pt tall on a 595 x 842 page), and the mark would cover the page. Such a box is told by its
+    size against the page - at least 70% of its width and 25% of its height - and not against the range's other boxes:
+    a table's cells differ wildly in size, so a comparison among them drops real cells or keeps the body. A line of
+    text is never that tall, and a table row or a margin note is only one of the two."""
+    return [row for row in rows if not (row[3] >= _BODY_WIDTH_SHARE * page_w and row[4] >= _BODY_HEIGHT_SHARE * page_h)]
+
+
+def _median(values: Sequence[float]) -> float:
+    """The middle of values (the mean of the two middle ones for an even count); values is not empty."""
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _overlaps_across(a: Box, b: Box) -> bool:
+    """True when a and b lie on one page and their horizontal spans meet - one column, not two."""
+    return a[0] == b[0] and a[1] <= b[1] + b[3] and b[1] <= a[1] + a[3]
+
+
+def _gap_below(a: Box, b: Box) -> float:
+    """The vertical blank between a and b: negative when they overlap."""
+    return max(a[2], b[2]) - min(a[2] + a[4], b[2] + b[4])
+
+
+def range_pad(rows: Sequence[Box]) -> float:
+    """How far to grow a mark's boxes on every side: half the blank between the range's lines, to 2 decimals.
+
+    A text line's box is about 8.86 pt high with about 11.96 pt between baselines in 10 pt body text, so the blank
+    between two lines is about 3.10 pt. Half of it on each side makes the boxes of neighbouring lines meet exactly, so
+    a range reads as one block with no stripes, and a mark never reaches into the line above or below it. The blank is
+    measured, as the middle of the gaps between lines of one column, because the leading changes with the font size and
+    the layout. The gap between a column's last line and the next column's first line is not a blank between lines and
+    is left out, as is any gap taller than a line. With no such gap (a single line) the padding is a share of the line's
+    height instead."""
+    ordered = sorted(rows, key=lambda r: (r[0], r[2], r[1]))
+    gaps = [
+        _gap_below(a, b)
+        for a, b in zip(ordered, ordered[1:], strict=False)
+        if _overlaps_across(a, b) and 0 <= _gap_below(a, b) <= min(a[4], b[4])
+    ]
+    if gaps:
+        return round(_median(gaps) / 2, 2)
+    if not ordered:
+        return 0.0
+    return round(_median([row[4] for row in ordered]) * _LONE_LINE_PAD_SHARE, 2)
+
+
+def _touch(a: Box, b: Box) -> bool:
+    """True when a and b are one block: the same column on one page, with no more than a line's height between them."""
+    return _overlaps_across(a, b) and _gap_below(a, b) <= max(a[4], b[4])
+
+
+def _union(a: Box, b: Box) -> Box:
+    """The smallest box that holds both a and b (on one page)."""
+    x0, y0 = min(a[1], b[1]), min(a[2], b[2])
+    x1, y1 = max(a[1] + a[3], b[1] + b[3]), max(a[2] + a[4], b[2] + b[4])
+    return a[0], x0, y0, x1 - x0, y1 - y0
+
+
+def merge_boxes(rows: Sequence[Box], pad: float, page_w: float, page_h: float, limit: int) -> list[Box]:
+    """The mark's pieces: line boxes joined into blocks, grown by pad and cut to the page - or [] over limit boxes.
+
+    Boxes join when they lie on one page, their horizontal spans meet and the blank between them is at most a line
+    high: the lines of a paragraph become one block, while a range that runs from one column into the next stays two
+    pieces, one per column, and one that crosses a page stays one per page. The join is repeated until nothing more
+    touches, so a block grows from both ends. Padding is added after joining, and clipped to 0..page_w and 0..page_h
+    so a mark at the page's edge does not leave the page. More than limit pieces is a range scattered over the
+    document, and there the mark gives up: [] means "draw nothing", not "nothing found". Pieces are rounded to 2
+    decimals and sorted by (page, y, x), so the pin's number badge sits on the first one, the top of the range."""
+    blocks = list(rows)
+    merged = True
+    while merged:
+        merged = False
+        for i, a in enumerate(blocks):
+            j = next((j for j in range(i + 1, len(blocks)) if _touch(a, blocks[j])), None)
+            if j is not None:
+                blocks[i] = _union(a, blocks.pop(j))
+                merged = True
+                break
+    grown: list[Box] = []
+    for page, x, y, w, h in blocks:
+        x0, y0 = max(0.0, x - pad), max(0.0, y - pad)
+        x1, y1 = min(page_w, x + w + pad), min(page_h, y + h + pad)
+        grown.append((page, round(x0, 2), round(y0, 2), round(x1 - x0, 2), round(y1 - y0, 2)))
+    if len(grown) > limit:
+        return []
+    return sorted(grown, key=lambda b: (b[0], b[2], b[1]))
+
+
+def built_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> tuple[int, int] | None:
+    """The lines of built - a file as a build read it - that hold today's lines lo..hi (1-based, inclusive) of now, or
+    None when they are not there whole.
+
+    This is carry_range turned around: SyncTeX numbers the lines of the file the build read, so a range chosen in
+    today's file must be read back into that file before its boxes are asked for. "Whole" is carry_range's
+    (Carried.whole): every line of lo..hi pairs with a line of built and the paired lines stand next to one another.
+    A range that is only partly there - a line edited or added inside it - would get a box for some of its text and
+    pass it off as the range's, so it gets none. The same rule on both paths, a fresh pick and a stored pin's listing,
+    is what makes them draw the same box instead of flickering between two. A range of blank lines alone is no text
+    either, as in carry_range. lo and hi are cut to 1..len(now) first."""
+    lo, hi = max(1, lo), min(hi, len(now))
+    if lo > hi:
+        return None
+    built_at = {j: i for i, j in enumerate(paired_lines(built, now)) if j is not None}
+    places = [built_at.get(j) for j in range(lo - 1, hi)]
+    if None in places:
+        return None
+    found = [i for i in places if i is not None]
+    if found[-1] - found[0] != hi - lo or not any(now[j].strip() for j in range(lo - 1, hi)):
+        return None
+    return found[0] + 1, found[-1] + 1
+
+
 # ---------------------------------------------------------------- Block expansion and the range ladder
 
 WITHOUT_TEXT_RE = re.compile(r"\s*(\\end\{[^{}]*\}\W*)?")  # blank, or the end of an environment
