@@ -4769,7 +4769,9 @@ function drawRevisionOther(scope) {
       : '';
   toggle.hidden = !REVISION_VIEW.other;
   if (scope && REVISION_VIEW.other)
-    toggle.querySelector('span').textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', { n: scope.other });
+    findElement(toggle, 'span', HTMLSpanElement).textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', {
+      n: scope.other,
+    });
 }
 function toggleRevisionOther() {
   const toggle = $('#revision-other-toggle'),
@@ -5832,7 +5834,7 @@ function drawPinGuide(message) {
     box,
     html`<span><b>${translateTemplate('핀 #{id}', { id: target.id })}</b> · ${where}${target.ref ? ' · ' + translateTemplate('참조 {ref}', { ref: target.ref }) : ''}${via ? ' · ' + via : ''}</span><span class="rp-msg">${text}${access ? html` <span class="review-access">${access}</span>` : ''}</span>`,
   );
-  box.dataset.id = target.id;
+  box.dataset.id = String(target.id);
   box.hidden = false;
   drawPinGuideActions();
 }
@@ -5865,7 +5867,7 @@ function drawPinGuideActions() {
     html`<button class="btn-sm" data-act="rev-back" data-tip="${back ? translateTemplate('{name} 원고 보기로 돌아갑니다', { name: back }) : translate('원고 보기로 돌아갑니다')}">${back ? translateTemplate('{name}(으)로', { name: back }) : translate('원고로')}</button>${confirmButton}`,
   );
   (narrow ? row : $('#revision-pin')).appendChild(actionBox);
-  row.dataset.id = target.id;
+  row.dataset.id = String(target.id);
   row.hidden = !narrow;
   document.body.classList.toggle('rev-thumb', narrow);
 }
@@ -6051,8 +6053,10 @@ async function loadRevisionPdf(id, seq, docKey) {
     if (status.head && status.head !== id) throw new Error(translate('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings = Array.isArray(status.warnings) ? status.warnings : [];
     warningBox.hidden = !warnings.length;
-    warningBox.querySelector('summary').textContent = translateTemplate('빌드 경고 {n}건 보기', { n: warnings.length });
-    warningBox.querySelector('pre').textContent = warnings.join('\n');
+    findElement(warningBox, 'summary', HTMLElement).textContent = translateTemplate('빌드 경고 {n}건 보기', {
+      n: warnings.length,
+    });
+    findElement(warningBox, 'pre', HTMLPreElement).textContent = warnings.join('\n');
     warningBox.open = false;
     statusBox.textContent = '비교 PDF를 읽는 중입니다.';
     const response = await fetch(withDocQuery('/api/revision-pdf?commit=' + encodeURIComponent(id) + query, docKey));
@@ -9071,8 +9075,6 @@ function buildUnchanged(build) {
 // [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
-    spoken = box.querySelector('.st-sr'),
-    body = box.querySelector('.st-body'),
     running = !!BUILD.cur;
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
@@ -9090,7 +9092,7 @@ function drawStatus() {
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
-    const tail = rebuildRow.querySelector('.m-tail');
+    const tail = findMaybe(rebuildRow, '.m-tail', HTMLElement);
     if (tail) tail.hidden = !running;
   }
   document.body.classList.toggle('has-status', !!top);
@@ -9101,10 +9103,10 @@ function drawStatus() {
   } // its rows changed: placed again once the line is drawn
   if (!top) {
     if (STATUS_SIG) {
-      body.replaceChildren();
+      findElement(box, '.st-body', HTMLElement).replaceChildren();
       STATUS_SIG = '';
     }
-    spoken.textContent = '';
+    findElement(box, '.st-sr', HTMLElement).textContent = '';
     lineVisible(false);
     return;
   } // hidden: it holds nothing
@@ -9128,9 +9130,12 @@ function drawStatus() {
     const bar = running
       ? html`<span class="st-bar" role="progressbar" aria-label="${translate('빌드 진행')}"><i></i></span>`
       : '';
-    setHtml(body, html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);
+    setHtml(
+      findElement(box, '.st-body', HTMLElement),
+      html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`,
+    );
   }
-  const textSpan = box.querySelector('.st-tx'),
+  const textSpan = findElement(box, '.st-tx', HTMLElement),
     long = statusText(top, 'long'),
     short = statusText(top, 'short');
   // the short band's one row always takes the short text
@@ -9141,6 +9146,7 @@ function drawStatus() {
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
   const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
+  const spoken = findElement(box, '.st-sr', HTMLElement);
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
@@ -9149,7 +9155,7 @@ function drawStatus() {
     { done, total } = progress || { done: 0, total: 0 },
     percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
-  bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
+  findElement(bar, 'i', HTMLElement).style.width = percent === null ? '' : percent + '%';
   if (percent === null) {
     bar.removeAttribute('aria-valuenow');
   } else {
@@ -9396,9 +9402,9 @@ function showOutlineWidth(width) {
   width = Math.round(Math.max(bounds.min, Math.min(bounds.max, width)));
   document.documentElement.style.setProperty('--outline-width', width + 'px');
   const grip = $('#outline-grip');
-  grip.setAttribute('aria-valuemin', bounds.min);
-  grip.setAttribute('aria-valuemax', bounds.max);
-  grip.setAttribute('aria-valuenow', width);
+  grip.setAttribute('aria-valuemin', String(bounds.min));
+  grip.setAttribute('aria-valuemax', String(bounds.max));
+  grip.setAttribute('aria-valuenow', String(width));
   return width;
 }
 // Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
@@ -9938,7 +9944,7 @@ function figureTop(pageNumber) {
 }
 // Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
 function goPage(entry) {
-  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
+  arrivePage(parseInt(entry === undefined ? $('#jump').value : String(entry), 10));
 }
 // The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
 // empty or non-number entry, which goes nowhere. Pure.
@@ -13583,7 +13589,6 @@ document.fonts.addEventListener('loadingdone', searchFit);
 // paint waits on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a
 // layout (anchor) and the reset of the gesture state (resetInput).
 // The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
-// The Safari pinch gesture's event, which the DOM library does not have: the scale since it began and the pinch's point.
 const REVISION_ZOOM = {
   ratio: 1,
   fit: 0,
@@ -13986,8 +13991,6 @@ async function paintRevisionPdf() {
 // - A Markdown document (markdown/view.ts) has no pages to scale: every one of these leaves its input to the browser -
 //   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
 //   there).
-// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
-// pinch's scale since it began and where it is.
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event) {
   const key = event.key,
@@ -14327,8 +14330,8 @@ function applySide() {
   for (const toggle of [$('#btn-side'), $('#nav-side')]) {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', toggle.id === 'btn-side' && LAYOUT !== LAYOUT_MODE.WIDE ? sheet : label);
-    toggle.querySelector('.side-n').textContent = pinCount;
-    toggle.querySelector('.c-dot').hidden = !dot;
+    findElement(toggle, '.side-n', HTMLElement).textContent = String(pinCount);
+    findElement(toggle, '.c-dot', HTMLElement).hidden = !dot;
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
@@ -14336,8 +14339,8 @@ function applySide() {
   syncBackLayer();
   frameHost().syncBuildErrorChip();
 }
-// The open handle's hint (the markup's, translated by translate()).
-const GRIP_TIP = $('#grip').dataset.tip;
+// The open handle's hint (the markup's, translated by translate()); empty text if the markup gave none.
+const GRIP_TIP = $('#grip').dataset.tip ?? '';
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
 // wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
 function gripAria() {
@@ -14355,9 +14358,9 @@ function gripAria() {
   grip.setAttribute('aria-label', translate('패널 폭'));
   grip.dataset.tip = translate(GRIP_TIP);
   if (shown) {
-    grip.setAttribute('aria-valuenow', shown.w);
-    grip.setAttribute('aria-valuemin', shown.min);
-    grip.setAttribute('aria-valuemax', shown.max);
+    grip.setAttribute('aria-valuenow', String(shown.w));
+    grip.setAttribute('aria-valuemin', String(shown.min));
+    grip.setAttribute('aria-valuemax', String(shown.max));
   }
 }
 // Opens or collapses the pin panel in every layout (the wide side panel, the mid side or overlay panel, the narrow
@@ -14914,10 +14917,10 @@ function footInk() {
     help = foot && foot.querySelector('[data-act=help]'),
     version = foot && foot.querySelector('.m-ver');
   if (!help || !version) return;
-  const labelText = [...help.childNodes].find((node) => node.nodeType === 3 && node.nodeValue.trim()),
+  const labelText = [...help.childNodes].find((node) => node instanceof Text && node.data.trim() !== ''),
     chevron = help.querySelector('svg');
   if (!labelText) return;
-  const label = labelText.nodeValue.trim(),
+  const label = labelText.data.trim(),
     hangul = hangulOf(label),
     labelInk = inkMetrics(help, label);
   const drops = inkDrops(hangul ? inkMetrics(help, hangul).d : 0, inkMetrics(version, version.textContent.trim()).d);
@@ -14985,7 +14988,7 @@ document.fonts.addEventListener('loadingdone', () => {
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
-  $(dialogSelector).addEventListener('click', (event) => {
+  findElement(document, dialogSelector, HTMLDialogElement).addEventListener('click', (event) => {
     const dialog = event.currentTarget;
     if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
@@ -15716,7 +15719,6 @@ window.addEventListener('popstate', () => {
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
 
-// The mouse press #doc hears: it lands on an element, never on a text node.
 let DRAG = null,
   LONG_PRESS = null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
@@ -15770,7 +15772,8 @@ function cancelLongPress() {
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), so the note field keeps its
 // focus.
 $('#doc').addEventListener('mousedown', (event) => {
-  if (event.button === 0 && event.target.closest('.pg')) event.preventDefault();
+  const target = eventElement(event);
+  if (event.button === 0 && target && target.closest('.pg')) event.preventDefault();
 });
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click
 // that follows the touch would land on it (it would open an edit, switch the kind, focus the note) - that one click is
@@ -16750,7 +16753,8 @@ function applyRange(owner, range, anchor) {
   }
   excerptRedraw(owner);
   const rowAfter = row();
-  if (rowBefore && rowAfter) $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
+  if (rowBefore && rowAfter && topBefore !== null)
+    $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
   refetchSnip(owner, () => excerptRedraw(owner));
 }
 
@@ -32514,7 +32518,7 @@ function drawSelectionPopover() {
     closeSelectionPopover();
     return;
   }
-  const loc = SELECTION_POPOVER.querySelector('.sp-loc');
+  const loc = findElement(SELECTION_POPOVER, '.sp-loc', HTMLElement);
   loc.textContent = !selection
     ? translate('찾는 중')
     : isRegion(selection)
@@ -34708,11 +34712,11 @@ function holdSelectWidth() {
 // (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
 // its width (holdSelectWidth, every band); decoration only - nothing moves.
 function fitBarWords() {
-  const bar = $('#bar1'),
-    leftCell = bar.querySelector('.bar-l');
+  const bar = $('#bar1');
   bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
   holdSelectWidth();
   if (LAYOUT !== LAYOUT_MODE.NARROW) return;
+  const leftCell = findElement(bar, '.bar-l', HTMLElement);
   const over = () => {
     // the last control's edge, not scrollWidth: the hits overflow too
     const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
@@ -34740,7 +34744,7 @@ function updateReviewCount() {
   }
   const reviewButton = $('#btn-rv');
   reviewButton.hidden = !count;
-  reviewButton.querySelector('.rv-c').textContent = count;
+  findElement(reviewButton, '.rv-c', HTMLElement).textContent = String(count);
   // the sheet bar's [검토 M] half: its name starts with what it shows
   reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
   fitBarWords();
@@ -34959,11 +34963,11 @@ function drawPins() {
   const allDocsButton = $('#all-docs');
   allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
   setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
-  $('#side-n').textContent = PINS.length;
+  $('#side-n').textContent = String(PINS.length);
   applySide();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
-  $('#m-trash-n').textContent = trashCount;
+  $('#m-trash-n').textContent = String(trashCount);
   $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
   $('#trash-link').hidden = !trashCount;
   $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
