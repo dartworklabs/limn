@@ -9,7 +9,7 @@
 // timer, request and completion baseline; the error panel follows that visit. BUILD.cur is the running build's last
 // /api/build answer (null when none runs): the status line reads its phase and seconds. BUILD.unchanged is {pull} while
 // the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
-import { BUILD_ERR_BY, DOC, DOC_SEQ, META, SWITCHSEQ, buildsFromSource } from '../app/state.ts';
+import { BUILD_ERR_BY, DOC, DOC_SEQ, META, knownMeta, SWITCHSEQ, buildsFromSource } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { lineNote } from '../platform/notices.ts';
@@ -63,7 +63,8 @@ function resetBuildForDoc() {
   BUILD.unchanged = null;
   $('#build-chip').hidden = true;
   $('#btn-rebuild').disabled = false;
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
+  const meta = knownMeta();
+  BUILD.lastSeq = typeof meta.build_seq === 'number' ? meta.build_seq : 0;
   BUILD.asked = false;
   BUILD.error = BUILD_ERR_BY.get(DOC) || null;
   if (BUILD.error) hideBuildErr();
@@ -174,11 +175,14 @@ async function pollBuildOnce() {
     if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
     const seconds = Math.round(build.elapsed_s || 0);
     if (build.state === BUILD_STATE.OK) {
+      // This tab's rebuild asked for before the first meta came, whose refresh failed too, has no document to word its
+      // end by: it ends here and says nothing, as the build's next poll finds it already seen.
+      if (mine && !META) return;
       if (mine)
         lineNote(
-          translate(!buildsFromSource(META.kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
+          translate(!buildsFromSource(knownMeta().kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
             ' · ' +
-            translateTemplate('{n}쪽', { n: META.pages.length }) +
+            translateTemplate('{n}쪽', { n: knownMeta().pages.length }) +
             ' · ' +
             translateTemplate('{s}초', { s: seconds }) +
             pullSuffix(build),

@@ -3,6 +3,7 @@ import {
   PAGE_SCALE,
   LAYOUT,
   META,
+  knownMeta,
   ZOOMED,
   imeKey,
   isFigureKind,
@@ -26,11 +27,12 @@ import { clampPage, goPage } from './view-page-jump.ts';
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page: PageImage) {
-  const build = META.pages_build;
+  const meta = knownMeta(),
+    build = meta.pages_build;
   return withDocQuery(
     build
       ? '/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name)
-      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(META.built_at),
+      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(meta.built_at),
   );
 }
 // Page sizes (docs/handbook/viewer.md §PDF 영역 전용 확대): every page box is its own paper width (pt_w, in points)
@@ -91,7 +93,7 @@ function buildDoc() {
     focus = pageVerdicts().holdReasonFocus();
   doc.replaceChildren();
   setComposeBox(null);
-  META.pages.forEach((page, index) => {
+  knownMeta().pages.forEach((page, index) => {
     const pageBox = document.createElement('div');
     pageBox.className = 'pg';
     pageBox.id = 'p' + (index + 1);
@@ -146,7 +148,12 @@ function setScale(scale: number, save?: boolean) {
   pageMarks().placeBadges();
   pageVerdicts().sizeLines();
   placeChips();
-  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
+  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) {
+    // Before the first meta there is no document to keep the scale for: nothing is saved, and the zoom figure waits for
+    // the pages' first draw (buildDoc), which writes it.
+    if (!META) return;
+    saveScale();
+  }
   invalidateVectorDraws();
   drawZoom();
 }
@@ -219,13 +226,13 @@ function drawZoom() {
 // document never takes it, and opens at its own default (openScale) until a zoom is chosen on it.
 function savedScale() {
   const preferences = prefs();
-  if (isFigureKind(META.kind))
+  if (isFigureKind(knownMeta().kind))
     return typeof preferences.figZoom === 'number' && preferences.figZoom > 0 ? preferences.figZoom * POINT_PX : null;
   return typeof preferences.w === 'number' && preferences.w > 0 ? preferences.w / widestPagePoints() : null;
 }
 // Saves the scale on screen as savedScale reads it back.
 function saveScale() {
-  if (isFigureKind(META.kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
+  if (isFigureKind(knownMeta().kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
   else savePrefs({ w: pageWidth(widestPagePoints(), PAGE_SCALE) });
 }
 // The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the
@@ -238,7 +245,7 @@ function openScale(isFigure: boolean, common: number, widest: number, fit: numbe
 // The scale the screen picks for the document on screen (openScale).
 function defaultScale() {
   return openScale(
-    isFigureKind(META.kind),
+    isFigureKind(knownMeta().kind),
     commonPageWidth(),
     widestPagePoints(),
     fitWidth(),
@@ -249,7 +256,8 @@ function defaultScale() {
 // only a chosen one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing
 // back on it is not.
 function markZoomed() {
-  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
+  // Before the first meta there is no screen scale to compare with (defaultScale): ZOOMED stays as it is.
+  if (LAYOUT !== LAYOUT_MODE.WIDE && META) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
 }
 // The PDF area's width inside its padding (px).
 function pdfAreaInnerWidth() {

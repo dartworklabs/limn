@@ -5,7 +5,17 @@
 // the keys and the panel name the page that line is on while any of it is. gap: with the edge in the space above that
 // page (frac 0), how far under it the page's top stands. y and h: where that page's top stood under the scroller's top
 // and its height, so restoreAnchor can tell a re-fit that moved nothing.
-import { BUILD_ERR_BY, DOC, META, META_BY, SIDE_OPEN, SWITCHSEQ, rendersInBrowser, setMeta } from '../app/state.ts';
+import {
+  BUILD_ERR_BY,
+  DOC,
+  META,
+  knownMeta,
+  META_BY,
+  SIDE_OPEN,
+  SWITCHSEQ,
+  rendersInBrowser,
+  setMeta,
+} from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
@@ -89,7 +99,7 @@ async function refreshDoc(meta?: Meta) {
   if (same) {
     pageSurface().releaseVector();
     findAll(document, '.pg', HTMLElement).forEach((pageElement, index) => {
-      const page = META.pages[index];
+      const page = knownMeta().pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
       findElement(pageElement, 'img', HTMLImageElement).src = pageSurface().pageSource(page);

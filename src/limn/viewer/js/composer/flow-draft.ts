@@ -80,7 +80,7 @@ function draftKey(label: string, doc: string | null) {
 // What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
 // this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
 // for nothing to keep, another document, or another record version.
-function draftRestore(record: StoredDraft | null, doc: string | null, build: string) {
+function draftRestore(record: StoredDraft | null, doc: string | null, build: string | null) {
   if (!record || record.v !== 1 || record.doc !== doc) return null;
   if (record.cur && record.build === build) return 'full';
   return String(record.note || '').trim() ? 'note' : null;

@@ -734,15 +734,24 @@ _SETTER = re.compile(
 )
 
 
+# A state reader the ES modules declare for a binding that is null until it is first set (app/state.ts knownMeta): it
+# answers the binding, and throws an Error whose message starts with the binding's name while it is still null.
+_KNOWN_READER = re.compile(r"function \w+\(\)\{if\(!(\w+)\)throw new Error\('\1 [^']*'\);return \1;\}")
+
+
 def setter_prelude(page: str, js: str) -> str:
-    """The setters js calls, as the page declares them: a pulled function that changes another module's binding calls
-    that module's setter, which a node harness that declares the binding itself does not have. Function declarations,
-    so pulling several functions that bring the same setter is still a valid script. '' when js calls none."""
+    """The setters and known-state readers js calls, as the page declares them: a pulled function that changes another
+    module's binding calls that module's setter, and one that reads a binding only once it is set calls its reader
+    (knownMeta), which a node harness that declares the binding itself does not have. The reader runs against the
+    harness's binding, so a harness that leaves it null sees the throw the page would. Function declarations, so pulling
+    several functions that bring the same setter or reader is still a valid script. '' when js calls none."""
     used = references(js)
     out = ""
     for name, sources in page_functions(page).items():
         if name in used:
-            out += "".join(src + "\n" for src in sources if _SETTER.fullmatch(squash(src)))
+            out += "".join(
+                src + "\n" for src in sources if _SETTER.fullmatch(squash(src)) or _KNOWN_READER.fullmatch(squash(src))
+            )
     return out
 
 

@@ -332,7 +332,7 @@ function renderRegionComposer(selection: ComposerSelection) {
   $('#c-loc').dataset.copy = (selection.name ? selection.name + ' ' : '') + '쪽 ' + selection.page;
   // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
   const pageTag = $('#c-page'),
-    regionBadge = figureRegionBadge(selection.el, isFigureKind(META && META.kind));
+    regionBadge = figureRegionBadge(selection.el, isFigureKind(META ? META.kind : undefined));
   pageTag.hidden = false;
   pageTag.textContent = selection.offline
     ? translate('오프라인')

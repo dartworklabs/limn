@@ -55,7 +55,7 @@ function mentionQuery(field: HTMLTextAreaElement) {
   const match = /(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(field.value.slice(0, pos));
   return match ? { start: pos - match[2].length - 1, q: match[2] } : null;
 }
-function mentionMatches(query: string, people: PersonSeen[], meLogin: string) {
+function mentionMatches(query: string, people: PersonSeen[], meLogin: string | null) {
   query = String(query || '').toLowerCase();
   const rows = people
     .filter((person) => person.login !== meLogin)

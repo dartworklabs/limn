@@ -9,6 +9,7 @@ import {
   PAGE_SCALE,
   LAYOUT,
   META,
+  knownMeta,
   META_BY,
   NAVGEN,
   OPEN_ALL,
@@ -575,7 +576,8 @@ async function switchDoc(doc: string | undefined) {
       const fresh = (await api('GET /api/meta', { query: withDocQuery('', doc), what: '문서 열기', silent: true }))
         .data;
       if (seq === SWITCHSEQ && DOC === doc) {
-        const changed = fresh.pages_build !== META.pages_build || fresh.pages.length !== META.pages.length;
+        const shown = knownMeta(),
+          changed = fresh.pages_build !== shown.pages_build || fresh.pages.length !== shown.pages.length;
         META_BY.set(doc, fresh);
         if (changed) await refreshDoc(fresh);
         else {

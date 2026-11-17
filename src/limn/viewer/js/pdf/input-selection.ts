@@ -10,6 +10,7 @@ import {
   PAGE_SCALE,
   LAYOUT,
   META,
+  knownMeta,
   REPICK,
   setRepickBox,
   REPLY,
@@ -363,7 +364,7 @@ function doubleTapZoom(x: number, y: number) {
 // point on a figure document - and then widened or narrowed via the range ladder.
 function quickPick(pageElement: HTMLElement, clientX: number, clientY: number) {
   const [x, y] = fracAt(pageElement, clientX, clientY),
-    quickFrac = quickBox(x, y, isFigureKind(META && META.kind));
+    quickFrac = quickBox(x, y, isFigureKind(META ? META.kind : undefined));
   finishRect(pageElement, newBox(pageElement), quickFrac[0], quickFrac[1], quickFrac[2], quickFrac[3]);
 }
 // The box a quick selection sends around the point (x, y), as page fractions [x0, y0, x1, y1]: about one text line on a
@@ -398,7 +399,8 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
     pendingBadge(box, '새 핀');
   }
   const page = Number(pageElement.dataset.page),
-    pageInfo = META.pages[page - 1],
+    meta = knownMeta(),
+    pageInfo = meta.pages[page - 1],
     repick = !!REPICK;
   pageSelection().pick({
     page,
@@ -407,7 +409,7 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
     x1: Math.max(startX, x) * pageInfo.pt_w,
     y1: Math.max(startY, y) * pageInfo.pt_h,
     frac: [Math.min(startX, x), Math.min(startY, y), width, height],
-    pdf_build: META.pages_build || undefined,
+    pdf_build: meta.pages_build || undefined,
     doc: DOC || undefined,
   });
   // A mouse drag's note popover (composer/view-selection-popover.ts); pick() has opened the composer.
