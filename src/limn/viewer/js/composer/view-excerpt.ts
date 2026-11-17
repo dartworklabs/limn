@@ -54,7 +54,7 @@ const EXCERPT_LINES = new WeakMap<RangeOwner, Map<number, string | null>>(),
 function excerptLines(owner: RangeOwner) {
   let lines = EXCERPT_LINES.get(owner);
   if (!lines) {
-    lines = new Map();
+    lines = new Map<number, string | null>();
     EXCERPT_LINES.set(owner, lines);
   }
   return lines;

@@ -326,7 +326,7 @@ function currentVisit(visit: Visit) {
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put
 // into DONE_ALL - drawn separately from the done archive.
 let REVIEW_ALL: Pin[] = [];
-const META_BY = new Map(),
+const META_BY = new Map<string | null, Meta>(),
   VIEW_BY = new Map(),
   BUILD_ERR_BY = new Map<string | null, BuildStatus>(),
   DOC_SEQ = new Map<string | null, number>();
