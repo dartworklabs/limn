@@ -47,19 +47,32 @@ function settledPinsOf(older: unknown): SettledPin[] {
       )
     : [];
 }
-// A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
-// named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
-// Pure.
-function newsWithout(type: string, field: string, ...also: string[]): (group: any, keys: string[]) => any {
-  return (group, keys) => {
-    const keep = group[field].map((x: any) => !keys.includes(type + ':' + (typeof x === 'number' ? x : x.id)));
-    if (!keep.some(Boolean)) return null;
-    const out = { ...group };
-    [field, ...also].forEach((key) => {
-      out[key] = group[key].filter((_: any, index: number) => keep[index]);
-    });
-    return out;
-  };
+// Which items of a list comparison's group stay when a message of a higher rank says their events (groupNote's less):
+// an item - a pin number or a pin - leaves when keys name '<type>:<its id>'. true for each item kept, in order; null
+// when none is left. Pure.
+function keptNews(type: string, items: readonly (number | { id: number })[], keys: string[]): boolean[] | null {
+  const keep = items.map((item) => !keys.includes(type + ':' + (typeof item === 'number' ? item : item.id)));
+  return keep.some(Boolean) ? keep : null;
+}
+// The list comparison's groups without the pins whose events keys name (groupNote's less): the review requests, the
+// dropped pins with their names beside their ids, the reopened pins; null when none is left. Pure.
+function reviewNewsWithout(group: { ids: number[] }, keys: string[]) {
+  const keep = keptNews(EVENT_TYPE.REVIEW_REQUESTED, group.ids, keys);
+  return keep && { ...group, ids: group.ids.filter((_, index) => keep[index]) };
+}
+function droppedNewsWithout(group: { ids: number[]; names: string[] }, keys: string[]) {
+  const keep = keptNews(EVENT_TYPE.DROPPED, group.ids, keys);
+  return (
+    keep && {
+      ...group,
+      ids: group.ids.filter((_, index) => keep[index]),
+      names: group.names.filter((_, index) => keep[index]),
+    }
+  );
+}
+function reopenedNewsWithout(group: { pins: SettledPin[] }, keys: string[]) {
+  const keep = keptNews(EVENT_TYPE.REOPENED, group.pins, keys);
+  return keep && { ...group, pins: group.pins.filter((_, index) => keep[index]) };
 }
 function consumeMine(id: number) {
   const until = MY_ACTIONS.get(id);
@@ -149,7 +162,7 @@ function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
         },
       }),
       merge,
-      newsWithout(EVENT_TYPE.REVIEW_REQUESTED, 'ids'),
+      reviewNewsWithout,
     );
   // One dropped pin offers [되살리기]; several, the Trash they are in.
   if (droppedIds.length)
@@ -202,7 +215,7 @@ function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
           names: [...was.names, ...add.map((index) => newer.names[index])],
         };
       },
-      newsWithout(EVENT_TYPE.DROPPED, 'ids', 'names'),
+      droppedNewsWithout,
     );
   const lost: Pin[] = [],
     gone: Pin[] = [],
@@ -347,7 +360,7 @@ function noteReviewChanges(previous: Pin[], listed: Pin[]) {
         },
       }),
       merge,
-      newsWithout(EVENT_TYPE.REOPENED, 'pins'),
+      reopenedNewsWithout,
     );
 }
 export { notePinChanges, noteReviewChanges };
