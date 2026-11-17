@@ -21,7 +21,7 @@ import { popoverFreeArea } from '../pdf/view-area.ts';
 import { autoGrow } from './view-text.ts';
 import { syncQuestionHint } from './view-note-hints.ts';
 const SELECTION_POPOVER = $('#sel-pop'),
-  SELECTION_POPOVER_FIELD = SELECTION_POPOVER.querySelector('textarea') as HTMLTextAreaElement,
+  SELECTION_POPOVER_FIELD = findElement(SELECTION_POPOVER, 'textarea', HTMLTextAreaElement),
   SELECTION_POPOVER_GAP = 8;
 SELECTION_POPOVER_FIELD._mirrorOf = $('#note'); // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.

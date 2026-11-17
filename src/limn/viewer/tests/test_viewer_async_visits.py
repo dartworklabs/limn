@@ -140,6 +140,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("findAll"),
+                "class HTMLButtonElement { disabled = false; }",
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (app/state.ts)
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
@@ -149,7 +151,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 let KIND_NEW='fix',PINS=[],removes=0,clears=0,drafts=0,loads=0,drops=0,restores=0;
                 const SECTION_SEEN={open:new Set()},ASSIGN_NEW={v:'agent'};
                 let finish,undo;
-                function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
+                function $(name){return name==='#note'?{value:'note'}:new HTMLButtonElement();}
                 const document={querySelectorAll:()=>[$('#btn-save')]};
                 function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figureRung(){return null;}
                 function mentionHints(){return [];}function renderAssignNew(){}
@@ -249,6 +251,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("findAll"),
+                "class HTMLButtonElement { disabled = false; }",
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 extract_js_fn("isViewer"),
                 extract_js_fn("viewerBlocked"),
@@ -257,7 +261,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 """
                 let DOC='a',SWITCHSEQ=1,PINS=[{id:7,note:'old'}]; const COMPOSE={current:{doc:'a'},box:{remove(){removed++;}}};
                 const KIND_NEW='fix',ASSIGN_NEW={v:'agent',touched:false};
-                function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
+                function $(name){return name==='#note'?{value:'note'}:new HTMLButtonElement();}
                 const document={querySelectorAll:()=>[$('#btn-save')]};
                 let finish,removed=0,cleared=0,said=0,loads=0;
                 function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -344,13 +348,15 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("findElement"),
+                "class HTMLTextAreaElement {}",
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
                 extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
+                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return Object.assign(new HTMLTextAreaElement(),{value:'changed'});}}};
                 const EDITOR={current:first,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
@@ -377,13 +383,15 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("findElement"),
+                "class HTMLTextAreaElement {}",
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
                 extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
+                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return Object.assign(new HTMLTextAreaElement(),{value:'changed'});}}};
                 const EDITOR={current:first,saving:false};let finish,loads=0,snips=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
@@ -408,13 +416,15 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("findElement"),
+                "class HTMLTextAreaElement {}",
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
                 extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const card={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
+                const card={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return Object.assign(new HTMLTextAreaElement(),{value:'changed'});}}};
                 const EDITOR={current:card,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}

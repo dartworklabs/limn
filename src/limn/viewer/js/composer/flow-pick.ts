@@ -50,7 +50,7 @@ import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, focusFell, focusHold, findAll } from '../platform/dom.ts';
+import { $, focusFell, focusHold, findAll, findMaybe } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE, RANGE_REL } from '../app/rules-tables.ts';
 import { lineRange, overlapsFor } from '../app/rules-pins.ts';
@@ -620,9 +620,7 @@ function focusPlace(
 ) {
   if (closed && !(currentVisit(closed.visit) && COMPOSE.intent === closed.intent)) return;
   if (COMPOSE.current || COMPOSE.picking || !$('#composer').hidden || imeOpen() || !focusFell()) return;
-  const mark = (
-    id ? document.querySelector('#doc [data-act="mark-jump"][data-id="' + id + '"]') : null
-  ) as HTMLElement | null;
+  const mark = id ? findMaybe(document, '#doc [data-act="mark-jump"][data-id="' + id + '"]', HTMLElement) : null;
   if (mark && mark.getClientRects().length) {
     mark.focus({ preventScroll: true });
     return;

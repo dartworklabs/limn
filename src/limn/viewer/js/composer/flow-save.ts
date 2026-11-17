@@ -48,7 +48,7 @@ import {
 import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
 import { assignOutcome, composeAsk, mentionHints } from './input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findAll } from '../platform/dom.ts';
 import { REQUEST_KIND, SAVE_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
@@ -129,12 +129,14 @@ async function appendToPin(id: number, text: string) {
 /** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An
  * append also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
 function syncComposeSaveButtons() {
-  document.querySelectorAll('#btn-save,[data-act="overlap-append"],[data-act="pop-save"]').forEach((button) => {
-    (button as HTMLButtonElement).disabled = COMPOSE.saving;
-  });
+  findAll(document, '#btn-save,[data-act="overlap-append"],[data-act="pop-save"]', HTMLButtonElement).forEach(
+    (button) => {
+      button.disabled = COMPOSE.saving;
+    },
+  );
   if (suggestPending())
-    document.querySelectorAll('[data-act="overlap-append"]').forEach((button) => {
-      (button as HTMLButtonElement).disabled = true;
+    findAll(document, '[data-act="overlap-append"]', HTMLButtonElement).forEach((button) => {
+      button.disabled = true;
     });
   composerVerdict().drawRow();
 } // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included

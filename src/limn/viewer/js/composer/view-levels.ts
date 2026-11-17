@@ -196,7 +196,7 @@ function fadeSegmentEdges(control: HTMLElement) {
   const over = control.scrollWidth - control.clientWidth;
   control.classList.toggle('fade-l', over > 1 && control.scrollLeft > 1);
   control.classList.toggle('fade-r', over > 1 && over - control.scrollLeft > 1);
-  const on = control.dataset.reveal === 'whole' ? (control.querySelector('.on') as HTMLElement | null) : null;
+  const on = control.dataset.reveal === 'whole' ? control.querySelector('.on') : null;
   if (!on) return;
   const controlRect = control.getBoundingClientRect(),
     segmentRect = on.getBoundingClientRect(),
@@ -207,8 +207,8 @@ function fadeSegmentEdges(control: HTMLElement) {
 document.addEventListener(
   'scroll',
   (event) => {
-    const target = event.target as HTMLElement;
-    if (target && target.classList && target.classList.contains('seg')) fadeSegmentEdges(target);
+    const target = event.target;
+    if (target instanceof HTMLElement && target.classList.contains('seg')) fadeSegmentEdges(target);
   },
   true,
 );

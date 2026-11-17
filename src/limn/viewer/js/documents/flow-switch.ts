@@ -41,7 +41,7 @@ import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
 import { refreshDoc } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
-import { $, findMaybe, searchToPage, findAll } from '../platform/dom.ts';
+import { $, findMaybe, searchToPage, findAll, findElement } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
@@ -93,11 +93,11 @@ function openNavigationSheet() {
 function revealSheetOutline(sheet: HTMLDialogElement) {
   const rows = sheetOutlineRows(),
     current = $('#ns-outline-items').querySelector(':scope>.ol-active');
-  fitNavigationSheet(sheet, current ? rows.indexOf(current as HTMLElement) : 0, true);
+  fitNavigationSheet(sheet, current ? rows.findIndex((row) => row === current) : 0, true);
 }
 /** @returns the rows of the sheet's outline (the unread entries' note is not one) */
 function sheetOutlineRows(): HTMLElement[] {
-  return [...$('#ns-outline-items').querySelectorAll(':scope>button')] as HTMLElement[];
+  return findAll($('#ns-outline-items'), ':scope>button', HTMLElement);
 }
 // the open sheet's height as last fitted to the screen: a filter's fewer results keep it, so the top does not move
 let NAVIGATION_SHEET_HEIGHT = 0;
@@ -116,7 +116,7 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   const list = $('#ns-outline-items'),
     outlineSection = $('#ns-outline');
   const pages = $('#ns-pages'),
-    head = sheet.querySelector('.ns-head') as HTMLElement,
+    head = findElement(sheet, '.ns-head', HTMLElement),
     rectOf = (element: Element) => element.getBoundingClientRect();
   list.style.maxHeight =
     list.style.minHeight =
@@ -206,8 +206,7 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   const need = sheet.scrollHeight - sheet.clientHeight;
   if (need <= 0) return;
   const top = rectOf(head).bottom,
-    keep = (sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') ||
-      sheet.querySelector('#ns-view')) as HTMLElement,
+    keep = sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') || findElement(sheet, '#ns-view', Element),
     keepRect = rectOf(keep);
   const parts = [
     ...sheet.querySelectorAll('#ns-docs,#ns-docs .dm-item,#ns-view,#ns-page,#ns-pages,#ns-outline,#ns-outline>.ns-oh'),

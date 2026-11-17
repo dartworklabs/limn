@@ -372,9 +372,12 @@ class Navigation(unittest.TestCase):
             r"""
             const DOCS=[]; const COARSE_POINTER_QUERY={matches:false};
             const ELS={}; function $(sel){return ELS[sel]||(ELS[sel]={hidden:true,setAttribute(){},focus(){},scrollIntoView(){}});}
+            class HTMLElement { focus() {} scrollIntoView() {} }
+            const document={querySelector:()=>new HTMLElement()};   // the current document's row
             function hideTip(){LOG.push(['hideTip']);} function drawDocMenu(){LOG.push(['drawDocMenu']);}
             function placeDocMenu(){LOG.push(['placeDocMenu']);}
             """,
+            extract_js_fn("findMaybe"),
             extract_js_fn("openDocMenu"),
             "openDocMenu(); console.log(JSON.stringify(LOG));",
         )

@@ -13,7 +13,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { revealSegment } from './view-levels.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import type { Html } from '../platform/markup.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findMaybe } from '../platform/dom.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { ASSIGNEE_AGENT, SAVE_MODE } from '../app/rules-tables.ts';
 import { meLogin, peopleName } from '../app/state-people.ts';
@@ -419,7 +419,7 @@ function renderAssignEdit() {
   const card = EDITOR.current;
   if (!card) return;
   const noteField = editNote(card),
-    box = card.el.querySelector('.e-assign') as HTMLElement;
+    box = findMaybe(card.el, '.e-assign', HTMLElement);
   if (!noteField || !box) return;
   const people = assignPeople(noteField.value, mentionHints(noteField), PEOPLE, meLogin(), card.assignee);
   if (!people.length) {
@@ -450,11 +450,11 @@ function mentionPreview(field: HTMLTextAreaElement | null | undefined) {
   const scan = mentionScan(field.value, mentionHints(field)),
     me = meLogin(); // the same hints the save/send carries
   // the field, or a field that mirrors it, being typed in
-  const focused = document.activeElement as HTMLTextAreaElement | null;
+  const focused = document.activeElement;
   scan.bad = mentionBadSettled(
     scan.bad,
     field.value,
-    focused && mentionModel(focused) === field ? mentionQuery(focused) : null,
+    focused instanceof HTMLTextAreaElement && mentionModel(focused) === field ? mentionQuery(focused) : null,
   );
   if (!scan.hit.length && !scan.bad.length) {
     box.hidden = true;
@@ -546,7 +546,7 @@ function mentionPlace() {
   pop.style.left = Math.max(4, Math.min(fieldRect.left, innerWidth - listWidth - 4)) + 'px';
   if (at.max == null) return;
   pop.style.maxHeight = at.max + 'px';
-  const selected = pop.querySelector('[aria-selected=true]') as HTMLElement | null;
+  const selected = findMaybe(pop, '[aria-selected=true]', HTMLElement);
   pop.scrollTop = selected
     ? Math.min(selected.offsetTop, Math.max(was, selected.offsetTop + selected.offsetHeight - pop.clientHeight))
     : was;
@@ -640,9 +640,8 @@ function mentionApply(index: number) {
   if (model.classList.contains('e-note')) renderAssignEdit();
   else if (model.classList.contains('r-text')) pinFields().drawReplyOutcome();
 }
-const isMentionField = (target: HTMLTextAreaElement) =>
-  !!target &&
-  target.tagName === 'TEXTAREA' &&
+const isMentionField = (target: EventTarget | null): target is HTMLTextAreaElement =>
+  target instanceof HTMLTextAreaElement &&
   (target.id === 'note' ||
     target.classList.contains('e-note') ||
     target.classList.contains('r-text') ||
@@ -650,7 +649,7 @@ const isMentionField = (target: HTMLTextAreaElement) =>
 // A mirror field's own listener has copied its text and the edit into its model (composer/view-selection-popover.ts);
 // here it only gets the list.
 document.addEventListener('input', (event) => {
-  const field = event.target as HTMLTextAreaElement;
+  const field = event.target;
   if (!isMentionField(field)) return;
   if (mentionModel(field) !== field) {
     mentionUpdate(field);
@@ -704,7 +703,7 @@ window.addEventListener(
 // '@word' the caret now ends, or closes when there is none.
 ['keyup', 'click', 'focusout'].forEach((eventType) =>
   document.addEventListener(eventType, (event) => {
-    const field = event.target as HTMLTextAreaElement;
+    const field = event.target;
     if (!isMentionField(field)) return;
     if (eventType !== 'focusout' && MENTION.ta === field && !mentionCurrent()) mentionUpdate(field);
     setTimeout(() => mentionPreview(mentionModel(field)), 0);
