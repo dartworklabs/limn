@@ -269,7 +269,7 @@ Expected: FAIL
 
 - [ ] **Step 3: Extract the shared computation and call it from `range.py`**
 
-Task 3에서 `resolve.py`에 쓴 계산을 `boxes_for_range(pdf, tex, built, now, lo, hi, page_w, page_h, limit)`로 빼어 두 호출자가 쓴다. snippet은 단계마다 부른다.
+Task 3에서 `resolve.py`에 쓴 계산을 `boxes_for_range(pdf, tex, built, now, lo, hi, pages, limit)`로 빼어 두 호출자가 쓴다. `pages` 는 쪽마다의 `(폭, 높이)` 다 — 조각은 자기가 놓인 쪽의 크기로 재고 그 쪽 안으로 자른다. 쪽 하나의 크기만 쓰면 가로 쪽이 섞인 문서에서 상자가 어긋나 잘리고, pick 과 snippet 이 같은 범위에 다른 값을 답한다(Review Focus 4). 쪽별 크기는 `pick_pages` 가 이미 한 번에 준다. snippet은 단계마다 부른다.
 
 - [ ] **Step 4: Run the tests to verify they pass**
 
