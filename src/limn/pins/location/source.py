@@ -162,8 +162,41 @@ def _page_size(pages: Sequence[tuple[float, float]], page: int) -> tuple[float, 
     return (page_w, page_h) if page_w > 0 and page_h > 0 else None
 
 
-# What may follow an environment's \\begin{name} on a line that is still only its delimiter: its arguments.
-_ENV_ARGS_RE = re.compile(r"(\s*(\[[^\]]*\]|\{[^{}]*\}))*")
+def _only_arguments(text: str, start: int) -> bool:
+    """True when text[start:] is nothing but whitespace and balanced {...} and [...] groups: the arguments of an
+    environment's \\begin, such as {@{}lcc@{}}, {p{3cm}c}, [htbp] or [t]{0.45\\textwidth}.
+
+    A depth counter and not a pattern: a column spec nests braces to any depth (p{\\dimexpr\\linewidth-2cm}), and a
+    pattern with a fixed number of levels would pass today's specs and fail on the next. A [...] group closes at the
+    first ] outside braces; a \\-escaped character never opens or closes a group."""
+    i, n = start, len(text)
+    while i < n:
+        if text[i].isspace():
+            i += 1
+            continue
+        if text[i] not in "{[":
+            return False
+        closer = "}" if text[i] == "{" else "]"
+        depth = 0  # braces open inside the group
+        i += 1
+        while i < n:
+            ch = text[i]
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}" and depth:
+                depth -= 1
+            elif ch == closer and not depth:
+                break
+            elif ch == "}":
+                return False  # a stray } inside a [...] group
+            i += 1
+        else:
+            return False  # the group never closed
+        i += 1
+    return True
 
 
 def environment_delimiters(now: Sequence[str], lo: int, hi: int) -> frozenset[int]:
@@ -197,7 +230,7 @@ def environment_delimiters(now: Sequence[str], lo: int, hi: int) -> frozenset[in
     if opens.group(2).strip() != closes.group(2).strip():
         return frozenset()
     own: set[int] = set()
-    if _ENV_ARGS_RE.fullmatch(top, opens.end()):
+    if _only_arguments(top, opens.end()):
         own.add(lo)
     if closes.start() == 0 and closes.end() == len(bottom):
         own.add(hi)

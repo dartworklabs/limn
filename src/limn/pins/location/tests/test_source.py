@@ -298,6 +298,11 @@ def test_a_delimiter_line_that_also_carries_ink_is_still_asked(monkeypatch):
         (["\\begin{tabular}{lcc} Alpha \\\\", "delta \\\\", "last \\\\ \\end{tabular}"], [1, 2, 3]),
         (["\\begin{figure}[t]", "delta \\\\", "\\end{figure} % done"], [2]),
         (["\\begin{tabular}{lcc}", "delta \\\\", "\\end{tabular}"], [2]),
+        (["\\begin{tabular}{@{}lcc@{}}", "delta \\\\", "\\end{tabular}"], [2]),
+        (["\\begin{tabular}{p{3cm}c}", "delta \\\\", "\\end{tabular}"], [2]),
+        (["\\begin{tabular}{p{\\dimexpr\\linewidth-2cm}c}", "delta \\\\", "\\end{tabular}"], [2]),
+        (["\\begin{minipage}[t]{0.45\\textwidth} % c", "delta \\\\", "\\end{minipage}"], [2]),
+        (["\\begin{tabular}{@{}lcc@{}} Alpha & Beta \\\\", "delta \\\\", "\\end{tabular}"], [1, 2]),
     )
     for lines, asked in cases:
         calls = viewing(monkeypatch, rows)
