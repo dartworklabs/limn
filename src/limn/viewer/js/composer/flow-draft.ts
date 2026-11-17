@@ -28,12 +28,25 @@ import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.t
 import { isMarkdownDoc } from '../documents/state.ts';
 import { autoGrow } from './view-text.ts';
 import { SUGGEST_DRAFT, suggestClear, suggestCopy } from './state-suggest.ts';
-const DRAFT = {
-  timer: 0 as ReturnType<typeof setTimeout> | 0,
+// A discarded draft kept until its undo note leaves: the note, the stored draft's key and the bytes it held.
+interface HeldDraft {
+  note: Notice;
+  key: string | null;
+  value: string | null;
+}
+interface DraftState {
+  timer: ReturnType<typeof setTimeout> | 0;
+  ready: boolean;
+  holds: Map<string | null, HeldDraft>;
+  key: string | null;
+  origin: { key: string | null; value: string | null; current: Selection | null } | null;
+}
+const DRAFT: DraftState = {
+  timer: 0,
   ready: false,
   holds: new Map(),
-  key: null as string | null,
-  origin: null as { key: string | null; value: string | null; current: Selection | null } | null,
+  key: null,
+  origin: null,
 };
 // Keep a discarded draft until its undo (note, on the status line) leaves, unless a newer draft replaced it first.
 function holdDraftUntil(note: Notice) {

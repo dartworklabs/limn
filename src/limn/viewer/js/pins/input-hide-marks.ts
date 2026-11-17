@@ -12,7 +12,11 @@
 import { lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
 import { $, searchToPage } from '../platform/dom.ts';
-const MARKS = { off: false, held: null as { code: string; at: number } | null };
+interface MarksState {
+  off: boolean;
+  held: { code: string; at: number } | null;
+}
+const MARKS: MarksState = { off: false, held: null };
 const MARKS_HOLD_MS = 350; // a press this long is a look, not a switch
 const MARKS_SOURCE = 'marks-off'; // the status line's one reminder (sourceEntry)
 // Whether a keydown is the marks key: the key that types h, alone, whatever its place on the layout. A key that types

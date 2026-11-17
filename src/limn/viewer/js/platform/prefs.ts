@@ -49,10 +49,15 @@ function countNewInSection(seen: Set<number> | null, ids: number[]) {
   return ids.filter((id: number) => !seen.has(id)).length;
 }
 let SECTION_OPEN = readSectionsExpanded(prefs().sec);
-const SECTION_SEEN = {
-  open: null as Set<number> | null,
-  review: null as Set<number> | null,
-  done: null as Set<number> | null,
+interface SectionSeenState {
+  open: Set<number> | null;
+  review: Set<number> | null;
+  done: Set<number> | null;
+}
+const SECTION_SEEN: SectionSeenState = {
+  open: null,
+  review: null,
+  done: null,
 };
 // The pin list's order (docs/handbook/viewer.md §목록 순서): one choice for this browser across documents, remembered
 // in pinPrefs.order. Returns the saved value when it names an order, else the default: newest first.

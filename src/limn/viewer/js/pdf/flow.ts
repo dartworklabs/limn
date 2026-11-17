@@ -621,12 +621,12 @@ function searchPages(doc: PdfDocument) {
 }
 // The hits of a pattern on a read page, number pageNumber, in reading order.
 function searchPageHits(page: SearchPage, pageNumber: number, pattern: RegExp | null) {
-  return searchFind(page.flow, pattern).map((pieces) => ({
+  return searchFind(page.flow, pattern).map((pieces): SearchHit => ({
     page: pageNumber,
     line: pieces[0][0],
     a: pieces[0][1],
     pieces,
-    boxes: null as number[][] | null,
+    boxes: null,
   }));
 }
 // The width of text in a generic font family, in an arbitrary unit (a shared canvas, SEARCH_CONTEXT): searchBox()'s

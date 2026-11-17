@@ -35,11 +35,18 @@ function mentionAfterWord(text: string, index: number) {
   return /^[\p{L}\p{N}._-]$/u.test(before);
 }
 
-const MENTION = {
-  ta: null as HTMLTextAreaElement | null,
+interface MentionState {
+  ta: HTMLTextAreaElement | null;
+  start: number;
+  q: string;
+  items: PersonSeen[];
+  sel: number;
+}
+const MENTION: MentionState = {
+  ta: null,
   start: 0,
   q: '',
-  items: [] as PersonSeen[],
+  items: [],
   sel: 0,
 };
 function mentionQuery(field: HTMLTextAreaElement) {

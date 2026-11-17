@@ -1771,6 +1771,14 @@ function sizeImage(img: HTMLImageElement, width: number, height: number) {
   img.removeAttribute('height');
   img.style.removeProperty('--md-pic-r');
 }
+interface ImageCheckState {
+  max: number;
+  gap: number;
+  last: number;
+  busy: boolean;
+  asked: number;
+  at: Map<string, Map<string, number>>;
+}
 // ---------------- A tree image changed on disk (docs/handbook/viewer.md §그림)
 // The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so
 // without a check an image rewritten on disk would show only after a reload: a redraw draws the same address again. On
@@ -1788,13 +1796,13 @@ function sizeImage(img: HTMLImageElement, width: number, height: number) {
 // is kept per document and path (IMAGE_VERSIONS), so a redraw or a return to the document draws the new picture too. No
 // route, no field: only GET /api/asset. at: for each document, tree path -> when a check last asked it, for the paths
 // the document shows now (no other bound, so no image's turn is ever forgotten while it is on the page).
-const IMAGE_CHECK = {
+const IMAGE_CHECK: ImageCheckState = {
   max: 6,
   gap: 4000,
   last: -Infinity,
   busy: false,
   asked: 0,
-  at: new Map() as Map<string, Map<string, number>>,
+  at: new Map(),
 };
 const IMAGE_TAGS: Map<string, string> = new Map(); // an address -> the ETag of the picture an image at it shows
 const IMAGE_VERSIONS: Map<string, string> = new Map(); // doc + '\n' + tree path -> the version its address carries

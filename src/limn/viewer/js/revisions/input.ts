@@ -25,7 +25,19 @@ interface RevisionPdf {
   getPage(pageNumber: number): Promise<{ getViewport(options: { scale: number }): { width: number; height: number } }>;
 }
 type RevisionAnchor = { el: HTMLElement; fx: number; fy: number; x: number; y: number };
-const REVISION_ZOOM = {
+interface RevisionZoomState {
+  ratio: number;
+  fit: number;
+  height: number;
+  gen: number;
+  busy: number;
+  frame: number;
+  repaint: boolean;
+  pages: RevisionPage[];
+  anchor: RevisionAnchor | null;
+  resetInput: () => void;
+}
+const REVISION_ZOOM: RevisionZoomState = {
   ratio: 1,
   fit: 0,
   height: 0,
@@ -33,8 +45,8 @@ const REVISION_ZOOM = {
   busy: 0,
   frame: 0,
   repaint: false,
-  pages: [] as RevisionPage[],
-  anchor: null as RevisionAnchor | null,
+  pages: [],
+  anchor: null,
   resetInput: () => {},
 };
 

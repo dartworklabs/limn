@@ -483,24 +483,38 @@ function setZoomed<Value extends typeof ZOOMED>(value: Value): Value {
   ZOOMED = value;
   return value;
 }
+interface ComposeState {
+  current: Selection | null;
+  box: HTMLElement | null;
+  picking: boolean;
+  pendingSave: boolean;
+  saving: boolean;
+  dismissedOverlap: string | null;
+  intent: number;
+  retryVerdict: { key: string; sel: Selection; gen: number } | null;
+}
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
 // counter every change to what the composer asks bumps (setComposeIntent) - a new, cleared or restored selection (pick,
 // cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
 // (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
 // was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
 // unchanged (savePin).
-const COMPOSE = {
-  current: null as Selection | null,
-  box: null as HTMLElement | null,
+const COMPOSE: ComposeState = {
+  current: null,
+  box: null,
   picking: false,
   pendingSave: false,
   saving: false,
-  dismissedOverlap: null as string | null,
+  dismissedOverlap: null,
   intent: 0,
-  retryVerdict: null as { key: string; sel: Selection; gen: number } | null,
+  retryVerdict: null,
 };
+interface EditorState {
+  current: EditCard | null;
+  saving: boolean;
+}
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-const EDITOR = { current: null as EditCard | null, saving: false };
+const EDITOR: EditorState = { current: null, saving: false };
 // Each sets one field of COMPOSE or EDITOR, which this module declares, for another module that changes it (ADR-0042
 // D1): the assignment the caller wrote, nothing more.
 function setComposeCurrent(value: typeof COMPOSE.current) {
