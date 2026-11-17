@@ -236,7 +236,7 @@ def line_boxes(rows: Sequence[Box], page_h: float) -> list[Box]:
     comparison among the range's own boxes: a table's cells differ wildly in size, so such a comparison drops real
     cells or keeps the body. The trade-off: a float box taller than a quarter of the page is dropped too, and a pin
     on it falls back to the dragged rectangle, which the spec allows for floats. A box as wide as the page but short
-    (a rule, a full-width one-line float) is ink of the range and stays, which is why the page width is not asked for."""
+    (a rule, a full-width one-line float) is ink of the range and stays, so the page width is not asked for."""
     return [row for row in rows if row[4] < BODY_HEIGHT_SHARE * page_h]
 
 
