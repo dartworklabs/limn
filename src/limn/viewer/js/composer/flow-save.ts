@@ -55,7 +55,7 @@ import { isMe } from '../app/state-people.ts';
 import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
-import { SUGGEST_DRAFT } from './state-suggest.ts';
+import { SUGGEST_DRAFT, setSuggestCurrent } from './state-suggest.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.
@@ -524,12 +524,12 @@ function suggestSaveRefused(selection: ComposerSelection, data: SaveConflict | n
     return;
   }
   if (COMPOSE.current === selection) {
-    SUGGEST_DRAFT.current = {
+    setSuggestCurrent({
       text: String(data.current || ''),
       file: selection.file || null,
       lo: selection.lo as number,
       hi: selection.hi as number,
-    };
+    });
     renderSuggest(selection);
   }
   bannerNote(

@@ -8,6 +8,7 @@ import {
   OUTLINE_MID_OPEN,
   REPICK,
   REPLY,
+  setReplyFlip,
   SELMODE,
   SHOW_ALL,
   SIDE_OPEN,
@@ -98,7 +99,7 @@ import {
   notifyHandle,
   notifyCursor,
 } from './pins/flow-notification.ts';
-import { BUILD, startBuildPolling } from './documents/view-build-chip.ts';
+import { BUILD, setBuildUnchanged, setBuildLastSeq, startBuildPolling } from './documents/view-build-chip.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
 import {
   drawStatus,
@@ -252,7 +253,13 @@ import {
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
-import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
+import {
+  setAssignNewValue,
+  setAssignNewTouched,
+  mentionApply,
+  renderAssignEdit,
+  renderAssignNew,
+} from './composer/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
@@ -541,7 +548,7 @@ document.addEventListener('click', (event) => {
       downloadPdf();
       break;
     case 'rebuild-force':
-      BUILD.unchanged = null;
+      setBuildUnchanged(null);
       drawStatus();
       rebuild(true);
       break; // the status line's [그래도 빌드]: a cold build
@@ -789,8 +796,8 @@ document.addEventListener('click', (event) => {
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break; // by keyboard the focus goes to the card
     case 'assign-new':
-      ASSIGN_NEW.v = control.dataset.v || 'agent';
-      ASSIGN_NEW.touched = true;
+      setAssignNewValue(control.dataset.v || 'agent');
+      setAssignNewTouched(true);
       renderAssignNew();
       saveDraftSoon();
       break;
@@ -865,7 +872,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'reply-flip':
       if (REPLY) {
-        REPLY.flip = !REPLY.flip;
+        setReplyFlip(REPLY, !REPLY.flip);
         renderReplyOutcome();
       }
       break;
@@ -1275,7 +1282,7 @@ async function boot() {
     setLastSrcMtime(META.src_sig || META.src_mtime);
   }
   // the build count this tab has already "seen"
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
+  setBuildLastSeq(typeof META.build_seq === 'number' ? META.build_seq : 0);
   (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();

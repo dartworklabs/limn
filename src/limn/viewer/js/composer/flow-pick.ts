@@ -46,7 +46,7 @@ import {
   drawSelectionPopover,
   isSelectionPopoverOpen,
 } from './view-selection-popover.ts';
-import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
+import { ASSIGN_NEW, setAssignNewTouched, renderAssignNew } from './input-mentions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
@@ -528,7 +528,7 @@ function cancelSelection(clearNote: boolean) {
   if (clearNote) {
     $('#note').value = '';
     $('#note')._mentions = null;
-    ASSIGN_NEW.touched = false;
+    setAssignNewTouched(false);
     renderAssignNew();
     setKind(REQUEST_KIND.FIX);
     suggestClear();

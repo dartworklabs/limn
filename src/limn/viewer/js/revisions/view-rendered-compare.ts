@@ -15,9 +15,17 @@ import { html, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { REVISION_VIEW, hunkRanges, revisionKey, drawPinGuide, revisionCurrent, revisionPinFor } from './flow.ts';
 import {
-  MARKDOWN_VIEW,
+  REVISION_VIEW,
+  setTargetGuideLine,
+  hunkRanges,
+  revisionKey,
+  drawPinGuide,
+  revisionCurrent,
+  revisionPinFor,
+} from './flow.ts';
+import {
+  advanceMarkdownSequence,
   MARKDOWN_LIMITS,
   OVER_ELEMENT_LIMIT,
   limitText,
@@ -90,7 +98,7 @@ function parseSide(text: string): Promise<any> {
       resolve({ ok: false, limit: MARKDOWN_LIMIT.LOAD });
       return;
     }
-    const id = ++MARKDOWN_VIEW.seq;
+    const id = advanceMarkdownSequence();
     RENDERED_COMPARE.job = {
       id,
       resolve,
@@ -1345,7 +1353,7 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
     RENDERED_COMPARE.ro = null;
   }
   // the guide line says what this compare finds, once it has (ringPinBlocks)
-  if (REVISION_VIEW.target) REVISION_VIEW.target.mdcMsg = '';
+  if (REVISION_VIEW.target) setTargetGuideLine(REVISION_VIEW.target, '');
   pane.replaceChildren(waitLine(translate('두 판을 읽는 중입니다.')));
   drawCompareNavigator();
   const pinTarget = revisionPinFor(id);

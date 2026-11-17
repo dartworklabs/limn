@@ -11,6 +11,7 @@ import {
   LAYOUT,
   META,
   REPICK,
+  setRepickBox,
   REPLY,
   SELMODE,
   SIDE_OPEN,
@@ -389,7 +390,7 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
   box.classList.add('pending');
   if (REPICK) {
     if (REPICK.box) REPICK.box.remove();
-    REPICK.box = box;
+    setRepickBox(REPICK, box);
     pendingBadge(box, '새 위치');
   } else {
     if (COMPOSE.box) COMPOSE.box.remove();

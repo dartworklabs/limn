@@ -159,6 +159,11 @@ type ReasonHist = {
   landed: { doc: string | null; id: number; word: string; text: string }[];
 };
 let REASON_SESSION: ReasonSession | null = null;
+// Marks whether the reading line has been on a session's page (ReasonSession.seen), for another module that sees it
+// (ADR-0042 D1).
+function setReasonSeen(session: ReasonSession, seen: boolean) {
+  session.seen = seen;
+}
 let SESSION_SEQUENCE = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
 // by line (pageLineSlot of the document they were typed on): each stays bound to that save, not to the screen.
@@ -2358,6 +2363,7 @@ function setReasonSession<Value extends typeof REASON_SESSION>(value: Value): Va
 export {
   LAST_KEY_SAVE,
   REASON_SESSION,
+  setReasonSeen,
   WITHDRAWN_PINS,
   isComposingNow,
   focusLine,

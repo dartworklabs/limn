@@ -558,6 +558,16 @@ function setEditAssignee(card: EditCard, assignee: EditCard['assignee']) {
 function setEditRequestKind(card: EditCard, kind: EditCard['kind_req']) {
   card.kind_req = kind;
 }
+// Sets whether the open reply box (REPLY) flips its pin's state, and the open repick's (REPICK) candidate and box.
+function setReplyFlip(reply: ReplyBox, flip: boolean) {
+  reply.flip = flip;
+}
+function setRepickCandidate(repick: Repick, candidate: Repick['cand']) {
+  repick.cand = candidate;
+}
+function setRepickBox(repick: Repick, box: Repick['box']) {
+  repick.box = box;
+}
 // The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
 function topPinId() {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
@@ -578,6 +588,9 @@ export {
   setEditorSaving,
   setEditAssignee,
   setEditRequestKind,
+  setReplyFlip,
+  setRepickCandidate,
+  setRepickBox,
   BAND,
   BAND_IN,
   BAND_MODE,

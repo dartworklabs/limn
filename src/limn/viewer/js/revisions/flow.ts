@@ -22,7 +22,7 @@ import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { scheduleVectorDraw } from '../pdf/view-draw.ts';
 import { searchOffer } from '../pdf/flow.ts';
 import {
-  REVISION_ZOOM,
+  setRevisionZoomRatio,
   disposeRevisionZoom,
   drawRevisionZoom,
   mountRevisionPdf,
@@ -141,6 +141,11 @@ const REVISION_VIEW: RevisionViewState = {
   rangeN: null,
   want: null,
 };
+// Sets the line the guide says for a revision view's pin (RevTarget.mdcMsg), for another module that changes it
+// (ADR-0042 D1).
+function setTargetGuideLine(target: RevTarget, line: string) {
+  target.mdcMsg = line;
+}
 // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_RECENT = 12;
 const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
@@ -903,7 +908,7 @@ window.addEventListener('pagehide', () => {
 // comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the
 // source diff).
 async function showRevision(id: string, format?: string, base?: string) {
-  REVISION_ZOOM.ratio = 1;
+  setRevisionZoomRatio(1);
   ++REVISION_VIEW.seq;
   REVISION_VIEW.commit = id;
   REVISION_VIEW.base = base || '';
@@ -1601,6 +1606,7 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
 }
 export {
   REVISION_VIEW,
+  setTargetGuideLine,
   COMPARISON_PDF,
   COMPARISON_SCOPE,
   findAnyPin,

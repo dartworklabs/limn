@@ -14,7 +14,7 @@ import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from
 import { hideTip, showTipText } from '../platform/tooltip.ts';
 import { SYNC_REASON } from './view-meta.ts';
 import { POLL_FAILS } from './flow-polling.ts';
-import { BUILD, pullSuffix } from './view-build-chip.ts';
+import { BUILD, setBuildUnchanged, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
 import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
 import { $, findElement, findMaybe } from '../platform/dom.ts';
@@ -327,11 +327,11 @@ function statusInput() {
 // shows what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
 function buildUnchanged(build: BuildStatus) {
   const mark = { pull: pullSuffix(build) };
-  BUILD.unchanged = mark;
+  setBuildUnchanged(mark);
   drawStatus();
   setTimeout(() => {
     if (BUILD.unchanged !== mark) return;
-    BUILD.unchanged = null;
+    setBuildUnchanged(null);
     drawStatus();
   }, STATUS_TRANSIENT_MS);
 }

@@ -74,6 +74,31 @@ const VECTOR_PDF: VectorPdfState = {
   tDoc: null,
   cache: new Map(),
 };
+// Each sets one field of VECTOR_PDF for another module that changes it (ADR-0042 D1): the assignment, nothing more.
+function setVectorFailed(value: string | null) {
+  VECTOR_PDF.failed = value;
+}
+function advanceVectorGeneration() {
+  VECTOR_PDF.gen++;
+}
+function setVectorDocument(value: PdfDocument | null) {
+  VECTOR_PDF.doc = value;
+}
+function setVectorObserver(value: IntersectionObserver | null) {
+  VECTOR_PDF.io = value;
+}
+function setVectorTimer(value: number) {
+  VECTOR_PDF.timer = value;
+}
+function setVectorPumping(value: boolean) {
+  VECTOR_PDF.pumping = value;
+}
+function setVectorCurrent(value: typeof VECTOR_PDF.cur) {
+  VECTOR_PDF.cur = value;
+}
+function setVectorFirstDrawn(value: number | null) {
+  VECTOR_PDF.tFirst = value;
+}
 // Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
 // switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first
 // (worker memory). An old build of the same document is closed when a new build opens.
@@ -227,4 +252,12 @@ export {
   importPdfLibrary,
   isPdfLibrary,
   openVectorDocument,
+  setVectorFailed,
+  advanceVectorGeneration,
+  setVectorDocument,
+  setVectorObserver,
+  setVectorTimer,
+  setVectorPumping,
+  setVectorCurrent,
+  setVectorFirstDrawn,
 };

@@ -39,6 +39,7 @@ import {
   PICKSEQ,
   PINS,
   REPICK,
+  setRepickCandidate,
   REVIEW_ALL,
   SWITCHSEQ,
   imeHeldIn,
@@ -155,6 +156,11 @@ const MARKDOWN_VIEW = {
   headTo: null as { doc: string; id: string; seq: number } | null,
   goTo: null as { el: HTMLElement; doc: string | null } | null,
 };
+// Counts one more Markdown job and answers its number (MARKDOWN_VIEW.seq), for another module that starts one
+// (ADR-0042 D1).
+function advanceMarkdownSequence() {
+  return ++MARKDOWN_VIEW.seq;
+}
 // A draw's render context (RenderContext): the source lines it numbers its blocks from (lines), the elements built so
 // far (els), the characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its
 // byte-order mark kept (bom, drawText), the headings (heads), and how many formulas were drawn - a count to draw them
@@ -2270,7 +2276,7 @@ function pickLines(
     overlaps: [],
   } as unknown as ComposerSelection;
   if (REPICK) {
-    REPICK.cand = selection;
+    setRepickCandidate(REPICK, selection);
     linePick().compare();
     return;
   }
@@ -2960,6 +2966,7 @@ function showTextHint() {
 
 export {
   MARKDOWN_VIEW,
+  advanceMarkdownSequence,
   MARKDOWN_LIMITS,
   OVER_ELEMENT_LIMIT,
   isMarkdownPin,
