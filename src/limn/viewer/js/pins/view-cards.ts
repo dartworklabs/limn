@@ -47,7 +47,7 @@ import {
 } from './view-card-parts.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_PLACE, UI_LANG } from '../platform/tables.ts';
-import { $, TABBABLE, isTabStop, findAll } from '../platform/dom.ts';
+import { $, TABBABLE, isTabStop, findAll, findMaybe } from '../platform/dom.ts';
 import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, ROLE, STAMP_FORM } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
@@ -438,7 +438,8 @@ function drawTrash() {
   const dropped = TRASH_ALL ? DROPPED : listDropped(),
     box = $('#trash-list');
   if (!box) return;
-  const focused = document.activeElement as HTMLElement | null,
+  const active = document.activeElement,
+    focused = active instanceof HTMLElement ? active : null,
     spot = focused && focused !== box && box.contains(focused) ? trashSpot(box, focused) : null;
   $('#trash-note').textContent = translateTemplate(
     '삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',
@@ -464,11 +465,10 @@ function trashSpot(
   box: HTMLElement,
   focused: HTMLElement,
 ): { id: number | null; act: string; ids: number[]; at: number } {
-  const row = focused.closest('.arc-row[data-id]') as HTMLElement | null,
+  const found = focused.closest('.arc-row[data-id]'),
+    row = found instanceof HTMLElement ? found : null,
     id = row ? Number(row.dataset.id) : null;
-  const ids = [...box.querySelectorAll('.arc-row[data-id]')].map((rowElement) =>
-    Number((rowElement as HTMLElement).dataset.id),
-  );
+  const ids = findAll(box, '.arc-row[data-id]', HTMLElement).map((rowElement) => Number(rowElement.dataset.id));
   return { id, act: focused.dataset.act || '', ids, at: id == null ? -1 : ids.indexOf(id) };
 }
 // A redraw took the focus out of the Trash's list (setHtml; restorePin's list reload after its answer): it comes back -
@@ -483,10 +483,9 @@ function trashRefocus(
   focused: HTMLElement,
 ) {
   const findControl = (id: number, act: string) => {
-    const row = box.querySelector('.arc-row[data-id="' + id + '"]');
-    return (row &&
-      (row.querySelector('[data-act="' + act + '"]') ||
-        row.querySelector('[data-act="restore"]'))) as HTMLElement | null;
+    const row = box.querySelector('.arc-row[data-id="' + id + '"]'),
+      control = row && (row.querySelector('[data-act="' + act + '"]') || row.querySelector('[data-act="restore"]'));
+    return control instanceof HTMLElement ? control : null;
   };
   let target = focused.isConnected ? focused : null;
   if (!target && spot.id != null) {
@@ -503,7 +502,7 @@ function trashRefocus(
       target = findControl(otherId, 'restore');
     }
   }
-  if (!target) target = $('#trash').querySelector('[data-act="trash-close"]') as HTMLElement | null;
+  if (!target) target = findMaybe($('#trash'), '[data-act="trash-close"]', HTMLElement);
   if (target) target.focus();
 }
 function openTrash(flashId?: number | null) {
@@ -517,7 +516,7 @@ function openTrash(flashId?: number | null) {
   }
   if (flashId != null)
     requestAnimationFrame(() => {
-      const row = document.querySelector('#trash .arc-row[data-id="' + flashId + '"]') as HTMLElement;
+      const row = findMaybe(document, '#trash .arc-row[data-id="' + flashId + '"]', HTMLElement);
       if (!row) return;
       row.scrollIntoView({ block: 'nearest' });
       row.classList.remove('flash');
@@ -535,9 +534,9 @@ $('#trash').addEventListener('close', () => {
 $('#trash').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
   const trash = $('#trash');
-  const all = [...trash.querySelectorAll(TABBABLE)].filter(isTabStop) as HTMLElement[],
+  const all = [...trash.querySelectorAll(TABBABLE)].filter(isTabStop),
     focused = document.activeElement,
-    index = all.indexOf(focused as HTMLElement);
+    index = focused instanceof HTMLElement ? all.indexOf(focused) : -1;
   const to = !all.length
     ? null
     : event.shiftKey

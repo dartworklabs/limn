@@ -346,6 +346,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("editNote"),
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                "class HTMLButtonElement {}",  # the save button's class (syncEditSaveButton checks it)
                 extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
@@ -379,6 +380,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("editNote"),
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                "class HTMLButtonElement {}",  # the save button's class (syncEditSaveButton checks it)
                 extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
@@ -410,6 +412,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("editNote"),
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                "class HTMLButtonElement {}",  # the save button's class (syncEditSaveButton checks it)
                 extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """

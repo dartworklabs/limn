@@ -16,7 +16,7 @@ import { listReview } from './view-list-sections.ts';
 // where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
 function holdSelectWidth() {
   const button = $('#btn-select'),
-    label = button.querySelector('.lbl') as HTMLElement;
+    label = findElement(button, '.lbl', Element);
   button.style.removeProperty('--sel-w');
   if (!button.getClientRects().length || getComputedStyle(label).display === 'none') return;
   const pressed = button.getAttribute('aria-pressed') || 'false',

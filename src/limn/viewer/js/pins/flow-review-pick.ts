@@ -20,7 +20,7 @@ import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from '
 import { drawPins, jumpToCard, loadPins, marks } from './flow-list.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $, findElement } from '../platform/dom.ts';
+import { $, findElement, findMaybe } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
@@ -131,9 +131,11 @@ function drawPickBar(list: Pin[]) {
 // data-act and its place among the row's controls of that act (two #N in an explanation are both 'pin-ref'), or one of
 // the bar's controls by its id. null when the focus is elsewhere.
 function findPickFocus(): { sel: string; i: number } | null {
-  const focused = document.activeElement as HTMLElement | null;
-  if (!focused || !focused.closest) return null;
-  const row = focused.closest('.rv-row[data-id]') as HTMLElement | null,
+  const active = document.activeElement,
+    focused = active instanceof HTMLElement ? active : null;
+  if (!focused) return null;
+  const card = focused.closest('.rv-row[data-id]'),
+    row = card instanceof HTMLElement ? card : null,
     at = row ? '.rv-row[data-id="' + row.dataset.id + '"] ' : '';
   if (row && focused.matches('input[data-pick]')) return { sel: at + 'input[data-pick]', i: 0 };
   if (row && focused.dataset.act) {
@@ -149,9 +151,10 @@ function restorePickFocus(kept: { sel: string; i: number } | null) {
   const focused = document.activeElement;
   if (!kept || (focused && focused !== document.body)) return;
   const all = document.querySelectorAll(kept.sel),
-    target = (all[Math.max(0, kept.i)] || all[0] || null) as HTMLElement | null,
+    found = all[Math.max(0, kept.i)] || all[0] || null,
+    target = found instanceof HTMLElement ? found : null,
     pick = $('#review-pick');
-  const to = target && !(target as HTMLInputElement).disabled ? target : !pick.hidden ? pick : $('#review-toggle');
+  const to = target && !('disabled' in target && target.disabled) ? target : !pick.hidden ? pick : $('#review-toggle');
   to.focus({ preventScroll: true });
 }
 
@@ -207,9 +210,7 @@ function goToReviewCard(id: number) {
   OPEN_CARDS.add(id);
   drawPins();
   jumpToCard(id);
-  const confirmButton = document.querySelector(
-    '#review-pins .pin[data-id="' + id + '"] [data-act=confirm]',
-  ) as HTMLElement | null;
+  const confirmButton = findMaybe(document, '#review-pins .pin[data-id="' + id + '"] [data-act=confirm]', HTMLElement);
   if (confirmButton) confirmButton.focus({ preventScroll: true });
 }
 
@@ -280,7 +281,7 @@ function confirmTicked() {
   );
   const section = $('#sec-review');
   if (!section.hidden) section.scrollIntoView({ block: 'start' }); // the undo row is the section's first
-  const undoButton = (note.el && note.el.querySelector('.nt-act')) as HTMLElement | null;
+  const undoButton = note.el ? findMaybe(note.el, '.nt-act', HTMLElement) : null;
   if (undoButton && document.contains(undoButton)) undoButton.focus({ preventScroll: true });
   else $('#review-toggle').focus({ preventScroll: true });
 }
@@ -310,7 +311,7 @@ function undoConfirms(items: { pin: Pin; at: string }[], where: Map<number, numb
   marks();
   // the undo row that had the focus is gone
   const to = REVIEW_PICK ? $('#rv-go') : $('#review-pick');
-  if (to && to.getClientRects().length && !(to as HTMLButtonElement).disabled) to.focus({ preventScroll: true });
+  if (to && to.getClientRects().length && !to.disabled) to.focus({ preventScroll: true });
   if (lost.length)
     lineNote(
       translateTemplate('핀 {ids} 은 그사이 다른 곳에서 지워졌습니다', { ids: lost.map((id) => '#' + id).join(', ') }),
@@ -472,8 +473,8 @@ function retryConfirms(items: { pin: Pin; at: string }[]): Promise<void> {
 
 // A box's change (a click on it or its label, Space on it) ticks or clears it.
 function tickChangedBox(event: Event) {
-  const box = event.target as HTMLInputElement;
-  if (box && box.type === 'checkbox' && box.closest && box.closest('#sec-review')) tickResultBox(box);
+  const box = event.target;
+  if (box instanceof HTMLInputElement && box.type === 'checkbox' && box.closest('#sec-review')) tickResultBox(box);
 }
 document.addEventListener('change', tickChangedBox);
 export { REVIEW_PICK, confirmTicked, drawReviewPick, setReviewPicking, goToReviewCard };

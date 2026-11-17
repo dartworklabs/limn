@@ -344,11 +344,12 @@ async function trashRestore(id: number | null) {
     sourceOk(source);
     if (!had) return;
     const trashList = $('#trash-list'),
-      target = trash.open
-        ? ((trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
-            trashList.querySelector('[data-act="restore"]') ||
-            trash.querySelector('[data-act="trash-close"]')) as HTMLElement | null)
-        : null;
+      found = trash.open
+        ? trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
+          trashList.querySelector('[data-act="restore"]') ||
+          trash.querySelector('[data-act="trash-close"]')
+        : null,
+      target = found instanceof HTMLElement ? found : null;
     if (target) target.focus();
     else searchToPage();
   });
