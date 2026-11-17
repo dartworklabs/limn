@@ -65,7 +65,7 @@ async function applyRepick() {
     level = rung || candidate;
   const visit = captureVisit(),
     editing = EDITOR.current;
-  let loc = {
+  let loc: Record<string, unknown> = {
     file: candidate.file,
     page: candidate.page,
     lo: level.lo,
@@ -81,7 +81,7 @@ async function applyRepick() {
     quote: candidate.quote,
     scope: (rung && rung.level) || null,
     kind: rung && rung.level ? kindFor(rung.level, rung.env) : candidate.kind,
-  } as Record<string, unknown>;
+  };
   if (!loc.scope) delete loc.scope;
   if (isRegion(candidate))
     loc = {
@@ -139,7 +139,7 @@ async function applyRepick() {
         id: pin.id,
         where: isRegion(pin)
           ? translateTemplate('쪽 {page} 영역', { page: pinPlace(pin).page })
-          : lineRange(pin.lo as number, pin.hi as number),
+          : lineRange(pin.lo, pin.hi),
       }),
     );
     await composerPins().load();

@@ -20,6 +20,8 @@ import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '..
 import { pinState } from '../app/rules-pins.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { composerVerdict } from './state-seams.ts';
+import { onLines } from './view-levels.ts';
+import type { RangeOwner } from './view-levels.ts';
 import { SUGGEST_DRAFT, suggestDraft } from './state-suggest.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
@@ -246,8 +248,17 @@ function suggestBadge(pin: Pin, closed: boolean): Html | null {
 // Reads the lines owner.lo..owner.hi of owner.file exactly (GET /api/snippet?…&text=1) into the draft as its base - and
 // as its text too when `fill` - then redraws its owner. Only while owns() (the selection or the edit card is still on
 // screen), the owner still has those lines and, for a fill, the text was not typed meanwhile: otherwise the next draw
-// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기].
-async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns: () => boolean, redraw: () => void) {
+// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기]. An owner off lines (a
+// region) has no source to read and is left as it is; none comes here, as such an owner carries no suggestion
+// (suggestOff).
+async function suggestRead(
+  draft: SuggestDraft,
+  owner: RangeOwner,
+  fill: boolean,
+  owns: () => boolean,
+  redraw: () => void,
+) {
+  if (!onLines(owner)) return;
   const key = suggestKey(owner),
     was = draft.text;
   if (draft.reading === key) return;
@@ -295,7 +306,13 @@ async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns:
 // Keeps the draft on the owner's lines while its text is the source's own: an editor turned on and never filled, or not
 // edited since and now on other lines, reads them as its text and base. Nothing while off, on a selection that can
 // carry no suggestion, during a read, or after a read of these lines failed (its [원문 다시 읽기] tries again).
-function suggestFollow(draft: SuggestDraft, owner: any, off: string | null, owns: () => boolean, redraw: () => void) {
+function suggestFollow(
+  draft: SuggestDraft,
+  owner: RangeOwner,
+  off: string | null,
+  owns: () => boolean,
+  redraw: () => void,
+) {
   if (!draft.on || off || draft.reading) return;
   if (draft.fail && draft.fail.key === suggestKey(owner)) return;
   if (draft.base == null || (suggestMoved(draft, owner) && !suggestEdited(draft)))
@@ -303,7 +320,7 @@ function suggestFollow(draft: SuggestDraft, owner: any, off: string | null, owns
 }
 // [지금 원문으로 맞추기]: the draft keeps its text and takes the owner's current lines as its base - the text a 409
 // answered with when it is those lines, else read now.
-function suggestRebase(draft: SuggestDraft, owner: any, owns: () => boolean, redraw: () => void) {
+function suggestRebase(draft: SuggestDraft, owner: RangeOwner | null, owns: () => boolean, redraw: () => void) {
   const current = draft.current;
   draft.current = null;
   if (current && owner && suggestKey(current) === suggestKey(owner)) {
@@ -325,7 +342,7 @@ function suggestRebase(draft: SuggestDraft, owner: any, owns: () => boolean, red
 // and the line goes, as the card's will once it is saved.
 function suggestLine(
   draft: SuggestDraft,
-  owner: any,
+  owner: RangeOwner,
   off: string | null,
   isEdit: boolean,
   state: string | undefined,
@@ -390,7 +407,7 @@ function suggestGrow(editor: HTMLTextAreaElement) {
 // polite live region, so it is written only when what it says changes (typing redraws it on every key).
 function drawSuggest(
   draft: SuggestDraft,
-  owner: any,
+  owner: RangeOwner,
   off: string | null,
   elements: {
     tg: HTMLElement;
@@ -536,7 +553,7 @@ function renderEditSuggest(card: EditCard) {
 // else the composer's.
 function suggestOwner(
   control: HTMLElement,
-): { sg: SuggestDraft; o: any; owns: () => boolean; redraw: () => void } | null {
+): { sg: SuggestDraft; o: RangeOwner; owns: () => boolean; redraw: () => void } | null {
   if (control.closest('.edit')) {
     const card = EDITOR.current;
     if (!card) return null;
