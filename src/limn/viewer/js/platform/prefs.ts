@@ -87,8 +87,8 @@ function applyTheme() {
 LIGHT_SCHEME_QUERY.addEventListener('change', applyTheme);
 // [더보기]'s theme segment: saves `theme` (one of THEMES) and applies it at once - the change is its own preview,
 // another segment its undo.
-function setTheme(theme) {
-  if (!THEMES.includes(theme)) return;
+function setTheme(theme: string | undefined) {
+  if (theme === undefined || !THEMES.includes(theme)) return;
   savePrefs({ theme: theme });
   applyTheme();
 }

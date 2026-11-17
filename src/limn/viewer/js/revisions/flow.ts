@@ -185,9 +185,12 @@ function renderRevisionFile() {
     ),
   );
 }
+// The fields of GET /api/revision-diff?pin='s scope (limn.revisions.scope scope_payload) the rest of the commit is drawn
+// from; the patch and its truncation come only in mode pin.
+type RevisionOtherScope = { mode: string; other: number; other_diff?: string; other_truncated?: boolean };
 // The rest of the commit, folded under one control. Hidden when the pin owns the whole commit or the view is not a
 // pin's.
-function drawRevisionOther(scope) {
+function drawRevisionOther(scope: RevisionOtherScope | null) {
   const toggle = $('#revision-other-toggle'),
     rest = $('#revision-other');
   rest.hidden = true;
@@ -201,7 +204,7 @@ function drawRevisionOther(scope) {
           : '')
       : '';
   toggle.hidden = !REVISION_VIEW.other;
-  if (REVISION_VIEW.other)
+  if (scope && REVISION_VIEW.other)
     toggle.querySelector('span').textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', { n: scope.other });
 }
 function toggleRevisionOther() {
@@ -597,8 +600,8 @@ function showRange(range: RevRange, format?: string) {
 function pressRevisionRow(id: string | undefined) {
   if (id) showRange(rangePress(REVISION_VIEW.rows, REVISION_VIEW.range, id));
 }
-function setRevisionRange(mode) {
-  if (!REVISION_VIEW.rows.length || mode === REVISION_VIEW.range.mode) return;
+function setRevisionRange(mode: string | undefined) {
+  if (mode === undefined || !REVISION_VIEW.rows.length || mode === REVISION_VIEW.range.mode) return;
   showRange(rangeMode(REVISION_VIEW.rows, REVISION_VIEW.range, mode, REVISION_VIEW.seen));
 }
 // Draws the quick range: the pressed segment, and [마지막으로 본 뒤 N] - hidden without a record of this document in
@@ -1170,11 +1173,13 @@ function hunkRanges(text: string) {
   }
   return out;
 }
-function touchesPin(files: RevisionFile[], target, slack?: number) {
-  const index = pinFileIndex(files, target.file);
-  if (index < 0) return false;
-  slack = slack == null ? 5 : slack;
-  return hunkRanges(files[index].text).some(([start, end]) => end >= target.lo - slack && start <= target.hi + slack);
+// A target without lines (a region pin's) touches none.
+function touchesPin(files: RevisionFile[], target: RevTarget, slack?: number) {
+  const index = pinFileIndex(files, target.file),
+    { lo: first, hi: last } = target;
+  if (index < 0 || first == null || last == null) return false;
+  const reach = slack == null ? 5 : slack;
+  return hunkRanges(files[index].text).some(([start, end]) => end >= first - reach && start <= last + reach);
 }
 // A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows
 // reads further pages until found or the window ends, as the server resolves it), else the most recent of the first
@@ -1306,13 +1311,21 @@ function drawPinGuideActions() {
   row.hidden = !narrow;
   document.body.classList.toggle('rev-thumb', narrow);
 }
-function highlightPinLines(target) {
+// A target without lines (a region pin's) marks none and neither hits nor comes near.
+function highlightPinLines(target: RevTarget) {
+  const { lo: firstLine, hi: lastLine } = target;
+  if (firstLine == null || lastLine == null) {
+    target.hit = false;
+    target.near = false;
+    drawPinGuide();
+    return;
+  }
   const rows = $$('#revision-diff .rd-line');
   let first = null as Element | null;
   rows.forEach((line) => {
     if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
     const lineNumber = +line.querySelector('.rd-no').textContent;
-    if (lineNumber >= target.lo && lineNumber <= target.hi) {
+    if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
     }
@@ -1329,7 +1342,7 @@ function highlightPinLines(target) {
       rows.forEach((line) => {
         const lineNumber = +line.querySelector('.rd-no').textContent;
         if (!lineNumber) return;
-        const distance = Math.min(Math.abs(lineNumber - target.lo), Math.abs(lineNumber - target.hi));
+        const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
           bestDistance = distance;
           best = line;

@@ -258,8 +258,8 @@ function gotoReview() {
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
 }
-function toggleSection(key, force?: boolean) {
-  if (!(key in SECTION_OPEN_DEFAULT)) return;
+function toggleSection(key: string | undefined, force?: boolean) {
+  if (key === undefined || !(key in SECTION_OPEN_DEFAULT)) return;
   SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
   savePrefs({ sec: SECTION_OPEN });
   drawPins();

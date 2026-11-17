@@ -1078,8 +1078,7 @@ async function savePageVerdict(
     if (here()) showPressedHint(page);
   } catch (error) {
     const x = error as ApiError;
-    if (!saved)
-      failed(x && x.status ? errText(x.data) || 'HTTP ' + x.status : translate('서버에 닿지 않습니다'));
+    if (!saved) failed(x && x.status ? errText(x.data) || 'HTTP ' + x.status : translate('서버에 닿지 않습니다'));
   } finally {
     document.removeEventListener('focusin', moved);
     SAVING_LINES.delete(slot);
