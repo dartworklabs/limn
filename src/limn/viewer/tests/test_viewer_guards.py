@@ -14,7 +14,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, js_markup, run_node
+from helpers import extract_js_fn, js_const, js_listener_body, js_markup, run_node
 from helpers_browser import BrowserBase, nothing_follows
 
 PHONE = {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True}
@@ -178,6 +178,44 @@ class GuardRules(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [[100, 200, 0.5, 0.5], [100, 200, 0.5, 0.5], [20, 40, 0.1, 0.1]])
+
+    def test_a_page_press_aimed_at_no_element_prevents_nothing_and_throws_nothing(self):
+        """The page's mousedown (pdf/input-selection.ts) keeps the note's focus for a left press on a page: it prevents
+        that press, and does nothing for a press whose target is no element (a text node), which threw before."""
+        got = self.run_js(
+            "class Element { constructor(page) { this.page = page; } closest(s) { return s === '.pg' && this.page ? this : null; } }",
+            extract_js_fn("eventElement"),
+            "const listener = (event) => {" + js_listener_body("$('#doc')", "mousedown", "eventElement") + "};",
+            r"""
+            const press = (target, button) => {
+              let done = false;
+              listener({ target, button, preventDefault() { done = true; } });
+              return done;
+            };
+            console.log(JSON.stringify([
+              press(new Element(true), 0),
+              press(new Element(false), 0),
+              press(new Element(true), 2),
+              press({ nodeType: 3 }, 0),
+              press(null, 0),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, False, False, False, False])
+
+    def test_the_grips_hint_is_empty_text_when_the_markup_gives_none(self):
+        """GRIP_TIP (layout/flow.ts) is the handle's data-tip, which the open handle's hint is translated from; a handle
+        without one gives empty text, not undefined (which the hint would have shown as 'undefined')."""
+        got = self.run_js(
+            "let TIP;",
+            "const $ = () => ({ dataset: TIP === undefined ? {} : { tip: TIP } });",
+            "TIP = '끌어서 패널 폭을 바꿉니다';",
+            js_const("GRIP_TIP").replace("const GRIP_TIP", "const withTip"),
+            "TIP = undefined;",
+            js_const("GRIP_TIP").replace("const GRIP_TIP", "const withoutTip"),
+            "console.log(JSON.stringify([withTip, withoutTip]));",
+        )
+        self.assertEqual(got, ["끌어서 패널 폭을 바꿉니다", ""])
 
 
 class NonElementTargets(BrowserBase):
