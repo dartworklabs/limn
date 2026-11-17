@@ -36,7 +36,7 @@ function linkHref(raw: unknown, origin: string): { open: 'web' | 'mail' | 'ancho
 // name ('localhost.', also from 'localhost%2e' or 'localhost。') it keeps. DNS reads 'name.' as 'name', and so does
 // Limn's Host and Origin check (security/access.py split_host, origin_ok: name.rstrip('.')): this rule is that one.
 // Pure.
-function hostKey(host) {
+function hostKey(host: string) {
   return String(host == null ? '' : host)
     .toLowerCase()
     .replace(/^\[|\]$/g, '')
@@ -59,7 +59,7 @@ function isSameOrigin(url: URL, origin: string) {
 // by hostKey's spelling; the URL parser has put every address in one form (hostKey). A name a hosts file maps to
 // loopback (ip6-localhost, the machine's own name) is not listed: Limn's Host check admits only localhost, 127.0.0.1
 // and ::1 as loopback and answers any other such name 403. Pure.
-function isLoopbackHost(host) {
+function isLoopbackHost(host: string) {
   const key = hostKey(host);
   if (key === 'localhost' || key.endsWith('.localhost')) return true;
   if (/^(127|0)\.\d+\.\d+\.\d+$/.test(key)) return true;
