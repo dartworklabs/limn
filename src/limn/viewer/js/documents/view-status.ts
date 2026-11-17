@@ -131,7 +131,11 @@ function statusList(input: ReturnType<typeof statusInput>) {
 // messages, a rebuild's 'no changes', a new Limn and the pins kept while cut off - its status chips (#bar2) already
 // show the build, the connection, sync, staleness and PNG, but no chip counts the kept pins, so the line is the one
 // place the desktop says there are any. Pure.
-function statusShown(list, wide: boolean) {
+// The message a status item carries: a notice item's, else none.
+function itemNotice(item: StatusItem) {
+  return item.kind === STATUS_KIND.NOTICE ? item.notice : null;
+}
+function statusShown(list: StatusItem[], wide: boolean) {
   return wide
     ? list.filter(
         (item: StatusItem) =>
@@ -351,10 +355,16 @@ function drawStatus() {
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
   const held =
-    focused && focused.n ? list.findIndex((item) => !!item.notice && String(item.notice.n) === focused.n) : -1;
+    focused && focused.n
+      ? list.findIndex((item) => {
+          const notice = itemNotice(item);
+          return !!notice && String(notice.n) === focused.n;
+        })
+      : -1;
   if (held > 0) list = [list[held], ...list.slice(0, held), ...list.slice(held + 1)];
-  const top = list[0];
-  STATUS_TOP = top && top.notice ? top.notice.n : 0;
+  const top = list[0],
+    topNotice = top ? itemNotice(top) : null;
+  STATUS_TOP = topNotice ? topNotice.n : 0;
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
@@ -383,10 +393,10 @@ function drawStatus() {
     '|' +
     list.length +
     '|' +
-    (top.state || '') +
+    ((top.kind === STATUS_KIND.SYNC && top.state) || '') +
     '|' +
     // a message turned into a warning (noticeLate) takes its icon
-    (top.notice ? top.notice.n + '|' + top.notice.kind : '');
+    (topNotice ? topNotice.n + '|' + topNotice.kind : '');
   if (sig !== STATUS_SIG) {
     STATUS_SIG = sig;
     const more =
@@ -404,17 +414,18 @@ function drawStatus() {
   // the short band's one row always takes the short text
   textSpan.textContent = BAND === LAYOUT_BAND.SHORT ? short[0] + short[1] : long[0] + long[1];
   if (textSpan.scrollWidth > textSpan.clientWidth) textSpan.textContent = short[0] + short[1];
-  const said = top.notice
-    ? top.notice.alert
+  const said = topNotice
+    ? topNotice.alert
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
-  const say = said || (top.notice && top.notice.quiet) ? '' : long[0];
+  const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
   if (!bar) return;
-  const { done, total } = top.progress || {},
-    percent = top.progress ? Math.round((done / total) * 100) : null;
+  const progress = top.kind === STATUS_KIND.BUILDING || top.kind === STATUS_KIND.RENDERING ? top.progress : null,
+    { done, total } = progress || { done: 0, total: 0 },
+    percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
   bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
   if (percent === null) {

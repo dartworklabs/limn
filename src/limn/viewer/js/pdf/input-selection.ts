@@ -381,7 +381,7 @@ function quickBox(x: number, y: number, figure: boolean) {
 // Turns a drawn rectangle into a selection and asks the server for its lines. Returns false, drawing nothing and
 // removing the box, when the rectangle is smaller than a drag (under 0.4% of the page in both directions) - a click,
 // not a selection.
-function finishRect(pageElement, box: HTMLElement, startX: number, startY: number, x: number, y: number) {
+function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, startY: number, x: number, y: number) {
   const width = Math.abs(x - startX),
     height = Math.abs(y - startY);
   if (width < 0.004 && height < 0.004) {
@@ -399,7 +399,7 @@ function finishRect(pageElement, box: HTMLElement, startX: number, startY: numbe
     setComposeBox(box);
     pendingBadge(box, '새 핀');
   }
-  const page = +pageElement.dataset.page,
+  const page = Number(pageElement.dataset.page),
     pageInfo = META.pages[page - 1],
     repick = !!REPICK;
   pageSelection().pick({

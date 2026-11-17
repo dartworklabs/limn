@@ -41,7 +41,10 @@ function scopeLabel(owner: RangeOwner | PickAnswer) {
   if (rung) return levelLabel(rung.label);
   if (scope === 'lines') return '';
   return translate(
-    tableEntry({ float: '그림/표', block: '환경 블록', paragraph: '문단', none: '생성 파일', lines: '줄' }, owner.kind) ||
+    tableEntry(
+      { float: '그림/표', block: '환경 블록', paragraph: '문단', none: '생성 파일', lines: '줄' },
+      owner.kind,
+    ) ||
       owner.kind ||
       '',
   );

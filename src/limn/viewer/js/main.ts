@@ -476,7 +476,12 @@ function zoomVisiblePdf(action: 'in' | 'out' | 'fit' | 'actual') {
 // (the card's 44px links and chips keep their own action). wide cards are always open.
 function openTappedCard(target: Element) {
   const card = target.closest('.pin.card:not(.open):not(.editing)');
-  if (!(card instanceof HTMLElement) || LAYOUT === LAYOUT_MODE.WIDE || target.closest('[data-copy],button,input,textarea')) return;
+  if (
+    !(card instanceof HTMLElement) ||
+    LAYOUT === LAYOUT_MODE.WIDE ||
+    target.closest('[data-copy],button,input,textarea')
+  )
+    return;
   OPEN_CARDS.add(Number(card.dataset.id));
   drawPins();
 }
