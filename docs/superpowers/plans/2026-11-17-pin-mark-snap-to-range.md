@@ -44,7 +44,7 @@ spec이 전제하지만 어느 task의 시험도 건드리지 않는 입력들. 
 - Consumes: 기존 `paired_lines(built, now) -> list[int | None]`, `_shared_ends`
 - Produces:
   - `Box = tuple[int, float, float, float, float]` — `(page, x, y, w, h)`, PDF 포인트, 쪽 좌상단 기준
-  - `line_boxes(rows: Sequence[Box], page_w: float, page_h: float) -> list[Box]`
+  - `line_boxes(rows: Sequence[Box], page_h: float) -> list[Box]`
   - `range_pad(rows: Sequence[Box]) -> float`
   - `merge_boxes(rows: Sequence[Box], pad: float, page_w: float, page_h: float, limit: int) -> list[Box]`
   - `built_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> tuple[int, int] | None`
@@ -55,7 +55,7 @@ spec이 전제하지만 어느 task의 시험도 건드리지 않는 입력들. 
 def test_line_boxes_drops_page_body_boxes():
     # a page body box (full text width, most of the page height) and two text lines
     rows = [(1, 72.0, 100.0, 467.0, 548.0), (1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 243.0, 228.6, 8.86)]
-    assert line_boxes(rows, 595.28, 841.89) == rows[1:]
+    assert line_boxes(rows, 841.89) == rows[1:]
 
 
 def test_range_pad_halves_the_blank_between_lines():
@@ -106,7 +106,7 @@ Expected: FAIL — `line_boxes` 등이 정의되지 않음
 
 - [ ] **Step 3: Implement the four functions in `src/limn/pins/location/mapping.py`**
 
-`line_boxes`: 폭이 `page_w`의 70% 이상이면서 높이가 `page_h`의 25% 이상인 박스를 버린다(쪽·단 본문). 그 기준은 범위 안 박스끼리 견주지 않는다 — float은 칸마다 크기가 제각각이라 중앙값 비교가 깨진다.
+`line_boxes`: 높이가 `page_h`의 25% 이상인 박스를 버린다(쪽·단 본문). 폭은 보지 않는다 — 실측에서 `\end{document}` 는 단 본문 박스(`W:228.64`, 쪽 폭의 38%)를 돌려주므로 폭 기준은 그것을 놓치고 단 전체가 덮인다. 글줄은 쪽 높이의 1.05%(`H:8.856` / 841.89)라 높이만으로 두 자릿수 차이가 난다. 그 기준은 범위 안 박스끼리 견주지 않는다 — float은 칸마다 크기가 제각각이라 중앙값 비교가 깨진다. 대신 쪽 높이의 4분의 1보다 큰 float 박스도 버려지므로 그 핀은 드래그 사각형으로 떨어진다(spec 이 float 에 허용한 폴백).
 
 `merge_boxes`: 같은 `page`에서 가로로 겹치고(구간이 만남) 세로로 이어지는(틈이 글줄 높이 이하) 박스를 합친다. 합친 뒤 `pad`를 사방에 더하고 `0..page_w`·`0..page_h`로 자른다. 결과가 `limit`을 넘으면 `[]`.
 
