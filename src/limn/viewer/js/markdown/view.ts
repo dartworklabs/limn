@@ -64,7 +64,7 @@ import {
   hiddenName,
 } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import { endTopic } from '../platform/notices.ts';
 import { TIP, hideTip, showTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { drawPos, switchDoc, switchPending } from '../documents/flow-switch.ts';
@@ -471,7 +471,7 @@ async function buildMarkdownDoc() {
   }
   let answer;
   try {
-    answer = await api(withDocQuery('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api('GET /api/source', { query: withDocQuery(''), what: '원문 읽기', silent: true, expect: [413] });
   } catch (error) {
     if (!stale()) {
       MARKDOWN_VIEW.asked = null;
@@ -483,8 +483,8 @@ async function buildMarkdownDoc() {
     // document never matches again), so the next light poll asks again
   }
   if (stale()) return;
-  if (answer.status === 413) {
-    MARKDOWN_VIEW.lines = [];
+  if (isRefusal(answer.data)) {
+    MARKDOWN_VIEW.lines = []; // 413: too large to send
     MARKDOWN_VIEW.heads = [];
     MARKDOWN_VIEW.mtime = MARKDOWN_VIEW.asked;
     showDocumentNode(

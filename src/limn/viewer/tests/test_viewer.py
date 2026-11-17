@@ -639,14 +639,14 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn('data-act="unclaim"', HTML)
         self.assertIn(sq("case 'unclaim':unclaimPin(id)"), SCRIPT_SQ)
         self.assertIn("function unclaimPin(", HTML)
-        self.assertIn(sq("'/api/pins/'+id+'/unclaim'"), SCRIPT_SQ)
+        self.assertIn(sq("api('POST /api/pins/{id}/unclaim',{id,"), SCRIPT_SQ)
 
     def test_no_claim_button_offered_to_viewer(self):
         # the viewer never claims (agent-only) — there must be no 'claim' action button.
         self.assertNotIn('data-act="claim"', HTML)
 
     def test_build_status_fetch_requests_full_log(self):
-        self.assertIn("/api/build?log=1", HTML)
+        self.assertIn(sq("api('GET /api/build',{query:withDocQuery('?log=1')"), SCRIPT_SQ)
 
     def test_pull_line_wiring(self):
         """The pull phase has its words, and a build's completion carries the pull's line (pullSuffix)."""
@@ -4217,9 +4217,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             const SUGGEST_DRAFT={on:false,text:'',base:null}; let META=null; function suggestClear(){} function suggestPending(){return false;}
             function suggestOff(){return null;} function suggestForSave(){return null;}   // no suggested edit (composer/flow-suggest.ts)
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
-            function api(url){apiCalls.push(url);
-              if(url==='/api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
-              if(url==='/api/pin')return new Promise(res=>{pinResolve=res;});
+            function api(endpoint){apiCalls.push(endpoint);
+              if(endpoint==='POST /api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
+              if(endpoint==='POST /api/pin')return new Promise(res=>{pinResolve=res;});
               return Promise.resolve({data:{}});}
             """
         return "\n".join(
@@ -4227,6 +4227,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 stub,
                 js_esc(),
                 js_markup(),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("saveButtonLabel"),
@@ -4254,12 +4255,12 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               savePin();   // 사용자가 pick 이 끝나기 전에 [핀 저장]을 누름
               out.queued = COMPOSE.pendingSave;
               out.btnPendingLabel = /위치 찾는 중.*저장 대기/.test(els['#btn-save'].innerHTML);
-              out.pinCallsBeforeResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsBeforeResolve = apiCalls.filter(u=>u==='POST /api/pin').length;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p;
               out.autoSaved = COMPOSE.pendingSave===false;
-              out.pinCallsAfterResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsAfterResolve = apiCalls.filter(u=>u==='POST /api/pin').length;
               out.curSetBeforeSave = !!COMPOSE.current || out.pinCallsAfterResolve>0;
               pinResolve({data:{id:42}});
               await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -4308,7 +4309,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               pickResolve({data:{error:'못 찾음'}});
               await p;
               out.queuedAfterFailure = COMPOSE.pendingSave;
-              out.pinCalls = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCalls = apiCalls.filter(u=>u==='POST /api/pin').length;
               out.errorShown = els['#c-err'].hidden===false && els['#c-err'].textContent==='못 찾음';
               out.composerStillOpen = els['#composer'].hidden!==true || true;   // 실제 hidden 토글은 composer 표시측이 이미 맡는다
               console.log(JSON.stringify(out));
@@ -4337,7 +4338,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p;
-              out.noAutoSaveAfterCancel = apiCalls.filter(u=>u==='/api/pin').length===0;
+              out.noAutoSaveAfterCancel = apiCalls.filter(u=>u==='POST /api/pin').length===0;
               console.log(JSON.stringify(out));
             })();
             """)
@@ -4366,13 +4367,13 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               await Promise.resolve(); await Promise.resolve();
               out.curClearedOnNewPick = (COMPOSE.current===null);
               savePin();   // 스피너가 도는 동안(새 위치 응답 전) [핀 저장]을 누름
-              out.pinCallsWhileWaiting = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsWhileWaiting = apiCalls.filter(u=>u==='POST /api/pin').length;
               out.queued = COMPOSE.pendingSave;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:900,hi:920,raw_lo:900,raw_hi:920,page:5,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p2;
               out.autoSaved = COMPOSE.pendingSave===false;
-              out.pinCallsAfterSecondResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsAfterSecondResolve = apiCalls.filter(u=>u==='POST /api/pin').length;
               console.log(JSON.stringify(out));
             })();
             """)
@@ -4772,9 +4773,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
         # one path; the server decides - and silent, as the reply box's own error line says a failed send (one alert)
-        self.assertIn(
-            sq("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true})"), sq(send)
-        )
+        self.assertIn(sq("api('POST /api/pins/{id}/reply',{id,body,what:'답글',silent:true,keepalive:true})"), sq(send))
         self.assertIn(
             sq("body.reopen=replyBox.toggle==='reopen'"), sq(send)
         )  # the one override: [상태 유지] / [다시 열기]

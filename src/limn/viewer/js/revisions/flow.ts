@@ -390,7 +390,11 @@ async function loadRevisions() {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, docKey), { what: '변경사항 읽기', silent: true })
+      await api('GET /api/revisions', {
+        query: withDocQuery('?limit=' + REVISION_PAGE, docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
   } catch (error) {
     if (seq === REVISION_VIEW.seq) list.textContent = '변경사항을 읽지 못했습니다.';
@@ -736,7 +740,8 @@ async function moreRows(docKey: string | null, limit: number) {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey), {
+      await api('GET /api/revisions', {
+        query: withDocQuery('?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey),
         what: '변경사항 읽기',
         silent: true,
       })
@@ -810,13 +815,11 @@ async function resolveSeen(docKey: string, newest: string) {
   if (!seen) return;
   try {
     const answer = (
-      await api(
-        withDocQuery(
-          '/api/revision-diff?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id),
-          docKey,
-        ),
-        { what: '변경사항 읽기', silent: true },
-      )
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id), docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
     if (docKey === DOC && REVISION_VIEW.seen === seen) seenAnswered(answer);
   } catch (error) {
@@ -1038,7 +1041,8 @@ async function loadRevisionSource(id: string, seq: number, docKey: string | null
     query = pinTarget ? '&pin=' + pinTarget.id : base ? '&base=' + encodeURIComponent(base) : '';
   try {
     const answer = (
-      await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + query, docKey), {
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
         what: '변경 내용 읽기',
         silent: true,
       })
@@ -1209,7 +1213,8 @@ async function pickRevisionFor(
       if (seq !== REVISION_VIEW.seq || docKey !== DOC) break;
       try {
         const answer = (
-          await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(row.id), docKey), {
+          await api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(row.id), docKey),
             what: '변경 내용 읽기',
             silent: true,
           })
@@ -1427,7 +1432,7 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
   };
   for (let waits = 0; ; waits++) {
     try {
-      return (await api('/api/revision-build', { method: 'POST', body, what: '비교 PDF 만들기', silent: true })).data;
+      return (await api('POST /api/revision-build', { body, what: '비교 PDF 만들기', silent: true })).data;
     } catch (error) {
       const answer = (error as ApiError).data as { reason?: string } | undefined;
       if (!answer || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
@@ -1470,7 +1475,8 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       if (!revisionCurrent(seq, docKey, id)) return;
       status = (
-        await api(withDocQuery('/api/revision-build?commit=' + encodeURIComponent(id) + query, docKey), {
+        await api('GET /api/revision-build', {
+          query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
           what: '비교 PDF 상태',
           silent: true,
         })

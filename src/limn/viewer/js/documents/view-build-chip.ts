@@ -116,7 +116,7 @@ async function pollBuildOnce() {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    build = (await api(withDocQuery('/api/build?log=1'), { what: '빌드 상태', silent: true })).data;
+    build = (await api('GET /api/build', { query: withDocQuery('?log=1'), what: '빌드 상태', silent: true })).data;
   } catch (error) {
     return;
   }

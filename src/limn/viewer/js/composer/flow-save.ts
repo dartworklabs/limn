@@ -81,8 +81,8 @@ async function appendToPin(id: number, text: string) {
     body = { note_append: text, base_rev: prior.rev || 0 } as Record<string, unknown>;
   if (hints.length) body.mentions = hints;
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       body,
       what: '메모 덧붙이기',
       where: NOTICE_HOST.COMPOSER,
@@ -140,11 +140,11 @@ function syncComposeSaveButtons() {
 } // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card
 // shows it. Resolves with whether it went back (its chip waits for it, noticeAct).
-async function undoAppend(id: number, note: string, revision: number): Promise<boolean> {
+async function undoAppend(id: number, note: string, revision: number | undefined): Promise<boolean> {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/edit', {
+      id,
       body: { note: note, base_rev: revision },
       what: '되돌리기',
       where: NOTICE_HOST.LIST,
@@ -361,17 +361,16 @@ async function savePin(verdict?: string) {
     let status = 0,
       data = null as any;
     const ask = {
-      method: 'POST',
       body,
       what: verdict ? '판정 저장' : '핀 저장',
       where: NOTICE_HOST.COMPOSER,
       save: true,
-      expect: suggestion ? [409] : [],
+      expect: suggestion ? ([409] as const) : [],
       wait: API_WAIT.SAVE,
       quietUnreached: plain,
     };
     try {
-      ({ status, data } = await api('/api/pin', ask));
+      ({ status, data } = await api('POST /api/pin', ask));
     } catch (error) {
       const failure = error as ApiError;
       if (failure && failure.status) throw error;

@@ -23,7 +23,8 @@ function pdoc(pin: Pin) {
 function isRegion(pin: { kind?: string; file?: string; pdf?: string } | null | undefined) {
   return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
 }
-// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
+// Appends ?doc=<key> to a document-scoped path, or to the query of one ('' or '?a=1', api() options.query); the server
+// treats it as the first document if absent.
 function withDocQuery(path: string, doc?: string | null) {
   doc = doc || DOC;
   if (!doc) return path;

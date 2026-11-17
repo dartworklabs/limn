@@ -369,8 +369,8 @@ const CONFIRM_SEND_MS = 15000;
 function sendOneConfirm(pin: Pin, at: string): Promise<{ out: string; why?: string }> {
   const stop = new AbortController(),
     bound = setTimeout(() => stop.abort(), CONFIRM_SEND_MS);
-  return api('/api/pins/' + pin.id + '/confirm', {
-    method: 'POST',
+  return api('POST /api/pins/{id}/confirm', {
+    id: pin.id,
     silent: true,
     expect: [409],
     keepalive: true,

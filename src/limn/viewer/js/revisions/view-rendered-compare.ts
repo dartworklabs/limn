@@ -1315,7 +1315,7 @@ function sideFailureText(side: any, which: string) {
 // draws a document: a NUL in the source is not parsed (MARKDOWN_LIMIT.NUL). {root} or {why}; {root:null,why:''} once
 // live() is false.
 async function drawSide(
-  lines: string[] | null,
+  lines: string[] | null | undefined,
   live: () => boolean,
 ): Promise<{ root: HTMLElement | null; why?: string }> {
   if (!lines) return { root: await buildSide([], [], live) };
@@ -1352,12 +1352,12 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
   let answer,
     scope = null;
   try {
-    const path =
-      '/api/revision-source?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
+    const query = '?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
     const [sides, pinDiff] = await Promise.all([
-      api(withDocQuery(path, docKey), { what: '두 판 읽기', silent: true }),
+      api('GET /api/revision-source', { query: withDocQuery(query, docKey), what: '두 판 읽기', silent: true }),
       pinTarget
-        ? api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey), {
+        ? api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey),
             what: '변경 내용 읽기',
             silent: true,
           }).catch(() => null)
@@ -1379,10 +1379,12 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
     return;
   }
   if (!live()) return;
-  const bad = [
-    [answer.old, translate('옛 판')],
-    [answer.new, translate('새 판')],
-  ].find(([side]) => side && !Array.isArray(side.lines));
+  const bad = (
+    [
+      [answer.old, translate('옛 판')],
+      [answer.new, translate('새 판')],
+    ] as const
+  ).find(([side]) => side && !Array.isArray(side.lines));
   if (bad) {
     pane.replaceChildren(compareNotice(sideFailureText(bad[0], bad[1])));
     sayCompareStatus(answer, null);

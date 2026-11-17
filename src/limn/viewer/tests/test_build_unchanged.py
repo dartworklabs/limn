@@ -127,7 +127,8 @@ class UnchangedAnswer(unittest.TestCase):
                 r"""
             let DOC='a', SWITCHSEQ=1; const URLS=[]; const BUILD={inflight:null,asked:false};
             const withDocQuery=u=>u; const lineNote=()=>{}; const $=()=>({hidden:false}); let polls=0;
-            const api=async(u,o)=>{URLS.push([u,o.method]); return {status:202};}; const pollBuild=async()=>{polls++;};""",
+            const api=async(endpoint,o)=>{URLS.push([endpointUrl(endpoint,o.id,o.query),endpoint.split(' ')[0]]); return {status:202};}; const pollBuild=async()=>{polls++;};""",
+                extract_js_fn("endpointUrl"),
                 extract_js_fn("rebuild"),
                 "(async()=>{await rebuild(true); await rebuild(); console.log(JSON.stringify({urls:URLS,polls}));})();",
             ]

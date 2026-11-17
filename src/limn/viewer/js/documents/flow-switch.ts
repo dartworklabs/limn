@@ -514,7 +514,8 @@ async function switchDoc(doc: string | undefined) {
     SWITCH_TO = { k: doc, seq, nav: navigation };
     try {
       meta = (
-        await api(withDocQuery('/api/meta', doc), {
+        await api('GET /api/meta', {
+          query: withDocQuery('', doc),
           what: '문서 열기',
           where: NOTICE_HOST.LINE,
           retry: () => {
@@ -546,7 +547,8 @@ async function switchDoc(doc: string | undefined) {
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
     try {
-      const fresh = (await api(withDocQuery('/api/meta', doc), { what: '문서 열기', silent: true })).data;
+      const fresh = (await api('GET /api/meta', { query: withDocQuery('', doc), what: '문서 열기', silent: true }))
+        .data;
       if (seq === SWITCHSEQ && DOC === doc) {
         const changed = fresh.pages_build !== META.pages_build || fresh.pages.length !== META.pages.length;
         META_BY.set(doc, fresh);

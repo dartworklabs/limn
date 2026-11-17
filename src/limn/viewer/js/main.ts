@@ -1224,7 +1224,9 @@ async function boot() {
   await loadDocs();
   setDoc(initialDoc());
   try {
-    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
+    setMeta(
+      (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data,
+    );
   } catch (error) {
     return;
   }

@@ -9,7 +9,7 @@ import { BAND, DOC, META, isFigureKind, COMPOSE, EDITOR, setComposeIntent } from
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { countAddedHidden, findHidden, markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
 import { renderOverlapBanner } from './flow-pick.ts';
@@ -257,21 +257,17 @@ async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns:
   let text: string | null = null,
     fail = '';
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
-          encodeURIComponent(String(owner.file)) +
-          '&lo=' +
-          owner.lo +
-          '&hi=' +
-          owner.hi +
-          '&text=1',
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' + encodeURIComponent(String(owner.file)) + '&lo=' + owner.lo + '&hi=' + owner.hi + '&text=1',
         owner.doc,
       ),
-      { what: '원문 읽기', expect: [400], silent: true },
-    );
+      what: '원문 읽기',
+      expect: [400],
+      silent: true,
+    });
     if (status === 400) fail = errText(data);
-    else if (data && typeof data.text === 'string') text = data.text;
+    else if (data && !isRefusal(data) && typeof data.text === 'string') text = data.text;
     else fail = translate('80줄이 넘는 범위는 원문을 받지 못합니다');
   } catch (error) {
     fail = translate('서버에 닿지 않습니다');

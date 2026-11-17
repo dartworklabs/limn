@@ -57,7 +57,7 @@ async function refreshDoc(meta?: Meta) {
     seq = SWITCHSEQ;
   const snapshot =
     meta === undefined
-      ? (await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
+      ? (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
       : meta;
   if (visitDoc !== DOC || seq !== SWITCHSEQ) return;
   const gen = ++REFRESH_GEN;
@@ -177,8 +177,8 @@ async function rebuild(force?: boolean) {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    const { status } = await api(withDocQuery('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
-      method: 'POST',
+    const { status } = await api('POST /api/rebuild', {
+      query: withDocQuery('?async=1' + (force === true ? '&force=1' : '')),
       what: 'PDF 재빌드',
       where: NOTICE_HOST.LINE,
       retry: () => rebuild(force),

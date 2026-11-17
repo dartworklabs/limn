@@ -27,7 +27,7 @@ import {
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, warnText, josa } from '../platform/i18n.ts';
-import { API_OUT, API_WAIT, api } from '../platform/api.ts';
+import { API_OUT, API_WAIT, api, isRefusal } from '../platform/api.ts';
 import { endTopic, lineNote } from '../platform/notices.ts';
 import { hideTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
@@ -138,8 +138,7 @@ async function pick(region: PickDrag) {
   try {
     if (!repick && !isMarkdownDoc() && (offlineNow() || API_OUT)) throw new Error('cut off');
     answer = (
-      await api('/api/pick', {
-        method: 'POST',
+      await api('POST /api/pick', {
         body: region,
         what: '위치 찾기',
         quietUnreached: !repick && !isMarkdownDoc(),
@@ -179,7 +178,7 @@ async function pick(region: PickDrag) {
   if (seq !== PICKSEQ) return;
   setBusy(false);
   if (!repick) setComposePicking(false);
-  if (answer.error) {
+  if (isRefusal(answer)) {
     if (answer.pdf_build_gone) {
       try {
         await refreshDoc();
