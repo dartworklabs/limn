@@ -356,7 +356,8 @@ function linedShape(lang: string, lines: string[]) {
 function shapeLanguage(shape: string) {
   if (!shape.startsWith('\u0002pre\u0003')) return '';
   try {
-    return String(JSON.parse(shape.slice(5))[0]);
+    const parsed: unknown = JSON.parse(shape.slice(5));
+    return Array.isArray(parsed) ? String(parsed[0]) : '';
   } catch {
     return '';
   }

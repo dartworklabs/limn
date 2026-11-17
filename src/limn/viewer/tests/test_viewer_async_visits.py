@@ -289,6 +289,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("dropPin"),
+                extract_js_fn("isApiError"),
                 extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1,PINS_APPLIED_SEQ=0,OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]]; const EDITOR={current:null,saving:false};
@@ -313,6 +314,7 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("dropPin"),
+                extract_js_fn("isApiError"),
                 extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',PINS_APPLIED_SEQ=0;

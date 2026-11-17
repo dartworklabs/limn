@@ -808,17 +808,19 @@ async function moreRows(docKey: string | null, limit: number) {
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
 // browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the
 // newest, or that it is no longer in the history. A record is never overwritten until the server has answered for it.
-function readSeenRecords(): Record<string, RevSeen> {
+// Every document's record as stored: seenRecordOf reads one, and one it cannot read stays as it is when another is
+// written.
+function readSeenRecords(): Record<string, unknown> {
   try {
-    const stored = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
-    return stored && typeof stored === 'object' ? stored : {};
+    const stored: unknown = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
+    return isRecord(stored) ? stored : {};
   } catch (error) {
     return {};
   }
 }
 function seenRecordOf(docKey: string): RevSeen | null {
   const record = readSeenRecords()[docKey];
-  return record && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
+  return isRecord(record) && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
 }
 // Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask
 // about.

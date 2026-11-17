@@ -40,7 +40,7 @@ import { checkDocUpdate } from './flow-updates.ts';
 import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
 import { refreshDoc } from './flow-rebuild.ts';
-import { NOTICE_HOST } from '../platform/tables.ts';
+import { NOTICE_HOST, isRecord } from '../platform/tables.ts';
 import { $, findMaybe, searchToPage, findAll } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
@@ -391,7 +391,7 @@ function drawPos() {
 interface KeptLineView {
   line: number;
   off: number;
-  lay: string;
+  lay: string | null;
   page?: undefined;
   frac?: undefined;
   k?: undefined;
@@ -408,7 +408,7 @@ interface KeptPageView {
   w?: number;
   zoomed?: boolean;
   sl?: number;
-  lay: string;
+  lay: string | null;
 }
 type KeptView = KeptLineView | KeptPageView;
 // Viewed position: page/fraction anchored at the top, page scale (PAGE_SCALE), whether zoomed manually in compact,
@@ -443,12 +443,38 @@ function saveViews() {
 function loadViews() {
   if (!multiDoc()) return;
   try {
-    const kept = JSON.parse(sessionStorage.getItem('pinDocView') || '[]');
+    const kept: unknown = JSON.parse(sessionStorage.getItem('pinDocView') || '[]');
     if (Array.isArray(kept))
-      kept.forEach((x) => {
-        if (Array.isArray(x) && docInfo(x[0]) && x[1] && typeof x[1] === 'object') VIEW_BY.set(x[0], x[1]);
+      kept.forEach((entry: unknown) => {
+        if (!Array.isArray(entry)) return;
+        const [doc, view]: unknown[] = entry;
+        if (typeof doc === 'string' && docInfo(doc) && isKeptView(view)) VIEW_BY.set(doc, view);
       });
   } catch (error) {}
+}
+// Whether a stored value is a kept view as saveView writes it - a page view with its page width w (kept before the scale
+// k was) or its scale, or a reading line. A value of another shape is not restored: the document opens where it opens
+// without one. Pure.
+function isKeptView(value: unknown): value is KeptView {
+  if (!isRecord(value) || (typeof value.lay !== 'string' && value.lay !== null)) return false;
+  const { line, off, page, frac, k: scale, w: width, zoomed, sl: scrolled } = value;
+  const optionalNumber = (field: unknown) => field === undefined || typeof field === 'number';
+  if (page === undefined)
+    return (
+      typeof line === 'number' &&
+      typeof off === 'number' &&
+      [frac, scale, width, zoomed, scrolled].every((field) => field === undefined)
+    );
+  return (
+    typeof page === 'number' &&
+    typeof frac === 'number' &&
+    line === undefined &&
+    off === undefined &&
+    optionalNumber(scale) &&
+    optionalNumber(width) &&
+    optionalNumber(scrolled) &&
+    (zoomed === undefined || typeof zoomed === 'boolean')
+  );
 }
 // A kept view's scale: its k, or - for a view kept with the page width (w) instead - that width over the widest page
 // (points); 0 when it has neither. Pure.
@@ -651,3 +677,4 @@ export {
   switchPending,
   viaDoc,
 };
+export type { KeptView };

@@ -22,7 +22,7 @@ import { drawBox, newBox, pendingBadge, revealBox } from '../pdf/input-selection
 import { relevelForLineView } from '../markdown/view.ts';
 import { cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind } from './flow-pick.ts';
 import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
-import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { NOTICE_KIND, NOTICE_LIFE, isRecord } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
@@ -80,7 +80,7 @@ function draftKey(label: string, doc: string | null) {
 // What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
 // this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
 // for nothing to keep, another document, or another record version.
-function draftRestore(record: ReturnType<typeof draftRecord>, doc: string | null, build: string) {
+function draftRestore(record: StoredDraft | null, doc: string | null, build: string) {
   if (!record || record.v !== 1 || record.doc !== doc) return null;
   if (record.cur && record.build === build) return 'full';
   return String(record.note || '').trim() ? 'note' : null;
@@ -104,6 +104,75 @@ function draftRecord() {
     assign: { v: ASSIGN_NEW.v, touched: ASSIGN_NEW.touched },
     sg: suggestCopy(SUGGEST_DRAFT),
   };
+}
+// A draft as draftRecord writes it, read back from sessionStorage (storedDraft): its selection (cur) still unread - only
+// whether it has one (draftSelection reads it).
+interface StoredDraft {
+  v: 1;
+  doc: string | null;
+  build: string;
+  cur: Record<string, unknown> | null;
+  note: string;
+  mentions: string[];
+  kind: string | undefined;
+  assign: { v: string; touched: boolean } | null;
+  sg: SuggestDraft | null;
+}
+// The stored draft in value (parsed from sessionStorage), or null for a value that is no draft of this record version,
+// of no document, or without its note. The record's form has not changed since drafts were first kept, so every draft a
+// tab can hold is read; sg is absent from drafts written before suggested edits. What is not as draftRecord writes it
+// is left out and the note still comes back: a selection or build (the note then waits for the next pick, as after a
+// rebuild), @-tag hints (none), kind (the default), assignee (as it is), suggested edit (none). Pure.
+function storedDraft(value: unknown): StoredDraft | null {
+  if (!isRecord(value) || value.v !== 1) return null;
+  const { doc, build, cur, note, mentions, kind, assign } = value;
+  if ((typeof doc !== 'string' && doc !== null) || typeof note !== 'string') return null;
+  // a selection that cannot be placed again leaves the note to wait for the next pick
+  const placed = typeof build === 'string' && isRecord(cur);
+  return {
+    v: 1,
+    doc,
+    build: placed ? build : '',
+    cur: placed ? cur : null,
+    note,
+    mentions: Array.isArray(mentions) ? mentions.filter((login) => typeof login === 'string') : [],
+    kind: typeof kind === 'string' ? kind : undefined,
+    assign:
+      isRecord(assign) && typeof assign.v === 'string' && typeof assign.touched === 'boolean'
+        ? { v: assign.v, touched: assign.touched }
+        : null,
+    sg: isSuggestDraft(value.sg) ? value.sg : null,
+  };
+}
+// Whether a stored value is a suggested edit's draft as suggestCopy writes it. Pure.
+function isSuggestDraft(value: unknown): value is SuggestDraft {
+  if (!isRecord(value)) return false;
+  const { on, text, base, file, had, current, reading, fail } = value;
+  return (
+    typeof on === 'boolean' &&
+    typeof text === 'string' &&
+    (typeof base === 'string' || base === null) &&
+    (typeof file === 'string' || file === null) &&
+    typeof value.lo === 'number' &&
+    typeof value.hi === 'number' &&
+    (had === null || (isRecord(had) && typeof had.base === 'string' && typeof had.text === 'string')) &&
+    (current === null ||
+      (isRecord(current) &&
+        typeof current.text === 'string' &&
+        (typeof current.file === 'string' || current.file === null) &&
+        typeof current.lo === 'number' &&
+        typeof current.hi === 'number')) &&
+    typeof reading === 'string' &&
+    fail === null
+  );
+}
+// The selection a stored draft keeps (draftRecord's cur, COMPOSE.current when it was written), as the composer wrote
+// it. It is the one part of a draft taken as its type without a guard: ComposerSelection is not true of every selection
+// the composer keeps (a Markdown line selection has no page, frac or pdf_build, and a null warn and score), so a guard
+// that follows it would bring a Markdown draft back as its note only.
+function draftSelection(raw: string): ComposerSelection | null {
+  const kept: ComposerSelection | null = JSON.parse(raw).cur;
+  return kept && typeof kept === 'object' ? kept : null;
 }
 // Every edit schedules a write (no-op until the boot restore has run, so booting never overwrites the stored draft).
 function saveDraftSoon() {
@@ -205,37 +274,38 @@ document.addEventListener('visibilitychange', () => {
 // reading the pins (a Markdown document is drawn before they come) is newer than the kept one and stays: only the kept
 // note comes into it, when its field is still empty, and the kept selection and suggested edit are dropped.
 function restoreDraft() {
-  let record = null as any,
+  let stored: unknown = null,
     raw: string | null = null;
   const key = META ? draftKey(META.label, DOC) : null;
   DRAFT.origin = null;
   try {
     raw = key ? sessionStorage.getItem(key) : null;
-    record = JSON.parse(raw || 'null');
+    stored = JSON.parse(raw || 'null');
   } catch (error) {
-    record = null;
+    stored = null;
   }
+  const record = storedDraft(stored);
   const kept = draftRestore(record, DOC, META && META.pages_build),
     picked = !!COMPOSE.current && COMPOSE.current.doc === DOC;
-  const how = kept && picked ? (String(record.note || '').trim() && !$('#note').value.trim() ? 'note' : null) : kept;
-  DRAFT.key = record ? key : null;
+  const how = kept && picked ? (record && record.note.trim() && !$('#note').value.trim() ? 'note' : null) : kept;
+  DRAFT.key = stored ? key : null;
   DRAFT.ready = true;
-  if (!how) {
+  if (!how || !record) {
     syncDraft();
     return;
   }
   const noteField = $('#note');
-  noteField.value = record.note || '';
-  noteField._mentions = record.mentions && record.mentions.length ? new Set(record.mentions) : null;
+  noteField.value = record.note;
+  noteField._mentions = record.mentions.length ? new Set(record.mentions) : null;
   setKind(record.kind);
-  Object.assign(ASSIGN_NEW, record.assign || {});
+  if (record.assign) Object.assign(ASSIGN_NEW, record.assign);
   if (record.sg && !picked) Object.assign(SUGGEST_DRAFT, suggestCopy(record.sg));
   renderAssignNew();
   autoGrow(noteField);
   if (picked) saveDraftSoon();
-  if (how === 'full') {
-    const keptPick: ComposerSelection = record.cur,
-      page = document.getElementById('p' + keptPick.page);
+  const keptPick = how === 'full' && raw ? draftSelection(raw) : null;
+  if (keptPick) {
+    const page = document.getElementById('p' + keptPick.page);
     if (page && Array.isArray(keptPick.frac)) {
       const box = newBox(page),
         frac = keptPick.frac;

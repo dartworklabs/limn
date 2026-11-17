@@ -2535,7 +2535,7 @@ class FrontendDocs(unittest.TestCase):
     def test_default_theme_is_light(self):
         self.assertIn('<html lang="ko" data-theme="light">', HTML)
         self.assertIn("p={theme:'light'}", HTML)
-        self.assertIn(sq("prefs().theme||'light'"), SCRIPT_SQ)
+        self.assertIn(sq("theme=typeof saved==='string'&&THEMES.includes(saved)?saved:'light'"), SCRIPT_SQ)
 
     def test_outline_labels_only_attach_to_matching_pdf_entries(self):
         js = "\n".join(
@@ -4228,6 +4228,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 js_esc(),
                 js_markup(),
                 extract_js_fn("isRefusal"),
+                extract_js_fn("isApiError"),
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("saveButtonLabel"),
@@ -5779,6 +5780,7 @@ class ViewerFunctions(unittest.TestCase):
         js = "\n".join(
             [
                 "const SECTION_OPEN_DEFAULT={open:true,review:true,done:false};",
+                extract_js_fn("isRecord"),
                 extract_js_fn("readSectionsExpanded"),
                 extract_js_fn("countNewInSection"),
                 r"""

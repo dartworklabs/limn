@@ -40,7 +40,7 @@ function initialDoc() {
   const fromHash = hashDoc();
   if (fromHash && docInfo(fromHash)) return fromHash;
   const last = prefs().lastDoc;
-  if (last && docInfo(last)) return last;
+  if (typeof last === 'string' && last && docInfo(last)) return last;
   return DOCS.length ? DOCS[0].key : null;
 }
 async function loadDocs() {
