@@ -31,10 +31,6 @@ import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
 import { pageSelection } from './state-seams.ts';
 
-// The mouse press #doc hears: it lands on an element, never on a text node.
-interface ElementMouseEvent extends MouseEvent {
-  target: Element;
-}
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;
@@ -97,8 +93,9 @@ function cancelLongPress() {
 }
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), so the note field keeps its
 // focus.
-$('#doc').addEventListener('mousedown', (event: ElementMouseEvent) => {
-  if (event.button === 0 && event.target.closest('.pg')) event.preventDefault();
+$('#doc').addEventListener('mousedown', (event: MouseEvent) => {
+  const target = eventElement(event);
+  if (event.button === 0 && target && target.closest('.pg')) event.preventDefault();
 });
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click
 // that follows the touch would land on it (it would open an edit, switch the kind, focus the note) - that one click is

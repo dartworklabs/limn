@@ -14,6 +14,20 @@ interface Window {
   CloseWatcher?: typeof CloseWatcher;
 }
 
+// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
+// pinch's scale since it began and where it is. An element's listener for one of them gets this event
+// (pdf/input-zoom.ts, revisions/input.ts).
+interface SafariGestureEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
+interface HTMLElementEventMap {
+  gesturestart: SafariGestureEvent;
+  gesturechange: SafariGestureEvent;
+  gestureend: SafariGestureEvent;
+}
+
 // The back-gesture hook of Chromium (layout/input.ts); the DOM library does not have it yet.
 declare class CloseWatcher {
   onclose: (() => void) | null;
