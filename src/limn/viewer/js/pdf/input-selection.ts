@@ -23,7 +23,7 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { SWALLOW_CLICK, setSwallowClick } from '../platform/tooltip.ts';
 import { fitScale, zoomTo } from './view-pages.ts';
-import { $ } from '../platform/dom.ts';
+import { $, eventElement } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { LONGPRESS_MS } from '../layout/input.ts';
@@ -124,8 +124,10 @@ window.addEventListener(
 // starts a box (DRAG.badge) once it moves: on a small page the badges' areas cover much of its left edge, where no drag
 // could start otherwise. A tap stays the badge's (its click), and a mouse or a finger outside the mode leaves the badge
 // alone.
-$('#doc').addEventListener('pointerdown', (event) => {
-  const badge = event.target.closest('.mark [data-act=mark-jump]'),
+$('#doc').addEventListener('pointerdown', (event: PointerEvent) => {
+  const element = eventElement(event);
+  if (!element) return;
+  const badge = element.closest('.mark [data-act=mark-jump]'),
     mouse = event.pointerType === 'mouse';
   if (badge && (mouse || !SELMODE || !event.isPrimary)) return;
   // A second finger is a pinch: the box being drawn is discarded.
@@ -136,8 +138,8 @@ $('#doc').addEventListener('pointerdown', (event) => {
     LAST_TAP = null;
     return;
   }
-  const pageElement = event.target.closest('.pg');
-  if (!pageElement) return;
+  const pageElement = element.closest('.pg');
+  if (!(pageElement instanceof HTMLElement)) return;
   if (mouse && event.button !== 0) return;
   if (mouse || SELMODE) {
     const [startX, startY] = fracAt(pageElement, event.clientX, event.clientY);

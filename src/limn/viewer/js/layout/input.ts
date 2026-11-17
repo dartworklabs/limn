@@ -53,7 +53,7 @@ import {
   toggleSide,
   frameHost,
 } from './flow.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, eventElement } from '../platform/dom.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 const LONGPRESS_MS = 450;
 
@@ -314,11 +314,11 @@ function dragSheetTo(height: number) {
     drag.el.classList.add('on');
     document.body.classList.add('resizing');
   };
-  const down = (event, lazy: boolean) => {
+  const down = (event: PointerEvent, lazy: boolean) => {
     if (LAYOUT !== LAYOUT_MODE.NARROW || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0))
       return;
     // A field keeps its press, and the handle (inside the bar) has already grabbed.
-    if (lazy && event.target.closest && event.target.closest('input,textarea,select,#sheet-grip')) return;
+    if (lazy && eventElement(event)?.closest('input,textarea,select,#sheet-grip')) return;
     drag = {
       id: event.pointerId,
       x: event.clientX,
@@ -403,8 +403,8 @@ function dragSheetTo(height: number) {
 // is the sheet's (preventDefault). ok(event) filters the touchstart; onMove(deltaY) follows; onEnd(deltaY, speed)
 // settles (deltaY null = cancelled; speed in px/ms, down positive).
 function pullDown(
-  box,
-  ok,
+  box: HTMLElement,
+  ok: (event: TouchEvent) => boolean,
   onStart: () => void,
   onMove: (deltaY: number) => void,
   onEnd: (deltaY: number | null, speed: number) => void,
@@ -412,7 +412,7 @@ function pullDown(
   let pull = null as { x: number; y: number; on: boolean; pts: DragSample[] } | null;
   box.addEventListener(
     'touchstart',
-    (event) => {
+    (event: TouchEvent) => {
       if (pull && pull.on) onEnd(null, 0);
       pull = null;
       const touch = event.touches[0];
@@ -421,7 +421,7 @@ function pullDown(
       if (
         event.touches.length !== 1 ||
         !ok(event) ||
-        (event.target.closest && event.target.closest('textarea,input,select,pre,.seg:not(#list-order)'))
+        eventElement(event)?.closest('textarea,input,select,pre,.seg:not(#list-order)')
       )
         return;
       pull = { x: touch.clientX, y: touch.clientY, on: false, pts: [] };
@@ -466,7 +466,10 @@ function pullDown(
   let startHeight = 0;
   pullDown(
     $('#right'),
-    (event) => LAYOUT === LAYOUT_MODE.NARROW && SIDE_OPEN && !event.target.closest('#bar1,#sheet-grip'),
+    (event) => {
+      const element = eventElement(event);
+      return LAYOUT === LAYOUT_MODE.NARROW && SIDE_OPEN && element !== null && !element.closest('#bar1,#sheet-grip');
+    },
     () => {
       startHeight = $('#right').getBoundingClientRect().height;
       document.body.classList.add('resizing');
@@ -567,7 +570,7 @@ function dismissOutcome(distance: number, size: number, speed: number) {
     setX(out === 'close' ? currentSideWidth() : 0);
     setTimeout(done, ms);
   };
-  panel.addEventListener('pointerdown', (event) => {
+  panel.addEventListener('pointerdown', (event: PointerEvent) => {
     // A second finger ends the swipe.
     if (!event.isPrimary) {
       if (swipe && swipe.axis === 'x') settle('back');
@@ -576,7 +579,7 @@ function dismissOutcome(distance: number, size: number, speed: number) {
     }
     swipe = null;
     if (event.pointerType === 'mouse' || !(LAYOUT === LAYOUT_MODE.MID && MID_OVERLAY && SIDE_OPEN)) return;
-    if (event.target.closest && event.target.closest(SKIP)) return;
+    if (eventElement(event)?.closest(SKIP)) return;
     swipe = {
       id: event.pointerId,
       x: event.clientX,

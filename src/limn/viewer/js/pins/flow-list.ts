@@ -70,7 +70,7 @@ import { marksShow } from './input-hide-marks.ts';
 import { renderAssignNew } from '../composer/input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, eventElement } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
@@ -544,8 +544,8 @@ function marks() {
 // a drag over it still becomes a new selection - only the badge button needs to block mousedown.
 $('#doc').addEventListener(
   'mousedown',
-  (event) => {
-    if (event.target.closest('.mark [data-act=mark-jump]')) {
+  (event: MouseEvent) => {
+    if (eventElement(event)?.closest('.mark [data-act=mark-jump]')) {
       event.stopPropagation();
       event.preventDefault();
     }
@@ -694,20 +694,20 @@ function jumpPin(id: number) {
 function markIdsFor(pin: Pin) {
   return [pin.id].concat((pin.rel || []).map((entry) => entry.id));
 }
-$('#pins').addEventListener('mouseover', (event) => {
-  const cardElement = event.target.closest('.pin');
-  if (!cardElement) return;
-  const pin = PINS.find((listed) => listed.id === +cardElement.dataset.id);
+$('#pins').addEventListener('mouseover', (event: MouseEvent) => {
+  const cardElement = eventElement(event)?.closest('.pin');
+  if (!(cardElement instanceof HTMLElement)) return;
+  const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
     const mark = document.querySelector('.mark[data-pin="' + id + '"]');
     if (mark) mark.classList.add('hi');
   });
 });
-$('#pins').addEventListener('mouseout', (event) => {
-  const cardElement = event.target.closest('.pin');
-  if (!cardElement) return;
-  const pin = PINS.find((listed) => listed.id === +cardElement.dataset.id);
+$('#pins').addEventListener('mouseout', (event: MouseEvent) => {
+  const cardElement = eventElement(event)?.closest('.pin');
+  if (!(cardElement instanceof HTMLElement)) return;
+  const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
     const mark = document.querySelector('.mark[data-pin="' + id + '"]');

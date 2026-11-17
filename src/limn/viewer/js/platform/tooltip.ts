@@ -1,5 +1,5 @@
 // ------------------------------------------------ Tooltip
-import { $, typingNow } from './dom.ts';
+import { $, eventElement, typingNow } from './dom.ts';
 let LAST_POINTER = 'mouse',
   LAST_TOUCH_AT = 0;
 // Sets LAST_POINTER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
@@ -245,9 +245,9 @@ let PRESS = null as { el: HTMLElement; x: number; y: number; t: ReturnType<typeo
   SWALLOW_CLICK = 0,
   TIP_HOLD = 0; // TIP_HOLD: the SWALLOW_CLICK a long press's release armed (0 for none)
 /** Find a touch tooltip target while preserving native input menus and paragraph selection outside pin badges. */
-function pressTarget(target) {
-  const element = target && target.closest ? target.closest('[data-tip],[data-tip-press]') : null;
-  if (!element) return null;
+function pressTarget(target: Element | null) {
+  const element = target ? target.closest('[data-tip],[data-tip-press]') : null;
+  if (!(element instanceof HTMLElement)) return null;
   if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') return null;
   if (element.closest('.pg') && !element.closest('.mark [data-act=mark-jump]')) return null;
   return element;
@@ -261,7 +261,7 @@ document.addEventListener(
     TIP_HOLD = 0;
     if (event.pointerType === 'mouse') return;
     if (!TIP.hidden) hideTip();
-    const element = pressTarget(event.target);
+    const element = pressTarget(eventElement(event));
     if (!element) return;
     PRESS = {
       el: element,
