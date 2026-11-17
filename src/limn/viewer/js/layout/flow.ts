@@ -47,7 +47,7 @@ import {
   setSheetKept,
 } from './flow-panel-size.ts';
 import { syncBackLayer } from './input.ts';
-import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
+import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
 import { $, findElement, typingNow, findAll } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 
@@ -757,7 +757,8 @@ function noteRowInView() {
 // on the status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel
 // ('side').
 function coach(key: string, text: string) {
-  const seen = Object.assign({}, prefs().coach || {});
+  const kept = prefs().coach,
+    seen: Record<string, unknown> = Object.assign({}, isRecord(kept) ? kept : {});
   if (seen[key]) return;
   seen[key] = 1;
   savePrefs({ coach: seen });

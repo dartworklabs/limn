@@ -144,7 +144,7 @@ let cancelName = null;
 try {
   await cancelled.promise;
 } catch (error) {
-  cancelName = error.name;
+  cancelName = (error instanceof Error ? 'Error ' : '') + error.name;
 }
 let nullContext = null;
 try {
@@ -309,10 +309,10 @@ class DeclarationMatchesBuild(unittest.TestCase):
 
     def test_the_declaration_says_where_the_build_is_stricter_or_looser_than_its_own_types(self):
         """A viewport's matrix has six numbers, a null context makes render() throw, and a cancelled render rejects with
-        the name the viewer tests for."""
+        an Error of the name the viewer tests for (pdf/view-draw.ts reads the name of an Error only)."""
         self.assertEqual(self.observed["transformLength"], 6)
         self.assertEqual(self.observed["nullContext"], "TypeError")
-        self.assertEqual(self.observed["cancelName"], "RenderingCancelledException")
+        self.assertEqual(self.observed["cancelName"], "Error RenderingCancelledException")
 
     def test_the_declaration_names_the_vendored_version(self):
         """The declaration is written against one build: updating the vendored PDF.js means reading the declaration again."""

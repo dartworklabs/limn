@@ -9,7 +9,7 @@ import { DONE_ALL, MENTION_ONLY, OPEN_ALL, OPEN_CARDS, REVIEW_ALL, setReviewAll 
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { ORDER, SECTION_OPEN, savePrefs } from '../platform/prefs.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote, quietNote } from '../platform/notices.ts';
 import { showChange } from '../revisions/flow.ts';
 import { canConfirmReview } from '../documents/view-meta.ts';
@@ -332,8 +332,8 @@ const CONFIRM_OUTCOME = Object.freeze({
   REFUSED: 'refused',
   UNREACHED: 'unreached',
 });
-// The outcome of one confirm from its answer: status and body of an answered request (409 expected), or the error api()
-// threw (an ApiError with a status for a refusal, none when the server was not reached). Pure.
+// The outcome of one confirm from its answer: status and body of an answered request (409 expected), or the refusal
+// api() threw (an ApiError, isApiError); with neither, the server was not reached. Pure.
 function confirmOutcome(
   answer: { status: number; data: any } | null,
   err?: ApiError | null,
@@ -380,7 +380,7 @@ function sendOneConfirm(pin: Pin, at: string): Promise<{ out: string; why?: stri
   })
     .then(
       (answer) => confirmOutcome(answer),
-      (error) => confirmOutcome(null, error as ApiError),
+      (error) => confirmOutcome(null, isApiError(error) ? error : null),
     )
     .then((outcome) => {
       clearTimeout(bound);

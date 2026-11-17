@@ -1,4 +1,5 @@
 import { REQUEST_KIND, DOC_KIND, LAYOUT_MODE, LAYOUT_BAND } from './rules-tables.ts';
+import type { KeptView } from '../documents/flow-switch.ts';
 ('use strict');
 const IS_MAC = /Mac|iPhone|iPad/i.test(navigator.platform || navigator.userAgent || '');
 // Reduced motion (live, not only at load): read where it acts and never kept, so a setting changed with the page open
@@ -327,7 +328,7 @@ function currentVisit(visit: Visit) {
 // into DONE_ALL - drawn separately from the done archive.
 let REVIEW_ALL: Pin[] = [];
 const META_BY = new Map<string | null, Meta>(),
-  VIEW_BY = new Map(),
+  VIEW_BY = new Map<string | null, KeptView>(),
   BUILD_ERR_BY = new Map<string | null, BuildStatus>(),
   DOC_SEQ = new Map<string | null, number>();
 window.__pinViewerBoot = Date.now(); // a marker for checking reload status from outside

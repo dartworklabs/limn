@@ -13,7 +13,8 @@ import { DOC, DONE_ALL, LAYOUT, OPEN_ALL, REVIEW_ALL, SWITCHSEQ } from '../app/s
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
+import { isRecord } from '../platform/tables.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
 import { canConfirmReview, confirmAccessText } from '../documents/view-meta.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
@@ -812,17 +813,19 @@ async function moreRows(docKey: string | null, limit: number) {
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
 // browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the
 // newest, or that it is no longer in the history. A record is never overwritten until the server has answered for it.
-function readSeenRecords(): Record<string, RevSeen> {
+// Every document's record as stored: seenRecordOf reads one, and one it cannot read stays as it is when another is
+// written.
+function readSeenRecords(): Record<string, unknown> {
   try {
-    const stored = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
-    return stored && typeof stored === 'object' ? stored : {};
+    const stored: unknown = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
+    return isRecord(stored) ? stored : {};
   } catch (error) {
     return {};
   }
 }
 function seenRecordOf(docKey: string): RevSeen | null {
   const record = readSeenRecords()[docKey];
-  return record && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
+  return isRecord(record) && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
 }
 // Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask
 // about.
@@ -847,8 +850,8 @@ function seenAnswered(answer: any) {
   REVISION_VIEW.seenIds = new Set(answer.commit_ids || []);
 }
 function seenFailed(error: unknown) {
-  const data = (error && (error as ApiError).data) as any,
-    why = data && data.reason;
+  const data = isApiError(error) ? error.data : undefined,
+    why = isRecord(data) ? data.reason : undefined;
   REVISION_VIEW.seenState =
     why === 'base_too_old'
       ? SEEN_STATE.OLD
@@ -1143,7 +1146,7 @@ async function loadRevisionSource(id: string, seq: number, docKey: string | null
     if (target) highlightPinLines(target);
   } catch (error) {
     if (revisionCurrent(seq, docKey, id)) {
-      const why = error && (error as ApiError).data ? errText((error as ApiError).data) : '';
+      const why = isApiError(error) && error.data ? errText(error.data) : '';
       out.textContent = why
         ? translateTemplate('소스 변경 내용을 읽지 못했습니다: {error}', { error: why })
         : translate('소스 변경 내용을 읽지 못했습니다.');
@@ -1482,8 +1485,8 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
     try {
       return (await api('POST /api/revision-build', { body, what: '비교 PDF 만들기', silent: true })).data;
     } catch (error) {
-      const answer = (error as ApiError).data as { reason?: string } | undefined;
-      if (!answer || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
+      const answer = isApiError(error) ? error.data : undefined;
+      if (!isRecord(answer) || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
       if (left()) return null;
       box.textContent = waiting;
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1592,13 +1595,13 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
   } catch (error) {
     if (revisionCurrent(seq, docKey, id)) {
       clearRevisionPdf();
-      const data = (error && (error as ApiError).data) as any;
+      const data = isApiError(error) ? error.data : undefined;
       statusBox.textContent = translateTemplate('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.', {
         error:
-          data && data.error
+          isRecord(data) && data.error
             ? errText(data)
-            : error && (error as Error).message
-              ? (error as Error).message
+            : error instanceof Error && error.message
+              ? error.message
               : translate('표시하지 못했습니다.'),
       });
     }

@@ -17,6 +17,23 @@ import unittest
 from helpers import PKG, extract_js_fn, js_const, js_listener_body, js_markup, run_node
 from helpers_browser import BrowserBase, nothing_follows
 
+
+def sg_json():
+    """The suggested edit the stored-draft test keeps, as JSON gives it back."""
+    return {
+        "on": True,
+        "text": "new",
+        "base": "old",
+        "file": "a.tex",
+        "lo": 3,
+        "hi": 4,
+        "had": None,
+        "current": {"text": "old", "file": "a.tex", "lo": 3, "hi": 4},
+        "reading": "",
+        "fail": None,
+    }
+
+
 PHONE = {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True}
 
 
@@ -178,6 +195,410 @@ class GuardRules(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [True, True, False, False, False, False, False, False, False])
+
+    def test_an_api_error_is_the_error_api_throws_and_nothing_else_is(self):
+        """isApiError (platform/api.ts) tells the refusal api() throws (apiError: an Error with its status and body) from
+        what else a request throws - a network failure, an ended request, a value that is no Error."""
+        got = self.run_js(
+            extract_js_fn("apiError"),
+            extract_js_fn("isApiError"),
+            r"""
+            const refused = apiError(409, {error: 'conflict'});
+            const ended = new Error('aborted'); ended.name = 'AbortError';
+            console.log(JSON.stringify([
+              [refused instanceof Error, refused.message, refused.status, refused.data],
+              isApiError(refused),
+              isApiError(Object.assign(new Error('HTTP 500'), {status: 500})),
+              isApiError(new TypeError('Failed to fetch')),
+              isApiError(ended),
+              isApiError(Object.assign(new Error('x'), {status: '500'})),
+              isApiError({status: 403, data: {error: 'no'}}),
+              isApiError(null),
+              isApiError(undefined),
+              isApiError('HTTP 500'),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [True, "HTTP 409", 409, {"error": "conflict"}],
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ],
+        )
+
+    def test_a_record_is_any_object_and_nothing_else_is(self):
+        """isRecord (platform/tables.ts) lets a value read from outside the code be read by field: any object (an
+        array too), never null or a primitive."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            r"""
+            console.log(JSON.stringify([
+              isRecord({}), isRecord({a: 1}), isRecord([]),
+              isRecord(null), isRecord(undefined), isRecord('x'), isRecord(0), isRecord(true),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, True, False, False, False, False, False])
+
+    def test_a_stored_composer_draft_is_read_as_the_composer_writes_it_and_its_note_is_never_lost(self):
+        """storedDraft (composer/flow-draft.ts) reads back what draftRecord writes. A draft written before suggested
+        edits (no sg) is read; a part the draft only carries along that is not as written is left out and the note
+        stays; a selection or build that is not as written leaves the note to wait for the next pick; a value of another
+        version, of no document or without a note is no draft."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isSuggestDraft"),
+            extract_js_fn("storedDraft"),
+            r"""
+            const sg = {on: true, text: 'new', base: 'old', file: 'a.tex', lo: 3, hi: 4, had: null,
+              current: {text: 'old', file: 'a.tex', lo: 3, hi: 4}, reading: '', fail: null};
+            const draft = {v: 1, doc: 'ms', build: 'pages-1', cur: {page: 2, frac: [0, 0, 1, 1]}, note: '메모',
+              mentions: ['alice'], kind: 'question', assign: {v: 'alice', touched: true}, sg};
+            const read = (value) => storedDraft(value);
+            console.log(JSON.stringify([
+              JSON.stringify(read(draft)) === JSON.stringify(draft),
+              read({...draft, sg: undefined}).sg,
+              read({...draft, doc: null}).doc,
+              read({...draft, mentions: [1, 'bob'], kind: 3, assign: {v: 1}, sg: {...sg, fail: 'x'}}),
+              read({...draft, cur: 'x'}), read({...draft, build: 5}),
+              read({...draft, v: 2}), read({...draft, doc: 3}), read({...draft, note: null}),
+              read(null), read('draft'), read([]),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                True,
+                None,
+                None,
+                {
+                    "v": 1,
+                    "doc": "ms",
+                    "build": "pages-1",
+                    "cur": {"page": 2, "frac": [0, 0, 1, 1]},
+                    "note": "메모",
+                    "mentions": ["bob"],
+                    "assign": None,
+                    "sg": None,
+                },
+                {
+                    "v": 1,
+                    "doc": "ms",
+                    "build": "",
+                    "cur": None,
+                    "note": "메모",
+                    "mentions": ["alice"],
+                    "kind": "question",
+                    "assign": {"v": "alice", "touched": True},
+                    "sg": sg_json(),
+                },
+                {
+                    "v": 1,
+                    "doc": "ms",
+                    "build": "",
+                    "cur": None,
+                    "note": "메모",
+                    "mentions": ["alice"],
+                    "kind": "question",
+                    "assign": {"v": "alice", "touched": True},
+                    "sg": sg_json(),
+                },
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+        )
+
+    def test_a_stored_reason_draft_is_read_by_its_fields_and_one_that_is_not_is_none(self):
+        """parseDraft (verdict/state-drafts.ts) reads a kept reason draft field by field, each with its default; a
+        value without text is no draft, and a part or a lost write that is not as written is left out."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isReasonTry"),
+            extract_js_fn("parseDraftParts"),
+            extract_js_fn("parseDraft"),
+            r"""
+            const tried = {text: 't', rev: 2, pre: '', stamp: false, post: ''};
+            console.log(JSON.stringify([
+              parseDraft({text: 'why', base: 'was', rev: 3, mode: 'add', folded: 1, at: '9', tried: [tried, {text: 1}],
+                from: [{k: 'ms:1', s: 0, e: 3, tried: [tried]}, {k: 'ms:2', s: 2, e: 9}, 'ms:3', null]}),
+              parseDraft({text: 'why', from: 'ms:4'}).from,
+              parseDraft({text: '  '}), parseDraft({}), parseDraft(null), parseDraft('why'), parseDraft([]),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                {
+                    "text": "why",
+                    "base": "was",
+                    "rev": 3,
+                    "mode": "add",
+                    "folded": True,
+                    "at": 9,
+                    "tried": [{"text": "t", "rev": 2, "pre": "", "stamp": False, "post": ""}],
+                    "from": [
+                        {
+                            "k": "ms:1",
+                            "s": 0,
+                            "e": 3,
+                            "tried": [{"text": "t", "rev": 2, "pre": "", "stamp": False, "post": ""}],
+                        }
+                    ],
+                },
+                [{"k": "ms:4", "s": 0, "e": 3, "tried": []}],
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+        )
+
+    def test_a_kept_view_is_a_page_view_or_a_reading_line_as_save_view_writes_them(self):
+        """isKeptView (documents/flow-switch.ts) takes the views saveView writes - a page view with its scale or, as
+        releases before the scale wrote it, its page width, and a reading line - and nothing else, so a view of
+        another shape is not restored."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isKeptView"),
+            r"""
+            console.log(JSON.stringify([
+              isKeptView({page: 2, frac: 0.5, k: 1.2, zoomed: false, sl: 0, lay: 'wide'}),
+              isKeptView({page: 2, frac: 0.5, w: 800, zoomed: true, sl: 4, lay: 'mid'}),
+              isKeptView({line: 12, off: 3, lay: 'narrow'}),
+              isKeptView({page: 2, frac: 0.5, lay: null}),
+              isKeptView({page: 2, frac: null, k: 1, lay: 'wide'}),
+              isKeptView({page: '2', frac: 0.5, lay: 'wide'}),
+              isKeptView({page: 2, frac: 0.5, zoomed: 'yes', lay: 'wide'}),
+              isKeptView({line: 12, off: 3, k: 1, lay: 'wide'}),
+              isKeptView({line: 12, lay: 'wide'}),
+              isKeptView({page: 2, frac: 0.5}),
+              isKeptView(null), isKeptView([2, 0.5]),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, True, True, False, False, False, False, False, False, False, False])
+
+    def test_the_seen_records_read_a_field_only_as_it_is_written(self):
+        """seenDoc (documents/flow-updates.ts) and seenRecordOf (revisions/flow.ts) read one document's record of what
+        this browser saw; a store or a record that is not as written is read as nothing seen."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("seenStore"),
+            extract_js_fn("seenDoc"),
+            extract_js_fn("readSeenRecords"),
+            extract_js_fn("seenRecordOf"),
+            r"""
+            let SEEN_MEM = null, stored = {};
+            const localStorage = {getItem: (key) => stored[key] === undefined ? null : stored[key]};
+            const out = [];
+            stored = {limnSeen: JSON.stringify({v: 1, docs: {ms: {ver: 'src:1', rev: 'a'}, nt: {ver: 2}, xx: 'src:1'}}),
+              limnRevSeen: JSON.stringify({ms: {id: 'c1', at: '11-17 10:00'}, nt: {id: 3}, xx: 'c1'})};
+            out.push([seenDoc('ms'), seenDoc('nt'), seenDoc('xx'), seenRecordOf('ms'), seenRecordOf('nt'), seenRecordOf('xx')]);
+            stored = {limnSeen: JSON.stringify({v: 1, docs: 'ms'}), limnRevSeen: '5'};
+            out.push([seenDoc('ms'), seenRecordOf('ms')]);
+            stored = {limnSeen: 'not json', limnRevSeen: 'null'};
+            out.push([seenDoc('ms'), seenRecordOf('ms')]);
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [{"ver": "src:1", "rev": "a"}, None, None, {"id": "c1", "at": "11-17 10:00"}, None, None],
+                [None, None],
+                [None, None],
+            ],
+        )
+
+    def test_the_preferences_are_an_object_and_each_reader_takes_its_default_for_another_value(self):
+        """prefs (platform/prefs.ts) is the stored object or none; the list order and the list sections read their key
+        only when it is as written."""
+        got = self.run_js(
+            "const SECTION_OPEN_DEFAULT = { open: true, review: true, done: false };",
+            extract_js_fn("isRecord"),
+            extract_js_fn("prefs"),
+            extract_js_fn("listOrderOf"),
+            extract_js_fn("readSectionsExpanded"),
+            r"""
+            let stored = null;
+            const localStorage = {getItem: () => stored};
+            const out = [];
+            for (const value of ['{"order":"page","sec":{"done":true}}', '[1]', '"x"', 'null', 'not json']) {
+              stored = value;
+              out.push(prefs());
+            }
+            out.push([listOrderOf('page'), listOrderOf('PAGE'), listOrderOf(3), listOrderOf(undefined)]);
+            out.push([readSectionsExpanded('done'), readSectionsExpanded({done: 1})]);
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                {"order": "page", "sec": {"done": True}},
+                [1],
+                {},
+                {},
+                {},
+                ["page", "new", "new", "new"],
+                [{"open": True, "review": True, "done": False}, {"open": True, "review": True, "done": False}],
+            ],
+        )
+
+    def test_the_parse_workers_answers_are_the_answers_the_page_declares(self):
+        """The Markdown parse worker (md-parse.mjs, its own message handler, on the vendored markdown-it) answers each
+        question the page asks with a message markdownParseAnswer (markdown/view.ts) reads as declared - the tokens, a
+        limit with its counts, a parse error - and every token carries exactly the fields MarkdownToken declares. A
+        message of no known form is none, and one to the job in flight ends it as a parse error (jobAnswer)."""
+        worker = (PKG / "viewer" / "md-parse.mjs").read_text(encoding="utf-8")
+        bundle = (PKG / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs").as_uri()
+        source = "\n".join(
+            [
+                "---\ntitle: x\n---",
+                '# Head *em* `code`\n\npara [link](http://example.com "t") ![alt](i.png) <b>html</b>\nnext line',
+                "> quote\n\n- a\n  - b\n1. one\n\n5) five",
+                "| a | b |\n|:--|--:|\n| 1 | 2 |",
+                "```py\ncode\n```\n\n    indented",
+                "$$\nx^2\n$$\n\ninline $a+b$ and \\(c\\) cut $x\ny$ here",
+                "<div>\nblock html\n</div>\n\n***",
+            ]
+        )
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isMarkdownToken"),
+            extract_js_fn("markdownParseAnswer"),
+            extract_js_fn("jobAnswer"),
+            "const answers = []; const self = {}; const postMessage = (m) => answers.push(m); let markdownit = null;",
+            worker[worker.index("function mdParser(") :],
+            r"""
+            const DECLARED = ['type', 'tag', 'nesting', 'map', 'content', 'info', 'hidden', 'level', 'markup', 'attrs',
+              'children'].sort().join();
+            const keys = new Set();
+            const walk = (tokens) => tokens.forEach((t) => { keys.add(Object.keys(t).sort().join()); if (t.children) walk(t.children); });
+            import(%s).then((module) => {
+              markdownit = module.default;
+              const limits = {nesting: 20, blocks: 30000, inlines: 150000};
+              const ask = (id, text, given) => self.onmessage({data: {id, text, limits: given || limits}});
+              ask(1, %s);
+              ask(2, '> '.repeat(30) + 'deep');
+              ask(3, 'a\n\nb\n\nc', {...limits, blocks: 2});
+              ask(4, 'a *b* c', {...limits, inlines: 1});
+              ask(5, 7);
+              answers.forEach((answer) => { if (answer.ok) walk(answer.tokens); });
+              const read = answers.map(markdownParseAnswer);
+              const job = {id: 9};
+              console.log(JSON.stringify({
+                kinds: read.map((answer) => answer && [answer.id, answer.ok, answer.ok ? answer.tokens.length > 20 : answer.limit]),
+                same: read.every((answer, i) => JSON.stringify(answer) === JSON.stringify(answers[i])),
+                keys: [...keys].every((k) => k === DECLARED),
+                attrs: answers[0].tokens.some((t) => (t.children || []).some((c) => c.attrs && c.attrs.length)),
+                start: answers[0].tokens.filter((t) => t.type === 'ordered_list_open').map((t) => t.attrs),
+                refused: [
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], map: [1]}]}),
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], hidden: 0}]}),
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[1], children: [{type: 'text'}]}]}),
+                  markdownParseAnswer({id: 1, ok: false, limit: 'blocks', count: 3}),
+                  markdownParseAnswer({id: 1, ok: false}),
+                  markdownParseAnswer({id: '1', ok: true, tokens: []}),
+                  markdownParseAnswer({id: 1, ok: 1, tokens: []}),
+                  markdownParseAnswer(null),
+                ],
+                job: [jobAnswer(job, {id: 9, ok: true, tokens: []}), jobAnswer(job, {id: 9, ok: 'yes'}),
+                  jobAnswer(job, {id: 8, ok: true, tokens: []}), jobAnswer(job, null)],
+              }));
+            });
+            """
+            % (json.dumps(bundle), json.dumps(source)),
+        )
+        self.assertEqual(
+            got,
+            {
+                "kinds": [
+                    [1, True, True],
+                    [2, False, "nesting"],
+                    [3, False, "blocks"],
+                    [4, False, "inlines"],
+                    [5, False, "error"],
+                ],
+                "same": True,
+                "keys": True,
+                "attrs": True,
+                "start": [None, [["start", 5]]],
+                "refused": [None] * 8,
+                "job": [{"id": 9, "ok": True, "tokens": []}, {"ok": False, "limit": "error"}, None, None],
+            },
+        )
+
+    def test_a_groups_earlier_data_is_read_as_its_group_writes_it(self):
+        """A gathering group's merge is given the data it said before as unknown (platform/notices.ts GROUPS): each
+        group reads it as its own data - pins by number, moved lines, settled pins, dropped pins with their names, new
+        pin rows - and reads anything else as none, so the newer event is said alone."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("pinNumbersOf"),
+            extract_js_fn("linesMovedOf"),
+            extract_js_fn("settledPinsOf"),
+            extract_js_fn("droppedOf"),
+            extract_js_fn("newPinRowsOf"),
+            r"""
+            const row = {id: 4, who: 'alice', verdict: '', place: 'L3', note: 'x'};
+            console.log(JSON.stringify([
+              pinNumbersOf({ids: [1, '2', 3]}), pinNumbersOf({ids: 'x'}), pinNumbersOf(null),
+              linesMovedOf({moves: [{id: 1, delta: '+2'}, {id: 2, delta: 2}]}), linesMovedOf({}),
+              settledPinsOf({pins: [{id: 1, by: 'alice'}, {id: 2}]}), settledPinsOf([]),
+              droppedOf({ids: [1, 2], names: ['a', 'b']}), droppedOf({ids: [1, 2], names: ['a', 2]}), droppedOf(5),
+              newPinRowsOf({doc: 'ms', pins: [row, {...row, note: null}]}), newPinRowsOf({pins: null}),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [1, 3], [], [],
+                [{"id": 1, "delta": "+2"}], [],
+                [{"id": 1, "by": "alice"}], [],
+                {"ids": [1, 2], "names": ["a", "b"]}, {"ids": [], "names": []}, {"ids": [], "names": []},
+                [{"id": 4, "who": "alice", "verdict": "", "place": "L3", "note": "x"}], [],
+            ],
+        )  # fmt: skip
+
+    def test_a_groups_entry_says_and_leaves_out_the_data_it_keeps(self):
+        """keepGroupData (platform/notices.ts) closes a group's data over with its view and less: said() says the data
+        kept, less(keys) keeps and says what is left, or is null with nothing left - and leaves the data as it was."""
+        got = self.run_js(
+            extract_js_fn("keepGroupData"),
+            r"""
+            const view = (data) => ({msg: data.ids.join(','), kind: 'ok', act: null, o: {}});
+            const less = (data, keys) => {
+              const ids = data.ids.filter((id) => !keys.includes('k:' + id));
+              return ids.length ? {ids} : null;
+            };
+            const entry = {data: null, n: null, said: null, less: null};
+            keepGroupData(entry, {ids: [1, 2, 3]}, view, less);
+            const out = [entry.said().msg, entry.less(['k:2']).msg, entry.said().msg, entry.data];
+            out.push(entry.less(['k:1', 'k:3']), entry.said().msg);
+            keepGroupData(entry, {ids: [7]}, view, null);
+            out.push(entry.said().msg, entry.less);
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(got, ["1,2,3", "1,3", "1,3", {"ids": [1, 3]}, None, "1,3", "7", None])
 
     def test_a_table_entry_is_none_without_a_key_as_for_a_key_the_table_lacks(self):
         got = self.run_js(

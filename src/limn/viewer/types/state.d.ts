@@ -144,11 +144,15 @@ interface Notice {
   back: boolean; // stands behind the line's other messages: news of another document (documents/flow-updates.ts)
   dots: string[]; // the chips a gathered message marks (digestNote); else its one dot
   onEnd: ((acted: boolean, seen: boolean) => void) | null; // runs once as it goes: by its action, or seen ([x])
-  items?: any[][]; // a gathered message's messages, as lineNote's arguments (digestNote)
+  items?: GatheredNote[]; // a gathered message's messages, as lineNote's arguments (digestNote)
   digestTitle?: string; // a gathered message's title
   brief?: string; // what a gathered message calls it
   digest?: boolean; // false: never gathered
 }
+
+// A message held by a gathering or folded in a gathered line (platform/notices.ts digestHold, digestNote): lineNote's
+// arguments - what it says, its kind, its action and its options.
+type GatheredNote = [message: string, kind: string, act: NoticeAct | null | undefined, options: Partial<Notice>];
 
 // A send held back behind its undo (platform/notices.ts deferred()): run sends it now, cancel takes it back unsent; note is its undo.
 interface Deferred {

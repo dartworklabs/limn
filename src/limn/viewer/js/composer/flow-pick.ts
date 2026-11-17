@@ -27,7 +27,7 @@ import {
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, warnText, josa } from '../platform/i18n.ts';
-import { API_OUT, API_WAIT, api, isRefusal } from '../platform/api.ts';
+import { API_OUT, API_WAIT, api, isApiError, isRefusal } from '../platform/api.ts';
 import { endTopic, lineNote } from '../platform/notices.ts';
 import { hideTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
@@ -155,8 +155,7 @@ async function pick(region: PickDrag) {
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
     // composer opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back
     // (offline/flow.ts).
-    const failure = error as ApiError;
-    if (!repick && !(failure && failure.status) && !isMarkdownDoc()) {
+    if (!repick && !isApiError(error) && !isMarkdownDoc()) {
       void composerQueue().pick(region);
       return;
     }

@@ -145,6 +145,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (app/state.ts)
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                extract_js_fn("isApiError"),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
@@ -293,6 +295,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("dropPin"),
+                extract_js_fn("isApiError"),
                 extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1,PINS_APPLIED_SEQ=0,OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]]; const EDITOR={current:null,saving:false};
@@ -317,6 +320,7 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("dropPin"),
+                extract_js_fn("isApiError"),
                 extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',PINS_APPLIED_SEQ=0;

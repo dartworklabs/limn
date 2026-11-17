@@ -85,7 +85,7 @@ import { applySide, setSide } from '../layout/flow.ts';
 import { BACK } from '../layout/input.ts';
 import { revealBox, selectionRoom } from '../pdf/input-selection.ts';
 import { imeOpen } from '../platform/composition.ts';
-import { NOTICE_TOPIC } from '../platform/tables.ts';
+import { NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
 import { $, $$, findAll, findClosest, findElement, findMaybe, focusFell, focusHold } from '../platform/dom.ts';
 import { LAYOUT_MODE, MARKDOWN_LIMIT, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, lineRange, overlapsFor } from '../app/rules-pins.ts';
@@ -127,7 +127,7 @@ const MARKDOWN_VIEW = {
   limit: null as string | null,
   heads: [] as { level: number; lo: number; el: HTMLElement; title: string; slug: string }[],
   worker: null as Worker | null,
-  job: null as { id: number; resolve: (answer: any) => void; t: ReturnType<typeof setTimeout> } | null,
+  job: null as MarkdownParseJob | null,
   seq: 0,
   waiting: false,
   els: 0,
@@ -196,10 +196,89 @@ function isMarkdownPin(pin: Pin) {
   return !!entry && rendersInBrowser(entry.kind);
 }
 // ---------------- The parse worker
+// A markdown-it token as the parse worker sends it (md-parse.mjs plain: a Token's own fields, as plain data - its
+// prototype does not survive postMessage), its inline children alike. An attribute's value is a string, but an ordered
+// list's start, which markdown-it keeps as the number its first marker has.
+interface MarkdownToken {
+  type: string;
+  tag: string;
+  nesting: number;
+  map: [number, number] | null;
+  content: string;
+  info: string;
+  hidden: boolean;
+  level: number;
+  markup: string;
+  attrs: [string, string | number][] | null;
+  children: MarkdownToken[] | null;
+}
+// What the page asks the worker (md-parse.mjs onmessage): the source and the limits it parses within.
+interface MarkdownParseQuestion {
+  id: number;
+  text: string;
+  limits: { nesting: number; blocks: number; inlines: number };
+}
+// The worker's answer to question id (md-parse.mjs postMessage): the tokens; or a limit it hit ('nesting', 'blocks',
+// 'inlines') with what it counted and the most allowed; or 'error' with what the parser threw.
+type MarkdownParseAnswer =
+  | { id: number; ok: true; tokens: MarkdownToken[] }
+  | { id: number; ok: false; limit: string; count: number; max: number }
+  | { id: number; ok: false; limit: string; message: string };
+// What a parse ends with: the worker's answer, or the page's own end of it - the worker did not load or answer in time,
+// a NUL it is not given, or an answer of no known form (MARKDOWN_LIMIT).
+type MarkdownParse = MarkdownParseAnswer | { ok: false; limit: string };
+// A parse in flight: its question's id, what ends it, and the timer that stops it.
+interface MarkdownParseJob {
+  id: number;
+  resolve: (answer: MarkdownParse | null) => void;
+  t: ReturnType<typeof setTimeout>;
+}
+// Whether a value is a token as the worker sends it (plain), its children too. Pure.
+function isMarkdownToken(value: unknown): value is MarkdownToken {
+  if (!isRecord(value)) return false;
+  const { map, attrs, children } = value;
+  return (
+    typeof value.type === 'string' &&
+    typeof value.tag === 'string' &&
+    typeof value.nesting === 'number' &&
+    (map === null || (Array.isArray(map) && map.length === 2 && map.every((line) => typeof line === 'number'))) &&
+    typeof value.content === 'string' &&
+    typeof value.info === 'string' &&
+    typeof value.hidden === 'boolean' &&
+    typeof value.level === 'number' &&
+    typeof value.markup === 'string' &&
+    (attrs === null ||
+      (Array.isArray(attrs) &&
+        attrs.every(
+          (attribute) =>
+            Array.isArray(attribute) &&
+            attribute.length === 2 &&
+            typeof attribute[0] === 'string' &&
+            (typeof attribute[1] === 'string' || typeof attribute[1] === 'number'),
+        ))) &&
+    (children === null || (Array.isArray(children) && children.every(isMarkdownToken)))
+  );
+}
+// The worker's message as its answer (md-parse.mjs postMessage), or null for a message of no known form. Pure.
+function markdownParseAnswer(value: unknown): MarkdownParseAnswer | null {
+  if (!isRecord(value) || typeof value.id !== 'number') return null;
+  const { id, limit, tokens, count, max, message } = value;
+  if (value.ok === true)
+    return Array.isArray(tokens) && tokens.every(isMarkdownToken) ? { id, ok: true, tokens } : null;
+  if (value.ok !== false || typeof limit !== 'string') return null;
+  if (typeof count === 'number' && typeof max === 'number') return { id, ok: false, limit, count, max };
+  return typeof message === 'string' ? { id, ok: false, limit, message } : null;
+}
+// The worker's message to the job in flight: its answer, a parse error for a message to it of no known form, or null
+// for a message to another question (one the job took over from) or with no question's id.
+function jobAnswer(job: MarkdownParseJob, value: unknown): MarkdownParse | null {
+  if (!isRecord(value) || value.id !== job.id) return null;
+  return markdownParseAnswer(value) || { ok: false, limit: MARKDOWN_LIMIT.ERROR };
+}
 // Parses text in the worker within MARKDOWN_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MARKDOWN_LIMIT), or null
 // when a newer parse took the worker over. The worker is started the first time and kept; one that runs past
 // MARKDOWN_LIMITS.ms, fails to load or is taken over is stopped (terminate) and a new one starts next time.
-function parseMarkdown(text: string): Promise<any> {
+function parseMarkdown(text: string): Promise<MarkdownParse | null> {
   stopMarkdownParse(null);
   return new Promise((resolve) => {
     let worker = MARKDOWN_VIEW.worker;
@@ -207,12 +286,13 @@ function parseMarkdown(text: string): Promise<any> {
       if (!worker) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
         MARKDOWN_VIEW.worker = worker;
-        worker.onmessage = (message) => {
-          const job = MARKDOWN_VIEW.job;
-          if (!job || !message.data || message.data.id !== job.id) return;
+        worker.onmessage = (message: MessageEvent<unknown>) => {
+          const job = MARKDOWN_VIEW.job,
+            answer = job && jobAnswer(job, message.data);
+          if (!job || !answer) return;
           clearTimeout(job.t);
           MARKDOWN_VIEW.job = null;
-          job.resolve(message.data);
+          job.resolve(answer);
         };
         worker.onerror = (event) => {
           event.preventDefault();
@@ -229,15 +309,16 @@ function parseMarkdown(text: string): Promise<any> {
       resolve,
       t: setTimeout(() => stopMarkdownParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
     };
-    worker.postMessage({
+    const question: MarkdownParseQuestion = {
       id,
       text,
       limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
-    });
+    };
+    worker.postMessage(question);
   });
 }
 // Ends the parse in flight, if any, with answer (null: taken over), and stops its worker.
-function stopMarkdownParse(answer: { ok: boolean; limit: string } | null) {
+function stopMarkdownParse(answer: { ok: false; limit: string } | null) {
   const job = MARKDOWN_VIEW.job;
   if (!job) return;
   MARKDOWN_VIEW.job = null;
@@ -253,7 +334,7 @@ const KATEX_VERSION = '__KATEX_VERSION__';
 // TEX_RENDERER: the vendored KaTeX module once the page has it (lib) and how far the one load got (state) - 'none'
 // before it is asked for, 'ready' with both the module and its stylesheet in, 'off' when either did not come. 'off' is
 // final: the math of every document then stays as its source characters (ADR-0036 D2), and nothing is asked for twice.
-const TEX_RENDERER = { state: 'none' as 'none' | 'ready' | 'off', lib: null as any };
+const TEX_RENDERER: { state: 'none' | 'ready' | 'off'; lib: KatexLibrary | null } = { state: 'none', lib: null };
 // The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
 const TEX_CLOSE: Record<string, string> = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' };
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
@@ -269,21 +350,31 @@ function hasMath(tokens: any[]) {
 // it, never the parse worker - that one returns tokens and touches no DOM, architecture.md 불변식 9) and its
 // stylesheet, both with the bundle's version, so a cached copy never needs revalidating. Unstyled KaTeX markup is
 // unreadable, so a stylesheet that does not arrive counts as no renderer.
-async function loadTexRenderer(): Promise<any> {
+async function loadTexRenderer(): Promise<KatexLibrary | null> {
   if (TEX_RENDERER.state !== 'none') return TEX_RENDERER.lib;
   TEX_RENDERER.state = 'off';
-  let katexModule = null as any;
+  let katexModule: unknown = null;
   try {
     katexModule = await import('/vendor/katex/katex.mjs?v=' + KATEX_VERSION);
   } catch (error) {
     return null;
   }
-  const lib = katexModule && (katexModule.default || katexModule);
-  if (!lib || typeof lib.render !== 'function') return null;
+  const lib = texLibraryOf(katexModule);
+  if (!lib) return null;
   if (!(await loadTexStyle())) return null;
   TEX_RENDERER.lib = lib;
   TEX_RENDERER.state = 'ready';
   return lib;
+}
+// Whether a value is the KaTeX library the viewer draws with (types/katex.d.ts): an object with a render function. Pure.
+function isKatexLibrary(value: unknown): value is KatexLibrary {
+  return isRecord(value) && typeof value.render === 'function';
+}
+// The KaTeX library in what the import loaded: its default export, else the module itself - whichever is there - when
+// it is the library (isKatexLibrary); null for anything else, which is no renderer. Pure.
+function texLibraryOf(loaded: unknown): KatexLibrary | null {
+  const library = isRecord(loaded) && loaded.default ? loaded.default : loaded;
+  return isKatexLibrary(library) ? library : null;
 }
 // The stylesheet, added once; true once the browser has it. A link element pointing at this origin - never an inline
 // style element and never a style attribute, which the page policy admits neither of (viewer.md §페이지 정책).
@@ -361,9 +452,11 @@ function drawTexBox(
   display: boolean,
   context: RenderContext,
 ): HTMLElement | null {
+  const library = TEX_RENDERER.lib;
   if (
     context.tex === null ||
     TEX_RENDERER.state !== 'ready' ||
+    !library ||
     tex === null ||
     !tex.trim() ||
     tex.length > MARKDOWN_LIMITS.tex ||
@@ -372,7 +465,7 @@ function drawTexBox(
     return null;
   const box = document.createElement(tag);
   try {
-    TEX_RENDERER.lib.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
+    library.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
   } catch (error) {
     return null;
   }
@@ -539,7 +632,7 @@ async function buildMarkdownDoc() {
   // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to
   // put it back by, so the document would read another character than its source has. The line view keeps it, in its
   // box.
-  const parsed = MARKDOWN_VIEW.lines.some((line) => line.includes('\0'))
+  const parsed: MarkdownParse | null = MARKDOWN_VIEW.lines.some((line) => line.includes('\0'))
     ? { ok: false, limit: MARKDOWN_LIMIT.NUL }
     : await parseMarkdown(MARKDOWN_VIEW.lines.join('\n'));
   if (stale() || !parsed) return;
@@ -2967,6 +3060,7 @@ function showTextHint() {
 }
 
 export {
+  jobAnswer,
   MARKDOWN_VIEW,
   advanceMarkdownSequence,
   MARKDOWN_LIMITS,
@@ -3007,3 +3101,4 @@ export {
   markedCharactersText,
   showTextHint,
 };
+export type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion };

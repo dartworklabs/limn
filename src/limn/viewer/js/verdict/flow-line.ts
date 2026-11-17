@@ -30,7 +30,7 @@ import {
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
-import { api, isRefusal } from '../platform/api.ts';
+import { api, isApiError, isRefusal } from '../platform/api.ts';
 import {
   BANNERS,
   NOTICES,
@@ -1057,7 +1057,7 @@ async function savePageVerdict(
     try {
       id = (await api('POST /api/pin', { body, what: '판정 저장', silent: true })).data.id;
     } catch (error) {
-      const x = error as ApiError;
+      const x = isApiError(error) ? error : null;
       // no answer, or a 5xx (it may have been written first): the list says whether it landed
       if (x && x.status && x.status < 500) throw error;
       await loadPins();
@@ -1089,7 +1089,7 @@ async function savePageVerdict(
     settleChip(chip);
     if (here()) showPressedHint(page);
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (!saved) failed(x && x.status ? errText(x.data) || 'HTTP ' + x.status : translate('서버에 닿지 않습니다'));
   } finally {
     document.removeEventListener('focusin', moved);

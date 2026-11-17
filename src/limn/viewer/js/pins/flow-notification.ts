@@ -22,7 +22,7 @@ import { setSide } from '../layout/flow.ts';
 import { openTrash } from './view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from './flow-list.ts';
 import { restorePin } from './flow-actions.ts';
-import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND, isRecord } from '../platform/tables.ts';
 import { $, findMaybe } from '../platform/dom.ts';
 import { LOCAL_LOGIN, NOTIFY_STATE, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
@@ -174,7 +174,12 @@ async function notifyShow(event: PinEvent) {
 // review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
 function notifyLine(event: any) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
-    evs: [...older.evs.filter((x: any) => x.pin !== newer.evs[0].pin), ...newer.evs],
+    evs: [
+      ...(isRecord(older) && Array.isArray(older.evs) ? older.evs : []).filter(
+        (x: unknown) => !isRecord(x) || x.pin !== newer.evs[0].pin,
+      ),
+      ...newer.evs,
+    ],
   }));
 }
 function notifyLineView(group: { evs: any[] }) {
@@ -409,10 +414,14 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
   });
 }
 if ('serviceWorker' in navigator)
+  // A notification pressed while a tab is open (sw.js notificationclick: {type, pin, doc}); the worker's other messages
+  // are the offline store's (offline/flow.ts).
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const message = event.data || {};
-    if (message.type === 'open-pin') openPinFromLink(message.doc, +message.pin);
-    else if (message.type === 'restore-pin' && !isViewer()) restorePin(+message.pin);
+    const message: unknown = event.data;
+    if (!isRecord(message)) return;
+    const doc = typeof message.doc === 'string' ? message.doc : null;
+    if (message.type === 'open-pin') openPinFromLink(doc, Number(message.pin));
+    else if (message.type === 'restore-pin' && !isViewer()) restorePin(Number(message.pin));
   });
 window.addEventListener('hashchange', () => {
   const link = takeLinkHash();

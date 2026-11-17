@@ -55,6 +55,7 @@ import {
 } from './flow.ts';
 import { $, $$, eventElement, findMaybe } from '../platform/dom.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
+import { isRecord } from '../platform/tables.ts';
 const LONGPRESS_MS = 450;
 
 (function () {
@@ -700,7 +701,8 @@ function disarmBack() {
     if (layer.w) layer.w.destroy();
     return;
   }
-  if (window.history.state && window.history.state.limnLayer) {
+  const state: unknown = window.history.state;
+  if (isRecord(state) && state.limnLayer) {
     BACK_SKIP = true;
     window.history.back();
   }

@@ -223,6 +223,7 @@ class PureRules(unittest.TestCase):
         record a dismissed message whatever the record names -> rev A, fails."""
         got = node_json(
             [
+                "isRecord",
                 "seenStore",
                 "seenSave",
                 "seenDoc",
@@ -363,7 +364,7 @@ class PureRules(unittest.TestCase):
         newer record another tab wrote; a later one, a first one or one of another kind is written. Build ids order by
         their time, then their count."""
         got = node_json(
-            ["seenStore", "seenSave", "seenDoc", "setSeenDoc", "verAfter"],
+            ["isRecord", "seenStore", "seenSave", "seenDoc", "setSeenDoc", "verAfter"],
             """let SEEN_MEM=null; const M=new Map(); const localStorage={getItem:k=>M.has(k)?M.get(k):null,setItem:(k,v)=>M.set(k,String(v))};
             const out=[]; const at=()=>seenDoc('d').ver;
             setSeenDoc('d',{ver:'src:200.5',rev:'b'}); setSeenDoc('d',{ver:'src:100.25',rev:'a'}); out.push(at());
@@ -457,7 +458,7 @@ GROUP_FNS = [
     "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
     "foldedLess", "digestRetitle", "foldedGone", "digestDots", "reviewPins", "reviewNewsStale", "dropStaleReview",
     "noticeSeen", "endTopic", "gatheredGone", "gatheredDupe", "gatheredLess", "groupRedraw",
-    "dotHeld", "focusedElement",
+    "dotHeld", "focusedElement", "keepGroupData",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
 class HTMLElement {}
