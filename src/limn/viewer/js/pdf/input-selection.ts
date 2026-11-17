@@ -31,6 +31,10 @@ import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
 import { pageSelection } from './state-seams.ts';
 
+// The mouse press #doc hears: it lands on an element, never on a text node.
+interface ElementMouseEvent extends MouseEvent {
+  target: Element;
+}
 let DRAG = null as {
     pg: HTMLElement;
     sx: number;
@@ -43,16 +47,16 @@ let DRAG = null as {
     badge?: boolean;
   } | null,
   LONG_PRESS = null as { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null;
-const clampUnit = (value) => Math.min(1, Math.max(0, value));
+const clampUnit = (value: number) => Math.min(1, Math.max(0, value));
 const TAP_SLOP = 8,
   QUICK_HALF_WIDTH = 0.07,
   QUICK_HALF_HEIGHT = 0.006,
   QUICK_FIGURE_HALF = 0.004;
-function fracAt(pageElement, clientX, clientY) {
+function fracAt(pageElement: HTMLElement, clientX: number, clientY: number) {
   const rect = pageElement.getBoundingClientRect();
   return [clampUnit((clientX - rect.left) / rect.width), clampUnit((clientY - rect.top) / rect.height)];
 }
-function newBox(pageElement) {
+function newBox(pageElement: HTMLElement) {
   const box = document.createElement('div');
   box.className = 'sel';
   pageElement.appendChild(box);
@@ -62,18 +66,18 @@ function newBox(pageElement) {
 // goes, outside the box's left edge at its top, or in its top-left corner when the page margin has no room
 // (pendingBadgeSide). The name is for screen readers only: a visible tag above the box would cover the text line above
 // it.
-function pendingBadge(box, name) {
+function pendingBadge(box: HTMLElement, name: string) {
   setHtml(box, html`<i aria-hidden="true">${lucideIcon('plus')}</i><span class="sr-only">${translate(name)}</span>`);
   pendingBadgeSide(box);
 }
 // Decides a pending box's badge side by the mark rule (markBadgeIn) for its left edge, its page's width and margin now.
-function pendingBadgeSide(box) {
+function pendingBadgeSide(box: HTMLElement) {
   const room = markBadgeRoom(box.parentElement);
   if (room)
     box.classList.toggle('in', markBadgeIn((parseFloat(box.style.left) || 0) / 100, room.w, room.pad, room.reach));
 }
 // Sizes a box (page fractions) between the drag's start point and the point (x, y).
-function drawBox(box, startX, startY, x, y) {
+function drawBox(box: HTMLElement, startX: number, startY: number, x: number, y: number) {
   Object.assign(box.style, {
     left: Math.min(startX, x) * 100 + '%',
     top: Math.min(startY, y) * 100 + '%',
@@ -93,7 +97,7 @@ function cancelLongPress() {
 }
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), so the note field keeps its
 // focus.
-$('#doc').addEventListener('mousedown', (event) => {
+$('#doc').addEventListener('mousedown', (event: ElementMouseEvent) => {
   if (event.button === 0 && event.target.closest('.pg')) event.preventDefault();
 });
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click
@@ -266,7 +270,7 @@ const CLICKOFF_WAIT_MS = 350;
 let PRESS_OFF = null as { id: number; mouse: boolean; x: number; y: number; box: HTMLElement | null } | null,
   CLICKOFF_TIMER = null as ReturnType<typeof setTimeout> | null;
 // Whether the point (x, y) lies in one of rects ({left, top, right, bottom}), each grown by pad px. Pure.
-function hitsAny(rects, x, y, pad) {
+function hitsAny(rects: DOMRect[], x: number, y: number, pad: number) {
   return rects.some(
     (rect) => x >= rect.left - pad && x <= rect.right + pad && y >= rect.top - pad && y <= rect.bottom + pad,
   );
@@ -280,7 +284,7 @@ function selectionOpen() {
 // pin's number badge, not on the scrollbar, and not in the box, its badge, its note popover
 // (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes ignore the pointer, so the
 // page is what the press lands on).
-function pressOutsideSelection(event) {
+function pressOutsideSelection(event: PointerEvent) {
   const target = event.target as Element;
   if (!selectionOpen()) return false;
   // A press on the Markdown surface picks (markdown/view.ts), never cancels.
@@ -297,7 +301,7 @@ function pressOutsideSelection(event) {
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
 }
-$('#left').addEventListener('pointerdown', (event) => {
+$('#left').addEventListener('pointerdown', (event: PointerEvent) => {
   PRESS_OFF =
     event.isPrimary && pressOutsideSelection(event)
       ? {
@@ -310,7 +314,7 @@ $('#left').addEventListener('pointerdown', (event) => {
       : null;
 });
 // Cancels the selection the press began on, if it is still the one open and still the thing to close.
-function clickOffNow(box) {
+function clickOffNow(box: HTMLElement | null) {
   if (!selectionOpen() || COMPOSE.box !== box) return;
   pageSelection().discard();
   // The panel may move under the click that follows.
@@ -324,7 +328,7 @@ function clickOffStop() {
   }
 }
 // A finger's click-off: cancels the selection once the double-tap window has passed without a second tap.
-function clickOffSoon(box) {
+function clickOffSoon(box: HTMLElement | null) {
   clickOffStop();
   CLICKOFF_TIMER = setTimeout(() => {
     CLICKOFF_TIMER = null;
@@ -334,7 +338,10 @@ function clickOffSoon(box) {
 // Double-tap on the PDF (touch, outside [선택] mode - the browser's own double-tap zoom is off there): a second tap
 // within 300ms and 24px of the first. At fit width it zooms to 2x, from any other width back to fit width - both around
 // the tapped point.
-function isDoubleTap(previous, latest) {
+function isDoubleTap(
+  previous: { t: number; x: number; y: number } | null,
+  latest: { t: number; x: number; y: number },
+) {
   return (
     !!previous &&
     !!latest &&
@@ -343,18 +350,18 @@ function isDoubleTap(previous, latest) {
   );
 }
 // The scale (or width) a double tap goes to: 2x from fit width (within 5%), fit width from any other. Pure.
-function doubleTapWidth(width, fit) {
+function doubleTapWidth(width: number, fit: number) {
   return Math.abs(width - fit) <= fit * 0.05 ? fit * 2 : fit;
 }
 // Zooms around (x, y) to doubleTapWidth() of the scale; landing on the screen's own scale, compact stops counting as
 // zoomed and re-fits again (markZoomed, in zoomTo).
-function doubleTapZoom(x, y) {
+function doubleTapZoom(x: number, y: number) {
   zoomTo(doubleTapWidth(PAGE_SCALE, fitScale()), x, y);
 }
 // Quick selection: calls the existing /api/pick with a small box around the pressed point (quickBox). The server's
 // default level is used as-is - 'paragraph' in body text, 'environment' inside a figure/table, the element under the
 // point on a figure document - and then widened or narrowed via the range ladder.
-function quickPick(pageElement, clientX, clientY) {
+function quickPick(pageElement: HTMLElement, clientX: number, clientY: number) {
   const [x, y] = fracAt(pageElement, clientX, clientY),
     quickFrac = quickBox(x, y, isFigureKind(META && META.kind));
   finishRect(pageElement, newBox(pageElement), quickFrac[0], quickFrac[1], quickFrac[2], quickFrac[3]);
@@ -364,7 +371,7 @@ function quickPick(pageElement, clientX, clientY) {
 // its height (a rectangle on a page that is not square), which the map reads as the point - the deepest element holding
 // it (docs/handbook/viewer.md §모바일 레이아웃). A line-shaped strip would cross a figure's small elements and resolve
 // to an outer one.
-function quickBox(x, y, figure) {
+function quickBox(x: number, y: number, figure: boolean) {
   const halfWidth = figure ? QUICK_FIGURE_HALF : QUICK_HALF_WIDTH,
     halfHeight = figure ? QUICK_FIGURE_HALF : QUICK_HALF_HEIGHT;
   return [clampUnit(x - halfWidth), clampUnit(y - halfHeight), clampUnit(x + halfWidth), clampUnit(y + halfHeight)];
@@ -372,7 +379,7 @@ function quickBox(x, y, figure) {
 // Turns a drawn rectangle into a selection and asks the server for its lines. Returns false, drawing nothing and
 // removing the box, when the rectangle is smaller than a drag (under 0.4% of the page in both directions) - a click,
 // not a selection.
-function finishRect(pageElement, box: HTMLElement, startX, startY, x, y) {
+function finishRect(pageElement, box: HTMLElement, startX: number, startY: number, x: number, y: number) {
   const width = Math.abs(x - startX),
     height = Math.abs(y - startY);
   if (width < 0.004 && height < 0.004) {

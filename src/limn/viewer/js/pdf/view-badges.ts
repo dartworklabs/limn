@@ -6,7 +6,7 @@ import { COARSE_POINTER_QUERY } from '../app/state.ts';
 // margin) and reach how far the badge hangs left of the mark (28px on touch, 24px with a mouse). Only when the margin
 // and the offset together are short of the reach would the badge be clipped, and only then does it sit in the mark's
 // top-left corner - inside, it covers the text the mark points at. Pure.
-function markBadgeIn(markLeft, pageWidth, pad, reach) {
+function markBadgeIn(markLeft: number, pageWidth: number, pad: number, reach: number) {
   return markLeft * pageWidth + pad < reach;
 }
 // A page's room: the room left of it in the PDF scroller, in scroll coordinates (a horizontal scroll does not count),
@@ -23,15 +23,17 @@ function markBadgeRoom(page: Element | null) {
     reach: COARSE_POINTER_QUERY.matches ? 28 : 24,
   };
 }
+// A badge's room on each side (markHitRooms): the px a neighbour leaves it, null where none limits it.
+type HitRoom = { t: number | null; r: number | null; b: number | null; l: number | null };
 // How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the
 // badges' drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size. Two badges whose press
 // areas would overlap split the gap between their drawn boxes in half, along the axis on which their centres are
 // further apart - so a press goes to the nearer badge, and a badge with no close neighbour keeps its whole area.
 // Returns one {t,r,b,l} per box: the room in px on that side, or null where no neighbour limits it; 0 where the drawn
 // boxes touch or overlap. Pure.
-function markHitRooms(boxes, reach) {
+function markHitRooms(boxes: { x: number; y: number; w: number; h: number }[], reach: number) {
   const rooms = boxes.map(() => ({ t: null, r: null, b: null, l: null }));
-  const cut = (room, side, value) => {
+  const cut = (room: HitRoom, side: keyof HitRoom, value: number) => {
     room[side] = room[side] === null ? value : Math.min(room[side], value);
   };
   boxes.forEach((box, index) => {
@@ -70,7 +72,7 @@ function markHitSides() {
   );
   badges.forEach((badge, index) => {
     const room = rooms[index],
-      px = (value) => (value === null ? '' : value + 'px'); // '' takes the property off
+      px = (value: number | null) => (value === null ? '' : value + 'px'); // '' takes the property off
     badge.style.setProperty('--room-t', px(room.t));
     badge.style.setProperty('--room-r', px(room.r));
     badge.style.setProperty('--room-b', px(room.b));

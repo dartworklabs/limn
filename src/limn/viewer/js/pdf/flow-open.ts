@@ -22,16 +22,79 @@ const PDFJS_VERSION = '__PDFJS_VERSION__';
 const VECTOR_PIXEL_CAP = 16777216,
   VECTOR_KEEP_MARGIN = '150% 0px',
   VECTOR_DETAIL_MARGIN = 0.25;
-// PDF.js has no type declarations here, so its library, document and render task are `any`.
+// PDF.js has no type declarations here: these name the parts of its document, page and outline objects that the viewer
+// calls. A page's reference in a PDF's object table, which an outline destination may name instead of a page number.
+interface PdfPageReference {
+  num: number;
+  gen: number;
+}
+// An outline destination: the page (a number, or its reference), the kind of view ({ name: 'XYZ' } carries the left and
+// top edges that follow), and the view's numbers.
+type PdfDestination = [
+  PdfPageReference | number | null,
+  { name: string } | null,
+  number | null,
+  number | null,
+  number | null,
+];
+// One item of a PDF's outline: its title, where it goes (a destination, or the name of one) and its children.
+interface PdfOutlineItem {
+  title?: string;
+  dest?: string | PdfDestination | null;
+  items: PdfOutlineItem[];
+}
+// A page's viewport at a scale: its size and the matrix from PDF units to the canvas.
+interface PdfViewport {
+  width: number;
+  height: number;
+  transform: number[];
+}
+// A render of a page onto a canvas, which cancel() ends early.
+interface PdfRenderTask {
+  promise: Promise<void>;
+  cancel(): void;
+}
+// A page of a PDF document (PDFPageProxy).
+interface PdfPage {
+  getViewport(options: { scale: number }): PdfViewport;
+  render(options: {
+    canvasContext: CanvasRenderingContext2D | null;
+    viewport: PdfViewport;
+    transform: number[];
+  }): PdfRenderTask;
+}
+// What is drawn for one page (view-draw.ts pageDrawState): its page canvas and the size it was drawn at, its detail canvas
+// with the region of the page (fractions) it covers and the size and pixel ratio it was drawn at, and whether the page
+// must be drawn again.
+interface PageDrawState {
+  base: HTMLCanvasElement | null;
+  bw: number;
+  bh: number;
+  dt: HTMLCanvasElement | null;
+  reg: { x: number; y: number; w: number; h: number } | null;
+  dtCw: number;
+  dtK: number;
+  stale: boolean;
+}
+// An opened PDF document (PDFDocumentProxy).
+interface PdfDocument {
+  numPages: number;
+  loadingTask: { destroy(): unknown };
+  getPage(pageNumber: number): Promise<PdfPage>;
+  getOutline(): Promise<PdfOutlineItem[] | null>;
+  getDestination(name: string): Promise<PdfDestination | null>;
+  getPageIndex(reference: PdfPageReference): Promise<number>;
+}
+// The PDF.js library and a render task are `any`; its document is a PdfDocument, though the cached ones are `any` too.
 const VECTOR_PDF = {
   lib: null as any,
-  doc: null as any,
+  doc: null as PdfDocument | null,
   build: null as string | null,
   gen: 0,
   failed: null as string | null,
   io: null as IntersectionObserver | null,
   near: new Set<number>(),
-  st: new Map(),
+  st: new Map<number, PageDrawState>(),
   cur: null as { n: number; task: any } | null,
   pumping: false,
   timer: 0,
@@ -44,10 +107,10 @@ const VECTOR_PDF = {
 // switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first
 // (worker memory). An old build of the same document is closed when a new build opens.
 const VECTOR_CACHE_MAX = 3;
-function vectorCacheKey(docName, build) {
+function vectorCacheKey(docName: string | null, build: string) {
   return (docName || '') + '|' + (build || '');
 }
-function cacheVectorDocument(key, doc) {
+function cacheVectorDocument(key: string, doc: PdfDocument) {
   const cache = VECTOR_PDF.cache;
   cache.delete(key);
   cache.set(key, doc);
@@ -67,12 +130,12 @@ function cacheVectorDocument(key, doc) {
   }
 }
 // Whether a PDF document object is one the cache still holds (and so must not be closed).
-function isVectorCached(doc) {
+function isVectorCached(doc: PdfDocument | null) {
   for (const cachedDoc of VECTOR_PDF.cache.values()) if (cachedDoc === doc) return true;
   return false;
 }
 // Drops a PDF document object from the cache without closing it.
-function forgetVectorDocument(doc) {
+function forgetVectorDocument(doc: PdfDocument | null) {
   VECTOR_PDF.cache.forEach((cachedDoc, cachedKey) => {
     if (cachedDoc === doc) VECTOR_PDF.cache.delete(cachedKey);
   });
@@ -164,6 +227,7 @@ async function openVectorDocument() {
   if (old && old !== doc && !isVectorCached(old)) closeVectorDocument(old);
   scheduleVectorDraw(0);
 }
+export type { PdfDestination, PdfDocument, PdfOutlineItem };
 export {
   PDFJS_VERSION,
   VECTOR_PDF,
