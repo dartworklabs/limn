@@ -17,7 +17,7 @@ import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
 import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement, findMaybe } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
 import { isViewer, STATUS_SYNC } from './state.ts';
 import { offlineQueue } from './state-seams.ts';
@@ -349,8 +349,6 @@ function buildUnchanged(build: BuildStatus) {
 // [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
-    spoken = box.querySelector('.st-sr'),
-    body = box.querySelector('.st-body'),
     running = !!BUILD.cur;
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
@@ -368,7 +366,7 @@ function drawStatus() {
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
-    const tail = rebuildRow.querySelector('.m-tail');
+    const tail = findMaybe(rebuildRow, '.m-tail', HTMLElement);
     if (tail) tail.hidden = !running;
   }
   document.body.classList.toggle('has-status', !!top);
@@ -379,10 +377,10 @@ function drawStatus() {
   } // its rows changed: placed again once the line is drawn
   if (!top) {
     if (STATUS_SIG) {
-      body.replaceChildren();
+      findElement(box, '.st-body', HTMLElement).replaceChildren();
       STATUS_SIG = '';
     }
-    spoken.textContent = '';
+    findElement(box, '.st-sr', HTMLElement).textContent = '';
     lineVisible(false);
     return;
   } // hidden: it holds nothing
@@ -406,9 +404,12 @@ function drawStatus() {
     const bar = running
       ? html`<span class="st-bar" role="progressbar" aria-label="${translate('빌드 진행')}"><i></i></span>`
       : '';
-    setHtml(body, html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);
+    setHtml(
+      findElement(box, '.st-body', HTMLElement),
+      html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`,
+    );
   }
-  const textSpan = box.querySelector('.st-tx'),
+  const textSpan = findElement(box, '.st-tx', HTMLElement),
     long = statusText(top, 'long'),
     short = statusText(top, 'short');
   // the short band's one row always takes the short text
@@ -419,6 +420,7 @@ function drawStatus() {
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
   const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
+  const spoken = findElement(box, '.st-sr', HTMLElement);
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
@@ -427,7 +429,7 @@ function drawStatus() {
     { done, total } = progress || { done: 0, total: 0 },
     percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
-  bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
+  findElement(bar, 'i', HTMLElement).style.width = percent === null ? '' : percent + '%';
   if (percent === null) {
     bar.removeAttribute('aria-valuenow');
   } else {

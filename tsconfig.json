@@ -13,15 +13,9 @@
       "dom.iterable"
     ],
     "skipLibCheck": true,
-    "strict": false,
-    "strictFunctionTypes": true,
-    "strictBindCallApply": true,
-    "noImplicitThis": true,
-    "alwaysStrict": true,
+    "strict": true,
     "noImplicitReturns": true,
-    "useUnknownInCatchVariables": true,
-    "noUnusedLocals": true,
-    "strictNullChecks": true
+    "noUnusedLocals": true
   },
   "include": [
     "src/limn/viewer/js/**/*.ts",

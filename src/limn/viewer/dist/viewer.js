@@ -1524,7 +1524,7 @@ function applyTheme() {
   const shownTheme =
     theme === 'system' ? (LIGHT_SCHEME_QUERY.matches ? 'light' : 'dark') : theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', shownTheme);
-  for (const radio of $$('#m-theme [role=radio]')) {
+  for (const radio of findAll(document, '#m-theme [role=radio]', HTMLElement)) {
     const on = radio.dataset.theme === theme;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
@@ -4261,7 +4261,7 @@ function drawDocMenu() {
 // Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says
 // so when none does.
 function docMenuFilter() {
-  const query = ($('#doc-pop-in')).value.trim().toLowerCase();
+  const query = $('#doc-pop-in').value.trim().toLowerCase();
   let shown = 0;
   for (const row of [...$('#doc-pop-list').children]) {
     const entry = docInfo(row.dataset.doc || '');
@@ -4769,7 +4769,9 @@ function drawRevisionOther(scope) {
       : '';
   toggle.hidden = !REVISION_VIEW.other;
   if (scope && REVISION_VIEW.other)
-    toggle.querySelector('span').textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', { n: scope.other });
+    findElement(toggle, 'span', HTMLSpanElement).textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', {
+      n: scope.other,
+    });
 }
 function toggleRevisionOther() {
   const toggle = $('#revision-other-toggle'),
@@ -5832,7 +5834,7 @@ function drawPinGuide(message) {
     box,
     html`<span><b>${translateTemplate('핀 #{id}', { id: target.id })}</b> · ${where}${target.ref ? ' · ' + translateTemplate('참조 {ref}', { ref: target.ref }) : ''}${via ? ' · ' + via : ''}</span><span class="rp-msg">${text}${access ? html` <span class="review-access">${access}</span>` : ''}</span>`,
   );
-  box.dataset.id = target.id;
+  box.dataset.id = String(target.id);
   box.hidden = false;
   drawPinGuideActions();
 }
@@ -5865,7 +5867,7 @@ function drawPinGuideActions() {
     html`<button class="btn-sm" data-act="rev-back" data-tip="${back ? translateTemplate('{name} 원고 보기로 돌아갑니다', { name: back }) : translate('원고 보기로 돌아갑니다')}">${back ? translateTemplate('{name}(으)로', { name: back }) : translate('원고로')}</button>${confirmButton}`,
   );
   (narrow ? row : $('#revision-pin')).appendChild(actionBox);
-  row.dataset.id = target.id;
+  row.dataset.id = String(target.id);
   row.hidden = !narrow;
   document.body.classList.toggle('rev-thumb', narrow);
 }
@@ -5882,7 +5884,7 @@ function highlightPinLines(target) {
   let first = null;
   rows.forEach((line) => {
     if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
-    const lineNumber = +line.querySelector('.rd-no').textContent;
+    const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
@@ -5898,7 +5900,7 @@ function highlightPinLines(target) {
       let best = null,
         bestDistance = Infinity;
       rows.forEach((line) => {
-        const lineNumber = +line.querySelector('.rd-no').textContent;
+        const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
         if (!lineNumber) return;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
@@ -6051,8 +6053,10 @@ async function loadRevisionPdf(id, seq, docKey) {
     if (status.head && status.head !== id) throw new Error(translate('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings = Array.isArray(status.warnings) ? status.warnings : [];
     warningBox.hidden = !warnings.length;
-    warningBox.querySelector('summary').textContent = translateTemplate('빌드 경고 {n}건 보기', { n: warnings.length });
-    warningBox.querySelector('pre').textContent = warnings.join('\n');
+    findElement(warningBox, 'summary', HTMLElement).textContent = translateTemplate('빌드 경고 {n}건 보기', {
+      n: warnings.length,
+    });
+    findElement(warningBox, 'pre', HTMLPreElement).textContent = warnings.join('\n');
     warningBox.open = false;
     statusBox.textContent = '비교 PDF를 읽는 중입니다.';
     const response = await fetch(withDocQuery('/api/revision-pdf?commit=' + encodeURIComponent(id) + query, docKey));
@@ -6381,7 +6385,7 @@ function sheetScrollStep(
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavigationView() {
   const isRevisions = document.body.classList.contains('revision-open');
-  for (const radio of $$('#ns-view [role=radio]')) {
+  for (const radio of findAll(document, '#ns-view [role=radio]', HTMLElement)) {
     const on = (radio.dataset.mode === VIEW_MODE.REVISIONS) === isRevisions;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
@@ -9071,8 +9075,6 @@ function buildUnchanged(build) {
 // [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
-    spoken = box.querySelector('.st-sr'),
-    body = box.querySelector('.st-body'),
     running = !!BUILD.cur;
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
@@ -9090,7 +9092,7 @@ function drawStatus() {
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
-    const tail = rebuildRow.querySelector('.m-tail');
+    const tail = findMaybe(rebuildRow, '.m-tail', HTMLElement);
     if (tail) tail.hidden = !running;
   }
   document.body.classList.toggle('has-status', !!top);
@@ -9101,10 +9103,10 @@ function drawStatus() {
   } // its rows changed: placed again once the line is drawn
   if (!top) {
     if (STATUS_SIG) {
-      body.replaceChildren();
+      findElement(box, '.st-body', HTMLElement).replaceChildren();
       STATUS_SIG = '';
     }
-    spoken.textContent = '';
+    findElement(box, '.st-sr', HTMLElement).textContent = '';
     lineVisible(false);
     return;
   } // hidden: it holds nothing
@@ -9128,9 +9130,12 @@ function drawStatus() {
     const bar = running
       ? html`<span class="st-bar" role="progressbar" aria-label="${translate('빌드 진행')}"><i></i></span>`
       : '';
-    setHtml(body, html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);
+    setHtml(
+      findElement(box, '.st-body', HTMLElement),
+      html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`,
+    );
   }
-  const textSpan = box.querySelector('.st-tx'),
+  const textSpan = findElement(box, '.st-tx', HTMLElement),
     long = statusText(top, 'long'),
     short = statusText(top, 'short');
   // the short band's one row always takes the short text
@@ -9141,6 +9146,7 @@ function drawStatus() {
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
   const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
+  const spoken = findElement(box, '.st-sr', HTMLElement);
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
@@ -9149,7 +9155,7 @@ function drawStatus() {
     { done, total } = progress || { done: 0, total: 0 },
     percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
-  bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
+  findElement(bar, 'i', HTMLElement).style.width = percent === null ? '' : percent + '%';
   if (percent === null) {
     bar.removeAttribute('aria-valuenow');
   } else {
@@ -9396,9 +9402,9 @@ function showOutlineWidth(width) {
   width = Math.round(Math.max(bounds.min, Math.min(bounds.max, width)));
   document.documentElement.style.setProperty('--outline-width', width + 'px');
   const grip = $('#outline-grip');
-  grip.setAttribute('aria-valuemin', bounds.min);
-  grip.setAttribute('aria-valuemax', bounds.max);
-  grip.setAttribute('aria-valuenow', width);
+  grip.setAttribute('aria-valuemin', String(bounds.min));
+  grip.setAttribute('aria-valuemax', String(bounds.max));
+  grip.setAttribute('aria-valuenow', String(width));
   return width;
 }
 // Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
@@ -9938,7 +9944,7 @@ function figureTop(pageNumber) {
 }
 // Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
 function goPage(entry) {
-  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
+  arrivePage(parseInt(entry === undefined ? $('#jump').value : String(entry), 10));
 }
 // The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
 // empty or non-number entry, which goes nowhere. Pure.
@@ -10080,8 +10086,8 @@ function setScale(scale, save) {
 // Gives every page box its width at the scale PAGE_SCALE, bounded or not (setScale bounds the scale first).
 function sizePages() {
   const widest = widestPagePoints();
-  $$('.pg').forEach((pageBox) => {
-    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, PAGE_SCALE) + 'px';
+  findAll(document, '.pg', HTMLElement).forEach((pageBox) => {
+    pageBox.style.width = pageWidth(Number(pageBox.dataset.ptw) || widest, PAGE_SCALE) + 'px';
   });
   pageWidthVars();
 }
@@ -10235,7 +10241,7 @@ function zoomAnchor(clientX, clientY) {
     pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
   let best = null,
     bestDistance = Infinity;
-  for (const pageBox of $$('.pg')) {
+  for (const pageBox of findAll(document, '.pg', HTMLElement)) {
     const rect = pageBox.getBoundingClientRect(),
       distance = pointY < rect.top ? rect.top - pointY : pointY > rect.bottom ? pointY - rect.bottom : 0;
     if (distance < bestDistance) {
@@ -13477,7 +13483,7 @@ function searchClose(back) {
 // Another build is on screen (openVectorDocument): the query, its hits and the reading of the old text end; the field
 // stays open while it has the focus, else it folds away with the bar whole again.
 function searchClear() {
-  ($('#search-q')).value = '';
+  $('#search-q').value = '';
   searchRun();
   if (SEARCH.open && !$('#doc-search').contains(document.activeElement)) searchHide();
 }
@@ -13583,7 +13589,6 @@ document.fonts.addEventListener('loadingdone', searchFit);
 // paint waits on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a
 // layout (anchor) and the reset of the gesture state (resetInput).
 // The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
-// The Safari pinch gesture's event, which the DOM library does not have: the scale since it began and the pinch's point.
 const REVISION_ZOOM = {
   ratio: 1,
   fit: 0,
@@ -13986,8 +13991,6 @@ async function paintRevisionPdf() {
 // - A Markdown document (markdown/view.ts) has no pages to scale: every one of these leaves its input to the browser -
 //   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
 //   there).
-// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
-// pinch's scale since it began and where it is.
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event) {
   const key = event.key,
@@ -14327,8 +14330,8 @@ function applySide() {
   for (const toggle of [$('#btn-side'), $('#nav-side')]) {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', toggle.id === 'btn-side' && LAYOUT !== LAYOUT_MODE.WIDE ? sheet : label);
-    toggle.querySelector('.side-n').textContent = pinCount;
-    toggle.querySelector('.c-dot').hidden = !dot;
+    findElement(toggle, '.side-n', HTMLElement).textContent = String(pinCount);
+    findElement(toggle, '.c-dot', HTMLElement).hidden = !dot;
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
@@ -14336,8 +14339,8 @@ function applySide() {
   syncBackLayer();
   frameHost().syncBuildErrorChip();
 }
-// The open handle's hint (the markup's, translated by translate()).
-const GRIP_TIP = $('#grip').dataset.tip;
+// The open handle's hint (the markup's, translated by translate()); empty text if the markup gave none.
+const GRIP_TIP = $('#grip').dataset.tip ?? '';
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
 // wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
 function gripAria() {
@@ -14355,9 +14358,9 @@ function gripAria() {
   grip.setAttribute('aria-label', translate('패널 폭'));
   grip.dataset.tip = translate(GRIP_TIP);
   if (shown) {
-    grip.setAttribute('aria-valuenow', shown.w);
-    grip.setAttribute('aria-valuemin', shown.min);
-    grip.setAttribute('aria-valuemax', shown.max);
+    grip.setAttribute('aria-valuenow', String(shown.w));
+    grip.setAttribute('aria-valuemin', String(shown.min));
+    grip.setAttribute('aria-valuemax', String(shown.max));
   }
 }
 // Opens or collapses the pin panel in every layout (the wide side panel, the mid side or overlay panel, the narrow
@@ -14914,10 +14917,10 @@ function footInk() {
     help = foot && foot.querySelector('[data-act=help]'),
     version = foot && foot.querySelector('.m-ver');
   if (!help || !version) return;
-  const labelText = [...help.childNodes].find((node) => node.nodeType === 3 && node.nodeValue.trim()),
+  const labelText = [...help.childNodes].find((node) => node instanceof Text && node.data.trim() !== ''),
     chevron = help.querySelector('svg');
   if (!labelText) return;
-  const label = labelText.nodeValue.trim(),
+  const label = labelText.data.trim(),
     hangul = hangulOf(label),
     labelInk = inkMetrics(help, label);
   const drops = inkDrops(hangul ? inkMetrics(help, hangul).d : 0, inkMetrics(version, version.textContent.trim()).d);
@@ -14985,7 +14988,7 @@ document.fonts.addEventListener('loadingdone', () => {
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
-  $(dialogSelector).addEventListener('click', (event) => {
+  findElement(document, dialogSelector, HTMLDialogElement).addEventListener('click', (event) => {
     const dialog = event.currentTarget;
     if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
@@ -15011,11 +15014,11 @@ function topAnchor(offset) {
     top = scrollerTop + (offset || 0),
     atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
     edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
+  for (const pageElement of findAll(document, '.pg', HTMLElement)) {
     const rect = pageElement.getBoundingClientRect();
     if (rect.bottom > top + edge)
       return {
-        page: +pageElement.dataset.page,
+        page: Number(pageElement.dataset.page),
         frac: Math.max(0, (top - rect.top) / rect.height),
         gap: Math.max(0, rect.top - top),
         atTop,
@@ -15716,7 +15719,6 @@ window.addEventListener('popstate', () => {
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
 
-// The mouse press #doc hears: it lands on an element, never on a text node.
 let DRAG = null,
   LONG_PRESS = null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
@@ -15770,7 +15772,8 @@ function cancelLongPress() {
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), so the note field keeps its
 // focus.
 $('#doc').addEventListener('mousedown', (event) => {
-  if (event.button === 0 && event.target.closest('.pg')) event.preventDefault();
+  const target = eventElement(event);
+  if (event.button === 0 && target && target.closest('.pg')) event.preventDefault();
 });
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click
 // that follows the touch would land on it (it would open an edit, switch the kind, focus the note) - that one click is
@@ -16750,7 +16753,8 @@ function applyRange(owner, range, anchor) {
   }
   excerptRedraw(owner);
   const rowAfter = row();
-  if (rowBefore && rowAfter) $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
+  if (rowBefore && rowAfter && topBefore !== null)
+    $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
   refetchSnip(owner, () => excerptRedraw(owner));
 }
 
@@ -21324,8 +21328,8 @@ function drawCompareNavigator() {
     : RENDERED_COMPARE.at < 0
       ? translateTemplate('바뀐 곳 {n}곳', { n: count })
       : translateTemplate('바뀐 곳 {at}/{n}', { at: RENDERED_COMPARE.at + 1, n: count });
-  ($('#mdc-prev')).disabled = RENDERED_COMPARE.at <= 0;
-  ($('#mdc-next')).disabled = RENDERED_COMPARE.at >= count - 1;
+  $('#mdc-prev').disabled = RENDERED_COMPARE.at <= 0;
+  $('#mdc-next').disabled = RENDERED_COMPARE.at >= count - 1;
 }
 // Goes to change group index: brings its first block to a third of the pane's height and, with ring, rings the group
 // for a moment.
@@ -22750,7 +22754,7 @@ function setKind(kind) {
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
   if (KIND_NEW !== was) setComposeIntent(COMPOSE.intent + 1); // a failed verdict save's retry is for the intent it was pressed with
-  $$('#c-kind button').forEach((button) => {
+  findAll(document, '#c-kind button', HTMLElement).forEach((button) => {
     const on = button.dataset.kind === KIND_NEW;
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
@@ -26179,7 +26183,7 @@ function watchFarLines(lines, viewHeight) {
     FAR_WATCHED.clear();
     FAR_HEIGHT = viewHeight;
     FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
-    lines = $$('#doc .pgw>.pv,#doc .pv-sum');
+    lines = findAll(document, '#doc .pgw>.pv,#doc .pv-sum', HTMLElement);
   } // a line or a summary under a page; never the panel
   const io = FAR_OBSERVER;
   FAR_WATCHED.forEach((line) => {
@@ -27690,7 +27694,7 @@ const MIN_CUT_LINE_WIDTH = 320;
 function sizePageLines() {
   const insetRight = measureInsetRight(),
     area = $('#left'),
-    lines = $$('#doc .pv');
+    lines = findAll(document, '#doc .pv', HTMLElement);
   area.style.setProperty('--pv-inset-r', insetRight + 'px');
   INSET_RIGHT = insetRight;
   $('#doc').classList.remove('pv-stack');
@@ -28387,8 +28391,8 @@ function drawPageVerdicts() {
       fillPanel(map, verdicts);
     } else {
       removePanel();
-      $$('#doc .pg').forEach((pageElement) => {
-        const page = +pageElement.dataset.page;
+      findAll(document, '#doc .pg', HTMLElement).forEach((pageElement) => {
+        const page = Number(pageElement.dataset.page);
         let line = pageElement.nextElementSibling;
         if (!pageTakesVerdict(page)) {
           if (line && line.classList.contains('pv')) line.remove();
@@ -28485,7 +28489,7 @@ if (window.ResizeObserver && window.IntersectionObserver)
 function stickReadingLine() {
   // the room crossed its bar: drawn again beside or under the pages (verdict/view-panel.ts), which ran this
   if (pageVerdictsOn() && redrawOnBesideChange()) return;
-  const lines = $$('#doc .pv');
+  const lines = findAll(document, '#doc .pv', HTMLElement);
   if (!lines.length) return;
   const area = $('#left'),
     areaRect = area.getBoundingClientRect();
@@ -32514,7 +32518,7 @@ function drawSelectionPopover() {
     closeSelectionPopover();
     return;
   }
-  const loc = SELECTION_POPOVER.querySelector('.sp-loc');
+  const loc = findElement(SELECTION_POPOVER, '.sp-loc', HTMLElement);
   loc.textContent = !selection
     ? translate('찾는 중')
     : isRegion(selection)
@@ -32561,11 +32565,11 @@ SELECTION_POPOVER_FIELD.addEventListener('input', () => {
   saveDraftSoon();
 });
 $('#note').addEventListener('input', () => {
-  const note = ($('#note')).value;
+  const note = $('#note').value;
   if (isSelectionPopoverOpen() && SELECTION_POPOVER_FIELD.value !== note) SELECTION_POPOVER_FIELD.value = note;
 });
 SELECTION_POPOVER_FIELD.addEventListener('focus', () => {
-  SELECTION_POPOVER_FIELD.value = ($('#note')).value;
+  SELECTION_POPOVER_FIELD.value = $('#note').value;
 });
 // [자세히 →]: the composer in the panel takes over with the focus in its note; the popover does not come back for this
 // selection.
@@ -33171,14 +33175,14 @@ function reviewerLabel(pin) {
 function tickClaims() {
   if (document.hidden) return;
   let gone = false;
-  $$('.badge-claimed[data-claim]').forEach((badge) => {
-    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
+  findAll(document, '.badge-claimed[data-claim]', HTMLElement).forEach((badge) => {
+    const pin = OPEN_ALL.find((listed) => listed.id === Number(badge.dataset.claim));
     if (!pin || !claimActive(pin)) {
       gone = true;
       return;
     }
     const claim = claimInfo(pin);
-    badge.querySelector('.ct').textContent = claim.t;
+    findElement(badge, '.ct', HTMLElement).textContent = claim.t;
     badge.dataset.tip = claim.tip;
     badge.classList.toggle('late', claim.late);
   });
@@ -33434,7 +33438,7 @@ function dayName(stamp, now) {
 // Every 60 seconds the drawn times say what they say now: a comment's by its form, the rest by relTime.
 function tickRel() {
   if (document.hidden) return;
-  $$('.rt[data-at]').forEach((stampElement) => {
+  findAll(document, '.rt[data-at]', HTMLElement).forEach((stampElement) => {
     const form = stampElement.dataset.form,
       text = form ? stampText(stampElement.dataset.at, form) : relTime(stampElement.dataset.at);
     if (stampElement.textContent !== text) stampElement.textContent = text;
@@ -33800,7 +33804,7 @@ function drawPickBar(list) {
 <span class="lbl">${translateTemplate('모두 고르기 ({n})', { n: can.length })}</span></label><span class="sp"></span>\
 <button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${tickedCount ? '' : ' disabled'} data-tip="${translate('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${tickedCount ? translateTemplate('{n}건 확인', { n: tickedCount }) : translate('확인')}</button>`,
   );
-  ($('#rv-all')).indeterminate = tickedCount > 0 && !all;
+  findElement(document, '#rv-all', HTMLInputElement).indeterminate = tickedCount > 0 && !all;
 }
 
 // What has the focus in the picking section, as a redraw can find it again: a row's box, or a control of the row by its
@@ -33827,12 +33831,7 @@ function restorePickFocus(kept) {
   const all = document.querySelectorAll(kept.sel),
     target = (all[Math.max(0, kept.i)] || all[0] || null),
     pick = $('#review-pick');
-  const to =
-    target && !(target).disabled
-      ? target
-      : !pick.hidden
-        ? pick
-        : ($('#review-toggle'));
+  const to = target && !(target).disabled ? target : !pick.hidden ? pick : $('#review-toggle');
   to.focus({ preventScroll: true });
 }
 
@@ -33845,7 +33844,7 @@ function drawReviewPick(list) {
     keep = REVIEW_PICK ? findPickFocus() : null;
   if (REVIEW_PICK && (!can || !SECTION_OPEN.review)) {
     REVIEW_PICK = null;
-    if (keep) ($('#review-toggle')).focus({ preventScroll: true });
+    if (keep) $('#review-toggle').focus({ preventScroll: true });
   } // the cards drawn next hold no focus
   if (REVIEW_PICK) {
     const listed = new Map(list.map((pin) => [pin.id, pin]));
@@ -33877,7 +33876,7 @@ function setReviewPicking(on) {
   drawPins();
   // the section, not its head: a stuck head is where it is shown already and would not scroll
   if (on) $('#sec-review').scrollIntoView({ block: 'start' });
-  const target = (on ? $('#rv-all') : $('#review-pick'));
+  const target = on ? $('#rv-all') : $('#review-pick');
   if (target && target.getClientRects().length) target.focus({ preventScroll: true });
 }
 
@@ -33963,7 +33962,7 @@ function confirmTicked() {
   if (!section.hidden) section.scrollIntoView({ block: 'start' }); // the undo row is the section's first
   const undoButton = (note.el && note.el.querySelector('.nt-act'));
   if (undoButton && document.contains(undoButton)) undoButton.focus({ preventScroll: true });
-  else ($('#review-toggle')).focus({ preventScroll: true });
+  else $('#review-toggle').focus({ preventScroll: true });
 }
 
 // The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had. While the
@@ -33990,7 +33989,7 @@ function undoConfirms(items, where, ticks) {
   drawPins();
   marks();
   // the undo row that had the focus is gone
-  const to = (REVIEW_PICK ? $('#rv-go') : $('#review-pick'));
+  const to = REVIEW_PICK ? $('#rv-go') : $('#review-pick');
   if (to && to.getClientRects().length && !(to).disabled) to.focus({ preventScroll: true });
   if (lost.length)
     lineNote(
@@ -34497,13 +34496,13 @@ function listSection(row) {
 function markBadgeSides() {
   pageNoSides();
   const rooms = new Map();
-  $$('.mark').forEach((mark) => {
+  findAll(document, '.mark', HTMLElement).forEach((mark) => {
     const page = mark.parentElement;
     if (!rooms.has(page)) rooms.set(page, markBadgeRoom(page));
     const room = rooms.get(page);
-    if (room) mark.classList.toggle('in', markBadgeIn(+mark.dataset.fx, room.w, room.pad, room.reach));
+    if (room) mark.classList.toggle('in', markBadgeIn(Number(mark.dataset.fx), room.w, room.pad, room.reach));
   });
-  $$('.sel.pending').forEach(pendingBadgeSide);
+  findAll(document, '.sel.pending', HTMLElement).forEach(pendingBadgeSide);
   markHitSides();
   markCoverSkip();
 } // the pending boxes' '+' badges follow the same rule
@@ -34708,11 +34707,11 @@ function holdSelectWidth() {
 // (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
 // its width (holdSelectWidth, every band); decoration only - nothing moves.
 function fitBarWords() {
-  const bar = $('#bar1'),
-    leftCell = bar.querySelector('.bar-l');
+  const bar = $('#bar1');
   bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
   holdSelectWidth();
   if (LAYOUT !== LAYOUT_MODE.NARROW) return;
+  const leftCell = findElement(bar, '.bar-l', HTMLElement);
   const over = () => {
     // the last control's edge, not scrollWidth: the hits overflow too
     const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
@@ -34733,14 +34732,14 @@ function fitBarWords() {
 function updateReviewCount() {
   const count = REVIEW_ALL.length,
     chip = $('#rv-chip');
-  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
+  for (const pill of findAll(document, '#btn-side .rv-n,#nav-side .rv-n', HTMLElement)) {
     pill.hidden = !count;
     setHtml(pill, html`${lucideIcon('eye')}${count}`);
     pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
   }
   const reviewButton = $('#btn-rv');
   reviewButton.hidden = !count;
-  reviewButton.querySelector('.rv-c').textContent = count;
+  findElement(reviewButton, '.rv-c', HTMLElement).textContent = String(count);
   // the sheet bar's [검토 M] half: its name starts with what it shows
   reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
   fitBarWords();
@@ -34959,11 +34958,11 @@ function drawPins() {
   const allDocsButton = $('#all-docs');
   allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
   setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
-  $('#side-n').textContent = PINS.length;
+  $('#side-n').textContent = String(PINS.length);
   applySide();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
-  $('#m-trash-n').textContent = trashCount;
+  $('#m-trash-n').textContent = String(trashCount);
   $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
   $('#trash-link').hidden = !trashCount;
   $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
@@ -37486,11 +37485,11 @@ async function refreshDoc(meta) {
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
     pageSurface().releaseVector();
-    $$('.pg').forEach((pageElement, index) => {
+    findAll(document, '.pg', HTMLElement).forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSurface().pageSource(page);
+      findElement(pageElement, 'img', HTMLImageElement).src = pageSurface().pageSource(page);
     });
     pageSurface().reapplyScale();
   } else {

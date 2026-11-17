@@ -166,7 +166,11 @@ class SwitchAndShow(unittest.TestCase):
 REFRESH_SCOPE = r"""
 let DOC='a',SWITCHSEQ=1,REFRESH_GEN=0,META={pages:[{n:1},{n:2}]},MARKDOWN=false;
 const META_BY=new Map();
-const document={body:{classList:{contains:(c)=>c==='revision-open'}}};
+class HTMLElement {} class HTMLImageElement extends HTMLElement {}
+const IMGS=[new HTMLImageElement(),new HTMLImageElement()];
+// the drawn pages, each an HTML element holding its picture
+const document={body:{classList:{contains:(c)=>c==='revision-open'}},
+  querySelectorAll:()=>IMGS.map((img)=>Object.assign(new HTMLElement(),{dataset:{},style:{},querySelector:()=>img}))};
 function rendersInBrowser(){return MARKDOWN;}
 function withDocQuery(u){return u;} function api(){return Promise.resolve({data:SNAPSHOT});}
 function topAnchor(){return {page:1};} function restoreAnchor(){LOG.push(['restoreAnchor',BUILD_READING_PAGE]);}
@@ -178,8 +182,6 @@ var BUILD_READING_PAGE=0; function pageUnderReadingLine(){return 4;}
 function setBuildReadingPage(value){BUILD_READING_PAGE=value; return value;}
 function buildDoc(){LOG.push(['build',BUILD_READING_PAGE]);}
 function loadPins(){LOG.push(['loadPins']); return Promise.resolve(true);}
-const IMGS=[{},{}];
-function $$(){return IMGS.map((img)=>({dataset:{},style:{},querySelector:()=>img}));}
 """
 
 
@@ -193,6 +195,8 @@ class Refresh(unittest.TestCase):
     def refresh(self, setup):
         return run(
             REFRESH_SCOPE,
+            extract_js_fn("findElement"),
+            extract_js_fn("findAll"),
             extract_js_fn("refreshDoc"),
             setup,
             "refreshDoc(SNAPSHOT).then(()=>console.log(JSON.stringify({log:LOG,imgs:IMGS.map(i=>i.src)})));",

@@ -12,7 +12,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import { MENTION, mentionClose, mentionEdited, mentionPlace, renderAssignNew } from './input-mentions.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { isRegion } from '../documents/state.ts';
@@ -23,7 +23,7 @@ import { syncQuestionHint } from './view-note-hints.ts';
 const SELECTION_POPOVER = $('#sel-pop'),
   SELECTION_POPOVER_FIELD = SELECTION_POPOVER.querySelector('textarea') as HTMLTextAreaElement,
   SELECTION_POPOVER_GAP = 8;
-SELECTION_POPOVER_FIELD._mirrorOf = $('#note') as HTMLTextAreaElement; // its @-tags are the note's, which saves them
+SELECTION_POPOVER_FIELD._mirrorOf = $('#note'); // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
 let SELECTION_POPOVER_BOX = null as HTMLElement | null;
 // Where a popover of width x height goes for a box in the free area (rectangles {left, top, right, bottom}), gap px
@@ -87,7 +87,7 @@ function drawSelectionPopover() {
     closeSelectionPopover();
     return;
   }
-  const loc = SELECTION_POPOVER.querySelector('.sp-loc');
+  const loc = findElement(SELECTION_POPOVER, '.sp-loc', HTMLElement);
   loc.textContent = !selection
     ? translate('찾는 중')
     : isRegion(selection)
@@ -125,7 +125,7 @@ function placeSelectionPopover() {
 // follow), and what is typed in the composer shows here (a name picked there from the @-list too:
 // composer/input-mentions.ts mentionMirror).
 SELECTION_POPOVER_FIELD.addEventListener('input', () => {
-  const noteField = $('#note') as HTMLTextAreaElement;
+  const noteField = $('#note');
   noteField.value = SELECTION_POPOVER_FIELD.value;
   mentionEdited(noteField, SELECTION_POPOVER_FIELD.selectionStart);
   autoGrow(noteField);
@@ -134,11 +134,11 @@ SELECTION_POPOVER_FIELD.addEventListener('input', () => {
   saveDraftSoon();
 });
 $('#note').addEventListener('input', () => {
-  const note = ($('#note') as HTMLTextAreaElement).value;
+  const note = $('#note').value;
   if (isSelectionPopoverOpen() && SELECTION_POPOVER_FIELD.value !== note) SELECTION_POPOVER_FIELD.value = note;
 });
 SELECTION_POPOVER_FIELD.addEventListener('focus', () => {
-  SELECTION_POPOVER_FIELD.value = ($('#note') as HTMLTextAreaElement).value;
+  SELECTION_POPOVER_FIELD.value = $('#note').value;
 });
 // [자세히 →]: the composer in the panel takes over with the focus in its note; the popover does not come back for this
 // selection.

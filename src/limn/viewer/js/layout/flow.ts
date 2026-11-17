@@ -48,7 +48,7 @@ import {
 } from './flow-panel-size.ts';
 import { syncBackLayer } from './input.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, findElement, typingNow, $$ } from '../platform/dom.ts';
+import { $, findElement, typingNow, findAll } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
@@ -282,8 +282,8 @@ function applySide() {
   for (const toggle of [$('#btn-side'), $('#nav-side')]) {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', toggle.id === 'btn-side' && LAYOUT !== LAYOUT_MODE.WIDE ? sheet : label);
-    toggle.querySelector('.side-n').textContent = pinCount;
-    toggle.querySelector('.c-dot').hidden = !dot;
+    findElement(toggle, '.side-n', HTMLElement).textContent = String(pinCount);
+    findElement(toggle, '.c-dot', HTMLElement).hidden = !dot;
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
@@ -291,8 +291,8 @@ function applySide() {
   syncBackLayer();
   frameHost().syncBuildErrorChip();
 }
-// The open handle's hint (the markup's, translated by translate()).
-const GRIP_TIP = $('#grip').dataset.tip;
+// The open handle's hint (the markup's, translated by translate()); empty text if the markup gave none.
+const GRIP_TIP = $('#grip').dataset.tip ?? '';
 // The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
 // wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
 function gripAria() {
@@ -310,9 +310,9 @@ function gripAria() {
   grip.setAttribute('aria-label', translate('패널 폭'));
   grip.dataset.tip = translate(GRIP_TIP);
   if (shown) {
-    grip.setAttribute('aria-valuenow', shown.w);
-    grip.setAttribute('aria-valuemin', shown.min);
-    grip.setAttribute('aria-valuemax', shown.max);
+    grip.setAttribute('aria-valuenow', String(shown.w));
+    grip.setAttribute('aria-valuemin', String(shown.min));
+    grip.setAttribute('aria-valuemax', String(shown.max));
   }
 }
 // Opens or collapses the pin panel in every layout (the wide side panel, the mid side or overlay panel, the narrow
@@ -869,10 +869,10 @@ function footInk() {
     help = foot && foot.querySelector('[data-act=help]'),
     version = foot && foot.querySelector('.m-ver');
   if (!help || !version) return;
-  const labelText = [...help.childNodes].find((node) => node.nodeType === 3 && node.nodeValue.trim()),
+  const labelText = [...help.childNodes].find((node): node is Text => node instanceof Text && node.data.trim() !== ''),
     chevron = help.querySelector('svg');
   if (!labelText) return;
-  const label = labelText.nodeValue.trim(),
+  const label = labelText.data.trim(),
     hangul = hangulOf(label),
     labelInk = inkMetrics(help, label);
   const drops = inkDrops(hangul ? inkMetrics(help, hangul).d : 0, inkMetrics(version, version.textContent.trim()).d);
@@ -940,7 +940,7 @@ document.fonts.addEventListener('loadingdone', () => {
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
-  $(dialogSelector).addEventListener('click', (event: MouseEvent) => {
+  findElement(document, dialogSelector, HTMLDialogElement).addEventListener('click', (event: MouseEvent) => {
     const dialog = event.currentTarget;
     if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
@@ -966,11 +966,11 @@ function topAnchor(offset?: number) {
     top = scrollerTop + (offset || 0),
     atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
     edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
+  for (const pageElement of findAll(document, '.pg', HTMLElement)) {
     const rect = pageElement.getBoundingClientRect();
     if (rect.bottom > top + edge)
       return {
-        page: +pageElement.dataset.page,
+        page: Number(pageElement.dataset.page),
         frac: Math.max(0, (top - rect.top) / rect.height),
         gap: Math.max(0, rect.top - top),
         atTop,

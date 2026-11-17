@@ -1,6 +1,6 @@
 // ------------------------------------------------ The claim badges' clock
 // A claimed pin's badge says how long its claim has left or has run over; this keeps that text current.
-import { $$ } from '../platform/dom.ts';
+import { findAll, findElement } from '../platform/dom.ts';
 import { OPEN_ALL } from '../app/state.ts';
 import { drawPins } from './flow-list.ts';
 import { claimActive, claimInfo } from './view-card-parts.ts';
@@ -9,14 +9,14 @@ import { claimActive, claimInfo } from './view-card-parts.ts';
 function tickClaims() {
   if (document.hidden) return;
   let gone = false;
-  $$('.badge-claimed[data-claim]').forEach((badge) => {
-    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
+  findAll(document, '.badge-claimed[data-claim]', HTMLElement).forEach((badge) => {
+    const pin = OPEN_ALL.find((listed) => listed.id === Number(badge.dataset.claim));
     if (!pin || !claimActive(pin)) {
       gone = true;
       return;
     }
     const claim = claimInfo(pin);
-    badge.querySelector('.ct').textContent = claim.t;
+    findElement(badge, '.ct', HTMLElement).textContent = claim.t;
     badge.dataset.tip = claim.tip;
     badge.classList.toggle('late', claim.late);
   });

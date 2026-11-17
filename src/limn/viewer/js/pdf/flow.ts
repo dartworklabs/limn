@@ -916,7 +916,7 @@ const SEARCH_JAMO = /[\u1100-\u11FF\u3131-\u318E\uA960-\uA97F\uD7B0-\uD7FF]/;
 // had none - and from the page on screen when the search starts from an empty field or on another document. No query,
 // or no PDF: no hits.
 function searchRun() {
-  const field = $('#search-q') as HTMLInputElement,
+  const field = $('#search-q'),
     doc = VECTOR_PDF.doc;
   let value = field.value;
   if (SEARCH.composing) {
@@ -1209,7 +1209,7 @@ function searchFrom(previous: Element | null) {
 // and the search is never left open without the focus in its field.
 function searchOpen() {
   const searchRoot = $('#doc-search'),
-    field = $('#search-q') as HTMLInputElement,
+    field = $('#search-q'),
     was = SEARCH.open,
     from = document.activeElement;
   if (searchRoot.hidden) return false;
@@ -1270,7 +1270,7 @@ function searchBringBack(to: HTMLElement) {
 // focus is never left in the closed field.
 function searchClose(back: boolean) {
   const searchRoot = $('#doc-search'),
-    field = $('#search-q') as HTMLInputElement,
+    field = $('#search-q'),
     had = searchRoot.contains(document.activeElement),
     to = SEARCH.back,
     was = SEARCH.open;
@@ -1297,7 +1297,7 @@ function searchClose(back: boolean) {
 // Another build is on screen (openVectorDocument): the query, its hits and the reading of the old text end; the field
 // stays open while it has the focus, else it folds away with the bar whole again.
 function searchClear() {
-  ($('#search-q') as HTMLInputElement).value = '';
+  $('#search-q').value = '';
   searchRun();
   if (SEARCH.open && !$('#doc-search').contains(document.activeElement)) searchHide();
 }

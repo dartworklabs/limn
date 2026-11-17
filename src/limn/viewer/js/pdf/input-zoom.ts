@@ -17,13 +17,6 @@ import { ZOOM_STEP, markZoomed, setScale, zoomAnchor, zoomRestore, zoomTo } from
 import { cancelDrag, cancelLongPress } from './input-selection.ts';
 import { $ } from '../platform/dom.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
-// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
-// pinch's scale since it began and where it is.
-interface SafariGestureEvent extends UIEvent {
-  scale: number;
-  clientX: number;
-  clientY: number;
-}
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event: KeyboardEvent) {
   const key = event.key,

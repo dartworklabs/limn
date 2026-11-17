@@ -32,7 +32,7 @@ function suggestCopy(draft: SuggestDraft): SuggestDraft {
 // Empties the composer's draft (a save, a discard without undo, another document) and its editor.
 function suggestClear() {
   Object.assign(SUGGEST_DRAFT, suggestDraft());
-  const editor = $('#c-sg-text') as HTMLTextAreaElement;
+  const editor = $('#c-sg-text');
   editor.value = '';
   editor.style.height = '';
 }

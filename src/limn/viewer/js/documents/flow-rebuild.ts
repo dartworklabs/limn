@@ -13,7 +13,7 @@ import { announce, lineNote, sourceOk } from '../platform/notices.ts';
 import { drawMeta } from './view-meta.ts';
 import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, findAll, findElement } from '../platform/dom.ts';
 import { BUILD_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
 import { changesView, documentPins, markdownSurface, pageSurface, verdictHold } from './state-seams.ts';
@@ -88,11 +88,11 @@ async function refreshDoc(meta?: Meta) {
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
     pageSurface().releaseVector();
-    $$('.pg').forEach((pageElement, index) => {
+    findAll(document, '.pg', HTMLElement).forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSurface().pageSource(page);
+      findElement(pageElement, 'img', HTMLImageElement).src = pageSurface().pageSource(page);
     });
     pageSurface().reapplyScale();
   } else {

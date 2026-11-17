@@ -19,7 +19,7 @@
 //   A script's measure inside a skipped line lays it out for the answer (the keys' Tab stops), but the innerText of
 //   what is skipped is empty.
 // Without IntersectionObserver no line is skipped.
-import { $, $$ } from '../platform/dom.ts';
+import { $, findAll } from '../platform/dom.ts';
 let FAR_OBSERVER = null as IntersectionObserver | null,
   FAR_HEIGHT = -1;
 const FAR_WATCHED = new Set() as Set<HTMLElement>; // the lines the observer watches
@@ -57,7 +57,7 @@ function watchFarLines(lines: HTMLElement[], viewHeight: number) {
     FAR_WATCHED.clear();
     FAR_HEIGHT = viewHeight;
     FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
-    lines = $$('#doc .pgw>.pv,#doc .pv-sum');
+    lines = findAll(document, '#doc .pgw>.pv,#doc .pv-sum', HTMLElement);
   } // a line or a summary under a page; never the panel
   const io = FAR_OBSERVER;
   FAR_WATCHED.forEach((line) => {

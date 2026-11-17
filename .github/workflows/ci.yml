@@ -77,7 +77,7 @@ jobs:
       # The viewer checks' own cases (tools/tests): the boundary rules and tables, and the local ESLint rules.
       - name: Viewer check tests
         run: npm test
-      # Strict tsc, ESLint and the module boundary check's cycle edges (tools/check_viewer_boundaries.mjs), each file's
+      # ESLint and the module boundary check's cycle edges (tools/check_viewer_boundaries.mjs), each file's
       # count held to tools/strict-baseline.json: a new violation fails, and so does a count that fell without the
       # baseline lowered. The boundary check's other rules are invariants: one violation fails it, and so this step.
       - name: Viewer strict ratchet

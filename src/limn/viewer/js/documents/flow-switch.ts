@@ -41,7 +41,7 @@ import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
 import { refreshDoc } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
-import { $, $$, findMaybe, searchToPage } from '../platform/dom.ts';
+import { $, findMaybe, searchToPage, findAll } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
@@ -113,9 +113,9 @@ let NAVIGATION_SHEET_HEIGHT = 0;
  * view) pinned under the head over what the step brought there (sheetScrollStep). Fitted again after a filter's results
  * (from the first, or the current section when the filter is emptied) and when the sheet's height changes. */
 function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, refit: boolean = false) {
-  const list = $('#ns-outline-items') as HTMLElement,
-    outlineSection = $('#ns-outline') as HTMLElement;
-  const pages = $('#ns-pages') as HTMLElement,
+  const list = $('#ns-outline-items'),
+    outlineSection = $('#ns-outline');
+  const pages = $('#ns-pages'),
     head = sheet.querySelector('.ns-head') as HTMLElement,
     rectOf = (element: Element) => element.getBoundingClientRect();
   list.style.maxHeight =
@@ -254,7 +254,7 @@ function rowsAround(rows: { top: number; bottom: number }[], current: number, co
 for (const target of [window.visualViewport, window])
   if (target)
     target.addEventListener('resize', () => {
-      const sheet = $('#nav-sheet') as HTMLDialogElement;
+      const sheet = $('#nav-sheet');
       if (sheet.open)
         requestAnimationFrame(() => {
           if (!sheet.open) return;
@@ -276,7 +276,7 @@ for (const target of [window.visualViewport, window])
 // The sheet's filter has drawn its list again (pdf/view-outline.ts): fitted from the first result, keeping the sheet's
 // height - or, emptied, back at the current section.
 function refitFilteredSheet() {
-  const sheet = $('#nav-sheet') as HTMLDialogElement;
+  const sheet = $('#nav-sheet');
   if (!sheet.open) return;
   if ($('#ns-outline-search').value.trim()) fitNavigationSheet(sheet, 0, false, true);
   else revealSheetOutline(sheet);
@@ -326,7 +326,7 @@ function sheetScrollStep(
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavigationView() {
   const isRevisions = document.body.classList.contains('revision-open');
-  for (const radio of $$('#ns-view [role=radio]')) {
+  for (const radio of findAll(document, '#ns-view [role=radio]', HTMLElement)) {
     const on = (radio.dataset.mode === VIEW_MODE.REVISIONS) === isRevisions;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);

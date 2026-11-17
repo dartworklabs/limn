@@ -20,7 +20,7 @@ import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from '
 import { drawPins, jumpToCard, loadPins, marks } from './flow-list.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
@@ -124,7 +124,7 @@ function drawPickBar(list: Pin[]) {
 <span class="lbl">${translateTemplate('모두 고르기 ({n})', { n: can.length })}</span></label><span class="sp"></span>\
 <button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${tickedCount ? '' : ' disabled'} data-tip="${translate('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${tickedCount ? translateTemplate('{n}건 확인', { n: tickedCount }) : translate('확인')}</button>`,
   );
-  ($('#rv-all') as HTMLInputElement).indeterminate = tickedCount > 0 && !all;
+  findElement(document, '#rv-all', HTMLInputElement).indeterminate = tickedCount > 0 && !all;
 }
 
 // What has the focus in the picking section, as a redraw can find it again: a row's box, or a control of the row by its
@@ -150,13 +150,8 @@ function restorePickFocus(kept: { sel: string; i: number } | null) {
   if (!kept || (focused && focused !== document.body)) return;
   const all = document.querySelectorAll(kept.sel),
     target = (all[Math.max(0, kept.i)] || all[0] || null) as HTMLElement | null,
-    pick = $('#review-pick') as HTMLElement;
-  const to =
-    target && !(target as HTMLInputElement).disabled
-      ? target
-      : !pick.hidden
-        ? pick
-        : ($('#review-toggle') as HTMLElement);
+    pick = $('#review-pick');
+  const to = target && !(target as HTMLInputElement).disabled ? target : !pick.hidden ? pick : $('#review-toggle');
   to.focus({ preventScroll: true });
 }
 
@@ -169,7 +164,7 @@ function drawReviewPick(list: Pin[]): boolean {
     keep = REVIEW_PICK ? findPickFocus() : null;
   if (REVIEW_PICK && (!can || !SECTION_OPEN.review)) {
     REVIEW_PICK = null;
-    if (keep) ($('#review-toggle') as HTMLElement).focus({ preventScroll: true });
+    if (keep) $('#review-toggle').focus({ preventScroll: true });
   } // the cards drawn next hold no focus
   if (REVIEW_PICK) {
     const listed = new Map(list.map((pin) => [pin.id, pin]));
@@ -179,7 +174,7 @@ function drawReviewPick(list: Pin[]): boolean {
     }
   }
   // The head's toggle keeps its name, as [모든 문서] does: pressed, it is filled and leads with a check.
-  const pickButton = $('#review-pick') as HTMLElement;
+  const pickButton = $('#review-pick');
   pickButton.hidden = !can;
   pickButton.setAttribute('aria-pressed', String(!!REVIEW_PICK));
   setHtml(pickButton, html`${REVIEW_PICK ? lucideIcon('check') : ''}${translate('골라서 확인')}`);
@@ -201,7 +196,7 @@ function setReviewPicking(on: boolean) {
   drawPins();
   // the section, not its head: a stuck head is where it is shown already and would not scroll
   if (on) $('#sec-review').scrollIntoView({ block: 'start' });
-  const target = (on ? $('#rv-all') : $('#review-pick')) as HTMLElement | null;
+  const target = on ? $('#rv-all') : $('#review-pick');
   if (target && target.getClientRects().length) target.focus({ preventScroll: true });
 }
 
@@ -287,7 +282,7 @@ function confirmTicked() {
   if (!section.hidden) section.scrollIntoView({ block: 'start' }); // the undo row is the section's first
   const undoButton = (note.el && note.el.querySelector('.nt-act')) as HTMLElement | null;
   if (undoButton && document.contains(undoButton)) undoButton.focus({ preventScroll: true });
-  else ($('#review-toggle') as HTMLElement).focus({ preventScroll: true });
+  else $('#review-toggle').focus({ preventScroll: true });
 }
 
 // The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had. While the
@@ -314,7 +309,7 @@ function undoConfirms(items: { pin: Pin; at: string }[], where: Map<number, numb
   drawPins();
   marks();
   // the undo row that had the focus is gone
-  const to = (REVIEW_PICK ? $('#rv-go') : $('#review-pick')) as HTMLElement | null;
+  const to = REVIEW_PICK ? $('#rv-go') : $('#review-pick');
   if (to && to.getClientRects().length && !(to as HTMLButtonElement).disabled) to.focus({ preventScroll: true });
   if (lost.length)
     lineNote(

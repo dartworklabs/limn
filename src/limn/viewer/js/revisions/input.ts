@@ -24,12 +24,6 @@ interface RevisionPdf {
   numPages: number;
   getPage(pageNumber: number): Promise<{ getViewport(options: { scale: number }): { width: number; height: number } }>;
 }
-// The Safari pinch gesture's event, which the DOM library does not have: the scale since it began and the pinch's point.
-interface GestureEvent extends UIEvent {
-  scale: number;
-  clientX: number;
-  clientY: number;
-}
 type RevisionAnchor = { el: HTMLElement; fx: number; fy: number; x: number; y: number };
 const REVISION_ZOOM = {
   ratio: 1,
@@ -100,7 +94,7 @@ function disposeRevisionZoom() {
 }
 
 /** Remember the nearest page and fractional position under a viewport point. */
-function revisionAnchor(x?, y?) {
+function revisionAnchor(x?: number, y?: number) {
   const box = $('#revision-pdf'),
     boxRect = box.getBoundingClientRect();
   x = x ?? boxRect.left + box.clientWidth / 2;
@@ -340,7 +334,7 @@ async function paintRevisionPdf() {
   );
   box.addEventListener(
     'gesturestart',
-    (event: GestureEvent) => {
+    (event: SafariGestureEvent) => {
       if (!revisionPdfActive()) return;
       event.preventDefault();
       gesture = { ratio: REVISION_ZOOM.ratio, anchor: revisionAnchor(event.clientX, event.clientY) };
@@ -349,7 +343,7 @@ async function paintRevisionPdf() {
   );
   box.addEventListener(
     'gesturechange',
-    (event: GestureEvent) => {
+    (event: SafariGestureEvent) => {
       if (!gesture || touch || !revisionPdfActive() || !(event.scale > 0)) return;
       event.preventDefault();
       revisionZoomTo(gesture.ratio * event.scale, event.clientX, event.clientY, gesture.anchor);

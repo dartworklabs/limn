@@ -1,8 +1,8 @@
 // ------------------------------------------------ DOM lookups, escaping, icons
 // $ and $$ look up the page's elements, esc() escapes text for markup (platform/markup.ts builds on it), ICONS is the
 // bundled Lucide table, and typingNow() says whether a text field has the focus.
-const $ = (selector) => document.querySelector(selector);
-const $$ = (selector) => Array.from(document.querySelectorAll(selector));
+const $: PageLookup = (selector: string) => document.querySelector(selector);
+const $$ = (selector: string) => Array.from(document.querySelectorAll(selector));
 // Lucide icons (vendor/lucide/README.md), drawn by lucideIcon() in platform/markup.ts.
 const ICONS = __LUCIDE_JSON__;
 const esc = (text: unknown) =>

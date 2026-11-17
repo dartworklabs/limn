@@ -107,7 +107,7 @@ import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
 import { dropPin, restorePin } from '../pins/flow-actions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
-import { $, $$, typingNow, searchToPage, TABBABLE, isTabStop } from '../platform/dom.ts';
+import { $, $$, typingNow, searchToPage, TABBABLE, isTabStop, findAll } from '../platform/dom.ts';
 import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE, PIN_STATE, VERDICT_PLACE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
@@ -1638,7 +1638,7 @@ const MIN_CUT_LINE_WIDTH = 320;
 function sizePageLines() {
   const insetRight = measureInsetRight(),
     area = $('#left'),
-    lines = $$('#doc .pv');
+    lines = findAll(document, '#doc .pv', HTMLElement);
   area.style.setProperty('--pv-inset-r', insetRight + 'px');
   INSET_RIGHT = insetRight;
   $('#doc').classList.remove('pv-stack');
@@ -2335,8 +2335,8 @@ function drawPageVerdicts() {
       fillPanel(map, verdicts);
     } else {
       removePanel();
-      $$('#doc .pg').forEach((pageElement) => {
-        const page = +pageElement.dataset.page;
+      findAll(document, '#doc .pg', HTMLElement).forEach((pageElement) => {
+        const page = Number(pageElement.dataset.page);
         let line = pageElement.nextElementSibling as HTMLElement | null;
         if (!pageTakesVerdict(page)) {
           if (line && line.classList.contains('pv')) line.remove();
@@ -2433,7 +2433,7 @@ if (window.ResizeObserver && window.IntersectionObserver)
 function stickReadingLine() {
   // the room crossed its bar: drawn again beside or under the pages (verdict/view-panel.ts), which ran this
   if (pageVerdictsOn() && redrawOnBesideChange()) return;
-  const lines = $$('#doc .pv');
+  const lines = findAll(document, '#doc .pv', HTMLElement);
   if (!lines.length) return;
   const area = $('#left'),
     areaRect = area.getBoundingClientRect();
@@ -3077,7 +3077,7 @@ function findEdgeStop(after: boolean): HTMLElement | null {
       return isTabStop(x) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     },
   });
-  let node = $('#left') as Node;
+  let node: Node = $('#left');
   if (after) while (node.lastChild) node = node.lastChild; // from the area's last node the next one is past the area
   walker.currentNode = node;
   return (after ? walker.nextNode() : walker.previousNode()) as HTMLElement | null;

@@ -153,8 +153,8 @@ function setScale(scale: number, save?: boolean) {
 // Gives every page box its width at the scale PAGE_SCALE, bounded or not (setScale bounds the scale first).
 function sizePages() {
   const widest = widestPagePoints();
-  $$('.pg').forEach((pageBox) => {
-    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, PAGE_SCALE) + 'px';
+  findAll(document, '.pg', HTMLElement).forEach((pageBox) => {
+    pageBox.style.width = pageWidth(Number(pageBox.dataset.ptw) || widest, PAGE_SCALE) + 'px';
   });
   pageWidthVars();
 }
@@ -309,7 +309,7 @@ function zoomAnchor(clientX?: number, clientY?: number): ZoomAnchor | null {
     pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
   let best = null as { pg: HTMLElement; r: DOMRect } | null,
     bestDistance = Infinity;
-  for (const pageBox of $$('.pg')) {
+  for (const pageBox of findAll(document, '.pg', HTMLElement)) {
     const rect = pageBox.getBoundingClientRect(),
       distance = pointY < rect.top ? rect.top - pointY : pointY > rect.bottom ? pointY - rect.bottom : 0;
     if (distance < bestDistance) {

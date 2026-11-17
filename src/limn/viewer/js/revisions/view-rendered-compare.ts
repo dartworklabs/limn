@@ -1242,8 +1242,8 @@ function drawCompareNavigator() {
     : RENDERED_COMPARE.at < 0
       ? translateTemplate('바뀐 곳 {n}곳', { n: count })
       : translateTemplate('바뀐 곳 {at}/{n}', { at: RENDERED_COMPARE.at + 1, n: count });
-  ($('#mdc-prev') as HTMLButtonElement).disabled = RENDERED_COMPARE.at <= 0;
-  ($('#mdc-next') as HTMLButtonElement).disabled = RENDERED_COMPARE.at >= count - 1;
+  $('#mdc-prev').disabled = RENDERED_COMPARE.at <= 0;
+  $('#mdc-next').disabled = RENDERED_COMPARE.at >= count - 1;
 }
 // Goes to change group index: brings its first block to a third of the pane's height and, with ring, rings the group
 // for a moment.

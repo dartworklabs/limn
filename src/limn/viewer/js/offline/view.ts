@@ -351,7 +351,7 @@ async function offUiRedo(rec: any, button: HTMLElement) {
     await switchDoc(docName);
     if ((DOC || DEFAULT_DOC) !== docName) return;
   }
-  const note = $('#note') as HTMLTextAreaElement,
+  const note = $('#note'),
     text = String(rec.note || '');
   if (note.value.trim() && note.value.trim() !== text.trim()) {
     lineNote('작성 중인 메모가 있습니다 — 저장하거나 버린 뒤 다시 찍으세요', NOTICE_KIND.WARN, null, {
@@ -435,7 +435,7 @@ function offUiUndoEnd(id: number) {
 async function offUiUndo(id: number) {
   const undo = OFFUI.undos.get(id);
   if (!undo || undo.busy) return;
-  const note = $('#note') as HTMLTextAreaElement,
+  const note = $('#note'),
     isInRow =
       !!document.activeElement &&
       !!document.activeElement.closest &&

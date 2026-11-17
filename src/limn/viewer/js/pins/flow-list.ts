@@ -313,11 +313,11 @@ function drawPins() {
   const allDocsButton = $('#all-docs');
   allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
   setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
-  $('#side-n').textContent = PINS.length;
+  $('#side-n').textContent = String(PINS.length);
   applySide();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
-  $('#m-trash-n').textContent = trashCount;
+  $('#m-trash-n').textContent = String(trashCount);
   $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
   $('#trash-link').hidden = !trashCount;
   $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
