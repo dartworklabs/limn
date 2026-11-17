@@ -120,7 +120,7 @@ function frameHost(): FrameHost {
 // the short band (a landscape phone); up to 839px, or up to 900px in portrait (height > width; a square window is
 // landscape), the tablet sheet; up to 900px the overlay panel (an unfolded foldable); up to 1366px the side panel;
 // wider, the desktop.
-function layoutFor(width, height, coarse) {
+function layoutFor(width: number, height: number, coarse: boolean) {
   if (!coarse) {
     if (width <= 700) return LAYOUT_BAND.PHONE;
     if (width <= 900) return LAYOUT_BAND.MID_OVERLAY;
@@ -138,6 +138,7 @@ function layoutFor(width, height, coarse) {
 function bandInput() {
   return { w: innerWidth, h: innerHeight, coarse: COARSE_POINTER_QUERY.matches };
 }
+type BandInput = ReturnType<typeof bandInput>;
 // Keeping the band steady on touch (docs/handbook/viewer.md §모바일 레이아웃): a height change under BAND_HOLD_PX from
 // the settled one is the address bar, and a new size or pointer must stay BAND_SETTLE_MS before the band follows it.
 // The values are chosen by emulation; a real device may move them.
@@ -147,7 +148,7 @@ const BAND_HOLD_PX = 96,
 // settled input yet or for a mouse (both fine pointers); keep the band while a text field has focus (typing - the
 // keyboard shrinks the layout) or when only the height moved less than BAND_HOLD_PX from the settled input (which
 // stays, so slow steps add up); otherwise wait for the observation to hold. Pure.
-function settleBand(settled, observed, typing) {
+function settleBand(settled: BandInput | null, observed: BandInput, typing: boolean) {
   if (!settled || (!settled.coarse && !observed.coarse)) return BAND_STEP.SETTLE;
   if (typing) return BAND_STEP.KEEP;
   if (observed.w === settled.w && observed.coarse === settled.coarse && Math.abs(observed.h - settled.h) < BAND_HOLD_PX)
@@ -321,7 +322,7 @@ function gripAria() {
 // (a pick, a link) open it at once. Opening the mid panel or the tablet sheet closes the outline overlay (one at a
 // time). Collapsing never touches the saved width - once collapsed, the panel's width is put back to it for the next
 // opening. Opening counts as seeing the list (noticeSeen).
-function setSide(open, remember?, slide?) {
+function setSide(open: boolean, remember?: boolean, slide?: boolean) {
   open = !!open;
   // The panel is on screen: [핀 N]'s dot and the hint on how to open it go.
   if (open) noticeSeen(NOTICE_DOT.SIDE);
@@ -355,7 +356,7 @@ function slideMs() {
   return REDUCED_MOTION_QUERY.matches || !(LAYOUT === LAYOUT_MODE.WIDE || MID_OVERLAY) ? 0 : SLIDE_MS;
 }
 // Starts the 'opening'/'closing' slide; when it ends the panel settles (a collapsed one gets its saved width back).
-function startSideSlide(kind, ms) {
+function startSideSlide(kind: string, ms: number) {
   document.body.classList.add('side-' + kind);
   SIDE_SLIDE = { kind, t: setTimeout(finishSideSlide, ms) };
 }
@@ -766,7 +767,7 @@ function coach(key: string, text: string) {
 // with the mode: scrolled to the top, page 1 moves below the bar; anywhere else the pages keep their place
 // (selectModeScrollTop). A focus left on the hidden bar's [끝내기] goes to the toggle. Idempotent; no coach mark - the
 // bar says what a drag and a tap do.
-function setSelectMode(on) {
+function setSelectMode(on: boolean) {
   const was = SELMODE,
     pdfArea = $('#left'),
     doc = $('#doc'),
@@ -788,7 +789,7 @@ function setSelectMode(on) {
 // uncovers page 1's first line rather than the bar covering it; anywhere else the pages keep their place on screen -
 // from now (the position after, which a browser's scroll anchoring may already have moved, then moved is 0) by as far
 // as they moved, never above the top. Pure.
-function selectModeScrollTop(top0, now, moved) {
+function selectModeScrollTop(top0: number, now: number, moved: number) {
   return top0 <= 0 ? 0 : Math.max(0, now + moved);
 }
 // Fits the mode bar to what is around it: its width as --sel-bar-w (selectModeBarWidth, from its natural width and the
@@ -809,7 +810,7 @@ function fitSelectModeBar() {
 // more when that leaves the two sides an odd remainder, so the centred bar's edges - and the icon tile and [끝내기] 4px
 // inside them - fall on whole pixels. Icons are drawn at whole pixels: a bar centred between pixels draws its icon half
 // a pixel off its tile. Pure.
-function selectModeBarWidth(naturalWidth, areaWidth) {
+function selectModeBarWidth(naturalWidth: number, areaWidth: number) {
   let width = Math.ceil(naturalWidth - 0.01);
   if ((Math.round(areaWidth) - width) % 2) width++;
   return width;
@@ -822,7 +823,7 @@ if (window.ResizeObserver) {
 // Opens a dialog (a sheet in compact: [더보기], the navigation sheet, the help, the Trash) as a modal with the focus on
 // the dialog itself (tabindex=-1, drawn without a ring), not on its first control: a phone's browser would draw the
 // focus ring on [닫기] each time a tap opens one. Tab goes on to [닫기], the first control.
-function showSheet(dialog) {
+function showSheet(dialog: HTMLDialogElement) {
   dialog.showModal();
   dialog.focus({ preventScroll: true });
 }
@@ -855,7 +856,7 @@ function placeMore() {
 // How far the foot's wordmark and version drop so their ink bottoms meet [도움말]'s: from the label's Hangul ink
 // descent below the shared baseline and the version's (px, positive = below). The wordmark has none ("limn" ends on the
 // baseline); a label without Hangul ('Help', whose 'p' hangs below by design) counts as none. Pure.
-function inkDrops(labelDescent, versionDescent) {
+function inkDrops(labelDescent: number, versionDescent: number) {
   return { word: labelDescent, ver: labelDescent - versionDescent };
 }
 // [더보기]'s foot on one ink line (docs/handbook/viewer.md §모바일 레이아웃): Hangul reaches below the Latin baseline
@@ -896,7 +897,7 @@ function footInk() {
 let INK_CONTEXT = null as CanvasRenderingContext2D | null;
 // The ink of a text in an element's font as {a, d}: how far it rises above and reaches below the baseline (px), from
 // the canvas's text metrics read at 64 times the size, because the canvas rounds them to whole pixels.
-function inkMetrics(element, text) {
+function inkMetrics(element: Element, text: string) {
   const context = (INK_CONTEXT ||
       (INK_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D,
     scale = 64,
@@ -913,7 +914,7 @@ function inkMetrics(element, text) {
   return { a: measured.actualBoundingBoxAscent / scale, d: measured.actualBoundingBoxDescent / scale };
 }
 // The Hangul letters of a text (syllables and jamo) - the glyphs that reach below the Latin baseline. Pure.
-function hangulOf(text) {
+function hangulOf(text: string | null) {
   return String(text).replace(/[^ᄀ-ᇿ㄰-㆏가-힣]/g, '');
 }
 // Help's head on one ink line (docs/handbook/viewer.md §마크와 파비콘), the foot's rule: the wordmark ("limn" ends on
@@ -959,7 +960,7 @@ $('#nav-sheet').addEventListener('close', () => {
   if (frameHost().searchOpen()) return;
   if (button.getClientRects().length) button.focus({ preventScroll: true });
 });
-function topAnchor(offset?) {
+function topAnchor(offset?: number) {
   const scroller = $('#left'),
     scrollerTop = scroller.getBoundingClientRect().top,
     top = scrollerTop + (offset || 0),

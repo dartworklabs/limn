@@ -23,7 +23,7 @@ function isFrac(box: unknown): box is number[] {
 }
 // A person's name for an element: its label, else its part, else its id - the rule the pick answer's rung labels
 // follow.
-function elementName(element) {
+function elementName(element: PinElement | null | undefined) {
   return String((element && (element.label || element.part || element.id)) || '');
 }
 // The selected element's path, root first, as the location line shows it ('B2 › 달력 › 7월'). Each id is named by the
@@ -31,7 +31,7 @@ function elementName(element) {
 // carries it, else by the pick's own element, else by the id itself: an ancestor merged into an inner rung, past the
 // ladder's cap, drawn in another file or above a region answer's element has no rung, and the map's name or its id
 // still says where it is.
-function elementPathText(selection) {
+function elementPathText(selection: Selection) {
   const selectedElement = selection && selection.elSel;
   if (!selectedElement || !Array.isArray(selectedElement.path)) return '';
   const names = new Map();
@@ -48,12 +48,12 @@ function elementPathText(selection) {
   return selectedElement.path.map((id) => names.get(id) || String(id)).join(' › ');
 }
 // A figure rung's tooltip text: the whole figure's lines for the page's root (its path is itself), else the element's.
-function rungTip(level) {
+function rungTip(level: Rung & { el: PinElement }) {
   return Array.isArray(level.el.path) && level.el.path.length <= 1 ? TIP_TEXT.fig : TIP_TEXT.el;
 }
 // Puts a pending box (the composer's '새 핀', a re-place's '새 위치') on the element it will pin, so the person sees
 // the mark before saving. An element without a usable box, or no box on screen, leaves the box as dragged.
-function snapBox(box, element) {
+function snapBox(box: HTMLElement | null, element: PinElement | null | undefined) {
   if (!box || !element || !isFrac(element.frac)) return;
   const frac = element.frac;
   drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
@@ -61,7 +61,7 @@ function snapBox(box, element) {
 }
 // The element part of the composer for the selection and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
-function renderElement(selection, box) {
+function renderElement(selection: Selection, box: HTMLElement | null) {
   const line = $('#c-path'),
     selectedElement = selection.elSel;
   line.hidden = !selectedElement;
@@ -106,7 +106,7 @@ function showElementBox() {
 // The page badge of a region on a figure document (composer and card): '코드 없는 요소' when the map chose an element
 // it has no code lines for, '영역' when the map could not be read; null off figure documents without an element - the
 // caller keeps its view-only wording.
-function figureRegionBadge(element, figure) {
+function figureRegionBadge(element: PinElement | null | undefined, figure: boolean) {
   return element
     ? { t: translate('코드 없는 요소'), tip: translate(TIP_TEXT.elregion) }
     : figure
@@ -116,9 +116,9 @@ function figureRegionBadge(element, figure) {
 // The `el` a pin stores (POST /api/pin, an edit's loc): the pick's element with only the fields the pin record defines,
 // in its order - id, path, label, part, impl and the element's box `frac` on the build it was picked on, which the
 // server's read-time follow compares with the current build. A box that is not four finite numbers is left out.
-function elementForSave(element) {
+function elementForSave(element: PinElement) {
   const out: PinElement = { id: element.id, path: Array.isArray(element.path) ? element.path.slice() : [] };
-  for (const k of ['label', 'part']) if (typeof element[k] === 'string') out[k] = element[k];
+  for (const k of ['label', 'part'] as const) if (typeof element[k] === 'string') out[k] = element[k];
   if (element.impl && typeof element.impl === 'object')
     out.impl = { file: element.impl.file, lo: element.impl.lo, hi: element.impl.hi };
   if (isFrac(element.frac)) out.frac = element.frac.slice();
@@ -127,7 +127,7 @@ function elementForSave(element) {
 // The range kind of an element rung as the server names it (limn.builds.figure_map.element_kind): 'figure' for the
 // page's root (its path is itself), else 'el:<part>' with the part cut to 77 characters (a kind stays within 80),
 // 'el:?' without a part. src/limn/viewer/tests/test_viewer.py runs both on the same elements.
-function elementKind(element) {
+function elementKind(element: PinElement) {
   return Array.isArray(element.path) && element.path.length <= 1
     ? 'figure'
     : 'el:' + String(element.part || '?').slice(0, 77);
@@ -136,7 +136,7 @@ function elementKind(element) {
 // `frac` too (a mark drawn without the current map then sits where the person saw the snapped box), and the element's
 // kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines set by
 // hand in the excerpt keep the kind the body already has.
-function figureFields(body, element, rung) {
+function figureFields(body: Record<string, unknown>, element: PinElement | null | undefined, rung: Rung | null) {
   if (!element) return body;
   body.el = elementForSave(element);
   if (isFrac(element.frac)) body.frac = element.frac.slice();
@@ -144,12 +144,12 @@ function figureFields(body, element, rung) {
   return body;
 }
 // The rung the selection's scope names when it is a figure rung (it carries an element), else null.
-function figureRung(selection) {
+function figureRung(selection: Selection) {
   const level = selection && selection.scope && levelOf(selection, selection.scope);
   return level && level.el ? level : null;
 }
 // The element a re-place candidate would move the pin to: its default rung's, else the answer's own (a region answer).
-function repickElement(candidate) {
+function repickElement(candidate: PickAnswer) {
   const level = levelOf(candidate, candidate.default_level);
   return (level && level.el) || candidate.el || null;
 }

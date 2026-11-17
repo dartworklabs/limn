@@ -60,7 +60,7 @@ import { SUGGEST_DRAFT } from './state-suggest.ts';
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.
  */
-async function appendToPin(id, text) {
+async function appendToPin(id: number, text: string) {
   if (COMPOSE.saving || viewerBlocked()) return;
   const prior = PINS.find((pin) => pin.id === id);
   if (!prior) {

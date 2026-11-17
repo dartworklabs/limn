@@ -5,7 +5,7 @@ const $ = (selector) => document.querySelector(selector);
 const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 // Lucide icons (vendor/lucide/README.md), drawn by lucideIcon() in platform/markup.ts.
 const ICONS = __LUCIDE_JSON__;
-const esc = (text) =>
+const esc = (text: unknown) =>
   String(text == null ? '' : text).replace(
     /[&<>"']/g,
     (character) =>

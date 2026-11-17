@@ -192,7 +192,7 @@ function isArmedHere(key: string, where: string, page: number) {
   );
 }
 // Whether an armed press still holds: the same document, build and (in the composer) selection.
-function armStillHolds(armed) {
+function armStillHolds(armed: NonNullable<typeof ARMED_VERDICT>) {
   return (
     armed.doc === DOC &&
     !!META &&
@@ -719,10 +719,10 @@ function verdictUndo(id: number): () => Promise<boolean> {
 // (figureVerdictBody, ADR-0022 D2); on a view-only PDF the region answer as it is. null when a figure page's answer
 // names no element (its map could not be read). Pure but for the figure helpers.
 function pageVerdictBody(answer: any, kind: string | undefined): Record<string, unknown> | null {
-  const root = (element) =>
+  const root = (element: PinElement | undefined) =>
     !!element && Array.isArray(element.path) && element.path.length === 1 && element.path[0] === element.id;
   if (isFigureKind(kind)) {
-    const rung = isRegion(answer) ? null : (answer.levels || []).find((candidate) => root(candidate.el));
+    const rung = isRegion(answer) ? null : (answer.levels || []).find((candidate: Rung) => root(candidate.el));
     if (rung)
       return figureFields(
         {
@@ -978,7 +978,7 @@ async function savePageVerdict(
   // anywhere else meanwhile (another page's word, a '#N' link, the panel): a redraw that puts it back on the same
   // word's button is no move.
   let away = false;
-  const moved = (event) => {
+  const moved = (event: FocusEvent) => {
     const target = event.target as HTMLElement;
     if (!(
       target &&
@@ -2274,12 +2274,12 @@ const CHIP_WATCH =
     ? new MutationObserver((recs) => {
         // Whether a line now holds a chip it did not, or lost one: a chip taken out and put back on the same line
         // (fillPageLine's morph) is no change; one moved to another line is a change on both.
-        const had = new Map();
+        const had = new Map<Node, Map<Element, number>>();
         recs.forEach((record) => {
-          const countChips = (nodes: NodeList, step) =>
+          const countChips = (nodes: NodeList, step: number) =>
             [...nodes].forEach((node) => {
               if (node instanceof Element && node.classList.contains('nt-chip')) {
-                const counts = had.get(record.target) || new Map();
+                const counts = had.get(record.target) || new Map<Element, number>();
                 counts.set(node, (counts.get(node) || 0) + step);
                 had.set(record.target, counts);
               }
@@ -2383,7 +2383,7 @@ function jumpToPageLine(id: number) {
   const target = pin && pageTargetOf(pin, META ? META.kind : undefined);
   if (!target) return false;
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
-  const flash = (element) => {
+  const flash = (element: HTMLElement) => {
     element.classList.remove('flash');
     void element.offsetWidth;
     element.classList.add('flash');
@@ -2819,7 +2819,7 @@ addEventListener('resize', stickSoon);
     viewport.addEventListener('scroll', stickSoon);
   }
 } // a keyboard over the page
-$('#doc').addEventListener('input', (event) => {
+$('#doc').addEventListener('input', (event: InputEvent) => {
   const target = event.target as HTMLElement;
   if (target.closest && target.closest('.pv-pop')) stickSoon();
 }); // the reason field grows: its side again
@@ -2916,7 +2916,7 @@ for (const eventType of ['wheel', 'touchstart', 'touchmove', 'pointerdown'])
   $('#left').addEventListener(eventType, HAND_ON_PAGES, { passive: true, capture: true });
 $('#left').addEventListener(
   'pointermove',
-  (event) => {
+  (event: PointerEvent) => {
     if (event.buttons) HAND_ON_PAGES();
   },
   { passive: true, capture: true },

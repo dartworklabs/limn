@@ -59,7 +59,24 @@ function requestFallback(): RequestFallback {
 }
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
-async function api(url, options): Promise<{ status: number; data: any }> {
+/** What a caller tells api() about a request (the header above says what each field does). */
+interface RequestOptions {
+  method?: string;
+  body?: unknown;
+  what?: string;
+  where?: string;
+  retry?: () => unknown;
+  save?: boolean;
+  source?: string;
+  intent?: string;
+  quietUnreached?: boolean;
+  expect?: number[];
+  keepalive?: boolean;
+  signal?: AbortSignal;
+  wait?: number;
+  silent?: boolean;
+}
+async function api(url: string, options?: RequestOptions): Promise<{ status: number; data: any }> {
   options = { ...(options || {}) };
   options.source =
     options.source || (options.method || 'GET') + ' ' + url + (options.intent ? ' ' + options.intent : '');

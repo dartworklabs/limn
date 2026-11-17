@@ -231,7 +231,7 @@ function parseMarkdown(text: string): Promise<any> {
   });
 }
 // Ends the parse in flight, if any, with answer (null: taken over), and stops its worker.
-function stopMarkdownParse(answer) {
+function stopMarkdownParse(answer: { ok: boolean; limit: string } | null) {
   const job = MARKDOWN_VIEW.job;
   if (!job) return;
   MARKDOWN_VIEW.job = null;
@@ -652,7 +652,7 @@ function relevelForLineView() {
   useLevel(selection, 'raw');
   linePick().renderComposer();
 }
-function waitLine(text) {
+function waitLine(text: string) {
   const line = document.createElement('div');
   line.className = 'md-wait dim';
   line.textContent = text;
@@ -670,11 +670,11 @@ function documentNotice(text: string, limit: string) {
   return notice;
 }
 // A size in MiB as the notices say it: '1.5 MiB', '1 MiB'.
-function formatMebibytes(bytes) {
+function formatMebibytes(bytes: number) {
   const mebibytes = (+bytes || 0) / 1048576;
   return (Math.round(mebibytes * 10) / 10).toLocaleString('en') + ' MiB';
 }
-function formatCount(count) {
+function formatCount(count: number) {
   return Number(count).toLocaleString('en');
 }
 // The plain source-line view: every server line as a line span (data-line), numbered by CSS, under a line naming the
@@ -712,7 +712,7 @@ function lineViewSpan(text: string, line: number) {
   return span;
 }
 // The line view's head line for limit (MARKDOWN_LIMIT).
-function limitText(limit) {
+function limitText(limit: string) {
   switch (limit) {
     case MARKDOWN_LIMIT.NESTING:
       return translateTemplate('중첩이 {max}단을 넘어 원문 줄로 보입니다', { max: MARKDOWN_LIMITS.nesting });
@@ -776,7 +776,7 @@ function readingAnchor() {
       }
     : null;
 }
-function restoreReadingAnchor(anchor) {
+function restoreReadingAnchor(anchor: { line: number; off: number; top: number } | null) {
   const pane = $('#left');
   if (!anchor) {
     return;
@@ -1093,7 +1093,7 @@ function mapLines(element: HTMLElement, token: any, kind: string, context: Rende
   element.dataset.hi = String(lines.hi);
   element.dataset.kind = kind;
 }
-const BLOCK_KIND = {
+const BLOCK_KIND: Record<string, string> = {
   paragraph_open: 'paragraph',
   heading_open: 'heading',
   bullet_list_open: 'list',
@@ -2045,7 +2045,7 @@ function goToLinkHeading(id: string) {
   focusHold(heading ? heading.el : pane);
 }
 // GitHub's heading slug: lower case, punctuation dropped, spaces to '-'. Pure.
-function headingSlug(title) {
+function headingSlug(title: string) {
   return String(title)
     .trim()
     .toLowerCase()
@@ -2076,7 +2076,7 @@ function goToSlug(id: string): number {
 }
 // ---------------- Picking: selection -> lines, and the ladder
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
-function linesAt(node) {
+function linesAt(node: Node | null) {
   const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
   if (!element) return null;
   const column = $('#md');
@@ -2095,7 +2095,7 @@ function linesAt(node) {
 // The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's
 // paragraph's item or quote, else its nearest block (a run of text whose lines could not be told - kind 'lines',
 // drawInline - stands for the block it is in).
-function blockAt(node) {
+function blockAt(node: Node | null) {
   const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
   if (!element) return null;
   let block = element.closest('#md [data-lo]') as HTMLElement | null;
@@ -2120,7 +2120,7 @@ const BLOCK_KINDS = ['paragraph', 'item', 'table', 'code', 'quote', 'html', 'fro
 const BLOCK_SELECTOR = BLOCK_KINDS.map((kind) => '[data-lo][data-kind="' + kind + '"]').join(',');
 // The blocks lines first..last meet, outermost: each element of a block kind on screen whose lines meet first..last and
 // that no other such element meeting them holds (a quote's paragraphs are the quote; a list's items are each a block).
-function blocksMeeting(first, last) {
+function blocksMeeting(first: number, last: number) {
   const column = $('#md');
   if (!column) return [];
   const meets = (element: HTMLElement) => +(element.dataset.lo || 0) <= last && +(element.dataset.hi || 0) >= first;
@@ -2130,7 +2130,7 @@ function blocksMeeting(first, last) {
     return !(up && column.contains(up) && meets(up));
   });
 }
-const BLOCK_LABEL = {
+const BLOCK_LABEL: Record<string, string> = {
   paragraph: '문단',
   item: '목록 항목',
   table: '표',
@@ -2140,7 +2140,7 @@ const BLOCK_LABEL = {
   front: '머리 정보',
   math: '수식',
 };
-function lineSnippet(first, last) {
+function lineSnippet(first: number, last: number) {
   const out: string[] = [];
   for (let line = first; line <= Math.min(last, first + 79); line++)
     out.push(String(line).padStart(5, ' ') + '  ' + (MARKDOWN_VIEW.lines[line - 1] || ''));
@@ -2150,7 +2150,7 @@ function lineSnippet(first, last) {
 // The section around lines first..last: from the nearest heading at or above first to the line before the next heading
 // of the same or a higher level (the file's end when none), its trailing blank lines left out. null above the first
 // heading, or when last is past it.
-function sectionAround(first, last) {
+function sectionAround(first: number, last: number) {
   let heading = null as { level: number; lo: number; title: string } | null;
   for (const head of MARKDOWN_VIEW.heads) {
     if (head.lo <= first) heading = head;
@@ -2183,7 +2183,7 @@ function markdownLevels(
 ) {
   if (isTextDoc()) return textSurface().levels(range); // a text document's rungs come from its lines alone
   const rungs = [] as any[];
-  const add = (level, label, first, last, env) => {
+  const add = (level: string, label: string, first: number, last: number, env: string | null) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
     if (same) {
       (same.merged = same.merged || []).push(level);
@@ -2227,7 +2227,13 @@ function markdownLevels(
 // Fills the composer with lines range of the document on screen, as pick() does with a /api/pick answer; tapped: a tap
 // picked a block, so the block rung is the default (the section rung on a heading). During a re-place it is the
 // candidate instead (bannerCompare), with nothing else changed.
-function pickLines(range, startBlock, endBlock, quote, tapped) {
+function pickLines(
+  range: { lo: number; hi: number },
+  startBlock: HTMLElement | null,
+  endBlock: HTMLElement | null,
+  quote: string,
+  tapped: boolean,
+) {
   const levels = markdownLevels(range, startBlock, endBlock, tapped),
     quoted = String(quote || '')
       .replace(/\s+/g, ' ')
@@ -2321,7 +2327,7 @@ function markChosenLines(
 // The elements that stand for lines first..last: each line span in range, and each block in range that has no line
 // spans of its own and no smaller block in range (a rule, an HTML block) - the smallest things on screen that carry
 // those lines. A table cell's line stands for its row: the row is what is tinted, so a pinned row reads as one band.
-function lineLeaves(first, last) {
+function lineLeaves(first: number, last: number) {
   const column = $('#md');
   if (!column) return [];
   const lines = [...column.querySelectorAll('[data-line]')].filter((element) => {
@@ -2351,8 +2357,8 @@ function lineLeaves(first, last) {
 function drawPinMarks() {
   const column = $('#md');
   if (!column) return;
-  column.querySelectorAll('.md-badges').forEach((element) => element.remove());
-  column.querySelectorAll('.md-pin').forEach((element) => element.classList.remove('md-pin', 'rv', 'st'));
+  column.querySelectorAll('.md-badges').forEach((element: Element) => element.remove());
+  column.querySelectorAll('.md-pin').forEach((element: Element) => element.classList.remove('md-pin', 'rv', 'st'));
   const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
     .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
     .sort((left, right) => (left.lo as number) - (right.lo as number) || left.id - right.id);
@@ -2436,7 +2442,7 @@ const COLUMN_OBSERVER = window.ResizeObserver
 // Scrolls pin id's first line to the reading depth and flashes its lines (jumpPin's branch, showLines). A jump asked
 // before this document is on screen - [보기] on a pin of another document: switchDoc settles before the source is read
 // and drawn - waits for the draw (showDocumentNode) of this visit; another switch drops it.
-function jumpToPinLines(id) {
+function jumpToPinLines(id: number) {
   if (MARKDOWN_VIEW.shown !== DOC || !$('#md')) {
     MARKDOWN_VIEW.jumpTo = { id, doc: DOC, seq: SWITCHSEQ };
     return;
@@ -2645,7 +2651,7 @@ addEventListener('keydown', (event) => {
 // ---------------- Input on the document
 // A mouse drag ends: the part of its text selection inside the document (documentPart) is the pick. A press without a
 // selection (a click, a tap) picks the block under it - not on a link, a badge or another control.
-function pickSelection(tapTarget) {
+function pickSelection(tapTarget: EventTarget | null) {
   const selection = window.getSelection(),
     column = $('#md');
   if (!column || !column.matches('article')) return false;
@@ -2803,7 +2809,7 @@ function showInertTip(element: HTMLElement) {
   }, 4000);
 }
 // Whether the range takes no visible character of the line (or block) its end is in.
-function takesNothingOfEnd(range) {
+function takesNothingOfEnd(range: Range) {
   const element =
     range.endContainer.nodeType === 1 ? (range.endContainer as Element) : range.endContainer.parentElement;
   if (!element) return false;
@@ -2820,17 +2826,17 @@ function takesNothingOfEnd(range) {
 // that selection away, and the click that follows would count as a tap and choose the block. PRESS_COUNT counts the
 // document's primary presses.
 let PRESS_COUNT = 0;
-$('#doc').addEventListener('mousedown', (event) => {
+$('#doc').addEventListener('mousedown', (event: MouseEvent) => {
   if (event.button === 0) PRESS_COUNT++;
 });
-$('#doc').addEventListener('mouseup', (event) => {
+$('#doc').addEventListener('mouseup', (event: MouseEvent) => {
   if (!isMarkdownDoc() || event.button !== 0) return;
   const press = PRESS_COUNT;
   setTimeout(() => {
     if (press === PRESS_COUNT) pickSelection(null);
   }, 0);
 });
-$('#doc').addEventListener('click', (event) => {
+$('#doc').addEventListener('click', (event: MouseEvent) => {
   if (!isMarkdownDoc()) return;
   const selection = window.getSelection();
   if (selection && !selection.isCollapsed) return;

@@ -35,7 +35,7 @@ let TIP_AT = null as { el: Element; x: number; y: number } | null;
 // The tooltip box is a manual popover, so it is drawn in the top layer: a modal sheet (the navigation sheet, [더보기])
 // is in the top layer too and would cover a box that only has a z-index. A browser without popovers draws it with its
 // z-index.
-function tipShown(on) {
+function tipShown(on: boolean) {
   TIP.hidden = !on;
   if (!on) document.documentElement.classList.remove('tip-press');
   if (typeof TIP.showPopover !== 'function') return;
@@ -69,7 +69,7 @@ function tipFollow() {
 // translator rewrote the attribute, or the code drew it with translate()), and one that quotes a note ('#38 · 완료')
 // must not be rewritten again. A mark badge a cover is over now (MARK_HIDDEN, pins/view-mark-covers.ts markCoverSkip) shows
 // none: it would float over the cover.
-function showTip(element) {
+function showTip(element: HTMLElement) {
   if (MARK_HIDDEN.has(element)) return;
   showTipText(element, element.dataset.tip || '');
 }
@@ -134,7 +134,7 @@ function showTipText(element: HTMLElement, text: string) {
   TIP.style.left = left + 'px';
   TIP.style.top = top + 'px';
 }
-function armTip(element) {
+function armTip(element: HTMLElement | null) {
   if (element === armedTipElement) return;
   hideTip();
   if (!element) return;
@@ -155,7 +155,7 @@ document.addEventListener(
 // Whether a key press makes the keyboard the input the focus ring answers: any key outside a text field (Tab, a
 // shortcut such as '?'), and in a field only a key that leaves it or acts (Tab, Escape, or with Ctrl/⌘/Alt) - typing is
 // not, nor a touch keyboard's 'Unidentified' key or an IME's composing one. Pure.
-function keyNavigates(key, inField, hasModifier) {
+function keyNavigates(key: string, inField: boolean, hasModifier: boolean) {
   if (!key || key === 'Unidentified' || key === 'Process') return false;
   return !inField || key === 'Tab' || key === 'Escape' || !!hasModifier;
 }
@@ -172,7 +172,7 @@ document.addEventListener(
 );
 // Makes the keyboard the input the ring answers when a key press navigates (keyNavigates); a press makes it the pointer
 // (above).
-function inputFromKey(event) {
+function inputFromKey(event: KeyboardEvent) {
   if (keyNavigates(event.key, typingNow(), event.ctrlKey || event.metaKey || event.altKey))
     document.documentElement.dataset.input = 'key';
 }

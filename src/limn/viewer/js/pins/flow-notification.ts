@@ -28,6 +28,23 @@ import { LOCAL_LOGIN, NOTIFY_STATE, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { who } from '../app/state-people.ts';
 import { docInfo, withDocQuery, isViewer } from '../documents/state.ts';
+// An event of the light poll that is addressed to me (limn/collaboration/events.py events_since): its type is one of the
+// notified ones, doc_name is its document's name, and to holds the logins it is for.
+interface PinEvent {
+  seq: number;
+  type: (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
+  pin: number;
+  doc?: string;
+  doc_name?: string;
+  to?: string[];
+  by?: Person;
+  excerpt?: string;
+}
+// What notifyHandle reads of a light poll's answer: the latest event number, and with a cursor the events after it.
+interface PinEventsMeta {
+  ev_seq?: number;
+  events?: PinEvent[];
+}
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
 let WORKER_REGISTRATION = null as ServiceWorkerRegistration | null;
 function notifySupported() {
@@ -70,10 +87,10 @@ function notifyQuery() {
 }
 // Picks what to notify about (a pure function): after the cursor, addressed to me (to), not my own doing. One per pin -
 // mention > reopen > awaiting review > reply, ties go to the later one.
-function pickNotifications(events, me, cursor) {
+function pickNotifications(events: PinEvent[] | null | undefined, me: Me | null | undefined, cursor: number | null) {
   const login = me && me.login;
   if (!login || login === LOCAL_LOGIN) return [];
-  const by = new Map();
+  const by = new Map<number, PinEvent>();
   (events || []).forEach((event) => {
     if (!(event.seq > (cursor == null ? -1 : cursor))) return;
     if (!NOTIFY_RANK[event.type]) return;
@@ -88,7 +105,7 @@ function pickNotifications(events, me, cursor) {
   });
   return Array.from(by.values()).sort((earlier, later) => earlier.seq - later.seq);
 }
-function notifyText(event) {
+function notifyText(event: PinEvent) {
   const name = who(event.by) || translate('누군가'),
     excerpt = String(event.excerpt || '')
       .split('\n')[0]
@@ -117,7 +134,7 @@ function notifyText(event) {
 // line for the person to come back), else a system notification. notifyText() already speaks the UI language and quotes
 // the document's name and the post, so the message is literal (a document named '그림' stays '그림'). It marks [검토 M]
 // for a review request and [핀 N] for the rest on this document (notifyDot).
-const NOTIFY_BRIEF = {
+const NOTIFY_BRIEF: Record<string, string> = {
   mention: '나를 부름',
   review_requested: '검토 대기',
   replied: '답글',
@@ -125,7 +142,7 @@ const NOTIFY_BRIEF = {
   assigned: '담당 지정',
   dropped: '삭제됨',
 };
-async function notifyShow(event) {
+async function notifyShow(event: PinEvent) {
   const shown = notifyText(event);
   if (!notifyOn() || (document.visibilityState === 'visible' && document.hasFocus())) {
     notifyLine(event);
@@ -218,7 +235,7 @@ function notifyLineView(group: { evs: any[] }) {
 function notifyDot(type: string, here: boolean): string {
   return type === EVENT_TYPE.REVIEW_REQUESTED ? NOTICE_DOT.RV : here ? NOTICE_DOT.SIDE : '';
 }
-function notifyHandle(meta) {
+function notifyHandle(meta: PinEventsMeta | null | undefined) {
   if (!meta || typeof meta.ev_seq !== 'number') return;
   if (isLocalIdentity()) return; // no event is ever addressed to a local identity
   const cursor = notifyCursor();
@@ -353,7 +370,7 @@ function takeLinkHash() {
 // viewer). The list is read again first and the link goes on once it shows a snapshot asked for since then - its own
 // read's, or a newer read's that overtook it (the light poll the tab's return sets off) - and stops only when the read
 // failed: an earlier list could restore a pin from a Trash that no longer holds it.
-async function openPinFromLink(doc, pin, restore?) {
+async function openPinFromLink(doc: string | null | undefined, pin: number, restore?: boolean) {
   if (!pin) return;
   if (doc && doc !== DOC && docInfo(doc)) {
     const opening = switchDoc(doc),

@@ -513,6 +513,7 @@ let DOCS = [],
 // NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document
 // switch still waiting when one happens opens nothing (switchDoc, documents/flow-switch.ts).
 let NAVGEN = 0;
+/** One visit of a document: the document and the visit's number (captureVisit). */
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit() {
   return { doc: DOC, seq: SWITCHSEQ };
@@ -1558,6 +1559,7 @@ function requestFallback() {
 }
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
+/** What a caller tells api() about a request (the header above says what each field does). */
 async function api(url, options) {
   options = { ...(options || {}) };
   options.source =
@@ -3987,10 +3989,17 @@ function drawDocTabs() {
 // shownCount as large as fits, and the current document's link (index `current`, -1 for none) always among them: when
 // it would be hidden it takes the last place shown. None ([]) when not even one link and [+N] fit: the row is then a
 // single chooser (docFit). Pure.
-function docTabsShown(widths, gap, current, room, moreWidth) {
+function docTabsShown(
+  widths,
+  gap,
+  current,
+  room,
+  moreWidth,
+) {
   const count = widths.length,
     all = widths.map((_, index) => index),
-    width = (indices) => indices.reduce((sum, index) => sum + widths[index], 0) + gap * Math.max(0, indices.length - 1),
+    width = (indices) =>
+      indices.reduce((sum, index) => sum + widths[index], 0) + gap * Math.max(0, indices.length - 1),
     fits = (x) => x <= room + 0.01;
   if (fits(width(all))) return all;
   for (let shownCount = count - 1; shownCount >= 1; shownCount--) {
@@ -4591,6 +4600,9 @@ function offlineQueue() {
 // rangeBase its old side; listOpen whether the phone shows every loaded row; rangeLine the range's summary for the
 // status line, and rangeN its commit and file counts (the rendered compare's status line takes them,
 // revisions/view-rendered-compare.ts sayCompareStatus).
+// A file's part of a source diff: its path and its patch text.
+// What rangeSummary reads of GET /api/revision-diff with a base: the two ends, the commits and files between them, the
+// merge base when the base was on another line, and whether the diff was cut.
 const REVISION_VIEW = {
   seq: 0,
   files: [],
@@ -5691,7 +5703,11 @@ function touchesPin(files, target, slack) {
 // A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows
 // reads further pages until found or the window ends, as the server resolves it), else the most recent of the first
 // REVISION_RECENT rows that touched the pin's lines, else the newest.
-async function pickRevisionFor(target, seq, docKey) {
+async function pickRevisionFor(
+  target,
+  seq,
+  docKey,
+) {
   let match = matchRevision(target.ref, REVISION_VIEW.rows, REVISION_RECENT);
   while (
     !match &&
@@ -6378,6 +6394,8 @@ function drawPos() {
   button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
   $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
 }
+// A document's kept view (VIEW_BY, saveView): a Markdown or text document's reading line (line, off), or a PDF's top
+// spot (page, frac), its scale (k, or the page width w), its sideways scroll (sl); with the layout it was kept in.
 // Viewed position: page/fraction anchored at the top, page scale (PAGE_SCALE), whether zoomed manually in compact,
 // horizontal scroll. Kept in sessionStorage so it survives a reload.
 function saveView() {
@@ -6760,7 +6778,8 @@ function moreInfo(meta, me) {
     html`<span class="mc">${String(text)
       .split(/([/._-])/)
       .map((part, index) => (index % 2 ? html`${part}<wbr>` : part))}</span>`;
-  const line = (texts) => texts.filter(Boolean).map((text, index) => (index ? html` · ${piece(text)}` : piece(text)));
+  const line = (texts) =>
+    texts.filter(Boolean).map((text, index) => (index ? html` · ${piece(text)}` : piece(text)));
   return html`${line([meta.main, translateTemplate('{n}쪽', { n: meta.pages.length }), commitShown(meta.head)])}<br>${line([built && built !== '?' ? built + ' ' + translate('빌드') : '', translateTemplate('나: {name}', { name: who(me) })])}`;
 }
 // The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing
@@ -7022,6 +7041,7 @@ function markMine(id) {
 }
 
 // --------------------------------------- Pins changed elsewhere: what the status line says between two list refreshes
+// A pin the review changes message names: its number and who confirmed or reopened it.
 // A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
 // named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
 // Pure.
@@ -7167,7 +7187,9 @@ function notePinChanges(previous, listed, dropped) {
       }, // translateTemplate() spoke the UI language; the name is as written
       (older, newer) => {
         // names stay beside their ids
-        const add = newer.ids.map((id, index) => index).filter((index) => !older.ids.includes(newer.ids[index]));
+        const add = newer.ids
+          .map((id, index) => index)
+          .filter((index) => !older.ids.includes(newer.ids[index]));
         return {
           ids: [...older.ids, ...add.map((index) => newer.ids[index])],
           names: [...older.names, ...add.map((index) => newer.names[index])],
@@ -7332,6 +7354,9 @@ function noteReviewChanges(previous, listed) {
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
+// An event of the light poll that is addressed to me (limn/collaboration/events.py events_since): its type is one of the
+// notified ones, doc_name is its document's name, and to holds the logins it is for.
+// What notifyHandle reads of a light poll's answer: the latest event number, and with a cursor the events after it.
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
 let WORKER_REGISTRATION = null;
 function notifySupported() {
@@ -8727,7 +8752,9 @@ function statusList(input) {
     syncState = input.sync && input.sync.state;
   const notes = input.notices || [],
     alert = (notice) => !!notice.alert || notice.kind === NOTICE_KIND.ERR;
-  notes.filter(alert).forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
+  notes
+    .filter(alert)
+    .forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
   if (buildError && buildError.state === BUILD_STATE.FAIL)
     out.push({ kind: STATUS_KIND.FAILED, act: 'build-err-reopen' });
   else if (buildError && buildError.state === BUILD_STATE.OK_ERRORS)
@@ -9297,6 +9324,7 @@ function setStatusSig(value) {
 // the width where the panel's tool bar fits on one line, the maximum is the width that leaves the body (PDF) side its
 // minimum width. The outline's width bounds: 220-320px as an overlay; beside the document at most what leaves the PDF
 // 290px beside the panel.
+// A panel's width range, and with it (the side panel's) the default width and the three presets.
 function outlineBounds() {
   if (outlineOverlay()) return { min: 220, max: 320 };
   const max = Math.max(180, Math.min(320, innerWidth - currentSideWidth() - 290));
@@ -10134,6 +10162,8 @@ function startScale() {
   const screenScale = $('#left').getClientRects().length ? defaultScale() : 0;
   return screenScale > 0 ? screenScale : PAGE_SCALE > 0 ? PAGE_SCALE : POINT_PX;
 }
+// The page a zoom is anchored on and the point in it that stays under the pointer (zoomAnchor): the page box, the screen
+// point and its fractions within the page.
 // Zoom anchor: the page under screen coordinates (clientX, clientY) and its fraction within that page. If the point
 // falls in the gap between pages, the vertically nearest page is used. Without coordinates, the center of the PDF area
 // is used (keyboard/button).
@@ -10277,6 +10307,7 @@ function markBadgeRoom(page) {
     reach: COARSE_POINTER_QUERY.matches ? 28 : 24,
   };
 }
+// A badge's room on each side (markHitRooms): the px a neighbour leaves it, null where none limits it.
 // How far each mark badge's press area may reach on each side (docs/handbook/viewer.md §모바일 레이아웃): boxes are the
 // badges' drawn boxes {x,y,w,h} in one coordinate space and reach the press area's full size. Two badges whose press
 // areas would overlap split the gap between their drawn boxes in half, along the axis on which their centres are
@@ -10423,7 +10454,19 @@ const PDFJS_VERSION = '__PDFJS_VERSION__';
 const VECTOR_PIXEL_CAP = 16777216,
   VECTOR_KEEP_MARGIN = '150% 0px',
   VECTOR_DETAIL_MARGIN = 0.25;
-// PDF.js has no type declarations here, so its library, document and render task are `any`.
+// PDF.js has no type declarations here: these name the parts of its document, page and outline objects that the viewer
+// calls. A page's reference in a PDF's object table, which an outline destination may name instead of a page number.
+// An outline destination: the page (a number, or its reference), the kind of view ({ name: 'XYZ' } carries the left and
+// top edges that follow), and the view's numbers.
+// One item of a PDF's outline: its title, where it goes (a destination, or the name of one) and its children.
+// A page's viewport at a scale: its size and the matrix from PDF units to the canvas.
+// A render of a page onto a canvas, which cancel() ends early.
+// A page of a PDF document (PDFPageProxy).
+// What is drawn for one page (view-draw.ts pageDrawState): its page canvas and the size it was drawn at, its detail canvas
+// with the region of the page (fractions) it covers and the size and pixel ratio it was drawn at, and whether the page
+// must be drawn again.
+// An opened PDF document (PDFDocumentProxy).
+// The PDF.js library and a render task are `any`; its document is a PdfDocument, though the cached ones are `any` too.
 const VECTOR_PDF = {
   lib: null,
   doc: null,
@@ -10570,6 +10613,7 @@ async function openVectorDocument() {
 
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
 // Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
+// One label of GET /api/outline-labels: the LaTeX number, title, printed page, sectioning level and anchor of a heading.
 // How much of a PDF's outline the viewer reads (docs/handbook/viewer.md §모바일 레이아웃): the first
 // OUTLINE_MAX_ENTRIES entries in outline order, down to level OUTLINE_MAX_DEPTH (0 is the top level, so five levels).
 // What is left unread is counted (OUTLINE_CUT) and said at the end of the outline and of its filter's results
@@ -11909,7 +11953,10 @@ function visiblePagePortion(pageElement, margin) {
   return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0, cw: cssWidth, ch: cssHeight } : null;
 }
 // Whether a detail canvas's region (fractions of the page) covers the visible portion.
-function regionCovers(region, visible) {
+function regionCovers(
+  region,
+  visible,
+) {
   return (
     !!region &&
     region.x <= visible.x / visible.cw + 1e-6 &&
@@ -12142,7 +12189,14 @@ $('#left').addEventListener(
 // come from a page). Returns {t, at}: the folded text and, for each of its UTF-16 units, the index in the given text
 // where the cluster it came from starts, then its length - so a match in t maps back to a run of the text. Pure.
 function searchFold(text) {
-  const plain = { '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201C': '"', '\u201D': '"', '\u201E': '"' },
+  const plain = {
+      '\u2018': "'",
+      '\u2019': "'",
+      '\u201A': "'",
+      '\u201C': '"',
+      '\u201D': '"',
+      '\u201E': '"',
+    },
     folded = [],
     at = [];
   text = String(text);
@@ -12627,6 +12681,17 @@ function searchKey(
   return /^\p{Script=Latin}$/u.test(key) ? key.toLowerCase() === 'f' : event.code === 'KeyF';
 }
 
+// One text item of a PDF page as PDF.js reads it (getTextContent): its text, its transform matrix, its width in PDF units,
+// its font's name and whether a line ends after it.
+// A font's metrics as PDF.js gives them with the text: its family and its ascent and descent in em.
+// Where a line piece stands (searchLines): along the line x0 to x1, across it y, with its font size and angle.
+// One piece of a line (searchLines): its folded text, the map back to its own text, the items it holds, its last
+// character, whether its line is in one piece, and its geometry (null for text that is skewed or mirrored).
+// A page's text as one flow (searchFlow): the flow and, for each line, where it starts, how many characters the trim cuts
+// off its head and its trimmed length.
+// A page of the document as searchRead keeps it once read.
+// One hit (searchPageHits): its page, where its first piece starts (line, a), its pieces as searchFind gives them and the
+// boxes searchBoxes caches.
 // The search on screen. q: the folded query ('' = none) and re its pattern. doc: the PDF.js document the hits are of.
 // hits: every hit in document order as {page, line, a, pieces, boxes?} (pieces as searchFind gives them; line and a are
 // where the first one starts; boxes cached by searchBoxes). cur: the current hit. ref: where a query looks for its
@@ -12769,14 +12834,17 @@ function searchUnwatch() {
 // searched document are still to be read. A page whose text could not be read for this query is not waited for.
 function searchBusy() {
   return (
-    !!SEARCH.q && (!SEARCH.doc || searchPages(SEARCH.doc).some((page, index) => !page && !SEARCH.failed.has(index + 1)))
+    !!SEARCH.q &&
+    (!SEARCH.doc ||
+      searchPages(SEARCH.doc).some((page, index) => !page && !SEARCH.failed.has(index + 1)))
   );
 }
 // How many pages of the searched document could not be read for this query: they are left out of the count, and said
 // with it.
 function searchUnread() {
   return SEARCH.q && SEARCH.doc
-    ? searchPages(SEARCH.doc).filter((page, index) => !page && SEARCH.failed.has(index + 1)).length
+    ? searchPages(SEARCH.doc).filter((page, index) => !page && SEARCH.failed.has(index + 1))
+        .length
     : 0;
 }
 // Hits in document order.
@@ -13446,6 +13514,8 @@ document.fonts.addEventListener('loadingdone', searchFit);
 // laid out at, the generation stale work compares against (gen), the generation a paint runs for (busy), the frame a
 // paint waits on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a
 // layout (anchor) and the reset of the gesture state (resetInput).
+// The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
+// The Safari pinch gesture's event, which the DOM library does not have: the scale since it began and the pinch's point.
 const REVISION_ZOOM = {
   ratio: 1,
   fit: 0,
@@ -13848,6 +13918,8 @@ async function paintRevisionPdf() {
 // - A Markdown document (markdown/view.ts) has no pages to scale: every one of these leaves its input to the browser -
 //   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
 //   there).
+// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
+// pinch's scale since it began and where it is.
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event) {
   const key = event.key,
@@ -13920,7 +13992,10 @@ function wheelFactor(deltaY, mode) {
     },
     { passive: false },
   );
-  const midpointOf = (first, second) => [(first.clientX + second.clientX) / 2, (first.clientY + second.clientY) / 2];
+  const midpointOf = (first, second) => [
+    (first.clientX + second.clientX) / 2,
+    (first.clientY + second.clientY) / 2,
+  ];
   const fingerDistance = (first, second) =>
     Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) || 1;
   let pinchFrame = 0,
@@ -15091,7 +15166,13 @@ function dragSample(samples, time, pos) {
 // positive), keep = the height to save when it stays (shownSheetFraction). Below 25% or a downward fling (more than
 // 24px at 0.5px/ms or faster) collapses it - or, while a draft is open, stops it at 30% (a drag never hides a draft);
 // an upward fling goes to the next height stop; otherwise it stays where it was let go. Returns {close:true} or {f}.
-function sheetRelease(fraction, deltaY, speed, composing, keep) {
+function sheetRelease(
+  fraction,
+  deltaY,
+  speed,
+  composing,
+  keep,
+) {
   if (fraction < SHEET_CLOSE_FRACTION || (deltaY > 24 && speed >= 0.5))
     return composing ? { f: SHEET_MIN_FRACTION } : { close: true };
   if (deltaY < -24 && speed <= -0.5) {
@@ -15235,7 +15316,13 @@ function dragSheetTo(height) {
 // down, mostly vertical, the box at scrollTop 0, not in a text field or a nested scroller - and from then on the move
 // is the sheet's (preventDefault). ok(event) filters the touchstart; onMove(deltaY) follows; onEnd(deltaY, speed)
 // settles (deltaY null = cancelled; speed in px/ms, down positive).
-function pullDown(box, ok, onStart, onMove, onEnd) {
+function pullDown(
+  box,
+  ok,
+  onStart,
+  onMove,
+  onEnd,
+) {
   let pull = null;
   box.addEventListener(
     'touchstart',
@@ -15456,7 +15543,13 @@ let BACK = null,
 // the caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline
 // overlay (the mid bands and the tablet sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short
 // band up to 900px). The desktop has none. 'dialog'|'side'|'outline'|null.
-function backLayer(band, overlay, sideOpen, outlineOpen, dialogOpen) {
+function backLayer(
+  band,
+  overlay,
+  sideOpen,
+  outlineOpen,
+  dialogOpen,
+) {
   if (band === LAYOUT_BAND.WIDE) return null;
   if (dialogOpen) return 'dialog';
   if (band === LAYOUT_BAND.PHONE) return sideOpen ? 'side' : null;
@@ -15550,6 +15643,7 @@ window.addEventListener('popstate', () => {
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
 
+// The mouse press #doc hears: it lands on an element, never on a text node.
 let DRAG = null,
   LONG_PRESS = null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
@@ -15843,7 +15937,10 @@ function clickOffSoon(box) {
 // Double-tap on the PDF (touch, outside [선택] mode - the browser's own double-tap zoom is off there): a second tap
 // within 300ms and 24px of the first. At fit width it zooms to 2x, from any other width back to fit width - both around
 // the tapped point.
-function isDoubleTap(previous, latest) {
+function isDoubleTap(
+  previous,
+  latest,
+) {
   return (
     !!previous &&
     !!latest &&
@@ -15944,6 +16041,7 @@ function selectionRoom() {
 }
 
 // ------------------------------------------------ The range ladder's levels
+// What a ladder's rung applies to: the composer's selection or an edit card.
 function levelOf(owner, key) {
   return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
 }
@@ -15996,6 +16094,8 @@ function composerPins() {
   if (!COMPOSER_PINS) throw new Error('setComposerPins() has not run: the composer has no pin list to save into');
   return COMPOSER_PINS;
 }
+
+/** A drag on the pages, in PDF points, as /api/pick takes it. */
 
 // The queue a pin is kept in while cut off (offline/flow.ts): a selection made without the server, a save kept for
 // later, and the key a plain save goes with.
@@ -16069,6 +16169,7 @@ function syncQuestionHint(box, text, kind) {
 }
 
 // ------------------------------------------------ Range levels
+/** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
@@ -16372,7 +16473,11 @@ function dropLine(first, last, line) {
 function excerptRows(first, last, lineCount, open) {
   const out = [],
     bandSize = last - first + 1,
-    on = (line) => ({ k: line, kind: 'on', edge: bandSize > 1 && (line === first || line === last) });
+    on = (line) => ({
+      k: line,
+      kind: 'on',
+      edge: bandSize > 1 && (line === first || line === last),
+    });
   if (first > 1) out.push({ k: first - 1, kind: 'ctx', edge: false });
   if (bandSize <= 5 || open) for (let k = first; k <= last; k++) out.push(on(k));
   else out.push(on(first), on(first + 1), { kind: 'fold', n: bandSize - 4 }, on(last - 1), on(last));
@@ -18987,7 +19092,13 @@ function markdownLevels(
 // Fills the composer with lines range of the document on screen, as pick() does with a /api/pick answer; tapped: a tap
 // picked a block, so the block rung is the default (the section rung on a heading). During a re-place it is the
 // candidate instead (bannerCompare), with nothing else changed.
-function pickLines(range, startBlock, endBlock, quote, tapped) {
+function pickLines(
+  range,
+  startBlock,
+  endBlock,
+  quote,
+  tapped,
+) {
   const levels = markdownLevels(range, startBlock, endBlock, tapped),
     quoted = String(quote || '')
       .replace(/\s+/g, ' ')
@@ -22274,7 +22385,8 @@ async function pick(region) {
   selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
   // re-fetched - loadPins recomputes overlap too.
-  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) composerPins().load();
+  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id)))
+    composerPins().load();
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
@@ -23556,7 +23668,11 @@ function offDb() {
 // after that (the browser out of room at the commit), and the write is rolled back. Answered at the request, a queued
 // pin would read as kept, the composer would close on it, and the note would be gone. So a write answers null unless
 // it committed.
-function offIn(store, mode, operation) {
+function offIn(
+  store,
+  mode,
+  operation,
+) {
   return offDb().then(
     (db) =>
       new Promise((resolve) => {
@@ -23584,13 +23700,18 @@ function offIn(store, mode, operation) {
   );
 }
 /** One operation on the queue. */
-function offQueue(mode, operation) {
+function offQueue(
+  mode,
+  operation,
+) {
   return offIn(OFF_STORE, mode, operation);
 }
 /** Every queued record, oldest first - the order they were written is the order they are sent. */
 function offAll() {
   return offQueue('readonly', (store) => store.getAll()).then((records) => (Array.isArray(records) ? records : []));
 }
+// A pin queued while the connection was gone: what its send needs to place it again and write it. id is its key in the
+// queue, set once it is stored.
 // Adds a record to the queue; answers its key, or null when it was not kept.
 function offAdd(rec) {
   return offQueue('readwrite', (store) => store.add(rec));
@@ -23683,7 +23804,10 @@ function offStash(url, data, status, options) {
   void offIn(OFF_STATE, 'readwrite', (store) => store.put({ key, data, status, at: Date.now() }));
 }
 /** The stored answer to a read, or null - never one the server refused. */
-function offStashed(url, options) {
+function offStashed(
+  url,
+  options,
+) {
   const key = offReadKey(url, options);
   if (!key) return Promise.resolve(null);
   return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (stored) => {
@@ -33180,7 +33304,7 @@ function cardActs(claimed, compact, canDrop = true, verdict = false) {
       : '',
     close: html`<button class="btn-sm btn-soft b-close" data-act="close" data-tip="${TIP_TEXT.close}">완료</button>`,
   };
-  return html`${(compact ? ['drop', 'edit', 'unclaim', 'reply', 'close'] : ['view', 'edit', 'reply', 'unclaim', 'drop', 'close']).map((name) => buttons[name])}`;
+  return html`${(compact ? (['drop', 'edit', 'unclaim', 'reply', 'close']) : (['view', 'edit', 'reply', 'unclaim', 'drop', 'close'])).map((name) => buttons[name])}`;
 }
 // Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with
 // faded text, not a card. The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line
@@ -36114,7 +36238,13 @@ function mentionGuard(field) {
 // order - (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the
 // action row (4) if nothing fits, below the input field (the note popover's field takes mentionRoom instead). A reply
 // field has [취소][보내기] right below it, so (1) never fits there and (2) keeps the list off both buttons.
-function mentionTop(fieldRect, guardRect, listHeight, top, bottom) {
+function mentionTop(
+  fieldRect,
+  guardRect,
+  listHeight,
+  top,
+  bottom,
+) {
   const gap = 4,
     limit = guardRect && guardRect.top >= fieldRect.bottom ? Math.min(bottom, guardRect.top) : bottom;
   if (fieldRect.bottom + gap + listHeight <= limit) return fieldRect.bottom + gap;
@@ -36313,6 +36443,7 @@ function replyPlaceholder(pin, human, flip) {
       : '답글 (⌘/Ctrl+Enter 보내기)',
   );
 }
+// The answer to a reply (POST /api/pins/{id}/reply): whether the pin was found, whether the reply reopened it, and its state.
 // After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while
 // the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
 function replyServerNote(id, predicted, data) {
@@ -36852,7 +36983,9 @@ async function saveEdit() {
             hi: pin.hi,
             scope: pin.scope || null,
             note: pin.note || '',
-            mentions: (pin.mentions || []).filter((login) => (pin.note || '').includes('@' + peopleName(login))),
+            mentions: (pin.mentions || []).filter((login) =>
+              (pin.note || '').includes('@' + peopleName(login)),
+            ),
             kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
             assignee: assigneeOf(pin),
           };

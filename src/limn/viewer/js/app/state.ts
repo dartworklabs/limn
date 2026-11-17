@@ -25,12 +25,12 @@ const BAND_MODE = Object.freeze({
 });
 // Whether a document `kind` is a figure document (a figure set drawn by code, with its element map): the one place this
 // is asked.
-function isFigureKind(kind) {
+function isFigureKind(kind: string | undefined) {
   return kind === DOC_KIND.FIGURE;
 }
 // Whether a document of this `kind` is rebuilt from its source: only a LaTeX one. A view-only PDF and a figure redraw
 // when their files change, so they have no rebuild and word a finished build as a redraw.
-function buildsFromSource(kind) {
+function buildsFromSource(kind: string) {
   return kind === DOC_KIND.TEX;
 }
 // Whether a document of this `kind` is drawn by the browser from its source (the server's renders_in_browser,
@@ -310,12 +310,17 @@ let DOCS = [] as DocEntry[],
 // NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document
 // switch still waiting when one happens opens nothing (switchDoc, documents/flow-switch.ts).
 let NAVGEN = 0;
+/** One visit of a document: the document and the visit's number (captureVisit). */
+interface Visit {
+  doc: string | null;
+  seq: number;
+}
 // A continuation may paint visit-local UI only while both the document and its visit number still match.
 function captureVisit() {
   return { doc: DOC, seq: SWITCHSEQ };
 }
 // Match a captured visit after an await, including leave-and-return to the same document.
-function currentVisit(visit) {
+function currentVisit(visit: Visit) {
   return DOC === visit.doc && SWITCHSEQ === visit.seq;
 }
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put
@@ -544,6 +549,7 @@ function topPinId() {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
 }
 
+export type { Visit };
 export {
   setComposeCurrent,
   setComposeBox,

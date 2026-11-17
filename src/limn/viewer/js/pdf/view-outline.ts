@@ -5,6 +5,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
 import { VECTOR_PDF } from './flow-open.ts';
+import type { PdfDestination, PdfDocument, PdfOutlineItem } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
@@ -25,6 +26,14 @@ type OutlineEntry = {
   x?: number | null;
   number?: string;
   pageLabel?: string;
+};
+// One label of GET /api/outline-labels: the LaTeX number, title, printed page, sectioning level and anchor of a heading.
+type OutlineLabel = {
+  number: string;
+  title: string;
+  page: string;
+  level: string;
+  anchor: string;
 };
 // How much of a PDF's outline the viewer reads (docs/handbook/viewer.md §모바일 레이아웃): the first
 // OUTLINE_MAX_ENTRIES entries in outline order, down to level OUTLINE_MAX_DEPTH (0 is the top level, so five levels).
@@ -54,7 +63,7 @@ let OUTLINE_DOC = null as string | null,
 // Reads the outline of the PDF document opened as generation gen (VECTOR_PDF.gen) into OUTLINE_ENTRIES, with the
 // numbers and printed page labels the server reads for the build (mergeOutlineLabels), and draws it. A newer open drops
 // it.
-async function loadOutline(doc, gen) {
+async function loadOutline(doc: PdfDocument, gen: number) {
   const docName = DOC,
     build = (META && META.pages_build) || '',
     // a newer open (another document or build) took over
@@ -65,7 +74,7 @@ async function loadOutline(doc, gen) {
     const items = await doc.getOutline();
     // One outline item as an entry (without its depth), or null when it names no page of this PDF - or when its
     // destination cannot be resolved: one broken link leaves out that entry only, not the outline.
-    async function entryOf(item) {
+    async function entryOf(item: PdfOutlineItem) {
       try {
         let destination = item.dest;
         if (typeof destination === 'string') destination = await doc.getDestination(destination);
@@ -88,7 +97,7 @@ async function loadOutline(doc, gen) {
     }
     // up: the index in entries of the nearest entry above these rows (-1 at the top, or when every row above has no
     // entry of its own).
-    async function walk(rows, depth, up) {
+    async function walk(rows, depth: number, up: number) {
       for (let i = 0; i < rows.length; i += OUTLINE_BATCH) {
         // Between batches: a document left behind does not go on asking the worker.
         if (stale()) return;
@@ -167,8 +176,8 @@ function outlineOnScreen() {
 // The entries with their LaTeX numbers and printed page labels (/api/outline-labels): each entry takes the first label,
 // after the last one matched, with the same normalised title - on the entry's page where the label names a numeric
 // page, and, once a top-level section's title matches, of the sectioning level the entry's depth is.
-function mergeOutlineLabels(entries, labels) {
-  const normalize = (text) =>
+function mergeOutlineLabels(entries: OutlineEntry[], labels: OutlineLabel[]) {
+  const normalize = (text: string) =>
     String(text || '')
       .normalize('NFKC')
       .replace(/\s+/g, ' ')
@@ -221,7 +230,7 @@ function renderOutline() {
  * A row's name is its number and title: the dot that stands in for no number is not read. A Markdown document's line
  * label (L7) is not read either - its row is described as the source line instead ('원문 7번째 줄').
  */
-function outlineList(box, filterText) {
+function outlineList(box: HTMLElement, filterText: string) {
   const query = String(filterText || '')
     .trim()
     .toLowerCase();
@@ -265,7 +274,7 @@ function outlineList(box, filterText) {
   );
 }
 // The name of an outline entry as a group: its number and title.
-function outlineGroupName(entry) {
+function outlineGroupName(entry: OutlineEntry) {
   return entry ? (entry.number ? entry.number + ' ' : '') + entry.title : '';
 }
 // The indices of the entries that a filter's flat results must say the group of: those under a group (up >= 0) whose
@@ -274,9 +283,9 @@ function outlineGroupName(entry) {
 // under one group, or at the top, has no group to say. Over all the entries, not the rows found, so a row reads the
 // same whatever is typed. Memoised on the entries.
 let OUTLINE_GROUPED = { for: null, set: new Set() } as { for: object[] | null; set: Set<number> };
-function outlineGrouped(entries) {
+function outlineGrouped(entries: OutlineEntry[]) {
   if (OUTLINE_GROUPED.for === entries) return OUTLINE_GROUPED.set;
-  const normalize = (text) =>
+  const normalize = (text: string) =>
     String(text || '')
       .normalize('NFKC')
       .replace(/\s+/g, ' ')
@@ -305,7 +314,7 @@ function outlineGrouped(entries) {
 // The outline's last line when the PDF has entries that were not read (OUTLINE_CUT): how many, and what the viewer
 // reads at most. Under a filter it says the unread entries were not searched (it does not say they are not there).
 // Quiet text, not a row: it names no place. Html, or '' with no cut.
-function outlineCutNote(filtered) {
+function outlineCutNote(filtered: boolean) {
   if (!OUTLINE_CUT) return '';
   const values = {
     n: OUTLINE_CUT.toLocaleString('en-US'),
@@ -385,13 +394,13 @@ let OUTLINE_MARKED = -1,
 // from the section's head the very top lies lower, and on the tablet sheet it would take the row under the folded
 // sheet's bar. Within what the list can scroll, so the list's two ends are as near as a row gets. Pure.
 function outlineRevealTop(
-  scrollTop,
-  viewHeight,
-  contentHeight,
-  top,
-  bottom,
-  margin,
-  head,
+  scrollTop: number,
+  viewHeight: number,
+  contentHeight: number,
+  top: number,
+  bottom: number,
+  margin: number,
+  head: number,
   cover = 0,
   near = top,
   group = top,
@@ -526,14 +535,14 @@ function outlineCatchUp() {
 }
 // Where a PDF outline destination sits on its page, as a fraction from the top (0 = top). An XYZ destination carries
 // the top edge in PDF points from the bottom; anything else (Fit, no top) counts as the top of the page.
-function destinationFraction(destination, pageHeight) {
+function destinationFraction(destination: PdfDestination, pageHeight: number) {
   const top = Array.isArray(destination) && destination[1] && destination[1].name === 'XYZ' ? destination[3] : null;
   if (typeof top !== 'number' || !(pageHeight > 0)) return 0;
   return Math.min(1, Math.max(0, 1 - top / pageHeight));
 }
 // The left edge of an XYZ destination in PDF points, or null (Fit, no left): two headings at the same height in a
 // page's two columns are two spots, not one.
-function destinationLeft(destination) {
+function destinationLeft(destination: PdfDestination) {
   const left = Array.isArray(destination) && destination[1] && destination[1].name === 'XYZ' ? destination[2] : null;
   return typeof left === 'number' ? left : null;
 }
@@ -548,12 +557,12 @@ function destinationLeft(destination) {
 // Before the first heading (a title page, the top of page 1) it is the first entry on the earliest page - never a later
 // heading on the same page: at the very top of page 1 it is "1", not "1.2", though 1, 1.1 and 1.2 all start on page 1.
 // -1 without entries. Pure.
-function outlineIndexAt(entries, page, frac) {
-  const at = (entry) => entry.frac || 0,
-    deep = (entry) => entry.depth || 0,
-    above = (entry) => entry.page < page || (entry.page === page && at(entry) <= frac + 1e-6);
+function outlineIndexAt(entries: OutlineEntry[], page: number, frac: number) {
+  const at = (entry: OutlineEntry) => entry.frac || 0,
+    deep = (entry: OutlineEntry) => entry.depth || 0,
+    above = (entry: OutlineEntry) => entry.page < page || (entry.page === page && at(entry) <= frac + 1e-6);
   const leftEdge = (entry) => (typeof entry.x === 'number' ? entry.x : null),
-    sameLeftEdge = (first, second) =>
+    sameLeftEdge = (first: OutlineEntry, second: OutlineEntry) =>
       leftEdge(first) === null || leftEdge(second) === null
         ? leftEdge(first) === leftEdge(second)
         : Math.abs(leftEdge(first) - leftEdge(second)) <= 1e-3;
@@ -578,7 +587,7 @@ function outlineIndexAt(entries, page, frac) {
   // walked in linear time; only winners crowded into one such box (more distinct spots than there are in a 1e-6 x 1e-3
   // box of a real page) cost a walk of the box each. A winner outranked by a loser of a neighbouring spot is outranked
   // by that spot's winner too (it is as deep and as early or better), so the answer is the one the pairwise rule gives.
-  const spotWinner = new Map();
+  const spotWinner = new Map<string, number>();
   entries.forEach((entry, index) => {
     if (entry.page !== top || !above(entry)) return;
     const key = at(entry) + '|' + (leftEdge(entry) === null ? '-' : leftEdge(entry)),
@@ -593,8 +602,8 @@ function outlineIndexAt(entries, page, frac) {
       .sort((first, second) => leftEdge(entries[first]) - leftEdge(entries[second]) || first - second);
   // [from, to) in list (sorted by key) for the members whose key lies within tolerance of value, a little wider to be
   // safe from the rounding of a difference; each is tested exactly below.
-  const near = (list, key, value, tolerance) => {
-    const lower = (target) => {
+  const near = (list: number[], key: (entry: OutlineEntry) => number, value: number, tolerance: number) => {
+    const lower = (target: number) => {
       let low = 0,
         high = list.length;
       while (low < high) {
@@ -606,9 +615,9 @@ function outlineIndexAt(entries, page, frac) {
     };
     return [lower(value - tolerance * 1.001), lower(value + tolerance * 1.001)];
   };
-  const beats = (other, index) =>
+  const beats = (other: number, index: number) =>
     deep(entries[other]) > deep(entries[index]) || (deep(entries[other]) === deep(entries[index]) && other < index);
-  const outranked = (index) => {
+  const outranked = (index: number) => {
     const entry = entries[index];
     let list = byAt,
       [low, high] = near(byAt, at, at(entry), 1e-6);
@@ -646,7 +655,7 @@ let OUTLINE_PINNED = null as { page: number; index: number; reached: boolean } |
 // A smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest.
 const OUTLINE_PICK_SETTLE_MS = 250;
 // Picks an entry of the outline: the strip and the highlight name it, and the pages scroll to it (outlinePickTop).
-function pickOutline(index) {
+function pickOutline(index: number) {
   // A heading of the Markdown surface.
   if (isMarkdownDoc()) {
     pageMarkdown().goToHeading(index);
@@ -673,7 +682,7 @@ function pickOutline(index) {
 // the page's top) OUTLINE_PICK_GAP under the free PDF area's top (spotTop); null - goPage's arrival (arrivePage: the
 // page's top, or a figure page's figure) - for an entry that names a whole page (frac 0) and for every entry of a
 // figure document, whose pages are its figures.
-function outlinePickTop(entry) {
+function outlinePickTop(entry: OutlineEntry) {
   const pageBox = document.getElementById('p' + entry.page),
     docEntry = docInfo(DOC);
   if (!pageBox || !(entry.frac > 0) || (docEntry && isFigureKind(docEntry.kind))) return null;
@@ -858,10 +867,10 @@ $('#ns-outline-search').addEventListener('input', () => {
     },
     { passive: true },
   );
-  box.addEventListener('pointerenter', (event) => {
+  box.addEventListener('pointerenter', (event: PointerEvent) => {
     if (event.pointerType !== 'touch') OUTLINE_OVER = true;
   });
-  box.addEventListener('pointerleave', (event) => {
+  box.addEventListener('pointerleave', (event: PointerEvent) => {
     if (event.pointerType !== 'touch') {
       OUTLINE_OVER = false;
       outlineCatchUp();
@@ -963,6 +972,7 @@ function setOutlineSelected<Value extends typeof OUTLINE_SELECTED>(value: Value)
   OUTLINE_SELECTED = value;
   return value;
 }
+export type { OutlineEntry };
 export {
   OUTLINE_ACTIVE_PAGE,
   OUTLINE_ENTRIES,

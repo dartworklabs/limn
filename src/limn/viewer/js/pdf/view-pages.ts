@@ -25,7 +25,7 @@ import { clampPage, goPage } from './view-page-jump.ts';
 
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
-function pageSrc(page) {
+function pageSrc(page: PageImage) {
   const build = META.pages_build;
   return withDocQuery(
     build
@@ -48,7 +48,7 @@ function widestPagePoints() {
 }
 // The most common of the page widths (points): the mode, the wider on a tie; 0 for none. A figure document opens by it
 // (openScale): its one wide outlier (a graphical abstract) scrolls sideways instead of shrinking every figure. Pure.
-function commonWidth(widths) {
+function commonWidth(widths: number[]) {
   const counts = new Map();
   let best = 0,
     most = 0;
@@ -69,7 +69,7 @@ function commonPageWidth() {
   return common > 0 ? common : widestPagePoints();
 }
 // A page box's CSS width for a page ptw points wide at a scale: whole px, at least 1. Pure.
-function pageWidth(ptw, scale) {
+function pageWidth(ptw: number, scale: number) {
   return Math.max(1, Math.round(ptw * scale));
 }
 // Every page box sits in a block of its own (.pgw) that a page verdict line (verdict/flow-line.ts) joins under it: the
@@ -125,7 +125,7 @@ const ZOOM_MIN = 0.5,
   ZOOM_STEP = 1.2;
 // The widest page's width limits [low, high] in px, for the fitted width fit and the print-size width actual. Not
 // rounded: a rounded limit would put the print size a fraction of a pixel out of reach. Pure.
-function widthBounds(fit, actual) {
+function widthBounds(fit: number, actual: number) {
   const fitted = Math.max(160, fit),
     low = Math.min(actual, Math.max(160, fitted * ZOOM_MIN));
   return [low, Math.max(low, fitted * ZOOM_MAX, actual)];
@@ -137,7 +137,7 @@ function fitScale() {
 // Sets the scale PAGE_SCALE within widthBounds and gives every page box its own width (pageWidth); saved in wide unless
 // save is false (saveScale). The marks' badges follow the new widths (markBadgeSides), and so do the page verdict lines
 // (sizePageLines), the save chips (placeChips) and [더보기]'s zoom figure (drawZoom).
-function setScale(scale, save?) {
+function setScale(scale: number, save?: boolean) {
   const widest = widestPagePoints(),
     bounds = widthBounds(fitWidth(), widest * POINT_PX);
   setPageScale(Math.min(bounds[1], Math.max(bounds[0], scale * widest)) / widest);
@@ -192,7 +192,7 @@ function boundScale() {
 }
 // The zoom as [더보기] and the tool bar's zoom button show it: a scale against the print size, in percent, rounded; 100
 // before a scale is known. Pure.
-function zoomPercent(scale) {
+function zoomPercent(scale: number) {
   return scale > 0 ? Math.round((scale / POINT_PX) * 100) : 100;
 }
 // Writes the zoom figure: [더보기]'s (a live region: it is read out as it changes) and the desktop tool bar's zoom
@@ -231,7 +231,7 @@ function saveScale() {
 // fitted width fit (px): a figure document at print size when its common page fits the PDF area - a wider outlier
 // scrolls sideways - else with the common page fitted; any other document with its widest page fitted - in wide (wide
 // true) at most 900px. Pure.
-function openScale(isFigure, common, widest, fit, wide) {
+function openScale(isFigure: boolean, common: number, widest: number, fit: number, wide: boolean) {
   return isFigure ? Math.min(POINT_PX, fit / common) : (wide ? Math.min(fit, 900) : fit) / widest;
 }
 // The scale the screen picks for the document on screen (openScale).
@@ -295,6 +295,9 @@ function startScale() {
   const screenScale = $('#left').getClientRects().length ? defaultScale() : 0;
   return screenScale > 0 ? screenScale : PAGE_SCALE > 0 ? PAGE_SCALE : POINT_PX;
 }
+// The page a zoom is anchored on and the point in it that stays under the pointer (zoomAnchor): the page box, the screen
+// point and its fractions within the page.
+type ZoomAnchor = { pg: HTMLElement; cx: number; cy: number; fx: number; fy: number };
 // Zoom anchor: the page under screen coordinates (clientX, clientY) and its fraction within that page. If the point
 // falls in the gap between pages, the vertically nearest page is used. Without coordinates, the center of the PDF area
 // is used (keyboard/button).
@@ -328,7 +331,7 @@ function zoomAnchor(clientX, clientY) {
 }
 // Restores the anchor's in-page fractional position back to screen coordinates (clientX, clientY) - so the text under
 // the pointer stays put even after zooming.
-function zoomRestore(anchor, clientX?, clientY?) {
+function zoomRestore(anchor: ZoomAnchor | null, clientX?: number, clientY?: number) {
   if (!anchor) return;
   const pdfArea = $('#left'),
     pageRect = anchor.pg.getBoundingClientRect();
@@ -337,7 +340,7 @@ function zoomRestore(anchor, clientX?, clientY?) {
 }
 // Zooms to a scale around a screen point (default: the PDF area's centre). A zoom keeps its own anchor: no arrival
 // pulls it back.
-function zoomTo(scale, clientX?, clientY?) {
+function zoomTo(scale: number, clientX?: number, clientY?: number) {
   arrivalLetGo();
   const anchor = zoomAnchor(clientX, clientY);
   setScale(scale);
@@ -345,7 +348,7 @@ function zoomTo(scale, clientX?, clientY?) {
   zoomRestore(anchor);
 }
 // Zooms by a number of ZOOM_STEPs (negative: out).
-function zoom(steps) {
+function zoom(steps: number) {
   zoomTo(PAGE_SCALE * Math.pow(ZOOM_STEP, steps));
 }
 // [100%]: the print size, around the middle of the PDF area as the zoom buttons.
@@ -378,7 +381,7 @@ $('#left').addEventListener(
 new ResizeObserver(() => {
   if (ARRIVAL) arrivalSoon();
 }).observe($('#doc'));
-$('#jump').addEventListener('keydown', (event) => {
+$('#jump').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key === 'Enter' && !imeKey(event)) goPage();
 });
 // The navigation sheet's page field (Enter or [이동]): goes to the clamped page and closes the sheet; nothing typed
@@ -390,7 +393,7 @@ function goSheetPage() {
   if (document.body.classList.contains('revision-open')) pageChanges().setMode(VIEW_MODE.MANUSCRIPT);
   goPage(page);
 }
-$('#ns-page-in').addEventListener('keydown', (event) => {
+$('#ns-page-in').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key === 'Enter' && !imeKey(event)) {
     event.preventDefault();
     goSheetPage();

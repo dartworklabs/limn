@@ -62,9 +62,15 @@ function replyPlaceholder(pin: Pin | null, human: boolean, flip: boolean) {
       : '답글 (⌘/Ctrl+Enter 보내기)',
   );
 }
+// The answer to a reply (POST /api/pins/{id}/reply): whether the pin was found, whether the reply reopened it, and its state.
+interface ReplyAnswer {
+  ok?: boolean;
+  reopened?: boolean;
+  state?: string;
+}
 // After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while
 // the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
-function replyServerNote(id, predicted, data) {
+function replyServerNote(id: number, predicted: boolean, data: ReplyAnswer | null | undefined) {
   if (!data || !data.ok || !!data.reopened === !!predicted) return null;
   if (data.reopened) return translateTemplate('#{id} 은 그사이 닫혀서 이 답글이 다시 열었습니다', { id });
   return data.state === PIN_STATE.OPEN
@@ -75,7 +81,7 @@ function replyServerNote(id, predicted, data) {
 // Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the
 // same hints, so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will
 // do.
-function replyMentioned(field) {
+function replyMentioned(field: HTMLTextAreaElement) {
   const me = meLogin();
   return mentionScan(field.value, new Set(mentionHints(field))).hit.filter(
     (login) => login !== me && (PEOPLE.find((x) => x.login === login) || {}).role !== ROLE.AGENT,
@@ -139,7 +145,7 @@ function renderReplyOutcome() {
 /**
  * Focus the existing box, or open pin id with copied draft hints and a reset override; expand the panel for a new box.
  */
-function openReply(id) {
+function openReply(id: number) {
   if (REPLY && REPLY.id === id) {
     const field = replyNote(REPLY);
     if (field) field.focus();
@@ -165,7 +171,7 @@ function openReply(id) {
 /**
  * Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing.
  */
-function closeReply(redraw?) {
+function closeReply(redraw?: boolean) {
   if (!REPLY) return;
   const field = replyNote(REPLY);
   if (field && field.value.trim())
@@ -199,7 +205,7 @@ function sendReply() {
   // Back into the box - after [되돌리기], or with an inline error when sending failed, so the draft is visibly kept.
   // That error line (an alert) is the one place a failed send is said; with the box off screen (the panel closed) the
   // status line says it instead (rule 1).
-  const back = (err) => {
+  const back = (err: string | null) => {
     if (REPLY_VISITS.get(id) !== visit) {
       if (err)
         lineNote(translate('보내지 못했습니다') + ' — #' + id, NOTICE_KIND.ERR, null, {

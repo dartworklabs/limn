@@ -54,20 +54,23 @@ function composerPins(): ComposerPins {
   return COMPOSER_PINS;
 }
 
+/** A drag on the pages, in PDF points, as /api/pick takes it. */
+interface PickDrag {
+  page: number;
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+  frac: number[];
+  pdf_build?: string;
+  doc?: string;
+}
+
 // The queue a pin is kept in while cut off (offline/flow.ts): a selection made without the server, a save kept for
 // later, and the key a plain save goes with.
 interface ComposerQueue {
   /** Opens the composer on a selection the server could not be reached for. */
-  pick(drag: {
-    page: number;
-    x0: number;
-    y0: number;
-    x1: number;
-    y1: number;
-    frac: number[];
-    pdf_build?: string;
-    doc?: string;
-  }): Promise<void>;
+  pick(drag: PickDrag): Promise<void>;
   /** Keeps a pin in the queue; whether it was kept. */
   save(
     selection: Selection,
@@ -113,6 +116,7 @@ function pinFields(): PinFields {
   return PIN_FIELDS;
 }
 
+export type { PickDrag };
 export {
   composerPins,
   composerQueue,

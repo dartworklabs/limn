@@ -133,7 +133,7 @@ let PINS_LOAD_SEQ = 0,
 /**
  * Apply a fresh snapshot while retaining dirty or saving editors whose pin is still present, including a rival close.
  */
-function applyPinLists(rows, dropped, lists) {
+function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof derivePinLists>) {
   const openBefore = OPEN_ALL,
     reviewBefore = REVIEW_ALL;
   notePinChanges(openBefore, rows, dropped);
@@ -207,7 +207,7 @@ async function loadPins() {
     return false;
   }
   if (seq < PINS_APPLIED_SEQ) return false;
-  let dropped = [];
+  let dropped: Pin[] = [];
   // Said, not silent: this read failing stops the whole snapshot from being applied, and a refresh that stops
   // without a word looks like a list that simply did not change (docs/handbook/viewer.md §알림 자리).
   try {
@@ -258,7 +258,7 @@ function gotoReview() {
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
 }
-function toggleSection(key, force?) {
+function toggleSection(key, force?: boolean) {
   if (!(key in SECTION_OPEN_DEFAULT)) return;
   SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
   savePrefs({ sec: SECTION_OPEN });
@@ -457,7 +457,7 @@ function isEstimated(pin: Pin) {
   return pin.est === true;
 }
 document.addEventListener('keydown', markTabKey, true);
-$('#left').addEventListener('focusin', (event) => {
+$('#left').addEventListener('focusin', (event: FocusEvent) => {
   const badge = event.target;
   if (!MARK_TAB || !(badge instanceof HTMLElement) || !badge.matches('.mark button.mark-jump')) return;
   markReveal(badge);
@@ -471,7 +471,7 @@ if (window.ResizeObserver) {
 }
 // The overlay panel slides in and out by its offset, its size unchanged (responsive.css mid-panel-in, side-panel.css
 // side-in): the observer hears of the panel only while it is still off the pages, so the slide's end asks again.
-$('#right').addEventListener('animationend', (event) => {
+$('#right').addEventListener('animationend', (event: AnimationEvent) => {
   if (event.target === event.currentTarget) markCoversMoved();
 });
 let MARK_COVER_TICK = 0;
@@ -556,7 +556,7 @@ $('#doc').addEventListener(
 // releases, so it does not stay on the card until the next click. compact: clicking a badge expands the panel/sheet and
 // that card, then scrolls via jumpToCard. Expands the section that holds pin id if it is collapsed (a mark click, a
 // notification, [검토 대기 N]). Returns true if it changed.
-function openSectionFor(id) {
+function openSectionFor(id: number | null) {
   const pin = findAnyPin(id);
   if (!pin) return false;
   const state = pinState(pin),
@@ -567,7 +567,7 @@ function openSectionFor(id) {
   return true;
 }
 // A mark badge's card: opens its section and the panel (a collapsed one too); compact also expands the card.
-function revealCard(id) {
+function revealCard(id: number | null) {
   if (openSectionFor(id)) drawPins();
   setSide(true);
   if (LAYOUT === LAYOUT_MODE.WIDE) return;
@@ -576,7 +576,7 @@ function revealCard(id) {
     drawPins();
   }
 }
-function jumpToCard(id) {
+function jumpToCard(id: number | null) {
   if (openSectionFor(id)) drawPins();
   const cardElement = document.querySelector('.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]') as HTMLElement;
   if (!cardElement) return; // a result row while the review section picks

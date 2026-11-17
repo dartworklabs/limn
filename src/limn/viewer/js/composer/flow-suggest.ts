@@ -26,7 +26,7 @@ import { SUGGEST_DRAFT, suggestDraft } from './state-suggest.ts';
 const SUGGEST_LINES = 80;
 const SUGGEST_FOLD = 5; // a card's diff folds past this many rows to its first two and last two
 // The short reason drawn where the switch would be when a selection can carry no suggested edit, and its tooltip.
-const SUGGEST_WHY = {
+const SUGGEST_WHY: Record<string, string[]> = {
   pdf: ['보기 전용 PDF에는 제안 수정 없음', '보기 전용 PDF에는 LaTeX 원문 줄이 없어 바꿀 글을 둘 수 없습니다'],
   figure: [
     '그림 문서에는 제안 수정 없음',
@@ -380,7 +380,7 @@ function suggestLine(
 function suggestGrow(editor: HTMLTextAreaElement) {
   if (editor.hidden || !editor.getClientRects().length) return;
   const style = getComputedStyle(editor),
-    px = (value) => parseFloat(value) || 0;
+    px = (value: string) => parseFloat(value) || 0;
   const lineHeight = px(style.lineHeight) || 18,
     edge = px(style.paddingTop) + px(style.paddingBottom) + px(style.borderTopWidth) + px(style.borderBottomWidth);
   editor.style.height = 'auto';
@@ -500,7 +500,7 @@ function editDocKind(card: EditCard): string | undefined {
 }
 /** An edit card's suggestion elements. */
 function editSuggestElements(card: EditCard) {
-  const find = (selector) => card.el.querySelector(selector) as HTMLElement;
+  const find = (selector: string) => card.el.querySelector(selector) as HTMLElement;
   return {
     tg: find('.e-sg-row .sg-tg'),
     why: find('.e-sg-row .sg-why'),

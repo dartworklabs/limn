@@ -24,7 +24,7 @@ import { appendTarget, syncQuestionHint } from './view-note-hints.ts';
 // Whether the '@' at text[index] continues a word, so it is no tag - the server's rule: the character before it is a
 // letter or digit of any script (Python's str.isalnum(): Unicode L*/N*, so 'é@' and '김@' too) or one of '._-'. That
 // character is a whole code point, as Python reads it: an astral letter before '@' is two UTF-16 units.
-function mentionAfterWord(text, index) {
+function mentionAfterWord(text: string, index: number) {
   if (index <= 0) return false;
   const lowUnit = text.charCodeAt(index - 1),
     highUnit = index > 1 ? text.charCodeAt(index - 2) : 0;
@@ -42,13 +42,13 @@ const MENTION = {
   items: [] as PersonSeen[],
   sel: 0,
 };
-function mentionQuery(field) {
+function mentionQuery(field: HTMLTextAreaElement) {
   const pos = field.selectionStart;
   if (pos == null || pos !== field.selectionEnd) return null;
   const match = /(^|[^\p{L}\p{N}._@-])@([^\s@]{0,30})$/u.exec(field.value.slice(0, pos));
   return match ? { start: pos - match[2].length - 1, q: match[2] } : null;
 }
-function mentionMatches(query, people, meLogin) {
+function mentionMatches(query: string, people: PersonSeen[], meLogin: string) {
   query = String(query || '').toLowerCase();
   const rows = people
     .filter((person) => person.login !== meLogin)
@@ -187,7 +187,7 @@ function mentionCurrent() {
 // An '@word' still being typed (the cursor sits at its end) is never flagged as '등록된 사람이 아님' yet - the warning
 // would show while the person is still picking. It is flagged once the cursor leaves it or the field. If the same word
 // appears earlier too (an '@word' already finished), it is flagged as usual.
-function mentionBadSettled(bad, text, typing) {
+function mentionBadSettled(bad: string[], text: string, typing: { start: number; q: string } | null) {
   if (!typing) return bad;
   const typed = typing.q,
     before = String(text || '').slice(0, typing.start);
@@ -255,7 +255,7 @@ function mentionResolve(
 // login, the login before '@' and the name's first word (when it has several), lower-cased; a candidate shorter than
 // two characters (code points, as Python counts) is none. The same candidate twice for one person is one entry ('Bob'
 // for bob@example.com), and a candidate several people share lists them all (sorted) - it then needs a hint.
-function mentionTokens(people) {
+function mentionTokens(people: PersonSeen[]) {
   const by = new Map();
   (people || []).forEach((person) => {
     const login = String(person.login),
@@ -355,7 +355,7 @@ function nameShared(login: string): boolean {
 // font.
 function assigneeRowHtml(people: string[], value: string, act: string): Html {
   if (!people.length) return html``;
-  const opt = (text, label, tip) =>
+  const opt = (text: string, label: string | Html, tip: string) =>
     html`<button type="button" role="radio" data-act="${act}" data-v="${text}" aria-checked="${text === value}"${text === value ? html` class="on"` : ''} data-tip="${tip}"><span class="as-t">${label}</span></button>`;
   const agent = opt(
     ASSIGNEE_AGENT,
@@ -457,7 +457,7 @@ function mentionPreview(field) {
   const outcome = field.id === 'note' ? assignOutcome(composeAsk(SAVE_MODE.NEW)) : null,
     join = outcome && appendTarget() ? assignOutcome(composeAsk(SAVE_MODE.APPEND)) : null;
   const told = outcome && !join ? scan.hit.filter((login) => login !== outcome.assignee) : scan.hit;
-  const name = (login) =>
+  const name = (login: string) =>
     login === ASSIGNEE_AGENT
       ? html`<span class="m-who">${translate('에이전트')}</span>`
       : html`<span class="mention">${personLabel(login)}</span>`;
@@ -481,7 +481,7 @@ function mentionPreview(field) {
   setHtml(box, html`${head}${bad}${scan.bad.length ? html`<span class="m-note">등록된 사람이 아님</span>` : ''}`);
   box.hidden = false;
 }
-function mentionUpdate(field) {
+function mentionUpdate(field: HTMLTextAreaElement) {
   const query = mentionQuery(field);
   if (!query) {
     if (MENTION.ta === field) mentionClose();
@@ -546,7 +546,7 @@ function mentionPlace() {
 }
 // The action row of that input field that the @-list must never cover: reply/reopen [취소][보내기], edit [저장], the
 // note popover by the box [자세히 →][저장], composer panel [취소][핀 저장].
-function mentionGuard(field) {
+function mentionGuard(field: HTMLTextAreaElement) {
   const box = field.closest('.reply-box,.edit,#sel-pop');
   return box ? box.querySelector('.r-acts,.e-acts,.sp-acts') : field.id === 'note' ? $('#c-actions') : null;
 }
@@ -554,7 +554,13 @@ function mentionGuard(field) {
 // order - (1) right below the input field (if it fits above the action row) (2) above the input field (3) below the
 // action row (4) if nothing fits, below the input field (the note popover's field takes mentionRoom instead). A reply
 // field has [취소][보내기] right below it, so (1) never fits there and (2) keeps the list off both buttons.
-function mentionTop(fieldRect, guardRect, listHeight, top, bottom) {
+function mentionTop(
+  fieldRect: { top: number; bottom: number },
+  guardRect: { top: number; bottom: number } | null,
+  listHeight: number,
+  top: number,
+  bottom: number,
+) {
   const gap = 4,
     limit = guardRect && guardRect.top >= fieldRect.bottom ? Math.min(bottom, guardRect.top) : bottom;
   if (fieldRect.bottom + gap + listHeight <= limit) return fieldRect.bottom + gap;
@@ -593,7 +599,7 @@ function mentionRoom(
 // (the preview, the assignee, the reply outcome; the note's draft). When the caret has left the end of the '@word' the
 // list was drawn for (it moved, and no keyup or click has redrawn the list yet), nothing is inserted - the name would
 // land where the caret went, spliced into the text - and the list follows the caret instead.
-function mentionApply(index) {
+function mentionApply(index: number) {
   const field = MENTION.ta,
     person = MENTION.items[index];
   if (!field || !person) return;
@@ -627,7 +633,7 @@ function mentionApply(index) {
   if (model.classList.contains('e-note')) renderAssignEdit();
   else if (model.classList.contains('r-text')) pinFields().drawReplyOutcome();
 }
-const isMentionField = (target) =>
+const isMentionField = (target: HTMLTextAreaElement) =>
   !!target &&
   target.tagName === 'TEXTAREA' &&
   (target.id === 'note' ||
@@ -703,7 +709,7 @@ document.addEventListener('focusout', (event) => {
       if (document.activeElement !== MENTION.ta) mentionClose();
     }, 150);
 });
-$('#mention-pop').addEventListener('pointerdown', (event) => event.preventDefault());
+$('#mention-pop').addEventListener('pointerdown', (event: PointerEvent) => event.preventDefault());
 
 export {
   ASSIGN_NEW,

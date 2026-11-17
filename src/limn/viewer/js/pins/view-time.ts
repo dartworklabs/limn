@@ -8,7 +8,7 @@ import type { Html } from '../platform/markup.ts';
 // Relative time (docs/handbook/viewer.md §뜻과 모양): '방금'/'N분 전'/'N시간 전'/'N일 전', 'M-D' past a week. Absolute
 // time is in the description (hover). The original string is kept in data-at and re-computed every 60 seconds
 // (tickRel). The archive and the verdict line say this; a comment says stampText.
-function relTime(stamp, now?) {
+function relTime(stamp: string | null | undefined, now?: number) {
   stamp = String(stamp || '');
   const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(stamp);
   if (!match) return stamp;
@@ -20,7 +20,7 @@ function relTime(stamp, now?) {
   if (minutes < 7 * 24 * 60) return translateTemplate('{n}일 전', { n: Math.floor(minutes / 1440) });
   return +match[2] + '-' + +match[3];
 }
-function relSpan(stamp, className?, tip?) {
+function relSpan(stamp: string | undefined, className?: string, tip?: string) {
   return html`<span class="rt${className ? ' ' + className : ''}" data-at="${stamp || ''}" data-tip="${(tip ? tip + ' ' : '') + (stamp || '?')}">${relTime(stamp)}</span>`;
 }
 // A stored time as its wall-clock parts and the instant they name on this device ({y, mo, d, md:'MM-DD', hm:'HH:MM',

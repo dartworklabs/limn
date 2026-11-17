@@ -260,7 +260,7 @@ ${suggestView(pin)}${metadata}`)}<div class="acts">${cardActs(claimed, LAYOUT !=
 // '판정 삭제' badge beside a [삭제] would read as that verdict. Two or three syllables like the row's other names, so
 // it keeps one line in the row's equal cells ('핀 지우기' would break in two on a narrow row); its description says
 // what taking a verdict back does.
-function cardActs(claimed, compact, canDrop = true, verdict = false) {
+function cardActs(claimed: boolean, compact: boolean, canDrop = true, verdict = false) {
   const dropLabel = verdict ? '지우기' : '삭제';
   const buttons = {
     view: html`<button class="btn-sm b-view" data-act="view" data-tip="${TIP_TEXT.view}">보기</button>`,
@@ -274,7 +274,7 @@ function cardActs(claimed, compact, canDrop = true, verdict = false) {
       : '',
     close: html`<button class="btn-sm btn-soft b-close" data-act="close" data-tip="${TIP_TEXT.close}">완료</button>`,
   };
-  return html`${(compact ? ['drop', 'edit', 'unclaim', 'reply', 'close'] : ['view', 'edit', 'reply', 'unclaim', 'drop', 'close']).map((name) => buttons[name])}`;
+  return html`${(compact ? (['drop', 'edit', 'unclaim', 'reply', 'close'] as const) : (['view', 'edit', 'reply', 'unclaim', 'drop', 'close'] as const)).map((name) => buttons[name])}`;
 }
 // Archive row (docs/handbook/viewer.md §보관함): a closed/dropped pin is a flat, borderless, backgroundless row with
 // faded text, not a card. The first line is icon/#number/location/reference/time/[다시 열기|되살리기]; the second line
@@ -313,7 +313,7 @@ function tickRel() {
   });
 }
 setInterval(tickRel, 60000);
-function arcTime(stamp) {
+function arcTime(stamp: string) {
   stamp = String(stamp || '');
   return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(stamp) ? stamp.slice(5, 16) : stamp;
 }
@@ -329,7 +329,7 @@ function arcLoc(pin: Pin) {
 }
 // One expandable line of an archive row: text (a close reply or a deleted pin's note) is user text (translate="no"), so
 // its Korean description tip is translated here.
-function arcLine(key, text, tip, logins) {
+function arcLine(key: string, text: string, tip: string, logins: readonly string[] | undefined) {
   const open = ARC_OPEN.has(key);
   return html`<span class="arc-reply${open ? ' open' : ''}" translate="no" role="button" tabindex="0" data-act="arc-toggle" data-key="${key}" aria-expanded="${open}" data-tip="${translateMessage(tip)}">${fmtText(text, logins)}</span>`;
 }
@@ -392,7 +392,7 @@ ${oldMarker ? html`<div class="arc-l1"><span class="arc-head">${numberTag}${pinV
 // follow the two lines in the markup; CSS sets them beside the meta line, or on a phone beside the note line (two
 // lines, not three).
 const TRASH_DAYS = 30;
-function trashDaysLeft(at, now, expirySeconds) {
+function trashDaysLeft(at: string | undefined, now: number | null, expirySeconds: number | undefined) {
   if (typeof expirySeconds === 'number')
     return Math.max(0, Math.ceil((expirySeconds * 1000 - (now == null ? Date.now() : now)) / 86400000));
   const match = /^(\d{4})-(\d\d)-(\d\d)[ T](\d\d):(\d\d)/.exec(String(at || ''));
@@ -506,7 +506,7 @@ function trashRefocus(
   if (!target) target = $('#trash').querySelector('[data-act="trash-close"]') as HTMLElement | null;
   if (target) target.focus();
 }
-function openTrash(flashId?) {
+function openTrash(flashId?: number | null) {
   const trash = $('#trash');
   if (flashId != null && !listDropped().some((pin) => pin.id === flashId) && DROPPED.some((pin) => pin.id === flashId))
     TRASH_ALL = true; // another document's pin
@@ -532,7 +532,7 @@ $('#trash').addEventListener('close', () => {
 // first (or from the dialog itself) goes to its last. Left to the browser, Tab would leave it for the browser's own
 // toolbar and the page's focus would fall to <body> while the Trash stays open (Tab from [닫기] once the last row is
 // restored).
-$('#trash').addEventListener('keydown', (event) => {
+$('#trash').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented) return;
   const trash = $('#trash');
   const all = [...trash.querySelectorAll(TABBABLE)].filter(isTabStop) as HTMLElement[],
@@ -552,7 +552,7 @@ $('#trash').addEventListener('keydown', (event) => {
     to.focus();
   }
 });
-$('#trash').addEventListener('click', (event) => {
+$('#trash').addEventListener('click', (event: MouseEvent) => {
   const trash = $('#trash');
   if (event.target !== trash) return;
   const rect = trash.getBoundingClientRect();

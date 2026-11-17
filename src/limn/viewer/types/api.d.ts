@@ -362,7 +362,8 @@ interface RebuildAnswer {
 }
 
 // One rung of a range ladder (POST /api/pick `levels`, GET /api/snippet?levels=1): the lines it covers and their
-// snippet, the environment for an environment rung, the element for a figure's rung, and the rungs it replaced.
+// snippet, the environment for an environment rung, the element for a figure's rung, the rungs it replaced, and on a
+// traced pick how much of the drag is in its lines (score, 0-1; null when there was nothing to weigh).
 interface Rung {
   level: string;
   lo: number;
@@ -373,6 +374,7 @@ interface Rung {
   env?: string;
   el?: PinElement;
   merged?: string[];
+  score?: number | null;
 }
 
 // An open line pin a not-yet-saved range overlaps (POST /api/pick `overlaps`), and how.

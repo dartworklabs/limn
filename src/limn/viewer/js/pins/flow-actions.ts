@@ -72,7 +72,7 @@ async function closePin(id) {
 // The warning for a confirm answered 409 'conflict', chosen by the pin that 409 carries: still awaiting review means it
 // was closed again - look at the new result, then confirm; any other state (a person closed it straight to done) has
 // nothing to confirm. A body without the pin (an older server) keeps the closed-again warning.
-function confirmConflictText(id, pin) {
+function confirmConflictText(id: number, pin: Pin | null | undefined) {
   return pin && pinState(pin) !== PIN_STATE.REVIEW
     ? translateTemplate('핀 #{id} 은 이미 완료로 닫혔습니다 — 확인할 것이 없습니다', { id })
     : translateTemplate('핀 #{id} 은 다시 닫혔습니다 — 새 결과를 보고 확인하세요', { id });
@@ -100,7 +100,7 @@ function confirmConflict(id: number, pin: Pin | null | undefined) {
 // names the close the card showed (done_at), so a pin reopened and closed again in between answers 409 'conflict'
 // instead of confirming a result nobody looked at; a 409 'open' means it was reopened and is still open
 // (docs/handbook/api.md §검토 대기). Both are banners on top of the review section (confirmConflict).
-function confirmPin(id) {
+function confirmPin(id: number) {
   if (CONFIRMING.has(id)) return;
   const at = REVIEW_ALL.findIndex((listed) => listed.id === id),
     pin = at < 0 ? null : REVIEW_ALL[at];
@@ -256,7 +256,7 @@ async function dropPin(
 }
 // [영구 삭제] (owner): the row leaves the Trash at once (PURGING, pins/state.ts) and a row in its place offers
 // [되돌리기]; the request goes out when that row does (deferred, NOTICE_MS).
-function purgePin(id) {
+function purgePin(id: number) {
   const cardBefore = drawnBefore($('#trash-list'), '.arc-row', id);
   PURGING.add(id);
   drawTrash();
@@ -354,7 +354,7 @@ async function trashRestore(id: number | null) {
   });
 }
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
-async function unclaimPin(id) {
+async function unclaimPin(id: number | null) {
   try {
     await api('/api/pins/' + id + '/unclaim', {
       method: 'POST',

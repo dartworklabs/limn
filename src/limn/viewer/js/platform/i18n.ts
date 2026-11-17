@@ -8,7 +8,7 @@ import { roveSegment } from './segments.ts';
 const LANG = window.LIMN_LANG === UI_LANG.EN ? UI_LANG.EN : UI_LANG.KO,
   I18N_EN = __UI_EN_JSON__,
   I18N_ATTRS = ['data-tip', 'aria-label', 'title', 'placeholder'];
-function translate(text) {
+function translate(text: string) {
   if (LANG !== UI_LANG.EN || typeof text !== 'string') return text;
   const trimmed = text.trim();
   if (!trimmed || !Object.prototype.hasOwnProperty.call(I18N_EN, trimmed) || typeof I18N_EN[trimmed] !== 'string')
@@ -18,7 +18,7 @@ function translate(text) {
 // Composed UI strings: translateTemplate('{n}쪽',{n:3}). The Korean key is the template and the Korean output; in
 // English the table value is the template - a string, or plural forms {"one":...,"other":...} picked by values.n. {x}
 // placeholders are filled from `values` (inserted as given - escape them first if the result goes into HTML).
-function translateTemplate(key, values) {
+function translateTemplate(key: string, values: Record<string, unknown>) {
   let pattern = key;
   if (LANG === UI_LANG.EN && Object.prototype.hasOwnProperty.call(I18N_EN, key)) {
     const entry = I18N_EN[key];
@@ -27,7 +27,7 @@ function translateTemplate(key, values) {
         ? entry
         : (entry && (Number(values && values.n) === 1 && entry.one ? entry.one : entry.other)) || key;
   }
-  return pattern.replace(/\{(\w+)\}/g, (placeholder, field) =>
+  return pattern.replace(/\{(\w+)\}/g, (placeholder: string, field: string) =>
     values && values[field] != null ? String(values[field]) : placeholder,
   );
 }
@@ -66,7 +66,7 @@ const PICK_WARNS = [
   '이 그림의 요소 지도를 읽지 못해 영역으로 찍습니다 — 그림 저장소가 지도를 다시 쓰면 다시 고르세요.',
   '이 요소를 그린 코드 줄을 찾지 못해 영역으로 찍습니다 — 스크립트를 고친 뒤라면 그림을 다시 렌더하고 다시 고르세요.',
 ];
-function warnText(text) {
+function warnText(text: string | null | undefined) {
   text = text == null ? '' : String(text);
   if (LANG !== UI_LANG.EN || !text) return text;
   for (const template of PICK_WARNS) {
@@ -76,7 +76,7 @@ function warnText(text) {
       lit.map((literal) => literal.replace(/[.*+?^$()|[\]\\{}]/g, '\\$&')).join('(\\d+)'),
       'g',
     );
-    text = text.replace(pattern, (...match) =>
+    text = text.replace(pattern, (...match: (string | number)[]) =>
       translateTemplate(template, Object.fromEntries(names.map((name, index) => [name, match[index + 1]]))),
     );
   }
@@ -102,14 +102,14 @@ function translateAttributes(element) {
   }
 }
 // Translates a text node in place, unless it sits in a text field, a script or style, or user text.
-function i18nText(node) {
+function i18nText(node: Node) {
   const parent = node.parentNode;
   if (!parent || /^(TEXTAREA|SCRIPT|STYLE)$/.test(parent.nodeName) || i18nUser(parent)) return;
   const english = translateMessage(node.nodeValue);
   if (english !== node.nodeValue) node.nodeValue = english;
 }
 // Translates root and everything under it in English mode, skipping whole user-text subtrees.
-function i18nTree(root) {
+function i18nTree(root: Node) {
   if (LANG !== UI_LANG.EN || !root) return;
   if (root.nodeType === 3) return i18nText(root);
   if (root.nodeType !== 1 || i18nUser(root)) return;
@@ -161,7 +161,7 @@ function i18nStart() {
 // so the reload drops it and keeps the hash (document and place). Without one the address is unchanged, and replacing
 // an address that has a hash with itself only jumps to that hash inside the page, loading nothing - so that case
 // reloads.
-function switchLang(lang) {
+function switchLang(lang: string | undefined) {
   if ((lang !== UI_LANG.KO && lang !== UI_LANG.EN) || lang === LANG) return;
   try {
     localStorage.setItem('limnLang', lang);
@@ -171,7 +171,7 @@ function switchLang(lang) {
   if (address.href === location.href) location.reload();
   else location.replace(address.href);
 }
-const TIP_TEXT = {
+const TIP_TEXT: Record<string, string> = {
   stale:
     '핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
   ellost:
@@ -232,7 +232,7 @@ const TIP_TEXT = {
 // rel_badge() (pins.md) so card tags and pins.md rows never disagree - since a rel entry is only {id,rel}, the range is
 // looked up by id from PINS (all currently loaded open pins). The badge wording is phrased to be self-explanatory:
 // '#20과 같은 범위' > '#20 범위 안' > '#20과 일부 겹침'. Same-range is told by this pin's own lo/hi.
-function josa(number, afterConsonant, afterVowel) {
+function josa(number: string | number, afterConsonant: string, afterVowel: string) {
   const lastDigit = String(number).slice(-1);
   return lastDigit === '0' || '13678'.includes(lastDigit) ? afterConsonant : afterVowel;
 }

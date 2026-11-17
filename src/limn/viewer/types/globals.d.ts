@@ -36,6 +36,7 @@ interface HTMLElement {
   _mirrorOf?: HTMLTextAreaElement;
   _copied?: ChildNode[];
   _copiedT?: ReturnType<typeof setTimeout>;
+  _cap?: string;
 }
 
 // An @-tag picked from the @-list (composer/input-mentions.ts): whom it names, where its '@name' starts in the text, and that '@name'.

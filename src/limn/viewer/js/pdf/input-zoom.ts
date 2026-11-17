@@ -17,8 +17,15 @@ import { ZOOM_STEP, markZoomed, setScale, zoomAnchor, zoomRestore, zoomTo } from
 import { cancelDrag, cancelLongPress } from './input-selection.ts';
 import { $ } from '../platform/dom.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
+// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
+// pinch's scale since it began and where it is.
+interface SafariGestureEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
-function zoomKey(event) {
+function zoomKey(event: KeyboardEvent) {
   const key = event.key,
     code = event.code;
   if (key === '=' || key === '+' || code === 'Equal' || code === 'NumpadAdd') return 'in';
@@ -31,7 +38,7 @@ function zoomKey(event) {
 // inverse of the formula Chrome uses to turn pinch scale into wheel events, so it grows in proportion to how far the
 // fingers spread. deltaY is clamped to +-18 so a single event never exceeds one button press's worth (ZOOM_STEP ~
 // exp(0.18)).
-function wheelFactor(deltaY, mode) {
+function wheelFactor(deltaY: number, mode: number) {
   if (!deltaY) return 1;
   if (mode === 1 || mode === 2 || Math.abs(deltaY) >= 50) return deltaY < 0 ? ZOOM_STEP : 1 / ZOOM_STEP;
   return Math.exp(-Math.max(-18, Math.min(18, deltaY)) / 100);
@@ -52,7 +59,7 @@ function wheelFactor(deltaY, mode) {
   };
   pdfArea.addEventListener(
     'wheel',
-    (event) => {
+    (event: WheelEvent) => {
       if (!(event.ctrlKey || event.metaKey) || isMarkdownDoc()) return;
       event.preventDefault(); // a Markdown document's text zooms with the browser
       pendingFactor *= wheelFactor(event.deltaY, event.deltaMode);
@@ -63,7 +70,7 @@ function wheelFactor(deltaY, mode) {
   );
   pdfArea.addEventListener(
     'gesturestart',
-    (event) => {
+    (event: SafariGestureEvent) => {
       if (isMarkdownDoc()) return;
       event.preventDefault();
       if (!pinchStart) gestureStart = { k: PAGE_SCALE };
@@ -72,7 +79,7 @@ function wheelFactor(deltaY, mode) {
   );
   pdfArea.addEventListener(
     'gesturechange',
-    (event) => {
+    (event: SafariGestureEvent) => {
       if (isMarkdownDoc()) return;
       event.preventDefault();
       if (gestureStart && !pinchStart && event.scale > 0)
@@ -82,15 +89,18 @@ function wheelFactor(deltaY, mode) {
   );
   pdfArea.addEventListener(
     'gestureend',
-    (event) => {
+    (event: SafariGestureEvent) => {
       gestureStart = null;
       if (isMarkdownDoc()) return;
       event.preventDefault();
     },
     { passive: false },
   );
-  const midpointOf = (first, second) => [(first.clientX + second.clientX) / 2, (first.clientY + second.clientY) / 2];
-  const fingerDistance = (first, second) =>
+  const midpointOf = (first: Touch, second: Touch) => [
+    (first.clientX + second.clientX) / 2,
+    (first.clientY + second.clientY) / 2,
+  ];
+  const fingerDistance = (first: Touch, second: Touch) =>
     Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) || 1;
   let pinchFrame = 0,
     last = null as { d: number; m: number[] } | null;
@@ -103,7 +113,7 @@ function wheelFactor(deltaY, mode) {
   };
   pdfArea.addEventListener(
     'touchstart',
-    (event) => {
+    (event: TouchEvent) => {
       if (isMarkdownDoc()) {
         pinchStart = null;
         return;
@@ -125,7 +135,7 @@ function wheelFactor(deltaY, mode) {
   );
   pdfArea.addEventListener(
     'touchmove',
-    (event) => {
+    (event: TouchEvent) => {
       if (!pinchStart || event.touches.length !== 2) return;
       if (event.cancelable) event.preventDefault();
       const first = event.touches[0],
@@ -135,7 +145,7 @@ function wheelFactor(deltaY, mode) {
     },
     { passive: false },
   );
-  const end = (event) => {
+  const end = (event: TouchEvent) => {
     if (pinchStart && event.touches.length < 2) {
       if (pinchFrame) {
         cancelAnimationFrame(pinchFrame);

@@ -14,13 +14,22 @@ import { syncBackLayer } from './input.ts';
 import { $ } from '../platform/dom.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
+// A panel's width range, and with it (the side panel's) the default width and the three presets.
+interface PanelBounds {
+  min: number;
+  max: number;
+}
+interface SideBounds extends PanelBounds {
+  def: number;
+  presets: number[];
+}
 function outlineBounds() {
   if (outlineOverlay()) return { min: 220, max: 320 };
   const max = Math.max(180, Math.min(320, innerWidth - currentSideWidth() - 290));
   return { min: Math.min(220, max), max };
 }
 // Shows an outline width clamped to its bounds (--outline-width and the grip's ARIA) and answers it; nothing is saved.
-function showOutlineWidth(width) {
+function showOutlineWidth(width: number) {
   const bounds = outlineBounds();
   width = Math.round(Math.max(bounds.min, Math.min(bounds.max, width)));
   document.documentElement.style.setProperty('--outline-width', width + 'px');
@@ -49,7 +58,7 @@ function applyOutlineState() {
   syncBackLayer(); // the mid outline overlay is a layer the back gesture closes
 }
 // Sets and remembers the outline width (pinPrefs.outlineWidth), then re-fits; the phone has no outline.
-function setOutlineWidth(width) {
+function setOutlineWidth(width: number) {
   if (BAND === LAYOUT_BAND.PHONE) return;
   width = showOutlineWidth(width);
   savePrefs({ outlineWidth: width });
@@ -71,8 +80,8 @@ function toggleOutline() {
 }
 // The panel's width bounds, default width and the three presets ([좁게] [보통] [넓게]) for a layout at a window
 // width.
-function sideBounds(layout, windowWidth) {
-  const clampRound = (value, low, high) => Math.round(Math.min(high, Math.max(low, value)));
+function sideBounds(layout: string | null, windowWidth: number) {
+  const clampRound = (value: number, low: number, high: number) => Math.round(Math.min(high, Math.max(low, value)));
   if (layout === LAYOUT_MODE.MID) {
     const min = 300,
       max = windowWidth <= 900 ? Math.min(440, windowWidth - 240) : Math.max(min, windowWidth - 488);
@@ -89,16 +98,16 @@ function sideBounds(layout, windowWidth) {
     presets: [clampRound(300, min, max), defaultWidth, clampRound(windowWidth * 0.42, min, max)],
   };
 }
-function clampSide(width, bounds) {
+function clampSide(width: number, bounds: PanelBounds) {
   return Math.round(Math.min(bounds.max, Math.max(bounds.min, width)));
 }
 // Cycles through preset steps: the next step wider than the current width, wrapping to the narrowest if already at the
 // widest. presetIndex is the step within +-4px (or -1 if none matches).
-function nextPreset(presets, width) {
+function nextPreset(presets: number[], width: number) {
   const wider = presets.find((preset) => preset > width + 4);
   return wider === undefined ? presets[0] : wider;
 }
-function presetIndex(presets, width) {
+function presetIndex(presets: number[], width: number) {
   return presets.findIndex((preset) => Math.abs(preset - width) <= 4);
 }
 // Where a handle drag lands (docs/handbook/viewer.md §패널 폭과 시트 높이). requestedWidth = the width the pointer asks
@@ -107,7 +116,7 @@ function presetIndex(presets, width) {
 // minimum (the width follows, up to the maximum); 'min' from collapseBelow up to the minimum (it stops at the minimum
 // and the handle turns primary); 'collapse' below collapseBelow (a release collapses the panel); 'blocked' there while
 // a draft is open (composing/editing/replying/relocating - it stops at the minimum instead).
-function snapSide(requestedWidth, bounds, composing) {
+function snapSide(requestedWidth: number, bounds: PanelBounds, composing: boolean) {
   const collapseBelow = Math.floor(bounds.min / 2);
   if (requestedWidth >= bounds.min) return { w: Math.min(bounds.max, Math.round(requestedWidth)), zone: 'follow' };
   if (requestedWidth >= collapseBelow) return { w: bounds.min, zone: 'min' };
@@ -118,7 +127,8 @@ function snapSide(requestedWidth, bounds, composing) {
 // bounds (never below the minimum - collapsing is Enter's job). Collapsed: Enter/Space open to the saved width, Home/←
 // open at the minimum, End at the maximum; → does nothing. Returns {act:'collapse'|'cycle'|'open'} or {act:'width', w},
 // or null for any other key.
-function gripKey(key, width, bounds, collapsed) {
+type GripAction = { act: 'open' } | { act: 'collapse' } | { act: 'cycle' } | { act: 'width'; w: number };
+function gripKey(key: string, width: number, bounds: PanelBounds, collapsed: boolean): GripAction | null {
   if (collapsed) {
     if (key === 'Enter' || key === ' ') return { act: 'open' };
     if (key === 'Home' || key === 'ArrowLeft') return { act: 'width', w: bounds.min };
@@ -140,7 +150,7 @@ function currentSideWidth() {
 // The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
 let SIDE_SHOWN = null as { w: number; min: number; max: number } | null;
 // Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
-function showSideWidth(width, bounds) {
+function showSideWidth(width: number, bounds: PanelBounds) {
   $('#right').style.width = width + 'px';
   document.documentElement.style.setProperty('--side-w', width + 'px');
   SIDE_SHOWN = { w: width, min: bounds.min, max: bounds.max };
@@ -148,7 +158,7 @@ function showSideWidth(width, bounds) {
 }
 // The width the panel has in this layout, open or folded: the layout's saved width (sideKey), else its default, inside
 // its bounds. applySideWidth draws it; renderSizeSegment checks it.
-function sideWidthFor(bounds) {
+function sideWidthFor(bounds: SideBounds) {
   const saved = prefs()[sideKey()];
   return clampSide(typeof saved === 'number' ? saved : bounds.def, bounds);
 }
@@ -164,7 +174,7 @@ function applySideWidth() {
 }
 // Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses
 // topAnchor/restoreAnchor).
-function setSideWidth(width) {
+function setSideWidth(width: number) {
   if (LAYOUT === LAYOUT_MODE.NARROW) return;
   const bounds = sideBounds(LAYOUT, innerWidth);
   width = clampSide(width, bounds);
@@ -219,7 +229,7 @@ function applySheet() {
 // The tablet sheet's height for need (the fraction of the screen the composer down to its note or open editor and the
 // save row take): its own height if they fit, else just what they need, at most SHEET_TAB_LIFT_MAX; a higher chosen
 // height stays. Pure.
-function sheetLift(fraction, need) {
+function sheetLift(fraction: number, need: number) {
   return Math.max(fraction, Math.min(SHEET_TAB_LIFT_MAX, need));
 }
 // The sheet height to draw now: sheetFraction(), lifted (sheetLift) on the tablet sheet while composing - with the
@@ -242,7 +252,7 @@ function tabletLift() {
 }
 // Sets and remembers the sheet height (a fraction, clamped to 30-100%, kept to 1/10000: a whole pixel on any screen)
 // under the band's key, opens a collapsed sheet, and ends the composing lift.
-function setSheetFraction(fraction) {
+function setSheetFraction(fraction: number) {
   keepSheet();
   fraction = Math.min(1, Math.max(SHEET_MIN_FRACTION, fraction));
   savePrefs({ [sheetPref().key]: Math.round(fraction * 10000) / 10000 });
@@ -289,7 +299,7 @@ function renderSizeSegment() {
   keepSegmentFocus(box, at);
 }
 // Applies the size row's preset at index: a sheet height on narrow, else a panel width.
-function sizePreset(index) {
+function sizePreset(index: number) {
   if (LAYOUT === LAYOUT_MODE.NARROW) {
     setSheetFraction(SHEET_FRACTIONS[index]);
     return;
