@@ -14,6 +14,25 @@ from pathlib import Path
 import helpers_js
 from helpers import extract_js_fn, js_seam_wired, run_node
 
+# The guards offline/flow.ts reads a stored record or a worker's answer through (GuardedRecords tests them); a pulled
+# function that reads one needs them beside it.
+GUARDS = (
+    "isObject",
+    "isTextOrAbsent",
+    "isNumberOrAbsent",
+    "isTextOrNull",
+    "isTextList",
+    "isNumberList",
+    "isQueuedPin",
+    "wroteIds",
+    "storedRead",
+    "keepAnswer",
+    "isKeptDoc",
+    "isOldBuild",
+    "isKeptRecord",
+    "keptRecord",
+)
+
 # The page scope a pulled offline function reads: the queue (an array standing in for IndexedDB), the server (api), the
 # list the dedup judgment reads, and the messages. Every call is recorded so a test can say what went out and in which order.
 SCOPE = r"""
@@ -31,6 +50,7 @@ var SERVER_IDEM,META_DOWN=false,META_ASKED=0;   // what the server says it can d
 var KNOWN={},PROBES=[];   // the pins the server has by key ({<idem>: id}, or 'down'), and the keys it was asked about
 function withDocQuery(u,k){return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function offAll(){return Promise.resolve(QUEUE.slice());}
+function offRecords(){return Promise.resolve(QUEUE.slice());}
 function offDel(id){QUEUE=QUEUE.filter(function(r){return r.id!==id;}); return Promise.resolve(true);}
 function offHas(id){return Promise.resolve(QUEUE.some(function(r){return r.id===id;}));}
 function offPut(rec){QUEUE=QUEUE.map(function(r){return r.id===rec.id?rec:r;}); return Promise.resolve(true);}
@@ -80,6 +100,7 @@ function found(lo){return {file:'main.tex',name:'main.tex',page:3,lo:lo,hi:lo+1,
 """
 
 FUNCTIONS = (
+    *GUARDS,
     "offlineBox",
     "offlineBody",
     "fracSame",
@@ -559,6 +580,149 @@ function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); retur
 """
 
 
+class GuardedRecords(unittest.TestCase):
+    """What offline/flow.ts reads back from IndexedDB or from the worker is narrowed by a guard that checks the shape its
+    writer writes (docs/handbook/viewer.md §타입 검사): the shipped guards, pulled and run under node.
+
+    What it protects: every record a Limn wrote passes - including a line pin with no page and no fractions, and a
+    record a send has marked - so no one's queued work goes unseen; a value that is not one is left out, read as
+    nothing, and never taken for a record of another shape."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        return json.loads(run_node("\n".join([*(extract_js_fn(n) for n in GUARDS), scenario])))
+
+    # A record as offlineQueueSave writes a drag cut off, with the key the store gave it.
+    DRAG = r"""const drag={id:1,v:1,label:'inst',doc:'main',build:'pages-B1',page:3,rect:{x0:10,y0:20,x1:110,y1:40},
+      frac:[0.1,0.2,0.3,0.04],pt:{w:612,h:792},quote:'q',note:'n',kind_req:'fix',assignee:null,mentions:['alice'],
+      at:'2026-11-14T09:00:00.000Z',held:false,why:'',sent:false,top:undefined,place:null,lines:null,idem:'k1'};"""
+
+    def test_every_queued_record_a_limn_writes_is_a_queued_pin(self):
+        got = self._run(
+            self.DRAG
+            + r"""
+            // A line pin of a Markdown document: no page, no fractions, no box; its lines are its place.
+            const line=Object.assign({},drag,{id:2,page:undefined,frac:undefined,rect:null,pt:null,build:'',doc:null,
+              place:{file:'notes.md',name:'notes.md',lo:3,hi:4},
+              lines:{file:'notes.md',name:'notes.md',lo:3,hi:4,text:'a\nb',kind:'lines',scope:null}});
+            delete line.page; delete line.frac;
+            // A record a send marked: attempted after pin 7, then held with the server's reason.
+            const marked=Object.assign({},drag,{id:3,sent:true,top:7,held:true,why:'PDF build gone'});
+            // The same line pin with its page and fractions null, as the Handbook names a line pin's.
+            const nulls=Object.assign({},line,{id:4,page:null,frac:null});
+            console.log(JSON.stringify([isQueuedPin(drag),isQueuedPin(line),isQueuedPin(marked),isQueuedPin(nulls)]));
+            """
+        )
+        self.assertEqual(got, [True, True, True, True])
+
+    def test_a_value_that_is_not_a_queued_pin_is_not_one(self):
+        got = self._run(
+            self.DRAG
+            + r"""
+            const without=(k)=>{const r=Object.assign({},drag); delete r[k]; return r;};
+            console.log(JSON.stringify([null,7,'x',[],{v:1,note:'by hand'},without('id'),without('idem'),without('lines'),
+              Object.assign({},drag,{frac:['0.1']}),Object.assign({},drag,{rect:{x0:1}}),
+              Object.assign({},drag,{mentions:[1]}),Object.assign({},drag,{lines:{name:'a'}})].map(isQueuedPin)));
+            """
+        )
+        self.assertEqual(got, [False] * 12)
+
+    def test_the_ledger_reads_its_numbers_and_nothing_else(self):
+        got = self._run(
+            r"""console.log(JSON.stringify([wroteIds({key:'wrote',ids:[4,9]}),wroteIds({key:'wrote',ids:[4,'9',null]}),
+              wroteIds(undefined),wroteIds({key:'wrote'}),wroteIds({key:'wrote',ids:'4'})]));"""
+        )
+        self.assertEqual(got, [[4, 9], [4], [], [], []])
+
+    def test_a_stored_read_is_one_only_with_its_body_status_and_time(self):
+        got = self._run(
+            r"""console.log(JSON.stringify([storedRead({key:'/api/meta',data:{a:1},status:200,at:5}),
+              storedRead({key:'/api/meta',data:null,status:200,at:5}),
+              storedRead({key:'/api/meta',status:200,at:5}),storedRead({key:'/api/meta',data:1,status:'200',at:5}),
+              storedRead({key:'/api/meta',data:1,status:200}),storedRead(null)]));"""
+        )
+        self.assertEqual(
+            got,
+            [
+                {"key": "/api/meta", "data": {"a": 1}, "status": 200, "at": 5},
+                {"key": "/api/meta", "data": None, "status": 200, "at": 5},
+                None,
+                None,
+                None,
+                None,
+            ],
+        )
+
+    def test_the_worker_s_answer_to_keep_says_its_count_and_its_failed_addresses(self):
+        got = self._run(
+            r"""console.log(JSON.stringify([keepAnswer({kept:3,failed:['/pdf?b']}),keepAnswer({}),
+              keepAnswer({kept:'3',failed:['/a',2]}),keepAnswer(null),keepAnswer(true)]));"""
+        )
+        self.assertEqual(
+            got,
+            [{"kept": 3, "failed": ["/pdf?b"]}, {"kept": 0, "failed": []}, {"kept": 0, "failed": ["/a"]}, None, None],
+        )
+
+    def test_the_kept_record_is_one_only_whole(self):
+        got = self._run(
+            r"""
+            const page={build:'pages-B2',files:['/pdf?build=pages-B2'],at:5,seen:6,meta:{pages_build:'pages-B2'}};
+            const md={build:'',files:[],at:0,src:1700000000.5,seen:6};
+            const old={doc:'main',build:'pages-B1',files:['/pages/pages-B1/1.png'],at:0,unheld:true};
+            const whole={key:'kept',docs:{main:page,notes:md},old:[old]};
+            const fresh={key:'kept',docs:{},old:[]};
+            const not=[null,{key:'kept',docs:{},old:null},{key:'kept',docs:[],old:[]},{docs:{},old:[]},
+              {key:'kept',docs:{main:{build:'b',files:'x',at:0,seen:0}},old:[]},
+              {key:'kept',docs:{},old:[{doc:'main',build:'b',files:[]}]}];
+            console.log(JSON.stringify([keptRecord(whole)===whole,keptRecord(fresh)===fresh,
+              keptRecord(Object.assign({},whole,{docs:{main:Object.assign({},md,{src:null})}}))!==null,
+              not.map(keptRecord)]));
+            """
+        )
+        self.assertEqual(got, [True, True, True, [None] * 6])
+
+    def test_a_meta_field_of_the_wrong_type_reads_as_missing(self):
+        """offStash hands offSeenIn the meta answer as it came; what it reads of it is narrowed field by field."""
+        js = "\n".join([*(extract_js_fn(n) for n in GUARDS), extract_js_fn("offSeenIn")])
+        got = json.loads(
+            run_node(
+                js
+                + r"""
+            console.log(JSON.stringify([offSeenIn({doc:'main',pages_build:'pages-B1',src_mtime:5,kind:'latex'}),
+              offSeenIn({doc:'main',pages_build:7,src_mtime:'5',kind:{}}),offSeenIn('meta'),
+              offSeenIn({docs:[null,{key:'notes',kind:'markdown',src_mtime:9},{key:3}]})]));"""
+            )
+        )
+        self.assertEqual(
+            got,
+            [
+                {"main": {"build": "pages-B1", "src": 5, "kind": "latex"}},
+                {"main": {"build": "", "src": None, "kind": None}},
+                {},
+                {"notes": {"build": "", "src": 9, "kind": "markdown"}},
+            ],
+        )
+
+    def test_a_text_item_without_six_numbers_is_passed_over(self):
+        """PDF.js's text items are read as they come: one with no transform (a marked content item) or a transform
+        that is not numbers adds no word."""
+        js = "\n".join([*(extract_js_fn(n) for n in GUARDS), extract_js_fn("quoteIn")])
+        got = json.loads(
+            run_node(
+                js
+                + r"""
+            const box={x0:0,y0:0,x1:600,y1:800};
+            const word=(str,transform)=>({str,transform,width:20,height:10});
+            console.log(JSON.stringify(quoteIn([word('kept',[10,0,0,10,100,700]),{type:'beginMarkedContent'},
+              word('gone',['10',0,0,10,100,700]),word('also',null),null],800,box)));"""
+            )
+        )
+        self.assertEqual(got, "kept")
+
+
 class StoredAnswers(unittest.TestCase):
     """What may be stored for a reopened tab, and what may be served from the store (offline/flow.ts offStash/offStashed).
 
@@ -572,7 +736,7 @@ class StoredAnswers(unittest.TestCase):
             self.skipTest("node not available")
 
     def _run(self, scenario):
-        names = ("offReadKey", "offStash", "offStashed", "offKeptMeta")
+        names = (*GUARDS, "offReadKey", "offStash", "offStashed", "offKeptMeta")
         js = "\n".join([STORE_SCOPE, *(extract_js_fn(n) for n in names), scenario])
         return json.loads(run_node(js))
 
@@ -888,7 +1052,19 @@ class OfflineQuote(unittest.TestCase):
                    item('Far below.',72,600,60,10),
                    item('   ',72,206,10,10)];
         """
-        return json.loads(run_node("\n".join([scope, extract_js_fn("quoteIn"), scenario])))
+        return json.loads(
+            run_node(
+                "\n".join(
+                    [
+                        scope,
+                        extract_js_fn("isObject"),
+                        extract_js_fn("isNumberList"),
+                        extract_js_fn("quoteIn"),
+                        scenario,
+                    ]
+                )
+            )
+        )
 
     def test_a_line_that_starts_left_of_the_box_and_runs_through_it_is_read(self):
         """The drag starts inside the text column, not at its margin - as nearly every drag does. Judged by where
@@ -1349,6 +1525,8 @@ function poll(){offlineFollowSeen({doc:'main',kind:SERVER.main.kind,pages_build:
 """
 
 FOLLOW_FUNCTIONS = (
+    *GUARDS,
+    "offRecords",
     "withDocQuery",
     "offlineDocFiles",
     "offKeptSet",
@@ -1924,7 +2102,10 @@ class KeptRecord(unittest.TestCase):
             [
                 _shipped_const("OFF_KEPT"),
                 "function rendersInBrowser(k){return k==='markdown'||k==='text';}",
-                *(extract_js_fn(n) for n in ("offFree", "offKeptWith", "offKeptPart", "offBehind", "offSeenIn")),
+                *(
+                    extract_js_fn(n)
+                    for n in (*GUARDS, "offFree", "offKeptWith", "offKeptPart", "offBehind", "offSeenIn")
+                ),
                 scenario,
             ]
         )
@@ -2036,6 +2217,7 @@ class OfflineKeys(unittest.TestCase):
                     put:function(v){STORE.set(v.key,v);}};}}; return tx;}});}
                 """,
                 extract_js_fn("offlineKey"),
+                extract_js_fn("isObject"),
                 extract_js_fn("offHolderId"),
                 """
                 (async function(){

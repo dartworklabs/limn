@@ -312,7 +312,7 @@ SURFACES = (
 # Seeds this browser's queue of kept pins through the shipped functions, each record merged over a whole one.
 QUEUE_SEED = """async recs=>{for(const r of recs){const rec=Object.assign({v:1,label:'Demo',doc:DEFAULT_DOC,
   build:META.pages_build,pt:{w:612,h:792},rect:null,quote:'q',note:'n',kind_req:'fix',assignee:'agent',mentions:[],
-  at:new Date().toISOString(),held:false,why:'',sent:false,place:null},r); await offAdd(rec);} await offlineSync(); return OFF.n;}"""
+  at:new Date().toISOString(),held:false,why:'',sent:false,place:null,lines:null,idem:offlineKey()},r); await offAdd(rec);} await offlineSync(); return OFF.n;}"""
 
 MD_NOTES = """---
 title: 노트
