@@ -172,6 +172,21 @@ function hasMark(pin: Pin) {
 function pinPlace(pin: Pin) {
   return hasMark(pin) ? { page: pin.mark_page as number, frac: pin.mark } : { page: pin.page, frac: pin.frac };
 }
+// Whether a piece of a mark can be drawn: a page of the build (1-based) and a box on it.
+function isPiece(piece: MarkPiece) {
+  return Number.isInteger(piece.page) && piece.page >= 1 && isFrac(piece.frac);
+}
+// The pieces a pin's mark is drawn as (docs/adr/0045-pin-marks-follow-the-range.md): for a LaTeX line pin the boxes the
+// server computed - where that pin's own lines print on the build on screen - in the order it answers them, page by page
+// and then down each page; else the one place pinPlace names, which is what a pin whose range could not be measured, a
+// region and a figure pin draw. A figure pin's mark comes from its element map, so it carries no boxes. Empty for a pin
+// with no usable box: the caller draws nothing for it.
+function pinPieces(pin: Pin): MarkPiece[] {
+  const boxes = (Array.isArray(pin.boxes) ? pin.boxes : []).filter(isPiece);
+  if (boxes.length) return boxes;
+  const at = pinPlace(pin);
+  return isFrac(at.frac) ? [{ page: at.page, frac: at.frac }] : [];
+}
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
 function isElementLost(pin: Pin) {
   return !!pin && pin.el_sync === ELEMENT_SYNC.LOST;
@@ -191,6 +206,7 @@ export {
   figureFields,
   hasMark,
   isFrac,
+  pinPieces,
   pinPlace,
   renderElement,
   repickElement,

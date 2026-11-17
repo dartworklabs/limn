@@ -60,7 +60,7 @@ import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { applySide, setSide } from '../layout/flow.ts';
-import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts';
+import { isElementLost, hasMark, pinPieces, pinPlace } from '../pdf/view-figure.ts';
 import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
 import { recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
 import { mentionsMe } from './view-card-parts.ts';
@@ -486,9 +486,10 @@ $('#left').addEventListener(
   },
   { passive: true },
 );
-// Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a
-// figure pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or
-// an append's undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
+// Draws the marks of this document's open and awaiting-review pins, one element per piece of each pin's mark: the boxes
+// the server computed for a LaTeX line pin's range, where a figure pin's element is now, else where the pin was pinned
+// (pinPieces), then decides each badge's side (markBadgeSides) and puts a save's or an append's undo chip back on its
+// mark (drawChips). A pin without a usable box, and a piece on a page that is not on screen, draw nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
 // A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it
 // (drawPageVerdicts, first).
@@ -504,23 +505,17 @@ function marks() {
   // to an open pin's overlap/editing). A figure pin is drawn where the server found its element in this build (see
   // pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC)).forEach((pin) => {
-    const at = pinPlace(pin),
-      page = document.getElementById('p' + at.page);
-    if (!page || !isFrac(at.frac)) return;
     if (pinVerdicts().shownOnLine(pin)) return;
+    // The pieces come page by page and then down each page, and the pages stand in that order on screen: the first one
+    // drawn is this pin's first .mark in the document. That is the piece the number badge goes on - one badge for the
+    // pin - and the one every lookup of its mark finds: its undo chip (drawChips), [보기] (jumpPin) and its tooltip.
+    const places = pinPieces(pin).flatMap((piece) => {
+      const page = document.getElementById('p' + piece.page);
+      return page ? [{ page, frac: piece.frac }] : [];
+    });
+    if (!places.length) return;
     const est = isEstimated(pin) && !hasMark(pin),
       lost = pin.stale || isElementLost(pin);
-    const mark = document.createElement('div');
-    mark.className =
-      'mark' + (lost ? ' st' : '') + (est ? ' est' : '') + (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '');
-    mark.dataset.pin = String(pin.id);
-    mark.dataset.fx = String(at.frac[0]);
-    Object.assign(mark.style, {
-      left: at.frac[0] * 100 + '%',
-      top: at.frac[1] * 100 + '%',
-      width: at.frac[2] * 100 + '%',
-      height: at.frac[3] * 100 + '%',
-    });
     const note = String(pin.note || '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -531,11 +526,25 @@ function marks() {
       (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : translate('(메모 없음)')) +
       (est ? ' ' + translate('(PDF가 새로 만들어져 위치는 추정입니다)') : '') +
       (isElementLost(pin) ? ' · ' + translate('요소 잃음') : '');
-    setHtml(
-      mark,
-      html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${pin.id}" aria-label="${translateTemplate('핀 #{id} 카드로 이동', { id: pin.id })}" data-tip="${tip}">${pin.id}</button>`,
-    );
-    page.appendChild(mark);
+    places.forEach((place, index) => {
+      const mark = document.createElement('div');
+      mark.className =
+        'mark' + (lost ? ' st' : '') + (est ? ' est' : '') + (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '');
+      mark.dataset.pin = String(pin.id);
+      mark.dataset.fx = String(place.frac[0]);
+      Object.assign(mark.style, {
+        left: place.frac[0] * 100 + '%',
+        top: place.frac[1] * 100 + '%',
+        width: place.frac[2] * 100 + '%',
+        height: place.frac[3] * 100 + '%',
+      });
+      if (index === 0)
+        setHtml(
+          mark,
+          html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${pin.id}" aria-label="${translateTemplate('핀 #{id} 카드로 이동', { id: pin.id })}" data-tip="${tip}">${pin.id}</button>`,
+        );
+      place.page.appendChild(mark);
+    });
   }); // the tip carries the note
   markBadgeSides();
   drawChips();
@@ -650,8 +659,9 @@ function focusCard(id: number) {
   ) as HTMLElement | null;
   if (target) target.focus({ preventScroll: true });
 } // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
-// Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
-// drawn scrolls to the page the mark would be on.
+// Scrolls the mark of pin id into view and flashes it (switching to the pin's document first) - its first piece, where
+// its badge stands, when the mark is drawn as several; a pin whose mark is not drawn scrolls to the page the mark would
+// be on.
 function jumpPin(id: number) {
   if (viaDoc(id, jumpPin)) return;
   const pin = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id && pdoc(x) === DOC);
@@ -690,7 +700,7 @@ function jumpPin(id: number) {
     arrivePage(pinPlace(pin).page); // the page's top, or a figure page's figure
   }
 }
-// Hovering a card highlights its mark, along with any overlapping counterpart marks.
+// Hovering a card highlights its mark - every piece of it - along with any overlapping counterpart marks.
 function markIdsFor(pin: Pin) {
   return [pin.id].concat((pin.rel || []).map((entry) => entry.id));
 }
@@ -700,8 +710,7 @@ $('#pins').addEventListener('mouseover', (event: MouseEvent) => {
   const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
-    const mark = document.querySelector('.mark[data-pin="' + id + '"]');
-    if (mark) mark.classList.add('hi');
+    document.querySelectorAll('.mark[data-pin="' + id + '"]').forEach((mark) => mark.classList.add('hi'));
   });
 });
 $('#pins').addEventListener('mouseout', (event: MouseEvent) => {
@@ -710,8 +719,7 @@ $('#pins').addEventListener('mouseout', (event: MouseEvent) => {
   const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
-    const mark = document.querySelector('.mark[data-pin="' + id + '"]');
-    if (mark) mark.classList.remove('hi');
+    document.querySelectorAll('.mark[data-pin="' + id + '"]').forEach((mark) => mark.classList.remove('hi'));
   });
 });
 export {

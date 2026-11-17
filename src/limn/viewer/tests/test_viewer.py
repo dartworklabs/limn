@@ -3254,13 +3254,21 @@ class FrontendFigure(unittest.TestCase):
         )  # one message for the snapshot (groupNote)
 
     def test_marks_and_cards_place_a_figure_pin_where_its_element_is(self):
-        """marks() and the card's page link use pinPlace; a placed mark is not dashed; a lost element marks the card and
-        mark like a lost line; [보기] falls back to the mark's page; a figure region card is labelled by what the map
-        found."""
+        """marks() places a pin by pinPieces, which gives a figure pin the one place pinPlace names, and the card's page
+        link uses pinPlace; a placed mark is not dashed; a lost element marks the card and mark like a lost line; [보기]
+        falls back to the mark's page; a figure region card is labelled by what the map found."""
         m = extract_js_fn("marks")
-        self.assertIn(sq("const at=pinPlace(pin),page=document.getElementById('p'+at.page);"), sq(m))
-        self.assertIn(sq("if(!page||!isFrac(at.frac))return;"), sq(m))
+        self.assertIn(sq("const places=pinPieces(pin).flatMap(piece=>{"), sq(m))
+        self.assertIn(
+            sq("const page=document.getElementById('p'+piece.page);return page?[{page,frac:piece.frac}]:[];"), sq(m)
+        )
+        self.assertIn(sq("if(!places.length)return;"), sq(m))
         self.assertIn(sq("const est=isEstimated(pin)&&!hasMark(pin),lost=pin.stale||isElementLost(pin);"), sq(m))
+        # a figure pin carries no boxes, so its pieces are the one place its element is at in this build
+        self.assertIn(
+            sq("const at=pinPlace(pin);return isFrac(at.frac)?[{page:at.page,frac:at.frac}]:[];"),
+            sq(extract_js_fn("pinPieces")),
+        )
         c = extract_js_fn("card")
         # the open and the review card's N쪽, and compact's one head link '#N · L… · N쪽' (input diagnosis U5)
         self.assertEqual(sq(c).count("pinPlace(pin).page"), 1)  # one page label for both cards' links
@@ -3340,6 +3348,8 @@ class FrontendFigure(unittest.TestCase):
                         "isFrac",
                         "hasMark",
                         "pinPlace",
+                        "isPiece",
+                        "pinPieces",
                         "isElementLost",
                         "isEstimated",
                         "pinState",
