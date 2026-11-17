@@ -819,6 +819,25 @@ const esc = (text) =>
 function eventElement(event) {
   return event.target instanceof Element ? event.target : null;
 }
+// A DOM class as instanceof takes it (HTMLElement, HTMLInputElement, ...): what findElement, findMaybe and findAll check the
+// elements they give against.
+// The first element under scope that matches selector, which the code needs there and of that class: none, or one of
+// another class, is a fault of the page, thrown as an Error that names the selector and the class.
+function findElement(scope, selector, type) {
+  const found = scope.querySelector(selector);
+  if (found instanceof type) return found;
+  throw new Error(selector + ': ' + (found ? 'a ' + found.tagName + ', not a ' : 'no ') + type.name);
+}
+// The first element under scope that matches selector when it is of that class, else null - for an element that is
+// there only in some states (a card being edited, the drawn pages).
+function findMaybe(scope, selector, type) {
+  const found = scope.querySelector(selector);
+  return found instanceof type ? found : null;
+}
+// Every element under scope that matches selector and is of that class, in document order; the others are left out.
+function findAll(scope, selector, type) {
+  return Array.from(scope.querySelectorAll(selector)).filter((found) => found instanceof type);
+}
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
 // keyboard is up.
 function typingNow() {
@@ -6434,7 +6453,7 @@ function saveView() {
     saveViews();
     return;
   } // its reading line
-  if (!$('#doc .pg')) return;
+  if (!findMaybe(document, '#doc .pg', HTMLElement)) return;
   const anchor = topAnchor();
   VIEW_BY.set(DOC, {
     page: anchor ? anchor.page : 1,
@@ -10186,7 +10205,7 @@ function autoFitWidth() {
 // on every page of a document whose pages are all one size, wherever the column puts them (a manuscript keeps its
 // numbers in the corners).
 function pageNoSides() {
-  const pageBoxes = $$('#doc .pg');
+  const pageBoxes = findAll(document, '#doc .pg', HTMLElement);
   if (!pageBoxes.length || !pageBoxes[0].getClientRects().length) return;
   const widths = pageBoxes.map((pageBox) => pageBox.getBoundingClientRect().width),
     widest = Math.max(...widths);
@@ -14478,7 +14497,7 @@ if (window.ResizeObserver)
 // text field has focus, and the scroller's scroll padding keeps a field scrolled into view below it (responsive.css). A
 // long file name wraps the line past its 44px, so it is measured; 0 while the composer is hidden.
 if (window.ResizeObserver) {
-  const row = $('#composer .c-loc-row');
+  const row = findElement(document, '#composer .c-loc-row', HTMLElement);
   new ResizeObserver(() => {
     document.documentElement.style.setProperty('--loc-h', row.offsetHeight + 'px');
   }).observe(row, { box: 'border-box' });
@@ -14752,7 +14771,7 @@ function keepFieldInView() {
   // Touch only: a mouse window keeps its own scroll.
   if (!field || !COARSE_POINTER_QUERY.matches) return;
   if (field === $('#note') && BAND === LAYOUT_BAND.TABLET_SHEET)
-    $('#composer .c-loc-row').scrollIntoView({ block: 'start' });
+    findElement(document, '#composer .c-loc-row', HTMLElement).scrollIntoView({ block: 'start' });
   field.scrollIntoView({ block: 'nearest' });
   if (field === $('#note')) noteRowInView();
 }
@@ -14764,7 +14783,7 @@ function noteRowInView() {
   const row = $('#c-verdict-row');
   if (row.hidden || !row.getClientRects().length) return;
   const panel = $('#right'),
-    loc = $('#composer .c-loc-row'),
+    loc = findElement(document, '#composer .c-loc-row', HTMLElement),
     stuck = getComputedStyle(loc).position === 'sticky';
   const save = $('#c-actions').getBoundingClientRect().top - 8;
   const top = stuck
@@ -34957,7 +34976,7 @@ function drawPins() {
       : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
   ); // with no card, an undo row still gets its slot (cardRows)
   if (EDITOR.current) {
-    const slot = $('#pins .edit-slot');
+    const slot = findMaybe(document, '#pins .edit-slot', HTMLElement);
     if (slot) slot.replaceWith(EDITOR.current.el);
     else $('#pins').appendChild(EDITOR.current.el);
     renderEdit();

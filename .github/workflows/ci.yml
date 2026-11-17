@@ -65,6 +65,10 @@ jobs:
       # again and fail if the committed bytes differ, so an instance never serves a script its modules no longer make.
       - name: Viewer build is fresh
         run: npm run build:check
+      # The viewer's element types are generated from its page (tools/page_elements.py, docs/adr/0045-viewer-page-elements.md):
+      # write them again and fail if the committed declaration differs, so $('#id') is never typed from an older page.
+      - name: Viewer page declaration is fresh
+        run: uv run python tools/page_elements.py --check
       - name: Viewer type check
         run: npm run typecheck
       # Prettier's output is the viewer modules' layout (.prettierrc.json; .prettierignore names what it covers).

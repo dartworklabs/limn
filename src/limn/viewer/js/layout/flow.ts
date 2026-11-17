@@ -48,7 +48,7 @@ import {
 } from './flow-panel-size.ts';
 import { syncBackLayer } from './input.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, typingNow, $$ } from '../platform/dom.ts';
+import { $, findElement, typingNow, $$ } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
@@ -452,7 +452,7 @@ if (window.ResizeObserver)
 // text field has focus, and the scroller's scroll padding keeps a field scrolled into view below it (responsive.css). A
 // long file name wraps the line past its 44px, so it is measured; 0 while the composer is hidden.
 if (window.ResizeObserver) {
-  const row = $('#composer .c-loc-row');
+  const row = findElement(document, '#composer .c-loc-row', HTMLElement);
   new ResizeObserver(() => {
     document.documentElement.style.setProperty('--loc-h', row.offsetHeight + 'px');
   }).observe(row, { box: 'border-box' });
@@ -726,7 +726,7 @@ function keepFieldInView() {
   // Touch only: a mouse window keeps its own scroll.
   if (!field || !COARSE_POINTER_QUERY.matches) return;
   if (field === $('#note') && BAND === LAYOUT_BAND.TABLET_SHEET)
-    $('#composer .c-loc-row').scrollIntoView({ block: 'start' });
+    findElement(document, '#composer .c-loc-row', HTMLElement).scrollIntoView({ block: 'start' });
   field.scrollIntoView({ block: 'nearest' });
   if (field === $('#note')) noteRowInView();
 }
@@ -738,7 +738,7 @@ function noteRowInView() {
   const row = $('#c-verdict-row');
   if (row.hidden || !row.getClientRects().length) return;
   const panel = $('#right'),
-    loc = $('#composer .c-loc-row'),
+    loc = findElement(document, '#composer .c-loc-row', HTMLElement),
     stuck = getComputedStyle(loc).position === 'sticky';
   const save = $('#c-actions').getBoundingClientRect().top - 8;
   const top = stuck
