@@ -21,7 +21,7 @@ function closeVectorDocument(doc: PdfDocument | null) {
   } catch (error) {}
 }
 // Gives up on vector drawing for the document on screen: the pages stay PNG, and #vec-chip says why.
-function failVector(message: string, cause?) {
+function failVector(message: string, cause?: unknown) {
   VECTOR_PDF.failed = message;
   VECTOR_PDF.gen++;
   cancelVectorDraw();
@@ -36,7 +36,11 @@ function failVector(message: string, cause?) {
   chip.dataset.tip = translateTemplate(
     'PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다',
     {
-      reason: translate(message) + (cause && cause.message ? ' (' + String(cause.message).slice(0, 100) + ')' : ''),
+      reason:
+        translate(message) +
+        (typeof cause === 'object' && cause !== null && 'message' in cause && cause.message
+          ? ' (' + String(cause.message).slice(0, 100) + ')'
+          : ''),
     },
   );
 }

@@ -31,7 +31,8 @@ function translateTemplate(key: string, values: Record<string, unknown>) {
     values && values[field] != null ? String(values[field]) : placeholder,
   );
 }
-function translateMessage(message) {
+// A message that is not text (a node without a value) comes back as it is.
+function translateMessage<Message>(message: Message): Message | string {
   if (LANG !== UI_LANG.EN || typeof message !== 'string') return message;
   const english = translate(message);
   if (english !== message) return english;
@@ -43,11 +44,13 @@ function translateMessage(message) {
 // An API error body {error, reason} as the UI shows it (docs/handbook/viewer.md §뷰어 규칙을 바꿀 때). Korean shows the
 // server's `error` text as is - it is the agent contract (api.md §오류 응답). English looks up the stable reason code
 // ('reason:<code>' in the table) and falls back to the server text through the table. '' when there is no body.
-function errText(body) {
-  if (!body) return '';
-  const serverText = body.error == null ? '' : String(body.error);
-  if (LANG === UI_LANG.EN && typeof body.reason === 'string') {
-    const english = I18N_EN['reason:' + body.reason];
+function errText(body: unknown) {
+  if (!body || typeof body !== 'object') return '';
+  const error = 'error' in body ? body.error : undefined,
+    reason = 'reason' in body ? body.reason : undefined;
+  const serverText = error == null ? '' : String(error);
+  if (LANG === UI_LANG.EN && typeof reason === 'string') {
+    const english = I18N_EN['reason:' + reason];
     if (typeof english === 'string') return english;
   }
   return translateMessage(serverText);
@@ -87,12 +90,12 @@ function warnText(text: string | null | undefined) {
 // attributes - alone, so a document named '그림' or a note that reads '완료' stays as written. The UI words drawn
 // inside it are translate()'d by the code that draws them. Asked of an element (an SVG one has no translate and counts
 // as translatable).
-function i18nUser(element) {
-  return !!element && element.translate === false;
+function i18nUser(element: Node | null | undefined) {
+  return element instanceof HTMLElement && element.translate === false;
 }
 // Translates an element's UI attributes in place, unless it is user text.
-function translateAttributes(element) {
-  if (i18nUser(element)) return;
+function translateAttributes(element: Node) {
+  if (!(element instanceof Element) || i18nUser(element)) return;
   for (const attribute of I18N_ATTRS) {
     const value = element.getAttribute(attribute);
     if (value) {
