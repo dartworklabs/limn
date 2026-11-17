@@ -14,7 +14,7 @@ const PURGING = new Set<number>();
 // swallowed (consumeMine removes it as soon as it's confirmed), and if that judgment hasn't arrived after 10 seconds (a
 // lost response), it's given up on and later values are announced normally. An action from another tab isn't in this
 // map, so it's shown as usual.
-const MY_ACTIONS = new Map();
+const MY_ACTIONS = new Map<number | null, number>();
 function markMine(id: number | null) {
   MY_ACTIONS.set(id, Date.now() + 10000);
 }

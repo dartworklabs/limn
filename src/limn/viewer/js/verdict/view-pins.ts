@@ -184,7 +184,7 @@ function verdictOrder(doc: string): VerdictOrder {
   if (hit) return hit;
   const kind = docKindOf(doc),
     groups: Map<string, { t: VerdictTarget; all: { p: Pin; t: VerdictTarget }[] }> = new Map(),
-    seen = new Set();
+    seen = new Set<number>();
   for (const pin of OPEN_ALL.concat(REVIEW_ALL, DONE_ALL, [...CONFIRMING_PIN.values()])) {
     if (seen.has(pin.id) || pdoc(pin) !== doc || !verdictOf(pin)) continue;
     seen.add(pin.id);

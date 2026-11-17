@@ -13,7 +13,7 @@ import { endJumpForScroll } from '../layout/flow-scroll.ts';
 // again.
 function markBadgeSides() {
   pageNoSides();
-  const rooms = new Map();
+  const rooms = new Map<HTMLElement | null, ReturnType<typeof markBadgeRoom>>();
   findAll(document, '.mark', HTMLElement).forEach((mark) => {
     const page = mark.parentElement;
     if (!rooms.has(page)) rooms.set(page, markBadgeRoom(page));

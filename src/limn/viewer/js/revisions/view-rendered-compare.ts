@@ -501,7 +501,7 @@ function wordsOfText(text: string) {
 // against): twice the words they share over all their words (1 for two empty texts). Pure.
 function wordLikeness(left: string[], right: string[]) {
   if (!left.length && !right.length) return 1;
-  const counts = new Map();
+  const counts = new Map<string, number>();
   let shared = 0;
   for (const word of left) counts.set(word, (counts.get(word) || 0) + 1);
   for (const word of right) {
@@ -530,7 +530,7 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
   const raw = commonSubsequence(oldUnits, newUnits, (left, right) => left.key === right.key, budget),
     out: { t: string; a: number; b: number }[] = [];
   let at = 0;
-  const words = new Map(),
+  const words = new Map<CompareUnit, string[]>(),
     wordsOf = (unit: CompareUnit) => {
       let cached = words.get(unit);
       if (!cached) {
@@ -593,7 +593,7 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
       addedAt++;
     }
   }
-  const added = new Map();
+  const added = new Map<string, number[]>();
   out.forEach((operation, index) => {
     if (operation.t !== 'ins') return;
     const unit = newUnits[operation.b];

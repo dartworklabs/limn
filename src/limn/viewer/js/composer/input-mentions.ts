@@ -103,7 +103,7 @@ function mentionTags(field: HTMLTextAreaElement): MentionTag[] {
 // Each of picks ({login, tok}) bound to the first '@name' (tok) in text that a tag can start at and no earlier pick
 // took; a pick whose name is not there is dropped. Pure.
 function mentionBind(picks: { login: string; tok: string }[], text: string): MentionTag[] {
-  const taken = new Set(),
+  const taken = new Set<number>(),
     out: MentionTag[] = [];
   for (const pick of picks) {
     let position = text.indexOf(pick.tok);

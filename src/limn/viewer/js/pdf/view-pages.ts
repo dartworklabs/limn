@@ -49,7 +49,7 @@ function widestPagePoints() {
 // The most common of the page widths (points): the mode, the wider on a tie; 0 for none. A figure document opens by it
 // (openScale): its one wide outlier (a graphical abstract) scrolls sideways instead of shrinking every figure. Pure.
 function commonWidth(widths: number[]) {
-  const counts = new Map();
+  const counts = new Map<number, number>();
   let best = 0,
     most = 0;
   for (const width of widths) {

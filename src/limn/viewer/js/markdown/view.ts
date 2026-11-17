@@ -420,7 +420,7 @@ function isFieldBusy() {
     inDoc = (node: any) => node instanceof Node && doc.contains(node);
   return inDoc(held) || (!!active && inDoc(active) && active !== doc && COMPOSING_FIELDS.has(active));
 }
-const COMPOSING_FIELDS = new Set();
+const COMPOSING_FIELDS = new Set<EventTarget | null>();
 document.addEventListener(
   'compositionstart',
   (event) => {
@@ -1856,7 +1856,7 @@ async function checkTreeImages(): Promise<number> {
     return 0;
   const paneRect = $('#left').getBoundingClientRect(),
     near: { img: HTMLImageElement; d: number }[] = [],
-    shown = new Set();
+    shown = new Set<string>();
   for (const img of [...document.querySelectorAll('#md .md-pic img')] as HTMLImageElement[]) {
     const path = img.parentElement && img.parentElement.dataset.path;
     if (path) shown.add(path);
@@ -1887,7 +1887,7 @@ async function checkTreeImages(): Promise<number> {
   IMAGE_CHECK.last = now;
   let count = 0,
     moved = 0;
-  const seen = new Set();
+  const seen = new Set<string>();
   try {
     for (const { img } of near) {
       const box = img.parentElement,
@@ -2071,7 +2071,7 @@ function goToSlug(id: string): number {
     want = decodeURIComponent(want);
   } catch (error) {}
   want = want.toLowerCase();
-  const seen = new Map();
+  const seen = new Map<string, number>();
   let at = -1;
   MARKDOWN_VIEW.heads.forEach((heading, index) => {
     if (at >= 0) return;
@@ -2348,7 +2348,7 @@ function lineLeaves(first: number, last: number) {
       end = +(block.dataset.hi || 0);
     return start <= last && end >= first && !block.querySelector('[data-line],[data-lo]');
   });
-  const out = new Set();
+  const out = new Set<Element>();
   for (const element of [...lines, ...blocks]) {
     const row = element.closest('tr[data-lo]');
     out.add(row && column.contains(row) ? row : element);

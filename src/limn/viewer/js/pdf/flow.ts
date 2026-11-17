@@ -247,7 +247,7 @@ function searchGutter(lines: any[]): number[] | null {
   const at = [...new Set(boxes.flatMap((box) => [box.x0, box.x1]))].sort((first, second) => first - second),
     low = at[0],
     high = at[at.length - 1],
-    coverChange = new Map();
+    coverChange = new Map<number, number>();
   boxes.forEach((box) => {
     coverChange.set(box.x0, (coverChange.get(box.x0) ?? 0) + 1);
     coverChange.set(box.x1, (coverChange.get(box.x1) ?? 0) - 1);
@@ -324,7 +324,7 @@ function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?:
   const crossed = new Set(
       lines.flatMap((line, index) => (side[index] === 2 && blockOf[index] >= 0 ? [blockOf[index]] : [])),
     ),
-    left = new Map();
+    left = new Map<string, number>();
   lines.forEach((line, index) => {
     const sideIndex = side[index];
     if (sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])) return;

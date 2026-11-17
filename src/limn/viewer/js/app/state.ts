@@ -276,7 +276,7 @@ let LAYOUT: string | null = null,
   SIDE_OPEN = true,
   SELMODE = false,
   ZOOMED = false;
-const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
+const OPEN_CARDS = new Set<number | null>(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
 // place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
@@ -289,7 +289,7 @@ let KIND_NEW = REQUEST_KIND.FIX as string,
 let PEOPLE: PersonSeen[] = [],
   PEOPLE_KNOWN = false,
   MENTION_ONLY = false;
-const THREAD_OPEN = new Set();
+const THREAD_OPEN = new Set<number>();
 /** Closed reply drafts keyed by pin; these snapshots stay within the current page. */
 const REPLY_DRAFT: Map<string, ReplyDraft> = new Map();
 /** Latest reply visit for each pin, including visits closed empty or already sent. */
@@ -328,8 +328,8 @@ function currentVisit(visit: Visit) {
 let REVIEW_ALL: Pin[] = [];
 const META_BY = new Map(),
   VIEW_BY = new Map(),
-  BUILD_ERR_BY = new Map(),
-  DOC_SEQ = new Map();
+  BUILD_ERR_BY = new Map<string | null, BuildStatus>(),
+  DOC_SEQ = new Map<string | null, number>();
 window.__pinViewerBoot = Date.now(); // a marker for checking reload status from outside
 
 // Sets BAND, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.

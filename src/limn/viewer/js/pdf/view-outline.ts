@@ -291,8 +291,8 @@ function outlineGrouped(entries: OutlineEntry[]) {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase(); // as mergeOutlineLabels reads a title
-  const under = new Map(),
-    several = new Set(),
+  const under = new Map<string, number>(),
+    several = new Set<string>(),
     set: Set<number> = new Set();
   entries.forEach((entry) => {
     const key = normalize((entry.number || '') + ' ' + entry.title),

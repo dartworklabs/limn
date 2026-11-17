@@ -189,7 +189,7 @@ function clipMarkedText(text: string, max: number) {
 // a diff shows it. Pure.
 function countAddedHidden(text: string, base: string): [string, number][] {
   const count = (text: string) => {
-    const counts = new Map();
+    const counts = new Map<string, number>();
     for (const line of String(text).split('\n'))
       for (const marked of findHidden(line)) {
         const name = hiddenName(marked.ch.codePointAt(0) || 0);

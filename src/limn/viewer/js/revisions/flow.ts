@@ -668,7 +668,7 @@ function renderCommitList() {
       paintedIds({ commit: REVISION_VIEW.commit, base: REVISION_VIEW.base }, REVISION_VIEW.rangeIds),
     ),
     side = sideRows(rows),
-    fresh = REVISION_VIEW.seenState === SEEN_STATE.OK ? REVISION_VIEW.seenIds : new Set();
+    fresh = REVISION_VIEW.seenState === SEEN_STATE.OK ? REVISION_VIEW.seenIds : new Set<string>();
   const order = rows.filter((row) => inside.has(row.id)).map((row) => row.id),
     ends = new Set([order[0], order[order.length - 1]]),
     base = REVISION_VIEW.base ? REVISION_VIEW.rangeBase || REVISION_VIEW.base : '';

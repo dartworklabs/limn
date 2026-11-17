@@ -565,7 +565,7 @@ async function offlinePrepare() {
       }
     }
     const all = Array.from(urls),
-      missed = new Set();
+      missed = new Set<string>();
     let kept = 0,
       failed = 0;
     for (let i = 0; i < all.length; i += OFF_KEEP_CHUNK) {

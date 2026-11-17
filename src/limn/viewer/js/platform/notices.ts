@@ -1175,7 +1175,7 @@ function digestBrief(item: any[]): string {
 // count ('새 핀 1', one per document) adds its count up ('새 핀 2'), any other counts how many said it ('나를 부름 2').
 // Pure.
 function digestLine(briefs: string[]): string {
-  const seen = new Map();
+  const seen = new Map<string, { n: number; counted: boolean }>();
   briefs.forEach((brief) => {
     const match = /^(.*\S) (\d+)$/.exec(brief),
       name = match ? match[1] : brief,
