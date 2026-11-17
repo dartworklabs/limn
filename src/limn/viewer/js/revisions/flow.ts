@@ -1376,15 +1376,15 @@ function highlightPinLines(target: RevTarget) {
     return;
   }
   const rows = $$('#revision-diff .rd-line');
-  let first = null as Element | null;
-  rows.forEach((line) => {
-    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
+  let first: Element | null = null;
+  for (const line of rows) {
+    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) continue;
     const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
     }
-  });
+  }
   target.hit = !!first || touchesPin(REVISION_VIEW.files, target, 5);
   // when only a neighbouring line changed, the guide never speaks of "the highlighted line": there is none
   target.near = !first && target.hit;
@@ -1392,17 +1392,17 @@ function highlightPinLines(target: RevTarget) {
     const fileIndex = pinFileIndex(REVISION_VIEW.files, target.file);
     if (fileIndex < 0) target.hit = false;
     else {
-      let best = null as Element | null,
+      let best: Element | null = null,
         bestDistance = Infinity;
-      rows.forEach((line) => {
+      for (const line of rows) {
         const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
-        if (!lineNumber) return;
+        if (!lineNumber) continue;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
           bestDistance = distance;
           best = line;
         }
-      });
+      }
       first = best;
     }
   }
