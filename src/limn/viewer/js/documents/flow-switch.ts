@@ -90,7 +90,7 @@ function openNavigationSheet() {
 // The outline's current section in the open sheet (docs/handbook/viewer.md §모바일 레이아웃): the sheet's outline is
 // fitted around its current row (fitNavigationSheet). Nothing but the sheet and its list scroll, and the focus stays on
 // the sheet.
-function revealSheetOutline(sheet) {
+function revealSheetOutline(sheet: HTMLDialogElement) {
   const rows = sheetOutlineRows(),
     current = $('#ns-outline-items').querySelector(':scope>.ol-active');
   fitNavigationSheet(sheet, current ? rows.indexOf(current as HTMLElement) : 0, true);
@@ -337,7 +337,7 @@ function drawNavigationView() {
 // several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
 // '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for
 // translate/translateTemplate.
-function posLabel(doc, page, pageCount, multi, wide, mode) {
+function posLabel(doc: string, page: number, pageCount: number, multi: boolean, wide: boolean, mode: string) {
   if (mode === VIEW_MODE.REVISIONS)
     return { name: '', pages: translate('변경사항'), label: translate('이동') + ' · ' + translate('변경사항') };
   const name = multi && wide ? doc : '',
@@ -386,6 +386,31 @@ function drawPos() {
   button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
   $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
 }
+// A document's kept view (VIEW_BY, saveView): a Markdown or text document's reading line (line, off), or a PDF's top
+// spot (page, frac), its scale (k, or the page width w), its sideways scroll (sl); with the layout it was kept in.
+interface KeptLineView {
+  line: number;
+  off: number;
+  lay: string;
+  page?: undefined;
+  frac?: undefined;
+  k?: undefined;
+  w?: undefined;
+  zoomed?: undefined;
+  sl?: undefined;
+}
+interface KeptPageView {
+  line?: undefined;
+  off?: undefined;
+  page: number;
+  frac: number;
+  k?: number;
+  w?: number;
+  zoomed?: boolean;
+  sl?: number;
+  lay: string;
+}
+type KeptView = KeptLineView | KeptPageView;
 // Viewed position: page/fraction anchored at the top, page scale (PAGE_SCALE), whether zoomed manually in compact,
 // horizontal scroll. Kept in sessionStorage so it survives a reload.
 function saveView() {
@@ -427,7 +452,7 @@ function loadViews() {
 }
 // A kept view's scale: its k, or - for a view kept with the page width (w) instead - that width over the widest page
 // (points); 0 when it has neither. Pure.
-function viewScale(view, widest) {
+function viewScale(view: KeptView, widest: number) {
   return typeof view.k === 'number' && view.k > 0
     ? view.k
     : typeof view.w === 'number' && view.w > 0 && widest > 0
@@ -437,7 +462,7 @@ function viewScale(view, widest) {
 // The page scale is decided first (buildDoc sizes pages by PAGE_SCALE). Only a scale viewed in the same layout is
 // restored - so a width fit for a folded screen is never applied on desktop; without one the document starts at its
 // saved or default scale (startScale). Returns whether a kept view decided it.
-function applyViewWidth(view) {
+function applyViewWidth(view: KeptView | undefined) {
   if (view && view.lay === LAYOUT && (LAYOUT === LAYOUT_MODE.WIDE || view.zoomed)) {
     const scale = viewScale(view, pageSurface().widestPoints());
     if (scale) {
@@ -450,7 +475,7 @@ function applyViewWidth(view) {
   setPageScale(pageSurface().startScale());
   return false;
 }
-function restoreView(view) {
+function restoreView(view: KeptView | undefined) {
   if (!view) return;
   if (isMarkdownDoc()) {
     markdownSurface().reading().want =
@@ -470,7 +495,7 @@ addEventListener('pagehide', saveView);
 // document's meta (NAVGEN): the address already names where the traversal went, so the late answer neither opens its
 // document nor puts its hash on that entry, and the document left keeps its draft. While it waits, SWITCH_TO names it
 // (switchPending).
-async function switchDoc(doc) {
+async function switchDoc(doc: string | undefined) {
   if (!doc || doc === DOC || !docInfo(doc)) return;
   const seq = setSwitchseq(SWITCHSEQ + 1),
     navigation = NAVGEN;
@@ -545,7 +570,7 @@ function switchPending(doc: string) {
 // Redraws the screen from the current META (tab switching), including open and done rows from this document before the
 // background refresh. The build chip, error panel, and auto-polling baseline are switched to that document's values
 // too.
-function showDoc(view) {
+function showDoc(view: KeptView | undefined) {
   endJumpForScroll();
   drawMeta();
   const hadWidth = applyViewWidth(view);
@@ -565,7 +590,7 @@ function showDoc(view) {
   docTitle(false);
 }
 // The tab title: 'Limn · <label> · <document> · 열린 N' (+ ' · 검토 N' once the pin list knows the review count).
-function docTitle(review) {
+function docTitle(review: boolean) {
   if (!META) return;
   document.title =
     'Limn · ' +
@@ -575,7 +600,7 @@ function docTitle(review) {
     translateTemplate('열린 {n}', { n: PINS.length }) +
     (review && REVIEW_ALL.length ? ' · ' + translateTemplate('검토 {n}', { n: REVIEW_ALL.length }) : '');
 }
-function cycleDoc(step) {
+function cycleDoc(step: number) {
   if (!multiDoc()) return;
   const index = DOCS.findIndex((entry) => entry.key === DOC);
   switchDoc(DOCS[(index + step + DOCS.length) % DOCS.length].key);
@@ -598,7 +623,7 @@ function followHash() {
 }
 // A #number/[보기]/[수정] on another document's pin: switches to that document, then calls `then` again (used by
 // jumpPin/openEdit at the very top). Returns true if it switched.
-function viaDoc(id, then) {
+function viaDoc(id: number, then: (id: number) => void) {
   const pin = OPEN_ALL.find((x) => x.id === id);
   if (!pin || pdoc(pin) === DOC || !docInfo(pdoc(pin))) return false;
   const doc = pdoc(pin),

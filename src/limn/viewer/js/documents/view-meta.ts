@@ -9,14 +9,14 @@ import { isAgent, who, isHuman } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
 import { isMarkdownDoc, isTextDoc, isViewer, setStatusSync } from './state.ts';
 import { markdownSurface } from './state-seams.ts';
-function builtAtEpoch(builtAt) {
+function builtAtEpoch(builtAt: string) {
   const parsed = Date.parse(String(builtAt || '').replace(' ', 'T'));
   return isNaN(parsed) ? null : parsed / 1000;
 }
 // The "manuscript modified" badge - judged only from numbers the server provides (stale_build, src_age_s), independent
 // of the browser's clock/timezone. Only a legacy response with no stale_build falls back to comparing
 // src_mtime/build_src_mtime (both server epochs).
-function updateStaleBadge(meta) {
+function updateStaleBadge(meta: Meta) {
   const badge = $('#meta-stale'),
     rebuildButton = $('#btn-rebuild');
   let stale;
@@ -36,7 +36,7 @@ function updateStaleBadge(meta) {
   badge.textContent = translateTemplate('원고 수정됨 · {n}분 전', { n: minutes });
   rebuildButton.classList.add('btn-default');
 }
-const SYNC_REASON = {
+const SYNC_REASON: Record<string, string> = {
   not_git: 'Git 저장소가 아닙니다',
   no_upstream: 'main 업스트림이 없습니다',
   not_main: '현재 체크아웃이 main이 아닙니다',
@@ -157,21 +157,22 @@ function drawMeta() {
 // · me. Each piece keeps its words together and the lines break only between pieces; a piece longer than the line (a
 // long file name) breaks after / . _ - (<wbr>), never cut at '…' with its rest only in a long-press tip. The words are
 // the viewer's (translate/translateTemplate), the names the user's: #more-info is translate="no".
-function moreInfo(meta, me) {
+function moreInfo(meta: Meta, me: Me) {
   const built = String(meta.built_at || '')
     .slice(5, 16)
     .replace('T', ' ');
-  const piece = (text) =>
+  const piece = (text: string) =>
     html`<span class="mc">${String(text)
       .split(/([/._-])/)
       .map((part, index) => (index % 2 ? html`${part}<wbr>` : part))}</span>`;
-  const line = (texts) => texts.filter(Boolean).map((text, index) => (index ? html` · ${piece(text)}` : piece(text)));
+  const line = (texts: string[]) =>
+    texts.filter(Boolean).map((text, index) => (index ? html` · ${piece(text)}` : piece(text)));
   return html`${line([meta.main, translateTemplate('{n}쪽', { n: meta.pages.length }), commitShown(meta.head)])}<br>${line([built && built !== '?' ? built + ' ' + translate('빌드') : '', translateTemplate('나: {name}', { name: who(me) })])}`;
 }
 // The commit a meta names, or '' when it names none: the server sends '-' for a manuscript outside Git and nothing
 // before the first build. The meta lines leave that piece out with its separator - they read 'main.tex · 2쪽 · -'.
 // Pure.
-function commitShown(head) {
+function commitShown(head: string) {
   const text = String(head == null ? '' : head).trim();
   return text === '-' || text === '?' ? '' : text;
 }

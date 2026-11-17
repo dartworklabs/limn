@@ -14,17 +14,17 @@ function isMarkdownDoc() {
 function isTextDoc() {
   return !!META && showsSourceLines(META.kind);
 }
-function docInfo(doc) {
+function docInfo(doc: string | null) {
   return DOCS.find((entry) => entry.key === doc) || null;
 }
 function pdoc(pin: Pin) {
   return (pin && pin.doc) || DEFAULT_DOC;
 }
-function isRegion(pin) {
+function isRegion(pin: { kind?: string; file?: string; pdf?: string } | null | undefined) {
   return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
 }
 // Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
-function withDocQuery(path, doc?) {
+function withDocQuery(path: string, doc?: string | null) {
   doc = doc || DOC;
   if (!doc) return path;
   return path + (path.indexOf('?') < 0 ? '?' : '&') + 'doc=' + encodeURIComponent(doc);

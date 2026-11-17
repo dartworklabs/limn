@@ -487,7 +487,7 @@ function offUiFocusUndo(id: number) {
   if (button) button.focus({ preventScroll: true });
 }
 
-$('#sec-queue').addEventListener('click', (event) => {
+$('#sec-queue').addEventListener('click', (event: MouseEvent) => {
   const button = (event.target as HTMLElement).closest('button') as HTMLElement | null;
   if (!button) return;
   if (button.id === 'queue-toggle') {
@@ -514,7 +514,7 @@ $('#sec-queue').addEventListener('click', (event) => {
 // A mouse on an undo row holds its window; leaving it starts the window again (the status line's undos do the same).
 $('#queue-rows').addEventListener(
   'pointermove',
-  (event) => {
+  (event: PointerEvent) => {
     if (event.pointerType !== 'mouse') return;
     const row = (event.target as HTMLElement).closest('[data-undo]') as HTMLElement | null;
     const undo = row ? OFFUI.undos.get(Number(row.dataset.qid)) : undefined;
@@ -525,7 +525,7 @@ $('#queue-rows').addEventListener(
   },
   { passive: true },
 );
-$('#queue-rows').addEventListener('pointerout', (event) => {
+$('#queue-rows').addEventListener('pointerout', (event: PointerEvent) => {
   const row = (event.target as HTMLElement).closest('[data-undo]') as HTMLElement | null;
   if (!row) return;
   const to = event.relatedTarget as Node | null;
@@ -542,14 +542,14 @@ $('#queue-rows').addEventListener('pointerout', (event) => {
 // shows the row.
 $('#doc').addEventListener(
   'pointerdown',
-  (event) => {
+  (event: PointerEvent) => {
     if ((event.target as HTMLElement).closest('.qmark-jump')) event.stopPropagation();
   },
   true,
 );
 $('#doc').addEventListener(
   'mousedown',
-  (event) => {
+  (event: MouseEvent) => {
     if ((event.target as HTMLElement).closest('.qmark-jump')) {
       event.stopPropagation();
       event.preventDefault();
@@ -557,7 +557,7 @@ $('#doc').addEventListener(
   },
   true,
 );
-$('#doc').addEventListener('click', (event) => {
+$('#doc').addEventListener('click', (event: MouseEvent) => {
   const button = (event.target as HTMLElement).closest('.qmark-jump') as HTMLElement | null;
   if (!button) return;
   offUiReveal(Number(button.dataset.qid));

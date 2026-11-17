@@ -64,7 +64,7 @@ function buildChipText(build) {
 // --git-pull (docs/handbook/build-sync.md §재빌드 전 원격 main 당겨오기): appends one line about the pull result to the
 // build's completion (the status line's message, or the error panel's title). ok gets the applied commit range,
 // skipped/error just the reason - up_to_date has nothing worth reporting, so nothing is appended.
-function pullSuffix(build) {
+function pullSuffix(build: BuildStatus) {
   const pull = build && build.pull;
   if (!pull || !pull.state) return '';
   if (pull.state === PULL_STATE.OK)

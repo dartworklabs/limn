@@ -135,7 +135,11 @@ function offDb(): Promise<IDBDatabase | null> {
 // after that (the browser out of room at the commit), and the write is rolled back. Answered at the request, a queued
 // pin would read as kept, the composer would close on it, and the note would be gone. So a write answers null unless
 // it committed.
-function offIn(store, mode, operation): Promise<any> {
+function offIn<Result>(
+  store: string,
+  mode: 'readonly' | 'readwrite',
+  operation: (store: IDBObjectStore) => IDBRequest<Result>,
+): Promise<any> {
   return offDb().then(
     (db) =>
       new Promise((resolve) => {
@@ -163,15 +167,52 @@ function offIn(store, mode, operation): Promise<any> {
   );
 }
 /** One operation on the queue. */
-function offQueue(mode, operation): Promise<any> {
+function offQueue<Result>(
+  mode: 'readonly' | 'readwrite',
+  operation: (store: IDBObjectStore) => IDBRequest<Result>,
+): Promise<any> {
   return offIn(OFF_STORE, mode, operation);
 }
 /** Every queued record, oldest first - the order they were written is the order they are sent. */
 function offAll(): Promise<any[]> {
   return offQueue('readonly', (store) => store.getAll()).then((records) => (Array.isArray(records) ? records : []));
 }
+// A pin queued while the connection was gone: what its send needs to place it again and write it. id is its key in the
+// queue, set once it is stored.
+interface QueuedPin {
+  id?: number;
+  v: number;
+  label: string;
+  doc: string | null;
+  build: string;
+  page: number;
+  rect: { x0: number; y0: number; x1: number; y1: number } | null;
+  frac: number[];
+  pt: { w: number; h: number } | null;
+  quote: string;
+  note: string;
+  kind_req: string | null;
+  assignee: string | null;
+  mentions: string[];
+  at: string;
+  held: boolean;
+  why: string;
+  sent: boolean;
+  top?: number;
+  place: { file?: string; name: string; lo?: number; hi?: number } | null;
+  lines: {
+    file?: string;
+    name: string;
+    lo: number;
+    hi: number;
+    text: string;
+    kind: string | null;
+    scope: string | null;
+  } | null;
+  idem: string;
+}
 // Adds a record to the queue; answers its key, or null when it was not kept.
-function offAdd(rec) {
+function offAdd(rec: QueuedPin) {
   return offQueue('readwrite', (store) => store.add(rec));
 }
 // The pins this browser's queue has written, kept in the state store (OFF_WROTE, newest last, OFF_WROTE_MAX of them).
@@ -205,15 +246,15 @@ async function offWroteKeep(rest: any[]) {
     await offIn(OFF_STATE, 'readwrite', (store) => store.put({ key: OFF_WROTE, ids: kept }));
 }
 /** Whether this record is still queued - another tab of this browser may have written and dropped it. */
-function offHas(id): Promise<boolean> {
+function offHas(id: number): Promise<boolean> {
   return offQueue('readonly', (store) => store.getKey(id)).then((key) => key !== null && key !== undefined);
 }
 // Writes a record back into the queue, under its own key.
-function offPut(rec) {
+function offPut(rec: QueuedPin) {
   return offQueue('readwrite', (store) => store.put(rec));
 }
 // Drops a record from the queue.
-function offDel(id) {
+function offDel(id: number) {
   return offQueue('readwrite', (store) => store.delete(id));
 }
 // Reads the queue and lets the status line say how many wait and how many of those lost their place.
@@ -233,7 +274,7 @@ async function offlineSync() {
 // read the network refuses is answered from that store instead of failing - said once on the status line, with when it
 // was read, so a stored list is never taken for the current one.
 /** The store key of a read: its path and query without the cache-busting bits. */
-function offReadKey(url, options): string | null {
+function offReadKey(url: string, options: { method?: string } | null | undefined): string | null {
   if (options && options.method && options.method !== 'GET') return null;
   const address = String(url);
   if (address.indexOf('light=1') >= 0) return null;
@@ -262,7 +303,10 @@ function offStash(url: string, data: any, status: number, options?: { method?: s
   void offIn(OFF_STATE, 'readwrite', (store) => store.put({ key, data, status, at: Date.now() }));
 }
 /** The stored answer to a read, or null - never one the server refused. */
-function offStashed(url, options): Promise<{ data: any; status: number; at: number } | null> {
+function offStashed(
+  url: string,
+  options: { method?: string } | null | undefined,
+): Promise<{ data: any; status: number; at: number } | null> {
   const key = offReadKey(url, options);
   if (!key) return Promise.resolve(null);
   return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (stored) => {
@@ -316,7 +360,7 @@ function offlineMayServe() {
 // Says once per visit that what is on screen was read before the connection went, and when. The pins and the pages
 // are that moment's, not this one's: the status line already says the connection is gone, and this says how old the
 // screen is.
-function offStaleSaid(at) {
+function offStaleSaid(at: number) {
   if (OFF.saidStale) return;
   OFF.saidStale = true;
   const readAt = new Date(at),
