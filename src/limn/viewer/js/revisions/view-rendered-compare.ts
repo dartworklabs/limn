@@ -47,17 +47,29 @@ import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
 // the observer that lays its gutter chips out again when its width changes (ro), the status line it said (line) and
 // what it counted (said: the answer and the counts, so a range's line can take the source diff's commit and file counts
 // once they come).
-const RENDERED_COMPARE = {
+interface RenderedCompareState {
+  seq: number;
+  key: string;
+  worker: Worker | null;
+  job: MarkdownParseJob | null;
+  stops: HTMLElement[][];
+  at: number;
+  ro: ResizeObserver | null;
+  root: HTMLElement | null;
+  line: string;
+  said: { r: RevisionSources; c: { ins: number; del: number; mod: number; move: number } | null } | null;
+}
+const RENDERED_COMPARE: RenderedCompareState = {
   seq: 0,
   key: '',
-  worker: null as Worker | null,
-  job: null as MarkdownParseJob | null,
-  stops: [] as HTMLElement[][],
+  worker: null,
+  job: null,
+  stops: [],
   at: -1,
-  ro: null as ResizeObserver | null,
-  root: null as HTMLElement | null,
+  ro: null,
+  root: null,
   line: '',
-  said: null as { r: RevisionSources; c: { ins: number; del: number; mod: number; move: number } | null } | null,
+  said: null,
 };
 // the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
 const MAX_DIFF_CELLS = 4e6;
