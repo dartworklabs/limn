@@ -34,9 +34,9 @@ function showOutlineWidth(width: number) {
   width = Math.round(Math.max(bounds.min, Math.min(bounds.max, width)));
   document.documentElement.style.setProperty('--outline-width', width + 'px');
   const grip = $('#outline-grip');
-  grip.setAttribute('aria-valuemin', bounds.min);
-  grip.setAttribute('aria-valuemax', bounds.max);
-  grip.setAttribute('aria-valuenow', width);
+  grip.setAttribute('aria-valuemin', String(bounds.min));
+  grip.setAttribute('aria-valuemax', String(bounds.max));
+  grip.setAttribute('aria-valuenow', String(width));
   return width;
 }
 // Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
