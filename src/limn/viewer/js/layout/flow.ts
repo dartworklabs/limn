@@ -48,7 +48,7 @@ import {
 } from './flow-panel-size.ts';
 import { syncBackLayer } from './input.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
-import { $, findElement, typingNow, findAll } from '../platform/dom.ts';
+import { $, findElement, typingNow, findAll, focusedElement } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
@@ -219,8 +219,7 @@ function placeBarTools() {
     leftGroup = findElement(bar, '.bar-l', Element),
     rightGroup = findElement(bar, '.bar-r', Element);
   const selectButton = $('#btn-select'),
-    active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null,
+    focused = focusedElement(),
     had = !!focused && bar.contains(focused);
   if (LAYOUT === LAYOUT_MODE.MID) {
     if (bar.firstElementChild !== selectButton) bar.prepend(selectButton);

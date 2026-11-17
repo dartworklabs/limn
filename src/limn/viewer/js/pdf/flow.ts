@@ -16,7 +16,7 @@ import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
-import { $, $$, searchToPage, eventElement, findElement, findAll } from '../platform/dom.ts';
+import { $, $$, searchToPage, eventElement, findElement, findAll, focusedElement } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
@@ -1378,8 +1378,7 @@ document.addEventListener(
   'pointerdown',
   (event) => {
     if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(eventElement(event))) return;
-    const active = document.activeElement,
-      focused = active instanceof HTMLElement ? active : null;
+    const focused = focusedElement();
     searchHide();
     if (focused && $('#doc-search').contains(focused)) focused.blur();
   },

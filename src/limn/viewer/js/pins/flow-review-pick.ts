@@ -20,7 +20,7 @@ import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from '
 import { drawPins, jumpToCard, loadPins, marks } from './flow-list.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $, findElement, findMaybe } from '../platform/dom.ts';
+import { $, findElement, findMaybe, focusedElement, findClosest } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
@@ -131,11 +131,9 @@ function drawPickBar(list: Pin[]) {
 // data-act and its place among the row's controls of that act (two #N in an explanation are both 'pin-ref'), or one of
 // the bar's controls by its id. null when the focus is elsewhere.
 function findPickFocus(): { sel: string; i: number } | null {
-  const active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null;
+  const focused = focusedElement();
   if (!focused) return null;
-  const card = focused.closest('.rv-row[data-id]'),
-    row = card instanceof HTMLElement ? card : null,
+  const row = findClosest(focused, '.rv-row[data-id]', HTMLElement),
     at = row ? '.rv-row[data-id="' + row.dataset.id + '"] ' : '';
   if (row && focused.matches('input[data-pick]')) return { sel: at + 'input[data-pick]', i: 0 };
   if (row && focused.dataset.act) {

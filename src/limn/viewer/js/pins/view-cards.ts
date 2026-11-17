@@ -47,7 +47,7 @@ import {
 } from './view-card-parts.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_PLACE, UI_LANG } from '../platform/tables.ts';
-import { $, TABBABLE, isTabStop, findAll, findMaybe } from '../platform/dom.ts';
+import { $, TABBABLE, isTabStop, findAll, findMaybe, focusedElement } from '../platform/dom.ts';
 import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, ROLE, STAMP_FORM } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
@@ -438,8 +438,7 @@ function drawTrash() {
   const dropped = TRASH_ALL ? DROPPED : listDropped(),
     box = $('#trash-list');
   if (!box) return;
-  const active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null,
+  const focused = focusedElement(),
     spot = focused && focused !== box && box.contains(focused) ? trashSpot(box, focused) : null;
   $('#trash-note').textContent = translateTemplate(
     '삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',

@@ -72,7 +72,7 @@ import { marksShow } from './input-hide-marks.ts';
 import { renderAssignNew } from '../composer/input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { $, $$, eventElement, findMaybe } from '../platform/dom.ts';
+import { $, $$, eventElement, findMaybe, focusedElement, findClosest } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
@@ -425,10 +425,8 @@ document.fonts.addEventListener('loadingdone', (event) => {
 // anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
 // focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
 function cardFocusKeep(): { el: HTMLElement; id: string; act: string; i: number } | null {
-  const active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null,
-    card = focused ? focused.closest('#list .pin[data-id]') : null,
-    cardElement = card instanceof HTMLElement ? card : null;
+  const focused = focusedElement(),
+    cardElement = focused ? findClosest(focused, '#list .pin[data-id]', HTMLElement) : null;
   const act = focused && focused.dataset ? focused.dataset.act || '' : '';
   if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
   return {
