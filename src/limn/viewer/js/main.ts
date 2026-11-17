@@ -465,7 +465,7 @@ $('#help').addEventListener('close', () => {
 /** Route shared zoom controls to the visible PDF, leaving source views unchanged. */
 // [100%] is the manuscript's print size: the comparison PDF's zoom is against its fitted width, so the changes view
 // hides the control (responsive.css) and leaves it nothing to do.
-function zoomVisiblePdf(action) {
+function zoomVisiblePdf(action: 'in' | 'out' | 'fit' | 'actual') {
   if (document.body.classList.contains('revision-open')) {
     if (action !== 'actual') revisionZoom(action);
   } else if (action === 'fit') fitToWidth();
@@ -968,7 +968,7 @@ $('#revision-file').addEventListener('change', renderRevisionFile);
 // without choosing, as tabs with manual activation are (WCAG 3.2.2): the keys only move the focus, and Enter or Space -
 // the word's own press - chooses. While the focus walks such a group the stop goes with it, so Tab leaves from where
 // the focus is in one step; when the focus leaves, the stop goes back to the chosen word (leaveManualSegment).
-const SEGMENT_STEP = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
+const SEGMENT_STEP: Partial<Record<string, number>> = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
 // the groups in the page's markup; a drawn one calls roveSegment itself
 for (const group of $$('[role=radiogroup]')) roveSegment(group);
 document.addEventListener('keydown', (event) => {
