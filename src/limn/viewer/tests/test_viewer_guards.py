@@ -373,6 +373,88 @@ class GuardRules(unittest.TestCase):
             ],
         )
 
+    def test_the_parse_workers_answers_are_the_answers_the_page_declares(self):
+        """The Markdown parse worker (md-parse.mjs, its own message handler, on the vendored markdown-it) answers each
+        question the page asks with a message markdownParseAnswer (markdown/view.ts) reads as declared - the tokens, a
+        limit with its counts, a parse error - and every token carries exactly the fields MarkdownToken declares. A
+        message of no known form is none, and one to the job in flight ends it as a parse error (jobAnswer)."""
+        worker = (PKG / "viewer" / "md-parse.mjs").read_text(encoding="utf-8")
+        bundle = (PKG / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs").as_uri()
+        source = "\n".join(
+            [
+                "---\ntitle: x\n---",
+                '# Head *em* `code`\n\npara [link](http://example.com "t") ![alt](i.png) <b>html</b>\nnext line',
+                "> quote\n\n- a\n  - b\n1. one",
+                "| a | b |\n|:--|--:|\n| 1 | 2 |",
+                "```py\ncode\n```\n\n    indented",
+                "$$\nx^2\n$$\n\ninline $a+b$ and \\(c\\) cut $x\ny$ here",
+                "<div>\nblock html\n</div>\n\n***",
+            ]
+        )
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isMarkdownToken"),
+            extract_js_fn("markdownParseAnswer"),
+            extract_js_fn("jobAnswer"),
+            "const answers = []; const self = {}; const postMessage = (m) => answers.push(m); let markdownit = null;",
+            worker[worker.index("function mdParser(") :],
+            r"""
+            const DECLARED = ['type', 'tag', 'nesting', 'map', 'content', 'info', 'hidden', 'level', 'markup', 'attrs',
+              'children'].sort().join();
+            const keys = new Set();
+            const walk = (tokens) => tokens.forEach((t) => { keys.add(Object.keys(t).sort().join()); if (t.children) walk(t.children); });
+            import(%s).then((module) => {
+              markdownit = module.default;
+              const limits = {nesting: 20, blocks: 30000, inlines: 150000};
+              const ask = (id, text, given) => self.onmessage({data: {id, text, limits: given || limits}});
+              ask(1, %s);
+              ask(2, '> '.repeat(30) + 'deep');
+              ask(3, 'a\n\nb\n\nc', {...limits, blocks: 2});
+              ask(4, 'a *b* c', {...limits, inlines: 1});
+              ask(5, 7);
+              answers.forEach((answer) => { if (answer.ok) walk(answer.tokens); });
+              const read = answers.map(markdownParseAnswer);
+              const job = {id: 9};
+              console.log(JSON.stringify({
+                kinds: read.map((answer) => answer && [answer.id, answer.ok, answer.ok ? answer.tokens.length > 20 : answer.limit]),
+                same: read.every((answer, i) => JSON.stringify(answer) === JSON.stringify(answers[i])),
+                keys: [...keys].every((k) => k === DECLARED),
+                attrs: answers[0].tokens.some((t) => (t.children || []).some((c) => c.attrs && c.attrs.length)),
+                refused: [
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], map: [1]}]}),
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], hidden: 0}]}),
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[1], children: [{type: 'text'}]}]}),
+                  markdownParseAnswer({id: 1, ok: false, limit: 'blocks', count: 3}),
+                  markdownParseAnswer({id: 1, ok: false}),
+                  markdownParseAnswer({id: '1', ok: true, tokens: []}),
+                  markdownParseAnswer({id: 1, ok: 1, tokens: []}),
+                  markdownParseAnswer(null),
+                ],
+                job: [jobAnswer(job, {id: 9, ok: true, tokens: []}), jobAnswer(job, {id: 9, ok: 'yes'}),
+                  jobAnswer(job, {id: 8, ok: true, tokens: []}), jobAnswer(job, null)],
+              }));
+            });
+            """
+            % (json.dumps(bundle), json.dumps(source)),
+        )
+        self.assertEqual(
+            got,
+            {
+                "kinds": [
+                    [1, True, True],
+                    [2, False, "nesting"],
+                    [3, False, "blocks"],
+                    [4, False, "inlines"],
+                    [5, False, "error"],
+                ],
+                "same": True,
+                "keys": True,
+                "attrs": True,
+                "refused": [None] * 8,
+                "job": [{"id": 9, "ok": True, "tokens": []}, {"ok": False, "limit": "error"}, None, None],
+            },
+        )
+
     def test_a_table_entry_is_none_without_a_key_as_for_a_key_the_table_lacks(self):
         got = self.run_js(
             extract_js_fn("tableEntry"),

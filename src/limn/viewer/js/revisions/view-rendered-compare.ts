@@ -17,6 +17,7 @@ import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api, isApiError } from '../platform/api.ts';
 import { REVISION_VIEW, hunkRanges, revisionKey, drawPinGuide, revisionCurrent, revisionPinFor } from './flow.ts';
 import {
+  jobAnswer,
   MARKDOWN_VIEW,
   MARKDOWN_LIMITS,
   OVER_ELEMENT_LIMIT,
@@ -29,6 +30,7 @@ import {
   yieldToBrowser,
   markedCharactersText,
 } from '../markdown/view.ts';
+import type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion } from '../markdown/view.ts';
 import { $ } from '../platform/dom.ts';
 import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
@@ -41,7 +43,7 @@ const RENDERED_COMPARE = {
   seq: 0,
   key: '',
   worker: null as Worker | null,
-  job: null as { id: number; resolve: (answer: any) => void; t: ReturnType<typeof setTimeout> } | null,
+  job: null as MarkdownParseJob | null,
   stops: [] as HTMLElement[][],
   at: -1,
   ro: null as ResizeObserver | null,
@@ -66,7 +68,7 @@ function isDrawnFromMarkdown() {
   return isMarkdownDoc() && !isTextDoc();
 }
 // ---------------- Parsing both sides, apart from the Markdown surface's own worker
-function parseSide(text: string): Promise<any> {
+function parseSide(text: string): Promise<MarkdownParse | null> {
   stopSideParse(null);
   return new Promise((resolve) => {
     let worker = RENDERED_COMPARE.worker;
@@ -74,12 +76,13 @@ function parseSide(text: string): Promise<any> {
       if (!worker) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
         RENDERED_COMPARE.worker = worker;
-        worker.onmessage = (message) => {
-          const job = RENDERED_COMPARE.job;
-          if (!job || !message.data || message.data.id !== job.id) return;
+        worker.onmessage = (message: MessageEvent<unknown>) => {
+          const job = RENDERED_COMPARE.job,
+            answer = job && jobAnswer(job, message.data);
+          if (!job || !answer) return;
           clearTimeout(job.t);
           RENDERED_COMPARE.job = null;
-          job.resolve(message.data);
+          job.resolve(answer);
         };
         worker.onerror = (event) => {
           event.preventDefault();
@@ -96,14 +99,15 @@ function parseSide(text: string): Promise<any> {
       resolve,
       t: setTimeout(() => stopSideParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
     };
-    worker.postMessage({
+    const question: MarkdownParseQuestion = {
       id,
       text,
       limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
-    });
+    };
+    worker.postMessage(question);
   });
 }
-function stopSideParse(answer: any) {
+function stopSideParse(answer: { ok: false; limit: string } | null) {
   const job = RENDERED_COMPARE.job;
   if (!job) return;
   RENDERED_COMPARE.job = null;
