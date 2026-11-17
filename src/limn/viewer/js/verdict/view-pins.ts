@@ -165,7 +165,7 @@ function sameLines(first: VerdictTarget, second: VerdictTarget) {
     y = second.lines;
   return !x || !y || (x.open && y.open) || (!!x.anchor && x.anchor === y.anchor);
 }
-let VERDICT_ORDER_CACHE = { lists: [], by: new Map() } as { lists: unknown[]; by: Map<string, VerdictOrder> };
+let VERDICT_ORDER_CACHE: { lists: unknown[]; by: Map<string, VerdictOrder> } = { lists: [], by: new Map() };
 // The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open,
 // awaiting review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a
 // verdict, while the list still has it - applyPinLists) and done - by resolved target (verdictTargetOf), newest

@@ -20,15 +20,25 @@ import { NOTICE_KIND, NOTICE_LIFE, tableEntry } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, PULL_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
-const BUILD = {
-  timer: null as ReturnType<typeof setInterval> | null,
-  error: null as any,
-  lastSeq: null as number | null,
+interface BuildState {
+  timer: ReturnType<typeof setInterval> | null;
+  error: BuildStatus | null;
+  lastSeq: number | null;
+  booted: boolean;
+  inflight: Promise<void> | null;
+  asked: boolean;
+  cur: BuildStatus | null;
+  unchanged: { pull: string } | null;
+}
+const BUILD: BuildState = {
+  timer: null,
+  error: null,
+  lastSeq: null,
   booted: false,
-  inflight: null as Promise<void> | null,
+  inflight: null,
   asked: false,
-  cur: null as BuildStatus | null,
-  unchanged: null as { pull: string } | null,
+  cur: null,
+  unchanged: null,
 };
 // Reset the visible build controls and baseline when a different document takes the screen.
 function resetBuildForDoc() {
