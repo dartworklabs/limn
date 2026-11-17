@@ -218,6 +218,12 @@ Box: TypeAlias = tuple[int, float, float, float, float]
 # document (a float's lines and its text far apart); one mark of many bits says less than none.
 BOX_LIMIT = 8
 
+# The most lines of a range the forward pass asks SyncTeX about; a longer range gets no mark. The cost is one process
+# per line and grows with the document: measured on a 35-page document, one call is 13 ms, a 5-line paragraph 64 ms and
+# 40 lines 513 ms. A pick sits on the drag's critical path, so a 100-line float environment would stall it for over a
+# second, and the drawn rectangle it falls back to is the answer the pin had before marks followed the range.
+FORWARD_LINES_MAX = 40
+
 # A box at least this tall, as a share of the page height, is the page or column body, not a line of text.
 BODY_HEIGHT_SHARE = 0.25
 # With a single line there is no blank between lines to measure; the padding is this share of the line's height.

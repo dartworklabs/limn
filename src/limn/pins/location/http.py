@@ -1,13 +1,14 @@
 """HTTP response contract for POST /api/pick."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, TypeAlias
 
 from limn.pins.location import input as pick_input
 from limn.pins.location.figure import PickedElement, Rung
-from limn.pins.location.mapping import WEAK_SCORE
+from limn.pins.location.mapping import WEAK_SCORE, Level
 from limn.pins.location.resolve import (
     GeneratedFile,
+    MarkPiece,
     NoSourceHere,
     Picked,
     PickedRegion,
@@ -117,7 +118,8 @@ def _pick_refusal(refusal: PickRefusal, *detail: object) -> Body:
 
 
 def _picked_body(p: Picked) -> Body:
-    """The body of a traced selection, keys in the order the agent contract has always had them."""
+    """The body of a traced selection, keys in the order the agent contract has always had them - with the mark's
+    pieces added to the one rung the body names its default level (_levels_with_boxes)."""
     t = p.traced
     return {
         "file": str(p.file),
@@ -135,11 +137,27 @@ def _picked_body(p: Picked) -> Body:
         "snippet": p.snippet,
         "frac": p.frac,
         "quote": p.quote,
-        "levels": t.levels,
+        "levels": _levels_with_boxes(t.levels, t.default_level, p.boxes),
         "default_level": t.default_level,
         "overlaps": p.overlaps,
         "pdf_build": p.pdf_build,
     }
+
+
+def _levels_with_boxes(levels: list[Level], default: str, boxes: Sequence[MarkPiece]) -> list[Level]:
+    """The range ladder a pick answers: the rungs as traced, the one named `default` carrying the mark's pieces as
+    [{"page", "frac"}, ...].
+
+    Only that rung gets them. A pick runs the forward pass for its default range alone, because each call costs a
+    process (limn.pins.location.mapping.FORWARD_LINES_MAX); the viewer asks GET /api/snippet for another rung's, which
+    it already calls when the person moves up the ladder. The rung is copied rather than written into: the list
+    belongs to the resolver's Traced, and turning a body is not permission to change the value it was given. With no
+    pieces the key is left out rather than answered empty, so a client reads "no mark for this range" and not "a mark
+    of no pieces", and there is then nothing to copy."""
+    if not boxes:
+        return levels
+    pieces = [{"page": page, "frac": list(frac)} for page, frac in boxes]
+    return [{**level, "boxes": pieces} if level["level"] == default else level for level in levels]
 
 
 def pick_warning(p: Picked) -> str:
