@@ -3149,4 +3149,4 @@ export {
   markedCharactersText,
   showTextHint,
 };
-export type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion };
+export type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion, MarkdownToken };

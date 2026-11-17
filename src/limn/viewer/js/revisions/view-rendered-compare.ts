@@ -38,7 +38,7 @@ import {
   yieldToBrowser,
   markedCharactersText,
 } from '../markdown/view.ts';
-import type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion } from '../markdown/view.ts';
+import type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion, MarkdownToken } from '../markdown/view.ts';
 import { $, findAll } from '../platform/dom.ts';
 import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
@@ -144,7 +144,7 @@ function stopSideParse(answer: { ok: false; limit: string } | null) {
 // MARKDOWN_LIMITS.chunk units of work, as the document view builds) and live() asked after each: null past
 // MARKDOWN_LIMITS.elements, or once live() is false (a newer compare). Ids go (a heading's: the surface keeps them),
 // and an in-document heading or another document is a word here, so the view never leaves for the manuscript.
-async function buildSide(tokens: any[], lines: string[], live: () => boolean): Promise<HTMLElement | null> {
+async function buildSide(tokens: MarkdownToken[], lines: string[], live: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('div'),
     context = newRenderContext(lines);
   root.className = 'md mdc-doc';
@@ -171,6 +171,15 @@ async function buildSide(tokens: any[], lines: string[], live: () => boolean): P
   return root;
 }
 // ---------------- Blocks and their keys
+// One step of a comparison of two sides (commonSubsequence, blockOps): the item kept (eq), taken out (del, a only),
+// added (ins, b only), changed in place (mod), or moved (from where it was, to where it is now); a and b index the old
+// and the new side's items (-1 for none), and how says what split or joined between two kept blocks (markRegroups).
+interface CompareStep {
+  t: string;
+  a: number;
+  b: number;
+  how?: string[];
+}
 type CompareUnit = {
   el: HTMLElement;
   tag: string;
@@ -469,8 +478,8 @@ function commonSubsequence<Item>(
   right: Item[],
   same: (first: Item, second: Item) => boolean,
   budget?: CompareBudget,
-): { t: string; a: number; b: number }[] {
-  const ops: { t: string; a: number; b: number }[] = [];
+): CompareStep[] {
+  const ops: CompareStep[] = [];
   let start = 0;
   while (start < left.length && start < right.length && same(left[start], right[start])) start++;
   let leftEnd = left.length,
@@ -552,7 +561,7 @@ const MOVE_MIN_CHARS = 6;
 function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: CompareBudget) {
   budget = budget || newCompareBudget();
   const raw = commonSubsequence(oldUnits, newUnits, (left, right) => left.key === right.key, budget),
-    out: { t: string; a: number; b: number }[] = [];
+    out: CompareStep[] = [];
   let at = 0;
   const words = new Map<CompareUnit, string[]>(),
     wordsOf = (unit: CompareUnit) => {
@@ -568,11 +577,11 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
       out.push(raw[at++]);
       continue;
     }
-    const gap: { t: string; a: number; b: number }[] = [];
+    const gap: CompareStep[] = [];
     while (at < raw.length && raw[at].t !== 'eq') gap.push(raw[at++]);
     const takenOutOps = gap.filter((operation) => operation.t === 'del'),
       addedOps = gap.filter((operation) => operation.t === 'ins'),
-      pair = new Map();
+      pair = new Map<CompareStep, CompareStep>();
     let from = 0;
     weigh: for (const taken of takenOutOps)
       for (let addedAt = from; addedAt < addedOps.length; addedAt++) {
@@ -596,8 +605,8 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
     while (takenAt < takenOutOps.length || addedAt < addedOps.length) {
       const taken = takenOutOps[takenAt],
         added = addedOps[addedAt];
-      if (taken && pair.has(taken)) {
-        const partner = pair.get(taken);
+      const partner = taken && pair.get(taken);
+      if (taken && partner) {
         if (added && added !== partner) {
           out.push(added);
           addedAt++;
@@ -652,11 +661,7 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
 // own, so a split or a join adds, takes out or changes that row (th cells for td), and that row says it - two tables
 // joined are not "quotes or lists". Pure over the units' boxes (grp: which boxes, by identity; box: their kinds, one
 // for each) but for the ops it marks.
-function markRegroups(
-  oldUnits: CompareUnit[],
-  newUnits: CompareUnit[],
-  ops: { t: string; a: number; b: number; how?: string[] }[],
-) {
+function markRegroups(oldUnits: CompareUnit[], newUnits: CompareUnit[], ops: CompareStep[]) {
   const kept = ops.filter((operation) => operation.t === 'eq' || operation.t === 'mod'),
     memo = new Map() as Map<CompareUnit, { g: unknown; t: string }[]>;
   // a unit's quote and list boxes, outermost first: each box (by identity) and its kind (a numbered list's start aside)
@@ -1100,7 +1105,7 @@ function layColumn(
   newRoot: HTMLElement,
   oldUnits: CompareUnit[],
   newUnits: CompareUnit[],
-  ops: any[],
+  ops: CompareStep[],
   budget?: CompareBudget,
 ) {
   let previous: HTMLElement | null = null;
@@ -1320,15 +1325,22 @@ function compareNotice(text: string) {
   );
   return notice;
 }
+// What the compare knows of a pin's place in the commit: GET /api/revision-diff?pin='s scope spread out (none when the
+// server sent no scope) with that diff's whole patch (whole).
+type ComparePinScope =
+  | (RevisionPinScope & { whole: string })
+  | (RevisionCommitScope & { whole: string })
+  | { whole: string; mode?: undefined; hunks?: undefined; source?: undefined };
 // Why a side carries no lines (GET /api/revision-source's reason), in a line.
-function sideFailureText(side: any, which: string) {
-  switch (side && side.reason) {
-    case 'source_too_large':
-      return translateTemplate('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
-        side: which,
-        size: formatMebibytes(side.bytes),
-        limit: formatMebibytes(side.limit),
-      });
+function sideFailureText(side: RevisionSide | null, which: string) {
+  // the server sends bytes and limit with this reason (revisions/core.py); formatMebibytes reads none as 0
+  if (side && side.reason === 'source_too_large')
+    return translateTemplate('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
+      side: which,
+      size: formatMebibytes(side.bytes || 0),
+      limit: formatMebibytes(side.limit || 0),
+    });
+  switch ((side && side.reason) || '') {
     case 'source_not_utf8':
       return translateTemplate('{side}이 UTF-8이 아니라 그려 비교하지 않습니다', { side: which });
     case 'not_a_file':
@@ -1376,7 +1388,7 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
   drawCompareNavigator();
   const pinTarget = revisionPinFor(id);
   let answer,
-    scope = null;
+    scope: ComparePinScope | null = null;
   try {
     const query = '?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
     const [sides, pinDiff] = await Promise.all([
@@ -1569,7 +1581,12 @@ function restateCompareStatus() {
 // part of it the line says so and points at [소스 diff], which shows the pin's hunks alone. Returns the change group to
 // open at (-1: none), and leaves on the pin the line the guide says (pinTarget.mdcMsg).
 /** @param side the new side GET /api/revision-source gave */
-function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: CompareUnit[], side: any) {
+function ringPinBlocks(
+  pinTarget: RevTarget | null,
+  scope: ComparePinScope | null,
+  newUnits: CompareUnit[],
+  side: RevisionSide | null,
+) {
   const target = REVISION_VIEW.target;
   if (target && !pinTarget)
     target.mdcMsg = translateTemplate('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다', { id: target.id });
@@ -1584,7 +1601,7 @@ function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: Compar
   const part = !!scope && scope.mode === SCOPE_MODE.PIN,
     ranges = part
       ? hunks(scope.diff)
-      : scope && scope.hunks > 0
+      : scope && scope.hunks !== undefined && scope.hunks > 0
         ? hunks(scope.whole)
         : [[firstLine, pinTarget.hi || firstLine]];
   const meets = newUnits.filter(
@@ -1602,7 +1619,7 @@ function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: Compar
           id: pinTarget.id,
           n: changed.length,
         }) +
-        (scope && scope.hunks > 0
+        (scope && scope.hunks !== undefined && scope.hunks > 0
           ? ' (' + translate(scope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') + ')'
           : '')
       : meets.length
