@@ -3,7 +3,7 @@ import { html, lucideIcon } from '../platform/markup.ts';
 import { isAgent, who } from './state-people.ts';
 // The avatar URLs that have failed: never requested again, so console errors do not pile up on every redraw.
 const FAILED_AVATARS = new Set();
-function avatar(person) {
+function avatar(person: Person | null | undefined) {
   if (!person || !(person.name || person.login)) return html``;
   if (isAgent(person)) return html`<span class="av i agent" aria-hidden="true">${lucideIcon('bot')}</span>`;
   const initial = (who(person).trim()[0] || '?').toUpperCase();
