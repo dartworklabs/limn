@@ -474,10 +474,15 @@ function zoomVisiblePdf(action: 'in' | 'out' | 'fit' | 'actual') {
 }
 // compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do
 // (the card's 44px links and chips keep their own action). wide cards are always open.
-function openTappedCard(target) {
-  const card = target && target.closest && target.closest('.pin.card:not(.open):not(.editing)');
-  if (!card || LAYOUT === LAYOUT_MODE.WIDE || target.closest('[data-copy],button,input,textarea')) return;
-  OPEN_CARDS.add(+card.dataset.id);
+function openTappedCard(target: Element) {
+  const card = target.closest('.pin.card:not(.open):not(.editing)');
+  if (
+    !(card instanceof HTMLElement) ||
+    LAYOUT === LAYOUT_MODE.WIDE ||
+    target.closest('[data-copy],button,input,textarea')
+  )
+    return;
+  OPEN_CARDS.add(Number(card.dataset.id));
   drawPins();
 }
 document.addEventListener('click', (event) => {
@@ -675,10 +680,10 @@ document.addEventListener('click', (event) => {
       break;
     } // ...or drop an end line
     case 'view':
-      jumpPin(id);
+      if (id !== null) jumpPin(id);
       break;
     case 'edit':
-      openEdit(id);
+      if (id !== null) openEdit(id);
       break;
     case 'doc': {
       // inMenu is read before switchDoc(): for a cached document switchDoc finishes synchronously through drawDocTabs,
@@ -817,7 +822,7 @@ document.addEventListener('click', (event) => {
       jumpToCard(id);
       break;
     case 'close':
-      closePin(id);
+      if (id !== null) closePin(id);
       break;
     case 'drop': {
       const neighbour = event.detail === 0 ? cardNeighbour(control) : null;
@@ -956,7 +961,9 @@ document.addEventListener('click', (event) => {
       break;
   }
 });
-$('#doc-select').addEventListener('change', (event) => switchDoc(event.target.value));
+$('#doc-select').addEventListener('change', (event: Event) => {
+  if (event.target instanceof HTMLSelectElement) switchDoc(event.target.value);
+});
 $('#revision-file').addEventListener('change', renderRevisionFile);
 // A segmented control is a radio group (docs/handbook/viewer.md §디자인 토큰과 컴포넌트): the whole group is one Tab
 // stop, the arrows move inside it and Home/End go to its ends. The one stop is a roving tabindex - the chosen word is

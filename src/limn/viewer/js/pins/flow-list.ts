@@ -70,7 +70,7 @@ import { marksShow } from './input-hide-marks.ts';
 import { renderAssignNew } from '../composer/input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, eventElement } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
@@ -258,8 +258,8 @@ function gotoReview() {
     if (section && !section.hidden) section.scrollIntoView({ block: 'start', behavior: scrollMotion() });
   });
 }
-function toggleSection(key, force?: boolean) {
-  if (!(key in SECTION_OPEN_DEFAULT)) return;
+function toggleSection(key: string | undefined, force?: boolean) {
+  if (key === undefined || !(key in SECTION_OPEN_DEFAULT)) return;
   SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
   savePrefs({ sec: SECTION_OPEN });
   drawPins();
@@ -544,8 +544,8 @@ function marks() {
 // a drag over it still becomes a new selection - only the badge button needs to block mousedown.
 $('#doc').addEventListener(
   'mousedown',
-  (event) => {
-    if (event.target.closest('.mark [data-act=mark-jump]')) {
+  (event: MouseEvent) => {
+    if (eventElement(event)?.closest('.mark [data-act=mark-jump]')) {
       event.stopPropagation();
       event.preventDefault();
     }
@@ -652,7 +652,7 @@ function focusCard(id: number) {
 } // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
 // drawn scrolls to the page the mark would be on.
-function jumpPin(id) {
+function jumpPin(id: number) {
   if (viaDoc(id, jumpPin)) return;
   const pin = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id && pdoc(x) === DOC);
   if (!pin) {
@@ -694,20 +694,20 @@ function jumpPin(id) {
 function markIdsFor(pin: Pin) {
   return [pin.id].concat((pin.rel || []).map((entry) => entry.id));
 }
-$('#pins').addEventListener('mouseover', (event) => {
-  const cardElement = event.target.closest('.pin');
-  if (!cardElement) return;
-  const pin = PINS.find((listed) => listed.id === +cardElement.dataset.id);
+$('#pins').addEventListener('mouseover', (event: MouseEvent) => {
+  const cardElement = eventElement(event)?.closest('.pin');
+  if (!(cardElement instanceof HTMLElement)) return;
+  const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
     const mark = document.querySelector('.mark[data-pin="' + id + '"]');
     if (mark) mark.classList.add('hi');
   });
 });
-$('#pins').addEventListener('mouseout', (event) => {
-  const cardElement = event.target.closest('.pin');
-  if (!cardElement) return;
-  const pin = PINS.find((listed) => listed.id === +cardElement.dataset.id);
+$('#pins').addEventListener('mouseout', (event: MouseEvent) => {
+  const cardElement = eventElement(event)?.closest('.pin');
+  if (!(cardElement instanceof HTMLElement)) return;
+  const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
     const mark = document.querySelector('.mark[data-pin="' + id + '"]');

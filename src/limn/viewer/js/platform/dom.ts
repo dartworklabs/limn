@@ -11,6 +11,11 @@ const esc = (text: unknown) =>
     (character) =>
       (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[character],
   );
+// The element an event is aimed at, or null when its target is not an element (the window, the document): a handler
+// that looks for the controls around the target finds none there.
+function eventElement(event: Event) {
+  return event.target instanceof Element ? event.target : null;
+}
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
 // keyboard is up.
 function typingNow() {
@@ -65,4 +70,4 @@ function isTabStop(x: Element | null): x is HTMLElement {
   );
 }
 
-export { $, $$, ICONS, esc, typingNow, searchToPage, focusFell, focusHold, TABBABLE, isTabStop };
+export { $, $$, ICONS, esc, eventElement, typingNow, searchToPage, focusFell, focusHold, TABBABLE, isTabStop };

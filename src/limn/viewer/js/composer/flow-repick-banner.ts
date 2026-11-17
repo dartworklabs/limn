@@ -34,7 +34,8 @@ function bannerCompare() {
   const repick = REPICK,
     candidate = repick && repick.cand;
   if (!repick || !candidate) return;
-  const level = levelOf(candidate, candidate.default_level) || candidate,
+  const rung = levelOf(candidate, candidate.default_level),
+    level = rung || candidate,
     isRegionPick = isRegion(candidate);
   if (isRegionPick !== !!repick.from.region) {
     repick.cand = null;
@@ -51,8 +52,8 @@ function bannerCompare() {
     ? candidate.quote
       ? String(candidate.quote).slice(0, 40)
       : translate('글자 없는 영역')
-    : level.label
-      ? levelLabel(level.label)
+    : rung && rung.label
+      ? levelLabel(rung.label)
       : scopeLabel(candidate);
   const acts = html`<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`;
   banner(

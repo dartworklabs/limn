@@ -45,11 +45,10 @@ const OUTLINE_MAX_ENTRIES = 2000,
 const OUTLINE_BATCH = 100;
 // How many entries that name a place (a destination) lie in item and below it. Counts without resolving anything, and
 // with a stack of its own: an outline can nest deeper than the call stack.
-function outlineCount(item) {
+function outlineCount(item: PdfOutlineItem) {
   let count = 0;
   const todo = [item];
-  while (todo.length) {
-    const node = todo.pop();
+  for (let node = todo.pop(); node; node = todo.pop()) {
     if (node.dest != null) count++;
     for (const child of node.items || []) todo.push(child);
   }
@@ -97,7 +96,7 @@ async function loadOutline(doc: PdfDocument, gen: number) {
     }
     // up: the index in entries of the nearest entry above these rows (-1 at the top, or when every row above has no
     // entry of its own).
-    async function walk(rows, depth: number, up: number) {
+    async function walk(rows: PdfOutlineItem[], depth: number, up: number) {
       for (let i = 0; i < rows.length; i += OUTLINE_BATCH) {
         // Between batches: a document left behind does not go on asking the worker.
         if (stale()) return;
@@ -113,10 +112,11 @@ async function loadOutline(doc: PdfDocument, gen: number) {
             cut += outlineCount(batch[j]);
             continue;
           }
-          const at = entries.length;
-          if (got[j]) entries.push(Object.assign(got[j], { depth, up }));
+          const at = entries.length,
+            entry = got[j];
+          if (entry) entries.push(Object.assign(entry, { depth, up }));
           if (depth < OUTLINE_MAX_DEPTH) {
-            await walk(batch[j].items, depth + 1, got[j] ? at : up);
+            await walk(batch[j].items, depth + 1, entry ? at : up);
             if (stale()) return;
           } else for (const child of batch[j].items || []) cut += outlineCount(child);
         }
@@ -561,11 +561,16 @@ function outlineIndexAt(entries: OutlineEntry[], page: number, frac: number) {
   const at = (entry: OutlineEntry) => entry.frac || 0,
     deep = (entry: OutlineEntry) => entry.depth || 0,
     above = (entry: OutlineEntry) => entry.page < page || (entry.page === page && at(entry) <= frac + 1e-6);
-  const leftEdge = (entry) => (typeof entry.x === 'number' ? entry.x : null),
-    sameLeftEdge = (first: OutlineEntry, second: OutlineEntry) =>
-      leftEdge(first) === null || leftEdge(second) === null
-        ? leftEdge(first) === leftEdge(second)
-        : Math.abs(leftEdge(first) - leftEdge(second)) <= 1e-3;
+  // edgeAt reads the left edge of an entry known to have one (those in byLeftEdge) as a number.
+  const leftEdge = (entry: OutlineEntry) => (typeof entry.x === 'number' ? entry.x : null),
+    edgeAt = (entry: OutlineEntry) => (typeof entry.x === 'number' ? entry.x : NaN),
+    sameLeftEdge = (first: OutlineEntry, second: OutlineEntry) => {
+      const firstEdge = leftEdge(first),
+        secondEdge = leftEdge(second);
+      return firstEdge === null || secondEdge === null
+        ? firstEdge === secondEdge
+        : Math.abs(firstEdge - secondEdge) <= 1e-3;
+    };
   let top = 0;
   for (const entry of entries) if (above(entry) && entry.page > top) top = entry.page;
   if (!top) {
@@ -599,7 +604,7 @@ function outlineIndexAt(entries: OutlineEntry[], page: number, frac: number) {
   const byAt = winners.slice().sort((first, second) => at(entries[first]) - at(entries[second]) || first - second),
     byLeftEdge = winners
       .filter((index) => Number.isFinite(leftEdge(entries[index])))
-      .sort((first, second) => leftEdge(entries[first]) - leftEdge(entries[second]) || first - second);
+      .sort((first, second) => edgeAt(entries[first]) - edgeAt(entries[second]) || first - second);
   // [from, to) in list (sorted by key) for the members whose key lies within tolerance of value, a little wider to be
   // safe from the rounding of a difference; each is tested exactly below.
   const near = (list: number[], key: (entry: OutlineEntry) => number, value: number, tolerance: number) => {
@@ -622,7 +627,7 @@ function outlineIndexAt(entries: OutlineEntry[], page: number, frac: number) {
     let list = byAt,
       [low, high] = near(byAt, at, at(entry), 1e-6);
     if (Number.isFinite(leftEdge(entry))) {
-      const [edgeLow, edgeHigh] = near(byLeftEdge, leftEdge, leftEdge(entry), 1e-3);
+      const [edgeLow, edgeHigh] = near(byLeftEdge, edgeAt, edgeAt(entry), 1e-3);
       if (edgeHigh - edgeLow < high - low) {
         list = byLeftEdge;
         low = edgeLow;

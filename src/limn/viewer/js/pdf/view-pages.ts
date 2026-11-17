@@ -300,19 +300,18 @@ function startScale() {
 type ZoomAnchor = { pg: HTMLElement; cx: number; cy: number; fx: number; fy: number };
 // Zoom anchor: the page under screen coordinates (clientX, clientY) and its fraction within that page. If the point
 // falls in the gap between pages, the vertically nearest page is used. Without coordinates, the center of the PDF area
-// is used (keyboard/button).
-function zoomAnchor(clientX, clientY) {
+// is used (keyboard/button), as it is for a point given by half.
+function zoomAnchor(clientX?: number, clientY?: number): ZoomAnchor | null {
   const pdfArea = $('#left'),
     areaRect = pdfArea.getBoundingClientRect();
-  if (clientX == null) {
-    clientX = areaRect.left + pdfArea.clientWidth / 2;
-    clientY = areaRect.top + pdfArea.clientHeight / 2;
-  }
+  const centre = clientX == null || clientY == null,
+    pointX = centre ? areaRect.left + pdfArea.clientWidth / 2 : clientX,
+    pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
   let best = null as { pg: HTMLElement; r: DOMRect } | null,
     bestDistance = Infinity;
   for (const pageBox of $$('.pg')) {
     const rect = pageBox.getBoundingClientRect(),
-      distance = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+      distance = pointY < rect.top ? rect.top - pointY : pointY > rect.bottom ? pointY - rect.bottom : 0;
     if (distance < bestDistance) {
       bestDistance = distance;
       best = { pg: pageBox, r: rect };
@@ -322,10 +321,10 @@ function zoomAnchor(clientX, clientY) {
   return best
     ? {
         pg: best.pg,
-        cx: clientX,
-        cy: clientY,
-        fx: (clientX - best.r.left) / best.r.width,
-        fy: (clientY - best.r.top) / best.r.height,
+        cx: pointX,
+        cy: pointY,
+        fx: (pointX - best.r.left) / best.r.width,
+        fy: (pointY - best.r.top) / best.r.height,
       }
     : null;
 }

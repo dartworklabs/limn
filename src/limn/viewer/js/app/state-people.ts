@@ -21,7 +21,7 @@ function isAgent(person: Person | null | undefined) {
 // name), longest first, case-insensitive. Skipped when '@' follows a word (mentionAfterWord - an email address); a name
 // ending in an ASCII letter followed by an ASCII letter (@Alicex) is a different word. An unresolved '@word' stays
 // plain text - it must never look like it called someone.
-function peopleName(login) {
+function peopleName(login: string) {
   const known = PEOPLE.find((person) => person.login === login);
   return known ? known.name : login;
 }

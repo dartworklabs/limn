@@ -4,8 +4,8 @@ import { html, setHtml } from '../platform/markup.ts';
 import type { Html } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { elementName, rungTip } from '../pdf/view-figure.ts';
-import { UI_LANG } from '../platform/tables.ts';
+import { elementName, rungHasElement, rungTip } from '../pdf/view-figure.ts';
+import { UI_LANG, tableEntry } from '../platform/tables.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { VIA } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
@@ -13,6 +13,11 @@ import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 /** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
 type RangeOwner = Selection | EditCard;
+/** A range owner on lines: its file and both end lines are there, as on every owner that is not a region. */
+type LineOwner = RangeOwner & { file: string; lo: number; hi: number };
+function onLines(owner: RangeOwner): owner is LineOwner {
+  return typeof owner.file === 'string' && typeof owner.lo === 'number' && typeof owner.hi === 'number';
+}
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
@@ -29,12 +34,17 @@ function kindFor(scope: string | null | undefined, env: string | null | undefine
 }
 // The name of the owner's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope
 // 'lines'), whose lines alone say what they are.
-function scopeLabel(owner) {
-  const rung = owner.scope && levelOf(owner, owner.scope);
+// A re-place candidate (a pick's answer) has no scope of its own.
+function scopeLabel(owner: RangeOwner | PickAnswer) {
+  const scope = 'scope' in owner ? owner.scope : undefined;
+  const rung = scope && levelOf(owner, scope);
   if (rung) return levelLabel(rung.label);
-  if (owner.scope === 'lines') return '';
+  if (scope === 'lines') return '';
   return translate(
-    { float: '그림/표', block: '환경 블록', paragraph: '문단', none: '생성 파일', lines: '줄' }[owner.kind] ||
+    tableEntry(
+      { float: '그림/표', block: '환경 블록', paragraph: '문단', none: '생성 파일', lines: '줄' },
+      owner.kind,
+    ) ||
       owner.kind ||
       '',
   );
@@ -72,13 +82,13 @@ function levelName(rung: Rung, all: Rung[]) {
 // checked. A figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the
 // rung has no n. A Markdown document's rungs have descriptions of their own (TIP_TEXT.mdraw: no drag area there, a tap
 // chose the line too).
-function rungButtons(owner, isEdit: boolean) {
+function rungButtons(owner: RangeOwner, isEdit: boolean) {
   const current = currentRung(owner),
     rungs = owner.levels || [];
   return rungs.map((rung) => {
     const on = rung === current,
       lineCount = rungLines(rung);
-    const tip = rung.el
+    const tip = rungHasElement(rung)
       ? rungTip(rung)
       : isEdit && rung.level === 'raw'
         ? TIP_TEXT.cur
@@ -87,7 +97,7 @@ function rungButtons(owner, isEdit: boolean) {
           : rung.level === 'raw' && isMarkdownDoc()
             ? TIP_TEXT.mdraw
             : // a rung may name its own description (a text document's paragraphs, textLevels)
-              TIP_TEXT[rung.tip || rung.level] || '';
+              TIP_TEXT[('tip' in rung && typeof rung.tip === 'string' && rung.tip) || rung.level] || '';
     const label = isEdit && rung.level === 'raw' ? translate('지금 범위') : levelName(rung, rungs),
       linesText = translateTemplate('{n}줄', { n: lineCount });
     return html`<button class="${on ? 'on' : ''}" data-act="level" data-level="${rung.level}" role="radio" aria-checked="${on}" aria-label="${label + ' ' + lineRange(rung.lo, rung.hi) + ' · ' + linesText}" \
@@ -104,7 +114,7 @@ function rungLines(rung: Rung) {
 // tabindex="-1" in its markup: Firefox makes a box that overflows a Tab stop of its own, so an overflowing ladder would
 // take two stops - the box, then the chosen rung. The chosen rung shows itself as the focus or the range moves
 // (revealSegment).
-function drawLadder(box, owner: RangeOwner, isEdit: boolean) {
+function drawLadder(box: HTMLElement, owner: RangeOwner, isEdit: boolean) {
   const rungCount = (owner.levels || []).length,
     at = segmentFocusAt(box);
   box.dataset.rungs = String(rungCount);
@@ -121,13 +131,15 @@ function drawLadder(box, owner: RangeOwner, isEdit: boolean) {
 // card the range copies as 'file Llo-Lhi' (the composer's location line has its copy). Writes the caption markup (Html)
 // into its element only when its text changed: the caption is a polite live region (a screen reader hears the new range
 // after a rung or an excerpt press, not every redraw), and its copyable range keeps its focus.
-function setCap(caption, markup: Html) {
+function setCap(caption: HTMLElement, markup: Html) {
   if (caption._cap !== markup.text) {
     caption._cap = markup.text;
     setHtml(caption, markup);
   }
 }
-function rangeCap(owner, isEdit: boolean) {
+// An owner without its lines has no range to name.
+function rangeCap(owner: RangeOwner, isEdit: boolean) {
+  if (!onLines(owner)) return html``;
   const rungs = owner.levels || [],
     current = currentRung(owner),
     range = lineRange(owner.lo, owner.hi);
@@ -143,9 +155,10 @@ const SEGMENT_FADE = 32; // how wide a scrolling segment control's edge fade is 
 // untouched). A control that asks for the whole segment (data-reveal="whole": the assignee row, whose segments are
 // names nearly as long as the row) brings it clear of the edge fades too - a fade's width in from an edge that has more
 // to scroll to, or centred when it is too long for that; fadeSegmentEdges then keeps each fade off it.
-function revealSegment(control) {
-  const on = control && control.querySelector('.on');
-  if (!on) {
+function revealSegment(control: Element | null) {
+  if (!(control instanceof HTMLElement)) return;
+  const on = control.querySelector('.on');
+  if (!(on instanceof HTMLElement)) {
     fadeSegmentEdges(control);
     return;
   }
@@ -202,7 +215,7 @@ document.addEventListener(
 let SNIPPET_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives.
-function refetchSnip(owner, after: () => void) {
+function refetchSnip(owner: LineOwner, after: () => void) {
   const visit = captureVisit();
   clearTimeout(SNIPPET_TIMER);
   SNIPPET_TIMER = setTimeout(async () => {
@@ -291,11 +304,12 @@ function viaTag(pick: Selection | Pin) {
     low,
   };
 }
-export type { RangeOwner };
+export type { LineOwner, RangeOwner };
 export {
   drawLadder,
   kindFor,
   levelLabel,
+  onLines,
   rangeCap,
   refetchSnip,
   scopeLabel,

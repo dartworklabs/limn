@@ -436,10 +436,10 @@ function renderAssignEdit() {
 // two are groups (.m-grp) that never break inside: the line breaks only after the separator, which ends the first, and
 // a group wider than the line cuts its names with an ellipsis (their whole text stays). An edit or a reply assigns
 // nobody and lists whom it notifies. Hidden while the text has no '@' word to report.
-function mentionPreview(field) {
+function mentionPreview(field: HTMLTextAreaElement | null | undefined) {
   if (!field) return;
   const box = field.nextElementSibling;
-  if (!box || !box.classList.contains('m-preview')) return;
+  if (!(box instanceof HTMLElement) || !box.classList.contains('m-preview')) return;
   const scan = mentionScan(field.value, mentionHints(field)),
     me = meLogin(); // the same hints the save/send carries
   // the field, or a field that mirrors it, being typed in

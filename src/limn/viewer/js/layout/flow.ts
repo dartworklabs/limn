@@ -940,9 +940,9 @@ document.fonts.addEventListener('loadingdone', () => {
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
-  $(dialogSelector).addEventListener('click', (event) => {
+  $(dialogSelector).addEventListener('click', (event: MouseEvent) => {
     const dialog = event.currentTarget;
-    if (event.target !== dialog) return;
+    if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
     if (
       event.clientX < rect.left ||
@@ -986,11 +986,12 @@ function topAnchor(offset?: number) {
 // or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
 // is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
 // of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
-// would stop a long glide part way.
-function restoreAnchor(anchor) {
+// would stop a long glide part way. A kept view's spot (page and frac alone) has no place on screen to compare, so it is
+// always scrolled to.
+function restoreAnchor(anchor: ReturnType<typeof topAnchor> | { page: number; frac: number }) {
   if (!anchor) return;
   const scroller = $('#left');
-  if (anchor.atTop) {
+  if ('atTop' in anchor && anchor.atTop) {
     if (scroller.scrollTop > 0) scroller.scrollTop = 0;
     return;
   }
@@ -998,8 +999,9 @@ function restoreAnchor(anchor) {
   if (!pageElement) return;
   const rect = pageElement.getBoundingClientRect(),
     scrollerTop = scroller.getBoundingClientRect().top;
-  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
-  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
+  if ('y' in anchor && Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5)
+    return;
+  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (('gap' in anchor && anchor.gap) || 0);
 }
 
 export {

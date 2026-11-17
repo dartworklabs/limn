@@ -4,6 +4,7 @@ import { META, buildsFromSource, isFigureKind } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { $ } from '../platform/dom.ts';
+import { tableEntry } from '../platform/tables.ts';
 import { LOCAL_LOGIN, ROLE, SYNC_STATE } from '../app/rules-tables.ts';
 import { isAgent, who, isHuman } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
@@ -52,7 +53,7 @@ const SYNC_REASON: Record<string, string> = {
 // The main sync badge (--git-pull) from a meta's `sync` {state, reason}: hidden when off or current, a warning when
 // blocked or failed. It also keeps the sync for the status line (STATUS_SYNC), which words the same state on compact
 // bands.
-function updateSyncBadge(sync) {
+function updateSyncBadge(sync: SyncStatus | null | undefined) {
   setStatusSync(sync || null);
   const badge = $('#meta-sync');
   if (!badge) return;
@@ -62,7 +63,7 @@ function updateSyncBadge(sync) {
   }
   badge.hidden = false;
   badge.classList.toggle('badge-warning', sync.state === SYNC_STATE.BLOCKED || sync.state === SYNC_STATE.ERROR);
-  const reason = translate(SYNC_REASON[sync.reason] || sync.reason || '');
+  const reason = translate(tableEntry(SYNC_REASON, sync.reason) || sync.reason || '');
   badge.textContent = translate(
     sync.state === SYNC_STATE.UPDATING
       ? '최신 main PDF 반영 중'

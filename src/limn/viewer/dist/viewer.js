@@ -39,6 +39,11 @@ const NOTICE_DOT = Object.freeze({ SIDE: 'side', RV: 'rv' });
 const NOTICE_TOPIC = Object.freeze({ PICK: 'pick', SIDE: 'side', OFFLINE: 'offline' });
 // the pin list's order (orderPins); index.html data-order
 const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' });
+// The entry for key in a table keyed by a field the server may leave out or send as null; none without a key, as for a
+// key the table does not name, so the caller's fallback stands for both.
+function tableEntry(table, key) {
+  return key == null ? undefined : table[key];
+}
 
 // ----------------------------------------------- The app's closed value tables (platform/tables.ts has the platform's)
 // Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is
@@ -191,12 +196,15 @@ function rangeRelation(first, last, pinFirst, pinLast) {
   if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
   return RANGE_REL.PARTIAL;
 }
+// Only lines overlap: a selection on a view-only PDF has none, and a pin record without its lines (a broken stored
+// record that keeps its file) has none to compare.
 function overlapsFor(selection, pins) {
   const out = [];
-  if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
+  if (!selection || !selection.file || selection.lo == null || selection.hi == null) return out;
+  const { file, lo: first, hi: last } = selection;
   (pins || []).forEach((pin) => {
-    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== selection.file) return;
-    const rel = rangeRelation(selection.lo, selection.hi, pin.lo, pin.hi);
+    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== file || pin.lo == null || pin.hi == null) return;
+    const rel = rangeRelation(first, last, pin.lo, pin.hi);
     if (rel) out.push({ id: pin.id, lo: pin.lo, hi: pin.hi, rel: rel });
   });
   return out;
@@ -806,6 +814,11 @@ const esc = (text) =>
     (character) =>
       (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }))[character],
   );
+// The element an event is aimed at, or null when its target is not an element (the window, the document): a handler
+// that looks for the controls around the target finds none there.
+function eventElement(event) {
+  return event.target instanceof Element ? event.target : null;
+}
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
 // keyboard is up.
 function typingNow() {
@@ -1196,6 +1209,7 @@ function translateTemplate(key, values) {
     values && values[field] != null ? String(values[field]) : placeholder,
   );
 }
+// A message that is not text (a node without a value) comes back as it is.
 function translateMessage(message) {
   if (LANG !== UI_LANG.EN || typeof message !== 'string') return message;
   const english = translate(message);
@@ -1209,10 +1223,12 @@ function translateMessage(message) {
 // server's `error` text as is - it is the agent contract (api.md §오류 응답). English looks up the stable reason code
 // ('reason:<code>' in the table) and falls back to the server text through the table. '' when there is no body.
 function errText(body) {
-  if (!body) return '';
-  const serverText = body.error == null ? '' : String(body.error);
-  if (LANG === UI_LANG.EN && typeof body.reason === 'string') {
-    const english = I18N_EN['reason:' + body.reason];
+  if (!body || typeof body !== 'object') return '';
+  const error = 'error' in body ? body.error : undefined,
+    reason = 'reason' in body ? body.reason : undefined;
+  const serverText = error == null ? '' : String(error);
+  if (LANG === UI_LANG.EN && typeof reason === 'string') {
+    const english = I18N_EN['reason:' + reason];
     if (typeof english === 'string') return english;
   }
   return translateMessage(serverText);
@@ -1253,11 +1269,11 @@ function warnText(text) {
 // inside it are translate()'d by the code that draws them. Asked of an element (an SVG one has no translate and counts
 // as translatable).
 function i18nUser(element) {
-  return !!element && element.translate === false;
+  return element instanceof HTMLElement && element.translate === false;
 }
 // Translates an element's UI attributes in place, unless it is user text.
 function translateAttributes(element) {
-  if (i18nUser(element)) return;
+  if (!(element instanceof Element) || i18nUser(element)) return;
   for (const attribute of I18N_ATTRS) {
     const value = element.getAttribute(attribute);
     if (value) {
@@ -1505,7 +1521,7 @@ LIGHT_SCHEME_QUERY.addEventListener('change', applyTheme);
 // [더보기]'s theme segment: saves `theme` (one of THEMES) and applies it at once - the change is its own preview,
 // another segment its undo.
 function setTheme(theme) {
-  if (!THEMES.includes(theme)) return;
+  if (theme === undefined || !THEMES.includes(theme)) return;
   savePrefs({ theme: theme });
   applyTheme();
 }
@@ -3567,8 +3583,8 @@ let PRESS = null,
   TIP_HOLD = 0; // TIP_HOLD: the SWALLOW_CLICK a long press's release armed (0 for none)
 /** Find a touch tooltip target while preserving native input menus and paragraph selection outside pin badges. */
 function pressTarget(target) {
-  const element = target && target.closest ? target.closest('[data-tip],[data-tip-press]') : null;
-  if (!element) return null;
+  const element = target ? target.closest('[data-tip],[data-tip-press]') : null;
+  if (!(element instanceof HTMLElement)) return null;
   if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') return null;
   if (element.closest('.pg') && !element.closest('.mark [data-act=mark-jump]')) return null;
   return element;
@@ -3582,7 +3598,7 @@ document.addEventListener(
     TIP_HOLD = 0;
     if (event.pointerType === 'mouse') return;
     if (!TIP.hidden) hideTip();
-    const element = pressTarget(event.target);
+    const element = pressTarget(eventElement(event));
     if (!element) return;
     PRESS = {
       el: element,
@@ -4715,6 +4731,8 @@ function renderRevisionFile() {
     ),
   );
 }
+// The fields of GET /api/revision-diff?pin='s scope (limn.revisions.scope scope_payload) the rest of the commit is drawn
+// from; the patch and its truncation come only in mode pin.
 // The rest of the commit, folded under one control. Hidden when the pin owns the whole commit or the view is not a
 // pin's.
 function drawRevisionOther(scope) {
@@ -4731,7 +4749,7 @@ function drawRevisionOther(scope) {
           : '')
       : '';
   toggle.hidden = !REVISION_VIEW.other;
-  if (REVISION_VIEW.other)
+  if (scope && REVISION_VIEW.other)
     toggle.querySelector('span').textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', { n: scope.other });
 }
 function toggleRevisionOther() {
@@ -5128,7 +5146,7 @@ function pressRevisionRow(id) {
   if (id) showRange(rangePress(REVISION_VIEW.rows, REVISION_VIEW.range, id));
 }
 function setRevisionRange(mode) {
-  if (!REVISION_VIEW.rows.length || mode === REVISION_VIEW.range.mode) return;
+  if (mode === undefined || !REVISION_VIEW.rows.length || mode === REVISION_VIEW.range.mode) return;
   showRange(rangeMode(REVISION_VIEW.rows, REVISION_VIEW.range, mode, REVISION_VIEW.seen));
 }
 // Draws the quick range: the pressed segment, and [마지막으로 본 뒤 N] - hidden without a record of this document in
@@ -5694,11 +5712,13 @@ function hunkRanges(text) {
   }
   return out;
 }
+// A target without lines (a region pin's) touches none.
 function touchesPin(files, target, slack) {
-  const index = pinFileIndex(files, target.file);
-  if (index < 0) return false;
-  slack = slack == null ? 5 : slack;
-  return hunkRanges(files[index].text).some(([start, end]) => end >= target.lo - slack && start <= target.hi + slack);
+  const index = pinFileIndex(files, target.file),
+    { lo: first, hi: last } = target;
+  if (index < 0 || first == null || last == null) return false;
+  const reach = slack == null ? 5 : slack;
+  return hunkRanges(files[index].text).some(([start, end]) => end >= first - reach && start <= last + reach);
 }
 // A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows
 // reads further pages until found or the window ends, as the server resolves it), else the most recent of the first
@@ -5830,13 +5850,21 @@ function drawPinGuideActions() {
   row.hidden = !narrow;
   document.body.classList.toggle('rev-thumb', narrow);
 }
+// A target without lines (a region pin's) marks none and neither hits nor comes near.
 function highlightPinLines(target) {
+  const { lo: firstLine, hi: lastLine } = target;
+  if (firstLine == null || lastLine == null) {
+    target.hit = false;
+    target.near = false;
+    drawPinGuide();
+    return;
+  }
   const rows = $$('#revision-diff .rd-line');
   let first = null;
   rows.forEach((line) => {
     if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
     const lineNumber = +line.querySelector('.rd-no').textContent;
-    if (lineNumber >= target.lo && lineNumber <= target.hi) {
+    if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
     }
@@ -5853,7 +5881,7 @@ function highlightPinLines(target) {
       rows.forEach((line) => {
         const lineNumber = +line.querySelector('.rd-no').textContent;
         if (!lineNumber) return;
-        const distance = Math.min(Math.abs(lineNumber - target.lo), Math.abs(lineNumber - target.hi));
+        const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
           bestDistance = distance;
           best = line;
@@ -6467,7 +6495,7 @@ function restoreView(view) {
       typeof view.line === 'number' ? { line: view.line, off: +view.off || 0, top: 0 } : null;
     return;
   } // once it is drawn (showDocumentNode)
-  restoreAnchor({ page: view.page, frac: view.frac });
+  if (typeof view.page === 'number') restoreAnchor({ page: view.page, frac: view.frac });
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }
 addEventListener('pagehide', saveView);
@@ -6675,7 +6703,7 @@ function updateSyncBadge(sync) {
   }
   badge.hidden = false;
   badge.classList.toggle('badge-warning', sync.state === SYNC_STATE.BLOCKED || sync.state === SYNC_STATE.ERROR);
-  const reason = translate(SYNC_REASON[sync.reason] || sync.reason || '');
+  const reason = translate(tableEntry(SYNC_REASON, sync.reason) || sync.reason || '');
   badge.textContent = translate(
     sync.state === SYNC_STATE.UPDATING
       ? '최신 main PDF 반영 중'
@@ -7776,9 +7804,10 @@ function resetBuildForDoc() {
 }
 function buildChipText(build) {
   const label =
-    { pull: '원격 main 당겨오는 중', copy: '원고 복사 중', latex: 'LaTeX 컴파일 중', render: '쪽 그리는 중' }[
-      build.phase
-    ] || '재빌드 중';
+    tableEntry(
+      { pull: '원격 main 당겨오는 중', copy: '원고 복사 중', latex: 'LaTeX 컴파일 중', render: '쪽 그리는 중' },
+      build.phase,
+    ) || '재빌드 중';
   const elapsed = Math.round(build.elapsed_s || 0),
     last = build.last_s ? ' ' + translateTemplate('(지난번 {s}초)', { s: Math.round(build.last_s) }) : '';
   return translate(label) + ' · ' + translateTemplate('{s}초', { s: elapsed }) + last;
@@ -8749,7 +8778,8 @@ function statusList(input) {
     build = input.build,
     running = !!build && build.state === BUILD_STATE.RUNNING,
     buildError = input.buildErr,
-    syncState = input.sync && input.sync.state;
+    sync = input.sync,
+    syncState = sync && sync.state;
   const notes = input.notices || [],
     alert = (notice) => !!notice.alert || notice.kind === NOTICE_KIND.ERR;
   notes
@@ -8773,7 +8803,7 @@ function statusList(input) {
     .forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
   if (running)
     out.push({
-      kind: { render: STATUS_KIND.RENDERING }[build.phase] || STATUS_KIND.BUILDING,
+      kind: tableEntry({ render: STATUS_KIND.RENDERING }, build.phase) || STATUS_KIND.BUILDING,
       phase: build.phase || '',
       el: Math.round(build.elapsed_s || 0),
       last: build.last_s ? Math.round(build.last_s) : 0,
@@ -8781,7 +8811,7 @@ function statusList(input) {
       act: null,
     });
   if (syncState === SYNC_STATE.BLOCKED || syncState === SYNC_STATE.ERROR)
-    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: input.sync.reason || '', act: 'status-why' });
+    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: (sync && sync.reason) || '', act: 'status-why' });
   if (input.unchanged && !running)
     out.push({
       kind: STATUS_KIND.UNCHANGED,
@@ -8804,6 +8834,10 @@ function statusList(input) {
 // messages, a rebuild's 'no changes', a new Limn and the pins kept while cut off - its status chips (#bar2) already
 // show the build, the connection, sync, staleness and PNG, but no chip counts the kept pins, so the line is the one
 // place the desktop says there are any. Pure.
+// The message a status item carries: a notice item's, else none.
+function itemNotice(item) {
+  return item.kind === STATUS_KIND.NOTICE ? item.notice : null;
+}
 function statusShown(list, wide) {
   return wide
     ? list.filter(
@@ -9024,10 +9058,16 @@ function drawStatus() {
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
   const held =
-    focused && focused.n ? list.findIndex((item) => !!item.notice && String(item.notice.n) === focused.n) : -1;
+    focused && focused.n
+      ? list.findIndex((item) => {
+          const notice = itemNotice(item);
+          return !!notice && String(notice.n) === focused.n;
+        })
+      : -1;
   if (held > 0) list = [list[held], ...list.slice(0, held), ...list.slice(held + 1)];
-  const top = list[0];
-  STATUS_TOP = top && top.notice ? top.notice.n : 0;
+  const top = list[0],
+    topNotice = top ? itemNotice(top) : null;
+  STATUS_TOP = topNotice ? topNotice.n : 0;
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
@@ -9056,10 +9096,10 @@ function drawStatus() {
     '|' +
     list.length +
     '|' +
-    (top.state || '') +
+    ((top.kind === STATUS_KIND.SYNC && top.state) || '') +
     '|' +
     // a message turned into a warning (noticeLate) takes its icon
-    (top.notice ? top.notice.n + '|' + top.notice.kind : '');
+    (topNotice ? topNotice.n + '|' + topNotice.kind : '');
   if (sig !== STATUS_SIG) {
     STATUS_SIG = sig;
     const more =
@@ -9077,17 +9117,18 @@ function drawStatus() {
   // the short band's one row always takes the short text
   textSpan.textContent = BAND === LAYOUT_BAND.SHORT ? short[0] + short[1] : long[0] + long[1];
   if (textSpan.scrollWidth > textSpan.clientWidth) textSpan.textContent = short[0] + short[1];
-  const said = top.notice
-    ? top.notice.alert
+  const said = topNotice
+    ? topNotice.alert
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
-  const say = said || (top.notice && top.notice.quiet) ? '' : long[0];
+  const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
   if (!bar) return;
-  const { done, total } = top.progress || {},
-    percent = top.progress ? Math.round((done / total) * 100) : null;
+  const progress = top.kind === STATUS_KIND.BUILDING || top.kind === STATUS_KIND.RENDERING ? top.progress : null,
+    { done, total } = progress || { done: 0, total: 0 },
+    percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
   bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
   if (percent === null) {
@@ -10166,19 +10207,18 @@ function startScale() {
 // point and its fractions within the page.
 // Zoom anchor: the page under screen coordinates (clientX, clientY) and its fraction within that page. If the point
 // falls in the gap between pages, the vertically nearest page is used. Without coordinates, the center of the PDF area
-// is used (keyboard/button).
+// is used (keyboard/button), as it is for a point given by half.
 function zoomAnchor(clientX, clientY) {
   const pdfArea = $('#left'),
     areaRect = pdfArea.getBoundingClientRect();
-  if (clientX == null) {
-    clientX = areaRect.left + pdfArea.clientWidth / 2;
-    clientY = areaRect.top + pdfArea.clientHeight / 2;
-  }
+  const centre = clientX == null || clientY == null,
+    pointX = centre ? areaRect.left + pdfArea.clientWidth / 2 : clientX,
+    pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
   let best = null,
     bestDistance = Infinity;
   for (const pageBox of $$('.pg')) {
     const rect = pageBox.getBoundingClientRect(),
-      distance = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+      distance = pointY < rect.top ? rect.top - pointY : pointY > rect.bottom ? pointY - rect.bottom : 0;
     if (distance < bestDistance) {
       bestDistance = distance;
       best = { pg: pageBox, r: rect };
@@ -10188,10 +10228,10 @@ function zoomAnchor(clientX, clientY) {
   return best
     ? {
         pg: best.pg,
-        cx: clientX,
-        cy: clientY,
-        fx: (clientX - best.r.left) / best.r.width,
-        fy: (clientY - best.r.top) / best.r.height,
+        cx: pointX,
+        cy: pointY,
+        fx: (pointX - best.r.left) / best.r.width,
+        fy: (pointY - best.r.top) / best.r.height,
       }
     : null;
 }
@@ -10627,8 +10667,7 @@ const OUTLINE_BATCH = 100;
 function outlineCount(item) {
   let count = 0;
   const todo = [item];
-  while (todo.length) {
-    const node = todo.pop();
+  for (let node = todo.pop(); node; node = todo.pop()) {
     if (node.dest != null) count++;
     for (const child of node.items || []) todo.push(child);
   }
@@ -10692,10 +10731,11 @@ async function loadOutline(doc, gen) {
             cut += outlineCount(batch[j]);
             continue;
           }
-          const at = entries.length;
-          if (got[j]) entries.push(Object.assign(got[j], { depth, up }));
+          const at = entries.length,
+            entry = got[j];
+          if (entry) entries.push(Object.assign(entry, { depth, up }));
           if (depth < OUTLINE_MAX_DEPTH) {
-            await walk(batch[j].items, depth + 1, got[j] ? at : up);
+            await walk(batch[j].items, depth + 1, entry ? at : up);
             if (stale()) return;
           } else for (const child of batch[j].items || []) cut += outlineCount(child);
         }
@@ -11140,11 +11180,16 @@ function outlineIndexAt(entries, page, frac) {
   const at = (entry) => entry.frac || 0,
     deep = (entry) => entry.depth || 0,
     above = (entry) => entry.page < page || (entry.page === page && at(entry) <= frac + 1e-6);
+  // edgeAt reads the left edge of an entry known to have one (those in byLeftEdge) as a number.
   const leftEdge = (entry) => (typeof entry.x === 'number' ? entry.x : null),
-    sameLeftEdge = (first, second) =>
-      leftEdge(first) === null || leftEdge(second) === null
-        ? leftEdge(first) === leftEdge(second)
-        : Math.abs(leftEdge(first) - leftEdge(second)) <= 1e-3;
+    edgeAt = (entry) => (typeof entry.x === 'number' ? entry.x : NaN),
+    sameLeftEdge = (first, second) => {
+      const firstEdge = leftEdge(first),
+        secondEdge = leftEdge(second);
+      return firstEdge === null || secondEdge === null
+        ? firstEdge === secondEdge
+        : Math.abs(firstEdge - secondEdge) <= 1e-3;
+    };
   let top = 0;
   for (const entry of entries) if (above(entry) && entry.page > top) top = entry.page;
   if (!top) {
@@ -11178,7 +11223,7 @@ function outlineIndexAt(entries, page, frac) {
   const byAt = winners.slice().sort((first, second) => at(entries[first]) - at(entries[second]) || first - second),
     byLeftEdge = winners
       .filter((index) => Number.isFinite(leftEdge(entries[index])))
-      .sort((first, second) => leftEdge(entries[first]) - leftEdge(entries[second]) || first - second);
+      .sort((first, second) => edgeAt(entries[first]) - edgeAt(entries[second]) || first - second);
   // [from, to) in list (sorted by key) for the members whose key lies within tolerance of value, a little wider to be
   // safe from the rounding of a difference; each is tested exactly below.
   const near = (list, key, value, tolerance) => {
@@ -11201,7 +11246,7 @@ function outlineIndexAt(entries, page, frac) {
     let list = byAt,
       [low, high] = near(byAt, at, at(entry), 1e-6);
     if (Number.isFinite(leftEdge(entry))) {
-      const [edgeLow, edgeHigh] = near(byLeftEdge, leftEdge, leftEdge(entry), 1e-3);
+      const [edgeLow, edgeHigh] = near(byLeftEdge, edgeAt, edgeAt(entry), 1e-3);
       if (edgeHigh - edgeLow < high - low) {
         list = byLeftEdge;
         low = edgeLow;
@@ -11831,7 +11876,11 @@ function failVector(message, cause) {
   chip.dataset.tip = translateTemplate(
     'PDF를 벡터로 그리지 못해 이미지(PNG)로 보입니다 — {reason}. 확대하면 흐릴 수 있습니다',
     {
-      reason: translate(message) + (cause && cause.message ? ' (' + String(cause.message).slice(0, 100) + ')' : ''),
+      reason:
+        translate(message) +
+        (typeof cause === 'object' && cause !== null && 'message' in cause && cause.message
+          ? ' (' + String(cause.message).slice(0, 100) + ')'
+          : ''),
     },
   );
 }
@@ -14919,7 +14968,7 @@ document.fonts.addEventListener('loadingdone', () => {
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
   $(dialogSelector).addEventListener('click', (event) => {
     const dialog = event.currentTarget;
-    if (event.target !== dialog) return;
+    if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
     if (
       event.clientX < rect.left ||
@@ -14963,11 +15012,12 @@ function topAnchor(offset) {
 // or the select mode's reserve that keeps the mode bar off its first line) is kept at whatever height it has. Nothing
 // is written when the spot's page stands where it stood at the same height: Chromium ends a smooth scroll at any write
 // of the offset, the same one too, so the band settling 200ms into a jump from the phone's sheet (the keyboard held it)
-// would stop a long glide part way.
+// would stop a long glide part way. A kept view's spot (page and frac alone) has no place on screen to compare, so it is
+// always scrolled to.
 function restoreAnchor(anchor) {
   if (!anchor) return;
   const scroller = $('#left');
-  if (anchor.atTop) {
+  if ('atTop' in anchor && anchor.atTop) {
     if (scroller.scrollTop > 0) scroller.scrollTop = 0;
     return;
   }
@@ -14975,8 +15025,9 @@ function restoreAnchor(anchor) {
   if (!pageElement) return;
   const rect = pageElement.getBoundingClientRect(),
     scrollerTop = scroller.getBoundingClientRect().top;
-  if (Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5) return;
-  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (anchor.gap || 0);
+  if ('y' in anchor && Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5)
+    return;
+  scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (('gap' in anchor && anchor.gap) || 0);
 }
 
 // Panel width handle - mouse, touch and pen all share one Pointer Events path. The handle has touch-action:none, so
@@ -15232,7 +15283,7 @@ function dragSheetTo(height) {
     if (LAYOUT !== LAYOUT_MODE.NARROW || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0))
       return;
     // A field keeps its press, and the handle (inside the bar) has already grabbed.
-    if (lazy && event.target.closest && event.target.closest('input,textarea,select,#sheet-grip')) return;
+    if (lazy && eventElement(event)?.closest('input,textarea,select,#sheet-grip')) return;
     drag = {
       id: event.pointerId,
       x: event.clientX,
@@ -15335,7 +15386,7 @@ function pullDown(
       if (
         event.touches.length !== 1 ||
         !ok(event) ||
-        (event.target.closest && event.target.closest('textarea,input,select,pre,.seg:not(#list-order)'))
+        eventElement(event)?.closest('textarea,input,select,pre,.seg:not(#list-order)')
       )
         return;
       pull = { x: touch.clientX, y: touch.clientY, on: false, pts: [] };
@@ -15380,7 +15431,10 @@ function pullDown(
   let startHeight = 0;
   pullDown(
     $('#right'),
-    (event) => LAYOUT === LAYOUT_MODE.NARROW && SIDE_OPEN && !event.target.closest('#bar1,#sheet-grip'),
+    (event) => {
+      const element = eventElement(event);
+      return LAYOUT === LAYOUT_MODE.NARROW && SIDE_OPEN && element !== null && !element.closest('#bar1,#sheet-grip');
+    },
     () => {
       startHeight = $('#right').getBoundingClientRect().height;
       document.body.classList.add('resizing');
@@ -15482,7 +15536,7 @@ function dismissOutcome(distance, size, speed) {
     }
     swipe = null;
     if (event.pointerType === 'mouse' || !(LAYOUT === LAYOUT_MODE.MID && MID_OVERLAY && SIDE_OPEN)) return;
-    if (event.target.closest && event.target.closest(SKIP)) return;
+    if (eventElement(event)?.closest(SKIP)) return;
     swipe = {
       id: event.pointerId,
       x: event.clientX,
@@ -15724,7 +15778,9 @@ window.addEventListener(
 // could start otherwise. A tap stays the badge's (its click), and a mouse or a finger outside the mode leaves the badge
 // alone.
 $('#doc').addEventListener('pointerdown', (event) => {
-  const badge = event.target.closest('.mark [data-act=mark-jump]'),
+  const element = eventElement(event);
+  if (!element) return;
+  const badge = element.closest('.mark [data-act=mark-jump]'),
     mouse = event.pointerType === 'mouse';
   if (badge && (mouse || !SELMODE || !event.isPrimary)) return;
   // A second finger is a pinch: the box being drawn is discarded.
@@ -15735,8 +15791,8 @@ $('#doc').addEventListener('pointerdown', (event) => {
     LAST_TAP = null;
     return;
   }
-  const pageElement = event.target.closest('.pg');
-  if (!pageElement) return;
+  const pageElement = element.closest('.pg');
+  if (!(pageElement instanceof HTMLElement)) return;
   if (mouse && event.button !== 0) return;
   if (mouse || SELMODE) {
     const [startX, startY] = fracAt(pageElement, event.clientX, event.clientY);
@@ -15996,7 +16052,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     setComposeBox(box);
     pendingBadge(box, '새 핀');
   }
-  const page = +pageElement.dataset.page,
+  const page = Number(pageElement.dataset.page),
     pageInfo = META.pages[page - 1],
     repick = !!REPICK;
   pageSelection().pick({
@@ -16042,7 +16098,9 @@ function selectionRoom() {
 
 // ------------------------------------------------ The range ladder's levels
 // What a ladder's rung applies to: the composer's selection or an edit card.
+// The owner's rung named key, either as its level or as one its rung merged; none for no key.
 function levelOf(owner, key) {
+  if (key == null) return undefined;
   return (owner.levels || []).find((rung) => rung.level === key || (rung.merged || []).includes(key));
 }
 // Applies rung `key` to the owner (the composer's selection or an edit card): its lines, scope and source; a figure
@@ -16170,6 +16228,10 @@ function syncQuestionHint(box, text, kind) {
 
 // ------------------------------------------------ Range levels
 /** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
+/** A range owner on lines: its file and both end lines are there, as on every owner that is not a region. */
+function onLines(owner) {
+  return typeof owner.file === 'string' && typeof owner.lo === 'number' && typeof owner.hi === 'number';
+}
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
@@ -16186,12 +16248,17 @@ function kindFor(scope, env) {
 }
 // The name of the owner's range kind for a description: its rung's, else its kind's; '' for lines set one by one (scope
 // 'lines'), whose lines alone say what they are.
+// A re-place candidate (a pick's answer) has no scope of its own.
 function scopeLabel(owner) {
-  const rung = owner.scope && levelOf(owner, owner.scope);
+  const scope = 'scope' in owner ? owner.scope : undefined;
+  const rung = scope && levelOf(owner, scope);
   if (rung) return levelLabel(rung.label);
-  if (owner.scope === 'lines') return '';
+  if (scope === 'lines') return '';
   return translate(
-    { float: '그림/표', block: '환경 블록', paragraph: '문단', none: '생성 파일', lines: '줄' }[owner.kind] ||
+    tableEntry(
+      { float: '그림/표', block: '환경 블록', paragraph: '문단', none: '생성 파일', lines: '줄' },
+      owner.kind,
+    ) ||
       owner.kind ||
       '',
   );
@@ -16235,7 +16302,7 @@ function rungButtons(owner, isEdit) {
   return rungs.map((rung) => {
     const on = rung === current,
       lineCount = rungLines(rung);
-    const tip = rung.el
+    const tip = rungHasElement(rung)
       ? rungTip(rung)
       : isEdit && rung.level === 'raw'
         ? TIP_TEXT.cur
@@ -16244,7 +16311,7 @@ function rungButtons(owner, isEdit) {
           : rung.level === 'raw' && isMarkdownDoc()
             ? TIP_TEXT.mdraw
             : // a rung may name its own description (a text document's paragraphs, textLevels)
-              TIP_TEXT[rung.tip || rung.level] || '';
+              TIP_TEXT[('tip' in rung && typeof rung.tip === 'string' && rung.tip) || rung.level] || '';
     const label = isEdit && rung.level === 'raw' ? translate('지금 범위') : levelName(rung, rungs),
       linesText = translateTemplate('{n}줄', { n: lineCount });
     return html`<button class="${on ? 'on' : ''}" data-act="level" data-level="${rung.level}" role="radio" aria-checked="${on}" aria-label="${label + ' ' + lineRange(rung.lo, rung.hi) + ' · ' + linesText}" \
@@ -16284,7 +16351,9 @@ function setCap(caption, markup) {
     setHtml(caption, markup);
   }
 }
+// An owner without its lines has no range to name.
 function rangeCap(owner, isEdit) {
+  if (!onLines(owner)) return html``;
   const rungs = owner.levels || [],
     current = currentRung(owner),
     range = lineRange(owner.lo, owner.hi);
@@ -16301,8 +16370,9 @@ const SEGMENT_FADE = 32; // how wide a scrolling segment control's edge fade is 
 // names nearly as long as the row) brings it clear of the edge fades too - a fade's width in from an edge that has more
 // to scroll to, or centred when it is too long for that; fadeSegmentEdges then keeps each fade off it.
 function revealSegment(control) {
-  const on = control && control.querySelector('.on');
-  if (!on) {
+  if (!(control instanceof HTMLElement)) return;
+  const on = control.querySelector('.on');
+  if (!(on instanceof HTMLElement)) {
     fadeSegmentEdges(control);
     return;
   }
@@ -16573,11 +16643,11 @@ function excerptFocusTarget(buttons, was, owner) {
     null,
   );
 }
-// Draws the owner's excerpt into box, or clears and hides it (a region, no selection). isEdit: an edit card (the
+// Draws the owner's excerpt into box, or clears and hides it (a region, an owner without its lines, no selection). isEdit: an edit card (the
 // composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that takes the focused '+'
 // or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
 function drawExcerpt(owner, box, isEdit) {
-  const on = !!owner && !owner.region && !isRegion(owner);
+  const on = owner !== null && !('region' in owner && owner.region) && !isRegion(owner) && onLines(owner);
   const focused = document.activeElement,
     had =
       box.contains(focused) && focused.dataset.act
@@ -16611,11 +16681,13 @@ ${row.edge ? html`<button class="xp-chip xp-drop" data-act="xp-drop" data-line="
   setHtml(box, html`<div class="xp-hint">${hint}</div><div class="xp-list" translate="no">${rows}</div>`);
   if (had) {
     const target = excerptFocusTarget(
-      [...box.querySelectorAll('[data-act]')].map((control) => ({
-        act: control.dataset.act,
-        line: +control.dataset.line,
-        el: control,
-      })),
+      [...box.querySelectorAll('[data-act]')]
+        .filter((control) => control instanceof HTMLElement)
+        .map((control) => ({
+          act: control.dataset.act,
+          line: Number(control.dataset.line),
+          el: control,
+        })),
       had,
       owner,
     );
@@ -16641,7 +16713,7 @@ function setLines(owner, first, last) {
 // (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the end
 // that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
 function applyRange(owner, range, anchor) {
-  if (!owner || !range) return;
+  if (!owner || !range || !onLines(owner)) return;
   const lineCount = owner.n_lines || Math.max(range[1], owner.hi),
     first = Math.max(1, Math.min(range[0], lineCount)),
     last = Math.max(first, Math.min(range[1], lineCount));
@@ -16702,6 +16774,10 @@ function elementPathText(selection) {
     if (typeof name === 'string' && name) names.set(id, name);
   });
   return selectedElement.path.map((id) => names.get(id) || String(id)).join(' › ');
+}
+// Whether a rung is a figure rung: it carries an element.
+function rungHasElement(rung) {
+  return !!rung.el;
 }
 // A figure rung's tooltip text: the whole figure's lines for the page's root (its path is itself), else the element's.
 function rungTip(level) {
@@ -16792,7 +16868,11 @@ function elementKind(element) {
 // `frac` too (a mark drawn without the current map then sits where the person saw the snapped box), and the element's
 // kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines set by
 // hand in the excerpt keep the kind the body already has.
-function figureFields(body, element, rung) {
+function figureFields(
+  body,
+  element,
+  rung,
+) {
   if (!element) return body;
   body.el = elementForSave(element);
   if (isFrac(element.frac)) body.frac = element.frac.slice();
@@ -27031,8 +27111,7 @@ async function savePageVerdict(
     if (here()) showPressedHint(page);
   } catch (error) {
     const x = error;
-    if (!saved)
-      failed(x && x.status ? (x.data && errText(x.data)) || 'HTTP ' + x.status : translate('서버에 닿지 않습니다'));
+    if (!saved) failed(x && x.status ? errText(x.data) || 'HTTP ' + x.status : translate('서버에 닿지 않습니다'));
   } finally {
     document.removeEventListener('focusin', moved);
     SAVING_LINES.delete(slot);
@@ -34807,7 +34886,7 @@ function gotoReview() {
   });
 }
 function toggleSection(key, force) {
-  if (!(key in SECTION_OPEN_DEFAULT)) return;
+  if (key === undefined || !(key in SECTION_OPEN_DEFAULT)) return;
   SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
   savePrefs({ sec: SECTION_OPEN });
   drawPins();
@@ -35093,7 +35172,7 @@ function marks() {
 $('#doc').addEventListener(
   'mousedown',
   (event) => {
-    if (event.target.closest('.mark [data-act=mark-jump]')) {
+    if (eventElement(event)?.closest('.mark [data-act=mark-jump]')) {
       event.stopPropagation();
       event.preventDefault();
     }
@@ -35243,9 +35322,9 @@ function markIdsFor(pin) {
   return [pin.id].concat((pin.rel || []).map((entry) => entry.id));
 }
 $('#pins').addEventListener('mouseover', (event) => {
-  const cardElement = event.target.closest('.pin');
-  if (!cardElement) return;
-  const pin = PINS.find((listed) => listed.id === +cardElement.dataset.id);
+  const cardElement = eventElement(event)?.closest('.pin');
+  if (!(cardElement instanceof HTMLElement)) return;
+  const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
     const mark = document.querySelector('.mark[data-pin="' + id + '"]');
@@ -35253,9 +35332,9 @@ $('#pins').addEventListener('mouseover', (event) => {
   });
 });
 $('#pins').addEventListener('mouseout', (event) => {
-  const cardElement = event.target.closest('.pin');
-  if (!cardElement) return;
-  const pin = PINS.find((listed) => listed.id === +cardElement.dataset.id);
+  const cardElement = eventElement(event)?.closest('.pin');
+  if (!(cardElement instanceof HTMLElement)) return;
+  const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
     const mark = document.querySelector('.mark[data-pin="' + id + '"]');
@@ -36123,7 +36202,7 @@ function renderAssignEdit() {
 function mentionPreview(field) {
   if (!field) return;
   const box = field.nextElementSibling;
-  if (!box || !box.classList.contains('m-preview')) return;
+  if (!(box instanceof HTMLElement) || !box.classList.contains('m-preview')) return;
   const scan = mentionScan(field.value, mentionHints(field)),
     me = meLogin(); // the same hints the save/send carries
   // the field, or a field that mirrors it, being typed in
@@ -36702,18 +36781,23 @@ function renderEdit() {
   });
   // the group's one Tab stop is the kind now chosen (platform/segments.ts)
   roveSegment(cardElement.querySelector('.e-kind'));
-  setCap(
-    cardElement.querySelector('.e-cap'),
-    card.region
-      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
-      : rangeCap(card, true),
-  );
-  drawLadder(cardElement.querySelector('.e-levels'), card, true);
+  // the card's markup above has its caption, ladder and excerpt boxes
+  const caption = cardElement.querySelector('.e-cap'),
+    ladder = cardElement.querySelector('.e-levels'),
+    excerpt = cardElement.querySelector('.e-xp');
+  if (caption instanceof HTMLElement)
+    setCap(
+      caption,
+      card.region
+        ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
+        : rangeCap(card, true),
+    );
+  if (ladder instanceof HTMLElement) drawLadder(ladder, card, true);
   const pre = cardElement.querySelector('.e-snip');
   pre.className = 'e-snip wrap';
   pre.textContent = snipText(card.snippet, false);
   renderAssignEdit();
-  drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
+  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true);
   // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
   renderEditSuggest(card);
   syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
@@ -37143,7 +37227,8 @@ function bannerCompare() {
   const repick = REPICK,
     candidate = repick && repick.cand;
   if (!repick || !candidate) return;
-  const level = levelOf(candidate, candidate.default_level) || candidate,
+  const rung = levelOf(candidate, candidate.default_level),
+    level = rung || candidate,
     isRegionPick = isRegion(candidate);
   if (isRegionPick !== !!repick.from.region) {
     repick.cand = null;
@@ -37160,8 +37245,8 @@ function bannerCompare() {
     ? candidate.quote
       ? String(candidate.quote).slice(0, 40)
       : translate('글자 없는 영역')
-    : level.label
-      ? levelLabel(level.label)
+    : rung && rung.label
+      ? levelLabel(rung.label)
       : scopeLabel(candidate);
   const acts = html`<button class="btn-sm btn-default" data-act="rp-apply" data-tip="번호와 메모는 그대로 두고 위치만 바꿉니다">이 위치로 바꾸기</button><button class="btn-sm" data-act="rp-cancel" data-tip="위치 다시 잡기를 그만둡니다 (Esc)">취소</button>`;
   banner(
@@ -37220,7 +37305,8 @@ async function applyRepick() {
   const repick = REPICK;
   if (!repick || !repick.cand) return;
   const candidate = repick.cand,
-    level = levelOf(candidate, candidate.default_level) || candidate;
+    rung = levelOf(candidate, candidate.default_level),
+    level = rung || candidate;
   const visit = captureVisit(),
     editing = EDITOR.current;
   let loc = {
@@ -37237,8 +37323,8 @@ async function applyRepick() {
     frac: candidate.frac,
     pdf_build: candidate.pdf_build || undefined,
     quote: candidate.quote,
-    scope: level.level || null,
-    kind: level.level ? kindFor(level.level, level.env) : candidate.kind,
+    scope: (rung && rung.level) || null,
+    kind: rung && rung.level ? kindFor(rung.level, rung.env) : candidate.kind,
   };
   if (!loc.scope) delete loc.scope;
   if (isRegion(candidate))
@@ -37692,9 +37778,14 @@ function zoomVisiblePdf(action) {
 // compact: a click on a collapsed card that hit nothing of its own opens the card, as its preview line and chevron do
 // (the card's 44px links and chips keep their own action). wide cards are always open.
 function openTappedCard(target) {
-  const card = target && target.closest && target.closest('.pin.card:not(.open):not(.editing)');
-  if (!card || LAYOUT === LAYOUT_MODE.WIDE || target.closest('[data-copy],button,input,textarea')) return;
-  OPEN_CARDS.add(+card.dataset.id);
+  const card = target.closest('.pin.card:not(.open):not(.editing)');
+  if (
+    !(card instanceof HTMLElement) ||
+    LAYOUT === LAYOUT_MODE.WIDE ||
+    target.closest('[data-copy],button,input,textarea')
+  )
+    return;
+  OPEN_CARDS.add(Number(card.dataset.id));
   drawPins();
 }
 document.addEventListener('click', (event) => {
@@ -37892,10 +37983,10 @@ document.addEventListener('click', (event) => {
       break;
     } // ...or drop an end line
     case 'view':
-      jumpPin(id);
+      if (id !== null) jumpPin(id);
       break;
     case 'edit':
-      openEdit(id);
+      if (id !== null) openEdit(id);
       break;
     case 'doc': {
       // inMenu is read before switchDoc(): for a cached document switchDoc finishes synchronously through drawDocTabs,
@@ -38034,7 +38125,7 @@ document.addEventListener('click', (event) => {
       jumpToCard(id);
       break;
     case 'close':
-      closePin(id);
+      if (id !== null) closePin(id);
       break;
     case 'drop': {
       const neighbour = event.detail === 0 ? cardNeighbour(control) : null;
@@ -38173,7 +38264,9 @@ document.addEventListener('click', (event) => {
       break;
   }
 });
-$('#doc-select').addEventListener('change', (event) => switchDoc(event.target.value));
+$('#doc-select').addEventListener('change', (event) => {
+  if (event.target instanceof HTMLSelectElement) switchDoc(event.target.value);
+});
 $('#revision-file').addEventListener('change', renderRevisionFile);
 // A segmented control is a radio group (docs/handbook/viewer.md §디자인 토큰과 컴포넌트): the whole group is one Tab
 // stop, the arrows move inside it and Home/End go to its ends. The one stop is a roving tabindex - the chosen word is

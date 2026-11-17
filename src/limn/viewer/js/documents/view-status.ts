@@ -16,7 +16,7 @@ import { SYNC_REASON } from './view-meta.ts';
 import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
-import { NOTICE_KIND } from '../platform/tables.ts';
+import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
 import { isViewer, STATUS_SYNC } from './state.ts';
@@ -70,12 +70,13 @@ type StatusItem =
   | { kind: 'stale'; act: string | null }
   | { kind: 'sync'; state: string; act: null }
   | { kind: 'png'; act: null };
-function statusList(input) {
+function statusList(input: ReturnType<typeof statusInput>) {
   const out: StatusItem[] = [],
     build = input.build,
     running = !!build && build.state === BUILD_STATE.RUNNING,
     buildError = input.buildErr,
-    syncState = input.sync && input.sync.state;
+    sync = input.sync,
+    syncState = sync && sync.state;
   const notes = input.notices || [],
     alert = (notice: Notice) => !!notice.alert || notice.kind === NOTICE_KIND.ERR;
   notes
@@ -99,7 +100,7 @@ function statusList(input) {
     .forEach((notice: Notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
   if (running)
     out.push({
-      kind: { render: STATUS_KIND.RENDERING }[build.phase] || STATUS_KIND.BUILDING,
+      kind: tableEntry({ render: STATUS_KIND.RENDERING }, build.phase) || STATUS_KIND.BUILDING,
       phase: build.phase || '',
       el: Math.round(build.elapsed_s || 0),
       last: build.last_s ? Math.round(build.last_s) : 0,
@@ -107,7 +108,7 @@ function statusList(input) {
       act: null,
     });
   if (syncState === SYNC_STATE.BLOCKED || syncState === SYNC_STATE.ERROR)
-    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: input.sync.reason || '', act: 'status-why' });
+    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: (sync && sync.reason) || '', act: 'status-why' });
   if (input.unchanged && !running)
     out.push({
       kind: STATUS_KIND.UNCHANGED,
@@ -130,7 +131,11 @@ function statusList(input) {
 // messages, a rebuild's 'no changes', a new Limn and the pins kept while cut off - its status chips (#bar2) already
 // show the build, the connection, sync, staleness and PNG, but no chip counts the kept pins, so the line is the one
 // place the desktop says there are any. Pure.
-function statusShown(list, wide: boolean) {
+// The message a status item carries: a notice item's, else none.
+function itemNotice(item: StatusItem) {
+  return item.kind === STATUS_KIND.NOTICE ? item.notice : null;
+}
+function statusShown(list: StatusItem[], wide: boolean) {
   return wide
     ? list.filter(
         (item: StatusItem) =>
@@ -350,10 +355,16 @@ function drawStatus() {
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
   const held =
-    focused && focused.n ? list.findIndex((item) => !!item.notice && String(item.notice.n) === focused.n) : -1;
+    focused && focused.n
+      ? list.findIndex((item) => {
+          const notice = itemNotice(item);
+          return !!notice && String(notice.n) === focused.n;
+        })
+      : -1;
   if (held > 0) list = [list[held], ...list.slice(0, held), ...list.slice(held + 1)];
-  const top = list[0];
-  STATUS_TOP = top && top.notice ? top.notice.n : 0;
+  const top = list[0],
+    topNotice = top ? itemNotice(top) : null;
+  STATUS_TOP = topNotice ? topNotice.n : 0;
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
@@ -382,10 +393,10 @@ function drawStatus() {
     '|' +
     list.length +
     '|' +
-    (top.state || '') +
+    ((top.kind === STATUS_KIND.SYNC && top.state) || '') +
     '|' +
     // a message turned into a warning (noticeLate) takes its icon
-    (top.notice ? top.notice.n + '|' + top.notice.kind : '');
+    (topNotice ? topNotice.n + '|' + topNotice.kind : '');
   if (sig !== STATUS_SIG) {
     STATUS_SIG = sig;
     const more =
@@ -403,17 +414,18 @@ function drawStatus() {
   // the short band's one row always takes the short text
   textSpan.textContent = BAND === LAYOUT_BAND.SHORT ? short[0] + short[1] : long[0] + long[1];
   if (textSpan.scrollWidth > textSpan.clientWidth) textSpan.textContent = short[0] + short[1];
-  const said = top.notice
-    ? top.notice.alert
+  const said = topNotice
+    ? topNotice.alert
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
-  const say = said || (top.notice && top.notice.quiet) ? '' : long[0];
+  const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
   if (!bar) return;
-  const { done, total } = top.progress || {},
-    percent = top.progress ? Math.round((done / total) * 100) : null;
+  const progress = top.kind === STATUS_KIND.BUILDING || top.kind === STATUS_KIND.RENDERING ? top.progress : null,
+    { done, total } = progress || { done: 0, total: 0 },
+    percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
   bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
   if (percent === null) {

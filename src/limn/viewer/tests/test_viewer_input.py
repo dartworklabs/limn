@@ -393,7 +393,7 @@ class StatusLogic(unittest.TestCase):
         return node_or_skip(
             self,
             "\n".join(
-                [extract_js_fn("statusProgress"), extract_js_fn("statusList")]
+                [extract_js_fn("tableEntry"), extract_js_fn("statusProgress"), extract_js_fn("statusList")]
                 + ["console.log(JSON.stringify(statusList(%s)));" % json.dumps(dict(self.S0, **s))]
             ),
         )
