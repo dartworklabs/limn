@@ -185,6 +185,11 @@ async function api<Endpoint extends ApiEndpoint, Refused extends RefusalStatus<E
     clearTimeout(timer);
     return apiUnanswered(endpoint, url, options, error);
   }
+  // The network's trust point (docs/adr/0046-viewer-endpoint-answers.md D3): the parsed body is taken as the endpoint's
+  // answer - or, for a status options.expect lists, its ApiRefusals body - and is not checked here or by any reader;
+  // a body that is not JSON is null. The handler tests hold each declaration to what the real handler answers
+  // (src/limn/viewer/tests/test_viewer_types.py: DeclaredEndpointAnswers, DeclaredViewShapes, DeclaredPinShapes,
+  // DeclaredPicks). body is any from here to the return below, and only there.
   let body = null;
   try {
     body = await response.json();
