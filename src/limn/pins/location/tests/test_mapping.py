@@ -16,11 +16,17 @@ def test_line_boxes_drops_page_body_boxes():
     assert line_boxes(rows, 595.28, 841.89) == rows[1:]
 
 
-def test_line_boxes_keeps_a_wide_short_box_and_a_tall_narrow_one():
-    # only a box both wide and tall is the page or column body; a full-width table row or a tall margin note stays
-    wide = (1, 72.0, 100.0, 467.0, 20.0)
-    tall = (1, 72.0, 100.0, 50.0, 548.0)
-    assert line_boxes([wide, tall], PAGE_W, PAGE_H) == [wide, tall]
+def test_line_boxes_lets_height_alone_decide():
+    wide_short = (1, 72.0, 100.0, 467.0, 20.0)  # a full-width table row stays
+    narrow_tall = (1, 72.0, 100.0, 50.0, 548.0)  # a narrow but page-high box goes
+    assert line_boxes([wide_short, narrow_tall], PAGE_W, PAGE_H) == [wide_short]
+
+
+def test_line_boxes_drops_a_column_body_box_and_keeps_a_line_of_it():
+    # measured with synctex view on a two-column A4 article: the column body is only 38% of the page width
+    column_body = (1, 310.605225, 124.802002, 228.642578, 547.945190)
+    body_line = (1, 71.999985, 414.725774, 228.642578, 8.855677)
+    assert line_boxes([column_body, body_line], 595.276, 841.89) == [body_line]
 
 
 def test_line_boxes_of_nothing_is_nothing():

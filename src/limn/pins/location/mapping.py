@@ -218,22 +218,26 @@ Box: TypeAlias = tuple[int, float, float, float, float]
 # document (a float's lines and its text far apart); one mark of many bits says less than none.
 BOX_LIMIT = 8
 
-# A box this wide and this tall, as a share of the page, is the page or column body, not a line of text.
-_BODY_WIDTH_SHARE = 0.70
-_BODY_HEIGHT_SHARE = 0.25
+# A box at least this tall, as a share of the page height, is the page or column body, not a line of text.
+BODY_HEIGHT_SHARE = 0.25
 # With a single line there is no blank between lines to measure; the padding is this share of the line's height.
 _LONE_LINE_PAD_SHARE = 0.175
 
 
-def line_boxes(rows: Sequence[Box], page_w: float, page_h: float) -> list[Box]:
+def line_boxes(rows: Sequence[Box], _page_w: float, page_h: float) -> list[Box]:
     """The boxes of rows that are lines of text, without the boxes that are the page or a column body.
 
-    SyncTeX answers a line like \\begin{table} with the box of the whole page or column body it opens (observed: a box
-    467 pt wide and 548 pt tall on a 595 x 842 page), and the mark would cover the page. Such a box is told by its
-    size against the page - at least 70% of its width and 25% of its height - and not against the range's other boxes:
-    a table's cells differ wildly in size, so a comparison among them drops real cells or keeps the body. A line of
-    text is never that tall, and a table row or a margin note is only one of the two."""
-    return [row for row in rows if not (row[3] >= _BODY_WIDTH_SHARE * page_w and row[4] >= _BODY_HEIGHT_SHARE * page_h)]
+    SyncTeX answers a line like \\end{document} or \\begin{table} with the boxes of the page body and of each column
+    body it sits in (measured on an A4 two-column 10 pt article: 467 pt wide and 548 pt tall for the page body, and
+    229 pt wide and 548 pt tall for each column body, on a 595 x 842 pt page). A mark drawn from one would cover a
+    column or the page. Height alone tells them from text: a body text line is 8.86 pt high, 1.05% of the page height,
+    and a body box is 65%, two orders of magnitude apart, so a box at least 25% of page_h high is dropped. Width cannot
+    be the test: a column body is only 38% of the page width, so a width gate lets it through. Nor is the test a
+    comparison among the range's own boxes: a table's cells differ wildly in size, so such a comparison drops real
+    cells or keeps the body. The trade-off: a float box taller than a quarter of the page is dropped too, and a pin
+    on it falls back to the dragged rectangle, which the spec allows for floats. The page width is taken, unused, to
+    keep the signature the callers share with merge_boxes."""
+    return [row for row in rows if row[4] < BODY_HEIGHT_SHARE * page_h]
 
 
 def _median(values: Sequence[float]) -> float:
@@ -291,12 +295,13 @@ def _union(a: Box, b: Box) -> Box:
 def merge_boxes(rows: Sequence[Box], pad: float, page_w: float, page_h: float, limit: int) -> list[Box]:
     """The mark's pieces: line boxes joined into blocks, grown by pad and cut to the page - or [] over limit boxes.
 
-    Boxes join when they lie on one page, their horizontal spans meet and the blank between them is at most the one between
-    two lines of the range (2 * pad plus the taller box): the lines of a paragraph become one block, while a range that runs from one column into the next stays two
-    pieces, one per column, and one that crosses a page stays one per page. Touching is judged between the
-    boxes as given and joins chain, so a tall block does not widen the threshold for what lies below it. Padding is added after joining, and clipped to 0..page_w and 0..page_h
-    so a mark at the page's edge does not leave the page. More than limit pieces is a range scattered over the
-    document, and there the mark gives up: [] means "draw nothing", not "nothing found". Pieces are rounded to 2
+    Boxes join when they lie on one page, their horizontal spans meet and the blank between them is at most the one
+    between two lines of the range (2 * pad plus the taller box). The lines of a paragraph become one block, while a
+    range that runs from one column into the next stays two pieces, one per column, and one that crosses a page stays
+    one per page. Touching is judged between the boxes as given and joins chain, so a tall block does not widen the
+    threshold for what lies below it. Padding is added after joining and clipped to 0..page_w and 0..page_h, so a
+    mark at the page's edge does not leave the page. More than limit pieces is a range scattered over the document,
+    and there the mark gives up: [] means "draw nothing", not "nothing found". Pieces are rounded to 2
     decimals and sorted by (page, y, x), so the pin's number badge sits on the first one, the top of the range."""
     parent = list(range(len(rows)))
 
