@@ -80,7 +80,7 @@ async function api(url: string, options?: RequestOptions): Promise<{ status: num
   options = { ...(options || {}) };
   options.source =
     options.source || (options.method || 'GET') + ' ' + url + (options.intent ? ' ' + options.intent : '');
-  const init = { method: options.method || 'GET', headers: {} } as RequestInit & { headers: Record<string, string> };
+  const init: RequestInit & { headers: Record<string, string> } = { method: options.method || 'GET', headers: {} };
   if (options.keepalive) init.keepalive = true;
   if (options.signal) init.signal = options.signal;
   if (options.body !== undefined) {

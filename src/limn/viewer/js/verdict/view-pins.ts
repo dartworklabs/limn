@@ -194,7 +194,7 @@ function verdictOrder(doc: string): VerdictOrder {
     group.all.push({ p: pin, t: target });
     groups.set(target.key, group);
   }
-  const out = { groups: new Map(), cur: new Map() } as VerdictOrder;
+  const out: VerdictOrder = { groups: new Map(), cur: new Map() };
   groups.forEach((group, key) => {
     group.all.sort((left, right) => right.p.id - left.p.id);
     group.all.forEach((x) => {

@@ -282,7 +282,7 @@ function outlineGroupName(entry: OutlineEntry) {
 // manuscript figure that holds it. Entries that differ in number or title tell themselves apart, and a title said twice
 // under one group, or at the top, has no group to say. Over all the entries, not the rows found, so a row reads the
 // same whatever is typed. Memoised on the entries.
-let OUTLINE_GROUPED = { for: null, set: new Set() } as { for: object[] | null; set: Set<number> };
+let OUTLINE_GROUPED: { for: object[] | null; set: Set<number> } = { for: null, set: new Set() };
 function outlineGrouped(entries: OutlineEntry[]) {
   if (OUTLINE_GROUPED.for === entries) return OUTLINE_GROUPED.set;
   const normalize = (text: string) =>

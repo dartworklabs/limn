@@ -249,7 +249,7 @@ const KATEX_VERSION = '__KATEX_VERSION__';
 // final: the math of every document then stays as its source characters (ADR-0036 D2), and nothing is asked for twice.
 const TEX_RENDERER = { state: 'none' as 'none' | 'ready' | 'off', lib: null as any };
 // The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
-const TEX_CLOSE = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' } as Record<string, string>;
+const TEX_CLOSE: Record<string, string> = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' };
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
 // (and a PDF or text document) asks for nothing.
 function hasMath(tokens: any[]) {

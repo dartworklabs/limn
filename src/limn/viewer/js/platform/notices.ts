@@ -117,12 +117,12 @@ const LINE: Notice[] = []; // the status line's messages, newest first
 const BANNERS: Map<string, Notice> = new Map(); // NOTICE_HOST -> its one banner
 let NOTICE_SEQ = 0;
 // A message's lead icon by its kind (noticeIcon).
-const NOTICE_ICONS = {
+const NOTICE_ICONS: Record<string, () => Html> = {
   [NOTICE_KIND.OK]: () => lucideIcon('circle-check'),
   [NOTICE_KIND.WARN]: () => lucideIcon('triangle-alert'),
   [NOTICE_KIND.ERR]: () => lucideIcon('circle-x'),
   [NOTICE_KIND.INFO]: () => lucideIcon('info'),
-} as Record<string, () => Html>;
+};
 // The lead icon of a message of `kind` (NOTICE_KIND); an unknown kind draws the success one.
 function noticeIcon(kind: string): Html {
   return (NOTICE_ICONS[kind] || NOTICE_ICONS[NOTICE_KIND.OK])();
@@ -192,7 +192,7 @@ function noticeDot(want: string, sideOpen: boolean): string {
 // Registers a new message from its fields; fields.msg is split into its title and description (splitMessage).
 function makeNotice(fields: Partial<Notice> & { msg: string }): Notice {
   const [title, description] = splitMessage(fields.msg);
-  const notice = {
+  const notice: Notice = {
     n: ++NOTICE_SEQ,
     place: fields.place || NOTICE_PLACE.LINE,
     host: fields.host || '',
@@ -230,7 +230,7 @@ function makeNotice(fields: Partial<Notice> & { msg: string }): Notice {
     back: !!fields.back,
     dots: fields.dots || [],
     onEnd: fields.onEnd || null,
-  } as Notice;
+  };
   NOTICES.set(notice.n, notice);
   return notice;
 }
@@ -1637,7 +1637,7 @@ const DEFERRED: Set<Deferred> = new Set();
 function deferred(commit: () => void, undo: () => void): Deferred {
   let done = false;
   const bound = setTimeout(() => send.run(), NOTICE_MS + NOTICE_HOLD_MAX);
-  const send = {
+  const send: Deferred = {
     note: null,
     run: () => {
       if (done) return;
@@ -1654,7 +1654,7 @@ function deferred(commit: () => void, undo: () => void): Deferred {
       DEFERRED.delete(send);
       undo();
     },
-  } as Deferred;
+  };
   DEFERRED.add(send);
   return send;
 }

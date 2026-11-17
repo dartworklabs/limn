@@ -1016,7 +1016,7 @@ function waitForKinWrites(session: ReasonSession): Promise<unknown> | null {
 // copy written - the old request never lands after it. Resolves true when every pin is settled, else with what left one
 // unknown - a read or a fence without an answer, a 5xx, a refusal (null: no answer at all): nothing is decided for it.
 async function checkLostWrites(session: ReasonSession): Promise<true | ApiError | null> {
-  let sure = true as true | ApiError | null;
+  let sure: true | ApiError | null = true;
   for (const k of new Set(session.via.filter((part) => part.tried.length).map((part) => part.k))) {
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
     let fetched: Pin | null = null;

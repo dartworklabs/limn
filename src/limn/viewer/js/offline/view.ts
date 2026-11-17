@@ -391,7 +391,7 @@ function offUiUndoStart(rec: any, redo: boolean, text: string) {
   const old = OFFUI.undos.get(rec.id);
   if (old) clearTimeout(old.t);
   const now = Date.now(),
-    undo = { rec, redo, text, at: now, from: now, t: undefined, busy: false, hover: false } as OffUiUndo;
+    undo: OffUiUndo = { rec, redo, text, at: now, from: now, t: undefined, busy: false, hover: false };
   OFFUI.undos.set(rec.id, undo);
   offUiArm(undo);
 }

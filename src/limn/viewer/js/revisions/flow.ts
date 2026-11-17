@@ -144,7 +144,7 @@ function renderRevisionDiff(patch: string) {
     inHunk = false;
   return html`${lines.map((line) => {
     let kind = 'meta',
-      number = '' as number | string;
+      number: number | string = '';
     if (line.startsWith('diff --git ')) {
       kind = 'file';
       inHunk = false;
