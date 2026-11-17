@@ -832,7 +832,7 @@ class EnglishChrome(ChromiumTestCase):
                 "scope_failed",
                 scope.body["error"],
                 ALICE_ACTOR,  # 422: pin-scoped comparison
-                "api('/api/revision-build',{method:'POST',body:{commit:'a'.repeat(40),doc:'ms',pin:%d},what:'비교 PDF 만들기'})"
+                "api('POST /api/revision-build',{body:{commit:'a'.repeat(40),doc:'ms',pin:%d},what:'비교 PDF 만들기'})"
                 ".catch(()=>{})" % pid,
             ),
         )

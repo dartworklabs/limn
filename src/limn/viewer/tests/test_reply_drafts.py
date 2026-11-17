@@ -78,9 +78,9 @@ class ReplyDraftRecipients(BrowserBase):
         path = "/api/pins/%d/reply" % pid
         page.route("**" + path, lambda route: route.abort(), times=1)
         page.evaluate(
-            """path=>{const realApi=api;let held=false;api=(url,options)=>{
-              const result=realApi(url,options);
-              if(!held&&url===path&&options?.method==='POST'){
+            """path=>{const realApi=api;let held=false;api=(endpoint,options)=>{
+              const result=realApi(endpoint,options);
+              if(!held&&endpointUrl(endpoint,options.id,options.query)===path&&endpoint.startsWith('POST ')){
                 held=true;return result.catch(error=>new Promise((_,reject)=>{
                   window.releaseReplyFailure=()=>reject(error);
                 }));
