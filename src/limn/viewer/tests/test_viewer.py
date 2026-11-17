@@ -364,6 +364,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const prev=[{id:1},{id:2},{id:3}];
@@ -403,6 +407,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
@@ -429,6 +437,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
@@ -459,6 +471,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
@@ -3257,6 +3273,10 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
@@ -3280,6 +3300,10 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
@@ -4878,6 +4902,10 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 extract_js_fn("pinState"),
                 JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges"),

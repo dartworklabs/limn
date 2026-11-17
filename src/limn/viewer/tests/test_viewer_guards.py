@@ -34,6 +34,12 @@ def sg_json():
     }
 
 
+# The guards draftSelection reads a stored draft's selection through (composer/flow-draft.ts).
+DRAFT_SELECTION_GUARDS = (
+    "isListOf", "isString", "isNumber", "absentOr", "absentNullOr", "isPinElement", "isRung", "isPickOverlap",
+    "hasComposerChoice", "isLinePick", "isPointBox", "isPagePick", "earlierOfflinePick", "draftSelection",
+)  # fmt: skip
+
 PHONE = {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True}
 
 
@@ -257,11 +263,14 @@ class GuardRules(unittest.TestCase):
         got = self.run_js(
             extract_js_fn("isRecord"),
             extract_js_fn("isSuggestDraft"),
+            *[extract_js_fn(name) for name in DRAFT_SELECTION_GUARDS],
             extract_js_fn("storedDraft"),
             r"""
             const sg = {on: true, text: 'new', base: 'old', file: 'a.tex', lo: 3, hi: 4, had: null,
               current: {text: 'old', file: 'a.tex', lo: 3, hi: 4}, reading: '', fail: null};
-            const draft = {v: 1, doc: 'ms', build: 'pages-1', cur: {page: 2, frac: [0, 0, 1, 1]}, note: '메모',
+            const cur = {doc: 'ms', kind: 'region', view_only: true, page: 2, frac: [0, 0, 1, 1], name: 'paper.pdf',
+              quote: '', warn: '', overlaps: [], pdf_build: 'pages-1'};
+            const draft = {v: 1, doc: 'ms', build: 'pages-1', cur, note: '메모',
               mentions: ['alice'], kind: 'question', assign: {v: 'alice', touched: true}, sg};
             const read = (value) => storedDraft(value);
             console.log(JSON.stringify([
@@ -285,7 +294,18 @@ class GuardRules(unittest.TestCase):
                     "v": 1,
                     "doc": "ms",
                     "build": "pages-1",
-                    "cur": {"page": 2, "frac": [0, 0, 1, 1]},
+                    "cur": {
+                        "doc": "ms",
+                        "kind": "region",
+                        "view_only": True,
+                        "page": 2,
+                        "frac": [0, 0, 1, 1],
+                        "name": "paper.pdf",
+                        "quote": "",
+                        "warn": "",
+                        "overlaps": [],
+                        "pdf_build": "pages-1",
+                    },
                     "note": "메모",
                     "mentions": ["bob"],
                     "assign": None,

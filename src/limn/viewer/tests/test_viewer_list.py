@@ -58,6 +58,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("setSectionSeen"),
                 extract_js_fn("endpointUrl"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
@@ -103,6 +104,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("setSectionSeen"),
                 extract_js_fn("endpointUrl"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
@@ -173,7 +175,10 @@ class PinListLoading(unittest.TestCase):
     def _pins_run(self, scenario, *functions):
         """Run scenario (an async body that prints JSON) against the served pinState, derivePinLists, applyPinLists,
         loadPins and loadPinsNow, and the named functions besides, under PINS_HARNESS; return what it prints, parsed."""
-        names = ("endpointUrl", "pinState", "derivePinLists", "applyPinLists", "loadPins", "loadPinsNow", *functions)
+        names = (
+            "endpointUrl", "pinState", "derivePinLists", "applyPinLists", "loadPins", "loadPinsNow", "setSectionSeen",
+            *functions,
+        )  # fmt: skip
         body = "(async()=>{%s})();" % scenario
         return json.loads(
             run_node("\n".join([JS_UPDATE_STUBS, *(extract_js_fn(n) for n in names), self.PINS_HARNESS, body]))
@@ -231,6 +236,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("setSectionSeen"),
                 extract_js_fn("endpointUrl"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
@@ -283,6 +289,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("setSectionSeen"),
                 extract_js_fn("endpointUrl"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
@@ -340,6 +347,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("setSectionSeen"),
                 extract_js_fn("endpointUrl"),
                 js_esc(),
                 js_markup(),
