@@ -317,7 +317,7 @@ async function restorePin(id: number | null, settled?: () => void): Promise<bool
 // into the Trash, else to the pages.
 async function trashRestore(id: number | null) {
   const source = NOTICE_LATE_SRC + 'restore:' + id,
-    trash = $('#trash') as HTMLDialogElement;
+    trash = $('#trash');
   const say = () => {
     const text = translate('되살리기의 답이 늦습니다') + ' · ' + translateTemplate('핀 #{id}', { id });
     const message = bannerNote(NOTICE_HOST.LIST, text, NOTICE_KIND.WARN, null, { literal: true, source: source });

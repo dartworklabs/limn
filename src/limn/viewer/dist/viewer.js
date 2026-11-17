@@ -4261,7 +4261,7 @@ function drawDocMenu() {
 // Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says
 // so when none does.
 function docMenuFilter() {
-  const query = ($('#doc-pop-in')).value.trim().toLowerCase();
+  const query = $('#doc-pop-in').value.trim().toLowerCase();
   let shown = 0;
   for (const row of [...$('#doc-pop-list').children]) {
     const entry = docInfo(row.dataset.doc || '');
@@ -13483,7 +13483,7 @@ function searchClose(back) {
 // Another build is on screen (openVectorDocument): the query, its hits and the reading of the old text end; the field
 // stays open while it has the focus, else it folds away with the bar whole again.
 function searchClear() {
-  ($('#search-q')).value = '';
+  $('#search-q').value = '';
   searchRun();
   if (SEARCH.open && !$('#doc-search').contains(document.activeElement)) searchHide();
 }
@@ -21328,8 +21328,8 @@ function drawCompareNavigator() {
     : RENDERED_COMPARE.at < 0
       ? translateTemplate('바뀐 곳 {n}곳', { n: count })
       : translateTemplate('바뀐 곳 {at}/{n}', { at: RENDERED_COMPARE.at + 1, n: count });
-  ($('#mdc-prev')).disabled = RENDERED_COMPARE.at <= 0;
-  ($('#mdc-next')).disabled = RENDERED_COMPARE.at >= count - 1;
+  $('#mdc-prev').disabled = RENDERED_COMPARE.at <= 0;
+  $('#mdc-next').disabled = RENDERED_COMPARE.at >= count - 1;
 }
 // Goes to change group index: brings its first block to a third of the pane's height and, with ring, rings the group
 // for a moment.
@@ -32565,11 +32565,11 @@ SELECTION_POPOVER_FIELD.addEventListener('input', () => {
   saveDraftSoon();
 });
 $('#note').addEventListener('input', () => {
-  const note = ($('#note')).value;
+  const note = $('#note').value;
   if (isSelectionPopoverOpen() && SELECTION_POPOVER_FIELD.value !== note) SELECTION_POPOVER_FIELD.value = note;
 });
 SELECTION_POPOVER_FIELD.addEventListener('focus', () => {
-  SELECTION_POPOVER_FIELD.value = ($('#note')).value;
+  SELECTION_POPOVER_FIELD.value = $('#note').value;
 });
 // [자세히 →]: the composer in the panel takes over with the focus in its note; the popover does not come back for this
 // selection.
@@ -33831,12 +33831,7 @@ function restorePickFocus(kept) {
   const all = document.querySelectorAll(kept.sel),
     target = (all[Math.max(0, kept.i)] || all[0] || null),
     pick = $('#review-pick');
-  const to =
-    target && !(target).disabled
-      ? target
-      : !pick.hidden
-        ? pick
-        : ($('#review-toggle'));
+  const to = target && !(target).disabled ? target : !pick.hidden ? pick : $('#review-toggle');
   to.focus({ preventScroll: true });
 }
 
@@ -33849,7 +33844,7 @@ function drawReviewPick(list) {
     keep = REVIEW_PICK ? findPickFocus() : null;
   if (REVIEW_PICK && (!can || !SECTION_OPEN.review)) {
     REVIEW_PICK = null;
-    if (keep) ($('#review-toggle')).focus({ preventScroll: true });
+    if (keep) $('#review-toggle').focus({ preventScroll: true });
   } // the cards drawn next hold no focus
   if (REVIEW_PICK) {
     const listed = new Map(list.map((pin) => [pin.id, pin]));
@@ -33881,7 +33876,7 @@ function setReviewPicking(on) {
   drawPins();
   // the section, not its head: a stuck head is where it is shown already and would not scroll
   if (on) $('#sec-review').scrollIntoView({ block: 'start' });
-  const target = (on ? $('#rv-all') : $('#review-pick'));
+  const target = on ? $('#rv-all') : $('#review-pick');
   if (target && target.getClientRects().length) target.focus({ preventScroll: true });
 }
 
@@ -33967,7 +33962,7 @@ function confirmTicked() {
   if (!section.hidden) section.scrollIntoView({ block: 'start' }); // the undo row is the section's first
   const undoButton = (note.el && note.el.querySelector('.nt-act'));
   if (undoButton && document.contains(undoButton)) undoButton.focus({ preventScroll: true });
-  else ($('#review-toggle')).focus({ preventScroll: true });
+  else $('#review-toggle').focus({ preventScroll: true });
 }
 
 // The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had. While the
@@ -33994,7 +33989,7 @@ function undoConfirms(items, where, ticks) {
   drawPins();
   marks();
   // the undo row that had the focus is gone
-  const to = (REVIEW_PICK ? $('#rv-go') : $('#review-pick'));
+  const to = REVIEW_PICK ? $('#rv-go') : $('#review-pick');
   if (to && to.getClientRects().length && !(to).disabled) to.focus({ preventScroll: true });
   if (lost.length)
     lineNote(

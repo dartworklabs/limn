@@ -94,7 +94,7 @@ function disposeRevisionZoom() {
 }
 
 /** Remember the nearest page and fractional position under a viewport point. */
-function revisionAnchor(x?, y?) {
+function revisionAnchor(x?: number, y?: number) {
   const box = $('#revision-pdf'),
     boxRect = box.getBoundingClientRect();
   x = x ?? boxRect.left + box.clientWidth / 2;

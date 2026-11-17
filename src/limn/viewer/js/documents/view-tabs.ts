@@ -406,7 +406,7 @@ function drawDocMenu() {
 // Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says
 // so when none does.
 function docMenuFilter() {
-  const query = ($('#doc-pop-in') as HTMLInputElement).value.trim().toLowerCase();
+  const query = $('#doc-pop-in').value.trim().toLowerCase();
   let shown = 0;
   for (const row of [...$('#doc-pop-list').children] as HTMLElement[]) {
     const entry = docInfo(row.dataset.doc || '');
@@ -419,7 +419,7 @@ function docMenuFilter() {
 // keyboard comes up - and a list without it get the current document's row, scrolled into view.
 function openDocMenu() {
   const pop = $('#doc-pop'),
-    filter = $('#doc-pop-in') as HTMLInputElement;
+    filter = $('#doc-pop-in');
   hideTip();
   pageNavigation().closePageList(false);
   filter.hidden = DOCS.length < 9;

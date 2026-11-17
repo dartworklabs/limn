@@ -3077,7 +3077,7 @@ function findEdgeStop(after: boolean): HTMLElement | null {
       return isTabStop(x) ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     },
   });
-  let node = $('#left') as Node;
+  let node: Node = $('#left');
   if (after) while (node.lastChild) node = node.lastChild; // from the area's last node the next one is past the area
   walker.currentNode = node;
   return (after ? walker.nextNode() : walker.previousNode()) as HTMLElement | null;

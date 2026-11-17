@@ -462,7 +462,7 @@ function composerSuggestElements() {
     tg: $('#c-sg-tg'),
     why: $('#c-sg-why'),
     box: $('#c-sg'),
-    ta: $('#c-sg-text') as HTMLTextAreaElement,
+    ta: $('#c-sg-text'),
     line: $('#c-sg-note'),
     cc: $('#c-sg-cc'),
     cur: $('#c-sg-cur'),

@@ -324,7 +324,7 @@ function assignOutcome(inputs: {
 // assignOutcome's inputs as the composer holds them at this moment, for a save in mode; an append reads the pin it
 // joins.
 function composeAsk(mode: string): Parameters<typeof assignOutcome>[0] {
-  const noteField = $('#note') as HTMLTextAreaElement,
+  const noteField = $('#note'),
     overlap = mode === SAVE_MODE.APPEND ? appendTarget() : null,
     pin = overlap ? PINS.find((listed) => listed.id === overlap.id) : null;
   return {
