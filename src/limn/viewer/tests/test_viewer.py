@@ -2674,7 +2674,7 @@ class FrontendDocs(unittest.TestCase):
             [
                 r"""
             const DOCS=[{key:'ms'},{key:'rr'},{key:'rv'}]; let DOC='ms'; let _prefs={}; function prefs(){return _prefs;}
-            const location={hash:''};
+            const window={location:{hash:''}};
             """,
                 extract_js_fn("docInfo"),
                 extract_js_fn("withDocQuery"),
@@ -2683,10 +2683,10 @@ class FrontendDocs(unittest.TestCase):
                 r"""
             const out=[];
             out.push(withDocQuery('/api/meta'), withDocQuery('/api/meta?light=1'), withDocQuery('/pdf?build=x','rr'));
-            location.hash='#doc=rr'; out.push(initialDoc());
-            location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
-            location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
-            location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
+            window.location.hash='#doc=rr'; out.push(initialDoc());
+            window.location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
+            window.location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
+            window.location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
             console.log(JSON.stringify(out));
             """,
             ]

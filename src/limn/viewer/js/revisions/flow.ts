@@ -896,7 +896,7 @@ function leaveRevisions() {
     localStorage.setItem('limnRevSeen', JSON.stringify(all));
   } catch (error) {}
 }
-addEventListener('pagehide', () => {
+window.addEventListener('pagehide', () => {
   if (document.body.classList.contains('revision-open')) leaveRevisions();
 });
 // A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its

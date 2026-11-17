@@ -168,8 +168,8 @@ function imeForget() {
   IME_PRESSED = null;
   imeEnd();
 }
-addEventListener('compositionstart', imeForget, true);
-addEventListener(
+window.addEventListener('compositionstart', imeForget, true);
+window.addEventListener(
   'compositionend',
   (event) => {
     const pressed = IME_PRESSED;
@@ -182,7 +182,7 @@ addEventListener(
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'keyup',
   (event) => {
     if (IME_PRESSED && imeUp(event, IME_PRESSED)) IME_PRESSED = null;
@@ -192,7 +192,7 @@ addEventListener(
 );
 // The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once
 // the task that blurred it is done, when a field drawn anew has taken its place.
-addEventListener(
+window.addEventListener(
   'blur',
   (event) => {
     const target = event.target;
@@ -204,7 +204,7 @@ addEventListener(
   },
   true,
 );
-addEventListener('pagehide', imeForget, true);
+window.addEventListener('pagehide', imeForget, true);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) imeForget();
 });
@@ -212,7 +212,7 @@ document.addEventListener('visibilitychange', () => {
 // modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in
 // a note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a
 // text box (the reason field, the @-list) its handler takes the newline away too (imeTail).
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     const ended = IME_END;

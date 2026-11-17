@@ -1950,7 +1950,7 @@ function onImageError(event: Event) {
 // an image of the tree opens in a new tab from GET /api/asset; anything else is inert text with its target, and why, in
 // the tip.
 function drawLink(href: unknown, context: RenderContext): HTMLElement {
-  const target = linkAction(href, location.origin, documentTreePath(), DOCS);
+  const target = linkAction(href, window.location.origin, documentTreePath(), DOCS);
   if (target.open === 'web' || target.open === 'mail') {
     const link = countedElement('a', context) as HTMLAnchorElement;
     link.href = target.href;
@@ -2030,7 +2030,7 @@ function goToDocLink(link: HTMLElement) {
     return;
   }
   if (!switchPending(docKey)) {
-    if (!BACK) history.pushState(null, '', location.pathname + location.search + '#doc=' + docKey);
+    if (!BACK) window.history.pushState(null, '', window.location.pathname + window.location.search + '#doc=' + docKey);
     void switchDoc(docKey);
   }
   MARKDOWN_VIEW.headTo = rendersInBrowser(entry.kind)
@@ -2651,7 +2651,7 @@ for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, stopHeadingJump, { passive: true });
 // A key scrolls the pane when nothing else has the focus or something in the pane has it - pdf/view-outline.ts's scope
 // (SCROLL_KEYS): with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const active = document.activeElement;
   if (SCROLL_KEYS.has(event.key) && (!active || active === document.body || $('#left').contains(active)))
     stopHeadingJump();

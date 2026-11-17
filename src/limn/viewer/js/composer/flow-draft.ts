@@ -194,7 +194,7 @@ function openDraftDoc() {
   autoGrow(noteField);
   restoreDraft();
 }
-addEventListener('pagehide', syncDraft);
+window.addEventListener('pagehide', syncDraft);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) syncDraft();
 });

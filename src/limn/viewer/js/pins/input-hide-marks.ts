@@ -115,9 +115,9 @@ function marksPressLost() {
   MARKS.held = null;
   marksLook(MARKS.off);
 }
-addEventListener('keydown', marksKeyDown);
-addEventListener('keyup', marksKeyUp);
-addEventListener('blur', marksPressLost);
+window.addEventListener('keydown', marksKeyDown);
+window.addEventListener('keyup', marksKeyUp);
+window.addEventListener('blur', marksPressLost);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) marksPressLost();
 });

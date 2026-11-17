@@ -555,7 +555,7 @@ function placeStatusList() {
   if (!dialog.open) return;
   const viewport = window.visualViewport,
     viewTop = viewport ? viewport.offsetTop : 0,
-    viewBottom = viewport ? viewTop + viewport.height : innerHeight,
+    viewBottom = viewport ? viewTop + viewport.height : window.innerHeight,
     lineRect = $('#status').getBoundingClientRect();
   // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and
   // it reaches left from there: centred in the window it would stand about 350px left of the line, over the PDF.
@@ -563,7 +563,7 @@ function placeStatusList() {
   // inside the visible part, narrowed to it where it is narrower, so a phone zoomed in never has the list run past both
   // sides of what it shows.
   const viewLeft = viewport ? viewport.offsetLeft : 0,
-    viewRight = viewport ? viewLeft + viewport.width : innerWidth;
+    viewRight = viewport ? viewLeft + viewport.width : window.innerWidth;
   dialog.style.left = '';
   dialog.style.right = '';
   const style = getComputedStyle(dialog),
@@ -574,7 +574,7 @@ function placeStatusList() {
     baseLeft = Math.max(8, baseRight - max);
   } else {
     const barLeft = parseFloat(style.left),
-      barRight = innerWidth - parseFloat(style.right),
+      barRight = window.innerWidth - parseFloat(style.right),
       barWidth = Math.min(max, barRight - barLeft);
     baseLeft = barLeft + (barRight - barLeft - barWidth) / 2;
     baseRight = baseLeft + barWidth;
@@ -582,7 +582,7 @@ function placeStatusList() {
   const width = Math.min(baseRight - baseLeft, viewRight - viewLeft - 16),
     left = Math.min(Math.max(baseLeft, viewLeft + 8), viewRight - 8 - width);
   dialog.style.left = Math.round(left) + 'px';
-  dialog.style.right = Math.round(innerWidth - left - width) + 'px';
+  dialog.style.right = Math.round(window.innerWidth - left - width) + 'px';
   const lineTop = Math.min(Math.max(lineRect.top, viewTop), viewBottom),
     // the line's edges, held inside the visible part
     lineBottom = Math.min(Math.max(lineRect.bottom, viewTop), viewBottom);
@@ -595,7 +595,7 @@ function placeStatusList() {
     room = Math.floor(Math.min(Math.max(up ? above : below, one), viewBottom - viewTop - 16));
   dialog.style.setProperty('--sl-room', room + 'px');
   dialog.style.top = up ? 'auto' : Math.round(Math.min(lineBottom + 4, viewBottom - 8 - room)) + 'px';
-  dialog.style.bottom = up ? Math.round(innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
+  dialog.style.bottom = up ? Math.round(window.innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
 }
 // placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
 let STATUS_LIST_PLACE = 0;
@@ -606,7 +606,7 @@ function placeStatusListSoon() {
       placeStatusList();
     });
 }
-addEventListener('resize', placeStatusListSoon);
+window.addEventListener('resize', placeStatusListSoon);
 {
   const viewport = window.visualViewport;
   if (viewport) {

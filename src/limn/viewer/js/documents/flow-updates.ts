@@ -843,7 +843,7 @@ function reloadForUpdate() {
     return;
   }
   flushDeferred();
-  location.reload();
+  window.location.reload();
 }
 export {
   DIGEST_TAIL_MS,

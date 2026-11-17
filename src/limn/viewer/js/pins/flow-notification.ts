@@ -355,15 +355,23 @@ function notifyWhy(text: string) {
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that
 // document and opens that pin.
 function hashPin() {
-  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash || '');
+  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(window.location.hash || '');
   return match ? +match[1] : null;
 }
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
 // reload never repeats it (a reload of an &act=restore link would restore again a pin someone has since deleted).
 function takeLinkHash() {
-  const link = { pin: hashPin(), doc: hashDoc(), restore: /(?:^#|[#&])act=restore(?:&|$)/.test(location.hash || '') };
+  const link = {
+    pin: hashPin(),
+    doc: hashDoc(),
+    restore: /(?:^#|[#&])act=restore(?:&|$)/.test(window.location.hash || ''),
+  };
   if (link.pin)
-    history.replaceState(history.state, '', location.pathname + location.search + (link.doc ? '#doc=' + link.doc : ''));
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.search + (link.doc ? '#doc=' + link.doc : ''),
+    );
   return link;
 }
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a

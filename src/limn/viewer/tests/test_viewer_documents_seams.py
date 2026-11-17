@@ -290,7 +290,7 @@ class ReadingPosition(unittest.TestCase):
     POSITION = r"""
     let DOC='a',MD=true,META={pages:[{},{},{}]},LAYOUT='wide';
     const DOCS=[],VIEW_BY=new Map(); var VIEW_MODE={MANUSCRIPT:'manuscript',REVISIONS:'revisions'};
-    const document={body:{classList:{contains:()=>false}}}; const innerWidth=500;
+    const document={body:{classList:{contains:()=>false}}}; const window={innerWidth:500};
     const ELS={}; function $(sel){return ELS[sel]||(ELS[sel]={hidden:false,dataset:{},setAttribute(k,v){this[k]=v;},scrollLeft:0});}
     function isMarkdownDoc(){return MD;} function docInfo(){return {name:'main'};} function multiDoc(){return true;}
     function saveViews(){}
@@ -536,7 +536,7 @@ class LeavingWork(unittest.TestCase):
             let FIELD={value:''}; function replyNote(reply){LOG.push(['replyNote',reply.id]); return FIELD;}
             function editDirty(){LOG.push(['editDirty']); return false;}
             function lineNote(){LOG.push(['said']);} function flushDeferred(){LOG.push(['flush']);}
-            const location={reload(){LOG.push(['reload']);}};
+            const window={location:{reload(){LOG.push(['reload']);}}};
             """,
             extract_js_fn("reloadForUpdate"),
             "reloadForUpdate(); LOG.push(['--']); FIELD={value:'답'}; reloadForUpdate(); console.log(JSON.stringify(LOG));",
