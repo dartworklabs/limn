@@ -47,7 +47,7 @@ import {
 } from './view-card-parts.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_PLACE, UI_LANG } from '../platform/tables.ts';
-import { $, $$, TABBABLE, isTabStop } from '../platform/dom.ts';
+import { $, TABBABLE, isTabStop, findAll } from '../platform/dom.ts';
 import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, ROLE, STAMP_FORM } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
@@ -306,7 +306,7 @@ function dayName(stamp: string | null | undefined, now?: number): string {
 // Every 60 seconds the drawn times say what they say now: a comment's by its form, the rest by relTime.
 function tickRel() {
   if (document.hidden) return;
-  $$('.rt[data-at]').forEach((stampElement) => {
+  findAll(document, '.rt[data-at]', HTMLElement).forEach((stampElement) => {
     const form = stampElement.dataset.form,
       text = form ? stampText(stampElement.dataset.at, form) : relTime(stampElement.dataset.at);
     if (stampElement.textContent !== text) stampElement.textContent = text;

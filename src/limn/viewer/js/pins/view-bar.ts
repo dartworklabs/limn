@@ -1,7 +1,7 @@
 // ------------------------------------------------ The bar's pin and review counts
 // The panel toggles' and the sheet bar's counts of open pins and of pins awaiting review, and the bar's words fitted to
 // its width (the select button's width held while the bar is measured).
-import { $, $$, findElement } from '../platform/dom.ts';
+import { $, findElement, findAll } from '../platform/dom.ts';
 import { translate, translateTemplate } from '../platform/i18n.ts';
 import { LAYOUT, REVIEW_ALL, SIDE_OPEN } from '../app/state.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
@@ -60,7 +60,7 @@ function fitBarWords() {
 function updateReviewCount() {
   const count = REVIEW_ALL.length,
     chip = $('#rv-chip');
-  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
+  for (const pill of findAll(document, '#btn-side .rv-n,#nav-side .rv-n', HTMLElement)) {
     pill.hidden = !count;
     setHtml(pill, html`${lucideIcon('eye')}${count}`);
     pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));

@@ -1,7 +1,7 @@
 // ------------------------------------------- Preferences (merged save): per-device pinPrefs, list-section state, theme
 import { translateTemplate, translate } from './i18n.ts';
 import { LIST_ORDER } from './tables.ts';
-import { $, $$ } from './dom.ts';
+import { $, findAll } from './dom.ts';
 import { roveSegment } from './segments.ts';
 const LIGHT_SCHEME_QUERY = matchMedia('(prefers-color-scheme: light)');
 
@@ -72,7 +72,7 @@ function applyTheme() {
   const shownTheme =
     theme === 'system' ? (LIGHT_SCHEME_QUERY.matches ? 'light' : 'dark') : theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', shownTheme);
-  for (const radio of $$('#m-theme [role=radio]')) {
+  for (const radio of findAll(document, '#m-theme [role=radio]', HTMLElement)) {
     const on = radio.dataset.theme === theme;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);

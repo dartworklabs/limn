@@ -48,7 +48,7 @@ import {
 } from './flow-panel-size.ts';
 import { syncBackLayer } from './input.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, findElement, typingNow, $$ } from '../platform/dom.ts';
+import { $, findElement, typingNow, findAll } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
@@ -966,11 +966,11 @@ function topAnchor(offset?: number) {
     top = scrollerTop + (offset || 0),
     atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
     edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
+  for (const pageElement of findAll(document, '.pg', HTMLElement)) {
     const rect = pageElement.getBoundingClientRect();
     if (rect.bottom > top + edge)
       return {
-        page: +pageElement.dataset.page,
+        page: Number(pageElement.dataset.page),
         frac: Math.max(0, (top - rect.top) / rect.height),
         gap: Math.max(0, rect.top - top),
         atTop,

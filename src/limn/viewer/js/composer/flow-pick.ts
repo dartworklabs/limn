@@ -50,7 +50,7 @@ import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, $$, focusFell, focusHold } from '../platform/dom.ts';
+import { $, focusFell, focusHold, findAll } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE, RANGE_REL } from '../app/rules-tables.ts';
 import { lineRange, overlapsFor } from '../app/rules-pins.ts';
@@ -495,7 +495,7 @@ function setKind(kind: string | undefined) {
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
   if (KIND_NEW !== was) setComposeIntent(COMPOSE.intent + 1); // a failed verdict save's retry is for the intent it was pressed with
-  $$('#c-kind button').forEach((button) => {
+  findAll(document, '#c-kind button', HTMLElement).forEach((button) => {
     const on = button.dataset.kind === KIND_NEW;
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));

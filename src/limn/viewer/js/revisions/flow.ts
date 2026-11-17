@@ -1326,7 +1326,7 @@ function highlightPinLines(target: RevTarget) {
   let first = null as Element | null;
   rows.forEach((line) => {
     if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
-    const lineNumber = +line.querySelector('.rd-no').textContent;
+    const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
@@ -1342,7 +1342,7 @@ function highlightPinLines(target: RevTarget) {
       let best = null as Element | null,
         bestDistance = Infinity;
       rows.forEach((line) => {
-        const lineNumber = +line.querySelector('.rd-no').textContent;
+        const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
         if (!lineNumber) return;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
