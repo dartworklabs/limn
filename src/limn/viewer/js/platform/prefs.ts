@@ -100,6 +100,15 @@ function setTheme(theme: string | undefined) {
   applyTheme();
 }
 
+// Sets whether list section `section` is expanded, for another module that changes it (ADR-0042 D1): the assignment,
+// nothing more (saving it is the caller's).
+function setSectionOpen(section: string, open: boolean) {
+  SECTION_OPEN[section] = open;
+}
+// Sets the ids list section `section` has seen, for another module that changes them (ADR-0042 D1).
+function setSectionSeen(section: keyof SectionSeenState, ids: Set<number> | null) {
+  SECTION_SEEN[section] = ids;
+}
 // Sets ORDER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setOrder<Value extends typeof ORDER>(value: Value): Value {
   ORDER = value;
@@ -110,6 +119,8 @@ export {
   SECTION_OPEN,
   SECTION_OPEN_DEFAULT,
   SECTION_SEEN,
+  setSectionOpen,
+  setSectionSeen,
   applyTheme,
   listOrderOf,
   prefs,

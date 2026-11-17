@@ -43,6 +43,8 @@ import {
   listOrderOf,
   savePrefs,
   setOrder,
+  setSectionOpen,
+  setSectionSeen,
 } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import {
@@ -155,7 +157,7 @@ function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof der
   });
   const card = EDITOR.current;
   if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
-    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
+    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) setSectionOpen('open', true);
     else {
       lineNote(
         translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
@@ -174,9 +176,9 @@ function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof der
     });
   }
   if (!SECTION_SEEN.open) {
-    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
-    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
-    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
+    setSectionSeen('open', new Set(OPEN_ALL.map((pin) => pin.id)));
+    setSectionSeen('review', new Set(REVIEW_ALL.map((pin) => pin.id)));
+    setSectionSeen('done', new Set(DONE_ALL.map((pin) => pin.id)));
   }
   drawPins();
   marks();
@@ -249,7 +251,7 @@ function gotoReview() {
   noticeSeen(NOTICE_DOT.RV);
   if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
   if (!SECTION_OPEN.review) {
-    SECTION_OPEN.review = true;
+    setSectionOpen('review', true);
     savePrefs({ sec: SECTION_OPEN });
   }
   drawPins();
@@ -261,7 +263,7 @@ function gotoReview() {
 }
 function toggleSection(key: string | undefined, force?: boolean) {
   if (key === undefined || !(key in SECTION_OPEN_DEFAULT)) return;
-  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
+  setSectionOpen(key, force === undefined ? !SECTION_OPEN[key] : !!force);
   savePrefs({ sec: SECTION_OPEN });
   drawPins();
 }
@@ -562,7 +564,7 @@ function openSectionFor(id: number | null) {
   const state = pinState(pin),
     key = state === PIN_STATE.REVIEW ? 'review' : state === PIN_STATE.DONE ? 'done' : 'open';
   if (SECTION_OPEN[key]) return false;
-  SECTION_OPEN[key] = true;
+  setSectionOpen(key, true);
   savePrefs({ sec: SECTION_OPEN });
   return true;
 }
@@ -601,10 +603,10 @@ function gotoPinRef(id: number, focus?: boolean) {
   }
   const state = pinState(pin);
   if (multiDoc() && DOC && pdoc(pin) !== DOC) setShowAll(true);
-  if (state === PIN_STATE.DONE) SECTION_OPEN.done = true;
+  if (state === PIN_STATE.DONE) setSectionOpen('done', true);
   else {
     OPEN_CARDS.add(id);
-    SECTION_OPEN[state === PIN_STATE.REVIEW ? 'review' : 'open'] = true;
+    setSectionOpen(state === PIN_STATE.REVIEW ? 'review' : 'open', true);
   }
   savePrefs({ sec: SECTION_OPEN });
   setSide(true);

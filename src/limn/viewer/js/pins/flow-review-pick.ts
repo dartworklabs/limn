@@ -8,7 +8,7 @@
 import { DONE_ALL, MENTION_ONLY, OPEN_ALL, OPEN_CARDS, REVIEW_ALL, setReviewAll } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
-import { ORDER, SECTION_OPEN, savePrefs } from '../platform/prefs.ts';
+import { ORDER, SECTION_OPEN, savePrefs, setSectionOpen } from '../platform/prefs.ts';
 import { api, isApiError } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote, quietNote } from '../platform/notices.ts';
 import { showChange } from '../revisions/flow.ts';
@@ -193,7 +193,7 @@ function drawReviewPick(list: Pin[]): boolean {
 function setReviewPicking(on: boolean) {
   REVIEW_PICK = on ? new Map() : null;
   if (on && !SECTION_OPEN.review) {
-    SECTION_OPEN.review = true;
+    setSectionOpen('review', true);
     savePrefs({ sec: SECTION_OPEN });
   }
   drawPins();

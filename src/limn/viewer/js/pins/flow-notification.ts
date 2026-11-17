@@ -11,7 +11,7 @@
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { SECTION_OPEN, prefs, savePrefs } from '../platform/prefs.ts';
+import { prefs, savePrefs, setSectionOpen } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { announce, groupNote, quietNote } from '../platform/notices.ts';
 import { hashDoc } from '../documents/view-tabs.ts';
@@ -403,7 +403,7 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
     return;
   }
   if (pinState(found) === PIN_STATE.DONE) {
-    SECTION_OPEN.done = true;
+    setSectionOpen('done', true);
   }
   OPEN_CARDS.add(pin);
   setSide(true);
