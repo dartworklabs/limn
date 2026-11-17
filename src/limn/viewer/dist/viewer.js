@@ -1524,7 +1524,7 @@ function applyTheme() {
   const shownTheme =
     theme === 'system' ? (LIGHT_SCHEME_QUERY.matches ? 'light' : 'dark') : theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', shownTheme);
-  for (const radio of $$('#m-theme [role=radio]')) {
+  for (const radio of findAll(document, '#m-theme [role=radio]', HTMLElement)) {
     const on = radio.dataset.theme === theme;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
@@ -5884,7 +5884,7 @@ function highlightPinLines(target) {
   let first = null;
   rows.forEach((line) => {
     if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
-    const lineNumber = +line.querySelector('.rd-no').textContent;
+    const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
@@ -5900,7 +5900,7 @@ function highlightPinLines(target) {
       let best = null,
         bestDistance = Infinity;
       rows.forEach((line) => {
-        const lineNumber = +line.querySelector('.rd-no').textContent;
+        const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
         if (!lineNumber) return;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
@@ -6385,7 +6385,7 @@ function sheetScrollStep(
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavigationView() {
   const isRevisions = document.body.classList.contains('revision-open');
-  for (const radio of $$('#ns-view [role=radio]')) {
+  for (const radio of findAll(document, '#ns-view [role=radio]', HTMLElement)) {
     const on = (radio.dataset.mode === VIEW_MODE.REVISIONS) === isRevisions;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
@@ -10086,8 +10086,8 @@ function setScale(scale, save) {
 // Gives every page box its width at the scale PAGE_SCALE, bounded or not (setScale bounds the scale first).
 function sizePages() {
   const widest = widestPagePoints();
-  $$('.pg').forEach((pageBox) => {
-    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, PAGE_SCALE) + 'px';
+  findAll(document, '.pg', HTMLElement).forEach((pageBox) => {
+    pageBox.style.width = pageWidth(Number(pageBox.dataset.ptw) || widest, PAGE_SCALE) + 'px';
   });
   pageWidthVars();
 }
@@ -10241,7 +10241,7 @@ function zoomAnchor(clientX, clientY) {
     pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
   let best = null,
     bestDistance = Infinity;
-  for (const pageBox of $$('.pg')) {
+  for (const pageBox of findAll(document, '.pg', HTMLElement)) {
     const rect = pageBox.getBoundingClientRect(),
       distance = pointY < rect.top ? rect.top - pointY : pointY > rect.bottom ? pointY - rect.bottom : 0;
     if (distance < bestDistance) {
@@ -15014,11 +15014,11 @@ function topAnchor(offset) {
     top = scrollerTop + (offset || 0),
     atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
     edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
+  for (const pageElement of findAll(document, '.pg', HTMLElement)) {
     const rect = pageElement.getBoundingClientRect();
     if (rect.bottom > top + edge)
       return {
-        page: +pageElement.dataset.page,
+        page: Number(pageElement.dataset.page),
         frac: Math.max(0, (top - rect.top) / rect.height),
         gap: Math.max(0, rect.top - top),
         atTop,
@@ -22754,7 +22754,7 @@ function setKind(kind) {
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
   if (KIND_NEW !== was) setComposeIntent(COMPOSE.intent + 1); // a failed verdict save's retry is for the intent it was pressed with
-  $$('#c-kind button').forEach((button) => {
+  findAll(document, '#c-kind button', HTMLElement).forEach((button) => {
     const on = button.dataset.kind === KIND_NEW;
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
@@ -26183,7 +26183,7 @@ function watchFarLines(lines, viewHeight) {
     FAR_WATCHED.clear();
     FAR_HEIGHT = viewHeight;
     FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
-    lines = $$('#doc .pgw>.pv,#doc .pv-sum');
+    lines = findAll(document, '#doc .pgw>.pv,#doc .pv-sum', HTMLElement);
   } // a line or a summary under a page; never the panel
   const io = FAR_OBSERVER;
   FAR_WATCHED.forEach((line) => {
@@ -27694,7 +27694,7 @@ const MIN_CUT_LINE_WIDTH = 320;
 function sizePageLines() {
   const insetRight = measureInsetRight(),
     area = $('#left'),
-    lines = $$('#doc .pv');
+    lines = findAll(document, '#doc .pv', HTMLElement);
   area.style.setProperty('--pv-inset-r', insetRight + 'px');
   INSET_RIGHT = insetRight;
   $('#doc').classList.remove('pv-stack');
@@ -28391,8 +28391,8 @@ function drawPageVerdicts() {
       fillPanel(map, verdicts);
     } else {
       removePanel();
-      $$('#doc .pg').forEach((pageElement) => {
-        const page = +pageElement.dataset.page;
+      findAll(document, '#doc .pg', HTMLElement).forEach((pageElement) => {
+        const page = Number(pageElement.dataset.page);
         let line = pageElement.nextElementSibling;
         if (!pageTakesVerdict(page)) {
           if (line && line.classList.contains('pv')) line.remove();
@@ -28489,7 +28489,7 @@ if (window.ResizeObserver && window.IntersectionObserver)
 function stickReadingLine() {
   // the room crossed its bar: drawn again beside or under the pages (verdict/view-panel.ts), which ran this
   if (pageVerdictsOn() && redrawOnBesideChange()) return;
-  const lines = $$('#doc .pv');
+  const lines = findAll(document, '#doc .pv', HTMLElement);
   if (!lines.length) return;
   const area = $('#left'),
     areaRect = area.getBoundingClientRect();
@@ -33175,14 +33175,14 @@ function reviewerLabel(pin) {
 function tickClaims() {
   if (document.hidden) return;
   let gone = false;
-  $$('.badge-claimed[data-claim]').forEach((badge) => {
-    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
+  findAll(document, '.badge-claimed[data-claim]', HTMLElement).forEach((badge) => {
+    const pin = OPEN_ALL.find((listed) => listed.id === Number(badge.dataset.claim));
     if (!pin || !claimActive(pin)) {
       gone = true;
       return;
     }
     const claim = claimInfo(pin);
-    badge.querySelector('.ct').textContent = claim.t;
+    findElement(badge, '.ct', HTMLElement).textContent = claim.t;
     badge.dataset.tip = claim.tip;
     badge.classList.toggle('late', claim.late);
   });
@@ -33438,7 +33438,7 @@ function dayName(stamp, now) {
 // Every 60 seconds the drawn times say what they say now: a comment's by its form, the rest by relTime.
 function tickRel() {
   if (document.hidden) return;
-  $$('.rt[data-at]').forEach((stampElement) => {
+  findAll(document, '.rt[data-at]', HTMLElement).forEach((stampElement) => {
     const form = stampElement.dataset.form,
       text = form ? stampText(stampElement.dataset.at, form) : relTime(stampElement.dataset.at);
     if (stampElement.textContent !== text) stampElement.textContent = text;
@@ -33804,7 +33804,7 @@ function drawPickBar(list) {
 <span class="lbl">${translateTemplate('모두 고르기 ({n})', { n: can.length })}</span></label><span class="sp"></span>\
 <button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${tickedCount ? '' : ' disabled'} data-tip="${translate('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${tickedCount ? translateTemplate('{n}건 확인', { n: tickedCount }) : translate('확인')}</button>`,
   );
-  ($('#rv-all')).indeterminate = tickedCount > 0 && !all;
+  findElement(document, '#rv-all', HTMLInputElement).indeterminate = tickedCount > 0 && !all;
 }
 
 // What has the focus in the picking section, as a redraw can find it again: a row's box, or a control of the row by its
@@ -34501,13 +34501,13 @@ function listSection(row) {
 function markBadgeSides() {
   pageNoSides();
   const rooms = new Map();
-  $$('.mark').forEach((mark) => {
+  findAll(document, '.mark', HTMLElement).forEach((mark) => {
     const page = mark.parentElement;
     if (!rooms.has(page)) rooms.set(page, markBadgeRoom(page));
     const room = rooms.get(page);
-    if (room) mark.classList.toggle('in', markBadgeIn(+mark.dataset.fx, room.w, room.pad, room.reach));
+    if (room) mark.classList.toggle('in', markBadgeIn(Number(mark.dataset.fx), room.w, room.pad, room.reach));
   });
-  $$('.sel.pending').forEach(pendingBadgeSide);
+  findAll(document, '.sel.pending', HTMLElement).forEach(pendingBadgeSide);
   markHitSides();
   markCoverSkip();
 } // the pending boxes' '+' badges follow the same rule
@@ -34737,7 +34737,7 @@ function fitBarWords() {
 function updateReviewCount() {
   const count = REVIEW_ALL.length,
     chip = $('#rv-chip');
-  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
+  for (const pill of findAll(document, '#btn-side .rv-n,#nav-side .rv-n', HTMLElement)) {
     pill.hidden = !count;
     setHtml(pill, html`${lucideIcon('eye')}${count}`);
     pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
@@ -37490,11 +37490,11 @@ async function refreshDoc(meta) {
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
     pageSurface().releaseVector();
-    $$('.pg').forEach((pageElement, index) => {
+    findAll(document, '.pg', HTMLElement).forEach((pageElement, index) => {
       const page = META.pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSurface().pageSource(page);
+      findElement(pageElement, 'img', HTMLImageElement).src = pageSurface().pageSource(page);
     });
     pageSurface().reapplyScale();
   } else {
