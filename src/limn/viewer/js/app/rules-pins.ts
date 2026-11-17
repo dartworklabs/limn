@@ -22,19 +22,22 @@ function lineRange(first: number | undefined, last: number | undefined) {
 // switch/up-down). Counted only once at pick time, a level switch to the exact range of an existing pin would show no
 // banner and save a duplicate pin. The rule matches the server's selection_rel (a test compares them): equal (same
 // range) - inside (selection is inside the pin) - contains (selection wraps the pin) - partial.
-function rangeRelation(first, last, pinFirst, pinLast) {
+function rangeRelation(first: number, last: number, pinFirst: number, pinLast: number) {
   if (last < pinFirst || pinLast < first) return null;
   if (first === pinFirst && last === pinLast) return RANGE_REL.EQUAL;
   if (pinFirst <= first && last <= pinLast) return RANGE_REL.INSIDE;
   if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
   return RANGE_REL.PARTIAL;
 }
-function overlapsFor(selection: Selection, pins) {
+// Only lines overlap: a selection on a view-only PDF has none, and a pin record without its lines (a broken stored
+// record that keeps its file) has none to compare.
+function overlapsFor(selection: Selection, pins: Pin[] | null | undefined) {
   const out: PickOverlap[] = [];
-  if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
+  if (!selection || !selection.file || selection.lo == null || selection.hi == null) return out;
+  const { file, lo: first, hi: last } = selection;
   (pins || []).forEach((pin) => {
-    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== selection.file) return;
-    const rel = rangeRelation(selection.lo, selection.hi, pin.lo, pin.hi);
+    if (pinState(pin) !== PIN_STATE.OPEN || pin.file !== file || pin.lo == null || pin.hi == null) return;
+    const rel = rangeRelation(first, last, pin.lo, pin.hi);
     if (rel) out.push({ id: pin.id, lo: pin.lo, hi: pin.hi, rel: rel });
   });
   return out;
