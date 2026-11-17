@@ -191,7 +191,8 @@ function isMarkdownPin(pin: Pin) {
 }
 // ---------------- The parse worker
 // A markdown-it token as the parse worker sends it (md-parse.mjs plain: a Token's own fields, as plain data - its
-// prototype does not survive postMessage), its inline children alike.
+// prototype does not survive postMessage), its inline children alike. An attribute's value is a string, but an ordered
+// list's start, which markdown-it keeps as the number its first marker has.
 interface MarkdownToken {
   type: string;
   tag: string;
@@ -202,7 +203,7 @@ interface MarkdownToken {
   hidden: boolean;
   level: number;
   markup: string;
-  attrs: [string, string][] | null;
+  attrs: [string, string | number][] | null;
   children: MarkdownToken[] | null;
 }
 // What the page asks the worker (md-parse.mjs onmessage): the source and the limits it parses within.
@@ -247,7 +248,7 @@ function isMarkdownToken(value: unknown): value is MarkdownToken {
             Array.isArray(attribute) &&
             attribute.length === 2 &&
             typeof attribute[0] === 'string' &&
-            typeof attribute[1] === 'string',
+            (typeof attribute[1] === 'string' || typeof attribute[1] === 'number'),
         ))) &&
     (children === null || (Array.isArray(children) && children.every(isMarkdownToken)))
   );

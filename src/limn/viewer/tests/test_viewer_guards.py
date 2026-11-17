@@ -384,7 +384,7 @@ class GuardRules(unittest.TestCase):
             [
                 "---\ntitle: x\n---",
                 '# Head *em* `code`\n\npara [link](http://example.com "t") ![alt](i.png) <b>html</b>\nnext line',
-                "> quote\n\n- a\n  - b\n1. one",
+                "> quote\n\n- a\n  - b\n1. one\n\n5) five",
                 "| a | b |\n|:--|--:|\n| 1 | 2 |",
                 "```py\ncode\n```\n\n    indented",
                 "$$\nx^2\n$$\n\ninline $a+b$ and \\(c\\) cut $x\ny$ here",
@@ -420,6 +420,7 @@ class GuardRules(unittest.TestCase):
                 same: read.every((answer, i) => JSON.stringify(answer) === JSON.stringify(answers[i])),
                 keys: [...keys].every((k) => k === DECLARED),
                 attrs: answers[0].tokens.some((t) => (t.children || []).some((c) => c.attrs && c.attrs.length)),
+                start: answers[0].tokens.filter((t) => t.type === 'ordered_list_open').map((t) => t.attrs),
                 refused: [
                   markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], map: [1]}]}),
                   markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], hidden: 0}]}),
@@ -450,6 +451,7 @@ class GuardRules(unittest.TestCase):
                 "same": True,
                 "keys": True,
                 "attrs": True,
+                "start": [None, [["start", 5]]],
                 "refused": [None] * 8,
                 "job": [{"id": 9, "ok": True, "tokens": []}, {"ok": False, "limit": "error"}, None, None],
             },
