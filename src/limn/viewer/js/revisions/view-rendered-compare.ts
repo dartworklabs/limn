@@ -59,7 +59,7 @@ const UNIT_SELECTOR = 'p,h1,h2,h3,h4,h5,h6,pre,tr,hr,li,.md-html,.md-html-run,.m
 // The boxes markRegroups looks at, a split or a join of which the two kept blocks beside it show: a quote, a list, a
 // list item.
 const REGROUP_BOX_TAGS = /^(?:BLOCKQUOTE|UL|OL|LI)$/;
-const CHIP_WORDS = { ins: '더함', del: '뺌', mod: '고침', move: '옮김' };
+const CHIP_WORDS: Record<string, string> = { ins: '더함', del: '뺌', mod: '고침', move: '옮김' };
 // Whether the document on screen is drawn from Markdown (the rendered compare's documents): a text document shows its
 // lines as they are, and its source diff is that already.
 function isDrawnFromMarkdown() {
@@ -854,7 +854,7 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     }
     merged.push(edit);
   }
-  const byNode = new Map();
+  const byNode = new Map<Text, (typeof merged)[number][]>();
   for (const edit of merged) {
     const nodeEdits = byNode.get(edit.node) || [];
     nodeEdits.push(edit);

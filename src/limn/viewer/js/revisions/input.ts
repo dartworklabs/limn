@@ -19,6 +19,17 @@ type RevisionPage = {
   canvas: HTMLCanvasElement | null;
   task: any;
 };
+// The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
+interface RevisionPdf {
+  numPages: number;
+  getPage(pageNumber: number): Promise<{ getViewport(options: { scale: number }): { width: number; height: number } }>;
+}
+// The Safari pinch gesture's event, which the DOM library does not have: the scale since it began and the pinch's point.
+interface GestureEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
 type RevisionAnchor = { el: HTMLElement; fx: number; fy: number; x: number; y: number };
 const REVISION_ZOOM = {
   ratio: 1,
@@ -34,7 +45,7 @@ const REVISION_ZOOM = {
 };
 
 /** Clamp a requested ratio, including non-finite input, to the comparison range. */
-function revisionRatio(ratio) {
+function revisionRatio(ratio: number) {
   return Number.isNaN(ratio) ? 1 : Math.max(0.5, Math.min(5, ratio));
 }
 
@@ -58,7 +69,7 @@ function drawRevisionZoom() {
 }
 
 /** Cancel a page and release its pixel allocation on zoom, eviction or exit. */
-function dropRevisionPage(item) {
+function dropRevisionPage(item: RevisionPage) {
   if (item.task) {
     item.task.cancel();
     COMPARISON_PDF.tasks.delete(item.task);
@@ -116,7 +127,7 @@ function revisionAnchor(x?, y?) {
 }
 
 /** Restore the same page point after layout, allowing ordinary edge clamping. */
-function restoreRevisionAnchor(anchor, x?, y?) {
+function restoreRevisionAnchor(anchor: RevisionAnchor | null, x?: number, y?: number) {
   if (!anchor || !anchor.el.isConnected) return;
   const box = $('#revision-pdf'),
     boxRect = box.getBoundingClientRect(),
@@ -142,7 +153,7 @@ function resizeRevisionPdf() {
 // Resize all page boxes before restoring the anchor; redraw at the new width. The widest page takes the zoomed width
 // and every other page its own share of it, so pages keep their sizes on paper relative to each other, as the
 // manuscript's do.
-function layoutRevisionPdf(anchor) {
+function layoutRevisionPdf(anchor: RevisionAnchor | null) {
   if (!revisionPdfActive()) return;
   const box = $('#revision-pdf'),
     fit = revisionFitWidth();
@@ -167,7 +178,7 @@ function layoutRevisionPdf(anchor) {
 }
 
 /** Zoom around a pointer, a touch midpoint or the viewport center. */
-function revisionZoomTo(ratio, x?, y?, anchor?) {
+function revisionZoomTo(ratio: number, x?: number, y?: number, anchor?: RevisionAnchor | null) {
   if (!revisionPdfActive()) return;
   const point = anchor || revisionAnchor(x, y);
   REVISION_ZOOM.ratio = revisionRatio(ratio);
@@ -179,12 +190,12 @@ function revisionZoomTo(ratio, x?, y?, anchor?) {
 }
 
 /** Apply the same button step as the manuscript, or restore fit width. */
-function revisionZoom(action) {
+function revisionZoom(action: string | undefined) {
   revisionZoomTo(action === 'fit' ? 1 : REVISION_ZOOM.ratio * (action === 'in' ? ZOOM_STEP : 1 / ZOOM_STEP));
 }
 
 /** Obtain page geometry without allocating canvases; abandon stale PDF visits. */
-async function mountRevisionPdf(pdf, seq, docKey, id) {
+async function mountRevisionPdf(pdf: RevisionPdf, seq: number, docKey: string | null, id: string) {
   const generation = REVISION_ZOOM.gen,
     pages = [] as RevisionPage[];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
@@ -318,7 +329,7 @@ async function paintRevisionPdf() {
   };
   box.addEventListener(
     'wheel',
-    (event) => {
+    (event: WheelEvent) => {
       if (!revisionPdfActive() || !(event.ctrlKey || event.metaKey)) return;
       event.preventDefault();
       pendingFactor *= wheelFactor(event.deltaY, event.deltaMode);
@@ -329,7 +340,7 @@ async function paintRevisionPdf() {
   );
   box.addEventListener(
     'gesturestart',
-    (event) => {
+    (event: GestureEvent) => {
       if (!revisionPdfActive()) return;
       event.preventDefault();
       gesture = { ratio: REVISION_ZOOM.ratio, anchor: revisionAnchor(event.clientX, event.clientY) };
@@ -338,7 +349,7 @@ async function paintRevisionPdf() {
   );
   box.addEventListener(
     'gesturechange',
-    (event) => {
+    (event: GestureEvent) => {
       if (!gesture || touch || !revisionPdfActive() || !(event.scale > 0)) return;
       event.preventDefault();
       revisionZoomTo(gesture.ratio * event.scale, event.clientX, event.clientY, gesture.anchor);
@@ -349,7 +360,7 @@ async function paintRevisionPdf() {
     gesture = null;
   });
   /** Distance and midpoint of the two touches in viewport coordinates. */
-  const points = (touches) => {
+  const points = (touches: TouchList) => {
     const first = touches[0],
       second = touches[1];
     return {
@@ -360,7 +371,7 @@ async function paintRevisionPdf() {
   };
   box.addEventListener(
     'touchstart',
-    (event) => {
+    (event: TouchEvent) => {
       if (!revisionPdfActive() || event.touches.length !== 2) {
         touch = null;
         return;
@@ -373,7 +384,7 @@ async function paintRevisionPdf() {
   );
   box.addEventListener(
     'touchmove',
-    (event) => {
+    (event: TouchEvent) => {
       if (!touch || event.touches.length !== 2 || !revisionPdfActive()) return;
       if (event.cancelable) event.preventDefault();
       const pinch = points(event.touches);
@@ -381,7 +392,7 @@ async function paintRevisionPdf() {
     },
     { passive: false },
   );
-  box.addEventListener('touchend', (event) => {
+  box.addEventListener('touchend', (event: TouchEvent) => {
     if (event.touches.length !== 2) touch = null;
   });
   box.addEventListener('touchcancel', () => {
