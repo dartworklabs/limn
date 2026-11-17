@@ -3,6 +3,7 @@
 // compares the old place with the new one; ending the re-place takes its box and banner away.
 import { $ } from '../platform/dom.ts';
 import { setHtml, html } from '../platform/markup.ts';
+import type { Html } from '../platform/markup.ts';
 import { REPICK, setPickseq, PICKSEQ, setRepick, COMPOSE, EDITOR, LAYOUT } from '../app/state.ts';
 import { isMarkdownDoc, isRegion } from '../documents/state.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
@@ -13,12 +14,12 @@ import { snapBox, repickElement } from '../pdf/view-figure.ts';
 import { markChosenLines, shownChoice } from '../markdown/view.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
-function banner(markup) {
+function banner(markup: Html) {
   const bannerBox = $('#banner');
   setHtml(bannerBox, markup);
   bannerBox.hidden = false;
 }
-function bannerRepick(err?) {
+function bannerRepick(err?: string) {
   if (!REPICK) return;
   const line = err ? html`<span class="errline flush">${err}</span>` : '';
   banner(

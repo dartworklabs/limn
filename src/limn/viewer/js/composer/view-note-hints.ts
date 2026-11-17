@@ -5,7 +5,7 @@ import { RANGE_REL, REQUEST_KIND } from '../app/rules-tables.ts';
 import { COMPOSE } from '../app/state.ts';
 // One representative: same range > inside (the narrowest enclosing pin) > contains (the widest inner pin) > overlap
 // (the smallest id).
-function pickOverlap(overlaps) {
+function pickOverlap(overlaps: PickOverlap[]) {
   if (!overlaps || !overlaps.length) return null;
   const equal = overlaps.filter((overlap) => overlap.rel === RANGE_REL.EQUAL);
   if (equal.length) return equal.reduce((best, candidate) => (candidate.id < best.id ? candidate : best));
@@ -30,7 +30,7 @@ function appendTarget(): { id: number; lo: number; hi: number; rel: string } | n
 // ?/? or a Korean interrogative ending (는가/나요/까요/인가/건가/니/냐/까). A trailing period/ellipsis/closing
 // bracket/quote and a trailing @-tag (e.g. '맞나요? @Bob Park') are ignored. Only judges - never changes the kind
 // itself.
-function looksQuestion(text) {
+function looksQuestion(text: string) {
   let trimmed = String(text || '').trim();
   for (let i = 0; i < 3; i++)
     trimmed = trimmed
@@ -41,7 +41,7 @@ function looksQuestion(text) {
 // If it's a fix request but the note reads like a question, a one-line suggestion appears next to the kind control. It
 // never changes the kind itself - only a click does. It goes once the kind is a question or the text does not read like
 // one.
-function syncQuestionHint(box, text, kind) {
+function syncQuestionHint(box: HTMLElement | null, text: string, kind: string) {
   if (box) box.hidden = kind === REQUEST_KIND.QUESTION || !looksQuestion(text);
 }
 export { syncQuestionHint, appendTarget };

@@ -60,6 +60,8 @@ import { useLevel } from '../documents/rules.ts';
 import { imeOpen } from '../platform/composition.ts';
 import { QUOTE_OPEN, autoGrow } from './view-text.ts';
 import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
+import type { PickDrag } from './state-seams.ts';
+import type { Visit } from '../app/state.ts';
 import { SUGGEST_DRAFT, suggestClear, suggestCopy, suggestDraft } from './state-suggest.ts';
 import { syncQuestionHint, appendTarget } from './view-note-hints.ts';
 import { banner, bannerCompare, bannerRepick, cancelRepick } from './flow-repick-banner.ts';
@@ -88,17 +90,17 @@ function composeFields() {
 /**
  * A successful request may clear its original selection only when every submitted editable field is still unchanged.
  */
-function composeOwns(selection, box, visit, fields) {
+function composeOwns(selection: Selection | null, box: HTMLElement | null, visit: Visit, fields: string) {
   return currentVisit(visit) && COMPOSE.current === selection && COMPOSE.box === box && composeFields() === fields;
 }
-function setBusy(on) {
+function setBusy(on: boolean) {
   $('#c-spin').hidden = !on;
   $('#c-body').classList.toggle('busy', on);
 }
 // Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner. A
 // new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it.
 // The first-visit hint on how to pick goes (endTopic): it has been done.
-async function pick(region) {
+async function pick(region: PickDrag) {
   const seq = setPickseq(PICKSEQ + 1),
     repick = REPICK;
   endTopic(NOTICE_TOPIC.PICK); // the first-visit hint on how to pick has been done
@@ -227,7 +229,8 @@ async function pick(region) {
   selection.overlaps = overlapsFor(selection, PINS);
   // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
   // re-fetched - loadPins recomputes overlap too.
-  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id))) composerPins().load();
+  if ((answer.overlaps || []).some((overlap: PickOverlap) => !PINS.some((pin) => pin.id === overlap.id)))
+    composerPins().load();
   setSnipOpen(false);
   $('#c-err').hidden = true;
   $('#c-body').hidden = false;
@@ -250,7 +253,7 @@ async function pick(region) {
 // Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를
 // 감쌈' - '#4와 일부 겹침'. The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range
 // as open pin #4'.
-function overlapText(rel, id) {
+function overlapText(rel: string, id: number) {
   const template =
     {
       equal: '열린 핀 #{id}{p} 같은 범위입니다',
@@ -308,7 +311,7 @@ function renderOverlapBanner() {
 }
 // The overlap in a few words for the one-line notice: '#4와 같은 범위' - '#4 범위 안' - '#4를 감쌈' - '#4와 일부 겹침'
 // (the card badges' wording).
-function overlapShort(rel, id) {
+function overlapShort(rel: string, id: number) {
   const template =
     { equal: '#{id}{p} 같은 범위', inside: '#{id} 범위 안', contains: '#{id}{p} 감쌈', partial: '#{id}{p} 일부 겹침' }[
       rel
@@ -322,7 +325,7 @@ function overlapShort(rel, id) {
 // caption (rangeCap) under it says them, and the ladder's pressed segment. The dragged line goes into the description.
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source
 // field. The range ladder and excerpt are hidden.
-function renderRegionComposer(selection) {
+function renderRegionComposer(selection: Selection) {
   $('#composer').classList.add('region');
   // A selection made while cut off (offline/flow.ts offlinePick) has this shape and no file yet: its lines are found
   // when it is sent.
@@ -487,7 +490,7 @@ function drawComposerQuote(selection: Selection | null) {
 // collapses (the body comes forward again). The composer panel's pin kind (fix request / question). Reverts to fix
 // request on save or discard (the default for the next pin). The kind says what the note is, not who handles it: the
 // assignee does not follow it (composer/input-mentions.ts).
-function setKind(kind) {
+function setKind(kind: string | undefined) {
   const was = KIND_NEW;
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
@@ -506,7 +509,7 @@ function setKind(kind) {
 // Drops the current selection and its box (clearNote also empties the note, kind and assignee). No undo here -
 // discardSelection() is the user's Esc/[취소], which offers one. A sheet's height is drawn again (applySheet): the
 // tablet sheet's composing lift ends with the composer, also when an open edit card keeps the sheet open.
-function cancelSelection(clearNote) {
+function cancelSelection(clearNote: boolean) {
   if (REPICK) cancelRepick();
   closeSelectionPopover();
   markChosenLines(null);
