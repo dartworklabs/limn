@@ -368,14 +368,14 @@ function drawPos() {
           markdownSurface().reading().at,
           markdownSurface().reading().lines.length,
           multiDoc(),
-          innerWidth >= 400,
+          window.innerWidth >= 400,
         )
       : posLabel(
           shown ? shown.name : '',
           pageNavigation().outlinePage() || 1,
           pageCount,
           multiDoc(),
-          innerWidth >= 400,
+          window.innerWidth >= 400,
           isRevisions ? VIEW_MODE.REVISIONS : VIEW_MODE.MANUSCRIPT,
         );
   const nameSpan = $('#btn-pos-n');
@@ -485,7 +485,7 @@ function restoreView(view: KeptView | undefined) {
   if (typeof view.page === 'number') restoreAnchor({ page: view.page, frac: view.frac });
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }
-addEventListener('pagehide', saveView);
+window.addEventListener('pagehide', saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft. If a meta
 // cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background,
 // and pages are swapped only if the build changed. A document that cannot be opened says so on the status line, with

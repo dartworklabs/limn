@@ -103,7 +103,7 @@ function showTipText(element: HTMLElement, text: string) {
   if (box && besideLeft >= 4) {
     TIP.style.left = besideLeft + 'px';
     TIP.style.top =
-      Math.max(4, Math.min(rect.top + rect.height / 2 - tipHeight / 2, innerHeight - tipHeight - 4)) + 'px';
+      Math.max(4, Math.min(rect.top + rect.height / 2 - tipHeight / 2, window.innerHeight - tipHeight - 4)) + 'px';
     return;
   }
   TIP.classList.remove('tip-beside');
@@ -125,12 +125,12 @@ function showTipText(element: HTMLElement, text: string) {
     }
   }
   if (top < 4) top = rect.bottom + 8;
-  if (top > innerHeight - tipHeight - 4 && MOUSE_AT) {
+  if (top > window.innerHeight - tipHeight - 4 && MOUSE_AT) {
     top = MOUSE_AT[1] + 18;
     centerX = MOUSE_AT[0];
   } // an element taller than the window (#grip/a long card) anchors to the pointer instead
-  top = Math.max(4, Math.min(top, innerHeight - tipHeight - 4));
-  const left = Math.min(Math.max(4, centerX - tipWidth / 2), innerWidth - tipWidth - 4);
+  top = Math.max(4, Math.min(top, window.innerHeight - tipHeight - 4));
+  const left = Math.min(Math.max(4, centerX - tipWidth / 2), window.innerWidth - tipWidth - 4);
   TIP.style.left = left + 'px';
   TIP.style.top = top + 'px';
 }

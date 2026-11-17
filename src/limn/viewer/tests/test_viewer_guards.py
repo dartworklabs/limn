@@ -211,6 +211,43 @@ class GuardRules(unittest.TestCase):
         )
         self.assertEqual(got, [True, False])
 
+    def test_a_line_without_a_box_has_no_edges_and_changes_no_other_lines(self):
+        """searchEdges on a two-column page with a crossing caption: a line without geometry among them gets no edges
+        and leaves every other line's edges as they are without it."""
+        got = self.run_js(
+            js_const("SEARCH_GUTTER"),
+            extract_js_fn("searchBlocks"),
+            extract_js_fn("searchGutter"),
+            extract_js_fn("searchEdges"),
+            r"""
+            const at = (x0, x1, y) => ({ box: { x0, x1, y, size: 12, ang: 0 } });
+            const lines = [];
+            for (let i = 0; i < 4; i++) lines.push(at(72, 290, 700 - 15 * i), at(322, 540, 700 - 15 * i));
+            lines.push(at(72, 540, 640));
+            const without = searchEdges(lines);
+            const withBoxless = searchEdges([...lines.slice(0, 3), { box: null }, ...lines.slice(3)]);
+            const same = JSON.stringify(withBoxless.toSpliced(3, 1)) === JSON.stringify(without);
+            console.log(JSON.stringify([withBoxless[3], same]));
+            """,
+        )
+        self.assertEqual(got, [None, True])
+
+    def test_a_hit_on_a_page_not_read_has_no_boxes(self):
+        """A hit's page is read before the hit is found; were it not, searchBoxes answers no boxes, keeps none, and
+        throws nothing."""
+        got = self.run_js(
+            r"""
+            const SEARCH = { doc: { numPages: 2 }, text: new Map() };
+            """,
+            extract_js_fn("searchPages"),
+            extract_js_fn("searchBoxes"),
+            r"""
+            const hit = { page: 2, pieces: [[0, 0, 1]], boxes: null };
+            console.log(JSON.stringify([searchBoxes(hit), hit.boxes]));
+            """,
+        )
+        self.assertEqual(got, [[], None])
+
     def test_a_zoom_point_given_by_half_anchors_on_the_areas_centre(self):
         """Without both coordinates the anchor is the PDF area's centre, as without any; a half point made a NaN anchor."""
         got = self.run_js(

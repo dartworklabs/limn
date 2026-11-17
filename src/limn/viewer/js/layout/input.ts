@@ -108,7 +108,7 @@ const LONGPRESS_MS = 450;
     const deltaX = drag.x - event.clientX;
     if (!drag.moved && Math.abs(deltaX) < 4) return;
     drag.moved = true;
-    const bounds = sideBounds(LAYOUT, innerWidth),
+    const bounds = sideBounds(LAYOUT, window.innerWidth),
       snap = snapSide(drag.w + deltaX, bounds, draftOpen());
     drag.zone = snap.zone;
     if (drag.rail) preview(snap.zone === 'follow' || snap.zone === 'min');
@@ -167,7 +167,7 @@ const LONGPRESS_MS = 450;
   });
   grip.addEventListener('keydown', (event: KeyboardEvent) => {
     if (LAYOUT === LAYOUT_MODE.NARROW) return;
-    const action = gripKey(event.key, currentSideWidth(), sideBounds(LAYOUT, innerWidth), !SIDE_OPEN);
+    const action = gripKey(event.key, currentSideWidth(), sideBounds(LAYOUT, window.innerWidth), !SIDE_OPEN);
     if (!action) return;
     event.preventDefault();
     if (action.act === 'collapse' || action.act === 'open') toggleSide();
@@ -266,7 +266,7 @@ function shownSheetFraction() {
   const panel = $('#right'),
     height = panel.getBoundingClientRect().height,
     maxHeight = parseFloat(getComputedStyle(panel).maxHeight);
-  return { f: height / innerHeight, keep: height >= maxHeight - 1 ? 1 : (height + 0.5) / innerHeight };
+  return { f: height / window.innerHeight, keep: height >= maxHeight - 1 ? 1 : (height + 0.5) / window.innerHeight };
 }
 // Carries out sheetRelease() for the height the sheet shows (shownSheetFraction) and the draft state now: collapse the
 // sheet (remembered) or set its height.
@@ -283,7 +283,7 @@ function dragSheetTo(height: number) {
   keepSheet();
   document.documentElement.style.setProperty(
     '--sheet-f',
-    String(Math.max(draftOpen() ? SHEET_MIN_FRACTION : 0.12, height / innerHeight)),
+    String(Math.max(draftOpen() ? SHEET_MIN_FRACTION : 0.12, height / window.innerHeight)),
   );
 }
 // Sheet height (narrow): the handle in the tool bar's row and the whole tool bar move the sheet. On the handle a drag
@@ -684,7 +684,7 @@ function armBack() {
       return;
     } catch (error) {}
   }
-  history.pushState({ limnLayer: 1 }, '', location.href);
+  window.history.pushState({ limnLayer: 1 }, '', window.location.href);
   BACK = { kind: 'history' };
 }
 // Removes the layer without closing anything: destroys the watcher, or pops our entry (that popstate is skipped).
@@ -696,9 +696,9 @@ function disarmBack() {
     if (layer.w) layer.w.destroy();
     return;
   }
-  if (history.state && history.state.limnLayer) {
+  if (window.history.state && window.history.state.limnLayer) {
     BACK_SKIP = true;
-    history.back();
+    window.history.back();
   }
 }
 // The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel

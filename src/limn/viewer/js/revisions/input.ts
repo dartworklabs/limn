@@ -44,6 +44,10 @@ const REVISION_ZOOM: RevisionZoomState = {
   anchor: null,
   resetInput: () => {},
 };
+// Sets the revision view's zoom ratio, for another module that changes it (ADR-0042 D1).
+function setRevisionZoomRatio(value: number) {
+  REVISION_ZOOM.ratio = value;
+}
 
 /** Clamp a requested ratio, including non-finite input, to the comparison range. */
 function revisionRatio(ratio: number) {
@@ -424,6 +428,7 @@ async function paintRevisionPdf() {
 })();
 export {
   REVISION_ZOOM,
+  setRevisionZoomRatio,
   disposeRevisionZoom,
   drawRevisionZoom,
   mountRevisionPdf,

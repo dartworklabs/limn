@@ -630,11 +630,15 @@ async function offlineAskDown() {
 // (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
 function offlineUrls(): string[] {
-  const out = new Set([location.pathname + location.search]);
+  const out = new Set([window.location.pathname + window.location.search]);
   try {
     performance.getEntriesByType('resource').forEach((entry) => {
-      const address = new URL(entry.name, location.href);
-      if (address.origin === location.origin && !address.pathname.startsWith('/api/') && address.pathname !== '/sw.js')
+      const address = new URL(entry.name, window.location.href);
+      if (
+        address.origin === window.location.origin &&
+        !address.pathname.startsWith('/api/') &&
+        address.pathname !== '/sw.js'
+      )
         out.add(address.href);
     });
   } catch (error) {}
@@ -734,8 +738,8 @@ async function offlinePrepare() {
         });
       } catch (error) {}
       if (meta && meta.pages_build) {
-        // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
-        // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
+        // Held only when the server says until when. A 404 is thrown, and offHold's catch turns it, as any 4xx, into
+        // no hold: an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
         const hold = await offHold(docName, meta.pages_build, 7);
         if (hold && hold.held) held++;
         got.push({ k: key, entry: { build: meta.pages_build, files, at: hold ? hold.at : 0, seen, meta: meta } });
@@ -2075,7 +2079,7 @@ function offlineBoot() {
     offFollowCheck(true);
   });
 }
-addEventListener('online', () => {
+window.addEventListener('online', () => {
   void offlineFlush();
 });
 export type { QueuedPin };

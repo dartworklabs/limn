@@ -49,8 +49,8 @@ function markView(): { left: number; top: number; right: number; bottom: number 
   return {
     left: Math.max(rect.left, 0),
     top: Math.max(rect.top, 0),
-    right: Math.min(rect.right, innerWidth),
-    bottom: Math.min(rect.bottom, innerHeight),
+    right: Math.min(rect.right, window.innerWidth),
+    bottom: Math.min(rect.bottom, window.innerHeight),
   };
 }
 /** The covers' boxes laid out over the view, each cut to it. */

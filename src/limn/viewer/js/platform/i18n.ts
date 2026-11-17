@@ -169,10 +169,10 @@ function switchLang(lang: string | undefined) {
   try {
     localStorage.setItem('limnLang', lang);
   } catch (error) {}
-  const address = new URL(location.href);
+  const address = new URL(window.location.href);
   address.searchParams.delete('lang');
-  if (address.href === location.href) location.reload();
-  else location.replace(address.href);
+  if (address.href === window.location.href) window.location.reload();
+  else window.location.replace(address.href);
 }
 const TIP_TEXT: Record<string, string> = {
   stale:

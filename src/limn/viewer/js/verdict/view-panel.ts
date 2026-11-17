@@ -583,7 +583,7 @@ function markStops(page: number): HTMLElement[] {
 }
 // Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next
 // stop is a later page's mark, whose focus would scroll the pages there.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (
     event.key !== 'Tab' ||
     event.shiftKey ||
@@ -606,7 +606,7 @@ addEventListener('keydown', (event) => {
 });
 // Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on
 // the pages. A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || event.defaultPrevented || !IS_BESIDE_PAGES) return;
   const active = document.activeElement;
   if (!active || !active.closest || !active.closest('#pv-panel') || active.closest('.pv-pop')) return;

@@ -56,6 +56,7 @@ import { savePin } from '../composer/flow-save.ts';
 import {
   LAST_KEY_SAVE,
   REASON_SESSION,
+  setReasonSeen,
   WITHDRAWN_PINS,
   focusLine,
   isReasonField,
@@ -2455,7 +2456,7 @@ function stickReadingLine() {
   const at = heldPanelPage() || pageUnderReadingLine(),
     readingPage = at && pageTakesVerdict(at) ? at : 0,
     keyedPage = keyedPageFor(readingPage); // a jump's glide: the panel's page held (verdict/view-panel.ts)
-  if (REASON_SESSION && REASON_SESSION.page === readingPage) REASON_SESSION.seen = true;
+  if (REASON_SESSION && REASON_SESSION.page === readingPage) setReasonSeen(REASON_SESSION, true);
   else if (REASON_SESSION && REASON_SESSION.seen) leaveReason(); // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
   if (
@@ -2800,8 +2801,8 @@ function stopOffPageKey(event: KeyboardEvent) {
     life: NOTICE_LIFE.TIMER,
   });
 }
-addEventListener('keydown', stopOffPageKey, true);
-addEventListener('keyup', stopOffPageKey, true); // keyup: a button's Space acts on its keyup
+window.addEventListener('keydown', stopOffPageKey, true);
+window.addEventListener('keyup', stopOffPageKey, true); // keyup: a button's Space acts on its keyup
 function stickSoon() {
   if (!STICK_FRAME)
     STICK_FRAME = requestAnimationFrame(() => {
@@ -2810,7 +2811,7 @@ function stickSoon() {
     });
 }
 $('#left').addEventListener('scroll', stickSoon, { passive: true });
-addEventListener('resize', stickSoon);
+window.addEventListener('resize', stickSoon);
 {
   const viewport = window.visualViewport;
   if (viewport) {
@@ -2910,7 +2911,7 @@ function verdictKey(event: KeyboardEvent) {
   }
   verdictPress(button, 'key');
 }
-addEventListener('keydown', verdictKey);
+window.addEventListener('keydown', verdictKey);
 for (const eventType of ['wheel', 'touchstart', 'touchmove', 'pointerdown'])
   $('#left').addEventListener(eventType, HAND_ON_PAGES, { passive: true, capture: true });
 $('#left').addEventListener(
@@ -2924,7 +2925,7 @@ $('#left').addEventListener(
 // line's word lets the arrows through) or on nothing - not in a text field, and not Space on a button, which it
 // presses. ↓ in the outline's filter or list moves to a result, and the Enter after it starts a jump the guard must not
 // take for the person's own scroll, or a digit pressed while it glides would save on a page passed.
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     if (!SCROLL_KEYS.has(event.key)) return;
@@ -2977,7 +2978,7 @@ function sayGliding() {
 // action, the panel's grip), else nowhere (the focus stays). Left to the DOM's order it would go to the first line
 // after the pages' start and scroll them there, also on first open.
 let PRESSED_ON_PAGES = false;
-addEventListener(
+window.addEventListener(
   'pointerdown',
   (event) => {
     const target = event.target as HTMLElement | null;
@@ -2991,7 +2992,7 @@ document.addEventListener('focusin', (event) => {
 });
 // So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and
 // section strip are not, whose first Tab after opening would otherwise go to a later page's line and scroll there.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const active = document.activeElement;
   if (event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented)
     return;
@@ -3029,8 +3030,8 @@ function findStopInView(at: number): HTMLElement | null {
     areaRect = area.getBoundingClientRect(),
     top = Math.max(0, areaRect.top + area.clientTop),
     left = Math.max(0, areaRect.left + area.clientLeft);
-  const bot = Math.min(innerHeight, areaRect.top + area.clientTop + area.clientHeight),
-    right = Math.min(innerWidth, areaRect.left + area.clientLeft + area.clientWidth);
+  const bot = Math.min(window.innerHeight, areaRect.top + area.clientTop + area.clientHeight),
+    right = Math.min(window.innerWidth, areaRect.left + area.clientLeft + area.clientWidth);
   for (
     let page = at, block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
     block;
@@ -3122,7 +3123,7 @@ function findOutStop() {
   const positionButton = $('#btn-pos');
   return edge || (isTabStop(positionButton) ? positionButton : null);
 }
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const active = document.activeElement as HTMLElement | null,
     area = $('#left');
   if (
@@ -3168,7 +3169,7 @@ addEventListener('keydown', (event) => {
 // page in turn. A line with its reason popover open keeps Tab to itself first (verdict/flow-reason.ts, on #doc), and
 // another page's line or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while
 // the reading page had no line (STOP_IN_VIEW), which leaves the same way.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (
     event.key !== 'Tab' ||
     !event.shiftKey ||

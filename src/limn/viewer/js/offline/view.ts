@@ -17,7 +17,7 @@ import { setKind } from '../composer/flow-pick.ts';
 import { saveDraftSoon } from '../composer/flow-draft.ts';
 import { OFF, offDel, offPut, offlineSync, type QueuedPin } from './flow.ts';
 import { marksShow } from '../pins/input-hide-marks.ts';
-import { ASSIGN_NEW, renderAssignNew } from '../composer/input-mentions.ts';
+import { setAssignNewValue, setAssignNewTouched, renderAssignNew } from '../composer/input-mentions.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
 import { $, $$ } from '../platform/dom.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
@@ -376,8 +376,8 @@ async function offUiRedo(rec: QueuedPin, button: HTMLElement) {
   note._mentions = (rec.mentions || []).length ? new Set(rec.mentions) : null;
   setKind(rec.kind_req === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   if (rec.assignee) {
-    ASSIGN_NEW.v = rec.assignee;
-    ASSIGN_NEW.touched = true;
+    setAssignNewValue(rec.assignee);
+    setAssignNewTouched(true);
   }
   renderAssignNew();
   autoGrow(note);

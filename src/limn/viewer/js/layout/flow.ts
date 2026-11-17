@@ -136,7 +136,7 @@ function layoutFor(width: number, height: number, coarse: boolean) {
 }
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput() {
-  return { w: innerWidth, h: innerHeight, coarse: COARSE_POINTER_QUERY.matches };
+  return { w: window.innerWidth, h: window.innerHeight, coarse: COARSE_POINTER_QUERY.matches };
 }
 type BandInput = ReturnType<typeof bandInput>;
 // Keeping the band steady on touch (docs/handbook/viewer.md §모바일 레이아웃): a height change under BAND_HOLD_PX from

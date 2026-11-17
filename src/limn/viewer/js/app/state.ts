@@ -168,8 +168,8 @@ function imeForget() {
   IME_PRESSED = null;
   imeEnd();
 }
-addEventListener('compositionstart', imeForget, true);
-addEventListener(
+window.addEventListener('compositionstart', imeForget, true);
+window.addEventListener(
   'compositionend',
   (event) => {
     const pressed = IME_PRESSED;
@@ -182,7 +182,7 @@ addEventListener(
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'keyup',
   (event) => {
     if (IME_PRESSED && imeUp(event, IME_PRESSED)) IME_PRESSED = null;
@@ -192,7 +192,7 @@ addEventListener(
 );
 // The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once
 // the task that blurred it is done, when a field drawn anew has taken its place.
-addEventListener(
+window.addEventListener(
   'blur',
   (event) => {
     const target = event.target;
@@ -204,7 +204,7 @@ addEventListener(
   },
   true,
 );
-addEventListener('pagehide', imeForget, true);
+window.addEventListener('pagehide', imeForget, true);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) imeForget();
 });
@@ -212,7 +212,7 @@ document.addEventListener('visibilitychange', () => {
 // modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in
 // a note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a
 // text box (the reason field, the @-list) its handler takes the newline away too (imeTail).
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     const ended = IME_END;
@@ -326,7 +326,7 @@ function currentVisit(visit: Visit) {
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put
 // into DONE_ALL - drawn separately from the done archive.
 let REVIEW_ALL: Pin[] = [];
-const META_BY = new Map(),
+const META_BY = new Map<string | null, Meta>(),
   VIEW_BY = new Map(),
   BUILD_ERR_BY = new Map<string | null, BuildStatus>(),
   DOC_SEQ = new Map<string | null, number>();
@@ -558,6 +558,16 @@ function setEditAssignee(card: EditCard, assignee: EditCard['assignee']) {
 function setEditRequestKind(card: EditCard, kind: EditCard['kind_req']) {
   card.kind_req = kind;
 }
+// Sets whether the open reply box (REPLY) flips its pin's state, and the open repick's (REPICK) candidate and box.
+function setReplyFlip(reply: ReplyBox, flip: boolean) {
+  reply.flip = flip;
+}
+function setRepickCandidate(repick: Repick, candidate: Repick['cand']) {
+  repick.cand = candidate;
+}
+function setRepickBox(repick: Repick, box: Repick['box']) {
+  repick.box = box;
+}
 // The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
 function topPinId() {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
@@ -578,6 +588,9 @@ export {
   setEditorSaving,
   setEditAssignee,
   setEditRequestKind,
+  setReplyFlip,
+  setRepickCandidate,
+  setRepickBox,
   BAND,
   BAND_IN,
   BAND_MODE,

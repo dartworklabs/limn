@@ -24,7 +24,7 @@ function multiDoc() {
   return DOCS.length > 1;
 }
 function hashDoc() {
-  const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
+  const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(window.location.hash || '');
   return match ? match[1] : null;
 }
 // Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the
@@ -32,7 +32,8 @@ function hashDoc() {
 function setHash(doc: string | null) {
   if (!multiDoc()) return;
   const hash = '#doc=' + doc;
-  if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
+  if (window.location.hash !== hash)
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + hash);
 }
 // The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first
 // document.
@@ -447,9 +448,9 @@ function placeDocMenu() {
   const rect = more.getBoundingClientRect(),
     top = Math.round(rect.bottom) + 4,
     width = pop.offsetWidth;
-  pop.style.left = Math.max(8, Math.min(Math.round(rect.left), innerWidth - 8 - width)) + 'px';
+  pop.style.left = Math.max(8, Math.min(Math.round(rect.left), window.innerWidth - 8 - width)) + 'px';
   pop.style.top = top + 'px';
-  pop.style.setProperty('--dp-room', Math.max(0, innerHeight - 8 - top) + 'px');
+  pop.style.setProperty('--dp-room', Math.max(0, window.innerHeight - 8 - top) + 'px');
 }
 // Shuts the popover; back gives the focus back to its button (Esc, a choice, Shift+Tab out of it).
 function closeDocMenu(back: boolean) {
@@ -565,5 +566,5 @@ document.addEventListener(
   },
   true,
 );
-addEventListener('resize', placeDocMenu);
+window.addEventListener('resize', placeDocMenu);
 export { closeDocMenu, docBadge, drawDocTabs, hashDoc, initialDoc, loadDocs, multiDoc, setHash, toggleDocMenu };

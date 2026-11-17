@@ -176,9 +176,9 @@ function placePageList() {
   const rect = from.getBoundingClientRect(),
     popoverWidth = popover.offsetWidth,
     top = rect.bottom + 4;
-  popover.style.left = Math.max(8, Math.min(rect.right - popoverWidth, innerWidth - 8 - popoverWidth)) + 'px';
+  popover.style.left = Math.max(8, Math.min(rect.right - popoverWidth, window.innerWidth - 8 - popoverWidth)) + 'px';
   popover.style.top = top + 'px';
-  popover.style.setProperty('--pl-room', Math.max(0, innerHeight - 8 - top) + 'px');
+  popover.style.setProperty('--pl-room', Math.max(0, window.innerHeight - 8 - top) + 'px');
 }
 // Shuts the popover; back gives the focus back to the page count that opened it (Esc, a choice), an outside click
 // leaves it.
@@ -260,5 +260,5 @@ document.addEventListener(
   },
   true,
 );
-addEventListener('resize', placePageList);
+window.addEventListener('resize', placePageList);
 export { closePageList, drawSheetPages, goListedPage, refreshPageLists, revealPageRow, tipCutTitles, togglePageList };

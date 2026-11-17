@@ -384,6 +384,13 @@ function assigneeRowHtml(people: string[], value: string, act: string): Html {
 // the note changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the
 // save carries (mentionHints), so they offer exactly whom the server tags.
 const ASSIGN_NEW = { v: ASSIGNEE_AGENT, touched: false };
+// Each sets one field of ASSIGN_NEW for another module that changes it (ADR-0042 D1): the assignment, nothing more.
+function setAssignNewValue(value: typeof ASSIGN_NEW.v) {
+  ASSIGN_NEW.v = value;
+}
+function setAssignNewTouched(value: boolean) {
+  ASSIGN_NEW.touched = value;
+}
 // Draws the composer's assignee row and the preview line from the note as it is now (assignOutcome), and drops a pick
 // whose person left the note. No row without a tagged colleague - the agent has the pin - and none while the note would
 // join an existing pin (appendTarget): an append keeps that pin's assignee, so the row would choose nothing. Before the
@@ -538,12 +545,12 @@ function mentionPlace() {
     guard = mentionGuard(field);
   const guardRect = guard ? guard.getBoundingClientRect() : null,
     top = viewport ? viewport.offsetTop : 0,
-    bottom = viewport ? viewport.offsetTop + viewport.height : innerHeight;
+    bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
   const at = field.closest('#sel-pop')
     ? mentionRoom(fieldRect, guardRect, listHeight, top, bottom)
     : { top: mentionTop(fieldRect, guardRect, listHeight, top, bottom), max: null };
   pop.style.top = at.top + 'px';
-  pop.style.left = Math.max(4, Math.min(fieldRect.left, innerWidth - listWidth - 4)) + 'px';
+  pop.style.left = Math.max(4, Math.min(fieldRect.left, window.innerWidth - listWidth - 4)) + 'px';
   if (at.max == null) return;
   pop.style.maxHeight = at.max + 'px';
   const selected = pop.querySelector('[aria-selected=true]') as HTMLElement | null;
@@ -720,6 +727,8 @@ $('#mention-pop').addEventListener('pointerdown', (event: PointerEvent) => event
 
 export {
   ASSIGN_NEW,
+  setAssignNewValue,
+  setAssignNewTouched,
   MENTION,
   assignOutcome,
   composeAsk,

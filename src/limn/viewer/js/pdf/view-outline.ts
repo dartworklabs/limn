@@ -944,12 +944,12 @@ for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, dropOutlinePick, { passive: true });
 // A key scrolls the pages when nothing else has the focus, or something on the pages has it.
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const focused = document.activeElement;
   if (SCROLL_KEYS.has(event.key) && (!focused || focused === document.body || $('#left').contains(focused)))
     dropOutlinePick();
 });
-addEventListener('resize', dropOutlinePick);
+window.addEventListener('resize', dropOutlinePick);
 // Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setOutlineBuild<Value extends typeof OUTLINE_BUILD>(value: Value): Value {
   OUTLINE_BUILD = value;

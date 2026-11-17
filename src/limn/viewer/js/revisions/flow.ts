@@ -22,7 +22,7 @@ import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { scheduleVectorDraw } from '../pdf/view-draw.ts';
 import { searchOffer } from '../pdf/flow.ts';
 import {
-  REVISION_ZOOM,
+  setRevisionZoomRatio,
   disposeRevisionZoom,
   drawRevisionZoom,
   mountRevisionPdf,
@@ -141,6 +141,11 @@ const REVISION_VIEW: RevisionViewState = {
   rangeN: null,
   want: null,
 };
+// Sets the line the guide says for a revision view's pin (RevTarget.mdcMsg), for another module that changes it
+// (ADR-0042 D1).
+function setTargetGuideLine(target: RevTarget, line: string) {
+  target.mdcMsg = line;
+}
 // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_RECENT = 12;
 const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
@@ -896,14 +901,14 @@ function leaveRevisions() {
     localStorage.setItem('limnRevSeen', JSON.stringify(all));
   } catch (error) {}
 }
-addEventListener('pagehide', () => {
+window.addEventListener('pagehide', () => {
   if (document.body.classList.contains('revision-open')) leaveRevisions();
 });
 // A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its
 // comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the
 // source diff).
 async function showRevision(id: string, format?: string, base?: string) {
-  REVISION_ZOOM.ratio = 1;
+  setRevisionZoomRatio(1);
   ++REVISION_VIEW.seq;
   REVISION_VIEW.commit = id;
   REVISION_VIEW.base = base || '';
@@ -1371,15 +1376,15 @@ function highlightPinLines(target: RevTarget) {
     return;
   }
   const rows = $$('#revision-diff .rd-line');
-  let first = null as Element | null;
-  rows.forEach((line) => {
-    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
+  let first: Element | null = null;
+  for (const line of rows) {
+    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) continue;
     const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
     }
-  });
+  }
   target.hit = !!first || touchesPin(REVISION_VIEW.files, target, 5);
   // when only a neighbouring line changed, the guide never speaks of "the highlighted line": there is none
   target.near = !first && target.hit;
@@ -1387,17 +1392,17 @@ function highlightPinLines(target: RevTarget) {
     const fileIndex = pinFileIndex(REVISION_VIEW.files, target.file);
     if (fileIndex < 0) target.hit = false;
     else {
-      let best = null as Element | null,
+      let best: Element | null = null,
         bestDistance = Infinity;
-      rows.forEach((line) => {
+      for (const line of rows) {
         const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
-        if (!lineNumber) return;
+        if (!lineNumber) continue;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
           bestDistance = distance;
           best = line;
         }
-      });
+      }
       first = best;
     }
   }
@@ -1601,6 +1606,7 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
 }
 export {
   REVISION_VIEW,
+  setTargetGuideLine,
   COMPARISON_PDF,
   COMPARISON_SCOPE,
   findAnyPin,

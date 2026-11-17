@@ -40,6 +40,19 @@ const BUILD: BuildState = {
   cur: null,
   unchanged: null,
 };
+// Each sets one field of BUILD for another module that changes it (ADR-0042 D1): the assignment, nothing more.
+function setBuildError(value: typeof BUILD.error) {
+  BUILD.error = value;
+}
+function setBuildLastSeq(value: typeof BUILD.lastSeq) {
+  BUILD.lastSeq = value;
+}
+function setBuildAsked(value: boolean) {
+  BUILD.asked = value;
+}
+function setBuildUnchanged(value: typeof BUILD.unchanged) {
+  BUILD.unchanged = value;
+}
 // Reset the visible build controls and baseline when a different document takes the screen.
 function resetBuildForDoc() {
   if (BUILD.timer) {
@@ -193,4 +206,14 @@ function startBuildPolling() {
   // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
   pollBuild();
 }
-export { BUILD, pollBuild, pullSuffix, resetBuildForDoc, startBuildPolling };
+export {
+  BUILD,
+  setBuildError,
+  setBuildLastSeq,
+  setBuildAsked,
+  setBuildUnchanged,
+  pollBuild,
+  pullSuffix,
+  resetBuildForDoc,
+  startBuildPolling,
+};

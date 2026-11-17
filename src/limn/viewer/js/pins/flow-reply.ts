@@ -5,7 +5,16 @@
 // whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
 // the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
 // Sending is deferred behind an undo in the card, where the box was (deferredNote).
-import { OPEN_CARDS, PEOPLE, REPLY, REPLY_DRAFT, REPLY_VISITS, SIDE_OPEN, setReply } from '../app/state.ts';
+import {
+  OPEN_CARDS,
+  PEOPLE,
+  REPLY,
+  setReplyFlip,
+  REPLY_DRAFT,
+  REPLY_VISITS,
+  SIDE_OPEN,
+  setReply,
+} from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
@@ -220,7 +229,7 @@ function sendReply() {
     if (REPLY && REPLY.id === id) {
       const field = replyNote(REPLY);
       field._mentions = new Set(hints);
-      REPLY.flip = flip;
+      setReplyFlip(REPLY, flip);
       mentionPreview(field);
       renderReplyOutcome();
       if (boxErrorLine) {
