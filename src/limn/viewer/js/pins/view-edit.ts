@@ -9,7 +9,7 @@ import { REQUEST_KIND, PIN_STATE } from '../app/rules-tables.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { setCap, rangeCap, drawLadder, snipText } from '../composer/view-levels.ts';
 import { html } from '../platform/markup.ts';
-import { findAll, findElement } from '../platform/dom.ts';
+import { findAll, findElement, findMaybe } from '../platform/dom.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { drawExcerpt } from '../composer/view-excerpt.ts';
 import { findAnyPin } from '../revisions/flow.ts';
@@ -77,7 +77,7 @@ function renderEdit() {
   if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true);
   // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
   renderEditSuggest(card);
-  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
+  syncQuestionHint(findMaybe(cardElement, '.e-qhint', HTMLElement), editNote(card).value, card.kind_req);
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
   findElement(cardElement, '.b-repick', HTMLElement).hidden = closed;

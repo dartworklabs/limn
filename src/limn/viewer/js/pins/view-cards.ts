@@ -495,7 +495,7 @@ function trashRefocus(
       const undoRow = [...NOTICES.values()].find(
         (notice) => notice.place === NOTICE_PLACE.TRASH && notice.pin === id && !!notice.el && box.contains(notice.el),
       );
-      target = undoRow && undoRow.el ? undoRow.el.querySelector('[data-act="notice-act"]') : null;
+      target = undoRow && undoRow.el ? findMaybe(undoRow.el, '[data-act="notice-act"]', HTMLElement) : null;
     }
     for (const otherId of [...spot.ids.slice(spot.at + 1), ...spot.ids.slice(0, Math.max(0, spot.at)).reverse()]) {
       if (target) break;

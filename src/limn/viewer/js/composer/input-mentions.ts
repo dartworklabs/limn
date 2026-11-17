@@ -674,7 +674,7 @@ document.addEventListener('input', (event) => {
   if (field.classList.contains('e-note')) {
     renderAssignEdit();
     if (EDITOR.current)
-      syncQuestionHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
+      syncQuestionHint(findMaybe(EDITOR.current.el, '.e-qhint', HTMLElement), field.value, EDITOR.current.kind_req);
   } else if (field.classList.contains('r-text')) pinFields().drawReplyOutcome();
 });
 window.addEventListener(

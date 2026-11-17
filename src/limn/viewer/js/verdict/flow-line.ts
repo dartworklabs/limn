@@ -3199,7 +3199,7 @@ window.addEventListener('keydown', (event) => {
   const active = focusedElement(),
     panel = active ? findClosest(active, '#pv-panel', HTMLElement) : null;
   const block = panel || (active ? findClosest(active, '#doc .pgw', HTMLElement) : null),
-    line = panel || (block && (block.querySelector(':scope>.pv') || document.getElementById('pv-panel')));
+    line = panel || (block && (findMaybe(block, ':scope>.pv', HTMLElement) || document.getElementById('pv-panel')));
   const inView = STOP_IN_VIEW;
   if (inView && !(currentVisit(inView.visit) && inView.build === ((META && META.pages_build) || '')))
     STOP_IN_VIEW = null;
