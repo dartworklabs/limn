@@ -16900,9 +16900,11 @@ function hasMark(pin) {
 function pinPlace(pin) {
   return hasMark(pin) ? { page: pin.mark_page, frac: pin.mark } : { page: pin.page, frac: pin.frac };
 }
-// Whether a piece of a mark can be drawn: a page of the build (1-based) and a box on it.
+// Whether a piece of a mark can be drawn: an entry with a page of the build (1-based) and a box on it. The entry itself
+// is read as it came - a row of a server's answer this page does not share a version with can be anything, and one that
+// is not an object must leave the rest of the answer drawn.
 function isPiece(piece) {
-  return Number.isInteger(piece.page) && piece.page >= 1 && isFrac(piece.frac);
+  return !!piece && Number.isInteger(piece.page) && piece.page >= 1 && isFrac(piece.frac);
 }
 // The pieces a pin's mark is drawn as (docs/adr/0045-pin-marks-follow-the-range.md): for a LaTeX line pin the boxes the
 // server computed - where that pin's own lines print on the build on screen - in the order it answers them, page by page

@@ -177,21 +177,32 @@ class MarkPieces(unittest.TestCase):
         )
 
     def test_a_piece_the_server_could_not_answer_well_is_left_out(self):
-        """A piece whose box is not four finite numbers, or whose page is no page of a build, draws nothing; the pieces
-        beside it are drawn, and nothing throws."""
+        """A piece that is no object at all, one whose box is not four finite numbers and one whose page is no page of a
+        build each draw nothing; the good piece beside them is drawn, and so is the next pin's mark.
+
+        The last of those is the one that matters: the draw removes every mark on the document before it builds them
+        again, so a malformed row that threw out of the loop would leave the whole document without marks - and without
+        the badge sides and undo chips that are placed after it - not merely without its own.
+        """
         drawn = self.draw(
             [
                 self.lines_pin(
                     boxes=[
+                        None,
+                        {"page": 1, "frac": None},
                         {"page": 1, "frac": [0.125, "x", 0.5, 0.0625]},
                         {"page": 0, "frac": FIRST},
                         {"page": 1, "frac": [0.125, 0.25, 0.5]},
                         {"page": 1, "frac": SECOND},
                     ]
-                )
+                ),
+                self.lines_pin(id=2),
             ]
         )
-        self.assertEqual([(mark["page"], mark["box"][1], bool(mark["badge"])) for mark in drawn], [("p1", "50%", True)])
+        self.assertEqual(
+            [(mark["pin"], mark["page"], mark["box"][1], bool(mark["badge"])) for mark in drawn],
+            [("1", "p1", "50%", True), ("2", "p1", "75%", True)],
+        )
 
 
 class MarkBoxesOnScreen(BrowserBase):
