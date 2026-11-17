@@ -37,7 +37,7 @@ import {
   yieldToBrowser,
   markedCharactersText,
 } from '../markdown/view.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findAll } from '../platform/dom.ts';
 import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
 // RENDERED_COMPARE: the compare on screen (key: revisionKey() it was drawn for), its parse worker and job, the change
@@ -146,8 +146,7 @@ async function buildSide(tokens: any[], lines: string[], live: () => boolean): P
   }
   keepRenderContext(root, context); // an image that fails later draws its alt text on this side's count (onImageError)
   root.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
-  root.querySelectorAll('[data-act="md-anchor"],[data-act="md-doc"]').forEach((element) => {
-    const link = element as HTMLElement;
+  findAll(root, '[data-act="md-anchor"],[data-act="md-doc"]', HTMLElement).forEach((link) => {
     delete link.dataset.act;
     link.removeAttribute('role');
     link.removeAttribute('tabindex');
@@ -180,7 +179,7 @@ function isNestedBlock(element: Element) {
 // links and alt texts (unitReferences, compareUnits) and its marked links (markChangedLinks). Pure over the DOM.
 function isOwnPart(unit: HTMLElement, element: Element) {
   if (unit.tagName !== 'LI') return true;
-  for (let ancestor = element as Element | null; ancestor && ancestor !== unit; ancestor = ancestor.parentElement)
+  for (let ancestor: Element | null = element; ancestor && ancestor !== unit; ancestor = ancestor.parentElement)
     if (isNestedBlock(ancestor)) return false;
   return true;
 }
@@ -226,8 +225,7 @@ function blockLines(unit: HTMLElement) {
 // space folded, as it is drawn.
 function compareUnits(root: HTMLElement): CompareUnit[] {
   const out: CompareUnit[] = [];
-  for (const match of root.querySelectorAll(UNIT_SELECTOR)) {
-    const unit = match as HTMLElement;
+  for (const unit of findAll(root, UNIT_SELECTOR, HTMLElement)) {
     if (!isCompareUnit(unit)) continue;
     const tag = unitTag(unit),
       text = unitText(unit, tag),
@@ -298,8 +296,8 @@ function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
         if (child.nodeValue) out.push(child.nodeValue);
         continue;
       }
-      if (child.nodeType !== 1) continue;
-      const element = child as HTMLElement;
+      if (!(child instanceof Element)) continue;
+      const element = child;
       if ((unit.tagName === 'LI' && isNestedBlock(element)) || element.classList.contains('sr-only')) continue;
       if (element.classList.contains('cc')) {
         out.push('\u0002cc ' + (element.textContent || '') + '\u0003');
@@ -344,14 +342,16 @@ function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
 }
 // Whether an inline element is one the renderer opens again after a line break inside it (drawInline's stack): an
 // emphasis, a strikethrough, a link - an inert one (.md-rel) too. Pure over the DOM.
-function isReopenedRun(element: HTMLElement) {
+function isReopenedRun(element: Element) {
   return (
     /^(STRONG|EM|S|A)$/.test(element.tagName) || (element.tagName === 'SPAN' && element.classList.contains('md-rel'))
   );
 }
 // Where a link element points (its target, as unitReferences names it; '' for an emphasis). Pure over the DOM.
-function linkTarget(element: HTMLElement) {
-  return element.dataset.tipUrl || element.getAttribute('href') || element.dataset.anchor || '';
+function linkTarget(element: Element) {
+  return (
+    element.getAttribute('data-tip-url') || element.getAttribute('href') || element.getAttribute('data-anchor') || ''
+  );
 }
 // A block of lines' inline structure: its language (a code block's fence's info word, '' for any other) and its lines,
 // spaces and all, serialized without ambiguity (JSON after a marker no other shape starts with) - so a code block whose
@@ -411,7 +411,7 @@ function unitText(unit: HTMLElement, tag: string) {
   const walk = (node: Node) => {
     for (const child of node.childNodes) {
       if (child.nodeType === 3) text += child.nodeValue;
-      else if (child.nodeType === 1 && !(unit.tagName === 'LI' && isNestedBlock(child as Element))) walk(child);
+      else if (child instanceof Element && !(unit.tagName === 'LI' && isNestedBlock(child))) walk(child);
     }
   };
   walk(unit);
@@ -423,14 +423,13 @@ function unitText(unit: HTMLElement, tag: string) {
 // not counted again.
 function unitReferences(unit: HTMLElement, selector: string, skip?: Set<Element>) {
   const out: string[] = [];
-  for (const match of unit.querySelectorAll(selector)) {
-    const element = match as HTMLElement;
+  for (const element of unit.querySelectorAll(selector)) {
     if (!isOwnPart(unit, element) || (skip && skip.has(element))) continue;
     out.push(
-      element.dataset.path ||
-        element.dataset.tipUrl ||
+      element.getAttribute('data-path') ||
+        element.getAttribute('data-tip-url') ||
         element.getAttribute('href') ||
-        element.dataset.anchor ||
+        element.getAttribute('data-anchor') ||
         element.textContent ||
         '',
     );
@@ -714,7 +713,7 @@ function markRegroups(
 // before it (so taken-out words put back keep it).
 type CompareWord = {
   node: Text | null;
-  el: HTMLElement | null;
+  el: Element | null;
   s: number;
   e: number;
   w: string;
@@ -727,8 +726,7 @@ function unitWords(unit: HTMLElement): CompareWord[] {
   const out: CompareWord[] = [];
   let spaced = false;
   if (isLinedTag(unitTag(unit))) {
-    for (const line of unit.querySelectorAll('.ln')) {
-      const lineElement = line as HTMLElement;
+    for (const lineElement of unit.querySelectorAll('.ln')) {
       out.push({
         node: null,
         el: lineElement,
@@ -743,14 +741,14 @@ function unitWords(unit: HTMLElement): CompareWord[] {
   }
   const walk = (node: Node, inside: string) => {
     for (const child of node.childNodes) {
-      if (child.nodeType === 3) {
+      if (child instanceof Text) {
         const text = String(child.nodeValue || '');
         let at = 0;
         for (const match of text.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)) {
           const start = match.index as number;
           if (/\s/.test(text.slice(at, start))) spaced = true;
           out.push({
-            node: child as Text,
+            node: child,
             el: null,
             s: start,
             e: start + match[0].length,
@@ -764,8 +762,8 @@ function unitWords(unit: HTMLElement): CompareWord[] {
         if (/\s/.test(text.slice(at))) spaced = true;
         continue;
       }
-      if (child.nodeType !== 1) continue;
-      const element = child as HTMLElement;
+      if (!(child instanceof Element)) continue;
+      const element = child;
       if ((unit.tagName === 'LI' && isNestedBlock(element)) || element.classList.contains('sr-only')) continue;
       if (element.classList.contains('cc')) {
         out.push({ node: null, el: element, s: 0, e: 0, w: element.textContent || '', f: inside, sp: spaced });
@@ -794,8 +792,8 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     ops = commonSubsequence(oldWords, newWords, (left, right) => left.w === right.w && left.f === right.f, budget),
     lined = isLinedTag(unitTag(newUnit));
   const edits: { node: Text; s: number; e: number; kind: string; text?: string }[] = [];
-  const wraps: { el: HTMLElement; kind: string }[] = [];
-  const puts: { at: HTMLElement | null; after: boolean; text: string }[] = [];
+  const wraps: { el: Element; kind: string }[] = [];
+  const puts: { at: Element | null; after: boolean; text: string }[] = [];
   const mark = (words: CompareWord[], kind: string) => {
     let at = 0;
     while (at < words.length) {
@@ -873,13 +871,13 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     for (const edit of nodeEdits) {
       if (edit.kind === 'put') {
         const rest = node.splitText(edit.s);
-        (rest.parentNode as Node).insertBefore(wordMark('del', edit.text || ''), rest);
+        rest.before(wordMark('del', edit.text || ''));
         continue;
       }
       const word = node.splitText(edit.s);
       word.splitText(edit.e - edit.s);
       const wrapper = wordMark(edit.kind === 'ins' ? 'ins' : 'del', '');
-      (word.parentNode as Node).insertBefore(wrapper, word);
+      word.before(wrapper);
       wrapper.appendChild(word);
     }
   }
@@ -901,8 +899,8 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     // a line: its content, up to its line end (the end stays outside, so the mark ends with the line's text)
     const end = wrap.el.lastChild,
       lineEnd =
-        end && end.nodeType === 3 && /\n$/.test(String(end.nodeValue || ''))
-          ? (end as Text).splitText(String(end.nodeValue).length - 1)
+        end instanceof Text && /\n$/.test(String(end.nodeValue || ''))
+          ? end.splitText(String(end.nodeValue).length - 1)
           : null;
     wrapper.append(...[...wrap.el.childNodes].filter((child) => child !== lineEnd));
     wrap.el.insertBefore(wrapper, lineEnd);
@@ -913,10 +911,8 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
 // changes. A list item's own links only (isOwnPart): a nested block's are that block's.
 function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
   const selector = 'a,.md-rel,[data-anchor]',
-    to = (link: Element) => {
-      const element = link as HTMLElement;
-      return element.dataset.tipUrl || element.getAttribute('href') || element.dataset.anchor || '';
-    };
+    to = (link: Element) =>
+      link.getAttribute('data-tip-url') || link.getAttribute('href') || link.getAttribute('data-anchor') || '';
   const oldLinks = [...oldUnit.querySelectorAll(selector)].filter((link) => isOwnPart(oldUnit, link)),
     newLinks = [...newUnit.querySelectorAll(selector)].filter((link) => isOwnPart(newUnit, link)),
     oldTargets = new Set(oldLinks.map(to)),
@@ -925,7 +921,7 @@ function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
     const target = to(link);
     if (target && !oldTargets.has(target)) {
       link.classList.add('mdc-wl');
-      (link as HTMLElement).dataset.tip = translateTemplate('링크 대상이 바뀜 · {to}', { to: markHiddenPlain(target) });
+      link.setAttribute('data-tip', translateTemplate('링크 대상이 바뀜 · {to}', { to: markHiddenPlain(target) }));
     }
   }
   for (const link of oldLinks) {
@@ -969,9 +965,16 @@ function markUnit(unit: HTMLElement, kind: string, why?: string) {
 // alt text as in the document view.
 function ownElement(unit: CompareUnit) {
   if (unit.el.tagName !== 'LI') return unit.el;
-  const copy = unit.el.cloneNode(false) as HTMLElement;
+  const copy = shallowCopy(unit.el);
   for (const child of [...unit.el.childNodes])
-    if (!(child.nodeType === 1 && isNestedBlock(child as Element))) copy.appendChild(child);
+    if (!(child instanceof Element && isNestedBlock(child))) copy.appendChild(child);
+  return copy;
+}
+// A shallow copy of an HTML element: cloneNode(false), which the DOM types as a Node.
+function shallowCopy(element: HTMLElement) {
+  const copy = element.cloneNode(false);
+  if (!(copy instanceof HTMLElement))
+    throw new Error('shallowCopy: the copy of a ' + element.tagName + ' is no HTMLElement');
   return copy;
 }
 function parentBoxTag(element: Element, root: Element) {
@@ -997,7 +1000,7 @@ function pairBoxes(
   newRoot: HTMLElement,
 ) {
   for (
-    let oldBox = oldUnit as Element | null, newBox = newUnit as Element | null;
+    let oldBox: Element | null = oldUnit, newBox: Element | null = newUnit;
     oldBox && newBox && oldBox !== oldRoot && newBox !== newRoot && oldBox.tagName === newBox.tagName;
     oldBox = oldBox.parentElement, newBox = newBox.parentElement
   )
@@ -1006,7 +1009,7 @@ function pairBoxes(
 // The child of box that holds element (element itself, or the box's child it sits in), or null when element is not
 // inside box.
 function childHolding(element: Element, box: Element) {
-  let child = element as Element | null;
+  let child: Element | null = element;
   while (child && child.parentElement !== box) child = child.parentElement;
   return child;
 }
@@ -1027,17 +1030,18 @@ function placeTakenOut(
   boxes: StandIns,
 ) {
   standFor(boxes, oldPlace, block);
-  let node = block as HTMLElement,
+  let node: HTMLElement = block,
     oldBox = oldPlace.parentElement;
   for (; oldBox && oldBox !== oldRoot && !boxes.has(oldBox); oldBox = oldBox.parentElement) {
-    const copy = oldBox.cloneNode(false) as HTMLElement;
+    const copy = shallowCopy(oldBox);
     delete copy.dataset.lo;
     delete copy.dataset.hi;
     copy.appendChild(node);
     standFor(boxes, oldBox, copy);
     node = copy;
   }
-  const holders = oldBox && oldBox !== oldRoot ? (boxes.get(oldBox) as Element[]) : [root],
+  // The loop above stops at a box that boxes has, or at the root.
+  const holders = (oldBox && oldBox !== oldRoot && boxes.get(oldBox)) || [root],
     box =
       holders.find((holder) => !!previous && holder.contains(previous)) ||
       holders.find((holder) => !!next && holder.contains(next)) ||
@@ -1064,8 +1068,8 @@ function movedPlaceLine(unit: CompareUnit, to: CompareUnit) {
   line.dataset.n = '1';
   const text = translateTemplate('여기 있던 블록을 L{line}로 옮김', { line: to.lo }),
     box = tag === 'tr' ? document.createElement('td') : line;
-  if (tag === 'tr') {
-    (box as HTMLTableCellElement).colSpan = Math.max(1, unit.el.children.length);
+  if (box instanceof HTMLTableCellElement) {
+    box.colSpan = Math.max(1, unit.el.children.length);
     line.appendChild(box);
   }
   box.textContent = text;
@@ -1168,9 +1172,8 @@ function layGutterChips() {
   layer.setAttribute('aria-hidden', 'true');
   const top = root.getBoundingClientRect().top;
   const items: { y: number; cls: string; text: string }[] = [];
-  for (const node of root.querySelectorAll('[data-mdc],.mdc-pin')) {
-    const element = node as HTMLElement,
-      rect = element.getBoundingClientRect();
+  for (const element of findAll(root, '[data-mdc],.mdc-pin', HTMLElement)) {
+    const rect = element.getBoundingClientRect();
     if (!rect.height) continue;
     if (element.classList.contains('mdc-pin'))
       items.push({ y: rect.top - top, cls: 'pin', text: element.dataset.mdcPin || '' });
@@ -1197,9 +1200,7 @@ function layGutterChips() {
 // The unit elements of a drawn side in document order, as compareUnits takes them (and a moved block's old place,
 // ghosts).
 function unitElements(root: HTMLElement, ghosts: boolean): HTMLElement[] {
-  return [...root.querySelectorAll(UNIT_SELECTOR + (ghosts ? ',.mdc-ghost' : ''))]
-    .map((node) => node as HTMLElement)
-    .filter(isCompareUnit);
+  return findAll(root, UNIT_SELECTOR + (ghosts ? ',.mdc-ghost' : ''), HTMLElement).filter(isCompareUnit);
 }
 // ---------------- Showing a compare
 // Git's lines [first, last] of a side (counted on LF alone, as a hunk counts them) as the screen's lines of that side

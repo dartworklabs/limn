@@ -53,7 +53,7 @@ import {
   toggleSide,
   frameHost,
 } from './flow.ts';
-import { $, $$, eventElement } from '../platform/dom.ts';
+import { $, $$, eventElement, findMaybe } from '../platform/dom.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 const LONGPRESS_MS = 450;
 
@@ -656,7 +656,11 @@ function backLayer(
 // The open bottom-sheet dialog the back gesture closes first, or null: the navigation sheet, [더보기], help, the Trash,
 // the status line's list.
 function sheetDialog() {
-  return document.querySelector('#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open]');
+  return findMaybe(
+    document,
+    '#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open]',
+    HTMLDialogElement,
+  );
 }
 // Registers or removes the back layer to match the screen (called by applySide, applyOutlineState and a sheet dialog
 // opening or closing; idempotent).
@@ -704,9 +708,9 @@ function disarmBack() {
 // The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
 // (remembered, with the slide).
 function closeTopLayer() {
-  const dialog = sheetDialog() as HTMLDialogElement,
+  const dialog = sheetDialog(),
     layer = backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !!dialog);
-  if (layer === 'dialog') dialog.close();
+  if (layer === 'dialog') dialog?.close();
   else if (layer === 'outline') toggleOutline();
   else if (layer === 'side') {
     setSide(false, true, true);
@@ -723,7 +727,7 @@ window.addEventListener('popstate', () => {
   }
   BACK = null;
   // A dialog over the sheet closes first.
-  const dialog = document.querySelector('dialog[open]') as HTMLDialogElement;
+  const dialog = findMaybe(document, 'dialog[open]', HTMLDialogElement);
   if (dialog) {
     dialog.close();
     syncBackLayer();

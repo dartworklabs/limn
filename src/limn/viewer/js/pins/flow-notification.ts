@@ -23,7 +23,7 @@ import { openTrash } from './view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from './flow-list.ts';
 import { restorePin } from './flow-actions.ts';
 import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findMaybe } from '../platform/dom.ts';
 import { LOCAL_LOGIN, NOTIFY_STATE, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { who } from '../app/state-people.ts';
@@ -154,11 +154,9 @@ async function notifyShow(event: PinEvent) {
       body: shown.body,
       tag: 'pin-' + event.pin,
       icon: (
-        (document.querySelector('link[rel=apple-touch-icon]') ||
-          document.querySelector('link[rel=icon]') || {
-            href: undefined,
-          }) as HTMLLinkElement
-      ).href,
+        findMaybe(document, 'link[rel=apple-touch-icon]', HTMLLinkElement) ||
+        findMaybe(document, 'link[rel=icon]', HTMLLinkElement)
+      )?.href,
       // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       actions:
         event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: translate('되살리기') }] : [],

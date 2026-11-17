@@ -312,20 +312,22 @@ class FrontendLogic(unittest.TestCase):
             [
                 r"""
             // jumpToCard 가 쓰는 만큼만 최소 DOM 을 흉내낸다.
+            class HTMLElement {}   // the card is an element of the page (findMaybe checks it)
             function makeEl(){
               const classes=new Set();
-              return {
+              return Object.setPrototypeOf({
                 classList:{add:(...c)=>c.forEach(x=>classes.add(x)),
                            remove:(...c)=>c.forEach(x=>classes.delete(x)),
                            contains:c=>classes.has(c)},
                 scrollIntoView(){}, get offsetWidth(){return 0;},
-              };
+              }, HTMLElement.prototype);
             }
             const el=makeEl();
             const document={querySelector:()=>el, querySelectorAll:()=>[]};
             const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
             function scrollMotion(){return 'auto';} function openSectionFor(){return false;}
             """,
+                extract_js_fn("findMaybe"),
                 extract_js_fn("jumpToCard"),
                 r"""
             jumpToCard(1);

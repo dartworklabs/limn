@@ -295,13 +295,14 @@ function drawPins() {
     replyFocus =
       replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
   // The edit card's note or suggested-edit field keeps its focus and selection the same way.
-  const editField =
-    EDITOR.current &&
-    document.activeElement &&
-    EDITOR.current.el.contains(document.activeElement) &&
-    document.activeElement.matches('.e-note,.e-sg-text')
-      ? (document.activeElement as HTMLTextAreaElement)
-      : null;
+  const active = document.activeElement,
+    editField =
+      EDITOR.current &&
+      active instanceof HTMLTextAreaElement &&
+      EDITOR.current.el.contains(active) &&
+      active.matches('.e-note,.e-sg-text')
+        ? active
+        : null;
   const editArea = editField,
     editFocus = editArea ? [editArea.selectionStart, editArea.selectionEnd] : null,
     cardFocus = cardFocusKeep();
@@ -415,20 +416,17 @@ if (window.ResizeObserver) {
 document.fonts.addEventListener('loadingdone', (event) => {
   if (!$$('#list .pin.card.lazy').length) return;
   const listFonts = getComputedStyle($('#list')).fontFamily;
-  if (
-    (event as FontFaceSetLoadEvent).fontfaces.some((face) =>
-      listFonts.includes(face.family.replace(/^["']|["']$/g, '')),
-    )
-  )
-    lazyAgain();
+  if (event.fontfaces.some((face) => listFonts.includes(face.family.replace(/^["']|["']$/g, '')))) lazyAgain();
 });
 // A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
 // drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
 // anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
 // focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
 function cardFocusKeep(): { el: HTMLElement; id: string; act: string; i: number } | null {
-  const focused = document.activeElement as HTMLElement | null,
-    cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]') as HTMLElement | null) : null;
+  const active = document.activeElement,
+    focused = active instanceof HTMLElement ? active : null,
+    card = focused ? focused.closest('#list .pin[data-id]') : null,
+    cardElement = card instanceof HTMLElement ? card : null;
   const act = focused && focused.dataset ? focused.dataset.act || '' : '';
   if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
   return {
@@ -447,7 +445,8 @@ function cardFocusBack(kept: { el: HTMLElement; id: string; act: string; i: numb
   } // the edit card or the reply, put back in its slot
   const cardElement = document.querySelector('#list .pin[data-id="' + CSS.escape(kept.id) + '"]'),
     same = cardElement ? cardElement.querySelectorAll('[data-act="' + CSS.escape(kept.act) + '"]') : null;
-  const target = (same && (same[Math.max(0, kept.i)] || same[0])) as HTMLElement | null;
+  const found = same && (same[Math.max(0, kept.i)] || same[0]),
+    target = found instanceof HTMLElement ? found : null;
   if (target) target.focus({ preventScroll: true });
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
@@ -579,7 +578,7 @@ function revealCard(id: number | null) {
 }
 function jumpToCard(id: number | null) {
   if (openSectionFor(id)) drawPins();
-  const cardElement = document.querySelector('.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]') as HTMLElement;
+  const cardElement = findMaybe(document, '.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]', HTMLElement);
   if (!cardElement) return; // a result row while the review section picks
   cardElement.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
   $$('.pin.cur').forEach((other) => {
@@ -611,9 +610,11 @@ function gotoPinRef(id: number, focus?: boolean) {
   setSide(true);
   drawPins();
   requestAnimationFrame(() => {
-    const row = document.querySelector(
+    const row = findMaybe(
+      document,
       '.pin[data-id="' + id + '"],.arc-row[data-id="' + id + '"],.rv-row[data-id="' + id + '"]',
-    ) as HTMLElement;
+      HTMLElement,
+    );
     if (!row) return;
     row.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
     row.classList.remove('flash');
@@ -633,12 +634,13 @@ function cardNeighbour(control: HTMLElement): number | null {
   while (next && !next.matches('.pin.card')) next = next.nextElementSibling;
   let previous = cardElement.previousElementSibling;
   while (previous && !previous.matches('.pin.card')) previous = previous.previousElementSibling;
-  const neighbour = (next || previous) as HTMLElement | null;
-  return neighbour ? Number(neighbour.dataset.id) : null;
+  const neighbour = next || previous;
+  return neighbour instanceof HTMLElement ? Number(neighbour.dataset.id) : null;
 }
 // Puts the focus on pin id's card - its number (a button) - when it is drawn.
 function focusCard(id: number) {
-  const target = document.querySelector(
+  const target = findMaybe(
+    document,
     '.pin[data-id="' +
       id +
       '"] .n.go,.arc-row[data-id="' +
@@ -648,7 +650,8 @@ function focusCard(id: number) {
       '"] input:not(:disabled),.rv-row[data-id="' +
       id +
       '"] .rv-act',
-  ) as HTMLElement | null;
+    HTMLElement,
+  );
   if (target) target.focus({ preventScroll: true });
 } // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
@@ -677,7 +680,7 @@ function jumpPin(id: number) {
     jumpToPinLines(id);
     return;
   } // its first line on the Markdown surface
-  const mark = document.querySelector('.mark[data-pin="' + id + '"]') as HTMLElement;
+  const mark = findMaybe(document, '.mark[data-pin="' + id + '"]', HTMLElement);
   if (mark) {
     const pane = $('#left'),
       paneRect = pane.getBoundingClientRect(),

@@ -9,7 +9,7 @@ import { translateTemplate } from '../platform/i18n.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import { OUTLINE_ACTIVE_PAGE, OUTLINE_ENTRIES, outlineOnScreen } from './view-outline.ts';
 import type { OutlineEntry } from './view-outline.ts';
-import { $ } from '../platform/dom.ts';
+import { $, eventElement, findAll, findMaybe } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { docInfo, verdictLabel, pageVerdictsOn } from '../documents/state.ts';
@@ -90,7 +90,7 @@ function pageRowsHtml(pageTotal: number, currentPage: number) {
 }
 // Scrolls list so that its selected row sits in the middle of the list's box (as far as the list can scroll).
 function revealPageRow(list: HTMLElement) {
-  const selectedRow = list.querySelector('[aria-selected=true]') as HTMLElement | null;
+  const selectedRow = findMaybe(list, '[aria-selected=true]', HTMLElement);
   if (!selectedRow) return;
   list.scrollTop = selectedRow.offsetTop - (list.clientHeight - selectedRow.offsetHeight) / 2;
 }
@@ -113,7 +113,7 @@ function openPageList(from: HTMLElement) {
   popover.hidden = false;
   drawPopoverRows();
   revealPageRow(list);
-  const row = list.querySelector('[aria-selected=true]') as HTMLElement | null;
+  const row = findMaybe(list, '[aria-selected=true]', HTMLElement);
   (COARSE_POINTER_QUERY.matches && row ? row : pageField).focus({ preventScroll: true });
 }
 // Draws the popover's rows - for the page on screen, the names and titles as they are now - and what depends on them:
@@ -136,9 +136,9 @@ function drawPopoverRows() {
 function keepRowFocus(list: HTMLElement, draw: () => void) {
   const focused = document.activeElement,
     row = focused && list.contains(focused) ? focused.closest('.pl-row') : null,
-    page = row && (row as HTMLElement).dataset.page;
+    page = row instanceof HTMLElement ? row.dataset.page : undefined;
   draw();
-  const again = page ? (list.querySelector('.pl-row[data-page="' + page + '"]') as HTMLElement | null) : null;
+  const again = page ? findMaybe(list, '.pl-row[data-page="' + page + '"]', HTMLElement) : null;
   if (again) again.focus({ preventScroll: true });
 }
 // A figure document's row whose title the row cuts short (an ellipsis) carries the whole title as its description:
@@ -146,8 +146,9 @@ function keepRowFocus(list: HTMLElement, draw: () => void) {
 // press is swallowed - a tap still goes to the page). A title that fits carries none. Needs the rows laid out.
 function tipCutTitles(list: HTMLElement) {
   if (pageListNamed()) return;
-  for (const nameCell of list.querySelectorAll('.pl-s') as NodeListOf<HTMLElement>) {
-    const row = nameCell.closest('.pl-row') as HTMLElement;
+  for (const nameCell of findAll(list, '.pl-s', HTMLElement)) {
+    const row = nameCell.closest('.pl-row');
+    if (!(row instanceof HTMLElement)) continue;
     if (nameCell.scrollWidth > nameCell.clientWidth + 0.5) row.dataset.tip = nameCell.textContent || '';
     else delete row.dataset.tip;
   }
@@ -217,15 +218,15 @@ function drawSheetPages() {
 // go to the current page's row; Enter on a row is its click, Enter in the field goes to the typed page (clamped to the
 // page count).
 function pageListKey(event: KeyboardEvent) {
-  const target = event.target as HTMLElement;
-  if (imeKey(event)) return;
+  const target = eventElement(event);
+  if (!target || imeKey(event)) return;
   if (target.id === 'page-pop-in') {
     if (event.key === 'Enter') {
       event.preventDefault();
-      const page = clampPage((target as HTMLInputElement).value, pageCount());
+      const page = clampPage($('#page-pop-in').value, pageCount());
       if (page !== null) goListedPage(page);
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      const selectedRow = $('#page-pop-list [aria-selected=true]') as HTMLElement | null;
+      const selectedRow = findMaybe(document, '#page-pop-list [aria-selected=true]', HTMLElement);
       if (selectedRow) {
         event.preventDefault();
         selectedRow.focus();
@@ -233,9 +234,10 @@ function pageListKey(event: KeyboardEvent) {
     }
     return;
   }
-  const row = target.closest('.pl-row') as HTMLElement | null;
-  if (!row) return;
-  const rows = [...(row.parentElement as HTMLElement).children] as HTMLElement[],
+  const row = target.closest('.pl-row'),
+    rowList = row && row.parentElement;
+  if (!(row instanceof HTMLElement) || !rowList) return;
+  const rows = findAll(rowList, ':scope > *', HTMLElement),
     rowIndex = rows.indexOf(row);
   const to = { ArrowDown: rowIndex + 1, ArrowUp: rowIndex - 1, Home: 0, End: rows.length - 1 }[event.key];
   if (to === undefined) return;
@@ -250,7 +252,7 @@ $('#ns-pages').addEventListener('keydown', pageListKey);
 document.addEventListener(
   'click',
   (event) => {
-    const target = event.target as Node;
+    const target = eventElement(event);
     if (
       !$('#page-pop').hidden &&
       !$('#page-pop').contains(target) &&

@@ -2,7 +2,7 @@
 // A pin's mark on the page sits under its badge, the open composer or the panel: where the badge stands (markBadgeSides),
 // which marks something covers, and bringing a covered mark into view; the mark Tab stops among them.
 import { pageNoSides } from '../pdf/view-pages.ts';
-import { $$, $, findAll } from '../platform/dom.ts';
+import { $, findAll } from '../platform/dom.ts';
 import { markBadgeRoom, markBadgeIn, markHitSides } from '../pdf/view-badges.ts';
 import { pendingBadgeSide } from '../pdf/input-selection.ts';
 import { MARK_HIDDEN, TIP_AT, armedTipElement, hideTip, keyInput } from '../platform/tooltip.ts';
@@ -118,7 +118,7 @@ function markCoverSkip() {
     covers = markCoverBoxes(view),
     minScroll = -pane.scrollTop,
     maxScroll = pane.scrollHeight - pane.clientHeight - pane.scrollTop;
-  const badges = $$('.mark button.mark-jump') as HTMLElement[];
+  const badges = findAll(document, '.mark button.mark-jump', HTMLElement);
   const at = badges.map((badge) => {
     const rect = badge.getBoundingClientRect();
     if (!rect.width) return { stop: 0, hid: false };

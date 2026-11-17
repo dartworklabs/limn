@@ -246,9 +246,11 @@ class HandingTheSelection(unittest.TestCase):
         got = run(
             self.SELECTION,
             extract_js_fn("selectionOpen"),
+            extract_js_fn("eventElement"),
             extract_js_fn("pressOutsideSelection"),
             r"""
-            const press={target:{closest:()=>null},offsetX:1,offsetY:1,clientX:1,clientY:1};
+            class Element { closest() { return null; } }
+            const press={target:new Element(),offsetX:1,offsetY:1,clientX:1,clientY:1};
             pressOutsideSelection(press); POPOVER_OPEN=true; pressOutsideSelection(press); console.log(JSON.stringify(LOG));
             """,
         )
