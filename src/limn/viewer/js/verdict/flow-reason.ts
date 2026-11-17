@@ -158,18 +158,18 @@ type ReasonHist = {
   size: number;
   landed: { doc: string | null; id: number; word: string; text: string }[];
 };
-let REASON_SESSION = null as ReasonSession | null;
+let REASON_SESSION: ReasonSession | null = null;
 let SESSION_SEQUENCE = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
 // by line (pageLineSlot of the document they were typed on): each stays bound to that save, not to the screen.
-const DETACHED_SESSIONS = new Map() as Map<string, ReasonSession>;
+const DETACHED_SESSIONS: Map<string, ReasonSession> = new Map();
 // the verdict pin the last save on a page line made: its line offers the way to its reason wherever it is
 let LAST_LINE_SAVE = 0;
 let LAST_KEY_SAVE = 0; // ...when that save was a key's: its line says 'Enter 이유 쓰기'
 // The pins this person withdrew (the save's undo, [판정 취소], a pressed word pressed again) while a reason for them
 // may still be on its way: its failure, or its finding the pin gone, is no news to them - nothing is said. A failed
 // withdrawal or a restore takes the pin out again.
-const WITHDRAWN_PINS = new Set() as Set<number>;
+const WITHDRAWN_PINS: Set<number> = new Set();
 function createReasonSession(
   page: number,
   id: number,
@@ -284,7 +284,7 @@ function keepLostReason(session: ReasonSession) {
 }
 // After the lines are drawn (drawPageVerdicts): a focus a session's end owes goes to its line's control
 // (PENDING_REFOCUS).
-let PENDING_REFOCUS = null as { page: number; sel: string } | null;
+let PENDING_REFOCUS: { page: number; sel: string } | null = null;
 function refocusAfterLines() {
   const owed = PENDING_REFOCUS;
   if (!owed) return;
@@ -341,7 +341,7 @@ function restoreReasonFocus(held: ReasonFocus | null) {
 // marked there), and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page
 // far from the reading one would open out of sight, said only to a screen reader. The status line says how many came
 // back, with [보기], which brings the first one's line into view and puts the focus on its mark.
-const RESTORED_DOCS = new Set() as Set<string>;
+const RESTORED_DOCS: Set<string> = new Set();
 function restoreKeptDrafts() {
   const doc = DOC || '';
   if (RESTORED_DOCS.has(doc) || !META) return;
@@ -350,7 +350,7 @@ function restoreKeptDrafts() {
     pre = doc + ':',
     kind = META.kind;
   let changed = false;
-  const pages = new Set() as Set<number>;
+  const pages: Set<number> = new Set();
   for (const k of Object.keys(drafts)) {
     if (!k.startsWith(pre)) continue;
     const rest = k.slice(pre.length),
@@ -731,9 +731,9 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     else session.onto = 0;
     return;
   } // nothing of it was left to write: a pin it came from had it (commitReason)
-  let pin = undefined as Pin | null | undefined;
+  let pin: Pin | null | undefined = undefined;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
     const x = error as ApiError;
     if (!x || !x.status || x.status >= 500) {
@@ -844,7 +844,7 @@ function bringBackReason(id: number, page: number, doc: string | null, kept: Rea
 // - a warning after the take-back's own failure, which stands first with its [다시 시도]. shown: a popover was
 // displaced. A draft kept for the verdict without one (folded, or a failed write) moves the same way and is said too;
 // one that stays on its verdict's line, where it was before, is not.
-const FAILED_CANCEL_WAITS = new Map() as Map<string, { id: number; page: number; doc: string | null; shown: boolean }>;
+const FAILED_CANCEL_WAITS: Map<string, { id: number; page: number; doc: string | null; shown: boolean }> = new Map();
 function placeFailedCancelDraft(id: number, page: number, doc: string | null, shown: boolean) {
   const outWrite = REASON_WRITES.get(reasonDraftKey(doc, id));
   if (outWrite) {
@@ -949,11 +949,11 @@ function reviveReason(id: number) {
 // leaves it unsure: nothing is written, the draft stays and the status line says the write failed, with [다시 시도]. So
 // the reason never lands on both verdicts - also when the moved copy is opened and Enter pressed before the old
 // verdict's [다시 시도] answers, when that answer was lost after it landed, or after a reload.
-const REASON_WRITES = new Map() as Map<string, { r: ReasonSession; w: Promise<boolean> }>;
+const REASON_WRITES: Map<string, { r: ReasonSession; w: Promise<boolean> }> = new Map();
 // The sessions whose failure the status line offers [다시 시도] for (sayReasonFailed), with that message: a write
 // elsewhere of their text takes it out of them and the message goes (takeWrittenText) - the [다시 시도] would write it
 // a second time.
-const RETRY_NOTICES = new Map() as Map<ReasonSession, Notice>;
+const RETRY_NOTICES: Map<ReasonSession, Notice> = new Map();
 function commitReason(session: ReasonSession, text: string, said: boolean): Promise<boolean> {
   if (session.saved === text) return Promise.resolve(true);
   if (!session.writing) {
@@ -1016,12 +1016,12 @@ function waitForKinWrites(session: ReasonSession): Promise<unknown> | null {
 // copy written - the old request never lands after it. Resolves true when every pin is settled, else with what left one
 // unknown - a read or a fence without an answer, a 5xx, a refusal (null: no answer at all): nothing is decided for it.
 async function checkLostWrites(session: ReasonSession): Promise<true | ApiError | null> {
-  let sure = true as true | ApiError | null;
+  let sure: true | ApiError | null = true;
   for (const k of new Set(session.via.filter((part) => part.tried.length).map((part) => part.k))) {
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
-    let fetched = null as Pin | null;
+    let fetched: Pin | null = null;
     try {
-      fetched = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
+      fetched = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin || null;
     } catch (error) {
       const x = error as ApiError;
       if (!x || !x.status || x.status >= 500) {
@@ -1086,8 +1086,8 @@ async function fenceLostWrites(
   pin: Pin,
 ): Promise<{ fenced: true } | { pin: Pin | null } | { unknown: ApiError | null }> {
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       intent: 'reason-fence',
       silent: true,
       expect: [409],
@@ -1376,7 +1376,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
   if (viewerBlocked()) return false;
   let pin;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
     const x = error as ApiError;
     if (!x || !x.status || x.status >= 500) {
@@ -1399,10 +1399,9 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
     keepConflict(session, text, pin);
     return false;
   } // changed since it was read: never sent
-  const url = '/api/pins/' + session.id + '/edit',
-    // silent: sayReasonFailed says a failure, with its target
-    options = { method: 'POST', intent: 'reason', silent: true };
-  let sent = null as ReasonTry | null; // the write out now, while its answer is awaited
+  // silent: sayReasonFailed says a failure, with its target
+  const options = { id: session.id, intent: 'reason', silent: true };
+  let sent: ReasonTry | null = null; // the write out now, while its answer is awaited
   try {
     for (let round = 1; ; round++) {
       const edit = reasonEditBody(session, text, pin);
@@ -1413,7 +1412,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
         return false;
       }
       sent = edit.sent;
-      const { status, data } = await api(url, {
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
         ...options,
         body: edit.body,
         expect: round < CONFLICT_RETRIES ? [409] : [],
@@ -1652,14 +1651,17 @@ async function clearReason() {
     target = reasonTargetName(session),
     word = verdictLabel(session.key),
     url = '/api/pins/' + session.id + '/edit',
-    options = { method: 'POST', intent: 'reason', silent: true, expect: [409] };
+    options = { id: session.id, intent: 'reason', silent: true, expect: [409] as const };
   const go = async () => {
     try {
       if (session.clearTried) {
-        const pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+        const pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
         if (pin && !String(pin.note || '').trim()) return 'ok';
       }
-      const { status, data } = await api(url, { ...options, body: { note: '', base_rev: session.rev } });
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
+        ...options,
+        body: { note: '', base_rev: session.rev },
+      });
       if (status !== 409) return 'ok';
       const answered = data && data.pin;
       if (!answered) return 'gone';
@@ -1668,7 +1670,7 @@ async function clearReason() {
         keepConflict(session, session.text, answered);
         return 'conflict';
       }
-      await api(url, { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
+      await api('POST /api/pins/{id}/edit', { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
     } catch (error) {
       const x = error as ApiError,
@@ -1719,10 +1721,10 @@ async function clearReason() {
 async function undoClearReason(id: number, old: string): Promise<boolean> {
   let ok = false;
   try {
-    const pin = (await api('/api/pins/' + id, { what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
+    const pin = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
     if (pin && !String(pin.note || '').trim()) {
-      await api('/api/pins/' + id + '/edit', {
-        method: 'POST',
+      await api('POST /api/pins/{id}/edit', {
+        id,
         body: { note: old, base_rev: pin.rev },
         intent: 'reason',
         what: '이유 되돌리기',
@@ -1890,7 +1892,7 @@ function refillLine(page: number) {
 // The reason field an input method is composing in: its value is not put back. The composition ends with its field: a
 // field drawn anew in its place (the pages built again) holds the session's text - left empty, the next input would
 // write what it holds over the reason.
-let COMPOSING_FIELD = null as HTMLTextAreaElement | null;
+let COMPOSING_FIELD: HTMLTextAreaElement | null = null;
 $('#doc').addEventListener('compositionstart', (event: CompositionEvent) => {
   if (isReasonField(event.target)) COMPOSING_FIELD = event.target;
 });
@@ -1919,7 +1921,7 @@ function isComposingNow() {
   const field = imeHeldIn();
   return isReasonField(field) && field.isConnected;
 }
-const COMPOSED_WAITS = [] as (() => void)[]; // what waits for the composition's end (afterComposition)
+const COMPOSED_WAITS: (() => void)[] = []; // what waits for the composition's end (afterComposition)
 // how often a wait looks again: a field taken out of the document ends its composition without the event
 const COMPOSED_POLL_MS = 200;
 // Resolves once no syllable is being composed in a reason field and the key that ended one has let it go

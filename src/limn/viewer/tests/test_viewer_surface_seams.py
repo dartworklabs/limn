@@ -394,6 +394,7 @@ class DrawingTheLines(unittest.TestCase):
             function showDocumentNode(node){LOG.push(['show',node.id]);}
             function compareRedrawnSource(doc){LOG.push(['compare',doc]);}
             """,
+            extract_js_fn("isRefusal"),
             extract_js_fn("buildMarkdownDoc"),
             "(async()=>{await buildMarkdownDoc(); LOG.push(['--']); GONE=true; await buildMarkdownDoc();"
             "console.log(JSON.stringify(LOG));})();",

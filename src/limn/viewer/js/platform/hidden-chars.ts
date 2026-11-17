@@ -167,7 +167,7 @@ function clipMarkedText(text: string, max: number) {
     if (++read > max + 2) break;
     head += character;
   }
-  const pieces = [] as string[];
+  const pieces: string[] = [];
   let at = 0;
   for (const marked of findHidden(head)) {
     pieces.push(...head.slice(at, marked.at), '\u27e8' + hiddenName(marked.ch.codePointAt(0) || 0) + '\u27e9');
@@ -189,7 +189,7 @@ function clipMarkedText(text: string, max: number) {
 // a diff shows it. Pure.
 function countAddedHidden(text: string, base: string): [string, number][] {
   const count = (text: string) => {
-    const counts = new Map();
+    const counts = new Map<string, number>();
     for (const line of String(text).split('\n'))
       for (const marked of findHidden(line)) {
         const name = hiddenName(marked.ch.codePointAt(0) || 0);
@@ -199,7 +199,7 @@ function countAddedHidden(text: string, base: string): [string, number][] {
   };
   const textCounts = count(text),
     baseCounts = count(base),
-    out = [] as [string, number][];
+    out: [string, number][] = [];
   for (const [name, count] of textCounts) {
     const extra = count - (baseCounts.get(name) || 0);
     if (extra > 0) out.push([name, extra]);

@@ -5,7 +5,6 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
 import { VECTOR_PDF } from './flow-open.ts';
-import type { PdfDestination, PdfDocument, PdfOutlineItem } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
@@ -57,7 +56,7 @@ function outlineCount(item: PdfOutlineItem) {
 // Which document and build the entries in OUTLINE_ENTRIES were read for (outlineForget drops them when another document
 // comes on screen; the page list names a figure's pages by them only while they are those of the build on screen,
 // outlineOnScreen).
-let OUTLINE_DOC = null as string | null,
+let OUTLINE_DOC: string | null = null,
   OUTLINE_BUILD = '';
 // Reads the outline of the PDF document opened as generation gen (VECTOR_PDF.gen) into OUTLINE_ENTRIES, with the
 // numbers and printed page labels the server reads for the build (mergeOutlineLabels), and draws it. A newer open drops
@@ -131,8 +130,9 @@ async function loadOutline(doc: PdfDocument, gen: number) {
   // The PDF's own outline is still usable when the numbering service cannot be reached.
   if (entries.length) {
     try {
-      const answer = (await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true }))
-        .data;
+      const answer = (
+        await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true })
+      ).data;
       if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
         entries = mergeOutlineLabels(entries, answer.labels || []);
     } catch (error) {}
@@ -282,7 +282,7 @@ function outlineGroupName(entry: OutlineEntry) {
 // manuscript figure that holds it. Entries that differ in number or title tell themselves apart, and a title said twice
 // under one group, or at the top, has no group to say. Over all the entries, not the rows found, so a row reads the
 // same whatever is typed. Memoised on the entries.
-let OUTLINE_GROUPED = { for: null, set: new Set() } as { for: object[] | null; set: Set<number> };
+let OUTLINE_GROUPED: { for: object[] | null; set: Set<number> } = { for: null, set: new Set() };
 function outlineGrouped(entries: OutlineEntry[]) {
   if (OUTLINE_GROUPED.for === entries) return OUTLINE_GROUPED.set;
   const normalize = (text: string) =>
@@ -291,9 +291,9 @@ function outlineGrouped(entries: OutlineEntry[]) {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase(); // as mergeOutlineLabels reads a title
-  const under = new Map(),
-    several = new Set(),
-    set = new Set() as Set<number>;
+  const under = new Map<string, number>(),
+    several = new Set<string>(),
+    set: Set<number> = new Set();
   entries.forEach((entry) => {
     const key = normalize((entry.number || '') + ' ' + entry.title),
       up = typeof entry.up === 'number' ? entry.up : -1;
@@ -378,7 +378,7 @@ let OUTLINE_MARKED = -1,
   OUTLINE_OVER = false,
   OUTLINE_HANDLED = -Infinity,
   OUTLINE_SHOWN = false,
-  OUTLINE_AIM = null as { top: number; at: number } | null;
+  OUTLINE_AIM: { top: number; at: number } | null = null;
 // Where the list (scrollTop, view height viewHeight, content height contentHeight) scrolls to bring a row at [top,
 // bottom] of its content into view: null when the row stands margin px clear of both edges - else the nearest place
 // where it does (less on a view too short for that, and a row taller than the view by its top). The view's top edge is
@@ -655,7 +655,7 @@ function outlineIndexAt(entries: OutlineEntry[], page: number, frac: number) {
 // let go before it is reached, so that a later visit to its page by hand shows that page's own entry: when the reader
 // takes over (a wheel, a touch, a press on the pages or the scroll bar, a scrolling key), when the window changes size,
 // when another pick replaces it, and when the pages have come to rest short of its page (outlinePickRest).
-let OUTLINE_PINNED = null as { page: number; index: number; reached: boolean } | null,
+let OUTLINE_PINNED: { page: number; index: number; reached: boolean } | null = null,
   OUTLINE_PICK_WAIT = 0;
 // A smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest.
 const OUTLINE_PICK_SETTLE_MS = 250;

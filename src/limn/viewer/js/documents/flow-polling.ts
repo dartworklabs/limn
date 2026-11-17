@@ -13,11 +13,11 @@ import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, SYNC_STATE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from './state.ts';
 import { documentPins, markdownSurface, offlineQueue, pinNotifications } from './state-seams.ts';
-let LAST_PINS_REVISION = null as string | null,
-  LAST_SRC_MTIME = null as string | number | null,
+let LAST_PINS_REVISION: string | null = null,
+  LAST_SRC_MTIME: string | number | null = null,
   POLL_FAILS = 0,
-  LIGHT_TIMER = undefined as ReturnType<typeof setInterval> | undefined,
-  LIGHT_INFLIGHT = null as Promise<void> | null;
+  LIGHT_TIMER: ReturnType<typeof setInterval> | undefined = undefined,
+  LIGHT_INFLIGHT: Promise<void> | null = null;
 // Single-flight, the same pattern as pollBuild: when visibilitychange, focus and the 5-second timer call this together
 // (focus returning at the same moment as a tab switch), /api/meta and loadPins go out once - overlapping calls would
 // fire loadPins three times.
@@ -34,8 +34,8 @@ function pollLight() {
 // call (slow - the browser throttles it anyway) is still made just to surface events as notifications, so a hidden tab
 // still gets them. This notification-only branch splits off at the same point as pollLight's document.hidden bailout -
 // it never touches the screen.
-let NOTIFY_HIDDEN_TIMER = undefined as ReturnType<typeof setInterval> | undefined,
-  NOTIFY_HIDDEN_INFLIGHT = null as Promise<void> | null;
+let NOTIFY_HIDDEN_TIMER: ReturnType<typeof setInterval> | undefined = undefined,
+  NOTIFY_HIDDEN_INFLIGHT: Promise<void> | null = null;
 const NOTIFY_HIDDEN_INTERVAL_MS = 20000;
 function pollHiddenNotify() {
   if (!document.hidden || !pinNotifications().on()) return Promise.resolve();
@@ -49,7 +49,8 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '알림 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -89,7 +90,8 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '상태 확인',
         silent: true,
         wait: API_WAIT.POLL,

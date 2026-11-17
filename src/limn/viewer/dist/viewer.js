@@ -1552,8 +1552,10 @@ function setOrder(value) {
 }
 
 // ------------------------------------------------ Server calls
-// Calls the server (JSON in and out) and returns {status, data}; a network failure or an unexpected status >= 400
-// throws. Unless options.silent it is said first (apiFailed): options.what names the request ('핀 저장'), options.where
+// Calls the server (JSON in and out) at endpoint, an ApiAnswers key (types/api.d.ts): its method, and its path with
+// options.id in place of {id}, followed by options.query as the caller built it ('?a=1&doc=ms', withDocQuery). Returns
+// {status, data}, data the endpoint's declared answer, or for a status options.expect lists the endpoint's ApiRefusals
+// body (isRefusal tells the two apart); a network failure or an unexpected status >= 400 throws. Unless options.silent it is said first (apiFailed): options.what names the request ('핀 저장'), options.where
 // the place (a NOTICE_HOST), options.retry the action a network failure offers, options.save that it was a pin's save.
 // options.quietUnreached leaves a failure to reach the server to the caller to say (a refusal is still said).
 // options.expect lists the statuses the caller handles itself; options.keepalive lets the request outlive the page;
@@ -1581,7 +1583,9 @@ function setOrder(value) {
 // feature, so this is a seam: js/main.ts registers it once, before boot() runs (no code that runs while the script loads
 // sends a request), and api() calls it at the point, with the arguments and in the order it calls the offline code. A
 // request before the registration throws, naming the seam.
-// url and options are api()'s own, as its caller gave them.
+// endpoint is the request's ApiAnswers key and url the address api() built from it; a stored answer is an earlier answer
+// of the network to the same url, which names its endpoint, so it is that endpoint's answer.
+/** An answer kept for a read, with its status and when (ms since the epoch) the network gave it. */
 let REQUEST_FALLBACK = null;
 // Registers the copies kept for reading while cut off; js/main.ts calls it once.
 function setRequestFallback(fallback) {
@@ -1594,21 +1598,53 @@ function requestFallback() {
 }
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
-/** What a caller tells api() about a request (the header above says what each field does). */
-async function api(url, options) {
-  options = { ...(options || {}) };
-  options.source =
-    options.source || (options.method || 'GET') + ' ' + url + (options.intent ? ' ' + options.intent : '');
-  const init = { method: options.method || 'GET', headers: {} };
+/** What a caller tells api() about a request (the header above says what each field does); expect names statuses of the
+ * endpoint's ApiRefusals entry. */
+/** The statuses endpoint's refusals may be expected with (ApiRefusals), none for an endpoint it does not name. */
+/** The body of endpoint's refusal with status Refused. */
+/** The pin number an endpoint whose path names one ({id}) is called with; null, which a card action may hold, goes out
+ * as 'null' and names no pin. */
+/** What api() answers for endpoint: its status and body - the endpoint's answer, or an expected refusal's body. */
+// The URL a request to endpoint goes to: the endpoint's path, with id in place of {id}, then the query as the caller
+// built it ('?a=1&doc=ms', or '' for none).
+function endpointUrl(endpoint, id, query) {
+  return (
+    endpoint
+      .slice(endpoint.indexOf(' ') + 1)
+      .split('{id}')
+      .join(String(id)) + (query || '')
+  );
+}
+// Whether an answer is a refusal's body rather than its endpoint's answer: an object with an `error` field, as every
+// refusal that says why has (ErrorBody) and no endpoint's answer the viewer narrows this way has. A POST /api/pick
+// that cannot trace a selection answers so with 200, and an expected refusal (options.expect) comes back as an answer.
+function isRefusal(data) {
+  return typeof data === 'object' && data !== null && 'error' in data;
+}
+// Whether status is one of the statuses a caller expects (options.expect).
+function isExpected(status, expect) {
+  return expect.includes(status);
+}
+async function api(
+  endpoint,
+  given,
+) {
+  const url = endpointUrl(endpoint, given.id, given.query),
+    method = endpoint.slice(0, endpoint.indexOf(' '));
+  const options = {
+    ...given,
+    source: given.source || method + ' ' + url + (given.intent ? ' ' + given.intent : ''),
+  };
+  const init = { method, headers: {} };
   if (options.keepalive) init.keepalive = true;
   if (options.signal) init.signal = options.signal;
   if (options.body !== undefined) {
     init.body = JSON.stringify(options.body);
     init.headers['Content-Type'] = 'application/json';
   }
-  const read = !!requestFallback().readKey(url, options);
+  const read = !!requestFallback().readKey(endpoint, url);
   if (read && API_OUT && requestFallback().mayServe()) {
-    const kept = await requestFallback().stashed(url, options);
+    const kept = await requestFallback().stashed(endpoint, url);
     if (kept) {
       requestFallback().staleSaid(kept.at);
       sourceOk(options.source);
@@ -1632,7 +1668,7 @@ async function api(url, options) {
     response = await fetch(url, init);
   } catch (error) {
     clearTimeout(timer);
-    return apiUnanswered(url, options, error);
+    return apiUnanswered(endpoint, url, options, error);
   }
   let body = null;
   try {
@@ -1642,31 +1678,38 @@ async function api(url, options) {
       clearTimeout(timer);
       throw error;
     } // a body the caller's signal cut off is no answer, not an empty one
-    if (controller && controller.signal.aborted) return apiUnanswered(url, options, error);
+    if (controller && controller.signal.aborted) return apiUnanswered(endpoint, url, options, error);
   } // nor is one the wait ran out on
   clearTimeout(timer);
   API_OUT = false;
-  if (response.status >= 400 && !(options.expect || []).includes(response.status)) {
-    if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + response.status, false);
-    const err = new Error('HTTP ' + response.status);
-    err.status = response.status;
+  const status = response.status;
+  if (status >= 400 && !isExpected(status, options.expect || [])) {
+    if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + status, false);
+    const err = new Error('HTTP ' + status);
+    err.status = status;
     err.data = body;
     throw err;
   }
   sourceOk(options.source);
   requestFallback().back();
-  // a document read the server answered is kept for a later visit with no network
-  requestFallback().stash(url, body, response.status, options);
-  return { status: response.status, data: body };
+  // a document read the server answered is kept for a later visit with no network; an expected refusal is no
+  // document, and its body is the endpoint's ApiRefusals entry
+  if (status < 400) requestFallback().stash(endpoint, url, body, status);
+  return { status, data: body };
 }
 // A request that got no answer - refused by the network, or ended at its wait.
 // A document read is answered from the last answer stored for it, where there is one and only where that is meant
 // (offlineMayServe: this visit's first reads, or a connection known to be gone): a tab opened again with no network is
 // drawn from it instead of staying empty. Writes, every other read, and a read that fails while the viewer is
 // connected fail.
-async function apiUnanswered(url, options, error) {
+async function apiUnanswered(
+  endpoint,
+  url,
+  options,
+  error,
+) {
   if (!(options.signal && options.signal.aborted)) API_OUT = true; // ended by its caller is not unanswered
-  const kept = requestFallback().mayServe() ? await requestFallback().stashed(url, options) : null;
+  const kept = requestFallback().mayServe() ? await requestFallback().stashed(endpoint, url) : null;
   if (kept) {
     requestFallback().staleSaid(kept.at);
     sourceOk(options.source);
@@ -3900,7 +3943,7 @@ function initialDoc() {
 }
 async function loadDocs() {
   try {
-    const answer = (await api('/api/docs', { what: '문서 목록', silent: true })).data;
+    const answer = (await api('GET /api/docs', { what: '문서 목록', silent: true })).data;
     setDocs(Array.isArray(answer.docs) ? answer.docs : []);
     setDefaultDoc(answer.default || (DOCS[0] && DOCS[0].key) || 'main');
   } catch (error) {
@@ -4443,7 +4486,8 @@ function pdoc(pin) {
 function isRegion(pin) {
   return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
 }
-// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
+// Appends ?doc=<key> to a document-scoped path, or to the query of one ('' or '?a=1', api() options.query); the server
+// treats it as the first document if absent.
 function withDocQuery(path, doc) {
   doc = doc || DOC;
   if (!doc) return path;
@@ -4638,6 +4682,12 @@ function offlineQueue() {
 // A file's part of a source diff: its path and its patch text.
 // What rangeSummary reads of GET /api/revision-diff with a base: the two ends, the commits and files between them, the
 // merge base when the base was on another line, and whether the diff was cut.
+// What the revision view shows and where it stands (REVISION_VIEW): the request counter, the source diff's files and
+// whole text, the commit shown and the one its source diff is of, the format, the commit's scope a pin's diff read
+// answers (GET /api/revision-diff?pin=; null before such a read), the rest of the commit's diff beside a pin's hunks,
+// the pin's target, the commit of the PDF shown, the document to go back to, the overlay and its side, whether the
+// history is open, its base, rows, their document and whether more are listed, the range and what was seen of it, the
+// range's commits, base, summary line and counts, whether the list is open, and the range the list is to paint.
 const REVISION_VIEW = {
   seq: 0,
   files: [],
@@ -4954,7 +5004,11 @@ async function loadRevisions() {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, docKey), { what: '변경사항 읽기', silent: true })
+      await api('GET /api/revisions', {
+        query: withDocQuery('?limit=' + REVISION_PAGE, docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
   } catch (error) {
     if (seq === REVISION_VIEW.seq) list.textContent = '변경사항을 읽지 못했습니다.';
@@ -5300,7 +5354,8 @@ async function moreRows(docKey, limit) {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey), {
+      await api('GET /api/revisions', {
+        query: withDocQuery('?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey),
         what: '변경사항 읽기',
         silent: true,
       })
@@ -5374,13 +5429,11 @@ async function resolveSeen(docKey, newest) {
   if (!seen) return;
   try {
     const answer = (
-      await api(
-        withDocQuery(
-          '/api/revision-diff?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id),
-          docKey,
-        ),
-        { what: '변경사항 읽기', silent: true },
-      )
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id), docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
     if (docKey === DOC && REVISION_VIEW.seen === seen) seenAnswered(answer);
   } catch (error) {
@@ -5596,7 +5649,8 @@ async function loadRevisionSource(id, seq, docKey) {
     query = pinTarget ? '&pin=' + pinTarget.id : base ? '&base=' + encodeURIComponent(base) : '';
   try {
     const answer = (
-      await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + query, docKey), {
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
         what: '변경 내용 읽기',
         silent: true,
       })
@@ -5767,7 +5821,8 @@ async function pickRevisionFor(
       if (seq !== REVISION_VIEW.seq || docKey !== DOC) break;
       try {
         const answer = (
-          await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(row.id), docKey), {
+          await api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(row.id), docKey),
             what: '변경 내용 읽기',
             silent: true,
           })
@@ -5985,7 +6040,7 @@ async function revisionStart(body, seq, docKey, id) {
   };
   for (let waits = 0; ; waits++) {
     try {
-      return (await api('/api/revision-build', { method: 'POST', body, what: '비교 PDF 만들기', silent: true })).data;
+      return (await api('POST /api/revision-build', { body, what: '비교 PDF 만들기', silent: true })).data;
     } catch (error) {
       const answer = (error).data;
       if (!answer || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
@@ -6028,7 +6083,8 @@ async function loadRevisionPdf(id, seq, docKey) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       if (!revisionCurrent(seq, docKey, id)) return;
       status = (
-        await api(withDocQuery('/api/revision-build?commit=' + encodeURIComponent(id) + query, docKey), {
+        await api('GET /api/revision-build', {
+          query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
           what: '비교 PDF 상태',
           silent: true,
         })
@@ -6064,7 +6120,7 @@ async function loadRevisionPdf(id, seq, docKey) {
       throw new Error(translateTemplate('비교 PDF를 열지 못했습니다 (HTTP {status}).', { status: response.status }));
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (!revisionCurrent(seq, docKey, id)) return;
-    const lib = VECTOR_PDF.lib || (await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION));
+    const lib = VECTOR_PDF.lib || (await importPdfLibrary());
     if (!revisionCurrent(seq, docKey, id)) return;
     lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
     const loading = lib.getDocument({ data: bytes, isEvalSupported: false, useWasm: false, enableXfa: false });
@@ -6550,7 +6606,8 @@ async function switchDoc(doc) {
     SWITCH_TO = { k: doc, seq, nav: navigation };
     try {
       meta = (
-        await api(withDocQuery('/api/meta', doc), {
+        await api('GET /api/meta', {
+          query: withDocQuery('', doc),
           what: '문서 열기',
           where: NOTICE_HOST.LINE,
           retry: () => {
@@ -6582,7 +6639,8 @@ async function switchDoc(doc) {
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
     try {
-      const fresh = (await api(withDocQuery('/api/meta', doc), { what: '문서 열기', silent: true })).data;
+      const fresh = (await api('GET /api/meta', { query: withDocQuery('', doc), what: '문서 열기', silent: true }))
+        .data;
       if (seq === SWITCHSEQ && DOC === doc) {
         const changed = fresh.pages_build !== META.pages_build || fresh.pages.length !== META.pages.length;
         META_BY.set(doc, fresh);
@@ -6878,7 +6936,8 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '알림 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -6918,7 +6977,8 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '상태 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -7701,7 +7761,7 @@ async function notifyToggle() {
   await notifyRegister();
   savePrefs({ notify: true });
   try {
-    const meta = (await api(withDocQuery('/api/meta?light=1'), { silent: true })).data;
+    const meta = (await api('GET /api/meta', { query: withDocQuery('?light=1'), silent: true })).data;
     if (notifyCursor() == null) setNotifyCursor(meta.ev_seq);
   } catch (error) {}
   drawNotify();
@@ -7879,7 +7939,7 @@ async function pollBuildOnce() {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    build = (await api(withDocQuery('/api/build?log=1'), { what: '빌드 상태', silent: true })).data;
+    build = (await api('GET /api/build', { query: withDocQuery('?log=1'), what: '빌드 상태', silent: true })).data;
   } catch (error) {
     return;
   }
@@ -8249,7 +8309,11 @@ function shownDocState(doc) {
 async function docRows(doc) {
   try {
     const answer = (
-      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, doc), { what: '변경사항 읽기', silent: true })
+      await api('GET /api/revisions', {
+        query: withDocQuery('?limit=' + REVISION_PAGE, doc),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
     return answer.available ? ((answer.revisions || [])) : [];
   } catch (error) {
@@ -8268,7 +8332,8 @@ async function docBuild(
   let meta = (doc === DOC ? META : META_BY.get(doc));
   if (!meta || 'build:' + meta.pages_build !== now.ver) {
     try {
-      meta = (await api(withDocQuery('/api/meta?light=1', doc), { what: '상태 확인', silent: true })).data;
+      meta = (await api('GET /api/meta', { query: withDocQuery('?light=1', doc), what: '상태 확인', silent: true }))
+        .data;
     } catch (error) {
       return null;
     }
@@ -8728,7 +8793,7 @@ async function checkVersion() {
   VERSION.again = false;
   VERSION.at = Date.now();
   try {
-    const answer = (await api('/api/version', { what: '버전 확인', silent: true })).data,
+    const answer = (await api('GET /api/version', { what: '버전 확인', silent: true })).data,
       version = String((answer && answer.version) || '');
     if (version && version !== VERSION.server) {
       const was = versionOutdated();
@@ -10519,19 +10584,14 @@ const PDFJS_VERSION = '__PDFJS_VERSION__';
 const VECTOR_PIXEL_CAP = 16777216,
   VECTOR_KEEP_MARGIN = '150% 0px',
   VECTOR_DETAIL_MARGIN = 0.25;
-// PDF.js has no type declarations here: these name the parts of its document, page and outline objects that the viewer
-// calls. A page's reference in a PDF's object table, which an outline destination may name instead of a page number.
-// An outline destination: the page (a number, or its reference), the kind of view ({ name: 'XYZ' } carries the left and
-// top edges that follow), and the view's numbers.
-// One item of a PDF's outline: its title, where it goes (a destination, or the name of one) and its children.
-// A page's viewport at a scale: its size and the matrix from PDF units to the canvas.
-// A render of a page onto a canvas, which cancel() ends early.
-// A page of a PDF document (PDFPageProxy).
 // What is drawn for one page (view-draw.ts pageDrawState): its page canvas and the size it was drawn at, its detail canvas
 // with the region of the page (fractions) it covers and the size and pixel ratio it was drawn at, and whether the page
 // must be drawn again.
-// An opened PDF document (PDFDocumentProxy).
-// The PDF.js library and a render task are `any`; its document is a PdfDocument, though the cached ones are `any` too.
+// The vector view's state (VECTOR_PDF): the PDF.js library once imported, the document on screen and its build, the
+// generation each open and each failure bumps (a draw of an older one is dropped), why vector drawing gave up, the observer of the pages near the view and those pages,
+// what is drawn for each page, the render running now, whether the draw queue is being worked, its timer, the draws'
+// timings, when the first page and the document were drawn, and the opened documents cached by 'document|build'.
+// The PDF.js library (types/pdfjs.d.ts), the document on screen and the opened documents cached by 'document|build'.
 const VECTOR_PDF = {
   lib: null,
   doc: null,
@@ -10561,16 +10621,14 @@ function cacheVectorDocument(key, doc) {
   cache.delete(key);
   cache.set(key, doc);
   const docPrefix = key.split('|')[0] + '|';
-  Array.from(cache.keys()).forEach((cachedKey) => {
+  Array.from(cache).forEach(([cachedKey, cachedDoc]) => {
     if (cachedKey !== key && cachedKey.startsWith(docPrefix)) {
-      const cachedDoc = cache.get(cachedKey);
       cache.delete(cachedKey);
       if (cachedDoc !== VECTOR_PDF.doc) closeVectorDocument(cachedDoc);
     }
   });
   while (cache.size > VECTOR_CACHE_MAX) {
-    const cachedKey = cache.keys().next().value,
-      cachedDoc = cache.get(cachedKey);
+    const [cachedKey, cachedDoc] = Array.from(cache)[0];
     cache.delete(cachedKey);
     if (cachedDoc !== VECTOR_PDF.doc && cachedDoc !== doc) closeVectorDocument(cachedDoc);
   }
@@ -10588,6 +10646,26 @@ function forgetVectorDocument(doc) {
 }
 // For measurement (Playwright): canvas count, render time.
 window.__pinVec = VECTOR_PDF;
+// Whether a value is the PDF.js module as the viewer uses it (types/pdfjs.d.ts PdfLibrary): a getDocument function and
+// the worker options.
+function isPdfLibrary(value) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'getDocument' in value &&
+    typeof value.getDocument === 'function' &&
+    'GlobalWorkerOptions' in value &&
+    typeof value.GlobalWorkerOptions === 'function' &&
+    'workerSrc' in value.GlobalWorkerOptions
+  );
+}
+// Imports the vendored PDF.js module; rejects when what loads is not the module the viewer uses.
+async function importPdfLibrary() {
+  const loaded = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
+  if (!isPdfLibrary(loaded))
+    throw new Error('pdf.js did not load as a module with getDocument and GlobalWorkerOptions');
+  return loaded;
+}
 // Loads pdf.js (once) and opens the PDF on screen; a browser without IntersectionObserver keeps the PNG pages.
 async function bootVector() {
   if (!window.IntersectionObserver) {
@@ -10595,7 +10673,7 @@ async function bootVector() {
     return;
   }
   try {
-    VECTOR_PDF.lib = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
+    VECTOR_PDF.lib = await importPdfLibrary();
     VECTOR_PDF.lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
   } catch (error) {
     VECTOR_PDF.lib = null;
@@ -10775,8 +10853,9 @@ async function loadOutline(doc, gen) {
   // The PDF's own outline is still usable when the numbering service cannot be reached.
   if (entries.length) {
     try {
-      const answer = (await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true }))
-        .data;
+      const answer = (
+        await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true })
+      ).data;
       if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
         entries = mergeOutlineLabels(entries, answer.labels || []);
     } catch (error) {}
@@ -12151,6 +12230,8 @@ async function runDrawJob(job) {
   }
   const canvasContext = canvas.getContext('2d', { alpha: false }),
     startedAt = performance.now();
+  // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way, outside the try.
+  if (!canvasContext) throw new Error('the page canvas has no 2D context');
   const task = page.render({
     canvasContext: canvasContext,
     viewport: page.getViewport({ scale }),
@@ -12755,10 +12836,10 @@ function searchKey(
   return /^\p{Script=Latin}$/u.test(key) ? key.toLowerCase() === 'f' : event.code === 'KeyF';
 }
 
-// One text item of a PDF page as PDF.js reads it (getTextContent): its text, its transform matrix, its width in PDF units,
-// its font's name and whether a line ends after it.
-// A font's metrics as PDF.js gives them with the text: its family and its ascent and descent in em.
 // Where a line piece stands (searchLines): along the line x0 to x1, across it y, with its font size and angle.
+// One text item of a line being read (searchLines): its index among the page's items, the item, whether its matrix is
+// upright (ok), where it starts along the line (x), how wide it is, where it stands across the line (y), its font size
+// and the line's angle in whole degrees.
 // One piece of a line (searchLines): its folded text, the map back to its own text, the items it holds, its last
 // character, whether its line is in one piece, and its geometry (null for text that is skewed or mirrored).
 // A page's text as one flow (searchFlow): the flow and, for each line, where it starts, how many characters the trim cuts
@@ -12851,11 +12932,12 @@ function searchPieceBox(page, [line, from, to]) {
   }
   return x1 >= x0 ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, 0, 0];
 }
-// A hit's boxes on its page, one for each line it lies on.
+// A hit's boxes on its page, one for each line it lies on. A hit is of the searched document, so none without one.
 function searchBoxes(hit) {
-  return (
-    hit.boxes || (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(SEARCH.doc)[hit.page - 1], piece)))
-  );
+  if (hit.boxes) return hit.boxes;
+  const doc = SEARCH.doc;
+  if (!doc) return [];
+  return (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(doc)[hit.page - 1], piece)));
 }
 // Draws a page's hit boxes (the current hit's marked, every one of them), or removes them when the page is not near the
 // view or has none.
@@ -12994,9 +13076,10 @@ function searchShift(hit) {
 // Picks the current hit when there is none: the first at or after the reference, once every page between the two has
 // been read (or could not be); the first of all once the pages from the reference on hold none.
 function searchPick() {
-  if (SEARCH.cur || !SEARCH.hits.length) return;
+  const doc = SEARCH.doc;
+  if (SEARCH.cur || !SEARCH.hits.length || !doc) return;
   const reference = SEARCH.ref,
-    pages = searchPages(SEARCH.doc);
+    pages = searchPages(doc);
   const candidate = SEARCH.hits.find(
     (hit) =>
       hit.page > reference.page ||
@@ -13038,7 +13121,10 @@ function searchPaint() {
 // A page's text in PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
 // text is read - the search reads every page through it, and a selection made with no network the page it was drawn
 // on (offline/flow.ts offlineQuote). Rejects as PDF.js does when the page cannot be read.
-async function pageText(doc, pageNumber) {
+async function pageText(
+  doc,
+  pageNumber,
+) {
   const page = await doc.getPage(pageNumber),
     textContent = await page.getTextContent(),
     viewport = page.getViewport({ scale: 1 });
@@ -13084,7 +13170,8 @@ async function searchRead() {
         if (SEARCH.doc === doc) SEARCH.failed.add(pageNumber);
       }
       if (SEARCH.doc !== doc || !SEARCH.q) return;
-      const more = pages[pageNumber - 1] ? searchPageHits(pages[pageNumber - 1], pageNumber, SEARCH.re) : [];
+      const read = pages[pageNumber - 1],
+        more = read ? searchPageHits(read, pageNumber, SEARCH.re) : [];
       if (more.length) SEARCH.hits = SEARCH.hits.concat(more).sort(searchOrder);
       searchPick();
       searchPaint();
@@ -13588,7 +13675,6 @@ document.fonts.addEventListener('loadingdone', searchFit);
 // laid out at, the generation stale work compares against (gen), the generation a paint runs for (busy), the frame a
 // paint waits on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a
 // layout (anchor) and the reset of the gesture state (resetInput).
-// The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
 const REVISION_ZOOM = {
   ratio: 1,
   fit: 0,
@@ -13829,8 +13915,11 @@ async function paintRevisionPdf() {
       item.el.append(canvas);
       item.el.dataset.state = 'loading';
       const viewport = item.page.getViewport({ scale: width / item.base.width });
+      const canvasContext = canvas.getContext('2d');
+      // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way.
+      if (!canvasContext) throw new Error('the comparison canvas has no 2D context');
       const task = item.page.render({
-        canvasContext: canvas.getContext('2d'),
+        canvasContext,
         viewport,
         transform: [target.bw / width, 0, 0, target.bh / height, 0, 0],
       });
@@ -16456,13 +16545,13 @@ function refetchSnip(owner, after) {
   clearTimeout(SNIPPET_TIMER);
   SNIPPET_TIMER = setTimeout(async () => {
     try {
-      const { data } = await api(
-        withDocQuery(
-          '/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery(
+          '?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
           owner.doc,
         ),
-        { what: '원문 읽기' },
-      );
+        what: '원문 읽기',
+      });
       if (
         (owner === EDITOR.current || (owner === COMPOSE.current && currentVisit(visit))) &&
         data.lo === owner.lo &&
@@ -16620,10 +16709,10 @@ async function excerptFetch(owner) {
   });
   try {
     for (const [from, to] of fetchWindows) {
-      const { data } = await api(
-        withDocQuery('/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
-        { what: '원문 읽기' },
-      );
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery('?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
+        what: '원문 읽기',
+      });
       excerptTake(owner, data.snippet);
       if (data.n_lines) owner.n_lines = data.n_lines;
     }
@@ -17455,7 +17544,7 @@ async function buildMarkdownDoc() {
   }
   let answer;
   try {
-    answer = await api(withDocQuery('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api('GET /api/source', { query: withDocQuery(''), what: '원문 읽기', silent: true, expect: [413] });
   } catch (error) {
     if (!stale()) {
       MARKDOWN_VIEW.asked = null;
@@ -17467,8 +17556,8 @@ async function buildMarkdownDoc() {
     // document never matches again), so the next light poll asks again
   }
   if (stale()) return;
-  if (answer.status === 413) {
-    MARKDOWN_VIEW.lines = [];
+  if (isRefusal(answer.data)) {
+    MARKDOWN_VIEW.lines = []; // 413: too large to send
     MARKDOWN_VIEW.heads = [];
     MARKDOWN_VIEW.mtime = MARKDOWN_VIEW.asked;
     showDocumentNode(
@@ -21438,12 +21527,12 @@ async function showRenderedCompare(id, base, seq, docKey) {
   let answer,
     scope = null;
   try {
-    const path =
-      '/api/revision-source?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
+    const query = '?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
     const [sides, pinDiff] = await Promise.all([
-      api(withDocQuery(path, docKey), { what: '두 판 읽기', silent: true }),
+      api('GET /api/revision-source', { query: withDocQuery(query, docKey), what: '두 판 읽기', silent: true }),
       pinTarget
-        ? api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey), {
+        ? api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey),
             what: '변경 내용 읽기',
             silent: true,
           }).catch(() => null)
@@ -21465,10 +21554,12 @@ async function showRenderedCompare(id, base, seq, docKey) {
     return;
   }
   if (!live()) return;
-  const bad = [
-    [answer.old, translate('옛 판')],
-    [answer.new, translate('새 판')],
-  ].find(([side]) => side && !Array.isArray(side.lines));
+  const bad = (
+    [
+      [answer.old, translate('옛 판')],
+      [answer.new, translate('새 판')],
+    ]
+  ).find(([side]) => side && !Array.isArray(side.lines));
   if (bad) {
     pane.replaceChildren(compareNotice(sideFailureText(bad[0], bad[1])));
     sayCompareStatus(answer, null);
@@ -21581,7 +21672,10 @@ function compareInfoLine(text, status) {
 // The status line of a compare: its two sides - a range's with the commits and files its source diff counted
 // (REVISION_VIEW.rangeN, once that answer is in) - and what changed. Kept (RENDERED_COMPARE.said) so the range's counts
 // can join it when they come (restateCompareStatus).
-function sayCompareStatus(answer, counts) {
+function sayCompareStatus(
+  answer,
+  counts,
+) {
   RENDERED_COMPARE.said = { r: answer, c: counts };
   const ends =
       (answer.base ? String(answer.base).slice(0, 8) : translate('없음')) + ' → ' + String(answer.id || '').slice(0, 8),
@@ -21951,21 +22045,17 @@ async function suggestRead(draft, owner, fill, owns, redraw) {
   let text = null,
     fail = '';
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
-          encodeURIComponent(String(owner.file)) +
-          '&lo=' +
-          owner.lo +
-          '&hi=' +
-          owner.hi +
-          '&text=1',
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' + encodeURIComponent(String(owner.file)) + '&lo=' + owner.lo + '&hi=' + owner.hi + '&text=1',
         owner.doc,
       ),
-      { what: '원문 읽기', expect: [400], silent: true },
-    );
+      what: '원문 읽기',
+      expect: [400],
+      silent: true,
+    });
     if (status === 400) fail = errText(data);
-    else if (data && typeof data.text === 'string') text = data.text;
+    else if (data && !isRefusal(data) && typeof data.text === 'string') text = data.text;
     else fail = translate('80줄이 넘는 범위는 원문을 받지 못합니다');
   } catch (error) {
     fail = translate('서버에 닿지 않습니다');
@@ -22397,8 +22487,7 @@ async function pick(region) {
   try {
     if (!repick && !isMarkdownDoc() && (offlineNow() || API_OUT)) throw new Error('cut off');
     answer = (
-      await api('/api/pick', {
-        method: 'POST',
+      await api('POST /api/pick', {
         body: region,
         what: '위치 찾기',
         quietUnreached: !repick && !isMarkdownDoc(),
@@ -22438,7 +22527,7 @@ async function pick(region) {
   if (seq !== PICKSEQ) return;
   setBusy(false);
   if (!repick) setComposePicking(false);
-  if (answer.error) {
+  if (isRefusal(answer)) {
     if (answer.pdf_build_gone) {
       try {
         await refreshDoc();
@@ -22927,6 +23016,7 @@ function discardSelection() {
 // restores it (restoreDraft). Saving clears it; a discard clears it once its undo window is over (DRAFT.holds has that
 // document's undo). Only this tab sees it. The tab owns the debounce timer and the active document's draft key; a
 // discard's undo holds its own document's key.
+// A discarded draft kept until its undo note leaves: the note, the stored draft's key and the bytes it held.
 const DRAFT = {
   timer: 0,
   ready: false,
@@ -23192,8 +23282,8 @@ async function appendToPin(id, text) {
     body = { note_append: text, base_rev: prior.rev || 0 };
   if (hints.length) body.mentions = hints;
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       body,
       what: '메모 덧붙이기',
       where: NOTICE_HOST.COMPOSER,
@@ -23254,8 +23344,8 @@ function syncComposeSaveButtons() {
 async function undoAppend(id, note, revision) {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/edit', {
+      id,
       body: { note: note, base_rev: revision },
       what: '되돌리기',
       where: NOTICE_HOST.LIST,
@@ -23395,7 +23485,7 @@ async function savePin(verdict) {
   // the server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as
   // going until the queue has answered: let go before that, a second press while the store is still opening would keep
   // the same selection twice, under two keys, and reconnecting would write two pins.
-  if ((selection).offline || offlineNow()) {
+  if (selection.offline || offlineNow()) {
     const done = () => {
       setComposeSaving(false);
       syncComposeSaveButtons();
@@ -23472,17 +23562,16 @@ async function savePin(verdict) {
     let status = 0,
       data = null;
     const ask = {
-      method: 'POST',
       body,
       what: verdict ? '판정 저장' : '핀 저장',
       where: NOTICE_HOST.COMPOSER,
       save: true,
-      expect: suggestion ? [409] : [],
+      expect: suggestion ? ([409]) : [],
       wait: API_WAIT.SAVE,
       quietUnreached: plain,
     };
     try {
-      ({ status, data } = await api('/api/pin', ask));
+      ({ status, data } = await api('POST /api/pin', ask));
     } catch (error) {
       const failure = error;
       if (failure && failure.status) throw error;
@@ -23693,13 +23782,13 @@ const OFF_WROTE = 'wrote';
 // not among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored,
 // and no answer to a write ever is.
 const OFF_READS = [
-  '/api/meta',
-  '/api/docs',
-  '/api/pins',
-  '/api/pins/dropped',
-  '/api/people',
-  '/api/outline-labels',
-  '/api/source',
+  'GET /api/meta',
+  'GET /api/docs',
+  'GET /api/pins',
+  'GET /api/pins/dropped',
+  'GET /api/people',
+  'GET /api/outline-labels',
+  'GET /api/source',
 ];
 // idem: the server said it knows a write by its key (meta's pin_idem, offStash). boot: this visit's first reads are
 // still under way (cleared by offlineBoot, which boot() calls last). staleNote: the status line's message that the
@@ -23710,6 +23799,8 @@ const OFF_READS = [
 // before which none is tried again; failSaid - that failure was said this visit. holder: the server said it counts a
 // build's hold per holder (meta's hold_holder); me: this browser's name among those holders, once read or made
 // (offHolderId).
+// n, held: the records queued and those of them that lost their place; flushing: a send of the queue is running;
+// prep: [오프라인으로 받기] is running; saidStale: the stored reads' age was said this visit; db: the opened store.
 const OFF = {
   n: 0,
   held: 0,
@@ -23809,24 +23900,111 @@ function offQueue(
 ) {
   return offIn(OFF_STORE, mode, operation);
 }
-/** Every queued record, oldest first - the order they were written is the order they are sent. */
-function offAll() {
-  return offQueue('readonly', (store) => store.getAll()).then((records) => (Array.isArray(records) ? records : []));
+/** Every record in the queue as the store holds it, oldest first, or null when the queue cannot be read. */
+function offRecords() {
+  return offQueue('readonly', (store) => store.getAll()).then((records) =>
+    Array.isArray(records) ? records : null,
+  );
 }
-// A pin queued while the connection was gone: what its send needs to place it again and write it. id is its key in the
-// queue, set once it is stored.
-// Adds a record to the queue; answers its key, or null when it was not kept.
+/** Every queued record, oldest first - the order they were written is the order they are sent. */
+// A record the store holds that is not a queued pin (isQueuedPin) is left out: not counted, drawn or sent, and left in
+// the store as it is - never deleted.
+function offAll() {
+  return offRecords().then((records) => (records || []).filter(isQueuedPin));
+}
+// A pin queued while the connection was gone (offlineQueueSave writes it, offlineFlush marks it): what its send needs
+// to place it again and write it. id is its key in the queue, which the store gives it when it is added. A line pin of
+// a Markdown or text document has no page and no page fractions (absent, or null) - its lines are its place; a drag
+// has no lines.
+// A value read from the store or handed over by the worker, before its shape is known: any object, its fields not yet
+// read. Pure.
+function isObject(value) {
+  return typeof value === 'object' && value !== null;
+}
+// The checks a stored record's fields take: a string or a number that may be absent, a string that may be null, a list
+// of strings or of numbers. Pure.
+function isTextOrAbsent(value) {
+  return value === undefined || typeof value === 'string';
+}
+function isNumberOrAbsent(value) {
+  return value === undefined || typeof value === 'number';
+}
+function isTextOrNull(value) {
+  return value === null || typeof value === 'string';
+}
+function isTextList(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+function isNumberList(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === 'number');
+}
+// Whether a record read from the queue is a queued pin: every field offlineQueueSave writes, of the type it writes it
+// (offlineFlush changes held, why, sent and top, to the same types). Every Limn that has a queue writes this shape, so
+// a record that is not one was put there by something else; it is left where it is (offAll). Pure.
+function isQueuedPin(value) {
+  if (!isObject(value)) return false;
+  const { rect, pt: size, place, lines } = value;
+  return (
+    typeof value.id === 'number' &&
+    typeof value.v === 'number' &&
+    typeof value.label === 'string' &&
+    isTextOrNull(value.doc) &&
+    typeof value.build === 'string' &&
+    (value.page === null || isNumberOrAbsent(value.page)) &&
+    (rect === null ||
+      (isObject(rect) &&
+        typeof rect.x0 === 'number' &&
+        typeof rect.y0 === 'number' &&
+        typeof rect.x1 === 'number' &&
+        typeof rect.y1 === 'number')) &&
+    (value.frac === undefined || value.frac === null || isNumberList(value.frac)) &&
+    (size === null || (isObject(size) && typeof size.w === 'number' && typeof size.h === 'number')) &&
+    typeof value.quote === 'string' &&
+    typeof value.note === 'string' &&
+    isTextOrNull(value.kind_req) &&
+    isTextOrNull(value.assignee) &&
+    isTextList(value.mentions) &&
+    typeof value.at === 'string' &&
+    typeof value.held === 'boolean' &&
+    typeof value.why === 'string' &&
+    typeof value.sent === 'boolean' &&
+    isNumberOrAbsent(value.top) &&
+    (place === null ||
+      (isObject(place) &&
+        isTextOrAbsent(place.file) &&
+        typeof place.name === 'string' &&
+        isNumberOrAbsent(place.lo) &&
+        isNumberOrAbsent(place.hi))) &&
+    (lines === null ||
+      (isObject(lines) &&
+        isTextOrAbsent(lines.file) &&
+        typeof lines.name === 'string' &&
+        typeof lines.lo === 'number' &&
+        typeof lines.hi === 'number' &&
+        typeof lines.text === 'string' &&
+        isTextOrNull(lines.kind) &&
+        isTextOrNull(lines.scope))) &&
+    typeof value.idem === 'string'
+  );
+}
+// Adds a record to the queue; answers its key, or null when it was not kept. The store numbers its records
+// (autoIncrement), so a key is a number.
 function offAdd(rec) {
-  return offQueue('readwrite', (store) => store.add(rec));
+  return offQueue('readwrite', (store) => store.add(rec)).then((key) => (typeof key === 'number' ? key : null));
 }
 // The pins this browser's queue has written, kept in the state store (OFF_WROTE, newest last, OFF_WROTE_MAX of them).
 // A record whose answer never came is looked for in the pin list, and a pin that is in here was written by a different
 // record of this queue - it is not this one's, however alike the two are. Without that, a record that lost its answer
 // while a twin of it was written (the same place, the same note) would match the twin's pin and be deleted unwritten.
 function offWrote() {
-  return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_WROTE)).then((stored) =>
-    Array.isArray(stored && stored.ids) ? stored.ids : [],
-  );
+  return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_WROTE)).then(wroteIds);
+}
+// The pin numbers a stored OFF_WROTE record holds ({key, ids}, written by offWroteAdd and offWroteKeep): its ids that
+// are numbers, which is every one those write; none when there is no such record. Pure.
+function wroteIds(stored) {
+  return isObject(stored) && Array.isArray(stored.ids)
+    ? stored.ids.filter((id) => typeof id === 'number')
+    : [];
 }
 // Notes a pin this queue wrote (offWrote).
 async function offWroteAdd(id) {
@@ -23840,10 +24018,11 @@ async function offWroteAdd(id) {
 // one it was attempted after (its `top`), so every number at or below the smallest of those tops is past being
 // needed; an empty queue needs none of them. Capping the list by its length instead would drop the very number a
 // record that waited through many writes still needs.
+// rest is every record the store holds, read as it is: one that is not a queued pin keeps what its top needs as well.
 async function offWroteKeep(rest) {
   const ids = await offWrote();
   if (!ids.length) return;
-  const tops = rest.map((record) => (typeof record.top === 'number' ? record.top : 0));
+  const tops = rest.map((record) => (isObject(record) && typeof record.top === 'number' ? record.top : 0));
   const floor = tops.length ? Math.min(...tops) : Infinity;
   const kept = rest.length ? ids.filter((id) => id > floor) : [];
   if (kept.length !== ids.length)
@@ -23865,7 +24044,7 @@ function offDel(id) {
 async function offlineSync() {
   const all = await offAll();
   OFF.n = all.length;
-  OFF.held = all.filter((record) => record && record.held).length;
+  OFF.held = all.filter((record) => record.held).length;
   drawStatus();
   // The queued pins on the page and in the panel (offline/view.ts).
   offlineUiSync(all);
@@ -23877,54 +24056,88 @@ async function offlineSync() {
 // list, so nothing is drawn and nothing can be dragged. So the last answer to each read of OFF_READS is stored, and a
 // read the network refuses is answered from that store instead of failing - said once on the status line, with when it
 // was read, so a stored list is never taken for the current one.
-/** The store key of a read: its path and query without the cache-busting bits. */
-function offReadKey(url, options) {
-  if (options && options.method && options.method !== 'GET') return null;
+/** The store key of a read of endpoint at url: the url, for a read of OFF_READS that is not a light poll. */
+function offReadKey(endpoint, url) {
   const address = String(url);
   if (address.indexOf('light=1') >= 0) return null;
-  const path = address.split('?')[0];
-  if (!OFF_READS.includes(path)) return null;
+  if (!OFF_READS.includes(endpoint)) return null;
   return address;
 }
 // Stores the answer to a document read, so a later visit with no network can be drawn from it. Only an answer the
 // server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
 // Markdown document past the drawing limit answers 413 with its reason, markdown/view.ts), and that answer is not the
 // document. Stored, it would come back on the next visit as a document that opens empty.
-function offStash(url, data, status, options) {
-  // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
-  // the light poll's included, carries pin_idem when a write is known by its key (api.md POST /api/pin).
-  // A meta answer also says which build each document is on now, which is what keeps a kept copy current
-  // (offlineFollowSeen). And hold_holder when a build's hold is counted per holder, which is what lets this browser let
-  // go of its own (offFollowTidy).
-  if (status === 200 && data && String(url).split('?')[0] === '/api/meta') {
-    OFF.idem = data.pin_idem === true;
-    OFF.holder = data.hold_holder === true;
-    offlineFollowSeen(data);
-  }
-  const key = offReadKey(url, options || null);
+function offStash(
+  endpoint,
+  url,
+  data,
+  status,
+) {
+  // Every success the network answers passes here, so this is also where the server says what it can do (OFF_HEARD).
+  const heard = OFF_HEARD[endpoint];
+  if (status === 200 && data && heard) heard(data);
+  const key = offReadKey(endpoint, url);
   if (!key) return;
   if (!(status >= 200 && status < 300) || data === null || data === undefined) return;
-  void offIn(OFF_STATE, 'readwrite', (store) => store.put({ key, data, status, at: Date.now() }));
+  const stored = { key, data, status, at: Date.now() };
+  void offIn(OFF_STATE, 'readwrite', (store) => store.put(stored));
 }
-/** The stored answer to a read, or null - never one the server refused. */
+// A read's answer as offStash stores it under the read's key (offReadKey): its body, its status and when it came.
+// Answer is what the body is known to be: unknown as the store gives it back, the endpoint's answer once offStashed
+// takes it as one.
+// The stored answer a value read under a read's key is, or null when it is none: offStash writes every field, so a
+// record without its body, its status or its time was not written by it. Its status is not judged here. Pure.
+function storedRead(stored) {
+  if (!isObject(stored) || !('data' in stored)) return null;
+  const { key, data, status, at } = stored;
+  return typeof key === 'string' && typeof status === 'number' && typeof at === 'number'
+    ? { key, data, status, at }
+    : null;
+}
+// What an endpoint's answer tells this browser, by endpoint (offStash). A meta answer, the light poll's included,
+// carries pin_idem when a write is known by its key (api.md POST /api/pin). It also says which build each document is
+// on now, which is what keeps a kept copy current (offlineFollowSeen). And hold_holder when a build's hold is counted per
+// holder, which is what lets this browser let go of its own (offFollowTidy).
+const OFF_HEARD = {
+  'GET /api/meta': (meta) => {
+    OFF.idem = meta.pin_idem === true;
+    OFF.holder = meta.hold_holder === true;
+    offlineFollowSeen(meta);
+  },
+};
+// The answer that stands in for a stored one, by endpoint (offStashed): for a meta read, the meta of the build this
+// browser keeps whole (offKeptMeta); null keeps the stored answer.
+const OFF_STAND_INS = {
+  'GET /api/meta': async (key, last) => offKeptMeta(await offKeptAnswers(), key, last),
+};
+/** The stored answer to a read of endpoint at url, or null - never one the server refused. */
 function offStashed(
+  endpoint,
   url,
-  options,
 ) {
-  const key = offReadKey(url, options);
+  const key = offReadKey(endpoint, url);
   if (!key) return Promise.resolve(null);
-  return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (stored) => {
-    if (!stored || !('data' in stored)) return null;
+  // record is the store's value as IndexedDB gives it back (any); value is the same record, read as unknown and
+  // narrowed.
+  return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (record) => {
+    const value = record;
+    if (!isObject(value) || !('data' in value)) return null;
     // The record has to say for itself that the server answered it with a success. A record that does not say so is
     // not trusted and is dropped: a record written by another build of this viewer may hold a refusal, and read as a
     // success it opens a document that is simply empty. A read that finds nothing asks the network, which is the right
     // answer.
-    if (typeof stored.status !== 'number' || stored.status < 200 || stored.status >= 300) {
+    if (typeof value.status !== 'number' || value.status < 200 || value.status >= 300) {
       void offIn(OFF_STATE, 'readwrite', (store) => store.delete(key));
       return null;
     }
-    if (key.split('?')[0] === '/api/meta') {
-      const whole = offKeptMeta(await offKept(), key, stored.data);
+    // One without the rest of what offStash writes (when it came) is not served either: the network is asked. The
+    // record is narrowed; the answer it carries is the one api() was given for this url and is not checked again
+    // (platform/api.ts trusts response.json() the same way, docs/adr/0046-viewer-endpoint-answers.md D3).
+    const stored = storedRead(value) ? record : null;
+    if (!stored) return null;
+    const standIn = OFF_STAND_INS[endpoint];
+    if (standIn) {
+      const whole = await standIn(key, stored.data);
       if (whole) return whole;
     }
     return { data: stored.data, status: stored.status, at: stored.at };
@@ -23938,14 +24151,14 @@ function offStashed(
 // document (it has no build), a record from before the meta was carried, or the same build. Pure.
 /** @param kept the kept record @param key the read's address @param last the last meta read */
 function offKeptMeta(kept, key, last) {
-  if (!kept || !kept.docs || !last || typeof last !== 'object') return null;
+  if (!kept || !kept.docs || !isObject(last)) return null;
   const query = key.indexOf('?') >= 0 ? key.slice(key.indexOf('?') + 1) : '';
-  const docName = last.doc || new URLSearchParams(query).get('doc') || '',
+  const docName = (typeof last.doc === 'string' && last.doc) || new URLSearchParams(query).get('doc') || '',
     keptDoc = kept.docs[docName];
   if (
     !keptDoc ||
     !keptDoc.build ||
-    !keptDoc.meta ||
+    !isObject(keptDoc.meta) ||
     keptDoc.meta.pages_build !== keptDoc.build ||
     last.pages_build === keptDoc.build
   )
@@ -24006,6 +24219,19 @@ async function offlineWorker() {
     return null;
   }
 }
+// The questions this page asks the worker (sw.js, its message listener): keep these files, drop these copies, and
+// whether its copies are answering because the network did not (offlineAskDown).
+// The worker's answer to keep: how many of the files it kept, and the address of each it could not.
+// What an answer to keep says, or null when there was none (offlineAsk's null, or not an object): a count that is
+// not a number counts none, a failed list that is not one lists none, and only its addresses are listed. Pure.
+function keepAnswer(answer) {
+  if (!isObject(answer)) return null;
+  const { kept, failed } = answer;
+  return {
+    kept: typeof kept === 'number' ? kept : 0,
+    failed: Array.isArray(failed) ? failed.filter((address) => typeof address === 'string') : [],
+  };
+}
 // One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits
 // the question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is
 // not 3s, and a wait that short would call a keep that is still going a failure.
@@ -24056,7 +24282,7 @@ async function offlineAskDown() {
       resolve(null);
     }
   });
-  if (answer && answer.down === true) setApiOut(true);
+  if (isObject(answer) && answer.down === true) setApiOut(true);
 }
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
 // (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
@@ -24075,10 +24301,13 @@ function offlineUrls() {
 // The PDF and the page images of a document as its meta names them - the very addresses the viewer asks for when that
 // document is on screen (pdf/flow-open.ts openVectorDocument, pdf/view-pages.ts pageSrc), since a copy is found again
 // by its address. Pure.
-function offlineDocFiles(docName, meta) {
+function offlineDocFiles(
+  docName,
+  meta,
+) {
   const build = (meta && meta.pages_build) || '',
     out = [];
-  if (!build) return out;
+  if (!meta || !build) return out;
   out.push(
     withDocQuery('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(meta.built_at || ''), docName),
   );
@@ -24129,18 +24358,24 @@ async function offlinePrepare() {
       let meta = null;
       const seen = Date.now();
       try {
-        meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+        meta = (await api('GET /api/meta', { query: withDocQuery('', docName), what: '화면 정보 읽기', silent: true }))
+          .data;
       } catch (error) {
         lost++;
         continue;
       }
       docs++;
       const info = docName ? docInfo(docName) : null,
-        kind = (meta && meta.kind) || (info && info.kind),
+        kind = (meta && meta.kind) || (info && info.kind) || undefined,
         key = (meta && meta.doc) || docName || '';
       if (rendersInBrowser(kind)) {
         try {
-          await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+          await api('GET /api/source', {
+            query: withDocQuery('', docName),
+            what: '원문 읽기',
+            silent: true,
+            expect: [413],
+          });
           got.push({ k: key, entry: { build: '', files: [], at: 0, src: (meta && meta.src_mtime) ?? null, seen } });
         } catch (error) {
           lost++;
@@ -24150,7 +24385,11 @@ async function offlinePrepare() {
       const files = offlineDocFiles(docName, meta);
       files.forEach((address) => urls.add(address));
       try {
-        await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+        await api('GET /api/outline-labels', {
+          query: withDocQuery('', docName),
+          what: '목차 번호 읽기',
+          silent: true,
+        });
       } catch (error) {}
       if (meta && meta.pages_build) {
         // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
@@ -24161,9 +24400,14 @@ async function offlinePrepare() {
       }
     }
     // The lists every document shares, as they stand now.
-    for (const address of ['/api/docs', '/api/pins?all=1', '/api/pins/dropped', '/api/people']) {
+    for (const [endpoint, query] of [
+      ['GET /api/docs', ''],
+      ['GET /api/pins', '?all=1'],
+      ['GET /api/pins/dropped', ''],
+      ['GET /api/people', ''],
+    ]) {
       try {
-        await api(address, { what: '핀 읽기', silent: true });
+        await api(endpoint, { query, what: '핀 읽기', silent: true });
       } catch (error) {
         lost++;
       }
@@ -24174,7 +24418,9 @@ async function offlinePrepare() {
       failed = 0;
     for (let i = 0; i < all.length; i += OFF_KEEP_CHUNK) {
       say(translateTemplate('오프라인용으로 받는 중… {n}/{m}', { n: i, m: all.length }));
-      const answer = await offlineAsk({ type: 'keep', urls: all.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS);
+      const answer = keepAnswer(
+        await offlineAsk({ type: 'keep', urls: all.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS),
+      );
       if (!answer) {
         if (note) endNotice(note, false);
         lineNote(
@@ -24191,9 +24437,9 @@ async function offlinePrepare() {
         );
         return;
       }
-      kept += answer.kept || 0;
-      failed += (answer.failed || []).length;
-      (answer.failed || []).forEach((address) => missed.add(address));
+      kept += answer.kept;
+      failed += answer.failed.length;
+      answer.failed.forEach((address) => missed.add(address));
     }
     // A document is recorded as kept only with every one of its files: a build half kept is not one to follow from.
     // What it kept before then goes to the old builds, which the next follow drops unless a queued pin was drawn on it.
@@ -24250,10 +24496,66 @@ const OFF_KEPT = 'kept',
   OFF_RETRY_MAX = 1800000,
   OFF_SAY_AFTER = 3,
   OFF_LOCK = 'limn-offline-follow';
+// The kept record as the state store holds it under OFF_KEPT: what each document keeps (docs) and the old builds not
+// dropped yet (old). Carried is what each document's meta is known to be (KeptDoc).
+// What a document keeps (offlinePrepare, offFollowDoc): its build and that build's file addresses, when its hold was
+// last answered (at, 0 for never) and when the server was asked for that build (seen); the meta it was read with, which
+// a stored meta read is answered with (offKeptMeta) and is otherwise only handed on; a Markdown or text document's
+// source time (src) instead, with no build and no files. Carried is what the meta is known to be: unknown as the store
+// gives it back, the meta answer it was once it is taken as one (offKeptAnswers).
+// A build a document kept before, not dropped yet: its files, when its hold was last answered, and unheld when this
+// browser never held it (offKeptPart).
+function isKeptDoc(value) {
+  return (
+    isObject(value) &&
+    typeof value.build === 'string' &&
+    isTextList(value.files) &&
+    typeof value.at === 'number' &&
+    typeof value.seen === 'number' &&
+    (value.src === undefined || value.src === null || typeof value.src === 'number')
+  );
+}
+function isOldBuild(value) {
+  return (
+    isObject(value) &&
+    typeof value.doc === 'string' &&
+    typeof value.build === 'string' &&
+    isTextList(value.files) &&
+    typeof value.at === 'number' &&
+    (value.unheld === undefined || typeof value.unheld === 'boolean')
+  );
+}
+// Whether a value read under OFF_KEPT is the kept record: what offKeptWith, offKeptPart and offKeptHeld write, every
+// document's entry and every old build whole. Every Limn that keeps a copy writes this shape. Pure.
+function isKeptRecord(value) {
+  if (!isObject(value)) return false;
+  const { docs, old } = value;
+  return (
+    typeof value.key === 'string' &&
+    isObject(docs) &&
+    !Array.isArray(docs) &&
+    Object.values(docs).every(isKeptDoc) &&
+    Array.isArray(old) &&
+    old.every(isOldBuild)
+  );
+}
+// The kept record a value read under OFF_KEPT is, or null - for an instance never kept, and for a record that is not
+// one (isKeptRecord): read as never kept, it follows nothing, and the next [오프라인으로 받기] writes a new one over it.
+// Pure.
+function keptRecord(value) {
+  return isKeptRecord(value) ? value : null;
+}
 /** The kept record, or null for an instance never kept. */
 function offKept() {
+  return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_KEPT)).then(keptRecord);
+}
+// The kept record with each document's meta taken as the GET /api/meta answer it is, or null as offKept: the record is
+// narrowed (keptRecord); the metas it carries are the answers offlinePrepare and offFollowDoc were given and kept, not
+// checked again (platform/api.ts trusts response.json() the same way, docs/adr/0046-viewer-endpoint-answers.md D3).
+// record is the store's value as IndexedDB gives it back (any).
+function offKeptAnswers() {
   return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_KEPT)).then((record) =>
-    record && record.docs ? record : null,
+    keptRecord(record) ? record : null,
   );
 }
 // Changes the kept record in one transaction, read and written together: two tabs of this browser share it, and a
@@ -24274,7 +24576,7 @@ function offKeptUpdate(change) {
             request = store.get(OFF_KEPT);
           request.onsuccess = () => {
             try {
-              out = change(request.result && request.result.docs ? request.result : null);
+              out = change(keptRecord(request.result));
               if (out) store.put(out);
             } catch (error) {
               out = null;
@@ -24308,16 +24610,23 @@ function offKeptShow() {
 }
 // What a meta answer says each document is on: the document it answers for and, with several documents, each one's
 // summary - the page build, the source time, the kind. Pure.
+// What a meta answer says one document is on (offSeenIn): its page build ('' for none), its source time and its kind.
+// meta is an answer to GET /api/meta as it was handed to offStash; a field of the wrong type reads as missing.
 function offSeenIn(meta) {
   const out = {};
-  if (!meta || typeof meta !== 'object') return out;
+  if (!isObject(meta)) return out;
   const put = (summary, key) => {
+    const { pages_build: build, src_mtime: src, kind } = summary;
     if (typeof key === 'string' && key)
-      out[key] = { build: summary.pages_build || '', src: summary.src_mtime ?? null, kind: summary.kind || null };
+      out[key] = {
+        build: (typeof build === 'string' && build) || '',
+        src: typeof src === 'number' ? src : null,
+        kind: (typeof kind === 'string' && kind) || null,
+      };
   };
   put(meta, meta.doc);
   (Array.isArray(meta.docs) ? meta.docs : []).forEach((summary) => {
-    if (summary && typeof summary === 'object') put(summary, summary.key);
+    if (isObject(summary)) put(summary, summary.key);
   });
   return out;
 }
@@ -24329,15 +24638,17 @@ function offBehind(kept, seen) {
   return Object.keys(seen).filter((docName) => {
     const shown = seen[docName],
       keptDoc = docs[docName];
-    if (rendersInBrowser(shown.kind)) return !keptDoc || keptDoc.src !== shown.src;
+    if (rendersInBrowser(shown.kind ?? undefined)) return !keptDoc || keptDoc.src !== shown.src;
     return !!shown.build && (!keptDoc || keptDoc.build !== shown.build);
   });
 }
 // The old builds no queued pin was drawn on: those whose copies may be dropped and whose hold need not be asked again.
 // A record names its document and the build it was drawn on; a record with no document is taken to be drawn on that
 // build in any document - keeping a build too long costs space, dropping it loses the pin's place. Pure.
+// queue is every record the store holds, read as it is: a record that is not a queued pin (isQueuedPin) keeps the
+// build it names all the same.
 function offFree(old, queue) {
-  const drawn = (queue || []).filter((record) => record && record.build);
+  const drawn = (queue || []).filter(isObject).filter((record) => record.build);
   return (old || []).filter(
     (oldBuild) =>
       !drawn.some((record) => record.build === oldBuild.build && (!record.doc || record.doc === oldBuild.doc)),
@@ -24348,7 +24659,8 @@ function offFree(old, queue) {
 function offRenewDue(kept, now) {
   const out = [];
   if (!kept) return out;
-  const due = (entry) => !!entry && !!entry.build && !entry.unheld && !(now - (entry.at || 0) < OFF_RENEW_MS);
+  const due = (entry) =>
+    !!entry && !!entry.build && !entry.unheld && !(now - (entry.at || 0) < OFF_RENEW_MS);
   Object.keys(kept.docs || {}).forEach((docName) => {
     if (due(kept.docs[docName])) out.push({ doc: docName, build: kept.docs[docName].build });
   });
@@ -24420,8 +24732,8 @@ async function offHold(
 ) {
   const holder = (await offHolderId()) || undefined;
   try {
-    const answer = await api(withDocQuery('/api/hold', docName), {
-      method: 'POST',
+    const answer = await api('POST /api/hold', {
+      query: withDocQuery('', docName),
       body: { build: build, days, holder },
       what: '빌드 보류',
       silent: true,
@@ -24454,7 +24766,10 @@ function offHolderId() {
             request = store.get(OFF_HOLDER);
           request.onsuccess = () => {
             const stored = request.result;
-            id = stored && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id) ? stored.id : '';
+            id =
+              isObject(stored) && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id)
+                ? stored.id
+                : '';
             if (!id) {
               id = offlineKey();
               store.put({ key: OFF_HOLDER, id });
@@ -24560,14 +24875,20 @@ async function offFollowDoc(docName) {
   // When the server was asked: a reading asked later is the newer one (offKeptWith).
   const seen = Date.now();
   try {
-    meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+    meta = (await api('GET /api/meta', { query: withDocQuery('', docName), what: '화면 정보 읽기', silent: true }))
+      .data;
   } catch (error) {
     return false;
   }
   if (!meta) return false;
   if (rendersInBrowser(meta.kind)) {
     try {
-      await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+      await api('GET /api/source', {
+        query: withDocQuery('', docName),
+        what: '원문 읽기',
+        silent: true,
+        expect: [413],
+      });
     } catch (error) {
       return false;
     }
@@ -24580,7 +24901,7 @@ async function offFollowDoc(docName) {
   // Nothing to keep.
   if (!build) return true;
   try {
-    await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+    await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true });
   } catch (error) {}
   const files = offlineDocFiles(docName, meta);
   // Half a build is not kept: the one before stays whole, and what was fetched of this one is noted to go in turn.
@@ -24589,8 +24910,10 @@ async function offFollowDoc(docName) {
     return false;
   };
   for (let i = 0; i < files.length; i += OFF_KEEP_CHUNK) {
-    const answer = await offlineAsk({ type: 'keep', urls: files.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS);
-    if (!answer || (answer.failed || []).length) return half();
+    const answer = keepAnswer(
+      await offlineAsk({ type: 'keep', urls: files.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS),
+    );
+    if (!answer || answer.failed.length) return half();
   }
   const hold = await offHold(docName, build, 7);
   // Not held, it may be gone before its pins are sent.
@@ -24607,8 +24930,8 @@ async function offFollowTidy() {
   let ok = true;
   const kept = await offKept();
   if (!kept) return true;
-  const queue = await offQueue('readonly', (store) => store.getAll());
-  if (!Array.isArray(queue)) return false;
+  const queue = await offRecords();
+  if (!queue) return false;
   const shown = (oldBuild) => !!OFF.seen[oldBuild.doc] && OFF.seen[oldBuild.doc].build === oldBuild.build;
   for (const oldBuild of offFree(kept.old, queue).filter((oldBuild) => !shown(oldBuild))) {
     if (offlineNow()) return false;
@@ -24629,9 +24952,7 @@ async function offFollowTidy() {
       (record) =>
         record && {
           ...record,
-          old: (record.old || []).filter(
-            (other) => !(other.doc === oldBuild.doc && other.build === oldBuild.build),
-          ),
+          old: (record.old || []).filter((other) => !(other.doc === oldBuild.doc && other.build === oldBuild.build)),
         },
     );
   }
@@ -24680,9 +25001,12 @@ function offFollowDone(ok) {
 async function offlineQuote(page, rect) {
   if (!VECTOR_PDF.doc) return '';
   try {
-    // The one reader of a page's text (pdf/flow.ts).
-    const { items, vp: viewport } = await pageText(VECTOR_PDF.doc, page);
-    return quoteIn(items, viewport.height, rect);
+    // The one reader of a page's text (pdf/flow.ts): PDF.js's text content items and the page's viewport at scale 1,
+    // whose height is a number (pdfjs-dist PageViewport).
+    const text = await pageText(VECTOR_PDF.doc, page);
+    const viewport = text.vp;
+    if (!isObject(viewport) || typeof viewport.height !== 'number') return '';
+    return quoteIn(text.items, viewport.height, rect);
   } catch (error) {
     return '';
   }
@@ -24692,11 +25016,17 @@ async function offlineQuote(page, rect) {
 // An item counts when its run crosses the box and the middle of its line is inside it. Judged by where the item
 // starts alone, a line that begins at the margin and runs through the box would be left out - which is most lines, so
 // the quote would come back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
-function quoteIn(items, pageHeight, rect) {
+// items are PDF.js text content items (types/pdfjs.d.ts PdfTextItem); one that is not an object with a list of numbers
+// for its transform - a marked content item has none - is passed over.
+function quoteIn(
+  items,
+  pageHeight,
+  rect,
+) {
   const out = [];
   (items || []).forEach((item) => {
-    const matrix = item && item.transform;
-    if (!matrix || typeof item.str !== 'string' || !item.str.trim()) return;
+    const matrix = isObject(item) && isNumberList(item.transform) ? item.transform : null;
+    if (!isObject(item) || !matrix || typeof item.str !== 'string' || !item.str.trim()) return;
     const x = matrix[4],
       width = Number(item.width) || 0,
       height = Number(item.height) || Math.hypot(matrix[2], matrix[3]) || 0,
@@ -24716,18 +25046,18 @@ async function offlinePick(drag) {
     quote = await offlineQuote(drag.page, rect);
   // A newer drag or a cancel owns the composer now.
   if (seq !== PICKSEQ) return;
+  // A region's shape, as POST /api/pick answers one for a view-only PDF (pins/location/http.py _region_body): no file
+  // and no lines, which the composer reads as absent, a name only the found place will have (''), the build the drag
+  // was drawn on ('' when the drag named none), and absent for a PDF or a document it cannot name.
   const selection = {
     kind: 'region',
     page: drag.page,
     frac: drag.frac,
     quote,
-    file: null,
-    name: null,
-    lo: null,
-    hi: null,
-    pdf: META ? META.pages_build : null,
-    pdf_build: drag.pdf_build,
-    doc: drag.doc || DOC,
+    name: '',
+    pdf: META ? META.pages_build : undefined,
+    pdf_build: drag.pdf_build || '',
+    doc: drag.doc || DOC || undefined,
     offline: true,
     rect,
     levels: [],
@@ -24735,13 +25065,9 @@ async function offlinePick(drag) {
     scope: null,
     env: null,
     elSel: null,
-    el: null,
-    via: null,
-    score: null,
     warn: '',
     snippet: '',
     n_lines: 0,
-    default_level: null,
   };
   setComposeCurrent(selection);
   setComposeIntent(COMPOSE.intent + 1);
@@ -24915,30 +25241,41 @@ function linesWhere(lines, want) {
     }
   return count === 1 ? { lo: hit, hi: hit + lineCount - 1 } : null;
 }
+// Where a kept Markdown or text record's lines stand now (offlinePlaceLines), in the shape offlineBody takes.
+// The place a record is written at: its lines found again (LinePlace), or pick's answer for its drag (POST /api/pick).
 // The place a kept Markdown or text record is written at: its lines as the source reads now (linesWhere), in the shape
 // offlineBody takes. 'net' when the source could not be asked for (the record waits), null when the lines are gone.
 async function offlinePlaceLines(rec) {
+  const kept = rec.lines;
+  if (!kept) return null;
   let answer;
   try {
-    answer = await api(withDocQuery('/api/source', rec.doc), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api('GET /api/source', {
+      query: withDocQuery('', rec.doc),
+      what: '원문 읽기',
+      silent: true,
+      expect: [413],
+    });
   } catch (error) {
     const apiError = error,
       status = (apiError && apiError.status) || 0;
     return status >= 400 && status < 500 ? null : 'net';
   }
   const lines =
-    answer.status === 200 && answer.data && Array.isArray(answer.data.lines) ? answer.data.lines.map(String) : null;
-  const at = lines ? linesWhere(lines, rec.lines) : null;
+    answer.status === 200 && answer.data && !isRefusal(answer.data) && Array.isArray(answer.data.lines)
+      ? answer.data.lines.map(String)
+      : null;
+  const at = lines ? linesWhere(lines, kept) : null;
   if (!at) return null;
   return {
-    file: rec.lines.file,
-    name: rec.lines.name,
+    file: kept.file,
+    name: kept.name,
     lo: at.lo,
     hi: at.hi,
     raw_lo: at.lo,
     raw_hi: at.hi,
-    kind: rec.lines.kind,
-    scope: rec.lines.scope || undefined,
+    kind: kept.kind,
+    scope: kept.scope || undefined,
     quote: rec.quote,
   };
 }
@@ -25000,7 +25337,7 @@ function offlineBody(rec, place) {
     kind_req: rec.kind_req,
     assignee: rec.assignee,
   };
-  if (place.scope) body.scope = place.scope;
+  if ('scope' in place && place.scope) body.scope = place.scope;
   if ((rec.mentions || []).length) body.mentions = rec.mentions;
   if (rec.idem) body.idem = rec.idem;
   // A figure pick names its element. Without it the pin has no element to follow: its mark stays where it was drawn
@@ -25066,7 +25403,12 @@ async function offlineFlush() {
   // event, and a server may have been rolled back to a Limn that drops the key it does not know. The answer sets
   // OFF.idem on its way through api() (offStash). No answer means the connection is not there after all.
   try {
-    await api(withDocQuery('/api/meta?light=1'), { what: '상태 확인', silent: true, wait: API_WAIT.POLL });
+    await api('GET /api/meta', {
+      query: withDocQuery('?light=1'),
+      what: '상태 확인',
+      silent: true,
+      wait: API_WAIT.POLL,
+    });
   } catch (error) {
     OFF.flushing = false;
     return;
@@ -25089,15 +25431,14 @@ async function offlineFlush() {
       const keyed = OFF.idem && !!rec.idem;
       if (keyed && rec.sent) {
         try {
-          const answer = await api('/api/pin', {
-            method: 'POST',
+          const answer = await api('POST /api/pin', {
             body: { idem: rec.idem, replay_only: true, doc: rec.doc || undefined },
             what: '핀 저장',
             silent: true,
             expect: [409],
             wait: API_WAIT.SEND,
           });
-          if (answer.status === 200 && answer.data && typeof answer.data.id === 'number') {
+          if (answer.status === 200 && answer.data && !isRefusal(answer.data) && typeof answer.data.id === 'number') {
             claimed.add(answer.data.id);
             await offWroteAdd(answer.data.id);
             saved.push(answer.data.id);
@@ -25123,11 +25464,12 @@ async function offlineFlush() {
       // stands at those numbers now.
       let place = null;
       if (rec.lines) {
-        place = await offlinePlaceLines(rec);
-        if (place === 'net') {
+        const placed = await offlinePlaceLines(rec);
+        if (placed === 'net') {
           failed++;
           continue;
         }
+        place = placed;
         if (!place) {
           rec.held = true;
           rec.why = translate('그사이 그 줄들의 글이 바뀌었습니다');
@@ -25154,28 +25496,25 @@ async function offlineFlush() {
           pdf_build: rec.build || undefined,
           doc: rec.doc || undefined,
         };
+        // A drag pick cannot trace answers 200 with what it could not do (pins/location/http.py pick_answer).
+        let picked;
         try {
-          place = (
-            await api('/api/pick', {
-              method: 'POST',
-              body: pickRequest,
-              what: '위치 찾기',
-              silent: true,
-              wait: API_WAIT.SEND,
-            })
+          picked = (
+            await api('POST /api/pick', { body: pickRequest, what: '위치 찾기', silent: true, wait: API_WAIT.SEND })
           ).data;
         } catch (error) {
           // No answer or a refusal: the record stays for the next send.
           failed++;
           continue;
         }
-        if (!place || place.error) {
+        if (!picked || typeof picked !== 'object' || isRefusal(picked)) {
           rec.held = true;
-          rec.why = errText(place) || translate('위치를 찾지 못했습니다');
+          rec.why = errText(picked) || translate('위치를 찾지 못했습니다');
           await offPut(rec);
           held++;
           continue;
         }
+        place = picked;
       }
       // A server that knows a write by its key needs none of the looking below: the same key is the same pin, so the
       // record is sent with it until an answer comes, and an answer to a second attempt names the pin the first made.
@@ -25192,8 +25531,7 @@ async function offlineFlush() {
         rec.top = topPinId();
         await offPut(rec);
         try {
-          const { data } = await api('/api/pin', {
-            method: 'POST',
+          const { data } = await api('POST /api/pin', {
             body: offlineBody(rec, place),
             what: '핀 저장',
             silent: true,
@@ -25246,8 +25584,7 @@ async function offlineFlush() {
       // The pins that existed before this write, as savePin notes for its own.
       await offPut(rec);
       try {
-        const { data } = await api('/api/pin', {
-          method: 'POST',
+        const { data } = await api('POST /api/pin', {
           body: offlineBody(rec, place),
           what: '핀 저장',
           silent: true,
@@ -25358,6 +25695,8 @@ addEventListener('online', () => {
  * its undo row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a
  * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
  */
+// The queue's panel and page marks (OFFUI): the queued pins last drawn, whether the panel is open, the undo row of each
+// record just dropped or taken back, by its key, and the timer that ends a panel row's flash (0 before the first).
 const OFFUI = {
   all: [],
   open: true,
@@ -25391,7 +25730,7 @@ function offUiRows(all, doc, defaultDoc, build, pageCount) {
     .map((rec) => {
       const here = (rec.doc || defaultDoc) === (doc || defaultDoc),
         lines = rec.page == null && !!rec.lines && typeof rec.lines === 'object';
-      const page = Number.isInteger(rec.page) && rec.page >= 1 ? rec.page : null,
+      const page = typeof rec.page === 'number' && Number.isInteger(rec.page) && rec.page >= 1 ? rec.page : null,
         onDoc = page !== null && page <= pageCount;
       const mark = here && !lines && onDoc && !!build && rec.build === build && offUiFrac(rec.frac);
       return {
@@ -25432,7 +25771,9 @@ function offUiPlace(rec) {
         : translateTemplate('{lo}줄', { lo: firstLine }))
     );
   }
-  return rec && Number.isInteger(rec.page) && rec.page >= 1 ? translateTemplate('{page}쪽', { page: rec.page }) : '';
+  return rec && typeof rec.page === 'number' && Number.isInteger(rec.page) && rec.page >= 1
+    ? translateTemplate('{page}쪽', { page: rec.page })
+    : '';
 }
 // A one-line excerpt of text: its white space folded, cut at limit characters with an ellipsis. Pure.
 function offUiClip(text, limit) {
@@ -25468,8 +25809,9 @@ function offUiMarks(rows) {
   rows.forEach((row) => {
     if (!row.mark) return;
     const pageBox = document.getElementById('p' + row.page);
-    if (!pageBox) return;
+    // A mark's frac is a box on the page (offUiFrac).
     const frac = row.rec.frac;
+    if (!pageBox || !frac) return;
     const mark = document.createElement('div');
     mark.className = 'qmark' + (row.held ? ' held' : '');
     mark.dataset.qid = String(row.rec.id);
@@ -25627,7 +25969,8 @@ function offUiGo(rec) {
   }
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false); // the sheet folds first so the page is not under it
   marksShow();
-  arrivePage(rec.page);
+  // A record with no page (a line pin) has no page to go to.
+  if (typeof rec.page === 'number') arrivePage(rec.page);
   const mark = document.querySelector('.qmark[data-qid="' + rec.id + '"]');
   if (mark) {
     mark.classList.remove('flash');
@@ -25696,7 +26039,8 @@ async function offUiRedo(rec, button) {
   if (!$('#composer').hidden) note.focus({ preventScroll: true });
   else if (had) offUiFocusUndo(rec.id);
   // The page it was on, beside the panel.
-  if (LAYOUT === LAYOUT_MODE.WIDE && Number.isInteger(rec.page) && !isMarkdownDoc()) arrivePage(rec.page);
+  if (LAYOUT === LAYOUT_MODE.WIDE && typeof rec.page === 'number' && Number.isInteger(rec.page) && !isMarkdownDoc())
+    arrivePage(rec.page);
 }
 // While the queue is being sent a record may be on its way: it is neither dropped nor taken back until that is over.
 function offUiBusy() {
@@ -26727,7 +27071,7 @@ function verdictUndo(id) {
   const undo = async () => {
     let was = null;
     try {
-      was = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin;
+      was = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin;
     } catch (error) {}
     const session = REASON_SESSION && REASON_SESSION.id === id ? REASON_SESSION : null;
     if (session && hasUnsavedReason(session))
@@ -27061,8 +27405,7 @@ async function savePageVerdict(
   if (onUndo) refocusLineWord(page, key);
   try {
     const answer = (
-      await api('/api/pick', {
-        method: 'POST',
+      await api('POST /api/pick', {
         body: {
           page,
           x0: 0,
@@ -27077,7 +27420,7 @@ async function savePageVerdict(
         silent: true,
       })
     ).data;
-    if (answer.error) {
+    if (isRefusal(answer)) {
       failed(errText(answer));
       if (answer.pdf_build_gone && here()) refreshDoc().catch(() => {});
       return;
@@ -27099,7 +27442,7 @@ async function savePageVerdict(
     });
     let id = 0;
     try {
-      id = (await api('/api/pin', { method: 'POST', body, what: '판정 저장', silent: true })).data.id;
+      id = (await api('POST /api/pin', { body, what: '판정 저장', silent: true })).data.id;
     } catch (error) {
       const x = error;
       // no answer, or a 5xx (it may have been written first): the list says whether it landed
@@ -30207,7 +30550,7 @@ async function settleWriteOnto(session, ok, page) {
   } // nothing of it was left to write: a pin it came from had it (commitReason)
   let pin = undefined;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
     const x = error;
     if (!x || !x.status || x.status >= 500) {
@@ -30495,7 +30838,7 @@ async function checkLostWrites(session) {
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
     let fetched = null;
     try {
-      fetched = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
+      fetched = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin || null;
     } catch (error) {
       const x = error;
       if (!x || !x.status || x.status >= 500) {
@@ -30560,8 +30903,8 @@ async function fenceLostWrites(
   pin,
 ) {
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       intent: 'reason-fence',
       silent: true,
       expect: [409],
@@ -30850,7 +31193,7 @@ async function writeReason(session, text, said) {
   if (viewerBlocked()) return false;
   let pin;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
     const x = error;
     if (!x || !x.status || x.status >= 500) {
@@ -30873,9 +31216,8 @@ async function writeReason(session, text, said) {
     keepConflict(session, text, pin);
     return false;
   } // changed since it was read: never sent
-  const url = '/api/pins/' + session.id + '/edit',
-    // silent: sayReasonFailed says a failure, with its target
-    options = { method: 'POST', intent: 'reason', silent: true };
+  // silent: sayReasonFailed says a failure, with its target
+  const options = { id: session.id, intent: 'reason', silent: true };
   let sent = null; // the write out now, while its answer is awaited
   try {
     for (let round = 1; ; round++) {
@@ -30887,7 +31229,7 @@ async function writeReason(session, text, said) {
         return false;
       }
       sent = edit.sent;
-      const { status, data } = await api(url, {
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
         ...options,
         body: edit.body,
         expect: round < CONFLICT_RETRIES ? [409] : [],
@@ -31126,14 +31468,17 @@ async function clearReason() {
     target = reasonTargetName(session),
     word = verdictLabel(session.key),
     url = '/api/pins/' + session.id + '/edit',
-    options = { method: 'POST', intent: 'reason', silent: true, expect: [409] };
+    options = { id: session.id, intent: 'reason', silent: true, expect: [409] };
   const go = async () => {
     try {
       if (session.clearTried) {
-        const pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+        const pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
         if (pin && !String(pin.note || '').trim()) return 'ok';
       }
-      const { status, data } = await api(url, { ...options, body: { note: '', base_rev: session.rev } });
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
+        ...options,
+        body: { note: '', base_rev: session.rev },
+      });
       if (status !== 409) return 'ok';
       const answered = data && data.pin;
       if (!answered) return 'gone';
@@ -31142,7 +31487,7 @@ async function clearReason() {
         keepConflict(session, session.text, answered);
         return 'conflict';
       }
-      await api(url, { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
+      await api('POST /api/pins/{id}/edit', { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
     } catch (error) {
       const x = error,
@@ -31193,10 +31538,10 @@ async function clearReason() {
 async function undoClearReason(id, old) {
   let ok = false;
   try {
-    const pin = (await api('/api/pins/' + id, { what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
+    const pin = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
     if (pin && !String(pin.note || '').trim()) {
-      await api('/api/pins/' + id + '/edit', {
-        method: 'POST',
+      await api('POST /api/pins/{id}/edit', {
+        id,
         body: { note: old, base_rev: pin.rev },
         intent: 'reason',
         what: '이유 되돌리기',
@@ -34049,8 +34394,8 @@ const CONFIRM_SEND_MS = 15000;
 function sendOneConfirm(pin, at) {
   const stop = new AbortController(),
     bound = setTimeout(() => stop.abort(), CONFIRM_SEND_MS);
-  return api('/api/pins/' + pin.id + '/confirm', {
-    method: 'POST',
+  return api('POST /api/pins/{id}/confirm', {
+    id: pin.id,
     silent: true,
     expect: [409],
     keepalive: true,
@@ -34757,7 +35102,7 @@ function updateReviewCount() {
 
 async function loadPeople() {
   try {
-    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
+    const answer = (await api('GET /api/people', { what: '사람 목록', silent: true })).data;
     if (Array.isArray(answer.people)) {
       const was = JSON.stringify(PEOPLE),
         first = !PEOPLE_KNOWN;
@@ -34840,7 +35185,8 @@ async function loadPins() {
   let rows;
   try {
     rows = (
-      await api('/api/pins?all=1', {
+      await api('GET /api/pins', {
+        query: '?all=1',
         what: '핀 읽기',
         where: NOTICE_HOST.LIST,
         retry: () => {
@@ -34858,7 +35204,7 @@ async function loadPins() {
   try {
     dropped =
       (
-        await api('/api/pins/dropped', {
+        await api('GET /api/pins/dropped', {
           what: '삭제한 핀',
           where: NOTICE_HOST.LIST,
           retry: () => {
@@ -35478,8 +35824,8 @@ async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;
   try {
-    const { data } = await api('/api/pins/' + id + '/close', {
-      method: 'POST',
+    const { data } = await api('POST /api/pins/{id}/close', {
+      id,
       what: '완료',
       where: NOTICE_HOST.LIST,
       retry: () => closePin(id),
@@ -35547,22 +35893,22 @@ function confirmPin(id) {
   const pendingConfirm = deferred(
     async () => {
       try {
-        const { data } = await api('/api/pins/' + id + '/confirm', {
-          method: 'POST',
+        const { data } = await api('POST /api/pins/{id}/confirm', {
+          id,
           what: '확인',
           where: NOTICE_HOST.REVIEW,
           expect: [409],
           keepalive: true,
           body: pin && pin.done_at ? { done_at: pin.done_at } : {},
         });
-        if (data && data.error === PIN_STATE.OPEN)
+        if (isRefusal(data) && data.error === PIN_STATE.OPEN)
           bannerNote(
             NOTICE_HOST.REVIEW,
             translateTemplate('핀 #{id} 은 이미 다시 열렸습니다', { id }),
             NOTICE_KIND.WARN,
           );
-        else if (data && data.error === 'conflict') confirmConflict(id, data.pin);
-        else if (!data.ok)
+        else if (isRefusal(data) && data.error === 'conflict') confirmConflict(id, data.pin);
+        else if (isRefusal(data) || !data.ok)
           bannerNote(
             NOTICE_HOST.REVIEW,
             translateTemplate('확인 실패 — 핀 #{id} 이 없습니다', { id }),
@@ -35606,7 +35952,7 @@ function confirmPin(id) {
 async function reopenPin(id) {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/reopen', { method: 'POST', what: '다시 열기', where: NOTICE_HOST.LIST });
+    await api('POST /api/pins/{id}/reopen', { id, what: '다시 열기', where: NOTICE_HOST.LIST });
     ok = true;
     markMine(id);
     quietNote(translateTemplate('핀 #{id} 완료를 되돌렸습니다', { id }));
@@ -35641,8 +35987,8 @@ async function dropPin(
   markMine(id);
   const source = 'POST /api/pins/' + id + '/drop';
   try {
-    await api('/api/pins/' + id + '/drop', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/drop', {
+      id,
       what: (options && options.what) || '삭제',
       where: (options && options.where) || NOTICE_HOST.LIST,
       retry:
@@ -35698,8 +36044,8 @@ function purgePin(id) {
   const pendingPurge = deferred(
     async () => {
       try {
-        await api('/api/pins/' + id + '/purge', {
-          method: 'POST',
+        await api('POST /api/pins/{id}/purge', {
+          id,
           what: '영구 삭제',
           where: NOTICE_HOST.TRASH,
           keepalive: true,
@@ -35726,8 +36072,8 @@ function purgePin(id) {
 async function restorePin(id, settled) {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/restore', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/restore', {
+      id,
       what: '되살리기',
       where: NOTICE_HOST.LIST,
       retry: () => {
@@ -35790,8 +36136,8 @@ async function trashRestore(id) {
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
 async function unclaimPin(id) {
   try {
-    await api('/api/pins/' + id + '/unclaim', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/unclaim', {
+      id,
       what: '처리 중 풀기',
       where: NOTICE_HOST.LIST,
       retry: () => unclaimPin(id),
@@ -36718,8 +37064,8 @@ function sendReply() {
     async () => {
       markMine(id);
       try {
-        const { data } = await api('/api/pins/' + id + '/reply', {
-          method: 'POST',
+        const { data } = await api('POST /api/pins/{id}/reply', {
+          id,
           body,
           what: '답글',
           silent: true,
@@ -36954,9 +37300,9 @@ async function editSnip(withLevels) {
     return;
   } // view-only: there is no source line
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' +
           encodeURIComponent(String(card.file)) +
           '&lo=' +
           card.lo +
@@ -36965,10 +37311,11 @@ async function editSnip(withLevels) {
           (withLevels ? '&levels=1' : ''),
         card.doc,
       ),
-      { what: '원문 읽기', expect: [400] },
-    );
+      what: '원문 읽기',
+      expect: [400],
+    });
     if (EDITOR.current !== card) return;
-    if (status === 400) {
+    if (status === 400 || isRefusal(data)) {
       card.snippet =
         translate('원문을 읽지 못했습니다') + ' — ' + errText(data) + '\n' + translate('위치 다시 잡기로 고치세요.');
       renderEdit();
@@ -37053,8 +37400,8 @@ async function saveEdit() {
   setEditorSaving(true);
   syncEditSaveButton();
   try {
-    const { status, data } = await api('/api/pins/' + card.id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id: card.id,
       body,
       what: '핀 수정',
       where: NOTICE_HOST.LIST,
@@ -37062,11 +37409,11 @@ async function saveEdit() {
       intent: 'edit',
     });
     if (status === 409) {
-      if (data && data.reason === 'suggest_base_changed') {
+      if (isRefusal(data) && data.reason === 'suggest_base_changed') {
         editSuggestRefused(card, data);
         return;
       }
-      if (data && data.error === PIN_STATE.DONE) {
+      if (isRefusal(data) && data.error === PIN_STATE.DONE) {
         bannerNote(
           NOTICE_HOST.LIST,
           translateTemplate('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다', { id: card.id }),
@@ -37356,8 +37703,8 @@ async function applyRepick() {
   figureFields(loc, repickElement(candidate), isRegion(candidate) || !level.el ? null : level);
   const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : 0;
   try {
-    const { status, data } = await api('/api/pins/' + repick.id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id: repick.id,
       body: { loc, base_rev: base },
       what: '위치 바꾸기',
       where: NOTICE_HOST.LIST,
@@ -37367,7 +37714,7 @@ async function applyRepick() {
     if (status === 409) {
       bannerNote(
         NOTICE_HOST.LIST,
-        data && data.error === PIN_STATE.DONE
+        isRefusal(data) && data.error === PIN_STATE.DONE
           ? '닫힌 핀은 위치를 바꿀 수 없습니다'
           : '다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다',
         NOTICE_KIND.WARN,
@@ -37454,7 +37801,7 @@ async function refreshDoc(meta) {
     seq = SWITCHSEQ;
   const snapshot =
     meta === undefined
-      ? (await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
+      ? (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
       : meta;
   if (visitDoc !== DOC || seq !== SWITCHSEQ) return;
   const gen = ++REFRESH_GEN;
@@ -37574,8 +37921,8 @@ async function rebuild(force) {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    const { status } = await api(withDocQuery('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
-      method: 'POST',
+    const { status } = await api('POST /api/rebuild', {
+      query: withDocQuery('?async=1' + (force === true ? '&force=1' : '')),
       what: 'PDF 재빌드',
       where: NOTICE_HOST.LINE,
       retry: () => rebuild(force),
@@ -38545,7 +38892,9 @@ async function boot() {
   await loadDocs();
   setDoc(initialDoc());
   try {
-    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
+    setMeta(
+      (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data,
+    );
   } catch (error) {
     return;
   }

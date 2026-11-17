@@ -45,7 +45,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 function scopeLabel(){return '';} function levelLabel(){return '';}
                 function esc(s){return String(s);} function translate(s){return s;}
                 const pending=[];
-                function api(url){if(url==='/api/pick')return new Promise((resolve,reject)=>pending.push({resolve,reject}));
+                function api(endpoint){if(endpoint==='POST /api/pick')return new Promise((resolve,reject)=>pending.push({resolve,reject}));
                   return Promise.resolve({data:{pages:[]}});}
                 let refreshResolve=null,refreshCalls=0,compares=0,banners=0;
                 function refreshDoc(){refreshCalls++;return new Promise(resolve=>{refreshResolve=resolve;});}
@@ -57,7 +57,9 @@ class RepickRequestLifetime(unittest.TestCase):
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("startRepick"),
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
-                JS_OFFLINE_STUBS + extract_js_fn("pick"),  # connected: a selection asks the server (offline/flow.ts)
+                JS_OFFLINE_STUBS
+                + extract_js_fn("isRefusal")
+                + extract_js_fn("pick"),  # connected: a selection asks the server (offline/flow.ts)
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does

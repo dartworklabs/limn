@@ -281,7 +281,7 @@ function cardActs(claimed: boolean, compact: boolean, canDrop = true, verdict = 
 // is one line of the agent's answer (close_reply) - truncated on overflow, expandable on click. The original request
 // note is only shown by pressing [원래 요청]. The expanded state is kept in ARC_OPEN ('r:'|'o:'|'d:' + id) so it
 // survives a redraw.
-const ARC_OPEN = new Set();
+const ARC_OPEN = new Set<string>();
 // The name of the day a stored time falls on, as a day line of the list says it: 오늘, 어제, '10월 31일', and '2025년
 // 9월 25일' in another year; '' for a string that is no time. A time ahead of this device's clock counts as today. now
 // is injected by tests.

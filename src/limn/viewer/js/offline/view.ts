@@ -15,7 +15,7 @@ import { switchDoc } from '../documents/flow-switch.ts';
 import { setSide } from '../layout/flow.ts';
 import { setKind } from '../composer/flow-pick.ts';
 import { saveDraftSoon } from '../composer/flow-draft.ts';
-import { OFF, offDel, offPut, offlineSync } from './flow.ts';
+import { OFF, offDel, offPut, offlineSync, type QueuedPin } from './flow.ts';
 import { marksShow } from '../pins/input-hide-marks.ts';
 import { ASSIGN_NEW, renderAssignNew } from '../composer/input-mentions.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
@@ -29,7 +29,7 @@ import { arrivePage } from '../pdf/view-page-jump.ts';
  * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
  */
 type OffUiUndo = {
-  rec: any;
+  rec: QueuedPin;
   redo: boolean;
   text: string;
   at: number;
@@ -38,11 +38,19 @@ type OffUiUndo = {
   busy: boolean;
   hover: boolean;
 };
-const OFFUI = {
-  all: [] as any[],
+// The queue's panel and page marks (OFFUI): the queued pins last drawn, whether the panel is open, the undo row of each
+// record just dropped or taken back, by its key, and the timer that ends a panel row's flash (0 before the first).
+interface OfflineUiState {
+  all: QueuedPin[];
+  open: boolean;
+  undos: Map<number, OffUiUndo>;
+  flashT: ReturnType<typeof setTimeout> | 0;
+}
+const OFFUI: OfflineUiState = {
+  all: [],
   open: true,
-  undos: new Map() as Map<number, OffUiUndo>,
-  flashT: 0 as ReturnType<typeof setTimeout> | 0,
+  undos: new Map(),
+  flashT: 0,
 };
 
 // Whether frac is a box on the page: four finite numbers, the box inside the page with some size. A record from
@@ -65,13 +73,13 @@ function offUiFrac(frac: unknown): boolean {
 // (drawn on the page: here, on the build on screen - its box is that build's - and on a page this document has), `old`
 // (here, drawn on another build: listed, not drawn). doc is the document on screen, defaultDoc the one a record with no
 // document belongs to, build the build on screen, pageCount its page count. Pure.
-function offUiRows(all: any[], doc: string, defaultDoc: string, build: string, pageCount: number) {
+function offUiRows(all: QueuedPin[], doc: string, defaultDoc: string, build: string, pageCount: number) {
   const rows = (Array.isArray(all) ? all : [])
     .filter((record) => record && typeof record === 'object')
     .map((rec) => {
       const here = (rec.doc || defaultDoc) === (doc || defaultDoc),
         lines = rec.page == null && !!rec.lines && typeof rec.lines === 'object';
-      const page = Number.isInteger(rec.page) && rec.page >= 1 ? rec.page : null,
+      const page = typeof rec.page === 'number' && Number.isInteger(rec.page) && rec.page >= 1 ? rec.page : null,
         onDoc = page !== null && page <= pageCount;
       const mark = here && !lines && onDoc && !!build && rec.build === build && offUiFrac(rec.frac);
       return {
@@ -88,14 +96,14 @@ function offUiRows(all: any[], doc: string, defaultDoc: string, build: string, p
 }
 // Why a held record is held: the reason it carries, or - an empty one - the reason a held record always has
 // (offline/flow.ts writes this one when it has no other). '' for a record that waits. Pure but for translate.
-function offUiWhy(rec: any): string {
+function offUiWhy(rec: QueuedPin | null): string {
   if (!rec || !rec.held) return '';
   const reason = String(rec.why || '').trim();
   return reason || translate('위치를 찾지 못했습니다');
 }
 // Where a record was pinned, as the row and the mark's tip say it: '3쪽', a line pin's 'intro.md 12–14줄' (one line:
 // '12줄'), '' when it says neither. Pure but for translateTemplate.
-function offUiPlace(rec: any): string {
+function offUiPlace(rec: QueuedPin | null): string {
   const lines = rec && rec.lines;
   if (rec && rec.page == null && lines && typeof lines === 'object') {
     const name =
@@ -112,7 +120,9 @@ function offUiPlace(rec: any): string {
         : translateTemplate('{lo}줄', { lo: firstLine }))
     );
   }
-  return rec && Number.isInteger(rec.page) && rec.page >= 1 ? translateTemplate('{page}쪽', { page: rec.page }) : '';
+  return rec && typeof rec.page === 'number' && Number.isInteger(rec.page) && rec.page >= 1
+    ? translateTemplate('{page}쪽', { page: rec.page })
+    : '';
 }
 // A one-line excerpt of text: its white space folded, cut at limit characters with an ellipsis. Pure.
 function offUiClip(text: unknown, limit: number): string {
@@ -124,7 +134,7 @@ function offUiClip(text: unknown, limit: number): string {
 
 /** Draws the queue anew from every queued record.
  * @param all every queued record, oldest first (offline/flow.ts offAll) */
-function offlineUiSync(all: any[]) {
+function offlineUiSync(all: QueuedPin[]) {
   OFFUI.all = Array.isArray(all) ? all : [];
   offUiDraw();
 }
@@ -148,8 +158,9 @@ function offUiMarks(rows: ReturnType<typeof offUiRows>) {
   rows.forEach((row) => {
     if (!row.mark) return;
     const pageBox = document.getElementById('p' + row.page);
-    if (!pageBox) return;
+    // A mark's frac is a box on the page (offUiFrac).
     const frac = row.rec.frac;
+    if (!pageBox || !frac) return;
     const mark = document.createElement('div');
     mark.className = 'qmark' + (row.held ? ' held' : '');
     mark.dataset.qid = String(row.rec.id);
@@ -196,7 +207,7 @@ function offUiList(rows: ReturnType<typeof offUiRows>) {
   );
   $('#queue-toggle').setAttribute('aria-expanded', String(OFFUI.open));
   $('#queue-body').hidden = !OFFUI.open;
-  const here = (rec: any) => ((rec.doc || DEFAULT_DOC) === (DOC || DEFAULT_DOC) ? 0 : 1);
+  const here = (rec: QueuedPin) => ((rec.doc || DEFAULT_DOC) === (DOC || DEFAULT_DOC) ? 0 : 1);
   const items = rows
     .map((row) => ({ rec: row.rec, h: offUiRow(row) }))
     .concat(undos.map((undo) => ({ rec: undo.rec, h: offUiUndoRow(undo) })))
@@ -277,7 +288,7 @@ function offUiFocusBack(focused: { q: string; id: string } | null) {
 }
 
 // The queued record with this id, or null.
-function offUiRec(id: number): any {
+function offUiRec(id: number): QueuedPin | null {
   return OFFUI.all.find((record) => record && record.id === id) || null;
 }
 // Shows the row of record id in the panel: opens the panel and the section, scrolls the row into view and flashes it.
@@ -299,7 +310,7 @@ function offUiReveal(id: number) {
   });
 }
 // A row's place: this document's page (and its mark, flashed), or another document, switched to.
-function offUiGo(rec: any) {
+function offUiGo(rec: QueuedPin) {
   const docName = rec.doc || DEFAULT_DOC;
   if (docName !== (DOC || DEFAULT_DOC)) {
     void switchDoc(docName);
@@ -307,7 +318,8 @@ function offUiGo(rec: any) {
   }
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false); // the sheet folds first so the page is not under it
   marksShow();
-  arrivePage(rec.page);
+  // A record with no page (a line pin) has no page to go to.
+  if (typeof rec.page === 'number') arrivePage(rec.page);
   const mark = document.querySelector('.qmark[data-qid="' + rec.id + '"]') as HTMLElement | null;
   if (mark) {
     mark.classList.remove('flash');
@@ -317,7 +329,7 @@ function offUiGo(rec: any) {
 }
 // [버리기]: the record goes now and is never sent. Its undo row stands in its place (offUiUndoRow) and puts the record
 // back as it was - its key is its id, so it takes its place in the order again.
-async function offUiDrop(rec: any, button: HTMLElement) {
+async function offUiDrop(rec: QueuedPin, button: HTMLElement) {
   if (offUiBusy()) return;
   const had = document.activeElement === button;
   await offDel(rec.id);
@@ -330,7 +342,7 @@ async function offUiDrop(rec: any, button: HTMLElement) {
 // wait for the next drag (or join the selection already open). A note already being written is not overwritten: the
 // person saves or discards it first. Another document's record switches to that document first - its draft is that
 // document's. A record that may already be a pin on the server (sent, no answer) is not taken back.
-async function offUiRedo(rec: any, button: HTMLElement) {
+async function offUiRedo(rec: QueuedPin, button: HTMLElement) {
   if (offUiBusy()) return;
   const docName = rec.doc || DEFAULT_DOC,
     had = document.activeElement === button;
@@ -376,7 +388,8 @@ async function offUiRedo(rec: any, button: HTMLElement) {
   if (!$('#composer').hidden) note.focus({ preventScroll: true });
   else if (had) offUiFocusUndo(rec.id);
   // The page it was on, beside the panel.
-  if (LAYOUT === LAYOUT_MODE.WIDE && Number.isInteger(rec.page) && !isMarkdownDoc()) arrivePage(rec.page);
+  if (LAYOUT === LAYOUT_MODE.WIDE && typeof rec.page === 'number' && Number.isInteger(rec.page) && !isMarkdownDoc())
+    arrivePage(rec.page);
 }
 // While the queue is being sent a record may be on its way: it is neither dropped nor taken back until that is over.
 function offUiBusy() {
@@ -387,11 +400,11 @@ function offUiBusy() {
 
 // ---------------- The undo rows' windows
 // Stands a record's undo row (replacing one it already has) and starts its window.
-function offUiUndoStart(rec: any, redo: boolean, text: string) {
+function offUiUndoStart(rec: QueuedPin, redo: boolean, text: string) {
   const old = OFFUI.undos.get(rec.id);
   if (old) clearTimeout(old.t);
   const now = Date.now(),
-    undo = { rec, redo, text, at: now, from: now, t: undefined, busy: false, hover: false } as OffUiUndo;
+    undo: OffUiUndo = { rec, redo, text, at: now, from: now, t: undefined, busy: false, hover: false };
   OFFUI.undos.set(rec.id, undo);
   offUiArm(undo);
 }

@@ -31,10 +31,10 @@ function elementName(element: PinElement | null | undefined) {
 // carries it, else by the pick's own element, else by the id itself: an ancestor merged into an inner rung, past the
 // ladder's cap, drawn in another file or above a region answer's element has no rung, and the map's name or its id
 // still says where it is.
-function elementPathText(selection: Selection) {
+function elementPathText(selection: ComposerSelection) {
   const selectedElement = selection && selection.elSel;
   if (!selectedElement || !Array.isArray(selectedElement.path)) return '';
-  const names = new Map();
+  const names = new Map<string, string>();
   if (selection.el && selection.el.id) names.set(selection.el.id, elementName(selection.el));
   (selection.levels || []).forEach((level) => {
     if (level.el && level.el.id) names.set(level.el.id, String(level.label || elementName(level.el)));
@@ -65,7 +65,7 @@ function snapBox(box: HTMLElement | null, element: PinElement | null | undefined
 }
 // The element part of the composer for the selection and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
-function renderElement(selection: Selection, box: HTMLElement | null) {
+function renderElement(selection: ComposerSelection, box: HTMLElement | null) {
   const line = $('#c-path'),
     selectedElement = selection.elSel;
   line.hidden = !selectedElement;
@@ -152,7 +152,7 @@ function figureFields(
   return body;
 }
 // The rung the selection's scope names when it is a figure rung (it carries an element), else null.
-function figureRung(selection: Selection) {
+function figureRung(selection: ComposerSelection) {
   const level = selection && selection.scope && levelOf(selection, selection.scope);
   return level && level.el ? level : null;
 }

@@ -25,12 +25,13 @@ class AsyncDocumentVisits(unittest.TestCase):
             [
                 extract_js_fn("withDocQuery"),
                 extract_js_fn("rebuild"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1; const BUILD={inflight:null};
                 const nodes=new Map(),calls=[];
                 let finish;
                 function $(name){if(!nodes.has(name))nodes.set(name,{hidden:false});return nodes.get(name);}
-                function api(url){calls.push(url);return new Promise(resolve=>{finish=resolve;});}
+                function api(endpoint,o){calls.push(endpointUrl(endpoint,o.id,o.query));return new Promise(resolve=>{finish=resolve;});}
                 function pollBuild(){calls.push('poll:'+DOC);}
                 function lineNote(){calls.push('said');}
                 (async()=>{
@@ -76,13 +77,14 @@ class AsyncDocumentVisits(unittest.TestCase):
             [
                 extract_js_fn("withDocQuery"),
                 extract_js_fn("rebuild"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1;
                 let release;
                 const calls=[];
                 const BUILD={inflight:new Promise(resolve=>{release=resolve;})};
                 function $(name){return {hidden:false};}
-                function api(url){calls.push(url);return Promise.resolve({status:200});}
+                function api(endpoint,o){calls.push(endpointUrl(endpoint,o.id,o.query));return Promise.resolve({status:200});}
                 function pollBuild(){calls.push('poll:'+DOC);}
                 (async()=>{
                   const old=rebuild();await Promise.resolve();
@@ -287,6 +289,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("dropPin"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1,PINS_APPLIED_SEQ=0,OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]]; const EDITOR={current:null,saving:false};
                 let fail,draws=0,marksCount=0,loads=0;
@@ -310,6 +313,7 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("dropPin"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',PINS_APPLIED_SEQ=0;
                 let OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'a'},{id:3,doc:'a'}],PINS=OPEN_ALL; const EDITOR={current:null,saving:false};
@@ -317,7 +321,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function pdoc(p){return p.doc;}
                 function drawPins(){}function marks(){}function markMine(){}function findAnyPin(){return null;}function sourceOk(){}const DROPPED=[];
                 function translateTemplate(s){return s;}function undoNote(){}function quietNote(){}function restorePin(){}function $(){return {};}function drawnBefore(){return null;}
-                function api(url){const id=Number(url.split('/')[3]);return new Promise((resolve,reject)=>{pending[id]={resolve,reject};});}
+                function api(endpoint,o){const id=Number(endpointUrl(endpoint,o.id,o.query).split('/')[3]);return new Promise((resolve,reject)=>{pending[id]={resolve,reject};});}
                 function loadPins(){loads++;return Promise.resolve(false);}
                 (async()=>{
                   const first=dropPin(1,false),second=dropPin(2,false);
@@ -342,6 +346,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("editNote"),
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -374,6 +379,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("editNote"),
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -404,6 +410,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("editNote"),
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
@@ -432,6 +439,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                extract_js_fn("isRefusal"),
                 extract_js_fn("applyRepick"),
                 extract_js_fn("lineRange"),
                 """
@@ -473,6 +481,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("hasMark"),
                         extract_js_fn("pinPlace"),
                         js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                        extract_js_fn("isRefusal"),
                         extract_js_fn("applyRepick"),
                         extract_js_fn("lineRange"),
                         """
@@ -501,6 +510,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("captureVisit"),
                         extract_js_fn("currentVisit"),
                         js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                        extract_js_fn("isRefusal"),
                         extract_js_fn("applyRepick"),
                         extract_js_fn("lineRange"),
                         """
@@ -590,7 +600,7 @@ class VisitLocalContinuations(unittest.TestCase):
     def test_revision_import_finishing_after_switch_does_not_start_pdf(self):
         """A late PDF.js module import cannot attach a loading task to another document's revision view."""
         source, n = re.subn(
-            r"await import\(\s*'/vendor/pdfjs/pdf\.min\.mjs\?v='\s*\+\s*PDFJS_VERSION\s*\)",
+            r"await importPdfLibrary\(\)",
             "await delayedImport()",
             extract_js_fn("loadRevisionPdf"),
         )

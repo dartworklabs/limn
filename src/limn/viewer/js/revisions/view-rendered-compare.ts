@@ -47,7 +47,7 @@ const RENDERED_COMPARE = {
   ro: null as ResizeObserver | null,
   root: null as HTMLElement | null,
   line: '',
-  said: null as { r: any; c: { ins: number; del: number; mod: number; move: number } | null } | null,
+  said: null as { r: RevisionSources; c: { ins: number; del: number; mod: number; move: number } | null } | null,
 };
 // the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
 const MAX_DIFF_CELLS = 4e6;
@@ -217,13 +217,13 @@ function blockLines(unit: HTMLElement) {
 // paragraph rewrapped, inside bold, a link or a formula too, is the same block. An alt text is compared with its white
 // space folded, as it is drawn.
 function compareUnits(root: HTMLElement): CompareUnit[] {
-  const out = [] as CompareUnit[];
+  const out: CompareUnit[] = [];
   for (const match of root.querySelectorAll(UNIT_SELECTOR)) {
     const unit = match as HTMLElement;
     if (!isCompareUnit(unit)) continue;
     const tag = unitTag(unit),
       text = unitText(unit, tag),
-      reopened = new Set() as Set<Element>,
+      reopened: Set<Element> = new Set(),
       shape = inlineShape(unit, tag, reopened);
     const groupBoxes = boxElements(unit, root),
       linkTargets = unitReferences(unit, 'a,[data-anchor],.md-rel', reopened),
@@ -283,7 +283,7 @@ function inlineName(element: Element) {
 // exactly as they are (linedShape). Pure over the DOM but for reopened.
 function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
   if (isLinedTag(tag)) return linedShape(tag === 'PRE' ? unit.dataset.lang || '' : '', blockLines(unit));
-  const out = [] as (string | { t: string; to: string })[];
+  const out: (string | { t: string; to: string })[] = [];
   const walk = (node: Node) => {
     for (const child of node.childNodes) {
       if (child.nodeType === 3) {
@@ -501,7 +501,7 @@ function wordsOfText(text: string) {
 // against): twice the words they share over all their words (1 for two empty texts). Pure.
 function wordLikeness(left: string[], right: string[]) {
   if (!left.length && !right.length) return 1;
-  const counts = new Map();
+  const counts = new Map<string, number>();
   let shared = 0;
   for (const word of left) counts.set(word, (counts.get(word) || 0) + 1);
   for (const word of right) {
@@ -530,7 +530,7 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
   const raw = commonSubsequence(oldUnits, newUnits, (left, right) => left.key === right.key, budget),
     out: { t: string; a: number; b: number }[] = [];
   let at = 0;
-  const words = new Map(),
+  const words = new Map<CompareUnit, string[]>(),
     wordsOf = (unit: CompareUnit) => {
       let cached = words.get(unit);
       if (!cached) {
@@ -593,7 +593,7 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
       addedAt++;
     }
   }
-  const added = new Map();
+  const added = new Map<string, number[]>();
   out.forEach((operation, index) => {
     if (operation.t !== 'ins') return;
     const unit = newUnits[operation.b];
@@ -716,7 +716,7 @@ type CompareWord = {
 // The words of a unit as they sit in its DOM (a list item's own text only); a block of lines' lines are its words. Pure
 // over the DOM.
 function unitWords(unit: HTMLElement): CompareWord[] {
-  const out = [] as CompareWord[];
+  const out: CompareWord[] = [];
   let spaced = false;
   if (isLinedTag(unitTag(unit))) {
     for (const line of unit.querySelectorAll('.ln')) {
@@ -803,7 +803,7 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
       at = end + 1;
     }
   };
-  let gone = [] as CompareWord[];
+  let gone: CompareWord[] = [];
   // the taken-out words before new word newAt (or after the last one), as one struck-through run: a block of lines' as
   // lines of their own; other words with the white space they had between them, and a space after the run when the word
   // it goes before has one before it (before the run when it goes after the last word and had one before it)
@@ -1074,7 +1074,7 @@ function layColumn(
   ops: any[],
   budget?: CompareBudget,
 ) {
-  let previous = null as HTMLElement | null;
+  let previous: HTMLElement | null = null;
   const next = (index: number) => {
     for (let later = index + 1; later < ops.length; later++) {
       const operation = ops[later];
@@ -1082,7 +1082,7 @@ function layColumn(
     }
     return null;
   };
-  const boxes = new Map() as StandIns;
+  const boxes: StandIns = new Map();
   for (const operation of ops)
     if (operation.t === 'eq' || operation.t === 'mod')
       pairBoxes(boxes, oldUnits[operation.a].el, newUnits[operation.b].el, oldRoot, newRoot); // before any block moves
@@ -1159,7 +1159,7 @@ function layGutterChips() {
   layer.className = 'mdc-chips';
   layer.setAttribute('aria-hidden', 'true');
   const top = root.getBoundingClientRect().top;
-  const items = [] as { y: number; cls: string; text: string }[];
+  const items: { y: number; cls: string; text: string }[] = [];
   for (const node of root.querySelectorAll('[data-mdc],.mdc-pin')) {
     const element = node as HTMLElement,
       rect = element.getBoundingClientRect();
@@ -1217,8 +1217,8 @@ function gitToScreenRange(map: number[][] | null | undefined, lineCount: number,
 // The change groups in order: runs of marked blocks (a moved block's old place too) with nothing unchanged between
 // them. The navigator steps through them.
 function changeGroups(root: HTMLElement) {
-  const stops = [] as HTMLElement[][];
-  let group = null as HTMLElement[] | null;
+  const stops: HTMLElement[][] = [];
+  let group: HTMLElement[] | null = null;
   for (const element of unitElements(root, true)) {
     const marked = !!element.dataset.mdc || element.classList.contains('mdc-ghost');
     if (marked) {
@@ -1315,7 +1315,7 @@ function sideFailureText(side: any, which: string) {
 // draws a document: a NUL in the source is not parsed (MARKDOWN_LIMIT.NUL). {root} or {why}; {root:null,why:''} once
 // live() is false.
 async function drawSide(
-  lines: string[] | null,
+  lines: string[] | null | undefined,
   live: () => boolean,
 ): Promise<{ root: HTMLElement | null; why?: string }> {
   if (!lines) return { root: await buildSide([], [], live) };
@@ -1352,12 +1352,12 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
   let answer,
     scope = null;
   try {
-    const path =
-      '/api/revision-source?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
+    const query = '?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
     const [sides, pinDiff] = await Promise.all([
-      api(withDocQuery(path, docKey), { what: '두 판 읽기', silent: true }),
+      api('GET /api/revision-source', { query: withDocQuery(query, docKey), what: '두 판 읽기', silent: true }),
       pinTarget
-        ? api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey), {
+        ? api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey),
             what: '변경 내용 읽기',
             silent: true,
           }).catch(() => null)
@@ -1379,10 +1379,12 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
     return;
   }
   if (!live()) return;
-  const bad = [
-    [answer.old, translate('옛 판')],
-    [answer.new, translate('새 판')],
-  ].find(([side]) => side && !Array.isArray(side.lines));
+  const bad = (
+    [
+      [answer.old, translate('옛 판')],
+      [answer.new, translate('새 판')],
+    ] as const
+  ).find(([side]) => side && !Array.isArray(side.lines));
   if (bad) {
     pane.replaceChildren(compareNotice(sideFailureText(bad[0], bad[1])));
     sayCompareStatus(answer, null);
@@ -1495,7 +1497,10 @@ function compareInfoLine(text: string, status?: boolean) {
 // The status line of a compare: its two sides - a range's with the commits and files its source diff counted
 // (REVISION_VIEW.rangeN, once that answer is in) - and what changed. Kept (RENDERED_COMPARE.said) so the range's counts
 // can join it when they come (restateCompareStatus).
-function sayCompareStatus(answer: any, counts: { ins: number; del: number; mod: number; move: number } | null) {
+function sayCompareStatus(
+  answer: RevisionSources,
+  counts: { ins: number; del: number; mod: number; move: number } | null,
+) {
   RENDERED_COMPARE.said = { r: answer, c: counts };
   const ends =
       (answer.base ? String(answer.base).slice(0, 8) : translate('없음')) + ' → ' + String(answer.id || '').slice(0, 8),

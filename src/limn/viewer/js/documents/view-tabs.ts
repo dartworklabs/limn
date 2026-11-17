@@ -45,7 +45,7 @@ function initialDoc() {
 }
 async function loadDocs() {
   try {
-    const answer = (await api('/api/docs', { what: '문서 목록', silent: true })).data;
+    const answer = (await api('GET /api/docs', { what: '문서 목록', silent: true })).data;
     setDocs(Array.isArray(answer.docs) ? answer.docs : []);
     setDefaultDoc(answer.default || (DOCS[0] && DOCS[0].key) || 'main');
   } catch (error) {
@@ -103,7 +103,7 @@ function docLinkInner(entry: DocEntry) {
   return html`<span class="lbl">${entry.name}</span>${count}`;
 }
 // What a link's or a popover row's inside was last drawn from, so a redraw that changes nothing writes nothing.
-const DOC_DRAWN = new WeakMap() as WeakMap<Element, string>;
+const DOC_DRAWN: WeakMap<Element, string> = new WeakMap();
 // Sets the inside of an element to `markup`, drawn from key - unless it was drawn from key already. The element itself
 // stays: one that has the focus keeps it, and no focusout or focusin is sent.
 function docInner(element: Element, markup: Html, key: string) {
@@ -134,7 +134,7 @@ function drawDocTabs() {
     had = document.activeElement as HTMLElement | null,
     old = [...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[];
   const same = old.length === DOCS.length && old.every((link, index) => link.dataset.doc === DOCS[index].key);
-  let was = null as string | null | undefined;
+  let was: string | null | undefined = null;
   if (!same) {
     was = had && had !== more && row.contains(had) ? had.dataset.doc : null;
     old.forEach((link) => link.remove());

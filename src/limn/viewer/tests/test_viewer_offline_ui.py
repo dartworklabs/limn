@@ -27,7 +27,7 @@ BUILD = "pages-20260925100000"  # BrowserBase's build
 # Seeds the queue with records (each merged over a whole record of the build on screen) through the shipped functions.
 SEED = """async recs=>{for(const r of recs){const rec=Object.assign({v:1,label:'Demo',doc:DEFAULT_DOC,build:META.pages_build,
   pt:{w:612,h:792},rect:null,quote:'q',note:'n',kind_req:'fix',assignee:'agent',mentions:[],at:new Date().toISOString(),
-  held:false,why:'',sent:false,place:null},r); await offAdd(rec);} await offlineSync(); return OFF.n;}"""
+  held:false,why:'',sent:false,place:null,lines:null,idem:offlineKey()},r); await offAdd(rec);} await offlineSync(); return OFF.n;}"""
 QUEUE = "async()=>(await offAll()).map(r=>r.note)"
 MARKS = """()=>[...document.querySelectorAll('.qmark')].map(m=>({page:Number(m.parentElement.dataset.page),held:m.classList.contains('held'),
   left:m.style.left,top:m.style.top,label:m.querySelector('button').getAttribute('aria-label')}))"""
@@ -200,7 +200,19 @@ class QueuedPinsScreen(BrowserBase):
                 {"page": 1, "frac": [0.1, 0.5, 0.3, 0.05], "note": "다른 빌드", "build": "pages-20200101000000"},
                 {"page": 2, "frac": [0.1, 0.5, 0.3, 0.05], "note": "사유 없음", "held": True, "why": ""},
                 {"page": 1, "frac": [0.1, 0.5, 0.3, 0.05], "note": "다른 문서", "doc": "other"},
-                {"page": None, "frac": None, "lines": {"file": "notes/intro.md", "lo": 12, "hi": 14}, "note": "줄 핀"},
+                # a line pin as offlineQueueSave writes one: no page, no fractions, its lines
+                {
+                    "lines": {
+                        "file": "notes/intro.md",
+                        "name": "intro.md",
+                        "lo": 12,
+                        "hi": 14,
+                        "text": "a\nb\nc",
+                        "kind": "lines",
+                        "scope": None,
+                    },
+                    "note": "줄 핀",
+                },
             ]
         )
         self.assertEqual([(m["page"], m["held"]) for m in page.evaluate(MARKS)], [(1, False), (1, False), (2, True)])
@@ -353,6 +365,20 @@ class QueuedPinsScreen(BrowserBase):
         )
         self.assertEqual(kept, 1)
         self.assertFalse(page.evaluate("COMPOSE.saving"))
+
+    def test_a_record_that_is_not_a_queued_pin_is_left_in_the_store_and_not_drawn(self):
+        """A record the store holds that no Limn wrote (isQueuedPin): it is not counted, drawn or sent, and the store
+        keeps it as it is - nothing deletes it. The queued pins beside it are drawn as ever."""
+        page = self.view([{"page": 1, "frac": [0.2, 0.2, 0.5, 0.05], "note": "real"}])
+        got = page.evaluate(
+            """async () => {
+              await offIn(OFF_STORE, 'readwrite', s => s.add({v: 1, note: 'by hand'}));
+              await offlineSync();
+              const raw = await offRecords();
+              return {n: OFF.n, queue: (await offAll()).map(r => r.note), stored: raw.map(r => r.note).sort(),
+                rows: document.querySelectorAll('#queue-rows>.qrow').length};}"""
+        )
+        self.assertEqual(got, {"n": 1, "queue": ["real"], "stored": ["by hand", "real"], "rows": 1})
 
     def test_a_write_whose_transaction_is_rolled_back_is_not_a_write(self):
         """The store's request succeeds and its transaction then aborts (the browser out of room at the commit): the

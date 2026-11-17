@@ -13,16 +13,16 @@ function setLastTouchAt<Value extends typeof LAST_TOUCH_AT>(value: Value): Value
   return value;
 }
 // The elements whose tooltip does not show: pin mark badges a cover is over (pins/view-mark-covers.ts markCoverSkip keeps it).
-const MARK_HIDDEN = new WeakSet() as WeakSet<Element>;
+const MARK_HIDDEN: WeakSet<Element> = new WeakSet();
 
 // A device with no hover (phone/tablet): hover/focus tooltips are never shown at all - a tap sends a simulated
 // mouseover, which would leave the description stuck over the list. Only long-press is used.
 const NO_HOVER_QUERY = matchMedia('(hover:none)');
 
 const TIP = $('#tip');
-let tipTimer = undefined as ReturnType<typeof setTimeout> | undefined,
-  armedTipElement = null as HTMLElement | null,
-  MOUSE_AT = null as number[] | null;
+let tipTimer: ReturnType<typeof setTimeout> | undefined = undefined,
+  armedTipElement: HTMLElement | null = null,
+  MOUSE_AT: number[] | null = null;
 document.addEventListener(
   'mousemove',
   (event) => {
@@ -31,7 +31,7 @@ document.addEventListener(
   { passive: true },
 );
 // The element the showing box was placed on and where it stood then (showTipText), for tipFollow.
-let TIP_AT = null as { el: Element; x: number; y: number } | null;
+let TIP_AT: { el: Element; x: number; y: number } | null = null;
 // The tooltip box is a manual popover, so it is drawn in the top layer: a modal sheet (the navigation sheet, [더보기])
 // is in the top layer too and would cover a box that only has a z-index. A browser without popovers draws it with its
 // z-index.
@@ -241,7 +241,7 @@ document.addEventListener('keydown', tipEscKey, true);
 // would swallow its release and the click would take the line's verdict back. A long press is the same press in every
 // state. While a long press's description is up the page is html.tip-press: a verdict line's context over its words,
 // which says the same, steps aside for it (verdict-reason.css).
-let PRESS = null as { el: HTMLElement; x: number; y: number; t: ReturnType<typeof setTimeout>; shown?: boolean } | null,
+let PRESS: { el: HTMLElement; x: number; y: number; t: ReturnType<typeof setTimeout>; shown?: boolean } | null = null,
   SWALLOW_CLICK = 0,
   TIP_HOLD = 0; // TIP_HOLD: the SWALLOW_CLICK a long press's release armed (0 for none)
 /** Find a touch tooltip target while preserving native input menus and paragraph selection outside pin badges. */
@@ -385,7 +385,7 @@ const TIP_FOCUS = 'button,a[href],input,select,textarea,summary,[tabindex]',
   TIP_SELECTOR = '[data-tip],[data-tip-press]',
   TIP_READ = '.badge:not(.as-chip,.tip-shown),.tip-read';
 // The descriptions this part wrote, so one the drawing code wrote is told apart and left alone.
-const TIP_WROTE = new WeakMap() as WeakMap<Element, string>;
+const TIP_WROTE: WeakMap<Element, string> = new WeakMap();
 /** What `tip` says beyond `name`: '' when it is the name, the rest after the name and a separator when it starts with
  * them, else `tip` (whitespace collapsed). The name's words may be set apart by a colon in the tip ('담당 Bob Park' in
  * '담당: Bob Park — …'). Pure. */

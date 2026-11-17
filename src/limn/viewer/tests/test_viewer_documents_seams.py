@@ -560,7 +560,7 @@ function updateStaleBadge(){LOG.push(['staleBadge']);} function updateSyncBadge(
 let APPLIED=true; function loadPins(){LOG.push(['loadPins']); return Promise.resolve(APPLIED);}
 function pollBuild(){} function announce(){}
 let META={tag:'m',pins_rev:'r2',src_sig:'s'};
-function api(url){LOG.push(['api',url]); return Promise.resolve({data:META});}
+function api(endpoint,o){LOG.push(['api',endpointUrl(endpoint,o.id,o.query)]); return Promise.resolve({data:META});}
 """
 
 
@@ -577,6 +577,7 @@ class LightPoll(unittest.TestCase):
             JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
             extract_js_fn("pollHiddenNotify"),
             extract_js_fn("pollHiddenNotifyOnce"),
+            extract_js_fn("endpointUrl"),
             POLL_SCOPE,
             setup,
             "Promise.resolve(%s).then(()=>console.log(JSON.stringify({log:LOG,rev:LAST_PINS_REVISION})));" % call,

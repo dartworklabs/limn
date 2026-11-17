@@ -12,7 +12,26 @@ import unittest
 from pathlib import Path
 
 import helpers_js
-from helpers import extract_js_fn, js_seam_wired, run_node
+from helpers import extract_js_fn, js_const, js_seam_wired, run_node
+
+# The guards offline/flow.ts reads a stored record or a worker's answer through (GuardedRecords tests them); a pulled
+# function that reads one needs them beside it.
+GUARDS = (
+    "isObject",
+    "isTextOrAbsent",
+    "isNumberOrAbsent",
+    "isTextOrNull",
+    "isTextList",
+    "isNumberList",
+    "isQueuedPin",
+    "wroteIds",
+    "storedRead",
+    "keepAnswer",
+    "isKeptDoc",
+    "isOldBuild",
+    "isKeptRecord",
+    "keptRecord",
+)
 
 # The page scope a pulled offline function reads: the queue (an array standing in for IndexedDB), the server (api), the
 # list the dedup judgment reads, and the messages. Every call is recorded so a test can say what went out and in which order.
@@ -31,6 +50,7 @@ var SERVER_IDEM,META_DOWN=false,META_ASKED=0;   // what the server says it can d
 var KNOWN={},PROBES=[];   // the pins the server has by key ({<idem>: id}, or 'down'), and the keys it was asked about
 function withDocQuery(u,k){return u+(u.indexOf('?')<0?'?':'&')+'doc='+encodeURIComponent(k);}
 function offAll(){return Promise.resolve(QUEUE.slice());}
+function offRecords(){return Promise.resolve(QUEUE.slice());}
 function offDel(id){QUEUE=QUEUE.filter(function(r){return r.id!==id;}); return Promise.resolve(true);}
 function offHas(id){return Promise.resolve(QUEUE.some(function(r){return r.id===id;}));}
 function offPut(rec){QUEUE=QUEUE.map(function(r){return r.id===rec.id?rec:r;}); return Promise.resolve(true);}
@@ -48,7 +68,7 @@ var WRITTEN=[];
 function loadPins(){LOADS++; OPEN_ALL=OPEN_ALL.concat(WRITTEN.splice(0,WRITTEN.length)); return Promise.resolve(true);}
 // The stubbed server: ANSWERS maps a call to its answer or to the error it throws.
 var ANSWERS={};
-function api(url,o){
+function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
   if(url==='/api/pick'){PICKS.push(o.body); const a=ANSWERS.pick.shift();
     if(a&&a.throw)return Promise.reject(a.throw); return Promise.resolve({status:200,data:a});}
   if(url.indexOf('/api/meta?light=1')===0){META_ASKED++;
@@ -80,6 +100,9 @@ function found(lo){return {file:'main.tex',name:'main.tex',page:3,lo:lo,hi:lo+1,
 """
 
 FUNCTIONS = (
+    *GUARDS,
+    "endpointUrl",
+    "isRefusal",
     "offlineBox",
     "offlineBody",
     "fracSame",
@@ -368,8 +391,8 @@ class OfflineQueueSend(unittest.TestCase):
             ANSWERS={pick:[{page:3,frac:a.frac},{page:3,frac:b.frac},{page:3,frac:c.frac}],
                      pin:[{id:81},{id:82},{id:83}]};
             const realApi=api; let n=0;
-            api=function(url,o){const r=realApi(url,o);
-              if(url==='/api/pin'&&++n===1)POLL_FAILS=2;   // the connection goes right after the first pin is written
+            api=function(endpoint,o){const r=realApi(endpoint,o);
+              if(endpoint==='POST /api/pin'&&++n===1)POLL_FAILS=2;   // the connection goes right after the first pin is written
               return r;};
             offlineFlush().then(function(){POLL_FAILS=0; return offlineFlush();}).then(function(){
               console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length,
@@ -514,7 +537,7 @@ class OfflineQueueSend(unittest.TestCase):
             """
             QUEUE=[rec(1),rec(2)]; ANSWERS={pick:[found(10),found(20)],pin:[{id:41},{id:42}]};
             var once=false; const realApi=api;
-            api=function(url,o){if(url==='/api/pin'&&!once){once=true; POLL_FAILS=2;} return realApi(url,o);};
+            api=function(endpoint,o){if(endpoint==='POST /api/pin'&&!once){once=true; POLL_FAILS=2;} return realApi(endpoint,o);};
             offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});
             """
         )
@@ -538,8 +561,8 @@ class OfflineQueueSend(unittest.TestCase):
             """
             QUEUE=[rec(1)]; ANSWERS={pick:[found(10)],pin:[{id:41}]};
             const realApi=api;
-            api=function(url,o){if(url==='/api/pick')QUEUE=[];   // the other tab wrote and dropped it
-              return realApi(url,o);};
+            api=function(endpoint,o){if(endpoint==='POST /api/pick')QUEUE=[];   // the other tab wrote and dropped it
+              return realApi(endpoint,o);};
             offlineFlush().then(function(){console.log(JSON.stringify({pins:PINS_SENT.length,left:QUEUE.length}));});
             """
         )
@@ -548,15 +571,159 @@ class OfflineQueueSend(unittest.TestCase):
 
 STORE_SCOPE = r"""
 var OFF_STATE='state',OFF={idem:false};
-var OFF_READS=['/api/meta','/api/docs','/api/pins','/api/pins/dropped','/api/people','/api/outline-labels','/api/source'];
+var OFF_READS=['GET /api/meta','GET /api/docs','GET /api/pins','GET /api/pins/dropped','GET /api/people','GET /api/outline-labels','GET /api/source'];
 var STORE=new Map(),FOLLOW_SEEN=[],KEPT=null;
 function offKept(){return Promise.resolve(KEPT);}   // the kept record (tested in KeptCopyFollows)
+function offKeptAnswers(){return Promise.resolve(KEPT);}   // the same record, its metas taken as meta answers
 function offlineFollowSeen(d){FOLLOW_SEEN.push(d);}   // what a meta answer tells the follow (tested in KeptCopyFollows)
 // Stands in for the one IndexedDB store, keeping put/get as they behave there.
 function offIn(store,mode,fn){const s={put:function(v){STORE.set(v.key,v); return {};},
   get:function(k){return {result:STORE.get(k)};},delete:function(k){STORE.delete(k); return {};}};
   const rq=fn(s); return Promise.resolve(rq&&'result' in rq?rq.result:null);}
 """
+
+
+class GuardedRecords(unittest.TestCase):
+    """What offline/flow.ts reads back from IndexedDB or from the worker is narrowed by a guard that checks the shape its
+    writer writes (docs/handbook/viewer.md §타입 검사): the shipped guards, pulled and run under node.
+
+    What it protects: every record a Limn wrote passes - including a line pin with no page and no fractions, and a
+    record a send has marked - so no one's queued work goes unseen; a value that is not one is left out, read as
+    nothing, and never taken for a record of another shape."""
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def _run(self, scenario):
+        return json.loads(run_node("\n".join([*(extract_js_fn(n) for n in GUARDS), scenario])))
+
+    # A record as offlineQueueSave writes a drag cut off, with the key the store gave it.
+    DRAG = r"""const drag={id:1,v:1,label:'inst',doc:'main',build:'pages-B1',page:3,rect:{x0:10,y0:20,x1:110,y1:40},
+      frac:[0.1,0.2,0.3,0.04],pt:{w:612,h:792},quote:'q',note:'n',kind_req:'fix',assignee:null,mentions:['alice'],
+      at:'2026-11-14T09:00:00.000Z',held:false,why:'',sent:false,top:undefined,place:null,lines:null,idem:'k1'};"""
+
+    def test_every_queued_record_a_limn_writes_is_a_queued_pin(self):
+        got = self._run(
+            self.DRAG
+            + r"""
+            // A line pin of a Markdown document: no page, no fractions, no box; its lines are its place.
+            const line=Object.assign({},drag,{id:2,page:undefined,frac:undefined,rect:null,pt:null,build:'',doc:null,
+              place:{file:'notes.md',name:'notes.md',lo:3,hi:4},
+              lines:{file:'notes.md',name:'notes.md',lo:3,hi:4,text:'a\nb',kind:'lines',scope:null}});
+            delete line.page; delete line.frac;
+            // A record a send marked: attempted after pin 7, then held with the server's reason.
+            const marked=Object.assign({},drag,{id:3,sent:true,top:7,held:true,why:'PDF build gone'});
+            // The same line pin with its page and fractions null, as the Handbook names a line pin's.
+            const nulls=Object.assign({},line,{id:4,page:null,frac:null});
+            console.log(JSON.stringify([isQueuedPin(drag),isQueuedPin(line),isQueuedPin(marked),isQueuedPin(nulls)]));
+            """
+        )
+        self.assertEqual(got, [True, True, True, True])
+
+    def test_a_value_that_is_not_a_queued_pin_is_not_one(self):
+        got = self._run(
+            self.DRAG
+            + r"""
+            const without=(k)=>{const r=Object.assign({},drag); delete r[k]; return r;};
+            console.log(JSON.stringify([null,7,'x',[],{v:1,note:'by hand'},without('id'),without('idem'),without('lines'),
+              Object.assign({},drag,{frac:['0.1']}),Object.assign({},drag,{rect:{x0:1}}),
+              Object.assign({},drag,{mentions:[1]}),Object.assign({},drag,{lines:{name:'a'}})].map(isQueuedPin)));
+            """
+        )
+        self.assertEqual(got, [False] * 12)
+
+    def test_the_ledger_reads_its_numbers_and_nothing_else(self):
+        got = self._run(
+            r"""console.log(JSON.stringify([wroteIds({key:'wrote',ids:[4,9]}),wroteIds({key:'wrote',ids:[4,'9',null]}),
+              wroteIds(undefined),wroteIds({key:'wrote'}),wroteIds({key:'wrote',ids:'4'})]));"""
+        )
+        self.assertEqual(got, [[4, 9], [4], [], [], []])
+
+    def test_a_stored_read_is_one_only_with_its_body_status_and_time(self):
+        got = self._run(
+            r"""console.log(JSON.stringify([storedRead({key:'/api/meta',data:{a:1},status:200,at:5}),
+              storedRead({key:'/api/meta',data:null,status:200,at:5}),
+              storedRead({key:'/api/meta',status:200,at:5}),storedRead({key:'/api/meta',data:1,status:'200',at:5}),
+              storedRead({key:'/api/meta',data:1,status:200}),storedRead(null)]));"""
+        )
+        self.assertEqual(
+            got,
+            [
+                {"key": "/api/meta", "data": {"a": 1}, "status": 200, "at": 5},
+                {"key": "/api/meta", "data": None, "status": 200, "at": 5},
+                None,
+                None,
+                None,
+                None,
+            ],
+        )
+
+    def test_the_worker_s_answer_to_keep_says_its_count_and_its_failed_addresses(self):
+        got = self._run(
+            r"""console.log(JSON.stringify([keepAnswer({kept:3,failed:['/pdf?b']}),keepAnswer({}),
+              keepAnswer({kept:'3',failed:['/a',2]}),keepAnswer(null),keepAnswer(true)]));"""
+        )
+        self.assertEqual(
+            got,
+            [{"kept": 3, "failed": ["/pdf?b"]}, {"kept": 0, "failed": []}, {"kept": 0, "failed": ["/a"]}, None, None],
+        )
+
+    def test_the_kept_record_is_one_only_whole(self):
+        got = self._run(
+            r"""
+            const page={build:'pages-B2',files:['/pdf?build=pages-B2'],at:5,seen:6,meta:{pages_build:'pages-B2'}};
+            const md={build:'',files:[],at:0,src:1700000000.5,seen:6};
+            const old={doc:'main',build:'pages-B1',files:['/pages/pages-B1/1.png'],at:0,unheld:true};
+            const whole={key:'kept',docs:{main:page,notes:md},old:[old]};
+            const fresh={key:'kept',docs:{},old:[]};
+            const not=[null,{key:'kept',docs:{},old:null},{key:'kept',docs:[],old:[]},{docs:{},old:[]},
+              {key:'kept',docs:{main:{build:'b',files:'x',at:0,seen:0}},old:[]},
+              {key:'kept',docs:{},old:[{doc:'main',build:'b',files:[]}]}];
+            console.log(JSON.stringify([keptRecord(whole)===whole,keptRecord(fresh)===fresh,
+              keptRecord(Object.assign({},whole,{docs:{main:Object.assign({},md,{src:null})}}))!==null,
+              not.map(keptRecord)]));
+            """
+        )
+        self.assertEqual(got, [True, True, True, [None] * 6])
+
+    def test_a_meta_field_of_the_wrong_type_reads_as_missing(self):
+        """offStash hands offSeenIn the meta answer as it came; what it reads of it is narrowed field by field."""
+        js = "\n".join([*(extract_js_fn(n) for n in GUARDS), extract_js_fn("offSeenIn")])
+        got = json.loads(
+            run_node(
+                js
+                + r"""
+            console.log(JSON.stringify([offSeenIn({doc:'main',pages_build:'pages-B1',src_mtime:5,kind:'latex'}),
+              offSeenIn({doc:'main',pages_build:7,src_mtime:'5',kind:{}}),offSeenIn('meta'),
+              offSeenIn({docs:[null,{key:'notes',kind:'markdown',src_mtime:9},{key:3}]})]));"""
+            )
+        )
+        self.assertEqual(
+            got,
+            [
+                {"main": {"build": "pages-B1", "src": 5, "kind": "latex"}},
+                {"main": {"build": "", "src": None, "kind": None}},
+                {},
+                {"notes": {"build": "", "src": 9, "kind": "markdown"}},
+            ],
+        )
+
+    def test_a_text_item_without_six_numbers_is_passed_over(self):
+        """PDF.js's text items are read as they come: one with no transform (a marked content item) or a transform
+        that is not numbers adds no word."""
+        js = "\n".join([*(extract_js_fn(n) for n in GUARDS), extract_js_fn("quoteIn")])
+        got = json.loads(
+            run_node(
+                js
+                + r"""
+            const box={x0:0,y0:0,x1:600,y1:800};
+            const word=(str,transform)=>({str,transform,width:20,height:10});
+            console.log(JSON.stringify(quoteIn([word('kept',[10,0,0,10,100,700]),{type:'beginMarkedContent'},
+              word('gone',['10',0,0,10,100,700]),word('also',null),null],800,box)));"""
+            )
+        )
+        self.assertEqual(got, "kept")
 
 
 class StoredAnswers(unittest.TestCase):
@@ -572,15 +739,16 @@ class StoredAnswers(unittest.TestCase):
             self.skipTest("node not available")
 
     def _run(self, scenario):
-        names = ("offReadKey", "offStash", "offStashed", "offKeptMeta")
-        js = "\n".join([STORE_SCOPE, *(extract_js_fn(n) for n in names), scenario])
+        names = (*GUARDS, "offReadKey", "offStash", "offStashed", "offKeptMeta")
+        consts = (js_const("OFF_HEARD"), js_const("OFF_STAND_INS"))
+        js = "\n".join([STORE_SCOPE, *(extract_js_fn(n) for n in names), *consts, scenario])
         return json.loads(run_node(js))
 
     def test_a_successful_answer_is_stored_and_served(self):
         got = self._run(
             """
-            offStash('/api/meta',{pages_build:'pages-1'},200);
-            offStashed('/api/meta',null).then(function(v){console.log(JSON.stringify({
+            offStash('GET /api/meta','/api/meta',{pages_build:'pages-1'},200);
+            offStashed('GET /api/meta','/api/meta').then(function(v){console.log(JSON.stringify({
               build:v&&v.data&&v.data.pages_build,status:v&&v.status}));});
             """
         )
@@ -593,11 +761,11 @@ class StoredAnswers(unittest.TestCase):
         got = self._run(
             """
             const m1={doc:'main',pages_build:'pages-B1',pages:[1,2]},m2={doc:'main',pages_build:'pages-B2',pages:[1,2,3]};
-            offStash('/api/meta?doc=main',m2,200);
+            offStash('GET /api/meta','/api/meta?doc=main',m2,200);
             KEPT={key:'kept',docs:{main:{build:'pages-B1',files:[],at:1,seen:7,meta:m1}},old:[]};
-            offStashed('/api/meta?doc=main',null).then(function(a){
+            offStashed('GET /api/meta','/api/meta?doc=main').then(function(a){
               KEPT.docs.main={build:'pages-B2',files:[],at:2,seen:9,meta:m2};
-              return offStashed('/api/meta?doc=main',null).then(function(b){
+              return offStashed('GET /api/meta','/api/meta?doc=main').then(function(b){
                 console.log(JSON.stringify({a:[a.data.pages_build,a.status,a.at],b:b.data.pages_build}));});});
             """
         )
@@ -644,10 +812,10 @@ class StoredAnswers(unittest.TestCase):
         """413 with a reason, 404, any status the server refused with - none of it is the document."""
         got = self._run(
             """
-            offStash('/api/source?doc=main',{error:'too_large',reason:'md_too_large'},413);
-            offStash('/api/pins?all=1',{error:'nope'},404);
-            offStashed('/api/source?doc=main',null).then(function(a){
-              return offStashed('/api/pins?all=1',null).then(function(b){
+            offStash('GET /api/source','/api/source?doc=main',{error:'too_large',reason:'md_too_large'},413);
+            offStash('GET /api/pins','/api/pins?all=1',{error:'nope'},404);
+            offStashed('GET /api/source','/api/source?doc=main').then(function(a){
+              return offStashed('GET /api/pins','/api/pins?all=1').then(function(b){
                 console.log(JSON.stringify({source:a,pins:b,kept:STORE.size}));});});
             """
         )
@@ -657,9 +825,9 @@ class StoredAnswers(unittest.TestCase):
         """The document was read before the trip; a refusal afterwards must not take that copy away."""
         got = self._run(
             """
-            offStash('/api/source?doc=main',{text:'the manuscript'},200);
-            offStash('/api/source?doc=main',{error:'too_large'},413);
-            offStashed('/api/source?doc=main',null).then(function(v){console.log(JSON.stringify({
+            offStash('GET /api/source','/api/source?doc=main',{text:'the manuscript'},200);
+            offStash('GET /api/source','/api/source?doc=main',{error:'too_large'},413);
+            offStashed('GET /api/source','/api/source?doc=main').then(function(v){console.log(JSON.stringify({
               text:v&&v.data&&v.data.text,status:v&&v.status}));});
             """
         )
@@ -668,8 +836,8 @@ class StoredAnswers(unittest.TestCase):
     def test_an_answer_with_no_body_is_not_stored(self):
         got = self._run(
             """
-            offStash('/api/meta',null,200);
-            offStashed('/api/meta',null).then(function(v){console.log(JSON.stringify({got:v,kept:STORE.size}));});
+            offStash('GET /api/meta','/api/meta',null,200);
+            offStashed('GET /api/meta','/api/meta').then(function(v){console.log(JSON.stringify({got:v,kept:STORE.size}));});
             """
         )
         self.assertEqual(got, {"got": None, "kept": 0})
@@ -680,7 +848,7 @@ class StoredAnswers(unittest.TestCase):
         got = self._run(
             """
             STORE.set('/api/source?doc=main',{key:'/api/source?doc=main',data:{error:'too_large'},at:1});
-            offStashed('/api/source?doc=main',null).then(function(v){
+            offStashed('GET /api/source','/api/source?doc=main').then(function(v){
               setTimeout(function(){console.log(JSON.stringify({got:v,left:STORE.size}));},0);});
             """
         )
@@ -691,10 +859,10 @@ class StoredAnswers(unittest.TestCase):
         got = self._run(
             """
             const seen=[];
-            offStash('/api/meta?light=1',{pin_idem:true},200,null); seen.push(OFF.idem);
-            offStash('/api/pins?all=1',[],200,null); seen.push(OFF.idem);          // another read says nothing about it
-            offStash('/api/meta?doc=ms',{pages:[]},200,null); seen.push(OFF.idem);  // a meta answer without it: an older server
-            offStash('/api/meta',{pin_idem:true},500,null); seen.push(OFF.idem);    // not an answer to go by
+            offStash('GET /api/meta','/api/meta?light=1',{pin_idem:true},200); seen.push(OFF.idem);
+            offStash('GET /api/pins','/api/pins?all=1',[],200); seen.push(OFF.idem);          // another read says nothing about it
+            offStash('GET /api/meta','/api/meta?doc=ms',{pages:[]},200); seen.push(OFF.idem);  // a meta answer without it: an older server
+            offStash('GET /api/meta','/api/meta',{pin_idem:true},500); seen.push(OFF.idem);    // not an answer to go by
             console.log(JSON.stringify(seen));
             """
         )
@@ -706,10 +874,10 @@ class StoredAnswers(unittest.TestCase):
         got = self._run(
             """
             const seen=[];
-            offStash('/api/meta?light=1',{hold_holder:true},200,null); seen.push(OFF.holder);
-            offStash('/api/pins?all=1',[],200,null); seen.push(OFF.holder);
-            offStash('/api/meta?doc=ms',{pages:[]},200,null); seen.push(OFF.holder);
-            offStash('/api/meta',{hold_holder:true},500,null); seen.push(OFF.holder);
+            offStash('GET /api/meta','/api/meta?light=1',{hold_holder:true},200); seen.push(OFF.holder);
+            offStash('GET /api/pins','/api/pins?all=1',[],200); seen.push(OFF.holder);
+            offStash('GET /api/meta','/api/meta?doc=ms',{pages:[]},200); seen.push(OFF.holder);
+            offStash('GET /api/meta','/api/meta',{hold_holder:true},500); seen.push(OFF.holder);
             console.log(JSON.stringify(seen));
             """
         )
@@ -720,11 +888,11 @@ class StoredAnswers(unittest.TestCase):
         poll's above all - so following adds no request of its own. A refusal says nothing about the builds."""
         got = self._run(
             """
-            offStash('/api/meta?light=1&doc=main',{doc:'main',pages_build:'pages-2'},200,null);
-            offStash('/api/meta?doc=ms',{doc:'ms',pages_build:'pages-3'},200,null);
-            offStash('/api/pins?all=1',[],200,null);
-            offStash('/api/docs',{docs:[]},200,null);
-            offStash('/api/meta',{error:'x'},500,null);
+            offStash('GET /api/meta','/api/meta?light=1&doc=main',{doc:'main',pages_build:'pages-2'},200);
+            offStash('GET /api/meta','/api/meta?doc=ms',{doc:'ms',pages_build:'pages-3'},200);
+            offStash('GET /api/pins','/api/pins?all=1',[],200);
+            offStash('GET /api/docs','/api/docs',{docs:[]},200);
+            offStash('GET /api/meta','/api/meta',{error:'x'},500);
             console.log(JSON.stringify(FOLLOW_SEEN.map(function(d){return d.pages_build;})));
             """
         )
@@ -734,9 +902,9 @@ class StoredAnswers(unittest.TestCase):
         """The light poll has to fail, so the status line says the connection is gone; a write is never a stored read."""
         got = self._run(
             """
-            offStash('/api/meta?light=1',{pins_rev:'r2'},200);
-            offStashed('/api/meta?light=1',null).then(function(a){
-              return offStashed('/api/pin',{method:'POST'}).then(function(b){
+            offStash('GET /api/meta','/api/meta?light=1',{pins_rev:'r2'},200);
+            offStashed('GET /api/meta','/api/meta?light=1').then(function(a){
+              return offStashed('POST /api/pin','/api/pin').then(function(b){
                 console.log(JSON.stringify({light:a,write:b,kept:STORE.size}));});});
             """
         )
@@ -754,9 +922,9 @@ function lineNote(msg){const n={n:1,msg:msg}; return n;}
 function endNotice(n){ENDED.push(n.msg);}
 function offStash(){}
 // The store holds one good answer to the pin read.
-function offStashed(url){return Promise.resolve(url==='/api/pins?all=1'?{data:['stored'],status:200,at:0}:null);}
+function offStashed(endpoint,url){return Promise.resolve(url==='/api/pins?all=1'?{data:['stored'],status:200,at:0}:null);}
 var API_WAIT={POLL:8000,READ:8000,PICK:8000,SAVE:10000,SEND:30000},API_OUT=false;   // platform/api.ts's own, beside api()
-function offReadKey(url,o){return (!o||!o.method||o.method==='GET')&&url==='/api/pins?all=1'?url:null;}   // the one read with a store here
+function offReadKey(endpoint,url){return endpoint==='GET /api/pins'&&url==='/api/pins?all=1'?url:null;}   // the one read with a store here
 // What fetch does: 'down' rejects as a lost connection does, 'up' answers, 'mute' neither - the request waits until
 // its signal ends it, and for ever if it was given none (a tailnet with no internet behind it), 'half' answers with a
 // head whose body never comes (a connection lost while the answer is on its way).
@@ -767,7 +935,7 @@ globalThis.fetch=function(url,init){ASKED++;
   if(NET==='mute')return new Promise(function(res,rej){if(init&&init.signal)init.signal.addEventListener('abort',function(){rej(new Error('ended'));});});
   return NET==='down'?Promise.reject(new TypeError('Failed to fetch'))
   :Promise.resolve({status:200,json:function(){return Promise.resolve(['fresh']);}});};
-function read(){return api('/api/pins?all=1',{what:'핀 읽기'}).then(function(r){return r.data[0];},function(){return 'failed';});}
+function read(){return api('GET /api/pins',{query:'?all=1',what:'핀 읽기'}).then(function(r){return r.data[0];},function(){return 'failed';});}
 """
 
 
@@ -784,7 +952,16 @@ class StoredReadsServe(unittest.TestCase):
             self.skipTest("node not available")
 
     def _run(self, scenario):
-        names = ("offlineNow", "offlineMayServe", "offStaleSaid", "offlineBack", "apiUnanswered", "api")
+        names = (
+            "offlineNow",
+            "offlineMayServe",
+            "offStaleSaid",
+            "offlineBack",
+            "endpointUrl",
+            "isExpected",
+            "apiUnanswered",
+            "api",
+        )
         wired = js_seam_wired("setRequestFallback", late=True)
         return json.loads(run_node("\n".join([SERVE_SCOPE, *(extract_js_fn(n) for n in names), wired, scenario])))
 
@@ -851,7 +1028,7 @@ class StoredReadsServe(unittest.TestCase):
             OFF.boot=true;
             read().then(function(){const one=ASKED;
               return read().then(function(v){const two=ASKED; NET='up';
-                return api('/api/meta?light=1',{silent:true}).then(function(){
+                return api('GET /api/meta',{query:'?light=1',silent:true}).then(function(){
                   return read().then(function(w){console.log(JSON.stringify({one:one,two:two,second:v,after:w,asked:ASKED}));});});});});
             """
         )
@@ -863,8 +1040,8 @@ class StoredReadsServe(unittest.TestCase):
         got = self._run(
             """
             NET='mute'; const seen={};
-            api('/api/rebuild?async=1',{method:'POST',silent:true}).then(function(){seen.slow='answered';},function(){seen.slow='ended';});
-            api('/api/pick',{method:'POST',silent:true,wait:20}).then(function(){seen.pick='answered';},function(){seen.pick='ended';})
+            api('POST /api/rebuild',{query:'?async=1',silent:true}).then(function(){seen.slow='answered';},function(){seen.slow='ended';});
+            api('POST /api/pick',{silent:true,wait:20}).then(function(){seen.pick='answered';},function(){seen.pick='ended';})
               .then(function(){setTimeout(function(){console.log(JSON.stringify({slow:seen.slow||'waiting',pick:seen.pick,out:API_OUT})); process.exit(0);},60);});
             """
         )
@@ -888,7 +1065,19 @@ class OfflineQuote(unittest.TestCase):
                    item('Far below.',72,600,60,10),
                    item('   ',72,206,10,10)];
         """
-        return json.loads(run_node("\n".join([scope, extract_js_fn("quoteIn"), scenario])))
+        return json.loads(
+            run_node(
+                "\n".join(
+                    [
+                        scope,
+                        extract_js_fn("isObject"),
+                        extract_js_fn("isNumberList"),
+                        extract_js_fn("quoteIn"),
+                        scenario,
+                    ]
+                )
+            )
+        )
 
     def test_a_line_that_starts_left_of_the_box_and_runs_through_it_is_read(self):
         """The drag starts inside the text column, not at its margin - as nearly every drag does. Judged by where
@@ -1307,7 +1496,7 @@ var ON_KEEP=null;
 var SERVER={main:{kind:'tex',build:'pages-B2',src:2}},HOLDS={},HOLD_ROUTE=true,HOLD_REFUSE=0,DOWN=false,COUNTS=false,SHARES={},NAMED=[],LET_GO_DOWN=false;
 function metaOf(k){const s=SERVER[k]; return {doc:k,kind:s.kind,pages_build:s.build,built_at:'at-'+s.build,src_mtime:s.src,
   pages:[{name:'page-1.png'},{name:'page-2.png'}]};}
-function api(url,o){const method=(o&&o.method)||'GET',path=url.split('?')[0];
+function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query),method=endpoint.split(' ')[0],path=url.split('?')[0];
   const k=decodeURIComponent((url.split('doc=')[1]||DOC).split('&')[0]);
   if(DOWN||!ONLINE){LOG.push('down '+path); return Promise.reject(new TypeError('Failed to fetch'));}
   if(path==='/api/meta'){LOG.push('meta '+k); const d=metaOf(k); offlineFollowSeen(d);   // as offStash hands every meta answer on
@@ -1349,6 +1538,9 @@ function poll(){offlineFollowSeen({doc:'main',kind:SERVER.main.kind,pages_build:
 """
 
 FOLLOW_FUNCTIONS = (
+    *GUARDS,
+    "offRecords",
+    "endpointUrl",
     "withDocQuery",
     "offlineDocFiles",
     "offKeptSet",
@@ -1704,7 +1896,7 @@ class KeptCopyFollows(unittest.TestCase):
             delete navigator.locks;
             KEPT=keptOn('pages-B1'); OFF.kept=copy(KEPT); poll(); SLOW=['pages-B2'];
             const realApi=api,seq=['pages-B2','pages-B3'];
-            api=function(url,o){if(url.indexOf('/api/meta')===0&&seq.length){SERVER.main.build=seq.shift(); NOW+=1;} return realApi(url,o);};
+            api=function(endpoint,o){if(endpoint==='GET /api/meta'&&seq.length){SERVER.main.build=seq.shift(); NOW+=1;} return realApi(endpoint,o);};
             const a=offlineFollow(); OFF.following=false;   // another tab: its own flag
             const b=offlineFollow();
             Promise.all([a,b]).then(function(){out({b3:has('pages-B3')});});
@@ -1924,7 +2116,10 @@ class KeptRecord(unittest.TestCase):
             [
                 _shipped_const("OFF_KEPT"),
                 "function rendersInBrowser(k){return k==='markdown'||k==='text';}",
-                *(extract_js_fn(n) for n in ("offFree", "offKeptWith", "offKeptPart", "offBehind", "offSeenIn")),
+                *(
+                    extract_js_fn(n)
+                    for n in (*GUARDS, "offFree", "offKeptWith", "offKeptPart", "offBehind", "offSeenIn")
+                ),
                 scenario,
             ]
         )
@@ -2036,6 +2231,7 @@ class OfflineKeys(unittest.TestCase):
                     put:function(v){STORE.set(v.key,v);}};}}; return tx;}});}
                 """,
                 extract_js_fn("offlineKey"),
+                extract_js_fn("isObject"),
                 extract_js_fn("offHolderId"),
                 """
                 (async function(){
@@ -2102,7 +2298,7 @@ class StoredReads(unittest.TestCase):
 
     def test_every_read_loadpins_makes_is_stored(self):
         """Both of loadPins' reads, whatever they are, have to be in the list."""
-        reads = set(re.findall(r"api\('(/api/[^'?]*)", extract_js_fn("loadPins")))
+        reads = set(re.findall(r"api\('(GET /api/[^']*)'", extract_js_fn("loadPins")))
         self.assertTrue(reads, "loadPins makes no api() read any more - this test needs rewriting")
         self.assertLessEqual(reads, self.off_reads(), "a read loadPins makes is not stored for an offline visit")
 
@@ -2112,13 +2308,13 @@ class StoredReads(unittest.TestCase):
         self.assertEqual(
             self.off_reads(),
             {
-                "/api/meta",  # the pages, their sizes and the build the pins point at
-                "/api/docs",  # the document tabs
-                "/api/pins",  # the list itself
-                "/api/pins/dropped",  # read by the same loadPins, which applies nothing without it
-                "/api/people",  # the names on the cards
-                "/api/outline-labels",  # the outline
-                "/api/source",  # what a Markdown or text document is drawn from
+                "GET /api/meta",  # the pages, their sizes and the build the pins point at
+                "GET /api/docs",  # the document tabs
+                "GET /api/pins",  # the list itself
+                "GET /api/pins/dropped",  # read by the same loadPins, which applies nothing without it
+                "GET /api/people",  # the names on the cards
+                "GET /api/outline-labels",  # the outline
+                "GET /api/source",  # what a Markdown or text document is drawn from
             },
         )
 

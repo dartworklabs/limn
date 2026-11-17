@@ -23,7 +23,7 @@ import { topAnchor, restoreAnchor } from '../layout/flow.ts';
 // moves the scroll offset the column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts
 // the column back on it when the pages show again - only if the offset left it by a pixel or more, so a visit that
 // changed nothing leaves the column exactly where it was.
-let SPOT = null as { a: NonNullable<ReturnType<typeof topAnchor>>; doc: string | null } | null;
+let SPOT: { a: NonNullable<ReturnType<typeof topAnchor>>; doc: string | null } | null = null;
 function keepSpot() {
   const anchor = topAnchor();
   SPOT = anchor ? { a: anchor, doc: DOC } : null;
@@ -57,7 +57,7 @@ async function refreshDoc(meta?: Meta) {
     seq = SWITCHSEQ;
   const snapshot =
     meta === undefined
-      ? (await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
+      ? (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
       : meta;
   if (visitDoc !== DOC || seq !== SWITCHSEQ) return;
   const gen = ++REFRESH_GEN;
@@ -177,8 +177,8 @@ async function rebuild(force?: boolean) {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    const { status } = await api(withDocQuery('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
-      method: 'POST',
+    const { status } = await api('POST /api/rebuild', {
+      query: withDocQuery('?async=1' + (force === true ? '&force=1' : '')),
       what: 'PDF 재빌드',
       where: NOTICE_HOST.LINE,
       retry: () => rebuild(force),

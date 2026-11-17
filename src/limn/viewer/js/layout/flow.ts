@@ -349,7 +349,7 @@ function setSide(open: boolean, remember?: boolean, slide?: boolean) {
 // The panel's slide (0.18s; none with reduced motion, and none beside the document at 901-1099px, where the page
 // re-fits instead). While it slides out the body keeps side-open, so the layout does not jump until it is gone.
 const SLIDE_MS = 180;
-let SIDE_SLIDE = null as { kind: string; t: ReturnType<typeof setTimeout> } | null;
+let SIDE_SLIDE: { kind: string; t: ReturnType<typeof setTimeout> } | null = null;
 // The slide's length for this layout in ms: 0 with reduced motion, beside the document (901-1099px) and for the narrow
 // sheet.
 function slideMs() {
@@ -561,7 +561,7 @@ document.addEventListener('focusin', (event) => {
 // into the field with the focus. It is done on the key and not on the focus because a tap's own caret lands after
 // focusin - and once per turn in the field, before that key is handled, so the key itself lands.
 // The field whose caret has been put since it took the focus.
-let CARET_HELD = null as EventTarget | null;
+let CARET_HELD: EventTarget | null = null;
 function holdCaret(event: KeyboardEvent) {
   const field = event.target as HTMLInputElement;
   if (!field || field === CARET_HELD || typeof field.setSelectionRange !== 'function') return;
@@ -894,7 +894,7 @@ function footInk() {
   foot.style.setProperty('--help-chev', inkMiddle - (chevronRect.top + chevronRect.height / 2) + 'px');
 }
 // inkMetrics()'s canvas context, made on first use.
-let INK_CONTEXT = null as CanvasRenderingContext2D | null;
+let INK_CONTEXT: CanvasRenderingContext2D | null = null;
 // The ink of a text in an element's font as {a, d}: how far it rises above and reaches below the baseline (px), from
 // the canvas's text metrics read at 64 times the size, because the canvas rounds them to whole pixels.
 function inkMetrics(element: Element, text: string) {

@@ -58,12 +58,13 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
                 const SECTION_SEEN={open:null,review:null,done:null},calls=[],reads=[],said=[];
                 let firstTrash;
-                function api(url){
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
                   if(url==='/api/pins?all=1')return Promise.resolve({data:reads.shift()});
                   if(url==='/api/pins/dropped'){
                     if(!firstTrash)return new Promise(resolve=>{firstTrash=resolve;});
@@ -102,12 +103,13 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='main',DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
                 let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
                 const SECTION_SEEN={open:null,review:null,done:null},calls=[];
                 let firstPins,pinReads=0,trashReads=0,peopleReads=0;
-                function api(url){
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
                   if(url==='/api/pins?all=1'){
                     pinReads++;
                     return pinReads===1 ? new Promise(resolve=>{firstPins=resolve;})
@@ -151,7 +153,7 @@ class PinListLoading(unittest.TestCase):
         let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
         const SECTION_SEEN={open:null,review:null,done:null},SECTION_OPEN={done:false},OPEN_CARDS=new Set(),drawn=[],pending=[];
         let jumps=0;
-        function api(url){
+        function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
           if(url==='/api/pins?all=1')return new Promise((resolve,reject)=>pending.push({resolve,reject}));
           if(url==='/api/pins/dropped')return Promise.resolve({data:{dropped:[]}});
           throw Error(url);
@@ -171,7 +173,7 @@ class PinListLoading(unittest.TestCase):
     def _pins_run(self, scenario, *functions):
         """Run scenario (an async body that prints JSON) against the served pinState, derivePinLists, applyPinLists,
         loadPins and loadPinsNow, and the named functions besides, under PINS_HARNESS; return what it prints, parsed."""
-        names = ("pinState", "derivePinLists", "applyPinLists", "loadPins", "loadPinsNow", *functions)
+        names = ("endpointUrl", "pinState", "derivePinLists", "applyPinLists", "loadPins", "loadPinsNow", *functions)
         body = "(async()=>{%s})();" % scenario
         return json.loads(
             run_node("\n".join([JS_UPDATE_STUBS, *(extract_js_fn(n) for n in names), self.PINS_HARNESS, body]))
@@ -229,6 +231,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("endpointUrl"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
@@ -239,7 +242,7 @@ class PinListLoading(unittest.TestCase):
                 const SECTION_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};
                 let pinReads=0,firstTrash;
-                function api(url){
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
                   if(url==='/api/pins?all=1'){
                     pinReads++;
                     return pinReads===1 ? Promise.resolve({data:[{id:1}]})
@@ -280,6 +283,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("endpointUrl"),
                 JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
@@ -289,7 +293,7 @@ class PinListLoading(unittest.TestCase):
                 let LAST_PINS_REVISION='old',LAST_SRC_MTIME='old-src',POLL_FAILS=0; const BUILD={lastSeq:0,timer:null};
                 const SECTION_SEEN={open:new Set(),review:new Set(),done:new Set()},drawn=[];
                 const document={hidden:false};let pinReads=0,trashReads=0;
-                function api(url){
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
                   if(url==='/api/meta?light=1')return Promise.resolve({data:{pins_rev:'new',src_sig:'new-src',build_seq:0}});
                   if(url==='/api/pins?all=1'){pinReads++;return Promise.resolve({data:[{id:2}]});}
                   if(url==='/api/pins/dropped'){
@@ -336,6 +340,7 @@ class PinListLoading(unittest.TestCase):
                 extract_js_fn("derivePinLists"),
                 JS_UPDATE_STUBS + extract_js_fn("applyPinLists"),
                 extract_js_fn("loadPins"),
+                extract_js_fn("endpointUrl"),
                 js_esc(),
                 js_markup(),
                 JS_OFFLINE_STUBS,
@@ -353,7 +358,7 @@ class PinListLoading(unittest.TestCase):
                 const document={hidden:false};
                 function isMarkdownDoc(){return false;}   // the document has pages (documents/state.ts)
                 let pinReads=0;
-                function api(url){
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
                   if(url==='/api/meta'||url==='/api/meta?light=1')
                     return Promise.resolve({data:{doc:'main',pins_rev:'r1',src_sig:'s1',build_seq:0,docs:[]}});
                   if(url==='/api/pins?all=1'){
@@ -415,7 +420,7 @@ class PinListLoading(unittest.TestCase):
                 let POLL_FAILS=0; const BUILD={lastSeq:null,timer:null};
                 const META_BY=new Map(),VIEW_BY=new Map(),DOC_SEQ=new Map(),COARSE_POINTER_QUERY={matches:false};
                 const document={hidden:false}; let pinReads=0;
-                function api(url){return Promise.resolve({data:{doc:'main',pins_rev:'r1',src_sig:'s1',
+                function api(endpoint){return Promise.resolve({data:{doc:'main',pins_rev:'r1',src_sig:'s1',
                   build_seq:0,docs:[]}});}
                 function withDocQuery(url){return url;} function notifyQuery(){return '';}
                 function $(sel){return {hidden:true,innerHTML:''};}
@@ -444,6 +449,7 @@ class PinListLoading(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
+                extract_js_fn("endpointUrl"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 extract_js_fn("showDoc"),
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
@@ -509,6 +515,7 @@ class PinListLoading(unittest.TestCase):
         js = "\n".join(
             [
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
+                extract_js_fn("endpointUrl"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 extract_js_fn("refreshDoc"),
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
@@ -527,7 +534,7 @@ class PinListLoading(unittest.TestCase):
                 function openVectorDocument(){} function loadPins(){return Promise.resolve();}
                 function rebuildSources(){return [];} function sourceOk(){}   // a refresh ends a failed rebuild's error
                 function withDocQuery(u,k){return u+(k||DOC);}
-                function api(url){requests.push(url);return Promise.resolve({data:{pages:[{id:'new'}],pages_build:'v2'}});}
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);requests.push(url);return Promise.resolve({data:{pages:[{id:'new'}],pages_build:'v2'}});}
                 (async()=>{await switchDoc('b');console.log(JSON.stringify({requests,build:META.pages_build}));})();
                 """,
             ]

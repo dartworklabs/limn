@@ -2,7 +2,7 @@
 import { PINS, rendersInBrowser, EDITOR, setEditorCurrent, setEditorSaving } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
 import { viaDoc } from '../documents/flow-switch.ts';
 import { kindFor, wireScope } from '../composer/view-levels.ts';
@@ -152,9 +152,9 @@ async function editSnip(withLevels: boolean) {
     return;
   } // view-only: there is no source line
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' +
           encodeURIComponent(String(card.file)) +
           '&lo=' +
           card.lo +
@@ -163,10 +163,11 @@ async function editSnip(withLevels: boolean) {
           (withLevels ? '&levels=1' : ''),
         card.doc,
       ),
-      { what: '원문 읽기', expect: [400] },
-    );
+      what: '원문 읽기',
+      expect: [400],
+    });
     if (EDITOR.current !== card) return;
-    if (status === 400) {
+    if (status === 400 || isRefusal(data)) {
       card.snippet =
         translate('원문을 읽지 못했습니다') + ' — ' + errText(data) + '\n' + translate('위치 다시 잡기로 고치세요.');
       renderEdit();
@@ -208,7 +209,7 @@ async function saveEdit() {
   if (!card || EDITOR.saving || viewerBlocked()) return;
   const note = editNote(card).value,
     body: {
-      base_rev: number;
+      base_rev: number | undefined;
       note?: string;
       kind_req?: string;
       assignee?: string;
@@ -262,8 +263,8 @@ async function saveEdit() {
   setEditorSaving(true);
   syncEditSaveButton();
   try {
-    const { status, data } = await api('/api/pins/' + card.id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id: card.id,
       body,
       what: '핀 수정',
       where: NOTICE_HOST.LIST,
@@ -271,11 +272,11 @@ async function saveEdit() {
       intent: 'edit',
     });
     if (status === 409) {
-      if (data && data.reason === 'suggest_base_changed') {
+      if (isRefusal(data) && data.reason === 'suggest_base_changed') {
         editSuggestRefused(card, data);
         return;
       }
-      if (data && data.error === PIN_STATE.DONE) {
+      if (isRefusal(data) && data.error === PIN_STATE.DONE) {
         bannerNote(
           NOTICE_HOST.LIST,
           translateTemplate('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다', { id: card.id }),

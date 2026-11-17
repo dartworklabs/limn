@@ -30,7 +30,7 @@ import { orderPins, listReview } from './view-list-sections.ts';
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
 // close with none). null while the section shows cards.
-let REVIEW_PICK = null as Map<number, string> | null;
+let REVIEW_PICK: Map<number, string> | null = null;
 
 // Whether a pin's row shows a result a person can have read: the agent's explanation or the lines it changed. A row
 // without one cannot be ticked - that pin is confirmed from its card (ADR-0035 D2). Pure.
@@ -369,8 +369,8 @@ const CONFIRM_SEND_MS = 15000;
 function sendOneConfirm(pin: Pin, at: string): Promise<{ out: string; why?: string }> {
   const stop = new AbortController(),
     bound = setTimeout(() => stop.abort(), CONFIRM_SEND_MS);
-  return api('/api/pins/' + pin.id + '/confirm', {
-    method: 'POST',
+  return api('POST /api/pins/{id}/confirm', {
+    id: pin.id,
     silent: true,
     expect: [409],
     keepalive: true,

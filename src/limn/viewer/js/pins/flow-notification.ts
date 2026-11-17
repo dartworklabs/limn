@@ -46,7 +46,7 @@ interface PinEventsMeta {
   events?: PinEvent[];
 }
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
-let WORKER_REGISTRATION = null as ServiceWorkerRegistration | null;
+let WORKER_REGISTRATION: ServiceWorkerRegistration | null = null;
 function notifySupported() {
   return !!(window.isSecureContext && 'serviceWorker' in navigator && 'Notification' in window);
 }
@@ -59,7 +59,7 @@ function notifyOn() {
 // The cursor this tab last set, kept in memory too: a browser whose storage refuses (a SecurityError on reading it, a
 // full quota on writing) still has one for this visit - the boot goes on, and an event is said once - and the newer of
 // the two is the cursor, so another tab's advance in storage counts as well.
-let NOTIFY_CURSOR_MEM = null as number | null;
+let NOTIFY_CURSOR_MEM: number | null = null;
 function notifyCursor(): number | null {
   let stored = NaN;
   try {
@@ -338,7 +338,7 @@ async function notifyToggle() {
   await notifyRegister();
   savePrefs({ notify: true });
   try {
-    const meta = (await api(withDocQuery('/api/meta?light=1'), { silent: true })).data;
+    const meta = (await api('GET /api/meta', { query: withDocQuery('?light=1'), silent: true })).data;
     if (notifyCursor() == null) setNotifyCursor(meta.ev_seq);
   } catch (error) {}
   drawNotify();

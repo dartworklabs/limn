@@ -22,47 +22,6 @@ const PDFJS_VERSION = '__PDFJS_VERSION__';
 const VECTOR_PIXEL_CAP = 16777216,
   VECTOR_KEEP_MARGIN = '150% 0px',
   VECTOR_DETAIL_MARGIN = 0.25;
-// PDF.js has no type declarations here: these name the parts of its document, page and outline objects that the viewer
-// calls. A page's reference in a PDF's object table, which an outline destination may name instead of a page number.
-interface PdfPageReference {
-  num: number;
-  gen: number;
-}
-// An outline destination: the page (a number, or its reference), the kind of view ({ name: 'XYZ' } carries the left and
-// top edges that follow), and the view's numbers.
-type PdfDestination = [
-  PdfPageReference | number | null,
-  { name: string } | null,
-  number | null,
-  number | null,
-  number | null,
-];
-// One item of a PDF's outline: its title, where it goes (a destination, or the name of one) and its children.
-interface PdfOutlineItem {
-  title?: string;
-  dest?: string | PdfDestination | null;
-  items: PdfOutlineItem[];
-}
-// A page's viewport at a scale: its size and the matrix from PDF units to the canvas.
-interface PdfViewport {
-  width: number;
-  height: number;
-  transform: number[];
-}
-// A render of a page onto a canvas, which cancel() ends early.
-interface PdfRenderTask {
-  promise: Promise<void>;
-  cancel(): void;
-}
-// A page of a PDF document (PDFPageProxy).
-interface PdfPage {
-  getViewport(options: { scale: number }): PdfViewport;
-  render(options: {
-    canvasContext: CanvasRenderingContext2D | null;
-    viewport: PdfViewport;
-    transform: number[];
-  }): PdfRenderTask;
-}
 // What is drawn for one page (view-draw.ts pageDrawState): its page canvas and the size it was drawn at, its detail canvas
 // with the region of the page (fractions) it covers and the size and pixel ratio it was drawn at, and whether the page
 // must be drawn again.
@@ -76,31 +35,43 @@ interface PageDrawState {
   dtK: number;
   stale: boolean;
 }
-// An opened PDF document (PDFDocumentProxy).
-interface PdfDocument {
-  numPages: number;
-  loadingTask: { destroy(): unknown };
-  getPage(pageNumber: number): Promise<PdfPage>;
-  getOutline(): Promise<PdfOutlineItem[] | null>;
-  getDestination(name: string): Promise<PdfDestination | null>;
-  getPageIndex(reference: PdfPageReference): Promise<number>;
+// The vector view's state (VECTOR_PDF): the PDF.js library once imported, the document on screen and its build, the
+// generation each open and each failure bumps (a draw of an older one is dropped), why vector drawing gave up, the observer of the pages near the view and those pages,
+// what is drawn for each page, the render running now, whether the draw queue is being worked, its timer, the draws'
+// timings, when the first page and the document were drawn, and the opened documents cached by 'document|build'.
+interface VectorPdfState {
+  lib: PdfLibrary | null;
+  doc: PdfDocument | null;
+  build: string | null;
+  gen: number;
+  failed: string | null;
+  io: IntersectionObserver | null;
+  near: Set<number>;
+  st: Map<number, PageDrawState>;
+  cur: { n: number; task: PdfRenderTask } | null;
+  pumping: boolean;
+  timer: number;
+  stats: { n: number; kind: string; ms: number; w: number; h: number }[];
+  tFirst: number | null;
+  tDoc: number | null;
+  cache: Map<string, PdfDocument>;
 }
-// The PDF.js library and a render task are `any`; its document is a PdfDocument, though the cached ones are `any` too.
-const VECTOR_PDF = {
-  lib: null as any,
-  doc: null as PdfDocument | null,
-  build: null as string | null,
+// The PDF.js library (types/pdfjs.d.ts), the document on screen and the opened documents cached by 'document|build'.
+const VECTOR_PDF: VectorPdfState = {
+  lib: null,
+  doc: null,
+  build: null,
   gen: 0,
-  failed: null as string | null,
-  io: null as IntersectionObserver | null,
-  near: new Set<number>(),
-  st: new Map<number, PageDrawState>(),
-  cur: null as { n: number; task: any } | null,
+  failed: null,
+  io: null,
+  near: new Set(),
+  st: new Map(),
+  cur: null,
   pumping: false,
   timer: 0,
-  stats: [] as { n: number; kind: string; ms: number; w: number; h: number }[],
-  tFirst: null as number | null,
-  tDoc: null as number | null,
+  stats: [],
+  tFirst: null,
+  tDoc: null,
   cache: new Map(),
 };
 // Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
@@ -115,16 +86,14 @@ function cacheVectorDocument(key: string, doc: PdfDocument) {
   cache.delete(key);
   cache.set(key, doc);
   const docPrefix = key.split('|')[0] + '|';
-  Array.from(cache.keys()).forEach((cachedKey) => {
+  Array.from(cache).forEach(([cachedKey, cachedDoc]) => {
     if (cachedKey !== key && cachedKey.startsWith(docPrefix)) {
-      const cachedDoc = cache.get(cachedKey);
       cache.delete(cachedKey);
       if (cachedDoc !== VECTOR_PDF.doc) closeVectorDocument(cachedDoc);
     }
   });
   while (cache.size > VECTOR_CACHE_MAX) {
-    const cachedKey = cache.keys().next().value,
-      cachedDoc = cache.get(cachedKey);
+    const [cachedKey, cachedDoc] = Array.from(cache)[0];
     cache.delete(cachedKey);
     if (cachedDoc !== VECTOR_PDF.doc && cachedDoc !== doc) closeVectorDocument(cachedDoc);
   }
@@ -142,6 +111,26 @@ function forgetVectorDocument(doc: PdfDocument | null) {
 }
 // For measurement (Playwright): canvas count, render time.
 window.__pinVec = VECTOR_PDF;
+// Whether a value is the PDF.js module as the viewer uses it (types/pdfjs.d.ts PdfLibrary): a getDocument function and
+// the worker options.
+function isPdfLibrary(value: unknown): value is PdfLibrary {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'getDocument' in value &&
+    typeof value.getDocument === 'function' &&
+    'GlobalWorkerOptions' in value &&
+    typeof value.GlobalWorkerOptions === 'function' &&
+    'workerSrc' in value.GlobalWorkerOptions
+  );
+}
+// Imports the vendored PDF.js module; rejects when what loads is not the module the viewer uses.
+async function importPdfLibrary(): Promise<PdfLibrary> {
+  const loaded: unknown = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
+  if (!isPdfLibrary(loaded))
+    throw new Error('pdf.js did not load as a module with getDocument and GlobalWorkerOptions');
+  return loaded;
+}
 // Loads pdf.js (once) and opens the PDF on screen; a browser without IntersectionObserver keeps the PNG pages.
 async function bootVector() {
   if (!window.IntersectionObserver) {
@@ -149,7 +138,7 @@ async function bootVector() {
     return;
   }
   try {
-    VECTOR_PDF.lib = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
+    VECTOR_PDF.lib = await importPdfLibrary();
     VECTOR_PDF.lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
   } catch (error) {
     VECTOR_PDF.lib = null;
@@ -227,7 +216,6 @@ async function openVectorDocument() {
   if (old && old !== doc && !isVectorCached(old)) closeVectorDocument(old);
   scheduleVectorDraw(0);
 }
-export type { PdfDestination, PdfDocument, PdfOutlineItem };
 export {
   PDFJS_VERSION,
   VECTOR_PDF,
@@ -236,5 +224,7 @@ export {
   VECTOR_PIXEL_CAP,
   bootVector,
   forgetVectorDocument,
+  importPdfLibrary,
+  isPdfLibrary,
   openVectorDocument,
 };

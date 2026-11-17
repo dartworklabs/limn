@@ -901,14 +901,16 @@ class ReviewPickOutcome(unittest.TestCase):
                 "function sourceOk(){} function apiFailed(){}",
                 JS_OFFLINE_STUBS,
                 js_seam_wired("setRequestFallback", late=True),
+                extract_js_fn("endpointUrl"),
+                extract_js_fn("isExpected"),
                 extract_js_fn("api"),
                 """globalThis.fetch=(u,init)=>Promise.resolve({status:200,json:()=>new Promise((ok,no)=>{
                   if(!init.signal){no(new SyntaxError('not JSON'));return;}
                   init.signal.addEventListener('abort',()=>{const e=new Error('aborted');e.name='AbortError';no(e);});})});
                 const stop=new AbortController();
-                const cut=api('/x',{method:'POST',silent:true,signal:stop.signal}).then(r=>'answered',e=>'threw '+e.name);
+                const cut=api('POST /x',{silent:true,signal:stop.signal}).then(r=>'answered',e=>'threw '+e.name);
                 setTimeout(()=>stop.abort(),0);   // once the body is being read
-                const plain=api('/y',{method:'POST',silent:true}).then(r=>'answered '+JSON.stringify(r.data),e=>'threw '+e.name);
+                const plain=api('POST /y',{silent:true}).then(r=>'answered '+JSON.stringify(r.data),e=>'threw '+e.name);
                 Promise.all([cut,plain]).then(v=>console.log(JSON.stringify(v)));""",
             ]
         )

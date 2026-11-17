@@ -31,7 +31,7 @@ import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
 import { pageSelection } from './state-seams.ts';
 
-let DRAG = null as {
+let DRAG: {
     pg: HTMLElement;
     sx: number;
     sy: number;
@@ -41,8 +41,8 @@ let DRAG = null as {
     cy: number;
     box: HTMLElement | null;
     badge?: boolean;
-  } | null,
-  LONG_PRESS = null as { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null;
+  } | null = null,
+  LONG_PRESS: { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null = null;
 const clampUnit = (value: number) => Math.min(1, Math.max(0, value));
 const TAP_SLOP = 8,
   QUICK_HALF_WIDTH = 0.07,
@@ -101,9 +101,9 @@ $('#doc').addEventListener('mousedown', (event: MouseEvent) => {
 // that follows the touch would land on it (it would open an edit, switch the kind, focus the note) - that one click is
 // swallowed (SWALLOW_CLICK). LONG_PRESS_PICKED = the pointer whose long-press already picked. TAP/LAST_TAP = double-tap
 // zoom (touch, outside [선택] mode).
-let LONG_PRESS_PICKED = null as number | null,
-  TAP = null as { id: number; x: number; y: number; t: number } | null,
-  LAST_TAP = null as { t: number; x: number; y: number } | null;
+let LONG_PRESS_PICKED: number | null = null,
+  TAP: { id: number; x: number; y: number; t: number } | null = null,
+  LAST_TAP: { t: number; x: number; y: number } | null = null;
 // BADGE_HOLD = the SWALLOW_CLICK a drag from a badge armed at its release (0 for none). A pen's drag is followed by a
 // click, but a finger's is not, so the hold would outlive the gesture and swallow the next tap, on another badge: the
 // next press retires it (a click always comes before the next press) - unless another hold has taken SWALLOW_CLICK over
@@ -266,8 +266,8 @@ window.addEventListener('pointercancel', (event) => {
 // window (isDoubleTap), so the first tap of a double tap does not close the composer under the zoom. PRESS_OFF is the
 // press that may become one (set on pointerdown, resolved on pointerup); CLICKOFF_TIMER the finger's wait.
 const CLICKOFF_WAIT_MS = 350;
-let PRESS_OFF = null as { id: number; mouse: boolean; x: number; y: number; box: HTMLElement | null } | null,
-  CLICKOFF_TIMER = null as ReturnType<typeof setTimeout> | null;
+let PRESS_OFF: { id: number; mouse: boolean; x: number; y: number; box: HTMLElement | null } | null = null,
+  CLICKOFF_TIMER: ReturnType<typeof setTimeout> | null = null;
 // Whether the point (x, y) lies in one of rects ({left, top, right, bottom}), each grown by pad px. Pure.
 function hitsAny(rects: DOMRect[], x: number, y: number, pad: number) {
   return rects.some(

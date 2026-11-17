@@ -278,10 +278,15 @@ class LiveTab:
         )
 
     def api(self, url, **options):
-        """The viewer's own api(url, options) -> {ok, status, data} when it answered, {ok: False, error} when it threw.
-        The page's api() is the one that stores document reads and answers from the store."""
+        """The viewer's own api() asked for url (a fixed path, with its query) with options, method among them (GET when
+        absent) -> {ok, status, data} when it answered, {ok: False, error} when it threw. The endpoint is the method and
+        the path, the query goes as options.query. The page's api() is the one that stores document reads and answers
+        from the store."""
         return self.page.evaluate(
-            """async ([url, options]) => {try {const r = await api(url, options); return {ok: true, status: r.status, data: r.data};}
+            """async ([url, options]) => {const {method, ...rest} = options, at = url.indexOf('?');
+              const endpoint = (method || 'GET') + ' ' + (at < 0 ? url : url.slice(0, at));
+              try {const r = await api(endpoint, {...rest, query: at < 0 ? '' : url.slice(at)});
+                return {ok: true, status: r.status, data: r.data};}
               catch (e) {return {ok: false, error: String(e), status: e && e.status || 0};}}""",
             [url, options],
         )
@@ -293,12 +298,14 @@ class LiveTab:
     def stored(self, url):
         """The answer stored for a document read of url, as the page asks it with or without the document's name, or None."""
         return self.page.evaluate(
-            "async url => (await offStashed(url, null)) || (await offStashed(withDocQuery(url), null))", url
+            "async url => {const read = 'GET ' + url.split('?')[0];"
+            " return (await offStashed(read, url)) || (await offStashed(read, withDocQuery(url)));}",
+            url,
         )
 
     def stored_stash(self, url, data, status=200):
         """Store an answer for url the way a read does, and wait until it can be read back."""
-        self.page.evaluate("([u, d, s]) => offStash(u, d, s, null)", [url, data, status])
+        self.page.evaluate("([u, d, s]) => offStash('GET ' + u.split('?')[0], u, d, s)", [url, data, status])
         self.until(lambda: self.stored(url) is not None, what="the stored answer")
 
     def stale_said(self):

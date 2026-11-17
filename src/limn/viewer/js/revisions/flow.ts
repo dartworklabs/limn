@@ -17,7 +17,7 @@ import { api } from '../platform/api.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
 import { canConfirmReview, confirmAccessText } from '../documents/view-meta.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
-import { PDFJS_VERSION, VECTOR_PDF } from '../pdf/flow-open.ts';
+import { PDFJS_VERSION, VECTOR_PDF, importPdfLibrary } from '../pdf/flow-open.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { scheduleVectorDraw } from '../pdf/view-draw.ts';
 import { searchOffer } from '../pdf/flow.ts';
@@ -73,36 +73,73 @@ interface RevisionDiffAnswer {
   files?: unknown[];
   truncated?: boolean;
 }
-const REVISION_VIEW = {
+// What the revision view shows and where it stands (REVISION_VIEW): the request counter, the source diff's files and
+// whole text, the commit shown and the one its source diff is of, the format, the commit's scope a pin's diff read
+// answers (GET /api/revision-diff?pin=; null before such a read), the rest of the commit's diff beside a pin's hunks,
+// the pin's target, the commit of the PDF shown, the document to go back to, the overlay and its side, whether the
+// history is open, its base, rows, their document and whether more are listed, the range and what was seen of it, the
+// range's commits, base, summary line and counts, whether the list is open, and the range the list is to paint.
+interface RevisionViewState {
+  seq: number;
+  files: { name: string; text: string }[];
+  whole: string;
+  commit: string;
+  sourceCommit: string;
+  format: string;
+  scope: RevisionPinScope | RevisionCommitScope | null;
+  other: string;
+  target: RevTarget | null;
+  pdfCommit: string;
+  back: string | null;
+  overlay: RevisionOverlay | null;
+  side: string;
+  history: boolean;
+  base: string;
+  rows: RevisionRow[];
+  rowsDoc: string;
+  more: boolean;
+  range: RevRange;
+  seen: RevSeen | null;
+  seenState: string;
+  seenN: number;
+  seenIds: Set<string>;
+  rangeIds: string[] | null;
+  rangeBase: string;
+  listOpen: boolean;
+  rangeLine: string;
+  rangeN: { commits: number; files: number } | null;
+  want: { base: string; top: string } | null;
+}
+const REVISION_VIEW: RevisionViewState = {
   seq: 0,
-  files: [] as { name: string; text: string }[],
+  files: [],
   whole: '',
   commit: '',
   sourceCommit: '',
-  format: DIFF_FORMAT.PDF as string,
-  scope: null as any,
+  format: DIFF_FORMAT.PDF,
+  scope: null,
   other: '',
-  target: null as RevTarget | null,
+  target: null,
   pdfCommit: '',
-  back: null as string | null,
-  overlay: null as RevisionOverlay | null,
-  side: OVERLAY_SIDE.CUR as string,
+  back: null,
+  overlay: null,
+  side: OVERLAY_SIDE.CUR,
   history: false,
   base: '',
-  rows: [] as RevisionRow[],
+  rows: [],
   rowsDoc: '',
   more: false,
-  range: { mode: RANGE_MODE.ONE, start: '', end: '', endSet: false } as RevRange,
-  seen: null as RevSeen | null,
-  seenState: SEEN_STATE.NONE as string,
+  range: { mode: RANGE_MODE.ONE, start: '', end: '', endSet: false },
+  seen: null,
+  seenState: SEEN_STATE.NONE,
   seenN: 0,
-  seenIds: new Set() as Set<string>,
-  rangeIds: null as string[] | null,
+  seenIds: new Set(),
+  rangeIds: null,
   rangeBase: '',
   listOpen: false,
   rangeLine: '',
-  rangeN: null as { commits: number; files: number } | null,
-  want: null as { base: string; top: string } | null,
+  rangeN: null,
+  want: null,
 };
 // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_RECENT = 12;
@@ -113,11 +150,17 @@ const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기
 // build failed and the whole commit is shown instead (fallback). COMPARISON_PDF holds the loaded comparison PDF, its
 // loading task, its observer and its render tasks.
 const COMPARISON_SCOPE = { whole: false, partial: false, fallback: false };
-const COMPARISON_PDF = {
-  doc: null as any,
-  loading: null as any,
-  observer: null as IntersectionObserver | null,
-  tasks: new Set<{ cancel(): void }>(),
+interface ComparisonPdfState {
+  doc: PdfDocument | null;
+  loading: PdfLoadingTask | null;
+  observer: IntersectionObserver | null;
+  tasks: Set<PdfRenderTask>;
+}
+const COMPARISON_PDF: ComparisonPdfState = {
+  doc: null,
+  loading: null,
+  observer: null,
+  tasks: new Set(),
 };
 function revisionFiles(patch: string) {
   const starts: { at: number; head: string }[] = [];
@@ -139,12 +182,12 @@ function revisionFiles(patch: string) {
 function renderRevisionDiff(patch: string) {
   const lines = String(patch || '').split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
-  let oldLine = null as number | null,
-    newLine = null as number | null,
+  let oldLine: number | null = null,
+    newLine: number | null = null,
     inHunk = false;
   return html`${lines.map((line) => {
     let kind = 'meta',
-      number = '' as number | string;
+      number: number | string = '';
     if (line.startsWith('diff --git ')) {
       kind = 'file';
       inHunk = false;
@@ -390,7 +433,11 @@ async function loadRevisions() {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, docKey), { what: '변경사항 읽기', silent: true })
+      await api('GET /api/revisions', {
+        query: withDocQuery('?limit=' + REVISION_PAGE, docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
   } catch (error) {
     if (seq === REVISION_VIEW.seq) list.textContent = '변경사항을 읽지 못했습니다.';
@@ -668,7 +715,7 @@ function renderCommitList() {
       paintedIds({ commit: REVISION_VIEW.commit, base: REVISION_VIEW.base }, REVISION_VIEW.rangeIds),
     ),
     side = sideRows(rows),
-    fresh = REVISION_VIEW.seenState === SEEN_STATE.OK ? REVISION_VIEW.seenIds : new Set();
+    fresh = REVISION_VIEW.seenState === SEEN_STATE.OK ? REVISION_VIEW.seenIds : new Set<string>();
   const order = rows.filter((row) => inside.has(row.id)).map((row) => row.id),
     ends = new Set([order[0], order[order.length - 1]]),
     base = REVISION_VIEW.base ? REVISION_VIEW.rangeBase || REVISION_VIEW.base : '';
@@ -736,7 +783,8 @@ async function moreRows(docKey: string | null, limit: number) {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey), {
+      await api('GET /api/revisions', {
+        query: withDocQuery('?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey),
         what: '변경사항 읽기',
         silent: true,
       })
@@ -810,13 +858,11 @@ async function resolveSeen(docKey: string, newest: string) {
   if (!seen) return;
   try {
     const answer = (
-      await api(
-        withDocQuery(
-          '/api/revision-diff?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id),
-          docKey,
-        ),
-        { what: '변경사항 읽기', silent: true },
-      )
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id), docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
     if (docKey === DOC && REVISION_VIEW.seen === seen) seenAnswered(answer);
   } catch (error) {
@@ -1038,7 +1084,8 @@ async function loadRevisionSource(id: string, seq: number, docKey: string | null
     query = pinTarget ? '&pin=' + pinTarget.id : base ? '&base=' + encodeURIComponent(base) : '';
   try {
     const answer = (
-      await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + query, docKey), {
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
         what: '변경 내용 읽기',
         silent: true,
       })
@@ -1209,7 +1256,8 @@ async function pickRevisionFor(
       if (seq !== REVISION_VIEW.seq || docKey !== DOC) break;
       try {
         const answer = (
-          await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(row.id), docKey), {
+          await api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(row.id), docKey),
             what: '변경 내용 읽기',
             silent: true,
           })
@@ -1427,7 +1475,7 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
   };
   for (let waits = 0; ; waits++) {
     try {
-      return (await api('/api/revision-build', { method: 'POST', body, what: '비교 PDF 만들기', silent: true })).data;
+      return (await api('POST /api/revision-build', { body, what: '비교 PDF 만들기', silent: true })).data;
     } catch (error) {
       const answer = (error as ApiError).data as { reason?: string } | undefined;
       if (!answer || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
@@ -1470,7 +1518,8 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       if (!revisionCurrent(seq, docKey, id)) return;
       status = (
-        await api(withDocQuery('/api/revision-build?commit=' + encodeURIComponent(id) + query, docKey), {
+        await api('GET /api/revision-build', {
+          query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
           what: '비교 PDF 상태',
           silent: true,
         })
@@ -1506,7 +1555,7 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
       throw new Error(translateTemplate('비교 PDF를 열지 못했습니다 (HTTP {status}).', { status: response.status }));
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (!revisionCurrent(seq, docKey, id)) return;
-    const lib = VECTOR_PDF.lib || (await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION));
+    const lib = VECTOR_PDF.lib || (await importPdfLibrary());
     if (!revisionCurrent(seq, docKey, id)) return;
     lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
     const loading = lib.getDocument({ data: bytes, isEvalSupported: false, useWasm: false, enableXfa: false });

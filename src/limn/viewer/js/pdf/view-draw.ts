@@ -11,7 +11,6 @@ import {
   forgetVectorDocument,
 } from './flow-open.ts';
 import { searchOffer } from './flow.ts';
-import type { PdfDocument } from './flow-open.ts';
 import { $, $$ } from '../platform/dom.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
 function closeVectorDocument(doc: PdfDocument | null) {
@@ -256,7 +255,7 @@ async function runDrawJob(job: { n: number; kind: string }) {
     canvas = document.createElement('canvas');
   let scale,
     transform,
-    region = null as { x: number; y: number; w: number; h: number } | null;
+    region: { x: number; y: number; w: number; h: number } | null = null;
   // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
   // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. The PNG fills that same
   // box, so this is what lands the canvas's text at the same % position as the PNG's.
@@ -286,6 +285,8 @@ async function runDrawJob(job: { n: number; kind: string }) {
   }
   const canvasContext = canvas.getContext('2d', { alpha: false }),
     startedAt = performance.now();
+  // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way, outside the try.
+  if (!canvasContext) throw new Error('the page canvas has no 2D context');
   const task = page.render({
     canvasContext: canvasContext,
     viewport: page.getViewport({ scale }),

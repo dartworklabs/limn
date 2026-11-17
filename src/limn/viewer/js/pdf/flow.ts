@@ -15,7 +15,6 @@
 import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
-import type { PdfDocument } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
@@ -74,9 +73,9 @@ function searchFold(text: string): { t: string; at: number[] } {
 // along the line, y: across it, up being +, size: font size, ang: the line's angle in whole degrees}, so a page set
 // sideways reads as an upright one - or null for text that is skewed, mirrored or of mixed directions. Blank pieces are
 // left out. Pure.
-function searchLines(items: any[]) {
-  const rows = [] as any[][];
-  let row = [] as any[];
+function searchLines(items: PdfTextItem[]): SearchLine[] {
+  const rows: SearchRowItem[][] = [];
+  let row: SearchRowItem[] = [];
   items.forEach((item, index) => {
     if (typeof item.str !== 'string') return;
     const matrix = Array.isArray(item.transform) && item.transform.length === 6 ? item.transform : [0, 0, 0, 0, 0, 0];
@@ -108,12 +107,12 @@ function searchLines(items: any[]) {
     }
   });
   if (row.length) rows.push(row);
-  const lines = [] as any[];
+  const lines: SearchLine[] = [];
   rows.forEach((rowItems) => {
-    const mine = [] as any[];
+    const mine: SearchLine[] = [];
     let raw = '',
-      parts = [] as { i: number; from: number }[],
-      pieceBox = null as any;
+      parts: { i: number; from: number }[] = [],
+      pieceBox: (SearchPieceBox & { ok: boolean }) | null = null;
     const end = () => {
       if (raw.trim()) {
         const folded = searchFold(raw);
@@ -247,7 +246,7 @@ function searchGutter(lines: any[]): number[] | null {
   const at = [...new Set(boxes.flatMap((box) => [box.x0, box.x1]))].sort((first, second) => first - second),
     low = at[0],
     high = at[at.length - 1],
-    coverChange = new Map();
+    coverChange = new Map<number, number>();
   boxes.forEach((box) => {
     coverChange.set(box.x0, (coverChange.get(box.x0) ?? 0) + 1);
     coverChange.set(box.x1, (coverChange.get(box.x1) ?? 0) - 1);
@@ -257,7 +256,7 @@ function searchGutter(lines: any[]): number[] | null {
   let running = 0;
   const coverCounts = at.slice(0, -1).map((x) => (running += coverChange.get(x) ?? 0)),
     bar = Math.max(1, Math.floor(SEARCH_GUTTER.BAR * Math.max(...coverCounts)));
-  let best = null as number[] | null;
+  let best: number[] | null = null;
   for (let k = 0; k < coverCounts.length;) {
     if (coverCounts[k] > bar) {
       k++;
@@ -298,7 +297,7 @@ function searchGutter(lines: any[]): number[] | null {
 // measure says whose it is (col: 0 left, 1 right) and carries the block's edges (blk), for searchJoin. Pure.
 function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?: { l: number; r: number } } | null)[] {
   const blockOf = searchBlocks(lines),
-    blockEdges = [] as { l: number; r: number }[];
+    blockEdges: { l: number; r: number }[] = [];
   lines.forEach((line, index) => {
     const block = blockOf[index];
     if (block < 0) return;
@@ -324,7 +323,7 @@ function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?:
   const crossed = new Set(
       lines.flatMap((line, index) => (side[index] === 2 && blockOf[index] >= 0 ? [blockOf[index]] : [])),
     ),
-    left = new Map();
+    left = new Map<string, number>();
   lines.forEach((line, index) => {
     const sideIndex = side[index];
     if (sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])) return;
@@ -346,8 +345,8 @@ function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?:
 }
 // The break between a line and the next one, with their column edges (searchEdges): a SEARCH_BREAK mark. Pure.
 function searchJoin(
-  line: any,
-  next: any,
+  line: SearchLine,
+  next: SearchLine,
   lineEdges: { l: number; r: number; col?: number; blk?: { l: number; r: number } } | null,
   nextEdges: { l: number; r: number; col?: number; blk?: { l: number; r: number } } | null,
 ) {
@@ -390,9 +389,9 @@ function searchJoin(
 // trimmed, joined to the next by the mark of how they meet (searchJoin). Returns {t, rows}: the flow and, for each
 // line, where it starts in the flow (at), how many folded characters the trim takes off its head (cut) and its trimmed
 // length (n). Pure.
-function searchFlow(lines: any[]) {
+function searchFlow(lines: SearchLine[]) {
   let flow = '';
-  const rows = [] as { at: number; cut: number; n: number }[],
+  const rows: { at: number; cut: number; n: number }[] = [],
     edges = searchEdges(lines);
   lines.forEach((line, index) => {
     const body = line.t.trim();
@@ -427,7 +426,7 @@ function searchFind(
   flow: { t: string; rows: { at: number; cut: number; n: number }[] },
   pattern: RegExp | null,
 ): number[][][] {
-  const out = [] as number[][][];
+  const out: number[][][] = [];
   if (!pattern) return out;
   let rowIndex = 0;
   for (const match of flow.t.matchAll(pattern)) {
@@ -463,8 +462,8 @@ function searchWidth(room: number, full: number, min: number) {
 // from the font's ascent to its descent (style; 0.8 and -0.2 when the font gives none). A turned item gives the
 // bounding box of its turned run. Pure.
 function searchBox(
-  item: any,
-  style: any,
+  item: PdfTextItem,
+  style: Partial<PdfTextStyle>,
   viewportTransform: number[],
   viewportWidth: number,
   viewportHeight: number,
@@ -522,22 +521,20 @@ function searchKey(
   return /^\p{Script=Latin}$/u.test(key) ? key.toLowerCase() === 'f' : event.code === 'KeyF';
 }
 
-// One text item of a PDF page as PDF.js reads it (getTextContent): its text, its transform matrix, its width in PDF units,
-// its font's name and whether a line ends after it.
-interface PdfTextItem {
-  str: string;
-  transform: number[];
-  width: number;
-  fontName: string;
-  hasEOL: boolean;
-}
-// A font's metrics as PDF.js gives them with the text: its family and its ascent and descent in em.
-interface PdfTextStyle {
-  fontFamily?: string;
-  ascent?: number;
-  descent?: number;
-}
 // Where a line piece stands (searchLines): along the line x0 to x1, across it y, with its font size and angle.
+// One text item of a line being read (searchLines): its index among the page's items, the item, whether its matrix is
+// upright (ok), where it starts along the line (x), how wide it is, where it stands across the line (y), its font size
+// and the line's angle in whole degrees.
+interface SearchRowItem {
+  i: number;
+  it: PdfTextItem;
+  ok: boolean;
+  x: number;
+  w: number;
+  y: number;
+  size: number;
+  ang: number;
+}
 interface SearchPieceBox {
   x0: number;
   x1: number;
@@ -590,23 +587,42 @@ interface SearchHit {
 // sheet was open when the search row took its place. ink: the field's text shift in px (searchInk). near: the pages
 // near the view, the only ones that carry hit boxes. text: each open document's pages as read ({items, styles, vt, w,
 // h, lines, flow}; null until read).
-const SEARCH = {
+interface SearchState {
+  q: string;
+  re: RegExp | null;
+  doc: PdfDocument | null;
+  hits: SearchHit[];
+  cur: SearchHit | null;
+  ref: { page: number; line: number; a: number };
+  reading: PdfDocument | null;
+  failed: Set<number>;
+  composing: boolean;
+  open: boolean;
+  back: HTMLElement | null;
+  away: boolean;
+  side: boolean;
+  ink: number;
+  near: Set<number>;
+  io: IntersectionObserver | null;
+  text: WeakMap<PdfDocument, (SearchPage | null)[]>;
+}
+const SEARCH: SearchState = {
   q: '',
-  re: null as RegExp | null,
-  doc: null as any,
-  hits: [] as SearchHit[],
-  cur: null as SearchHit | null,
+  re: null,
+  doc: null,
+  hits: [],
+  cur: null,
   ref: { page: 1, line: 0, a: 0 },
-  reading: null as PdfDocument | null,
+  reading: null,
   failed: new Set(),
   composing: false,
   open: false,
-  back: null as HTMLElement | null,
+  back: null,
   away: false,
   side: false,
   ink: 0,
-  near: new Set<number>(),
-  io: null as IntersectionObserver | null,
+  near: new Set(),
+  io: null,
   text: new WeakMap(),
 };
 // The pages of document doc as read so far, index 0 for page 1 (null = not read yet); kept until the document is
@@ -614,24 +630,24 @@ const SEARCH = {
 function searchPages(doc: PdfDocument) {
   let pages = SEARCH.text.get(doc);
   if (!pages) {
-    pages = new Array(doc.numPages).fill(null);
+    pages = new Array<SearchPage | null>(doc.numPages).fill(null);
     SEARCH.text.set(doc, pages);
   }
   return pages;
 }
 // The hits of a pattern on a read page, number pageNumber, in reading order.
 function searchPageHits(page: SearchPage, pageNumber: number, pattern: RegExp | null) {
-  return searchFind(page.flow, pattern).map((pieces) => ({
+  return searchFind(page.flow, pattern).map((pieces): SearchHit => ({
     page: pageNumber,
     line: pieces[0][0],
     a: pieces[0][1],
     pieces,
-    boxes: null as number[][] | null,
+    boxes: null,
   }));
 }
 // The width of text in a generic font family, in an arbitrary unit (a shared canvas, SEARCH_CONTEXT): searchBox()'s
 // measure.
-let SEARCH_CONTEXT = null as CanvasRenderingContext2D | null;
+let SEARCH_CONTEXT: CanvasRenderingContext2D | null = null;
 function searchMeasure(text: string, family: string) {
   const context = (SEARCH_CONTEXT ||
     (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D;
@@ -665,11 +681,12 @@ function searchPieceBox(page: any, [line, from, to]: number[]) {
   }
   return x1 >= x0 ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, 0, 0];
 }
-// A hit's boxes on its page, one for each line it lies on.
-function searchBoxes(hit: SearchHit) {
-  return (
-    hit.boxes || (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(SEARCH.doc)[hit.page - 1], piece)))
-  );
+// A hit's boxes on its page, one for each line it lies on. A hit is of the searched document, so none without one.
+function searchBoxes(hit: SearchHit): number[][] {
+  if (hit.boxes) return hit.boxes;
+  const doc = SEARCH.doc;
+  if (!doc) return [];
+  return (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(doc)[hit.page - 1], piece)));
 }
 // Draws a page's hit boxes (the current hit's marked, every one of them), or removes them when the page is not near the
 // view or has none.
@@ -808,9 +825,10 @@ function searchShift(hit: SearchHit) {
 // Picks the current hit when there is none: the first at or after the reference, once every page between the two has
 // been read (or could not be); the first of all once the pages from the reference on hold none.
 function searchPick() {
-  if (SEARCH.cur || !SEARCH.hits.length) return;
+  const doc = SEARCH.doc;
+  if (SEARCH.cur || !SEARCH.hits.length || !doc) return;
   const reference = SEARCH.ref,
-    pages = searchPages(SEARCH.doc);
+    pages = searchPages(doc);
   const candidate = SEARCH.hits.find(
     (hit) =>
       hit.page > reference.page ||
@@ -852,7 +870,10 @@ function searchPaint() {
 // A page's text in PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
 // text is read - the search reads every page through it, and a selection made with no network the page it was drawn
 // on (offline/flow.ts offlineQuote). Rejects as PDF.js does when the page cannot be read.
-async function pageText(doc: any, pageNumber: number): Promise<{ items: any[]; styles: any; vp: any }> {
+async function pageText(
+  doc: PdfDocument,
+  pageNumber: number,
+): Promise<{ items: PdfTextItem[]; styles: Record<string, PdfTextStyle>; vp: PdfViewport }> {
   const page = await doc.getPage(pageNumber),
     textContent = await page.getTextContent(),
     viewport = page.getViewport({ scale: 1 });
@@ -898,7 +919,8 @@ async function searchRead() {
         if (SEARCH.doc === doc) SEARCH.failed.add(pageNumber);
       }
       if (SEARCH.doc !== doc || !SEARCH.q) return;
-      const more = pages[pageNumber - 1] ? searchPageHits(pages[pageNumber - 1], pageNumber, SEARCH.re) : [];
+      const read = pages[pageNumber - 1],
+        more = read ? searchPageHits(read, pageNumber, SEARCH.re) : [];
       if (more.length) SEARCH.hits = SEARCH.hits.concat(more).sort(searchOrder);
       searchPick();
       searchPaint();
@@ -1051,9 +1073,9 @@ function searchCover() {
   if (!openBox) return;
   const barStyle = getComputedStyle(navigationBar),
     gap = parseFloat(barStyle.columnGap) || 0,
-    keep = [] as HTMLElement[],
-    off = [] as HTMLElement[],
-    left = [] as HTMLElement[];
+    keep: HTMLElement[] = [],
+    off: HTMLElement[] = [],
+    left: HTMLElement[] = [];
   // Each neighbour before the search in the bar is left in place (it ends a gap short of the field), kept (the status
   // line) or taken off - also one the bar has squeezed to no width (a long status line at rest does that to the
   // document links), which would come back under the field as soon as the status is shortened.

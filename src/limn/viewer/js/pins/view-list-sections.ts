@@ -121,7 +121,7 @@ function orderPins(list: Pin[], order: string): Pin[] {
 // the server's order the row follows the card drawn before it.
 function cardRows(list: Pin[], section: string): Html {
   const now = Date.now(),
-    slots = new Map();
+    slots = new Map<Pin, number>();
   let day = '';
   if (ORDER !== LIST_ORDER.ID)
     for (const notice of NOTICES.values())
@@ -154,7 +154,7 @@ function placeRow(box: HTMLElement, notice: Notice, row: HTMLElement) {
     else box.prepend(row);
     return;
   }
-  const drawn = new Map() as Map<Pin, Element>;
+  const drawn: Map<Pin, Element> = new Map();
   for (const child of box.children) {
     const element = child as HTMLElement,
       drawnPin = element.matches('.pin.card')

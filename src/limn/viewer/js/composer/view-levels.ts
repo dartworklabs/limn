@@ -12,7 +12,7 @@ import { lineRange } from '../app/rules-pins.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 /** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
-type RangeOwner = Selection | EditCard;
+type RangeOwner = ComposerSelection | EditCard;
 /** A range owner on lines: its file and both end lines are there, as on every owner that is not a region. */
 type LineOwner = RangeOwner & { file: string; lo: number; hi: number };
 function onLines(owner: RangeOwner): owner is LineOwner {
@@ -212,7 +212,7 @@ document.addEventListener(
   },
   true,
 );
-let SNIPPET_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
+let SNIPPET_TIMER: ReturnType<typeof setTimeout> | undefined = undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives.
 function refetchSnip(owner: LineOwner, after: () => void) {
@@ -220,13 +220,13 @@ function refetchSnip(owner: LineOwner, after: () => void) {
   clearTimeout(SNIPPET_TIMER);
   SNIPPET_TIMER = setTimeout(async () => {
     try {
-      const { data } = await api(
-        withDocQuery(
-          '/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery(
+          '?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
           owner.doc,
         ),
-        { what: '원문 읽기' },
-      );
+        what: '원문 읽기',
+      });
       if (
         (owner === EDITOR.current || (owner === COMPOSE.current && currentVisit(visit))) &&
         data.lo === owner.lo &&
@@ -273,7 +273,7 @@ function mapSure(pick: any, percent: number) {
     Math.round(pick.fill * 100) >= VIA_SURE_FILL
   );
 }
-function viaTag(pick: Selection | Pin) {
+function viaTag(pick: ComposerSelection | Pin) {
   if (!pick.via || pick.score == null || (pick.via === VIA.SYNCTEX && !pick.score && !pick.quote)) return null;
   const percent = Math.round((+pick.score || 0) * 100);
   if (percent >= VIA_HIDE || mapSure(pick, percent)) return null;
