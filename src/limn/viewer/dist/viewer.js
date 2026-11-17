@@ -468,7 +468,11 @@ function imeHeldIn() {
 function imeKey(event) {
   return event.isComposing || event.keyCode === 229 || imeTail(event);
 }
-// META is null only until boot() reads /api/meta; nothing reads it before.
+// META is the open document's meta (GET /api/meta): null until the first answer arrives - boot() reads it after the
+// document list, and a switch made before that answer reads its own - and never null again: setMeta takes a Meta, and
+// every later answer (a switch, a refresh) replaces it whole. Code that can run before the first answer (a listener
+// registered while the script loads) reads META and narrows it; code that runs only once a document is open reads
+// knownMeta().
 let META = null,
   PINS = [],
   DONE = [],
@@ -604,10 +608,19 @@ function setMentionOnly(value) {
   MENTION_ONLY = value;
   return value;
 }
-// Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+// Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value. It takes
+// a Meta: META is never set back to null.
 function setMeta(value) {
   META = value;
   return value;
+}
+/**
+ * The open document's meta, for code that runs only once a document is open (after boot() has read the first answer).
+ * Throws, naming META, when it is read before that: such a read is a bug in the order the viewer starts in.
+ */
+function knownMeta() {
+  if (!META) throw new Error('META is read before setMeta() has run: the first /api/meta answer has not arrived');
+  return META;
 }
 // Sets MID_OVERLAY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setMidOverlay(value) {
@@ -6740,7 +6753,8 @@ async function switchDoc(doc) {
       const fresh = (await api('GET /api/meta', { query: withDocQuery('', doc), what: '문서 열기', silent: true }))
         .data;
       if (seq === SWITCHSEQ && DOC === doc) {
-        const changed = fresh.pages_build !== META.pages_build || fresh.pages.length !== META.pages.length;
+        const shown = knownMeta(),
+          changed = fresh.pages_build !== shown.pages_build || fresh.pages.length !== shown.pages.length;
         META_BY.set(doc, fresh);
         if (changed) await refreshDoc(fresh);
         else {
@@ -6842,7 +6856,8 @@ function updateStaleBadge(meta) {
   let stale;
   if (typeof meta.stale_build === 'boolean') stale = meta.stale_build;
   else {
-    const ref = typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META && META.built_at);
+    const ref =
+      typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META ? META.built_at : '');
     stale = ref != null && typeof meta.src_mtime === 'number' && meta.src_mtime > ref + 2;
   }
   if (!stale) {
@@ -6919,10 +6934,11 @@ function confirmAccessText() {
 // signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document
 // builds from source. Reads META only and sends nothing.
 function drawMeta() {
+  const meta = knownMeta();
   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
-  document.body.classList.toggle('no-rebuild', !buildsFromSource(META.kind));
+  document.body.classList.toggle('no-rebuild', !buildsFromSource(meta.kind));
   // a figure document's marks are a frame with no tint (components.css)
-  document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
+  document.body.classList.toggle('fig-doc', isFigureKind(meta.kind));
   document.body.classList.toggle('md-surface', isMarkdownDoc());
   markdownSurface().showHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   // the document area's name says what it holds
@@ -6931,17 +6947,17 @@ function drawMeta() {
     translate(isMarkdownDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽'),
   );
   document.body.classList.toggle('role-viewer', isViewer());
-  $('#m-download').disabled = !META.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
+  $('#m-download').disabled = !meta.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
   // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' ·
   // ').
-  $('#meta-main').textContent = META.main;
+  $('#meta-main').textContent = meta.main;
   $('#meta-main').dataset.tip = translate(isMarkdownDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
   const isText = isMarkdownDoc() && isTextDoc(); // a text document's form is 텍스트 (text/view.ts)
   $('#meta-pages').textContent = isText
     ? translate('텍스트')
     : isMarkdownDoc()
       ? 'Markdown'
-      : translateTemplate('{n}쪽', { n: META.pages.length });
+      : translateTemplate('{n}쪽', { n: meta.pages.length });
   $('#meta-pages').dataset.tip = translate(
     isText
       ? '브라우저가 원문 줄을 그대로 보이는 문서 형식'
@@ -6949,17 +6965,17 @@ function drawMeta() {
         ? '브라우저가 원문에서 그리는 문서 형식'
         : '지금 화면에 있는 PDF의 쪽 수',
   );
-  const head = commitShown(META.head);
+  const head = commitShown(meta.head);
   $('#meta-head').textContent = head;
   $('#meta-head-w').hidden = !head;
   const built = isMarkdownDoc()
     ? ''
-    : String(META.built_at || '')
+    : String(meta.built_at || '')
         .slice(0, 16)
         .replace('T', ' ');
   $('#meta-built').textContent = built;
   $('#meta-built-w').hidden = !built; // a Markdown document is never built
-  const me = META.me || ({});
+  const me = meta.me || ({});
   setHtml($('#me'), html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip = translateTemplate(
     '지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',
@@ -6968,10 +6984,10 @@ function drawMeta() {
         (isAgent(me) ? who(me) : me.name || '') + (me.login && me.login !== LOCAL_LOGIN ? ' (' + me.login + ')' : ''),
     },
   );
-  updateStaleBadge(META);
-  updateSyncBadge(META.sync);
-  $('#help-pins-md').textContent = META.pins_md || '';
-  setHtml($('#more-info'), moreInfo(META, me));
+  updateStaleBadge(meta);
+  updateSyncBadge(meta.sync);
+  $('#help-pins-md').textContent = meta.pins_md || '';
+  setHtml($('#more-info'), moreInfo(meta, me));
 }
 // [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time
 // · me. Each piece keeps its words together and the lines break only between pieces; a piece longer than the line (a
@@ -8047,7 +8063,8 @@ function resetBuildForDoc() {
   BUILD.unchanged = null;
   $('#build-chip').hidden = true;
   $('#btn-rebuild').disabled = false;
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
+  const meta = knownMeta();
+  BUILD.lastSeq = typeof meta.build_seq === 'number' ? meta.build_seq : 0;
   BUILD.asked = false;
   BUILD.error = BUILD_ERR_BY.get(DOC) || null;
   if (BUILD.error) hideBuildErr();
@@ -8158,11 +8175,14 @@ async function pollBuildOnce() {
     if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
     const seconds = Math.round(build.elapsed_s || 0);
     if (build.state === BUILD_STATE.OK) {
+      // This tab's rebuild asked for before the first meta came, whose refresh failed too, has no document to word its
+      // end by: it ends here and says nothing, as the build's next poll finds it already seen.
+      if (mine && !META) return;
       if (mine)
         lineNote(
-          translate(!buildsFromSource(META.kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
+          translate(!buildsFromSource(knownMeta().kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
             ' · ' +
-            translateTemplate('{n}쪽', { n: META.pages.length }) +
+            translateTemplate('{n}쪽', { n: knownMeta().pages.length }) +
             ' · ' +
             translateTemplate('{s}초', { s: seconds }) +
             pullSuffix(build),
@@ -10225,11 +10245,12 @@ function clampPage(entry, pageCount) {
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {
-  const build = META.pages_build;
+  const meta = knownMeta(),
+    build = meta.pages_build;
   return withDocQuery(
     build
       ? '/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name)
-      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(META.built_at),
+      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(meta.built_at),
   );
 }
 // Page sizes (docs/handbook/viewer.md §PDF 영역 전용 확대): every page box is its own paper width (pt_w, in points)
@@ -10290,7 +10311,7 @@ function buildDoc() {
     focus = pageVerdicts().holdReasonFocus();
   doc.replaceChildren();
   setComposeBox(null);
-  META.pages.forEach((page, index) => {
+  knownMeta().pages.forEach((page, index) => {
     const pageBox = document.createElement('div');
     pageBox.className = 'pg';
     pageBox.id = 'p' + (index + 1);
@@ -10345,7 +10366,12 @@ function setScale(scale, save) {
   pageMarks().placeBadges();
   pageVerdicts().sizeLines();
   placeChips();
-  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
+  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) {
+    // Before the first meta there is no document to keep the scale for: nothing is saved, and the zoom figure waits for
+    // the pages' first draw (buildDoc), which writes it.
+    if (!META) return;
+    saveScale();
+  }
   invalidateVectorDraws();
   drawZoom();
 }
@@ -10418,13 +10444,13 @@ function drawZoom() {
 // document never takes it, and opens at its own default (openScale) until a zoom is chosen on it.
 function savedScale() {
   const preferences = prefs();
-  if (isFigureKind(META.kind))
+  if (isFigureKind(knownMeta().kind))
     return typeof preferences.figZoom === 'number' && preferences.figZoom > 0 ? preferences.figZoom * POINT_PX : null;
   return typeof preferences.w === 'number' && preferences.w > 0 ? preferences.w / widestPagePoints() : null;
 }
 // Saves the scale on screen as savedScale reads it back.
 function saveScale() {
-  if (isFigureKind(META.kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
+  if (isFigureKind(knownMeta().kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
   else savePrefs({ w: pageWidth(widestPagePoints(), PAGE_SCALE) });
 }
 // The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the
@@ -10437,7 +10463,7 @@ function openScale(isFigure, common, widest, fit, wide) {
 // The scale the screen picks for the document on screen (openScale).
 function defaultScale() {
   return openScale(
-    isFigureKind(META.kind),
+    isFigureKind(knownMeta().kind),
     commonPageWidth(),
     widestPagePoints(),
     fitWidth(),
@@ -10448,7 +10474,8 @@ function defaultScale() {
 // only a chosen one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing
 // back on it is not.
 function markZoomed() {
-  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
+  // Before the first meta there is no screen scale to compare with (defaultScale): ZOOMED stays as it is.
+  if (LAYOUT !== LAYOUT_MODE.WIDE && META) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
 }
 // The PDF area's width inside its padding (px).
 function pdfAreaInnerWidth() {
@@ -11084,7 +11111,7 @@ async function loadOutline(doc, gen) {
       const answer = (
         await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true })
       ).data;
-      if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
+      if (!stale() && docName === DOC && build === knownMeta().pages_build && answer.build === build)
         entries = mergeOutlineLabels(entries, answer.labels || []);
     } catch (error) {}
   }
@@ -14795,6 +14822,10 @@ function relayout() {
   if (changed && META) for (const listener of listeners) listener.layoutChanged?.();
   applySideWidth();
   applyOutlineState();
+  // Before the first meta there is no document to fit: while the PDF area is drawn, the fit to its width and every step
+  // after it wait for boot(), which fits the pages it draws. A PDF area that is not drawn (the changes view) has nothing
+  // to fit, and the steps after the fit go on.
+  if (!META && $('#left').getClientRects().length) return;
   for (const listener of listeners) listener.widthsApplied?.();
   restoreAnchor(anchor);
   for (const listener of listeners) listener.anchorRestored?.();
@@ -16381,7 +16412,7 @@ function doubleTapZoom(x, y) {
 // point on a figure document - and then widened or narrowed via the range ladder.
 function quickPick(pageElement, clientX, clientY) {
   const [x, y] = fracAt(pageElement, clientX, clientY),
-    quickFrac = quickBox(x, y, isFigureKind(META && META.kind));
+    quickFrac = quickBox(x, y, isFigureKind(META ? META.kind : undefined));
   finishRect(pageElement, newBox(pageElement), quickFrac[0], quickFrac[1], quickFrac[2], quickFrac[3]);
 }
 // The box a quick selection sends around the point (x, y), as page fractions [x0, y0, x1, y1]: about one text line on a
@@ -16416,7 +16447,8 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     pendingBadge(box, '새 핀');
   }
   const page = Number(pageElement.dataset.page),
-    pageInfo = META.pages[page - 1],
+    meta = knownMeta(),
+    pageInfo = meta.pages[page - 1],
     repick = !!REPICK;
   pageSelection().pick({
     page,
@@ -16425,7 +16457,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     x1: Math.max(startX, x) * pageInfo.pt_w,
     y1: Math.max(startY, y) * pageInfo.pt_h,
     frac: [Math.min(startX, x), Math.min(startY, y), width, height],
-    pdf_build: META.pages_build || undefined,
+    pdf_build: meta.pages_build || undefined,
     doc: DOC || undefined,
   });
   // A mouse drag's note popover (composer/view-selection-popover.ts); pick() has opened the composer.
@@ -23039,7 +23071,7 @@ function renderRegionComposer(selection) {
   $('#c-loc').dataset.copy = (selection.name ? selection.name + ' ' : '') + '쪽 ' + selection.page;
   // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
   const pageTag = $('#c-page'),
-    regionBadge = figureRegionBadge(selection.el, isFigureKind(META && META.kind));
+    regionBadge = figureRegionBadge(selection.el, isFigureKind(META ? META.kind : undefined));
   pageTag.hidden = false;
   pageTag.textContent = selection.offline
     ? translate('오프라인')
@@ -33997,7 +34029,7 @@ function addressedTag(pin) {
   const to = pin.addressed || [];
   if (!to.length) return null;
   const me = META && META.me && META.me.login,
-    mine = to.includes(me),
+    mine = me !== null && to.includes(me),
     others = to.filter((login) => login !== me);
   const self = mine
     ? html`<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">${lucideIcon('at-sign')}나를 부름</span>`
@@ -38444,7 +38476,7 @@ async function refreshDoc(meta) {
   if (same) {
     pageSurface().releaseVector();
     findAll(document, '.pg', HTMLElement).forEach((pageElement, index) => {
-      const page = META.pages[index];
+      const page = knownMeta().pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
       findElement(pageElement, 'img', HTMLImageElement).src = pageSurface().pageSource(page);
@@ -39512,8 +39544,9 @@ async function boot() {
   } catch (error) {
     return;
   }
-  if (META.doc) setDoc(META.doc);
-  META_BY.set(DOC, META);
+  const first = knownMeta();
+  if (first.doc) setDoc(first.doc);
+  META_BY.set(DOC, first);
   loadViews();
   const view = VIEW_BY.get(DOC);
   if (multiDoc()) {
@@ -39549,14 +39582,16 @@ async function boot() {
     coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   // a mouse user's first hint how to pin (the PDF also shows a crosshair)
   else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
+  // The open document's meta now: a switch while the pins loaded may have replaced the first one.
+  const meta = knownMeta();
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if (pinsLoaded) {
-    setLastPinsRevision(META.pins_rev);
-    setLastSrcMtime(META.src_sig || META.src_mtime);
+    setLastPinsRevision(meta.pins_rev);
+    setLastSrcMtime(meta.src_sig || meta.src_mtime);
   }
   // the build count this tab has already "seen"
-  setBuildLastSeq(typeof META.build_seq === 'number' ? META.build_seq : 0);
-  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
+  setBuildLastSeq(typeof meta.build_seq === 'number' ? meta.build_seq : 0);
+  (meta.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();
   offlineBoot();

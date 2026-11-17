@@ -40,7 +40,7 @@
   },
   "eslint": {
     "@typescript-eslint/consistent-type-assertions": {
-      "src/limn/viewer/js/app/state.ts": 3,
+      "src/limn/viewer/js/app/state.ts": 1,
       "src/limn/viewer/js/composer/flow-repick.ts": 3,
       "src/limn/viewer/js/composer/flow-save.ts": 3,
       "src/limn/viewer/js/composer/input-mentions.ts": 5,
