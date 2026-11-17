@@ -20,7 +20,7 @@ import { docChip, fmtText, isQuestion, locText, mentionsMe, messageBody } from '
 import { drawPins, jumpToCard, loadPins, marks } from './flow-list.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement } from '../platform/dom.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
@@ -124,7 +124,7 @@ function drawPickBar(list: Pin[]) {
 <span class="lbl">${translateTemplate('모두 고르기 ({n})', { n: can.length })}</span></label><span class="sp"></span>\
 <button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${tickedCount ? '' : ' disabled'} data-tip="${translate('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${tickedCount ? translateTemplate('{n}건 확인', { n: tickedCount }) : translate('확인')}</button>`,
   );
-  ($('#rv-all') as HTMLInputElement).indeterminate = tickedCount > 0 && !all;
+  findElement(document, '#rv-all', HTMLInputElement).indeterminate = tickedCount > 0 && !all;
 }
 
 // What has the focus in the picking section, as a redraw can find it again: a row's box, or a control of the row by its
