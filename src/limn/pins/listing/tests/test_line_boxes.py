@@ -28,8 +28,9 @@ PAGE_PX = (1500, 1000)  # the page image the build on screen left
 PAGE_W, PAGE_H = 720.0, 480.0  # its size in points at the fixture's 150 dpi
 # One box per line of the manuscript's table (L12-L16), 16 pt apart - the leading the mark's padding is measured from.
 TABLE_BOXES = {line: (1, 60.0, 100.0 + 16.0 * (line - 12), 300.0, 10.0) for line in range(12, 17)}
-# The mark those five lines merge into: one piece, grown by half the 3 pt blank their leading leaves.
-TABLE_MARK = [{"page": 1, "frac": [57.0 / PAGE_W, 97.0 / PAGE_H, 306.0 / PAGE_W, 80.0 / PAGE_H]}]
+# The mark the three lines between the table's own \\begin and \\end (L13-L15) merge into: one piece, grown by half the
+# 3 pt blank their leading leaves. L12 and L16 are the range's own delimiters and are not asked.
+TABLE_MARK = [{"page": 1, "frac": [57.0 / PAGE_W, 113.0 / PAGE_H, 306.0 / PAGE_W, 48.0 / PAGE_H]}]
 # A row added inside the tabular after the build read the file: its line is one no build ever read.
 INSERTED = "cell deltaunique \\\\\nextra row epsilonrow \\\\"
 
@@ -85,14 +86,14 @@ class ListedLineBoxes(ListingBase):
     """A LaTeX line pin on the build on screen: the mark its own lines draw."""
 
     def test_a_listed_line_pin_carries_the_boxes_of_its_range(self):
-        """The pin holds the table's five lines, so its mark is the one block they merge into - the same pieces the
-        same lines answer through a pick and through a snippet."""
+        """The pin holds the table's five lines, so its mark is the one block the three between its own \\begin and
+        \\end merge into - the same pieces the same lines answer through a pick and through a snippet."""
         self.keep_built_source()
         pid = self.add(12, 16)
         with self.viewed(TABLE_BOXES):
             pin = self.listed()[pid]
         self.assertEqual(pin["boxes"], TABLE_MARK)
-        self.assertEqual(sorted(line for _, line in self.calls), [12, 13, 14, 15, 16])
+        self.assertEqual(sorted(line for _, line in self.calls), [13, 14, 15])
 
     def test_the_boxes_follow_the_fields_the_answer_always_had(self):
         """boxes is add-only: every field of the answer before it is there, in its order, and boxes comes after them."""
@@ -182,7 +183,7 @@ class CachedAcrossRequests(ListingBase):
             second = self.listed()[pid]
         self.assertEqual(second["boxes"], TABLE_MARK)
         self.assertEqual(second["boxes"], first["boxes"])
-        self.assertEqual(sorted(line for _, line in self.calls), [12, 13, 14, 15, 16])
+        self.assertEqual(sorted(line for _, line in self.calls), [13, 14, 15])
 
     def test_a_new_build_identity_misses_the_cache(self):
         """A rebuild publishes new pages and a new PDF, so the answer of the build before it says nothing about where
@@ -199,7 +200,7 @@ class CachedAcrossRequests(ListingBase):
             (self.D.dir / "pages.cur").write_text(after.name, encoding="utf-8")
             pin = self.listed()[pid]
         self.assertEqual(pin["boxes"], TABLE_MARK)
-        self.assertEqual(sorted(line for _, line in self.calls), [12, 13, 14, 15, 16])
+        self.assertEqual(sorted(line for _, line in self.calls), [13, 14, 15])
 
     def test_an_edited_manuscript_misses_the_cache(self):
         """The answer depends on the file's text as well as the build's: a file written again is a new question, and

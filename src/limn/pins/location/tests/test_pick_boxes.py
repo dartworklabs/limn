@@ -173,20 +173,22 @@ class PickBoxes(Base):
         self.assertEqual(self.calls, [(self.built_tex(), 8), (self.built_tex(), 9)])
 
     def test_the_forward_pass_skips_blank_and_comment_only_lines_of_the_range(self):
-        """The default level is a figure environment of six lines, two of which hold no text once the comment is
-        stripped: only the other four are asked for, each by the main file's name inside the build copy."""
+        """The default level is a figure environment of six lines. Its own \\begin and \\end lines are not asked (the
+        range is one whole environment) and two more hold no text once the comment is stripped: only the two rows
+        between are asked for, each by the main file's name inside the build copy."""
         self.write(FLOAT_TEX)
         self.keep_built_source(FLOAT_TEX)
         with self.viewed():
             got = self.picked(5, 5)
         body = location_http.pick_answer(got)
         self.assertEqual((body["lo"], body["hi"], body["default_level"]), (4, 9, "env"))
-        self.assertEqual(self.calls, [(self.built_tex(), line) for line in (4, 5, 8, 9)])
+        self.assertEqual(self.calls, [(self.built_tex(), line) for line in (5, 8)])
 
     def test_a_range_over_the_line_cap_asks_for_nothing(self):
-        """41 lines of text cost about half a second of `synctex view` on a 35-page document, and the pick sits on
-        the drag's path: over the cap of 40 it answers no boxes without one call. At the cap it still asks."""
-        for rows, calls in ((39, 0), (38, 40)):
+        """41 lines asked cost about half a second of `synctex view` on a 35-page document, and the pick sits on
+        the drag's path: over the cap of 40 it answers no boxes without one call. At the cap it still asks. The cap
+        counts the lines asked, so the float's own \\begin and \\end lines, which are not asked, do not count."""
+        for rows, calls in ((41, 0), (40, 40)):
             with self.subTest(rows=rows):
                 self.calls = []
                 text = float_with_rows(rows)

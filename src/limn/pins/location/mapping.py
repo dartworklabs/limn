@@ -222,6 +222,13 @@ MarkPiece: TypeAlias = tuple[int, tuple[float, float, float, float]]
 # document (a float's lines and its text far apart); one mark of many bits says less than none.
 BOX_LIMIT = 8
 
+# The most pieces the mark of a range that is one whole environment (a float) may have. Measured over 12 floats of a
+# real manuscript with the range's own \\begin and \\end lines not asked (source.environment_delimiters), every float
+# needs exactly one piece; two still admits a float split across a page break (structurally possible, not observed)
+# and refuses scatter. The wider BOX_LIMIT never fired there: the two worst floats came within one piece of it while
+# still answering a mark of 6 junk pieces and 1 real one, so 8 did not protect against the defect the rule removes.
+ENV_BOX_LIMIT = 2
+
 # The most lines of a range the forward pass asks SyncTeX about; a longer range gets no mark. The cost is one process
 # per line and grows with the document: measured on a 35-page document, one call is 13 ms, a 5-line paragraph 64 ms and
 # 40 lines 513 ms. A pick sits on the drag's critical path, so a 100-line float environment would stall it for over a
@@ -229,7 +236,11 @@ BOX_LIMIT = 8
 FORWARD_LINES_MAX = 40
 
 # A box at least this tall, as a share of the page height, is the page or column body, not a line of text.
-BODY_HEIGHT_SHARE = 0.25
+# Measured: the page body box is 65% of the page height and the tallest float box is 26.3% (a 221.67 pt graphic; four
+# more figures sit at 20.6-24.0%), so 0.45 lies about 19 points above the tallest float and 20 below the body box. It
+# raising it toward the body box's share risks letting a body box in, lowering it toward the tallest float's drops
+# graphics. At the old 0.25 the 26.3% graphic was dropped and its pin's mark covered its caption alone.
+BODY_HEIGHT_SHARE = 0.45
 # With a single line there is no blank between lines to measure; the padding is this share of the line's height.
 _LONE_LINE_PAD_SHARE = 0.175
 
@@ -241,11 +252,11 @@ def line_boxes(rows: Sequence[Box], page_h: float) -> list[Box]:
     body it sits in (measured on an A4 two-column 10 pt article: 467 pt wide and 548 pt tall for the page body, and
     229 pt wide and 548 pt tall for each column body, on a 595 x 842 pt page). A mark drawn from one would cover a
     column or the page. Height alone tells them from text: a body text line is 8.86 pt high, 1.05% of the page height,
-    and a body box is 65%, two orders of magnitude apart, so a box at least 25% of page_h high is dropped. Width cannot
+    and a body box is 65%, two orders of magnitude apart, so a box at least BODY_HEIGHT_SHARE of page_h high is dropped. Width cannot
     be the test: a column body is only 38% of the page width, so a width gate lets it through. Nor is the test a
     comparison among the range's own boxes: a table's cells differ wildly in size, so such a comparison drops real
-    cells or keeps the body. The trade-off: a float box taller than a quarter of the page is dropped too, and a pin
-    on it falls back to the dragged rectangle, which the spec allows for floats. A box as wide as the page but short
+    cells or keeps the body. The trade-off: a float box taller than BODY_HEIGHT_SHARE of the page is dropped too, and a
+    pin on it falls back to the dragged rectangle, which the spec allows for floats. A box as wide as the page but short
     (a rule, a full-width one-line float) is ink of the range and stays, so the page width is not asked for."""
     return [row for row in rows if row[4] < BODY_HEIGHT_SHARE * page_h]
 

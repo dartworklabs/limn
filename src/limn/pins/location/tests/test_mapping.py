@@ -29,6 +29,16 @@ def test_line_boxes_drops_a_column_body_box_and_keeps_a_line_of_it():
     assert line_boxes([column_body, body_line], 841.89) == [body_line]
 
 
+def test_line_boxes_keeps_a_float_graphic_and_still_drops_a_page_body_box():
+    """The share the filter cuts at lies between the two sizes measured on a real manuscript: the tallest float box
+    there is a 221.669 pt graphic, 26.3% of an A4 page, and the page body box the filter exists for is 65%. At the
+    quarter-page share this filter used to cut at, that graphic was dropped and its pin's mark covered the caption
+    alone - 11% of the float."""
+    graphic = (1, 56.69, 56.69, 481.89, 221.669)  # 26.33% of PAGE_H
+    page_body = (1, 72.0, 100.0, 467.0, 547.23)  # 65.0% of PAGE_H
+    assert line_boxes([graphic, page_body], PAGE_H) == [graphic]
+
+
 def test_line_boxes_of_nothing_is_nothing():
     assert line_boxes([], PAGE_H) == []
 

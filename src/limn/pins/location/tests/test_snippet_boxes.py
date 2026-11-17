@@ -114,7 +114,8 @@ class SnippetBoxes(SnippetBase):
     def test_every_rung_carries_the_boxes_of_its_own_range(self):
         """The ladder of L14 is the cell's own line and the table around it: each rung's mark covers that rung's own
         lines, so the wider rung starts higher on the page and is taller. The single line is grown by a share of its
-        height, the five by half the blank their 16 pt leading leaves."""
+        height, the three by half the blank their 16 pt leading leaves. The table rung is one whole environment, so its
+        own \\begin and \\end lines (L12, L16) are not asked and the mark covers the three lines between."""
         with self.viewed(TABLE_BOXES):
             body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
         self.assertEqual(
@@ -124,22 +125,23 @@ class SnippetBoxes(SnippetBase):
             [lv["boxes"] for lv in body["levels"]],
             [
                 [{"page": 1, "frac": frac(58.25, 130.25, 303.5, 13.5)}],
-                [{"page": 1, "frac": frac(57.0, 97.0, 306.0, 80.0)}],
+                [{"page": 1, "frac": frac(57.0, 113.0, 306.0, 48.0)}],
             ],
         )
-        self.assertEqual(sorted(line for _, line in self.calls), [12, 13, 14, 15, 16])
+        self.assertEqual(sorted(line for _, line in self.calls), [13, 14, 15])
 
     def test_a_line_several_rungs_hold_is_read_once_for_the_whole_answer(self):
         """A ladder of three nested rungs - the dragged line, its paragraph, the float around it - holds L4 in all
         three and L5 in two: asked once per rung per line that would be 8 calls, each a process; every distinct line
-        of text is asked for once instead, so the per-rung cap bounds the answer too. This route is what the viewer
+        of text is asked for once instead, so the per-rung cap bounds the answer too. The float's own \\begin and
+        \\end lines (L3, L8) are not asked. This route is what the viewer
         opens an edit card with."""
         self.write(NESTED)
         with self.viewed():
             body = self.snippet("file=main.tex&lo=4&hi=4&levels=1")
         rungs = [(lv["level"], lv["lo"], lv["hi"]) for lv in body["levels"]]
         self.assertEqual(rungs, [("raw", 4, 4), ("para", 4, 5), ("env", 3, 8)])
-        self.assertEqual(self.calls, [(self.built_tex(), line) for line in (4, 5, 3, 7, 8)])
+        self.assertEqual(self.calls, [(self.built_tex(), line) for line in (4, 5, 7)])
 
     def test_a_rung_has_no_boxes_when_the_forward_pass_is_silent(self):
         """A build whose .synctex.gz is gone or holds nothing for those lines: the key is absent from every rung,
@@ -173,7 +175,7 @@ class SnippetBoxes(SnippetBase):
         default = next(lv for lv in body["levels"] if lv["level"] == body["default_level"])
         same_range = next(lv for lv in rungs if (lv["lo"], lv["hi"]) == (body["lo"], body["hi"]))
         self.assertEqual(same_range["boxes"], default["boxes"])
-        self.assertEqual(default["boxes"], [{"page": 1, "frac": frac(57.0, 97.0, 306.0, 80.0)}])
+        self.assertEqual(default["boxes"], [{"page": 1, "frac": frac(57.0, 113.0, 306.0, 48.0)}])
 
     def test_a_rung_whose_range_moved_since_the_build_carries_no_boxes(self):
         """One row added inside the tabular after the build: the cell's own line still stands in the lines that build
@@ -255,10 +257,11 @@ class MixedPageSizes(SnippetBase):
         15: (2, 80.0, 200.0, 200.0, 10.0),
         16: (2, 80.0, 216.0, 200.0, 10.0),
     }
-    # What they merge into: one piece per page, each grown by the 3.0 pt padding the range's 16 pt leading gives.
+    # What L13-L15 merge into (L12 and L16 are the environment's own \\begin and \\end, not asked): one piece per page,
+    # each grown by the 3.0 pt padding the range's 16 pt leading gives.
     PIECES = [
-        {"page": 1, "frac": frac(57.0, 97.0, 306.0, 48.0)},
-        {"page": 2, "frac": frac(77.0, 197.0, 206.0, 32.0, TALL_W, TALL_H)},
+        {"page": 1, "frac": frac(57.0, 113.0, 306.0, 32.0)},
+        {"page": 2, "frac": frac(77.0, 197.0, 206.0, 16.0, TALL_W, TALL_H)},
     ]
 
     def setUp(self):
@@ -269,12 +272,13 @@ class MixedPageSizes(SnippetBase):
     def test_each_piece_of_a_mark_is_measured_against_its_own_page(self):
         """The piece on page 2 is divided by page 2's width and height: measured against page 1's it would be at
         0.107 x 0.410 of a page it is not on, and clipped to page 1's shorter box. The pieces come page by page, so
-        the first is still the top of the range."""
+        the first is still the top of the range. The range is one whole environment, so L12 and L16, its own \\begin
+        and \\end, are not asked: page 2 holds L15 alone, a lone line grown by a share of its height."""
         with self.viewed(self.SPLIT):
             body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
         wide = next(lv for lv in body["levels"] if lv["level"] == "env")
         self.assertEqual(wide["boxes"], self.PIECES)
-        self.assertNotEqual(self.PIECES[1]["frac"], frac(77.0, 197.0, 206.0, 32.0))  # not page 1's size
+        self.assertNotEqual(self.PIECES[1]["frac"], frac(77.0, 197.0, 206.0, 16.0))  # not page 1's size
 
     def test_a_rung_and_a_pick_agree_on_a_document_whose_pages_differ(self):
         """A drag made on page 2 and the snippet of the lines it answered carry the same pieces, though the pick
