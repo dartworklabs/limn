@@ -131,8 +131,9 @@ async function loadOutline(doc: PdfDocument, gen: number) {
   // The PDF's own outline is still usable when the numbering service cannot be reached.
   if (entries.length) {
     try {
-      const answer = (await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true }))
-        .data;
+      const answer = (
+        await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true })
+      ).data;
       if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
         entries = mergeOutlineLabels(entries, answer.labels || []);
     } catch (error) {}

@@ -112,7 +112,7 @@ import {
 
 async function loadPeople() {
   try {
-    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
+    const answer = (await api('GET /api/people', { what: '사람 목록', silent: true })).data;
     if (Array.isArray(answer.people)) {
       const was = JSON.stringify(PEOPLE),
         first = !PEOPLE_KNOWN;
@@ -195,7 +195,8 @@ async function loadPins() {
   let rows;
   try {
     rows = (
-      await api('/api/pins?all=1', {
+      await api('GET /api/pins', {
+        query: '?all=1',
         what: '핀 읽기',
         where: NOTICE_HOST.LIST,
         retry: () => {
@@ -213,7 +214,7 @@ async function loadPins() {
   try {
     dropped =
       (
-        await api('/api/pins/dropped', {
+        await api('GET /api/pins/dropped', {
           what: '삭제한 핀',
           where: NOTICE_HOST.LIST,
           retry: () => {

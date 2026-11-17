@@ -45,7 +45,7 @@ function initialDoc() {
 }
 async function loadDocs() {
   try {
-    const answer = (await api('/api/docs', { what: '문서 목록', silent: true })).data;
+    const answer = (await api('GET /api/docs', { what: '문서 목록', silent: true })).data;
     setDocs(Array.isArray(answer.docs) ? answer.docs : []);
     setDefaultDoc(answer.default || (DOCS[0] && DOCS[0].key) || 'main');
   } catch (error) {

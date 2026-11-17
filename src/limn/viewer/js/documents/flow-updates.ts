@@ -313,7 +313,11 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
 async function docRows(doc: string): Promise<RevisionRow[] | null> {
   try {
     const answer = (
-      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, doc), { what: '변경사항 읽기', silent: true })
+      await api('GET /api/revisions', {
+        query: withDocQuery('?limit=' + REVISION_PAGE, doc),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
     return answer.available ? ((answer.revisions || []) as RevisionRow[]) : [];
   } catch (error) {
@@ -332,7 +336,8 @@ async function docBuild(
   let meta = (doc === DOC ? META : META_BY.get(doc)) as any;
   if (!meta || 'build:' + meta.pages_build !== now.ver) {
     try {
-      meta = (await api(withDocQuery('/api/meta?light=1', doc), { what: '상태 확인', silent: true })).data;
+      meta = (await api('GET /api/meta', { query: withDocQuery('?light=1', doc), what: '상태 확인', silent: true }))
+        .data;
     } catch (error) {
       return null;
     }
@@ -792,7 +797,7 @@ async function checkVersion() {
   VERSION.again = false;
   VERSION.at = Date.now();
   try {
-    const answer = (await api('/api/version', { what: '버전 확인', silent: true })).data,
+    const answer = (await api('GET /api/version', { what: '버전 확인', silent: true })).data,
       version = String((answer && answer.version) || '');
     if (version && version !== VERSION.server) {
       const was = versionOutdated();

@@ -49,7 +49,8 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '알림 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -89,7 +90,8 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '상태 확인',
         silent: true,
         wait: API_WAIT.POLL,

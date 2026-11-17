@@ -338,7 +338,7 @@ async function notifyToggle() {
   await notifyRegister();
   savePrefs({ notify: true });
   try {
-    const meta = (await api(withDocQuery('/api/meta?light=1'), { silent: true })).data;
+    const meta = (await api('GET /api/meta', { query: withDocQuery('?light=1'), silent: true })).data;
     if (notifyCursor() == null) setNotifyCursor(meta.ev_seq);
   } catch (error) {}
   drawNotify();

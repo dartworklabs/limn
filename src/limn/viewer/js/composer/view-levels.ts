@@ -220,13 +220,13 @@ function refetchSnip(owner: LineOwner, after: () => void) {
   clearTimeout(SNIPPET_TIMER);
   SNIPPET_TIMER = setTimeout(async () => {
     try {
-      const { data } = await api(
-        withDocQuery(
-          '/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery(
+          '?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
           owner.doc,
         ),
-        { what: '원문 읽기' },
-      );
+        what: '원문 읽기',
+      });
       if (
         (owner === EDITOR.current || (owner === COMPOSE.current && currentVisit(visit))) &&
         data.lo === owner.lo &&

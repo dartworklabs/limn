@@ -39,7 +39,7 @@ class DocumentVisitActions(unittest.TestCase):
                 function setSide(){} function loadRevisions(){}
                 function setViewMode(){modeCalls++;}
                 let firstOtherResolve=null,otherReads=0;
-                function api(url){
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
                   if(url==='/api/meta?doc=other'){
                     otherReads++;
                     if(otherReads===1)return new Promise(resolve=>{firstOtherResolve=resolve;});
@@ -48,6 +48,7 @@ class DocumentVisitActions(unittest.TestCase):
                 }
                 """,
                 JS_UPDATE_STUBS,
+                extract_js_fn("endpointUrl"),
                 *(extract_js_fn(name) for name in functions),
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 scenario,

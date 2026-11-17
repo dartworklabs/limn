@@ -7,7 +7,7 @@
 interface EditCard {
   id: number;
   el: HTMLElement;
-  base_rev: number;
+  base_rev: number | undefined;
   file?: string;
   name: string;
   lo?: number;

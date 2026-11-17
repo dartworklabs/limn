@@ -733,7 +733,7 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
   } // nothing of it was left to write: a pin it came from had it (commitReason)
   let pin = undefined as Pin | null | undefined;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
     const x = error as ApiError;
     if (!x || !x.status || x.status >= 500) {
@@ -1021,7 +1021,7 @@ async function checkLostWrites(session: ReasonSession): Promise<true | ApiError 
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
     let fetched = null as Pin | null;
     try {
-      fetched = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
+      fetched = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin || null;
     } catch (error) {
       const x = error as ApiError;
       if (!x || !x.status || x.status >= 500) {
@@ -1086,8 +1086,8 @@ async function fenceLostWrites(
   pin: Pin,
 ): Promise<{ fenced: true } | { pin: Pin | null } | { unknown: ApiError | null }> {
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       intent: 'reason-fence',
       silent: true,
       expect: [409],
@@ -1376,7 +1376,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
   if (viewerBlocked()) return false;
   let pin;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
     const x = error as ApiError;
     if (!x || !x.status || x.status >= 500) {
@@ -1399,9 +1399,8 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
     keepConflict(session, text, pin);
     return false;
   } // changed since it was read: never sent
-  const url = '/api/pins/' + session.id + '/edit',
-    // silent: sayReasonFailed says a failure, with its target
-    options = { method: 'POST', intent: 'reason', silent: true };
+  // silent: sayReasonFailed says a failure, with its target
+  const options = { id: session.id, intent: 'reason', silent: true };
   let sent = null as ReasonTry | null; // the write out now, while its answer is awaited
   try {
     for (let round = 1; ; round++) {
@@ -1413,7 +1412,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
         return false;
       }
       sent = edit.sent;
-      const { status, data } = await api(url, {
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
         ...options,
         body: edit.body,
         expect: round < CONFLICT_RETRIES ? [409] : [],
@@ -1652,14 +1651,17 @@ async function clearReason() {
     target = reasonTargetName(session),
     word = verdictLabel(session.key),
     url = '/api/pins/' + session.id + '/edit',
-    options = { method: 'POST', intent: 'reason', silent: true, expect: [409] };
+    options = { id: session.id, intent: 'reason', silent: true, expect: [409] as const };
   const go = async () => {
     try {
       if (session.clearTried) {
-        const pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+        const pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
         if (pin && !String(pin.note || '').trim()) return 'ok';
       }
-      const { status, data } = await api(url, { ...options, body: { note: '', base_rev: session.rev } });
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
+        ...options,
+        body: { note: '', base_rev: session.rev },
+      });
       if (status !== 409) return 'ok';
       const answered = data && data.pin;
       if (!answered) return 'gone';
@@ -1668,7 +1670,7 @@ async function clearReason() {
         keepConflict(session, session.text, answered);
         return 'conflict';
       }
-      await api(url, { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
+      await api('POST /api/pins/{id}/edit', { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
     } catch (error) {
       const x = error as ApiError,
@@ -1719,10 +1721,10 @@ async function clearReason() {
 async function undoClearReason(id: number, old: string): Promise<boolean> {
   let ok = false;
   try {
-    const pin = (await api('/api/pins/' + id, { what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
+    const pin = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
     if (pin && !String(pin.note || '').trim()) {
-      await api('/api/pins/' + id + '/edit', {
-        method: 'POST',
+      await api('POST /api/pins/{id}/edit', {
+        id,
         body: { note: old, base_rev: pin.rev },
         intent: 'reason',
         what: '이유 되돌리기',

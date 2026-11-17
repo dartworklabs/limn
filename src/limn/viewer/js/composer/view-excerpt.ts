@@ -89,10 +89,10 @@ async function excerptFetch(owner: LineOwner) {
   });
   try {
     for (const [from, to] of fetchWindows) {
-      const { data } = await api(
-        withDocQuery('/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
-        { what: '원문 읽기' },
-      );
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery('?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
+        what: '원문 읽기',
+      });
       excerptTake(owner, data.snippet);
       if (data.n_lines) owner.n_lines = data.n_lines;
     }

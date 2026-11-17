@@ -66,7 +66,7 @@ function replyPlaceholder(pin: Pin | null, human: boolean, flip: boolean) {
 interface ReplyAnswer {
   ok?: boolean;
   reopened?: boolean;
-  state?: string;
+  state?: string | null;
 }
 // After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while
 // the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
@@ -245,8 +245,8 @@ function sendReply() {
     async () => {
       markMine(id);
       try {
-        const { data } = await api('/api/pins/' + id + '/reply', {
-          method: 'POST',
+        const { data } = await api('POST /api/pins/{id}/reply', {
+          id,
           body,
           what: '답글',
           silent: true,

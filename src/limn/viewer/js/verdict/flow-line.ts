@@ -29,7 +29,7 @@ import {
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
-import { api } from '../platform/api.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import {
   BANNERS,
   NOTICES,
@@ -663,7 +663,7 @@ function verdictUndo(id: number): () => Promise<boolean> {
   const undo = async () => {
     let was = null;
     try {
-      was = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin;
+      was = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin;
     } catch (error) {}
     const session = REASON_SESSION && REASON_SESSION.id === id ? REASON_SESSION : null;
     if (session && hasUnsavedReason(session))
@@ -1005,8 +1005,7 @@ async function savePageVerdict(
   if (onUndo) refocusLineWord(page, key);
   try {
     const answer = (
-      await api('/api/pick', {
-        method: 'POST',
+      await api('POST /api/pick', {
         body: {
           page,
           x0: 0,
@@ -1021,7 +1020,7 @@ async function savePageVerdict(
         silent: true,
       })
     ).data;
-    if (answer.error) {
+    if (isRefusal(answer)) {
       failed(errText(answer));
       if (answer.pdf_build_gone && here()) refreshDoc().catch(() => {});
       return;
@@ -1043,7 +1042,7 @@ async function savePageVerdict(
     });
     let id = 0;
     try {
-      id = (await api('/api/pin', { method: 'POST', body, what: '판정 저장', silent: true })).data.id;
+      id = (await api('POST /api/pin', { body, what: '판정 저장', silent: true })).data.id;
     } catch (error) {
       const x = error as ApiError;
       // no answer, or a 5xx (it may have been written first): the list says whether it landed

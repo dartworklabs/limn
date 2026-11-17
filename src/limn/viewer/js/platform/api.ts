@@ -1,6 +1,8 @@
 // ------------------------------------------------ Server calls
-// Calls the server (JSON in and out) and returns {status, data}; a network failure or an unexpected status >= 400
-// throws. Unless options.silent it is said first (apiFailed): options.what names the request ('핀 저장'), options.where
+// Calls the server (JSON in and out) at endpoint, an ApiAnswers key (types/api.d.ts): its method, and its path with
+// options.id in place of {id}, followed by options.query as the caller built it ('?a=1&doc=ms', withDocQuery). Returns
+// {status, data}, data the endpoint's declared answer, or for a status options.expect lists the endpoint's ApiRefusals
+// body (isRefusal tells the two apart); a network failure or an unexpected status >= 400 throws. Unless options.silent it is said first (apiFailed): options.what names the request ('핀 저장'), options.where
 // the place (a NOTICE_HOST), options.retry the action a network failure offers, options.save that it was a pin's save.
 // options.quietUnreached leaves a failure to reach the server to the caller to say (a refusal is still said).
 // options.expect lists the statuses the caller handles itself; options.keepalive lets the request outlive the page;
@@ -32,20 +34,32 @@ import { NOTICE_HOST, NOTICE_KIND } from './tables.ts';
 // feature, so this is a seam: js/main.ts registers it once, before boot() runs (no code that runs while the script loads
 // sends a request), and api() calls it at the point, with the arguments and in the order it calls the offline code. A
 // request before the registration throws, naming the seam.
-// url and options are api()'s own, as its caller gave them.
+// endpoint is the request's ApiAnswers key and url the address api() built from it; a stored answer is an earlier answer
+// of the network to the same url, which names its endpoint, so it is that endpoint's answer.
 interface RequestFallback {
   /** The key a read of url is kept under, null for a request that is not kept. */
-  readKey(url: unknown, options: unknown): string | null;
+  readKey(endpoint: ApiEndpoint, url: string): string | null;
   /** Whether a stored answer may serve a read now (this visit's first reads, or a connection known to be gone). */
   mayServe(): boolean;
   /** The stored answer for url, or null. */
-  stashed(url: unknown, options: unknown): Promise<{ data: unknown; status: number; at: number } | null>;
+  stashed<Endpoint extends ApiEndpoint>(endpoint: Endpoint, url: string): Promise<StoredAnswer<Endpoint> | null>;
   /** Says once per visit that the screen was read at `at`, before the connection went. */
   staleSaid(at: number): void;
   /** The connection answered again. */
   back(): void;
   /** Keeps a read's answer for a later visit with no network. */
-  stash(url: unknown, data: unknown, status: number, options: unknown): void;
+  stash<Endpoint extends ApiEndpoint>(
+    endpoint: Endpoint,
+    url: string,
+    data: ApiAnswers[Endpoint],
+    status: number,
+  ): void;
+}
+/** An answer kept for a read, with its status and when (ms since the epoch) the network gave it. */
+interface StoredAnswer<Endpoint extends ApiEndpoint> {
+  data: ApiAnswers[Endpoint];
+  status: number;
+  at: number;
 }
 let REQUEST_FALLBACK: RequestFallback | null = null;
 // Registers the copies kept for reading while cut off; js/main.ts calls it once.
@@ -59,9 +73,10 @@ function requestFallback(): RequestFallback {
 }
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
-/** What a caller tells api() about a request (the header above says what each field does). */
-interface RequestOptions {
-  method?: string;
+/** What a caller tells api() about a request (the header above says what each field does); expect names statuses of the
+ * endpoint's ApiRefusals entry. */
+interface RequestOptions<Refused extends number> {
+  query?: string;
   body?: unknown;
   what?: string;
   where?: string;
@@ -70,26 +85,72 @@ interface RequestOptions {
   source?: string;
   intent?: string;
   quietUnreached?: boolean;
-  expect?: number[];
+  expect?: readonly Refused[];
   keepalive?: boolean;
   signal?: AbortSignal;
   wait?: number;
   silent?: boolean;
 }
-async function api(url: string, options?: RequestOptions): Promise<{ status: number; data: any }> {
-  options = { ...(options || {}) };
-  options.source =
-    options.source || (options.method || 'GET') + ' ' + url + (options.intent ? ' ' + options.intent : '');
-  const init = { method: options.method || 'GET', headers: {} } as RequestInit & { headers: Record<string, string> };
+/** The statuses endpoint's refusals may be expected with (ApiRefusals), none for an endpoint it does not name. */
+type RefusalStatus<Endpoint extends ApiEndpoint> = Endpoint extends keyof ApiRefusals
+  ? keyof ApiRefusals[Endpoint] & number
+  : never;
+/** The body of endpoint's refusal with status Refused. */
+type RefusalBody<Endpoint extends ApiEndpoint, Refused> = Endpoint extends keyof ApiRefusals
+  ? Refused extends keyof ApiRefusals[Endpoint]
+    ? ApiRefusals[Endpoint][Refused]
+    : never
+  : never;
+/** The pin number an endpoint whose path names one ({id}) is called with; null, which a card action may hold, goes out
+ * as 'null' and names no pin. */
+type PathNumber<Endpoint extends ApiEndpoint> = Endpoint extends `${string}{id}${string}`
+  ? { id: number | null }
+  : { id?: undefined };
+/** What api() answers for endpoint: its status and body - the endpoint's answer, or an expected refusal's body. */
+interface ApiAnswer<Endpoint extends ApiEndpoint, Refused> {
+  status: number;
+  data: ApiAnswers[Endpoint] | RefusalBody<Endpoint, Refused>;
+}
+// The URL a request to endpoint goes to: the endpoint's path, with id in place of {id}, then the query as the caller
+// built it ('?a=1&doc=ms', or '' for none).
+function endpointUrl(endpoint: ApiEndpoint, id: number | null | undefined, query: string | undefined) {
+  return (
+    endpoint
+      .slice(endpoint.indexOf(' ') + 1)
+      .split('{id}')
+      .join(String(id)) + (query || '')
+  );
+}
+// Whether an answer is a refusal's body rather than its endpoint's answer: an object with an `error` field, as every
+// refusal that says why has (ErrorBody) and no endpoint's answer the viewer narrows this way has. A POST /api/pick
+// that cannot trace a selection answers so with 200, and an expected refusal (options.expect) comes back as an answer.
+function isRefusal<Answer>(data: Answer): data is Extract<Answer, { error: string }> {
+  return typeof data === 'object' && data !== null && 'error' in data;
+}
+// Whether status is one of the statuses a caller expects (options.expect).
+function isExpected(status: number, expect: readonly number[]) {
+  return expect.includes(status);
+}
+async function api<Endpoint extends ApiEndpoint, Refused extends RefusalStatus<Endpoint> = never>(
+  endpoint: Endpoint,
+  given: RequestOptions<Refused> & PathNumber<Endpoint>,
+): Promise<ApiAnswer<Endpoint, Refused>> {
+  const url = endpointUrl(endpoint, given.id, given.query),
+    method = endpoint.slice(0, endpoint.indexOf(' '));
+  const options = {
+    ...given,
+    source: given.source || method + ' ' + url + (given.intent ? ' ' + given.intent : ''),
+  };
+  const init = { method, headers: {} } as RequestInit & { headers: Record<string, string> };
   if (options.keepalive) init.keepalive = true;
   if (options.signal) init.signal = options.signal;
   if (options.body !== undefined) {
     init.body = JSON.stringify(options.body);
     init.headers['Content-Type'] = 'application/json';
   }
-  const read = !!requestFallback().readKey(url, options);
+  const read = !!requestFallback().readKey(endpoint, url);
   if (read && API_OUT && requestFallback().mayServe()) {
-    const kept = await requestFallback().stashed(url, options);
+    const kept = await requestFallback().stashed(endpoint, url);
     if (kept) {
       requestFallback().staleSaid(kept.at);
       sourceOk(options.source);
@@ -113,7 +174,7 @@ async function api(url: string, options?: RequestOptions): Promise<{ status: num
     response = await fetch(url, init);
   } catch (error) {
     clearTimeout(timer);
-    return apiUnanswered(url, options, error);
+    return apiUnanswered(endpoint, url, options, error);
   }
   let body = null;
   try {
@@ -123,31 +184,38 @@ async function api(url: string, options?: RequestOptions): Promise<{ status: num
       clearTimeout(timer);
       throw error;
     } // a body the caller's signal cut off is no answer, not an empty one
-    if (controller && controller.signal.aborted) return apiUnanswered(url, options, error);
+    if (controller && controller.signal.aborted) return apiUnanswered(endpoint, url, options, error);
   } // nor is one the wait ran out on
   clearTimeout(timer);
   API_OUT = false;
-  if (response.status >= 400 && !(options.expect || []).includes(response.status)) {
-    if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + response.status, false);
-    const err = new Error('HTTP ' + response.status) as ApiError;
-    err.status = response.status;
+  const status = response.status;
+  if (status >= 400 && !isExpected(status, options.expect || [])) {
+    if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + status, false);
+    const err = new Error('HTTP ' + status) as ApiError;
+    err.status = status;
     err.data = body;
     throw err;
   }
   sourceOk(options.source);
   requestFallback().back();
-  // a document read the server answered is kept for a later visit with no network
-  requestFallback().stash(url, body, response.status, options);
-  return { status: response.status, data: body };
+  // a document read the server answered is kept for a later visit with no network; an expected refusal is no
+  // document, and its body is the endpoint's ApiRefusals entry
+  if (status < 400) requestFallback().stash(endpoint, url, body, status);
+  return { status, data: body };
 }
 // A request that got no answer - refused by the network, or ended at its wait.
 // A document read is answered from the last answer stored for it, where there is one and only where that is meant
 // (offlineMayServe: this visit's first reads, or a connection known to be gone): a tab opened again with no network is
 // drawn from it instead of staying empty. Writes, every other read, and a read that fails while the viewer is
 // connected fail.
-async function apiUnanswered(url: string, options: any, error: unknown): Promise<{ status: number; data: any }> {
+async function apiUnanswered<Endpoint extends ApiEndpoint>(
+  endpoint: Endpoint,
+  url: string,
+  options: RequestOptions<number> & { source: string },
+  error: unknown,
+): Promise<ApiAnswer<Endpoint, never>> {
   if (!(options.signal && options.signal.aborted)) API_OUT = true; // ended by its caller is not unanswered
-  const kept = requestFallback().mayServe() ? await requestFallback().stashed(url, options) : null;
+  const kept = requestFallback().mayServe() ? await requestFallback().stashed(endpoint, url) : null;
   if (kept) {
     requestFallback().staleSaid(kept.at);
     sourceOk(options.source);
@@ -215,4 +283,5 @@ function setApiOut<Value extends typeof API_OUT>(value: Value): Value {
   API_OUT = value;
   return value;
 }
-export { API_OUT, API_WAIT, api, apiFailed, copyText, setApiOut, setRequestFallback };
+export { API_OUT, API_WAIT, api, apiFailed, copyText, isRefusal, setApiOut, setRequestFallback };
+export type { StoredAnswer };

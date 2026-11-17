@@ -50,7 +50,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 let firstOtherResolve=null,otherReads=0,loadPinsResolve=null,holdPins=false,loaded=true;
                 function loadPins(){return holdPins?new Promise(resolve=>{loadPinsResolve=resolve;}):Promise.resolve(loaded);}
                 function loadPinsNow(){return loadPins();}   // loaded: the list shows a read asked since the call
-                function api(url){
+                function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
                   if(url==='/api/meta?doc=other'){
                     otherReads++;
                     if(otherReads===1)return new Promise(resolve=>{firstOtherResolve=resolve;});
@@ -59,6 +59,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 }
                 """,
                 JS_UPDATE_STUBS + extract_js_fn("switchDoc"),
+                extract_js_fn("endpointUrl"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 js_seams_wired(DOCUMENT_SEAMS),  # what documents asks the features above it, wired as js/main.ts does
                 *(extract_js_fn(name) for name in functions),

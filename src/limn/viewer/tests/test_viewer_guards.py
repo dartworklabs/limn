@@ -43,6 +43,27 @@ class GuardRules(unittest.TestCase):
         )
         self.assertEqual(got, [True, None, None])
 
+    def test_a_refusal_is_an_object_with_an_error_and_nothing_else_is(self):
+        """isRefusal (platform/api.ts) tells a refusal's body from an endpoint's answer by its error field, and is false
+        - never a throw - for an answer the server did not give as JSON (null) or gave as no object."""
+        got = self.run_js(
+            extract_js_fn("isRefusal"),
+            r"""
+            console.log(JSON.stringify([
+              isRefusal({error: 'conflict', reason: 'conflict', pin: {id: 1}}),
+              isRefusal({error: '', reason: 'x'}),
+              isRefusal({ok: true, pin: {id: 1}}),
+              isRefusal({lines: ['a']}),
+              isRefusal(null),
+              isRefusal(undefined),
+              isRefusal('error'),
+              isRefusal(5),
+              isRefusal([]),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, False, False, False, False, False, False, False])
+
     def test_a_table_entry_is_none_without_a_key_as_for_a_key_the_table_lacks(self):
         got = self.run_js(
             extract_js_fn("tableEntry"),
