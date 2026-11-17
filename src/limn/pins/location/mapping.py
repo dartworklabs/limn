@@ -224,7 +224,7 @@ BODY_HEIGHT_SHARE = 0.25
 _LONE_LINE_PAD_SHARE = 0.175
 
 
-def line_boxes(rows: Sequence[Box], _page_w: float, page_h: float) -> list[Box]:
+def line_boxes(rows: Sequence[Box], page_h: float) -> list[Box]:
     """The boxes of rows that are lines of text, without the boxes that are the page or a column body.
 
     SyncTeX answers a line like \\end{document} or \\begin{table} with the boxes of the page body and of each column
@@ -235,8 +235,8 @@ def line_boxes(rows: Sequence[Box], _page_w: float, page_h: float) -> list[Box]:
     be the test: a column body is only 38% of the page width, so a width gate lets it through. Nor is the test a
     comparison among the range's own boxes: a table's cells differ wildly in size, so such a comparison drops real
     cells or keeps the body. The trade-off: a float box taller than a quarter of the page is dropped too, and a pin
-    on it falls back to the dragged rectangle, which the spec allows for floats. The page width is taken, unused, to
-    keep the signature the callers share with merge_boxes."""
+    on it falls back to the dragged rectangle, which the spec allows for floats. A box as wide as the page but short
+    (a rule, a full-width one-line float) is ink of the range and stays, which is why the page width is not asked for."""
     return [row for row in rows if row[4] < BODY_HEIGHT_SHARE * page_h]
 
 
