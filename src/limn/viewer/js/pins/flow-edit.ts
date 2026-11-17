@@ -52,7 +52,7 @@ function editFields(card: EditCard) {
 /**
  * Open an editable card with independent original mention hints, preserving the pin's identity and revision baseline.
  */
-function openEdit(id) {
+function openEdit(id: number) {
   if (viaDoc(id, openEdit)) return;
   const pin = PINS.find((listed) => listed.id === id);
   if (!pin) return;

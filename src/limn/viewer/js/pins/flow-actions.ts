@@ -40,7 +40,7 @@ import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { pdoc } from '../documents/state.ts';
 import { CONFIRMING, CONFIRMING_PIN, PURGING, markMine } from './state.ts';
-async function closePin(id) {
+async function closePin(id: number) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;
   try {

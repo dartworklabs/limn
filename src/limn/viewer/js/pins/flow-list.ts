@@ -652,7 +652,7 @@ function focusCard(id: number) {
 } // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
 // drawn scrolls to the page the mark would be on.
-function jumpPin(id) {
+function jumpPin(id: number) {
   if (viaDoc(id, jumpPin)) return;
   const pin = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id && pdoc(x) === DOC);
   if (!pin) {

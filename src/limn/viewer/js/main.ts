@@ -675,10 +675,10 @@ document.addEventListener('click', (event) => {
       break;
     } // ...or drop an end line
     case 'view':
-      jumpPin(id);
+      if (id !== null) jumpPin(id);
       break;
     case 'edit':
-      openEdit(id);
+      if (id !== null) openEdit(id);
       break;
     case 'doc': {
       // inMenu is read before switchDoc(): for a cached document switchDoc finishes synchronously through drawDocTabs,
@@ -817,7 +817,7 @@ document.addEventListener('click', (event) => {
       jumpToCard(id);
       break;
     case 'close':
-      closePin(id);
+      if (id !== null) closePin(id);
       break;
     case 'drop': {
       const neighbour = event.detail === 0 ? cardNeighbour(control) : null;
