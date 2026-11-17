@@ -2,11 +2,10 @@
 // A radio group of words (role=radio): the words on offer, its one Tab stop, and the focus kept on the same word when a
 // draw replaces the words.
 import { focusGivenBack } from './tooltip.ts';
+import { findAll } from './dom.ts';
 /** The words of a radio group that can take the focus: neither disabled nor hidden. */
 function offeredWords(group: Element) {
-  return ([...group.querySelectorAll('[role=radio]')] as HTMLButtonElement[]).filter(
-    (word) => !word.disabled && !word.hidden,
-  );
+  return findAll(group, '[role=radio]', HTMLButtonElement).filter((word) => !word.disabled && !word.hidden);
 }
 /** The words of a group on offer that are laid out - the ones a key walks. */
 function shownWords(group: Element) {
@@ -14,7 +13,8 @@ function shownWords(group: Element) {
 }
 /** Where the focus is among the words a group shows (shownWords), -1 when it is not on one of them. */
 function segmentFocusAt(group: Element) {
-  return shownWords(group).indexOf(document.activeElement as HTMLButtonElement);
+  const focused = document.activeElement;
+  return focused instanceof HTMLButtonElement ? shownWords(group).indexOf(focused) : -1;
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note
 // (composer/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a

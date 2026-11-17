@@ -17,7 +17,7 @@ import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
 import type { Html } from './markup.ts';
 import { EVENT_TYPE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from './tables.ts';
-import { $, searchToPage } from './dom.ts';
+import { $, eventElement, findClosest, findMaybe, focusedElement, searchToPage } from './dom.ts';
 
 // What a message reads from, or draws into, a feature: the status line, the pin panel, the focus a message's action
 // gives back, the composer's save button. Platform knows no feature, so each is a seam: js/main.ts registers it once,
@@ -438,7 +438,7 @@ function drawnBefore(box: HTMLElement, selector: string, id: number | null): num
   const own = box.querySelector(selector + '[data-id="' + id + '"]');
   let before = own && own.previousElementSibling;
   while (before && !before.matches(selector)) before = before.previousElementSibling;
-  return before ? Number((before as HTMLElement).dataset.id) : null;
+  return before instanceof HTMLElement ? Number(before.dataset.id) : null;
 }
 
 // A message's text as one line: its title, then ' · ' and its description.
@@ -621,9 +621,9 @@ function dotHeld(dot: string): boolean {
 // document without page lines too. An action's press goes without it, for the action may put the focus where it wants;
 // the window's end and [x] have no action.
 function noticeFocusBack(notice: Notice, anyDoc?: boolean): () => void {
-  const focused = document.activeElement as HTMLElement | null;
-  const own = !!focused && !!focused.closest && !!focused.closest('[data-act^="notice-"][data-n="' + notice.n + '"]');
-  const line = own && focused ? (focused.closest('#doc .pv') as HTMLElement | null) : null,
+  const focused = focusedElement();
+  const own = !!focused && !!focused.closest('[data-act^="notice-"][data-n="' + notice.n + '"]');
+  const line = own && focused ? findClosest(focused, '#doc .pv', HTMLElement) : null,
     page = line ? Number(line.dataset.page) || 0 : 0;
   return () => {
     const nowFocused = document.activeElement;
@@ -673,9 +673,8 @@ function noticeAct(number: number) {
     noticeLate(notice, action);
   }, NOTICE_ACT_WAIT);
   const seen = (event: FocusEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (!target || !target.closest || !target.closest('[data-act="notice-act"][data-n="' + notice.n + '"]'))
-      moved = true;
+    const target = eventElement(event);
+    if (!target || !target.closest('[data-act="notice-act"][data-n="' + notice.n + '"]')) moved = true;
   };
   document.addEventListener('focusin', seen, true);
   const run: NoticeRun = { away: () => late && moved };
@@ -760,10 +759,9 @@ function noticeLate(notice: Notice, action: NoticeAct) {
 document.addEventListener(
   'mousedown',
   (event) => {
-    const target = event.target as HTMLElement | null;
+    const target = eventElement(event);
     if (
       !!target &&
-      !!target.closest &&
       !!target.closest('[data-act="notice-act"]') &&
       focusAfterNotice().isReasonField(document.activeElement)
     )
@@ -1285,12 +1283,12 @@ function digestRetitle(notice: Notice) {
 document.addEventListener(
   'click',
   (event) => {
-    const target = event.target as HTMLElement;
+    const target = event.target instanceof Node ? event.target : null;
     NOTICES.forEach((notice) => {
       if (notice.life !== NOTICE_LIFE.CLICK) return;
       const own =
         notice.place === NOTICE_PLACE.LINE
-          ? !!(target.closest && target.closest('#status,#status-list'))
+          ? !!(target instanceof Element && target.closest('#status,#status-list'))
           : !!(notice.el && notice.el.contains(target));
       if (!own) endNotice(notice, false);
     });
@@ -1355,8 +1353,8 @@ ${close ? html`<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data
 
 // The focused element inside a drawn message, if any: a redraw that detaches it gives the focus back (noticeRefocus).
 function noticeFocus(): HTMLElement | null {
-  const active = document.activeElement as HTMLElement | null;
-  return active && active.closest && active.closest('.nt') ? active : null;
+  const active = focusedElement();
+  return active && active.closest('.nt') ? active : null;
 }
 function noticeRefocus(focused: HTMLElement | null) {
   if (focused && document.contains(focused) && document.activeElement !== focused)
@@ -1454,9 +1452,10 @@ function drawOffers(focus?: HTMLElement | null) {
 function drawChips() {
   NOTICES.forEach((notice) => {
     if (notice.place !== NOTICE_PLACE.CHIP) return;
-    const anchor = (document.querySelector('.mark[data-pin="' + notice.pin + '"]') ||
+    const anchor =
+      findMaybe(document, '.mark[data-pin="' + notice.pin + '"]', HTMLElement) ||
       // a page verdict line shows its pin instead of a mark
-      document.querySelector('#doc .pv[data-pin="' + notice.pin + '"]')) as HTMLElement | null;
+      findMaybe(document, '#doc .pv[data-pin="' + notice.pin + '"]', HTMLElement);
     if (!anchor) {
       if (!notice.pending) offerToLine(notice);
       return;

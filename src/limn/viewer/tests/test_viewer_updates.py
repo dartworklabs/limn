@@ -457,9 +457,10 @@ GROUP_FNS = [
     "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
     "foldedLess", "digestRetitle", "foldedGone", "digestDots", "reviewPins", "reviewNewsStale", "dropStaleReview",
     "noticeSeen", "endTopic", "gatheredGone", "gatheredDupe", "gatheredLess", "groupRedraw",
-    "dotHeld",
+    "dotHeld", "focusedElement",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
+class HTMLElement {}
 let NOW=0,QID=0; const Q=[];
 function setTimeout(fn,ms){const id=++QID; Q.push({id,at:NOW+Math.max(0,Number(ms)||0),fn}); return id;}
 function clearTimeout(id){const i=Q.findIndex(t=>t.id===id); if(i>=0)Q.splice(i,1);}

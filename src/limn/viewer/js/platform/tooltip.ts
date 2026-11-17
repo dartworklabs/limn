@@ -1,5 +1,5 @@
 // ------------------------------------------------ Tooltip
-import { $, eventElement, typingNow } from './dom.ts';
+import { $, eventElement, findClosest, typingNow } from './dom.ts';
 let LAST_POINTER = 'mouse',
   LAST_TOUCH_AT = 0;
 // Sets LAST_POINTER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
@@ -84,7 +84,7 @@ function showTip(element: HTMLElement) {
 // URL in a span of its own (.tip-url), the one part that may break anywhere.
 function showTipText(element: HTMLElement, text: string) {
   if (!text || !document.contains(element)) return;
-  const box = element.closest('[data-tip-at="left"]') as HTMLElement | null,
+  const box = element.closest('[data-tip-at="left"]'),
     url = element.dataset.tipUrl || '';
   if (url && text.endsWith(url)) {
     const urlSpan = document.createElement('span');
@@ -112,7 +112,7 @@ function showTipText(element: HTMLElement, text: string) {
   // A control in a Trash row has its box beside the row's controls, inside that row: over it the box would cover the
   // row before's note line and buttons (under it, the next row's). Where the row leaves it no room, it goes over as
   // anywhere.
-  const row = element.closest('#trash-list .arc-row') as HTMLElement | null,
+  const row = element.closest('#trash-list .arc-row'),
     actions = row && row.querySelector('.arc-acts');
   if (row && actions) {
     const rowRect = row.getBoundingClientRect(),
@@ -181,8 +181,8 @@ document.addEventListener('keydown', inputFromKey, true);
 const keyInput = () => document.documentElement.dataset.input === 'key';
 document.addEventListener('mouseover', (event) => {
   if (touchRecent() || NO_HOVER_QUERY.matches) return;
-  const target = event.target as HTMLElement;
-  armTip(target.closest ? target.closest('[data-tip]') : null);
+  const target = eventElement(event);
+  armTip(target ? findClosest(target, '[data-tip]', HTMLElement) : null);
 });
 // Puts the focus back on an element the page drew again in place of the control that had it (keepSegmentFocus,
 // main.ts). It is no new focus: after a key it shows the element's description as the keyboard's focus does, after a
@@ -205,13 +205,13 @@ function focusGivenBack(element: HTMLElement) {
 // without one. A focus the page gives back itself (focusGivenBack) arms the box only when the keyboard had the focus
 // there.
 document.addEventListener('focusin', (event) => {
-  const target = event.target as HTMLElement;
+  const target = eventElement(event);
   if (FOCUS_GIVEN_BACK && !keyInput()) return;
   if ((target && target.tagName === 'TEXTAREA') || (!keyInput() && (touchRecent() || NO_HOVER_QUERY.matches))) {
     if (Date.now() >= SWALLOW_CLICK) hideTip();
     return;
   }
-  armTip(target.closest ? target.closest('[data-tip]') : null);
+  armTip(target ? findClosest(target, '[data-tip]', HTMLElement) : null);
 });
 // Esc closes a showing box first (the key dispatch, main.ts); one still waiting to show (armTip's 300ms) goes with
 // any Esc, so it never opens after the key that dismissed it. A box over a control in an open sheet, menu or help (a
@@ -338,8 +338,8 @@ document.addEventListener(
 );
 document.addEventListener('contextmenu', (event) => {
   if (LAST_POINTER === 'mouse') return;
-  const target = event.target as HTMLElement;
-  if (target && target.closest && (target.closest('.pg') || pressTarget(target))) event.preventDefault();
+  const target = eventElement(event);
+  if (target && (target.closest('.pg') || pressTarget(target))) event.preventDefault();
 });
 document.addEventListener('input', hideTip, true);
 document.addEventListener('focusout', hideTip);
@@ -443,8 +443,8 @@ function tipDescribe(element: Element) {
 }
 /** tipDescribe for node and everything under it that has an explanation. */
 function tipDescribeTree(node: Node) {
-  if (node.nodeType !== 1) return;
-  const element = node as Element;
+  if (!(node instanceof Element)) return;
+  const element = node;
   if (element.matches(TIP_SELECTOR)) tipDescribe(element);
   for (const descendant of element.querySelectorAll(TIP_SELECTOR)) tipDescribe(descendant);
 }
@@ -454,11 +454,11 @@ new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     const target = mutation.target;
     if (mutation.type === 'attributes') {
-      tipDescribe(target as Element);
+      if (target instanceof Element) tipDescribe(target);
       continue;
     }
     if (mutation.type === 'childList') mutation.addedNodes.forEach(tipDescribeTree);
-    const host = target.nodeType === 1 ? (target as Element) : target.parentElement;
+    const host = target instanceof Element ? target : target.parentElement;
     const owner = host && host.closest(TIP_SELECTOR);
     if (owner) tipDescribe(owner);
   }
