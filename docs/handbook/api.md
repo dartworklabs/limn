@@ -309,18 +309,18 @@ Markdown 문서도 `/api/revision-diff` 가 그 파일의 diff를 주고, `&pin=
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 같은 대상에 더 새 판정 핀이 있는 판정 핀에는 `fyi` 다음에 `superseded_by` 가 붙는다(§판정 핀 읽기). 제안 수정이 있는 핀에는 맨 끝에 `suggest_state` 가 붙는다(§제안 수정 (`suggest`)). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 위치와 `rev`는 저장된 값만 주며 재동기화하거나 저장하지 않는다 |
+| `GET` | `/api/pins` | 열린 핀 목록(JSON). 레코드마다 `rev`, `rel`(§겹친 핀과 덧붙이기), `est`(불리언, [build-sync.md](build-sync.md) §위치 추정 (`est`)), `state`(§검토 대기)가 채워진다. `rel`·`est`·`state` 는 계산 필드라 저장하지 않는다. `el` 이 있는 그림 핀에는 `mark`·`mark_page`·`el_sync` 도 붙는다(§그림 문서의 pick·핀). 같은 대상에 더 새 판정 핀이 있는 판정 핀에는 `fyi` 다음에 `superseded_by` 가 붙는다(§판정 핀 읽기). LaTeX 빌드가 찍는 문서의 줄 핀에는 그 줄 범위가 화면 빌드의 PDF에서 차지하는 영역 `boxes` 가 그 뒤에 붙는다(§줄 핀의 상자 (`boxes`)). 상자를 구하지 못한 핀에는 그 필드가 없다. 제안 수정이 있는 핀에는 맨 끝에 `suggest_state` 가 붙는다(§제안 수정 (`suggest`)). 저장된 숫자에 NaN·Infinity 가 있으면 응답에서 `null` 이다. `frac`·`el.frac` 은 필드 전체가 그렇다(§핀 레코드 스키마). `?all=1` 이면 닫힌 핀까지 준다. 위치와 `rev`는 저장된 값만 주며 재동기화하거나 저장하지 않는다 |
 | `GET` | `/api/pins/{id}` | 핀 한 건 `{pin}`. `GET /api/pins?all=1` 의 한 항목과 같은 모양이다(스레드 전부와 계산 필드 포함). 없으면 `404` |
 | `GET` | `/api/pins/dropped` | 휴지통 → `{dropped: [...]}`. 잠금 아래 원본과 휴지통을 함께 읽고, `dropped_at` 순으로 유효한 휴지통 항목만 낸다(쓰기 부작용 없음). 살아 있는 원본과 번호가 겹치거나 30일(`TRASH_DAYS`)이 지난 항목은 싣지 않는다(§휴지통). 계산 필드는 `expires_ts`(지워질 시각, epoch 초, 0.2.2+) 하나다. 뷰어의 휴지통이 이것을 쓴다. 열린 목록에서 사라진 핀이 완료인지 삭제인지 가르는 알림도 이것을 쓴다([build-sync.md](build-sync.md) §자동 동기화 (가벼운 meta 폴링)) |
 | `GET` | `/pins.md` | 원격 에이전트 진입점. `<state_dir>/pins.md` 와 같은 내용을 `text/markdown; charset=utf-8` 로 낸다. `GET /api/pins`와 같은 저장 레코드에서 렌더한다. HTTP와 디스크 모두 원고 수정 뒤 검사 간격(2초) + 유지 실행 시간만큼 늦을 수 있다. 느린 실행·실패에는 더 늦는다. 안내 줄의 base URL만 요청 `Host` 에 맞춘다. `Host` 가 `*.ts.net` 이면 `https://<Host 그대로>`, `--public-host` 이름이면 `https://<이름>[:<포트>]`, 루프백이면 기존 `http://127.0.0.1:<port>` 다. 디스크의 `<state_dir>/pins.md` 는 항상 루프백 base다. Host·Origin 검사는 다른 `GET` 과 같다 — §원격 에이전트 진입점 (`GET /pins.md`) |
-| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서에 대한 요청이면 `raw` 단계 하나. §그림 문서의 pick·핀). `&text=1` 이면 범위가 80줄 이하일 때 번호 없는 원문 `text` 를 끝에 더한다. 제안 수정의 `base` 로 보낼 글이다(§제안 수정 (`suggest`)). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
+| `GET` | `/api/snippet?file=&lo=&hi=` | 원문 줄 스니펫(80줄 캡). `&levels=1` 이면 그 범위를 기준으로 한 범위 사다리도 준다(그림 문서에 대한 요청이면 `raw` 단계 하나. §그림 문서의 pick·핀). LaTeX 빌드가 찍는 문서라면 단계마다 그 단계의 줄이 PDF에서 차지하는 영역 `boxes` 가 붙는다(§줄 핀의 상자 (`boxes`)). `&text=1` 이면 범위가 80줄 이하일 때 번호 없는 원문 `text` 를 끝에 더한다. 제안 수정의 `base` 로 보낼 글이다(§제안 수정 (`suggest`)). 원고 트리 밖(점으로 시작하는 이름 아래와 원고 안에 둔 상태 폴더 포함, §요청 형식과 경계)이거나 범위가 틀리면 `400`. 보기 전용 문서면 `400` |
 | `GET` | `/api/overlaps?file=&lo=&hi=` | 그 범위(저장 전 선택)와 열린 핀의 겹침 `{overlaps}`. 뷰어는 쓰지 않고(§겹친 핀과 덧붙이기), 에이전트 호환용으로 남긴다 |
 
 ### 핀 만들기와 상태 바꾸기
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |
-| `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. `score` 는 0~1 이고, 잴 낱말이 없으면(그림 위, 모두 흔한 낱말) `null` 이다. `levels` 의 단계마다 자기 범위의 `score` 가 있고, 답의 `score` 는 기본 단계의 값이다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 답의 줄 번호(`lo`·`hi`·`raw_lo`·`raw_hi`·`levels`)는 어느 빌드로 되짚었든 **지금 원문**의 줄이다. 그 빌드 뒤에 원고가 고쳐졌으면 서버가 SyncTeX의 범위를 지금 원문으로 옮기고, 드래그한 글이 원문에서 사라졌으면 `200 {error, reason:"no_source_here"}` 이거나 글자 경로의 답(`via:"text"`)이다. `warn` 의 낡은 PDF 문장은 옮긴 범위가 그대로 서 있지 않을 때만 붙는다([domain.md](domain.md) §낡은 PDF와 원고의 어긋남). 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 160자까지 자른 것이다(넘으면 159자 + `…`, 보기 전용 PDF 의 영역 글자와 같은 길이). 뷰어가 이 글자를 한 줄로 보이고 툴팁과 펼침에 전부 보이므로 그 줄의 가장 넓은 폭보다 길게 둔다([viewer.md](viewer.md) §패널 정리). `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
+| `POST` | `/api/pick` | 드래그 좌표를 원문 위치로 되짚는다. `score` 는 0~1 이고, 잴 낱말이 없으면(그림 위, 모두 흔한 낱말) `null` 이다. `levels` 의 단계마다 자기 범위의 `score` 가 있고, 답의 `score` 는 기본 단계의 값이다. 입력은 `page`, `x0`, `y0`, `x1`, `y1` 이다. 선택 `frac` 은 쪽 대비 비율 숫자 4개 목록 `[x, y, w, h]` 이고, 다른 모양이면 `400`. 선택 `pdf_build` 는 드래그할 때 화면의 빌드 id이며, 그 빌드의 PDF로 되짚는다. 그 빌드가 이미 지워졌으면 `200 {error, pdf_build_gone:true}`, 모양이 틀리면 `400`. 답의 줄 번호(`lo`·`hi`·`raw_lo`·`raw_hi`·`levels`)는 어느 빌드로 되짚었든 **지금 원문**의 줄이다. 그 빌드 뒤에 원고가 고쳐졌으면 서버가 SyncTeX의 범위를 지금 원문으로 옮기고, 드래그한 글이 원문에서 사라졌으면 `200 {error, reason:"no_source_here"}` 이거나 글자 경로의 답(`via:"text"`)이다. `warn` 의 낡은 PDF 문장은 옮긴 범위가 그대로 서 있지 않을 때만 붙는다([domain.md](domain.md) §낡은 PDF와 원고의 어긋남). 응답은 `{file, name, lo, hi, raw_lo, raw_hi, kind, via, score, warn, snippet, frac, levels, default_level, n_lines, quote, overlaps, pdf_build}`. `quote` 는 선택 영역 글자를 공백 정규화해 160자까지 자른 것이다(넘으면 159자 + `…`, 보기 전용 PDF 의 영역 글자와 같은 길이). 뷰어가 이 글자를 한 줄로 보이고 툴팁과 펼침에 전부 보이므로 그 줄의 가장 넓은 폭보다 길게 둔다([viewer.md](viewer.md) §패널 정리). `overlaps` 는 같은 파일의 열린 핀과의 겹침이다(§겹친 핀과 덧붙이기). 입력 오류는 `400`, 되짚기 실패는 `200 {error}`. `levels` 의 기본 단계 하나에는 그 범위가 PDF에서 차지하는 영역 `boxes` 가 붙는다(§줄 핀의 상자 (`boxes`)). `levels`·`via`·`score` 의 뜻은 [domain.md](domain.md) §범위 사다리와 §역변환이 두 경로인 이유. 그림 문서의 답은 §그림 문서의 pick·핀 |
 | `POST` | `/api/pin` | 새 핀 추가 → `{id}`. 같은 멱등 키(`idem`)를 가진 핀이 이미 있으면 아무것도 쓰지 않고 `{id, replay:true}` 다(§멱등 키 (`idem`)). 저장 필드 화이트리스트는 `file, name, page, lo, hi, raw_lo, raw_hi, kind, via, score, fill, rival, frac, note, scope, quote, pdf_build, el, suggest, verdict`. `el` 은 그림 문서에서만 저장한다(§그림 문서의 pick·핀). `suggest` 는 LaTeX·Markdown·텍스트 문서의 줄 핀만 받고, 저장하기 전에 원문과 대조한다(§제안 수정 (`suggest`)). `verdict` 는 그 문서가 선언한 판정 낱말 하나이고, 사람만 보낸다(§판정 핀 (`verdict`)). 선택으로 `kind_req`(§스레드 (답글)), `mentions`(힌트), `assignee`(담당, §@태그·사람·이벤트)를 받는다. `pdf_build` 를 안 보내면(에이전트 `curl`) 지금 빌드로 찍는다. Markdown·텍스트 문서는 `page`·`frac`·`pdf_build` 를 저장하지 않는다(§Markdown 문서의 핀, §텍스트 문서의 핀). 선택 `idem` 은 다시 보내도 핀이 하나만 생기게 하는 멱등 키다. 형식이 틀리면 다른 필드보다 먼저 `400 bad_idem` 이다. `{idem, replay_only: true}` 는 아무것도 만들지 않고 그 키의 핀이 있는지만 답한다(`200 {id, replay:true}` 또는 `409 idem_unknown`, §멱등 키 (`idem`)) |
 | `POST` | `/api/pins/{id}/edit` | 제자리 수정 — §핀 수정 (`/api/pins/{id}/edit`) |
 | `POST` | `/api/pins/{id}/close` | 핀 한 건을 닫는다(`done: true`, `closed_by`). 에이전트가 닫으면 검토 대기(`review: true`), 사람이 닫으면 완료다 — §검토 대기. 선택 본문 `{"reply", "ref", "changes", "review"}` — §닫을 때 사유 남기기. 레코드는 남는다. `<state_dir>/pins.md` 에서는 열린 표에서 빠지고 머리줄 건수로만 남는다(§pins.md 형식). 응답은 `{ok, pin, state}`. 그 id가 없으면 `200 {"ok": false, "pin": null}` 이다(reopen도 같다). **이미 닫힌 핀을 다시 닫으면 `{ok: true, pin}` 을 그대로 돌려주고 아무 필드도 바꾸지 않는다.** `rev` 도 그대로다(규칙은 [domain.md](domain.md) §전이에 딸린 규칙) |
@@ -950,6 +950,37 @@ curl -s -X POST http://127.0.0.1:<port>/api/pins/3/unclaim
 - [별도 핀으로 저장]은 **그 핀과의 그 관계**만 끈다. 범위를 바꿔 관계가 달라지면 다시 알리고, 다음 드래그에서는 초기화한다.
 
 `<state_dir>/pins.md` 번호 칸의 `#N과 같은 범위`, `#N 범위 안`, `#N과 일부 겹침` 이 이 계산의 대표값이다(§pins.md 형식). 뷰어 카드 배지도 같은 말과 같은 규칙을 쓴다.
+
+## 줄 핀의 상자 (`boxes`)
+
+LaTeX 빌드가 찍는 문서의 줄 핀은 그 줄 범위가 PDF에서 차지하는 영역을 함께 받는다. 뷰어가 쪽 위에 그리는 상자이고, 규칙과 근거는 [domain.md](domain.md) §줄 핀의 상자 — 범위가 차지하는 영역, 결정은 [ADR-0045](../adr/0045-pin-marks-follow-the-range.md)에 있다. 계약은 **더하기만** 한다. 기존 필드의 뜻과 모양은 그대로다.
+
+**모양.** `boxes` 는 조각 목록이고, 조각마다 쪽(1부터)과 **그 쪽 대비** 비율 상자다.
+
+```json
+"boxes": [{"page": 3, "frac": [0.09, 0.42, 0.81, 0.08]}, {"page": 4, "frac": [0.09, 0.08, 0.81, 0.05]}]
+```
+
+`frac` 은 `[x, y, w, h]` 이고 쪽 왼쪽 위를 원점으로 한다. 조각은 `(쪽, y, x)` 순서이므로 첫 조각이 범위의 머리다. 쪽마다 그 쪽의 크기로 나눈 값이라, 쪽 크기가 다른 문서에서도 조각이 제 쪽에 맞는다.
+
+**구하지 못하면 필드가 없다. 빈 목록이 아니다.** 클라이언트는 그 없음을 보고 제 폴백으로 간다. `[]` 를 보내면 "조각이 없는 상자"로 읽혀 폴백할 때인지 알 수 없다. 빈 목록은 어디에도 싣지 않는다.
+
+**세 답에 붙는다.**
+
+| 답 | 어디에 |
+| --- | --- |
+| `POST /api/pick` | `levels` 의 **기본 단계**(`default_level` 인 칸) 하나. 다른 단계에는 싣지 않는다 — 호출 하나가 프로세스 하나라 드래그의 임계 경로에서 사다리 전체를 재면 사람이 기다린다 |
+| `GET /api/snippet?levels=1` | **모든 단계**. 뷰어가 사다리를 바꾸거나 범위 발췌로 줄을 고칠 때 이미 부르는 경로라 왕복이 늘지 않는다. `levels=1` 이 없으면 단계가 없으므로 상자도 없고, 그림 문서의 `raw` 단계 하나에도 싣지 않는다 — 그 줄은 원고가 아니라 그림을 그린 스크립트의 줄이다 |
+| `GET /api/pins`·`/api/pins/{id}` | LaTeX 줄 핀의 레코드. 계산 필드 자리이고 `fyi`·`superseded_by` 다음에 온다(§핀 읽기) |
+
+**저장하지 않는다.** `POST /api/pin` 의 저장 필드 화이트리스트는 바뀌지 않았고, `boxes` 를 보내면 모르는 필드처럼 버린다. 읽을 때마다 계산하므로 재빌드로 쪽 배치가 바뀌어도 핀 파일은 쓰이지 않고 `rev` 도 오르지 않는다. 휴지통 목록과 변경 요청의 응답 `pin` 에는 붙지 않는다(`est` 와 같다).
+
+**상자가 없는 핀.**
+
+- 그림 핀은 `mark`·`mark_page`·`el_sync` 를 그대로 받고 `boxes` 를 받지 않는다(§그림 문서의 pick·핀). 그림의 마크는 요소 지도에서 오므로 출처가 다르고, 모양도 달라서 이름을 나눴다.
+- 영역 핀(`lo`·`hi` 가 없는 핀)에는 줄 범위가 없다.
+- 쪽이 없는 문서(Markdown·텍스트)와 쪽을 남기지 않은 빌드는 잴 상자가 없다.
+- 그 빌드가 읽은 줄을 남기지 않았거나 범위가 그 줄에 그대로 서 있지 않으면 상자를 내지 않는다([domain.md](domain.md) §줄 핀의 상자 — 범위가 차지하는 영역의 표).
 
 ## 보기 전용 PDF 문서의 pick·핀
 

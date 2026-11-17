@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+The agent contract gains one computed field and removes or renames nothing. A LaTeX line pin, the default rung of a
+pick and every rung of a snippet now say where the pin's own lines print; `pins.md` is unchanged and the stored
+record gains no field.
+
+### Added
+
+- **A LaTeX line pin's box on the page is its line range, not the rectangle that was dragged (ADR-0045).** The range
+  an agent receives is the whole paragraph (or the whole float environment), so a drag over a few words drew a box
+  that said the pin was about those words. The box is now the area those lines occupy on the PDF, computed from
+  forward SyncTeX - the same source the range itself comes from - on every read and never stored, as a figure pin's
+  `mark` already is. A range that crosses a column or a page break draws one piece per column or page; the number
+  badge, the undo chip, [View] and the popover sit on the first piece. Padding is measured from the range's own
+  leading, so neighbouring lines meet exactly in 10 pt body text and in `\Large` alike. A range whose lines could
+  not be measured keeps drawing the dragged rectangle.
+- **The composing 'New pin' box follows the range as well.** Moving up the ladder or editing the lines in the excerpt
+  moves the box to the new range; the composer asks `GET /api/snippet?levels=1` for a range nothing has answered for
+  yet and leaves the box where it stands until the answer arrives, so it never falls back to the dragged rectangle
+  while a request is in flight.
+- **`boxes` is added to three answers, add-only.** The default rung of `POST /api/pick`, every rung of
+  `GET /api/snippet?levels=1`, and a LaTeX line pin of `GET /api/pins` and `/api/pins/{id}` carry
+  `[{"page": p, "frac": [x, y, w, h]}, …]`, each `frac` page-relative to its own page. The key is **absent**, never
+  an empty array, when nothing could be computed - that absence is the signal to fall back. `POST /api/pin`'s stored
+  field whitelist is unchanged and a `boxes` a client sends is discarded. A figure pin keeps `mark`/`mark_page`/
+  `el_sync` and gains nothing; a region pin, a document with no pages, and a build that kept no record of the lines
+  it read answer no boxes.
+
+### Changed
+
+- **A range that is one whole environment is measured without its own `\begin` and `\end` lines, and may draw at
+  most two pieces.** Those two lines have no box of their own, so `synctex view` answers them through its ancestor
+  search with whatever stood where the environment stood in the source stream - on a real manuscript every box that
+  fell outside its float came from exactly those two lines, several of them on a page the float does not print on.
+  A delimiter line that also carries ink (a `tabular` header row after its `\begin`) is still asked, so no ink of the
+  range is lost. The rule is structural and so applies to every environment, `equation`, `align`, `itemize` and
+  `tabular` among them: with it comes the two-piece cap, so an environment range crossing two page breaks falls back
+  to the dragged rectangle instead of drawing three pieces.
+- **The page-body box filter drops a box at 45% of the page height or taller, not 25%.** The measured page body box
+  is 65% of the page height and the tallest measured float box 26.3%, so 25% dropped a real graphic and left that
+  pin's mark covering its caption alone. The judgement stays a proportion of the page and never a comparison among
+  the range's own boxes, because a table's cells differ wildly in size.
+
 ## 0.4.61 — 2026-11-15
 
 The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
