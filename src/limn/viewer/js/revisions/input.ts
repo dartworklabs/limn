@@ -14,16 +14,11 @@ import { DIFF_FORMAT } from '../app/rules-tables.ts';
 // layout (anchor) and the reset of the gesture state (resetInput).
 type RevisionPage = {
   el: HTMLElement;
-  page: any;
-  base: { width: number; height: number };
+  page: PdfPage;
+  base: PdfViewport;
   canvas: HTMLCanvasElement | null;
-  task: any;
+  task: PdfRenderTask | null;
 };
-// The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
-interface RevisionPdf {
-  numPages: number;
-  getPage(pageNumber: number): Promise<{ getViewport(options: { scale: number }): { width: number; height: number } }>;
-}
 type RevisionAnchor = { el: HTMLElement; fx: number; fy: number; x: number; y: number };
 const REVISION_ZOOM = {
   ratio: 1,
@@ -189,7 +184,7 @@ function revisionZoom(action: string | undefined) {
 }
 
 /** Obtain page geometry without allocating canvases; abandon stale PDF visits. */
-async function mountRevisionPdf(pdf: RevisionPdf, seq: number, docKey: string | null, id: string) {
+async function mountRevisionPdf(pdf: PdfDocument, seq: number, docKey: string | null, id: string) {
   const generation = REVISION_ZOOM.gen,
     pages = [] as RevisionPage[];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
@@ -265,8 +260,11 @@ async function paintRevisionPdf() {
       item.el.append(canvas);
       item.el.dataset.state = 'loading';
       const viewport = item.page.getViewport({ scale: width / item.base.width });
+      const canvasContext = canvas.getContext('2d');
+      // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way.
+      if (!canvasContext) throw new Error('the comparison canvas has no 2D context');
       const task = item.page.render({
-        canvasContext: canvas.getContext('2d'),
+        canvasContext,
         viewport,
         transform: [target.bw / width, 0, 0, target.bh / height, 0, 0],
       });

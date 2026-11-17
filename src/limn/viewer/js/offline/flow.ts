@@ -1088,7 +1088,11 @@ async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: nu
 // An item counts when its run crosses the box and the middle of its line is inside it. Judged by where the item
 // starts alone, a line that begins at the margin and runs through the box would be left out - which is most lines, so
 // the quote would come back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
-function quoteIn(items: any[], pageHeight: number, rect: { x0: number; y0: number; x1: number; y1: number }): string {
+function quoteIn(
+  items: PdfTextItem[],
+  pageHeight: number,
+  rect: { x0: number; y0: number; x1: number; y1: number },
+): string {
   const out = [] as string[];
   (items || []).forEach((item) => {
     const matrix = item && item.transform;

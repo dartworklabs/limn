@@ -17,7 +17,7 @@ import { api } from '../platform/api.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
 import { canConfirmReview, confirmAccessText } from '../documents/view-meta.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
-import { PDFJS_VERSION, VECTOR_PDF } from '../pdf/flow-open.ts';
+import { PDFJS_VERSION, VECTOR_PDF, importPdfLibrary } from '../pdf/flow-open.ts';
 import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { scheduleVectorDraw } from '../pdf/view-draw.ts';
 import { searchOffer } from '../pdf/flow.ts';
@@ -114,10 +114,10 @@ const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기
 // loading task, its observer and its render tasks.
 const COMPARISON_SCOPE = { whole: false, partial: false, fallback: false };
 const COMPARISON_PDF = {
-  doc: null as any,
-  loading: null as any,
+  doc: null as PdfDocument | null,
+  loading: null as PdfLoadingTask | null,
   observer: null as IntersectionObserver | null,
-  tasks: new Set<{ cancel(): void }>(),
+  tasks: new Set<PdfRenderTask>(),
 };
 function revisionFiles(patch: string) {
   const starts: { at: number; head: string }[] = [];
@@ -1506,7 +1506,7 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
       throw new Error(translateTemplate('비교 PDF를 열지 못했습니다 (HTTP {status}).', { status: response.status }));
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (!revisionCurrent(seq, docKey, id)) return;
-    const lib = VECTOR_PDF.lib || (await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION));
+    const lib = VECTOR_PDF.lib || (await importPdfLibrary());
     if (!revisionCurrent(seq, docKey, id)) return;
     lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
     const loading = lib.getDocument({ data: bytes, isEvalSupported: false, useWasm: false, enableXfa: false });

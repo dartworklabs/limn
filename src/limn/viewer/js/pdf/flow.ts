@@ -15,7 +15,6 @@
 import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
-import type { PdfDocument } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
@@ -74,7 +73,7 @@ function searchFold(text: string): { t: string; at: number[] } {
 // along the line, y: across it, up being +, size: font size, ang: the line's angle in whole degrees}, so a page set
 // sideways reads as an upright one - or null for text that is skewed, mirrored or of mixed directions. Blank pieces are
 // left out. Pure.
-function searchLines(items: any[]) {
+function searchLines(items: PdfTextItem[]) {
   const rows = [] as any[][];
   let row = [] as any[];
   items.forEach((item, index) => {
@@ -463,8 +462,8 @@ function searchWidth(room: number, full: number, min: number) {
 // from the font's ascent to its descent (style; 0.8 and -0.2 when the font gives none). A turned item gives the
 // bounding box of its turned run. Pure.
 function searchBox(
-  item: any,
-  style: any,
+  item: PdfTextItem,
+  style: Partial<PdfTextStyle>,
   viewportTransform: number[],
   viewportWidth: number,
   viewportHeight: number,
@@ -522,21 +521,6 @@ function searchKey(
   return /^\p{Script=Latin}$/u.test(key) ? key.toLowerCase() === 'f' : event.code === 'KeyF';
 }
 
-// One text item of a PDF page as PDF.js reads it (getTextContent): its text, its transform matrix, its width in PDF units,
-// its font's name and whether a line ends after it.
-interface PdfTextItem {
-  str: string;
-  transform: number[];
-  width: number;
-  fontName: string;
-  hasEOL: boolean;
-}
-// A font's metrics as PDF.js gives them with the text: its family and its ascent and descent in em.
-interface PdfTextStyle {
-  fontFamily?: string;
-  ascent?: number;
-  descent?: number;
-}
 // Where a line piece stands (searchLines): along the line x0 to x1, across it y, with its font size and angle.
 interface SearchPieceBox {
   x0: number;
@@ -593,7 +577,7 @@ interface SearchHit {
 const SEARCH = {
   q: '',
   re: null as RegExp | null,
-  doc: null as any,
+  doc: null as PdfDocument | null,
   hits: [] as SearchHit[],
   cur: null as SearchHit | null,
   ref: { page: 1, line: 0, a: 0 },
@@ -665,11 +649,12 @@ function searchPieceBox(page: any, [line, from, to]: number[]) {
   }
   return x1 >= x0 ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, 0, 0];
 }
-// A hit's boxes on its page, one for each line it lies on.
-function searchBoxes(hit: SearchHit) {
-  return (
-    hit.boxes || (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(SEARCH.doc)[hit.page - 1], piece)))
-  );
+// A hit's boxes on its page, one for each line it lies on. A hit is of the searched document, so none without one.
+function searchBoxes(hit: SearchHit): number[][] {
+  if (hit.boxes) return hit.boxes;
+  const doc = SEARCH.doc;
+  if (!doc) return [];
+  return (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(doc)[hit.page - 1], piece)));
 }
 // Draws a page's hit boxes (the current hit's marked, every one of them), or removes them when the page is not near the
 // view or has none.
@@ -808,9 +793,10 @@ function searchShift(hit: SearchHit) {
 // Picks the current hit when there is none: the first at or after the reference, once every page between the two has
 // been read (or could not be); the first of all once the pages from the reference on hold none.
 function searchPick() {
-  if (SEARCH.cur || !SEARCH.hits.length) return;
+  const doc = SEARCH.doc;
+  if (SEARCH.cur || !SEARCH.hits.length || !doc) return;
   const reference = SEARCH.ref,
-    pages = searchPages(SEARCH.doc);
+    pages = searchPages(doc);
   const candidate = SEARCH.hits.find(
     (hit) =>
       hit.page > reference.page ||
@@ -852,7 +838,10 @@ function searchPaint() {
 // A page's text in PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
 // text is read - the search reads every page through it, and a selection made with no network the page it was drawn
 // on (offline/flow.ts offlineQuote). Rejects as PDF.js does when the page cannot be read.
-async function pageText(doc: any, pageNumber: number): Promise<{ items: any[]; styles: any; vp: any }> {
+async function pageText(
+  doc: PdfDocument,
+  pageNumber: number,
+): Promise<{ items: PdfTextItem[]; styles: Record<string, PdfTextStyle>; vp: PdfViewport }> {
   const page = await doc.getPage(pageNumber),
     textContent = await page.getTextContent(),
     viewport = page.getViewport({ scale: 1 });
