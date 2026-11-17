@@ -167,10 +167,14 @@ class GuardRules(unittest.TestCase):
         """Without both coordinates the anchor is the PDF area's centre, as without any; a half point made a NaN anchor."""
         got = self.run_js(
             r"""
-            const page = { getBoundingClientRect: () => ({ left: 0, top: 0, bottom: 400, width: 200, height: 400 }) };
+            class HTMLElement {}
+            const page = Object.assign(new HTMLElement(), {
+              getBoundingClientRect: () => ({ left: 0, top: 0, bottom: 400, width: 200, height: 400 }),
+            });
             const area = { clientWidth: 200, clientHeight: 400, getBoundingClientRect: () => ({ left: 0, top: 0 }) };
-            const $ = () => area, $$ = () => [page];
+            const $ = () => area, document = { querySelectorAll: () => [page] };
             """,
+            extract_js_fn("findAll"),
             extract_js_fn("zoomAnchor"),
             r"""
             const anchor = (x, y) => { const got = zoomAnchor(x, y); return [got.cx, got.cy, got.fx, got.fy]; };

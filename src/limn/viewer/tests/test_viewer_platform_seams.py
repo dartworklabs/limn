@@ -340,11 +340,13 @@ if __name__ == "__main__":
 
 
 # The frame's own steps and the features' functions it reaches, as recording stand-ins under the names js/main.ts
-# registers and the frame calls; the page's elements are inert stand-ins (any property, any call).
+# registers and the frame calls; the page's elements are inert stand-ins (any property, any call), and so is what
+# platform/dom.ts's checked lookups find in them.
 FRAME_SCOPE = r"""
 const LOG=[], rec=(name)=>(...a)=>{LOG.push(a.length?[name,...a]:[name]);};
 const ANY=new Proxy(function(){},{get:(t,k)=>k===Symbol.toPrimitive?()=>'':k==='length'?0:ANY,apply:()=>ANY,set:()=>true});
 const ELS={}; const $=s=>ELS[s]||ANY, $$=()=>[];
+const findElement=()=>ANY, findMaybe=()=>ANY, findAll=()=>[]; class HTMLElement {}
 const document={body:ANY,activeElement:null}; function setTimeout(fn){TIMERS.push(fn); return 1;} function clearTimeout(){}
 const TIMERS=[];
 let SIDE_OPEN=false, BAND=null, LAYOUT=null;

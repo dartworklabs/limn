@@ -599,12 +599,14 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 source,
                 extract_js_fn("revisionStart"),
+                extract_js_fn("findElement"),
                 """
+                class HTMLElement{} class HTMLPreElement extends HTMLElement{}
                 let DOC='a';const REVISION_VIEW={seq:1,commit:'head',target:null};
                 const COMPARISON_SCOPE={whole:false,fallback:false},COMPARISON_PDF={loading:null};
                 const VECTOR_PDF={lib:null},PDFJS_VERSION='test';
                 let finishImport,opened=0;
-                const statusBox={textContent:''},warningBox={hidden:true,open:false,querySelector(){return {textContent:''};}};
+                const statusBox={textContent:''},warningBox={hidden:true,open:false,querySelector(s){return s==='pre'?new HTMLPreElement():new HTMLElement();}};
                 function $(name){return name==='#revision-status'?statusBox:warningBox;}
                 function revisionPinFor(){return null;}
                 function revisionCurrent(seq,k,id){return seq===REVISION_VIEW.seq&&k===DOC&&id===REVISION_VIEW.commit;}
