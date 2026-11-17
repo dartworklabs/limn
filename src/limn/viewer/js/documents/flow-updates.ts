@@ -312,7 +312,7 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
   const meta = doc === DOC ? META : META_BY.get(doc),
     entry = docInfo(doc),
     kind = (entry && entry.kind) || (meta && meta.kind) || '',
-    source = (meta || entry) as any;
+    source = meta || entry;
   if (!source) return null;
   // a drawn document on screen: its source as last read (MARKDOWN_VIEW.mtime), not the meta it was opened with; off
   // screen: the document list's (noteOtherDocs keeps it fresh) - MARKDOWN_VIEW still holds the lines of one drawn
@@ -342,7 +342,7 @@ async function docRows(doc: string): Promise<RevisionRow[] | null> {
         silent: true,
       })
     ).data;
-    return answer.available ? ((answer.revisions || []) as RevisionRow[]) : [];
+    return answer.available ? answer.revisions || [] : [];
   } catch (error) {
     return null;
   }
@@ -356,7 +356,7 @@ async function docBuild(
   now: { ver: string; kind: string },
 ): Promise<{ head: string; behind: boolean } | null> {
   if (rendersInBrowser(now.kind)) return { head: '', behind: false };
-  let meta = (doc === DOC ? META : META_BY.get(doc)) as any;
+  let meta = doc === DOC ? META : META_BY.get(doc);
   if (!meta || 'build:' + meta.pages_build !== now.ver) {
     try {
       meta = (await api('GET /api/meta', { query: withDocQuery('?light=1', doc), what: '상태 확인', silent: true }))
@@ -474,6 +474,19 @@ function checkDocsSeen() {
     if (doc) checkDocUpdate(doc, {});
   });
 }
+// A document's update message as checkDocUpdate keeps it: the document (key, its name and kind), the version it says
+// (ver) and the commit last seen (seenRev), the newest commit it covers (top), its commits and whether the document
+// has history.
+interface DocUpdate {
+  key: string;
+  name: string;
+  kind: string;
+  ver: string;
+  seenRev: string;
+  top: string;
+  commits: CommitDigest;
+  history: boolean;
+}
 // What a document's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its
 // PR and subject and author; several: how many, their PRs and authors; none named when which are new is not known), the
 // places a drawn document changed, the pins it moved or lost. Its action: [바뀐 곳] on a drawn document of this visit
@@ -481,7 +494,7 @@ function checkDocsSeen() {
 // new is not known), [열기] for another document - whose message stands behind this one's (back) - none otherwise. It
 // is seen - limnSeen takes it - once it goes by [x] or its action; a message pushed off the line is not seen and comes
 // again on the next visit.
-function docUpdateView(update: any) {
+function docUpdateView(update: DocUpdate) {
   const doc = update.key,
     commits = update.commits,
     here = doc === DOC,
@@ -561,7 +574,7 @@ function docUpdateView(update: any) {
 // (forgetUpdate). A record of the message's own version is another tab's - the message is said only while the record
 // names an earlier one (checkDocUpdate) - and stays: that tab read the history too, perhaps after a commit this message
 // missed.
-function docUpdateSeen(doc: string, update: any) {
+function docUpdateSeen(doc: string, update: DocUpdate) {
   const was = seenDoc(doc);
   if (!was || was.ver !== update.ver) setSeenDoc(doc, { ver: update.ver, rev: update.top });
   forgetUpdate(doc);
@@ -774,7 +787,7 @@ function announceNewPins(pins: Pin[]) {
 // #14 — Bob Park · 3쪽 · 서론 첫 문장…', a verdict pin '새 판정 #15 — … · 채택'); more as a count with their numbers
 // and makers. Another document's names it ('부록에 새 핀 2개'). [보기] opens the first; on this document it marks [핀
 // N].
-function newPinsView(news: any) {
+function newPinsView(news: { doc: string; pins: NewPinRow[] }) {
   const here = news.doc === DOC,
     pins = news.pins,
     one = pins.length === 1,
@@ -788,11 +801,11 @@ function newPinsView(news: any) {
     ? [first.who, first.place, first.verdict || first.note].filter(Boolean).join(' · ')
     : pins
         .slice(0, 3)
-        .map((x: any) => '#' + x.id)
+        .map((x) => '#' + x.id)
         .join(', ') +
       (pins.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: pins.length - 3 }) : '') +
       ' · ' +
-      [...new Set(pins.map((x: any) => x.who))].slice(0, 2).join(', ');
+      [...new Set(pins.map((x) => x.who))].slice(0, 2).join(', ');
   return {
     msg: (here ? head : translateTemplate('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
     kind: NOTICE_KIND.INFO,
@@ -805,7 +818,7 @@ function newPinsView(news: any) {
       literal: true,
       back: !here,
       dot: here ? NOTICE_DOT.SIDE : '',
-      keys: pins.map((x: any) => 'new:' + x.id),
+      keys: pins.map((x) => 'new:' + x.id),
       brief: translateTemplate('새 핀 {n}', { n: pins.length }),
       onEnd: (acted: boolean, seen: boolean) => {
         if ((acted || seen) && ![...GROUPS.keys()].some((key) => key.startsWith('new:')))
