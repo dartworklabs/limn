@@ -14,7 +14,7 @@ import json
 import shutil
 import unittest
 
-from helpers import extract_js_fn, js_const, js_listener_body, js_markup, run_node
+from helpers import PKG, extract_js_fn, js_const, js_listener_body, js_markup, run_node
 from helpers_browser import BrowserBase, nothing_follows
 
 PHONE = {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True}
@@ -42,6 +42,33 @@ class GuardRules(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [True, None, None])
+
+    def test_a_module_is_the_pdf_library_only_with_get_document_and_the_worker_options(self):
+        """What the viewer imports as PDF.js is narrowed before it is used: the vendored module is the library, and a
+        value without a getDocument function or without the worker options (nothing, a page that answered with
+        something else) is not, so importPdfLibrary rejects instead of the first call failing on it."""
+        vendored = (PKG / "vendor" / "pdfjs" / "pdf.min.mjs").as_uri()
+        got = self.run_js(
+            extract_js_fn("isPdfLibrary"),
+            r"""
+            const options = class { static workerSrc = ''; };
+            import(%s).then((real) => console.log(JSON.stringify([
+              isPdfLibrary(real),
+              isPdfLibrary({ getDocument() {}, GlobalWorkerOptions: options }),
+              isPdfLibrary({ GlobalWorkerOptions: options }),
+              isPdfLibrary({ getDocument() {} }),
+              isPdfLibrary({ getDocument: 1, GlobalWorkerOptions: options }),
+              isPdfLibrary({ getDocument() {}, GlobalWorkerOptions: {} }),
+              isPdfLibrary({ getDocument() {}, GlobalWorkerOptions: class {} }),
+              isPdfLibrary({}),
+              isPdfLibrary(null),
+              isPdfLibrary(undefined),
+              isPdfLibrary('pdf.js'),
+            ])));
+            """
+            % json.dumps(vendored),
+        )
+        self.assertEqual(got, [True, True, False, False, False, False, False, False, False, False, False])
 
     def test_a_table_entry_is_none_without_a_key_as_for_a_key_the_table_lacks(self):
         got = self.run_js(

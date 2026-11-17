@@ -5,7 +5,6 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
 import { VECTOR_PDF } from './flow-open.ts';
-import type { PdfDestination, PdfDocument, PdfOutlineItem } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';

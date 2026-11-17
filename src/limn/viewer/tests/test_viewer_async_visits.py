@@ -590,7 +590,7 @@ class VisitLocalContinuations(unittest.TestCase):
     def test_revision_import_finishing_after_switch_does_not_start_pdf(self):
         """A late PDF.js module import cannot attach a loading task to another document's revision view."""
         source, n = re.subn(
-            r"await import\(\s*'/vendor/pdfjs/pdf\.min\.mjs\?v='\s*\+\s*PDFJS_VERSION\s*\)",
+            r"await importPdfLibrary\(\)",
             "await delayedImport()",
             extract_js_fn("loadRevisionPdf"),
         )

@@ -2719,6 +2719,43 @@ class FrontendDocs(unittest.TestCase):
         self.assertIn("restoreView(view)", show)
         self.assertIn("pageSurface().openVector()", show)
 
+    def test_the_cache_of_opened_pdf_documents_closes_what_it_drops(self):
+        """Caching a document drops an older build of the same document and, beyond VECTOR_CACHE_MAX, the least recently
+        cached one, and closes each dropped document unless it is the one on screen or the one being cached."""
+        got = json.loads(
+            run_node(
+                "\n".join(
+                    [
+                        "const VECTOR_CACHE_MAX=3,CLOSED=[],VECTOR_PDF={doc:null,cache:new Map()};",
+                        "function closeVectorDocument(doc){CLOSED.push(doc.name);}",
+                        extract_js_fn("cacheVectorDocument"),
+                        r"""
+            const make=(name)=>({name});
+            const [a1,a2,b1,c1,d1,e1]=['a1','a2','b1','c1','d1','e1'].map(make);
+            const steps=[];
+            const put=(key,doc)=>{cacheVectorDocument(key,doc);steps.push([[...VECTOR_PDF.cache.keys()],[...CLOSED]]);};
+            put('a|1',a1);put('b|1',b1);put('a|2',a2);        // a new build of a closes the old one
+            put('c|1',c1);                                      // three entries: none goes
+            put('d|1',d1);                                      // four: the oldest (b|1) is closed
+            VECTOR_PDF.doc=a2;put('e|1',e1);                    // the oldest (a|2) is on screen: dropped, kept open
+            console.log(JSON.stringify(steps));
+            """,
+                    ]
+                )
+            )
+        )
+        self.assertEqual(
+            got,
+            [
+                [["a|1"], []],
+                [["a|1", "b|1"], []],
+                [["b|1", "a|2"], ["a1"]],
+                [["b|1", "a|2", "c|1"], ["a1"]],
+                [["a|2", "c|1", "d|1"], ["a1", "b1"]],
+                [["c|1", "d|1", "e|1"], ["a1", "b1"]],
+            ],
+        )
+
     def test_cross_doc_card_actions_switch_first(self):
         self.assertIn(sq("function jumpPin(id){if(viaDoc(id,jumpPin))return;"), SCRIPT_SQ)
         self.assertIn(sq("function openEdit(id){if(viaDoc(id,openEdit))return;"), SCRIPT_SQ)

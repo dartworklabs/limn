@@ -30,3 +30,4 @@ The Mozilla PDF.js build the viewer uses to draw the manuscript PDF as vectors. 
 2. Update the version, sizes and sha256 values in the tables above.
 3. Change `PDFJS_VERSION` in `src/limn/viewer/assemble.py`. It is also the `?v=` value that busts the browser cache.
 4. The regression tests (`VendorPdfjs`) check that `pdfjsVersion` in the file headers equals `PDFJS_VERSION`.
+5. `src/limn/viewer/tests/test_vendor_pdfjs_types.py` loads the new build and checks the viewer's declaration of it (`src/limn/viewer/types/pdfjs.d.ts`) member by member. Fix the declaration where it fails, and read the build's own declarations (`types/src/display/api.d.ts` in the npm package) for a member the viewer starts to call.
