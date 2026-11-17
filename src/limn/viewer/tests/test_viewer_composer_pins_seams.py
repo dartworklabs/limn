@@ -57,6 +57,7 @@ function setComposeRetryVerdict(v){COMPOSE.retryVerdict=v;}
 function offlineNow(){return CUT_OFF;}
 function $(name){return name==='#note'?{value:'note'}:{disabled:false,hidden:false};}
 const document={querySelectorAll:()=>[]};
+class HTMLButtonElement {}
 function isRegion(){return false;} function kindFor(){return 'line';} function figureFields(b){return b;}
 function figureRung(){return null;} function wireScope(s){return s;}
 function mentionHints(){return [];} function composeAsk(mode){return {mode};}
@@ -89,6 +90,7 @@ def run_save(setup: str, act: str) -> object:
                     js_seams_wired(COMPOSER_SEAMS),
                     *(extract_js_fn(n) for n in ("captureVisit", "currentVisit", "samePlace")),
                     extract_js_fn("syncComposeSaveButtons"),
+                    extract_js_fn("findAll"),
                     extract_js_fn("savePin"),
                     SAVE_SCOPE,
                     "COMPOSE.current={doc:'a',file:'a.tex',name:'a.tex',page:3,lo:1,hi:2};",
@@ -182,8 +184,10 @@ class ComposerRows(unittest.TestCase):
                         COMPOSER_FEATURES,
                         js_seams_wired(COMPOSER_SEAMS),
                         extract_js_fn("syncComposeSaveButtons"),
+                        extract_js_fn("findAll"),
                         "const COMPOSE={saving:true}; function suggestPending(){return false;}",
-                        "const document={querySelectorAll:()=>[{set disabled(v){LOG.push(['disabled',v]);}}]};",
+                        "class HTMLButtonElement { set disabled(v) { LOG.push(['disabled', v]); } }",
+                        "const document={querySelectorAll:()=>[new HTMLButtonElement()]};",
                         "syncComposeSaveButtons(); console.log(JSON.stringify(LOG));",
                     ]
                 )

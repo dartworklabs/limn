@@ -797,7 +797,7 @@ class FrontendMobileStructure(unittest.TestCase):
             sq(js_fn_body("pick")),
         )
         self.assertIn(
-            sq("if(touchRecent()||NO_HOVER_QUERY.matches)return; const target=event.target; armTip("),
+            sq("if(touchRecent()||NO_HOVER_QUERY.matches)return; const target=eventElement(event); armTip("),
             SCRIPT_SQ,
         )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
@@ -2706,7 +2706,9 @@ class FrontendDocs(unittest.TestCase):
         i = body.index("if(multiDoc()&&!inField){")
         self.assertIn("event.key==='PageUp'||event.key==='PageDown'", body[i:])
         self.assertIn("/^Digit[1-9]$/.test(event.code||'')", body[i:])
-        self.assertLess(body.index(sq("const target=event.target,inField=")), i)
+        self.assertLess(
+            body.index(sq("const target=event.target instanceof HTMLElement?event.target:null,inField=")), i
+        )
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
         self.assertIn(sq("const VECTOR_CACHE_MAX=3;"), SCRIPT_SQ)
@@ -4193,8 +4195,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         homes do nothing), then extra_body; returns the script."""
         stub = r"""
             const COARSE_POINTER_QUERY={matches:false}; const IS_MAC=false;
-            function el(){return {hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
-              scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}};}
+            class HTMLButtonElement {}   // the page's controls, which the save buttons are found as
+            function el(){return Object.assign(new HTMLButtonElement(),{hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
+              scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}});}
             const els={}; const $=s=>(els[s]=els[s]||el());
             let PICKSEQ=0,REPICK=null; const COMPOSE={current:null,box:null,saving:false,picking:false,pendingSave:false,dismissedOverlap:null};
             const document={querySelectorAll:()=>[$('#btn-save')]};
@@ -4238,6 +4241,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("findAll"),
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                 extract_js_fn("savePin"),
@@ -5032,6 +5036,7 @@ class FrontendMentions(unittest.TestCase):
             const KIND_NEW='fix'; function appendTarget(){return null;}   // no overlapped pin on offer
             const document={activeElement:null};   // nothing has the focus: a row drawn again has none to keep (keepSegmentFocus)
             class HTMLElement {}   // the page's element class, which the preview line and the segment row are checked against
+            class HTMLTextAreaElement extends HTMLElement {} class HTMLButtonElement extends HTMLElement {}
             """,
             ]
             + [
@@ -5072,6 +5077,9 @@ class FrontendMentions(unittest.TestCase):
                     "renderAssignNew",
                     "editNote",
                     "renderAssignEdit",
+                    "findElement",
+                    "findMaybe",
+                    "findAll",
                 )
             ]
             + [script]
@@ -5185,11 +5193,11 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>Object.assign(new HTMLElement(),{hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let PEOPLE_KNOWN=true; const ASSIGN_NEW={v:'agent',touched:false};
-            const ta={value:'@Wendy 봐 주세요',_mentions:new Set([W])},ebox=box();
+            const ta=Object.assign(new HTMLTextAreaElement(),{value:'@Wendy 봐 주세요',_mentions:new Set([W])}),ebox=box();
             const EDITOR={current:{el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'},saving:false};
             renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];
             note.value='@Wendy Kim 봐 주세요'; renderAssignNew();   // the picked full name kept: the hint stands
@@ -5383,8 +5391,9 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
             let PEOPLE=[{login:'sam@example.com',name:'Sam Lee'}], META={me:{login:'me@example.com',name:'Me'}};
             const document={activeElement:null};
             class HTMLElement {}   // the preview line is an element of the page (mentionPreview checks it)
+            class HTMLTextAreaElement extends HTMLElement {}   // the field, which mentionPreview finds focused by its class
             function field(v){const box=Object.assign(new HTMLElement(),{hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},classList:{contains:c=>c==='m-preview'}});
-              return {value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box};}
+              return Object.assign(new HTMLTextAreaElement(),{value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box});}
             function show(v,focused){const ta=field(v); document.activeElement=focused?ta:null; mentionPreview(ta);
               const b=ta.nextElementSibling; return b.hidden?null:(b.innerHTML.match(/mention-bad[^>]*>@[^<]*/g)||[]).map(s=>s.split('>')[1]);}
             """,

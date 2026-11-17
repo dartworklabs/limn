@@ -59,7 +59,18 @@ import {
 import { IS_BESIDE_PAGES, bringPage, redrawOnBesideChange } from './view-panel.ts';
 import { PINS_APPLIED_SEQ, gotoPinRef, loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
-import { $, typingNow, searchToPage } from '../platform/dom.ts';
+import {
+  $,
+  eventClosest,
+  eventElement,
+  findAll,
+  findClosest,
+  findMaybe,
+  focusedElement,
+  isDisabled,
+  typingNow,
+  searchToPage,
+} from '../platform/dom.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, verdictLabel, viewerBlocked, pageVerdictsOn } from '../documents/state.ts';
@@ -225,7 +236,7 @@ function isReasonField(target: unknown): target is HTMLTextAreaElement {
 }
 // The open popover's field, or null.
 function findReasonField() {
-  return document.querySelector('#doc .pv-pop .pv-reason') as HTMLTextAreaElement | null;
+  return findMaybe(document, '#doc .pv-pop .pv-reason', HTMLTextAreaElement);
 }
 // Whether the session's text is something not yet written: not empty, not the reason it opened on, not what it wrote.
 function hasUnsavedReason(session: ReasonSession) {
@@ -294,7 +305,7 @@ function refocusAfterLines() {
   const owed = PENDING_REFOCUS;
   if (!owed) return;
   PENDING_REFOCUS = null;
-  const control = document.querySelector('#doc .pv[data-page="' + owed.page + '"] ' + owed.sel) as HTMLElement | null;
+  const control = findMaybe(document, '#doc .pv[data-page="' + owed.page + '"] ' + owed.sel, HTMLElement);
   if (control) control.focus({ preventScroll: true });
 }
 // A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it would fall to nothing:
@@ -307,8 +318,8 @@ function refocusAfterLines() {
 type ReasonFocus = { sid: number; sel: [number, number, string] | null; act: string };
 function holdReasonFocus(): ReasonFocus | null {
   const session = REASON_SESSION,
-    active = document.activeElement as HTMLElement | null,
-    pop = active && active.closest ? active.closest('#doc .pv-pop') : null;
+    active = focusedElement(),
+    pop = active ? active.closest('#doc .pv-pop') : null;
   if (!session || !active || !pop || pop.getAttribute('data-id') !== 's' + session.sid) return null;
   if (isReasonField(active))
     return {
@@ -324,15 +335,13 @@ function restoreReasonFocus(held: ReasonFocus | null) {
   const session = REASON_SESSION,
     pop =
       session && session.sid === held.sid ? document.querySelector('#doc .pv-pop[data-id="s' + held.sid + '"]') : null;
-  const control = (
-    !pop
-      ? null
-      : held.sel
-        ? pop.querySelector('.pv-reason')
-        : held.act
-          ? pop.querySelector('[data-act="' + held.act + '"]')
-          : null
-  ) as HTMLElement | null;
+  const control = !pop
+    ? null
+    : held.sel
+      ? findMaybe(pop, '.pv-reason', HTMLElement)
+      : held.act
+        ? findMaybe(pop, '[data-act="' + held.act + '"]', HTMLElement)
+        : null;
   if (!control) {
     KEY_GUARD = true;
     return;
@@ -419,16 +428,16 @@ function showDraftLine(page: number) {
     bringPage(page);
     stickReadingLine();
   } // beside the pages the panel is the line, once the page is read (verdict/view-panel.ts)
-  const line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
+  const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return;
   if (!IS_BESIDE_PAGES) {
-    const block = (line.parentElement || line) as HTMLElement;
+    const block = line.parentElement || line;
     endJumpForScroll();
     block.scrollIntoView({ block: block.getBoundingClientRect().height <= $('#left').clientHeight ? 'center' : 'end' });
   }
   requestAnimationFrame(() => {
     if (isReasonField(document.activeElement)) return; // the mark was already pressed: its field keeps the focus
-    const mark = document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft') as HTMLElement | null;
+    const mark = findMaybe(document, '#doc .pv[data-page="' + page + '"] .pv-draft', HTMLElement);
     if (mark) mark.focus({ preventScroll: true });
     else if (!focusLine(page)) searchToPage();
   });
@@ -466,9 +475,10 @@ function closeReasonPopover(back: boolean) {
 function focusLine(page: number) {
   const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return false;
-  const control = (line.querySelector('[data-act="pv-reason-open"]') ||
-    line.querySelector('.vd-b[aria-pressed="true"]') ||
-    line.querySelector('.vd-b')) as HTMLElement | null;
+  const control =
+    findMaybe(line, '[data-act="pv-reason-open"]', HTMLElement) ||
+    findMaybe(line, '.vd-b[aria-pressed="true"]', HTMLElement) ||
+    findMaybe(line, '.vd-b', HTMLElement);
   if (!control) return false;
   control.focus({ preventScroll: true });
   return true;
@@ -1196,7 +1206,7 @@ function handOnCopy(copy: ReasonSession) {
 function closeTakenReason(session: ReasonSession, doc: string | null, id: number, word: string, part: boolean) {
   if (part) {
     refillLine(session.page);
-    const line = document.querySelector('#doc .pv[data-page="' + session.page + '"]') as HTMLElement | null;
+    const line = findMaybe(document, '#doc .pv[data-page="' + session.page + '"]', HTMLElement);
     if (line) fillReasonField(line);
     lineNote(
       translateTemplate('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
@@ -1633,9 +1643,11 @@ function foldReason() {
   else dropDraft(session.doc, session.id);
   REASON_SESSION = null;
   drawPageVerdicts();
-  const control = document.querySelector(
+  const control = findMaybe(
+    document,
     '#doc .pv[data-page="' + session.page + '"] [data-act="pv-reason-open"]',
-  ) as HTMLElement | null;
+    HTMLElement,
+  );
   if (control) control.focus({ preventScroll: true });
   else focusLine(session.page);
   announce(translate('이유 초안을 접었습니다 — 줄의 [초안 있음]이 다시 엽니다'));
@@ -1869,7 +1881,7 @@ data-tip="${translate('이 판정의 이유를 씁니다. 메모로 붙습니다
 // input method is composing - and its height follows its lines.
 function fillReasonField(line: HTMLElement) {
   const session = REASON_SESSION,
-    field = line.querySelector('.pv-pop .pv-reason') as HTMLTextAreaElement | null;
+    field = findMaybe(line, '.pv-pop .pv-reason', HTMLTextAreaElement);
   if (!session || !field) return;
   if (field.value !== session.text && COMPOSING_FIELD !== field) {
     const had = document.activeElement === field;
@@ -1889,7 +1901,7 @@ function growReasonField(field: HTMLTextAreaElement) {
 // Page `page`'s line drawn again now: what its popover says follows the field's text and focus.
 function refillLine(page: number) {
   const verdicts = pageVerdictsOn(),
-    line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
+    line = findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement);
   if (verdicts && line) fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
 }
 
@@ -2048,13 +2060,12 @@ function followLanded(session: ReasonSession) {
 // key is the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons
 // ([접기], [닫기], [저장], [지우기]) is the field's Esc.
 $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
-  const target = event.target as HTMLElement;
+  const target = eventElement(event);
   if (
     event.key === 'Escape' &&
     !isReasonField(target) &&
     REASON_SESSION &&
     target &&
-    target.closest &&
     target.closest('#doc .pv-pop') &&
     !event.ctrlKey &&
     !event.metaKey &&
@@ -2092,20 +2103,19 @@ $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
 // popover, writing what is being edited.
 $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return;
-  const target = event.target as HTMLElement,
-    line = target && target.closest ? target.closest('#doc .pv') : null;
+  const target = eventElement(event),
+    line = target ? target.closest('#doc .pv') : null;
   const pop = line && line.querySelector(':scope>.pv-pop');
   if (!line || !pop) return;
-  const vis = (x: Element) =>
-    x instanceof HTMLElement && x.getClientRects().length > 0 && !(x as HTMLButtonElement).disabled;
-  const all = [...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(vis);
+  const vis = (x: HTMLElement) => x.getClientRects().length > 0 && !isDisabled(x);
+  const all = findAll(line, 'a,button,textarea,[tabindex="0"]', HTMLElement).filter(vis);
   if (all.length < 2) return;
   if (!event.shiftKey && target === all[all.length - 1]) {
     event.preventDefault();
-    (all[0] as HTMLElement).focus({ preventScroll: true });
+    all[0].focus({ preventScroll: true });
   } else if (event.shiftKey && target === all[0]) {
     event.preventDefault();
-    (all[all.length - 1] as HTMLElement).focus({ preventScroll: true });
+    all[all.length - 1].focus({ preventScroll: true });
   }
 });
 // The field's focus changes what it says (the keys). The popover stays open while the focus is anywhere inside it - Tab
@@ -2115,8 +2125,7 @@ let POPOVER_PRESS_AT = 0; // performance.now() of the last press inside a popove
 $('#doc').addEventListener(
   'pointerdown',
   (event: PointerEvent) => {
-    const target = event.target as HTMLElement;
-    if (target && target.closest && target.closest('.pv-pop')) POPOVER_PRESS_AT = performance.now();
+    if (eventClosest(event, '.pv-pop', Element)) POPOVER_PRESS_AT = performance.now();
   },
   true,
 );
@@ -2126,10 +2135,9 @@ $('#doc').addEventListener('focusin', (event: FocusEvent) => {
   refillLine(REASON_SESSION.page);
 });
 $('#doc').addEventListener('focusout', (event: FocusEvent) => {
-  const target = event.target as HTMLElement,
-    pop = target && target.closest ? target.closest('.pv-pop') : null;
+  const pop = eventClosest(event, '.pv-pop', Element);
   if (!pop) return;
-  const rel = event.relatedTarget as Node | null;
+  const rel = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (rel && pop.contains(rel)) return;
   setTimeout(() => {
     const session = REASON_SESSION;
@@ -2197,14 +2205,11 @@ function openReasonOnEnter(event: KeyboardEvent) {
     event.repeat
   )
     return;
-  const target = event.target as HTMLElement | null,
+  const target = eventElement(event),
     area = $('#left');
   // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of
   // them.
-  const line =
-      !!target && !!target.closest && !target.closest('.pv-pop')
-        ? (target.closest('#doc .pv') as HTMLElement | null)
-        : null,
+  const line = !!target && !target.closest('.pv-pop') ? findClosest(target, '#doc .pv', HTMLElement) : null,
     page = line ? Number(line.dataset.page) || 0 : 0;
   if (page && KEY_SAVE_OUT.has(pageLineSlot(page)) && page === pageUnderReadingLine()) {
     event.preventDefault();
@@ -2216,7 +2221,7 @@ function openReasonOnEnter(event: KeyboardEvent) {
     target === document.body ||
     target === area ||
     target === $('#doc') ||
-    (!!target && !!target.closest && !!target.closest('#doc .pg'))
+    (!!target && !!target.closest('#doc .pg'))
   ))
     return;
   openReadingReason(event);

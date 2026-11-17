@@ -2,8 +2,8 @@
 what the code reads - an event aimed at no element, a key the server left out, an owner or a pin without its lines, a
 control drawn outside a card - is narrowed before it is used, and gets the code's safe nothing.
 
-- ``GuardRules`` runs the shared helpers (eventElement, tableEntry) and the guarded functions under node, pulled from
-  the served page.
+- ``GuardRules`` runs the shared helpers (eventElement, findClosest, eventClosest, focusedElement, isDisabled,
+  tableEntry) and the guarded functions under node, pulled from the served page.
 - ``NonElementTargets`` drives the real viewer: events aimed at a text node, which is no element, reach the handlers
   that look around their target, and a card action outside any card sends nothing.
 
@@ -42,6 +42,94 @@ class GuardRules(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [True, None, None])
+
+    def test_the_closest_element_is_found_only_of_the_class_asked_for(self):
+        """findClosest gives the nearest match around an element when it is of the class asked for (an icon's row), and
+        null when the nearest match is of another class or there is none; eventClosest does the same from an event's
+        target, and gives null for a target that is no element."""
+        got = self.run_js(
+            r"""
+            class Element { constructor(found) { this.found = found; } closest() { return this.found; } }
+            class HTMLElement extends Element {}
+            class SVGElement extends Element {}
+            """,
+            extract_js_fn("eventElement"),
+            extract_js_fn("findClosest"),
+            extract_js_fn("eventClosest"),
+            r"""
+            const row = new HTMLElement(null), icon = new SVGElement(row);
+            console.log(JSON.stringify([
+              findClosest(icon, '.row', HTMLElement) === row,
+              findClosest(new HTMLElement(new SVGElement(null)), '.icon', HTMLElement),
+              findClosest(new HTMLElement(null), '.row', HTMLElement),
+              eventClosest({ target: icon }, '.row', HTMLElement) === row,
+              eventClosest({ target: icon }, '.row', Element) === row,
+              eventClosest({ target: { nodeType: 3, closest() { return row; } } }, '.row', HTMLElement),
+              eventClosest({ target: null }, '.row', Element),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, None, None, True, True, None, None])
+
+    def test_the_focused_element_is_an_html_element_or_none(self):
+        """focusedElement gives what has the focus when that is an HTML element, and null for none or for another kind
+        of element (an SVG one), which the code would otherwise focus again or read as a control."""
+        got = self.run_js(
+            "class Element {} class HTMLElement extends Element {} class SVGElement extends Element {}",
+            "const document = { activeElement: null };",
+            extract_js_fn("focusedElement"),
+            r"""
+            const field = new HTMLElement(), out = [];
+            for (const focused of [field, new SVGElement(), null, undefined]) {
+              document.activeElement = focused;
+              out.push(focusedElement() === field ? 'field' : focusedElement());
+            }
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(got, ["field", None, None, None])
+
+    def test_only_a_control_that_is_disabled_now_is_disabled(self):
+        """isDisabled: a control whose disabled is true; not one whose disabled is false, nor an element that has no
+        disabled at all (a link, a span) or a value other than true there."""
+        got = self.run_js(
+            extract_js_fn("isDisabled"),
+            r"""
+            console.log(JSON.stringify([
+              isDisabled({ disabled: true }),
+              isDisabled({ disabled: false }),
+              isDisabled({}),
+              isDisabled({ disabled: 'disabled' }),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, False, False, False])
+
+    def test_typing_is_a_text_field_with_the_focus_and_nothing_else(self):
+        """typingNow: a textarea, a text input or editable content with the focus is typing; a checkbox, an element that
+        is no HTML element (an SVG one), the body and no focus are not."""
+        got = self.run_js(
+            r"""
+            class Element { constructor(tagName, extra) { this.tagName = tagName; Object.assign(this, extra); } }
+            class HTMLElement extends Element {}
+            class HTMLInputElement extends HTMLElement {}
+            const body = new HTMLElement('BODY'), document = { body, activeElement: null };
+            """,
+            extract_js_fn("typingNow"),
+            r"""
+            const focus = (element) => { document.activeElement = element; return typingNow(); };
+            console.log(JSON.stringify([
+              focus(new HTMLElement('TEXTAREA')),
+              focus(new HTMLInputElement('INPUT', { type: 'text' })),
+              focus(new HTMLInputElement('INPUT', { type: 'checkbox' })),
+              focus(new HTMLElement('DIV', { isContentEditable: true })),
+              focus(new Element('svg', { isContentEditable: true })),
+              focus(body),
+              focus(null),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, False, True, False, False, False])
 
     def test_a_module_is_the_pdf_library_only_with_get_document_and_the_worker_options(self):
         """What the viewer imports as PDF.js is narrowed before it is used: the vendored module is the library, and a
@@ -170,8 +258,10 @@ class GuardRules(unittest.TestCase):
         """It drew rows for line 'undefined' before; it is cleared and hidden now, as for a region."""
         got = self.run_js(
             "const document = { activeElement: null };",
+            "class HTMLElement {}",
             "function isRegion() { return false; }",
             extract_js_fn("onLines"),
+            extract_js_fn("focusedElement"),
             extract_js_fn("drawExcerpt"),
             r"""
             const box = { hidden: false, cleared: 0, contains() { return false; }, replaceChildren() { this.cleared++; } };
@@ -521,6 +611,25 @@ class NonElementTargets(BrowserBase):
             with self.subTest(host=host, event=make):
                 self.text_node_event(page, host, make)
         self.assertIsNone(page.evaluate("PRESS"))
+
+    def test_page_queue_and_document_handlers_do_nothing_for_a_target_that_is_no_element(self):
+        """The page's own handlers (#doc: the queue marks' badges, a press on a reason popover, a click that picks a
+        Markdown block), the queue's rows and the document's click (main.ts: copy, actions, a tapped card) look around
+        their target: a text node there threw from reading it as an element."""
+        page = self.open(0)
+        for host, make in (
+            ("#doc", "new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerType: 'mouse' })"),
+            ("#doc", "new MouseEvent('mousedown', { bubbles: true })"),
+            ("#doc", "new MouseEvent('click', { bubbles: true })"),
+            ("#doc", "new InputEvent('input', { bubbles: true })"),
+            ("#sec-queue", "new MouseEvent('click', { bubbles: true })"),
+            ("#queue-rows", "new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse' })"),
+            ("#queue-rows", "new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' })"),
+            ("document", "new MouseEvent('click', { bubbles: true })"),
+        ):
+            with self.subTest(host=host, event=make):
+                self.text_node_event(page, host, make)
+        nothing_follows(page)
 
     def test_the_phone_sheet_takes_no_pull_from_a_target_that_is_no_element(self):
         page = self.open(0, **PHONE)

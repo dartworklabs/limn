@@ -311,7 +311,7 @@ class PickingLines(unittest.TestCase):
     let DOC='a',REPICK=null,PICKSEQ=0,LAYOUT='wide',LAST_POINTER='touch',PINS=[]; var LAYOUT_MODE={WIDE:'wide'};
     const MARKDOWN_VIEW={heads:[],file:'a.md',name:'a.md',lines:['x','y']}; const COMPOSE={intent:0};
     const ELS={}; function $(s){return ELS[s]||(ELS[s]={hidden:true,scrollTop:1,focus(){}});}
-    const document={querySelector:()=>null};
+    const document={querySelector:()=>null}; class HTMLElement {}
     function isTextDoc(){return false;} function markdownLevels(){return [];} function levelOf(){return null;}
     function lineSnippet(){return '';} function endTopic(){} function setPickseq(v){PICKSEQ=v;}
     function useLevel(){LOG.push(['useLevel']);} function setSide(){LOG.push(['setSide']);} function applySide(){}
@@ -332,6 +332,7 @@ class PickingLines(unittest.TestCase):
         the snippet folds and before the selection is revealed."""
         got = run_lines(
             extract_js_fn("pickLines"),
+            extract_js_fn("findMaybe"),
             self.PICK,
             "pickLines({lo:1,hi:2},null,null,'q',false); console.log(JSON.stringify(LOG));",
         )

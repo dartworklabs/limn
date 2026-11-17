@@ -17,7 +17,7 @@ import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, setBuildUnchanged, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
 import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
-import { $, findElement, findMaybe } from '../platform/dom.ts';
+import { $, findElement, findMaybe, focusedElement } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
 import { isViewer, STATUS_SYNC } from './state.ts';
 import { offlineQueue } from './state-seams.ts';
@@ -442,8 +442,8 @@ function drawStatus() {
 // The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
 // action), or null: the line's redraw gives the focus back to it (refocusStatus).
 function statusFocus(): { act: string; n: string } | null {
-  const active = document.activeElement as HTMLElement | null;
-  return active && active.closest && active.closest('#status,#status-list') && active.dataset.act
+  const active = focusedElement();
+  return active && active.closest('#status,#status-list') && active.dataset.act
     ? { act: active.dataset.act, n: active.dataset.n || '' }
     : null;
 }
@@ -455,8 +455,8 @@ function refocusStatus(focused: { act: string; n: string } | null) {
   if (active && active !== document.body && document.contains(active)) return;
   const selector = '[data-act="' + focused.act + '"]' + (focused.n ? '[data-n="' + focused.n + '"]' : ''),
     listDialog = $('#status-list');
-  const button = ((listDialog.open && listDialog.querySelector(selector)) ||
-    $('#status').querySelector(selector)) as HTMLElement | null;
+  const button =
+    (listDialog.open && findMaybe(listDialog, selector, HTMLElement)) || findMaybe($('#status'), selector, HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 // The line follows the focus: when it leaves a message's button, the line shows again what comes first.
@@ -523,7 +523,7 @@ $('#status-list').addEventListener('close', () => {
   const active = document.activeElement,
     line = $('#status');
   if (active && active !== document.body && !$('#status-list').contains(active)) return;
-  const button = (line.querySelector('[data-act="status-more"]') || line.querySelector('button')) as HTMLElement | null;
+  const button = findMaybe(line, '[data-act="status-more"]', HTMLElement) || findMaybe(line, 'button', HTMLElement);
   if (button) button.focus({ preventScroll: true });
 });
 // Which side of the status line the '+N' list opens on, for a list `height` px tall with room px free above and below
@@ -589,7 +589,7 @@ function placeStatusList() {
   const above = lineTop - viewTop - 4 - 8,
     below = viewBottom - lineBottom - 4 - 8,
     height = dialog.scrollHeight + dialog.offsetHeight - dialog.clientHeight;
-  const row = dialog.querySelector('.st-row') as HTMLElement | null,
+  const row = findMaybe(dialog, '.st-row', HTMLElement),
     one = height - $('#status-list-rows').offsetHeight + (row ? row.offsetHeight : 0); // a row, its padding, border
   const up = statusListUp(height, above, below, BAND === LAYOUT_BAND.SHORT),
     room = Math.floor(Math.min(Math.max(up ? above : below, one), viewBottom - viewTop - 16));
@@ -620,8 +620,8 @@ window.addEventListener('resize', placeStatusListSoon);
 // that was inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus() {
   const line = $('#status'),
-    active = document.activeElement as HTMLElement,
-    had = line.contains(active);
+    active = focusedElement(),
+    had = !!active && line.contains(active);
   if ($('#status-list').open) $('#status-list').close();
   lineVisible(false); // moved out from under the pointer: no hover is left holding its windows
   if (BAND === LAYOUT_BAND.SHORT) {
@@ -631,7 +631,7 @@ function placeStatus() {
   } else if (LAYOUT === LAYOUT_MODE.WIDE) {
     if (line.parentNode !== $('#status-wide')) $('#status-wide').appendChild(line);
   } else if (line.parentNode !== $('#status-dock')) $('#status-dock').appendChild(line);
-  if (had && active.focus) active.focus({ preventScroll: true });
+  if (had && active) active.focus({ preventScroll: true });
   STATUS_SIG = '';
   drawStatus();
 }

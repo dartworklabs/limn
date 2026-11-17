@@ -19,7 +19,7 @@ import { OFF, offDel, offPut, offlineSync, type QueuedPin } from './flow.ts';
 import { marksShow } from '../pins/input-hide-marks.ts';
 import { setAssignNewValue, setAssignNewTouched, renderAssignNew } from '../composer/input-mentions.ts';
 import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, eventClosest, eventElement, findMaybe, focusedElement } from '../platform/dom.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo } from '../documents/state.ts';
 import { autoGrow } from '../composer/view-text.ts';
@@ -271,8 +271,8 @@ function offUiUndoRow(undo: OffUiUndo) {
 // The keyboard focus on one of the section's buttons, as its action and record, so a redraw gives it back (a redraw
 // comes whenever the queue is read, which another tab or a send may cause at any time).
 function offUiFocus(): { q: string; id: string } | null {
-  const active = document.activeElement as HTMLElement | null;
-  return active && active.closest && active.closest('#sec-queue') && active.dataset.q
+  const active = focusedElement();
+  return active && active.closest('#sec-queue') && active.dataset.q
     ? { q: active.dataset.q, id: active.dataset.qid || '' }
     : null;
 }
@@ -281,9 +281,11 @@ function offUiFocusBack(focused: { q: string; id: string } | null) {
   if (!focused) return;
   const active = document.activeElement;
   if (active && active !== document.body && document.contains(active)) return;
-  const button = $('#sec-queue').querySelector(
+  const button = findMaybe(
+    $('#sec-queue'),
     '[data-q="' + focused.q + '"]' + (focused.id ? '[data-qid="' + focused.id + '"]' : ''),
-  ) as HTMLElement | null;
+    HTMLElement,
+  );
   if (button) button.focus({ preventScroll: true });
 }
 
@@ -299,7 +301,7 @@ function offUiReveal(id: number) {
     offUiDraw();
   }
   requestAnimationFrame(() => {
-    const row = document.querySelector('.qrow[data-qid="' + id + '"]') as HTMLElement | null;
+    const row = findMaybe(document, '.qrow[data-qid="' + id + '"]', HTMLElement);
     if (!row) return;
     row.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
     row.classList.remove('flash');
@@ -320,7 +322,7 @@ function offUiGo(rec: QueuedPin) {
   marksShow();
   // A record with no page (a line pin) has no page to go to.
   if (typeof rec.page === 'number') arrivePage(rec.page);
-  const mark = document.querySelector('.qmark[data-qid="' + rec.id + '"]') as HTMLElement | null;
+  const mark = findMaybe(document, '.qmark[data-qid="' + rec.id + '"]', HTMLElement);
   if (mark) {
     mark.classList.remove('flash');
     void mark.offsetWidth;
@@ -432,13 +434,13 @@ function offUiUndoEnd(id: number) {
   const active = document.activeElement,
     row = active && active.closest ? active.closest('#queue-rows>[data-undo]') : null,
     isInRow = !!row && row.getAttribute('data-qid') === String(id);
-  const sibling =
-    isInRow && row ? ((row.nextElementSibling || row.previousElementSibling) as HTMLElement | null) : null;
+  const sibling = isInRow && row ? row.nextElementSibling || row.previousElementSibling : null;
   offUiDraw();
   if (isInRow) {
-    const button = ((sibling && sibling.isConnected && sibling.querySelector('button')) ||
+    const button =
+      (sibling && sibling.isConnected && sibling.querySelector('button')) ||
       (!$('#sec-queue').hidden && $('#queue-toggle')) ||
-      null) as HTMLElement | null;
+      null;
     if (button) button.focus({ preventScroll: true });
   }
 }
@@ -486,22 +488,23 @@ async function offUiUndo(id: number) {
     return;
   }
   if (isInRow) {
-    const button = $('#sec-queue').querySelector(
+    const button = findMaybe(
+      $('#sec-queue'),
       '.qrow[data-qid="' + id + '"] [data-q="' + (undo.redo ? 'redo' : 'drop') + '"]',
-    ) as HTMLElement | null;
+      HTMLElement,
+    );
     if (button) button.focus({ preventScroll: true });
   }
 }
 // Puts the focus on a record's undo row's [되돌리기].
 function offUiFocusUndo(id: number) {
-  const button = $('#sec-queue').querySelector(
-    '[data-undo][data-qid="' + id + '"] [data-q="undo"]',
-  ) as HTMLElement | null;
+  const button = findMaybe($('#sec-queue'), '[data-undo][data-qid="' + id + '"] [data-q="undo"]', HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 
 $('#sec-queue').addEventListener('click', (event: MouseEvent) => {
-  const button = (event.target as HTMLElement).closest('button') as HTMLElement | null;
+  const target = eventElement(event),
+    button = target && target.closest('button');
   if (!button) return;
   if (button.id === 'queue-toggle') {
     OFFUI.open = !OFFUI.open;
@@ -529,7 +532,7 @@ $('#queue-rows').addEventListener(
   'pointermove',
   (event: PointerEvent) => {
     if (event.pointerType !== 'mouse') return;
-    const row = (event.target as HTMLElement).closest('[data-undo]') as HTMLElement | null;
+    const row = eventClosest(event, '[data-undo]', HTMLElement);
     const undo = row ? OFFUI.undos.get(Number(row.dataset.qid)) : undefined;
     if (undo && !undo.hover) {
       undo.hover = true;
@@ -539,9 +542,9 @@ $('#queue-rows').addEventListener(
   { passive: true },
 );
 $('#queue-rows').addEventListener('pointerout', (event: PointerEvent) => {
-  const row = (event.target as HTMLElement).closest('[data-undo]') as HTMLElement | null;
+  const row = eventClosest(event, '[data-undo]', HTMLElement);
   if (!row) return;
-  const to = event.relatedTarget as Node | null;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (to && row.contains(to)) return;
   const undo = OFFUI.undos.get(Number(row.dataset.qid));
   if (undo && undo.hover) {
@@ -556,14 +559,14 @@ $('#queue-rows').addEventListener('pointerout', (event: PointerEvent) => {
 $('#doc').addEventListener(
   'pointerdown',
   (event: PointerEvent) => {
-    if ((event.target as HTMLElement).closest('.qmark-jump')) event.stopPropagation();
+    if (eventClosest(event, '.qmark-jump', Element)) event.stopPropagation();
   },
   true,
 );
 $('#doc').addEventListener(
   'mousedown',
   (event: MouseEvent) => {
-    if ((event.target as HTMLElement).closest('.qmark-jump')) {
+    if (eventClosest(event, '.qmark-jump', Element)) {
       event.stopPropagation();
       event.preventDefault();
     }
@@ -571,7 +574,7 @@ $('#doc').addEventListener(
   true,
 );
 $('#doc').addEventListener('click', (event: MouseEvent) => {
-  const button = (event.target as HTMLElement).closest('.qmark-jump') as HTMLElement | null;
+  const button = eventClosest(event, '.qmark-jump', HTMLElement);
   if (!button) return;
   offUiReveal(Number(button.dataset.qid));
 });

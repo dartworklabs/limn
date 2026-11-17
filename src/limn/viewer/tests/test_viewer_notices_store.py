@@ -31,7 +31,7 @@ STORE_FNS = [
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverIn", "lineHoverOut", "lineVisible", "noticeAct",
     "noticeClose", "noticeFocusBack", "deferred", "deferredNote", "undoNote", "offerSeen", "sourceEntry", "sourceOk",
     "flushDeferred", "isUndo", "lineCap", "sameWords", "realMove", "digestHold", "noticeDots", "holdsDot", "newsDupe",
-    "foldedNews", "gatheredDupe", "gatheredLess", "dotHeld", "digestDots",
+    "foldedNews", "gatheredDupe", "gatheredLess", "dotHeld", "digestDots", "focusedElement",
 ]  # fmt: skip
 STORE_CONSTS = ("NOTICE_MS", "NOTICE_HOLD_MAX", "LINE_MAX")
 # The seams the store reads the page through, wired as js/main.ts wires them, to the prelude's stand-ins.
@@ -40,6 +40,7 @@ STORE_SEAMS = [js_seam_wired(s, late=True) for s in ("setNoticeStatusLine", "set
 # A fake clock (setTimeout, clearTimeout, Date.now; tick(ms) runs what falls due, in order) and the page around the store,
 # stubbed: a closed panel, a hidden '+N' list, no drawing. drawStatus shows the line while it has messages, as the real one.
 MODEL_PRELUDE = r"""
+class HTMLElement {}
 let NOW=0,QID=0; const Q=[];
 function setTimeout(fn,ms){const id=++QID; Q.push({id,at:NOW+Math.max(0,Number(ms)||0),fn}); return id;}
 function clearTimeout(id){const i=Q.findIndex(t=>t.id===id); if(i>=0)Q.splice(i,1);}

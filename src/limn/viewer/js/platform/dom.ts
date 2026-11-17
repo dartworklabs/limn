@@ -39,16 +39,38 @@ function findMaybe<Found extends Element>(scope: ParentNode, selector: string, t
 function findAll<Found extends Element>(scope: ParentNode, selector: string, type: ElementClass<Found>) {
   return Array.from(scope.querySelectorAll(selector)).filter((found): found is Found => found instanceof type);
 }
+// The nearest of element and its ancestors that matches selector, when it is of that class, else null - the control or
+// row around an event's target (eventElement).
+function findClosest<Found extends Element>(element: Element, selector: string, type: ElementClass<Found>) {
+  const found = element.closest(selector);
+  return found instanceof type ? found : null;
+}
+// The nearest of an event's target and its ancestors that matches selector, when it is of that class, else null (as for
+// a target that is no element, eventElement).
+function eventClosest<Found extends Element>(event: Event, selector: string, type: ElementClass<Found>) {
+  const target = eventElement(event);
+  return target ? findClosest(target, selector, type) : null;
+}
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
 // keyboard is up.
 function typingNow() {
-  const focused = document.activeElement as HTMLInputElement;
+  const focused = document.activeElement;
   if (!focused || focused === document.body) return false;
-  if (focused.isContentEditable || focused.tagName === 'TEXTAREA') return true;
+  if ((focused instanceof HTMLElement && focused.isContentEditable) || focused.tagName === 'TEXTAREA') return true;
   return (
-    focused.tagName === 'INPUT' &&
+    focused instanceof HTMLInputElement &&
     !/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(focused.type || '')
   );
+}
+// The HTML element that has the focus, or null when none has it or it is on something else (an SVG element): what the
+// code focuses again later or reads as a control.
+function focusedElement() {
+  const focused = document.activeElement;
+  return focused instanceof HTMLElement ? focused : null;
+}
+// Whether an element is a control that is disabled now; an element that cannot be disabled (a link, a span) is not.
+function isDisabled(element: Element) {
+  return 'disabled' in element && element.disabled === true;
 }
 // Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab
 // stop and draws no ring (search.css).
@@ -86,7 +108,7 @@ function isTabStop(x: Element | null): x is HTMLElement {
     x instanceof HTMLElement &&
     x.matches(TABBABLE) &&
     x.tabIndex >= 0 &&
-    !(x as HTMLButtonElement).disabled &&
+    !isDisabled(x) &&
     x.getClientRects().length > 0 &&
     !x.closest('[inert],[hidden]') &&
     getComputedStyle(x).visibility !== 'hidden'
@@ -102,7 +124,11 @@ export {
   findElement,
   findMaybe,
   findAll,
+  findClosest,
+  eventClosest,
   typingNow,
+  focusedElement,
+  isDisabled,
   searchToPage,
   focusFell,
   focusHold,
