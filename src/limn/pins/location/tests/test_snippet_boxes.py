@@ -5,8 +5,9 @@ The viewer reads this route whenever the person moves up the range ladder or typ
 carries the mark of its own range and the box follows the range with no second round trip. The forward pass runs
 `synctex view` once per line of text of a rung, so these tests stub limn.pins.location.source.synctex_view and watch
 which lines and which file name it is asked for. That watching is the point: the line cap holds per rung, a rung whose
-range no longer stands on the build's lines is asked for nothing, and a document whose rungs are not manuscript lines
-(a figure's drawing script) asks nothing at all.
+range no longer stands on the build's lines is asked for nothing, a build that kept no record of the lines it read is
+asked nothing at all - unlike a pick, which holds SyncTeX's own answer in that build's numbers - and a document whose
+rungs are not manuscript lines (a figure's drawing script) asks nothing either.
 
 Run: uv run pytest -q src/limn/pins/location/tests/test_snippet_boxes.py
 """
@@ -66,13 +67,15 @@ class SnippetBase(Base):
     """The fixture manuscript with a build on screen whose one page is PAGE_PX, and a stub of the forward pass."""
 
     def setUp(self):
-        """The page folder of the build on screen, with one page image to take the page size from."""
+        """The page folder of the build on screen, with one page image to take the page size from and the record of
+        the lines that build read - a snippet answers no mark without it (PinLocationService.snippet)."""
         super().setUp()
         self.D = ps.APP.docs[0]
         self.pages = self.D.dir / "pages"
         self.pages.mkdir(parents=True, exist_ok=True)
         (self.pages / "page-1.png").write_bytes(helpers_figure.png_header(*PAGE_PX))
         (self.pages / self.D.pdf_name).write_bytes(b"%PDF-1.4\n%%EOF\n")
+        self.keep_built_source()
         self.calls = []
 
     def keep_built_source(self, text=TEX):
@@ -83,6 +86,12 @@ class SnippetBase(Base):
     def write(self, text):
         """Replace the manuscript, leaving it newer than the build."""
         self.main.write_text(text, encoding="utf-8")
+
+    def rebuilt(self, text):
+        """Replace the manuscript and record it as the lines the build on screen read, as a fresh build leaves them:
+        the file was not edited since, so a rung's range stands where that build's numbers put it."""
+        self.write(text)
+        self.keep_built_source(text)
 
     def built_tex(self):
         """The main file inside the build copy - the name the forward pass gives `synctex view -i`."""
@@ -136,7 +145,7 @@ class SnippetBoxes(SnippetBase):
         of text is asked for once instead, so the per-rung cap bounds the answer too. The float's own \\begin and
         \\end lines (L3, L8) are not asked. This route is what the viewer
         opens an edit card with."""
-        self.write(NESTED)
+        self.rebuilt(NESTED)
         with self.viewed():
             body = self.snippet("file=main.tex&lo=4&hi=4&levels=1")
         rungs = [(lv["level"], lv["lo"], lv["hi"]) for lv in body["levels"]]
@@ -192,10 +201,24 @@ class SnippetBoxes(SnippetBase):
         self.assertEqual((wide["lo"], wide["hi"], wide["n"]), (12, 17, 6))
         self.assertEqual(self.calls, [(self.built_tex(), 14)])
 
+    def test_no_rung_carries_boxes_on_a_build_that_kept_no_source_record(self):
+        """A build made before Limn kept the lines it read: a request here carries only a file and a line range of
+        the file as it is today, and with no record nothing says those numbers name the same lines in the build that
+        drew the page on screen. Measuring them against that older layout would put the mark on text the range does
+        not hold, so no rung carries one and no process is run - the same refusal the pin listing makes for such a
+        build (ADR-0045 D7). A pick on the same build does answer, because SyncTeX gave it that build's own numbers
+        (test_pick_boxes.py's test_a_build_without_a_source_record_gets_boxes_at_todays_lines)."""
+        (self.pages / built_source.SOURCE_NAME).unlink()
+        with self.viewed(TABLE_BOXES):
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+        self.assertEqual([(lv["lo"], lv["hi"]) for lv in body["levels"]], [(14, 14), (12, 16)])
+        self.assertEqual([lv for lv in body["levels"] if "boxes" in lv], [])
+        self.assertEqual(self.calls, [])
+
     def test_a_rung_over_the_line_cap_carries_no_boxes_and_asks_nothing(self):
         """A 45-line paragraph costs about 0.6 s of `synctex view`, so a rung over the cap of 40 lines answers no
         boxes without one call - while the dragged line beside it on the same ladder still gets its mark."""
-        self.write(paragraph(45))
+        self.rebuilt(paragraph(45))
         with self.viewed({4: (1, 60.0, 100.0, 300.0, 10.0)}):
             body = self.snippet("file=main.tex&lo=4&hi=4&levels=1")
         self.assertEqual([(lv["level"], lv["lo"], lv["hi"]) for lv in body["levels"]], [("raw", 4, 4), ("para", 4, 48)])

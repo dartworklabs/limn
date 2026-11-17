@@ -45,13 +45,22 @@ class PinLocationService:
         With a page to measure against (on_screen - the caller decides whether this answer's rungs may carry marks,
         limn.pins.location.http.snippet), every rung also carries where its lines print on that build's PDF. The
         build's facts are read once here and bound for the whole answer, not per rung; without a page the ladder is
-        the one this route has always answered."""
+        the one this route has always answered.
+
+        A build that kept no record of the lines it read (one made by an older Limn) answers no marks at all, as the
+        pin listing does for such a build (limn.builds.queries.BuildQueries.boxes,
+        docs/adr/0045-pin-marks-follow-the-range.md D7). A request here
+        carries only a file and a line range of the file as it is today, and with no record nothing says those
+        numbers name the same lines in the build that drew the page on screen - measuring today's numbers against an
+        old layout is the one failure that rule exists to prevent. A pick does not fall here: it holds SyncTeX's own
+        answer for that build and that drag, so the build's numbers are known even without a record."""
         ctx = self.context()
         boxes = no_boxes
         if on_screen is not None:
             publication = ctx.builds.publication(doc, on_screen.build, ctx.state)
             built = publication.built_lines(rng.file)
-            boxes = range_boxes(doc, rng.file, built, rng.lines, publication.pdf, on_screen.pages)
+            if built is not None:
+                boxes = range_boxes(doc, rng.file, built, rng.lines, publication.pdf, on_screen.pages)
         return source_range.snippet_api(rng, levels, ctx.envs, source_ladder, text, boxes)
 
     def overlaps(self, rng: SourceRange) -> dict[str, Any]:

@@ -237,6 +237,10 @@ class FigureContractSnapshot(SnapshotBase):
         self.addCleanup(ps.APP.set_docs, None)
         write_build(self.fig, BUILD1, b2_map())
         write_build(self.ms, BUILD1, None)  # a page to measure a snippet's marks against (720 x 480 pt at 150 dpi)
+        # The lines that build read: a snippet answers a rung's boxes only for a build that kept them
+        # (limn.pins.location.service.PinLocationService.snippet, ADR-0045 D7).
+        record = built_source.encode({"main.tex": built_source.text_lines(self.main.read_bytes())})
+        (self.ms.dir / BUILD1 / built_source.SOURCE_NAME).write_text(record, encoding="utf-8")
         for path in (self.fig.src / "src" / "B2_calendar.py", self.fig.src / "lib" / "components.py"):
             os.utime(path, (T0, T0))
         for patcher in (
@@ -335,11 +339,8 @@ class FigureContractSnapshot(SnapshotBase):
     def pick_and_pin_latex_lines(self):
         """The last three requests: a drag on the LaTeX document beside the figure, the pin saved from it, and the list
         that pin is on - the `boxes` of a traced pick's default rung and of a stored line pin, the one shape both
-        answer (docs/adr/0045-pin-marks-follow-the-range.md). The record of the lines that build read is written here
-        and not in the set-up, because a stored pin gets no mark from a build that kept none and the steps above must
-        stay byte for byte as they were."""
-        record = built_source.encode({"main.tex": built_source.text_lines(self.main.read_bytes())})
-        (self.ms.dir / BUILD1 / built_source.SOURCE_NAME).write_text(record, encoding="utf-8")
+        answer (docs/adr/0045-pin-marks-follow-the-range.md). The record of the lines the build read is written in
+        the set-up, because every answer that carries a mark - a snippet's rungs as much as a stored pin - needs it."""
         named = str(self.ms.build / "main.tex")  # the name SyncTeX gives the file inside the build copy
         drag = {"doc": "ms", "page": 1, "x0": 60.0, "y0": 95.0, "x1": 360.0, "y1": 180.0}
         # The region's printed text stands in as the table cell's own words, so the pick is weighed and scored the way
