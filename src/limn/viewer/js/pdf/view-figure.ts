@@ -136,7 +136,7 @@ function elementKind(element: PinElement) {
 // `frac` too (a mark drawn without the current map then sits where the person saw the snapped box), and the element's
 // kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines set by
 // hand in the excerpt keep the kind the body already has.
-function figureFields(body, element: PinElement | null | undefined, rung: Rung | null) {
+function figureFields(body: Record<string, unknown>, element: PinElement | null | undefined, rung: Rung | null) {
   if (!element) return body;
   body.el = elementForSave(element);
   if (isFrac(element.frac)) body.frac = element.frac.slice();

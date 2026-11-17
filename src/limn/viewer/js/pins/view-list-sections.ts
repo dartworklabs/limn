@@ -62,7 +62,7 @@ const SECTION_NAME_ID = { open: 'list-h', review: 'review-h', done: 'done-h' };
 // ids = the pins this section lists now; all = the section's pins across every document. While expanded, everything is
 // marked seen (all, so switching documents never reads as arrivals); SECTION_SEEN starts from the first load, so
 // nothing is 'new' at boot.
-function drawSectionHead(key: keyof typeof SECTION_OPEN, name: string, ids: number[], all: number[]) {
+function drawSectionHead(key: keyof typeof SECTION_SEEN, name: string, ids: number[], all: number[]) {
   const toggle = document.getElementById(key + '-toggle');
   if (!toggle) return;
   const open = !!SECTION_OPEN[key],

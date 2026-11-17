@@ -2,7 +2,7 @@
 // What a ladder's rung applies to: the composer's selection or an edit card.
 interface LevelOwner {
   levels?: Rung[];
-  score?: unknown;
+  score?: number | null;
   lo?: number;
   hi?: number;
   scope?: string | null;
