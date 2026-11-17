@@ -327,7 +327,7 @@ const KATEX_VERSION = '__KATEX_VERSION__';
 // TEX_RENDERER: the vendored KaTeX module once the page has it (lib) and how far the one load got (state) - 'none'
 // before it is asked for, 'ready' with both the module and its stylesheet in, 'off' when either did not come. 'off' is
 // final: the math of every document then stays as its source characters (ADR-0036 D2), and nothing is asked for twice.
-const TEX_RENDERER = { state: 'none' as 'none' | 'ready' | 'off', lib: null as any };
+const TEX_RENDERER: { state: 'none' | 'ready' | 'off'; lib: KatexLibrary | null } = { state: 'none', lib: null };
 // The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
 const TEX_CLOSE: Record<string, string> = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' };
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
@@ -343,21 +343,31 @@ function hasMath(tokens: any[]) {
 // it, never the parse worker - that one returns tokens and touches no DOM, architecture.md 불변식 9) and its
 // stylesheet, both with the bundle's version, so a cached copy never needs revalidating. Unstyled KaTeX markup is
 // unreadable, so a stylesheet that does not arrive counts as no renderer.
-async function loadTexRenderer(): Promise<any> {
+async function loadTexRenderer(): Promise<KatexLibrary | null> {
   if (TEX_RENDERER.state !== 'none') return TEX_RENDERER.lib;
   TEX_RENDERER.state = 'off';
-  let katexModule = null as any;
+  let katexModule: unknown = null;
   try {
     katexModule = await import('/vendor/katex/katex.mjs?v=' + KATEX_VERSION);
   } catch (error) {
     return null;
   }
-  const lib = katexModule && (katexModule.default || katexModule);
-  if (!lib || typeof lib.render !== 'function') return null;
+  const lib = texLibraryOf(katexModule);
+  if (!lib) return null;
   if (!(await loadTexStyle())) return null;
   TEX_RENDERER.lib = lib;
   TEX_RENDERER.state = 'ready';
   return lib;
+}
+// Whether a value is the KaTeX library the viewer draws with (types/katex.d.ts): an object with a render function. Pure.
+function isKatexLibrary(value: unknown): value is KatexLibrary {
+  return isRecord(value) && typeof value.render === 'function';
+}
+// The KaTeX library in what the import loaded: its default export, else the module itself - whichever is there - when
+// it is the library (isKatexLibrary); null for anything else, which is no renderer. Pure.
+function texLibraryOf(loaded: unknown): KatexLibrary | null {
+  const library = isRecord(loaded) && loaded.default ? loaded.default : loaded;
+  return isKatexLibrary(library) ? library : null;
 }
 // The stylesheet, added once; true once the browser has it. A link element pointing at this origin - never an inline
 // style element and never a style attribute, which the page policy admits neither of (viewer.md §페이지 정책).
@@ -435,9 +445,11 @@ function drawTexBox(
   display: boolean,
   context: RenderContext,
 ): HTMLElement | null {
+  const library = TEX_RENDERER.lib;
   if (
     context.tex === null ||
     TEX_RENDERER.state !== 'ready' ||
+    !library ||
     tex === null ||
     !tex.trim() ||
     tex.length > MARKDOWN_LIMITS.tex ||
@@ -446,7 +458,7 @@ function drawTexBox(
     return null;
   const box = document.createElement(tag);
   try {
-    TEX_RENDERER.lib.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
+    library.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
   } catch (error) {
     return null;
   }
