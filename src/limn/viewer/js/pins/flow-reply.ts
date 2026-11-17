@@ -124,7 +124,7 @@ function renderReplyOutcome() {
     mentioned = replyMentioned(field);
   let preview = pin && replyPreview(pin, isHuman(), mentioned, !!replyBox.flip);
   field.placeholder = replyPlaceholder(pin, isHuman(), !!replyBox.flip);
-  if (!preview) {
+  if (!preview || !pin) {
     box.hidden = true;
     replyBox.flip = false;
     replyBox.toggle = null;
@@ -140,7 +140,7 @@ function renderReplyOutcome() {
   findElement(box, '.r-out-t', Element).textContent = preview.text;
   box.classList.toggle(
     'reopen',
-    replyReopens(pin as Pin, isHuman(), mentioned, replyBox.flip ? preview.toggle === 'reopen' : undefined),
+    replyReopens(pin, isHuman(), mentioned, replyBox.flip ? preview.toggle === 'reopen' : undefined),
   );
   const flipButton = findElement(box, '[data-act=reply-flip]', HTMLElement),
     keep = preview.toggle === 'keep';
@@ -164,11 +164,12 @@ function openReply(id: number) {
   if (REPLY) closeReply(false);
   const pin = findAnyPin(id);
   REPLY_VISITS.set(id, (REPLY_VISITS.get(id) || 0) + 1);
-  setReply({ id, flip: false, toggle: null, el: createReplyBox(pin) });
+  const replyBox: ReplyBox = { id, flip: false, toggle: null, el: createReplyBox(pin) };
+  setReply(replyBox);
   OPEN_CARDS.add(id);
   setSide(true);
   drawPins();
-  const field = replyNote(REPLY as ReplyBox),
+  const field = replyNote(replyBox),
     draft = REPLY_DRAFT.get('reply:' + id);
   field.value = draft ? draft.text : '';
   field._mentions = new Set(draft ? draft.mentions : []);
@@ -176,7 +177,7 @@ function openReply(id: number) {
   mentionPreview(field);
   renderReplyOutcome();
   field.focus();
-  (REPLY as ReplyBox).el.scrollIntoView({ block: 'nearest' });
+  replyBox.el.scrollIntoView({ block: 'nearest' });
 }
 /**
  * Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing.

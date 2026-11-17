@@ -312,6 +312,8 @@ interface Meta {
   // The server counts a build hold per holder (POST /api/hold holder); absent on an older Limn.
   hold_holder?: boolean;
   ev_seq: number;
+  // With a cursor (ev=<seq>): the events after it addressed to the identity asking (PinEvent).
+  events?: PinEvent[];
   n_open?: number;
   n_done?: number;
   n_review?: number;
@@ -319,6 +321,25 @@ interface Meta {
   verdicts_error?: string;
   docs?: DocEntry[];
   src_sig?: string;
+}
+
+// An event of the light poll addressed to the identity asking (GET /api/meta?light=1&ev=<seq>,
+// limn/collaboration/events.py make_event, EventLog.emit and events_since): its type is one of the notified ones, to
+// holds the logins it is for, doc_name is its document's name, kind_req the pin's request kind, msg the thread entry
+// it says, seq/at/ts its number and stamps.
+interface PinEvent {
+  seq: number;
+  type: 'mention' | 'review_requested' | 'replied' | 'reopened' | 'assigned' | 'dropped';
+  pin: number;
+  doc: string;
+  doc_name: string;
+  to: string[];
+  by: Person;
+  kind_req?: string;
+  msg?: number;
+  excerpt?: string;
+  at: string;
+  ts: number;
 }
 
 // A running render's count: page images written of the PDF's pages (GET /api/build `progress`).

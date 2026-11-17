@@ -14,6 +14,10 @@ is run over what its source actually produces - not over a sample written for th
   states and every order) and what this browser saw (setSeenDoc, setSeenPin) with their own writers, and reads each
   back with its guard (loadViews' isKeptView, readSectionsExpanded, listOrderOf, seenDoc, seenPin).
 
+- ``SaidEvents`` makes real events through the handler (a question pin tagging a colleague, and its author told of a
+  reply, a close for review, a reopen and a deletion) and reads each person's light poll with a cursor: every
+  event it answers is kept by saidEventsOf, the reader of an event message's earlier group data (pins/flow-notification.ts).
+
 ``StoredDrafts`` also holds isRefusal to the server's real pick bodies. The other guards on real data are held where
 their source is: isPdfLibrary and isKatexLibrary by test_vendor_pdfjs_types.py and test_vendor_katex_types.py on the
 vendored builds, isApiError by test_viewer_guards.py on what api() throws, and the offline store's guards by the
@@ -36,6 +40,7 @@ from limn.pins.location import (
 )
 
 from helpers import PKG, ROOT, Base, extract_js_fn, js_const, ps, run_node
+from helpers_access import ALICE, BOB, AccessBase
 
 VIEW_TS = PKG / "viewer" / "js" / "markdown" / "view.ts"
 # Every construct the viewer's markdown-it reads (md-parse.mjs mdParser: CommonMark, GFM tables and strikethrough, raw
@@ -534,3 +539,65 @@ class StoredViews(unittest.TestCase):
         self.assertEqual(got["orders"], [True] * len(got["orders"]))
         self.assertGreater(len(got["orders"]), 1)
         self.assertEqual(got["seen"], [True] * 4)
+
+
+class SaidEvents(AccessBase):
+    """The light poll's events, as the real handler answers them, are what an event message's group keeps: saidEventsOf
+    reads every one of them back from the group data notifyLine writes, and leaves out a value of another shape."""
+
+    def light_poll_events(self) -> list[dict]:
+        """Every event Alice's and Bob's light polls answer after real writes: Bob's question pin tags Alice, Alice
+        replies, closes it for review, reopens it and deletes it."""
+        self.set_people(
+            [
+                {"login": ALICE["Tailscale-User-Login"], "name": "Alice Kim", "role": "owner"},
+                {"login": BOB["Tailscale-User-Login"], "name": "Bob Park", "role": "editor"},
+            ]
+        )
+        line = {
+            "file": str(self.main),
+            "lo": 4,
+            "hi": 5,
+            "page": 1,
+            "note": "@Alice Kim 봐 주세요",
+            "kind_req": "question",
+        }
+        code, made = self.call("POST", "/api/pin", line, BOB)
+        self.assertEqual(code, 200, made)
+        for path, body, who in [
+            ("reply", {"text": "의견?"}, ALICE),
+            ("close", {"review": True}, ALICE),
+            ("reopen", {"reason": "다시 봐 주세요"}, ALICE),
+            ("drop", {}, ALICE),
+        ]:
+            code, done = self.call("POST", "/api/pins/%d/%s" % (made["id"], path), body, who)
+            self.assertEqual(code, 200, (path, done))
+        events = []
+        for who in (ALICE, BOB):
+            code, meta = self.call("GET", "/api/meta?light=1&ev=0", headers=who)
+            self.assertEqual(code, 200, meta)
+            events += meta["events"]
+        return events
+
+    def test_every_event_the_light_poll_answers_is_kept_and_another_shape_is_left_out(self):
+        """saidEventsOf({evs}) gives back every real event, of every type the flow makes; a group with an event of
+        another shape (no document name, a pin number as text, a type no server sends) keeps only the real ones."""
+        events = self.light_poll_events()
+        self.assertEqual(
+            sorted({e["type"] for e in events}), ["dropped", "mention", "reopened", "replied", "review_requested"]
+        )
+        odd = [{**events[0], "doc_name": None}, {**events[0], "pin": str(events[0]["pin"])}, {**events[0], "type": "x"}]
+        script = "\n".join(
+            [
+                extract_js_fn("isRecord"),
+                extract_js_fn("isSaidEvent"),
+                extract_js_fn("saidEventsOf"),
+                "const events = %s, odd = %s;" % (json.dumps(events), json.dumps(odd)),
+                "console.log(JSON.stringify([saidEventsOf({ evs: events }), saidEventsOf({ evs: [...odd, ...events] }),"
+                " saidEventsOf(null)]));",
+            ]
+        )
+        whole, mixed, none = json.loads(run_node(script))
+        self.assertEqual(whole, events)
+        self.assertEqual(mixed, events)
+        self.assertEqual(none, [])
