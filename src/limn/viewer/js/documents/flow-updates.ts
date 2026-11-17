@@ -705,12 +705,36 @@ function noteNewPins(rows: Pin[]) {
   if (fresh.length) announceNewPins(fresh);
   else if (![...GROUPS.keys()].some((key) => key.startsWith('new:'))) setSeenPin(UPDATE_STATE.top);
 }
+// A new pin as its document's new-pins message names it: its number, who, its verdict, its place and its note's start.
+interface NewPinRow {
+  id: number;
+  who: string;
+  verdict: string;
+  place: string;
+  note: string;
+}
+// The new pins a document's new-pins group held before this event (groupNote's merge is given them as unknown), as
+// announceNewPins writes them, or none. Pure.
+function newPinRowsOf(older: unknown): NewPinRow[] {
+  return isRecord(older) && Array.isArray(older.pins)
+    ? older.pins.filter(
+        (row: unknown): row is NewPinRow =>
+          isRecord(row) &&
+          typeof row.id === 'number' &&
+          typeof row.who === 'string' &&
+          typeof row.verdict === 'string' &&
+          typeof row.place === 'string' &&
+          typeof row.note === 'string',
+      )
+    : [];
+}
 function announceNewPins(pins: Pin[]) {
-  const by = new Map();
+  const by = new Map<string, Pin[]>();
   pins.forEach((pin) => {
-    const doc = pdoc(pin);
-    if (!by.has(doc)) by.set(doc, []);
-    by.get(doc).push(pin);
+    const doc = pdoc(pin),
+      listed = by.get(doc);
+    if (listed) listed.push(pin);
+    else by.set(doc, [pin]);
   });
   if (!pins.length) {
     setSeenPin(UPDATE_STATE.top || 0);
@@ -721,7 +745,7 @@ function announceNewPins(pins: Pin[]) {
       'new:' + doc,
       {
         doc: doc,
-        pins: list.map((pin: Pin) => ({
+        pins: list.map((pin): NewPinRow => ({
           id: pin.id,
           who: who(pin.author) || translate('누군가'),
           verdict: pin.verdict || '',
@@ -736,10 +760,13 @@ function announceNewPins(pins: Pin[]) {
         })),
       },
       newPinsView,
-      (older, newer) => ({
-        doc: older.doc,
-        pins: [...older.pins, ...newer.pins.filter((x: any) => !older.pins.some((y: any) => y.id === x.id))],
-      }),
+      (older, newer) => {
+        const was = newPinRowsOf(older);
+        return {
+          doc: isRecord(older) && typeof older.doc === 'string' ? older.doc : newer.doc,
+          pins: [...was, ...newer.pins.filter((x) => !was.some((y) => y.id === x.id))],
+        };
+      },
     ),
   );
 }

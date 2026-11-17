@@ -458,7 +458,7 @@ GROUP_FNS = [
     "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
     "foldedLess", "digestRetitle", "foldedGone", "digestDots", "reviewPins", "reviewNewsStale", "dropStaleReview",
     "noticeSeen", "endTopic", "gatheredGone", "gatheredDupe", "gatheredLess", "groupRedraw",
-    "dotHeld",
+    "dotHeld", "keepGroupData",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
 let NOW=0,QID=0; const Q=[];

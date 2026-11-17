@@ -176,7 +176,12 @@ async function notifyShow(event: PinEvent) {
 // review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
 function notifyLine(event: any) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
-    evs: [...older.evs.filter((x: any) => x.pin !== newer.evs[0].pin), ...newer.evs],
+    evs: [
+      ...(isRecord(older) && Array.isArray(older.evs) ? older.evs : []).filter(
+        (x: unknown) => !isRecord(x) || x.pin !== newer.evs[0].pin,
+      ),
+      ...newer.evs,
+    ],
   }));
 }
 function notifyLineView(group: { evs: any[] }) {

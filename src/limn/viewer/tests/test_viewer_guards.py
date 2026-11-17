@@ -455,6 +455,61 @@ class GuardRules(unittest.TestCase):
             },
         )
 
+    def test_a_groups_earlier_data_is_read_as_its_group_writes_it(self):
+        """A gathering group's merge is given the data it said before as unknown (platform/notices.ts GROUPS): each
+        group reads it as its own data - pins by number, moved lines, settled pins, dropped pins with their names, new
+        pin rows - and reads anything else as none, so the newer event is said alone."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("pinNumbersOf"),
+            extract_js_fn("linesMovedOf"),
+            extract_js_fn("settledPinsOf"),
+            extract_js_fn("droppedOf"),
+            extract_js_fn("newPinRowsOf"),
+            r"""
+            const row = {id: 4, who: 'alice', verdict: '', place: 'L3', note: 'x'};
+            console.log(JSON.stringify([
+              pinNumbersOf({ids: [1, '2', 3]}), pinNumbersOf({ids: 'x'}), pinNumbersOf(null),
+              linesMovedOf({moves: [{id: 1, delta: '+2'}, {id: 2, delta: 2}]}), linesMovedOf({}),
+              settledPinsOf({pins: [{id: 1, by: 'alice'}, {id: 2}]}), settledPinsOf([]),
+              droppedOf({ids: [1, 2], names: ['a', 'b']}), droppedOf({ids: [1, 2], names: ['a', 2]}), droppedOf(5),
+              newPinRowsOf({doc: 'ms', pins: [row, {...row, note: null}]}), newPinRowsOf({pins: null}),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [1, 3], [], [],
+                [{"id": 1, "delta": "+2"}], [],
+                [{"id": 1, "by": "alice"}], [],
+                {"ids": [1, 2], "names": ["a", "b"]}, {"ids": [], "names": []}, {"ids": [], "names": []},
+                [{"id": 4, "who": "alice", "verdict": "", "place": "L3", "note": "x"}], [],
+            ],
+        )  # fmt: skip
+
+    def test_a_groups_entry_says_and_leaves_out_the_data_it_keeps(self):
+        """keepGroupData (platform/notices.ts) closes a group's data over with its view and less: said() says the data
+        kept, less(keys) keeps and says what is left, or is null with nothing left - and leaves the data as it was."""
+        got = self.run_js(
+            extract_js_fn("keepGroupData"),
+            r"""
+            const view = (data) => ({msg: data.ids.join(','), kind: 'ok', act: null, o: {}});
+            const less = (data, keys) => {
+              const ids = data.ids.filter((id) => !keys.includes('k:' + id));
+              return ids.length ? {ids} : null;
+            };
+            const entry = {data: null, n: null, said: null, less: null};
+            keepGroupData(entry, {ids: [1, 2, 3]}, view, less);
+            const out = [entry.said().msg, entry.less(['k:2']).msg, entry.said().msg, entry.data];
+            out.push(entry.less(['k:1', 'k:3']), entry.said().msg);
+            keepGroupData(entry, {ids: [7]}, view, null);
+            out.push(entry.said().msg, entry.less);
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(got, ["1,2,3", "1,3", "1,3", {"ids": [1, 3]}, None, "1,3", "7", None])
+
     def test_a_table_entry_is_none_without_a_key_as_for_a_key_the_table_lacks(self):
         got = self.run_js(
             extract_js_fn("tableEntry"),
