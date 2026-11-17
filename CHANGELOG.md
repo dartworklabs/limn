@@ -25,8 +25,10 @@ record gains no field.
   `[{"page": p, "frac": [x, y, w, h]}, …]`, each `frac` page-relative to its own page. The key is **absent**, never
   an empty array, when nothing could be computed - that absence is the signal to fall back. `POST /api/pin`'s stored
   field whitelist is unchanged and a `boxes` a client sends is discarded. A figure pin keeps `mark`/`mark_page`/
-  `el_sync` and gains nothing; a region pin, a document with no pages, and a build that kept no record of the lines
-  it read answer no boxes.
+  `el_sync` and gains nothing, and a region pin and a document with no pages answer none. On a build that kept no
+  record of the lines it read - one made by an older Limn - the pin listing and the snippet answer no boxes, while a
+  pick still does: a pick holds SyncTeX's own answer for that build and that drag, so the build's numbers are known,
+  where a snippet request carries only today's file and line range.
 
 ### Changed
 
