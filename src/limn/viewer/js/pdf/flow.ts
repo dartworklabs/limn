@@ -57,7 +57,7 @@ function searchFold(text: string): { t: string; at: number[] } {
     for (let k = 0; k < clusterText.length; k++) {
       if (clusterText[k] === ' ' && folded[folded.length - 1] === ' ') continue;
       folded.push(clusterText[k]);
-      at.push(match.index as number);
+      at.push(match.index);
     }
   }
   at.push(text.length);
@@ -212,8 +212,8 @@ function searchBlocks(lines: SearchLine[]): number[] {
     const block = blockCount++,
       queue = [index];
     blockOf[index] = block;
-    while (queue.length) {
-      const currentBox = lines[queue.pop() as number].box;
+    for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+      const currentBox = lines[next].box;
       if (!currentBox) continue; // only a line with a box is ever in no block yet (-2), so queued
       lines.forEach((otherLine, otherIndex) => {
         const otherBox = otherLine.box;
@@ -339,16 +339,13 @@ function searchEdges(
       x = Math.max(box.x0, low[sideIndex]);
     left.set(key, Math.min(left.get(key) ?? x, x));
   });
+  // a line of side 0 or 1 in a crossed block has its block's edges and its side's left edge (both set above)
   return out.map((edges, index) => {
-    const sideIndex = side[index];
-    return sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])
+    const sideIndex = side[index],
+      edge = left.get(blockOf[index] + ':' + sideIndex);
+    return sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index]) || edge === undefined || !edges
       ? edges
-      : {
-          l: left.get(blockOf[index] + ':' + sideIndex) as number,
-          r: col[sideIndex],
-          col: sideIndex,
-          blk: edges as { l: number; r: number },
-        };
+      : { l: edge, r: col[sideIndex], col: sideIndex, blk: edges };
   });
 }
 // The break between a line and the next one, with their column edges (searchEdges): a SEARCH_BREAK mark. Pure.
@@ -438,7 +435,7 @@ function searchFind(
   if (!pattern) return out;
   let rowIndex = 0;
   for (const match of flow.t.matchAll(pattern)) {
-    const start = match.index as number,
+    const start = match.index,
       end = start + match[0].length,
       pieces: number[][] = [];
     while (rowIndex < flow.rows.length - 1 && flow.rows[rowIndex + 1].at <= start) rowIndex++;

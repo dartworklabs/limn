@@ -6,11 +6,10 @@ const $$ = (selector: string) => Array.from(document.querySelectorAll(selector))
 // Lucide icons (vendor/lucide/README.md), drawn by lucideIcon() in platform/markup.ts.
 const ICONS = __LUCIDE_JSON__;
 const esc = (text: unknown) =>
-  String(text == null ? '' : text).replace(
-    /[&<>"']/g,
-    (character) =>
-      (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[character],
-  );
+  String(text == null ? '' : text).replace(/[&<>"']/g, (character) => {
+    const escapes: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return escapes[character];
+  });
 // The element an event is aimed at, or null when its target is not an element (the window, the document): a handler
 // that looks for the controls around the target finds none there.
 function eventElement(event: Event) {

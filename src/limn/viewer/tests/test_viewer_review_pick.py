@@ -836,6 +836,7 @@ class ReviewPickOutcome(unittest.TestCase):
                 js_i18n(lang),
                 extract_js_fn("pinState"),
                 helpers_js.module_declaration(open_review_pick(), "CONFIRM_OUTCOME"),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("confirmOutcome"),
                 extract_js_fn("confirmsBanner"),
                 "console.log(JSON.stringify(%s));" % expr,

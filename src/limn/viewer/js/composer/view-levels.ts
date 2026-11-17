@@ -264,7 +264,7 @@ const VIA_HIDE = 90,
   VIA_SURE_SCORE = 75,
   VIA_SURE_FILL = 95;
 /** Whether a map pick that is under VIA_HIDE is surely the element the drag meant (see above). */
-function mapSure(pick: any, percent: number) {
+function mapSure(pick: ComposerSelection | Pin, percent: number) {
   return (
     pick.via === VIA.MAP &&
     pick.rival === false &&

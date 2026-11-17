@@ -341,7 +341,7 @@ function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
       let lastAt = out.length - 1;
       if (name === 'code.md-math')
         // a formula's pieces: one line end apart
-        while (lastAt >= 0 && typeof out[lastAt] === 'string' && !/\S/.test(out[lastAt] as string)) lastAt--;
+        for (let piece = out[lastAt]; typeof piece === 'string' && !/\S/.test(piece); piece = out[lastAt]) lastAt--;
       const last = out[lastAt];
       if (to !== null && typeof last === 'object' && last.t === name && last.to === to) {
         out.splice(lastAt, 1);
@@ -638,9 +638,9 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
   out.forEach((operation) => {
     if (operation.t !== 'del') return;
     const places = added.get(oldUnits[operation.a].key);
-    if (!places || !places.length) return;
-    const index = places.shift() as number,
-      to = out[index];
+    const index = places && places.shift();
+    if (index === undefined) return;
+    const to = out[index];
     operation.t = 'from';
     operation.b = to.b;
     to.t = 'to';
@@ -663,7 +663,7 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
 // for each) but for the ops it marks.
 function markRegroups(oldUnits: CompareUnit[], newUnits: CompareUnit[], ops: CompareStep[]) {
   const kept = ops.filter((operation) => operation.t === 'eq' || operation.t === 'mod'),
-    memo = new Map() as Map<CompareUnit, { g: unknown; t: string }[]>;
+    memo = new Map<CompareUnit, { g: unknown; t: string }[]>();
   // a unit's quote and list boxes, outermost first: each box (by identity) and its kind (a numbered list's start aside)
   const own = (unit: CompareUnit) => {
     let boxes = memo.get(unit);
@@ -767,7 +767,7 @@ function unitWords(unit: HTMLElement): CompareWord[] {
         const text = String(child.nodeValue || '');
         let at = 0;
         for (const match of text.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)) {
-          const start = match.index as number;
+          const start = match.index;
           if (/\s/.test(text.slice(at, start))) spaced = true;
           out.push({
             node: child,

@@ -14,7 +14,7 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api, isApiError } from '../platform/api.ts';
-import { isRecord } from '../platform/tables.ts';
+import { isRecord, tableEntry } from '../platform/tables.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
 import { canConfirmReview, confirmAccessText } from '../documents/view-meta.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
@@ -450,7 +450,7 @@ async function loadRevisions() {
     return;
   }
   if (seq !== REVISION_VIEW.seq || docKey !== DOC) return;
-  const rows = (data.available ? data.revisions : []) as RevisionRow[],
+  const rows: RevisionRow[] = data.available ? data.revisions : [],
     kept = REVISION_VIEW.range;
   REVISION_VIEW.rows = rows;
   REVISION_VIEW.rowsDoc = docKey || '';
@@ -843,8 +843,8 @@ function openSeen(seen: RevSeen | null, rows: RevisionRow[]) {
 // says the commit is not in this document's history (or shares none with it) is a record the history no longer has;
 // base_too_old is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure
 // leaves the record unread, and so kept.
-/** @param answer the /api/revision-diff answer with base */
-function seenAnswered(answer: any) {
+// answer is the /api/revision-diff answer with base.
+function seenAnswered(answer: RevisionDiff) {
   REVISION_VIEW.seenState = SEEN_STATE.OK;
   REVISION_VIEW.seenN = Number(answer.commits) || 0;
   REVISION_VIEW.seenIds = new Set(answer.commit_ids || []);
@@ -1286,12 +1286,15 @@ function drawPinGuide(message?: string) {
     return;
   }
   const via =
-    {
-      sha: translateTemplate('참조의 커밋 {tok}', { tok: target.tokOf || '' }),
-      pr: translate('참조의 PR'),
-      lines: translate('이 줄을 바꾼 가장 최근 커밋'),
-      latest: translate('참조로 커밋을 찾지 못해 가장 최근 커밋'),
-    }[target.via as string] || '';
+    tableEntry(
+      {
+        sha: translateTemplate('참조의 커밋 {tok}', { tok: target.tokOf || '' }),
+        pr: translate('참조의 PR'),
+        lines: translate('이 줄을 바꾼 가장 최근 커밋'),
+        latest: translate('참조로 커밋을 찾지 못해 가장 최근 커밋'),
+      },
+      target.via,
+    ) || '';
   const where = target.region
     ? translateTemplate('쪽 {page} 영역', { page: target.page })
     : target.name + ' ' + lineRange(target.lo, target.hi);

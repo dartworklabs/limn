@@ -140,7 +140,7 @@ function drawMeta() {
         .replace('T', ' ');
   $('#meta-built').textContent = built;
   $('#meta-built-w').hidden = !built; // a Markdown document is never built
-  const me = META.me || ({} as Me);
+  const me = META.me;
   setHtml($('#me'), html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip = translateTemplate(
     '지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',

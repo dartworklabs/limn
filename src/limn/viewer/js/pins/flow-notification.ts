@@ -28,18 +28,6 @@ import { LOCAL_LOGIN, NOTIFY_STATE, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { who } from '../app/state-people.ts';
 import { docInfo, withDocQuery, isViewer } from '../documents/state.ts';
-// An event of the light poll that is addressed to me (limn/collaboration/events.py events_since): its type is one of the
-// notified ones, doc_name is its document's name, and to holds the logins it is for.
-interface PinEvent {
-  seq: number;
-  type: (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
-  pin: number;
-  doc?: string;
-  doc_name?: string;
-  to?: string[];
-  by?: Person;
-  excerpt?: string;
-}
 // What notifyHandle reads of a light poll's answer: the latest event number, and with a cursor the events after it.
 interface PinEventsMeta {
   ev_seq?: number;
@@ -105,7 +93,7 @@ function pickNotifications(events: PinEvent[] | null | undefined, me: Me | null 
   });
   return Array.from(by.values()).sort((earlier, later) => earlier.seq - later.seq);
 }
-function notifyText(event: PinEvent) {
+function notifyText(event: SaidEvent) {
   const name = who(event.by) || translate('누군가'),
     excerpt = String(event.excerpt || '')
       .split('\n')[0]
@@ -172,17 +160,37 @@ async function notifyShow(event: PinEvent) {
 // an agent closing twelve of my pins one by one is one message that grows. One pin says what its notification says,
 // with [열기] (a deleted one [되살리기], a viewer's [열기]); more say how many, their numbers and who, with [보기] for
 // review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
-function notifyLine(event: any) {
+function notifyLine(event: SaidEvent) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
-    evs: [
-      ...(isRecord(older) && Array.isArray(older.evs) ? older.evs : []).filter(
-        (x: unknown) => !isRecord(x) || x.pin !== newer.evs[0].pin,
-      ),
-      ...newer.evs,
-    ],
+    evs: [...saidEventsOf(older).filter((x) => x.pin !== newer.evs[0].pin), ...newer.evs],
   }));
 }
-function notifyLineView(group: { evs: any[] }) {
+// What an event's message says of it (notifyText, notifyLineView): its type, pin, document and its name, who and the
+// excerpt.
+type SaidEvent = Pick<PinEvent, 'type' | 'pin' | 'doc' | 'doc_name' | 'by' | 'excerpt'>;
+// The events an event message's group held before this one (groupNote's merge is given it as unknown): its events, as
+// notifyLine writes them, or none. Pure.
+function saidEventsOf(older: unknown): SaidEvent[] {
+  return isRecord(older) && Array.isArray(older.evs) ? older.evs.filter(isSaidEvent) : [];
+}
+// Whether a value holds what a message says of an event (SaidEvent), with the types every released server writes
+// (make_event, events_since). Pure.
+function isSaidEvent(value: unknown): value is SaidEvent {
+  if (!isRecord(value)) return false;
+  const { by } = value;
+  return (
+    Object.values(EVENT_TYPE).some((type) => type === value.type) &&
+    typeof value.pin === 'number' &&
+    typeof value.doc === 'string' &&
+    typeof value.doc_name === 'string' &&
+    isRecord(by) &&
+    typeof by.login === 'string' &&
+    ['undefined', 'string'].includes(typeof by.name) &&
+    ['undefined', 'string'].includes(typeof by.pic) &&
+    ['undefined', 'string'].includes(typeof value.excerpt)
+  );
+}
+function notifyLineView(group: { evs: SaidEvent[] }) {
   const events = group.evs,
     latest = events[events.length - 1],
     count = events.length,
@@ -199,16 +207,14 @@ function notifyLineView(group: { evs: any[] }) {
       ? { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview }
       : { label: '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(latest.doc, latest.pin) };
   const many =
-    (
-      {
-        mention: '나를 부른 핀 {n}개',
-        review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
-        replied: '답글이 달린 핀 {n}개',
-        reopened: '핀 {n}개 다시 열림',
-        assigned: '나에게 맡긴 핀 {n}개',
-        dropped: '핀 {n}개가 삭제됨',
-      } as Record<string, string>
-    )[latest.type] || '소식 {n}개';
+    {
+      mention: '나를 부른 핀 {n}개',
+      review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
+      replied: '답글이 달린 핀 {n}개',
+      reopened: '핀 {n}개 다시 열림',
+      assigned: '나에게 맡긴 핀 {n}개',
+      dropped: '핀 {n}개가 삭제됨',
+    }[latest.type] || '소식 {n}개';
   const ids =
       events
         .slice(0, 3)

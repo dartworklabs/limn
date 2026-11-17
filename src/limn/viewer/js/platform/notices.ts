@@ -311,7 +311,9 @@ function lineCap() {
     const rest = kept.filter((notice) => notice !== LINE[0]),
       oldest = (notices: Notice[]) =>
         notices.reduce((found: Notice | null, x) => (!found || x.at <= found.at ? x : found), null);
-    endNotice((oldest(rest.filter((notice) => !notice.alert)) || oldest(rest)) as Notice, false);
+    const gone = oldest(rest.filter((notice) => !notice.alert)) || oldest(rest);
+    if (!gone) return; // more than LINE_MAX kept leaves one besides the newest
+    endNotice(gone, false);
   }
 }
 // Whether a message offers an undo: made as one (undoNote, a discarded selection) or holding a deferred send (gone).
@@ -404,9 +406,12 @@ function undoNote(place: string, message: string, act: NoticeAct, options: Parti
       secOpen: !options.sec || !!SECTION_OPEN[options.sec],
       trashOpen: $('#trash').open,
     })
-  )
-    // no keys: never suppressed
-    return lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true }) as Notice;
+  ) {
+    // an undo is never gathered (digestHold) and, with no keys, never held back as news (newsDupe)
+    const lined = lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true });
+    if (!lined) throw new Error('an undo on the status line was not said');
+    return lined;
+  }
   const notice = makeNotice({
     ...options,
     life,

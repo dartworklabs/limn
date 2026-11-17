@@ -91,7 +91,7 @@ for (const [eventName, on] of [
   ['focus', true],
   ['mouseleave', false],
   ['blur', false],
-] as [string, boolean][])
+] as const)
   $('#c-path').addEventListener(eventName, () => highlightElementBox(on));
 function showElementBox() {
   const box = COMPOSE.box;
@@ -162,7 +162,7 @@ function repickElement(candidate: ComposerSelection) {
   return (level && level.el) || candidate.el || null;
 }
 // Whether the server found this figure pin's element in the current build: the read-time `mark` box on `mark_page`.
-function hasMark(pin: Pin) {
+function hasMark(pin: Pin): pin is Pin & { mark: number[]; mark_page: number } {
   return isFrac(pin.mark) && typeof pin.mark_page === 'number' && Number.isInteger(pin.mark_page) && pin.mark_page >= 1;
 }
 // Where a pin's mark goes (docs/handbook/viewer.md §상태 표현): its element's box in the current build when the server
@@ -170,7 +170,7 @@ function hasMark(pin: Pin) {
 // was lost or whose map is unreadable. The box can be null (a stored box that is not finite reads null as a whole): the
 // caller draws nothing for it.
 function pinPlace(pin: Pin) {
-  return hasMark(pin) ? { page: pin.mark_page as number, frac: pin.mark } : { page: pin.page, frac: pin.frac };
+  return hasMark(pin) ? { page: pin.mark_page, frac: pin.mark } : { page: pin.page, frac: pin.frac };
 }
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
 function isElementLost(pin: Pin) {

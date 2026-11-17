@@ -192,7 +192,7 @@ function mergeOutlineLabels(entries: OutlineEntry[], labels: OutlineLabel[]) {
   let cursor = 0;
   return entries.map((entry) => {
     const title = normalize(entry.title);
-    let matched = null as any;
+    let matched: OutlineLabel | null = null;
     if (title)
       for (let i = cursor; i < labels.length; i++) {
         const label = labels[i];

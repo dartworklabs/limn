@@ -84,7 +84,7 @@ function relBadge(rel: PinRelation[] | undefined, pin: Pin) {
   if (insides.length) {
     const span = (entry: PinRelation) => {
       const other = byId.get(entry.id);
-      return other ? (other.hi as number) - (other.lo as number) : Number.MAX_SAFE_INTEGER;
+      return other && other.lo !== undefined && other.hi !== undefined ? other.hi - other.lo : Number.MAX_SAFE_INTEGER;
     }; // rel names line pins
     const best = insides.reduce((best, candidate) => {
       const bestSpan = span(best),
@@ -127,11 +127,14 @@ function claimInfo(pin: Pin, now?: number) {
   now = now == null ? Date.now() : now;
   const claimer = who(pin.claimed_by) || '?',
     startMs = typeof pin.claim_ts === 'number' ? pin.claim_ts * 1000 : null;
-  const tail =
-    ' · ' +
-    translateTemplate('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
-      time: clockTime((pin.claim_until as number) * 1000),
-    }); // claimInfo runs for an active claim (claimActive)
+  const until = pin.claim_until,
+    tail =
+      until === undefined
+        ? ''
+        : ' · ' +
+          translateTemplate('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
+            time: clockTime(until * 1000),
+          }); // claimInfo runs for an active claim (claimActive), which has its end
   const head =
     translateTemplate('처리하는 쪽: {name}', { name: claimer }) +
     (startMs ? ' · ' + translateTemplate('시작 {time}', { time: clockTime(startMs) }) : '');
@@ -306,7 +309,7 @@ function threadOf(pin: Pin) {
 function replyCount(pin: Pin) {
   return threadOf(pin).filter((entry) => !entry.ev).length;
 }
-function entryText(entry: ThreadEntry) {
+function entryText(entry: Pick<ThreadEntry, 'text' | 'mentions'>) {
   return fmtText(entry.text, entry.mentions);
 }
 function mentionTokensOf(logins: readonly string[] | undefined) {
@@ -434,7 +437,7 @@ function cardQuote(pin: Pin): Html | null {
 const MESSAGE_OPEN = new Set<string>();
 // A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key
 // ('id:index') keeps it open across redraws (MESSAGE_OPEN), and without a key it is drawn whole with no button.
-function messageBody(entry: ThreadEntry, key: string) {
+function messageBody(entry: Pick<ThreadEntry, 'text' | 'mentions'>, key: string) {
   const long = String(entry.text || '').length > 280 || String(entry.text || '').split('\n').length > 6,
     open = !key || MESSAGE_OPEN.has(key);
   const more =

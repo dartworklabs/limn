@@ -78,7 +78,7 @@ async function appendToPin(id: number, text: string) {
   // The hints go along, as on a new pin and an edit: the pin's own first (its note's tags), then the ones picked for
   // this text - without them a name two people share would tag nobody, while the preview line names whom it tells.
   const hints = [...new Set((prior.mentions || []).concat(mentionHints($('#note'))))],
-    body = { note_append: text, base_rev: prior.rev || 0 } as Record<string, unknown>;
+    body: Record<string, unknown> = { note_append: text, base_rev: prior.rev || 0 };
   if (hints.length) body.mentions = hints;
   try {
     const { status, data } = await api('POST /api/pins/{id}/edit', {
@@ -239,7 +239,7 @@ async function savePin(verdict?: string) {
     !SUGGEST_DRAFT.on
   )
     verdict = retry.key;
-  let body = {
+  let body: Record<string, unknown> = {
     file: selection.file,
     name: selection.name,
     page: selection.page,
@@ -255,7 +255,7 @@ async function savePin(verdict?: string) {
     note: note,
     quote: selection.quote,
     pdf_build: selection.pdf_build || undefined,
-  } as Record<string, unknown>;
+  };
   if (selection.scope) {
     body.scope = wireScope(selection.scope);
     body.kind = kindFor(selection.scope, selection.env);
@@ -338,8 +338,9 @@ async function savePin(verdict?: string) {
   // A plain pin - no verdict, no suggested edit - is one the queue can keep. It goes with a key where the server knows
   // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
   // of failing here (below).
-  const plain = !verdict && !suggestion;
-  if (plain && composerQueue().keyed()) body.idem = composerQueue().key();
+  const plain = !verdict && !suggestion,
+    idem = plain && composerQueue().keyed() ? composerQueue().key() : undefined;
+  if (idem !== undefined) body.idem = idem;
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
@@ -399,7 +400,7 @@ async function savePin(verdict?: string) {
           plain &&
           error instanceof Error &&
           error.name === 'AbortError' &&
-          (await composerQueue().save(selection, note, out, hints, { idem: body.idem as string | undefined, top }))
+          (await composerQueue().save(selection, note, out, hints, { idem, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
           if (failed && failed.save) endNotice(failed, false);
