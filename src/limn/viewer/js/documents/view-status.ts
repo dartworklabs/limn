@@ -16,7 +16,7 @@ import { SYNC_REASON } from './view-meta.ts';
 import { POLL_FAILS } from './flow-polling.ts';
 import { BUILD, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
-import { NOTICE_KIND } from '../platform/tables.ts';
+import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
 import { isViewer, STATUS_SYNC } from './state.ts';
@@ -70,12 +70,13 @@ type StatusItem =
   | { kind: 'stale'; act: string | null }
   | { kind: 'sync'; state: string; act: null }
   | { kind: 'png'; act: null };
-function statusList(input) {
+function statusList(input: ReturnType<typeof statusInput>) {
   const out: StatusItem[] = [],
     build = input.build,
     running = !!build && build.state === BUILD_STATE.RUNNING,
     buildError = input.buildErr,
-    syncState = input.sync && input.sync.state;
+    sync = input.sync,
+    syncState = sync && sync.state;
   const notes = input.notices || [],
     alert = (notice: Notice) => !!notice.alert || notice.kind === NOTICE_KIND.ERR;
   notes
@@ -99,7 +100,7 @@ function statusList(input) {
     .forEach((notice: Notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
   if (running)
     out.push({
-      kind: { render: STATUS_KIND.RENDERING }[build.phase] || STATUS_KIND.BUILDING,
+      kind: tableEntry({ render: STATUS_KIND.RENDERING }, build.phase) || STATUS_KIND.BUILDING,
       phase: build.phase || '',
       el: Math.round(build.elapsed_s || 0),
       last: build.last_s ? Math.round(build.last_s) : 0,
@@ -107,7 +108,7 @@ function statusList(input) {
       act: null,
     });
   if (syncState === SYNC_STATE.BLOCKED || syncState === SYNC_STATE.ERROR)
-    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: input.sync.reason || '', act: 'status-why' });
+    out.push({ kind: STATUS_KIND.SYNC_BLOCKED, reason: (sync && sync.reason) || '', act: 'status-why' });
   if (input.unchanged && !running)
     out.push({
       kind: STATUS_KIND.UNCHANGED,

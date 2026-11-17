@@ -36,7 +36,13 @@ const NOTICE_DOT = Object.freeze({ SIDE: 'side', RV: 'rv' });
 const NOTICE_TOPIC = Object.freeze({ PICK: 'pick', SIDE: 'side', OFFLINE: 'offline' });
 // the pin list's order (orderPins); index.html data-order
 const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' });
+// The entry for key in a table keyed by a field the server may leave out or send as null; none without a key, as for a
+// key the table does not name, so the caller's fallback stands for both.
+function tableEntry<Value>(table: Readonly<Record<string, Value>>, key: string | null | undefined): Value | undefined {
+  return key == null ? undefined : table[key];
+}
 export {
+  tableEntry,
   EVENT_TYPE,
   UI_LANG,
   NOTICE_KIND,

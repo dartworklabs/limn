@@ -16,7 +16,7 @@ import { lineNote } from '../platform/notices.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { buildUnchanged } from './view-status.ts';
 import { hideBuildErr, refreshDoc, showBuildErr } from './flow-rebuild.ts';
-import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { NOTICE_KIND, NOTICE_LIFE, tableEntry } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, PULL_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
@@ -52,11 +52,12 @@ function resetBuildForDoc() {
   if (BUILD.inflight) BUILD.inflight.then(() => pollBuild());
   else pollBuild();
 }
-function buildChipText(build) {
+function buildChipText(build: BuildStatus) {
   const label =
-    { pull: '원격 main 당겨오는 중', copy: '원고 복사 중', latex: 'LaTeX 컴파일 중', render: '쪽 그리는 중' }[
-      build.phase
-    ] || '재빌드 중';
+    tableEntry(
+      { pull: '원격 main 당겨오는 중', copy: '원고 복사 중', latex: 'LaTeX 컴파일 중', render: '쪽 그리는 중' },
+      build.phase,
+    ) || '재빌드 중';
   const elapsed = Math.round(build.elapsed_s || 0),
     last = build.last_s ? ' ' + translateTemplate('(지난번 {s}초)', { s: Math.round(build.last_s) }) : '';
   return translate(label) + ' · ' + translateTemplate('{s}초', { s: elapsed }) + last;
