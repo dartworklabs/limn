@@ -21,7 +21,7 @@ import { multiDoc } from '../documents/view-tabs.ts';
 // Classifies one server snapshot without reading viewer state or changing the page. Legacy pins with no doc belong to
 // defaultDoc. confirming (optional) holds the ids whose [확인] waits for its undo (CONFIRMING): they stay out of the
 // review list.
-function derivePinLists(rows: Pin[], doc, defaultDoc, confirming) {
+function derivePinLists(rows: Pin[], doc: string | null, defaultDoc: string, confirming: Set<number>) {
   const openAll: Pin[] = [],
     reviewAll: Pin[] = [],
     doneAll: Pin[] = [],
@@ -62,7 +62,7 @@ const SECTION_NAME_ID = { open: 'list-h', review: 'review-h', done: 'done-h' };
 // ids = the pins this section lists now; all = the section's pins across every document. While expanded, everything is
 // marked seen (all, so switching documents never reads as arrivals); SECTION_SEEN starts from the first load, so
 // nothing is 'new' at boot.
-function drawSectionHead(key, name, ids, all) {
+function drawSectionHead(key: keyof typeof SECTION_OPEN, name: string, ids: number[], all: number[]) {
   const toggle = document.getElementById(key + '-toggle');
   if (!toggle) return;
   const open = !!SECTION_OPEN[key],

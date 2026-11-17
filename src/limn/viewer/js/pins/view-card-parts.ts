@@ -57,10 +57,10 @@ function authorTip(pin: Pin) {
       translateTemplate('수정: {name} · {at}', { name: who(pin.edited_by) || translate('기록 전'), at: pin.edited_at });
   return tip;
 }
-function josaToward(number) {
+function josaToward(number: number) {
   return '036'.includes(String(number).slice(-1)) ? '으로' : '로';
 }
-function relBadge(rel, pin) {
+function relBadge(rel: PinRelation[] | undefined, pin: Pin) {
   if (!rel || !rel.length) return null;
   const byId = new Map(PINS.map((listed) => [listed.id, listed]));
   if (pin) {
@@ -82,7 +82,7 @@ function relBadge(rel, pin) {
   }
   const insides = rel.filter((entry) => entry.rel === RANGE_REL.INSIDE);
   if (insides.length) {
-    const span = (entry) => {
+    const span = (entry: PinRelation) => {
       const other = byId.get(entry.id);
       return other ? (other.hi as number) - (other.lo as number) : Number.MAX_SAFE_INTEGER;
     }; // rel names line pins
@@ -116,10 +116,10 @@ function claimActive(pin: Pin) {
 // shows '처리 중 · 20:02부터 (23분째)'. The lock's auto-expiry (claim_until) would read as the estimated completion, so
 // it is never shown on screen - only in the description. The time is the viewing device's local time. now is injected
 // by tests.
-function ceil5(minutes) {
+function ceil5(minutes: number) {
   return Math.max(5, Math.ceil(minutes / 5 - 1e-9) * 5);
 }
-function clockTime(ms) {
+function clockTime(ms: number) {
   const date = new Date(ms);
   return String(date.getHours()).padStart(2, '0') + ':' + String(date.getMinutes()).padStart(2, '0');
 }
@@ -284,7 +284,7 @@ function cardMetadata(pin: Pin, statusLabel: string, pressable: boolean): Html {
 // Status dot (docs/handbook/viewer.md §상태 표현): color + a readable name (aria-label/description). A badge states the
 // same meaning in text once more.
 const CARD_STATE_NAME = { open: '열림', claimed: '처리 중', review: '검토 대기', lost: '위치 잃음' };
-function stateDot(state) {
+function stateDot(state: keyof typeof CARD_STATE_NAME) {
   const label = translateTemplate('상태: {name}', { name: translate(CARD_STATE_NAME[state]) });
   return html`<span class="st-dot${state === CARD_DOT.OPEN ? '' : ' ' + state}" role="img" aria-label="${label}" data-tip="${label}"></span>`;
 }
@@ -309,7 +309,7 @@ function replyCount(pin: Pin) {
 function entryText(entry: ThreadEntry) {
   return fmtText(entry.text, entry.mentions);
 }
-function mentionTokensOf(logins) {
+function mentionTokensOf(logins: readonly string[] | undefined) {
   const out: { t: string; lg: string; k: number }[] = [];
   (logins || []).forEach((login) => {
     const known = PEOPLE.find((person) => person.login === login),
@@ -321,12 +321,12 @@ function mentionTokensOf(logins) {
   });
   return out.sort((left, right) => right.t.length - left.t.length || left.k - right.k);
 } // for a tie in text length, full name > login > first word
-function escapeRegExp(text) {
+function escapeRegExp(text: string) {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 // text as Html with its resolved @-tags (logins) and existing #refs as tokens. A match the rules turn down is consumed
 // and stays text, and the text between two tags is searched for #refs only, so a name never holds a link.
-function fmtText(text, logins) {
+function fmtText(text: string | undefined, logins: readonly string[] | undefined) {
   const plain = String(text == null ? '' : text),
     tokens = mentionTokensOf(logins),
     me = meLogin(),
@@ -376,10 +376,10 @@ function pinRefs(text: string) {
   out.push(text.slice(at));
   return out;
 }
-function pinRefExists(id) {
+function pinRefExists(id: number) {
   return typeof findAnyPin === 'function' && !!findAnyPin(id);
 }
-function pinRefGone(id) {
+function pinRefGone(id: number) {
   return typeof DROPPED !== 'undefined' && Array.isArray(DROPPED) && DROPPED.some((pin) => pin.id === id);
 }
 // The [나를 부른 핀] filter (docs/handbook/viewer.md §@태그): uses the same material as the badge/pins.md's '→ @name'
@@ -415,10 +415,10 @@ function fyiTag(pin: Pin) {
 }
 // Is the reference (ref) a meaningful value? '-' is a placeholder some callers use for "no reference" - shown as-is
 // it would produce meaningless text like '닫음 · -'. An empty or whitespace-only value is filtered out the same way.
-function hasRef(value) {
+function hasRef(value: string | undefined) {
   return !!value && String(value).trim() !== '' && String(value).trim() !== '-';
 }
-const EVENT_LABEL = { close: '닫음', reopen: '다시 엶', confirm: '확인', assign: '담당 바꿈' };
+const EVENT_LABEL: Record<string, string> = { close: '닫음', reopen: '다시 엶', confirm: '확인', assign: '담당 바꿈' };
 // A card's quote line, right above its note: the composer's line for the pin's saved quote (shownQuote, quoteInner),
 // folded to one line with the whole text as its tooltip until it is pressed. null when the pin shows no quote.
 function cardQuote(pin: Pin): Html | null {
@@ -434,7 +434,7 @@ function cardQuote(pin: Pin): Html | null {
 const MESSAGE_OPEN = new Set();
 // A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key
 // ('id:index') keeps it open across redraws (MESSAGE_OPEN), and without a key it is drawn whole with no button.
-function messageBody(entry: ThreadEntry, key) {
+function messageBody(entry: ThreadEntry, key: string) {
   const long = String(entry.text || '').length > 280 || String(entry.text || '').split('\n').length > 6,
     open = !key || MESSAGE_OPEN.has(key);
   const more =
@@ -445,7 +445,7 @@ function messageBody(entry: ThreadEntry, key) {
 }
 // One entry of an archive row's thread: a post (avatar, author, time, text) or a state record (who, what, reference,
 // time, optional text).
-function messageHtml(entry: ThreadEntry, key) {
+function messageHtml(entry: ThreadEntry, key: string) {
   const by = entry.by || {},
     name = who(by) || '?',
     mine = isMe(by) ? html`<span class="me-tag"> ${translate('(나)')}</span>` : '';
@@ -491,7 +491,7 @@ function timelineEntry(entry: ThreadEntry, key: string): Html {
 // The thread of a pin as Html (empty without entries): the last 3 entries in wide, the last 1 elsewhere, unless
 // THREAD_OPEN holds the pin; the button that shows the rest or folds them, in a row the timeline passes (.th-row); and
 // the reply slot when the pin's reply box is open.
-function threadHtml(pin: Pin, wide) {
+function threadHtml(pin: Pin, wide: boolean) {
   const thread = threadOf(pin),
     keep = wide ? 3 : 1,
     all = THREAD_OPEN.has(pin.id),
