@@ -12,7 +12,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import { MENTION, mentionClose, mentionEdited, mentionPlace, renderAssignNew } from './input-mentions.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement } from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { isRegion } from '../documents/state.ts';
@@ -87,7 +87,7 @@ function drawSelectionPopover() {
     closeSelectionPopover();
     return;
   }
-  const loc = SELECTION_POPOVER.querySelector('.sp-loc');
+  const loc = findElement(SELECTION_POPOVER, '.sp-loc', HTMLElement);
   loc.textContent = !selection
     ? translate('찾는 중')
     : isRegion(selection)

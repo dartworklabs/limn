@@ -223,7 +223,8 @@ function applyRange(owner: RangeOwner | null, range: number[] | null, anchor: nu
   }
   excerptRedraw(owner);
   const rowAfter = row();
-  if (rowBefore && rowAfter) $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
+  if (rowBefore && rowAfter && topBefore !== null)
+    $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
   refetchSnip(owner, () => excerptRedraw(owner));
 }
 export { applyRange, drawExcerpt, dropLine, widenTo };
