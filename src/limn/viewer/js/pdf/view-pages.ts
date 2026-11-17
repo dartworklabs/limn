@@ -15,7 +15,7 @@ import { translateTemplate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
 import { placeChips } from '../platform/notices.ts';
 import { invalidateVectorDraws, observeVectorPages } from './view-draw.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, findAll } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { restoreAnchor, topAnchor } from '../layout/flow.ts';
@@ -278,7 +278,7 @@ function autoFitWidth() {
 // on every page of a document whose pages are all one size, wherever the column puts them (a manuscript keeps its
 // numbers in the corners).
 function pageNoSides() {
-  const pageBoxes = $$('#doc .pg');
+  const pageBoxes = findAll(document, '#doc .pg', HTMLElement);
   if (!pageBoxes.length || !pageBoxes[0].getClientRects().length) return;
   const widths = pageBoxes.map((pageBox) => pageBox.getBoundingClientRect().width),
     widest = Math.max(...widths);

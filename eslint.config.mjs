@@ -286,12 +286,12 @@ const CONFUSING_GLOBALS = [
 // A type argument on a DOM query (`querySelector<HTMLInputElement>(...)`, `closest<HTMLElement>(...)`) says what class
 // the element is without checking it - an assertion no other rule sees. The page's elements by id are declared from
 // index.html (types/page.d.ts, docs/adr/0045-viewer-page-elements.md); any other query gives Element | null, narrowed
-// with find, findMaybe or findAll (js/platform/dom.ts), which check the class.
+// with findElement, findMaybe or findAll (js/platform/dom.ts), which check the class.
 export const UNCHECKED_QUERIES = [
   {
     selector: 'CallExpression[typeArguments][callee.property.name=/^(querySelector|querySelectorAll|closest)$/]',
     message:
-      'A type argument on querySelector, querySelectorAll or closest asserts the element class unchecked: use find, findMaybe or findAll (js/platform/dom.ts), which check it.',
+      'A type argument on querySelector, querySelectorAll or closest asserts the element class unchecked: use findElement, findMaybe or findAll (js/platform/dom.ts), which check it.',
   },
 ];
 

@@ -10,7 +10,7 @@ there. These tests are what makes that true:
   page one with the tag index.html gives it (a module that draws a page element anew keeps its tag);
 - in the browser, every PageElements id is an element of its class after boot, on each kind of document, after a
   rebuild and after the two redraws that make a page element anew (#c-verdict-l, #queue-h);
-- find, findMaybe and findAll (js/platform/dom.ts) give an element only of the class asked for.
+- findElement, findMaybe and findAll (js/platform/dom.ts) give an element only of the class asked for.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_page_elements.py
 """
@@ -267,7 +267,7 @@ class PagePresence(BrowserBase):
 
 
 class Finding(BrowserBase):
-    """find, findMaybe and findAll on the real page: an element of the class asked for, or none."""
+    """findElement, findMaybe and findAll on the real page: an element of the class asked for, or none."""
 
     # What a call gives: the element it found ('same' when it is the one querySelector finds), null, or the message of
     # the Error it threw.
@@ -284,22 +284,22 @@ class Finding(BrowserBase):
         """What helper(document, selector, window[name]) gives on page (CALL)."""
         return page.evaluate(self.CALL, [helper, selector, name])
 
-    def test_find_gives_the_element_of_its_class_and_else_throws_naming_the_selector(self):
-        """The composer's location line is a div: find gives it as an HTMLElement or an HTMLDivElement; as an input it
+    def test_find_element_gives_the_element_of_its_class_and_else_throws_naming_the_selector(self):
+        """The composer's location line is a div: findElement gives it as an HTMLElement or an HTMLDivElement; as an input it
         throws saying what it is, and for no match it throws saying there is none."""
         page = self.open(0)
-        self.assertEqual(self.call(page, "find", "#composer .c-loc-row", "HTMLElement"), "same")
-        self.assertEqual(self.call(page, "find", "#composer .c-loc-row", "HTMLDivElement"), "same")
+        self.assertEqual(self.call(page, "findElement", "#composer .c-loc-row", "HTMLElement"), "same")
+        self.assertEqual(self.call(page, "findElement", "#composer .c-loc-row", "HTMLDivElement"), "same")
         self.assertEqual(
-            self.call(page, "find", "#composer .c-loc-row", "HTMLInputElement"),
+            self.call(page, "findElement", "#composer .c-loc-row", "HTMLInputElement"),
             "#composer .c-loc-row: a DIV, not a HTMLInputElement",
         )
         self.assertEqual(
-            self.call(page, "find", "#composer .no-such", "HTMLElement"), "#composer .no-such: no HTMLElement"
+            self.call(page, "findElement", "#composer .no-such", "HTMLElement"), "#composer .no-such: no HTMLElement"
         )
 
     def test_find_maybe_gives_null_for_no_match_and_for_another_class(self):
-        """findMaybe gives the element of its class, and null where find would throw."""
+        """findMaybe gives the element of its class, and null where findElement would throw."""
         page = self.open(0)
         self.assertEqual(self.call(page, "findMaybe", "#composer .c-loc-row", "HTMLElement"), "same")
         self.assertIsNone(self.call(page, "findMaybe", "#composer .c-loc-row", "HTMLInputElement"))

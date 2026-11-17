@@ -16,7 +16,7 @@ const esc = (text: unknown) =>
 function eventElement(event: Event) {
   return event.target instanceof Element ? event.target : null;
 }
-// A DOM class as instanceof takes it (HTMLElement, HTMLInputElement, ...): what find, findMaybe and findAll check the
+// A DOM class as instanceof takes it (HTMLElement, HTMLInputElement, ...): what findElement, findMaybe and findAll check the
 // elements they give against.
 interface ElementClass<Found extends Element> {
   new (): Found;
@@ -24,7 +24,7 @@ interface ElementClass<Found extends Element> {
 }
 // The first element under scope that matches selector, which the code needs there and of that class: none, or one of
 // another class, is a fault of the page, thrown as an Error that names the selector and the class.
-function find<Found extends Element>(scope: ParentNode, selector: string, type: ElementClass<Found>): Found {
+function findElement<Found extends Element>(scope: ParentNode, selector: string, type: ElementClass<Found>): Found {
   const found = scope.querySelector(selector);
   if (found instanceof type) return found;
   throw new Error(selector + ': ' + (found ? 'a ' + found.tagName + ', not a ' : 'no ') + type.name);
@@ -99,7 +99,7 @@ export {
   ICONS,
   esc,
   eventElement,
-  find,
+  findElement,
   findMaybe,
   findAll,
   typingNow,
