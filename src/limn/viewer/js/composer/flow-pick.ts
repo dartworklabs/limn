@@ -32,8 +32,8 @@ import { endTopic, lineNote } from '../platform/notices.ts';
 import { hideTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
 import { applySide, relayout, setSelectMode, setSide } from '../layout/flow.ts';
-import { revealBox } from '../pdf/input-selection.ts';
-import { drawLadder, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
+import { clearSelectionParts, revealBox } from '../pdf/input-selection.ts';
+import { drawLadder, followRange, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
 import { drawExcerpt } from './view-excerpt.ts';
 import { figureRegionBadge, renderElement } from '../pdf/view-figure.ts';
 import { lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
@@ -164,6 +164,7 @@ async function pick(region: PickDrag) {
     if (repick) {
       bannerRepick();
     } else {
+      clearSelectionParts();
       if (COMPOSE.box) {
         COMPOSE.box.remove();
         setComposeBox(null);
@@ -189,6 +190,7 @@ async function pick(region: PickDrag) {
         repick.box.remove();
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
+        clearSelectionParts();
         COMPOSE.box.remove();
         setComposeBox(null);
       }
@@ -383,6 +385,9 @@ function renderComposer() {
   const copy = selection.name + ' L' + selection.lo + '-L' + selection.hi;
   $('#c-loc').textContent = selection.name + ' ' + lineRange(selection.lo, selection.hi);
   $('#c-loc').dataset.copy = copy;
+  // The box over the lines being chosen, before renderElement: on a figure document the element's own box is what the
+  // pin will carry, and that draw is the one that stands.
+  followRange(selection, COMPOSE.box, renderComposer);
   renderElement(selection, COMPOSE.box);
   const pageTag = $('#c-page'),
     pageText = typeof selection.page === 'number' ? translateTemplate('{page}쪽', { page: selection.page }) : '',
@@ -518,6 +523,7 @@ function cancelSelection(clearNote: boolean) {
   setPickseq(PICKSEQ + 1);
   setComposePicking(false);
   clearPendingSave();
+  clearSelectionParts();
   if (COMPOSE.box) {
     COMPOSE.box.remove();
     setComposeBox(null);
@@ -579,6 +585,7 @@ function restoreSelection(snapshot: ReturnType<typeof selectionSnapshot>, focus?
     lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다', NOTICE_KIND.WARN);
     return true;
   }
+  clearSelectionParts();
   if (COMPOSE.box) COMPOSE.box.remove();
   setComposeBox(null);
   if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {

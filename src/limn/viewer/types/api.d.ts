@@ -392,6 +392,22 @@ interface Rung {
   boxes?: MarkPiece[];
 }
 
+// GET /api/snippet's answer: the manuscript file and the lines asked for, their numbered text and the file's line
+// count. With ?levels=1 the range ladder round those lines comes too, every rung carrying where its own lines print
+// (Rung.boxes); with ?text=1 the lines themselves, which a suggested edit takes as its base.
+interface SnippetAnswer {
+  file: string;
+  name: string;
+  lo: number;
+  hi: number;
+  n: number;
+  n_lines: number;
+  snippet: string;
+  levels?: Rung[];
+  default_level?: string;
+  text?: string;
+}
+
 // An open line pin a not-yet-saved range overlaps (POST /api/pick `overlaps`), and how.
 interface PickOverlap {
   id: number;

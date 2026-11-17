@@ -208,6 +208,7 @@ export {
   figureFields,
   hasMark,
   isFrac,
+  isPiece,
   pinPieces,
   pinPlace,
   renderElement,

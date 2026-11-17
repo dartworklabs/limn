@@ -222,6 +222,9 @@ class HandingTheSelection(unittest.TestCase):
     def test_a_drag_picks_its_region_then_opens_the_popover_unless_it_replaces_a_pin(self):
         got = run(
             self.SELECTION,
+            # the boxes drawn beside the selection's own, which a new drag takes off (pdf/input-selection.ts)
+            extract_js_fn("selectionParts"),
+            extract_js_fn("clearSelectionParts"),
             extract_js_fn("finishRect"),
             r"""
             const page={dataset:{page:'1'}}, box=()=>({id:'box',classList:{add(){}},remove(){}});

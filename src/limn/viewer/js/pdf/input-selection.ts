@@ -85,6 +85,73 @@ function drawBox(box: HTMLElement, startX: number, startY: number, x: number, y:
     height: Math.abs(y - startY) * 100 + '%',
   });
 }
+// A box of the composing selection other than its own. The lines a selection covers may print as several blocks, and
+// each is drawn as a box of its own on the page it stands on; the selection's own box (COMPOSE.box) is the first of
+// them, so everything that is the selection's one place - the note popover's anchor, the identity a click-off compares
+// - stays that box. The boxes beside it carry .sel-part, which is how they are found again and taken off.
+function newSelectionPart(pageElement: HTMLElement) {
+  const part = document.createElement('div');
+  part.className = 'sel pending sel-part';
+  pageElement.appendChild(part);
+  return part;
+}
+function selectionParts() {
+  return document.querySelectorAll('.sel-part');
+}
+function clearSelectionParts() {
+  selectionParts().forEach((part) => part.remove());
+}
+// Puts the composing selection on the pieces its chosen lines print as (docs/adr/0045-pin-marks-follow-the-range.md):
+// its own box on the first piece whose page is drawn, a box beside it for each piece after that, each appended to the
+// page its piece names. A piece on a page that is not drawn gets nothing.
+//
+// With no piece to draw, a box that stands on pieces goes back to the rectangle that was dragged, so a range the
+// server has no answer for never leaves the person looking at lines the pin will not carry; a box that never left the
+// drag is not touched at all, which is what a selection on a build with nothing to measure against draws.
+function snapSelectionBox(
+  box: HTMLElement | null,
+  pieces: MarkPiece[],
+  dragged: { page: number; frac: number[] } | null,
+) {
+  if (!box) return;
+  clearSelectionParts();
+  let drew = false;
+  for (const piece of pieces) {
+    const pageElement = document.getElementById('p' + piece.page);
+    if (!pageElement) continue;
+    if (!drew) boxOnPage(box, pageElement);
+    boxOnFrac(drew ? newSelectionPart(pageElement) : box, piece.frac);
+    drew = true;
+  }
+  if (drew) {
+    box.dataset.snap = '1';
+    pendingBadgeSide(box);
+    return;
+  }
+  if (!box.dataset.snap) return;
+  const pageElement = dragged && document.getElementById('p' + dragged.page);
+  if (!dragged || !pageElement) return; // the drag's page is not drawn: the box keeps its mark, to be put back later
+  delete box.dataset.snap;
+  boxOnPage(box, pageElement);
+  boxOnFrac(box, dragged.frac);
+  pendingBadgeSide(box);
+}
+// Moves a box onto the page it belongs to, and only then: a box put back where it already is would go last among that
+// page's children on every redraw, over the pin marks it stood under, and an animation running on it would be cut.
+function boxOnPage(box: HTMLElement, pageElement: HTMLElement) {
+  if (box.parentElement !== pageElement) pageElement.appendChild(box);
+}
+// Sizes a box over one page box [x, y, w, h], the shape a piece and a drag are both kept in. The four numbers are
+// written as they are rather than turned into two corners for drawBox and back: x + w - x is not w in binary, so the
+// round trip would leave a box put back on the drag a hair's breadth off the one the drag itself drew.
+function boxOnFrac(box: HTMLElement, frac: number[]) {
+  Object.assign(box.style, {
+    left: frac[0] * 100 + '%',
+    top: frac[1] * 100 + '%',
+    width: frac[2] * 100 + '%',
+    height: frac[3] * 100 + '%',
+  });
+}
 function cancelDrag() {
   if (DRAG && DRAG.box) DRAG.box.remove();
   DRAG = null;
@@ -283,9 +350,10 @@ function selectionOpen() {
   return !!(COMPOSE.current || !$('#composer').hidden) && !REPICK && !REPLY && !EDITOR.current;
 }
 // Whether a pointerdown press is outside the open selection on the PDF area, so it can cancel it: not on a control or a
-// pin's number badge, not on the scrollbar, and not in the box, its badge, its note popover
-// (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes ignore the pointer, so the
-// page is what the press lands on).
+// pin's number badge, not on the scrollbar, and not in the box, any box drawn beside it for another piece of its range,
+// its badge, its note popover (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes
+// ignore the pointer, so the page is what the press lands on). Every piece counts as inside: a press on the second
+// block of a range is a press on the selection, as much as one on the block the popover hangs from.
 function pressOutsideSelection(event: PointerEvent) {
   const target = event.target as Element;
   if (!selectionOpen()) return false;
@@ -298,7 +366,7 @@ function pressOutsideSelection(event: PointerEvent) {
     return false;
   const inside = [
     ...document.querySelectorAll('.mark'),
-    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i')] : []),
+    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i'), ...selectionParts()] : []),
     ...(pageSelection().popoverOpen() ? [pageSelection().popover()] : []),
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
@@ -395,6 +463,7 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
     REPICK.box = box;
     pendingBadge(box, '새 위치');
   } else {
+    clearSelectionParts();
     if (COMPOSE.box) COMPOSE.box.remove();
     setComposeBox(box);
     pendingBadge(box, '새 핀');
@@ -442,4 +511,15 @@ function selectionRoom(): { top: number; bottom: number } {
     bottom,
   };
 }
-export { cancelDrag, cancelLongPress, drawBox, newBox, pendingBadge, pendingBadgeSide, revealBox, selectionRoom };
+export {
+  cancelDrag,
+  cancelLongPress,
+  clearSelectionParts,
+  drawBox,
+  newBox,
+  pendingBadge,
+  pendingBadgeSide,
+  revealBox,
+  selectionRoom,
+  snapSelectionBox,
+};

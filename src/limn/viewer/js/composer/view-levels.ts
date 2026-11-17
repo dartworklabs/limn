@@ -1,10 +1,11 @@
 // ------------------------------------------------ Range levels
-import { captureVisit, currentVisit, COMPOSE, EDITOR } from '../app/state.ts';
+import { captureVisit, currentVisit, isFigureKind, COMPOSE, EDITOR, META } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import type { Html } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { elementName, rungHasElement, rungTip } from '../pdf/view-figure.ts';
+import { elementName, isFrac, isPiece, rungHasElement, rungTip } from '../pdf/view-figure.ts';
+import { snapSelectionBox } from '../pdf/input-selection.ts';
 import { UI_LANG, tableEntry } from '../platform/tables.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { VIA } from '../app/rules-tables.ts';
@@ -212,17 +213,74 @@ document.addEventListener(
   },
   true,
 );
+// ---------------- Where the chosen lines print (docs/adr/0045-pin-marks-follow-the-range.md)
+// What a snippet answered about where a range owner's chosen lines print, kept beside the owner rather than on it: the
+// composer's selection is written to the tab's draft as JSON (composer/flow-draft.ts), and boxes measured against the
+// build now on screen are not a draft's to keep. The range the answer was given for comes with it, so lines moved
+// since are never drawn from it, and an answer of no pieces is recorded as readily as one with them - lines with no
+// mark are then asked about once and left alone.
+const RANGE_BOXES = new WeakMap<RangeOwner, { lo: number; hi: number; boxes: MarkPiece[] }>();
+// The rung whose range is exactly the owner's chosen lines and that carries where they print: a pick answers this for
+// its default rung, a snippet for every rung of the ladder it builds.
+function boxedRung(owner: RangeOwner) {
+  return (owner.levels || []).find((rung) => rung.lo === owner.lo && rung.hi === owner.hi && !!rung.boxes);
+}
+// The pieces the owner's chosen lines print as: the rung's answer for them, else a snippet's for exactly them. Empty
+// when neither has one - the box is then the rectangle that was dragged. A piece the server could not answer well is
+// left out rather than taking the rest of the selection's box with it.
+function rangeBoxes(owner: RangeOwner): MarkPiece[] {
+  const rung = boxedRung(owner),
+    held = RANGE_BOXES.get(owner);
+  const answered = (rung && rung.boxes) || (held && held.lo === owner.lo && held.hi === owner.hi ? held.boxes : null);
+  return (answered || []).filter(isPiece);
+}
+// Whether anything has answered about where the owner's chosen lines print, so they need not be asked about again.
+function rangeKnown(owner: RangeOwner) {
+  const held = RANGE_BOXES.get(owner);
+  return !!boxedRung(owner) || !!(held && held.lo === owner.lo && held.hi === owner.hi);
+}
+// Records what a snippet answered about the lines it was asked for: the pieces of the rung that covers exactly them,
+// which the ladder round a range always holds, and no pieces when that rung carries none.
+function takeRangeBoxes(owner: RangeOwner, answer: SnippetAnswer) {
+  const rung = (answer.levels || []).find((level) => level.lo === answer.lo && level.hi === answer.hi);
+  RANGE_BOXES.set(owner, { lo: answer.lo, hi: answer.hi, boxes: (rung && rung.boxes) || [] });
+}
+// The composing selection's box follows the lines it has chosen: it is drawn over the pieces they print as, and when
+// nothing has answered about those lines yet they are asked of the snippet route, which answers every rung of the
+// ladder round them at once - so a rung moved to and then moved back to is drawn without asking again. A document
+// whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that element, and
+// a document drawn in the browser has no page to draw a box on.
+function followRange(selection: Selection, box: HTMLElement | null, after: () => void) {
+  if (!box || isFigureKind(META && META.kind) || !onLines(selection)) return;
+  snapSelectionBox(box, rangeBoxes(selection), draggedPlace(selection));
+  if (!rangeKnown(selection)) refetchSnip(selection, after);
+}
+// Where the drag that began the selection was made - its page and its rectangle as it was sent - which a range with no
+// pieces puts the box back on; null when the answer carries neither.
+function draggedPlace(selection: Selection) {
+  return typeof selection.page === 'number' && isFrac(selection.frac)
+    ? { page: selection.page, frac: selection.frac }
+    : null;
+}
 let SNIPPET_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
-// survives.
+// survives. The composing selection also asks for the ladder round those lines (?levels=1), since its box follows them
+// (followRange); an edit card's box is the saved pin's mark, which the pin list answers, so it asks for the text alone.
 function refetchSnip(owner: LineOwner, after: () => void) {
-  const visit = captureVisit();
+  const visit = captureVisit(),
+    composing = owner === COMPOSE.current;
   clearTimeout(SNIPPET_TIMER);
   SNIPPET_TIMER = setTimeout(async () => {
     try {
-      const { data } = await api(
+      const { data }: { data: SnippetAnswer } = await api(
         withDocQuery(
-          '/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
+          '/api/snippet?file=' +
+            encodeURIComponent(owner.file) +
+            '&lo=' +
+            owner.lo +
+            '&hi=' +
+            owner.hi +
+            (composing ? '&levels=1' : ''),
           owner.doc,
         ),
         { what: '원문 읽기' },
@@ -233,6 +291,7 @@ function refetchSnip(owner: LineOwner, after: () => void) {
         data.hi === owner.hi
       ) {
         owner.snippet = data.snippet;
+        if (composing) takeRangeBoxes(owner, data);
         after();
       }
     } catch (error) {}
@@ -307,6 +366,7 @@ function viaTag(pick: Selection | Pin) {
 export type { LineOwner, RangeOwner };
 export {
   drawLadder,
+  followRange,
   kindFor,
   levelLabel,
   onLines,

@@ -27,7 +27,7 @@ class RepickRequestLifetime(unittest.TestCase):
                 let DOC='main',SWITCHSEQ=0,NAVGEN=0; const COMPOSE={current:null,box:null,picking:false,pendingSave:false,dismissedOverlap:null}; const EDITOR={current:null,saving:false};
                 let LAYOUT='wide',MID_OVERLAY=false;
                 const COARSE_POINTER_QUERY={matches:false},VIEW_BY=new Map(),META_BY=new Map([['other',{pages:[]}]]);
-                const document={body:{classList:{contains(){return false;}}}};
+                const document={body:{classList:{contains(){return false;}}},querySelectorAll(){return [];}};
                 const els={'#composer':{hidden:true},'#banner':{hidden:true}};
                 function $(s){return els[s]||(els[s]={hidden:true});}
                 let busy=false,clears=0; function setBusy(on){busy=on;} function banner(){} function setSelectMode(){} function setSide(){}
@@ -54,6 +54,9 @@ class RepickRequestLifetime(unittest.TestCase):
                 """,
                 js_markup(),
                 extract_js_fn("cancelRepick"),
+                # the boxes drawn beside the selection's own, which a cancellation takes off (pdf/input-selection.ts)
+                extract_js_fn("selectionParts"),
+                extract_js_fn("clearSelectionParts"),
                 extract_js_fn("cancelSelection"),
                 extract_js_fn("startRepick"),
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does

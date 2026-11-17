@@ -15738,6 +15738,73 @@ function drawBox(box, startX, startY, x, y) {
     height: Math.abs(y - startY) * 100 + '%',
   });
 }
+// A box of the composing selection other than its own. The lines a selection covers may print as several blocks, and
+// each is drawn as a box of its own on the page it stands on; the selection's own box (COMPOSE.box) is the first of
+// them, so everything that is the selection's one place - the note popover's anchor, the identity a click-off compares
+// - stays that box. The boxes beside it carry .sel-part, which is how they are found again and taken off.
+function newSelectionPart(pageElement) {
+  const part = document.createElement('div');
+  part.className = 'sel pending sel-part';
+  pageElement.appendChild(part);
+  return part;
+}
+function selectionParts() {
+  return document.querySelectorAll('.sel-part');
+}
+function clearSelectionParts() {
+  selectionParts().forEach((part) => part.remove());
+}
+// Puts the composing selection on the pieces its chosen lines print as (docs/adr/0045-pin-marks-follow-the-range.md):
+// its own box on the first piece whose page is drawn, a box beside it for each piece after that, each appended to the
+// page its piece names. A piece on a page that is not drawn gets nothing.
+//
+// With no piece to draw, a box that stands on pieces goes back to the rectangle that was dragged, so a range the
+// server has no answer for never leaves the person looking at lines the pin will not carry; a box that never left the
+// drag is not touched at all, which is what a selection on a build with nothing to measure against draws.
+function snapSelectionBox(
+  box,
+  pieces,
+  dragged,
+) {
+  if (!box) return;
+  clearSelectionParts();
+  let drew = false;
+  for (const piece of pieces) {
+    const pageElement = document.getElementById('p' + piece.page);
+    if (!pageElement) continue;
+    if (!drew) boxOnPage(box, pageElement);
+    boxOnFrac(drew ? newSelectionPart(pageElement) : box, piece.frac);
+    drew = true;
+  }
+  if (drew) {
+    box.dataset.snap = '1';
+    pendingBadgeSide(box);
+    return;
+  }
+  if (!box.dataset.snap) return;
+  const pageElement = dragged && document.getElementById('p' + dragged.page);
+  if (!dragged || !pageElement) return; // the drag's page is not drawn: the box keeps its mark, to be put back later
+  delete box.dataset.snap;
+  boxOnPage(box, pageElement);
+  boxOnFrac(box, dragged.frac);
+  pendingBadgeSide(box);
+}
+// Moves a box onto the page it belongs to, and only then: a box put back where it already is would go last among that
+// page's children on every redraw, over the pin marks it stood under, and an animation running on it would be cut.
+function boxOnPage(box, pageElement) {
+  if (box.parentElement !== pageElement) pageElement.appendChild(box);
+}
+// Sizes a box over one page box [x, y, w, h], the shape a piece and a drag are both kept in. The four numbers are
+// written as they are rather than turned into two corners for drawBox and back: x + w - x is not w in binary, so the
+// round trip would leave a box put back on the drag a hair's breadth off the one the drag itself drew.
+function boxOnFrac(box, frac) {
+  Object.assign(box.style, {
+    left: frac[0] * 100 + '%',
+    top: frac[1] * 100 + '%',
+    width: frac[2] * 100 + '%',
+    height: frac[3] * 100 + '%',
+  });
+}
 function cancelDrag() {
   if (DRAG && DRAG.box) DRAG.box.remove();
   DRAG = null;
@@ -15936,9 +16003,10 @@ function selectionOpen() {
   return !!(COMPOSE.current || !$('#composer').hidden) && !REPICK && !REPLY && !EDITOR.current;
 }
 // Whether a pointerdown press is outside the open selection on the PDF area, so it can cancel it: not on a control or a
-// pin's number badge, not on the scrollbar, and not in the box, its badge, its note popover
-// (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes ignore the pointer, so the
-// page is what the press lands on).
+// pin's number badge, not on the scrollbar, and not in the box, any box drawn beside it for another piece of its range,
+// its badge, its note popover (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes
+// ignore the pointer, so the page is what the press lands on). Every piece counts as inside: a press on the second
+// block of a range is a press on the selection, as much as one on the block the popover hangs from.
 function pressOutsideSelection(event) {
   const target = event.target;
   if (!selectionOpen()) return false;
@@ -15951,7 +16019,7 @@ function pressOutsideSelection(event) {
     return false;
   const inside = [
     ...document.querySelectorAll('.mark'),
-    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i')] : []),
+    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i'), ...selectionParts()] : []),
     ...(pageSelection().popoverOpen() ? [pageSelection().popover()] : []),
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
@@ -16048,6 +16116,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     REPICK.box = box;
     pendingBadge(box, '새 위치');
   } else {
+    clearSelectionParts();
     if (COMPOSE.box) COMPOSE.box.remove();
     setComposeBox(box);
     pendingBadge(box, '새 핀');
@@ -16426,17 +16495,74 @@ document.addEventListener(
   },
   true,
 );
+// ---------------- Where the chosen lines print (docs/adr/0045-pin-marks-follow-the-range.md)
+// What a snippet answered about where a range owner's chosen lines print, kept beside the owner rather than on it: the
+// composer's selection is written to the tab's draft as JSON (composer/flow-draft.ts), and boxes measured against the
+// build now on screen are not a draft's to keep. The range the answer was given for comes with it, so lines moved
+// since are never drawn from it, and an answer of no pieces is recorded as readily as one with them - lines with no
+// mark are then asked about once and left alone.
+const RANGE_BOXES = new WeakMap();
+// The rung whose range is exactly the owner's chosen lines and that carries where they print: a pick answers this for
+// its default rung, a snippet for every rung of the ladder it builds.
+function boxedRung(owner) {
+  return (owner.levels || []).find((rung) => rung.lo === owner.lo && rung.hi === owner.hi && !!rung.boxes);
+}
+// The pieces the owner's chosen lines print as: the rung's answer for them, else a snippet's for exactly them. Empty
+// when neither has one - the box is then the rectangle that was dragged. A piece the server could not answer well is
+// left out rather than taking the rest of the selection's box with it.
+function rangeBoxes(owner) {
+  const rung = boxedRung(owner),
+    held = RANGE_BOXES.get(owner);
+  const answered = (rung && rung.boxes) || (held && held.lo === owner.lo && held.hi === owner.hi ? held.boxes : null);
+  return (answered || []).filter(isPiece);
+}
+// Whether anything has answered about where the owner's chosen lines print, so they need not be asked about again.
+function rangeKnown(owner) {
+  const held = RANGE_BOXES.get(owner);
+  return !!boxedRung(owner) || !!(held && held.lo === owner.lo && held.hi === owner.hi);
+}
+// Records what a snippet answered about the lines it was asked for: the pieces of the rung that covers exactly them,
+// which the ladder round a range always holds, and no pieces when that rung carries none.
+function takeRangeBoxes(owner, answer) {
+  const rung = (answer.levels || []).find((level) => level.lo === answer.lo && level.hi === answer.hi);
+  RANGE_BOXES.set(owner, { lo: answer.lo, hi: answer.hi, boxes: (rung && rung.boxes) || [] });
+}
+// The composing selection's box follows the lines it has chosen: it is drawn over the pieces they print as, and when
+// nothing has answered about those lines yet they are asked of the snippet route, which answers every rung of the
+// ladder round them at once - so a rung moved to and then moved back to is drawn without asking again. A document
+// whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that element, and
+// a document drawn in the browser has no page to draw a box on.
+function followRange(selection, box, after) {
+  if (!box || isFigureKind(META && META.kind) || !onLines(selection)) return;
+  snapSelectionBox(box, rangeBoxes(selection), draggedPlace(selection));
+  if (!rangeKnown(selection)) refetchSnip(selection, after);
+}
+// Where the drag that began the selection was made - its page and its rectangle as it was sent - which a range with no
+// pieces puts the box back on; null when the answer carries neither.
+function draggedPlace(selection) {
+  return typeof selection.page === 'number' && isFrac(selection.frac)
+    ? { page: selection.page, frac: selection.frac }
+    : null;
+}
 let SNIPPET_TIMER = undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
-// survives.
+// survives. The composing selection also asks for the ladder round those lines (?levels=1), since its box follows them
+// (followRange); an edit card's box is the saved pin's mark, which the pin list answers, so it asks for the text alone.
 function refetchSnip(owner, after) {
-  const visit = captureVisit();
+  const visit = captureVisit(),
+    composing = owner === COMPOSE.current;
   clearTimeout(SNIPPET_TIMER);
   SNIPPET_TIMER = setTimeout(async () => {
     try {
       const { data } = await api(
         withDocQuery(
-          '/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
+          '/api/snippet?file=' +
+            encodeURIComponent(owner.file) +
+            '&lo=' +
+            owner.lo +
+            '&hi=' +
+            owner.hi +
+            (composing ? '&levels=1' : ''),
           owner.doc,
         ),
         { what: '원문 읽기' },
@@ -16447,6 +16573,7 @@ function refetchSnip(owner, after) {
         data.hi === owner.hi
       ) {
         owner.snippet = data.snippet;
+        if (composing) takeRangeBoxes(owner, data);
         after();
       }
     } catch (error) {}
@@ -22417,6 +22544,7 @@ async function pick(region) {
     if (repick) {
       bannerRepick();
     } else {
+      clearSelectionParts();
       if (COMPOSE.box) {
         COMPOSE.box.remove();
         setComposeBox(null);
@@ -22442,6 +22570,7 @@ async function pick(region) {
         repick.box.remove();
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
+        clearSelectionParts();
         COMPOSE.box.remove();
         setComposeBox(null);
       }
@@ -22636,6 +22765,9 @@ function renderComposer() {
   const copy = selection.name + ' L' + selection.lo + '-L' + selection.hi;
   $('#c-loc').textContent = selection.name + ' ' + lineRange(selection.lo, selection.hi);
   $('#c-loc').dataset.copy = copy;
+  // The box over the lines being chosen, before renderElement: on a figure document the element's own box is what the
+  // pin will carry, and that draw is the one that stands.
+  followRange(selection, COMPOSE.box, renderComposer);
   renderElement(selection, COMPOSE.box);
   const pageTag = $('#c-page'),
     pageText = typeof selection.page === 'number' ? translateTemplate('{page}쪽', { page: selection.page }) : '',
@@ -22771,6 +22903,7 @@ function cancelSelection(clearNote) {
   setPickseq(PICKSEQ + 1);
   setComposePicking(false);
   clearPendingSave();
+  clearSelectionParts();
   if (COMPOSE.box) {
     COMPOSE.box.remove();
     setComposeBox(null);
@@ -22832,6 +22965,7 @@ function restoreSelection(snapshot, focus) {
     lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다', NOTICE_KIND.WARN);
     return true;
   }
+  clearSelectionParts();
   if (COMPOSE.box) COMPOSE.box.remove();
   setComposeBox(null);
   if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {
