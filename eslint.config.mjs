@@ -283,6 +283,18 @@ const CONFUSING_GLOBALS = [
   'top',
 ];
 
+// A type argument on a DOM query (`querySelector<HTMLInputElement>(...)`, `closest<HTMLElement>(...)`) says what class
+// the element is without checking it - an assertion no other rule sees. The page's elements by id are declared from
+// index.html (types/page.d.ts, docs/adr/0045-viewer-page-elements.md); any other query gives Element | null, narrowed
+// with find, findMaybe or findAll (js/platform/dom.ts), which check the class.
+export const UNCHECKED_QUERIES = [
+  {
+    selector: 'CallExpression[typeArguments][callee.property.name=/^(querySelector|querySelectorAll|closest)$/]',
+    message:
+      'A type argument on querySelector, querySelectorAll or closest asserts the element class unchecked: use find, findMaybe or findAll (js/platform/dom.ts), which check it.',
+  },
+];
+
 export default [
   {
     files: ['src/limn/viewer/js/**/*.ts'],
@@ -306,6 +318,8 @@ export default [
       // of src/limn/viewer/types/ that no-undef cannot - so no-undef is not run. A declared browser global that reads like
       // a local variable is still refused here: code says window.x when it means the window's.
       'no-restricted-globals': ['error', ...CONFUSING_GLOBALS],
+      // A DOM query says the class of what it found by checking it, not by a type argument.
+      'no-restricted-syntax': ['error', ...UNCHECKED_QUERIES],
       // State is owned by the module that declares it.
       'no-import-assign': 'error',
       'limn/no-imported-state-write': 'error',

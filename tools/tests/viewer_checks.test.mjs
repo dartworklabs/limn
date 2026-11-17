@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import { Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
 import { importGraph, main, placeOf, tableErrors, violations } from '../check_viewer_boundaries.mjs';
-import { limnRules } from '../../eslint.config.mjs';
+import { UNCHECKED_QUERIES, limnRules } from '../../eslint.config.mjs';
 
 /** The rules found for a graph given as {module: [imports]}, with these tables. */
 const rulesOf = (graph, allowed = []) =>
@@ -257,5 +257,39 @@ test("a write through another module's binding is refused through a type asserti
   assert.deepEqual(
     lintTs("import { OFF } from './state.ts';\n(OFF as { n: number }).n = 1;\nOFF!.n++;\n(<any>OFF).k = 2;\n"),
     ['limn/no-imported-state-write', 'limn/no-imported-state-write', 'limn/no-imported-state-write'],
+  );
+});
+
+/** The messages ESLint's no-restricted-syntax gives code, a TypeScript module, with the viewer's UNCHECKED_QUERIES. */
+function lintQueries(code) {
+  const linter = new Linter({ configType: 'flat' });
+  return linter
+    .verify(
+      code,
+      [
+        {
+          files: ['**/*.ts'],
+          languageOptions: { ecmaVersion: 2024, sourceType: 'module', parser: tseslint.parser },
+          rules: { 'no-restricted-syntax': ['error', ...UNCHECKED_QUERIES] },
+        },
+      ],
+      'module.ts',
+    )
+    .map((m) => m.ruleId || `fatal: ${m.message}`);
+}
+
+test('a type argument on a DOM query is refused, called plainly or optionally; the query without one and other calls pass', () => {
+  for (const call of [
+    "document.querySelector<HTMLInputElement>('#q');",
+    "root.querySelectorAll<HTMLElement>('.row');",
+    "target.closest<HTMLElement>('.card');",
+    "maybe?.querySelector<HTMLDivElement>('.x');",
+  ])
+    assert.deepEqual(lintQueries(call), ['no-restricted-syntax'], call);
+  assert.deepEqual(
+    lintQueries(
+      "document.querySelector('#q');\nroot.querySelectorAll('.row');\ntarget.closest('.card');\nnew Map<string, number>();\npick<number>(1);\n",
+    ),
+    [],
   );
 });
