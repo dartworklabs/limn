@@ -10,6 +10,11 @@ import { restorePin } from './flow-actions.ts';
 import { openTrash } from './view-cards.ts';
 import { countPinMove } from '../documents/flow-updates.ts';
 import { MY_ACTIONS } from './state.ts';
+// A pin the review changes message names: its number and who confirmed or reopened it.
+interface SettledPin {
+  id: number;
+  by: string;
+}
 // A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
 // named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
 // Pure.
@@ -24,7 +29,7 @@ function newsWithout(type: string, field: string, ...also: string[]): (group: an
     return out;
   };
 }
-function consumeMine(id) {
+function consumeMine(id: number) {
   const until = MY_ACTIONS.get(id);
   if (until === undefined) return false;
   MY_ACTIONS.delete(id);
@@ -35,7 +40,7 @@ function consumeMine(id) {
 // figure element was lost or whose lines moved. What needs a look stays until [x] or its action and dots [핀 N];
 // passing news (closed elsewhere, lines moved) goes after NOTICE_MS. An action this tab performed is swallowed
 // (markMine).
-function notePinChanges(previous, listed, dropped) {
+function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
   // previous is only the "open pins" this tab saw last time (PINS never holds done ones); listed is every open+closed
   // pin (all=1) from this GET. An id of previous that is in listed with done=true was completed; one not in listed at
   // all (neither open nor closed) was dropped. The two are told apart, so a pin a co-author deleted is never announced
@@ -63,7 +68,7 @@ function notePinChanges(previous, listed, dropped) {
       .slice(0, 3)
       .map((id) => '#' + id)
       .join(', ') + (numbers.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: numbers.length - 3 }) : '');
-  const some = (numbers: number[], one, many) =>
+  const some = (numbers: number[], one: string, many: string) =>
     numbers.length <= 3
       ? translateTemplate(one, { ids: numbers.join(', #'), n: numbers.length })
       : translateTemplate(many, { n: numbers.length }) + ' — ' + ids(numbers);
@@ -102,7 +107,7 @@ function notePinChanges(previous, listed, dropped) {
         kind: NOTICE_KIND.OK,
         act: { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview },
         o: {
-          keys: group.ids.map((id) => EVENT_TYPE.REVIEW_REQUESTED + ':' + id),
+          keys: group.ids.map((id: number) => EVENT_TYPE.REVIEW_REQUESTED + ':' + id),
           dot: NOTICE_DOT.RV,
           literal: true,
           brief: translateTemplate('검토 대기 {n}', { n: group.ids.length }),
@@ -146,7 +151,7 @@ function notePinChanges(previous, listed, dropped) {
             ? { label: '되살리기', wait: true, fn: () => restorePin(id) }
             : { label: '휴지통', tip: '지운 핀을 휴지통에서 봅니다', fn: () => openTrash(id) },
           o: {
-            keys: group.ids.map((id) => EVENT_TYPE.DROPPED + ':' + id),
+            keys: group.ids.map((id: number) => EVENT_TYPE.DROPPED + ':' + id),
             dot: NOTICE_DOT.SIDE,
             literal: true,
             brief: translateTemplate('삭제됨 {n}', { n: group.ids.length }),
@@ -155,10 +160,12 @@ function notePinChanges(previous, listed, dropped) {
       }, // translateTemplate() spoke the UI language; the name is as written
       (older, newer) => {
         // names stay beside their ids
-        const add = newer.ids.map((id, index) => index).filter((index) => !older.ids.includes(newer.ids[index]));
+        const add = newer.ids
+          .map((id: number, index: number) => index)
+          .filter((index: number) => !older.ids.includes(newer.ids[index]));
         return {
-          ids: [...older.ids, ...add.map((index) => newer.ids[index])],
-          names: [...older.names, ...add.map((index) => newer.names[index])],
+          ids: [...older.ids, ...add.map((index: number) => newer.ids[index])],
+          names: [...older.names, ...add.map((index: number) => newer.names[index])],
         };
       },
       newsWithout(EVENT_TYPE.DROPPED, 'ids', 'names'),
@@ -187,7 +194,7 @@ function notePinChanges(previous, listed, dropped) {
   // A pin that lost its place asks for a new one: said on its own, and counted in its document's update message.
   lost.forEach((pin) => countPinMove(pin, true));
   gone.forEach((pin) => countPinMove(pin, true));
-  const each = (numbers: number[], one, many) =>
+  const each = (numbers: number[], one: string, many: string) =>
     numbers.length === 1
       ? translateTemplate(one, { id: numbers[0] })
       : translateTemplate(many, { n: numbers.length }) + ' — ' + ids(numbers);
@@ -242,11 +249,11 @@ function notePinChanges(previous, listed, dropped) {
 }
 // Says on the status line when a pin that was awaiting review gets confirmed (done; passing news) or reopened (until
 // [x], with a dot on [핀 N]) elsewhere. An action this tab performed (markMine) is swallowed.
-function noteReviewChanges(previous, listed) {
+function noteReviewChanges(previous: Pin[], listed: Pin[]) {
   if (!previous || !previous.length) return;
   const known = new Map<number, Pin>((listed || []).map((pin) => [pin.id, pin]));
-  const ok: { id: number; by: string }[] = [],
-    back: { id: number; by: string }[] = [];
+  const ok: SettledPin[] = [],
+    back: SettledPin[] = [];
   previous.forEach((pin) => {
     const current = known.get(pin.id);
     if (!current) return;
@@ -259,7 +266,7 @@ function noteReviewChanges(previous, listed) {
     });
   });
   // Each is one message however many pins (groupNote): one pin with who did it, more as a count.
-  const text = (entries: { id: number; by: string }[], one, many) =>
+  const text = (entries: SettledPin[], one: string, many: string) =>
     entries.length === 1
       ? translateTemplate(one, { id: entries[0].id }) + (entries[0].by ? ' · ' + entries[0].by : '')
       : translateTemplate(many, { n: entries.length }) +
@@ -270,7 +277,7 @@ function noteReviewChanges(previous, listed) {
           .join(', ') +
         (entries.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: entries.length - 3 }) : '');
   const merge = (older: any, newer: any) => ({
-    pins: [...older.pins, ...newer.pins.filter((x) => !older.pins.some((y) => y.id === x.id))],
+    pins: [...older.pins, ...newer.pins.filter((x: SettledPin) => !older.pins.some((y: SettledPin) => y.id === x.id))],
   });
   if (ok.length)
     groupNote(
@@ -298,7 +305,7 @@ function noteReviewChanges(previous, listed) {
         kind: NOTICE_KIND.WARN,
         act: null,
         o: {
-          keys: group.pins.map((x) => EVENT_TYPE.REOPENED + ':' + x.id),
+          keys: group.pins.map((x: SettledPin) => EVENT_TYPE.REOPENED + ':' + x.id),
           dot: NOTICE_DOT.SIDE,
           literal: true,
           brief: translateTemplate('다시 열림 {n}', { n: group.pins.length }),

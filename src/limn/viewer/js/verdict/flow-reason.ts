@@ -1891,12 +1891,12 @@ function refillLine(page: number) {
 // field drawn anew in its place (the pages built again) holds the session's text - left empty, the next input would
 // write what it holds over the reason.
 let COMPOSING_FIELD = null as HTMLTextAreaElement | null;
-$('#doc').addEventListener('compositionstart', (event) => {
+$('#doc').addEventListener('compositionstart', (event: CompositionEvent) => {
   if (isReasonField(event.target)) COMPOSING_FIELD = event.target;
 });
 // The composition's end settles what it brought back (followLanded, which waits for it), and what waited for it goes on
 // (runComposedWaits).
-$('#doc').addEventListener('compositionend', (event) => {
+$('#doc').addEventListener('compositionend', (event: CompositionEvent) => {
   const field = event.target;
   if (!isReasonField(field)) return;
   COMPOSING_FIELD = null;
@@ -1953,7 +1953,7 @@ IME_ON_FREE.push(runComposedWaits);
 // Every input keeps the draft (putDraft), with the parts moved into it placed where they are now (placeParts) - a part
 // brought back whose text has landed on its pin meanwhile leaves at once (followLanded), or once an input method's
 // composition ends - and lets a first Esc go; the line follows its emptiness (the state).
-$('#doc').addEventListener('input', (event) => {
+$('#doc').addEventListener('input', (event: InputEvent) => {
   const field = event.target;
   if (!isReasonField(field)) return;
   const session = REASON_SESSION;
@@ -2040,7 +2040,7 @@ function followLanded(session: ReasonSession) {
 // Keys in the field: Enter saves (Shift+Enter is a new line), Esc closes or takes two presses with text. Every other
 // key is the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons
 // ([접기], [닫기], [저장], [지우기]) is the field's Esc.
-$('#doc').addEventListener('keydown', (event) => {
+$('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
   const target = event.target as HTMLElement;
   if (
     event.key === 'Escape' &&
@@ -2060,7 +2060,7 @@ $('#doc').addEventListener('keydown', (event) => {
     return;
   }
 });
-$('#doc').addEventListener('keydown', (event) => {
+$('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
   const field = event.target;
   if (!isReasonField(field)) return;
   if (imeKey(event)) {
@@ -2083,7 +2083,7 @@ $('#doc').addEventListener('keydown', (event) => {
 // (the popover's) the focus goes to the line's first, and before the first (the line's) to the popover's last. The
 // DOM's next or previous stop is another page's line, whose focus would scroll the reading page away and close the
 // popover, writing what is being edited.
-$('#doc').addEventListener('keydown', (event) => {
+$('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return;
   const target = event.target as HTMLElement,
     line = target && target.closest ? target.closest('#doc .pv') : null;
@@ -2107,18 +2107,18 @@ $('#doc').addEventListener('keydown', (event) => {
 let POPOVER_PRESS_AT = 0; // performance.now() of the last press inside a popover
 $('#doc').addEventListener(
   'pointerdown',
-  (event) => {
+  (event: PointerEvent) => {
     const target = event.target as HTMLElement;
     if (target && target.closest && target.closest('.pv-pop')) POPOVER_PRESS_AT = performance.now();
   },
   true,
 );
-$('#doc').addEventListener('focusin', (event) => {
+$('#doc').addEventListener('focusin', (event: FocusEvent) => {
   if (!isReasonField(event.target) || !REASON_SESSION) return;
   REASON_SESSION.escArm = '';
   refillLine(REASON_SESSION.page);
 });
-$('#doc').addEventListener('focusout', (event) => {
+$('#doc').addEventListener('focusout', (event: FocusEvent) => {
   const target = event.target as HTMLElement,
     pop = target && target.closest ? target.closest('.pv-pop') : null;
   if (!pop) return;

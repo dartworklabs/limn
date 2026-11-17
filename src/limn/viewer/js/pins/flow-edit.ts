@@ -29,12 +29,12 @@ import { editNote, autoGrow } from '../composer/view-text.ts';
 import { syncEditSaveButton, renderEdit } from './view-edit.ts';
 
 // A dirty edit card survives document switches, so only replacement or cancellation revokes its pending response.
-function editorOwns(card) {
+function editorOwns(card: EditCard) {
   return EDITOR.current === card;
 }
 /** Capture editable card values independently of its mutable range, mention hints, and controls - the suggested edit's
  * switch, text and base among them. */
-function editFields(card) {
+function editFields(card: EditCard) {
   return JSON.stringify({
     note: editNote(card).value,
     mentions: Array.from(editNote(card)._mentions || []),
@@ -141,7 +141,7 @@ document.addEventListener('input', (event) => {
   )
     autoGrow(target);
 });
-async function editSnip(withLevels) {
+async function editSnip(withLevels: boolean) {
   const card = EDITOR.current;
   if (!card) return;
   if (card.region) {
@@ -294,7 +294,9 @@ async function saveEdit() {
             hi: pin.hi,
             scope: pin.scope || null,
             note: pin.note || '',
-            mentions: (pin.mentions || []).filter((login) => (pin.note || '').includes('@' + peopleName(login))),
+            mentions: (pin.mentions || []).filter((login: string) =>
+              (pin.note || '').includes('@' + peopleName(login)),
+            ),
             kind_req: isQuestion(pin) ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX,
             assignee: assigneeOf(pin),
           };
@@ -333,7 +335,7 @@ async function saveEdit() {
           hi: pin.hi,
           scope: pin.scope || null,
           note: pin.note || '',
-          mentions: (pin.mentions || []).filter((login) => (pin.note || '').includes('@' + peopleName(login))),
+          mentions: (pin.mentions || []).filter((login: string) => (pin.note || '').includes('@' + peopleName(login))),
           kind_req: card.orig.kind_req,
           assignee: assigneeOf(pin),
         };

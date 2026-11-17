@@ -58,6 +58,21 @@ import { pinState, lineRange } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, isRegion, pdoc, REVISION_PAGE } from '../documents/state.ts';
 import { markHitSides } from '../pdf/view-badges.ts';
+// A file's part of a source diff: its path and its patch text.
+interface RevisionFile {
+  name: string;
+  text: string;
+}
+// What rangeSummary reads of GET /api/revision-diff with a base: the two ends, the commits and files between them, the
+// merge base when the base was on another line, and whether the diff was cut.
+interface RevisionDiffAnswer {
+  id?: string;
+  base?: string;
+  merge_base?: string;
+  commits?: number;
+  files?: unknown[];
+  truncated?: boolean;
+}
 const REVISION_VIEW = {
   seq: 0,
   files: [] as { name: string; text: string }[],
@@ -104,7 +119,7 @@ const COMPARISON_PDF = {
   observer: null as IntersectionObserver | null,
   tasks: new Set<{ cancel(): void }>(),
 };
-function revisionFiles(patch) {
+function revisionFiles(patch: string) {
   const starts: { at: number; head: string }[] = [];
   const fileHeader = /^diff --git .+$/gm;
   let match;
@@ -121,7 +136,7 @@ function revisionFiles(patch) {
 // it is translate="no"; the lines are text, each character that would hide or reorder a line in its box
 // (markHiddenHtml) - a change a person reviews never reads as another text. The CR a CRLF file's line ends in is that
 // line end, not text: it is left out.
-function renderRevisionDiff(patch) {
+function renderRevisionDiff(patch: string) {
   const lines = String(patch || '').split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
   let oldLine = null as number | null,
@@ -212,11 +227,11 @@ function syncRevisionWhole() {
 // The pin whose hunks a commit's view is scoped to: only the commit picked for the pin ([변경 보기]); any other commit
 // chosen in the list is shown whole (another commit's lines are not this pin's), and so is a range (pin scoping and
 // ranges do not combine; the server refuses pin with base).
-function revisionPinFor(id) {
+function revisionPinFor(id: string) {
   const target = REVISION_VIEW.target;
   return target && !target.region && target.commit && id === target.commit && !REVISION_VIEW.base ? target : null;
 }
-function setRevisionWhole(on) {
+function setRevisionWhole(on: boolean) {
   COMPARISON_SCOPE.whole = !!on;
   ++REVISION_VIEW.seq;
   REVISION_VIEW.pdfCommit = '';
@@ -224,7 +239,7 @@ function setRevisionWhole(on) {
   $('#revision-warning').hidden = true;
   setRevisionFormat(DIFF_FORMAT.PDF);
 }
-function revisionCurrent(seq, docKey, id) {
+function revisionCurrent(seq: number, docKey: string | null, id: string) {
   return (
     seq === REVISION_VIEW.seq &&
     docKey === DOC &&
@@ -258,7 +273,7 @@ function clearRevisionPdf() {
 // asked; a document drawn from Markdown (drawn) its rendered compare otherwise; the source diff always for another
 // document with no comparison PDF (source: one the browser draws, a text document); otherwise a figure document's
 // overlay of two builds, and a LaTeX document's comparison PDF - never the overlay. Pure.
-function revisionFormatFor(asked, figure, source, drawn) {
+function revisionFormatFor(asked: string | undefined, figure: boolean, source: boolean, drawn: boolean) {
   if (asked === DIFF_FORMAT.SOURCE) return DIFF_FORMAT.SOURCE;
   if (drawn && !figure) return DIFF_FORMAT.RENDERED;
   return source && !figure ? DIFF_FORMAT.SOURCE : figure ? DIFF_FORMAT.OVERLAY : DIFF_FORMAT.PDF;
@@ -281,7 +296,7 @@ function drawRevisionFormat() {
       REVISION_VIEW.format === DIFF_FORMAT.OVERLAY ? overlayStatus(REVISION_VIEW.overlay) : '';
 }
 // Switches the format shown, keeping the comparison's scale for the selected commit.
-function setRevisionFormat(format) {
+function setRevisionFormat(format: string | undefined) {
   REVISION_VIEW.format = revisionFormatFor(format, !!REVISION_VIEW.overlay, isMarkdownDoc(), isDrawnFromMarkdown());
   drawRevisionFormat();
   if (REVISION_VIEW.format === DIFF_FORMAT.RENDERED && REVISION_VIEW.commit) {
@@ -319,7 +334,7 @@ function setRevisionFormat(format) {
 // button ([변경사항 ▾] in the changes view) follow; leaving the changes view forgets the pin it was opened for and
 // redraws the pages. The mark badges' press areas are measured again as the pages show (markHitSides: marks drawn
 // meanwhile had no boxes).
-function setViewMode(mode) {
+function setViewMode(mode: string | undefined) {
   const revisions = mode === VIEW_MODE.REVISIONS;
   if (!revisions && document.body.classList.contains('revision-open')) leaveRevisions();
   // the pages are still drawn: keep the spot the way back returns to
@@ -504,7 +519,7 @@ async function loadRevisions() {
 // that, right after such a press, a newer row ends the range there, and the start pressed again is that commit alone.
 // Pure.
 function rangePress(rows: { id: string }[], range: RevRange, id: string): RevRange {
-  const at = (commit) => rows.findIndex((row) => row.id === commit),
+  const at = (commit: string) => rows.findIndex((row) => row.id === commit),
     newest = rows.length ? rows[0].id : id;
   if (range.mode === RANGE_MODE.ONE) return { mode: RANGE_MODE.ONE, start: id, end: id, endSet: false };
   if (range.mode === RANGE_MODE.FROM && id === range.start)
@@ -579,7 +594,7 @@ function showRange(range: RevRange, format?: string) {
   drawRange();
 }
 // A row of the list pressed (rangePress) and a quick-range segment pressed (rangeMode).
-function pressRevisionRow(id) {
+function pressRevisionRow(id: string | undefined) {
   if (id) showRange(rangePress(REVISION_VIEW.rows, REVISION_VIEW.range, id));
 }
 function setRevisionRange(mode) {
@@ -710,7 +725,7 @@ async function moreRevisions() {
 }
 // Reads the next page (up to limit rows) of document docKey's window onto REVISION_VIEW.rows; whether it did. Nothing
 // when the list is another document's or was replaced meanwhile.
-async function moreRows(docKey: string, limit: number) {
+async function moreRows(docKey: string | null, limit: number) {
   if (!REVISION_VIEW.more || !REVISION_VIEW.rows.length) return false;
   const last = REVISION_VIEW.rows[REVISION_VIEW.rows.length - 1].id;
   let data;
@@ -820,7 +835,7 @@ function leaveRevisions() {
   )
     return;
   const now = new Date(),
-    pad = (value) => String(value).padStart(2, '0'),
+    pad = (value: number) => String(value).padStart(2, '0'),
     all = readSeenRecords();
   all[docKey] = {
     id: top.id,
@@ -886,7 +901,7 @@ function overlayPages(overlay: RevisionOverlay) {
       previousPage = previous[i];
     const width = Math.max(currentPage ? currentPage.pt_w : 0, previousPage ? previousPage.pt_w : 0),
       height = Math.max(currentPage ? currentPage.pt_h : 0, previousPage ? previousPage.pt_h : 0);
-    const share = (image) =>
+    const share = (image: PageImage | undefined) =>
       image
         ? {
             name: image.name,
@@ -906,7 +921,7 @@ function overlayPages(overlay: RevisionOverlay) {
 }
 // A build as a person reads it: a page folder name pages-<YYYYmmddHHMMSS>[-<n>] as 'MM-DD HH:MM:SS', with ' (n)' for a
 // second build in the same second; any other name as it is. Pure.
-function buildStamp(name) {
+function buildStamp(name: string | null | undefined) {
   const text = String(name || ''),
     match = /^pages-\d{4}(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:-(\d+))?$/.exec(text);
   return match
@@ -952,7 +967,7 @@ function renderRevisionOverlay() {
   const pages = overlayPages(overlay),
     widest = Math.max(1, ...pages.map((page) => page.pt));
   box.style.setProperty('--ov-cap', Math.round(widest * POINT_PX) + 'px');
-  const side = (image, build, className, alt, none) =>
+  const side = (image: { name: string } | null, build: string | null, className: string, alt: string, none: string) =>
     image && build
       ? html`<img class="${className}" loading="lazy" draggable="false" alt="${alt}" src="${withDocQuery('/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(image.name))}">`
       : html`<span class="ov-none ${className}">${none}</span>`;
@@ -994,7 +1009,7 @@ function drawRevisionSide() {
   $('#revision-overlay').dataset.side = REVISION_VIEW.side;
 }
 // Shows the previous build's pages (side PREV, when there is one) or the current build's.
-function setRevisionSide(side) {
+function setRevisionSide(side: string | undefined) {
   REVISION_VIEW.side =
     side === OVERLAY_SIDE.PREV && REVISION_VIEW.overlay && REVISION_VIEW.overlay.prev_build
       ? OVERLAY_SIDE.PREV
@@ -1002,14 +1017,14 @@ function setRevisionSide(side) {
   drawRevisionSide();
 }
 // Brings that page of the overlay to the top of its view, once it is laid out ([변경 보기] of a pin on that page).
-function scrollOverlayTo(page) {
+function scrollOverlayTo(page: number) {
   requestAnimationFrame(() => {
     const box = $('#revision-overlay'),
       pageBox = box.querySelector('.ov-page[data-page="' + page + '"]');
     if (pageBox) box.scrollTop += pageBox.getBoundingClientRect().top - box.getBoundingClientRect().top;
   });
 }
-async function loadRevisionSource(id, seq, docKey) {
+async function loadRevisionSource(id: string, seq: number, docKey: string | null) {
   const out = $('#revision-diff');
   out.textContent = '소스 변경 내용을 읽는 중입니다.';
   $('#revision-file-row').hidden = true;
@@ -1097,7 +1112,7 @@ async function loadRevisionSource(id, seq, docKey) {
 // A range's summary on the status line (its source diff): the two ends, the commits and files in it, the merge base
 // when the base was on another line, and a warning when the range is wide enough for its comparison PDF to fail (more
 // than 60 manuscript files, or a diff cut at the server's limit). answer: the /api/revision-diff answer with base.
-function rangeSummary(answer) {
+function rangeSummary(answer: RevisionDiffAnswer) {
   const files = Array.isArray(answer.files) ? answer.files : [];
   let summary = translateTemplate('{base} → {head} · 커밋 {commits}개 · 파일 {files}개', {
     base: String(answer.base || '').slice(0, 8),
@@ -1133,7 +1148,7 @@ function matchRevision(ref: unknown, rows: { id: string; subject?: string }[], r
   }
   return null;
 }
-function pinFileIndex(files, file) {
+function pinFileIndex(files: RevisionFile[], file: string) {
   file = String(file || '');
   let best = -1,
     bestLength = 0;
@@ -1146,7 +1161,7 @@ function pinFileIndex(files, file) {
   });
   return best;
 }
-function hunkRanges(text) {
+function hunkRanges(text: string) {
   const out: number[][] = [];
   for (const match of String(text || '').matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
     const start = +match[1],
@@ -1155,7 +1170,7 @@ function hunkRanges(text) {
   }
   return out;
 }
-function touchesPin(files, target, slack?) {
+function touchesPin(files: RevisionFile[], target, slack?: number) {
   const index = pinFileIndex(files, target.file);
   if (index < 0) return false;
   slack = slack == null ? 5 : slack;
@@ -1164,7 +1179,11 @@ function touchesPin(files, target, slack?) {
 // A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows
 // reads further pages until found or the window ends, as the server resolves it), else the most recent of the first
 // REVISION_RECENT rows that touched the pin's lines, else the newest.
-async function pickRevisionFor(target, seq, docKey): Promise<{ id: string; via: string; tok?: string; hit?: boolean }> {
+async function pickRevisionFor(
+  target: RevTarget,
+  seq: number,
+  docKey: string | null,
+): Promise<{ id: string; via: string; tok?: string; hit?: boolean }> {
   let match = matchRevision(target.ref, REVISION_VIEW.rows, REVISION_RECENT);
   while (
     !match &&
@@ -1196,7 +1215,7 @@ async function pickRevisionFor(target, seq, docKey): Promise<{ id: string; via: 
 }
 // The guide line (#revision-pin) for the pin the view was opened for: which commit it shows and why, what the format
 // shown can say of the pin's lines (message, when given, in their place), and the review access this person lacks.
-function drawPinGuide(message?) {
+function drawPinGuide(message?: string) {
   const target = REVISION_VIEW.target,
     box = $('#revision-pin');
   if (!target) {
@@ -1323,7 +1342,7 @@ function highlightPinLines(target) {
   const top = first;
   if (top) requestAnimationFrame(() => top.scrollIntoView({ block: 'center' }));
 }
-function findAnyPin(id) {
+function findAnyPin(id: number | null) {
   return (
     OPEN_ALL.find((pin) => pin.id === id) ||
     REVIEW_ALL.find((pin) => pin.id === id) ||
@@ -1340,7 +1359,7 @@ function returnToManuscript() {
   if (back && back !== DOC && docInfo(back)) switchDoc(back);
 }
 // Opens a pin's changes view, only for the document visit that started the switch to its document.
-async function showChange(id) {
+async function showChange(id: number) {
   const pin = findAnyPin(id);
   if (!pin) return;
   const docKey = pdoc(pin),
@@ -1381,7 +1400,7 @@ const REVISION_BUSY_WAITS = 240;
 // answer. Null: the view moved on while it waited; leaving for the source diff stops the waiting too, and coming back
 // asks again (REVISION_VIEW.pdfCommit). The waiting line is cleared only while it still says this wait's words, never
 // another comparison's.
-async function revisionStart(body: Record<string, unknown>, seq: number, docKey: string, id: string) {
+async function revisionStart(body: Record<string, unknown>, seq: number, docKey: string | null, id: string) {
   const box = $('#revision-status'),
     waiting = translate('앞선 비교 PDF가 끝나는 대로 이 비교 PDF를 만듭니다. 원고와 핀은 그대로 사용할 수 있습니다.');
   const left = () => {
@@ -1406,7 +1425,7 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
 }
 // Starts or reads the comparison PDF of commit id for one visit: a late answer or module import never attaches to
 // another view (revisionCurrent after every wait). mountRevisionPdf then owns the zoomable page geometry.
-async function loadRevisionPdf(id, seq, docKey) {
+async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
   const statusBox = $('#revision-status'),
     warningBox = $('#revision-warning'),
     target = REVISION_VIEW.target;

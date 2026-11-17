@@ -643,7 +643,7 @@ function revealFocused() {
   else if (rect.bottom + margin > bottom) panel.scrollTop += rect.bottom + margin - bottom;
 }
 const RING_ROOM = 2; // px kept clear past a revealed control's focus ring
-$('#doc').addEventListener('focusin', (event) => {
+$('#doc').addEventListener('focusin', (event: FocusEvent) => {
   const target = event.target as HTMLElement | null;
   if (target && target.closest && target.closest('#pv-panel.pv-tall')) requestAnimationFrame(revealFocused);
 });
