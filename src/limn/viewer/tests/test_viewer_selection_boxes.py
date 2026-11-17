@@ -178,7 +178,7 @@ class SelectionPieces(unittest.TestCase):
         js = "\n".join(
             [
                 "const RANGE_BOXES = new WeakMap();",
-                *[extract_js_fn(name) for name in ("isFrac", "isPiece", "boxedRung", "rangeBoxes")],
+                *[extract_js_fn(name) for name in ("isFrac", "isPiece", "rangeKey", "boxedRung", "rangeBoxes")],
                 "const owner = {lo: 4, hi: 6, levels: [{level: 'para', lo: 4, hi: 6, boxes: %s}]};"
                 % json.dumps(
                     [
@@ -196,12 +196,13 @@ class SelectionPieces(unittest.TestCase):
         self.assertEqual(json.loads(run_node(js)), [{"page": 1, "frac": SECOND}])
 
     def test_the_pieces_are_read_from_the_rung_that_covers_the_chosen_lines(self):
-        """The answer drawn is the one for the lines the selection now has: the rung whose range is those lines. A rung
-        the person has moved away from is not what the box shows."""
+        """The answer read is the one for the lines the selection now has: the rung whose range is those lines. A rung
+        the person has moved away from is not what the box shows, and lines no rung covers have no answer at all - not
+        an answer of no pieces, which would mean something quite different (null here, undefined in the browser)."""
         js = "\n".join(
             [
                 "const RANGE_BOXES = new WeakMap();",
-                *[extract_js_fn(name) for name in ("isFrac", "isPiece", "boxedRung", "rangeBoxes")],
+                *[extract_js_fn(name) for name in ("isFrac", "isPiece", "rangeKey", "boxedRung", "rangeBoxes")],
                 "const levels = [{level: 'raw', lo: 5, hi: 5, boxes: [{page: 1, frac: %s}]},"
                 " {level: 'para', lo: 3, hi: 8, boxes: [{page: 2, frac: %s}]}];"
                 % (json.dumps(FIRST), json.dumps(SECOND)),
@@ -211,8 +212,38 @@ class SelectionPieces(unittest.TestCase):
         )
         self.assertEqual(
             json.loads(run_node(js)),
-            [[{"page": 1, "frac": FIRST}], [{"page": 2, "frac": SECOND}], []],
+            [[{"page": 1, "frac": FIRST}], [{"page": 2, "frac": SECOND}], None],
         )
+
+    def test_one_answer_is_held_for_every_rung_of_the_ladder_it_carries(self):
+        """A snippet answers the whole ladder round the range it was asked about, and every rung of it is held under
+        its own lines - so a rung moved to next is already answered. The range asked about is held even when the answer
+        carries no ladder at all, or lines with no mark would be asked about again on every redraw."""
+        js = "\n".join(
+            [
+                "const RANGE_BOXES = new WeakMap();",
+                *[
+                    extract_js_fn(name)
+                    for name in ("isFrac", "isPiece", "rangeKey", "boxedRung", "rangeBoxes", "takeRangeBoxes")
+                ],
+                "const owner = {lo: 3, hi: 9, levels: []};",
+                "takeRangeBoxes(owner, {lo: 3, hi: 9, levels: [{lo: 3, hi: 9, boxes: [{page: 1, frac: %s}]},"
+                " {lo: 1, hi: 40, boxes: [{page: 2, frac: %s}]}, {lo: 5, hi: 5}]});"
+                % (json.dumps(FIRST), json.dumps(SECOND)),
+                # the owner is the selection itself, moving from rung to rung; its answers are held under it
+                "const read = (lo, hi) => {owner.lo = lo; owner.hi = hi; return rangeBoxes(owner);};",
+                "const bare = {lo: 2, hi: 2, levels: []}; takeRangeBoxes(bare, {lo: 2, hi: 2});",
+                "console.log(JSON.stringify([read(3, 9), read(1, 40), read(5, 5), read(4, 4),"
+                " rangeBoxes({lo: 3, hi: 9, levels: []}), rangeBoxes(bare)]));",
+            ]
+        )
+        asked, outer, without, unasked, other, ladderless = json.loads(run_node(js))
+        self.assertEqual(asked, [{"page": 1, "frac": FIRST}])
+        self.assertEqual(outer, [{"page": 2, "frac": SECOND}])  # the rung beside it, held by the same answer
+        self.assertEqual(without, [])  # a rung the server found no mark for: answered, and answered nothing
+        self.assertIsNone(unasked)  # lines the answer said nothing about
+        self.assertIsNone(other)  # the same lines under another owner: one selection's answers are not another's
+        self.assertEqual(ladderless, [])  # asked about, answered without a ladder: still answered
 
 
 # The ladder the pick answers: a dragged line, the paragraph it is in (the default) and the environment around it. The
@@ -229,6 +260,17 @@ LEVELS = [
     },
     {"level": "para", "lo": 4, "hi": 6, "n": 3, "label": "문단", "snippet": "    4  Line 4 of the demo manuscript."},
     {"level": "env", "lo": 3, "hi": 9, "n": 7, "label": "환경 figure", "env": "figure", "snippet": "    3  Line 3."},
+    # The whole file, which is also the paragraph rung of every ladder the fixture's server builds (its manuscript has
+    # no blank line), so one answer about any range holds this one too.
+    {
+        "level": "env2",
+        "lo": 1,
+        "hi": 40,
+        "n": 40,
+        "label": "환경 figure (바깥)",
+        "env": "figure",
+        "snippet": "    1  x",
+    },
 ]
 # What each range prints as, by its lines: the paragraph one piece, the environment two and a taller first one, the
 # dragged line a short piece of its own.
@@ -237,7 +279,15 @@ PIECES = {
     (4, 6): [{"page": 1, "frac": [0.125, 0.25, 0.5, 0.125]}],
     (3, 9): [{"page": 1, "frac": [0.125, 0.25, 0.5, 0.25]}, {"page": 2, "frac": SECOND}],
     (4, 7): [{"page": 1, "frac": [0.125, 0.25, 0.5, 0.1875]}],
+    (1, 40): [{"page": 1, "frac": [0.125, 0.125, 0.5, 0.5]}],
 }
+# Presses a control and reads the selection's boxes in the same task, before any answer to that press can arrive: what
+# the person sees the instant they press, which settling would hide.
+PRESS_AND_READ = """selector => {
+  document.querySelector(selector).click();
+  return [...document.querySelectorAll('.sel')].map(box => {
+    const page = box.parentElement.getBoundingClientRect(), own = box.getBoundingClientRect();
+    return {page: box.parentElement.id, height: own.height / page.height};});}"""
 
 
 class SelectionBoxesOnScreen(BrowserBase):
@@ -252,12 +302,15 @@ class SelectionBoxesOnScreen(BrowserBase):
         self.PICK = {**SelectionBoxesOnScreen.PICK, "levels": [dict(rung) for rung in LEVELS]}
         self.PICK["levels"][1]["boxes"] = PIECES[(4, 6)]
         self.PIECES = dict(PIECES)
+        self.asked = []  # the lines of each ladder the viewer asked where they print
 
     def route(self, route):
         """The fixture's routes, with every snippet ladder given the pieces this class stands in for."""
         request = route.request
         parts = urlparse(request.url)
-        if parts.path == "/api/snippet" and parse_qs(parts.query).get("levels"):
+        query = parse_qs(parts.query)
+        if parts.path == "/api/snippet" and query.get("levels"):
+            self.asked.append((int(query["lo"][0]), int(query["hi"][0])))
             answer = self.answer(request)
             body = json.loads(answer["body"])
             for rung in body.get("levels", []):
@@ -340,6 +393,51 @@ class SelectionBoxesOnScreen(BrowserBase):
         drawn = self.boxes(page)
         self.assertEqual([piece["page"] for piece in drawn], ["p1", "p2"])
         self.assertAlmostEqual(drawn[0]["frac"][3], 0.25, places=2)  # the environment's height, not the paragraph's
+
+    def test_the_box_waits_on_its_answer_rather_than_showing_the_drag_again(self):
+        """Pressing a rung whose pieces are not known yet leaves the box on the range it is showing until the answer
+        comes. It must not fall back to the dragged rectangle on the way: for the length of that request the person
+        would be looking at the span they dragged as if it were the pin's range, which is the very thing the box is
+        drawn this way to stop. The press and the measurement run in one task, since settling would hide it."""
+        page = self.view()
+        self.drag(page)
+        paragraph = self.height(page)
+        at_once = page.evaluate(PRESS_AND_READ, "#c-levels [data-act=level][data-level=env]")
+        self.assertEqual(len(at_once), 1)
+        self.assertAlmostEqual(at_once[0]["height"], paragraph, places=3)
+        self.assertGreater(at_once[0]["height"], 0.1)  # the paragraph's pieces, not the one-line drag
+        settle(page)
+        self.assertGreater(self.height(page), paragraph)
+
+    def test_widening_in_the_excerpt_also_waits_on_its_answer(self):
+        """The same on the other way of changing the range: a '+' in the range excerpt keeps the box where it is until
+        the lines it widened to are answered, so widening a line at a time never blinks back to the drag."""
+        page = self.view()
+        self.drag(page)
+        paragraph = self.height(page)
+        at_once = page.evaluate(PRESS_AND_READ, '#c-xp [data-act=xp-to][data-line="7"]')
+        self.assertEqual(len(at_once), 1)
+        self.assertAlmostEqual(at_once[0]["height"], paragraph, places=3)
+        page.wait_for_function("COMPOSE.current.hi===7", timeout=8000)
+        settle(page)
+        self.assertGreater(self.height(page), paragraph)
+
+    def test_a_walk_up_the_ladder_asks_once_for_what_one_answer_holds(self):
+        """One ladder answers every rung around the range it was asked about, and those are kept. So a walk over three
+        rungs asks once: the default rung came answered with the pick, the environment is asked for, and the rung it
+        answers beside it - and the environment again - are drawn from what is already here."""
+        page = self.view()
+        self.drag(page)
+        self.assertEqual(self.asked, [])  # the pick answered its own default rung
+        self.rung(page, "env")
+        self.assertEqual(self.asked, [(3, 9)])
+        self.rung(page, "env2")  # the whole file: the (3, 9) ladder carried it
+        self.rung(page, "env")
+        self.rung(page, "para")
+        self.assertEqual(self.asked, [(3, 9)])
+        drawn = self.boxes(page)
+        self.assertEqual([piece["page"] for piece in drawn], ["p1"])
+        self.assertAlmostEqual(drawn[0]["frac"][3], 0.125, places=3)
 
     def test_moving_up_the_ladder_and_back_leaves_no_box_behind(self):
         """Back down to the paragraph: its one piece is drawn and the environment's second piece is gone, so no box

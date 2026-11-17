@@ -49,7 +49,7 @@
       "src/limn/viewer/js/composer/input-mentions.ts": 17,
       "src/limn/viewer/js/composer/state-suggest.ts": 1,
       "src/limn/viewer/js/composer/view-excerpt.ts": 1,
-      "src/limn/viewer/js/composer/view-levels.ts": 3,
+      "src/limn/viewer/js/composer/view-levels.ts": 2,
       "src/limn/viewer/js/composer/view-selection-popover.ts": 8,
       "src/limn/viewer/js/composer/view-text.ts": 1,
       "src/limn/viewer/js/documents/flow-polling.ts": 6,

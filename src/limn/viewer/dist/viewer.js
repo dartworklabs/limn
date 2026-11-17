@@ -16496,46 +16496,57 @@ document.addEventListener(
   true,
 );
 // ---------------- Where the chosen lines print (docs/adr/0045-pin-marks-follow-the-range.md)
-// What a snippet answered about where a range owner's chosen lines print, kept beside the owner rather than on it: the
+// What snippets have answered about where a range owner's lines print, kept beside the owner rather than on it: the
 // composer's selection is written to the tab's draft as JSON (composer/flow-draft.ts), and boxes measured against the
-// build now on screen are not a draft's to keep. The range the answer was given for comes with it, so lines moved
-// since are never drawn from it, and an answer of no pieces is recorded as readily as one with them - lines with no
-// mark are then asked about once and left alone.
+// build now on screen are not a draft's to keep. One answer carries the whole ladder round the range it was asked
+// about, so every rung of it is held, each under its own lines: a rung moved to later is drawn from what is already
+// here rather than asked about again.
 const RANGE_BOXES = new WeakMap();
+// What lines an answer is held under.
+function rangeKey(first, last) {
+  return first + ':' + last;
+}
 // The rung whose range is exactly the owner's chosen lines and that carries where they print: a pick answers this for
 // its default rung, a snippet for every rung of the ladder it builds.
 function boxedRung(owner) {
   return (owner.levels || []).find((rung) => rung.lo === owner.lo && rung.hi === owner.hi && !!rung.boxes);
 }
-// The pieces the owner's chosen lines print as: the rung's answer for them, else a snippet's for exactly them. Empty
-// when neither has one - the box is then the rectangle that was dragged. A piece the server could not answer well is
-// left out rather than taking the rest of the selection's box with it.
+// Where the owner's chosen lines print, as far as anything has said - the rung's own answer, else a snippet's for
+// exactly those lines - and undefined when nothing has answered about them yet.
+//
+// The caller must tell those two apart, because they ask for opposite things: an answer of no pieces means these lines
+// have no mark, so the box belongs back on the rectangle that was dragged, while no answer yet means the box must wait
+// where it is. A piece the server could not answer well is left out rather than taking the rest of the box with it.
 function rangeBoxes(owner) {
-  const rung = boxedRung(owner),
-    held = RANGE_BOXES.get(owner);
-  const answered = (rung && rung.boxes) || (held && held.lo === owner.lo && held.hi === owner.hi ? held.boxes : null);
-  return (answered || []).filter(isPiece);
+  const rung = boxedRung(owner);
+  if (rung && rung.boxes) return rung.boxes.filter(isPiece);
+  const held = RANGE_BOXES.get(owner),
+    answered = held && held.get(rangeKey(owner.lo, owner.hi));
+  return answered && answered.filter(isPiece);
 }
-// Whether anything has answered about where the owner's chosen lines print, so they need not be asked about again.
-function rangeKnown(owner) {
-  const held = RANGE_BOXES.get(owner);
-  return !!boxedRung(owner) || !!(held && held.lo === owner.lo && held.hi === owner.hi);
-}
-// Records what a snippet answered about the lines it was asked for: the pieces of the rung that covers exactly them,
-// which the ladder round a range always holds, and no pieces when that rung carries none.
+// Records what a snippet answered: first the range it was asked about, so lines with no mark are asked about once and
+// a ladder that came without rungs cannot be asked about forever, then every rung the ladder carries under that rung's
+// own lines. One press on the ladder therefore answers the rungs around it as well.
 function takeRangeBoxes(owner, answer) {
-  const rung = (answer.levels || []).find((level) => level.lo === answer.lo && level.hi === answer.hi);
-  RANGE_BOXES.set(owner, { lo: answer.lo, hi: answer.hi, boxes: (rung && rung.boxes) || [] });
+  let held = RANGE_BOXES.get(owner);
+  if (!held) RANGE_BOXES.set(owner, (held = new Map()));
+  held.set(rangeKey(answer.lo, answer.hi), []);
+  for (const rung of answer.levels || []) held.set(rangeKey(rung.lo, rung.hi), rung.boxes || []);
 }
-// The composing selection's box follows the lines it has chosen: it is drawn over the pieces they print as, and when
-// nothing has answered about those lines yet they are asked of the snippet route, which answers every rung of the
-// ladder round them at once - so a rung moved to and then moved back to is drawn without asking again. A document
-// whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that element, and
-// a document drawn in the browser has no page to draw a box on.
+// The composing selection's box follows the lines it has chosen, and moves only onto an answer. Lines nothing has
+// answered about are asked of the snippet route - which answers every rung of the ladder round them at once - and the
+// box is left as it stands until that comes: putting it back on the dragged rectangle for the length of a request
+// would show the person the span they dragged as the pin's range, which is the one thing this is here to stop. A
+// document whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that
+// element, and a document drawn in the browser has no page to draw a box on.
 function followRange(selection, box, after) {
   if (!box || isFigureKind(META && META.kind) || !onLines(selection)) return;
-  snapSelectionBox(box, rangeBoxes(selection), draggedPlace(selection));
-  if (!rangeKnown(selection)) refetchSnip(selection, after);
+  const pieces = rangeBoxes(selection);
+  if (!pieces) {
+    refetchSnip(selection, after);
+    return;
+  }
+  snapSelectionBox(box, pieces, draggedPlace(selection));
 }
 // Where the drag that began the selection was made - its page and its rectangle as it was sent - which a range with no
 // pieces puts the box back on; null when the answer carries neither.
@@ -16544,15 +16555,19 @@ function draggedPlace(selection) {
     ? { page: selection.page, frac: selection.frac }
     : null;
 }
-let SNIPPET_TIMER = undefined;
+// The wait a range's text refresh is held for, the composing selection's apart from an open edit card's. They are two
+// timers because the composer's box waits on its answer (followRange) while the panels are open together, and a
+// request the other panel's wait cancelled would leave the box on the range it last showed with nothing to say so.
+let COMPOSE_SNIPPET_TIMER,
+  EDIT_SNIPPET_TIMER;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives. The composing selection also asks for the ladder round those lines (?levels=1), since its box follows them
 // (followRange); an edit card's box is the saved pin's mark, which the pin list answers, so it asks for the text alone.
 function refetchSnip(owner, after) {
   const visit = captureVisit(),
     composing = owner === COMPOSE.current;
-  clearTimeout(SNIPPET_TIMER);
-  SNIPPET_TIMER = setTimeout(async () => {
+  clearTimeout(composing ? COMPOSE_SNIPPET_TIMER : EDIT_SNIPPET_TIMER);
+  const wait = setTimeout(async () => {
     try {
       const { data } = await api(
         withDocQuery(
@@ -16578,6 +16593,8 @@ function refetchSnip(owner, after) {
       }
     } catch (error) {}
   }, 250);
+  if (composing) COMPOSE_SNIPPET_TIMER = wait;
+  else EDIT_SNIPPET_TIMER = wait;
 }
 function snipText(text, open) {
   const rungs = String(text || '').split('\n');
