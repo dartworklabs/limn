@@ -48,7 +48,7 @@ function excerptRows(first: number, last: number, lineCount: number, open: boole
 // Each selection's or edit card's source lines (line -> text, null when the server gave none) and the ones being
 // fetched. Kept beside the object, not on it: the composer's selection is written to the tab's draft
 // (composer/flow-draft.ts) as JSON.
-const EXCERPT_LINES = new WeakMap(),
+const EXCERPT_LINES = new WeakMap<RangeOwner, Map<number, string | null>>(),
   EXCERPT_FETCHING = new WeakSet();
 // The line cache of owner - a selection or an edit card - in EXCERPT_LINES, made on first use.
 function excerptLines(owner: RangeOwner) {

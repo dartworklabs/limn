@@ -254,10 +254,10 @@ function imeKey(event: KeyboardEvent) {
 }
 // META is null only until boot() reads /api/meta; nothing reads it before.
 let META = null as unknown as Meta,
-  PINS = [] as Pin[],
-  DONE = [] as Pin[],
-  DROPPED = [] as Pin[],
-  REPICK = null as Repick | null,
+  PINS: Pin[] = [],
+  DONE: Pin[] = [],
+  DROPPED: Pin[] = [],
+  REPICK: Repick | null = null,
   PICKSEQ = 0;
 // PAGE_SCALE: the scale of the document on screen, CSS px per PDF point (pdf/view-pages.ts §page sizes); 0 until its
 // first pages are built.
@@ -270,26 +270,26 @@ let SNIP_OPEN = false,
 const COARSE_POINTER_QUERY = matchMedia('(pointer:coarse)');
 let OUTLINE_MID_OPEN = false,
   MID_OVERLAY = false;
-let LAYOUT = null as string | null,
-  BAND = null as string | null,
-  BAND_IN = null as { w: number; h: number; coarse: boolean } | null,
+let LAYOUT: string | null = null,
+  BAND: string | null = null,
+  BAND_IN: { w: number; h: number; coarse: boolean } | null = null,
   SIDE_OPEN = true,
   SELMODE = false,
   ZOOMED = false;
-const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
+const OPEN_CARDS = new Set<number | null>(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
 // place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
 // field's text and selected recipient hints ('reply:12').
 let KIND_NEW = REQUEST_KIND.FIX as string,
-  REPLY = null as ReplyBox | null;
+  REPLY: ReplyBox | null = null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members +
 // pin authors/actors), PEOPLE_KNOWN = that list has arrived (until then no tag resolves, which says nothing about the
 // note), MENTION_ONLY = viewing only "pins that called me".
-let PEOPLE = [] as PersonSeen[],
+let PEOPLE: PersonSeen[] = [],
   PEOPLE_KNOWN = false,
   MENTION_ONLY = false;
-const THREAD_OPEN = new Set();
+const THREAD_OPEN = new Set<number>();
 /** Closed reply drafts keyed by pin; these snapshots stay within the current page. */
 const REPLY_DRAFT: Map<string, ReplyDraft> = new Map();
 /** Latest reply visit for each pin, including visits closed empty or already sent. */
@@ -300,11 +300,11 @@ const REPLY_VISITS: Map<number, number> = new Map();
 // PINS). META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom,
 // BUILD_ERR_BY = per-document last build error, DOC_SEQ = another document's finished-build count (it tells a build
 // that finished in the background).
-let DOCS = [] as DocEntry[],
-  DOC = null as string | null,
+let DOCS: DocEntry[] = [],
+  DOC: string | null = null,
   DEFAULT_DOC = 'main',
-  OPEN_ALL = [] as Pin[],
-  DONE_ALL = [] as Pin[],
+  OPEN_ALL: Pin[] = [],
+  DONE_ALL: Pin[] = [],
   SHOW_ALL = false,
   SWITCHSEQ = 0;
 // NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document
@@ -325,11 +325,11 @@ function currentVisit(visit: Visit) {
 }
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put
 // into DONE_ALL - drawn separately from the done archive.
-let REVIEW_ALL = [] as Pin[];
+let REVIEW_ALL: Pin[] = [];
 const META_BY = new Map(),
   VIEW_BY = new Map(),
-  BUILD_ERR_BY = new Map(),
-  DOC_SEQ = new Map();
+  BUILD_ERR_BY = new Map<string | null, BuildStatus>(),
+  DOC_SEQ = new Map<string | null, number>();
 window.__pinViewerBoot = Date.now(); // a marker for checking reload status from outside
 
 // Sets BAND, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
@@ -483,24 +483,38 @@ function setZoomed<Value extends typeof ZOOMED>(value: Value): Value {
   ZOOMED = value;
   return value;
 }
+interface ComposeState {
+  current: Selection | null;
+  box: HTMLElement | null;
+  picking: boolean;
+  pendingSave: boolean;
+  saving: boolean;
+  dismissedOverlap: string | null;
+  intent: number;
+  retryVerdict: { key: string; sel: Selection; gen: number } | null;
+}
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
 // counter every change to what the composer asks bumps (setComposeIntent) - a new, cleared or restored selection (pick,
 // cancelSelection, restoreSelection, restoreDraft), its rung or lines (the 'level' press, applyRange), the kind
 // (setKind) and the [제안 수정] switch (suggestAct). retryVerdict: the verdict a failed save carried, the selection it
 // was bound to and the intent it was pressed with; the failure's [다시 저장] saves it again only while that intent is
 // unchanged (savePin).
-const COMPOSE = {
-  current: null as Selection | null,
-  box: null as HTMLElement | null,
+const COMPOSE: ComposeState = {
+  current: null,
+  box: null,
   picking: false,
   pendingSave: false,
   saving: false,
-  dismissedOverlap: null as string | null,
+  dismissedOverlap: null,
   intent: 0,
-  retryVerdict: null as { key: string; sel: Selection; gen: number } | null,
+  retryVerdict: null,
 };
+interface EditorState {
+  current: EditCard | null;
+  saving: boolean;
+}
 // The active edit card and its save request share a lifetime; a dirty card may remain visible across document switches.
-const EDITOR = { current: null as EditCard | null, saving: false };
+const EDITOR: EditorState = { current: null, saving: false };
 // Each sets one field of COMPOSE or EDITOR, which this module declares, for another module that changes it (ADR-0042
 // D1): the assignment the caller wrote, nothing more.
 function setComposeCurrent(value: typeof COMPOSE.current) {

@@ -96,7 +96,7 @@ function revealPageRow(list: HTMLElement) {
 }
 
 // The page count that opened the popover; null while it is shut.
-let PAGE_LIST_FROM = null as HTMLElement | null;
+let PAGE_LIST_FROM: HTMLElement | null = null;
 // Opens the popover under the page count `from`, listing the pages with the current one in view. A mouse or keyboard
 // gets the page field focused, so typing a number still works at once; touch gets the current row focused, so no
 // keyboard comes up.

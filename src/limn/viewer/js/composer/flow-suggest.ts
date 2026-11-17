@@ -184,7 +184,7 @@ function suggestHiddenHtml(draft: SuggestDraft, hidden: { added: [string, number
 }
 
 // ---------------- A card's suggestion
-const SUGGEST_OPEN = new Set(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
+const SUGGEST_OPEN = new Set<string>(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
 // A card's suggested edit, after its note: the diff of base -> text, folded past SUGGEST_FOLD rows with [제안 펼치기 ·
 // N줄] under it to unfold. null when the pin has none.
 function suggestView(pin: Pin): Html | null {
@@ -254,7 +254,7 @@ async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns:
   draft.reading = key;
   draft.fail = null;
   redraw();
-  let text = null as string | null,
+  let text: string | null = null,
     fail = '';
   try {
     const { status, data } = await api(

@@ -59,7 +59,7 @@ const LONGPRESS_MS = 450;
 
 (function () {
   const grip = $('#grip');
-  let drag = null as {
+  let drag: {
     id: number;
     x: number;
     w: number;
@@ -67,7 +67,7 @@ const LONGPRESS_MS = 450;
     moved: boolean;
     mouse: boolean;
     zone: string | null;
-  } | null;
+  } | null = null;
   // The drag's cues: the handle turns primary once it stops at the minimum; the collapse preview fades the panel's
   // contents (never #right itself - see §펼친 화면 레이아웃) and the blocked zone shows not-allowed.
   const cue = (zone: string | null, rail?: boolean) => {
@@ -182,7 +182,7 @@ const LONGPRESS_MS = 450;
 // position is restored when it ends.
 (function () {
   const grip = $('#outline-grip');
-  let drag = null as { id: number; x: number; w: number } | null;
+  let drag: { id: number; x: number; w: number } | null = null;
   grip.addEventListener('pointerdown', (event: PointerEvent) => {
     if (
       LAYOUT === LAYOUT_MODE.NARROW ||
@@ -294,7 +294,7 @@ function dragSheetTo(height: number) {
 (function () {
   const grip = $('#sheet-grip'),
     bar = $('#bar1');
-  let drag = null as {
+  let drag: {
     id: number;
     x: number;
     y: number;
@@ -303,7 +303,7 @@ function dragSheetTo(height: number) {
     lazy: boolean;
     el: HTMLElement;
     pts: DragSample[];
-  } | null;
+  } | null = null;
   // grab = the drag owns the pointer (capture, cues); down = the handle grabs at once, the tool bar only once the move
   // is vertical (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
   const grab = (event: PointerEvent) => {
@@ -409,7 +409,7 @@ function pullDown(
   onMove: (deltaY: number) => void,
   onEnd: (deltaY: number | null, speed: number) => void,
 ) {
-  let pull = null as { x: number; y: number; on: boolean; pts: DragSample[] } | null;
+  let pull: { x: number; y: number; on: boolean; pts: DragSample[] } | null = null;
   box.addEventListener(
     'touchstart',
     (event: TouchEvent) => {
@@ -538,7 +538,7 @@ function dismissOutcome(distance: number, size: number, speed: number) {
 (function () {
   const panel = $('#right'),
     SKIP = '.seg,pre.nowrap,textarea,input,select,#grip,#bar1';
-  let swipe = null as {
+  let swipe: {
     id: number;
     x: number;
     y: number;
@@ -546,7 +546,7 @@ function dismissOutcome(distance: number, size: number, speed: number) {
     axis: string | null;
     w: number;
     pts: DragSample[];
-  } | null;
+  } | null = null;
   // setX moves the panel (and handle) by px through --swipe-x; settle ends a swipe - 'close' slides it out and
   // collapses it (remembered), 'back' springs it back - and always leaves --swipe-x at 0.
   const setX = (px: number) => document.documentElement.style.setProperty('--swipe-x', Math.round(px) + 'px');
@@ -634,7 +634,7 @@ function dismissOutcome(distance: number, size: number, speed: number) {
 // one history entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press,
 // and document switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is
 // registered there.
-let BACK = null as { kind: string; w?: CloseWatcher } | null,
+let BACK: { kind: string; w?: CloseWatcher } | null = null,
   BACK_SKIP = false;
 // Which layer covers the document for a band (overlay = MID_OVERLAY): an open bottom-sheet dialog on top (dialogOpen -
 // the caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline

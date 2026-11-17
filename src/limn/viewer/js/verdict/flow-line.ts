@@ -153,13 +153,13 @@ import { getDraft, putDraft } from './state-drafts.ts';
 
 // The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
 // card's [보기] goes to the line (marks, jumpPin).
-let SHOWN_ON_PAGE_LINES = new Set() as Set<number>;
+let SHOWN_ON_PAGE_LINES: Set<number> = new Set();
 let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VERDICT_PLACE) and - on a page line - the page, with the document, build and
 // (in the composer) selection it is bound to; null when nothing is armed.
-let ARMED_VERDICT = null as {
+let ARMED_VERDICT: {
   key: string;
   label: string;
   where: string;
@@ -169,7 +169,7 @@ let ARMED_VERDICT = null as {
   sel: string;
   kbd: boolean;
   timer: ReturnType<typeof setTimeout>;
-} | null;
+} | null = null;
 // What the composer's selection is, for the binding: its page, lines, rung, box and element.
 function selectionBindingKey() {
   const selection = COMPOSE.current;
@@ -769,20 +769,20 @@ function pageLineSlot(page: number, doc?: string | null) {
   return (doc === undefined ? DOC || '' : doc || '') + '\u0001' + page;
 }
 // the page lines whose verdict is being saved (pageLineSlot), with the word it saves
-const SAVING_LINES = new Map() as Map<string, string>;
+const SAVING_LINES: Map<string, string> = new Map();
 // The press made on a line while its save was out, by line (pageLineSlot) - the last one: applied when that save is
 // done (pressPageVerdict).
-const NEXT_PRESS = new Map() as Map<string, { key: string; how: string }>;
+const NEXT_PRESS: Map<string, { key: string; how: string }> = new Map();
 // The lines whose save out was a digit key's (pageLineSlot): Enter on any control of that line then means the reason,
 // one intent with the key (openReasonOnEnter). On the word the focus rests on it pressed that word: a second verdict,
 // over the one being saved.
-const KEY_SAVE_OUT = new Set() as Set<string>;
+const KEY_SAVE_OUT: Set<string> = new Set();
 // A line whose word was just taken back by pressing it again (pageLineSlot): that word waits until then (a double press
 // takes back one).
-const TAKEN_BACK_HOLD = new Map() as Map<string, { key: string; until: number }>;
+const TAKEN_BACK_HOLD: Map<string, { key: string; until: number }> = new Map();
 // A page line's last failed save, by page: said on the line that was pressed (pageLineHtml) as well as on the status
 // line, until the next press on that line or another document or build. The document and build it was for come with it.
-const LINE_SAVE_ERROR = new Map() as Map<number, { text: string; doc: string | null; build: string }>;
+const LINE_SAVE_ERROR: Map<number, { text: string; doc: string | null; build: string }> = new Map();
 // The reason after a page line's save - its popover, drafts kept per pin, its writes - is verdict/flow-reason.ts
 // (REASON_SESSION). The key marks follow the focus: off on every line while a text field has it - digits typed there
 // are text, the reason field's included (keyedPageFor). (Another document closes the popover through syncReasonSession
@@ -807,7 +807,7 @@ document.addEventListener('focusout', () => stickSoon());
 // click. A press whose window loses the focus or is hidden (another app, a tab switch) lets it go at once: let go
 // outside the window, it has no pointerup or pointercancel here.
 let POPOVER_PRESS = false;
-let FOLD_PRESS_HOLD = null as (() => void) | null; // the press holding the fold: drops its own wait without letting go
+let FOLD_PRESS_HOLD: (() => void) | null = null; // the press holding the fold: drops its own wait without letting go
 function syncTypingFold() {
   const active = document.activeElement as HTMLElement | null,
     focusLine = active && active.closest ? (active.closest('#doc .pv') as HTMLElement | null) : null,
@@ -834,7 +834,7 @@ document.addEventListener(
       return;
     if (FOLD_PRESS_HOLD) FOLD_PRESS_HOLD(); // an earlier press still waiting: this one holds the fold now
     POPOVER_PRESS = true;
-    let timer = undefined as ReturnType<typeof setTimeout> | undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined = undefined;
     const drop = () => {
       clearTimeout(timer);
       window.removeEventListener('click', late);
@@ -898,7 +898,7 @@ function pageSaveContext(page: number): {
 // The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
 function currentVerdictOn(doc: string | null, page: number): Pin | null {
   if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
-  let best = null as Pin | null;
+  let best: Pin | null = null;
   verdictOrder(doc || DEFAULT_DOC).groups.forEach((group) => {
     if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
   });
@@ -1163,13 +1163,13 @@ function canCancelVerdict(pin: Pin) {
 }
 // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
 const CANCEL_HOLD_MS = 800;
-const CANCEL_HOLD = new Map() as Map<string, number>; // line (pageLineSlot) -> until when its [판정 취소] waits
+const CANCEL_HOLD: Map<string, number> = new Map(); // line (pageLineSlot) -> until when its [판정 취소] waits
 // The lines whose take-back is out: Enter and Space on them do nothing until it answers (stopOffPageKey). What the
 // focus rests on is what the line shows meanwhile, the verdict before it: Enter there would open a reason for it, or
 // take that one back too. An answer that does not come must not leave the line deaf: past CANCEL_ANSWER_WAIT the keys
 // are back and the status line says so; the late answer is still taken (its message, its [되돌리기]), but the focus has
 // moved on by then and stays. The value says whose wait it is.
-const CANCEL_OUT = new Map() as Map<string, number>;
+const CANCEL_OUT: Map<string, number> = new Map();
 // the bound a status-line action's request has (platform/notices.ts noticeAct)
 let CANCEL_ANSWER_WAIT = NOTICE_ACT_WAIT;
 // A verdict a [되돌리기] brought back (a take-back's, the save chip's): when it is its line's current verdict again its
@@ -1204,7 +1204,7 @@ function afterVerdictRestore(id: number) {
 }
 // The take-backs whose [되돌리기] the line offers too, by line (pageLineSlot): the pin and its status-line message -
 // the offer lasts as long as that message (its window, or its action).
-const LINE_UNDO_OFFERS = new Map() as Map<string, { id: number; n: number }>;
+const LINE_UNDO_OFFERS: Map<string, { id: number; n: number }> = new Map();
 // The line's [되돌리기]: the status line's action runs (noticeAct), as if pressed there.
 function undoFromLine(control: HTMLElement) {
   const line = control.closest('.pv'),
@@ -1517,7 +1517,7 @@ function showPressedHint(page: number) {
 // rewritten one would send the click to the line), and the focus stays where it was, also on a '#N' whose number just
 // changed. A line whose words are what it shows is left alone. Every verdict pin the line accounts for - the current
 // one and the earlier ones - draws no page-size mark.
-const LINE_TEXT = new WeakMap() as WeakMap<HTMLElement, string>; // what fillPageLine last wrote into each line
+const LINE_TEXT: WeakMap<HTMLElement, string> = new WeakMap(); // what fillPageLine last wrote into each line
 function fillPageLine(line: HTMLElement, page: number, list: Pin[] | undefined, verdicts: DocVerdicts) {
   line.dataset.page = String(page);
   line.classList.toggle('reading', READING_LINE_PAGE === page);
@@ -1684,7 +1684,7 @@ function sizePageLines() {
 // The verdict pins saved by a key on this screen (LAST_KEY_SAVE, each in turn): their lines (.pv-kw) are fitted at
 // either look of the way to the reason (fitPageLines). The last key save's alone says 'Enter 이유 쓰기', and fitting
 // one again on [이유 추가] alone when it stops being the last would move the pages under the next key save.
-const KEY_SAVED_PINS = new Set() as Set<number>;
+const KEY_SAVED_PINS: Set<number> = new Set();
 // One row or stacked, decided per line (.pv-stack), so one line with an earlier verdict or a reason never stacks every
 // line of the document over the plot. Each line is laid out as one row - the figure's title cut first, down to its
 // identifier ('6쪽 · PL17', pageLineName; --pv-fig-min), then the reason and the earlier link (components.css) - and
@@ -2092,7 +2092,7 @@ function holdsRows(line: HTMLElement) {
 // presses meant for [이유 추가] and [판정 취소]. --pv-chip-r and --pv-chip-y place it from the line's right edge and
 // top. how long a chip with no room waits for its line to settle before its undo goes to the status line
 const CHIP_WAIT_MS = 3000;
-const CHIP_WAIT_TIMERS = new WeakMap() as WeakMap<HTMLElement, number>;
+const CHIP_WAIT_TIMERS: WeakMap<HTMLElement, number> = new WeakMap();
 function placeLineChips(lines: HTMLElement[]) {
   const chips = lines.map((line) => line.querySelector(':scope>.nt-chip') as HTMLElement | null);
   lines.forEach((line, index) => {
@@ -2479,7 +2479,7 @@ function stickReadingLine() {
     KEYED_PAGE = keyedPage;
     const map = pageVerdictPins(),
       verdicts = pageVerdictsOn();
-    const refit = [] as HTMLElement[];
+    const refit: HTMLElement[] = [];
     if (verdicts && IS_BESIDE_PAGES) {
       fillPanel(map, verdicts);
       refit.push(ensurePanel());
@@ -2535,7 +2535,7 @@ function stickReadingLine() {
 // dropping it would lift the line under the eye - and goes once the line is back in its place or out of view. The
 // panel's popover is in the panel's flow, beside the page: it covers nothing. line -> the room its block holds (px) and
 // that block
-const POPOVER_ROOM = new Map() as Map<HTMLElement, { room: number; blk: HTMLElement }>;
+const POPOVER_ROOM: Map<HTMLElement, { room: number; blk: HTMLElement }> = new Map();
 // The gap between a page and its line in its own place: the page's bottom margin and the line's top margin, collapsed.
 function lineOwnGap(line: HTMLElement, pageElement: HTMLElement) {
   const pageMargin = parseFloat(getComputedStyle(pageElement).marginBottom) || 0,
@@ -2647,7 +2647,7 @@ function placePopoverRoom(area: HTMLElement, areaRect: DOMRect): boolean {
 // Hysteresis keeps it from flipping at a page's end: shown, it leans once the line floats; leaning, it is shown again
 // only when the line (its full height, measured when it was last shown) fits in its place under the page. Desktop and
 // every other band: never.
-const FULL_LINE_HEIGHT = new WeakMap() as WeakMap<HTMLElement, { h: number; gap: number }>;
+const FULL_LINE_HEIGHT: WeakMap<HTMLElement, { h: number; gap: number }> = new WeakMap();
 function leanFloatingLine(
   line: HTMLElement,
   pageElement: HTMLElement,
@@ -2763,7 +2763,7 @@ function moveFocusOffPage(readingPage: number, was: number) {
 // The line control the focus went to and the reading page then: one focused on the reading page's line that is no
 // longer it is the page the person left (stopOffPageKey), even before the frame that moves the focus
 // (moveFocusOffPage).
-let LINE_FOCUS = null as { el: Element; read: number } | null;
+let LINE_FOCUS: { el: Element; read: number } | null = null;
 document.addEventListener('focusin', (event) => {
   const target = event.target as HTMLElement | null;
   LINE_FOCUS = target && target.closest && target.closest('#doc .pv') ? { el: target, read: READING_LINE_PAGE } : null;
@@ -3018,7 +3018,7 @@ addEventListener('keydown', (event) => {
 // (above): a mark, or a later page's line. Shift+Tab from it leaves the pages the way the reading line's first stop
 // does (findOutStop, below) - the DOM's stop before it is a page above, off the screen, and the focus would scroll the
 // pages there. Let go when the focus leaves the pages, on another document or build, and by the next Tab from the area.
-let STOP_IN_VIEW = null as { el: HTMLElement; visit: { doc: string | null; seq: number }; build: string } | null;
+let STOP_IN_VIEW: { el: HTMLElement; visit: { doc: string | null; seq: number }; build: string } | null = null;
 // The first Tab stop in the pages from page `at` on - its own marks, then the next pages' marks and lines in the DOM's
 // order - when that stop shows whole in the PDF area's view (its client box, within the window) and nothing lies over
 // any of it (the status line or the sheet over the area's bottom, a panel laid over its side: what its middle and four
@@ -3087,7 +3087,7 @@ function findEdgeStop(after: boolean): HTMLElement | null {
 // tool bar - with the visit (captureVisit: the document and its switch) and build it was pressed on: a switch - also
 // away and back - or a new build lets it go (findOutStop), as any focus outside the pages does. Shift+Tab from the
 // reading line goes back there (below).
-let CAME_FROM = null as { el: HTMLElement; visit: { doc: string | null; seq: number }; build: string } | null;
+let CAME_FROM: { el: HTMLElement; visit: { doc: string | null; seq: number }; build: string } | null = null;
 function noteCameFrom(element: HTMLElement) {
   CAME_FROM = { el: element, visit: captureVisit(), build: (META && META.pages_build) || '' };
 }

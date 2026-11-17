@@ -34,7 +34,7 @@ function elementName(element: PinElement | null | undefined) {
 function elementPathText(selection: Selection) {
   const selectedElement = selection && selection.elSel;
   if (!selectedElement || !Array.isArray(selectedElement.path)) return '';
-  const names = new Map();
+  const names = new Map<string, string>();
   if (selection.el && selection.el.id) names.set(selection.el.id, elementName(selection.el));
   (selection.levels || []).forEach((level) => {
     if (level.el && level.el.id) names.set(level.el.id, String(level.label || elementName(level.el)));

@@ -177,7 +177,7 @@ function newRenderContext(lines: string[]): RenderContext {
 }
 // The render context a drawn root was built with (the compare's sides, keepRenderContext); any other root is the
 // document view's, MARKDOWN_VIEW.
-const ROOT_CONTEXTS = new WeakMap() as WeakMap<Element, RenderContext>;
+const ROOT_CONTEXTS: WeakMap<Element, RenderContext> = new WeakMap();
 function keepRenderContext(root: Element, context: RenderContext) {
   ROOT_CONTEXTS.set(root, context);
 }
@@ -249,7 +249,7 @@ const KATEX_VERSION = '__KATEX_VERSION__';
 // final: the math of every document then stays as its source characters (ADR-0036 D2), and nothing is asked for twice.
 const TEX_RENDERER = { state: 'none' as 'none' | 'ready' | 'off', lib: null as any };
 // The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
-const TEX_CLOSE = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' } as Record<string, string>;
+const TEX_CLOSE: Record<string, string> = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' };
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
 // (and a PDF or text document) asks for nothing.
 function hasMath(tokens: any[]) {
@@ -420,7 +420,7 @@ function isFieldBusy() {
     inDoc = (node: any) => node instanceof Node && doc.contains(node);
   return inDoc(held) || (!!active && inDoc(active) && active !== doc && COMPOSING_FIELDS.has(active));
 }
-const COMPOSING_FIELDS = new Set();
+const COMPOSING_FIELDS = new Set<EventTarget | null>();
 document.addEventListener(
   'compositionstart',
   (event) => {
@@ -537,7 +537,7 @@ async function buildMarkdownDoc() {
     ? { ok: false, limit: MARKDOWN_LIMIT.NUL }
     : await parseMarkdown(MARKDOWN_VIEW.lines.join('\n'));
   if (stale() || !parsed) return;
-  let root = null as HTMLElement | null,
+  let root: HTMLElement | null = null,
     limit = parsed.ok ? null : String(parsed.limit || MARKDOWN_LIMIT.ERROR);
   // The TeX renderer is fetched before the build, which is synchronous once it starts (drawTexBox): only a document
   // whose tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1,
@@ -1713,7 +1713,7 @@ function* drawImage(token: any, work: { n: number }, context: RenderContext): Ge
 }
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps
 // their places.
-const IMAGE_SIZES = new Map() as Map<string, { w: number; h: number }>;
+const IMAGE_SIZES: Map<string, { w: number; h: number }> = new Map();
 // An image has loaded: its size is kept (IMAGE_SIZES) and given to its box, and the reading spot (MARKDOWN_VIEW.spot,
 // as readSpot last read it, or read again just before the change when the pane was moved since: refreshMovedSpot) is
 // put back (putSpotBack) - only an image above it moves anything. During a jump to a heading (goToHeading) the spot is
@@ -1771,6 +1771,14 @@ function sizeImage(img: HTMLImageElement, width: number, height: number) {
   img.removeAttribute('height');
   img.style.removeProperty('--md-pic-r');
 }
+interface ImageCheckState {
+  max: number;
+  gap: number;
+  last: number;
+  busy: boolean;
+  asked: number;
+  at: Map<string, Map<string, number>>;
+}
 // ---------------- A tree image changed on disk (docs/handbook/viewer.md §그림)
 // The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so
 // without a check an image rewritten on disk would show only after a reload: a redraw draws the same address again. On
@@ -1788,16 +1796,16 @@ function sizeImage(img: HTMLImageElement, width: number, height: number) {
 // is kept per document and path (IMAGE_VERSIONS), so a redraw or a return to the document draws the new picture too. No
 // route, no field: only GET /api/asset. at: for each document, tree path -> when a check last asked it, for the paths
 // the document shows now (no other bound, so no image's turn is ever forgotten while it is on the page).
-const IMAGE_CHECK = {
+const IMAGE_CHECK: ImageCheckState = {
   max: 6,
   gap: 4000,
   last: -Infinity,
   busy: false,
   asked: 0,
-  at: new Map() as Map<string, Map<string, number>>,
+  at: new Map(),
 };
-const IMAGE_TAGS = new Map() as Map<string, string>; // an address -> the ETag of the picture an image at it shows
-const IMAGE_VERSIONS = new Map() as Map<string, string>; // doc + '\n' + tree path -> the version its address carries
+const IMAGE_TAGS: Map<string, string> = new Map(); // an address -> the ETag of the picture an image at it shows
+const IMAGE_VERSIONS: Map<string, string> = new Map(); // doc + '\n' + tree path -> the version its address carries
 const IMAGE_MAP_LIMIT = 256; // the most entries either map keeps, the oldest dropped first
 // The address the tree image at path loads from now: assetUrl's, with the version a check found (IMAGE_VERSIONS).
 function imageUrl(doc: string | null, path: string) {
@@ -1847,8 +1855,8 @@ async function checkTreeImages(): Promise<number> {
   )
     return 0;
   const paneRect = $('#left').getBoundingClientRect(),
-    near = [] as { img: HTMLImageElement; d: number }[],
-    shown = new Set();
+    near: { img: HTMLImageElement; d: number }[] = [],
+    shown = new Set<string>();
   for (const img of [...document.querySelectorAll('#md .md-pic img')] as HTMLImageElement[]) {
     const path = img.parentElement && img.parentElement.dataset.path;
     if (path) shown.add(path);
@@ -1879,7 +1887,7 @@ async function checkTreeImages(): Promise<number> {
   IMAGE_CHECK.last = now;
   let count = 0,
     moved = 0;
-  const seen = new Set();
+  const seen = new Set<string>();
   try {
     for (const { img } of near) {
       const box = img.parentElement,
@@ -2063,7 +2071,7 @@ function goToSlug(id: string): number {
     want = decodeURIComponent(want);
   } catch (error) {}
   want = want.toLowerCase();
-  const seen = new Map();
+  const seen = new Map<string, number>();
   let at = -1;
   MARKDOWN_VIEW.heads.forEach((heading, index) => {
     if (at >= 0) return;
@@ -2151,7 +2159,7 @@ function lineSnippet(first: number, last: number) {
 // of the same or a higher level (the file's end when none), its trailing blank lines left out. null above the first
 // heading, or when last is past it.
 function sectionAround(first: number, last: number) {
-  let heading = null as { level: number; lo: number; title: string } | null;
+  let heading: { level: number; lo: number; title: string } | null = null;
   for (const head of MARKDOWN_VIEW.heads) {
     if (head.lo <= first) heading = head;
     else break;
@@ -2340,7 +2348,7 @@ function lineLeaves(first: number, last: number) {
       end = +(block.dataset.hi || 0);
     return start <= last && end >= first && !block.querySelector('[data-line],[data-lo]');
   });
-  const out = new Set();
+  const out = new Set<Element>();
   for (const element of [...lines, ...blocks]) {
     const row = element.closest('tr[data-lo]');
     out.add(row && column.contains(row) ? row : element);
@@ -2362,7 +2370,7 @@ function drawPinMarks() {
   const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
     .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
     .sort((left, right) => (left.lo as number) - (right.lo as number) || left.id - right.id);
-  const rows = new Map() as Map<number, HTMLElement>,
+  const rows: Map<number, HTMLElement> = new Map(),
     top = column.getBoundingClientRect().top;
   for (const pin of pins) {
     const leaves = lineLeaves(pin.lo as number, pin.hi as number);
@@ -2554,7 +2562,7 @@ function markdownPositionLabel(doc: string, line: number, lineCount: number, mul
 }
 // The empty list's help (#empty) speaks of dragging on the PDF; this document gets its own words, and a PDF document
 // the page's own back (kept as served).
-let PDF_HINT_NODES = null as Node[] | null;
+let PDF_HINT_NODES: Node[] | null = null;
 function showMarkdownHint() {
   const help = $('#empty');
   if (!help) return;
@@ -2751,14 +2759,14 @@ function rangeText(range: Range) {
   copy.className = 'md';
   copy.append(range.cloneContents());
   copy.querySelectorAll('.md-badges').forEach((element) => element.remove());
-  const tex = [] as string[];
+  const tex: string[] = [];
   copy.querySelectorAll('[data-tex]').forEach((element) => {
     tex.push(element.getAttribute('data-tex') || '');
     const slot = document.createElement(element.classList.contains('md-math-block') ? 'div' : 'span');
     slot.textContent = '\ufff1';
     element.replaceWith(slot);
   });
-  const kept = [] as string[];
+  const kept: string[] = [];
   copy.querySelectorAll('.cc').forEach((element) => {
     kept.push(element.textContent || '');
     element.replaceWith('\ufff0');

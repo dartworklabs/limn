@@ -460,7 +460,7 @@ function summaryHtml(page: number, list: Pin[] | undefined) {
 // Draws (beside the pages) or takes away (under them) every page's summary, after its page. New rows are watched for
 // being far from the view (watchFarLines: a far row is skipped like a far line).
 function drawSummaries(map: Map<number, Pin[]>) {
-  const made = [] as HTMLElement[];
+  const made: HTMLElement[] = [];
   $$('#doc .pgw').forEach((block) => {
     const page = Number((block as HTMLElement).dataset.page) || 0;
     let summary = block.querySelector(':scope>.pv-sum') as HTMLElement | null;
@@ -520,7 +520,7 @@ function goToSummaryPage(summary: HTMLElement) {
 // stickReadingLine asks: the page held, or 0 when nothing is (under the pages, at rest, a panel that names no page).
 // The glide's end - its scrollend, else the guard's own end - draws the panel again, so at rest the panel, the section
 // strip and the keys name one page.
-let HOLD_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
+let HOLD_TIMER: ReturnType<typeof setTimeout> | undefined = undefined;
 function heldPanelPage() {
   if (!IS_BESIDE_PAGES || !isAutoScrolling()) return 0;
   const panel = document.getElementById('pv-panel'),

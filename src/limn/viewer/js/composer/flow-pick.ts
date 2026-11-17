@@ -430,7 +430,7 @@ function renderComposer() {
 // ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자')
 // The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range
 // change (the same object) keeps it open.
-let QUOTE_OPEN_SELECTION = null as Selection | null;
+let QUOTE_OPEN_SELECTION: Selection | null = null;
 // What a pick or a pin shows of its quote (the dragged PDF text, whitespace-normalized by the server): the text
 // trimmed, or '' for none - no text (a tap or a long press), a region (a view-only PDF or a figure region shows its
 // text as the source already) or a line of a figure document (its quote is the element's name, which the location line
@@ -628,7 +628,7 @@ function focusPlace(
     mark.focus({ preventScroll: true });
     return;
   }
-  let at = null as HTMLElement | null;
+  let at: HTMLElement | null = null;
   if (selection && (selection.doc || DOC) === DOC) {
     if (isMarkdownDoc()) {
       const line = typeof selection.raw_lo === 'number' ? selection.raw_lo : selection.lo;

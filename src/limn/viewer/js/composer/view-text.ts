@@ -2,7 +2,7 @@
 // The composer's note, an edit card's note and a reply share these: the field's height follows its text, and a card's
 // quote line stays open across redraws.
 // The cards whose quote line is open ('<doc>:<id>', toggleQuote), kept across redraws.
-const QUOTE_OPEN = new Set();
+const QUOTE_OPEN = new Set<string>();
 // The note field of an edit card (openEdit puts exactly one in every card).
 function editNote(card: EditCard): HTMLTextAreaElement {
   return card.el.querySelector('.e-note') as HTMLTextAreaElement;

@@ -112,7 +112,7 @@ function searchLines(items: any[]) {
   rows.forEach((rowItems) => {
     const mine = [] as any[];
     let raw = '',
-      parts = [] as { i: number; from: number }[],
+      parts: { i: number; from: number }[] = [],
       pieceBox = null as any;
     const end = () => {
       if (raw.trim()) {
@@ -247,7 +247,7 @@ function searchGutter(lines: any[]): number[] | null {
   const at = [...new Set(boxes.flatMap((box) => [box.x0, box.x1]))].sort((first, second) => first - second),
     low = at[0],
     high = at[at.length - 1],
-    coverChange = new Map();
+    coverChange = new Map<number, number>();
   boxes.forEach((box) => {
     coverChange.set(box.x0, (coverChange.get(box.x0) ?? 0) + 1);
     coverChange.set(box.x1, (coverChange.get(box.x1) ?? 0) - 1);
@@ -257,7 +257,7 @@ function searchGutter(lines: any[]): number[] | null {
   let running = 0;
   const coverCounts = at.slice(0, -1).map((x) => (running += coverChange.get(x) ?? 0)),
     bar = Math.max(1, Math.floor(SEARCH_GUTTER.BAR * Math.max(...coverCounts)));
-  let best = null as number[] | null;
+  let best: number[] | null = null;
   for (let k = 0; k < coverCounts.length;) {
     if (coverCounts[k] > bar) {
       k++;
@@ -298,7 +298,7 @@ function searchGutter(lines: any[]): number[] | null {
 // measure says whose it is (col: 0 left, 1 right) and carries the block's edges (blk), for searchJoin. Pure.
 function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?: { l: number; r: number } } | null)[] {
   const blockOf = searchBlocks(lines),
-    blockEdges = [] as { l: number; r: number }[];
+    blockEdges: { l: number; r: number }[] = [];
   lines.forEach((line, index) => {
     const block = blockOf[index];
     if (block < 0) return;
@@ -324,7 +324,7 @@ function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?:
   const crossed = new Set(
       lines.flatMap((line, index) => (side[index] === 2 && blockOf[index] >= 0 ? [blockOf[index]] : [])),
     ),
-    left = new Map();
+    left = new Map<string, number>();
   lines.forEach((line, index) => {
     const sideIndex = side[index];
     if (sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])) return;
@@ -392,7 +392,7 @@ function searchJoin(
 // length (n). Pure.
 function searchFlow(lines: any[]) {
   let flow = '';
-  const rows = [] as { at: number; cut: number; n: number }[],
+  const rows: { at: number; cut: number; n: number }[] = [],
     edges = searchEdges(lines);
   lines.forEach((line, index) => {
     const body = line.t.trim();
@@ -427,7 +427,7 @@ function searchFind(
   flow: { t: string; rows: { at: number; cut: number; n: number }[] },
   pattern: RegExp | null,
 ): number[][][] {
-  const out = [] as number[][][];
+  const out: number[][][] = [];
   if (!pattern) return out;
   let rowIndex = 0;
   for (const match of flow.t.matchAll(pattern)) {
@@ -621,17 +621,17 @@ function searchPages(doc: PdfDocument) {
 }
 // The hits of a pattern on a read page, number pageNumber, in reading order.
 function searchPageHits(page: SearchPage, pageNumber: number, pattern: RegExp | null) {
-  return searchFind(page.flow, pattern).map((pieces) => ({
+  return searchFind(page.flow, pattern).map((pieces): SearchHit => ({
     page: pageNumber,
     line: pieces[0][0],
     a: pieces[0][1],
     pieces,
-    boxes: null as number[][] | null,
+    boxes: null,
   }));
 }
 // The width of text in a generic font family, in an arbitrary unit (a shared canvas, SEARCH_CONTEXT): searchBox()'s
 // measure.
-let SEARCH_CONTEXT = null as CanvasRenderingContext2D | null;
+let SEARCH_CONTEXT: CanvasRenderingContext2D | null = null;
 function searchMeasure(text: string, family: string) {
   const context = (SEARCH_CONTEXT ||
     (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D;
@@ -1051,9 +1051,9 @@ function searchCover() {
   if (!openBox) return;
   const barStyle = getComputedStyle(navigationBar),
     gap = parseFloat(barStyle.columnGap) || 0,
-    keep = [] as HTMLElement[],
-    off = [] as HTMLElement[],
-    left = [] as HTMLElement[];
+    keep: HTMLElement[] = [],
+    off: HTMLElement[] = [],
+    left: HTMLElement[] = [];
   // Each neighbour before the search in the bar is left in place (it ends a gap short of the field), kept (the status
   // line) or taken off - also one the bar has squeezed to no width (a long status line at rest does that to the
   // document links), which would come back under the field as soon as the status is shortened.

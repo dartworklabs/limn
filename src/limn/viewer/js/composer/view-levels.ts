@@ -212,7 +212,7 @@ document.addEventListener(
   },
   true,
 );
-let SNIPPET_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
+let SNIPPET_TIMER: ReturnType<typeof setTimeout> | undefined = undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives.
 function refetchSnip(owner: LineOwner, after: () => void) {

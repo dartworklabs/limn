@@ -49,7 +49,7 @@ function widestPagePoints() {
 // The most common of the page widths (points): the mode, the wider on a tie; 0 for none. A figure document opens by it
 // (openScale): its one wide outlier (a graphical abstract) scrolls sideways instead of shrinking every figure. Pure.
 function commonWidth(widths: number[]) {
-  const counts = new Map();
+  const counts = new Map<number, number>();
   let best = 0,
     most = 0;
   for (const width of widths) {
@@ -307,7 +307,7 @@ function zoomAnchor(clientX?: number, clientY?: number): ZoomAnchor | null {
   const centre = clientX == null || clientY == null,
     pointX = centre ? areaRect.left + pdfArea.clientWidth / 2 : clientX,
     pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
-  let best = null as { pg: HTMLElement; r: DOMRect } | null,
+  let best: { pg: HTMLElement; r: DOMRect } | null = null,
     bestDistance = Infinity;
   for (const pageBox of findAll(document, '.pg', HTMLElement)) {
     const rect = pageBox.getBoundingClientRect(),

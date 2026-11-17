@@ -165,7 +165,7 @@ function sameLines(first: VerdictTarget, second: VerdictTarget) {
     y = second.lines;
   return !x || !y || (x.open && y.open) || (!!x.anchor && x.anchor === y.anchor);
 }
-let VERDICT_ORDER_CACHE = { lists: [], by: new Map() } as { lists: unknown[]; by: Map<string, VerdictOrder> };
+let VERDICT_ORDER_CACHE: { lists: unknown[]; by: Map<string, VerdictOrder> } = { lists: [], by: new Map() };
 // The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open,
 // awaiting review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a
 // verdict, while the list still has it - applyPinLists) and done - by resolved target (verdictTargetOf), newest
@@ -183,8 +183,8 @@ function verdictOrder(doc: string): VerdictOrder {
   const hit = VERDICT_ORDER_CACHE.by.get(doc);
   if (hit) return hit;
   const kind = docKindOf(doc),
-    groups = new Map() as Map<string, { t: VerdictTarget; all: { p: Pin; t: VerdictTarget }[] }>,
-    seen = new Set();
+    groups: Map<string, { t: VerdictTarget; all: { p: Pin; t: VerdictTarget }[] }> = new Map(),
+    seen = new Set<number>();
   for (const pin of OPEN_ALL.concat(REVIEW_ALL, DONE_ALL, [...CONFIRMING_PIN.values()])) {
     if (seen.has(pin.id) || pdoc(pin) !== doc || !verdictOf(pin)) continue;
     seen.add(pin.id);
@@ -194,7 +194,7 @@ function verdictOrder(doc: string): VerdictOrder {
     group.all.push({ p: pin, t: target });
     groups.set(target.key, group);
   }
-  const out = { groups: new Map(), cur: new Map() } as VerdictOrder;
+  const out: VerdictOrder = { groups: new Map(), cur: new Map() };
   groups.forEach((group, key) => {
     group.all.sort((left, right) => right.p.id - left.p.id);
     group.all.forEach((x) => {
@@ -214,7 +214,7 @@ function verdictOrder(doc: string): VerdictOrder {
 // The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by
 // page. A page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
 function pageVerdictPins(): Map<number, Pin[]> {
-  const out = new Map() as Map<number, Pin[]>;
+  const out: Map<number, Pin[]> = new Map();
   verdictOrder(DOC || DEFAULT_DOC).groups.forEach((group) => {
     if (!group.whole) return;
     const had = out.get(group.page);

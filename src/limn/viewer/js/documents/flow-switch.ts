@@ -560,7 +560,7 @@ async function switchDoc(doc: string | undefined) {
   }
 }
 // The switch waiting for its document's meta (switchDoc), or null.
-let SWITCH_TO = null as { k: string; seq: number; nav: number } | null;
+let SWITCH_TO: { k: string; seq: number; nav: number } | null = null;
 // Whether a switch to `doc` is on its way and still the one that will open: the newest switch, no history traversal
 // since.
 function switchPending(doc: string) {

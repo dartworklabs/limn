@@ -80,7 +80,7 @@ async function api(url: string, options?: RequestOptions): Promise<{ status: num
   options = { ...(options || {}) };
   options.source =
     options.source || (options.method || 'GET') + ' ' + url + (options.intent ? ' ' + options.intent : '');
-  const init = { method: options.method || 'GET', headers: {} } as RequestInit & { headers: Record<string, string> };
+  const init: RequestInit & { headers: Record<string, string> } = { method: options.method || 'GET', headers: {} };
   if (options.keepalive) init.keepalive = true;
   if (options.signal) init.signal = options.signal;
   if (options.body !== undefined) {
@@ -97,7 +97,7 @@ async function api(url: string, options?: RequestOptions): Promise<{ status: num
     }
   }
   const wait = options.wait || (read ? API_WAIT.READ : 0);
-  let timer = undefined as ReturnType<typeof setTimeout> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const controller = wait ? new AbortController() : null;
   if (controller) {
     const end = () => controller.abort();

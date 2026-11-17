@@ -21,8 +21,8 @@ import { $, $$ } from '../platform/dom.ts';
 // near: the browser's scroll anchoring keeps the view where it stands as it grows or shrinks. A draw makes new
 // elements, which that anchoring cannot hold, so a row in the view before it (listKeep) is put back where it stood: its
 // cards may stand at other heights than the ones they replace.
-let LAZY_IO = null as IntersectionObserver | null,
-  LAZY_ROOT = null as HTMLElement | null,
+let LAZY_IO: IntersectionObserver | null = null,
+  LAZY_ROOT: HTMLElement | null = null,
   LAZY_WIDTH = 0,
   LAZY_HEIGHT = -1;
 // After a draw: the first row kept (listKeep) that is still drawn in the section it was in is put back where it stood -

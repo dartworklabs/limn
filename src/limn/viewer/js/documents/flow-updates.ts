@@ -34,14 +34,23 @@ import { VIEW_MODE } from '../app/rules-tables.ts';
 import { who } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc, REVISION_PAGE } from './state.ts';
 import { changesView, documentWork, markdownSurface, pinNotifications } from './state-seams.ts';
-const UPDATE_STATE = {
-  moved: new Map() as Map<string, { moved: Set<number>; lost: Set<number> }>,
-  lines: new Map() as Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>,
+interface UpdateState {
+  moved: Map<string, { moved: Set<number>; lost: Set<number> }>;
+  lines: Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>;
+  expect: number;
+  expectAt: number;
+  seenAt: Map<string, number>;
+  top: number | null;
+  checking: Map<string, { ver: string; again: boolean }>;
+}
+const UPDATE_STATE: UpdateState = {
+  moved: new Map(),
+  lines: new Map(),
   expect: 0,
   expectAt: 0,
-  seenAt: new Map() as Map<string, number>,
-  top: null as number | null,
-  checking: new Map() as Map<string, { ver: string; again: boolean }>,
+  seenAt: new Map(),
+  top: null,
+  checking: new Map(),
 }; // document -> the check reading its history: its version, and whether a call left it to that check
 // after a source change is seen, how long its pins' moves wait for the document's update message
 const UPDATE_EXPECT_MS = 120000;
@@ -53,7 +62,7 @@ const LINE_DIFF_MAX = 500; // edit steps the line comparison tries before callin
 // then ('' without history); pin the highest pin number whose arrival was said. Another browser or device keeps its
 // own. A browser whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM)
 // from the first refusal.
-let SEEN_MEM = null as string | null;
+let SEEN_MEM: string | null = null;
 function seenStore(): { v?: number; pin?: number; docs?: Record<string, { ver: string; rev: string }> } {
   let raw = SEEN_MEM;
   if (raw === null)
@@ -137,6 +146,16 @@ function pullRequestOf(subject: unknown): number {
     match = /^Merge pull request #(\d+)/.exec(text) || /\(#(\d+)\)\s*$/.exec(text);
   return match ? +match[1] : 0;
 }
+interface CommitDigest {
+  n: number;
+  more: boolean;
+  prs: number[];
+  authors: string[];
+  subject: string;
+  time: string;
+  top: string;
+  unknown: boolean;
+}
 // The commits above the last seen one (seen: its id or a prefix) in rows (newest first, /api/revisions): how many (all
 // of them when seen is not among them: more), their PRs and authors, the newest one's subject without its '(#12)' - a
 // merge commit's own subject is passed over for the commit under it - and time, and the newest id (top). Nothing when
@@ -145,11 +164,11 @@ function pullRequestOf(subject: unknown): number {
 // the newest of the rows known ('' for none). Pure.
 function describeCommits(rows: { id: string; subject: string; author?: string; time?: string }[] | null, seen: string) {
   const top = rows && rows.length ? rows[0].id : '',
-    none = {
+    none: CommitDigest = {
       n: 0,
       more: false,
-      prs: [] as number[],
-      authors: [] as string[],
+      prs: [],
+      authors: [],
       subject: '',
       time: '',
       top,

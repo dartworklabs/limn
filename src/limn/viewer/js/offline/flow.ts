@@ -473,7 +473,7 @@ function offlineUrls(): string[] {
 // by its address. Pure.
 function offlineDocFiles(docName: string | null, meta: any): string[] {
   const build = (meta && meta.pages_build) || '',
-    out = [] as string[];
+    out: string[] = [];
   if (!build) return out;
   out.push(
     withDocQuery('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(meta.built_at || ''), docName),
@@ -565,7 +565,7 @@ async function offlinePrepare() {
       }
     }
     const all = Array.from(urls),
-      missed = new Set();
+      missed = new Set<string>();
     let kept = 0,
       failed = 0;
     for (let i = 0; i < all.length; i += OFF_KEEP_CHUNK) {
@@ -742,7 +742,7 @@ function offFree(old: any[], queue: any[]): any[] {
 // The holds to ask again: of each document's build and each old build still kept, those last answered OFF_RENEW_MS
 // ago or never. Pure.
 function offRenewDue(kept: any, now: number): { doc: string; build: string }[] {
-  const out = [] as { doc: string; build: string }[];
+  const out: { doc: string; build: string }[] = [];
   if (!kept) return out;
   const due = (entry: any) => !!entry && !!entry.build && !entry.unheld && !(now - (entry.at || 0) < OFF_RENEW_MS);
   Object.keys(kept.docs || {}).forEach((docName) => {
@@ -1089,7 +1089,7 @@ async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: nu
 // starts alone, a line that begins at the margin and runs through the box would be left out - which is most lines, so
 // the quote would come back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
 function quoteIn(items: any[], pageHeight: number, rect: { x0: number; y0: number; x1: number; y1: number }): string {
-  const out = [] as string[];
+  const out: string[] = [];
   (items || []).forEach((item) => {
     const matrix = item && item.transform;
     if (!matrix || typeof item.str !== 'string' || !item.str.trim()) return;
@@ -1476,7 +1476,7 @@ async function offlineFlush() {
     OFF.flushing = false;
     return;
   }
-  const saved = [] as number[],
+  const saved: number[] = [],
     claimed = new Set(await offWrote());
   let held = 0,
     failed = 0;

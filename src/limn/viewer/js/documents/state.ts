@@ -69,7 +69,7 @@ function pageVerdictsOn(): DocVerdicts | null {
   return verdicts && verdicts.page ? verdicts : null;
 } // a Markdown document has no pages
 // The last meta `sync` the status line says (documents/view-status.ts statusText).
-let STATUS_SYNC = null as SyncStatus | null;
+let STATUS_SYNC: SyncStatus | null = null;
 // Sets STATUS_SYNC, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setStatusSync<Value extends typeof STATUS_SYNC>(value: Value): Value {
   STATUS_SYNC = value;

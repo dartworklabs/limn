@@ -431,7 +431,7 @@ function cardQuote(pin: Pin): Html | null {
 }
 // A long post collapses at 6 lines with [더 보기] (keyed 'id:index' in MESSAGE_OPEN). If the author is me, '(나)'. The
 // post and its author's name are user text (translate="no"); '(나)' is translated here.
-const MESSAGE_OPEN = new Set();
+const MESSAGE_OPEN = new Set<string>();
 // A thread entry's text (user text, translate="no") clamped at 6 lines with [더 보기]/[접기] when long; key
 // ('id:index') keeps it open across redraws (MESSAGE_OPEN), and without a key it is drawn whole with no button.
 function messageBody(entry: ThreadEntry, key: string) {
