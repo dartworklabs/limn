@@ -38,11 +38,19 @@ type OffUiUndo = {
   busy: boolean;
   hover: boolean;
 };
-const OFFUI = {
-  all: [] as QueuedPin[],
+// The queue's panel and page marks (OFFUI): the queued pins last drawn, whether the panel is open, the undo row of each
+// record just dropped or taken back, by its key, and the timer that ends a panel row's flash (0 before the first).
+interface OfflineUiState {
+  all: QueuedPin[];
+  open: boolean;
+  undos: Map<number, OffUiUndo>;
+  flashT: ReturnType<typeof setTimeout> | 0;
+}
+const OFFUI: OfflineUiState = {
+  all: [],
   open: true,
-  undos: new Map() as Map<number, OffUiUndo>,
-  flashT: 0 as ReturnType<typeof setTimeout> | 0,
+  undos: new Map(),
+  flashT: 0,
 };
 
 // Whether frac is a box on the page: four finite numbers, the box inside the page with some size. A record from

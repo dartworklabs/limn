@@ -468,7 +468,7 @@ function composerSuggestElements() {
 // keeps an unedited draft on its lines. A read's answer redraws it, the overlap notice ([덧붙이기] waits on an edited
 // suggestion) and the stored draft. The tablet sheet's height follows the editor as it opens, fills, grows and closes
 // (applySheet, tabletLift).
-function renderSuggest(selection: Selection) {
+function renderSuggest(selection: ComposerSelection) {
   const off = suggestOff(selection, META ? META.kind : undefined),
     owns = () => COMPOSE.current === selection;
   const redraw = () => {

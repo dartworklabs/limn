@@ -284,7 +284,7 @@ async function savePin(verdict?: string) {
   // the server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as
   // going until the queue has answered: let go before that, a second press while the store is still opening would keep
   // the same selection twice, under two keys, and reconnecting would write two pins.
-  if ((selection as any).offline || offlineNow()) {
+  if (selection.offline || offlineNow()) {
     const done = () => {
       setComposeSaving(false);
       syncComposeSaveButtons();
@@ -513,7 +513,7 @@ async function savePin(verdict?: string) {
 // current text against the draft and the banner over the save row offers [지금 원문으로 맞추기] (the draft keeps its
 // text and takes that text as its base); any other 409 is said as the failure it is. Either way the save row reads
 // [다시 저장].
-function suggestSaveRefused(selection: Selection, data: any) {
+function suggestSaveRefused(selection: ComposerSelection, data: SaveConflict | null) {
   const source = 'POST /api/pin',
     head = translateTemplate('{what} 실패', { what: translate('핀 저장') });
   if (!(data && data.reason === 'suggest_base_changed')) {

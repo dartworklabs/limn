@@ -484,14 +484,14 @@ function setZoomed<Value extends typeof ZOOMED>(value: Value): Value {
   return value;
 }
 interface ComposeState {
-  current: Selection | null;
+  current: ComposerSelection | null;
   box: HTMLElement | null;
   picking: boolean;
   pendingSave: boolean;
   saving: boolean;
   dismissedOverlap: string | null;
   intent: number;
-  retryVerdict: { key: string; sel: Selection; gen: number } | null;
+  retryVerdict: { key: string; sel: ComposerSelection; gen: number } | null;
 }
 // The active selection owns its PDF box, in-flight pick/save, and overlap choice for one composer visit. intent: a
 // counter every change to what the composer asks bumps (setComposeIntent) - a new, cleared or restored selection (pick,
@@ -542,7 +542,7 @@ function setComposeRetryVerdict(value: typeof COMPOSE.retryVerdict) {
   COMPOSE.retryVerdict = value;
 }
 // Sets the overlapping pins of selection (the composer's current one, COMPOSE.current).
-function setSelectionOverlaps(selection: Selection, overlaps: Selection['overlaps']) {
+function setSelectionOverlaps(selection: ComposerSelection, overlaps: ComposerSelection['overlaps']) {
   selection.overlaps = overlaps;
 }
 function setEditorCurrent(value: typeof EDITOR.current) {

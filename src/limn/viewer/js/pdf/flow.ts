@@ -73,9 +73,9 @@ function searchFold(text: string): { t: string; at: number[] } {
 // along the line, y: across it, up being +, size: font size, ang: the line's angle in whole degrees}, so a page set
 // sideways reads as an upright one - or null for text that is skewed, mirrored or of mixed directions. Blank pieces are
 // left out. Pure.
-function searchLines(items: PdfTextItem[]) {
-  const rows = [] as any[][];
-  let row = [] as any[];
+function searchLines(items: PdfTextItem[]): SearchLine[] {
+  const rows: SearchRowItem[][] = [];
+  let row: SearchRowItem[] = [];
   items.forEach((item, index) => {
     if (typeof item.str !== 'string') return;
     const matrix = Array.isArray(item.transform) && item.transform.length === 6 ? item.transform : [0, 0, 0, 0, 0, 0];
@@ -107,12 +107,12 @@ function searchLines(items: PdfTextItem[]) {
     }
   });
   if (row.length) rows.push(row);
-  const lines = [] as any[];
+  const lines: SearchLine[] = [];
   rows.forEach((rowItems) => {
-    const mine = [] as any[];
+    const mine: SearchLine[] = [];
     let raw = '',
       parts: { i: number; from: number }[] = [],
-      pieceBox = null as any;
+      pieceBox: (SearchPieceBox & { ok: boolean }) | null = null;
     const end = () => {
       if (raw.trim()) {
         const folded = searchFold(raw);
@@ -345,8 +345,8 @@ function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?:
 }
 // The break between a line and the next one, with their column edges (searchEdges): a SEARCH_BREAK mark. Pure.
 function searchJoin(
-  line: any,
-  next: any,
+  line: SearchLine,
+  next: SearchLine,
   lineEdges: { l: number; r: number; col?: number; blk?: { l: number; r: number } } | null,
   nextEdges: { l: number; r: number; col?: number; blk?: { l: number; r: number } } | null,
 ) {
@@ -389,7 +389,7 @@ function searchJoin(
 // trimmed, joined to the next by the mark of how they meet (searchJoin). Returns {t, rows}: the flow and, for each
 // line, where it starts in the flow (at), how many folded characters the trim takes off its head (cut) and its trimmed
 // length (n). Pure.
-function searchFlow(lines: any[]) {
+function searchFlow(lines: SearchLine[]) {
   let flow = '';
   const rows: { at: number; cut: number; n: number }[] = [],
     edges = searchEdges(lines);
@@ -522,6 +522,19 @@ function searchKey(
 }
 
 // Where a line piece stands (searchLines): along the line x0 to x1, across it y, with its font size and angle.
+// One text item of a line being read (searchLines): its index among the page's items, the item, whether its matrix is
+// upright (ok), where it starts along the line (x), how wide it is, where it stands across the line (y), its font size
+// and the line's angle in whole degrees.
+interface SearchRowItem {
+  i: number;
+  it: PdfTextItem;
+  ok: boolean;
+  x: number;
+  w: number;
+  y: number;
+  size: number;
+  ang: number;
+}
 interface SearchPieceBox {
   x0: number;
   x1: number;
@@ -574,23 +587,42 @@ interface SearchHit {
 // sheet was open when the search row took its place. ink: the field's text shift in px (searchInk). near: the pages
 // near the view, the only ones that carry hit boxes. text: each open document's pages as read ({items, styles, vt, w,
 // h, lines, flow}; null until read).
-const SEARCH = {
+interface SearchState {
+  q: string;
+  re: RegExp | null;
+  doc: PdfDocument | null;
+  hits: SearchHit[];
+  cur: SearchHit | null;
+  ref: { page: number; line: number; a: number };
+  reading: PdfDocument | null;
+  failed: Set<number>;
+  composing: boolean;
+  open: boolean;
+  back: HTMLElement | null;
+  away: boolean;
+  side: boolean;
+  ink: number;
+  near: Set<number>;
+  io: IntersectionObserver | null;
+  text: WeakMap<PdfDocument, (SearchPage | null)[]>;
+}
+const SEARCH: SearchState = {
   q: '',
-  re: null as RegExp | null,
-  doc: null as PdfDocument | null,
-  hits: [] as SearchHit[],
-  cur: null as SearchHit | null,
+  re: null,
+  doc: null,
+  hits: [],
+  cur: null,
   ref: { page: 1, line: 0, a: 0 },
-  reading: null as PdfDocument | null,
+  reading: null,
   failed: new Set(),
   composing: false,
   open: false,
-  back: null as HTMLElement | null,
+  back: null,
   away: false,
   side: false,
   ink: 0,
-  near: new Set<number>(),
-  io: null as IntersectionObserver | null,
+  near: new Set(),
+  io: null,
   text: new WeakMap(),
 };
 // The pages of document doc as read so far, index 0 for page 1 (null = not read yet); kept until the document is
@@ -598,7 +630,7 @@ const SEARCH = {
 function searchPages(doc: PdfDocument) {
   let pages = SEARCH.text.get(doc);
   if (!pages) {
-    pages = new Array(doc.numPages).fill(null);
+    pages = new Array<SearchPage | null>(doc.numPages).fill(null);
     SEARCH.text.set(doc, pages);
   }
   return pages;
@@ -887,7 +919,8 @@ async function searchRead() {
         if (SEARCH.doc === doc) SEARCH.failed.add(pageNumber);
       }
       if (SEARCH.doc !== doc || !SEARCH.q) return;
-      const more = pages[pageNumber - 1] ? searchPageHits(pages[pageNumber - 1], pageNumber, SEARCH.re) : [];
+      const read = pages[pageNumber - 1],
+        more = read ? searchPageHits(read, pageNumber, SEARCH.re) : [];
       if (more.length) SEARCH.hits = SEARCH.hits.concat(more).sort(searchOrder);
       searchPick();
       searchPaint();

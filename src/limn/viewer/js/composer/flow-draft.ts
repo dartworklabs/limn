@@ -39,7 +39,7 @@ interface DraftState {
   ready: boolean;
   holds: Map<string | null, HeldDraft>;
   key: string | null;
-  origin: { key: string | null; value: string | null; current: Selection | null } | null;
+  origin: { key: string | null; value: string | null; current: ComposerSelection | null } | null;
 }
 const DRAFT: DraftState = {
   timer: 0,
@@ -234,7 +234,7 @@ function restoreDraft() {
   autoGrow(noteField);
   if (picked) saveDraftSoon();
   if (how === 'full') {
-    const keptPick: Selection = record.cur,
+    const keptPick: ComposerSelection = record.cur,
       page = document.getElementById('p' + keptPick.page);
     if (page && Array.isArray(keptPick.frac)) {
       const box = newBox(page),

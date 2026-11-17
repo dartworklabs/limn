@@ -2268,7 +2268,7 @@ function pickLines(
     n_lines: MARKDOWN_VIEW.lines.length,
     quote: quoted,
     overlaps: [],
-  } as unknown as Selection;
+  } as unknown as ComposerSelection;
   if (REPICK) {
     REPICK.cand = selection;
     linePick().compare();

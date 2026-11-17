@@ -75,7 +75,30 @@ const OFF_READS: ApiEndpoint[] = [
 // before which none is tried again; failSaid - that failure was said this visit. holder: the server said it counts a
 // build's hold per holder (meta's hold_holder); me: this browser's name among those holders, once read or made
 // (offHolderId).
-const OFF = {
+// n, held: the records queued and those of them that lost their place; flushing: a send of the queue is running;
+// prep: [오프라인으로 받기] is running; saidStale: the stored reads' age was said this visit; db: the opened store.
+interface OfflineState {
+  n: number;
+  held: number;
+  flushing: boolean;
+  prep: boolean;
+  saidStale: boolean;
+  boot: boolean;
+  idem: boolean;
+  staleNote: Notice | null | undefined;
+  db: IDBDatabase | null;
+  following: boolean;
+  kept: KeptRecord | null | undefined;
+  keptAt: number;
+  seen: Record<string, DocSeen>;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  fails: number;
+  after: number;
+  failSaid: boolean;
+  holder: boolean;
+  me: string;
+}
+const OFF: OfflineState = {
   n: 0,
   held: 0,
   flushing: false,
@@ -83,13 +106,13 @@ const OFF = {
   saidStale: false,
   boot: true,
   idem: false,
-  staleNote: null as Notice | null | undefined,
-  db: null as IDBDatabase | null,
+  staleNote: null,
+  db: null,
   following: false,
-  kept: undefined as KeptRecord | null | undefined,
+  kept: undefined,
   keptAt: 0,
-  seen: {} as Record<string, DocSeen>,
-  timer: undefined as ReturnType<typeof setTimeout> | undefined,
+  seen: {},
+  timer: undefined,
   fails: 0,
   after: 0,
   failSaid: false,
@@ -464,11 +487,7 @@ function offStashed<Endpoint extends ApiEndpoint>(
 // null when there is nothing to put in its place: an instance never kept, a document not kept, a Markdown or text
 // document (it has no build), a record from before the meta was carried, or the same build. Pure.
 /** @param kept the kept record @param key the read's address @param last the last meta read */
-function offKeptMeta(
-  kept: KeptRecord<Meta> | null,
-  key: string,
-  last: Meta,
-): StoredAnswer<'GET /api/meta'> | null {
+function offKeptMeta(kept: KeptRecord<Meta> | null, key: string, last: Meta): StoredAnswer<'GET /api/meta'> | null {
   if (!kept || !kept.docs || !isObject(last)) return null;
   const query = key.indexOf('?') >= 0 ? key.slice(key.indexOf('?') + 1) : '';
   const docName = (typeof last.doc === 'string' && last.doc) || new URLSearchParams(query).get('doc') || '',
@@ -673,7 +692,7 @@ async function offlinePrepare() {
     const urls = new Set(offlineUrls()),
       keys = DOCS.length ? DOCS.map((docEntry) => docEntry.key) : [DOC];
     // Each document's entry for the kept record, once its files are known whole.
-    const got = [] as { k: string; entry: KeptDoc }[];
+    const got: { k: string; entry: KeptDoc }[] = [];
     let docs = 0,
       held = 0,
       lost = 0;
@@ -960,8 +979,8 @@ interface DocSeen {
   kind: string | null;
 }
 // meta is an answer to GET /api/meta as it was handed to offStash; a field of the wrong type reads as missing.
-function offSeenIn(meta: unknown): Record<string, DocSeen> {
-  const out = {} as Record<string, DocSeen>;
+function offSeenIn(meta: Meta): Record<string, DocSeen> {
+  const out: Record<string, DocSeen> = {};
   if (!isObject(meta)) return out;
   const put = (summary: Record<string, unknown>, key: unknown) => {
     const { pages_build: build, src_mtime: src, kind } = summary;
@@ -1136,7 +1155,7 @@ function offHolderId(): Promise<string> {
   );
 }
 // A meta answer seen: what each document is on is noted, and a follow is set going when one is due.
-function offlineFollowSeen(meta: unknown) {
+function offlineFollowSeen(meta: Meta) {
   const now = offSeenIn(meta);
   let moved = false;
   Object.keys(now).forEach((docName) => {
@@ -1403,18 +1422,18 @@ async function offlinePick(drag: {
     quote = await offlineQuote(drag.page, rect);
   // A newer drag or a cancel owns the composer now.
   if (seq !== PICKSEQ) return;
-  const selection = {
+  // A region's shape, as POST /api/pick answers one for a view-only PDF (pins/location/http.py _region_body): no file
+  // and no lines, which the composer reads as absent, a name only the found place will have (''), the build the drag
+  // was drawn on ('' when the drag named none), and absent for a PDF or a document it cannot name.
+  const selection: ComposerSelection = {
     kind: 'region',
     page: drag.page,
     frac: drag.frac,
     quote,
-    file: null,
-    name: null,
-    lo: null,
-    hi: null,
-    pdf: META ? META.pages_build : null,
-    pdf_build: drag.pdf_build,
-    doc: drag.doc || DOC,
+    name: '',
+    pdf: META ? META.pages_build : undefined,
+    pdf_build: drag.pdf_build || '',
+    doc: drag.doc || DOC || undefined,
     offline: true,
     rect,
     levels: [],
@@ -1422,15 +1441,11 @@ async function offlinePick(drag: {
     scope: null,
     env: null,
     elSel: null,
-    el: null,
-    via: null,
-    score: null,
     warn: '',
     snippet: '',
     n_lines: 0,
-    default_level: null,
-  } as any;
-  setComposeCurrent(selection as Selection);
+  };
+  setComposeCurrent(selection);
   setComposeIntent(COMPOSE.intent + 1);
   setComposePicking(false);
   setComposeDismissedOverlap(null);
@@ -1454,7 +1469,7 @@ async function offlinePick(drag: {
 // as one whose write was attempted - under the key the save went with, if it had one, and with the newest pin that
 // stood before it - so the send asks for it before it writes it.
 async function offlineQueueSave(
-  selection: Selection,
+  selection: ComposerSelection,
   note: string,
   out: { kind: string | null; assignee: string | null },
   mentions: string[],

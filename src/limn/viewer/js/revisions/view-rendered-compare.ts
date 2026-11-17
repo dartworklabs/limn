@@ -47,7 +47,7 @@ const RENDERED_COMPARE = {
   ro: null as ResizeObserver | null,
   root: null as HTMLElement | null,
   line: '',
-  said: null as { r: any; c: { ins: number; del: number; mod: number; move: number } | null } | null,
+  said: null as { r: RevisionSources; c: { ins: number; del: number; mod: number; move: number } | null } | null,
 };
 // the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
 const MAX_DIFF_CELLS = 4e6;
@@ -1497,7 +1497,10 @@ function compareInfoLine(text: string, status?: boolean) {
 // The status line of a compare: its two sides - a range's with the commits and files its source diff counted
 // (REVISION_VIEW.rangeN, once that answer is in) - and what changed. Kept (RENDERED_COMPARE.said) so the range's counts
 // can join it when they come (restateCompareStatus).
-function sayCompareStatus(answer: any, counts: { ins: number; del: number; mod: number; move: number } | null) {
+function sayCompareStatus(
+  answer: RevisionSources,
+  counts: { ins: number; del: number; mod: number; move: number } | null,
+) {
   RENDERED_COMPARE.said = { r: answer, c: counts };
   const ends =
       (answer.base ? String(answer.base).slice(0, 8) : translate('없음')) + ' → ' + String(answer.id || '').slice(0, 8),

@@ -90,7 +90,7 @@ function composeFields() {
 /**
  * A successful request may clear its original selection only when every submitted editable field is still unchanged.
  */
-function composeOwns(selection: Selection | null, box: HTMLElement | null, visit: Visit, fields: string) {
+function composeOwns(selection: ComposerSelection | null, box: HTMLElement | null, visit: Visit, fields: string) {
   return currentVisit(visit) && COMPOSE.current === selection && COMPOSE.box === box && composeFields() === fields;
 }
 function setBusy(on: boolean) {
@@ -211,7 +211,7 @@ async function pick(region: PickDrag) {
     bannerCompare();
     return;
   }
-  const selection = answer as Selection;
+  const selection: ComposerSelection = answer;
   setComposeCurrent(selection);
   setComposeIntent(COMPOSE.intent + 1);
   selection.scope = null;
@@ -324,7 +324,7 @@ function overlapShort(rel: string, id: number) {
 // caption (rangeCap) under it says them, and the ladder's pressed segment. The dragged line goes into the description.
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source
 // field. The range ladder and excerpt are hidden.
-function renderRegionComposer(selection: Selection) {
+function renderRegionComposer(selection: ComposerSelection) {
   $('#composer').classList.add('region');
   // A selection made while cut off (offline/flow.ts offlinePick) has this shape and no file yet: its lines are found
   // when it is sent.
@@ -429,7 +429,7 @@ function renderComposer() {
 // ---------------- The PDF text a drag chose (docs/handbook/viewer.md §패널 정리 '드래그한 글자')
 // The selection whose quote line is open, or null: a new pick is a new object, so it starts folded, while a range
 // change (the same object) keeps it open.
-let QUOTE_OPEN_SELECTION: Selection | null = null;
+let QUOTE_OPEN_SELECTION: ComposerSelection | null = null;
 // What a pick or a pin shows of its quote (the dragged PDF text, whitespace-normalized by the server): the text
 // trimmed, or '' for none - no text (a tap or a long press), a region (a view-only PDF or a figure region shows its
 // text as the source already) or a line of a figure document (its quote is the element's name, which the location line
@@ -469,7 +469,7 @@ function toggleQuote(line: HTMLElement) {
 }
 // The composer's quote line, right under the location line: shown for a LaTeX line pick with text, open if it was
 // opened for this selection. Nothing, and no gap, otherwise.
-function drawComposerQuote(selection: Selection | null) {
+function drawComposerQuote(selection: ComposerSelection | null) {
   const line = $('#c-quote'),
     quote = shownQuote(selection, META ? META.kind : undefined);
   line.hidden = !quote;
@@ -614,7 +614,7 @@ function focusClosed() {
 // the composer's intent just after the close (focusClosed) - nothing moves unless both are still those, no composer or
 // pick is open and no input method's composition is (imeOpen).
 function focusPlace(
-  selection: Selection | null | undefined,
+  selection: ComposerSelection | null | undefined,
   id: number | null,
   closed?: { visit: { doc: string | null; seq: number }; intent: number },
 ) {

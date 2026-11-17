@@ -35,23 +35,44 @@ interface PageDrawState {
   dtK: number;
   stale: boolean;
 }
+// The vector view's state (VECTOR_PDF): the PDF.js library once imported, the document on screen and its build, the
+// generation each open and each failure bumps (a draw of an older one is dropped), why vector drawing gave up, the observer of the pages near the view and those pages,
+// what is drawn for each page, the render running now, whether the draw queue is being worked, its timer, the draws'
+// timings, when the first page and the document were drawn, and the opened documents cached by 'document|build'.
+interface VectorPdfState {
+  lib: PdfLibrary | null;
+  doc: PdfDocument | null;
+  build: string | null;
+  gen: number;
+  failed: string | null;
+  io: IntersectionObserver | null;
+  near: Set<number>;
+  st: Map<number, PageDrawState>;
+  cur: { n: number; task: PdfRenderTask } | null;
+  pumping: boolean;
+  timer: number;
+  stats: { n: number; kind: string; ms: number; w: number; h: number }[];
+  tFirst: number | null;
+  tDoc: number | null;
+  cache: Map<string, PdfDocument>;
+}
 // The PDF.js library (types/pdfjs.d.ts), the document on screen and the opened documents cached by 'document|build'.
-const VECTOR_PDF = {
-  lib: null as PdfLibrary | null,
-  doc: null as PdfDocument | null,
-  build: null as string | null,
+const VECTOR_PDF: VectorPdfState = {
+  lib: null,
+  doc: null,
+  build: null,
   gen: 0,
-  failed: null as string | null,
-  io: null as IntersectionObserver | null,
-  near: new Set<number>(),
-  st: new Map<number, PageDrawState>(),
-  cur: null as { n: number; task: PdfRenderTask } | null,
+  failed: null,
+  io: null,
+  near: new Set(),
+  st: new Map(),
+  cur: null,
   pumping: false,
   timer: 0,
-  stats: [] as { n: number; kind: string; ms: number; w: number; h: number }[],
-  tFirst: null as number | null,
-  tDoc: null as number | null,
-  cache: new Map<string, PdfDocument>(),
+  stats: [],
+  tFirst: null,
+  tDoc: null,
+  cache: new Map(),
 };
 // Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
 // switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first

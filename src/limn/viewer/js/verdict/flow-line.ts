@@ -5,6 +5,7 @@
 // as that verdict, and - on a figure document or a view-only PDF whose word file says page: true - a page verdict line,
 // which saves a verdict about the page's whole target and never touches the composer. The words are the manuscript's:
 // they are drawn as text, translate="no", and the names around them are put in the screen's language here.
+import type { Visit } from '../app/state.ts';
 import {
   DEFAULT_DOC,
   DOC,
@@ -482,7 +483,7 @@ function pressedAsOf(pin: Pin) {
 // ---------------- The composer's verdict row
 // What the selection is, for a button's name: on a figure document the figure it is saved for (figureName), else its
 // page's region, else its file and lines.
-function selectionTargetName(selection: Selection) {
+function selectionTargetName(selection: ComposerSelection) {
   const figureRoot = figureVerdictRoot(selection);
   if (figureRoot) return figureName(selection.page, figureRoot);
   return isRegion(selection)
@@ -513,7 +514,7 @@ function pageTargetShort(page: number) {
 }
 // The figure a figure document's selection is about - the root of its element's path - or null: not a figure document,
 // or a pick without an element (a map it could not read).
-function figureVerdictRoot(selection: Selection | null): string | null {
+function figureVerdictRoot(selection: ComposerSelection | null): string | null {
   if (!selection || !isFigureKind(docKindOf(selection.doc || DOC || ''))) return null;
   const element = selection.elSel || selection.el;
   const root = element && Array.isArray(element.path) ? element.path[0] : null;
@@ -524,7 +525,7 @@ function figureVerdictRoot(selection: Selection | null): string | null {
 // the page's whole target, as a page line's press saves it. The root's rung of the pick's ladder when it has one (its
 // lines, element and kind), else a region over the whole page naming the root (an element drawn without code, whose
 // answer has no ladder). null when the selection is not about a figure (figureVerdictRoot): it is saved as it is.
-function figureVerdictBody(selection: Selection): Record<string, unknown> | null {
+function figureVerdictBody(selection: ComposerSelection): Record<string, unknown> | null {
   const root = figureVerdictRoot(selection);
   if (!root) return null;
   const rung = isRegion(selection)
@@ -718,7 +719,7 @@ function verdictUndo(id: number): () => Promise<boolean> {
 // region over the whole page naming the figure, the root of that element's path, as the composer's verdict saves it
 // (figureVerdictBody, ADR-0022 D2); on a view-only PDF the region answer as it is. null when a figure page's answer
 // names no element (its map could not be read). Pure but for the figure helpers.
-function pageVerdictBody(answer: any, kind: string | undefined): Record<string, unknown> | null {
+function pageVerdictBody(answer: PickAnswer, kind: string | undefined): Record<string, unknown> | null {
   const root = (element: PinElement | undefined) =>
     !!element && Array.isArray(element.path) && element.path.length === 1 && element.path[0] === element.id;
   if (isFigureKind(kind)) {
@@ -881,7 +882,7 @@ function pageSaveContext(page: number): {
   w: number;
   h: number;
   target: string;
-  visit: any;
+  visit: Visit;
 } | null {
   const facts = META && META.pages[page - 1];
   if (!META || !facts) return null;

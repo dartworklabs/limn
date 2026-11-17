@@ -12,7 +12,7 @@ import { lineRange } from '../app/rules-pins.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 /** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
-type RangeOwner = Selection | EditCard;
+type RangeOwner = ComposerSelection | EditCard;
 /** A range owner on lines: its file and both end lines are there, as on every owner that is not a region. */
 type LineOwner = RangeOwner & { file: string; lo: number; hi: number };
 function onLines(owner: RangeOwner): owner is LineOwner {
@@ -273,7 +273,7 @@ function mapSure(pick: any, percent: number) {
     Math.round(pick.fill * 100) >= VIA_SURE_FILL
   );
 }
-function viaTag(pick: Selection | Pin) {
+function viaTag(pick: ComposerSelection | Pin) {
   if (!pick.via || pick.score == null || (pick.via === VIA.SYNCTEX && !pick.score && !pick.quote)) return null;
   const percent = Math.round((+pick.score || 0) * 100);
   if (percent >= VIA_HIDE || mapSure(pick, percent)) return null;

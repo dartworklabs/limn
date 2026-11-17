@@ -73,36 +73,73 @@ interface RevisionDiffAnswer {
   files?: unknown[];
   truncated?: boolean;
 }
-const REVISION_VIEW = {
+// What the revision view shows and where it stands (REVISION_VIEW): the request counter, the source diff's files and
+// whole text, the commit shown and the one its source diff is of, the format, the commit's scope a pin's diff read
+// answers (GET /api/revision-diff?pin=; null before such a read), the rest of the commit's diff beside a pin's hunks,
+// the pin's target, the commit of the PDF shown, the document to go back to, the overlay and its side, whether the
+// history is open, its base, rows, their document and whether more are listed, the range and what was seen of it, the
+// range's commits, base, summary line and counts, whether the list is open, and the range the list is to paint.
+interface RevisionViewState {
+  seq: number;
+  files: { name: string; text: string }[];
+  whole: string;
+  commit: string;
+  sourceCommit: string;
+  format: string;
+  scope: RevisionPinScope | RevisionCommitScope | null;
+  other: string;
+  target: RevTarget | null;
+  pdfCommit: string;
+  back: string | null;
+  overlay: RevisionOverlay | null;
+  side: string;
+  history: boolean;
+  base: string;
+  rows: RevisionRow[];
+  rowsDoc: string;
+  more: boolean;
+  range: RevRange;
+  seen: RevSeen | null;
+  seenState: string;
+  seenN: number;
+  seenIds: Set<string>;
+  rangeIds: string[] | null;
+  rangeBase: string;
+  listOpen: boolean;
+  rangeLine: string;
+  rangeN: { commits: number; files: number } | null;
+  want: { base: string; top: string } | null;
+}
+const REVISION_VIEW: RevisionViewState = {
   seq: 0,
-  files: [] as { name: string; text: string }[],
+  files: [],
   whole: '',
   commit: '',
   sourceCommit: '',
-  format: DIFF_FORMAT.PDF as string,
-  scope: null as any,
+  format: DIFF_FORMAT.PDF,
+  scope: null,
   other: '',
-  target: null as RevTarget | null,
+  target: null,
   pdfCommit: '',
-  back: null as string | null,
-  overlay: null as RevisionOverlay | null,
-  side: OVERLAY_SIDE.CUR as string,
+  back: null,
+  overlay: null,
+  side: OVERLAY_SIDE.CUR,
   history: false,
   base: '',
-  rows: [] as RevisionRow[],
+  rows: [],
   rowsDoc: '',
   more: false,
-  range: { mode: RANGE_MODE.ONE, start: '', end: '', endSet: false } as RevRange,
-  seen: null as RevSeen | null,
-  seenState: SEEN_STATE.NONE as string,
+  range: { mode: RANGE_MODE.ONE, start: '', end: '', endSet: false },
+  seen: null,
+  seenState: SEEN_STATE.NONE,
   seenN: 0,
-  seenIds: new Set() as Set<string>,
-  rangeIds: null as string[] | null,
+  seenIds: new Set(),
+  rangeIds: null,
   rangeBase: '',
   listOpen: false,
   rangeLine: '',
-  rangeN: null as { commits: number; files: number } | null,
-  want: null as { base: string; top: string } | null,
+  rangeN: null,
+  want: null,
 };
 // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_RECENT = 12;
@@ -113,11 +150,17 @@ const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기
 // build failed and the whole commit is shown instead (fallback). COMPARISON_PDF holds the loaded comparison PDF, its
 // loading task, its observer and its render tasks.
 const COMPARISON_SCOPE = { whole: false, partial: false, fallback: false };
-const COMPARISON_PDF = {
-  doc: null as PdfDocument | null,
-  loading: null as PdfLoadingTask | null,
-  observer: null as IntersectionObserver | null,
-  tasks: new Set<PdfRenderTask>(),
+interface ComparisonPdfState {
+  doc: PdfDocument | null;
+  loading: PdfLoadingTask | null;
+  observer: IntersectionObserver | null;
+  tasks: Set<PdfRenderTask>;
+}
+const COMPARISON_PDF: ComparisonPdfState = {
+  doc: null,
+  loading: null,
+  observer: null,
+  tasks: new Set(),
 };
 function revisionFiles(patch: string) {
   const starts: { at: number; head: string }[] = [];

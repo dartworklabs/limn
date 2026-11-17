@@ -51,7 +51,7 @@ interface SuggestDraft {
 
 // The composer's selection (app/state.ts COMPOSE.current): the pick's answer plus what the composer chose on it - the
 // ladder rung (scope) and its environment, the element the range follows (elSel), and the overlap it reports (rel).
-interface Selection extends PickAnswer {
+interface ComposerSelection extends PickAnswer {
   scope?: string | null;
   env?: string | null;
   elSel?: PinElement | null;
