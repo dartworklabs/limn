@@ -384,8 +384,9 @@ class DeclaredRungs(unittest.TestCase):
 
 
 def recorded_picks() -> list[dict]:
-    """The recorded POST /api/pick answers that placed a drag: a figure element (the traced-selection keys plus el) and a
-    figure region that fell back (the region keys plus el)."""
+    """The recorded POST /api/pick answers that placed a drag: a figure element (the traced-selection keys plus el), a
+    figure region that fell back (the region keys plus el), and a drag traced to a LaTeX document's lines, whose
+    default rung carries the boxes those lines print in (docs/adr/0045-pin-marks-follow-the-range.md)."""
     out = []
     for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
         if "picks" in entry["step"] and "pins.md" not in entry["step"]:
@@ -400,7 +401,7 @@ class DeclaredPicks(unittest.TestCase):
         """No recorded pick has an undeclared field or another type; every PickAnswer field appears in some pick."""
         shapes = interfaces(API_TYPES.read_text(encoding="utf-8"))
         picks = recorded_picks()
-        self.assertEqual(len(picks), 2)
+        self.assertEqual(len(picks), 3)
         found = [m for i, p in enumerate(picks) for m in mismatches(p, "PickAnswer", shapes, "pick %d" % i)]
         self.assertEqual(found, [])
         self.assertEqual(sorted(set(shapes["PickAnswer"]) - {k for p in picks for k in p}), [])

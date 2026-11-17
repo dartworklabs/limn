@@ -77,6 +77,10 @@ interface Pin {
   frac?: number[];
   mark?: number[];
   mark_page?: number;
+  // Where a line pin's own lines print on the build on screen, the pieces a pick and a snippet answer for the same
+  // lines (ADR-0045). Computed on read like mark/mark_page; absent when there is no answer, never empty. A figure
+  // pin's mark comes from its element map instead, so the two never meet on one pin.
+  boxes?: MarkPiece[];
   kind?: string;
   scope?: string;
   via?: string;

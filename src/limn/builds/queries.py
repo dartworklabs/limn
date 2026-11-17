@@ -1,9 +1,9 @@
 """Interpret build storage into consumer answers at the build-owned I/O boundary."""
 
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +18,10 @@ from limn.builds.contracts import (
     ElementPosition,
     ElementSelection,
     Frac,
+    MarkBoxes,
+    MarkComputation,
+    MarkPieces,
+    MarkRange,
     OutlineInput,
     PinBuildQueries,
     PositionHistory,
@@ -149,11 +153,46 @@ def element_follower(fmap: FigureMap | None) -> ElementFollower | None:
     return follow
 
 
+def no_marks(
+    _doc: Doc,
+    _file: Path,
+    _built: Sequence[str] | None,
+    _now: Sequence[str],
+    _pdf: Path,
+    _pages: Sequence[tuple[float, float]],
+) -> MarkRange:
+    """The forward pass of a run whose composition root injected none (the standalone query bindings and the tests of
+    other slices): every range prints nowhere, so no answer carries a mark and no process is run."""
+    return lambda _lo, _hi: ()
+
+
+def own_marks() -> Callable[[], artifacts.RangeBoxCache]:
+    """A mark cache private to one query binding, for a caller that supplies no run-wide one."""
+    cache = artifacts.RangeBoxCache()
+    return lambda: cache
+
+
+def _file_version(path: Path) -> tuple[int, int] | None:
+    """The version of the file at path, (mtime_ns, size), or None when it cannot be read.
+
+    This is the part of a mark's cache key that the build does not fix: the answer is read back into the lines the
+    build read, so it depends on the file's text as well. Reading it is one stat per file per answer, and a file
+    written between this and the read of its lines leaves the answer keyed by the version before it - a key the next
+    read no longer asks for, as a map copy rewritten between its stat and its read is (artifacts.BuildMapCache)."""
+    try:
+        found = path.stat()
+    except OSError:
+        return None
+    return found.st_mtime_ns, found.st_size
+
+
 @dataclass(frozen=True)
 class BuildQueries:
     """Build-owned implementation of purpose-specific query bindings for one run."""
 
     maps: Callable[[], artifacts.BuildMapCache]
+    marks: Callable[[], artifacts.RangeBoxCache] = field(default_factory=own_marks)
+    compute_marks: MarkComputation = no_marks
 
     def published_head(self, doc: Doc) -> str:
         """Answer synchronization's publication identity; absent/unreadable markers are unknown."""
@@ -293,6 +332,65 @@ class BuildQueries:
         fmap = self.maps().get(doc, build)
         found = fmap.page(page) if isinstance(fmap, FigureMap) else None
         return found is not None and found.root().id == element
+
+    def boxes(self, doc: Doc, dpi: int) -> MarkBoxes | None:
+        """Where a line range of document doc prints on the build it has on screen, or None when nothing could print.
+
+        None for a document whose pages no LaTeX build printed from the lines its pins point at - a figure document
+        (its pins are lines of a drawing script and its marks come from its element map), a Markdown or text document
+        (drawn in the browser, no pages at all), a view-only PDF (no lines) - and for a build that left no page to
+        measure a mark against. The caller then answers the pins it always answered, without a single process.
+
+        The build facts are read once here, for the whole answer: the page folder on screen, its PDF and its page
+        sizes. What depends on the file - the lines that build read (its source record) and the file as it is today -
+        is read on the first range of that file that the cache does not already hold, because the record can be tens
+        of megabytes of JSON and a listing whose every pin is cached must not read it at all. A build that kept no
+        record answers no mark: the range cannot be read back into the lines its numbers belong to, and half a
+        range's boxes passed off as the range's would cover text the pin does not hold. A pick falls back to the
+        build's numbers there; a stored pin does not, and such a build is replaced by the next rebuild
+        (docs/adr/0045-pin-marks-follow-the-range.md).
+        """
+        if not doc.builds_from_source:
+            return None
+        pages = artifacts.cur_pages(doc)
+        sizes = tuple((page["pt_w"], page["pt_h"]) for page in artifacts.page_sizes(pages, dpi))
+        if not sizes:
+            return None
+        pdf = artifacts.cur_pdf(doc, pages)
+        cache, compute = self.marks(), self.compute_marks
+        versions: dict[str, tuple[int, int] | None] = {}
+        askers: dict[str, MarkRange | None] = {}
+
+        def bind(file: str) -> MarkRange | None:
+            """The computation bound to that file's two line lists, read once for this answer; None when the build
+            kept no record of the file or the file itself cannot be read as text."""
+            key = built_source.source_key(doc.src, Path(file))
+            built = None if key is None else built_source.built_lines(pages, key)
+            if key is None or built is None:
+                return None
+            raw = built_source.read_below(doc.src, key, built_source.FILE_MAX_BYTES)
+            now = None if raw is None else built_source.text_lines(raw)
+            return None if now is None else compute(doc, Path(file), built, now, pdf, sizes)
+
+        def pieces(file: str, lo: int, hi: int) -> MarkPieces:
+            """That range's pieces, binding the file's lines on the first range of it that is asked for."""
+            if file not in askers:
+                askers[file] = bind(file)
+            asker = askers[file]
+            return () if asker is None else asker(lo, hi)
+
+        def answer(file: str, lo: int, hi: int) -> MarkPieces:
+            """The run's answer for one range, from the cache when it holds this build's answer for this version of
+            the file."""
+            if file not in versions:
+                versions[file] = _file_version(Path(file))
+            version = versions[file]
+            if version is None:
+                return ()
+            key = (str(doc.dir), pages.name, file, version[0], version[1], lo, hi)
+            return cache.answer(key, lambda: pieces(file, lo, hi))
+
+        return answer
 
     def elements(self, doc: Doc) -> ElementFollower | None:
         """Snapshot one current map privately, or no lookup for a non-figure/invalid build."""

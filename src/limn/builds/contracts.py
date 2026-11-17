@@ -113,6 +113,22 @@ class ElementPosition:
 
 ElementFollower: TypeAlias = Callable[[str, int, Frac], ElementPosition]
 
+# A pin's mark: the pieces one line range draws, each the page (1-based) and that piece's box as fractions of that
+# page. The pin consumer declares the same shape (limn.pins.needs.MarkPieces); nothing of either side's crosses.
+MarkPieces: TypeAlias = tuple[tuple[int, Frac], ...]
+# Where one range of one already-chosen file prints: (lo, hi) -> that range's pieces.
+MarkRange: TypeAlias = Callable[[int, int], MarkPieces]
+# Where a range of any file of one document prints: (the file's path on this machine, lo, hi) -> its pieces. This is
+# what the pin consumer receives (limn.pins.needs.BoxesFor), bound to the build that document has on screen.
+MarkBoxes: TypeAlias = Callable[[str, int, int], MarkPieces]
+# The forward SyncTeX pass itself, which the pin consumer owns and the composition root injects
+# (limn.pins.location.resolve.range_boxes): the document, a manuscript file, that file as the build read it (None when
+# the build kept no record), the file as it is today, that build's PDF and every page of it as (width, height) in
+# points -> an asker for one range of that file. Binding it once per file is what keeps the build facts read once.
+MarkComputation: TypeAlias = Callable[
+    [Doc, Path, Sequence[str] | None, Sequence[str], Path, Sequence[tuple[float, float]]], MarkRange
+]
+
 
 @dataclass(frozen=True)
 class DocumentBuildQueries:

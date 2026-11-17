@@ -443,6 +443,103 @@ class FigurePayload(unittest.TestCase):
         self.assertEqual(list(rec), ["id", "el", "rel", "est", "doc", "state", "addressed", "fyi"])
 
 
+LINE = {"id": 1, "doc": "ms", "file": "/ms/main.tex", "lo": 4, "hi": 5, "page": 1}
+PIECES = ((1, (0.1, 0.2, 0.3, 0.4)), (2, (0.0, 0.5, 1.0, 0.25)))
+WIRE = [{"page": 1, "frac": [0.1, 0.2, 0.3, 0.4]}, {"page": 2, "frac": [0.0, 0.5, 1.0, 0.25]}]
+
+
+def asker(pieces=PIECES, want=("/ms/main.tex", 4, 5)):
+    """An asker that answers pieces for exactly the file and range `want`, and nothing for any other."""
+    return lambda file, lo, hi: pieces if (file, lo, hi) == want else ()
+
+
+class LineBoxPayload(unittest.TestCase):
+    """pins_payload with a line-box asker: a LaTeX line pin carries where its own lines print, each document is asked
+    once, and no pin without a line range of a manuscript asks at all."""
+
+    def test_a_line_pin_carries_the_pieces_of_its_own_file_and_range(self):
+        """The asker is given the file the answer names and the pin's lo..hi, and its pieces go on the wire as the
+        pick and the snippet send them: a page and a page-relative box, in the order the pieces came."""
+        asked = []
+
+        def line_boxes(key):
+            """Record the question; the document's asker."""
+            asked.append(key)
+            return asker()
+
+        out = pins_payload([LINE], False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, line_boxes=line_boxes)
+        self.assertEqual(asked, ["ms"])
+        self.assertEqual(out[0]["boxes"], WIRE)
+
+    def test_an_asker_with_no_pieces_leaves_the_key_out(self):
+        """An absent key says "no mark for this range"; [] would say "a mark of no pieces"."""
+        out = pins_payload(
+            [LINE], False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, line_boxes=lambda k: asker(())
+        )
+        self.assertNotIn("boxes", out[0])
+
+    def test_each_document_is_asked_once_and_only_for_its_line_pins(self):
+        """Two line pins of ms ask its asker once; a figure pin with an element and a pin with no range do not ask at
+        all, a line pin of a document with no asker asks once and gets nothing, and each document is asked once in the
+        order its first such pin appears."""
+        rows = [
+            LINE,
+            {**LINE, "id": 2, "lo": 8, "hi": 8},
+            {"id": 3, "doc": "fig", "page": 1, "file": "/ms/draw.py", "lo": 4, "hi": 5, "el": EL},
+            {"id": 4, "doc": "rv", "page": 1, "frac": [0.1, 0.2, 0.3, 0.4]},
+            {"id": 5, "doc": "fig", "page": 1, "file": "/ms/draw.py", "lo": 20, "hi": 22},
+        ]
+        asked = []
+
+        def line_boxes(key):
+            """Record the question; only ms has an asker."""
+            asked.append(key)
+            return asker() if key == "ms" else None
+
+        out = pins_payload(rows, False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW, line_boxes=line_boxes)
+        self.assertEqual(asked, ["ms", "fig"])
+        self.assertEqual([("boxes" in o) for o in out], [True, False, False, False, False])
+
+    def test_a_figure_pin_keeps_its_element_marks_and_gains_no_boxes(self):
+        """A figure's mark is its element's box on the current map; the forward pass never speaks for it."""
+        rows = [{"id": 1, "doc": "fig", "page": 1, "file": "/ms/draw.py", "lo": 4, "hi": 5, "el": EL}]
+        out = pins_payload(
+            rows,
+            False,
+            {},
+            shown,
+            lambda r: r["doc"],
+            lambda k: CUR,
+            NOW,
+            lambda k: element_follower(FIG),
+            line_boxes=lambda k: asker(PIECES, ("/ms/draw.py", 4, 5)),
+        )
+        self.assertEqual(list(out[0])[-3:], ["mark", "mark_page", "el_sync"])
+        self.assertNotIn("boxes", out[0])
+
+    def test_the_default_asks_no_document(self):
+        """Without a line_boxes argument no pin gets a mark of its lines, whatever its range."""
+        out = pins_payload([LINE], False, {}, shown, lambda r: r["doc"], lambda k: CUR, NOW)
+        self.assertNotIn("boxes", out[0])
+
+    def test_a_pin_view_with_an_asker_changes_neither_the_record_nor_the_shown_copy(self):
+        """pin_view is a read: the record and its shown copy are the same afterwards, so the pieces exist only in the
+        answer and a render never writes them."""
+        r = dict(LINE)
+        show = shown(r)
+        before = (json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True))
+        rec = pin_view(r, show, [], False, "ms", NOW, boxes=asker())
+        self.assertEqual(rec["boxes"], WIRE)
+        self.assertEqual((json.dumps(r, sort_keys=True), json.dumps(show, sort_keys=True)), before)
+
+    def test_the_boxes_are_asked_for_the_file_the_answer_names(self):
+        """public_record replaces a line pin's stored file with where this machine holds it now (ADR-0006), and the
+        mark must describe that file - a stored path from another checkout would answer another file's lines."""
+        r = dict(LINE, file="/old/checkout/main.tex")
+        rec = pin_view(r, dict(shown(r), file="/ms/main.tex"), [], False, "ms", NOW, boxes=asker())
+        self.assertEqual(rec["boxes"], WIRE)
+
+
 # ---------------------------------------------------------------- through server.py's wiring
 #
 # The Trash list (dropped_payload and GET /api/pins/dropped). These classes load server.py (helpers.ps) and drive the
