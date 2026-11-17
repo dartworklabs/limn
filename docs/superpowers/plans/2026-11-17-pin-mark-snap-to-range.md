@@ -57,12 +57,15 @@ def test_line_boxes_drops_page_body_boxes():
     rows = [(1, 72.0, 100.0, 467.0, 548.0), (1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 243.0, 228.6, 8.86)]
     assert line_boxes(rows, 595.28, 841.89) == rows[1:]
 
+
 def test_range_pad_halves_the_blank_between_lines():
     rows = [(1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 242.96, 228.6, 8.86)]
     assert range_pad(rows) == 1.55
 
+
 def test_range_pad_falls_back_to_a_share_of_the_line_height():
     assert range_pad([(1, 72.0, 231.0, 228.6, 12.75)]) == 2.23
+
 
 def test_merge_boxes_joins_one_column_and_keeps_two():
     # first column's last line, then the second column's block
@@ -70,22 +73,27 @@ def test_merge_boxes_joins_one_column_and_keeps_two():
     out = merge_boxes(rows, 0.0, 595.28, 841.89, 8)
     assert len(out) == 2
 
+
 def test_merge_boxes_keeps_pages_apart():
     rows = [(1, 72.0, 700.0, 228.6, 8.86), (2, 72.0, 100.0, 228.6, 8.86)]
     assert [b[0] for b in merge_boxes(rows, 0.0, 595.28, 841.89, 8)] == [1, 2]
+
 
 def test_merge_boxes_clamps_padding_to_the_page():
     out = merge_boxes([(1, 72.0, 2.0, 228.6, 8.86)], 5.0, 595.28, 841.89, 8)
     assert out[0][2] == 0.0
 
+
 def test_merge_boxes_gives_up_over_the_limit():
     rows = [(1, 72.0 + 30 * i, 100.0 + 30 * i, 20.0, 8.0) for i in range(9)]
     assert merge_boxes(rows, 0.0, 595.28, 841.89, 8) == []
 
+
 def test_built_range_maps_todays_lines_back():
     built = ["a", "b", "c", "d"]
-    now = ["x", "a", "b", "c", "d"]          # one line added at the top
+    now = ["x", "a", "b", "c", "d"]  # one line added at the top
     assert built_range(built, now, 2, 4) == (1, 3)
+
 
 def test_built_range_is_none_when_the_text_moved_away():
     assert built_range(["a", "b"], ["q", "r"], 1, 2) is None
@@ -137,13 +145,16 @@ I agree to the Limn CLA (CLA.md)."
 ```python
 SAMPLE = "Output:x.pdf\nPage:2\nx:144.0\ny:218.4\nh:72.0\nv:220.4\nW:228.6\nH:8.86\n"
 
+
 def test_synctex_view_reads_page_and_box(monkeypatch):
     monkeypatch.setattr(source.subprocess, "run", lambda *a, **k: SimpleNamespace(stdout=SAMPLE))
     assert source.synctex_view(Path("x.pdf"), "x.tex", 30) == [(2, 72.0, 211.54, 228.6, 8.86)]
 
+
 def test_synctex_view_is_empty_when_the_tool_is_missing(monkeypatch):
     def boom(*a, **k):
         raise FileNotFoundError
+
     monkeypatch.setattr(source.subprocess, "run", boom)
     assert source.synctex_view(Path("x.pdf"), "x.tex", 30) == []
 ```
