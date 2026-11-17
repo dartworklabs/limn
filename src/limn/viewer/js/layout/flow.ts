@@ -414,6 +414,10 @@ function relayout() {
   if (changed && META) for (const listener of listeners) listener.layoutChanged?.();
   applySideWidth();
   applyOutlineState();
+  // Before the first meta there is no document to fit: while the PDF area is drawn, the fit to its width and every step
+  // after it wait for boot(), which fits the pages it draws. A PDF area that is not drawn (the changes view) has nothing
+  // to fit, and the steps after the fit go on.
+  if (!META && $('#left').getClientRects().length) return;
   for (const listener of listeners) listener.widthsApplied?.();
   restoreAnchor(anchor);
   for (const listener of listeners) listener.anchorRestored?.();

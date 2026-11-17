@@ -51,6 +51,7 @@
 | [ADR-0045](0045-viewer-page-elements.md) | 뷰어 페이지의 요소 타입을 index.html에서 지은 선언으로 정하고, 그 참은 시험이 지킨다 | `tools/page_elements.py`가 `index.html`에서 `types/page.d.ts`(`PageElements`·`LiveElements`·`PageLookup`)를 짓고, `$`는 실행 코드를 그대로 둔 채 그 타입만 받는다. 선언의 참은 생성 비교·리터럴·마크업·브라우저 시험이 지키고, id 하나가 아닌 질의는 `find`·`findMaybe`·`findAll`로 클래스를 검사하며, DOM 질의의 타입 인자는 ESLint가 거절한다 | 제안 | — | — |
 | [ADR-0046](0046-viewer-endpoint-answers.md) | 뷰어가 받는 값의 타입을 그 출처에서 정한다 — 엔드포인트의 응답, 번들한 PDF.js, 저장한 레코드 | `api()`는 `ApiAnswers`의 엔드포인트 키로 요청을 짓고 그 엔드포인트의 응답(기다린 거절은 `ApiRefusals`의 본문)을 돌려주며, 선언의 참은 실제 처리기 대조 시험이 지키고 실행 중에는 검사하지 않는다. 신뢰는 `response.json()`과 그 응답을 둔 저장 사본에서만 들어오고, PDF.js와 KaTeX는 번들한 판에 맞춘 선언으로, 끊긴 채의 저장 레코드는 종류마다 가드로 좁혀 맞지 않으면 건너뛰고 남긴다. 브라우저 저장소·워커 메시지·잡은 오류도 그 값을 쓰는 코드의 모양으로 좁히고, 그 가드는 실제 출처가 내는 값으로 시험한다 | 제안 | — | — |
 | [ADR-0047](0047-viewer-composer-selection.md) | 작성 패널의 선택은 선택 종류의 합집합이고, 저장한 초안은 릴리스한 모든 모양으로 읽는다 | `ComposerSelection`은 PDF 위의 드래그 `PagePick`과 그려진 문서의 줄 선택 `LinePick`의 합집합이고, 줄 선택에 없는 필드는 `?: undefined`로 적어 쪽으로 가른다. 탭 초안의 선택은 `draftSelection`이 그 합집합으로 좁히며, v0.4.60·v0.4.61의 끊긴 채의 드래그는 지금 모양으로 바꿔 받는다 | 제안 | — | — |
+| [ADR-0048](0048-viewer-known-meta.md) | 열린 문서의 meta는 첫 답이 온 뒤에만 있다고 타입에 적고, 그 전에 도는 리스너는 문서가 필요한 자리에서 멈춘다 | `META`는 `Meta \| null`이고 `setMeta`는 `Meta`만 받는다. 문서가 열린 뒤에만 도는 코드는 첫 답 전에 부르면 `META`의 이름으로 던지는 `knownMeta()`로 읽고, 첫 답 전에 돌 수 있는 확대·다시 배치·재빌드의 끝은 `META`를 좁혀 오늘 오류가 나던 자리에서 멈춘다. 빈 `Meta` 자리 표시 값과 리스너를 첫 답 뒤로 미루는 것은 기각했다 | 제안 | — | — |
 
 ## 읽는 법
 

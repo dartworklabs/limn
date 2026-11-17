@@ -586,7 +586,9 @@ class FrontendStructure(unittest.TestCase):
         )
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
-        self.assertIn(sq("pdf_build:META.pages_build"), SCRIPT_SQ)  # drag -> /api/pick
+        drag = sq(extract_js_fn("finishRect"))  # drag -> /api/pick: the build of the open document's meta
+        self.assertIn(sq("meta=knownMeta(),"), drag)
+        self.assertIn(sq("pdf_build:meta.pages_build"), drag)
         self.assertIn(sq("quote:selection.quote,pdf_build:selection.pdf_build"), SCRIPT_SQ)  # pick response -> /api/pin
         self.assertIn(sq("frac:candidate.frac,pdf_build:candidate.pdf_build"), SCRIPT_SQ)  # relocate -> loc
 
@@ -2923,7 +2925,7 @@ class FrontendFigure(unittest.TestCase):
         )
         self.assertNotIn("body.view-only", css)
         self.assertIn(
-            sq("document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))"),
+            sq("const meta=knownMeta();document.body.classList.toggle('no-rebuild',!buildsFromSource(meta.kind))"),
             sq(extract_js_fn("drawMeta")),
         )
         for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs", "docUpdateView"):

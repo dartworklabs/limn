@@ -14,9 +14,8 @@ run typecheck must report no error):
 
 This script runs both and compares each file's count, per check and rule, with tools/strict-baseline.json. The
 eslint part of the baseline holds only the viewer's trust points - the lines that take a value from outside as its
-declared type with nothing to check it against, each commented with what it trusts and what holds that true - and the
-one assertion on META's first value; docs/handbook/viewer.md §타입 검사 and docs/adr/0046-viewer-endpoint-answers.md D8
-list them. Every other eslint message is to be fixed, not counted. A count above its baseline fails: new code must
+declared type with nothing to check it against, each commented with what it trusts and what holds that true;
+docs/handbook/viewer.md §타입 검사 and docs/adr/0046-viewer-endpoint-answers.md D8 list them. Every other eslint message is to be fixed, not counted. A count above its baseline fails: new code must
 meet the rule. A count below fails too, until the baseline is lowered with --update, so it cannot creep back. A file
 or rule the baseline does not name has a baseline of 0. A check that fails without giving counts (a broken config, a
 parse error, a mistake in the boundary tables, a broken boundary invariant) fails this run.

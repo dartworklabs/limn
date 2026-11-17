@@ -253,8 +253,12 @@ function imeHeldIn(): EventTarget | null {
 function imeKey(event: KeyboardEvent) {
   return event.isComposing || event.keyCode === 229 || imeTail(event);
 }
-// META is null only until boot() reads /api/meta; nothing reads it before.
-let META = null as unknown as Meta,
+// META is the open document's meta (GET /api/meta): null until the first answer arrives - boot() reads it after the
+// document list, and a switch made before that answer reads its own - and never null again: setMeta takes a Meta, and
+// every later answer (a switch, a refresh) replaces it whole. Code that can run before the first answer (a listener
+// registered while the script loads) reads META and narrows it; code that runs only once a document is open reads
+// knownMeta().
+let META: Meta | null = null,
   PINS: Pin[] = [],
   DONE: Pin[] = [],
   DROPPED: Pin[] = [],
@@ -394,10 +398,19 @@ function setMentionOnly<Value extends typeof MENTION_ONLY>(value: Value): Value 
   MENTION_ONLY = value;
   return value;
 }
-// Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setMeta<Value extends typeof META>(value: Value): Value {
+// Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value. It takes
+// a Meta: META is never set back to null.
+function setMeta<Value extends Meta>(value: Value): Value {
   META = value;
   return value;
+}
+/**
+ * The open document's meta, for code that runs only once a document is open (after boot() has read the first answer).
+ * Throws, naming META, when it is read before that: such a read is a bug in the order the viewer starts in.
+ */
+function knownMeta(): Meta {
+  if (!META) throw new Error('META is read before setMeta() has run: the first /api/meta answer has not arrived');
+  return META;
 }
 // Sets MID_OVERLAY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setMidOverlay<Value extends typeof MID_OVERLAY>(value: Value): Value {
@@ -612,6 +625,7 @@ export {
   MENTION_ONLY,
   META,
   META_BY,
+  knownMeta,
   MID_OVERLAY,
   COARSE_POINTER_QUERY,
   REDUCED_MOTION_QUERY,

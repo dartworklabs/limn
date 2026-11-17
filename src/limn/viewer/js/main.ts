@@ -21,7 +21,7 @@ import {
   REVIEW_ALL,
   setDoc,
   setMeta,
-  META,
+  knownMeta,
   META_BY,
   DOC,
   VIEW_BY,
@@ -1240,8 +1240,9 @@ async function boot() {
   } catch (error) {
     return;
   }
-  if (META.doc) setDoc(META.doc);
-  META_BY.set(DOC, META);
+  const first = knownMeta();
+  if (first.doc) setDoc(first.doc);
+  META_BY.set(DOC, first);
   loadViews();
   const view = VIEW_BY.get(DOC);
   if (multiDoc()) {
@@ -1277,14 +1278,16 @@ async function boot() {
     coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   // a mouse user's first hint how to pin (the PDF also shows a crosshair)
   else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
+  // The open document's meta now: a switch while the pins loaded may have replaced the first one.
+  const meta = knownMeta();
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if (pinsLoaded) {
-    setLastPinsRevision(META.pins_rev);
-    setLastSrcMtime(META.src_sig || META.src_mtime);
+    setLastPinsRevision(meta.pins_rev);
+    setLastSrcMtime(meta.src_sig || meta.src_mtime);
   }
   // the build count this tab has already "seen"
-  setBuildLastSeq(typeof META.build_seq === 'number' ? META.build_seq : 0);
-  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
+  setBuildLastSeq(typeof meta.build_seq === 'number' ? meta.build_seq : 0);
+  (meta.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();
   offlineBoot();

@@ -39,9 +39,6 @@
     }
   },
   "eslint": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "src/limn/viewer/js/app/state.ts": 2
-    },
     "@typescript-eslint/no-unsafe-argument": {
       "src/limn/viewer/js/platform/api.ts": 1
     },

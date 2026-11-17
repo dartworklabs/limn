@@ -399,7 +399,7 @@ function addressedTag(pin: Pin) {
   const to = pin.addressed || [];
   if (!to.length) return null;
   const me = META && META.me && META.me.login,
-    mine = to.includes(me),
+    mine = me !== null && to.includes(me),
     others = to.filter((login) => login !== me);
   const self = mine
     ? html`<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">${lucideIcon('at-sign')}나를 부름</span>`

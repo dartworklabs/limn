@@ -1,6 +1,6 @@
 // ------------------------------------------------ Document
 // The header: the document's meta, its stale and sync badges, the viewer's own name and role.
-import { META, buildsFromSource, isFigureKind } from '../app/state.ts';
+import { META, knownMeta, buildsFromSource, isFigureKind } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { $ } from '../platform/dom.ts';
@@ -23,7 +23,8 @@ function updateStaleBadge(meta: Meta) {
   let stale;
   if (typeof meta.stale_build === 'boolean') stale = meta.stale_build;
   else {
-    const ref = typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META && META.built_at);
+    const ref =
+      typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META ? META.built_at : '');
     stale = ref != null && typeof meta.src_mtime === 'number' && meta.src_mtime > ref + 2;
   }
   if (!stale) {
@@ -100,10 +101,11 @@ function confirmAccessText() {
 // signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document
 // builds from source. Reads META only and sends nothing.
 function drawMeta() {
+  const meta = knownMeta();
   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
-  document.body.classList.toggle('no-rebuild', !buildsFromSource(META.kind));
+  document.body.classList.toggle('no-rebuild', !buildsFromSource(meta.kind));
   // a figure document's marks are a frame with no tint (components.css)
-  document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
+  document.body.classList.toggle('fig-doc', isFigureKind(meta.kind));
   document.body.classList.toggle('md-surface', isMarkdownDoc());
   markdownSurface().showHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   // the document area's name says what it holds
@@ -112,17 +114,17 @@ function drawMeta() {
     translate(isMarkdownDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽'),
   );
   document.body.classList.toggle('role-viewer', isViewer());
-  $('#m-download').disabled = !META.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
+  $('#m-download').disabled = !meta.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
   // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' ·
   // ').
-  $('#meta-main').textContent = META.main;
+  $('#meta-main').textContent = meta.main;
   $('#meta-main').dataset.tip = translate(isMarkdownDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
   const isText = isMarkdownDoc() && isTextDoc(); // a text document's form is 텍스트 (text/view.ts)
   $('#meta-pages').textContent = isText
     ? translate('텍스트')
     : isMarkdownDoc()
       ? 'Markdown'
-      : translateTemplate('{n}쪽', { n: META.pages.length });
+      : translateTemplate('{n}쪽', { n: meta.pages.length });
   $('#meta-pages').dataset.tip = translate(
     isText
       ? '브라우저가 원문 줄을 그대로 보이는 문서 형식'
@@ -130,17 +132,17 @@ function drawMeta() {
         ? '브라우저가 원문에서 그리는 문서 형식'
         : '지금 화면에 있는 PDF의 쪽 수',
   );
-  const head = commitShown(META.head);
+  const head = commitShown(meta.head);
   $('#meta-head').textContent = head;
   $('#meta-head-w').hidden = !head;
   const built = isMarkdownDoc()
     ? ''
-    : String(META.built_at || '')
+    : String(meta.built_at || '')
         .slice(0, 16)
         .replace('T', ' ');
   $('#meta-built').textContent = built;
   $('#meta-built-w').hidden = !built; // a Markdown document is never built
-  const me = META.me;
+  const me = meta.me;
   setHtml($('#me'), html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip = translateTemplate(
     '지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',
@@ -149,10 +151,10 @@ function drawMeta() {
         (isAgent(me) ? who(me) : me.name || '') + (me.login && me.login !== LOCAL_LOGIN ? ' (' + me.login + ')' : ''),
     },
   );
-  updateStaleBadge(META);
-  updateSyncBadge(META.sync);
-  $('#help-pins-md').textContent = META.pins_md || '';
-  setHtml($('#more-info'), moreInfo(META, me));
+  updateStaleBadge(meta);
+  updateSyncBadge(meta.sync);
+  $('#help-pins-md').textContent = meta.pins_md || '';
+  setHtml($('#more-info'), moreInfo(meta, me));
 }
 // [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time
 // · me. Each piece keeps its words together and the lines break only between pieces; a piece longer than the line (a
