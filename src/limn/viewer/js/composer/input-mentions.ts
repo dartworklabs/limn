@@ -97,7 +97,7 @@ function mentionTags(field: HTMLTextAreaElement): MentionTag[] {
 // took; a pick whose name is not there is dropped. Pure.
 function mentionBind(picks: { login: string; tok: string }[], text: string): MentionTag[] {
   const taken = new Set(),
-    out = [] as MentionTag[];
+    out: MentionTag[] = [];
   for (const pick of picks) {
     let position = text.indexOf(pick.tok);
     while (position >= 0 && (taken.has(position) || mentionAfterWord(text, position)))
@@ -218,13 +218,13 @@ function mentionResolve(
   const tokens = mentionTokens(people),
     order = [...hints],
     hinted = new Set(order);
-  const hit = [] as string[],
-    bad = [] as string[],
+  const hit: string[] = [],
+    bad: string[] = [],
     low = text.toLowerCase();
   for (let i = 0; i < text.length; i++) {
     if (text[i] !== '@' || mentionAfterWord(text, i)) continue;
     const rest = low.slice(i + 1);
-    let got = null as string[] | null;
+    let got: string[] | null = null;
     for (const token of tokens) {
       if (!rest.startsWith(token.t)) continue;
       const after = rest.charAt(token.t.length);

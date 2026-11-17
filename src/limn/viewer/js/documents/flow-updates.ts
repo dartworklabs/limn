@@ -53,7 +53,7 @@ const LINE_DIFF_MAX = 500; // edit steps the line comparison tries before callin
 // then ('' without history); pin the highest pin number whose arrival was said. Another browser or device keeps its
 // own. A browser whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM)
 // from the first refusal.
-let SEEN_MEM = null as string | null;
+let SEEN_MEM: string | null = null;
 function seenStore(): { v?: number; pin?: number; docs?: Record<string, { ver: string; rev: string }> } {
   let raw = SEEN_MEM;
   if (raw === null)

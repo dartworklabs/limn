@@ -217,13 +217,13 @@ function blockLines(unit: HTMLElement) {
 // paragraph rewrapped, inside bold, a link or a formula too, is the same block. An alt text is compared with its white
 // space folded, as it is drawn.
 function compareUnits(root: HTMLElement): CompareUnit[] {
-  const out = [] as CompareUnit[];
+  const out: CompareUnit[] = [];
   for (const match of root.querySelectorAll(UNIT_SELECTOR)) {
     const unit = match as HTMLElement;
     if (!isCompareUnit(unit)) continue;
     const tag = unitTag(unit),
       text = unitText(unit, tag),
-      reopened = new Set() as Set<Element>,
+      reopened: Set<Element> = new Set(),
       shape = inlineShape(unit, tag, reopened);
     const groupBoxes = boxElements(unit, root),
       linkTargets = unitReferences(unit, 'a,[data-anchor],.md-rel', reopened),
@@ -283,7 +283,7 @@ function inlineName(element: Element) {
 // exactly as they are (linedShape). Pure over the DOM but for reopened.
 function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
   if (isLinedTag(tag)) return linedShape(tag === 'PRE' ? unit.dataset.lang || '' : '', blockLines(unit));
-  const out = [] as (string | { t: string; to: string })[];
+  const out: (string | { t: string; to: string })[] = [];
   const walk = (node: Node) => {
     for (const child of node.childNodes) {
       if (child.nodeType === 3) {
@@ -716,7 +716,7 @@ type CompareWord = {
 // The words of a unit as they sit in its DOM (a list item's own text only); a block of lines' lines are its words. Pure
 // over the DOM.
 function unitWords(unit: HTMLElement): CompareWord[] {
-  const out = [] as CompareWord[];
+  const out: CompareWord[] = [];
   let spaced = false;
   if (isLinedTag(unitTag(unit))) {
     for (const line of unit.querySelectorAll('.ln')) {
@@ -803,7 +803,7 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
       at = end + 1;
     }
   };
-  let gone = [] as CompareWord[];
+  let gone: CompareWord[] = [];
   // the taken-out words before new word newAt (or after the last one), as one struck-through run: a block of lines' as
   // lines of their own; other words with the white space they had between them, and a space after the run when the word
   // it goes before has one before it (before the run when it goes after the last word and had one before it)
@@ -1074,7 +1074,7 @@ function layColumn(
   ops: any[],
   budget?: CompareBudget,
 ) {
-  let previous = null as HTMLElement | null;
+  let previous: HTMLElement | null = null;
   const next = (index: number) => {
     for (let later = index + 1; later < ops.length; later++) {
       const operation = ops[later];
@@ -1082,7 +1082,7 @@ function layColumn(
     }
     return null;
   };
-  const boxes = new Map() as StandIns;
+  const boxes: StandIns = new Map();
   for (const operation of ops)
     if (operation.t === 'eq' || operation.t === 'mod')
       pairBoxes(boxes, oldUnits[operation.a].el, newUnits[operation.b].el, oldRoot, newRoot); // before any block moves
@@ -1159,7 +1159,7 @@ function layGutterChips() {
   layer.className = 'mdc-chips';
   layer.setAttribute('aria-hidden', 'true');
   const top = root.getBoundingClientRect().top;
-  const items = [] as { y: number; cls: string; text: string }[];
+  const items: { y: number; cls: string; text: string }[] = [];
   for (const node of root.querySelectorAll('[data-mdc],.mdc-pin')) {
     const element = node as HTMLElement,
       rect = element.getBoundingClientRect();
@@ -1217,8 +1217,8 @@ function gitToScreenRange(map: number[][] | null | undefined, lineCount: number,
 // The change groups in order: runs of marked blocks (a moved block's old place too) with nothing unchanged between
 // them. The navigator steps through them.
 function changeGroups(root: HTMLElement) {
-  const stops = [] as HTMLElement[][];
-  let group = null as HTMLElement[] | null;
+  const stops: HTMLElement[][] = [];
+  let group: HTMLElement[] | null = null;
   for (const element of unitElements(root, true)) {
     const marked = !!element.dataset.mdc || element.classList.contains('mdc-ghost');
     if (marked) {

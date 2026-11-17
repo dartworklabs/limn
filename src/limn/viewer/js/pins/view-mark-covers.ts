@@ -90,7 +90,7 @@ function markShift(
     );
   }
   const height = badge.bottom - badge.top;
-  let best = null as number | null;
+  let best: number | null = null;
   for (const [top, bottom] of spans) {
     if (bottom - top < height) continue;
     const margin = badge.top >= top && badge.bottom <= bottom ? 0 : Math.min(MARK_EDGE, (bottom - top - height) / 2);

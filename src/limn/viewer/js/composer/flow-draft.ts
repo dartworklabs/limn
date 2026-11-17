@@ -37,7 +37,7 @@ const DRAFT = {
 };
 // Keep a discarded draft until its undo (note, on the status line) leaves, unless a newer draft replaced it first.
 function holdDraftUntil(note: Notice) {
-  let value = null as string | null;
+  let value: string | null = null;
   try {
     if (DRAFT.key) value = sessionStorage.getItem(DRAFT.key);
   } catch (error) {}
@@ -193,7 +193,7 @@ document.addEventListener('visibilitychange', () => {
 // note comes into it, when its field is still empty, and the kept selection and suggested edit are dropped.
 function restoreDraft() {
   let record = null as any,
-    raw = null as string | null;
+    raw: string | null = null;
   const key = META ? draftKey(META.label, DOC) : null;
   DRAFT.origin = null;
   try {

@@ -139,8 +139,8 @@ function revisionFiles(patch: string) {
 function renderRevisionDiff(patch: string) {
   const lines = String(patch || '').split('\n');
   if (lines[lines.length - 1] === '') lines.pop();
-  let oldLine = null as number | null,
-    newLine = null as number | null,
+  let oldLine: number | null = null,
+    newLine: number | null = null,
     inHunk = false;
   return html`${lines.map((line) => {
     let kind = 'meta',

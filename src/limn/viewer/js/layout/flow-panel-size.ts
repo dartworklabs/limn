@@ -148,7 +148,7 @@ function currentSideWidth() {
   return Math.round($('#right').getBoundingClientRect().width);
 }
 // The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
-let SIDE_SHOWN = null as { w: number; min: number; max: number } | null;
+let SIDE_SHOWN: { w: number; min: number; max: number } | null = null;
 // Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
 function showSideWidth(width: number, bounds: PanelBounds) {
   $('#right').style.width = width + 'px';

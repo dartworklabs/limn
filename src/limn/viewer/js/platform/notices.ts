@@ -112,9 +112,9 @@ const NOTICE_HOLD_MAX = 30000;
 // ...and a page verdict line's save chip by at most this, so a mouse resting by the words does not keep it up for 30s
 const VERDICT_CHIP_HOLD_MAX = 4000;
 const LINE_MAX = 5; // the status line keeps five messages besides its undos (lineCap); its '+N' lists the rest
-const NOTICES = new Map() as Map<number, Notice>;
-const LINE = [] as Notice[]; // the status line's messages, newest first
-const BANNERS = new Map() as Map<string, Notice>; // NOTICE_HOST -> its one banner
+const NOTICES: Map<number, Notice> = new Map();
+const LINE: Notice[] = []; // the status line's messages, newest first
+const BANNERS: Map<string, Notice> = new Map(); // NOTICE_HOST -> its one banner
 let NOTICE_SEQ = 0;
 // A message's lead icon by its kind (noticeIcon).
 const NOTICE_ICONS = {
@@ -148,7 +148,7 @@ function noticeDupe<Entry extends { at: number; keys: string[]; rank: number }>(
   rank: number,
   now: number,
 ): { skip: boolean; drop: Entry[] } {
-  const drop = [] as Entry[];
+  const drop: Entry[] = [];
   if (!keys || !keys.length) return { skip: false, drop };
   for (const x of shown) {
     if (now - x.at > 8000 || !x.keys.length || !keys.some((key) => x.keys.includes(key))) continue;
@@ -520,7 +520,7 @@ function lineHoverIn(move: {
 }
 // The pointer's position at the last move the page saw (document pointermove, after the element's own listener has
 // run).
-let LAST_POINTER_AT = null as { x: number; y: number } | null;
+let LAST_POINTER_AT: { x: number; y: number } | null = null;
 // Whether pointer move e is a mouse really moving: a non-zero delta, by its own movement or against the last position
 // seen. A move the browser makes up under a resting pointer when the page changes under it has neither, so a message
 // drawn under a still pointer is not hovered until the mouse moves over it.
@@ -938,7 +938,7 @@ function newsDupe(keys: string[], rank: number, except: Notice | null): boolean 
 // a gathered message of a higher rank says every one of keys; else drop names each gathered group of a lower rank that
 // says some of them. except: the group of the message that says keys. Pure but for DIGEST.
 function gatheredDupe(keys: string[], rank: number, except: string): { skip: boolean; drop: string[] } {
-  const drop = [] as string[];
+  const drop: string[] = [];
   if (!DIGEST || !keys.length) return { skip: false, drop };
   for (const [group, item] of DIGEST.items) {
     const itemOptions = item[3] || {},
@@ -1633,7 +1633,7 @@ $('#trash').addEventListener('close', () => {
 // So an agent never sees a reply or a permanent delete that was taken back. note = the undo drawn for it, which an
 // early commit takes away. Its own bound is the guard: whatever holds or moves its undo, it is sent NOTICE_MS +
 // NOTICE_HOLD_MAX after it was made at the latest. Runs once, cancels once, never both.
-const DEFERRED = new Set() as Set<Deferred>;
+const DEFERRED: Set<Deferred> = new Set();
 function deferred(commit: () => void, undo: () => void): Deferred {
   let done = false;
   const bound = setTimeout(() => send.run(), NOTICE_MS + NOTICE_HOLD_MAX);

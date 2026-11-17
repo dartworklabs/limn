@@ -57,7 +57,7 @@ function outlineCount(item: PdfOutlineItem) {
 // Which document and build the entries in OUTLINE_ENTRIES were read for (outlineForget drops them when another document
 // comes on screen; the page list names a figure's pages by them only while they are those of the build on screen,
 // outlineOnScreen).
-let OUTLINE_DOC = null as string | null,
+let OUTLINE_DOC: string | null = null,
   OUTLINE_BUILD = '';
 // Reads the outline of the PDF document opened as generation gen (VECTOR_PDF.gen) into OUTLINE_ENTRIES, with the
 // numbers and printed page labels the server reads for the build (mergeOutlineLabels), and draws it. A newer open drops
@@ -293,7 +293,7 @@ function outlineGrouped(entries: OutlineEntry[]) {
       .toLowerCase(); // as mergeOutlineLabels reads a title
   const under = new Map(),
     several = new Set(),
-    set = new Set() as Set<number>;
+    set: Set<number> = new Set();
   entries.forEach((entry) => {
     const key = normalize((entry.number || '') + ' ' + entry.title),
       up = typeof entry.up === 'number' ? entry.up : -1;
@@ -378,7 +378,7 @@ let OUTLINE_MARKED = -1,
   OUTLINE_OVER = false,
   OUTLINE_HANDLED = -Infinity,
   OUTLINE_SHOWN = false,
-  OUTLINE_AIM = null as { top: number; at: number } | null;
+  OUTLINE_AIM: { top: number; at: number } | null = null;
 // Where the list (scrollTop, view height viewHeight, content height contentHeight) scrolls to bring a row at [top,
 // bottom] of its content into view: null when the row stands margin px clear of both edges - else the nearest place
 // where it does (less on a view too short for that, and a row taller than the view by its top). The view's top edge is
@@ -655,7 +655,7 @@ function outlineIndexAt(entries: OutlineEntry[], page: number, frac: number) {
 // let go before it is reached, so that a later visit to its page by hand shows that page's own entry: when the reader
 // takes over (a wheel, a touch, a press on the pages or the scroll bar, a scrolling key), when the window changes size,
 // when another pick replaces it, and when the pages have come to rest short of its page (outlinePickRest).
-let OUTLINE_PINNED = null as { page: number; index: number; reached: boolean } | null,
+let OUTLINE_PINNED: { page: number; index: number; reached: boolean } | null = null,
   OUTLINE_PICK_WAIT = 0;
 // A smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest.
 const OUTLINE_PICK_SETTLE_MS = 250;

@@ -446,7 +446,7 @@ setPinVerdicts({
   shownOnLine: isShownOnLine,
   jumpToLine: jumpToPageLine,
 });
-let HELP_BACK = null as HTMLElement | null;
+let HELP_BACK: HTMLElement | null = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
   const dialog = $('#help');

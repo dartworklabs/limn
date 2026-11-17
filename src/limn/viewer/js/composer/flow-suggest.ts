@@ -254,7 +254,7 @@ async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns:
   draft.reading = key;
   draft.fail = null;
   redraw();
-  let text = null as string | null,
+  let text: string | null = null,
     fail = '';
   try {
     const { status, data } = await api(

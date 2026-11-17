@@ -20,11 +20,11 @@
 //   what is skipped is empty.
 // Without IntersectionObserver no line is skipped.
 import { $, findAll } from '../platform/dom.ts';
-let FAR_OBSERVER = null as IntersectionObserver | null,
+let FAR_OBSERVER: IntersectionObserver | null = null,
   FAR_HEIGHT = -1;
-const FAR_WATCHED = new Set() as Set<HTMLElement>; // the lines the observer watches
+const FAR_WATCHED: Set<HTMLElement> = new Set(); // the lines the observer watches
 // when fitPageLines last kept each line's height (performance.now())
-const FITTED_AT = new WeakMap() as WeakMap<HTMLElement, number>;
+const FITTED_AT: WeakMap<HTMLElement, number> = new WeakMap();
 // The lines fitPageLines is about to measure are laid out, skipped or not (.pv-fitting).
 function holdFarLines(lines: HTMLElement[]) {
   if (typeof IntersectionObserver === 'undefined') return;

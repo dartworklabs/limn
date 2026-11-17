@@ -307,7 +307,7 @@ function zoomAnchor(clientX?: number, clientY?: number): ZoomAnchor | null {
   const centre = clientX == null || clientY == null,
     pointX = centre ? areaRect.left + pdfArea.clientWidth / 2 : clientX,
     pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
-  let best = null as { pg: HTMLElement; r: DOMRect } | null,
+  let best: { pg: HTMLElement; r: DOMRect } | null = null,
     bestDistance = Infinity;
   for (const pageBox of findAll(document, '.pg', HTMLElement)) {
     const rect = pageBox.getBoundingClientRect(),

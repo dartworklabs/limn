@@ -99,7 +99,7 @@ function revisionAnchor(x?: number, y?: number) {
     boxRect = box.getBoundingClientRect();
   x = x ?? boxRect.left + box.clientWidth / 2;
   y = y ?? boxRect.top + box.clientHeight / 2;
-  let nearest = null as HTMLElement | null,
+  let nearest: HTMLElement | null = null,
     distance = Infinity;
   for (const item of REVISION_ZOOM.pages) {
     const pageRect = item.el.getBoundingClientRect(),
@@ -191,7 +191,7 @@ function revisionZoom(action: string | undefined) {
 /** Obtain page geometry without allocating canvases; abandon stale PDF visits. */
 async function mountRevisionPdf(pdf: RevisionPdf, seq: number, docKey: string | null, id: string) {
   const generation = REVISION_ZOOM.gen,
-    pages = [] as RevisionPage[];
+    pages: RevisionPage[] = [];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const page = await pdf.getPage(pageNumber);
     if (generation !== REVISION_ZOOM.gen || !revisionCurrent(seq, docKey, id)) return;
@@ -301,9 +301,9 @@ async function paintRevisionPdf() {
   const box = $('#revision-pdf');
   let frame = 0,
     pendingFactor = 1,
-    point = null as number[] | null;
-  let gesture = null as { ratio: number; anchor: RevisionAnchor | null } | null;
-  let touch = null as { distance: number; ratio: number; anchor: RevisionAnchor | null } | null;
+    point: number[] | null = null;
+  let gesture: { ratio: number; anchor: RevisionAnchor | null } | null = null;
+  let touch: { distance: number; ratio: number; anchor: RevisionAnchor | null } | null = null;
   /** Apply the composed wheel gesture only to the current comparison. */
   const flush = () => {
     frame = 0;

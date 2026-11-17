@@ -25,7 +25,7 @@ const SELECTION_POPOVER = $('#sel-pop'),
   SELECTION_POPOVER_GAP = 8;
 SELECTION_POPOVER_FIELD._mirrorOf = $('#note'); // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
-let SELECTION_POPOVER_BOX = null as HTMLElement | null;
+let SELECTION_POPOVER_BOX: HTMLElement | null = null;
 // Where a popover of width x height goes for a box in the free area (rectangles {left, top, right, bottom}), gap px
 // from the box and from the area's edges: below the box with its left edge, above it when below has no room, at the
 // area's foot when neither side has room; moved left to stay inside the area's right edge, never past its left. Not

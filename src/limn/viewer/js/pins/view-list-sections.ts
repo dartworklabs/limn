@@ -154,7 +154,7 @@ function placeRow(box: HTMLElement, notice: Notice, row: HTMLElement) {
     else box.prepend(row);
     return;
   }
-  const drawn = new Map() as Map<Pin, Element>;
+  const drawn: Map<Pin, Element> = new Map();
   for (const child of box.children) {
     const element = child as HTMLElement,
       drawnPin = element.matches('.pin.card')

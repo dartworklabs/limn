@@ -177,7 +177,7 @@ function newRenderContext(lines: string[]): RenderContext {
 }
 // The render context a drawn root was built with (the compare's sides, keepRenderContext); any other root is the
 // document view's, MARKDOWN_VIEW.
-const ROOT_CONTEXTS = new WeakMap() as WeakMap<Element, RenderContext>;
+const ROOT_CONTEXTS: WeakMap<Element, RenderContext> = new WeakMap();
 function keepRenderContext(root: Element, context: RenderContext) {
   ROOT_CONTEXTS.set(root, context);
 }
@@ -537,7 +537,7 @@ async function buildMarkdownDoc() {
     ? { ok: false, limit: MARKDOWN_LIMIT.NUL }
     : await parseMarkdown(MARKDOWN_VIEW.lines.join('\n'));
   if (stale() || !parsed) return;
-  let root = null as HTMLElement | null,
+  let root: HTMLElement | null = null,
     limit = parsed.ok ? null : String(parsed.limit || MARKDOWN_LIMIT.ERROR);
   // The TeX renderer is fetched before the build, which is synchronous once it starts (drawTexBox): only a document
   // whose tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1,
@@ -1713,7 +1713,7 @@ function* drawImage(token: any, work: { n: number }, context: RenderContext): Ge
 }
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps
 // their places.
-const IMAGE_SIZES = new Map() as Map<string, { w: number; h: number }>;
+const IMAGE_SIZES: Map<string, { w: number; h: number }> = new Map();
 // An image has loaded: its size is kept (IMAGE_SIZES) and given to its box, and the reading spot (MARKDOWN_VIEW.spot,
 // as readSpot last read it, or read again just before the change when the pane was moved since: refreshMovedSpot) is
 // put back (putSpotBack) - only an image above it moves anything. During a jump to a heading (goToHeading) the spot is
@@ -1796,8 +1796,8 @@ const IMAGE_CHECK = {
   asked: 0,
   at: new Map() as Map<string, Map<string, number>>,
 };
-const IMAGE_TAGS = new Map() as Map<string, string>; // an address -> the ETag of the picture an image at it shows
-const IMAGE_VERSIONS = new Map() as Map<string, string>; // doc + '\n' + tree path -> the version its address carries
+const IMAGE_TAGS: Map<string, string> = new Map(); // an address -> the ETag of the picture an image at it shows
+const IMAGE_VERSIONS: Map<string, string> = new Map(); // doc + '\n' + tree path -> the version its address carries
 const IMAGE_MAP_LIMIT = 256; // the most entries either map keeps, the oldest dropped first
 // The address the tree image at path loads from now: assetUrl's, with the version a check found (IMAGE_VERSIONS).
 function imageUrl(doc: string | null, path: string) {
@@ -1847,7 +1847,7 @@ async function checkTreeImages(): Promise<number> {
   )
     return 0;
   const paneRect = $('#left').getBoundingClientRect(),
-    near = [] as { img: HTMLImageElement; d: number }[],
+    near: { img: HTMLImageElement; d: number }[] = [],
     shown = new Set();
   for (const img of [...document.querySelectorAll('#md .md-pic img')] as HTMLImageElement[]) {
     const path = img.parentElement && img.parentElement.dataset.path;
@@ -2151,7 +2151,7 @@ function lineSnippet(first: number, last: number) {
 // of the same or a higher level (the file's end when none), its trailing blank lines left out. null above the first
 // heading, or when last is past it.
 function sectionAround(first: number, last: number) {
-  let heading = null as { level: number; lo: number; title: string } | null;
+  let heading: { level: number; lo: number; title: string } | null = null;
   for (const head of MARKDOWN_VIEW.heads) {
     if (head.lo <= first) heading = head;
     else break;
@@ -2362,7 +2362,7 @@ function drawPinMarks() {
   const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
     .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
     .sort((left, right) => (left.lo as number) - (right.lo as number) || left.id - right.id);
-  const rows = new Map() as Map<number, HTMLElement>,
+  const rows: Map<number, HTMLElement> = new Map(),
     top = column.getBoundingClientRect().top;
   for (const pin of pins) {
     const leaves = lineLeaves(pin.lo as number, pin.hi as number);
@@ -2554,7 +2554,7 @@ function markdownPositionLabel(doc: string, line: number, lineCount: number, mul
 }
 // The empty list's help (#empty) speaks of dragging on the PDF; this document gets its own words, and a PDF document
 // the page's own back (kept as served).
-let PDF_HINT_NODES = null as Node[] | null;
+let PDF_HINT_NODES: Node[] | null = null;
 function showMarkdownHint() {
   const help = $('#empty');
   if (!help) return;
@@ -2751,14 +2751,14 @@ function rangeText(range: Range) {
   copy.className = 'md';
   copy.append(range.cloneContents());
   copy.querySelectorAll('.md-badges').forEach((element) => element.remove());
-  const tex = [] as string[];
+  const tex: string[] = [];
   copy.querySelectorAll('[data-tex]').forEach((element) => {
     tex.push(element.getAttribute('data-tex') || '');
     const slot = document.createElement(element.classList.contains('md-math-block') ? 'div' : 'span');
     slot.textContent = '\ufff1';
     element.replaceWith(slot);
   });
-  const kept = [] as string[];
+  const kept: string[] = [];
   copy.querySelectorAll('.cc').forEach((element) => {
     kept.push(element.textContent || '');
     element.replaceWith('\ufff0');

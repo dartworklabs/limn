@@ -23,7 +23,7 @@ import { topAnchor, restoreAnchor } from '../layout/flow.ts';
 // moves the scroll offset the column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts
 // the column back on it when the pages show again - only if the offset left it by a pixel or more, so a visit that
 // changed nothing leaves the column exactly where it was.
-let SPOT = null as { a: NonNullable<ReturnType<typeof topAnchor>>; doc: string | null } | null;
+let SPOT: { a: NonNullable<ReturnType<typeof topAnchor>>; doc: string | null } | null = null;
 function keepSpot() {
   const anchor = topAnchor();
   SPOT = anchor ? { a: anchor, doc: DOC } : null;

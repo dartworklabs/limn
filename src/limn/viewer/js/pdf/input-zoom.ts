@@ -39,10 +39,10 @@ function wheelFactor(deltaY: number, mode: number) {
 (function () {
   const pdfArea = $('#left');
   let pendingFactor = 1,
-    wheelPoint = null as number[] | null,
+    wheelPoint: number[] | null = null,
     wheelFrame = 0,
-    gestureStart = null as { k: number } | null,
-    pinchStart = null as { d: number; k: number; a: ReturnType<typeof zoomAnchor> } | null;
+    gestureStart: { k: number } | null = null,
+    pinchStart: { d: number; k: number; a: ReturnType<typeof zoomAnchor> } | null = null;
   const flush = () => {
     wheelFrame = 0;
     if (pendingFactor === 1 || !wheelPoint) return;
@@ -96,7 +96,7 @@ function wheelFactor(deltaY: number, mode: number) {
   const fingerDistance = (first: Touch, second: Touch) =>
     Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) || 1;
   let pinchFrame = 0,
-    last = null as { d: number; m: number[] } | null;
+    last: { d: number; m: number[] } | null = null;
   const apply = () => {
     pinchFrame = 0;
     if (!pinchStart || !last) return;

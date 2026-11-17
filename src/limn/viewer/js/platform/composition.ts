@@ -4,7 +4,7 @@
 // over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
 // compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
 // the moment it is asked.
-let COMPOSITION_ELEMENT = null as Element | null;
+let COMPOSITION_ELEMENT: Element | null = null;
 addEventListener(
   'compositionstart',
   (event) => {

@@ -27,14 +27,14 @@ const FIGURE_REST_PX = 2;
 const ARRIVAL_REST_MS = 120,
   ARRIVAL_SETTLE_MS = 2000,
   ARRIVAL_FIXES = 3;
-let ARRIVAL = null as {
+let ARRIVAL: {
     place: () => number | null;
     hand: number;
     doc: string | null;
     fixes: number;
     until: number;
     at: number | null;
-  } | null,
+  } | null = null,
   ARRIVAL_TIMER = 0;
 /** @param place - the scrollTop the jump goes to, measured now; null once it is gone */
 function arrivalWatch(place: () => number | null) {
@@ -102,7 +102,7 @@ function arrivalSettle() {
 let LAST_SCROLL_AT = 0,
   HAND_SCROLL_AT = 0,
   IS_GLIDING = false,
-  JUMP_TARGET = null as number | null;
+  JUMP_TARGET: number | null = null;
 const HAND_ON_PAGES = () => {
   HAND_SCROLL_AT = performance.now();
   IS_GLIDING = false;

@@ -6,7 +6,7 @@
 const CONFIRMING = new Set<number>();
 // The pins whose [확인] waits for its undo, by id: off the review list meanwhile, but a page verdict line still counts
 // them (verdict/flow-line.ts).
-const CONFIRMING_PIN = new Map() as Map<number, Pin>;
+const CONFIRMING_PIN: Map<number, Pin> = new Map();
 // The pins whose [영구 삭제] is out, by id: the Trash leaves them out meanwhile (purgePin, pins/flow-actions.ts).
 const PURGING = new Set<number>();
 // This tab's own close/drop/reopen/restore already said so where it happened, so the next loadPins()'s notePinChanges

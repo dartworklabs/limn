@@ -97,7 +97,7 @@ async function api(url: string, options?: RequestOptions): Promise<{ status: num
     }
   }
   const wait = options.wait || (read ? API_WAIT.READ : 0);
-  let timer = undefined as ReturnType<typeof setTimeout> | undefined;
+  let timer: ReturnType<typeof setTimeout> | undefined = undefined;
   const controller = wait ? new AbortController() : null;
   if (controller) {
     const end = () => controller.abort();

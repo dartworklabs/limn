@@ -112,7 +112,7 @@ function searchLines(items: any[]) {
   rows.forEach((rowItems) => {
     const mine = [] as any[];
     let raw = '',
-      parts = [] as { i: number; from: number }[],
+      parts: { i: number; from: number }[] = [],
       pieceBox = null as any;
     const end = () => {
       if (raw.trim()) {
@@ -257,7 +257,7 @@ function searchGutter(lines: any[]): number[] | null {
   let running = 0;
   const coverCounts = at.slice(0, -1).map((x) => (running += coverChange.get(x) ?? 0)),
     bar = Math.max(1, Math.floor(SEARCH_GUTTER.BAR * Math.max(...coverCounts)));
-  let best = null as number[] | null;
+  let best: number[] | null = null;
   for (let k = 0; k < coverCounts.length;) {
     if (coverCounts[k] > bar) {
       k++;
@@ -298,7 +298,7 @@ function searchGutter(lines: any[]): number[] | null {
 // measure says whose it is (col: 0 left, 1 right) and carries the block's edges (blk), for searchJoin. Pure.
 function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?: { l: number; r: number } } | null)[] {
   const blockOf = searchBlocks(lines),
-    blockEdges = [] as { l: number; r: number }[];
+    blockEdges: { l: number; r: number }[] = [];
   lines.forEach((line, index) => {
     const block = blockOf[index];
     if (block < 0) return;
@@ -392,7 +392,7 @@ function searchJoin(
 // length (n). Pure.
 function searchFlow(lines: any[]) {
   let flow = '';
-  const rows = [] as { at: number; cut: number; n: number }[],
+  const rows: { at: number; cut: number; n: number }[] = [],
     edges = searchEdges(lines);
   lines.forEach((line, index) => {
     const body = line.t.trim();
@@ -427,7 +427,7 @@ function searchFind(
   flow: { t: string; rows: { at: number; cut: number; n: number }[] },
   pattern: RegExp | null,
 ): number[][][] {
-  const out = [] as number[][][];
+  const out: number[][][] = [];
   if (!pattern) return out;
   let rowIndex = 0;
   for (const match of flow.t.matchAll(pattern)) {
@@ -631,7 +631,7 @@ function searchPageHits(page: SearchPage, pageNumber: number, pattern: RegExp | 
 }
 // The width of text in a generic font family, in an arbitrary unit (a shared canvas, SEARCH_CONTEXT): searchBox()'s
 // measure.
-let SEARCH_CONTEXT = null as CanvasRenderingContext2D | null;
+let SEARCH_CONTEXT: CanvasRenderingContext2D | null = null;
 function searchMeasure(text: string, family: string) {
   const context = (SEARCH_CONTEXT ||
     (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D;
@@ -1051,9 +1051,9 @@ function searchCover() {
   if (!openBox) return;
   const barStyle = getComputedStyle(navigationBar),
     gap = parseFloat(barStyle.columnGap) || 0,
-    keep = [] as HTMLElement[],
-    off = [] as HTMLElement[],
-    left = [] as HTMLElement[];
+    keep: HTMLElement[] = [],
+    off: HTMLElement[] = [],
+    left: HTMLElement[] = [];
   // Each neighbour before the search in the bar is left in place (it ends a gap short of the field), kept (the status
   // line) or taken off - also one the bar has squeezed to no width (a long status line at rest does that to the
   // document links), which would come back under the field as soon as the status is shortened.

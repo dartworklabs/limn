@@ -254,10 +254,10 @@ function imeKey(event: KeyboardEvent) {
 }
 // META is null only until boot() reads /api/meta; nothing reads it before.
 let META = null as unknown as Meta,
-  PINS = [] as Pin[],
-  DONE = [] as Pin[],
-  DROPPED = [] as Pin[],
-  REPICK = null as Repick | null,
+  PINS: Pin[] = [],
+  DONE: Pin[] = [],
+  DROPPED: Pin[] = [],
+  REPICK: Repick | null = null,
   PICKSEQ = 0;
 // PAGE_SCALE: the scale of the document on screen, CSS px per PDF point (pdf/view-pages.ts §page sizes); 0 until its
 // first pages are built.
@@ -270,9 +270,9 @@ let SNIP_OPEN = false,
 const COARSE_POINTER_QUERY = matchMedia('(pointer:coarse)');
 let OUTLINE_MID_OPEN = false,
   MID_OVERLAY = false;
-let LAYOUT = null as string | null,
-  BAND = null as string | null,
-  BAND_IN = null as { w: number; h: number; coarse: boolean } | null,
+let LAYOUT: string | null = null,
+  BAND: string | null = null,
+  BAND_IN: { w: number; h: number; coarse: boolean } | null = null,
   SIDE_OPEN = true,
   SELMODE = false,
   ZOOMED = false;
@@ -282,11 +282,11 @@ const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
 // place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
 // field's text and selected recipient hints ('reply:12').
 let KIND_NEW = REQUEST_KIND.FIX as string,
-  REPLY = null as ReplyBox | null;
+  REPLY: ReplyBox | null = null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members +
 // pin authors/actors), PEOPLE_KNOWN = that list has arrived (until then no tag resolves, which says nothing about the
 // note), MENTION_ONLY = viewing only "pins that called me".
-let PEOPLE = [] as PersonSeen[],
+let PEOPLE: PersonSeen[] = [],
   PEOPLE_KNOWN = false,
   MENTION_ONLY = false;
 const THREAD_OPEN = new Set();
@@ -300,11 +300,11 @@ const REPLY_VISITS: Map<number, number> = new Map();
 // PINS). META_BY = per-document meta cache (instant tab switching), VIEW_BY = per-document viewed position/zoom,
 // BUILD_ERR_BY = per-document last build error, DOC_SEQ = another document's finished-build count (it tells a build
 // that finished in the background).
-let DOCS = [] as DocEntry[],
-  DOC = null as string | null,
+let DOCS: DocEntry[] = [],
+  DOC: string | null = null,
   DEFAULT_DOC = 'main',
-  OPEN_ALL = [] as Pin[],
-  DONE_ALL = [] as Pin[],
+  OPEN_ALL: Pin[] = [],
+  DONE_ALL: Pin[] = [],
   SHOW_ALL = false,
   SWITCHSEQ = 0;
 // NAVGEN = the history traversals so far (the browser's back or forward, not the back layer's own entry): a document
@@ -325,7 +325,7 @@ function currentVisit(visit: Visit) {
 }
 // Awaiting review (a pin closed by an agent, waiting for a person's [확인], pinState(p)===PIN_STATE.REVIEW). Never put
 // into DONE_ALL - drawn separately from the done archive.
-let REVIEW_ALL = [] as Pin[];
+let REVIEW_ALL: Pin[] = [];
 const META_BY = new Map(),
   VIEW_BY = new Map(),
   BUILD_ERR_BY = new Map(),

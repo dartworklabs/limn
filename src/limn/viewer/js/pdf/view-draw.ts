@@ -256,7 +256,7 @@ async function runDrawJob(job: { n: number; kind: string }) {
     canvas = document.createElement('canvas');
   let scale,
     transform,
-    region = null as { x: number; y: number; w: number; h: number } | null;
+    region: { x: number; y: number; w: number; h: number } | null = null;
   // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
   // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. The PNG fills that same
   // box, so this is what lands the canvas's text at the same % position as the PNG's.

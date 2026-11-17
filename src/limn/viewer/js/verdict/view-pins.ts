@@ -183,7 +183,7 @@ function verdictOrder(doc: string): VerdictOrder {
   const hit = VERDICT_ORDER_CACHE.by.get(doc);
   if (hit) return hit;
   const kind = docKindOf(doc),
-    groups = new Map() as Map<string, { t: VerdictTarget; all: { p: Pin; t: VerdictTarget }[] }>,
+    groups: Map<string, { t: VerdictTarget; all: { p: Pin; t: VerdictTarget }[] }> = new Map(),
     seen = new Set();
   for (const pin of OPEN_ALL.concat(REVIEW_ALL, DONE_ALL, [...CONFIRMING_PIN.values()])) {
     if (seen.has(pin.id) || pdoc(pin) !== doc || !verdictOf(pin)) continue;
@@ -214,7 +214,7 @@ function verdictOrder(doc: string): VerdictOrder {
 // The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by
 // page. A page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
 function pageVerdictPins(): Map<number, Pin[]> {
-  const out = new Map() as Map<number, Pin[]>;
+  const out: Map<number, Pin[]> = new Map();
   verdictOrder(DOC || DEFAULT_DOC).groups.forEach((group) => {
     if (!group.whole) return;
     const had = out.get(group.page);
