@@ -369,6 +369,5 @@
       "src/limn/viewer/js/verdict/flow-reason.ts": 3,
       "src/limn/viewer/js/verdict/view-panel.ts": 2
     }
-  },
-  "tsc-strict": {}
+  }
 }

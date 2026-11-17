@@ -6,8 +6,8 @@
 // fewer until the baseline is lowered. A file or rule the baseline does not name must have none. `npm run lint` shows
 // the messages themselves.
 //
-// The rules are type-aware: typescript-eslint reads tsconfig.strict.json, the types tsc infers with noImplicitAny (an
-// unannotated `let x;` or `[]` takes the type its assignments give it), so a value of type any is found whether it
+// The rules are type-aware: typescript-eslint reads tsconfig.json, the types tsc infers with its strict set (under
+// noImplicitAny an unannotated `let x;` or `[]` takes the type its assignments give it), so a value of type any is found whether it
 // came from an annotation, an untyped library or a JSON.parse. The escape hatches are typescript-eslint's rules: an
 // explicit any, a type assertion (`x as T`, `<T>x`), a non-null assertion (`x!`) and a @ts- directive. Two checks no
 // plugin makes are local rules (limnRules below): a write through another module's binding, and a JSDoc type, which
@@ -302,7 +302,7 @@ export default [
       ecmaVersion: 2024,
       sourceType: 'module',
       parser: tseslint.parser,
-      parserOptions: { project: './tsconfig.strict.json', tsconfigRootDir: import.meta.dirname },
+      parserOptions: { project: './tsconfig.json', tsconfigRootDir: import.meta.dirname },
       globals: {
         ...globals.browser,
         // Filled by the server in the built script (limn/viewer/assemble.py viewer_script); declared for tsc in
