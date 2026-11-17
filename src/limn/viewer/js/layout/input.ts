@@ -70,7 +70,7 @@ const LONGPRESS_MS = 450;
   } | null;
   // The drag's cues: the handle turns primary once it stops at the minimum; the collapse preview fades the panel's
   // contents (never #right itself - see §펼친 화면 레이아웃) and the blocked zone shows not-allowed.
-  const cue = (zone, rail?) => {
+  const cue = (zone: string | null, rail?: boolean) => {
     const body = document.body;
     grip.classList.toggle(
       'snap-min',
@@ -80,10 +80,10 @@ const LONGPRESS_MS = 450;
     body.classList.toggle('side-snap-blocked', zone === 'blocked' && !rail);
   };
   // A drag from the rail shows the panel without deciding anything yet (the release does).
-  const preview = (on) => {
+  const preview = (on: boolean) => {
     document.body.classList.toggle('side-open', on);
   };
-  grip.addEventListener('pointerdown', (event) => {
+  grip.addEventListener('pointerdown', (event: PointerEvent) => {
     if (LAYOUT === LAYOUT_MODE.NARROW || (event.pointerType === 'mouse' && event.button !== 0)) return;
     event.preventDefault();
     hideTip();
@@ -103,7 +103,7 @@ const LONGPRESS_MS = 450;
     grip.classList.add('on');
     document.body.classList.add('resizing');
   });
-  grip.addEventListener('pointermove', (event) => {
+  grip.addEventListener('pointermove', (event: PointerEvent) => {
     if (!drag || event.pointerId !== drag.id) return;
     const deltaX = drag.x - event.clientX;
     if (!drag.moved && Math.abs(deltaX) < 4) return;
@@ -118,7 +118,7 @@ const LONGPRESS_MS = 450;
   // The release: a cancel restores the state before the drag; a tap opens the rail or cycles the presets; a rail drag
   // opens past half the minimum; an open drag collapses in the collapse zone and otherwise saves the width (the minimum
   // in the min and blocked zones).
-  const end = (event) => {
+  const end = (event: PointerEvent) => {
     if (!drag || event.pointerId !== drag.id) return;
     const released = drag;
     drag = null;
@@ -165,7 +165,7 @@ const LONGPRESS_MS = 450;
     if (SIDE_OPEN) cycleSideWidth();
     else setSide(true, true, true);
   });
-  grip.addEventListener('keydown', (event) => {
+  grip.addEventListener('keydown', (event: KeyboardEvent) => {
     if (LAYOUT === LAYOUT_MODE.NARROW) return;
     const action = gripKey(event.key, currentSideWidth(), sideBounds(LAYOUT, innerWidth), !SIDE_OPEN);
     if (!action) return;
@@ -183,7 +183,7 @@ const LONGPRESS_MS = 450;
 (function () {
   const grip = $('#outline-grip');
   let drag = null as { id: number; x: number; w: number } | null;
-  grip.addEventListener('pointerdown', (event) => {
+  grip.addEventListener('pointerdown', (event: PointerEvent) => {
     if (
       LAYOUT === LAYOUT_MODE.NARROW ||
       document.body.classList.contains('outline-collapsed') ||
@@ -198,10 +198,10 @@ const LONGPRESS_MS = 450;
     grip.classList.add('on');
     document.body.classList.add('resizing');
   });
-  grip.addEventListener('pointermove', (event) => {
+  grip.addEventListener('pointermove', (event: PointerEvent) => {
     if (drag && event.pointerId === drag.id) showOutlineWidth(drag.w + event.clientX - drag.x);
   });
-  const end = (event) => {
+  const end = (event: PointerEvent) => {
     if (!drag || event.pointerId !== drag.id) return;
     drag = null;
     grip.classList.remove('on');
@@ -213,7 +213,7 @@ const LONGPRESS_MS = 450;
   };
   grip.addEventListener('pointerup', end);
   grip.addEventListener('pointercancel', end);
-  grip.addEventListener('keydown', (event) => {
+  grip.addEventListener('keydown', (event: KeyboardEvent) => {
     if (LAYOUT === LAYOUT_MODE.NARROW) return;
     const bounds = outlineBounds(),
       width = Math.round($('#outline').getBoundingClientRect().width);
@@ -224,24 +224,32 @@ const LONGPRESS_MS = 450;
     }
   });
 })();
+type DragSample = [time: number, position: number];
 // The release speed of a drag from its last 100ms of samples [[t, pos], ...], in px/ms (positive = toward larger pos).
-function dragSpeed(samples) {
+function dragSpeed(samples: DragSample[]) {
   if (samples.length < 2) return 0;
   const first = samples[0],
     last = samples[samples.length - 1];
   return (last[1] - first[1]) / Math.max(1, last[0] - first[0]);
 }
 // Adds one [time, position] sample to a drag, keeping only the last 100ms (dragSpeed's window).
-function dragSample(samples, time, pos) {
+function dragSample(samples: DragSample[], time: number, pos: number) {
   samples.push([time, pos]);
   while (samples.length > 2 && time - samples[0][0] > 100) samples.shift();
 }
+type SheetRelease = { f: number; close?: undefined } | { close: true; f?: undefined };
 // Where the phone sheet settles when a drag ends (docs/handbook/viewer.md §패널 폭과 시트 높이). fraction = the sheet
 // height as a fraction of the screen, deltaY = the whole move (down positive), speed = the release speed (px/ms, down
 // positive), keep = the height to save when it stays (shownSheetFraction). Below 25% or a downward fling (more than
 // 24px at 0.5px/ms or faster) collapses it - or, while a draft is open, stops it at 30% (a drag never hides a draft);
 // an upward fling goes to the next height stop; otherwise it stays where it was let go. Returns {close:true} or {f}.
-function sheetRelease(fraction, deltaY, speed, composing, keep) {
+function sheetRelease(
+  fraction: number,
+  deltaY: number,
+  speed: number,
+  composing: boolean,
+  keep: number | undefined,
+): SheetRelease {
   if (fraction < SHEET_CLOSE_FRACTION || (deltaY > 24 && speed >= 0.5))
     return composing ? { f: SHEET_MIN_FRACTION } : { close: true };
   if (deltaY < -24 && speed <= -0.5) {
@@ -262,7 +270,7 @@ function shownSheetFraction() {
 }
 // Carries out sheetRelease() for the height the sheet shows (shownSheetFraction) and the draft state now: collapse the
 // sheet (remembered) or set its height.
-function settleSheet(shown, deltaY, speed) {
+function settleSheet(shown: ReturnType<typeof shownSheetFraction>, deltaY: number, speed: number) {
   const outcome = sheetRelease(shown.f, deltaY, speed, draftOpen(), shown.keep);
   if (outcome.close) {
     applySheet();
@@ -271,7 +279,7 @@ function settleSheet(shown, deltaY, speed) {
 }
 // The height a dragged sheet shows: never below 12% - or 30% while a draft is open, where it will stop anyway. A drag
 // ends the composing lift (keepSheet): from here the finger sets the height.
-function dragSheetTo(height) {
+function dragSheetTo(height: number) {
   keepSheet();
   document.documentElement.style.setProperty(
     '--sheet-f',
@@ -294,11 +302,11 @@ function dragSheetTo(height) {
     moved: boolean;
     lazy: boolean;
     el: HTMLElement;
-    pts: { y: number; t: number }[];
+    pts: DragSample[];
   } | null;
   // grab = the drag owns the pointer (capture, cues); down = the handle grabs at once, the tool bar only once the move
   // is vertical (lazy - its buttons keep their taps); end = settle by sheetRelease(), or a handle tap.
-  const grab = (event) => {
+  const grab = (event: PointerEvent) => {
     if (!drag) return;
     try {
       drag.el.setPointerCapture(event.pointerId);
@@ -306,7 +314,7 @@ function dragSheetTo(height) {
     drag.el.classList.add('on');
     document.body.classList.add('resizing');
   };
-  const down = (event, lazy) => {
+  const down = (event, lazy: boolean) => {
     if (LAYOUT !== LAYOUT_MODE.NARROW || !event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0))
       return;
     // A field keeps its press, and the handle (inside the bar) has already grabbed.
@@ -326,8 +334,8 @@ function dragSheetTo(height) {
       grab(event);
     }
   };
-  grip.addEventListener('pointerdown', (event) => down(event, false));
-  bar.addEventListener('pointerdown', (event) => down(event, true));
+  grip.addEventListener('pointerdown', (event: PointerEvent) => down(event, false));
+  bar.addEventListener('pointerdown', (event: PointerEvent) => down(event, true));
   window.addEventListener('pointermove', (event) => {
     if (!drag || event.pointerId !== drag.id) return;
     const deltaY = drag.y - event.clientY;
@@ -348,7 +356,7 @@ function dragSheetTo(height) {
     if (!SIDE_OPEN && deltaY > 0) setSide(true);
     if (SIDE_OPEN) dragSheetTo(drag.h + deltaY);
   });
-  const end = (event) => {
+  const end = (event: PointerEvent) => {
     if (!drag || event.pointerId !== drag.id) return;
     const released = drag;
     drag = null;
@@ -374,7 +382,7 @@ function dragSheetTo(height) {
   };
   window.addEventListener('pointerup', end);
   window.addEventListener('pointercancel', end);
-  grip.addEventListener('keydown', (event) => {
+  grip.addEventListener('keydown', (event: KeyboardEvent) => {
     if (LAYOUT !== LAYOUT_MODE.NARROW) return;
     const fraction = sheetFraction();
     if (event.key === 'ArrowUp') {
@@ -394,8 +402,14 @@ function dragSheetTo(height) {
 // down, mostly vertical, the box at scrollTop 0, not in a text field or a nested scroller - and from then on the move
 // is the sheet's (preventDefault). ok(event) filters the touchstart; onMove(deltaY) follows; onEnd(deltaY, speed)
 // settles (deltaY null = cancelled; speed in px/ms, down positive).
-function pullDown(box, ok, onStart, onMove, onEnd) {
-  let pull = null as { x: number; y: number; on: boolean; pts: { y: number; t: number }[] } | null;
+function pullDown(
+  box,
+  ok,
+  onStart: () => void,
+  onMove: (deltaY: number) => void,
+  onEnd: (deltaY: number | null, speed: number) => void,
+) {
+  let pull = null as { x: number; y: number; on: boolean; pts: DragSample[] } | null;
   box.addEventListener(
     'touchstart',
     (event) => {
@@ -416,7 +430,7 @@ function pullDown(box, ok, onStart, onMove, onEnd) {
   );
   box.addEventListener(
     'touchmove',
-    (event) => {
+    (event: TouchEvent) => {
       if (!pull) return;
       const touch = event.touches[0],
         deltaX = touch.clientX - pull.x,
@@ -436,7 +450,7 @@ function pullDown(box, ok, onStart, onMove, onEnd) {
     },
     { passive: false },
   );
-  const end = (event) => {
+  const end = (event: TouchEvent) => {
     if (!pull) return;
     const released = pull;
     pull = null;
@@ -474,7 +488,7 @@ function pullDown(box, ok, onStart, onMove, onEnd) {
 // The bottom sheets follow a pull-down and close on a release past 35% of their height or a flick (dismissOutcome):
 // [더보기] and the documents sheet always, help and the Trash where they are bottom sheets too (compact; the desktop
 // centres them).
-function sheetPull(sheet, always) {
+function sheetPull(sheet: HTMLDialogElement, always: boolean) {
   pullDown(
     sheet,
     () => sheet.open && (always || LAYOUT !== LAYOUT_MODE.WIDE),
@@ -502,20 +516,20 @@ sheetPull($('#trash'), false);
 // horizontal scroller (.seg, pre.nowrap), a text field, the handle or the tool bar are theirs, and a press held still
 // for 450ms is a text selection. 901-1099px (beside the document) has no swipe - only the handle - and outside taps
 // never close the overlay (it is not modal, and a long-press re-pick needs the PDF).
-function swipeAxis(deltaX, deltaY) {
+function swipeAxis(deltaX: number, deltaY: number) {
   if (Math.hypot(deltaX, deltaY) < 10) return null;
   return deltaX > 0 && Math.abs(deltaX) > 1.5 * Math.abs(deltaY) ? 'x' : 'none';
 }
 // How far the panel follows a rightward drag: the finger itself, or while a draft is open a rubber band (a quarter, at
 // most 24px).
-function swipeFollow(deltaX, composing) {
+function swipeFollow(deltaX: number, composing: boolean) {
   deltaX = Math.max(0, deltaX);
   return composing ? Math.min(24, deltaX * 0.25) : deltaX;
 }
 // A dismiss gesture's release (the panel swipe, the documents sheet): distance = the distance moved toward closing,
 // size = the panel's size along it, speed = the release speed toward closing in px/ms. Past 35% of the size, or a fling
 // (more than 24px at 0.5px/ms or faster), closes.
-function dismissOutcome(distance, size, speed) {
+function dismissOutcome(distance: number, size: number, speed: number) {
   return distance >= 0.35 * size || (distance > 24 && speed >= 0.5) ? 'close' : 'back';
 }
 (function () {
@@ -528,12 +542,12 @@ function dismissOutcome(distance, size, speed) {
     t: number;
     axis: string | null;
     w: number;
-    pts: { x: number; t: number }[];
+    pts: DragSample[];
   } | null;
   // setX moves the panel (and handle) by px through --swipe-x; settle ends a swipe - 'close' slides it out and
   // collapses it (remembered), 'back' springs it back - and always leaves --swipe-x at 0.
-  const setX = (px) => document.documentElement.style.setProperty('--swipe-x', Math.round(px) + 'px');
-  const settle = (out) => {
+  const setX = (px: number) => document.documentElement.style.setProperty('--swipe-x', Math.round(px) + 'px');
+  const settle = (out: 'close' | 'back') => {
     const body = document.body,
       ms = REDUCED_MOTION_QUERY.matches ? 0 : SLIDE_MS;
     body.classList.remove('side-swiping');
@@ -595,7 +609,7 @@ function dismissOutcome(distance, size, speed) {
     dragSample(swipe.pts, now, event.clientX);
     setX(swipeFollow(deltaX, draftOpen()));
   });
-  const end = (event) => {
+  const end = (event: PointerEvent) => {
     if (!swipe || event.pointerId !== swipe.id) return;
     const released = swipe;
     swipe = null;
@@ -623,7 +637,13 @@ let BACK = null as { kind: string; w?: CloseWatcher } | null,
 // the caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline
 // overlay (the mid bands and the tablet sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short
 // band up to 900px). The desktop has none. 'dialog'|'side'|'outline'|null.
-function backLayer(band, overlay, sideOpen, outlineOpen, dialogOpen) {
+function backLayer(
+  band: string | null,
+  overlay: boolean,
+  sideOpen: boolean,
+  outlineOpen: boolean,
+  dialogOpen: boolean,
+) {
   if (band === LAYOUT_BAND.WIDE) return null;
   if (dialogOpen) return 'dialog';
   if (band === LAYOUT_BAND.PHONE) return sideOpen ? 'side' : null;
