@@ -9,7 +9,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from limn.pins.location.mapping import TokenWeights, synctex_range
+from limn.pins.location.mapping import Box, TokenWeights, synctex_range
 from limn.platform.files import ManuscriptFile
 
 # A word token worth weighting: a Hangul word of 2+ syllables, a Latin word of 4+ letters, or a decimal number.
@@ -45,6 +45,45 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | 
         if inp and line:
             return inp, line
     return None
+
+
+def synctex_view(pdf: Path, tex: str, line: int) -> list[Box]:
+    """The PDF boxes SyncTeX prints for one source line, as (page, x, y, w, h) in points from the page's top left,
+    exactly as read and in printed order; empty when the line has none, the tool is missing or it times out (10 s).
+
+    `tex` is passed to `-i` untouched: SyncTeX selects the file by that name, so the caller owns choosing it.
+    A record is the lines from one `Output:` to the next, and only `Page`, `h`, `v`, `W`, `H` are read (the
+    lowercase `x`/`y` are a different pair, and the banner and `before:`/`offset:`/`middle:`/`after:` lines are
+    ignored). `v` is the box's bottom reference and `H` its height, so its top edge is `v - H` (measured: `y` in
+    the output is not that), rounded to the tool's six printed decimals to drop subtraction noise. A record missing one of the five or holding an unreadable number is skipped.
+    Records come back out of document order, so the caller orders them; nothing is sorted or de-duplicated here."""
+    try:
+        out = subprocess.run(
+            ["synctex", "view", "-i", "%d:0:%s" % (line, tex), "-o", str(pdf)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+    records: list[dict[str, str]] = []
+    for ln in out.splitlines():
+        key, _, value = ln.partition(":")
+        if key == "Output":
+            records.append({})
+        elif records and key in ("Page", "h", "v", "W", "H"):
+            records[-1][key] = value.strip()
+    boxes: list[Box] = []
+    for rec in records:
+        if len(rec) < 5:
+            continue
+        try:
+            page, h, v, w, ht = int(rec["Page"]), float(rec["h"]), float(rec["v"]), float(rec["W"]), float(rec["H"])
+        except ValueError:
+            continue
+        boxes.append((page, h, round(v - ht, 6), w, ht))
+    return boxes
 
 
 def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> tuple[str, int, int] | None:
