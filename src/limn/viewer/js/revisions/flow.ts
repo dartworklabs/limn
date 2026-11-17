@@ -40,7 +40,7 @@ import {
   showRenderedCompare,
 } from './view-rendered-compare.ts';
 import { keepSpot, returnToSpot } from '../documents/flow-rebuild.ts';
-import { $, $$, findElement } from '../platform/dom.ts';
+import { $, $$, findElement, findAll, findMaybe } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import {
   DIFF_FORMAT,
@@ -661,7 +661,7 @@ function drawRange() {
     range = REVISION_VIEW.range,
     seenState = REVISION_VIEW.seenState;
   $('#revision-range').hidden = !rows.length;
-  for (const button of $$('#revision-range [role=radio]') as HTMLButtonElement[]) {
+  for (const button of findAll(document, '#revision-range [role=radio]', HTMLButtonElement)) {
     const on = button.dataset.range === range.mode;
     button.setAttribute('aria-checked', String(on));
     button.classList.toggle('on', on);
@@ -709,8 +709,8 @@ function renderCommitList() {
     box.replaceChildren();
     return;
   }
-  const focused = document.activeElement as HTMLElement | null,
-    refocus = focused && focused.classList.contains('rc-row') ? focused.dataset.commit : null;
+  const focused = document.activeElement,
+    refocus = focused instanceof HTMLElement && focused.classList.contains('rc-row') ? focused.dataset.commit : null;
   const inside = new Set(
       paintedIds({ commit: REVISION_VIEW.commit, base: REVISION_VIEW.base }, REVISION_VIEW.rangeIds),
     ),
@@ -756,10 +756,10 @@ ${fresh.has(row.id) ? html`<span class="rc-tag">새로</span>` : ''}</button>`;
     html`<div class="rc-head">${translate(hint)}</div><div class="rc-list">${items}</div>\
 ${more ? html`<button id="revision-more" class="btn-ghost" data-act="revision-more">${lucideIcon('chevron-down')}<span>${more}</span></button>` : ''}`,
   );
-  for (const element of $$('#revision-commits [data-i]') as HTMLElement[])
+  for (const element of findAll(document, '#revision-commits [data-i]', HTMLElement))
     element.hidden = Number(element.dataset.i) >= cut;
   if (refocus) {
-    const again = box.querySelector('.rc-row[data-commit="' + refocus + '"]') as HTMLElement | null;
+    const again = findMaybe(box, '.rc-row[data-commit="' + refocus + '"]', HTMLElement);
     if (again) again.focus();
   }
 }
@@ -1037,7 +1037,7 @@ ${side(page.prev, overlay.prev_build, 'ov-prev', translateTemplate('이전 {page
       ['img.ov-cur', page.cur],
       ['img.ov-prev', page.prev],
     ] as const) {
-      const img = pageBox.querySelector(selector) as HTMLElement | null;
+      const img = findMaybe(pageBox, selector, HTMLElement);
       if (img && image) {
         img.style.width = image.w + '%';
         img.style.height = image.h + '%';
@@ -1050,7 +1050,7 @@ ${side(page.prev, overlay.prev_build, 'ov-prev', translateTemplate('이전 {page
 function drawRevisionSide() {
   const overlay = REVISION_VIEW.overlay,
     none = !overlay || !overlay.prev_build;
-  for (const button of $$('#revision-side [role=radio]') as HTMLButtonElement[]) {
+  for (const button of findAll(document, '#revision-side [role=radio]', HTMLButtonElement)) {
     const on = button.dataset.side === REVISION_VIEW.side;
     button.setAttribute('aria-checked', String(on));
     button.classList.toggle('on', on);
@@ -1371,15 +1371,15 @@ function highlightPinLines(target: RevTarget) {
     return;
   }
   const rows = $$('#revision-diff .rd-line');
-  let first = null as Element | null;
-  rows.forEach((line) => {
-    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
+  let first: Element | null = null;
+  for (const line of rows) {
+    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) continue;
     const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
     }
-  });
+  }
   target.hit = !!first || touchesPin(REVISION_VIEW.files, target, 5);
   // when only a neighbouring line changed, the guide never speaks of "the highlighted line": there is none
   target.near = !first && target.hit;
@@ -1387,17 +1387,17 @@ function highlightPinLines(target: RevTarget) {
     const fileIndex = pinFileIndex(REVISION_VIEW.files, target.file);
     if (fileIndex < 0) target.hit = false;
     else {
-      let best = null as Element | null,
+      let best: Element | null = null,
         bestDistance = Infinity;
-      rows.forEach((line) => {
+      for (const line of rows) {
         const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
-        if (!lineNumber) return;
+        if (!lineNumber) continue;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
           bestDistance = distance;
           best = line;
         }
-      });
+      }
       first = best;
     }
   }
