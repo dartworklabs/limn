@@ -3,7 +3,7 @@
 // translate()/translateMessage() look them up in I18N_EN (src/limn/viewer/ui_en.json) and a MutationObserver translates
 // text nodes and UI attributes as they are rendered. Strings missing from the table stay Korean.
 import { UI_LANG } from './tables.ts';
-import { $ } from './dom.ts';
+import { $, findAll } from './dom.ts';
 import { roveSegment } from './segments.ts';
 const LANG = window.LIMN_LANG === UI_LANG.EN ? UI_LANG.EN : UI_LANG.KO,
   I18N_EN = __UI_EN_JSON__,
@@ -129,7 +129,7 @@ function i18nTree(root: Node) {
 // Checks the current language in [더보기]'s language segment, then in English translates the page once and everything
 // drawn or changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
 function i18nStart() {
-  for (const radio of document.querySelectorAll('#m-lang [role=radio]') as NodeListOf<HTMLElement>) {
+  for (const radio of findAll(document, '#m-lang [role=radio]', HTMLElement)) {
     const on = radio.dataset.lang === LANG;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
@@ -141,8 +141,8 @@ function i18nStart() {
     for (const mutation of mutations) {
       if (mutation.type === 'childList') mutation.addedNodes.forEach(i18nTree);
       else if (mutation.type === 'characterData') i18nText(mutation.target);
-      else if (mutation.type === 'attributes' && mutation.target.nodeType === 1 && !i18nUser(mutation.target)) {
-        const element = mutation.target as Element,
+      else if (mutation.type === 'attributes' && mutation.target instanceof Element && !i18nUser(mutation.target)) {
+        const element = mutation.target,
           name = mutation.attributeName || '',
           value = element.getAttribute(name);
         if (value) {
@@ -169,10 +169,10 @@ function switchLang(lang: string | undefined) {
   try {
     localStorage.setItem('limnLang', lang);
   } catch (error) {}
-  const address = new URL(location.href);
+  const address = new URL(window.location.href);
   address.searchParams.delete('lang');
-  if (address.href === location.href) location.reload();
-  else location.replace(address.href);
+  if (address.href === window.location.href) window.location.reload();
+  else window.location.replace(address.href);
 }
 const TIP_TEXT: Record<string, string> = {
   stale:

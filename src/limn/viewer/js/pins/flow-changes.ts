@@ -3,7 +3,7 @@ import { pinState } from '../app/rules-pins.ts';
 import { PIN_STATE, ELEMENT_SYNC } from '../app/rules-tables.ts';
 import { translateTemplate, translate, josa, josaName } from '../platform/i18n.ts';
 import { groupNote } from '../platform/notices.ts';
-import { NOTICE_KIND, NOTICE_LIFE, NOTICE_DOT, EVENT_TYPE } from '../platform/tables.ts';
+import { NOTICE_KIND, NOTICE_LIFE, NOTICE_DOT, EVENT_TYPE, isRecord } from '../platform/tables.ts';
 import { gotoReview } from './flow-list.ts';
 import { who } from '../app/state-people.ts';
 import { restorePin } from './flow-actions.ts';
@@ -15,19 +15,64 @@ interface SettledPin {
   id: number;
   by: string;
 }
-// A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
-// named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
-// Pure.
-function newsWithout(type: string, field: string, ...also: string[]): (group: any, keys: string[]) => any {
-  return (group, keys) => {
-    const keep = group[field].map((x: any) => !keys.includes(type + ':' + (typeof x === 'number' ? x : x.id)));
-    if (!keep.some(Boolean)) return null;
-    const out = { ...group };
-    [field, ...also].forEach((key) => {
-      out[key] = group[key].filter((_: any, index: number) => keep[index]);
-    });
-    return out;
-  };
+// What a list comparison's group held before this event (groupNote's merge is given it as unknown): its pins by
+// number, its moved lines, its settled pins - each, as these groups write it, or none. Pure.
+function pinNumbersOf(older: unknown): number[] {
+  return isRecord(older) && Array.isArray(older.ids)
+    ? older.ids.filter((id: unknown): id is number => typeof id === 'number')
+    : [];
+}
+function linesMovedOf(older: unknown): { id: number; delta: string }[] {
+  return isRecord(older) && Array.isArray(older.moves)
+    ? older.moves.filter(
+        (move: unknown): move is { id: number; delta: string } =>
+          isRecord(move) && typeof move.id === 'number' && typeof move.delta === 'string',
+      )
+    : [];
+}
+function droppedOf(older: unknown): { ids: number[]; names: string[] } {
+  if (!isRecord(older)) return { ids: [], names: [] };
+  const { ids, names } = older;
+  return Array.isArray(ids) &&
+    Array.isArray(names) &&
+    ids.every((id): id is number => typeof id === 'number') &&
+    names.every((name): name is string => typeof name === 'string')
+    ? { ids, names }
+    : { ids: [], names: [] };
+}
+function settledPinsOf(older: unknown): SettledPin[] {
+  return isRecord(older) && Array.isArray(older.pins)
+    ? older.pins.filter(
+        (pin: unknown): pin is SettledPin => isRecord(pin) && typeof pin.id === 'number' && typeof pin.by === 'string',
+      )
+    : [];
+}
+// Which items of a list comparison's group stay when a message of a higher rank says their events (groupNote's less):
+// an item - a pin number or a pin - leaves when keys name '<type>:<its id>'. true for each item kept, in order; null
+// when none is left. Pure.
+function keptNews(type: string, items: readonly (number | { id: number })[], keys: string[]): boolean[] | null {
+  const keep = items.map((item) => !keys.includes(type + ':' + (typeof item === 'number' ? item : item.id)));
+  return keep.some(Boolean) ? keep : null;
+}
+// The list comparison's groups without the pins whose events keys name (groupNote's less): the review requests, the
+// dropped pins with their names beside their ids, the reopened pins; null when none is left. Pure.
+function reviewNewsWithout(group: { ids: number[] }, keys: string[]) {
+  const keep = keptNews(EVENT_TYPE.REVIEW_REQUESTED, group.ids, keys);
+  return keep && { ...group, ids: group.ids.filter((_, index) => keep[index]) };
+}
+function droppedNewsWithout(group: { ids: number[]; names: string[] }, keys: string[]) {
+  const keep = keptNews(EVENT_TYPE.DROPPED, group.ids, keys);
+  return (
+    keep && {
+      ...group,
+      ids: group.ids.filter((_, index) => keep[index]),
+      names: group.names.filter((_, index) => keep[index]),
+    }
+  );
+}
+function reopenedNewsWithout(group: { pins: SettledPin[] }, keys: string[]) {
+  const keep = keptNews(EVENT_TYPE.REOPENED, group.pins, keys);
+  return keep && { ...group, pins: group.pins.filter((_, index) => keep[index]) };
 }
 function consumeMine(id: number) {
   const until = MY_ACTIONS.get(id);
@@ -72,7 +117,10 @@ function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
     numbers.length <= 3
       ? translateTemplate(one, { ids: numbers.join(', #'), n: numbers.length })
       : translateTemplate(many, { n: numbers.length }) + ' — ' + ids(numbers);
-  const merge = (older: any, newer: any) => ({ ...newer, ids: [...new Set([...older.ids, ...newer.ids])] });
+  const merge = <Group extends { ids: number[] }>(older: unknown, newer: Group): Group => ({
+    ...newer,
+    ids: [...new Set([...pinNumbersOf(older), ...newer.ids])],
+  });
   if (closed.length)
     groupNote(
       'done',
@@ -114,7 +162,7 @@ function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
         },
       }),
       merge,
-      newsWithout(EVENT_TYPE.REVIEW_REQUESTED, 'ids'),
+      reviewNewsWithout,
     );
   // One dropped pin offers [되살리기]; several, the Trash they are in.
   if (droppedIds.length)
@@ -160,15 +208,14 @@ function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
       }, // translateTemplate() spoke the UI language; the name is as written
       (older, newer) => {
         // names stay beside their ids
-        const add = newer.ids
-          .map((id: number, index: number) => index)
-          .filter((index: number) => !older.ids.includes(newer.ids[index]));
+        const was = droppedOf(older),
+          add = newer.ids.map((id, index) => index).filter((index) => !was.ids.includes(newer.ids[index]));
         return {
-          ids: [...older.ids, ...add.map((index: number) => newer.ids[index])],
-          names: [...older.names, ...add.map((index: number) => newer.names[index])],
+          ids: [...was.ids, ...add.map((index) => newer.ids[index])],
+          names: [...was.names, ...add.map((index) => newer.names[index])],
         };
       },
-      newsWithout(EVENT_TYPE.DROPPED, 'ids', 'names'),
+      droppedNewsWithout,
     );
   const lost: Pin[] = [],
     gone: Pin[] = [],
@@ -236,14 +283,14 @@ function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
               ? translateTemplate('#{id} 줄 {delta} 이동', { id: ms[0].id, delta: ms[0].delta })
               : translateTemplate('핀 {n}개 줄 이동', { n: group.moves.length }) +
                 ' — ' +
-                ms.map((x: any) => '#' + x.id + ' ' + x.delta).join(', '),
+                ms.map((x) => '#' + x.id + ' ' + x.delta).join(', '),
           kind: NOTICE_KIND.OK,
           act: null,
           o: { life: NOTICE_LIFE.TIMER, literal: true },
         };
       },
       (older, newer) => ({
-        moves: [...older.moves.filter((x: any) => !newer.moves.some((y: any) => y.id === x.id)), ...newer.moves],
+        moves: [...linesMovedOf(older).filter((x) => !newer.moves.some((y) => y.id === x.id)), ...newer.moves],
       }),
     );
 }
@@ -276,9 +323,10 @@ function noteReviewChanges(previous: Pin[], listed: Pin[]) {
           .map((x) => '#' + x.id)
           .join(', ') +
         (entries.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: entries.length - 3 }) : '');
-  const merge = (older: any, newer: any) => ({
-    pins: [...older.pins, ...newer.pins.filter((x: SettledPin) => !older.pins.some((y: SettledPin) => y.id === x.id))],
-  });
+  const merge = (older: unknown, newer: { pins: SettledPin[] }) => {
+    const was = settledPinsOf(older);
+    return { pins: [...was, ...newer.pins.filter((x) => !was.some((y) => y.id === x.id))] };
+  };
   if (ok.length)
     groupNote(
       'confirmed',
@@ -312,7 +360,7 @@ function noteReviewChanges(previous: Pin[], listed: Pin[]) {
         },
       }),
       merge,
-      newsWithout(EVENT_TYPE.REOPENED, 'pins'),
+      reopenedNewsWithout,
     );
 }
 export { notePinChanges, noteReviewChanges };

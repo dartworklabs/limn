@@ -223,6 +223,7 @@ class PureRules(unittest.TestCase):
         record a dismissed message whatever the record names -> rev A, fails."""
         got = node_json(
             [
+                "isRecord",
                 "seenStore",
                 "seenSave",
                 "seenDoc",
@@ -363,7 +364,7 @@ class PureRules(unittest.TestCase):
         newer record another tab wrote; a later one, a first one or one of another kind is written. Build ids order by
         their time, then their count."""
         got = node_json(
-            ["seenStore", "seenSave", "seenDoc", "setSeenDoc", "verAfter"],
+            ["isRecord", "seenStore", "seenSave", "seenDoc", "setSeenDoc", "verAfter"],
             """let SEEN_MEM=null; const M=new Map(); const localStorage={getItem:k=>M.has(k)?M.get(k):null,setItem:(k,v)=>M.set(k,String(v))};
             const out=[]; const at=()=>seenDoc('d').ver;
             setSeenDoc('d',{ver:'src:200.5',rev:'b'}); setSeenDoc('d',{ver:'src:100.25',rev:'a'}); out.push(at());
@@ -454,12 +455,13 @@ GROUP_FNS = [
     "lineHeld", "holdLine", "releaseLine", "lineHoverOut", "lineVisible", "noticeAct", "noticeClose", "noticeFocusBack",
     "sourceEntry", "sourceOk", "isUndo", "lineCap", "sameWords", "noticeDots", "holdsDot", "groupNote", "regroup",
     "digestBegin", "digestSoon", "digestHold", "digestEnd", "digestBrief", "digestLine", "digestNote", "digestReplay",
-    "digestTake", "newsSlot", "keysHeld", "noticeLess", "newsWithout", "digestClosed", "newsDupe", "foldedNews",
+    "digestTake", "newsSlot", "keysHeld", "noticeLess", "keptNews", "reviewNewsWithout", "digestClosed", "newsDupe", "foldedNews",
     "foldedLess", "digestRetitle", "foldedGone", "digestDots", "reviewPins", "reviewNewsStale", "dropStaleReview",
     "noticeSeen", "endTopic", "gatheredGone", "gatheredDupe", "gatheredLess", "groupRedraw",
-    "dotHeld",
+    "dotHeld", "focusedElement", "keepGroupData",
 ]  # fmt: skip
 GROUP_PRELUDE = r"""
+class HTMLElement {}
 let NOW=0,QID=0; const Q=[];
 function setTimeout(fn,ms){const id=++QID; Q.push({id,at:NOW+Math.max(0,Number(ms)||0),fn}); return id;}
 function clearTimeout(id){const i=Q.findIndex(t=>t.id===id); if(i>=0)Q.splice(i,1);}
@@ -581,14 +583,14 @@ class Grouping(unittest.TestCase):
         self.assertEqual(got, ["지난 방문 뒤 — 검토 대기 · 본문이 바뀌었습니다 · 메모가 바뀌었습니다"])
 
     def test_an_event_said_on_a_higher_path_leaves_only_its_own_pins_out_of_a_batch(self):
-        """Dedupe per event, not per message (the list comparison's review group with its newsWithout): #2 then #1 sent
+        """Dedupe per event, not per message (the list comparison's review group with its reviewNewsWithout): #2 then #1 sent
         to review are one message; the event addressed to me for #1 comes later and takes #1 alone out of it, which says
         #2 in place. The other way round, a batch of #4 and #5 after the event for #4 says #5 alone. Gathered, the same:
         #6 and #7, then the event for #6, unfold into #7 and the event."""
         got = self.run_store(
             """const kv=g=>({msg:g.ids.length===1?'#'+g.ids[0]+' 검토 대기':'핀 '+g.ids.length+'개 검토 대기 — #'+g.ids.join(', #'),kind:NOTICE_KIND.OK,act:null,
               o:{keys:g.ids.map(i=>'review_requested:'+i),brief:'검토 대기 '+g.ids.length}});
-            const less=newsWithout('review_requested','ids'),reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); tick(9000);};
+            const less=reviewNewsWithout,reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); tick(9000);};
             const ev=id=>lineNote('핀 #'+id+' · 본문 — 검토 대기: 고침',NOTICE_KIND.OK,null,{literal:true,group:'ev:review_requested',keys:['review_requested:'+id],rank:2,brief:'검토 대기'});
             groupNote('review',{ids:[2]},kv,merge,less); tick(20000); groupNote('review',{ids:[1]},kv,merge,less); ev(1); const late=said(); reset();
             ev(4); groupNote('review',{ids:[4,5]},kv,merge,less); const early=said(); reset();
@@ -606,7 +608,7 @@ class Grouping(unittest.TestCase):
             """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i)}});
             const ev=g=>({msg:'나에게 검토 대기 — #'+g.ids.join(', #'),kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),rank:2}});
             groupNote('ev:review_requested',{ids:[1]},ev,merge); tick(1000);
-            groupNote('review',{ids:[2,3]},kv,merge,newsWithout('review_requested','ids')); tick(1000);
+            groupNote('review',{ids:[2,3]},kv,merge,reviewNewsWithout); tick(1000);
             groupNote('ev:review_requested',{ids:[2]},ev,merge);
             console.log(JSON.stringify(said()));"""
         )
@@ -620,7 +622,7 @@ class Grouping(unittest.TestCase):
         got = self.run_store(
             """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),brief:'검토 대기 '+g.ids.length}});
             const ev=g=>({msg:'나에게 검토 대기 — #'+g.ids.join(', #'),kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),rank:2,brief:'나에게 검토 대기'}});
-            const less=newsWithout('review_requested','ids'),reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);};
+            const less=reviewNewsWithout,reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);};
             digestBegin('지난 방문 뒤'); groupNote('review',{ids:[2,3]},kv,merge,less); groupNote('other',{ids:[4]},kv,null); digestEnd();
             groupNote('ev:review_requested',{ids:[2]},ev,merge); const folded=said(); noticeAct(LINE.find(n=>n.items).n); const open=said(); reset();
             digestBegin('지난 방문 뒤'); groupNote('ev:review_requested',{ids:[5]},ev,merge); groupNote('other',{ids:[9]},kv,null); digestEnd();
@@ -646,7 +648,7 @@ class Grouping(unittest.TestCase):
         got = self.run_store(
             """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),brief:'검토 대기 '+g.ids.length}});
             const ev=g=>({msg:'나에게 검토 대기 — #'+g.ids.join(', #'),kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),rank:2,brief:'나에게 검토 대기'}});
-            const less=newsWithout('review_requested','ids'),reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);},out={};
+            const less=reviewNewsWithout,reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);},out={};
             groupNote('ev:review_requested',{ids:[1]},ev,merge); tick(1000);
             digestBegin('지난 방문 뒤'); groupNote('review',{ids:[2,3]},kv,merge,less); groupNote('other',{ids:[4]},kv,null);
             groupNote('ev:review_requested',{ids:[2]},ev,merge); digestEnd(); out.folded=said();
@@ -721,7 +723,7 @@ class Grouping(unittest.TestCase):
             """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,
               o:{keys:g.ids.map(i=>'review_requested:'+i),dot:NOTICE_DOT.RV,brief:'검토 대기 '+g.ids.length}});
             const done=g=>({msg:'#'+g.ids.join(', #')+' 완료',kind:NOTICE_KIND.OK,act:null,o:{brief:'완료 '+g.ids.length}});
-            const less=newsWithout('review_requested','ids'),reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);};
+            const less=reviewNewsWithout,reset=()=>{LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); tick(9000);};
             const marks=()=>[said(),[...BODY].sort(),LINE.filter(n=>n.items).map(n=>n.dots)]; let REVIEW_ALL=[{id:1},{id:2}]; const out={};
             digestBegin('지난 방문 뒤'); groupNote('review',{ids:[1]},kv,merge,less); groupNote('done',{ids:[4]},done,null); groupNote('done5',{ids:[5]},done,null); digestEnd();
             out.before=marks(); REVIEW_ALL=[{id:2}]; dropStaleReview(); out.stale=[...marks(),GROUPS.has('review')];
@@ -769,7 +771,7 @@ class Grouping(unittest.TestCase):
             """const kv=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),dot:NOTICE_DOT.RV,brief:'검토 대기 '+g.ids.length}});
             const done=g=>({msg:'#'+g.ids.join(', #')+' 완료',kind:NOTICE_KIND.OK,act:null,o:{brief:'완료 '+g.ids.length}});
             const ev=id=>lineNote('핀 #'+id+' · 본문 — 검토 대기: 고침',NOTICE_KIND.OK,null,{literal:true,group:'ev:review_requested',keys:['review_requested:'+id],rank:2,dot:NOTICE_DOT.RV,brief:'검토 대기'});
-            const out={}; ev(1); digestBegin('지난 방문 뒤'); groupNote('review',{ids:[2]},kv,merge,newsWithout('review_requested','ids')); groupNote('done',{ids:[4]},done,null);
+            const out={}; ev(1); digestBegin('지난 방문 뒤'); groupNote('review',{ids:[2]},kv,merge,reviewNewsWithout); groupNote('done',{ids:[4]},done,null);
             noticeClose(LINE.find(n=>n.group==='ev:review_requested').n); out.during=[...BODY].sort(); digestEnd();
             out.folded=[said(),[...BODY].sort(),LINE.filter(n=>n.items).map(n=>n.dots)];
             LINE.slice().forEach(n=>endNotice(n,true)); GROUPS.clear(); BODY.clear(); tick(9000);
@@ -1311,7 +1313,7 @@ class UpdateFlows(BrowserBase):
             const ev=id=>({type:EVENT_TYPE.REVIEW_REQUESTED,pin:id,doc:'nt',doc_name:'노트',by:{login:'bob@example.com',name:'Bob'},excerpt:'고침'});
             const list=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),literal:true}});
             notifyLine(ev(1));
-            groupNote('review',{ids:[2,3]},list,(a,b)=>({ids:[...a.ids,...b.ids]}),newsWithout('review_requested','ids'));
+            groupNote('review',{ids:[2,3]},list,(a,b)=>({ids:[...a.ids,...b.ids]}),reviewNewsWithout);
             notifyLine(ev(2));
             return LINE.map(n=>({group:n.group,keys:n.keys,title:n.title}));}"""
         )
@@ -1328,7 +1330,7 @@ class UpdateFlows(BrowserBase):
             """()=>{clearInterval(LIGHT_TIMER); digestEnd(); LINE.slice().forEach(n=>endNotice(n,true));
             const list=g=>({msg:'#'+g.ids.join(', #')+' 검토 대기',kind:NOTICE_KIND.OK,act:null,o:{keys:g.ids.map(i=>'review_requested:'+i),literal:true}});
             digestBegin('자리를 비운 사이 (5분)');
-            groupNote('review',{ids:[2,3]},list,(a,b)=>({ids:[...a.ids,...b.ids]}),newsWithout('review_requested','ids'));
+            groupNote('review',{ids:[2,3]},list,(a,b)=>({ids:[...a.ids,...b.ids]}),reviewNewsWithout);
             groupNote('other',{ids:[4]},list,null); digestEnd();
             notifyLine({type:EVENT_TYPE.REVIEW_REQUESTED,pin:2,doc:'nt',doc_name:'노트',by:{name:'Bob'},excerpt:'고침'});
             const folded=LINE.find(n=>n.items); if(folded)noticeAct(folded.n);

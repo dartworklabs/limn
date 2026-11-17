@@ -17,7 +17,7 @@ import { SECTION_OPEN } from './prefs.ts';
 import { tipFollow } from './tooltip.ts';
 import type { Html } from './markup.ts';
 import { EVENT_TYPE, NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from './tables.ts';
-import { $, searchToPage } from './dom.ts';
+import { $, eventElement, findClosest, findMaybe, focusedElement, searchToPage } from './dom.ts';
 
 // What a message reads from, or draws into, a feature: the status line, the pin panel, the focus a message's action
 // gives back, the composer's save button. Platform knows no feature, so each is a seam: js/main.ts registers it once,
@@ -438,7 +438,7 @@ function drawnBefore(box: HTMLElement, selector: string, id: number | null): num
   const own = box.querySelector(selector + '[data-id="' + id + '"]');
   let before = own && own.previousElementSibling;
   while (before && !before.matches(selector)) before = before.previousElementSibling;
-  return before ? Number((before as HTMLElement).dataset.id) : null;
+  return before instanceof HTMLElement ? Number(before.dataset.id) : null;
 }
 
 // A message's text as one line: its title, then ' · ' and its description.
@@ -621,9 +621,9 @@ function dotHeld(dot: string): boolean {
 // document without page lines too. An action's press goes without it, for the action may put the focus where it wants;
 // the window's end and [x] have no action.
 function noticeFocusBack(notice: Notice, anyDoc?: boolean): () => void {
-  const focused = document.activeElement as HTMLElement | null;
-  const own = !!focused && !!focused.closest && !!focused.closest('[data-act^="notice-"][data-n="' + notice.n + '"]');
-  const line = own && focused ? (focused.closest('#doc .pv') as HTMLElement | null) : null,
+  const focused = focusedElement();
+  const own = !!focused && !!focused.closest('[data-act^="notice-"][data-n="' + notice.n + '"]');
+  const line = own && focused ? findClosest(focused, '#doc .pv', HTMLElement) : null,
     page = line ? Number(line.dataset.page) || 0 : 0;
   return () => {
     const nowFocused = document.activeElement;
@@ -673,9 +673,8 @@ function noticeAct(number: number) {
     noticeLate(notice, action);
   }, NOTICE_ACT_WAIT);
   const seen = (event: FocusEvent) => {
-    const target = event.target as HTMLElement | null;
-    if (!target || !target.closest || !target.closest('[data-act="notice-act"][data-n="' + notice.n + '"]'))
-      moved = true;
+    const target = eventElement(event);
+    if (!target || !target.closest('[data-act="notice-act"][data-n="' + notice.n + '"]')) moved = true;
   };
   document.addEventListener('focusin', seen, true);
   const run: NoticeRun = { away: () => late && moved };
@@ -760,10 +759,9 @@ function noticeLate(notice: Notice, action: NoticeAct) {
 document.addEventListener(
   'mousedown',
   (event) => {
-    const target = event.target as HTMLElement | null;
+    const target = eventElement(event);
     if (
       !!target &&
-      !!target.closest &&
       !!target.closest('[data-act="notice-act"]') &&
       focusAfterNotice().isReasonField(document.activeElement)
     )
@@ -804,7 +802,7 @@ function noticeSeen(dot: string) {
 // The gathering under way (DIGEST) loses the messages test picks (by their options), as seen: never said - their groups
 // go with them when no message of theirs stands, and what each held for its end runs, as for a message seen on the
 // line.
-function gatheredGone(test: (options: any) => boolean) {
+function gatheredGone(test: (options: Partial<Notice>) => boolean) {
   if (!DIGEST) return;
   for (const [group, item] of [...DIGEST.items]) {
     const options = item[3] || {};
@@ -857,23 +855,51 @@ function dropStaleReview() {
 // message, which says the rest in place (noticeLess) - the others stay. Such a message coming by growing its own
 // group's message does the same, and a group's message folded in a gathered line not yet unfolded, or still being
 // gathered, gives way as one on the line does (newsDupe, foldedLess, gatheredLess).
-type GroupView = (data: any) => { msg: string; kind: string; act: NoticeAct | null; o: Partial<Notice> };
-type GroupLess = (data: any, keys: string[]) => any;
-const GROUPS = new Map() as Map<string, { data: any; n: Notice | null; view: GroupView; less: GroupLess | null }>;
-function groupNote(
+// A group's data is the caller's (Data): GROUPS keeps it as it was said, and the next event's merge, which is given it
+// as unknown, reads it as its own group's data. Everything else reads it only through the entry's said and less, which
+// close over it with the view and less it was said with.
+type GroupSaid = { msg: string; kind: string; act: NoticeAct | null; o: Partial<Notice> };
+type GroupView<Data> = (data: Data) => GroupSaid;
+type GroupLess<Data> = (data: Data, keys: string[]) => Data | null;
+type GroupMerge<Data> = (older: unknown, newer: Data) => Data;
+// A group's entry: its data as last said, its message (n, null while gathered), what it says now (said), and - for a
+// group that can leave events out (less) - its data without the events of keys, said, and kept, or null with none left.
+interface GroupEntry {
+  data: unknown;
+  n: Notice | null;
+  said: () => GroupSaid;
+  less: ((keys: string[]) => GroupSaid | null) | null;
+}
+const GROUPS = new Map<string, GroupEntry>();
+// Keeps data in entry as its group's data, said with view and left out of with less.
+function keepGroupData<Data>(entry: GroupEntry, data: Data, view: GroupView<Data>, less: GroupLess<Data> | null) {
+  entry.data = data;
+  entry.said = () => view(data);
+  entry.less = less
+    ? (keys) => {
+        const rest = less(data, keys);
+        if (rest == null) return null;
+        keepGroupData(entry, rest, view, less);
+        return view(rest);
+      }
+    : null;
+}
+// Data is the type of data: view, merge and less take it as it is.
+function groupNote<Data>(
   group: string,
-  data: any,
-  view: GroupView,
-  merge?: ((older: any, newer: any) => any) | null,
-  less?: GroupLess | null,
+  data: Data,
+  view: NoInfer<GroupView<Data>>,
+  merge?: NoInfer<GroupMerge<Data>> | null,
+  less?: NoInfer<GroupLess<Data>> | null,
 ): Notice | null {
   const entry = GROUPS.get(group);
   if (less) {
     const options = view(data).o || {},
       held = keysHeld(options.keys || [], options.rank || 1);
     if (held.length) {
-      data = less(data, held);
-      if (data == null) return entry && entry.n && NOTICES.has(entry.n.n) ? entry.n : null;
+      const rest = less(data, held);
+      if (rest == null) return entry && entry.n && NOTICES.has(entry.n.n) ? entry.n : null;
+      data = rest;
     }
   }
   const alive =
@@ -886,13 +912,13 @@ function groupNote(
   if (alive && entry && entry.n && NOTICES.has(entry.n.n)) {
     const options = view(data).o || {};
     newsDupe(options.keys || [], options.rank || 1, entry.n); // what this event says, said elsewhere
-    entry.data = merged;
-    entry.view = view;
-    entry.less = less || null;
+    keepGroupData(entry, merged, view, less || null);
     regroup(entry.n, said);
     return entry.n;
   }
-  GROUPS.set(group, { data: merged, n: null, view, less: less || null });
+  const kept: GroupEntry = { data: merged, n: null, said: () => said, less: null };
+  keepGroupData(kept, merged, view, less || null);
+  GROUPS.set(group, kept);
   const notice = lineNote(said.msg, said.kind, said.act, { ...said.o, group });
   const stored = GROUPS.get(group);
   if (stored && notice) stored.n = notice;
@@ -959,16 +985,14 @@ function gatheredLess(group: string, keys: string[]) {
     item = digest ? digest.items.get(group) : undefined;
   if (!digest || !item) return;
   const entry = GROUPS.get(group),
-    rest = entry && entry.less ? entry.less(entry.data, keys) : null;
-  if (!entry || rest == null) {
+    said = entry && entry.less ? entry.less(keys) : null;
+  if (!entry || said == null) {
     const options = item[3] || {};
     digest.items.delete(group);
     if (entry && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(group);
     if (options.onEnd) options.onEnd(false, false);
     return;
   }
-  entry.data = rest;
-  const said = entry.view(rest);
   digest.items.set(group, [said.msg, said.kind, said.act, { ...said.o, group: group }]);
 }
 // Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a
@@ -978,11 +1002,11 @@ function groupRedraw(group: string): boolean {
   const entry = GROUPS.get(group);
   if (!entry) return false;
   if (entry.n && NOTICES.has(entry.n.n)) {
-    regroup(entry.n, entry.view(entry.data));
+    regroup(entry.n, entry.said());
     return true;
   }
-  const said = entry.view(entry.data),
-    item = [said.msg, said.kind, said.act, { ...said.o, group }];
+  const said = entry.said(),
+    item: GatheredNote = [said.msg, said.kind, said.act, { ...said.o, group }];
   if (DIGEST && DIGEST.items.has(group)) {
     DIGEST.items.set(group, item);
     return true;
@@ -997,7 +1021,7 @@ function groupRedraw(group: string): boolean {
 }
 // The messages gathered lines not yet unfolded hold (digestNote's items), as noticeDupe compares them: each with its
 // keys and rank, as old as its gathered line (at), and where it is held (line, item).
-function foldedNews(): { at: number; keys: string[]; rank: number; line: Notice; item: any[] }[] {
+function foldedNews(): { at: number; keys: string[]; rank: number; line: Notice; item: GatheredNote }[] {
   return LINE.flatMap((notice) =>
     (notice.items || []).map((item) => {
       const options = item[3] || {};
@@ -1008,33 +1032,31 @@ function foldedNews(): { at: number; keys: string[]; rank: number; line: Notice;
 // A folded message gives way to a message of a higher rank that says the events of keys, as noticeLess on the line: its
 // group that can leave them out (less) says the rest in the gathered line; with nothing left, or a group that cannot,
 // it leaves the gathered line, not seen (foldedGone). The line says what is left (digestRetitle).
-function foldedLess(folded: { line: Notice; item: any[] }, keys: string[]) {
+function foldedLess(folded: { line: Notice; item: GatheredNote }, keys: string[]) {
   const items = folded.line.items || [],
     index = items.indexOf(folded.item),
     options = folded.item[3] || {},
     entry = options.group ? GROUPS.get(options.group) : undefined;
   if (index < 0) return;
-  const rest = entry && entry.less ? entry.less(entry.data, keys) : null;
-  if (!entry || rest == null) {
+  const said = entry && entry.less ? entry.less(keys) : null;
+  if (!entry || said == null) {
     foldedGone(folded, false);
     return;
   }
-  entry.data = rest;
-  const said = entry.view(rest);
   items[index] = [said.msg, said.kind, said.act, { ...said.o, group: options.group }];
   digestRetitle(folded.line);
 }
 // A folded message leaves its gathered line, as a message leaving the line does: its group ends with it, what it held
 // for its end runs (seen: as read - a review request whose pins left review, or the review section seen), and the line
 // says and marks what is left (digestRetitle).
-function foldedGone(folded: { line: Notice; item: any[] }, seen: boolean) {
+function foldedGone(folded: { line: Notice; item: GatheredNote }, seen: boolean) {
   const items = folded.line.items || [],
     index = items.indexOf(folded.item),
     options = folded.item[3] || {},
     entry = options.group ? GROUPS.get(options.group) : undefined;
   if (index < 0) return;
   items.splice(index, 1);
-  if (entry && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(options.group);
+  if (entry && options.group && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(options.group);
   if (options.onEnd) options.onEnd(false, seen);
   digestRetitle(folded.line);
 }
@@ -1043,13 +1065,12 @@ function foldedGone(folded: { line: Notice; item: any[] }, seen: boolean) {
 // window started again - and one with nothing left, or that cannot, goes.
 function noticeLess(notice: Notice, keys: string[]) {
   const entry = notice.group ? GROUPS.get(notice.group) : undefined,
-    rest = entry && entry.n === notice && entry.less ? entry.less(entry.data, keys) : null;
-  if (!entry || rest == null) {
+    said = entry && entry.n === notice && entry.less ? entry.less(keys) : null;
+  if (!entry || said == null) {
     endNotice(notice, false);
     return;
   }
-  entry.data = rest;
-  regroup(notice, entry.view(rest), true);
+  regroup(notice, said, true);
 }
 // Where news (a message of a group) stands on the line: right behind the last undo still standing - an undo lives its
 // window where it can be pressed (rule 2), and news arriving meanwhile must not hide it behind '+N' - else first.
@@ -1107,11 +1128,11 @@ function regroup(
 // a document's update, new pins, an event addressed to me, the list comparison) - and its dots are put on at once. The
 // screen's own messages (a restored draft, a hint), an error, an undo, a message with an error source or one that asks
 // not to (digest:false) are said as they come - an error where it can be seen now (rule 1).
-let DIGEST = null as {
+let DIGEST: {
   title: string;
-  items: Map<string, any[]>;
+  items: Map<string, GatheredNote>;
   timer: ReturnType<typeof setTimeout> | undefined;
-} | null;
+} | null = null;
 const DIGEST_MAX_MS = 8000; // a gathering never lasts longer than this, whatever it waits for
 function digestBegin(title: string) {
   if (DIGEST) return;
@@ -1167,7 +1188,7 @@ function digestEnd() {
   else if (items.length) digestNote(digest.title, items);
 }
 // The words a gathered message is named by in the gathered line: its brief (options.brief), else its title. Pure.
-function digestBrief(item: any[]): string {
+function digestBrief(item: GatheredNote): string {
   const options = item[3] || {};
   return options.brief || splitMessage(options.literal ? String(item[0]) : translateMessage(item[0]))[0];
 }
@@ -1185,7 +1206,7 @@ function digestLine(briefs: string[]): string {
   });
   return [...seen].map(([brief, tally]) => (tally.n > 1 || tally.counted ? brief + ' ' + tally.n : brief)).join(' · ');
 }
-function digestNote(title: string, items: any[][]) {
+function digestNote(title: string, items: GatheredNote[]) {
   // this document's news first
   items = [...items.filter((item) => !(item[3] || {}).back), ...items.filter((item) => !!(item[3] || {}).back)];
   const dots = digestDots(items);
@@ -1220,11 +1241,11 @@ function digestNote(title: string, items: any[][]) {
 // A gathered line went other than by [펼치기] (its [x]: seen): the groups it held end with it - each of their messages
 // has gone, so what a group's end checks (no other new-pins message, documents/flow-updates.ts) sees them gone - and
 // then what each held for its end runs, as seen.
-function digestClosed(items: any[][], seen: boolean) {
+function digestClosed(items: GatheredNote[], seen: boolean) {
   items.forEach((item) => {
     const group = (item[3] || {}).group,
       entry = group ? GROUPS.get(group) : undefined;
-    if (entry && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(group);
+    if (entry && group && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(group);
   });
   items.forEach((item) => {
     const ended = (item[3] || {}).onEnd;
@@ -1233,7 +1254,7 @@ function digestClosed(items: any[][], seen: boolean) {
 }
 // Puts a gathered message on the line as it would have come - behind what the line says (back), or, unfolded by
 // [펼치기], in front; a group's message is that group's again.
-function digestReplay(item: any[], back: boolean) {
+function digestReplay(item: GatheredNote, back: boolean) {
   const options = item[3] || {},
     notice = lineNote(item[0], item[1], item[2], { ...options, digest: false, back: back || !!options.back });
   const entry = options.group && GROUPS.get(options.group);
@@ -1254,7 +1275,7 @@ function digestTake(group: string): boolean {
   return false;
 }
 // The chips the gathered messages mark (digestNote's dots): each one's dot once. Pure but for the panel's open state.
-function digestDots(items: any[][]): string[] {
+function digestDots(items: GatheredNote[]): string[] {
   return [
     ...new Set(items.map((item) => noticeDot((item[3] || {}).dot || '', noticePanel().sideOpen())).filter(Boolean)),
   ];
@@ -1285,12 +1306,12 @@ function digestRetitle(notice: Notice) {
 document.addEventListener(
   'click',
   (event) => {
-    const target = event.target as HTMLElement;
+    const target = event.target instanceof Node ? event.target : null;
     NOTICES.forEach((notice) => {
       if (notice.life !== NOTICE_LIFE.CLICK) return;
       const own =
         notice.place === NOTICE_PLACE.LINE
-          ? !!(target.closest && target.closest('#status,#status-list'))
+          ? !!(target instanceof Element && target.closest('#status,#status-list'))
           : !!(notice.el && notice.el.contains(target));
       if (!own) endNotice(notice, false);
     });
@@ -1355,8 +1376,8 @@ ${close ? html`<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data
 
 // The focused element inside a drawn message, if any: a redraw that detaches it gives the focus back (noticeRefocus).
 function noticeFocus(): HTMLElement | null {
-  const active = document.activeElement as HTMLElement | null;
-  return active && active.closest && active.closest('.nt') ? active : null;
+  const active = focusedElement();
+  return active && active.closest('.nt') ? active : null;
 }
 function noticeRefocus(focused: HTMLElement | null) {
   if (focused && document.contains(focused) && document.activeElement !== focused)
@@ -1454,9 +1475,10 @@ function drawOffers(focus?: HTMLElement | null) {
 function drawChips() {
   NOTICES.forEach((notice) => {
     if (notice.place !== NOTICE_PLACE.CHIP) return;
-    const anchor = (document.querySelector('.mark[data-pin="' + notice.pin + '"]') ||
+    const anchor =
+      findMaybe(document, '.mark[data-pin="' + notice.pin + '"]', HTMLElement) ||
       // a page verdict line shows its pin instead of a mark
-      document.querySelector('#doc .pv[data-pin="' + notice.pin + '"]')) as HTMLElement | null;
+      findMaybe(document, '#doc .pv[data-pin="' + notice.pin + '"]', HTMLElement);
     if (!anchor) {
       if (!notice.pending) offerToLine(notice);
       return;

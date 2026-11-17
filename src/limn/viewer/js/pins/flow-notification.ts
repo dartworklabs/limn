@@ -11,7 +11,7 @@
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
 import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { SECTION_OPEN, prefs, savePrefs } from '../platform/prefs.ts';
+import { prefs, savePrefs, setSectionOpen } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { announce, groupNote, quietNote } from '../platform/notices.ts';
 import { hashDoc } from '../documents/view-tabs.ts';
@@ -22,8 +22,8 @@ import { setSide } from '../layout/flow.ts';
 import { openTrash } from './view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from './flow-list.ts';
 import { restorePin } from './flow-actions.ts';
-import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND, isRecord } from '../platform/tables.ts';
+import { $, findMaybe } from '../platform/dom.ts';
 import { LOCAL_LOGIN, NOTIFY_STATE, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { who } from '../app/state-people.ts';
@@ -154,11 +154,9 @@ async function notifyShow(event: PinEvent) {
       body: shown.body,
       tag: 'pin-' + event.pin,
       icon: (
-        (document.querySelector('link[rel=apple-touch-icon]') ||
-          document.querySelector('link[rel=icon]') || {
-            href: undefined,
-          }) as HTMLLinkElement
-      ).href,
+        findMaybe(document, 'link[rel=apple-touch-icon]', HTMLLinkElement) ||
+        findMaybe(document, 'link[rel=icon]', HTMLLinkElement)
+      )?.href,
       // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       actions:
         event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: translate('되살리기') }] : [],
@@ -176,7 +174,12 @@ async function notifyShow(event: PinEvent) {
 // review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
 function notifyLine(event: any) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
-    evs: [...older.evs.filter((x: any) => x.pin !== newer.evs[0].pin), ...newer.evs],
+    evs: [
+      ...(isRecord(older) && Array.isArray(older.evs) ? older.evs : []).filter(
+        (x: unknown) => !isRecord(x) || x.pin !== newer.evs[0].pin,
+      ),
+      ...newer.evs,
+    ],
   }));
 }
 function notifyLineView(group: { evs: any[] }) {
@@ -355,15 +358,23 @@ function notifyWhy(text: string) {
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that
 // document and opens that pin.
 function hashPin() {
-  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash || '');
+  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(window.location.hash || '');
   return match ? +match[1] : null;
 }
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
 // reload never repeats it (a reload of an &act=restore link would restore again a pin someone has since deleted).
 function takeLinkHash() {
-  const link = { pin: hashPin(), doc: hashDoc(), restore: /(?:^#|[#&])act=restore(?:&|$)/.test(location.hash || '') };
+  const link = {
+    pin: hashPin(),
+    doc: hashDoc(),
+    restore: /(?:^#|[#&])act=restore(?:&|$)/.test(window.location.hash || ''),
+  };
   if (link.pin)
-    history.replaceState(history.state, '', location.pathname + location.search + (link.doc ? '#doc=' + link.doc : ''));
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.search + (link.doc ? '#doc=' + link.doc : ''),
+    );
   return link;
 }
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a
@@ -392,7 +403,7 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
     return;
   }
   if (pinState(found) === PIN_STATE.DONE) {
-    SECTION_OPEN.done = true;
+    setSectionOpen('done', true);
   }
   OPEN_CARDS.add(pin);
   setSide(true);
@@ -403,10 +414,14 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
   });
 }
 if ('serviceWorker' in navigator)
+  // A notification pressed while a tab is open (sw.js notificationclick: {type, pin, doc}); the worker's other messages
+  // are the offline store's (offline/flow.ts).
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const message = event.data || {};
-    if (message.type === 'open-pin') openPinFromLink(message.doc, +message.pin);
-    else if (message.type === 'restore-pin' && !isViewer()) restorePin(+message.pin);
+    const message: unknown = event.data;
+    if (!isRecord(message)) return;
+    const doc = typeof message.doc === 'string' ? message.doc : null;
+    if (message.type === 'open-pin') openPinFromLink(doc, Number(message.pin));
+    else if (message.type === 'restore-pin' && !isViewer()) restorePin(Number(message.pin));
   });
 window.addEventListener('hashchange', () => {
   const link = takeLinkHash();

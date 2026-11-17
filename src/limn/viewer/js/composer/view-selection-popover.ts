@@ -21,7 +21,7 @@ import { popoverFreeArea } from '../pdf/view-area.ts';
 import { autoGrow } from './view-text.ts';
 import { syncQuestionHint } from './view-note-hints.ts';
 const SELECTION_POPOVER = $('#sel-pop'),
-  SELECTION_POPOVER_FIELD = SELECTION_POPOVER.querySelector('textarea') as HTMLTextAreaElement,
+  SELECTION_POPOVER_FIELD = findElement(SELECTION_POPOVER, 'textarea', HTMLTextAreaElement),
   SELECTION_POPOVER_GAP = 8;
 SELECTION_POPOVER_FIELD._mirrorOf = $('#note'); // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
@@ -92,7 +92,7 @@ function drawSelectionPopover() {
     ? translate('찾는 중')
     : isRegion(selection)
       ? translateTemplate('쪽 {page} 영역', { page: selection.page })
-      : selection.name + ' ' + lineRange(selection.lo as number, selection.hi as number);
+      : selection.name + ' ' + lineRange(selection.lo, selection.hi);
   SELECTION_POPOVER_FIELD.placeholder = $('#note').placeholder;
   SELECTION_POPOVER.hidden = false;
   placeSelectionPopover();
@@ -149,7 +149,7 @@ function handPopoverToComposer() {
   $('#note').focus();
 }
 $('#left').addEventListener('scroll', placeSelectionPopover, { passive: true });
-addEventListener('resize', placeSelectionPopover);
+window.addEventListener('resize', placeSelectionPopover);
 new ResizeObserver(placeSelectionPopover).observe($('#doc')); // a zoom moves the box with its page
 export {
   SELECTION_POPOVER,

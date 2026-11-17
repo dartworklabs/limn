@@ -13,7 +13,8 @@ import { DOC, DONE_ALL, LAYOUT, OPEN_ALL, REVIEW_ALL, SWITCHSEQ } from '../app/s
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
+import { isRecord } from '../platform/tables.ts';
 import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
 import { canConfirmReview, confirmAccessText } from '../documents/view-meta.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
@@ -22,7 +23,7 @@ import { updateSectionStrip } from '../pdf/view-outline.ts';
 import { scheduleVectorDraw } from '../pdf/view-draw.ts';
 import { searchOffer } from '../pdf/flow.ts';
 import {
-  REVISION_ZOOM,
+  setRevisionZoomRatio,
   disposeRevisionZoom,
   drawRevisionZoom,
   mountRevisionPdf,
@@ -40,7 +41,7 @@ import {
   showRenderedCompare,
 } from './view-rendered-compare.ts';
 import { keepSpot, returnToSpot } from '../documents/flow-rebuild.ts';
-import { $, $$, findElement } from '../platform/dom.ts';
+import { $, $$, findElement, findAll, findMaybe } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import {
   DIFF_FORMAT,
@@ -141,6 +142,11 @@ const REVISION_VIEW: RevisionViewState = {
   rangeN: null,
   want: null,
 };
+// Sets the line the guide says for a revision view's pin (RevTarget.mdcMsg), for another module that changes it
+// (ADR-0042 D1).
+function setTargetGuideLine(target: RevTarget, line: string) {
+  target.mdcMsg = line;
+}
 // the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
 const REVISION_RECENT = 12;
 const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
@@ -661,7 +667,7 @@ function drawRange() {
     range = REVISION_VIEW.range,
     seenState = REVISION_VIEW.seenState;
   $('#revision-range').hidden = !rows.length;
-  for (const button of $$('#revision-range [role=radio]') as HTMLButtonElement[]) {
+  for (const button of findAll(document, '#revision-range [role=radio]', HTMLButtonElement)) {
     const on = button.dataset.range === range.mode;
     button.setAttribute('aria-checked', String(on));
     button.classList.toggle('on', on);
@@ -709,8 +715,8 @@ function renderCommitList() {
     box.replaceChildren();
     return;
   }
-  const focused = document.activeElement as HTMLElement | null,
-    refocus = focused && focused.classList.contains('rc-row') ? focused.dataset.commit : null;
+  const focused = document.activeElement,
+    refocus = focused instanceof HTMLElement && focused.classList.contains('rc-row') ? focused.dataset.commit : null;
   const inside = new Set(
       paintedIds({ commit: REVISION_VIEW.commit, base: REVISION_VIEW.base }, REVISION_VIEW.rangeIds),
     ),
@@ -756,10 +762,10 @@ ${fresh.has(row.id) ? html`<span class="rc-tag">새로</span>` : ''}</button>`;
     html`<div class="rc-head">${translate(hint)}</div><div class="rc-list">${items}</div>\
 ${more ? html`<button id="revision-more" class="btn-ghost" data-act="revision-more">${lucideIcon('chevron-down')}<span>${more}</span></button>` : ''}`,
   );
-  for (const element of $$('#revision-commits [data-i]') as HTMLElement[])
+  for (const element of findAll(document, '#revision-commits [data-i]', HTMLElement))
     element.hidden = Number(element.dataset.i) >= cut;
   if (refocus) {
-    const again = box.querySelector('.rc-row[data-commit="' + refocus + '"]') as HTMLElement | null;
+    const again = findMaybe(box, '.rc-row[data-commit="' + refocus + '"]', HTMLElement);
     if (again) again.focus();
   }
 }
@@ -807,17 +813,19 @@ async function moreRows(docKey: string | null, limit: number) {
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
 // browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the
 // newest, or that it is no longer in the history. A record is never overwritten until the server has answered for it.
-function readSeenRecords(): Record<string, RevSeen> {
+// Every document's record as stored: seenRecordOf reads one, and one it cannot read stays as it is when another is
+// written.
+function readSeenRecords(): Record<string, unknown> {
   try {
-    const stored = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
-    return stored && typeof stored === 'object' ? stored : {};
+    const stored: unknown = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
+    return isRecord(stored) ? stored : {};
   } catch (error) {
     return {};
   }
 }
 function seenRecordOf(docKey: string): RevSeen | null {
   const record = readSeenRecords()[docKey];
-  return record && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
+  return isRecord(record) && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
 }
 // Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask
 // about.
@@ -842,8 +850,8 @@ function seenAnswered(answer: any) {
   REVISION_VIEW.seenIds = new Set(answer.commit_ids || []);
 }
 function seenFailed(error: unknown) {
-  const data = (error && (error as ApiError).data) as any,
-    why = data && data.reason;
+  const data = isApiError(error) ? error.data : undefined,
+    why = isRecord(data) ? data.reason : undefined;
   REVISION_VIEW.seenState =
     why === 'base_too_old'
       ? SEEN_STATE.OLD
@@ -896,14 +904,14 @@ function leaveRevisions() {
     localStorage.setItem('limnRevSeen', JSON.stringify(all));
   } catch (error) {}
 }
-addEventListener('pagehide', () => {
+window.addEventListener('pagehide', () => {
   if (document.body.classList.contains('revision-open')) leaveRevisions();
 });
 // A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its
 // comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the
 // source diff).
 async function showRevision(id: string, format?: string, base?: string) {
-  REVISION_ZOOM.ratio = 1;
+  setRevisionZoomRatio(1);
   ++REVISION_VIEW.seq;
   REVISION_VIEW.commit = id;
   REVISION_VIEW.base = base || '';
@@ -1037,7 +1045,7 @@ ${side(page.prev, overlay.prev_build, 'ov-prev', translateTemplate('이전 {page
       ['img.ov-cur', page.cur],
       ['img.ov-prev', page.prev],
     ] as const) {
-      const img = pageBox.querySelector(selector) as HTMLElement | null;
+      const img = findMaybe(pageBox, selector, HTMLElement);
       if (img && image) {
         img.style.width = image.w + '%';
         img.style.height = image.h + '%';
@@ -1050,7 +1058,7 @@ ${side(page.prev, overlay.prev_build, 'ov-prev', translateTemplate('이전 {page
 function drawRevisionSide() {
   const overlay = REVISION_VIEW.overlay,
     none = !overlay || !overlay.prev_build;
-  for (const button of $$('#revision-side [role=radio]') as HTMLButtonElement[]) {
+  for (const button of findAll(document, '#revision-side [role=radio]', HTMLButtonElement)) {
     const on = button.dataset.side === REVISION_VIEW.side;
     button.setAttribute('aria-checked', String(on));
     button.classList.toggle('on', on);
@@ -1138,7 +1146,7 @@ async function loadRevisionSource(id: string, seq: number, docKey: string | null
     if (target) highlightPinLines(target);
   } catch (error) {
     if (revisionCurrent(seq, docKey, id)) {
-      const why = error && (error as ApiError).data ? errText((error as ApiError).data) : '';
+      const why = isApiError(error) && error.data ? errText(error.data) : '';
       out.textContent = why
         ? translateTemplate('소스 변경 내용을 읽지 못했습니다: {error}', { error: why })
         : translate('소스 변경 내용을 읽지 못했습니다.');
@@ -1371,15 +1379,15 @@ function highlightPinLines(target: RevTarget) {
     return;
   }
   const rows = $$('#revision-diff .rd-line');
-  let first = null as Element | null;
-  rows.forEach((line) => {
-    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
+  let first: Element | null = null;
+  for (const line of rows) {
+    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) continue;
     const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
     }
-  });
+  }
   target.hit = !!first || touchesPin(REVISION_VIEW.files, target, 5);
   // when only a neighbouring line changed, the guide never speaks of "the highlighted line": there is none
   target.near = !first && target.hit;
@@ -1387,17 +1395,17 @@ function highlightPinLines(target: RevTarget) {
     const fileIndex = pinFileIndex(REVISION_VIEW.files, target.file);
     if (fileIndex < 0) target.hit = false;
     else {
-      let best = null as Element | null,
+      let best: Element | null = null,
         bestDistance = Infinity;
-      rows.forEach((line) => {
+      for (const line of rows) {
         const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
-        if (!lineNumber) return;
+        if (!lineNumber) continue;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
           bestDistance = distance;
           best = line;
         }
-      });
+      }
       first = best;
     }
   }
@@ -1477,8 +1485,8 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
     try {
       return (await api('POST /api/revision-build', { body, what: '비교 PDF 만들기', silent: true })).data;
     } catch (error) {
-      const answer = (error as ApiError).data as { reason?: string } | undefined;
-      if (!answer || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
+      const answer = isApiError(error) ? error.data : undefined;
+      if (!isRecord(answer) || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
       if (left()) return null;
       box.textContent = waiting;
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1587,13 +1595,13 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
   } catch (error) {
     if (revisionCurrent(seq, docKey, id)) {
       clearRevisionPdf();
-      const data = (error && (error as ApiError).data) as any;
+      const data = isApiError(error) ? error.data : undefined;
       statusBox.textContent = translateTemplate('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.', {
         error:
-          data && data.error
+          isRecord(data) && data.error
             ? errText(data)
-            : error && (error as Error).message
-              ? (error as Error).message
+            : error instanceof Error && error.message
+              ? error.message
               : translate('표시하지 못했습니다.'),
       });
     }
@@ -1601,6 +1609,7 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
 }
 export {
   REVISION_VIEW,
+  setTargetGuideLine,
   COMPARISON_PDF,
   COMPARISON_SCOPE,
   findAnyPin,

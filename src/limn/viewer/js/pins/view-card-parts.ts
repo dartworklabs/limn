@@ -32,8 +32,8 @@ import { relSpan, stampSpan } from './view-time.ts';
 document.addEventListener(
   'error',
   (event) => {
-    const image = event.target as HTMLImageElement;
-    if (image && image.tagName === 'IMG' && image.classList.contains('av')) {
+    const image = event.target;
+    if (image instanceof HTMLImageElement && image.classList.contains('av')) {
       FAILED_AVATARS.add(image.getAttribute('src'));
       const circle = document.createElement('span');
       circle.className = 'av i';

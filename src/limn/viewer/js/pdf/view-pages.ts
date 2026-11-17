@@ -15,7 +15,7 @@ import { translateTemplate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
 import { placeChips } from '../platform/notices.ts';
 import { invalidateVectorDraws, observeVectorPages } from './view-draw.ts';
-import { $, $$, findAll } from '../platform/dom.ts';
+import { $, findAll, findMaybe } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { restoreAnchor, topAnchor } from '../layout/flow.ts';
@@ -163,8 +163,9 @@ function sizePages() {
 function pageWidthVars() {
   const widest = widestPagePoints();
   $('#doc').style.setProperty('--pg-max', pageWidth(widest, PAGE_SCALE) + 'px');
-  $$('#doc .pgw>.pg').forEach((pageBox) => {
-    (pageBox.parentElement as HTMLElement).style.setProperty('--pg-w', (pageBox as HTMLElement).style.width);
+  findAll(document, '#doc .pgw>.pg', HTMLElement).forEach((pageBox) => {
+    const holder = pageBox.parentElement;
+    if (holder) holder.style.setProperty('--pg-w', pageBox.style.width);
   });
 }
 // Whether the pages stand at a scale PAGE_SCALE that no PDF-area width has bounded since their sizes changed
@@ -283,7 +284,7 @@ function pageNoSides() {
   const widths = pageBoxes.map((pageBox) => pageBox.getBoundingClientRect().width),
     widest = Math.max(...widths);
   pageBoxes.forEach((pageBox, index) => {
-    const no = pageBox.querySelector('.no') as HTMLElement | null;
+    const no = findMaybe(pageBox, '.no', HTMLElement);
     if (no) pageBox.classList.toggle('no-out', (widest - widths[index]) / 2 >= no.offsetWidth + 8);
   });
 }
@@ -363,9 +364,10 @@ function fitToWidth() {
   restoreAnchor(anchor);
   pdfArea.scrollLeft = 0;
 }
+// gesturestart: Safari's trackpad pinch
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
-  addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
-addEventListener('resize', arrivalLetGo);
+  window.addEventListener(eventType, arrivalLetGo, { capture: true, passive: true });
+window.addEventListener('resize', arrivalLetGo);
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a
 // person's scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no
 // scroll at all: a line pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what

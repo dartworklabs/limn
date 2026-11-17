@@ -11,7 +11,7 @@ import { api } from '../platform/api.ts';
 import { onLines, refetchSnip } from './view-levels.ts';
 import type { LineOwner, RangeOwner } from './view-levels.ts';
 import { recomputeOverlap, renderComposer } from './flow-pick.ts';
-import { $ } from '../platform/dom.ts';
+import { $, focusedElement } from '../platform/dom.ts';
 import { withDocQuery, isRegion } from '../documents/state.ts';
 import { pinFields } from './state-seams.ts';
 
@@ -54,7 +54,7 @@ const EXCERPT_LINES = new WeakMap<RangeOwner, Map<number, string | null>>(),
 function excerptLines(owner: RangeOwner) {
   let lines = EXCERPT_LINES.get(owner);
   if (!lines) {
-    lines = new Map();
+    lines = new Map<number, string | null>();
     EXCERPT_LINES.set(owner, lines);
   }
   return lines;
@@ -140,9 +140,9 @@ function excerptFocusTarget(buttons: ExcerptControl[], was: { act: string; line:
 // or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
 function drawExcerpt(owner: RangeOwner | null, box: HTMLElement, isEdit: boolean) {
   const on = owner !== null && !('region' in owner && owner.region) && !isRegion(owner) && onLines(owner);
-  const focused = document.activeElement as HTMLElement,
+  const focused = focusedElement(),
     had =
-      box.contains(focused) && focused.dataset.act
+      focused && box.contains(focused) && focused.dataset.act
         ? { act: focused.dataset.act, line: Number(focused.dataset.line) }
         : null;
   box.hidden = !on;

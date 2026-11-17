@@ -16,7 +16,7 @@ import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
-import { $, $$, searchToPage } from '../platform/dom.ts';
+import { $, $$, searchToPage, eventElement, findElement, findAll, focusedElement } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
@@ -203,9 +203,9 @@ const SEARCH_EDGE_POINTS = 3;
 // a table wider than the column, and a page number below the text, stand in blocks of their own, a line pitch away from
 // the body. Returns each line's block, numbered from 0 in the order the lines come, and -1 for a line without geometry.
 // Pure.
-function searchBlocks(lines: any[]): number[] {
+function searchBlocks(lines: SearchLine[]): number[] {
   // -2: in no block yet.
-  const blockOf = lines.map((line) => (line.box ? -2 : -1)) as number[];
+  const blockOf: number[] = lines.map((line) => (line.box ? -2 : -1));
   let blockCount = 0;
   lines.forEach((line, index) => {
     if (blockOf[index] !== -2) return;
@@ -214,6 +214,7 @@ function searchBlocks(lines: any[]): number[] {
     blockOf[index] = block;
     while (queue.length) {
       const currentBox = lines[queue.pop() as number].box;
+      if (!currentBox) continue; // only a line with a box is ever in no block yet (-2), so queued
       lines.forEach((otherLine, otherIndex) => {
         const otherBox = otherLine.box;
         if (blockOf[otherIndex] !== -2 || !otherBox || otherBox.ang !== currentBox.ang) return;
@@ -240,8 +241,8 @@ const SEARCH_GUTTER = Object.freeze({ MIN: 8, MIDDLE: 0.2, SIDE: 0.25, BAR: 0.1 
 // page of fewer than 8 upright lines is not read. The band need not be empty: a title, a page-wide caption and a
 // running head cross it. The count changes only where a line starts or ends, so it is read there and a column gap is
 // measured as wide as it is (LaTeX's default \columnsep is 10pt). Pure.
-function searchGutter(lines: any[]): number[] | null {
-  const boxes = lines.map((line) => line.box).filter((box) => box && box.ang === 0);
+function searchGutter(lines: SearchLine[]): number[] | null {
+  const boxes = lines.map((line) => line.box).filter((box): box is SearchPieceBox => !!box && box.ang === 0);
   if (boxes.length < 8) return null;
   const at = [...new Set(boxes.flatMap((box) => [box.x0, box.x1]))].sort((first, second) => first - second),
     low = at[0],
@@ -276,7 +277,8 @@ function searchGutter(lines: any[]): number[] | null {
   if (!best || best[1] - best[0] < SEARCH_GUTTER.MIN) return null;
   const gutter = best,
     middle = (gutter[0] + gutter[1]) / 2;
-  const lengthOf = (test: (box: any) => boolean) => boxes.filter(test).reduce((sum, box) => sum + box.x1 - box.x0, 0),
+  const lengthOf = (test: (box: SearchPieceBox) => boolean) =>
+      boxes.filter(test).reduce((sum, box) => sum + box.x1 - box.x0, 0),
     all = lengthOf(() => true);
   return lengthOf((box) => box.x1 <= middle) < SEARCH_GUTTER.SIDE * all ||
     lengthOf((box) => box.x0 >= middle) < SEARCH_GUTTER.SIDE * all
@@ -295,13 +297,15 @@ function searchGutter(lines: any[]): number[] | null {
 // under such a line would otherwise reach its own longest entry and run into the next entry (ADR-0017's rejected
 // candidate D). The crossing line keeps its block's edges, and a block that crosses nothing keeps its own. A column's
 // measure says whose it is (col: 0 left, 1 right) and carries the block's edges (blk), for searchJoin. Pure.
-function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?: { l: number; r: number } } | null)[] {
+function searchEdges(
+  lines: SearchLine[],
+): ({ l: number; r: number; col?: number; blk?: { l: number; r: number } } | null)[] {
   const blockOf = searchBlocks(lines),
     blockEdges: { l: number; r: number }[] = [];
   lines.forEach((line, index) => {
-    const block = blockOf[index];
-    if (block < 0) return;
-    const box = line.box;
+    const block = blockOf[index],
+      box = line.box;
+    if (block < 0 || !box) return; // a line in a block has a box (searchBlocks)
     blockEdges[block] = blockEdges[block]
       ? { l: Math.min(blockEdges[block].l, box.x0), r: Math.max(blockEdges[block].r, box.x1) }
       : { l: box.x0, r: box.x1 };
@@ -317,7 +321,9 @@ function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?:
     high = [gutter[0], Infinity];
   const col = [0, 1].map((sideIndex) =>
     Math.max(
-      ...lines.filter((line, index) => side[index] === sideIndex).map((line) => Math.min(line.box.x1, high[sideIndex])),
+      ...lines
+        .filter((line, index): line is SearchLine & { box: SearchPieceBox } => side[index] === sideIndex && !!line.box)
+        .map((line) => Math.min(line.box.x1, high[sideIndex])),
     ),
   );
   const crossed = new Set(
@@ -325,10 +331,12 @@ function searchEdges(lines: any[]): ({ l: number; r: number; col?: number; blk?:
     ),
     left = new Map<string, number>();
   lines.forEach((line, index) => {
-    const sideIndex = side[index];
-    if (sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])) return;
+    const sideIndex = side[index],
+      box = line.box;
+    // side 0 or 1 is a line with a box
+    if (sideIndex > 1 || sideIndex < 0 || !box || !crossed.has(blockOf[index])) return;
     const key = blockOf[index] + ':' + sideIndex,
-      x = Math.max(line.box.x0, low[sideIndex]);
+      x = Math.max(box.x0, low[sideIndex]);
     left.set(key, Math.min(left.get(key) ?? x, x));
   });
   return out.map((edges, index) => {
@@ -649,8 +657,8 @@ function searchPageHits(page: SearchPage, pageNumber: number, pattern: RegExp | 
 // measure.
 let SEARCH_CONTEXT: CanvasRenderingContext2D | null = null;
 function searchMeasure(text: string, family: string) {
-  const context = (SEARCH_CONTEXT ||
-    (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D;
+  const context = SEARCH_CONTEXT || (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'));
+  if (!context) throw new Error('searchMeasure: no 2D canvas context');
   context.font = '100px ' + family;
   return context.measureText(text).width;
 }
@@ -658,7 +666,7 @@ function searchMeasure(text: string, family: string) {
 // y, w, h]: the union of its run in each text item of the line. The folded run maps back to the line's own characters
 // through the line's map, to the end of the last character's cluster - both letters of a ligature are the ligature's
 // box.
-function searchPieceBox(page: any, [line, from, to]: number[]) {
+function searchPieceBox(page: SearchPage, [line, from, to]: number[]) {
   const textLine = page.lines[line];
   let endUnit = to;
   while (endUnit < textLine.at.length - 1 && textLine.at[endUnit] <= textLine.at[to - 1]) endUnit++;
@@ -686,7 +694,10 @@ function searchBoxes(hit: SearchHit): number[][] {
   if (hit.boxes) return hit.boxes;
   const doc = SEARCH.doc;
   if (!doc) return [];
-  return (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(doc)[hit.page - 1], piece)));
+  // A hit is found on a read page and a read page stays read, so the page is there; the type does not say so.
+  const page = searchPages(doc)[hit.page - 1];
+  if (!page) return [];
+  return (hit.boxes = hit.pieces.map((piece) => searchPieceBox(page, piece)));
 }
 // Draws a page's hit boxes (the current hit's marked, every one of them), or removes them when the page is not near the
 // view or has none.
@@ -718,7 +729,7 @@ function searchWatch() {
   const io = (SEARCH.io = new IntersectionObserver(
     (entries) => {
       for (const en of entries) {
-        const pageNumber = Number((en.target as HTMLElement).dataset.page);
+        const pageNumber = Number(en.target instanceof HTMLElement ? en.target.dataset.page : undefined);
         if (en.isIntersecting) SEARCH.near.add(pageNumber);
         else SEARCH.near.delete(pageNumber);
         searchDrawPage(pageNumber);
@@ -1012,7 +1023,7 @@ function searchFit() {
     px = (value: string) => parseFloat(value) || 0;
   let used = 0,
     counted = 0;
-  for (const neighbour of [...navigationBar.children] as HTMLElement[]) {
+  for (const neighbour of findAll(navigationBar, ':scope > *', HTMLElement)) {
     if (neighbour === searchRoot || !neighbour.getClientRects().length) continue;
     const neighbourStyle = getComputedStyle(neighbour);
     let width = neighbour.getBoundingClientRect().width;
@@ -1054,7 +1065,7 @@ function searchCover() {
   const searchRoot = $('#doc-search'),
     navigationBar = $('#doc-nav'),
     box = $('#search-box'),
-    neighbours = ([...navigationBar.children] as HTMLElement[]).filter((neighbour) => neighbour !== searchRoot);
+    neighbours = findAll(navigationBar, ':scope > *', HTMLElement).filter((neighbour) => neighbour !== searchRoot);
   const right = (neighbour: HTMLElement) =>
     neighbour.getBoundingClientRect().right + Math.min(0, parseFloat(getComputedStyle(neighbour).marginRight) || 0);
   // The natural box first: the span is worked out from it.
@@ -1117,7 +1128,8 @@ function searchCover() {
   const least = box.getBoundingClientRect().width;
   // The first (the outline toggle) stays.
   while (span < least && left.length > 1) {
-    const nearest = left.pop() as HTMLElement;
+    const nearest = left.pop();
+    if (!nearest) break;
     nearest.classList.replace('search-left', 'search-covered');
     span = searchRoot.getBoundingClientRect().right - edge();
   }
@@ -1171,7 +1183,7 @@ function searchInk() {
     const rowRect = row.getBoundingClientRect(),
       ownRect = own.getBoundingClientRect();
     const base =
-        (probe.firstElementChild as Element).getBoundingClientRect().bottom - probe.getBoundingClientRect().top,
+        findElement(probe, ':scope > *', Element).getBoundingClientRect().bottom - probe.getBoundingClientRect().top,
       stands = field.getBoundingClientRect().top - SEARCH.ink + base;
     ink =
       getComputedStyle(row).fontSize === getComputedStyle(own).fontSize
@@ -1346,16 +1358,16 @@ $('#search-box').addEventListener('focusin', (event: FocusEvent) => {
     SEARCH.away = false;
     return;
   }
-  const from = event.relatedTarget as Element | null;
+  const from = event.relatedTarget instanceof Element ? event.relatedTarget : null;
   if (!(from && $('#search-box').contains(from))) searchFrom(from);
   if (event.target === $('#search-q')) searchShow();
 });
 $('#doc-search').addEventListener('focusout', (event: FocusEvent) => {
-  const to = event.relatedTarget as Node | null;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (to && $('#doc-search').contains(to)) return;
   // The window lost the focus, not the field.
   if (!document.hasFocus()) {
-    SEARCH.away = $('#search-box').contains(event.target as Node);
+    SEARCH.away = $('#search-box').contains(eventElement(event));
     return;
   }
   if (SEARCH.open && !SEARCH.q) searchHide();
@@ -1365,8 +1377,8 @@ $('#doc-search').addEventListener('focusout', (event: FocusEvent) => {
 document.addEventListener(
   'pointerdown',
   (event) => {
-    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(event.target as Node)) return;
-    const focused = document.activeElement as HTMLElement | null;
+    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(eventElement(event))) return;
+    const focused = focusedElement();
     searchHide();
     if (focused && $('#doc-search').contains(focused)) focused.blur();
   },

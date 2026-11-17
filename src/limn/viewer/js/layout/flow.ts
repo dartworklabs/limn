@@ -47,8 +47,8 @@ import {
   setSheetKept,
 } from './flow-panel-size.ts';
 import { syncBackLayer } from './input.ts';
-import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, findElement, typingNow, findAll } from '../platform/dom.ts';
+import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
+import { $, findElement, typingNow, findAll, focusedElement } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
 
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
@@ -136,7 +136,7 @@ function layoutFor(width: number, height: number, coarse: boolean) {
 }
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput() {
-  return { w: innerWidth, h: innerHeight, coarse: COARSE_POINTER_QUERY.matches };
+  return { w: window.innerWidth, h: window.innerHeight, coarse: COARSE_POINTER_QUERY.matches };
 }
 type BandInput = ReturnType<typeof bandInput>;
 // Keeping the band steady on touch (docs/handbook/viewer.md §모바일 레이아웃): a height change under BAND_HOLD_PX from
@@ -216,10 +216,10 @@ function applyLayout() {
 // back yet (its bar not shown before applySide) is returned, and applyLayout tries again.
 function placeBarTools() {
   const bar = $('#bar1'),
-    leftGroup = bar.querySelector('.bar-l') as HTMLElement,
-    rightGroup = bar.querySelector('.bar-r') as HTMLElement;
+    leftGroup = findElement(bar, '.bar-l', Element),
+    rightGroup = findElement(bar, '.bar-r', Element);
   const selectButton = $('#btn-select'),
-    focused = document.activeElement as HTMLElement | null,
+    focused = focusedElement(),
     had = !!focused && bar.contains(focused);
   if (LAYOUT === LAYOUT_MODE.MID) {
     if (bar.firstElementChild !== selectButton) bar.prepend(selectButton);
@@ -542,8 +542,8 @@ function onViewport() {
   }
 }
 document.addEventListener('focusin', (event) => {
-  const target = event.target as HTMLElement;
-  if (LAYOUT !== LAYOUT_MODE.WIDE && target && target.tagName === 'TEXTAREA' && $('#right').contains(target))
+  const target = event.target;
+  if (LAYOUT !== LAYOUT_MODE.WIDE && target instanceof HTMLTextAreaElement && $('#right').contains(target))
     setTimeout(() => {
       if (BAND === LAYOUT_BAND.TABLET_SHEET) keepFieldInView();
       else {
@@ -563,8 +563,8 @@ document.addEventListener('focusin', (event) => {
 // The field whose caret has been put since it took the focus.
 let CARET_HELD: EventTarget | null = null;
 function holdCaret(event: KeyboardEvent) {
-  const field = event.target as HTMLInputElement;
-  if (!field || field === CARET_HELD || typeof field.setSelectionRange !== 'function') return;
+  const field = event.target;
+  if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) || field === CARET_HELD) return;
   CARET_HELD = field;
   const at = field.selectionStart;
   // A selection is the person's.
@@ -647,8 +647,10 @@ function fieldRoom(field: HTMLElement, key: string, shift: boolean) {
 function fieldScrollKey(event: KeyboardEvent) {
   const key = event.key;
   if (!READ_ONLY_KEYS.has(key) || event.metaKey || event.ctrlKey || event.altKey || !typingNow()) return;
-  const field = document.activeElement as HTMLInputElement,
-    isReadOnly = field.readOnly === true;
+  const field = document.activeElement;
+  // typingNow() has said it is a text field: a textarea, a text input or editable content.
+  if (!(field instanceof HTMLElement)) return;
+  const isReadOnly = (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && field.readOnly;
   if (isReadOnly) {
     // Shift with a moving key moves nothing outside (Firefox selects, Chromium keeps the selection).
     if (event.shiftKey && key !== ' ') return;
@@ -754,7 +756,8 @@ function noteRowInView() {
 // on the status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel
 // ('side').
 function coach(key: string, text: string) {
-  const seen = Object.assign({}, prefs().coach || {});
+  const kept = prefs().coach,
+    seen: Record<string, unknown> = Object.assign({}, isRecord(kept) ? kept : {});
   if (seen[key]) return;
   seen[key] = 1;
   savePrefs({ coach: seen });
@@ -777,7 +780,7 @@ function setSelectMode(on: boolean) {
   document.body.classList.toggle('selmode', SELMODE);
   const button = $('#btn-select');
   button.setAttribute('aria-pressed', String(SELMODE));
-  (button.querySelector('.lbl') as HTMLElement).textContent = translate(SELMODE ? '선택 중' : '선택');
+  findElement(button, '.lbl', Element).textContent = translate(SELMODE ? '선택 중' : '선택');
   $('#sel-sr').textContent = SELMODE ? $('#sel-bar-t').textContent : '';
   if (SELMODE) fitSelectModeBar();
   else if ($('#sel-bar').contains(document.activeElement)) button.focus({ preventScroll: true });
@@ -898,9 +901,9 @@ let INK_CONTEXT: CanvasRenderingContext2D | null = null;
 // The ink of a text in an element's font as {a, d}: how far it rises above and reaches below the baseline (px), from
 // the canvas's text metrics read at 64 times the size, because the canvas rounds them to whole pixels.
 function inkMetrics(element: Element, text: string) {
-  const context = (INK_CONTEXT ||
-      (INK_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D,
-    scale = 64,
+  const context = INK_CONTEXT || (INK_CONTEXT = document.createElement('canvas').getContext('2d'));
+  if (!context) throw new Error('inkMetrics: no 2D canvas context');
+  const scale = 64,
     barStyle = getComputedStyle(element);
   context.font =
     barStyle.fontStyle +

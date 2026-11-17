@@ -37,7 +37,7 @@ import {
 } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import {
@@ -59,7 +59,18 @@ import {
 import { IS_BESIDE_PAGES, bringPage, redrawOnBesideChange } from './view-panel.ts';
 import { PINS_APPLIED_SEQ, gotoPinRef, loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
-import { $, typingNow, searchToPage } from '../platform/dom.ts';
+import {
+  $,
+  eventClosest,
+  eventElement,
+  findAll,
+  findClosest,
+  findMaybe,
+  focusedElement,
+  isDisabled,
+  typingNow,
+  searchToPage,
+} from '../platform/dom.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, verdictLabel, viewerBlocked, pageVerdictsOn } from '../documents/state.ts';
@@ -159,6 +170,11 @@ type ReasonHist = {
   landed: { doc: string | null; id: number; word: string; text: string }[];
 };
 let REASON_SESSION: ReasonSession | null = null;
+// Marks whether the reading line has been on a session's page (ReasonSession.seen), for another module that sees it
+// (ADR-0042 D1).
+function setReasonSeen(session: ReasonSession, seen: boolean) {
+  session.seen = seen;
+}
 let SESSION_SEQUENCE = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
 // by line (pageLineSlot of the document they were typed on): each stays bound to that save, not to the screen.
@@ -220,7 +236,7 @@ function isReasonField(target: unknown): target is HTMLTextAreaElement {
 }
 // The open popover's field, or null.
 function findReasonField() {
-  return document.querySelector('#doc .pv-pop .pv-reason') as HTMLTextAreaElement | null;
+  return findMaybe(document, '#doc .pv-pop .pv-reason', HTMLTextAreaElement);
 }
 // Whether the session's text is something not yet written: not empty, not the reason it opened on, not what it wrote.
 function hasUnsavedReason(session: ReasonSession) {
@@ -289,7 +305,7 @@ function refocusAfterLines() {
   const owed = PENDING_REFOCUS;
   if (!owed) return;
   PENDING_REFOCUS = null;
-  const control = document.querySelector('#doc .pv[data-page="' + owed.page + '"] ' + owed.sel) as HTMLElement | null;
+  const control = findMaybe(document, '#doc .pv[data-page="' + owed.page + '"] ' + owed.sel, HTMLElement);
   if (control) control.focus({ preventScroll: true });
 }
 // A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it would fall to nothing:
@@ -302,8 +318,8 @@ function refocusAfterLines() {
 type ReasonFocus = { sid: number; sel: [number, number, string] | null; act: string };
 function holdReasonFocus(): ReasonFocus | null {
   const session = REASON_SESSION,
-    active = document.activeElement as HTMLElement | null,
-    pop = active && active.closest ? active.closest('#doc .pv-pop') : null;
+    active = focusedElement(),
+    pop = active ? active.closest('#doc .pv-pop') : null;
   if (!session || !active || !pop || pop.getAttribute('data-id') !== 's' + session.sid) return null;
   if (isReasonField(active))
     return {
@@ -319,15 +335,13 @@ function restoreReasonFocus(held: ReasonFocus | null) {
   const session = REASON_SESSION,
     pop =
       session && session.sid === held.sid ? document.querySelector('#doc .pv-pop[data-id="s' + held.sid + '"]') : null;
-  const control = (
-    !pop
-      ? null
-      : held.sel
-        ? pop.querySelector('.pv-reason')
-        : held.act
-          ? pop.querySelector('[data-act="' + held.act + '"]')
-          : null
-  ) as HTMLElement | null;
+  const control = !pop
+    ? null
+    : held.sel
+      ? findMaybe(pop, '.pv-reason', HTMLElement)
+      : held.act
+        ? findMaybe(pop, '[data-act="' + held.act + '"]', HTMLElement)
+        : null;
   if (!control) {
     KEY_GUARD = true;
     return;
@@ -414,16 +428,16 @@ function showDraftLine(page: number) {
     bringPage(page);
     stickReadingLine();
   } // beside the pages the panel is the line, once the page is read (verdict/view-panel.ts)
-  const line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
+  const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return;
   if (!IS_BESIDE_PAGES) {
-    const block = (line.parentElement || line) as HTMLElement;
+    const block = line.parentElement || line;
     endJumpForScroll();
     block.scrollIntoView({ block: block.getBoundingClientRect().height <= $('#left').clientHeight ? 'center' : 'end' });
   }
   requestAnimationFrame(() => {
     if (isReasonField(document.activeElement)) return; // the mark was already pressed: its field keeps the focus
-    const mark = document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft') as HTMLElement | null;
+    const mark = findMaybe(document, '#doc .pv[data-page="' + page + '"] .pv-draft', HTMLElement);
     if (mark) mark.focus({ preventScroll: true });
     else if (!focusLine(page)) searchToPage();
   });
@@ -461,9 +475,10 @@ function closeReasonPopover(back: boolean) {
 function focusLine(page: number) {
   const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return false;
-  const control = (line.querySelector('[data-act="pv-reason-open"]') ||
-    line.querySelector('.vd-b[aria-pressed="true"]') ||
-    line.querySelector('.vd-b')) as HTMLElement | null;
+  const control =
+    findMaybe(line, '[data-act="pv-reason-open"]', HTMLElement) ||
+    findMaybe(line, '.vd-b[aria-pressed="true"]', HTMLElement) ||
+    findMaybe(line, '.vd-b', HTMLElement);
   if (!control) return false;
   control.focus({ preventScroll: true });
   return true;
@@ -735,7 +750,7 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
   try {
     pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       lineNote(
         translateTemplate('이유 저장 실패 · {why} — {target}', { why: translate('서버에 닿지 않습니다'), target }),
@@ -1023,9 +1038,9 @@ async function checkLostWrites(session: ReasonSession): Promise<true | ApiError 
     try {
       fetched = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin || null;
     } catch (error) {
-      const x = error as ApiError;
+      const x = isApiError(error) ? error : null;
       if (!x || !x.status || x.status >= 500) {
-        sure = x || null;
+        sure = x;
         continue;
       }
     }
@@ -1097,8 +1112,8 @@ async function fenceLostWrites(
     const answered = data && data.pin;
     return answered ? { pin: answered } : { unknown: null };
   } catch (error) {
-    const x = error as ApiError;
-    return x && x.status === 404 ? { pin: null } : { unknown: x || null };
+    const x = isApiError(error) ? error : null;
+    return x && x.status === 404 ? { pin: null } : { unknown: x };
   }
 }
 // A session's evidence of pin `key`'s lost writes (ReasonPart.tried) made update(tried): in its text's parts and in
@@ -1191,7 +1206,7 @@ function handOnCopy(copy: ReasonSession) {
 function closeTakenReason(session: ReasonSession, doc: string | null, id: number, word: string, part: boolean) {
   if (part) {
     refillLine(session.page);
-    const line = document.querySelector('#doc .pv[data-page="' + session.page + '"]') as HTMLElement | null;
+    const line = findMaybe(document, '#doc .pv[data-page="' + session.page + '"]', HTMLElement);
     if (line) fillReasonField(line);
     lineNote(
       translateTemplate('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
@@ -1378,7 +1393,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
   try {
     pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       sayReasonFailed(session, text, x);
       return false;
@@ -1435,7 +1450,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
       pin = answered;
     }
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (sent && (!x || !x.status || x.status >= 500)) {
       session.tried.push(sent);
       addLostWrite(session.doc, session.id, sent);
@@ -1628,9 +1643,11 @@ function foldReason() {
   else dropDraft(session.doc, session.id);
   REASON_SESSION = null;
   drawPageVerdicts();
-  const control = document.querySelector(
+  const control = findMaybe(
+    document,
     '#doc .pv[data-page="' + session.page + '"] [data-act="pv-reason-open"]',
-  ) as HTMLElement | null;
+    HTMLElement,
+  );
   if (control) control.focus({ preventScroll: true });
   else focusLine(session.page);
   announce(translate('이유 초안을 접었습니다 — 줄의 [초안 있음]이 다시 엽니다'));
@@ -1673,12 +1690,12 @@ async function clearReason() {
       await api('POST /api/pins/{id}/edit', { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
     } catch (error) {
-      const x = error as ApiError,
-        statusCode = x && typeof x.status === 'number' ? x.status : 0;
+      const x = isApiError(error) ? error : null,
+        statusCode = x ? x.status : 0;
       if (!statusCode) session.clearTried = true;
       lineNote(
         translateTemplate('이유 지우기 실패 · {why} — {target}', {
-          why: statusCode ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
+          why: x ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
           target,
         }),
         NOTICE_KIND.ERR,
@@ -1864,7 +1881,7 @@ data-tip="${translate('이 판정의 이유를 씁니다. 메모로 붙습니다
 // input method is composing - and its height follows its lines.
 function fillReasonField(line: HTMLElement) {
   const session = REASON_SESSION,
-    field = line.querySelector('.pv-pop .pv-reason') as HTMLTextAreaElement | null;
+    field = findMaybe(line, '.pv-pop .pv-reason', HTMLTextAreaElement);
   if (!session || !field) return;
   if (field.value !== session.text && COMPOSING_FIELD !== field) {
     const had = document.activeElement === field;
@@ -1884,7 +1901,7 @@ function growReasonField(field: HTMLTextAreaElement) {
 // Page `page`'s line drawn again now: what its popover says follows the field's text and focus.
 function refillLine(page: number) {
   const verdicts = pageVerdictsOn(),
-    line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
+    line = findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement);
   if (verdicts && line) fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
 }
 
@@ -2043,13 +2060,12 @@ function followLanded(session: ReasonSession) {
 // key is the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons
 // ([접기], [닫기], [저장], [지우기]) is the field's Esc.
 $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
-  const target = event.target as HTMLElement;
+  const target = eventElement(event);
   if (
     event.key === 'Escape' &&
     !isReasonField(target) &&
     REASON_SESSION &&
     target &&
-    target.closest &&
     target.closest('#doc .pv-pop') &&
     !event.ctrlKey &&
     !event.metaKey &&
@@ -2087,20 +2103,19 @@ $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
 // popover, writing what is being edited.
 $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return;
-  const target = event.target as HTMLElement,
-    line = target && target.closest ? target.closest('#doc .pv') : null;
+  const target = eventElement(event),
+    line = target ? target.closest('#doc .pv') : null;
   const pop = line && line.querySelector(':scope>.pv-pop');
   if (!line || !pop) return;
-  const vis = (x: Element) =>
-    x instanceof HTMLElement && x.getClientRects().length > 0 && !(x as HTMLButtonElement).disabled;
-  const all = [...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(vis);
+  const vis = (x: HTMLElement) => x.getClientRects().length > 0 && !isDisabled(x);
+  const all = findAll(line, 'a,button,textarea,[tabindex="0"]', HTMLElement).filter(vis);
   if (all.length < 2) return;
   if (!event.shiftKey && target === all[all.length - 1]) {
     event.preventDefault();
-    (all[0] as HTMLElement).focus({ preventScroll: true });
+    all[0].focus({ preventScroll: true });
   } else if (event.shiftKey && target === all[0]) {
     event.preventDefault();
-    (all[all.length - 1] as HTMLElement).focus({ preventScroll: true });
+    all[all.length - 1].focus({ preventScroll: true });
   }
 });
 // The field's focus changes what it says (the keys). The popover stays open while the focus is anywhere inside it - Tab
@@ -2110,8 +2125,7 @@ let POPOVER_PRESS_AT = 0; // performance.now() of the last press inside a popove
 $('#doc').addEventListener(
   'pointerdown',
   (event: PointerEvent) => {
-    const target = event.target as HTMLElement;
-    if (target && target.closest && target.closest('.pv-pop')) POPOVER_PRESS_AT = performance.now();
+    if (eventClosest(event, '.pv-pop', Element)) POPOVER_PRESS_AT = performance.now();
   },
   true,
 );
@@ -2121,10 +2135,9 @@ $('#doc').addEventListener('focusin', (event: FocusEvent) => {
   refillLine(REASON_SESSION.page);
 });
 $('#doc').addEventListener('focusout', (event: FocusEvent) => {
-  const target = event.target as HTMLElement,
-    pop = target && target.closest ? target.closest('.pv-pop') : null;
+  const pop = eventClosest(event, '.pv-pop', Element);
   if (!pop) return;
-  const rel = event.relatedTarget as Node | null;
+  const rel = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (rel && pop.contains(rel)) return;
   setTimeout(() => {
     const session = REASON_SESSION;
@@ -2192,14 +2205,11 @@ function openReasonOnEnter(event: KeyboardEvent) {
     event.repeat
   )
     return;
-  const target = event.target as HTMLElement | null,
+  const target = eventElement(event),
     area = $('#left');
   // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of
   // them.
-  const line =
-      !!target && !!target.closest && !target.closest('.pv-pop')
-        ? (target.closest('#doc .pv') as HTMLElement | null)
-        : null,
+  const line = !!target && !target.closest('.pv-pop') ? findClosest(target, '#doc .pv', HTMLElement) : null,
     page = line ? Number(line.dataset.page) || 0 : 0;
   if (page && KEY_SAVE_OUT.has(pageLineSlot(page)) && page === pageUnderReadingLine()) {
     event.preventDefault();
@@ -2211,7 +2221,7 @@ function openReasonOnEnter(event: KeyboardEvent) {
     target === document.body ||
     target === area ||
     target === $('#doc') ||
-    (!!target && !!target.closest && !!target.closest('#doc .pg'))
+    (!!target && !!target.closest('#doc .pg'))
   ))
     return;
   openReadingReason(event);
@@ -2264,14 +2274,14 @@ function isKeyGuarded(event: KeyboardEvent) {
   );
   return true;
 }
-addEventListener(
+window.addEventListener(
   'pointerdown',
   () => {
     KEY_GUARD = false;
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     if (event.key === 'Escape') KEY_GUARD = false;
@@ -2334,7 +2344,7 @@ function hasUnsavedDrafts() {
 }
 // Leaving the page (a reload, closing the tab, another address) with a reason not written yet asks first. The draft is
 // kept either way for this tab: a reload brings it back.
-addEventListener('beforeunload', (event) => {
+window.addEventListener('beforeunload', (event) => {
   if (!hasUnsavedDrafts()) return;
   event.preventDefault();
   event.returnValue = '';
@@ -2358,6 +2368,7 @@ function setReasonSession<Value extends typeof REASON_SESSION>(value: Value): Va
 export {
   LAST_KEY_SAVE,
   REASON_SESSION,
+  setReasonSeen,
   WITHDRAWN_PINS,
   isComposingNow,
   focusLine,

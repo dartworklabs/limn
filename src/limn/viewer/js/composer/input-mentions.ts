@@ -13,7 +13,7 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { revealSegment } from './view-levels.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import type { Html } from '../platform/markup.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findMaybe } from '../platform/dom.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { ASSIGNEE_AGENT, SAVE_MODE } from '../app/rules-tables.ts';
 import { meLogin, peopleName } from '../app/state-people.ts';
@@ -384,6 +384,13 @@ function assigneeRowHtml(people: string[], value: string, act: string): Html {
 // the note changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the
 // save carries (mentionHints), so they offer exactly whom the server tags.
 const ASSIGN_NEW = { v: ASSIGNEE_AGENT, touched: false };
+// Each sets one field of ASSIGN_NEW for another module that changes it (ADR-0042 D1): the assignment, nothing more.
+function setAssignNewValue(value: typeof ASSIGN_NEW.v) {
+  ASSIGN_NEW.v = value;
+}
+function setAssignNewTouched(value: boolean) {
+  ASSIGN_NEW.touched = value;
+}
 // Draws the composer's assignee row and the preview line from the note as it is now (assignOutcome), and drops a pick
 // whose person left the note. No row without a tagged colleague - the agent has the pin - and none while the note would
 // join an existing pin (appendTarget): an append keeps that pin's assignee, so the row would choose nothing. Before the
@@ -419,7 +426,7 @@ function renderAssignEdit() {
   const card = EDITOR.current;
   if (!card) return;
   const noteField = editNote(card),
-    box = card.el.querySelector('.e-assign') as HTMLElement;
+    box = findMaybe(card.el, '.e-assign', HTMLElement);
   if (!noteField || !box) return;
   const people = assignPeople(noteField.value, mentionHints(noteField), PEOPLE, meLogin(), card.assignee);
   if (!people.length) {
@@ -450,11 +457,11 @@ function mentionPreview(field: HTMLTextAreaElement | null | undefined) {
   const scan = mentionScan(field.value, mentionHints(field)),
     me = meLogin(); // the same hints the save/send carries
   // the field, or a field that mirrors it, being typed in
-  const focused = document.activeElement as HTMLTextAreaElement | null;
+  const focused = document.activeElement;
   scan.bad = mentionBadSettled(
     scan.bad,
     field.value,
-    focused && mentionModel(focused) === field ? mentionQuery(focused) : null,
+    focused instanceof HTMLTextAreaElement && mentionModel(focused) === field ? mentionQuery(focused) : null,
   );
   if (!scan.hit.length && !scan.bad.length) {
     box.hidden = true;
@@ -538,15 +545,15 @@ function mentionPlace() {
     guard = mentionGuard(field);
   const guardRect = guard ? guard.getBoundingClientRect() : null,
     top = viewport ? viewport.offsetTop : 0,
-    bottom = viewport ? viewport.offsetTop + viewport.height : innerHeight;
+    bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
   const at = field.closest('#sel-pop')
     ? mentionRoom(fieldRect, guardRect, listHeight, top, bottom)
     : { top: mentionTop(fieldRect, guardRect, listHeight, top, bottom), max: null };
   pop.style.top = at.top + 'px';
-  pop.style.left = Math.max(4, Math.min(fieldRect.left, innerWidth - listWidth - 4)) + 'px';
+  pop.style.left = Math.max(4, Math.min(fieldRect.left, window.innerWidth - listWidth - 4)) + 'px';
   if (at.max == null) return;
   pop.style.maxHeight = at.max + 'px';
-  const selected = pop.querySelector('[aria-selected=true]') as HTMLElement | null;
+  const selected = findMaybe(pop, '[aria-selected=true]', HTMLElement);
   pop.scrollTop = selected
     ? Math.min(selected.offsetTop, Math.max(was, selected.offsetTop + selected.offsetHeight - pop.clientHeight))
     : was;
@@ -640,9 +647,8 @@ function mentionApply(index: number) {
   if (model.classList.contains('e-note')) renderAssignEdit();
   else if (model.classList.contains('r-text')) pinFields().drawReplyOutcome();
 }
-const isMentionField = (target: HTMLTextAreaElement) =>
-  !!target &&
-  target.tagName === 'TEXTAREA' &&
+const isMentionField = (target: EventTarget | null): target is HTMLTextAreaElement =>
+  target instanceof HTMLTextAreaElement &&
   (target.id === 'note' ||
     target.classList.contains('e-note') ||
     target.classList.contains('r-text') ||
@@ -650,7 +656,7 @@ const isMentionField = (target: HTMLTextAreaElement) =>
 // A mirror field's own listener has copied its text and the edit into its model (composer/view-selection-popover.ts);
 // here it only gets the list.
 document.addEventListener('input', (event) => {
-  const field = event.target as HTMLTextAreaElement;
+  const field = event.target;
   if (!isMentionField(field)) return;
   if (mentionModel(field) !== field) {
     mentionUpdate(field);
@@ -668,7 +674,7 @@ document.addEventListener('input', (event) => {
   if (field.classList.contains('e-note')) {
     renderAssignEdit();
     if (EDITOR.current)
-      syncQuestionHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
+      syncQuestionHint(findMaybe(EDITOR.current.el, '.e-qhint', HTMLElement), field.value, EDITOR.current.kind_req);
   } else if (field.classList.contains('r-text')) pinFields().drawReplyOutcome();
 });
 window.addEventListener(
@@ -704,7 +710,7 @@ window.addEventListener(
 // '@word' the caret now ends, or closes when there is none.
 ['keyup', 'click', 'focusout'].forEach((eventType) =>
   document.addEventListener(eventType, (event) => {
-    const field = event.target as HTMLTextAreaElement;
+    const field = event.target;
     if (!isMentionField(field)) return;
     if (eventType !== 'focusout' && MENTION.ta === field && !mentionCurrent()) mentionUpdate(field);
     setTimeout(() => mentionPreview(mentionModel(field)), 0);
@@ -720,6 +726,8 @@ $('#mention-pop').addEventListener('pointerdown', (event: PointerEvent) => event
 
 export {
   ASSIGN_NEW,
+  setAssignNewValue,
+  setAssignNewTouched,
   MENTION,
   assignOutcome,
   composeAsk,

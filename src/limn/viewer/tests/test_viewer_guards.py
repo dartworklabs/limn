@@ -2,8 +2,8 @@
 what the code reads - an event aimed at no element, a key the server left out, an owner or a pin without its lines, a
 control drawn outside a card - is narrowed before it is used, and gets the code's safe nothing.
 
-- ``GuardRules`` runs the shared helpers (eventElement, tableEntry) and the guarded functions under node, pulled from
-  the served page.
+- ``GuardRules`` runs the shared helpers (eventElement, findClosest, eventClosest, focusedElement, isDisabled,
+  tableEntry) and the guarded functions under node, pulled from the served page.
 - ``NonElementTargets`` drives the real viewer: events aimed at a text node, which is no element, reach the handlers
   that look around their target, and a card action outside any card sends nothing.
 
@@ -16,6 +16,29 @@ import unittest
 
 from helpers import PKG, extract_js_fn, js_const, js_listener_body, js_markup, run_node
 from helpers_browser import BrowserBase, nothing_follows
+
+
+def sg_json():
+    """The suggested edit the stored-draft test keeps, as JSON gives it back."""
+    return {
+        "on": True,
+        "text": "new",
+        "base": "old",
+        "file": "a.tex",
+        "lo": 3,
+        "hi": 4,
+        "had": None,
+        "current": {"text": "old", "file": "a.tex", "lo": 3, "hi": 4},
+        "reading": "",
+        "fail": None,
+    }
+
+
+# The guards draftSelection reads a stored draft's selection through (composer/flow-draft.ts).
+DRAFT_SELECTION_GUARDS = (
+    "isListOf", "isString", "isNumber", "absentOr", "absentNullOr", "isPinElement", "isRung", "isPickOverlap",
+    "hasComposerChoice", "isLinePick", "isPointBox", "isPagePick", "earlierOfflinePick", "draftSelection",
+)  # fmt: skip
 
 PHONE = {"viewport": {"width": 384, "height": 832}, "is_mobile": True, "has_touch": True}
 
@@ -42,6 +65,94 @@ class GuardRules(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [True, None, None])
+
+    def test_the_closest_element_is_found_only_of_the_class_asked_for(self):
+        """findClosest gives the nearest match around an element when it is of the class asked for (an icon's row), and
+        null when the nearest match is of another class or there is none; eventClosest does the same from an event's
+        target, and gives null for a target that is no element."""
+        got = self.run_js(
+            r"""
+            class Element { constructor(found) { this.found = found; } closest() { return this.found; } }
+            class HTMLElement extends Element {}
+            class SVGElement extends Element {}
+            """,
+            extract_js_fn("eventElement"),
+            extract_js_fn("findClosest"),
+            extract_js_fn("eventClosest"),
+            r"""
+            const row = new HTMLElement(null), icon = new SVGElement(row);
+            console.log(JSON.stringify([
+              findClosest(icon, '.row', HTMLElement) === row,
+              findClosest(new HTMLElement(new SVGElement(null)), '.icon', HTMLElement),
+              findClosest(new HTMLElement(null), '.row', HTMLElement),
+              eventClosest({ target: icon }, '.row', HTMLElement) === row,
+              eventClosest({ target: icon }, '.row', Element) === row,
+              eventClosest({ target: { nodeType: 3, closest() { return row; } } }, '.row', HTMLElement),
+              eventClosest({ target: null }, '.row', Element),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, None, None, True, True, None, None])
+
+    def test_the_focused_element_is_an_html_element_or_none(self):
+        """focusedElement gives what has the focus when that is an HTML element, and null for none or for another kind
+        of element (an SVG one), which the code would otherwise focus again or read as a control."""
+        got = self.run_js(
+            "class Element {} class HTMLElement extends Element {} class SVGElement extends Element {}",
+            "const document = { activeElement: null };",
+            extract_js_fn("focusedElement"),
+            r"""
+            const field = new HTMLElement(), out = [];
+            for (const focused of [field, new SVGElement(), null, undefined]) {
+              document.activeElement = focused;
+              out.push(focusedElement() === field ? 'field' : focusedElement());
+            }
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(got, ["field", None, None, None])
+
+    def test_only_a_control_that_is_disabled_now_is_disabled(self):
+        """isDisabled: a control whose disabled is true; not one whose disabled is false, nor an element that has no
+        disabled at all (a link, a span) or a value other than true there."""
+        got = self.run_js(
+            extract_js_fn("isDisabled"),
+            r"""
+            console.log(JSON.stringify([
+              isDisabled({ disabled: true }),
+              isDisabled({ disabled: false }),
+              isDisabled({}),
+              isDisabled({ disabled: 'disabled' }),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, False, False, False])
+
+    def test_typing_is_a_text_field_with_the_focus_and_nothing_else(self):
+        """typingNow: a textarea, a text input or editable content with the focus is typing; a checkbox, an element that
+        is no HTML element (an SVG one), the body and no focus are not."""
+        got = self.run_js(
+            r"""
+            class Element { constructor(tagName, extra) { this.tagName = tagName; Object.assign(this, extra); } }
+            class HTMLElement extends Element {}
+            class HTMLInputElement extends HTMLElement {}
+            const body = new HTMLElement('BODY'), document = { body, activeElement: null };
+            """,
+            extract_js_fn("typingNow"),
+            r"""
+            const focus = (element) => { document.activeElement = element; return typingNow(); };
+            console.log(JSON.stringify([
+              focus(new HTMLElement('TEXTAREA')),
+              focus(new HTMLInputElement('INPUT', { type: 'text' })),
+              focus(new HTMLInputElement('INPUT', { type: 'checkbox' })),
+              focus(new HTMLElement('DIV', { isContentEditable: true })),
+              focus(new Element('svg', { isContentEditable: true })),
+              focus(body),
+              focus(null),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, False, True, False, False, False])
 
     def test_a_module_is_the_pdf_library_only_with_get_document_and_the_worker_options(self):
         """What the viewer imports as PDF.js is narrowed before it is used: the vendored module is the library, and a
@@ -90,6 +201,424 @@ class GuardRules(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [True, True, False, False, False, False, False, False, False])
+
+    def test_an_api_error_is_the_error_api_throws_and_nothing_else_is(self):
+        """isApiError (platform/api.ts) tells the refusal api() throws (apiError: an Error with its status and body) from
+        what else a request throws - a network failure, an ended request, a value that is no Error."""
+        got = self.run_js(
+            extract_js_fn("apiError"),
+            extract_js_fn("isApiError"),
+            r"""
+            const refused = apiError(409, {error: 'conflict'});
+            const ended = new Error('aborted'); ended.name = 'AbortError';
+            console.log(JSON.stringify([
+              [refused instanceof Error, refused.message, refused.status, refused.data],
+              isApiError(refused),
+              isApiError(Object.assign(new Error('HTTP 500'), {status: 500})),
+              isApiError(new TypeError('Failed to fetch')),
+              isApiError(ended),
+              isApiError(Object.assign(new Error('x'), {status: '500'})),
+              isApiError({status: 403, data: {error: 'no'}}),
+              isApiError(null),
+              isApiError(undefined),
+              isApiError('HTTP 500'),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [True, "HTTP 409", 409, {"error": "conflict"}],
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ],
+        )
+
+    def test_a_record_is_any_object_and_nothing_else_is(self):
+        """isRecord (platform/tables.ts) lets a value read from outside the code be read by field: any object (an
+        array too), never null or a primitive."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            r"""
+            console.log(JSON.stringify([
+              isRecord({}), isRecord({a: 1}), isRecord([]),
+              isRecord(null), isRecord(undefined), isRecord('x'), isRecord(0), isRecord(true),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, True, False, False, False, False, False])
+
+    def test_a_stored_composer_draft_is_read_as_the_composer_writes_it_and_its_note_is_never_lost(self):
+        """storedDraft (composer/flow-draft.ts) reads back what draftRecord writes. A draft written before suggested
+        edits (no sg) is read; a part the draft only carries along that is not as written is left out and the note
+        stays; a selection or build that is not as written leaves the note to wait for the next pick; a value of another
+        version, of no document or without a note is no draft."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isSuggestDraft"),
+            *[extract_js_fn(name) for name in DRAFT_SELECTION_GUARDS],
+            extract_js_fn("storedDraft"),
+            r"""
+            const sg = {on: true, text: 'new', base: 'old', file: 'a.tex', lo: 3, hi: 4, had: null,
+              current: {text: 'old', file: 'a.tex', lo: 3, hi: 4}, reading: '', fail: null};
+            const cur = {doc: 'ms', kind: 'region', view_only: true, page: 2, frac: [0, 0, 1, 1], name: 'paper.pdf',
+              quote: '', warn: '', overlaps: [], pdf_build: 'pages-1'};
+            const draft = {v: 1, doc: 'ms', build: 'pages-1', cur, note: '메모',
+              mentions: ['alice'], kind: 'question', assign: {v: 'alice', touched: true}, sg};
+            const read = (value) => storedDraft(value);
+            console.log(JSON.stringify([
+              JSON.stringify(read(draft)) === JSON.stringify(draft),
+              read({...draft, sg: undefined}).sg,
+              read({...draft, doc: null}).doc,
+              read({...draft, mentions: [1, 'bob'], kind: 3, assign: {v: 1}, sg: {...sg, fail: 'x'}}),
+              read({...draft, cur: 'x'}), read({...draft, build: 5}),
+              read({...draft, v: 2}), read({...draft, doc: 3}), read({...draft, note: null}),
+              read(null), read('draft'), read([]),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                True,
+                None,
+                None,
+                {
+                    "v": 1,
+                    "doc": "ms",
+                    "build": "pages-1",
+                    "cur": {
+                        "doc": "ms",
+                        "kind": "region",
+                        "view_only": True,
+                        "page": 2,
+                        "frac": [0, 0, 1, 1],
+                        "name": "paper.pdf",
+                        "quote": "",
+                        "warn": "",
+                        "overlaps": [],
+                        "pdf_build": "pages-1",
+                    },
+                    "note": "메모",
+                    "mentions": ["bob"],
+                    "assign": None,
+                    "sg": None,
+                },
+                {
+                    "v": 1,
+                    "doc": "ms",
+                    "build": "",
+                    "cur": None,
+                    "note": "메모",
+                    "mentions": ["alice"],
+                    "kind": "question",
+                    "assign": {"v": "alice", "touched": True},
+                    "sg": sg_json(),
+                },
+                {
+                    "v": 1,
+                    "doc": "ms",
+                    "build": "",
+                    "cur": None,
+                    "note": "메모",
+                    "mentions": ["alice"],
+                    "kind": "question",
+                    "assign": {"v": "alice", "touched": True},
+                    "sg": sg_json(),
+                },
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+        )
+
+    def test_a_stored_reason_draft_is_read_by_its_fields_and_one_that_is_not_is_none(self):
+        """parseDraft (verdict/state-drafts.ts) reads a kept reason draft field by field, each with its default; a
+        value without text is no draft, and a part or a lost write that is not as written is left out."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isReasonTry"),
+            extract_js_fn("parseDraftParts"),
+            extract_js_fn("parseDraft"),
+            r"""
+            const tried = {text: 't', rev: 2, pre: '', stamp: false, post: ''};
+            console.log(JSON.stringify([
+              parseDraft({text: 'why', base: 'was', rev: 3, mode: 'add', folded: 1, at: '9', tried: [tried, {text: 1}],
+                from: [{k: 'ms:1', s: 0, e: 3, tried: [tried]}, {k: 'ms:2', s: 2, e: 9}, 'ms:3', null]}),
+              parseDraft({text: 'why', from: 'ms:4'}).from,
+              parseDraft({text: '  '}), parseDraft({}), parseDraft(null), parseDraft('why'), parseDraft([]),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                {
+                    "text": "why",
+                    "base": "was",
+                    "rev": 3,
+                    "mode": "add",
+                    "folded": True,
+                    "at": 9,
+                    "tried": [{"text": "t", "rev": 2, "pre": "", "stamp": False, "post": ""}],
+                    "from": [
+                        {
+                            "k": "ms:1",
+                            "s": 0,
+                            "e": 3,
+                            "tried": [{"text": "t", "rev": 2, "pre": "", "stamp": False, "post": ""}],
+                        }
+                    ],
+                },
+                [{"k": "ms:4", "s": 0, "e": 3, "tried": []}],
+                None,
+                None,
+                None,
+                None,
+                None,
+            ],
+        )
+
+    def test_a_kept_view_is_a_page_view_or_a_reading_line_as_save_view_writes_them(self):
+        """isKeptView (documents/flow-switch.ts) takes the views saveView writes - a page view with its scale or, as
+        releases before the scale wrote it, its page width, and a reading line - and nothing else, so a view of
+        another shape is not restored."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isKeptView"),
+            r"""
+            console.log(JSON.stringify([
+              isKeptView({page: 2, frac: 0.5, k: 1.2, zoomed: false, sl: 0, lay: 'wide'}),
+              isKeptView({page: 2, frac: 0.5, w: 800, zoomed: true, sl: 4, lay: 'mid'}),
+              isKeptView({line: 12, off: 3, lay: 'narrow'}),
+              isKeptView({page: 2, frac: 0.5, lay: null}),
+              isKeptView({page: 2, frac: null, k: 1, lay: 'wide'}),
+              isKeptView({page: '2', frac: 0.5, lay: 'wide'}),
+              isKeptView({page: 2, frac: 0.5, zoomed: 'yes', lay: 'wide'}),
+              isKeptView({line: 12, off: 3, k: 1, lay: 'wide'}),
+              isKeptView({line: 12, lay: 'wide'}),
+              isKeptView({page: 2, frac: 0.5}),
+              isKeptView(null), isKeptView([2, 0.5]),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, True, True, False, False, False, False, False, False, False, False])
+
+    def test_the_seen_records_read_a_field_only_as_it_is_written(self):
+        """seenDoc (documents/flow-updates.ts) and seenRecordOf (revisions/flow.ts) read one document's record of what
+        this browser saw; a store or a record that is not as written is read as nothing seen."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("seenStore"),
+            extract_js_fn("seenDoc"),
+            extract_js_fn("readSeenRecords"),
+            extract_js_fn("seenRecordOf"),
+            r"""
+            let SEEN_MEM = null, stored = {};
+            const localStorage = {getItem: (key) => stored[key] === undefined ? null : stored[key]};
+            const out = [];
+            stored = {limnSeen: JSON.stringify({v: 1, docs: {ms: {ver: 'src:1', rev: 'a'}, nt: {ver: 2}, xx: 'src:1'}}),
+              limnRevSeen: JSON.stringify({ms: {id: 'c1', at: '11-17 10:00'}, nt: {id: 3}, xx: 'c1'})};
+            out.push([seenDoc('ms'), seenDoc('nt'), seenDoc('xx'), seenRecordOf('ms'), seenRecordOf('nt'), seenRecordOf('xx')]);
+            stored = {limnSeen: JSON.stringify({v: 1, docs: 'ms'}), limnRevSeen: '5'};
+            out.push([seenDoc('ms'), seenRecordOf('ms')]);
+            stored = {limnSeen: 'not json', limnRevSeen: 'null'};
+            out.push([seenDoc('ms'), seenRecordOf('ms')]);
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [{"ver": "src:1", "rev": "a"}, None, None, {"id": "c1", "at": "11-17 10:00"}, None, None],
+                [None, None],
+                [None, None],
+            ],
+        )
+
+    def test_the_preferences_are_an_object_and_each_reader_takes_its_default_for_another_value(self):
+        """prefs (platform/prefs.ts) is the stored object or none; the list order and the list sections read their key
+        only when it is as written."""
+        got = self.run_js(
+            "const SECTION_OPEN_DEFAULT = { open: true, review: true, done: false };",
+            extract_js_fn("isRecord"),
+            extract_js_fn("prefs"),
+            extract_js_fn("listOrderOf"),
+            extract_js_fn("readSectionsExpanded"),
+            r"""
+            let stored = null;
+            const localStorage = {getItem: () => stored};
+            const out = [];
+            for (const value of ['{"order":"page","sec":{"done":true}}', '[1]', '"x"', 'null', 'not json']) {
+              stored = value;
+              out.push(prefs());
+            }
+            out.push([listOrderOf('page'), listOrderOf('PAGE'), listOrderOf(3), listOrderOf(undefined)]);
+            out.push([readSectionsExpanded('done'), readSectionsExpanded({done: 1})]);
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                {"order": "page", "sec": {"done": True}},
+                [1],
+                {},
+                {},
+                {},
+                ["page", "new", "new", "new"],
+                [{"open": True, "review": True, "done": False}, {"open": True, "review": True, "done": False}],
+            ],
+        )
+
+    def test_the_parse_workers_answers_are_the_answers_the_page_declares(self):
+        """The Markdown parse worker (md-parse.mjs, its own message handler, on the vendored markdown-it) answers each
+        question the page asks with a message markdownParseAnswer (markdown/view.ts) reads as declared - the tokens, a
+        limit with its counts, a parse error - and every token carries exactly the fields MarkdownToken declares. A
+        message of no known form is none, and one to the job in flight ends it as a parse error (jobAnswer)."""
+        worker = (PKG / "viewer" / "md-parse.mjs").read_text(encoding="utf-8")
+        bundle = (PKG / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs").as_uri()
+        source = "\n".join(
+            [
+                "---\ntitle: x\n---",
+                '# Head *em* `code`\n\npara [link](http://example.com "t") ![alt](i.png) <b>html</b>\nnext line',
+                "> quote\n\n- a\n  - b\n1. one\n\n5) five",
+                "| a | b |\n|:--|--:|\n| 1 | 2 |",
+                "```py\ncode\n```\n\n    indented",
+                "$$\nx^2\n$$\n\ninline $a+b$ and \\(c\\) cut $x\ny$ here",
+                "<div>\nblock html\n</div>\n\n***",
+            ]
+        )
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("isMarkdownToken"),
+            extract_js_fn("markdownParseAnswer"),
+            extract_js_fn("jobAnswer"),
+            "const answers = []; const self = {}; const postMessage = (m) => answers.push(m); let markdownit = null;",
+            worker[worker.index("function mdParser(") :],
+            r"""
+            const DECLARED = ['type', 'tag', 'nesting', 'map', 'content', 'info', 'hidden', 'level', 'markup', 'attrs',
+              'children'].sort().join();
+            const keys = new Set();
+            const walk = (tokens) => tokens.forEach((t) => { keys.add(Object.keys(t).sort().join()); if (t.children) walk(t.children); });
+            import(%s).then((module) => {
+              markdownit = module.default;
+              const limits = {nesting: 20, blocks: 30000, inlines: 150000};
+              const ask = (id, text, given) => self.onmessage({data: {id, text, limits: given || limits}});
+              ask(1, %s);
+              ask(2, '> '.repeat(30) + 'deep');
+              ask(3, 'a\n\nb\n\nc', {...limits, blocks: 2});
+              ask(4, 'a *b* c', {...limits, inlines: 1});
+              ask(5, 7);
+              answers.forEach((answer) => { if (answer.ok) walk(answer.tokens); });
+              const read = answers.map(markdownParseAnswer);
+              const job = {id: 9};
+              console.log(JSON.stringify({
+                kinds: read.map((answer) => answer && [answer.id, answer.ok, answer.ok ? answer.tokens.length > 20 : answer.limit]),
+                same: read.every((answer, i) => JSON.stringify(answer) === JSON.stringify(answers[i])),
+                keys: [...keys].every((k) => k === DECLARED),
+                attrs: answers[0].tokens.some((t) => (t.children || []).some((c) => c.attrs && c.attrs.length)),
+                start: answers[0].tokens.filter((t) => t.type === 'ordered_list_open').map((t) => t.attrs),
+                refused: [
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], map: [1]}]}),
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[0], hidden: 0}]}),
+                  markdownParseAnswer({...answers[0], tokens: [{...answers[0].tokens[1], children: [{type: 'text'}]}]}),
+                  markdownParseAnswer({id: 1, ok: false, limit: 'blocks', count: 3}),
+                  markdownParseAnswer({id: 1, ok: false}),
+                  markdownParseAnswer({id: '1', ok: true, tokens: []}),
+                  markdownParseAnswer({id: 1, ok: 1, tokens: []}),
+                  markdownParseAnswer(null),
+                ],
+                job: [jobAnswer(job, {id: 9, ok: true, tokens: []}), jobAnswer(job, {id: 9, ok: 'yes'}),
+                  jobAnswer(job, {id: 8, ok: true, tokens: []}), jobAnswer(job, null)],
+              }));
+            });
+            """
+            % (json.dumps(bundle), json.dumps(source)),
+        )
+        self.assertEqual(
+            got,
+            {
+                "kinds": [
+                    [1, True, True],
+                    [2, False, "nesting"],
+                    [3, False, "blocks"],
+                    [4, False, "inlines"],
+                    [5, False, "error"],
+                ],
+                "same": True,
+                "keys": True,
+                "attrs": True,
+                "start": [None, [["start", 5]]],
+                "refused": [None] * 8,
+                "job": [{"id": 9, "ok": True, "tokens": []}, {"ok": False, "limit": "error"}, None, None],
+            },
+        )
+
+    def test_a_groups_earlier_data_is_read_as_its_group_writes_it(self):
+        """A gathering group's merge is given the data it said before as unknown (platform/notices.ts GROUPS): each
+        group reads it as its own data - pins by number, moved lines, settled pins, dropped pins with their names, new
+        pin rows - and reads anything else as none, so the newer event is said alone."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            extract_js_fn("pinNumbersOf"),
+            extract_js_fn("linesMovedOf"),
+            extract_js_fn("settledPinsOf"),
+            extract_js_fn("droppedOf"),
+            extract_js_fn("newPinRowsOf"),
+            r"""
+            const row = {id: 4, who: 'alice', verdict: '', place: 'L3', note: 'x'};
+            console.log(JSON.stringify([
+              pinNumbersOf({ids: [1, '2', 3]}), pinNumbersOf({ids: 'x'}), pinNumbersOf(null),
+              linesMovedOf({moves: [{id: 1, delta: '+2'}, {id: 2, delta: 2}]}), linesMovedOf({}),
+              settledPinsOf({pins: [{id: 1, by: 'alice'}, {id: 2}]}), settledPinsOf([]),
+              droppedOf({ids: [1, 2], names: ['a', 'b']}), droppedOf({ids: [1, 2], names: ['a', 2]}), droppedOf(5),
+              newPinRowsOf({doc: 'ms', pins: [row, {...row, note: null}]}), newPinRowsOf({pins: null}),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [1, 3], [], [],
+                [{"id": 1, "delta": "+2"}], [],
+                [{"id": 1, "by": "alice"}], [],
+                {"ids": [1, 2], "names": ["a", "b"]}, {"ids": [], "names": []}, {"ids": [], "names": []},
+                [{"id": 4, "who": "alice", "verdict": "", "place": "L3", "note": "x"}], [],
+            ],
+        )  # fmt: skip
+
+    def test_a_groups_entry_says_and_leaves_out_the_data_it_keeps(self):
+        """keepGroupData (platform/notices.ts) closes a group's data over with its view and less: said() says the data
+        kept, less(keys) keeps and says what is left, or is null with nothing left - and leaves the data as it was."""
+        got = self.run_js(
+            extract_js_fn("keepGroupData"),
+            r"""
+            const view = (data) => ({msg: data.ids.join(','), kind: 'ok', act: null, o: {}});
+            const less = (data, keys) => {
+              const ids = data.ids.filter((id) => !keys.includes('k:' + id));
+              return ids.length ? {ids} : null;
+            };
+            const entry = {data: null, n: null, said: null, less: null};
+            keepGroupData(entry, {ids: [1, 2, 3]}, view, less);
+            const out = [entry.said().msg, entry.less(['k:2']).msg, entry.said().msg, entry.data];
+            out.push(entry.less(['k:1', 'k:3']), entry.said().msg);
+            keepGroupData(entry, {ids: [7]}, view, null);
+            out.push(entry.said().msg, entry.less);
+            console.log(JSON.stringify(out));
+            """,
+        )
+        self.assertEqual(got, ["1,2,3", "1,3", "1,3", {"ids": [1, 3]}, None, "1,3", "7", None])
 
     def test_a_table_entry_is_none_without_a_key_as_for_a_key_the_table_lacks(self):
         got = self.run_js(
@@ -170,8 +699,10 @@ class GuardRules(unittest.TestCase):
         """It drew rows for line 'undefined' before; it is cleared and hidden now, as for a region."""
         got = self.run_js(
             "const document = { activeElement: null };",
+            "class HTMLElement {}",
             "function isRegion() { return false; }",
             extract_js_fn("onLines"),
+            extract_js_fn("focusedElement"),
             extract_js_fn("drawExcerpt"),
             r"""
             const box = { hidden: false, cleared: 0, contains() { return false; }, replaceChildren() { this.cleared++; } };
@@ -210,6 +741,43 @@ class GuardRules(unittest.TestCase):
             """,
         )
         self.assertEqual(got, [True, False])
+
+    def test_a_line_without_a_box_has_no_edges_and_changes_no_other_lines(self):
+        """searchEdges on a two-column page with a crossing caption: a line without geometry among them gets no edges
+        and leaves every other line's edges as they are without it."""
+        got = self.run_js(
+            js_const("SEARCH_GUTTER"),
+            extract_js_fn("searchBlocks"),
+            extract_js_fn("searchGutter"),
+            extract_js_fn("searchEdges"),
+            r"""
+            const at = (x0, x1, y) => ({ box: { x0, x1, y, size: 12, ang: 0 } });
+            const lines = [];
+            for (let i = 0; i < 4; i++) lines.push(at(72, 290, 700 - 15 * i), at(322, 540, 700 - 15 * i));
+            lines.push(at(72, 540, 640));
+            const without = searchEdges(lines);
+            const withBoxless = searchEdges([...lines.slice(0, 3), { box: null }, ...lines.slice(3)]);
+            const same = JSON.stringify(withBoxless.toSpliced(3, 1)) === JSON.stringify(without);
+            console.log(JSON.stringify([withBoxless[3], same]));
+            """,
+        )
+        self.assertEqual(got, [None, True])
+
+    def test_a_hit_on_a_page_not_read_has_no_boxes(self):
+        """A hit's page is read before the hit is found; were it not, searchBoxes answers no boxes, keeps none, and
+        throws nothing."""
+        got = self.run_js(
+            r"""
+            const SEARCH = { doc: { numPages: 2 }, text: new Map() };
+            """,
+            extract_js_fn("searchPages"),
+            extract_js_fn("searchBoxes"),
+            r"""
+            const hit = { page: 2, pieces: [[0, 0, 1]], boxes: null };
+            console.log(JSON.stringify([searchBoxes(hit), hit.boxes]));
+            """,
+        )
+        self.assertEqual(got, [[], None])
 
     def test_a_zoom_point_given_by_half_anchors_on_the_areas_centre(self):
         """Without both coordinates the anchor is the PDF area's centre, as without any; a half point made a NaN anchor."""
@@ -269,6 +837,187 @@ class GuardRules(unittest.TestCase):
         )
         self.assertEqual(got, ["끌어서 패널 폭을 바꿉니다", ""])
 
+    def test_a_press_outside_the_selection_aimed_at_no_element_cancels_nothing(self):
+        """pressOutsideSelection (pdf/input-selection.ts) reads the press's element: a press aimed at a text node, which
+        is no element, is not outside the selection - it cancels nothing and throws nothing."""
+        got = self.run_js(
+            "class Element {}",
+            "function selectionOpen() { return true; }",
+            extract_js_fn("eventElement"),
+            extract_js_fn("pressOutsideSelection"),
+            "console.log(JSON.stringify(pressOutsideSelection({ target: { nodeType: 3 }, offsetX: 1, offsetY: 1 })));",
+        )
+        self.assertEqual(got, False)
+
+    def test_a_page_list_key_aimed_at_no_element_does_nothing(self):
+        """pageListKey (pdf/view-page-list.ts) on a key whose target is no element moves no row and throws nothing."""
+        got = self.run_js(
+            "class Element {}",
+            "function imeKey() { return false; }",
+            extract_js_fn("eventElement"),
+            extract_js_fn("pageListKey"),
+            r"""
+            let prevented = false;
+            pageListKey({ target: null, key: 'ArrowDown', preventDefault() { prevented = true; } });
+            console.log(JSON.stringify(prevented));
+            """,
+        )
+        self.assertEqual(got, False)
+
+    def test_the_caret_is_put_back_only_in_a_text_input_or_a_textarea(self):
+        """holdCaret (layout/flow.ts) puts the caret where it stands in an input or a textarea; editable content and a
+        target that is no element have no caret to put and are left alone."""
+        got = self.run_js(
+            r"""
+            let CARET_HELD = null;
+            const PUT = [];
+            class HTMLInputElement {
+              constructor(name) { this.name = name; this.selectionStart = 2; this.selectionEnd = 2; }
+              setSelectionRange(from, to) { PUT.push([this.name, from, to]); }
+            }
+            class HTMLTextAreaElement extends HTMLInputElement {}
+            """,
+            extract_js_fn("holdCaret"),
+            r"""
+            holdCaret({ target: { isContentEditable: true } });
+            holdCaret({ target: null });
+            holdCaret({ target: new HTMLInputElement('input') });
+            holdCaret({ target: new HTMLTextAreaElement('textarea') });
+            console.log(JSON.stringify(PUT));
+            """,
+        )
+        self.assertEqual(got, [["input", 2, 2], ["textarea", 2, 2]])
+
+    def test_the_canvas_measures_throw_an_error_when_the_browser_gives_no_2d_context(self):
+        """inkMetrics (layout/flow.ts) and searchMeasure (pdf/flow.ts) need a 2D canvas context: a browser that gives
+        none fails with an Error that says so."""
+        got = self.run_js(
+            "let INK_CONTEXT = null, SEARCH_CONTEXT = null;",
+            "const document = { createElement: () => ({ getContext: () => null }) };",
+            extract_js_fn("inkMetrics"),
+            extract_js_fn("searchMeasure"),
+            r"""
+            const said = [];
+            for (const measure of [() => inkMetrics({}, 'x'), () => searchMeasure('x', 'serif')])
+              try { measure(); said.push('measured'); } catch (error) { said.push(error.message); }
+            console.log(JSON.stringify(said));
+            """,
+        )
+        self.assertEqual(got, ["inkMetrics: no 2D canvas context", "searchMeasure: no 2D canvas context"])
+
+    def test_a_cards_neighbour_is_a_pin_number_only_for_an_html_card(self):
+        """cardNeighbour (pins/flow-list.ts) reads the next card's data-id; a neighbour that is no HTML element has no
+        number."""
+        got = self.run_js(
+            r"""
+            class HTMLElement {}
+            const card = (next) => ({ nextElementSibling: next, previousElementSibling: null });
+            const html = Object.assign(new HTMLElement(), { dataset: { id: '7' }, matches: () => true });
+            const other = { dataset: { id: '8' }, matches: () => true };
+            const control = (next) => ({ closest: () => card(next) });
+            """,
+            extract_js_fn("cardNeighbour"),
+            "console.log(JSON.stringify([cardNeighbour(control(html)), cardNeighbour(control(other)), cardNeighbour(control(null))]));",
+        )
+        self.assertEqual(got, [7, None, None])
+
+    def test_a_kept_pick_focus_goes_back_unless_its_control_is_disabled(self):
+        """restorePickFocus (pins/flow-review-pick.ts) gives the focus back to the kept control - a link has no
+        disabled state - and to [골라서 확인] when the control is disabled or is no HTML element."""
+        got = self.run_js(
+            r"""
+            const FOCUSED = [];
+            class HTMLElement { constructor(name) { this.name = name; } focus() { FOCUSED.push(this.name); } }
+            const disabledBox = Object.assign(new HTMLElement('box'), { disabled: true });
+            const link = new HTMLElement('link'), pick = Object.assign(new HTMLElement('pick'), { hidden: false });
+            let FOUND = [];
+            const body = {};
+            const document = { activeElement: body, body, querySelectorAll: () => FOUND };
+            const $ = (selector) => (selector === '#review-pick' ? pick : new HTMLElement('toggle'));
+            """,
+            extract_js_fn("restorePickFocus"),
+            r"""
+            for (const found of [[link], [disabledBox], [{ name: 'svg', focus() { FOCUSED.push('svg'); } }]]) {
+              FOUND = found;
+              restorePickFocus({ sel: 'x', i: 0 });
+            }
+            console.log(JSON.stringify(FOCUSED));
+            """,
+        )
+        self.assertEqual(got, ["link", "pick", "pick"])
+
+    def test_only_a_checkbox_in_the_review_section_ticks_a_result(self):
+        """tickChangedBox (pins/flow-review-pick.ts) ticks for a change of a checkbox inside the review section; any
+        other target - another input, a target that is no input - ticks nothing."""
+        got = self.run_js(
+            r"""
+            const TICKED = [];
+            function tickResultBox(box) { TICKED.push(box.name); }
+            class HTMLInputElement {
+              constructor(name, type, inside) { Object.assign(this, { name, type, inside }); }
+              closest() { return this.inside ? {} : null; }
+            }
+            """,
+            extract_js_fn("tickChangedBox"),
+            r"""
+            for (const target of [new HTMLInputElement('tick', 'checkbox', true), new HTMLInputElement('out', 'checkbox', false),
+              new HTMLInputElement('text', 'text', true), { name: 'div', type: 'checkbox', closest: () => ({}) }, null])
+              tickChangedBox({ target });
+            console.log(JSON.stringify(TICKED));
+            """,
+        )
+        self.assertEqual(got, ["tick"])
+
+    def test_a_link_target_is_read_from_its_attributes_on_any_element(self):
+        """linkTarget (revisions/view-rendered-compare.ts) is a link's data-tip-url, else its href, else its
+        data-anchor, else empty - read from the attributes, so an SVG or MathML element of a formula reads the same."""
+        got = self.run_js(
+            "const element = (attributes) => ({ getAttribute: (name) => (name in attributes ? attributes[name] : null) });",
+            extract_js_fn("linkTarget"),
+            r"""
+            console.log(JSON.stringify([
+              linkTarget(element({ 'data-tip-url': 'u', href: 'h', 'data-anchor': 'a' })),
+              linkTarget(element({ href: 'h', 'data-anchor': 'a' })),
+              linkTarget(element({ 'data-tip-url': '', 'data-anchor': 'a' })),
+              linkTarget(element({})),
+            ]));
+            """,
+        )
+        self.assertEqual(got, ["u", "h", "a", ""])
+
+    def test_a_shallow_copy_is_an_html_element_or_an_error(self):
+        """shallowCopy (revisions/view-rendered-compare.ts) gives cloneNode(false)'s copy of an HTML element, which the
+        DOM types as a Node; a copy that is no HTML element is an Error naming the tag."""
+        got = self.run_js(
+            r"""
+            class HTMLElement { constructor(tagName, copy) { this.tagName = tagName; this.copy = copy; } cloneNode() { return this.copy; } }
+            const copy = new HTMLElement('UL', null);
+            """,
+            extract_js_fn("shallowCopy"),
+            r"""
+            const said = [shallowCopy(new HTMLElement('UL', copy)) === copy];
+            try { shallowCopy(new HTMLElement('LI', {})); } catch (error) { said.push(error.message); }
+            console.log(JSON.stringify(said));
+            """,
+        )
+        self.assertEqual(got, [True, "shallowCopy: the copy of a LI is no HTMLElement"])
+
+    def test_a_reply_box_without_its_text_field_is_an_error_of_the_page(self):
+        """replyNote (pins/flow-reply.ts) is the reply box's textarea, which createReplyBox always draws; a box without
+        one is a fault of the page, an Error naming the selector."""
+        got = self.run_js(
+            "class Element {} class HTMLTextAreaElement extends Element {}",
+            extract_js_fn("findElement"),
+            extract_js_fn("replyNote"),
+            r"""
+            const field = Object.assign(new HTMLTextAreaElement(), { tagName: 'TEXTAREA' });
+            const said = [replyNote({ el: { querySelector: () => field } }) === field];
+            try { replyNote({ el: { querySelector: () => null } }); } catch (error) { said.push(error.message); }
+            console.log(JSON.stringify(said));
+            """,
+        )
+        self.assertEqual(got, [True, "textarea: no HTMLTextAreaElement"])
+
 
 class NonElementTargets(BrowserBase):
     """A text node is an event target that is no element: an event dispatched at one inside a handler's box bubbles to
@@ -303,6 +1052,25 @@ class NonElementTargets(BrowserBase):
             with self.subTest(host=host, event=make):
                 self.text_node_event(page, host, make)
         self.assertIsNone(page.evaluate("PRESS"))
+
+    def test_page_queue_and_document_handlers_do_nothing_for_a_target_that_is_no_element(self):
+        """The page's own handlers (#doc: the queue marks' badges, a press on a reason popover, a click that picks a
+        Markdown block), the queue's rows and the document's click (main.ts: copy, actions, a tapped card) look around
+        their target: a text node there threw from reading it as an element."""
+        page = self.open(0)
+        for host, make in (
+            ("#doc", "new PointerEvent('pointerdown', { bubbles: true, isPrimary: true, pointerType: 'mouse' })"),
+            ("#doc", "new MouseEvent('mousedown', { bubbles: true })"),
+            ("#doc", "new MouseEvent('click', { bubbles: true })"),
+            ("#doc", "new InputEvent('input', { bubbles: true })"),
+            ("#sec-queue", "new MouseEvent('click', { bubbles: true })"),
+            ("#queue-rows", "new PointerEvent('pointermove', { bubbles: true, pointerType: 'mouse' })"),
+            ("#queue-rows", "new PointerEvent('pointerout', { bubbles: true, pointerType: 'mouse' })"),
+            ("document", "new MouseEvent('click', { bubbles: true })"),
+        ):
+            with self.subTest(host=host, event=make):
+                self.text_node_event(page, host, make)
+        nothing_follows(page)
 
     def test_the_phone_sheet_takes_no_pull_from_a_target_that_is_no_element(self):
         page = self.open(0, **PHONE)

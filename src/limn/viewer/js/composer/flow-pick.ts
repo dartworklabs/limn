@@ -27,13 +27,13 @@ import {
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate, warnText, josa } from '../platform/i18n.ts';
-import { API_OUT, API_WAIT, api, isRefusal } from '../platform/api.ts';
+import { API_OUT, API_WAIT, api, isApiError, isRefusal } from '../platform/api.ts';
 import { endTopic, lineNote } from '../platform/notices.ts';
 import { hideTip, LAST_POINTER } from '../platform/tooltip.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
 import { applySide, relayout, setSelectMode, setSide } from '../layout/flow.ts';
 import { revealBox } from '../pdf/input-selection.ts';
-import { drawLadder, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
+import { drawLadder, onLines, rangeCap, scopeLabel, setCap, snipText, viaTag } from './view-levels.ts';
 import { drawExcerpt } from './view-excerpt.ts';
 import { figureRegionBadge, renderElement } from '../pdf/view-figure.ts';
 import { lineLeaves, markChosenLines, shownChoice } from '../markdown/view.ts';
@@ -46,11 +46,11 @@ import {
   drawSelectionPopover,
   isSelectionPopoverOpen,
 } from './view-selection-popover.ts';
-import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
+import { ASSIGN_NEW, setAssignNewTouched, renderAssignNew } from './input-mentions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, focusFell, focusHold, findAll } from '../platform/dom.ts';
+import { $, focusFell, focusHold, findAll, findMaybe } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE, RANGE_REL } from '../app/rules-tables.ts';
 import { lineRange, overlapsFor } from '../app/rules-pins.ts';
@@ -155,8 +155,7 @@ async function pick(region: PickDrag) {
     // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
     // composer opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back
     // (offline/flow.ts).
-    const failure = error as ApiError;
-    if (!repick && !(failure && failure.status) && !isMarkdownDoc()) {
+    if (!repick && !isApiError(error) && !isMarkdownDoc()) {
       void composerQueue().pick(region);
       return;
     }
@@ -392,7 +391,7 @@ function renderComposer() {
     pageText +
     (scope ? ' · ' + scope : '') +
     ' · ' +
-    translateTemplate('{n}줄', { n: (selection.hi as number) - (selection.lo as number) + 1 }) +
+    translateTemplate('{n}줄', { n: onLines(selection) ? selection.hi - selection.lo + 1 : NaN }) +
     ' · ' +
     translateTemplate('드래그한 줄 {range}', { range: lineRange(selection.raw_lo, selection.raw_hi) });
   const locationTag = viaTag(selection),
@@ -528,7 +527,7 @@ function cancelSelection(clearNote: boolean) {
   if (clearNote) {
     $('#note').value = '';
     $('#note')._mentions = null;
-    ASSIGN_NEW.touched = false;
+    setAssignNewTouched(false);
     renderAssignNew();
     setKind(REQUEST_KIND.FIX);
     suggestClear();
@@ -620,9 +619,7 @@ function focusPlace(
 ) {
   if (closed && !(currentVisit(closed.visit) && COMPOSE.intent === closed.intent)) return;
   if (COMPOSE.current || COMPOSE.picking || !$('#composer').hidden || imeOpen() || !focusFell()) return;
-  const mark = (
-    id ? document.querySelector('#doc [data-act="mark-jump"][data-id="' + id + '"]') : null
-  ) as HTMLElement | null;
+  const mark = id ? findMaybe(document, '#doc [data-act="mark-jump"][data-id="' + id + '"]', HTMLElement) : null;
   if (mark && mark.getClientRects().length) {
     mark.focus({ preventScroll: true });
     return;

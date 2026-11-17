@@ -312,20 +312,22 @@ class FrontendLogic(unittest.TestCase):
             [
                 r"""
             // jumpToCard 가 쓰는 만큼만 최소 DOM 을 흉내낸다.
+            class HTMLElement {}   // the card is an element of the page (findMaybe checks it)
             function makeEl(){
               const classes=new Set();
-              return {
+              return Object.setPrototypeOf({
                 classList:{add:(...c)=>c.forEach(x=>classes.add(x)),
                            remove:(...c)=>c.forEach(x=>classes.delete(x)),
                            contains:c=>classes.has(c)},
                 scrollIntoView(){}, get offsetWidth(){return 0;},
-              };
+              }, HTMLElement.prototype);
             }
             const el=makeEl();
             const document={querySelector:()=>el, querySelectorAll:()=>[]};
             const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
             function scrollMotion(){return 'auto';} function openSectionFor(){return false;}
             """,
+                extract_js_fn("findMaybe"),
                 extract_js_fn("jumpToCard"),
                 r"""
             jumpToCard(1);
@@ -362,6 +364,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const prev=[{id:1},{id:2},{id:3}];
@@ -401,6 +407,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
@@ -427,6 +437,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
@@ -457,6 +471,10 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
@@ -795,7 +813,7 @@ class FrontendMobileStructure(unittest.TestCase):
             sq(js_fn_body("pick")),
         )
         self.assertIn(
-            sq("if(touchRecent()||NO_HOVER_QUERY.matches)return; const target=event.target; armTip("),
+            sq("if(touchRecent()||NO_HOVER_QUERY.matches)return; const target=eventElement(event); armTip("),
             SCRIPT_SQ,
         )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
@@ -2535,7 +2553,7 @@ class FrontendDocs(unittest.TestCase):
     def test_default_theme_is_light(self):
         self.assertIn('<html lang="ko" data-theme="light">', HTML)
         self.assertIn("p={theme:'light'}", HTML)
-        self.assertIn(sq("prefs().theme||'light'"), SCRIPT_SQ)
+        self.assertIn(sq("theme=typeof saved==='string'&&THEMES.includes(saved)?saved:'light'"), SCRIPT_SQ)
 
     def test_outline_labels_only_attach_to_matching_pdf_entries(self):
         js = "\n".join(
@@ -2674,7 +2692,7 @@ class FrontendDocs(unittest.TestCase):
             [
                 r"""
             const DOCS=[{key:'ms'},{key:'rr'},{key:'rv'}]; let DOC='ms'; let _prefs={}; function prefs(){return _prefs;}
-            const location={hash:''};
+            const window={location:{hash:''}};
             """,
                 extract_js_fn("docInfo"),
                 extract_js_fn("withDocQuery"),
@@ -2683,10 +2701,10 @@ class FrontendDocs(unittest.TestCase):
                 r"""
             const out=[];
             out.push(withDocQuery('/api/meta'), withDocQuery('/api/meta?light=1'), withDocQuery('/pdf?build=x','rr'));
-            location.hash='#doc=rr'; out.push(initialDoc());
-            location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
-            location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
-            location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
+            window.location.hash='#doc=rr'; out.push(initialDoc());
+            window.location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
+            window.location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
+            window.location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
             console.log(JSON.stringify(out));
             """,
             ]
@@ -2704,7 +2722,9 @@ class FrontendDocs(unittest.TestCase):
         i = body.index("if(multiDoc()&&!inField){")
         self.assertIn("event.key==='PageUp'||event.key==='PageDown'", body[i:])
         self.assertIn("/^Digit[1-9]$/.test(event.code||'')", body[i:])
-        self.assertLess(body.index(sq("const target=event.target,inField=")), i)
+        self.assertLess(
+            body.index(sq("const target=event.target instanceof HTMLElement?event.target:null,inField=")), i
+        )
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
         self.assertIn(sq("const VECTOR_CACHE_MAX=3;"), SCRIPT_SQ)
@@ -3253,6 +3273,10 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
@@ -3276,6 +3300,10 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
@@ -4191,8 +4219,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         homes do nothing), then extra_body; returns the script."""
         stub = r"""
             const COARSE_POINTER_QUERY={matches:false}; const IS_MAC=false;
-            function el(){return {hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
-              scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}};}
+            class HTMLButtonElement {}   // the page's controls, which the save buttons are found as
+            function el(){return Object.assign(new HTMLButtonElement(),{hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
+              scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}});}
             const els={}; const $=s=>(els[s]=els[s]||el());
             let PICKSEQ=0,REPICK=null; const COMPOSE={current:null,box:null,saving:false,picking:false,pendingSave:false,dismissedOverlap:null};
             const document={querySelectorAll:()=>[$('#btn-save')]};
@@ -4228,6 +4257,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 js_esc(),
                 js_markup(),
                 extract_js_fn("isRefusal"),
+                extract_js_fn("isApiError"),
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("saveButtonLabel"),
@@ -4236,6 +4266,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("findAll"),
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                 extract_js_fn("savePin"),
@@ -4871,6 +4902,10 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 extract_js_fn("pinState"),
                 JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges"),
@@ -5030,6 +5065,7 @@ class FrontendMentions(unittest.TestCase):
             const KIND_NEW='fix'; function appendTarget(){return null;}   // no overlapped pin on offer
             const document={activeElement:null};   // nothing has the focus: a row drawn again has none to keep (keepSegmentFocus)
             class HTMLElement {}   // the page's element class, which the preview line and the segment row are checked against
+            class HTMLTextAreaElement extends HTMLElement {} class HTMLButtonElement extends HTMLElement {}
             """,
             ]
             + [
@@ -5070,6 +5106,9 @@ class FrontendMentions(unittest.TestCase):
                     "renderAssignNew",
                     "editNote",
                     "renderAssignEdit",
+                    "findElement",
+                    "findMaybe",
+                    "findAll",
                 )
             ]
             + [script]
@@ -5183,11 +5222,11 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>Object.assign(new HTMLElement(),{hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let PEOPLE_KNOWN=true; const ASSIGN_NEW={v:'agent',touched:false};
-            const ta={value:'@Wendy 봐 주세요',_mentions:new Set([W])},ebox=box();
+            const ta=Object.assign(new HTMLTextAreaElement(),{value:'@Wendy 봐 주세요',_mentions:new Set([W])}),ebox=box();
             const EDITOR={current:{el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'},saving:false};
             renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];
             note.value='@Wendy Kim 봐 주세요'; renderAssignNew();   // the picked full name kept: the hint stands
@@ -5381,8 +5420,9 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
             let PEOPLE=[{login:'sam@example.com',name:'Sam Lee'}], META={me:{login:'me@example.com',name:'Me'}};
             const document={activeElement:null};
             class HTMLElement {}   // the preview line is an element of the page (mentionPreview checks it)
+            class HTMLTextAreaElement extends HTMLElement {}   // the field, which mentionPreview finds focused by its class
             function field(v){const box=Object.assign(new HTMLElement(),{hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},classList:{contains:c=>c==='m-preview'}});
-              return {value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box};}
+              return Object.assign(new HTMLTextAreaElement(),{value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box});}
             function show(v,focused){const ta=field(v); document.activeElement=focused?ta:null; mentionPreview(ta);
               const b=ta.nextElementSibling; return b.hidden?null:(b.innerHTML.match(/mention-bad[^>]*>@[^<]*/g)||[]).map(s=>s.split('>')[1]);}
             """,
@@ -5779,6 +5819,7 @@ class ViewerFunctions(unittest.TestCase):
         js = "\n".join(
             [
                 "const SECTION_OPEN_DEFAULT={open:true,review:true,done:false};",
+                extract_js_fn("isRecord"),
                 extract_js_fn("readSectionsExpanded"),
                 extract_js_fn("countNewInSection"),
                 r"""

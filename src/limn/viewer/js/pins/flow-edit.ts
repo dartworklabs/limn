@@ -1,6 +1,7 @@
 // ------------------------------------------------ Edit
 import { PINS, rendersInBrowser, EDITOR, setEditorCurrent, setEditorSaving } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
+import { findElement } from '../platform/dom.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api, isRefusal } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
@@ -82,7 +83,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
 <button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${TIP_TEXT.ecancel}">취소</button>\
 <button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${TIP_TEXT.esave}">저장</button></div>`,
   );
-  const noteField = cardElement.querySelector('.e-note') as HTMLTextAreaElement;
+  const noteField = findElement(cardElement, '.e-note', HTMLTextAreaElement);
   noteField.value = pin.note || '';
   noteField._mentions = new Set(pin.mentions || []);
   autoGrow(noteField);
@@ -134,9 +135,9 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   editSnip(true);
 }
 document.addEventListener('input', (event) => {
-  const target = event.target as HTMLElement;
+  const target = event.target;
   if (
-    target.classList &&
+    target instanceof HTMLElement &&
     (target.classList.contains('e-note') || target.classList.contains('r-text') || target.id === 'note')
   )
     autoGrow(target);

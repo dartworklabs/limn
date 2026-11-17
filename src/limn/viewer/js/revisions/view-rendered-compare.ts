@@ -14,10 +14,19 @@ import { LAYOUT, scrollMotion } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
-import { REVISION_VIEW, hunkRanges, revisionKey, drawPinGuide, revisionCurrent, revisionPinFor } from './flow.ts';
+import { api, isApiError } from '../platform/api.ts';
 import {
-  MARKDOWN_VIEW,
+  REVISION_VIEW,
+  setTargetGuideLine,
+  hunkRanges,
+  revisionKey,
+  drawPinGuide,
+  revisionCurrent,
+  revisionPinFor,
+} from './flow.ts';
+import {
+  advanceMarkdownSequence,
+  jobAnswer,
   MARKDOWN_LIMITS,
   OVER_ELEMENT_LIMIT,
   limitText,
@@ -29,7 +38,8 @@ import {
   yieldToBrowser,
   markedCharactersText,
 } from '../markdown/view.ts';
-import { $ } from '../platform/dom.ts';
+import type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion, MarkdownToken } from '../markdown/view.ts';
+import { $, findAll } from '../platform/dom.ts';
 import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
 // RENDERED_COMPARE: the compare on screen (key: revisionKey() it was drawn for), its parse worker and job, the change
@@ -37,17 +47,29 @@ import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
 // the observer that lays its gutter chips out again when its width changes (ro), the status line it said (line) and
 // what it counted (said: the answer and the counts, so a range's line can take the source diff's commit and file counts
 // once they come).
-const RENDERED_COMPARE = {
+interface RenderedCompareState {
+  seq: number;
+  key: string;
+  worker: Worker | null;
+  job: MarkdownParseJob | null;
+  stops: HTMLElement[][];
+  at: number;
+  ro: ResizeObserver | null;
+  root: HTMLElement | null;
+  line: string;
+  said: { r: RevisionSources; c: { ins: number; del: number; mod: number; move: number } | null } | null;
+}
+const RENDERED_COMPARE: RenderedCompareState = {
   seq: 0,
   key: '',
-  worker: null as Worker | null,
-  job: null as { id: number; resolve: (answer: any) => void; t: ReturnType<typeof setTimeout> } | null,
-  stops: [] as HTMLElement[][],
+  worker: null,
+  job: null,
+  stops: [],
   at: -1,
-  ro: null as ResizeObserver | null,
-  root: null as HTMLElement | null,
+  ro: null,
+  root: null,
   line: '',
-  said: null as { r: RevisionSources; c: { ins: number; del: number; mod: number; move: number } | null } | null,
+  said: null,
 };
 // the most cells one block or word comparison fills; past it the blocks between the common ends are all changed
 const MAX_DIFF_CELLS = 4e6;
@@ -66,7 +88,7 @@ function isDrawnFromMarkdown() {
   return isMarkdownDoc() && !isTextDoc();
 }
 // ---------------- Parsing both sides, apart from the Markdown surface's own worker
-function parseSide(text: string): Promise<any> {
+function parseSide(text: string): Promise<MarkdownParse | null> {
   stopSideParse(null);
   return new Promise((resolve) => {
     let worker = RENDERED_COMPARE.worker;
@@ -74,12 +96,13 @@ function parseSide(text: string): Promise<any> {
       if (!worker) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
         RENDERED_COMPARE.worker = worker;
-        worker.onmessage = (message) => {
-          const job = RENDERED_COMPARE.job;
-          if (!job || !message.data || message.data.id !== job.id) return;
+        worker.onmessage = (message: MessageEvent<unknown>) => {
+          const job = RENDERED_COMPARE.job,
+            answer = job && jobAnswer(job, message.data);
+          if (!job || !answer) return;
           clearTimeout(job.t);
           RENDERED_COMPARE.job = null;
-          job.resolve(message.data);
+          job.resolve(answer);
         };
         worker.onerror = (event) => {
           event.preventDefault();
@@ -90,20 +113,21 @@ function parseSide(text: string): Promise<any> {
       resolve({ ok: false, limit: MARKDOWN_LIMIT.LOAD });
       return;
     }
-    const id = ++MARKDOWN_VIEW.seq;
+    const id = advanceMarkdownSequence();
     RENDERED_COMPARE.job = {
       id,
       resolve,
       t: setTimeout(() => stopSideParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
     };
-    worker.postMessage({
+    const question: MarkdownParseQuestion = {
       id,
       text,
       limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
-    });
+    };
+    worker.postMessage(question);
   });
 }
-function stopSideParse(answer: any) {
+function stopSideParse(answer: { ok: false; limit: string } | null) {
   const job = RENDERED_COMPARE.job;
   if (!job) return;
   RENDERED_COMPARE.job = null;
@@ -120,7 +144,7 @@ function stopSideParse(answer: any) {
 // MARKDOWN_LIMITS.chunk units of work, as the document view builds) and live() asked after each: null past
 // MARKDOWN_LIMITS.elements, or once live() is false (a newer compare). Ids go (a heading's: the surface keeps them),
 // and an in-document heading or another document is a word here, so the view never leaves for the manuscript.
-async function buildSide(tokens: any[], lines: string[], live: () => boolean): Promise<HTMLElement | null> {
+async function buildSide(tokens: MarkdownToken[], lines: string[], live: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('div'),
     context = newRenderContext(lines);
   root.className = 'md mdc-doc';
@@ -138,8 +162,7 @@ async function buildSide(tokens: any[], lines: string[], live: () => boolean): P
   }
   keepRenderContext(root, context); // an image that fails later draws its alt text on this side's count (onImageError)
   root.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
-  root.querySelectorAll('[data-act="md-anchor"],[data-act="md-doc"]').forEach((element) => {
-    const link = element as HTMLElement;
+  findAll(root, '[data-act="md-anchor"],[data-act="md-doc"]', HTMLElement).forEach((link) => {
     delete link.dataset.act;
     link.removeAttribute('role');
     link.removeAttribute('tabindex');
@@ -148,6 +171,15 @@ async function buildSide(tokens: any[], lines: string[], live: () => boolean): P
   return root;
 }
 // ---------------- Blocks and their keys
+// One step of a comparison of two sides (commonSubsequence, blockOps): the item kept (eq), taken out (del, a only),
+// added (ins, b only), changed in place (mod), or moved (from where it was, to where it is now); a and b index the old
+// and the new side's items (-1 for none), and how says what split or joined between two kept blocks (markRegroups).
+interface CompareStep {
+  t: string;
+  a: number;
+  b: number;
+  how?: string[];
+}
 type CompareUnit = {
   el: HTMLElement;
   tag: string;
@@ -172,7 +204,7 @@ function isNestedBlock(element: Element) {
 // links and alt texts (unitReferences, compareUnits) and its marked links (markChangedLinks). Pure over the DOM.
 function isOwnPart(unit: HTMLElement, element: Element) {
   if (unit.tagName !== 'LI') return true;
-  for (let ancestor = element as Element | null; ancestor && ancestor !== unit; ancestor = ancestor.parentElement)
+  for (let ancestor: Element | null = element; ancestor && ancestor !== unit; ancestor = ancestor.parentElement)
     if (isNestedBlock(ancestor)) return false;
   return true;
 }
@@ -218,8 +250,7 @@ function blockLines(unit: HTMLElement) {
 // space folded, as it is drawn.
 function compareUnits(root: HTMLElement): CompareUnit[] {
   const out: CompareUnit[] = [];
-  for (const match of root.querySelectorAll(UNIT_SELECTOR)) {
-    const unit = match as HTMLElement;
+  for (const unit of findAll(root, UNIT_SELECTOR, HTMLElement)) {
     if (!isCompareUnit(unit)) continue;
     const tag = unitTag(unit),
       text = unitText(unit, tag),
@@ -290,8 +321,8 @@ function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
         if (child.nodeValue) out.push(child.nodeValue);
         continue;
       }
-      if (child.nodeType !== 1) continue;
-      const element = child as HTMLElement;
+      if (!(child instanceof Element)) continue;
+      const element = child;
       if ((unit.tagName === 'LI' && isNestedBlock(element)) || element.classList.contains('sr-only')) continue;
       if (element.classList.contains('cc')) {
         out.push('\u0002cc ' + (element.textContent || '') + '\u0003');
@@ -336,14 +367,16 @@ function inlineShape(unit: HTMLElement, tag: string, reopened?: Set<Element>) {
 }
 // Whether an inline element is one the renderer opens again after a line break inside it (drawInline's stack): an
 // emphasis, a strikethrough, a link - an inert one (.md-rel) too. Pure over the DOM.
-function isReopenedRun(element: HTMLElement) {
+function isReopenedRun(element: Element) {
   return (
     /^(STRONG|EM|S|A)$/.test(element.tagName) || (element.tagName === 'SPAN' && element.classList.contains('md-rel'))
   );
 }
 // Where a link element points (its target, as unitReferences names it; '' for an emphasis). Pure over the DOM.
-function linkTarget(element: HTMLElement) {
-  return element.dataset.tipUrl || element.getAttribute('href') || element.dataset.anchor || '';
+function linkTarget(element: Element) {
+  return (
+    element.getAttribute('data-tip-url') || element.getAttribute('href') || element.getAttribute('data-anchor') || ''
+  );
 }
 // A block of lines' inline structure: its language (a code block's fence's info word, '' for any other) and its lines,
 // spaces and all, serialized without ambiguity (JSON after a marker no other shape starts with) - so a code block whose
@@ -356,7 +389,8 @@ function linedShape(lang: string, lines: string[]) {
 function shapeLanguage(shape: string) {
   if (!shape.startsWith('\u0002pre\u0003')) return '';
   try {
-    return String(JSON.parse(shape.slice(5))[0]);
+    const parsed: unknown = JSON.parse(shape.slice(5));
+    return Array.isArray(parsed) ? String(parsed[0]) : '';
   } catch {
     return '';
   }
@@ -403,7 +437,7 @@ function unitText(unit: HTMLElement, tag: string) {
   const walk = (node: Node) => {
     for (const child of node.childNodes) {
       if (child.nodeType === 3) text += child.nodeValue;
-      else if (child.nodeType === 1 && !(unit.tagName === 'LI' && isNestedBlock(child as Element))) walk(child);
+      else if (child instanceof Element && !(unit.tagName === 'LI' && isNestedBlock(child))) walk(child);
     }
   };
   walk(unit);
@@ -415,14 +449,13 @@ function unitText(unit: HTMLElement, tag: string) {
 // not counted again.
 function unitReferences(unit: HTMLElement, selector: string, skip?: Set<Element>) {
   const out: string[] = [];
-  for (const match of unit.querySelectorAll(selector)) {
-    const element = match as HTMLElement;
+  for (const element of unit.querySelectorAll(selector)) {
     if (!isOwnPart(unit, element) || (skip && skip.has(element))) continue;
     out.push(
-      element.dataset.path ||
-        element.dataset.tipUrl ||
+      element.getAttribute('data-path') ||
+        element.getAttribute('data-tip-url') ||
         element.getAttribute('href') ||
-        element.dataset.anchor ||
+        element.getAttribute('data-anchor') ||
         element.textContent ||
         '',
     );
@@ -445,8 +478,8 @@ function commonSubsequence<Item>(
   right: Item[],
   same: (first: Item, second: Item) => boolean,
   budget?: CompareBudget,
-): { t: string; a: number; b: number }[] {
-  const ops: { t: string; a: number; b: number }[] = [];
+): CompareStep[] {
+  const ops: CompareStep[] = [];
   let start = 0;
   while (start < left.length && start < right.length && same(left[start], right[start])) start++;
   let leftEnd = left.length,
@@ -528,7 +561,7 @@ const MOVE_MIN_CHARS = 6;
 function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: CompareBudget) {
   budget = budget || newCompareBudget();
   const raw = commonSubsequence(oldUnits, newUnits, (left, right) => left.key === right.key, budget),
-    out: { t: string; a: number; b: number }[] = [];
+    out: CompareStep[] = [];
   let at = 0;
   const words = new Map<CompareUnit, string[]>(),
     wordsOf = (unit: CompareUnit) => {
@@ -544,11 +577,11 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
       out.push(raw[at++]);
       continue;
     }
-    const gap: { t: string; a: number; b: number }[] = [];
+    const gap: CompareStep[] = [];
     while (at < raw.length && raw[at].t !== 'eq') gap.push(raw[at++]);
     const takenOutOps = gap.filter((operation) => operation.t === 'del'),
       addedOps = gap.filter((operation) => operation.t === 'ins'),
-      pair = new Map();
+      pair = new Map<CompareStep, CompareStep>();
     let from = 0;
     weigh: for (const taken of takenOutOps)
       for (let addedAt = from; addedAt < addedOps.length; addedAt++) {
@@ -572,8 +605,8 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
     while (takenAt < takenOutOps.length || addedAt < addedOps.length) {
       const taken = takenOutOps[takenAt],
         added = addedOps[addedAt];
-      if (taken && pair.has(taken)) {
-        const partner = pair.get(taken);
+      const partner = taken && pair.get(taken);
+      if (taken && partner) {
         if (added && added !== partner) {
           out.push(added);
           addedAt++;
@@ -628,11 +661,7 @@ function blockOps(oldUnits: CompareUnit[], newUnits: CompareUnit[], budget?: Com
 // own, so a split or a join adds, takes out or changes that row (th cells for td), and that row says it - two tables
 // joined are not "quotes or lists". Pure over the units' boxes (grp: which boxes, by identity; box: their kinds, one
 // for each) but for the ops it marks.
-function markRegroups(
-  oldUnits: CompareUnit[],
-  newUnits: CompareUnit[],
-  ops: { t: string; a: number; b: number; how?: string[] }[],
-) {
+function markRegroups(oldUnits: CompareUnit[], newUnits: CompareUnit[], ops: CompareStep[]) {
   const kept = ops.filter((operation) => operation.t === 'eq' || operation.t === 'mod'),
     memo = new Map() as Map<CompareUnit, { g: unknown; t: string }[]>;
   // a unit's quote and list boxes, outermost first: each box (by identity) and its kind (a numbered list's start aside)
@@ -706,7 +735,7 @@ function markRegroups(
 // before it (so taken-out words put back keep it).
 type CompareWord = {
   node: Text | null;
-  el: HTMLElement | null;
+  el: Element | null;
   s: number;
   e: number;
   w: string;
@@ -719,8 +748,7 @@ function unitWords(unit: HTMLElement): CompareWord[] {
   const out: CompareWord[] = [];
   let spaced = false;
   if (isLinedTag(unitTag(unit))) {
-    for (const line of unit.querySelectorAll('.ln')) {
-      const lineElement = line as HTMLElement;
+    for (const lineElement of unit.querySelectorAll('.ln')) {
       out.push({
         node: null,
         el: lineElement,
@@ -735,14 +763,14 @@ function unitWords(unit: HTMLElement): CompareWord[] {
   }
   const walk = (node: Node, inside: string) => {
     for (const child of node.childNodes) {
-      if (child.nodeType === 3) {
+      if (child instanceof Text) {
         const text = String(child.nodeValue || '');
         let at = 0;
         for (const match of text.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)) {
           const start = match.index as number;
           if (/\s/.test(text.slice(at, start))) spaced = true;
           out.push({
-            node: child as Text,
+            node: child,
             el: null,
             s: start,
             e: start + match[0].length,
@@ -756,8 +784,8 @@ function unitWords(unit: HTMLElement): CompareWord[] {
         if (/\s/.test(text.slice(at))) spaced = true;
         continue;
       }
-      if (child.nodeType !== 1) continue;
-      const element = child as HTMLElement;
+      if (!(child instanceof Element)) continue;
+      const element = child;
       if ((unit.tagName === 'LI' && isNestedBlock(element)) || element.classList.contains('sr-only')) continue;
       if (element.classList.contains('cc')) {
         out.push({ node: null, el: element, s: 0, e: 0, w: element.textContent || '', f: inside, sp: spaced });
@@ -786,8 +814,8 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     ops = commonSubsequence(oldWords, newWords, (left, right) => left.w === right.w && left.f === right.f, budget),
     lined = isLinedTag(unitTag(newUnit));
   const edits: { node: Text; s: number; e: number; kind: string; text?: string }[] = [];
-  const wraps: { el: HTMLElement; kind: string }[] = [];
-  const puts: { at: HTMLElement | null; after: boolean; text: string }[] = [];
+  const wraps: { el: Element; kind: string }[] = [];
+  const puts: { at: Element | null; after: boolean; text: string }[] = [];
   const mark = (words: CompareWord[], kind: string) => {
     let at = 0;
     while (at < words.length) {
@@ -865,13 +893,13 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     for (const edit of nodeEdits) {
       if (edit.kind === 'put') {
         const rest = node.splitText(edit.s);
-        (rest.parentNode as Node).insertBefore(wordMark('del', edit.text || ''), rest);
+        rest.before(wordMark('del', edit.text || ''));
         continue;
       }
       const word = node.splitText(edit.s);
       word.splitText(edit.e - edit.s);
       const wrapper = wordMark(edit.kind === 'ins' ? 'ins' : 'del', '');
-      (word.parentNode as Node).insertBefore(wrapper, word);
+      word.before(wrapper);
       wrapper.appendChild(word);
     }
   }
@@ -893,8 +921,8 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
     // a line: its content, up to its line end (the end stays outside, so the mark ends with the line's text)
     const end = wrap.el.lastChild,
       lineEnd =
-        end && end.nodeType === 3 && /\n$/.test(String(end.nodeValue || ''))
-          ? (end as Text).splitText(String(end.nodeValue).length - 1)
+        end instanceof Text && /\n$/.test(String(end.nodeValue || ''))
+          ? end.splitText(String(end.nodeValue).length - 1)
           : null;
     wrapper.append(...[...wrap.el.childNodes].filter((child) => child !== lineEnd));
     wrap.el.insertBefore(wrapper, lineEnd);
@@ -905,10 +933,8 @@ function markChangedWords(oldUnit: HTMLElement, newUnit: HTMLElement, budget?: C
 // changes. A list item's own links only (isOwnPart): a nested block's are that block's.
 function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
   const selector = 'a,.md-rel,[data-anchor]',
-    to = (link: Element) => {
-      const element = link as HTMLElement;
-      return element.dataset.tipUrl || element.getAttribute('href') || element.dataset.anchor || '';
-    };
+    to = (link: Element) =>
+      link.getAttribute('data-tip-url') || link.getAttribute('href') || link.getAttribute('data-anchor') || '';
   const oldLinks = [...oldUnit.querySelectorAll(selector)].filter((link) => isOwnPart(oldUnit, link)),
     newLinks = [...newUnit.querySelectorAll(selector)].filter((link) => isOwnPart(newUnit, link)),
     oldTargets = new Set(oldLinks.map(to)),
@@ -917,7 +943,7 @@ function markChangedLinks(oldUnit: HTMLElement, newUnit: HTMLElement) {
     const target = to(link);
     if (target && !oldTargets.has(target)) {
       link.classList.add('mdc-wl');
-      (link as HTMLElement).dataset.tip = translateTemplate('링크 대상이 바뀜 · {to}', { to: markHiddenPlain(target) });
+      link.setAttribute('data-tip', translateTemplate('링크 대상이 바뀜 · {to}', { to: markHiddenPlain(target) }));
     }
   }
   for (const link of oldLinks) {
@@ -961,9 +987,16 @@ function markUnit(unit: HTMLElement, kind: string, why?: string) {
 // alt text as in the document view.
 function ownElement(unit: CompareUnit) {
   if (unit.el.tagName !== 'LI') return unit.el;
-  const copy = unit.el.cloneNode(false) as HTMLElement;
+  const copy = shallowCopy(unit.el);
   for (const child of [...unit.el.childNodes])
-    if (!(child.nodeType === 1 && isNestedBlock(child as Element))) copy.appendChild(child);
+    if (!(child instanceof Element && isNestedBlock(child))) copy.appendChild(child);
+  return copy;
+}
+// A shallow copy of an HTML element: cloneNode(false), which the DOM types as a Node.
+function shallowCopy(element: HTMLElement) {
+  const copy = element.cloneNode(false);
+  if (!(copy instanceof HTMLElement))
+    throw new Error('shallowCopy: the copy of a ' + element.tagName + ' is no HTMLElement');
   return copy;
 }
 function parentBoxTag(element: Element, root: Element) {
@@ -989,7 +1022,7 @@ function pairBoxes(
   newRoot: HTMLElement,
 ) {
   for (
-    let oldBox = oldUnit as Element | null, newBox = newUnit as Element | null;
+    let oldBox: Element | null = oldUnit, newBox: Element | null = newUnit;
     oldBox && newBox && oldBox !== oldRoot && newBox !== newRoot && oldBox.tagName === newBox.tagName;
     oldBox = oldBox.parentElement, newBox = newBox.parentElement
   )
@@ -998,7 +1031,7 @@ function pairBoxes(
 // The child of box that holds element (element itself, or the box's child it sits in), or null when element is not
 // inside box.
 function childHolding(element: Element, box: Element) {
-  let child = element as Element | null;
+  let child: Element | null = element;
   while (child && child.parentElement !== box) child = child.parentElement;
   return child;
 }
@@ -1019,17 +1052,18 @@ function placeTakenOut(
   boxes: StandIns,
 ) {
   standFor(boxes, oldPlace, block);
-  let node = block as HTMLElement,
+  let node: HTMLElement = block,
     oldBox = oldPlace.parentElement;
   for (; oldBox && oldBox !== oldRoot && !boxes.has(oldBox); oldBox = oldBox.parentElement) {
-    const copy = oldBox.cloneNode(false) as HTMLElement;
+    const copy = shallowCopy(oldBox);
     delete copy.dataset.lo;
     delete copy.dataset.hi;
     copy.appendChild(node);
     standFor(boxes, oldBox, copy);
     node = copy;
   }
-  const holders = oldBox && oldBox !== oldRoot ? (boxes.get(oldBox) as Element[]) : [root],
+  // The loop above stops at a box that boxes has, or at the root.
+  const holders = (oldBox && oldBox !== oldRoot && boxes.get(oldBox)) || [root],
     box =
       holders.find((holder) => !!previous && holder.contains(previous)) ||
       holders.find((holder) => !!next && holder.contains(next)) ||
@@ -1056,8 +1090,8 @@ function movedPlaceLine(unit: CompareUnit, to: CompareUnit) {
   line.dataset.n = '1';
   const text = translateTemplate('여기 있던 블록을 L{line}로 옮김', { line: to.lo }),
     box = tag === 'tr' ? document.createElement('td') : line;
-  if (tag === 'tr') {
-    (box as HTMLTableCellElement).colSpan = Math.max(1, unit.el.children.length);
+  if (box instanceof HTMLTableCellElement) {
+    box.colSpan = Math.max(1, unit.el.children.length);
     line.appendChild(box);
   }
   box.textContent = text;
@@ -1071,7 +1105,7 @@ function layColumn(
   newRoot: HTMLElement,
   oldUnits: CompareUnit[],
   newUnits: CompareUnit[],
-  ops: any[],
+  ops: CompareStep[],
   budget?: CompareBudget,
 ) {
   let previous: HTMLElement | null = null;
@@ -1160,9 +1194,8 @@ function layGutterChips() {
   layer.setAttribute('aria-hidden', 'true');
   const top = root.getBoundingClientRect().top;
   const items: { y: number; cls: string; text: string }[] = [];
-  for (const node of root.querySelectorAll('[data-mdc],.mdc-pin')) {
-    const element = node as HTMLElement,
-      rect = element.getBoundingClientRect();
+  for (const element of findAll(root, '[data-mdc],.mdc-pin', HTMLElement)) {
+    const rect = element.getBoundingClientRect();
     if (!rect.height) continue;
     if (element.classList.contains('mdc-pin'))
       items.push({ y: rect.top - top, cls: 'pin', text: element.dataset.mdcPin || '' });
@@ -1189,9 +1222,7 @@ function layGutterChips() {
 // The unit elements of a drawn side in document order, as compareUnits takes them (and a moved block's old place,
 // ghosts).
 function unitElements(root: HTMLElement, ghosts: boolean): HTMLElement[] {
-  return [...root.querySelectorAll(UNIT_SELECTOR + (ghosts ? ',.mdc-ghost' : ''))]
-    .map((node) => node as HTMLElement)
-    .filter(isCompareUnit);
+  return findAll(root, UNIT_SELECTOR + (ghosts ? ',.mdc-ghost' : ''), HTMLElement).filter(isCompareUnit);
 }
 // ---------------- Showing a compare
 // Git's lines [first, last] of a side (counted on LF alone, as a hunk counts them) as the screen's lines of that side
@@ -1294,15 +1325,22 @@ function compareNotice(text: string) {
   );
   return notice;
 }
+// What the compare knows of a pin's place in the commit: GET /api/revision-diff?pin='s scope spread out (none when the
+// server sent no scope) with that diff's whole patch (whole).
+type ComparePinScope =
+  | (RevisionPinScope & { whole: string })
+  | (RevisionCommitScope & { whole: string })
+  | { whole: string; mode?: undefined; hunks?: undefined; source?: undefined };
 // Why a side carries no lines (GET /api/revision-source's reason), in a line.
-function sideFailureText(side: any, which: string) {
-  switch (side && side.reason) {
-    case 'source_too_large':
-      return translateTemplate('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
-        side: which,
-        size: formatMebibytes(side.bytes),
-        limit: formatMebibytes(side.limit),
-      });
+function sideFailureText(side: RevisionSide | null, which: string) {
+  // the server sends bytes and limit with this reason (revisions/core.py); formatMebibytes reads none as 0
+  if (side && side.reason === 'source_too_large')
+    return translateTemplate('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
+      side: which,
+      size: formatMebibytes(side.bytes || 0),
+      limit: formatMebibytes(side.limit || 0),
+    });
+  switch ((side && side.reason) || '') {
     case 'source_not_utf8':
       return translateTemplate('{side}이 UTF-8이 아니라 그려 비교하지 않습니다', { side: which });
     case 'not_a_file':
@@ -1345,12 +1383,12 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
     RENDERED_COMPARE.ro = null;
   }
   // the guide line says what this compare finds, once it has (ringPinBlocks)
-  if (REVISION_VIEW.target) REVISION_VIEW.target.mdcMsg = '';
+  if (REVISION_VIEW.target) setTargetGuideLine(REVISION_VIEW.target, '');
   pane.replaceChildren(waitLine(translate('두 판을 읽는 중입니다.')));
   drawCompareNavigator();
   const pinTarget = revisionPinFor(id);
   let answer,
-    scope = null;
+    scope: ComparePinScope | null = null;
   try {
     const query = '?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
     const [sides, pinDiff] = await Promise.all([
@@ -1367,7 +1405,7 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
     scope = pinDiff && pinDiff.data ? { ...(pinDiff.data.scope || {}), whole: String(pinDiff.data.diff || '') } : null;
   } catch (error) {
     if (live()) {
-      const why = error && (error as ApiError).data ? errText((error as ApiError).data) : '';
+      const why = isApiError(error) && error.data ? errText(error.data) : '';
       pane.replaceChildren(
         compareNotice(
           why
@@ -1543,7 +1581,12 @@ function restateCompareStatus() {
 // part of it the line says so and points at [소스 diff], which shows the pin's hunks alone. Returns the change group to
 // open at (-1: none), and leaves on the pin the line the guide says (pinTarget.mdcMsg).
 /** @param side the new side GET /api/revision-source gave */
-function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: CompareUnit[], side: any) {
+function ringPinBlocks(
+  pinTarget: RevTarget | null,
+  scope: ComparePinScope | null,
+  newUnits: CompareUnit[],
+  side: RevisionSide | null,
+) {
   const target = REVISION_VIEW.target;
   if (target && !pinTarget)
     target.mdcMsg = translateTemplate('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다', { id: target.id });
@@ -1558,7 +1601,7 @@ function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: Compar
   const part = !!scope && scope.mode === SCOPE_MODE.PIN,
     ranges = part
       ? hunks(scope.diff)
-      : scope && scope.hunks > 0
+      : scope && scope.hunks !== undefined && scope.hunks > 0
         ? hunks(scope.whole)
         : [[firstLine, pinTarget.hi || firstLine]];
   const meets = newUnits.filter(
@@ -1576,7 +1619,7 @@ function ringPinBlocks(pinTarget: RevTarget | null, scope: any, newUnits: Compar
           id: pinTarget.id,
           n: changed.length,
         }) +
-        (scope && scope.hunks > 0
+        (scope && scope.hunks !== undefined && scope.hunks > 0
           ? ' (' + translate(scope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') + ')'
           : '')
       : meets.length

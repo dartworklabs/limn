@@ -40,8 +40,8 @@ import { checkDocUpdate } from './flow-updates.ts';
 import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
 import { refreshDoc } from './flow-rebuild.ts';
-import { NOTICE_HOST } from '../platform/tables.ts';
-import { $, findMaybe, searchToPage, findAll } from '../platform/dom.ts';
+import { NOTICE_HOST, isRecord } from '../platform/tables.ts';
+import { $, findMaybe, searchToPage, findAll, findElement } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
@@ -93,11 +93,11 @@ function openNavigationSheet() {
 function revealSheetOutline(sheet: HTMLDialogElement) {
   const rows = sheetOutlineRows(),
     current = $('#ns-outline-items').querySelector(':scope>.ol-active');
-  fitNavigationSheet(sheet, current ? rows.indexOf(current as HTMLElement) : 0, true);
+  fitNavigationSheet(sheet, current ? rows.findIndex((row) => row === current) : 0, true);
 }
 /** @returns the rows of the sheet's outline (the unread entries' note is not one) */
 function sheetOutlineRows(): HTMLElement[] {
-  return [...$('#ns-outline-items').querySelectorAll(':scope>button')] as HTMLElement[];
+  return findAll($('#ns-outline-items'), ':scope>button', HTMLElement);
 }
 // the open sheet's height as last fitted to the screen: a filter's fewer results keep it, so the top does not move
 let NAVIGATION_SHEET_HEIGHT = 0;
@@ -116,7 +116,7 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   const list = $('#ns-outline-items'),
     outlineSection = $('#ns-outline');
   const pages = $('#ns-pages'),
-    head = sheet.querySelector('.ns-head') as HTMLElement,
+    head = findElement(sheet, '.ns-head', HTMLElement),
     rectOf = (element: Element) => element.getBoundingClientRect();
   list.style.maxHeight =
     list.style.minHeight =
@@ -206,8 +206,7 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   const need = sheet.scrollHeight - sheet.clientHeight;
   if (need <= 0) return;
   const top = rectOf(head).bottom,
-    keep = (sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') ||
-      sheet.querySelector('#ns-view')) as HTMLElement,
+    keep = sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') || findElement(sheet, '#ns-view', Element),
     keepRect = rectOf(keep);
   const parts = [
     ...sheet.querySelectorAll('#ns-docs,#ns-docs .dm-item,#ns-view,#ns-page,#ns-pages,#ns-outline,#ns-outline>.ns-oh'),
@@ -368,14 +367,14 @@ function drawPos() {
           markdownSurface().reading().at,
           markdownSurface().reading().lines.length,
           multiDoc(),
-          innerWidth >= 400,
+          window.innerWidth >= 400,
         )
       : posLabel(
           shown ? shown.name : '',
           pageNavigation().outlinePage() || 1,
           pageCount,
           multiDoc(),
-          innerWidth >= 400,
+          window.innerWidth >= 400,
           isRevisions ? VIEW_MODE.REVISIONS : VIEW_MODE.MANUSCRIPT,
         );
   const nameSpan = $('#btn-pos-n');
@@ -391,7 +390,7 @@ function drawPos() {
 interface KeptLineView {
   line: number;
   off: number;
-  lay: string;
+  lay: string | null;
   page?: undefined;
   frac?: undefined;
   k?: undefined;
@@ -408,7 +407,7 @@ interface KeptPageView {
   w?: number;
   zoomed?: boolean;
   sl?: number;
-  lay: string;
+  lay: string | null;
 }
 type KeptView = KeptLineView | KeptPageView;
 // Viewed position: page/fraction anchored at the top, page scale (PAGE_SCALE), whether zoomed manually in compact,
@@ -443,12 +442,38 @@ function saveViews() {
 function loadViews() {
   if (!multiDoc()) return;
   try {
-    const kept = JSON.parse(sessionStorage.getItem('pinDocView') || '[]');
+    const kept: unknown = JSON.parse(sessionStorage.getItem('pinDocView') || '[]');
     if (Array.isArray(kept))
-      kept.forEach((x) => {
-        if (Array.isArray(x) && docInfo(x[0]) && x[1] && typeof x[1] === 'object') VIEW_BY.set(x[0], x[1]);
+      kept.forEach((entry: unknown) => {
+        if (!Array.isArray(entry)) return;
+        const [doc, view]: unknown[] = entry;
+        if (typeof doc === 'string' && docInfo(doc) && isKeptView(view)) VIEW_BY.set(doc, view);
       });
   } catch (error) {}
+}
+// Whether a stored value is a kept view as saveView writes it - a page view with its page width w (kept before the scale
+// k was) or its scale, or a reading line. A value of another shape is not restored: the document opens where it opens
+// without one. Pure.
+function isKeptView(value: unknown): value is KeptView {
+  if (!isRecord(value) || (typeof value.lay !== 'string' && value.lay !== null)) return false;
+  const { line, off, page, frac, k: scale, w: width, zoomed, sl: scrolled } = value;
+  const optionalNumber = (field: unknown) => field === undefined || typeof field === 'number';
+  if (page === undefined)
+    return (
+      typeof line === 'number' &&
+      typeof off === 'number' &&
+      [frac, scale, width, zoomed, scrolled].every((field) => field === undefined)
+    );
+  return (
+    typeof page === 'number' &&
+    typeof frac === 'number' &&
+    line === undefined &&
+    off === undefined &&
+    optionalNumber(scale) &&
+    optionalNumber(width) &&
+    optionalNumber(scrolled) &&
+    (zoomed === undefined || typeof zoomed === 'boolean')
+  );
 }
 // A kept view's scale: its k, or - for a view kept with the page width (w) instead - that width over the widest page
 // (points); 0 when it has neither. Pure.
@@ -485,7 +510,7 @@ function restoreView(view: KeptView | undefined) {
   if (typeof view.page === 'number') restoreAnchor({ page: view.page, frac: view.frac });
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }
-addEventListener('pagehide', saveView);
+window.addEventListener('pagehide', saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft. If a meta
 // cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background,
 // and pages are swapped only if the build changed. A document that cannot be opened says so on the status line, with
@@ -651,3 +676,4 @@ export {
   switchPending,
   viaDoc,
 };
+export type { KeptView };

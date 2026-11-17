@@ -11,7 +11,7 @@ import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { announce, lineNote, sourceOk } from '../platform/notices.ts';
 import { drawMeta } from './view-meta.ts';
-import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
+import { BUILD, setBuildError, setBuildAsked, pollBuild, pullSuffix } from './view-build-chip.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $, findAll, findElement } from '../platform/dom.ts';
 import { BUILD_STATE } from '../app/rules-tables.ts';
@@ -115,7 +115,7 @@ async function refreshDoc(meta?: Meta) {
 // visit watched has just failed: its title is read out as an alert too (rule 1) - the desktop's panel and chip are no
 // live region.
 function showBuildErr(build: any, say?: boolean) {
-  BUILD.error = build;
+  setBuildError(build);
   if (DOC) BUILD_ERR_BY.set(DOC, build);
   const panel = $('#build-err');
   const title = buildErrTitle(build);
@@ -199,7 +199,7 @@ async function rebuild(force?: boolean) {
       } catch (error) {}
     }
     if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-    BUILD.asked = true;
+    setBuildAsked(true);
     await pollBuild();
   } catch (error) {}
 }

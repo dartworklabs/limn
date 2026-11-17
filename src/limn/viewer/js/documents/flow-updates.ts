@@ -28,7 +28,7 @@ import { api } from '../platform/api.ts';
 import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from '../platform/notices.ts';
 import { switchDoc } from './flow-switch.ts';
 import { drawStatus } from './view-status.ts';
-import { NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
+import { NOTICE_DOT, NOTICE_KIND, isRecord } from '../platform/tables.ts';
 import { $$ } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { who } from '../app/state-people.ts';
@@ -63,7 +63,9 @@ const LINE_DIFF_MAX = 500; // edit steps the line comparison tries before callin
 // own. A browser whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM)
 // from the first refusal.
 let SEEN_MEM: string | null = null;
-function seenStore(): { v?: number; pin?: number; docs?: Record<string, { ver: string; rev: string }> } {
+// The record as stored, each field as it was written: its readers check the field they read (seenDoc, seenPin), and one
+// whose field is not as it is written takes that field as never seen. Not an object: nothing seen.
+function seenStore(): Record<string, unknown> {
   let raw = SEEN_MEM;
   if (raw === null)
     try {
@@ -72,13 +74,13 @@ function seenStore(): { v?: number; pin?: number; docs?: Record<string, { ver: s
       raw = SEEN_MEM = '{}';
     }
   try {
-    const parsed = JSON.parse(raw || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    const parsed: unknown = JSON.parse(raw || '{}');
+    return isRecord(parsed) ? parsed : {};
   } catch (error) {
     return {};
   }
 }
-function seenSave(all: { v?: number; pin?: number; docs?: Record<string, { ver: string; rev: string }> }) {
+function seenSave(all: Record<string, unknown>) {
   all.v = 1;
   const raw = JSON.stringify(all);
   if (SEEN_MEM !== null) {
@@ -92,17 +94,19 @@ function seenSave(all: { v?: number; pin?: number; docs?: Record<string, { ver: 
   }
 }
 function seenDoc(doc: string): { ver: string; rev: string } | null {
-  const record = (seenStore().docs || {})[doc];
-  return record && typeof record.ver === 'string' ? { ver: record.ver, rev: String(record.rev || '') } : null;
+  const docs = seenStore().docs,
+    record = isRecord(docs) ? docs[doc] : undefined;
+  return isRecord(record) && typeof record.ver === 'string' ? { ver: record.ver, rev: String(record.rev || '') } : null;
 }
 // Records `record` as what `doc` showed when seen - unless the record kept already names a later version (verAfter):
 // another tab of this browser saw a newer one meanwhile, and an old tab dismissing its older message never takes that
 // back.
 function setSeenDoc(doc: string, record: { ver: string; rev: string }) {
   const all = seenStore(),
-    was = (all.docs || {})[doc];
-  if (was && typeof was.ver === 'string' && verAfter(was.ver, record.ver)) return;
-  all.docs = { ...(all.docs || {}), [doc]: record };
+    docs = isRecord(all.docs) ? all.docs : {},
+    was = docs[doc];
+  if (isRecord(was) && typeof was.ver === 'string' && verAfter(was.ver, record.ver)) return;
+  all.docs = { ...docs, [doc]: record };
   seenSave(all);
 }
 // Whether `version` (limnSeen's ver) is later than `other`: a drawn document's source mtime ('src:<seconds>') by its
@@ -308,7 +312,7 @@ function shownDocState(doc: string): { ver: string; name: string; kind: string }
   const meta = doc === DOC ? META : META_BY.get(doc),
     entry = docInfo(doc),
     kind = (entry && entry.kind) || (meta && meta.kind) || '',
-    source = (meta || entry) as any;
+    source = meta || entry;
   if (!source) return null;
   // a drawn document on screen: its source as last read (MARKDOWN_VIEW.mtime), not the meta it was opened with; off
   // screen: the document list's (noteOtherDocs keeps it fresh) - MARKDOWN_VIEW still holds the lines of one drawn
@@ -338,7 +342,7 @@ async function docRows(doc: string): Promise<RevisionRow[] | null> {
         silent: true,
       })
     ).data;
-    return answer.available ? ((answer.revisions || []) as RevisionRow[]) : [];
+    return answer.available ? answer.revisions || [] : [];
   } catch (error) {
     return null;
   }
@@ -352,7 +356,7 @@ async function docBuild(
   now: { ver: string; kind: string },
 ): Promise<{ head: string; behind: boolean } | null> {
   if (rendersInBrowser(now.kind)) return { head: '', behind: false };
-  let meta = (doc === DOC ? META : META_BY.get(doc)) as any;
+  let meta = doc === DOC ? META : META_BY.get(doc);
   if (!meta || 'build:' + meta.pages_build !== now.ver) {
     try {
       meta = (await api('GET /api/meta', { query: withDocQuery('?light=1', doc), what: '상태 확인', silent: true }))
@@ -470,6 +474,19 @@ function checkDocsSeen() {
     if (doc) checkDocUpdate(doc, {});
   });
 }
+// A document's update message as checkDocUpdate keeps it: the document (key, its name and kind), the version it says
+// (ver) and the commit last seen (seenRev), the newest commit it covers (top), its commits and whether the document
+// has history.
+interface DocUpdate {
+  key: string;
+  name: string;
+  kind: string;
+  ver: string;
+  seenRev: string;
+  top: string;
+  commits: CommitDigest;
+  history: boolean;
+}
 // What a document's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its
 // PR and subject and author; several: how many, their PRs and authors; none named when which are new is not known), the
 // places a drawn document changed, the pins it moved or lost. Its action: [바뀐 곳] on a drawn document of this visit
@@ -477,7 +494,7 @@ function checkDocsSeen() {
 // new is not known), [열기] for another document - whose message stands behind this one's (back) - none otherwise. It
 // is seen - limnSeen takes it - once it goes by [x] or its action; a message pushed off the line is not seen and comes
 // again on the next visit.
-function docUpdateView(update: any) {
+function docUpdateView(update: DocUpdate) {
   const doc = update.key,
     commits = update.commits,
     here = doc === DOC,
@@ -557,7 +574,7 @@ function docUpdateView(update: any) {
 // (forgetUpdate). A record of the message's own version is another tab's - the message is said only while the record
 // names an earlier one (checkDocUpdate) - and stays: that tab read the history too, perhaps after a commit this message
 // missed.
-function docUpdateSeen(doc: string, update: any) {
+function docUpdateSeen(doc: string, update: DocUpdate) {
   const was = seenDoc(doc);
   if (!was || was.ver !== update.ver) setSeenDoc(doc, { ver: update.ver, rev: update.top });
   forgetUpdate(doc);
@@ -701,12 +718,36 @@ function noteNewPins(rows: Pin[]) {
   if (fresh.length) announceNewPins(fresh);
   else if (![...GROUPS.keys()].some((key) => key.startsWith('new:'))) setSeenPin(UPDATE_STATE.top);
 }
+// A new pin as its document's new-pins message names it: its number, who, its verdict, its place and its note's start.
+interface NewPinRow {
+  id: number;
+  who: string;
+  verdict: string;
+  place: string;
+  note: string;
+}
+// The new pins a document's new-pins group held before this event (groupNote's merge is given them as unknown), as
+// announceNewPins writes them, or none. Pure.
+function newPinRowsOf(older: unknown): NewPinRow[] {
+  return isRecord(older) && Array.isArray(older.pins)
+    ? older.pins.filter(
+        (row: unknown): row is NewPinRow =>
+          isRecord(row) &&
+          typeof row.id === 'number' &&
+          typeof row.who === 'string' &&
+          typeof row.verdict === 'string' &&
+          typeof row.place === 'string' &&
+          typeof row.note === 'string',
+      )
+    : [];
+}
 function announceNewPins(pins: Pin[]) {
-  const by = new Map();
+  const by = new Map<string, Pin[]>();
   pins.forEach((pin) => {
-    const doc = pdoc(pin);
-    if (!by.has(doc)) by.set(doc, []);
-    by.get(doc).push(pin);
+    const doc = pdoc(pin),
+      listed = by.get(doc);
+    if (listed) listed.push(pin);
+    else by.set(doc, [pin]);
   });
   if (!pins.length) {
     setSeenPin(UPDATE_STATE.top || 0);
@@ -717,7 +758,7 @@ function announceNewPins(pins: Pin[]) {
       'new:' + doc,
       {
         doc: doc,
-        pins: list.map((pin: Pin) => ({
+        pins: list.map((pin): NewPinRow => ({
           id: pin.id,
           who: who(pin.author) || translate('누군가'),
           verdict: pin.verdict || '',
@@ -732,10 +773,13 @@ function announceNewPins(pins: Pin[]) {
         })),
       },
       newPinsView,
-      (older, newer) => ({
-        doc: older.doc,
-        pins: [...older.pins, ...newer.pins.filter((x: any) => !older.pins.some((y: any) => y.id === x.id))],
-      }),
+      (older, newer) => {
+        const was = newPinRowsOf(older);
+        return {
+          doc: isRecord(older) && typeof older.doc === 'string' ? older.doc : newer.doc,
+          pins: [...was, ...newer.pins.filter((x) => !was.some((y) => y.id === x.id))],
+        };
+      },
     ),
   );
 }
@@ -743,7 +787,7 @@ function announceNewPins(pins: Pin[]) {
 // #14 — Bob Park · 3쪽 · 서론 첫 문장…', a verdict pin '새 판정 #15 — … · 채택'); more as a count with their numbers
 // and makers. Another document's names it ('부록에 새 핀 2개'). [보기] opens the first; on this document it marks [핀
 // N].
-function newPinsView(news: any) {
+function newPinsView(news: { doc: string; pins: NewPinRow[] }) {
   const here = news.doc === DOC,
     pins = news.pins,
     one = pins.length === 1,
@@ -757,11 +801,11 @@ function newPinsView(news: any) {
     ? [first.who, first.place, first.verdict || first.note].filter(Boolean).join(' · ')
     : pins
         .slice(0, 3)
-        .map((x: any) => '#' + x.id)
+        .map((x) => '#' + x.id)
         .join(', ') +
       (pins.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: pins.length - 3 }) : '') +
       ' · ' +
-      [...new Set(pins.map((x: any) => x.who))].slice(0, 2).join(', ');
+      [...new Set(pins.map((x) => x.who))].slice(0, 2).join(', ');
   return {
     msg: (here ? head : translateTemplate('{doc}에 {what}', { doc: name, what: head })) + ' — ' + description,
     kind: NOTICE_KIND.INFO,
@@ -774,7 +818,7 @@ function newPinsView(news: any) {
       literal: true,
       back: !here,
       dot: here ? NOTICE_DOT.SIDE : '',
-      keys: pins.map((x: any) => 'new:' + x.id),
+      keys: pins.map((x) => 'new:' + x.id),
       brief: translateTemplate('새 핀 {n}', { n: pins.length }),
       onEnd: (acted: boolean, seen: boolean) => {
         if ((acted || seen) && ![...GROUPS.keys()].some((key) => key.startsWith('new:')))
@@ -843,7 +887,7 @@ function reloadForUpdate() {
     return;
   }
   flushDeferred();
-  location.reload();
+  window.location.reload();
 }
 export {
   DIGEST_TAIL_MS,

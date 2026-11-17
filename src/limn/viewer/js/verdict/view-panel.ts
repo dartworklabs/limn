@@ -42,7 +42,17 @@ import {
   leaveReason,
   setComposingField,
 } from './flow-reason.ts';
-import { $, $$, searchToPage, TABBABLE, isTabStop } from '../platform/dom.ts';
+import {
+  $,
+  eventClosest,
+  findAll,
+  findClosest,
+  findMaybe,
+  focusedElement,
+  searchToPage,
+  TABBABLE,
+  isTabStop,
+} from '../platform/dom.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { verdictLabel, pageVerdictsOn } from '../documents/state.ts';
@@ -121,8 +131,8 @@ function startBesideTurn() {
   const on = shouldStandBeside();
   if (on === IS_BESIDE_PAGES) return null;
   const area = $('#left'),
-    active = document.activeElement as HTMLElement | null,
-    field = isReasonField(active) ? (active as HTMLTextAreaElement) : null,
+    active = focusedElement(),
+    field = isReasonField(active) ? active : null,
     at = pageUnderReadingLine();
   const keep = {
     spot: area.scrollTop > 0 ? topAnchor(readingDepth(area)) : null,
@@ -170,9 +180,7 @@ function finishBesideTurn(kept: NonNullable<ReturnType<typeof startBesideTurn>>)
     field.setSelectionRange(kept.caret[0], kept.caret[1]);
     return;
   }
-  const button = (
-    kept.popAct ? document.querySelector('#doc .pv-pop [data-act="' + kept.popAct + '"]') : null
-  ) as HTMLElement | null;
+  const button = kept.popAct ? findMaybe(document, '#doc .pv-pop [data-act="' + kept.popAct + '"]', HTMLElement) : null;
   if (button) {
     button.focus({ preventScroll: true });
     return;
@@ -195,7 +203,7 @@ function describeControl(
 ): { page: string; act: string; key: string; ref: string; id: string; n: string } | null {
   if (!(element instanceof HTMLElement) || !element.closest || element.closest('.pv-pop') || isReasonField(element))
     return null;
-  const line = element.closest('#doc .pv') as HTMLElement | null;
+  const line = findClosest(element, '#doc .pv', HTMLElement);
   const act = element.dataset.act || '';
   if (!line || !act) return null;
   return {
@@ -214,15 +222,14 @@ function findControlAgain(described: ReturnType<typeof describeControl>): HTMLEl
   const line = described ? document.querySelector('#doc .pv[data-page="' + CSS.escape(described.page) + '"]') : null;
   if (!described || !line) return null;
   return (
-    ([...line.querySelectorAll('[data-act="' + CSS.escape(described.act) + '"]')].find(
+    findAll(line, '[data-act="' + CSS.escape(described.act) + '"]', HTMLElement).find(
       (element) =>
-        element instanceof HTMLElement &&
         (element.dataset.key || '') === described.key &&
         (element.dataset.ref || '') === described.ref &&
         (element.dataset.id || '') === described.id &&
         (element.dataset.n || '') === described.n &&
         element.getClientRects().length > 0,
-    ) as HTMLElement | undefined) || null
+    ) || null
   );
 }
 
@@ -235,7 +242,7 @@ function findControlAgain(described: ReturnType<typeof describeControl>): HTMLEl
 // steps, as on a line under a page. Fixed to the window it would be out of that chain: after a key save the keys and
 // the wheel would move nothing, and the next digit would change the same page's verdict.
 function ensurePanel() {
-  let panel = document.getElementById('pv-panel') as HTMLElement | null;
+  let panel = document.getElementById('pv-panel');
   if (!panel) {
     const at = document.createElement('div');
     at.id = 'pv-panel-at';
@@ -265,7 +272,7 @@ function fillPanel(map: Map<number, Pin[]>, verdicts: DocVerdicts) {
     at = heldPanelPage() || pageUnderReadingLine(),
     list = readingPage ? map.get(readingPage) || [] : [];
   leavePanelPage(panel, at);
-  const chip = panel.querySelector(':scope>.nt-chip') as HTMLElement | null;
+  const chip = findMaybe(panel, ':scope>.nt-chip', HTMLElement);
   if (chip && !list.some((x) => x.id === pinOfChip(chip))) chipAway(chip);
   if (readingPage) {
     panel.classList.remove('pv-quiet');
@@ -461,9 +468,9 @@ function summaryHtml(page: number, list: Pin[] | undefined) {
 // being far from the view (watchFarLines: a far row is skipped like a far line).
 function drawSummaries(map: Map<number, Pin[]>) {
   const made: HTMLElement[] = [];
-  $$('#doc .pgw').forEach((block) => {
-    const page = Number((block as HTMLElement).dataset.page) || 0;
-    let summary = block.querySelector(':scope>.pv-sum') as HTMLElement | null;
+  findAll(document, '#doc .pgw', HTMLElement).forEach((block) => {
+    const page = Number(block.dataset.page) || 0;
+    let summary = findMaybe(block, ':scope>.pv-sum', HTMLElement);
     if (!IS_BESIDE_PAGES || !pageTakesVerdict(page)) {
       if (summary) summary.remove();
       return;
@@ -493,8 +500,8 @@ function drawSummaries(map: Map<number, Pin[]>) {
 // The reading page's summary is bold (.on): the page the panel shows - a weight, never a height.
 function markReadingSummary() {
   const readingPage = String(IS_BESIDE_PAGES ? READING_LINE_PAGE || 0 : 0);
-  $$('#doc .pv-sum.on').forEach((element) => {
-    if ((element as HTMLElement).dataset.page !== readingPage) element.classList.remove('on');
+  findAll(document, '#doc .pv-sum.on', HTMLElement).forEach((element) => {
+    if (element.dataset.page !== readingPage) element.classList.remove('on');
   });
   const summary = document.querySelector('#doc .pv-sum[data-page="' + readingPage + '"]');
   if (summary) summary.classList.add('on');
@@ -579,11 +586,11 @@ function flashPanel(panel: HTMLElement) {
 // marks.
 function markStops(page: number): HTMLElement[] {
   const block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
-  return block ? ([...block.querySelectorAll(TABBABLE)].filter(isTabStop) as HTMLElement[]) : [];
+  return block ? [...block.querySelectorAll(TABBABLE)].filter(isTabStop) : [];
 }
 // Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next
 // stop is a later page's mark, whose focus would scroll the pages there.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (
     event.key !== 'Tab' ||
     event.shiftKey ||
@@ -594,11 +601,11 @@ addEventListener('keydown', (event) => {
     !IS_BESIDE_PAGES
   )
     return;
-  const active = document.activeElement as HTMLElement | null,
+  const active = focusedElement(),
     readingPage = readingPageWithLine(),
     marks = readingPage ? markStops(readingPage) : [];
   if (!active || !(active === marks[marks.length - 1] || active.classList.contains('pv-sum'))) return;
-  const first = [...ensurePanel().querySelectorAll(TABBABLE)].find(isTabStop) as HTMLElement | undefined;
+  const first = [...ensurePanel().querySelectorAll(TABBABLE)].find(isTabStop);
   if (first) {
     event.preventDefault();
     first.focus({ preventScroll: true });
@@ -606,7 +613,7 @@ addEventListener('keydown', (event) => {
 });
 // Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on
 // the pages. A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || event.defaultPrevented || !IS_BESIDE_PAGES) return;
   const active = document.activeElement;
   if (!active || !active.closest || !active.closest('#pv-panel') || active.closest('.pv-pop')) return;
@@ -644,8 +651,7 @@ function revealFocused() {
 }
 const RING_ROOM = 2; // px kept clear past a revealed control's focus ring
 $('#doc').addEventListener('focusin', (event: FocusEvent) => {
-  const target = event.target as HTMLElement | null;
-  if (target && target.closest && target.closest('#pv-panel.pv-tall')) requestAnimationFrame(revealFocused);
+  if (eventClosest(event, '#pv-panel.pv-tall', Element)) requestAnimationFrame(revealFocused);
 });
 // The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
 if (typeof ResizeObserver !== 'undefined')

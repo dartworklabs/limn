@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
+import ts from 'typescript';
 import { importGraph, main, placeOf, tableErrors, violations } from '../check_viewer_boundaries.mjs';
 import { UNCHECKED_QUERIES, limnRules } from '../../eslint.config.mjs';
 
@@ -289,6 +290,65 @@ test('a type argument on a DOM query is refused, called plainly or optionally; t
   assert.deepEqual(
     lintQueries(
       "document.querySelector('#q');\nroot.querySelectorAll('.row');\ntarget.closest('.card');\nnew Map<string, number>();\npick<number>(1);\n",
+    ),
+    [],
+  );
+});
+
+/**
+ * The limn/no-inferred-query-class messages ESLint gives code, a TypeScript module checked with the DOM types and the
+ * strict set: the rule needs the type checker, so the module is written to a scratch folder and read as a program.
+ */
+function lintInferred(code) {
+  const dir = mkdtempSync(join(tmpdir(), 'limn-inferred-'));
+  const file = join(dir, 'module.ts');
+  writeFileSync(file, code);
+  const program = ts.createProgram([file], {
+    strict: true,
+    noEmit: true,
+    target: ts.ScriptTarget.ES2022,
+    lib: ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
+  });
+  const linter = new Linter({ configType: 'flat', cwd: dir });
+  return linter
+    .verify(
+      code,
+      [
+        {
+          files: ['**/*.ts'],
+          languageOptions: {
+            ecmaVersion: 2024,
+            sourceType: 'module',
+            parser: tseslint.parser,
+            parserOptions: { programs: [program] },
+          },
+          plugins: { limn: { rules: limnRules } },
+          rules: { 'limn/no-inferred-query-class': 'error' },
+        },
+      ],
+      file,
+    )
+    .map((m) => m.ruleId || `fatal: ${m.message}`);
+}
+
+test('a DOM query whose class is inferred from where its answer goes is refused; Element, a tag name and a checked find pass', () => {
+  const take = 'function take(element: HTMLElement | null) { return element; }\n';
+  for (const call of [
+    "take(document.querySelector('.hint'));",
+    "take(document.body.closest('.card'));",
+    "const rows: NodeListOf<HTMLElement> = document.querySelectorAll('.row');\nrows.forEach(take);",
+    "const box: HTMLDivElement | null = document.querySelector('.box');\ntake(box);",
+  ])
+    assert.deepEqual(lintInferred(take + call + '\n'), ['limn/no-inferred-query-class'], call);
+  assert.deepEqual(
+    lintInferred(
+      take +
+        "const found = document.querySelector('.hint');\n" +
+        'take(found instanceof HTMLElement ? found : null);\n' +
+        "take(document.querySelector('a'));\n" +
+        "const near = document.body?.closest('.card');\n" +
+        "document.querySelectorAll('.row').forEach((row) => row.remove());\n" +
+        'export { near };\n',
     ),
     [],
   );

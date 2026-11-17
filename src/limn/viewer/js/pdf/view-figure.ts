@@ -157,7 +157,7 @@ function figureRung(selection: ComposerSelection) {
   return level && level.el ? level : null;
 }
 // The element a re-place candidate would move the pin to: its default rung's, else the answer's own (a region answer).
-function repickElement(candidate: PickAnswer) {
+function repickElement(candidate: ComposerSelection) {
   const level = levelOf(candidate, candidate.default_level);
   return (level && level.el) || candidate.el || null;
 }

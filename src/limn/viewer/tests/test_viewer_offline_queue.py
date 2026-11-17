@@ -17,7 +17,7 @@ from helpers import extract_js_fn, js_const, js_seam_wired, run_node
 # The guards offline/flow.ts reads a stored record or a worker's answer through (GuardedRecords tests them); a pulled
 # function that reads one needs them beside it.
 GUARDS = (
-    "isObject",
+    "isRecord",
     "isTextOrAbsent",
     "isNumberOrAbsent",
     "isTextOrNull",
@@ -103,6 +103,7 @@ FUNCTIONS = (
     *GUARDS,
     "endpointUrl",
     "isRefusal",
+    "isApiError",
     "offlineBox",
     "offlineBody",
     "fracSame",
@@ -1070,7 +1071,7 @@ class OfflineQuote(unittest.TestCase):
                 "\n".join(
                     [
                         scope,
-                        extract_js_fn("isObject"),
+                        extract_js_fn("isRecord"),
                         extract_js_fn("isNumberList"),
                         extract_js_fn("quoteIn"),
                         scenario,
@@ -1541,6 +1542,7 @@ FOLLOW_FUNCTIONS = (
     *GUARDS,
     "offRecords",
     "endpointUrl",
+    "isApiError",
     "withDocQuery",
     "offlineDocFiles",
     "offKeptSet",
@@ -2231,7 +2233,7 @@ class OfflineKeys(unittest.TestCase):
                     put:function(v){STORE.set(v.key,v);}};}}; return tx;}});}
                 """,
                 extract_js_fn("offlineKey"),
-                extract_js_fn("isObject"),
+                extract_js_fn("isRecord"),
                 extract_js_fn("offHolderId"),
                 """
                 (async function(){

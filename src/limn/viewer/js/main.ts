@@ -8,6 +8,7 @@ import {
   OUTLINE_MID_OPEN,
   REPICK,
   REPLY,
+  setReplyFlip,
   SELMODE,
   SHOW_ALL,
   SIDE_OPEN,
@@ -98,7 +99,7 @@ import {
   notifyHandle,
   notifyCursor,
 } from './pins/flow-notification.ts';
-import { BUILD, startBuildPolling } from './documents/view-build-chip.ts';
+import { BUILD, setBuildUnchanged, setBuildLastSeq, startBuildPolling } from './documents/view-build-chip.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
 import {
   drawStatus,
@@ -252,7 +253,13 @@ import {
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
-import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
+import {
+  setAssignNewValue,
+  setAssignNewTouched,
+  mentionApply,
+  renderAssignEdit,
+  renderAssignNew,
+} from './composer/input-mentions.ts';
 import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
@@ -260,7 +267,7 @@ import { setPinVerdicts } from './pins/state-seams.ts';
 import { applyRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
-import { $, $$ } from './platform/dom.ts';
+import { $, $$, eventElement, findClosest, focusedElement } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
 import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc, pageVerdictsOn } from './documents/state.ts';
@@ -451,7 +458,7 @@ let HELP_BACK: HTMLElement | null = null;
 function openHelp() {
   const dialog = $('#help');
   if (dialog.open) return;
-  HELP_BACK = document.activeElement as HTMLElement | null;
+  HELP_BACK = focusedElement();
   hideTip();
   showSheet(dialog);
   headInk();
@@ -486,18 +493,19 @@ function openTappedCard(target: Element) {
   drawPins();
 }
 document.addEventListener('click', (event) => {
-  const target = event.target as HTMLElement;
-  const copier = target.closest('[data-copy]') as HTMLElement;
+  const target = eventElement(event);
+  if (!target) return;
+  const copier = findClosest(target, '[data-copy]', HTMLElement);
   if (copier) {
     copyText(copier.dataset.copy || '', copier);
     return;
   }
-  const control = target.closest('[data-act]') as HTMLElement;
+  const control = findClosest(target, '[data-act]', HTMLElement);
   if (!control) {
     openTappedCard(target);
     return;
   }
-  const host = control.closest('[data-id]') as HTMLElement,
+  const host = findClosest(control, '[data-id]', HTMLElement),
     id = host ? Number(host.dataset.id) : null,
     inEdit = !!control.closest('.edit');
   const fromMore = !!control.closest('#more');
@@ -541,7 +549,7 @@ document.addEventListener('click', (event) => {
       downloadPdf();
       break;
     case 'rebuild-force':
-      BUILD.unchanged = null;
+      setBuildUnchanged(null);
       drawStatus();
       rebuild(true);
       break; // the status line's [그래도 빌드]: a cold build
@@ -789,8 +797,8 @@ document.addEventListener('click', (event) => {
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break; // by keyboard the focus goes to the card
     case 'assign-new':
-      ASSIGN_NEW.v = control.dataset.v || 'agent';
-      ASSIGN_NEW.touched = true;
+      setAssignNewValue(control.dataset.v || 'agent');
+      setAssignNewTouched(true);
       renderAssignNew();
       saveDraftSoon();
       break;
@@ -865,7 +873,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'reply-flip':
       if (REPLY) {
-        REPLY.flip = !REPLY.flip;
+        setReplyFlip(REPLY, !REPLY.flip);
         renderReplyOutcome();
       }
       break;
@@ -959,6 +967,8 @@ document.addEventListener('click', (event) => {
     case 'reload':
       reloadForUpdate();
       break;
+    case undefined: // control matched [data-act], so the attribute is there; nothing to do without it
+      break;
   }
 });
 $('#doc-select').addEventListener('change', (event: Event) => {
@@ -979,13 +989,13 @@ const SEGMENT_STEP: Partial<Record<string, number>> = { ArrowLeft: -1, ArrowUp: 
 // the groups in the page's markup; a drawn one calls roveSegment itself
 for (const group of $$('[role=radiogroup]')) roveSegment(group);
 document.addEventListener('keydown', (event) => {
-  const target = event.target as HTMLElement;
+  const target = event.target;
   if (imeKey(event) || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (!target || !target.closest || target.getAttribute('role') !== 'radio') return;
+  if (!(target instanceof HTMLButtonElement) || target.getAttribute('role') !== 'radio') return;
   const group = target.closest('[role=radiogroup]');
   if (!group) return;
   const words = shownWords(group),
-    index = words.indexOf(target as HTMLButtonElement);
+    index = words.indexOf(target);
   if (index < 0) return;
   const step = SEGMENT_STEP[event.key];
   const to =
@@ -1013,9 +1023,9 @@ document.addEventListener('keydown', (event) => {
 // The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come
 // back to.
 function leaveManualSegment(event: FocusEvent) {
-  const target = event.target as HTMLElement,
-    group = target && target.closest ? target.closest('[role=radiogroup][data-seg-manual]') : null;
-  const to = event.relatedTarget as Node | null;
+  const target = eventElement(event),
+    group = target ? target.closest('[role=radiogroup][data-seg-manual]') : null;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (group && !(to && group.contains(to))) roveSegment(group);
 }
 document.addEventListener('focusout', leaveManualSegment);
@@ -1025,8 +1035,8 @@ document.addEventListener('focusout', leaveManualSegment);
 // to the group's one stop (roveSegment's word) as no new focus (focusGivenBack: no description), and Tab leaves from
 // there, as from a word.
 function passLadderBoxFocus(event: FocusEvent) {
-  const box = event.target as HTMLElement;
-  if (!box || !box.matches || !box.matches('.seg.lad[tabindex="-1"]')) return;
+  const box = eventElement(event);
+  if (!box || !box.matches('.seg.lad[tabindex="-1"]')) return;
   const group = box.matches('[role=radiogroup]') ? box : box.querySelector('[role=radiogroup]') || box,
     words = offeredWords(group),
     word = words.find((offered) => offered.tabIndex === 0) || words[0];
@@ -1036,7 +1046,7 @@ document.addEventListener('focusin', passLadderBoxFocus);
 
 document.addEventListener('keydown', (event) => {
   if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (app/state.ts)
-  const target = event.target as HTMLElement,
+  const target = event.target instanceof HTMLElement ? event.target : null,
     inField =
       target &&
       (target.tagName === 'TEXTAREA' ||
@@ -1273,7 +1283,7 @@ async function boot() {
     setLastSrcMtime(META.src_sig || META.src_mtime);
   }
   // the build count this tab has already "seen"
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
+  setBuildLastSeq(typeof META.build_seq === 'number' ? META.build_seq : 0);
   (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();

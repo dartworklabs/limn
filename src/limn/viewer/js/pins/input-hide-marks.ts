@@ -41,10 +41,9 @@ function marksAfterPress(off: boolean, ms: number): boolean {
 // Shows the page with or without its marks, for now: the class the styles read (components.css, md-surface.css). The
 // state itself (MARKS.off), the switch and the reminder are marksSet's. A hidden badge gives up the focus.
 function marksLook(off: boolean) {
-  const focused = document.activeElement as HTMLElement | null;
+  const focused = document.activeElement;
   // A badge with the focus would keep it unseen: the focus goes to the document area, as after a search (searchToPage).
-  if (off && focused && focused.closest && focused.closest('.mark,.md-badges') && !focused.closest('.nt-chip'))
-    searchToPage();
+  if (off && focused && focused.closest('.mark,.md-badges') && !focused.closest('.nt-chip')) searchToPage();
   document.body.classList.toggle('marks-off', off);
 }
 // Paints [더보기]'s switch from the state: on while the marks show.
@@ -85,9 +84,9 @@ function marksShow() {
 // or in the changes view (no marks there), and a repeat of a held key is the same press.
 function marksKeyDown(event: KeyboardEvent) {
   if (event.isComposing || !marksKey(event)) return;
-  const target = event.target as HTMLElement | null,
+  const target = event.target,
     inField =
-      !!target &&
+      target instanceof HTMLElement &&
       (target.tagName === 'TEXTAREA' ||
         target.tagName === 'INPUT' ||
         target.tagName === 'SELECT' ||
@@ -115,9 +114,9 @@ function marksPressLost() {
   MARKS.held = null;
   marksLook(MARKS.off);
 }
-addEventListener('keydown', marksKeyDown);
-addEventListener('keyup', marksKeyUp);
-addEventListener('blur', marksPressLost);
+window.addEventListener('keydown', marksKeyDown);
+window.addEventListener('keyup', marksKeyUp);
+window.addEventListener('blur', marksPressLost);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) marksPressLost();
 });

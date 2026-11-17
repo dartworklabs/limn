@@ -21,7 +21,7 @@ import {
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
-import { API_WAIT, api, apiFailed } from '../platform/api.ts';
+import { API_WAIT, api, apiFailed, isApiError, isRefusal } from '../platform/api.ts';
 import {
   BANNERS,
   bannerNote,
@@ -48,14 +48,14 @@ import {
 import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
 import { assignOutcome, composeAsk, mentionHints } from './input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findAll } from '../platform/dom.ts';
 import { REQUEST_KIND, SAVE_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
-import { SUGGEST_DRAFT } from './state-suggest.ts';
+import { SUGGEST_DRAFT, setSuggestCurrent } from './state-suggest.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.
@@ -129,12 +129,14 @@ async function appendToPin(id: number, text: string) {
 /** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An
  * append also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
 function syncComposeSaveButtons() {
-  document.querySelectorAll('#btn-save,[data-act="overlap-append"],[data-act="pop-save"]').forEach((button) => {
-    (button as HTMLButtonElement).disabled = COMPOSE.saving;
-  });
+  findAll(document, '#btn-save,[data-act="overlap-append"],[data-act="pop-save"]', HTMLButtonElement).forEach(
+    (button) => {
+      button.disabled = COMPOSE.saving;
+    },
+  );
   if (suggestPending())
-    document.querySelectorAll('[data-act="overlap-append"]').forEach((button) => {
-      (button as HTMLButtonElement).disabled = true;
+    findAll(document, '[data-act="overlap-append"]', HTMLButtonElement).forEach((button) => {
+      button.disabled = true;
     });
   composerVerdict().drawRow();
 } // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
@@ -359,7 +361,7 @@ async function savePin(verdict?: string) {
   const top = topPinId(); // a save whose answer is lost is looked for above it before it is called a failure
   try {
     let status = 0,
-      data = null as any;
+      data: PinSaved | SaveConflict | null = null;
     const ask = {
       body,
       what: verdict ? '판정 저장' : '핀 저장',
@@ -372,8 +374,7 @@ async function savePin(verdict?: string) {
     try {
       ({ status, data } = await api('POST /api/pin', ask));
     } catch (error) {
-      const failure = error as ApiError;
-      if (failure && failure.status) throw error;
+      if (isApiError(error) && error.status) throw error;
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict,
       // newer than any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시
       // 저장] would make it twice.
@@ -396,8 +397,8 @@ async function savePin(verdict?: string) {
         // said above the save row with [다시 저장]; so is a pin the queue will not take.
         if (
           plain &&
-          failure &&
-          failure.name === 'AbortError' &&
+          error instanceof Error &&
+          error.name === 'AbortError' &&
           (await composerQueue().save(selection, note, out, hints, { idem: body.idem as string | undefined, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
@@ -425,10 +426,13 @@ async function savePin(verdict?: string) {
       data = { id: got.id };
       sourceOk('POST /api/pin');
     }
-    if (status === 409) {
-      suggestSaveRefused(selection, data);
+    // the expected 409 (a suggested edit's lines changed meanwhile) is a refusal's body (isRefusal); a pin saved is not
+    if (status === 409 || isRefusal(data)) {
+      suggestSaveRefused(selection, isRefusal(data) ? data : null);
       return;
     }
+    // a 2xx whose body was no JSON names no pin: the save ends as one that failed, unsaid (below)
+    if (!data) throw new Error('POST /api/pin answered no pin');
     const id = data.id,
       failed = BANNERS.get(NOTICE_HOST.COMPOSER);
     if (failed && failed.save) endNotice(failed, false); // this save went through: its earlier failure is over
@@ -470,13 +474,14 @@ async function savePin(verdict?: string) {
         };
     const word = verdict ? verdictLabel(verdict) : '',
       figureRoot = verdict ? composerVerdict().figureRoot(selection) : null; // a figure's verdict names the figure
-    const said = figureRoot
-      ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
-          id,
-          word: word,
-          target: composerVerdict().figureShort(selection.page, figureRoot),
-        })
-      : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
+    const said =
+      figureRoot && selection.page !== undefined
+        ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
+            id,
+            word: word,
+            target: composerVerdict().figureShort(selection.page, figureRoot),
+          })
+        : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
     const chip = verdict
       ? undoNote(
           NOTICE_PLACE.CHIP,
@@ -523,13 +528,13 @@ function suggestSaveRefused(selection: ComposerSelection, data: SaveConflict | n
     });
     return;
   }
-  if (COMPOSE.current === selection) {
-    SUGGEST_DRAFT.current = {
+  if (COMPOSE.current === selection && typeof selection.lo === 'number' && typeof selection.hi === 'number') {
+    setSuggestCurrent({
       text: String(data.current || ''),
       file: selection.file || null,
-      lo: selection.lo as number,
-      hi: selection.hi as number,
-    };
+      lo: selection.lo,
+      hi: selection.hi,
+    });
     renderSuggest(selection);
   }
   bannerNote(

@@ -24,7 +24,7 @@ import {
   topPinId,
 } from '../app/state.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { API_WAIT, api, isRefusal, setApiOut } from '../platform/api.ts';
+import { API_WAIT, api, isApiError, isRefusal, setApiOut } from '../platform/api.ts';
 import type { StoredAnswer } from '../platform/api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/notices.ts';
 import { setLastPinsRevision, offlineNow } from '../documents/flow-polling.ts';
@@ -39,7 +39,7 @@ import { renderComposer } from '../composer/flow-pick.ts';
 import { offlineUiSync } from './view.ts';
 import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { loadPins } from '../pins/flow-list.ts';
-import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from '../platform/tables.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
@@ -245,11 +245,6 @@ interface QueuedPin {
   } | null;
   idem: string;
 }
-// A value read from the store or handed over by the worker, before its shape is known: any object, its fields not yet
-// read. Pure.
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
-}
 // The checks a stored record's fields take: a string or a number that may be absent, a string that may be null, a list
 // of strings or of numbers. Pure.
 function isTextOrAbsent(value: unknown): value is string | undefined {
@@ -271,7 +266,7 @@ function isNumberList(value: unknown): value is number[] {
 // (offlineFlush changes held, why, sent and top, to the same types). Every Limn that has a queue writes this shape, so
 // a record that is not one was put there by something else; it is left where it is (offAll). Pure.
 function isQueuedPin(value: unknown): value is QueuedPin {
-  if (!isObject(value)) return false;
+  if (!isRecord(value)) return false;
   const { rect, pt: size, place, lines } = value;
   return (
     typeof value.id === 'number' &&
@@ -281,13 +276,13 @@ function isQueuedPin(value: unknown): value is QueuedPin {
     typeof value.build === 'string' &&
     (value.page === null || isNumberOrAbsent(value.page)) &&
     (rect === null ||
-      (isObject(rect) &&
+      (isRecord(rect) &&
         typeof rect.x0 === 'number' &&
         typeof rect.y0 === 'number' &&
         typeof rect.x1 === 'number' &&
         typeof rect.y1 === 'number')) &&
     (value.frac === undefined || value.frac === null || isNumberList(value.frac)) &&
-    (size === null || (isObject(size) && typeof size.w === 'number' && typeof size.h === 'number')) &&
+    (size === null || (isRecord(size) && typeof size.w === 'number' && typeof size.h === 'number')) &&
     typeof value.quote === 'string' &&
     typeof value.note === 'string' &&
     isTextOrNull(value.kind_req) &&
@@ -299,13 +294,13 @@ function isQueuedPin(value: unknown): value is QueuedPin {
     typeof value.sent === 'boolean' &&
     isNumberOrAbsent(value.top) &&
     (place === null ||
-      (isObject(place) &&
+      (isRecord(place) &&
         isTextOrAbsent(place.file) &&
         typeof place.name === 'string' &&
         isNumberOrAbsent(place.lo) &&
         isNumberOrAbsent(place.hi))) &&
     (lines === null ||
-      (isObject(lines) &&
+      (isRecord(lines) &&
         isTextOrAbsent(lines.file) &&
         typeof lines.name === 'string' &&
         typeof lines.lo === 'number' &&
@@ -331,7 +326,7 @@ function offWrote(): Promise<number[]> {
 // The pin numbers a stored OFF_WROTE record holds ({key, ids}, written by offWroteAdd and offWroteKeep): its ids that
 // are numbers, which is every one those write; none when there is no such record. Pure.
 function wroteIds(stored: unknown): number[] {
-  return isObject(stored) && Array.isArray(stored.ids)
+  return isRecord(stored) && Array.isArray(stored.ids)
     ? stored.ids.filter((id): id is number => typeof id === 'number')
     : [];
 }
@@ -351,7 +346,7 @@ async function offWroteAdd(id: number) {
 async function offWroteKeep(rest: readonly unknown[]) {
   const ids = await offWrote();
   if (!ids.length) return;
-  const tops = rest.map((record) => (isObject(record) && typeof record.top === 'number' ? record.top : 0));
+  const tops = rest.map((record) => (isRecord(record) && typeof record.top === 'number' ? record.top : 0));
   const floor = tops.length ? Math.min(...tops) : Infinity;
   const kept = rest.length ? ids.filter((id) => id > floor) : [];
   if (kept.length !== ids.length)
@@ -423,7 +418,7 @@ interface StoredRead<Answer = unknown> {
 // The stored answer a value read under a read's key is, or null when it is none: offStash writes every field, so a
 // record without its body, its status or its time was not written by it. Its status is not judged here. Pure.
 function storedRead(stored: unknown): StoredRead | null {
-  if (!isObject(stored) || !('data' in stored)) return null;
+  if (!isRecord(stored) || !('data' in stored)) return null;
   const { key, data, status, at } = stored;
   return typeof key === 'string' && typeof status === 'number' && typeof at === 'number'
     ? { key, data, status, at }
@@ -458,7 +453,7 @@ function offStashed<Endpoint extends ApiEndpoint>(
   // narrowed.
   return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (record) => {
     const value: unknown = record;
-    if (!isObject(value) || !('data' in value)) return null;
+    if (!isRecord(value) || !('data' in value)) return null;
     // The record has to say for itself that the server answered it with a success. A record that does not say so is
     // not trusted and is dropped: a record written by another build of this viewer may hold a refusal, and read as a
     // success it opens a document that is simply empty. A read that finds nothing asks the network, which is the right
@@ -488,14 +483,14 @@ function offStashed<Endpoint extends ApiEndpoint>(
 // document (it has no build), a record from before the meta was carried, or the same build. Pure.
 /** @param kept the kept record @param key the read's address @param last the last meta read */
 function offKeptMeta(kept: KeptRecord<Meta> | null, key: string, last: Meta): StoredAnswer<'GET /api/meta'> | null {
-  if (!kept || !kept.docs || !isObject(last)) return null;
+  if (!kept || !kept.docs || !isRecord(last)) return null;
   const query = key.indexOf('?') >= 0 ? key.slice(key.indexOf('?') + 1) : '';
   const docName = (typeof last.doc === 'string' && last.doc) || new URLSearchParams(query).get('doc') || '',
     keptDoc = kept.docs[docName];
   if (
     !keptDoc ||
     !keptDoc.build ||
-    !isObject(keptDoc.meta) ||
+    !isRecord(keptDoc.meta) ||
     keptDoc.meta.pages_build !== keptDoc.build ||
     last.pages_build === keptDoc.build
   )
@@ -567,7 +562,7 @@ interface KeepAnswer {
 // What an answer to keep says, or null when there was none (offlineAsk's null, or not an object): a count that is
 // not a number counts none, a failed list that is not one lists none, and only its addresses are listed. Pure.
 function keepAnswer(answer: unknown): KeepAnswer | null {
-  if (!isObject(answer)) return null;
+  if (!isRecord(answer)) return null;
   const { kept, failed } = answer;
   return {
     kept: typeof kept === 'number' ? kept : 0,
@@ -624,17 +619,21 @@ async function offlineAskDown() {
       resolve(null);
     }
   });
-  if (isObject(answer) && answer.down === true) setApiOut(true);
+  if (isRecord(answer) && answer.down === true) setApiOut(true);
 }
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
 // (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
 function offlineUrls(): string[] {
-  const out = new Set([location.pathname + location.search]);
+  const out = new Set([window.location.pathname + window.location.search]);
   try {
     performance.getEntriesByType('resource').forEach((entry) => {
-      const address = new URL(entry.name, location.href);
-      if (address.origin === location.origin && !address.pathname.startsWith('/api/') && address.pathname !== '/sw.js')
+      const address = new URL(entry.name, window.location.href);
+      if (
+        address.origin === window.location.origin &&
+        !address.pathname.startsWith('/api/') &&
+        address.pathname !== '/sw.js'
+      )
         out.add(address.href);
     });
   } catch (error) {}
@@ -734,8 +733,8 @@ async function offlinePrepare() {
         });
       } catch (error) {}
       if (meta && meta.pages_build) {
-        // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
-        // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
+        // Held only when the server says until when. A 404 is thrown, and offHold's catch turns it, as any 4xx, into
+        // no hold: an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
         const hold = await offHold(docName, meta.pages_build, 7);
         if (hold && hold.held) held++;
         got.push({ k: key, entry: { build: meta.pages_build, files, at: hold ? hold.at : 0, seen, meta: meta } });
@@ -869,7 +868,7 @@ interface OldBuild {
 }
 function isKeptDoc(value: unknown): value is KeptDoc {
   return (
-    isObject(value) &&
+    isRecord(value) &&
     typeof value.build === 'string' &&
     isTextList(value.files) &&
     typeof value.at === 'number' &&
@@ -879,7 +878,7 @@ function isKeptDoc(value: unknown): value is KeptDoc {
 }
 function isOldBuild(value: unknown): value is OldBuild {
   return (
-    isObject(value) &&
+    isRecord(value) &&
     typeof value.doc === 'string' &&
     typeof value.build === 'string' &&
     isTextList(value.files) &&
@@ -890,11 +889,11 @@ function isOldBuild(value: unknown): value is OldBuild {
 // Whether a value read under OFF_KEPT is the kept record: what offKeptWith, offKeptPart and offKeptHeld write, every
 // document's entry and every old build whole. Every Limn that keeps a copy writes this shape. Pure.
 function isKeptRecord(value: unknown): value is KeptRecord {
-  if (!isObject(value)) return false;
+  if (!isRecord(value)) return false;
   const { docs, old } = value;
   return (
     typeof value.key === 'string' &&
-    isObject(docs) &&
+    isRecord(docs) &&
     !Array.isArray(docs) &&
     Object.values(docs).every(isKeptDoc) &&
     Array.isArray(old) &&
@@ -981,7 +980,7 @@ interface DocSeen {
 // meta is an answer to GET /api/meta as it was handed to offStash; a field of the wrong type reads as missing.
 function offSeenIn(meta: Meta): Record<string, DocSeen> {
   const out: Record<string, DocSeen> = {};
-  if (!isObject(meta)) return out;
+  if (!isRecord(meta)) return out;
   const put = (summary: Record<string, unknown>, key: unknown) => {
     const { pages_build: build, src_mtime: src, kind } = summary;
     if (typeof key === 'string' && key)
@@ -993,7 +992,7 @@ function offSeenIn(meta: Meta): Record<string, DocSeen> {
   };
   put(meta, meta.doc);
   (Array.isArray(meta.docs) ? meta.docs : []).forEach((summary: unknown) => {
-    if (isObject(summary)) put(summary, summary.key);
+    if (isRecord(summary)) put(summary, summary.key);
   });
   return out;
 }
@@ -1015,7 +1014,7 @@ function offBehind(kept: KeptRecord | null, seen: Record<string, DocSeen>): stri
 // queue is every record the store holds, read as it is: a record that is not a queued pin (isQueuedPin) keeps the
 // build it names all the same.
 function offFree(old: readonly OldBuild[], queue: readonly unknown[]): OldBuild[] {
-  const drawn = (queue || []).filter(isObject).filter((record) => record.build);
+  const drawn = (queue || []).filter(isRecord).filter((record) => record.build);
   return (old || []).filter(
     (oldBuild) =>
       !drawn.some((record) => record.build === oldBuild.build && (!record.doc || record.doc === oldBuild.doc)),
@@ -1108,8 +1107,7 @@ async function offHold(
     });
     return { at: Date.now(), held: answer.status === 200 && !!answer.data && !!answer.data.until };
   } catch (error) {
-    const apiError = error as ApiError,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? { at: Date.now(), held: false } : null;
   }
 }
@@ -1134,7 +1132,7 @@ function offHolderId(): Promise<string> {
           request.onsuccess = () => {
             const stored = request.result;
             id =
-              isObject(stored) && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id)
+              isRecord(stored) && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id)
                 ? stored.id
                 : '';
             if (!id) {
@@ -1372,7 +1370,7 @@ async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: nu
     // whose height is a number (pdfjs-dist PageViewport).
     const text = await pageText(VECTOR_PDF.doc, page);
     const viewport = text.vp;
-    if (!isObject(viewport) || typeof viewport.height !== 'number') return '';
+    if (!isRecord(viewport) || typeof viewport.height !== 'number') return '';
     return quoteIn(text.items, viewport.height, rect);
   } catch (error) {
     return '';
@@ -1392,8 +1390,8 @@ function quoteIn(
 ): string {
   const out: string[] = [];
   (items || []).forEach((item) => {
-    const matrix = isObject(item) && isNumberList(item.transform) ? item.transform : null;
-    if (!isObject(item) || !matrix || typeof item.str !== 'string' || !item.str.trim()) return;
+    const matrix = isRecord(item) && isNumberList(item.transform) ? item.transform : null;
+    if (!isRecord(item) || !matrix || typeof item.str !== 'string' || !item.str.trim()) return;
     const x = matrix[4],
       width = Number(item.width) || 0,
       height = Number(item.height) || Math.hypot(matrix[2], matrix[3]) || 0,
@@ -1490,7 +1488,7 @@ async function offlineQueueSave(
   // as placed and points elsewhere. So the record carries the box as page fractions (frac, which every drag has) and
   // the page's size in points on the build it was drawn on, which together rebuild that pick request exactly. The
   // lines a pick already found are kept only to tell the person what the pin used to point at if its place is lost.
-  const pageFacts = META && META.pages && META.pages[selection.page - 1];
+  const pageFacts = META && META.pages && selection.page !== undefined && META.pages[selection.page - 1];
   const found =
     !selection.offline &&
     !isRegion(selection) &&
@@ -1500,9 +1498,8 @@ async function offlineQueueSave(
   // A Markdown or text document has no page: its lines are the place, and the browser drew them from the source it
   // holds. The record keeps those lines' own text, so the send can tell whether they still read the same - and find
   // them again when lines were only added or removed above them.
-  const lined = found && typeof selection.page !== 'number' && MARKDOWN_VIEW.doc === (selection.doc || DOC);
-  const firstLine = selection.lo as number,
-    lastLine = selection.hi as number;
+  const lined =
+    found && selection.page === undefined && MARKDOWN_VIEW.doc === (selection.doc || DOC) ? selection : null;
   const rec: Omit<QueuedPin, 'id'> = {
     v: 1,
     label: META ? META.label : '',
@@ -1525,13 +1522,13 @@ async function offlineQueueSave(
     place: found ? { file: selection.file, name: selection.name, lo: selection.lo, hi: selection.hi } : null,
     lines: lined
       ? {
-          file: selection.file,
-          name: selection.name,
-          lo: firstLine,
-          hi: lastLine,
-          text: MARKDOWN_VIEW.lines.slice(firstLine - 1, lastLine).join('\n'),
-          kind: selection.scope ? kindFor(selection.scope, selection.env) : selection.kind,
-          scope: selection.scope ? wireScope(selection.scope) : null,
+          file: lined.file,
+          name: lined.name,
+          lo: lined.lo,
+          hi: lined.hi,
+          text: MARKDOWN_VIEW.lines.slice(lined.lo - 1, lined.hi).join('\n'),
+          kind: lined.scope ? kindFor(lined.scope, lined.env) : lined.kind,
+          scope: lined.scope ? wireScope(lined.scope) : null,
         }
       : null,
     idem: (tried && tried.idem) || offlineKey(),
@@ -1654,8 +1651,7 @@ async function offlinePlaceLines(rec: QueuedPin): Promise<LinePlace | 'net' | nu
       expect: [413],
     });
   } catch (error) {
-    const apiError = error as ApiError,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? null : 'net';
   }
   const lines =
@@ -1941,12 +1937,12 @@ async function offlineFlush() {
           saved.push(data && data.id);
           await offDel(rec.id);
         } catch (error) {
-          const apiError = error as ApiError,
-            status = (apiError && apiError.status) || 0;
-          if (status >= 400 && status < 500) {
+          const refused = isApiError(error) ? error : null,
+            status = refused ? refused.status : 0;
+          if (refused && status >= 400 && status < 500) {
             rec.sent = false;
             rec.held = true;
-            rec.why = errText(apiError.data) || 'HTTP ' + status;
+            rec.why = errText(refused.data) || 'HTTP ' + status;
             await offPut(rec);
             held++;
           } else failed++;
@@ -1994,13 +1990,13 @@ async function offlineFlush() {
         saved.push(data && data.id);
         await offDel(rec.id);
       } catch (error) {
-        const apiError = error as ApiError;
-        const status = (apiError && apiError.status) || 0;
+        const refused = isApiError(error) ? error : null;
+        const status = refused ? refused.status : 0;
         // Turned away: nothing is on the server.
-        if (status >= 400 && status < 500) {
+        if (refused && status >= 400 && status < 500) {
           rec.sent = false;
           rec.held = true;
-          rec.why = errText(apiError.data) || 'HTTP ' + status;
+          rec.why = errText(refused.data) || 'HTTP ' + status;
           await offPut(rec);
           held++;
           continue;
@@ -2075,7 +2071,7 @@ function offlineBoot() {
     offFollowCheck(true);
   });
 }
-addEventListener('online', () => {
+window.addEventListener('online', () => {
   void offlineFlush();
 });
 export type { QueuedPin };

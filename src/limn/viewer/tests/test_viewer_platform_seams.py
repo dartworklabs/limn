@@ -210,6 +210,7 @@ class RequestFallback(unittest.TestCase):
 # pin list's day lines and review pins, the focus's places, the composer's save label.
 NOTICE_SCOPE = r"""
 const LOG=[];
+class HTMLElement {}
 const stub=()=>({open:false,hidden:true,dataset:{},addEventListener(){},getClientRects:()=>[],matches:()=>false,
   closest:()=>null,querySelector:()=>null,querySelectorAll:()=>[],remove(){}});
 const ELS={}; const $=s=>ELS[s]||(ELS[s]=stub());
@@ -241,7 +242,7 @@ NOTICE_FNS = [
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverOut", "lineVisible", "sourceEntry", "sameWords",
     "lineCap", "digestHold", "noticeDots", "holdsDot", "newsDupe", "foldedNews", "gatheredDupe", "gatheredLess",
     "dotHeld", "newsSlot", "isUndo", "noticeFocusBack", "syncSaveButton", "dropStaleReview", "reviewNewsStale",
-    "foldedGone", "gatheredGone", "regroup",
+    "foldedGone", "gatheredGone", "regroup", "focusedElement", "findClosest",
 ]  # fmt: skip
 NOTICE_SEAMS = ("setNoticeStatusLine", "setNoticePanel", "setNoticeFocus", "setNoticeComposer")
 
@@ -307,7 +308,8 @@ class NoticeSeams(unittest.TestCase):
         open, are page lines drawn, then the line of the message's page - or, with none, the reading line's page - and,
         failing that, the reading area."""
         body = r"""
-        const own={closest:s=>s.startsWith('[data-act^="notice-"]')?{}:s==='#doc .pv'?{dataset:{page:PAGE}}:null};
+        const line=()=>Object.assign(new HTMLElement(),{dataset:{page:PAGE}});
+        const own=Object.assign(new HTMLElement(),{closest:s=>s.startsWith('[data-act^="notice-"]')?{}:s==='#doc .pv'?line():null});
         let PAGE='3'; document.activeElement=own; let back=noticeFocusBack({n:1});
         document.activeElement=document.body; back(); LOG.push(['--']);
         PAGE='0'; document.activeElement=own; back=noticeFocusBack({n:1});

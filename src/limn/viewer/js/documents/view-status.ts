@@ -14,10 +14,10 @@ import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from
 import { hideTip, showTipText } from '../platform/tooltip.ts';
 import { SYNC_REASON } from './view-meta.ts';
 import { POLL_FAILS } from './flow-polling.ts';
-import { BUILD, pullSuffix } from './view-build-chip.ts';
+import { BUILD, setBuildUnchanged, pullSuffix } from './view-build-chip.ts';
 import { versionOutdated } from './flow-updates.ts';
 import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
-import { $, findElement, findMaybe } from '../platform/dom.ts';
+import { $, findElement, findMaybe, focusedElement } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
 import { isViewer, STATUS_SYNC } from './state.ts';
 import { offlineQueue } from './state-seams.ts';
@@ -327,11 +327,11 @@ function statusInput() {
 // shows what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
 function buildUnchanged(build: BuildStatus) {
   const mark = { pull: pullSuffix(build) };
-  BUILD.unchanged = mark;
+  setBuildUnchanged(mark);
   drawStatus();
   setTimeout(() => {
     if (BUILD.unchanged !== mark) return;
-    BUILD.unchanged = null;
+    setBuildUnchanged(null);
     drawStatus();
   }, STATUS_TRANSIENT_MS);
 }
@@ -442,8 +442,8 @@ function drawStatus() {
 // The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
 // action), or null: the line's redraw gives the focus back to it (refocusStatus).
 function statusFocus(): { act: string; n: string } | null {
-  const active = document.activeElement as HTMLElement | null;
-  return active && active.closest && active.closest('#status,#status-list') && active.dataset.act
+  const active = focusedElement();
+  return active && active.closest('#status,#status-list') && active.dataset.act
     ? { act: active.dataset.act, n: active.dataset.n || '' }
     : null;
 }
@@ -455,8 +455,8 @@ function refocusStatus(focused: { act: string; n: string } | null) {
   if (active && active !== document.body && document.contains(active)) return;
   const selector = '[data-act="' + focused.act + '"]' + (focused.n ? '[data-n="' + focused.n + '"]' : ''),
     listDialog = $('#status-list');
-  const button = ((listDialog.open && listDialog.querySelector(selector)) ||
-    $('#status').querySelector(selector)) as HTMLElement | null;
+  const button =
+    (listDialog.open && findMaybe(listDialog, selector, HTMLElement)) || findMaybe($('#status'), selector, HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 // The line follows the focus: when it leaves a message's button, the line shows again what comes first.
@@ -523,7 +523,7 @@ $('#status-list').addEventListener('close', () => {
   const active = document.activeElement,
     line = $('#status');
   if (active && active !== document.body && !$('#status-list').contains(active)) return;
-  const button = (line.querySelector('[data-act="status-more"]') || line.querySelector('button')) as HTMLElement | null;
+  const button = findMaybe(line, '[data-act="status-more"]', HTMLElement) || findMaybe(line, 'button', HTMLElement);
   if (button) button.focus({ preventScroll: true });
 });
 // Which side of the status line the '+N' list opens on, for a list `height` px tall with room px free above and below
@@ -555,7 +555,7 @@ function placeStatusList() {
   if (!dialog.open) return;
   const viewport = window.visualViewport,
     viewTop = viewport ? viewport.offsetTop : 0,
-    viewBottom = viewport ? viewTop + viewport.height : innerHeight,
+    viewBottom = viewport ? viewTop + viewport.height : window.innerHeight,
     lineRect = $('#status').getBoundingClientRect();
   // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and
   // it reaches left from there: centred in the window it would stand about 350px left of the line, over the PDF.
@@ -563,7 +563,7 @@ function placeStatusList() {
   // inside the visible part, narrowed to it where it is narrower, so a phone zoomed in never has the list run past both
   // sides of what it shows.
   const viewLeft = viewport ? viewport.offsetLeft : 0,
-    viewRight = viewport ? viewLeft + viewport.width : innerWidth;
+    viewRight = viewport ? viewLeft + viewport.width : window.innerWidth;
   dialog.style.left = '';
   dialog.style.right = '';
   const style = getComputedStyle(dialog),
@@ -574,7 +574,7 @@ function placeStatusList() {
     baseLeft = Math.max(8, baseRight - max);
   } else {
     const barLeft = parseFloat(style.left),
-      barRight = innerWidth - parseFloat(style.right),
+      barRight = window.innerWidth - parseFloat(style.right),
       barWidth = Math.min(max, barRight - barLeft);
     baseLeft = barLeft + (barRight - barLeft - barWidth) / 2;
     baseRight = baseLeft + barWidth;
@@ -582,20 +582,20 @@ function placeStatusList() {
   const width = Math.min(baseRight - baseLeft, viewRight - viewLeft - 16),
     left = Math.min(Math.max(baseLeft, viewLeft + 8), viewRight - 8 - width);
   dialog.style.left = Math.round(left) + 'px';
-  dialog.style.right = Math.round(innerWidth - left - width) + 'px';
+  dialog.style.right = Math.round(window.innerWidth - left - width) + 'px';
   const lineTop = Math.min(Math.max(lineRect.top, viewTop), viewBottom),
     // the line's edges, held inside the visible part
     lineBottom = Math.min(Math.max(lineRect.bottom, viewTop), viewBottom);
   const above = lineTop - viewTop - 4 - 8,
     below = viewBottom - lineBottom - 4 - 8,
     height = dialog.scrollHeight + dialog.offsetHeight - dialog.clientHeight;
-  const row = dialog.querySelector('.st-row') as HTMLElement | null,
+  const row = findMaybe(dialog, '.st-row', HTMLElement),
     one = height - $('#status-list-rows').offsetHeight + (row ? row.offsetHeight : 0); // a row, its padding, border
   const up = statusListUp(height, above, below, BAND === LAYOUT_BAND.SHORT),
     room = Math.floor(Math.min(Math.max(up ? above : below, one), viewBottom - viewTop - 16));
   dialog.style.setProperty('--sl-room', room + 'px');
   dialog.style.top = up ? 'auto' : Math.round(Math.min(lineBottom + 4, viewBottom - 8 - room)) + 'px';
-  dialog.style.bottom = up ? Math.round(innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
+  dialog.style.bottom = up ? Math.round(window.innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
 }
 // placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
 let STATUS_LIST_PLACE = 0;
@@ -606,7 +606,7 @@ function placeStatusListSoon() {
       placeStatusList();
     });
 }
-addEventListener('resize', placeStatusListSoon);
+window.addEventListener('resize', placeStatusListSoon);
 {
   const viewport = window.visualViewport;
   if (viewport) {
@@ -620,8 +620,8 @@ addEventListener('resize', placeStatusListSoon);
 // that was inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus() {
   const line = $('#status'),
-    active = document.activeElement as HTMLElement,
-    had = line.contains(active);
+    active = focusedElement(),
+    had = !!active && line.contains(active);
   if ($('#status-list').open) $('#status-list').close();
   lineVisible(false); // moved out from under the pointer: no hover is left holding its windows
   if (BAND === LAYOUT_BAND.SHORT) {
@@ -631,7 +631,7 @@ function placeStatus() {
   } else if (LAYOUT === LAYOUT_MODE.WIDE) {
     if (line.parentNode !== $('#status-wide')) $('#status-wide').appendChild(line);
   } else if (line.parentNode !== $('#status-dock')) $('#status-dock').appendChild(line);
-  if (had && active.focus) active.focus({ preventScroll: true });
+  if (had && active) active.focus({ preventScroll: true });
   STATUS_SIG = '';
   drawStatus();
 }

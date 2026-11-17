@@ -49,25 +49,67 @@ interface SuggestDraft {
   fail: { key: string; fill: boolean; why: string } | null;
 }
 
-// The composer's selection (app/state.ts COMPOSE.current): the pick's answer plus what the composer chose on it - the
-// ladder rung (scope) and its environment, the element the range follows (elSel), and the overlap it reports (rel).
-interface ComposerSelection extends PickAnswer {
+// What the composer chooses on a selection (app/state.ts COMPOSE.current): the ladder rung (scope) and its
+// environment, the element the range follows (elSel), and the overlap it reports (rel).
+interface ComposerChoice {
   scope?: string | null;
   env?: string | null;
   elSel?: PinElement | null;
   rel?: PickOverlap[];
-  // A drag whose pick could not be sent (offline/flow.ts offlinePick): it has no lines, and its box in PDF points is kept so
-  // the same coordinates can be sent to pick once the connection is back.
+}
+
+// A drag on the PDF: POST /api/pick's answer, or a drag whose pick could not be sent (offline/flow.ts offlinePick,
+// offline: no lines, and its box in PDF points is kept so the same coordinates can be sent to pick once the
+// connection is back).
+interface PagePick extends PickAnswer, ComposerChoice {
   offline?: boolean;
   rect?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
+
+// Lines picked on a drawn Markdown or text document (markdown/view.ts pickLines): the lines and their ladder, with no
+// page, box or build, no score and no warning.
+interface LinePick extends ComposerChoice {
+  kind: 'lines';
+  doc: string | null;
+  file: string;
+  name: string;
+  lo: number;
+  hi: number;
+  raw_lo: number;
+  raw_hi: number;
+  score: null;
+  warn: null;
+  snippet: string;
+  levels: Rung[];
+  default_level: string;
+  n_lines: number;
+  quote: string;
+  overlaps: PickOverlap[];
+  // what only a drag on the PDF has
+  page?: undefined;
+  frac?: undefined;
+  pdf_build?: undefined;
+  via?: undefined;
+  fill?: undefined;
+  rival?: undefined;
+  el?: undefined;
+  path_names?: undefined;
+  view_only?: undefined;
+  pdf?: undefined;
+  n_chars?: undefined;
+  offline?: undefined;
+  rect?: undefined;
+}
+
+// The composer's selection: a drag on the PDF or lines of a drawn document. selection.page tells them apart.
+type ComposerSelection = PagePick | LinePick;
 
 // A pin's location being placed again (composer/flow-repick.ts REPICK): the pin, where it was, the drawn box and the new candidate.
 interface Repick {
   id: number;
   from: { lo?: number; hi?: number; page: number; region: boolean };
   box: HTMLElement | null;
-  cand: PickAnswer | null;
+  cand: ComposerSelection | null;
 }
 
 /** A closed nonblank reply keeps its text and the recipient logins selected for tags that remain in that text. */
@@ -144,11 +186,15 @@ interface Notice {
   back: boolean; // stands behind the line's other messages: news of another document (documents/flow-updates.ts)
   dots: string[]; // the chips a gathered message marks (digestNote); else its one dot
   onEnd: ((acted: boolean, seen: boolean) => void) | null; // runs once as it goes: by its action, or seen ([x])
-  items?: any[][]; // a gathered message's messages, as lineNote's arguments (digestNote)
+  items?: GatheredNote[]; // a gathered message's messages, as lineNote's arguments (digestNote)
   digestTitle?: string; // a gathered message's title
   brief?: string; // what a gathered message calls it
   digest?: boolean; // false: never gathered
 }
+
+// A message held by a gathering or folded in a gathered line (platform/notices.ts digestHold, digestNote): lineNote's
+// arguments - what it says, its kind, its action and its options.
+type GatheredNote = [message: string, kind: string, act: NoticeAct | null | undefined, options: Partial<Notice>];
 
 // A send held back behind its undo (platform/notices.ts deferred()): run sends it now, cancel takes it back unsent; note is its undo.
 interface Deferred {

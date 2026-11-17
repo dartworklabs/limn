@@ -25,7 +25,7 @@ interface SideBounds extends PanelBounds {
 }
 function outlineBounds() {
   if (outlineOverlay()) return { min: 220, max: 320 };
-  const max = Math.max(180, Math.min(320, innerWidth - currentSideWidth() - 290));
+  const max = Math.max(180, Math.min(320, window.innerWidth - currentSideWidth() - 290));
   return { min: Math.min(220, max), max };
 }
 // Shows an outline width clamped to its bounds (--outline-width and the grip's ARIA) and answers it; nothing is saved.
@@ -169,14 +169,14 @@ function applySideWidth() {
     applySheet();
     return;
   }
-  const bounds = sideBounds(LAYOUT, innerWidth);
+  const bounds = sideBounds(LAYOUT, window.innerWidth);
   showSideWidth(sideWidthFor(bounds), bounds);
 }
 // Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses
 // topAnchor/restoreAnchor).
 function setSideWidth(width: number) {
   if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const bounds = sideBounds(LAYOUT, innerWidth);
+  const bounds = sideBounds(LAYOUT, window.innerWidth);
   width = clampSide(width, bounds);
   showSideWidth(width, bounds);
   savePrefs({ [sideKey()]: width });
@@ -186,7 +186,7 @@ function setSideWidth(width: number) {
 // The handle's double click and Space: the next preset width.
 function cycleSideWidth() {
   if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const bounds = sideBounds(LAYOUT, innerWidth);
+  const bounds = sideBounds(LAYOUT, window.innerWidth);
   setSideWidth(nextPreset(bounds.presets, currentSideWidth()));
 }
 // Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height
@@ -248,7 +248,7 @@ function tabletLift() {
     panel = $('#right'),
     last = open ? editor : verdictRow.getClientRects().length ? verdictRow : $('#note'),
     bottom = last.getBoundingClientRect().bottom - panel.getBoundingClientRect().top + panel.scrollTop;
-  return sheetLift(fraction, (bottom + 8 + $('#c-actions').offsetHeight) / innerHeight);
+  return sheetLift(fraction, (bottom + 8 + $('#c-actions').offsetHeight) / window.innerHeight);
 }
 // Sets and remembers the sheet height (a fraction, clamped to 30-100%, kept to 1/10000: a whole pixel on any screen)
 // under the band's key, opens a collapsed sheet, and ends the composing lift.
@@ -287,7 +287,7 @@ function renderSizeSegment() {
     checkedIndex = SHEET_FRACTIONS.findIndex((stop) => Math.abs(stop - fraction) <= 0.02);
   } else {
     names = ['좁게', '보통', '넓게'];
-    const bounds = sideBounds(LAYOUT, innerWidth);
+    const bounds = sideBounds(LAYOUT, window.innerWidth);
     checkedIndex = presetIndex(bounds.presets, sideWidthFor(bounds));
   }
   setHtml(
@@ -304,7 +304,7 @@ function sizePreset(index: number) {
     setSheetFraction(SHEET_FRACTIONS[index]);
     return;
   }
-  setSideWidth(sideBounds(LAYOUT, innerWidth).presets[index]);
+  setSideWidth(sideBounds(LAYOUT, window.innerWidth).presets[index]);
 }
 // Sets SHEET_KEPT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setSheetKept<Value extends typeof SHEET_KEPT>(value: Value): Value {

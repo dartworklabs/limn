@@ -15,7 +15,7 @@ import { applySheet } from '../layout/flow-panel-size.ts';
 import { renderOverlapBanner } from './flow-pick.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import type { Html } from '../platform/markup.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement } from '../platform/dom.ts';
 import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
@@ -496,12 +496,12 @@ function editDocKind(card: EditCard): string | undefined {
 }
 /** An edit card's suggestion elements. */
 function editSuggestElements(card: EditCard) {
-  const find = (selector: string) => card.el.querySelector(selector) as HTMLElement;
+  const find = (selector: string) => findElement(card.el, selector, HTMLElement);
   return {
     tg: find('.e-sg-row .sg-tg'),
     why: find('.e-sg-row .sg-why'),
     box: find('.e-sg'),
-    ta: find('.e-sg-text') as HTMLTextAreaElement,
+    ta: findElement(card.el, '.e-sg-text', HTMLTextAreaElement),
     line: find('.e-sg .sg-note'),
     cc: find('.e-sg .sg-cc'),
     cur: find('.e-sg .sg-cur'),
@@ -513,8 +513,8 @@ function renderEditSuggest(card: EditCard) {
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN,
     elements = editSuggestElements(card);
-  const row = card.el.querySelector('.e-sg-row') as HTMLElement,
-    readOnly = card.el.querySelector('.e-sg-ro') as HTMLElement;
+  const row = findElement(card.el, '.e-sg-row', HTMLElement),
+    readOnly = findElement(card.el, '.e-sg-ro', HTMLElement);
   row.hidden = closed;
   const view = closed && pin ? suggestView(pin) : null;
   readOnly.hidden = !view;
@@ -589,8 +589,8 @@ function suggestAct(control: HTMLElement, act: string) {
 // Typing in an editor: its draft takes the text; the line under it and - in the composer - the overlap notice and the
 // tab's draft follow.
 document.addEventListener('input', (event) => {
-  const editor = event.target as HTMLTextAreaElement;
-  if (!editor.classList || !editor.classList.contains('sg-text')) return;
+  const editor = event.target;
+  if (!(editor instanceof HTMLTextAreaElement) || !editor.classList.contains('sg-text')) return;
   const owner = suggestOwner(editor);
   if (!owner) return;
   owner.sg.text = editor.value;

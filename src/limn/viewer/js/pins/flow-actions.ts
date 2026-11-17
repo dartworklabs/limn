@@ -15,7 +15,7 @@ import {
   setEditorCurrent,
 } from '../app/state.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
-import { api, isRefusal } from '../platform/api.ts';
+import { api, isApiError, isRefusal } from '../platform/api.ts';
 import {
   NOTICE_ACT_WAIT,
   NOTICE_LATE_SRC,
@@ -219,8 +219,7 @@ async function dropPin(
     });
     ok = true;
   } catch (error) {
-    const failure = error as ApiError;
-    lost = !failure || !failure.status;
+    lost = !isApiError(error);
     if (PINS_APPLIED_SEQ === applied) {
       const old = was.find((pin) => pin.id === id);
       if (old && !OPEN_ALL.some((pin) => pin.id === id)) {
@@ -344,11 +343,12 @@ async function trashRestore(id: number | null) {
     sourceOk(source);
     if (!had) return;
     const trashList = $('#trash-list'),
-      target = trash.open
-        ? ((trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
-            trashList.querySelector('[data-act="restore"]') ||
-            trash.querySelector('[data-act="trash-close"]')) as HTMLElement | null)
-        : null;
+      found = trash.open
+        ? trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
+          trashList.querySelector('[data-act="restore"]') ||
+          trash.querySelector('[data-act="trash-close"]')
+        : null,
+      target = found instanceof HTMLElement ? found : null;
     if (target) target.focus();
     else searchToPage();
   });

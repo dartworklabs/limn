@@ -66,8 +66,9 @@ interface NotificationOptions {
   actions?: { action: string; title: string }[];
 }
 
-// An api() failure (platform/api.ts): the HTTP status and the parsed body ride on the Error.
+// An api() refusal (platform/api.ts apiError): the HTTP status and the parsed body ride on the Error; isApiError tells
+// it from any other value a request throws.
 interface ApiError extends Error {
-  status?: number;
-  data?: unknown;
+  status: number;
+  data: unknown;
 }

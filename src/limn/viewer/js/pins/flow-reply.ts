@@ -5,10 +5,20 @@
 // whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
 // the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
 // Sending is deferred behind an undo in the card, where the box was (deferredNote).
-import { OPEN_CARDS, PEOPLE, REPLY, REPLY_DRAFT, REPLY_VISITS, SIDE_OPEN, setReply } from '../app/state.ts';
+import {
+  OPEN_CARDS,
+  PEOPLE,
+  REPLY,
+  setReplyFlip,
+  REPLY_DRAFT,
+  REPLY_VISITS,
+  SIDE_OPEN,
+  setReply,
+} from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
+import { findElement, findMaybe } from '../platform/dom.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote } from '../platform/notices.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { setSide } from '../layout/flow.ts';
@@ -102,12 +112,12 @@ function createReplyBox(pin: Pin | null) {
 }
 // The text field of a reply box (createReplyBox puts exactly one in every box).
 function replyNote(replyBox: ReplyBox): HTMLTextAreaElement {
-  return replyBox.el.querySelector('textarea') as HTMLTextAreaElement;
+  return findElement(replyBox.el, 'textarea', HTMLTextAreaElement);
 }
 function renderReplyOutcome() {
   const replyBox = REPLY;
   if (!replyBox) return;
-  const box = replyBox.el.querySelector('.r-outcome') as HTMLElement,
+  const box = findMaybe(replyBox.el, '.r-outcome', HTMLElement),
     field = replyNote(replyBox);
   if (!box || !field) return;
   const pin = findAnyPin(replyBox.id),
@@ -127,12 +137,12 @@ function renderReplyOutcome() {
   } // the rule changed direction (a tag added/removed): the override resets
   replyBox.toggle = preview.toggle;
   box.hidden = false;
-  (box.querySelector('.r-out-t') as HTMLElement).textContent = preview.text;
+  findElement(box, '.r-out-t', Element).textContent = preview.text;
   box.classList.toggle(
     'reopen',
     replyReopens(pin as Pin, isHuman(), mentioned, replyBox.flip ? preview.toggle === 'reopen' : undefined),
   );
-  const flipButton = box.querySelector('[data-act=reply-flip]') as HTMLElement,
+  const flipButton = findElement(box, '[data-act=reply-flip]', HTMLElement),
     keep = preview.toggle === 'keep';
   flipButton.textContent = translate(keep ? '상태 유지' : '다시 열기');
   flipButton.dataset.tip = translate(
@@ -186,7 +196,7 @@ function sendReply() {
   if (!replyBox || viewerBlocked()) return;
   const field = replyNote(replyBox),
     text = field.value.trim();
-  const errorLine = replyBox.el.querySelector('.r-err') as HTMLElement;
+  const errorLine = findElement(replyBox.el, '.r-err', HTMLElement);
   if (!text) {
     errorLine.textContent = translate('답글이 비어 있습니다');
     errorLine.hidden = false;
@@ -216,11 +226,11 @@ function sendReply() {
     }
     REPLY_DRAFT.set('reply:' + id, { text, mentions: hints });
     openReply(id);
-    const boxErrorLine = REPLY && REPLY.id === id ? (REPLY.el.querySelector('.r-err') as HTMLElement) : null;
+    const boxErrorLine = REPLY && REPLY.id === id ? findMaybe(REPLY.el, '.r-err', HTMLElement) : null;
     if (REPLY && REPLY.id === id) {
       const field = replyNote(REPLY);
       field._mentions = new Set(hints);
-      REPLY.flip = flip;
+      setReplyFlip(REPLY, flip);
       mentionPreview(field);
       renderReplyOutcome();
       if (boxErrorLine) {
@@ -258,9 +268,9 @@ function sendReply() {
           if (note) bannerNote(NOTICE_HOST.LIST, note, NOTICE_KIND.WARN);
         }
       } catch (error) {
-        const err = error as ApiError; // silent above: the box's own line says it, once
+        const err = isApiError(error) ? error : null; // silent above: the box's own line says it, once
         back(
-          err.status
+          err && err.status
             ? translate('보내지 못했습니다') + ' — ' + (errText(err.data) || 'HTTP ' + err.status)
             : translate('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'),
         );
@@ -277,6 +287,6 @@ function sendReply() {
   );
   // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the reply still goes when its undo does.
   const undoButton = document.querySelector('[data-act="notice-act"][data-n="' + note.n + '"]');
-  if (undoButton) (undoButton as HTMLElement).focus({ preventScroll: true });
+  if (undoButton instanceof HTMLElement) undoButton.focus({ preventScroll: true });
 }
 export { closeReply, openReply, renderReplyOutcome, replyNote, sendReply };

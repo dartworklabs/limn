@@ -6,7 +6,7 @@ import { api } from '../platform/api.ts';
 import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { refreshPageLists } from './view-page-list.ts';
-import { $ } from '../platform/dom.ts';
+import { $, eventElement, findAll } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from '../documents/state.ts';
 import { topAnchor } from '../layout/flow.ts';
@@ -432,8 +432,8 @@ function outlineFiltered() {
 // on the pages does not take it away, so the outline would wait for good - nor a row a mouse pressed, which keeps the
 // focus after its pick: reading on must not leave the outline behind.
 function outlineHeld() {
-  const focused = document.activeElement as HTMLElement | null;
-  const onRow = !!focused && !!focused.closest && !!focused.closest('#outline-items');
+  const focused = document.activeElement;
+  const onRow = !!focused && !!focused.closest('#outline-items');
   return (
     outlineFiltered() ||
     OUTLINE_OVER ||
@@ -476,7 +476,7 @@ function outlineFollow(open?: boolean) {
       start = start.previousElementSibling;
     return start.getBoundingClientRect().top - from;
   };
-  const entry = OUTLINE_ENTRIES[Number((row as HTMLElement).dataset.index)],
+  const entry = OUTLINE_ENTRIES[Number(row instanceof HTMLElement ? row.dataset.index : undefined)],
     sectionHead = entry && entry.up >= 0 ? list.querySelector('[data-index="' + entry.up + '"]') : null;
   // The tablet sheet's bar and the status line on it stand over the overlay's foot (frame.css: the overlay runs to the
   // screen's bottom): what they cover is out of view, so the view is that much shorter and so is what the list can
@@ -772,11 +772,11 @@ function updateSectionStrip() {
 // and typed in, and the first ↓ must show where the focus went.
 /** @returns the result rows (the unread-entries note is not one) */
 function outlineRows(box: HTMLElement): HTMLElement[] {
-  return [...box.querySelectorAll('button[data-act="outline-page"]')] as HTMLElement[];
+  return findAll(box, 'button[data-act="outline-page"]', HTMLElement);
 }
 // Wires one filter field to its list and its live region (outlineSay).
-function outlineFilter(field: HTMLElement, box: HTMLElement, status: HTMLElement) {
-  const input = field as HTMLInputElement,
+function outlineFilter(field: HTMLInputElement, box: HTMLElement, status: HTMLElement) {
+  const input = field,
     keyed = () => {
       document.documentElement.dataset.input = 'key';
     },
@@ -800,12 +800,9 @@ function outlineFilter(field: HTMLElement, box: HTMLElement, status: HTMLElement
     if (event.key === 'Enter') first.click();
   });
   box.addEventListener('keydown', (event) => {
-    const row = (
-      event.target && (event.target as HTMLElement).closest
-        ? (event.target as HTMLElement).closest('button[data-act="outline-page"]')
-        : null
-    ) as HTMLElement | null;
-    if (!row || !mine(event)) return;
+    const target = eventElement(event),
+      row = target ? target.closest('button[data-act="outline-page"]') : null;
+    if (!(row instanceof HTMLElement) || !mine(event)) return;
     const rows = outlineRows(box),
       at = rows.indexOf(row);
     if (event.key === 'Escape') {
@@ -944,12 +941,12 @@ for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, dropOutlinePick, { passive: true });
 // A key scrolls the pages when nothing else has the focus, or something on the pages has it.
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const focused = document.activeElement;
   if (SCROLL_KEYS.has(event.key) && (!focused || focused === document.body || $('#left').contains(focused)))
     dropOutlinePick();
 });
-addEventListener('resize', dropOutlinePick);
+window.addEventListener('resize', dropOutlinePick);
 // Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setOutlineBuild<Value extends typeof OUTLINE_BUILD>(value: Value): Value {
   OUTLINE_BUILD = value;

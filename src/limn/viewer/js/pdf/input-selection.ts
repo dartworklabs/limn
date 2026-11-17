@@ -11,6 +11,7 @@ import {
   LAYOUT,
   META,
   REPICK,
+  setRepickBox,
   REPLY,
   SELMODE,
   SIDE_OPEN,
@@ -284,8 +285,8 @@ function selectionOpen() {
 // (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes ignore the pointer, so the
 // page is what the press lands on).
 function pressOutsideSelection(event: PointerEvent) {
-  const target = event.target as Element;
-  if (!selectionOpen()) return false;
+  const target = eventElement(event);
+  if (!target || !selectionOpen()) return false;
   // A press on the Markdown surface picks (markdown/view.ts), never cancels.
   if (isMarkdownDoc() && target.closest('#md')) return false;
   if (target.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))
@@ -389,7 +390,7 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
   box.classList.add('pending');
   if (REPICK) {
     if (REPICK.box) REPICK.box.remove();
-    REPICK.box = box;
+    setRepickBox(REPICK, box);
     pendingBadge(box, '새 위치');
   } else {
     if (COMPOSE.box) COMPOSE.box.remove();
