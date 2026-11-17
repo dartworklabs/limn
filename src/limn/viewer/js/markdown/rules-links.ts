@@ -81,7 +81,7 @@ function ipv6Groups(host: string): number[] | null {
     tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
   const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
   if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null;
-  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  const groups = [...head, ...new Array<string>(fill).fill('0'), ...tail];
   if (groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
   return groups.map((group) => parseInt(group, 16));
 }

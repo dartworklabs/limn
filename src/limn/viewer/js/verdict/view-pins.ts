@@ -14,6 +14,7 @@ import {
   DEFAULT_DOC,
 } from '../app/state.ts';
 import { ROLE, PIN_STATE } from '../app/rules-tables.ts';
+import { isRecord } from '../platform/tables.ts';
 import { verdictOf, pinState } from '../app/rules-pins.ts';
 import { html } from '../platform/markup.ts';
 import { translate, translateTemplate, josa } from '../platform/i18n.ts';
@@ -149,8 +150,8 @@ function anchorKey(pin: Pin): string | null {
 // A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a
 // JavaScript object always puts first in their numeric order - and an array or any other value as it is.
 function jsonSortedKeys(_key: string, value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const object = value as Record<string, unknown>;
+  if (!isRecord(value) || Array.isArray(value)) return value;
+  const object = value;
   return Object.fromEntries(
     Object.keys(object)
       .sort()

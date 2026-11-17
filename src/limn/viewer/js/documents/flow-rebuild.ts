@@ -114,19 +114,19 @@ async function refreshDoc(meta?: Meta) {
 // is not on screen: syncBuildErrChip) keep a way to open it again as long as BUILD.error exists. say = a build this
 // visit watched has just failed: its title is read out as an alert too (rule 1) - the desktop's panel and chip are no
 // live region.
-function showBuildErr(build: any, say?: boolean) {
+function showBuildErr(build: BuildStatus, say?: boolean) {
   setBuildError(build);
   if (DOC) BUILD_ERR_BY.set(DOC, build);
   const panel = $('#build-err');
   const title = buildErrTitle(build);
   if (say) announce(title, true);
-  const log = String(build.log_tail || build.log || '')
+  const log = String(build.log_tail || '')
     .split('\n')
     .slice(-20)
     .join('\n');
   const close = html`<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button>`;
   const errors = (build.errors || []).map(
-    (error: LatexError) => html`<div class="dim">${error.line ? 'L' + error.line + ' · ' : ''}${error.msg}</div>`,
+    (error) => html`<div class="dim">${error.line ? 'L' + error.line + ' · ' : ''}${error.msg}</div>`,
   );
   setHtml(
     panel,
@@ -145,7 +145,7 @@ function rebuildSources(doc: string | null): string[] {
 }
 // The title of a build's failure (fail) or its LaTeX errors (ok_errors), with the pull's line: the error panel's, and
 // what showBuildErr reads out.
-function buildErrTitle(build: any): string {
+function buildErrTitle(build: BuildStatus): string {
   return (
     translate(
       build.state === BUILD_STATE.FAIL

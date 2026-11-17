@@ -1259,10 +1259,11 @@ function cancelLineVerdict(button: HTMLElement) {
 async function cancelVerdictPin(id: number, page: number, had: boolean, byKey?: boolean) {
   const pin = OPEN_ALL.find((x) => x.id === id),
     from = document.activeElement,
-    doc = DOC;
-  if (!pin || !canCancelVerdict(pin) || viewerBlocked()) return;
-  const key = verdictOf(pin) as string,
-    claimed = claimActive(pin),
+    doc = DOC,
+    key = verdictOf(pin);
+  // canCancelVerdict holds only for a pin with a verdict
+  if (!pin || !canCancelVerdict(pin) || viewerBlocked() || !key) return;
+  const claimed = claimActive(pin),
     target = pageTargetShort(page);
   const inField = isReasonField(document.activeElement) && !!REASON_SESSION && REASON_SESSION.id === id;
   CANCEL_HOLD.set(pageLineSlot(page), Date.now() + CANCEL_HOLD_MS);

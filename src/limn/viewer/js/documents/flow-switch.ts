@@ -160,10 +160,10 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   list.style.maxHeight = pages.style.display = '';
   const span = (range: [number, number] | null, geometry: { top: number; bottom: number }[]) =>
     range ? geometry[range[1]].bottom - geometry[range[0]].top : 0;
-  const least = (count: number) =>
-    (centre
+  const least = (count: number): [number, number] =>
+    centre
       ? [Math.max(0, index - Math.floor((count - 1) / 2)), Math.min(last, index + Math.ceil((count - 1) / 2))]
-      : [index, Math.min(last, index + count - 1)]) as [number, number];
+      : [index, Math.min(last, index + count - 1)];
   const pagesOf = (count: number) => span(rowsAround(pageGeometry, currentPage, count), pageGeometry),
     most = Math.min(5, pageRows.length);
   const plan = show
@@ -446,7 +446,8 @@ function loadViews() {
     if (Array.isArray(kept))
       kept.forEach((entry: unknown) => {
         if (!Array.isArray(entry)) return;
-        const [doc, view]: unknown[] = entry;
+        const doc: unknown = entry[0],
+          view: unknown = entry[1];
         if (typeof doc === 'string' && docInfo(doc) && isKeptView(view)) VIEW_BY.set(doc, view);
       });
   } catch (error) {}
