@@ -70,7 +70,7 @@ import { marksShow } from './input-hide-marks.ts';
 import { renderAssignNew } from '../composer/input-mentions.ts';
 import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { $, $$, eventElement } from '../platform/dom.ts';
+import { $, $$, eventElement, findMaybe } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
@@ -330,7 +330,7 @@ function drawPins() {
       : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
   ); // with no card, an undo row still gets its slot (cardRows)
   if (EDITOR.current) {
-    const slot = $('#pins .edit-slot');
+    const slot = findMaybe(document, '#pins .edit-slot', HTMLElement);
     if (slot) slot.replaceWith(EDITOR.current.el);
     else $('#pins').appendChild(EDITOR.current.el);
     renderEdit();

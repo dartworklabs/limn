@@ -16,6 +16,29 @@ const esc = (text: unknown) =>
 function eventElement(event: Event) {
   return event.target instanceof Element ? event.target : null;
 }
+// A DOM class as instanceof takes it (HTMLElement, HTMLInputElement, ...): what find, findMaybe and findAll check the
+// elements they give against.
+interface ElementClass<Found extends Element> {
+  new (): Found;
+  prototype: Found;
+}
+// The first element under scope that matches selector, which the code needs there and of that class: none, or one of
+// another class, is a fault of the page, thrown as an Error that names the selector and the class.
+function find<Found extends Element>(scope: ParentNode, selector: string, type: ElementClass<Found>): Found {
+  const found = scope.querySelector(selector);
+  if (found instanceof type) return found;
+  throw new Error(selector + ': ' + (found ? 'a ' + found.tagName + ', not a ' : 'no ') + type.name);
+}
+// The first element under scope that matches selector when it is of that class, else null - for an element that is
+// there only in some states (a card being edited, the drawn pages).
+function findMaybe<Found extends Element>(scope: ParentNode, selector: string, type: ElementClass<Found>) {
+  const found = scope.querySelector(selector);
+  return found instanceof type ? found : null;
+}
+// Every element under scope that matches selector and is of that class, in document order; the others are left out.
+function findAll<Found extends Element>(scope: ParentNode, selector: string, type: ElementClass<Found>) {
+  return Array.from(scope.querySelectorAll(selector)).filter((found): found is Found => found instanceof type);
+}
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
 // keyboard is up.
 function typingNow() {
@@ -70,4 +93,19 @@ function isTabStop(x: Element | null): x is HTMLElement {
   );
 }
 
-export { $, $$, ICONS, esc, eventElement, typingNow, searchToPage, focusFell, focusHold, TABBABLE, isTabStop };
+export {
+  $,
+  $$,
+  ICONS,
+  esc,
+  eventElement,
+  find,
+  findMaybe,
+  findAll,
+  typingNow,
+  searchToPage,
+  focusFell,
+  focusHold,
+  TABBABLE,
+  isTabStop,
+};

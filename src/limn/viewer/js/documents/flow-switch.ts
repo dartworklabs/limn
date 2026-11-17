@@ -41,7 +41,7 @@ import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
 import { BACK, BACK_SKIP } from '../layout/input.ts';
 import { refreshDoc } from './flow-rebuild.ts';
 import { NOTICE_HOST } from '../platform/tables.ts';
-import { $, $$, searchToPage } from '../platform/dom.ts';
+import { $, $$, findMaybe, searchToPage } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
@@ -421,7 +421,7 @@ function saveView() {
     saveViews();
     return;
   } // its reading line
-  if (!$('#doc .pg')) return;
+  if (!findMaybe(document, '#doc .pg', HTMLElement)) return;
   const anchor = topAnchor();
   VIEW_BY.set(DOC, {
     page: anchor ? anchor.page : 1,
