@@ -738,8 +738,8 @@ async function offlinePrepare() {
         });
       } catch (error) {}
       if (meta && meta.pages_build) {
-        // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
-        // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
+        // Held only when the server says until when. A 404 is thrown, and offHold's catch turns it, as any 4xx, into
+        // no hold: an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
         const hold = await offHold(docName, meta.pages_build, 7);
         if (hold && hold.held) held++;
         got.push({ k: key, entry: { build: meta.pages_build, files, at: hold ? hold.at : 0, seen, meta: meta } });
