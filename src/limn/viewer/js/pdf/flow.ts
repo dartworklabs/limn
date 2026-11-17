@@ -15,6 +15,7 @@
 import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
+import type { PdfDocument } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
 import { $, $$, searchToPage } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
@@ -29,7 +30,14 @@ import { pageSelection } from './state-seams.ts';
 // come from a page). Returns {t, at}: the folded text and, for each of its UTF-16 units, the index in the given text
 // where the cluster it came from starts, then its length - so a match in t maps back to a run of the text. Pure.
 function searchFold(text: string): { t: string; at: number[] } {
-  const plain = { '\u2018': "'", '\u2019': "'", '\u201A': "'", '\u201C': '"', '\u201D': '"', '\u201E': '"' },
+  const plain: Record<string, string> = {
+      '\u2018': "'",
+      '\u2019': "'",
+      '\u201A': "'",
+      '\u201C': '"',
+      '\u201D': '"',
+      '\u201E': '"',
+    },
     folded: string[] = [],
     at: number[] = [];
   text = String(text);
@@ -362,7 +370,7 @@ function searchJoin(
     nextEdges = nextEdges.blk ?? nextEdges;
   }
   const pitch = lineBox.y - nextBox.y,
-    starts = (x, edges, size) =>
+    starts = (x: number, edges: { l: number }, size: number) =>
       x - edges.l <= SEARCH_EDGE_POINTS || (x - edges.l >= size && x - edges.l <= 2.5 * size);
   if (
     pitch < lineBox.size - 0.01 ||
@@ -514,6 +522,64 @@ function searchKey(
   return /^\p{Script=Latin}$/u.test(key) ? key.toLowerCase() === 'f' : event.code === 'KeyF';
 }
 
+// One text item of a PDF page as PDF.js reads it (getTextContent): its text, its transform matrix, its width in PDF units,
+// its font's name and whether a line ends after it.
+interface PdfTextItem {
+  str: string;
+  transform: number[];
+  width: number;
+  fontName: string;
+  hasEOL: boolean;
+}
+// A font's metrics as PDF.js gives them with the text: its family and its ascent and descent in em.
+interface PdfTextStyle {
+  fontFamily?: string;
+  ascent?: number;
+  descent?: number;
+}
+// Where a line piece stands (searchLines): along the line x0 to x1, across it y, with its font size and angle.
+interface SearchPieceBox {
+  x0: number;
+  x1: number;
+  y: number;
+  size: number;
+  ang: number;
+}
+// One piece of a line (searchLines): its folded text, the map back to its own text, the items it holds, its last
+// character, whether its line is in one piece, and its geometry (null for text that is skewed or mirrored).
+interface SearchLine {
+  t: string;
+  at: number[];
+  parts: { i: number; from: number }[];
+  end: string;
+  plain: boolean;
+  box: SearchPieceBox | null;
+}
+// A page's text as one flow (searchFlow): the flow and, for each line, where it starts, how many characters the trim cuts
+// off its head and its trimmed length.
+interface SearchFlow {
+  t: string;
+  rows: { at: number; cut: number; n: number }[];
+}
+// A page of the document as searchRead keeps it once read.
+interface SearchPage {
+  items: PdfTextItem[];
+  styles: Record<string, PdfTextStyle>;
+  vt: number[];
+  w: number;
+  h: number;
+  lines: SearchLine[];
+  flow: SearchFlow;
+}
+// One hit (searchPageHits): its page, where its first piece starts (line, a), its pieces as searchFind gives them and the
+// boxes searchBoxes caches.
+interface SearchHit {
+  page: number;
+  line: number;
+  a: number;
+  pieces: number[][];
+  boxes: number[][] | null;
+}
 // The search on screen. q: the folded query ('' = none) and re its pattern. doc: the PDF.js document the hits are of.
 // hits: every hit in document order as {page, line, a, pieces, boxes?} (pieces as searchFind gives them; line and a are
 // where the first one starts; boxes cached by searchBoxes). cur: the current hit. ref: where a query looks for its
@@ -528,10 +594,10 @@ const SEARCH = {
   q: '',
   re: null as RegExp | null,
   doc: null as any,
-  hits: [] as any[],
-  cur: null as any,
+  hits: [] as SearchHit[],
+  cur: null as SearchHit | null,
   ref: { page: 1, line: 0, a: 0 },
-  reading: null as any,
+  reading: null as PdfDocument | null,
   failed: new Set(),
   composing: false,
   open: false,
@@ -539,13 +605,13 @@ const SEARCH = {
   away: false,
   side: false,
   ink: 0,
-  near: new Set(),
+  near: new Set<number>(),
   io: null as IntersectionObserver | null,
   text: new WeakMap(),
 };
 // The pages of document doc as read so far, index 0 for page 1 (null = not read yet); kept until the document is
 // closed.
-function searchPages(doc) {
+function searchPages(doc: PdfDocument) {
   let pages = SEARCH.text.get(doc);
   if (!pages) {
     pages = new Array(doc.numPages).fill(null);
@@ -554,7 +620,7 @@ function searchPages(doc) {
   return pages;
 }
 // The hits of a pattern on a read page, number pageNumber, in reading order.
-function searchPageHits(page, pageNumber, pattern) {
+function searchPageHits(page: SearchPage, pageNumber: number, pattern: RegExp | null) {
   return searchFind(page.flow, pattern).map((pieces) => ({
     page: pageNumber,
     line: pieces[0][0],
@@ -600,14 +666,14 @@ function searchPieceBox(page: any, [line, from, to]: number[]) {
   return x1 >= x0 ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, 0, 0];
 }
 // A hit's boxes on its page, one for each line it lies on.
-function searchBoxes(hit) {
+function searchBoxes(hit: SearchHit) {
   return (
     hit.boxes || (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(SEARCH.doc)[hit.page - 1], piece)))
   );
 }
 // Draws a page's hit boxes (the current hit's marked, every one of them), or removes them when the page is not near the
 // view or has none.
-function searchDrawPage(pageNumber) {
+function searchDrawPage(pageNumber: number) {
   const pageBox = document.getElementById('p' + pageNumber);
   if (!pageBox) return;
   pageBox.querySelectorAll('.search-hit').forEach((element) => element.remove());
@@ -656,18 +722,21 @@ function searchUnwatch() {
 // searched document are still to be read. A page whose text could not be read for this query is not waited for.
 function searchBusy() {
   return (
-    !!SEARCH.q && (!SEARCH.doc || searchPages(SEARCH.doc).some((page, index) => !page && !SEARCH.failed.has(index + 1)))
+    !!SEARCH.q &&
+    (!SEARCH.doc ||
+      searchPages(SEARCH.doc).some((page: SearchPage | null, index: number) => !page && !SEARCH.failed.has(index + 1)))
   );
 }
 // How many pages of the searched document could not be read for this query: they are left out of the count, and said
 // with it.
 function searchUnread() {
   return SEARCH.q && SEARCH.doc
-    ? searchPages(SEARCH.doc).filter((page, index) => !page && SEARCH.failed.has(index + 1)).length
+    ? searchPages(SEARCH.doc).filter((page: SearchPage | null, index: number) => !page && SEARCH.failed.has(index + 1))
+        .length
     : 0;
 }
 // Hits in document order.
-function searchOrder(first, second) {
+function searchOrder(first: SearchHit, second: SearchHit) {
   return first.page - second.page || first.line - second.line || first.a - second.a;
 }
 // The part of the PDF area nothing covers (popoverFreeArea), above the phone's search rows - and the status line
@@ -697,7 +766,7 @@ function searchRows() {
 // start off to a side. Its page counts as near the view from here on. A hit shown as the PDF's text is read can land on
 // a jump's way: the jump is over, and the hit is the place the pages settle on, for a glide stopped by a write goes on
 // a frame or two and would take it under the bar.
-function searchReveal(hit) {
+function searchReveal(hit: SearchHit) {
   const shift = searchShift(hit),
     pdfArea = $('#left');
   if (!shift) return;
@@ -713,7 +782,7 @@ function searchReveal(hit) {
 }
 // How far the PDF area has to scroll to show a hit as searchReveal does, down and across, 0 where it shows; null
 // without its page.
-function searchShift(hit) {
+function searchShift(hit: SearchHit) {
   const pageBox = document.getElementById('p' + hit.page);
   if (!pageBox) return null;
   const boxes = searchBoxes(hit),
@@ -880,7 +949,7 @@ function searchRun() {
     searchPaint();
     return;
   }
-  searchPages(doc).forEach((page, index) => {
+  searchPages(doc).forEach((page: SearchPage | null, index: number) => {
     if (page) SEARCH.hits.push(...searchPageHits(page, index + 1, SEARCH.re));
   });
   searchWatch();
@@ -889,7 +958,7 @@ function searchRun() {
   searchRead();
 }
 // Goes to the next (direction 1) or previous (direction -1) hit, wrapping, and shows it.
-function searchGo(direction) {
+function searchGo(direction: 1 | -1) {
   const count = SEARCH.hits.length;
   if (!count) return;
   SEARCH.cur = SEARCH.hits[searchStep(SEARCH.cur ? SEARCH.hits.indexOf(SEARCH.cur) : -1, count, direction)];
@@ -918,7 +987,7 @@ function searchFit() {
   }
   const barStyle = getComputedStyle(navigationBar),
     root = getComputedStyle(document.documentElement),
-    px = (value) => parseFloat(value) || 0;
+    px = (value: string) => parseFloat(value) || 0;
   let used = 0,
     counted = 0;
   for (const neighbour of [...navigationBar.children] as HTMLElement[]) {
@@ -1199,7 +1268,7 @@ function searchBringBack(to: HTMLElement) {
 // the composer is brought back into view for it - else to the PDF's scroller; with nothing remembered, to the control
 // that leads to the search (the magnifier, the phone's position button) and without one to the PDF's scroller. The
 // focus is never left in the closed field.
-function searchClose(back) {
+function searchClose(back: boolean) {
   const searchRoot = $('#doc-search'),
     field = $('#search-q') as HTMLInputElement,
     had = searchRoot.contains(document.activeElement),
@@ -1250,7 +1319,7 @@ $('#search-q').addEventListener('compositionend', () => {
 });
 // Entering the field (a click or a Tab into it) discloses it and remembers what had the focus - not when the window
 // comes back with the focus still in it. It folds away again when the focus leaves the search with nothing typed.
-$('#search-box').addEventListener('focusin', (event) => {
+$('#search-box').addEventListener('focusin', (event: FocusEvent) => {
   if (SEARCH.away) {
     SEARCH.away = false;
     return;
@@ -1259,7 +1328,7 @@ $('#search-box').addEventListener('focusin', (event) => {
   if (!(from && $('#search-box').contains(from))) searchFrom(from);
   if (event.target === $('#search-q')) searchShow();
 });
-$('#doc-search').addEventListener('focusout', (event) => {
+$('#doc-search').addEventListener('focusout', (event: FocusEvent) => {
   const to = event.relatedTarget as Node | null;
   if (to && $('#doc-search').contains(to)) return;
   // The window lost the focus, not the field.
@@ -1284,7 +1353,7 @@ document.addEventListener(
 // Keys in the search: Enter is the next hit and Shift+Enter the previous (not while an input method composes); Esc ends
 // the search. Neither reaches the viewer's own keys (main.ts), so Esc here never cancels a selection or a draft - but
 // with the search closed and empty (the focus on its magnifier) there is nothing to end, and Esc is the viewer's.
-$('#doc-search').addEventListener('keydown', (event) => {
+$('#doc-search').addEventListener('keydown', (event: KeyboardEvent) => {
   if (imeKey(event)) return;
   if (event.key === 'Escape') {
     if (!SEARCH.open && !SEARCH.q) return;

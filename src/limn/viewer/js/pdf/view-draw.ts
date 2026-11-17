@@ -11,16 +11,17 @@ import {
   forgetVectorDocument,
 } from './flow-open.ts';
 import { searchOffer } from './flow.ts';
+import type { PdfDocument } from './flow-open.ts';
 import { $, $$ } from '../platform/dom.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
-function closeVectorDocument(doc) {
+function closeVectorDocument(doc: PdfDocument | null) {
   if (!doc) return;
   try {
     doc.loadingTask.destroy();
   } catch (error) {}
 }
 // Gives up on vector drawing for the document on screen: the pages stay PNG, and #vec-chip says why.
-function failVector(message, cause?) {
+function failVector(message: string, cause?) {
   VECTOR_PDF.failed = message;
   VECTOR_PDF.gen++;
   cancelVectorDraw();
@@ -40,7 +41,7 @@ function failVector(message, cause?) {
   );
 }
 // The draw state of a page (its canvases and the size they were drawn at), made on first use.
-function pageDrawState(pageNumber) {
+function pageDrawState(pageNumber: number) {
   let pageState = VECTOR_PDF.st.get(pageNumber);
   if (!pageState) {
     pageState = { base: null, bw: 0, bh: 0, dt: null, reg: null, dtCw: 0, dtK: 0, stale: false };
@@ -49,13 +50,13 @@ function pageDrawState(pageNumber) {
   return pageState;
 }
 // Removes a canvas. It must shrink to 0 first, so Safari too releases its memory right away.
-function dropCanvas(canvas) {
+function dropCanvas(canvas: HTMLCanvasElement | null) {
   if (!canvas) return;
   canvas.width = 0;
   canvas.height = 0;
   canvas.remove();
 }
-function releasePageCanvases(pageNumber) {
+function releasePageCanvases(pageNumber: number) {
   if (VECTOR_PDF.cur && VECTOR_PDF.cur.n === pageNumber) cancelVectorDraw();
   const pageState = VECTOR_PDF.st.get(pageNumber);
   if (!pageState) return;
@@ -99,7 +100,7 @@ function observeVectorPages() {
   ));
   $$('.pg').forEach((pageElement) => io.observe(pageElement));
 }
-function scheduleVectorDraw(ms) {
+function scheduleVectorDraw(ms: number) {
   clearTimeout(VECTOR_PDF.timer);
   VECTOR_PDF.timer = setTimeout(pumpDrawJobs, ms || 0);
 }
@@ -117,7 +118,7 @@ function backingScale() {
 }
 // The page canvas's backing size. If it exceeds the cap, it is scaled down proportionally and marked capped (the
 // detail canvas fills in the visible portion).
-function canvasBackingTarget(cssWidth, cssHeight, pixelRatio, cap) {
+function canvasBackingTarget(cssWidth: number, cssHeight: number, pixelRatio: number, cap: number) {
   let backingWidth = Math.round(cssWidth * pixelRatio),
     backingHeight = Math.round(cssHeight * pixelRatio),
     capped = false;
@@ -129,14 +130,14 @@ function canvasBackingTarget(cssWidth, cssHeight, pixelRatio, cap) {
   }
   return { cw: cssWidth, ch: cssHeight, k: pixelRatio, bw: backingWidth, bh: backingHeight, capped };
 }
-function pageBackingTarget(pageElement) {
+function pageBackingTarget(pageElement: HTMLElement) {
   const cssWidth = pageElement.clientWidth,
     cssHeight = pageElement.clientHeight;
   return cssWidth && cssHeight ? canvasBackingTarget(cssWidth, cssHeight, backingScale(), VECTOR_PIXEL_CAP) : null;
 }
 // The portion of a page visible on screen (page CSS px). margin is extra room relative to the viewport size (the
 // detail canvas is drawn a bit larger).
-function visiblePagePortion(pageElement, margin) {
+function visiblePagePortion(pageElement: HTMLElement, margin: number) {
   const pdfArea = $('#left'),
     areaRect = pdfArea.getBoundingClientRect(),
     pageRect = pageElement.getBoundingClientRect();
@@ -157,7 +158,10 @@ function visiblePagePortion(pageElement, margin) {
   return x1 > x0 && y1 > y0 ? { x: x0, y: y0, w: x1 - x0, h: y1 - y0, cw: cssWidth, ch: cssHeight } : null;
 }
 // Whether a detail canvas's region (fractions of the page) covers the visible portion.
-function regionCovers(region, visible) {
+function regionCovers(
+  region: { x: number; y: number; w: number; h: number } | null,
+  visible: { x: number; y: number; w: number; h: number; cw: number; ch: number },
+) {
   return (
     !!region &&
     region.x <= visible.x / visible.cw + 1e-6 &&
@@ -225,7 +229,7 @@ async function pumpDrawJobs() {
     VECTOR_PDF.pumping = false;
   }
 }
-async function runDrawJob(job) {
+async function runDrawJob(job: { n: number; kind: string }) {
   const pageNumber = job.n,
     pageElement = document.getElementById('p' + pageNumber),
     doc = VECTOR_PDF.doc,

@@ -29,7 +29,7 @@ function spotTop(pageBox: HTMLElement, frac: number, gap: number) {
   return Math.max(0, Math.min(pdfArea.scrollHeight - pdfArea.clientHeight, Math.round(pdfArea.scrollTop + y - want)));
 }
 // How far under the top of the PDF pane the reading line is: a quarter of the pane's height, at most 160px.
-function readingDepth(pane) {
+function readingDepth(pane: HTMLElement | null) {
   return pane ? Math.min(160, pane.clientHeight / 4) : 0;
 }
 
@@ -84,12 +84,12 @@ function figureTop(pageNumber: number) {
   );
 }
 // Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
-function goPage(entry?) {
+function goPage(entry?: number) {
   arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
 }
 // The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
 // empty or non-number entry, which goes nowhere. Pure.
-function clampPage(entry, pageCount) {
+function clampPage(entry: string, pageCount: number) {
   const text = String(entry == null ? '' : entry).trim();
   if (!/^-?\d+$/.test(text) || !(pageCount >= 1)) return null;
   return Math.min(pageCount, Math.max(1, parseInt(text, 10)));
