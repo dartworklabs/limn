@@ -115,29 +115,29 @@ const MARKDOWN_LIMITS = Object.freeze({
 // asks for once it is drawn (want) and the reading spot as last read at the column's width and the pane's scroll offset
 // then (spot, readSpot: kept across a reflow and a redraw while hidden, keepReadingSpot; top tells a pane moved since,
 // refreshMovedSpot).
-const MARKDOWN_VIEW = {
-  gen: 0,
-  doc: '' as string | null,
-  file: '',
-  name: '',
-  lines: [] as string[],
-  mtime: null as number | null,
-  asked: null as number | null,
-  at: 0,
-  limit: null as string | null,
-  heads: [] as { level: number; lo: number; el: HTMLElement; title: string; slug: string }[],
-  worker: null as Worker | null,
-  job: null as MarkdownParseJob | null,
-  seq: 0,
-  waiting: false,
-  els: 0,
-  marked: 0,
-  bom: false,
-  tex: 0 as number | null,
-  shown: '' as string | null,
-  want: null as { line: number; off: number; top: number } | null,
-  jumpTo: null as { id: number; doc: string | null; seq: number } | null,
-  spot: null as {
+interface MarkdownViewState {
+  gen: number;
+  doc: string | null;
+  file: string;
+  name: string;
+  lines: string[];
+  mtime: number | null;
+  asked: number | null;
+  at: number;
+  limit: string | null;
+  heads: DrawnHeading[];
+  worker: Worker | null;
+  job: MarkdownParseJob | null;
+  seq: number;
+  waiting: boolean;
+  els: number;
+  marked: number;
+  bom: boolean;
+  tex: number | null;
+  shown: string | null;
+  want: { line: number; off: number; top: number } | null;
+  jumpTo: { id: number; doc: string | null; seq: number } | null;
+  spot: {
     doc: string | null;
     w: number;
     top: number;
@@ -149,12 +149,38 @@ const MARKDOWN_VIEW = {
     off: number | null;
     sel: boolean;
     again: boolean;
-  } | null,
+  } | null;
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (goToDocLink),
   // and the heading a jump in flight is going to (goToHeading: an image that gets its size moves the destination, not
   // the reading spot)
-  headTo: null as { doc: string; id: string; seq: number } | null,
-  goTo: null as { el: HTMLElement; doc: string | null } | null,
+  headTo: { doc: string; id: string; seq: number } | null;
+  goTo: { el: HTMLElement; doc: string | null } | null;
+}
+const MARKDOWN_VIEW: MarkdownViewState = {
+  gen: 0,
+  doc: '',
+  file: '',
+  name: '',
+  lines: [],
+  mtime: null,
+  asked: null,
+  at: 0,
+  limit: null,
+  heads: [],
+  worker: null,
+  job: null,
+  seq: 0,
+  waiting: false,
+  els: 0,
+  marked: 0,
+  bom: false,
+  tex: 0,
+  shown: '',
+  want: null,
+  jumpTo: null,
+  spot: null,
+  headTo: null,
+  goTo: null,
 };
 // Counts one more Markdown job and answers its number (MARKDOWN_VIEW.seq), for another module that starts one
 // (ADR-0042 D1).
@@ -339,7 +365,7 @@ const TEX_RENDERER: { state: 'none' | 'ready' | 'off'; lib: KatexLibrary | null 
 const TEX_CLOSE: Record<string, string> = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' };
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
 // (and a PDF or text document) asks for nothing.
-function hasMath(tokens: any[]) {
+function hasMath(tokens: MarkdownToken[]) {
   for (const token of tokens) {
     if (token.type === 'math_block') return true;
     for (const child of token.children || []) if (child.type === 'math_inline') return true;
@@ -395,7 +421,7 @@ function loadTexStyle(): Promise<boolean> {
 // read: a token's own for a formula that fits one source line (the worker marks it info 'whole'), and the pieces put
 // back together for one it cut at a line end (info 'head' on the first piece, inlineTexRun). A 'tail' piece is no TeX
 // on its own and is never read alone - its head draws the whole formula and passes it over (drawInline). Pure.
-function inlineTexBody(piece: any, source?: string): string | null {
+function inlineTexBody(piece: MarkdownToken, source?: string): string | null {
   const open = String(piece.markup || ''),
     close = TEX_CLOSE[open] || '';
   const text = source === undefined ? String(piece.content || '') : source;
@@ -408,7 +434,7 @@ function inlineTexBody(piece: any, source?: string): string | null {
 // formula at a line end ('head') - every piece after it, joined by the line ends it was cut at. last is the index of
 // the formula's final piece, so the caller knows which children the one formula covers (at itself when nothing was
 // cut). Pure.
-function inlineTexRun(children: any[], at: number): { src: string; last: number } {
+function inlineTexRun(children: MarkdownToken[], at: number): { src: string; last: number } {
   const parts = [String(children[at].content || '')];
   let next = at + 1;
   while (
@@ -1056,7 +1082,7 @@ function isChosenSeen() {
 // Builds article#md from the worker's tokens (renderTokens, with MARKDOWN_VIEW as its render context), with a yield to
 // the browser and a check for a newer draw whenever renderTokens pauses, or null when the elements built pass
 // MARKDOWN_LIMITS.elements (stale(): a newer draw - then whatever was built is dropped too).
-async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTMLElement | null> {
+async function renderDocument(tokens: MarkdownToken[], stale: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('article');
   root.className = 'md';
   root.id = 'md';
@@ -1088,7 +1114,11 @@ async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTML
 // paragraph of 120,000 inline tokens or one code block of 30,000 lines pauses inside itself. Two or more raw HTML
 // blocks in a row are one run (htmlRunElement). context is the draw's render context (RenderContext): its lines, its
 // element count, its marked characters and its headings.
-function* renderTokens(root: HTMLElement, tokens: any[], context: RenderContext): Generator<void, void, void> {
+function* renderTokens(
+  root: HTMLElement,
+  tokens: MarkdownToken[],
+  context: RenderContext,
+): Generator<void, void, void> {
   const renderer = makeRenderer(root, context),
     work = { n: 0 };
   for (let i = 0; i < tokens.length; i++) {
@@ -1110,10 +1140,22 @@ function isPauseDue(work: { n: number }) {
   return true;
 }
 const OVER_ELEMENT_LIMIT = { over: true }; // thrown by countedElement past MARKDOWN_LIMITS.elements
-// One element of the drawn document, counted against MARKDOWN_LIMITS.elements on the draw's render context.
-function countedElement(tag: string, context: RenderContext): HTMLElement {
+// One element of the drawn document, counted against MARKDOWN_LIMITS.elements on the draw's render context: the DOM
+// class of its tag (countedElement('a', context) is an HTMLAnchorElement).
+function countedElement<Tag extends keyof HTMLElementTagNameMap>(
+  tag: Tag,
+  context: RenderContext,
+): HTMLElementTagNameMap[Tag] {
   if (++context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
   return document.createElement(tag);
+}
+// The same for a tag the source names (a block token's tag, any lowercase name): an HTML element, of its tag's class
+// or HTMLUnknownElement; throws an Error for a name the document makes no HTML element of.
+function countedTagElement(tag: string, context: RenderContext): HTMLElement {
+  if (++context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
+  const element: Element = document.createElement(tag);
+  if (!(element instanceof HTMLElement)) throw new Error('countedTagElement: <' + tag + '> is no HTML element');
+  return element;
 }
 // ---------------- Hidden characters in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
 // Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a
@@ -1173,21 +1215,21 @@ function drawTextLate(parent: Node, piece: string, context: RenderContext) {
   }
   drawTextNow(parent, piece, context);
 }
-function tokenAttribute(token: any, name: string): string | null {
+function tokenAttribute(token: MarkdownToken, name: string): string | null {
   const attributes = (token && token.attrs) || [];
   for (const pair of attributes) if (pair[0] === name) return String(pair[1]);
   return null;
 }
 // The lines first..last of a block token's map, its trailing blank lines (of the render context's lines) left out (a
 // loose list item's map runs over them).
-function tokenLines(token: any, context: RenderContext): { lo: number; hi: number } | null {
+function tokenLines(token: MarkdownToken, context: RenderContext): { lo: number; hi: number } | null {
   if (!token.map) return null;
   let first = token.map[0] + 1,
     last = Math.max(first, token.map[1]);
   while (last > first && !String(context.lines[last - 1] || '').trim()) last--;
   return { lo: first, hi: last };
 }
-function mapLines(element: HTMLElement, token: any, kind: string, context: RenderContext) {
+function mapLines(element: HTMLElement, token: MarkdownToken, kind: string, context: RenderContext) {
   const lines = tokenLines(token, context);
   if (!lines) return;
   element.dataset.lo = String(lines.lo);
@@ -1209,7 +1251,7 @@ const BLOCK_KIND: Record<string, string> = {
 // the list item.
 function makeRenderer(root: HTMLElement, context: RenderContext) {
   const stack = [root];
-  function* token(markdownToken: any, work: { n: number }): Generator<void, void, void> {
+  function* token(markdownToken: MarkdownToken, work: { n: number }): Generator<void, void, void> {
     const top = stack[stack.length - 1];
     if (markdownToken.nesting === 1) {
       if (markdownToken.hidden) {
@@ -1217,7 +1259,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
         return;
       }
       const tag = /^[a-z][a-z0-9]*$/.test(markdownToken.tag || '') ? markdownToken.tag : 'div',
-        element = countedElement(tag, context),
+        element = countedTagElement(tag, context),
         kind = BLOCK_KIND[markdownToken.type];
       if (kind) mapLines(element, markdownToken, kind, context);
       if (markdownToken.type === 'ordered_list_open') {
@@ -1301,7 +1343,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
     if (markdownToken.type === 'html_block') top.appendChild(htmlPlaceholder(markdownToken, context));
   }
   // A run of raw HTML blocks in a row (htmlRunElement), or each block on its own when one has no lines.
-  function* run(tokens: any[], work: { n: number }): Generator<void, void, void> {
+  function* run(tokens: MarkdownToken[], work: { n: number }): Generator<void, void, void> {
     const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context));
     if (spans.some((span) => !span)) {
       for (const htmlToken of tokens) {
@@ -1333,7 +1375,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
 // (context.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading:
 // the outline, the strip and the sections skip it.
 function* drawFrontMatter(
-  token: any,
+  token: MarkdownToken,
   top: HTMLElement,
   work: { n: number },
   context: RenderContext,
@@ -1375,7 +1417,7 @@ function* drawFrontMatter(
 // smallest thing that can be chosen in it - none of its lines can be chosen alone (ADR-0036 D3). The lines are the
 // token's (indentation and quote markers left out).
 function* drawMathBlock(
-  token: any,
+  token: MarkdownToken,
   top: HTMLElement,
   work: { n: number },
   context: RenderContext,
@@ -1417,7 +1459,7 @@ function* drawMathBlock(
 }
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML
 // itself.
-function htmlPlaceholder(token: any, context: RenderContext): HTMLElement {
+function htmlPlaceholder(token: MarkdownToken, context: RenderContext): HTMLElement {
   const box = countedElement('div', context);
   mapLines(box, token, 'html', context);
   box.className = 'md-html';
@@ -1453,7 +1495,7 @@ function htmlRunElement(count: number, first: number, last: number, context: Ren
   run.dataset.rHi = String(last);
   run.dataset.kind = 'html';
   holdHtmlLines(run, true);
-  const button = countedElement('button', context) as HTMLButtonElement;
+  const button = countedElement('button', context);
   button.type = 'button';
   button.className = 'md-html-sum';
   button.dataset.act = 'md-html-run';
@@ -1529,7 +1571,7 @@ function inlineLines(token: { map?: number[] | null; content?: string; children?
 // never a suggestion's wrong base. A table cell's inline token has no map: its span carries nothing and the row's range
 // stands for it.
 function* drawInline(
-  token: any,
+  token: MarkdownToken,
   parent: HTMLElement,
   work: { n: number },
   context: RenderContext,
@@ -1774,13 +1816,17 @@ function linkAction(
 // in a box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned
 // it (IMAGE_SIZES) - and once it loads the reading spot is put back (onImageLoad), so an image above the reading line
 // never moves the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-function* drawImage(token: any, work: { n: number }, context: RenderContext): Generator<void, HTMLElement, void> {
+function* drawImage(
+  token: MarkdownToken,
+  work: { n: number },
+  context: RenderContext,
+): Generator<void, HTMLElement, void> {
   const raw = String(tokenAttribute(token, 'src') || ''),
     alt = String(token.content || tokenAttribute(token, 'alt') || ''),
     place = imageSource(raw, documentTreePath());
   if (place.path) {
     const box = countedElement('span', context),
-      img = countedElement('img', context) as HTMLImageElement;
+      img = countedElement('img', context);
     box.className = 'md-pic';
     box.dataset.path = place.path;
     img.alt = alt;
@@ -2056,7 +2102,7 @@ function onImageError(event: Event) {
 function drawLink(href: unknown, context: RenderContext): HTMLElement {
   const target = linkAction(href, window.location.origin, documentTreePath(), DOCS);
   if (target.open === 'web' || target.open === 'mail') {
-    const link = countedElement('a', context) as HTMLAnchorElement;
+    const link = countedElement('a', context);
     link.href = target.href;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
@@ -2087,7 +2133,7 @@ function drawLink(href: unknown, context: RenderContext): HTMLElement {
     return link;
   }
   if (target.open === 'asset') {
-    const link = countedElement('a', context) as HTMLAnchorElement,
+    const link = countedElement('a', context),
       url = assetUrl(DOC, target.href);
     link.className = 'md-asset';
     link.href = url;
