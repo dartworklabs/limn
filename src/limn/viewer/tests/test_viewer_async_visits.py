@@ -143,6 +143,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (app/state.ts)
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                extract_js_fn("isApiError"),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};

@@ -89,6 +89,8 @@ def run_save(setup: str, act: str) -> object:
                     js_seams_wired(COMPOSER_SEAMS),
                     *(extract_js_fn(n) for n in ("captureVisit", "currentVisit", "samePlace")),
                     extract_js_fn("syncComposeSaveButtons"),
+                    extract_js_fn("isApiError"),
+                    extract_js_fn("isRefusal"),
                     extract_js_fn("savePin"),
                     SAVE_SCOPE,
                     "COMPOSE.current={doc:'a',file:'a.tex',name:'a.tex',page:3,lo:1,hi:2};",
