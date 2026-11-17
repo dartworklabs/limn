@@ -1,4 +1,4 @@
-"""SyncTeX and printed-text samples, with token weights cached per file version."""
+"""SyncTeX and printed-text samples, where a line range prints, and token weights cached per file version."""
 
 import contextlib
 import html
@@ -9,7 +9,18 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from limn.pins.location.mapping import Box, TokenWeights, synctex_range
+from limn.pins.location.mapping import (
+    FORWARD_LINES_MAX,
+    Box,
+    MarkPiece,
+    TokenWeights,
+    built_range,
+    line_boxes,
+    merge_boxes,
+    range_pad,
+    strip_comment,
+    synctex_range,
+)
 from limn.platform.files import ManuscriptFile
 
 # A word token worth weighting: a Hangul word of 2+ syllables, a Latin word of 4+ letters, or a decimal number.
@@ -101,6 +112,89 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
             if r:
                 hits.append(r)
     return synctex_range(hits)
+
+
+# ---------------------------------------------------------------- Forward mapping: where a range prints
+#
+# SyncTeX the other way round: a pin's mark is the area its line range covers on the page, so an answer that
+# carries a mark asks here (docs/adr/0045-pin-marks-follow-the-range.md).
+
+
+def build_copy_name(build: Path, src: Path, file: Path) -> str:
+    """The name `synctex view -i` selects the manuscript file `file` by: that file as it lies inside the build copy
+    `build` of the build root `src`, absolute.
+
+    SyncTeX knows the names the build recorded, which are the build copy's, and it really selects by the name: in a
+    two-file document (main.tex with \\input{sections/part}) the relative name sections/part.tex and its absolute form
+    each answer two boxes for line 1, while the basename part.tex and a name no file has answer nothing. A single-file
+    document answers even for a name no file has, so that leniency is an accident of having one input and not
+    something to lean on.
+
+    Both sides of the prefix test are resolved, the way limn.builds.built_source.source_key resolves them: a build
+    root registered through a symlink (a temporary folder under macOS's /var -> /private/var) otherwise fails the test
+    though the file does lie below it, and SyncTeX is then asked for a name no build recorded - the mark vanishes with
+    no signal while the source record lookup beside it still succeeds. A file that really does not lie below the build
+    root has no name in the copy at all - the copy holds that root's tree - and there the checkout path is the closest
+    name there is; losing a mark is the cost of being wrong about it, and failing the pick would be a far larger one."""
+    try:
+        return str(build / file.resolve().relative_to(src.resolve()))
+    except (ValueError, OSError, RuntimeError):
+        return str(file)
+
+
+def boxes_for_range(
+    pdf: Path,
+    tex: str,
+    built: Sequence[str] | None,
+    now: Sequence[str],
+    lo: int,
+    hi: int,
+    page_w: float,
+    page_h: float,
+    limit: int,
+) -> tuple[MarkPiece, ...]:
+    """Where lines lo..hi (1-based, inclusive) of the file as it is today (now) print on the PDF of the build that
+    read `built`: the mark's pieces as (page, frac) pairs, each frac a box in fractions of the page page_w x page_h.
+    Empty when there is no answer, and the mark then falls back to the rectangle that was dragged.
+
+    Every answer that carries a mark computes it here - a pick's default range and each rung of a snippet - so the
+    same lines of the same file always draw the same box (docs/adr/0045-pin-marks-follow-the-range.md). `tex` is the
+    name SyncTeX selects the file by (build_copy_name) and `limit` the most pieces a mark may have, which the caller
+    owns.
+
+    The range is one the agent receives - a pick's default level, a rung of the ladder - not SyncTeX's own narrower
+    range, and the text path has none at all. So it is read back into the lines that build read
+    (mapping.built_range) before SyncTeX is asked, and a range that no longer stands whole in those lines gets no
+    mark: half a range's boxes passed off as the range's would place the mark on text the pin does not hold. A build
+    that kept no record (made by an older Limn) leaves the numbers as they are, which is what SyncTeX's own answer
+    already stands for.
+
+    A line with no text once its comment is stripped is skipped, which is correctness and not thrift: `synctex view`
+    answers a blank line through its ancestor search, and measured on a two-column 10 pt A4 document a blank line
+    answered 17 boxes which were the printed lines of the paragraph *before* it (another answered 44, the page and
+    column bodies among them). They are ordinary text boxes, so the height filter leaves them, and the 3.12 pt between
+    them and the real paragraph is inside the adjacency threshold - the mark would have become one piece covering both
+    paragraphs. Over FORWARD_LINES_MAX lines of text the range is left unmarked rather than paid for. A page of no
+    width or height is a broken page list rather than a mark to draw, and is answered like every other box path that
+    has no answer: with none, and without running the tool."""
+    if page_w <= 0 or page_h <= 0:
+        return ()
+    lo, hi = max(1, lo), min(hi, len(now))
+    if lo > hi:
+        return ()
+    in_build = built_range(built, now, lo, hi) if built is not None else (lo, hi)
+    if in_build is None:
+        return ()
+    shift = in_build[0] - lo  # built_range answers a range of the same length, so one shift places every line of it
+    asked = [i + shift for i in range(lo, hi + 1) if strip_comment(now[i - 1]).strip()]
+    if not asked or len(asked) > FORWARD_LINES_MAX:
+        return ()
+    rows: list[Box] = []
+    for line in asked:
+        rows.extend(synctex_view(pdf, tex, line))
+    kept = line_boxes(rows, page_h)
+    pieces = merge_boxes(kept, range_pad(kept), page_w, page_h, limit)
+    return tuple((page, (x / page_w, y / page_h, w / page_w, h / page_h)) for page, x, y, w, h in pieces)
 
 
 # ---------------------------------------------------------------- Reverse mapping 2: rendered text

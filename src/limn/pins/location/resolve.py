@@ -10,20 +10,15 @@ from limn.pins.element import PinElement
 from limn.pins.location import figure, source
 from limn.pins.location.mapping import (
     BOX_LIMIT,
-    FORWARD_LINES_MAX,
-    Box,
+    MarkPiece,
     Traced,
-    built_range,
     carry_range,
-    line_boxes,
-    merge_boxes,
     norm,
-    range_pad,
     snippet,
-    strip_comment,
     trace_range,
     truncate_quote,
 )
+from limn.pins.location.range import RangeBoxes
 from limn.pins.location.source import TokenCache
 from limn.pins.needs import BuildAnswers, BuildOnScreen
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
@@ -77,9 +72,17 @@ class PickContext:
     builds: BuildAnswers
 
 
-# One piece of a pin's mark: the page (1-based) and that piece's box as fractions of the page, [x, y, w, h] from its
-# top left - the shape the pick body answers (limn.pins.location.http._picked_body).
-MarkPiece: TypeAlias = tuple[int, tuple[float, float, float, float]]
+@dataclass(frozen=True)
+class PageOnScreen:
+    """The one page size an answer measures its marks against, and the build those pages belong to: the name of the
+    page directory on screen and the (width, height) in points of its first page.
+
+    A snippet names no page - it is a file and a line range - so the run reads the build on screen and takes one page
+    size for the whole answer, as a pick takes the size of the page the drag was made on. A document with no pages has
+    none of this and answers no marks (limn.pins.location.http.snippet)."""
+
+    build: str
+    size: tuple[float, float]
 
 
 @dataclass(frozen=True)
@@ -90,7 +93,7 @@ class Picked:
     traced in. stale: the manuscript is newer than that build's PDF (by more than 2 s) and the answer is not SyncTeX's
     range read against that build's own lines and found standing whole in the file now - the one case where a rebuild
     and a second pick would answer the same lines; building: a LaTeX build is running now. boxes: where the chosen
-    range prints on that build's pages (_range_boxes), empty when there is no answer - the pin's mark is then the
+    range prints on that build's pages (range_boxes), empty when there is no answer - the pin's mark is then the
     dragged rectangle, as it was before marks followed the range. The location feature's HTTP answer turns this into
     the pick body."""
 
@@ -188,7 +191,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     against that build's PDF and returned as pdf_build in the response - the viewer carries that value
     through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation).
 
-    The last step runs SyncTeX the other way (_range_boxes) and answers where the chosen range prints on that build's
+    The last step runs SyncTeX the other way (range_boxes) and answers where the chosen range prints on that build's
     pages, so the mark the person sees covers the lines the agent receives (docs/adr/0045-pin-marks-follow-the-range.md)."""
     pdir, page, box, (pw, ph), frac = request.pdir, request.page, request.box, request.size, request.frac
     x0, y0, x1, y1 = box
@@ -244,7 +247,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     traced = trace_range(tw, lines, synctex, ctx.envs)
     if traced is None:
         return NoSourceHere()
-    boxes = _range_boxes(pdf, _build_copy_name(D, found.path), lines, built, traced.lo, traced.hi, (pw, ph))
+    marks = range_boxes(D, found.path, lines, built, pdf, (pw, ph))
 
     return Picked(
         file=found.path,
@@ -258,69 +261,36 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         pdf_build=pdir.name,
         stale=publication.stale and not (stands and traced.via == "synctex"),
         building=publication.latex_running,
-        boxes=boxes,
+        boxes=marks(traced.lo, traced.hi),
     )
 
 
-def _build_copy_name(D: Doc, file: Path) -> str:
-    """The name `synctex view -i` selects the manuscript file `file` by: that file as it lies inside document D's
-    build copy, absolute.
-
-    SyncTeX knows the names the build recorded, which are the build copy's, and it really selects by the name: in a
-    two-file document (main.tex with \\input{sections/part}) the relative name sections/part.tex and its absolute form
-    each answer two boxes for line 1, while the basename part.tex and a name no file has answer nothing. A single-file
-    document answers even for a name no file has, so that leniency is an accident of having one input and not
-    something to lean on. A file that does not lie below the build root has no name in the copy at all - the copy holds
-    that root's tree - and there the checkout path is the closest name there is; losing a mark is the cost of being
-    wrong about it, and failing the pick would be a far larger one."""
-    try:
-        return str(D.build / file.relative_to(D.src))
-    except (ValueError, OSError, RuntimeError):
-        return str(file)
-
-
-def _range_boxes(
-    pdf: Path,
-    tex: str,
+def range_boxes(
+    D: Doc,
+    file: Path,
     now: Sequence[str],
     built: Sequence[str] | None,
-    lo: int,
-    hi: int,
+    pdf: Path,
     size: tuple[float, float],
-) -> tuple[MarkPiece, ...]:
-    """Where lines lo..hi (1-based, inclusive) of the file as it is today (now) print on the PDF of the build that
-    read `built`: the mark's pieces as (page, frac) pairs, each frac a box in fractions of the page `size`. Empty when
-    there is no answer, and the pin's mark then falls back to the rectangle that was dragged.
+) -> RangeBoxes:
+    """Where a range of manuscript file `file` prints on `pdf`, bound to the facts of one answer: (lo, hi) -> the
+    mark's pieces, empty when there is none. `now` is the file as it is today, `built` its lines as the build whose
+    PDF this is read them (None when that build kept no record) and `size` the page size the pieces are fractions of.
 
-    The range is the pick's default level, which is the range the agent receives - not SyncTeX's own narrower range,
-    and the text path has none at all. So it is read back into the lines that build read (mapping.built_range) before
-    SyncTeX is asked, and a range that no longer stands whole in those lines gets no mark: half a range's boxes passed
-    off as the range's would place the mark on text the pin does not hold. A build that kept no record (made by an
-    older Limn) leaves the numbers as they are, which is what SyncTeX's own answer already stands for.
+    Both answers that carry a mark bind it here - POST /api/pick for its default range (above) and GET /api/snippet
+    once per rung (service.PinLocationService.snippet) - so the two cannot drift: the PDF, the name the build copy
+    gives the file and the lines that build read are chosen once, in one place, and the computation itself is shared
+    (source.boxes_for_range). Binding also keeps the cost to one read of the build's facts per answer, not one per
+    rung. The mark's piece count is BOX_LIMIT for both; a reader that wants another cap calls the computation
+    directly (docs/adr/0045-pin-marks-follow-the-range.md)."""
+    tex = source.build_copy_name(D.build, D.src, file)
+    page_w, page_h = size
 
-    A line with no text once its comment is stripped is skipped, which is correctness and not thrift: `synctex view`
-    answers a blank line through its ancestor search, and measured on a two-column 10 pt A4 document a blank line
-    answered 17 boxes which were the printed lines of the paragraph *before* it (another answered 44, the page and
-    column bodies among them). They are ordinary text boxes, so the height filter leaves them, and the 3.12 pt between
-    them and the real paragraph is inside the adjacency threshold - the mark would have become one piece covering both
-    paragraphs. Over FORWARD_LINES_MAX lines of text the range is left unmarked rather than paid for."""
-    lo, hi = max(1, lo), min(hi, len(now))
-    if lo > hi:
-        return ()
-    in_build = built_range(built, now, lo, hi) if built is not None else (lo, hi)
-    if in_build is None:
-        return ()
-    shift = in_build[0] - lo  # built_range answers a range of the same length, so one shift places every line of it
-    asked = [i + shift for i in range(lo, hi + 1) if strip_comment(now[i - 1]).strip()]
-    if not asked or len(asked) > FORWARD_LINES_MAX:
-        return ()
-    rows: list[Box] = []
-    for line in asked:
-        rows.extend(source.synctex_view(pdf, tex, line))
-    pw, ph = size
-    kept = line_boxes(rows, ph)
-    pieces = merge_boxes(kept, range_pad(kept), pw, ph, BOX_LIMIT)
-    return tuple((page, (x / pw, y / ph, w / pw, h / ph)) for page, x, y, w, h in pieces)
+    def pieces(lo: int, hi: int) -> tuple[MarkPiece, ...]:
+        """The pieces of lines lo..hi, as fractions of the page."""
+        return source.boxes_for_range(pdf, tex, built, now, lo, hi, page_w, page_h, BOX_LIMIT)
+
+    return pieces
 
 
 def _pick_region(

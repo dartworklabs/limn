@@ -7364,14 +7364,6 @@
             {
                 "code": "reportExplicitAny",
                 "range": {
-                    "startColumn": 115,
-                    "endColumn": 118,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportExplicitAny",
-                "range": {
                     "startColumn": 54,
                     "endColumn": 57,
                     "lineCount": 1

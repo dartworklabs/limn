@@ -352,7 +352,8 @@ LATEX = [
 def recorded_rungs() -> list[dict]:
     """The ladder rungs the server builds: LaTeX ladders from limn.pins.location.mapping (a paragraph, a float
     environment, a merged raw rung, and a traced pick's rungs with their score, weighed and not), a figure script's raw
-    ladder (range.raw_ladder), and the element rungs of the recorded figure picks."""
+    ladder (range.raw_ladder), and the rungs of the recorded figure flow - the element rungs of its picks and the
+    rungs of the snippet ladders it ends with, where the LaTeX document's carry the boxes their lines print in."""
     ladders = [
         mapping.compute_levels(LATEX, 6, 6, ["figure"]),
         mapping.compute_levels(LATEX, 2, 2, ["figure"]),
@@ -364,7 +365,8 @@ def recorded_rungs() -> list[dict]:
         assert traced is not None
         rungs += traced.levels
     for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
-        if "picks" in entry["step"] and "pins.md" not in entry["step"]:
+        answers_a_ladder = "picks" in entry["step"] or "/api/snippet" in entry["step"]
+        if answers_a_ladder and "pins.md" not in entry["step"]:
             rungs += json.loads(entry["body"]).get("levels", [])
     return rungs
 

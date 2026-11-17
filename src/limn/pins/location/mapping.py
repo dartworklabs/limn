@@ -214,6 +214,10 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
 # One box on the PDF: (page, x, y, w, h) in PDF points from the page's top left, as SyncTeX's forward search gives it.
 Box: TypeAlias = tuple[int, float, float, float, float]
 
+# One piece of a pin's mark: the page (1-based) and that piece's box as fractions of the page, (x, y, w, h) from its
+# top left - what limn.pins.location.source.boxes_for_range answers and mark_wire puts on the wire.
+MarkPiece: TypeAlias = tuple[int, tuple[float, float, float, float]]
+
 # The most boxes a pin's mark is drawn with. A range that merges into more pieces than this is scattered over the
 # document (a float's lines and its text far apart); one mark of many bits says less than none.
 BOX_LIMIT = 8
@@ -334,6 +338,16 @@ def merge_boxes(rows: Sequence[Box], pad: float, page_w: float, page_h: float, l
     if len(grown) > limit:
         return []
     return sorted(grown, key=lambda b: (b[0], b[2], b[1]))
+
+
+def mark_wire(pieces: Sequence[MarkPiece]) -> list[dict[str, int | list[float]]]:
+    """A mark on the wire: [{"page": <1-based>, "frac": [x, y, w, h]}, ...] in the order the pieces came.
+
+    Every answer that carries a mark sends this one shape - a pick's default rung (limn.pins.location.http) and each
+    rung of a snippet (limn.pins.location.range) - so the two agree by construction and the viewer has one shape to
+    read. An empty mark is not shaped at all: the callers leave the key out, because an absent key says "no mark for
+    this range" where [] would say "a mark of no pieces"."""
+    return [{"page": page, "frac": [x, y, w, h]} for page, (x, y, w, h) in pieces]
 
 
 def built_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> tuple[int, int] | None:
@@ -464,7 +478,17 @@ def find_level(levels: Sequence[Level], key: str) -> Level | None:
 
 
 def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequence[str]) -> dict[str, Any]:
-    """The range ladder: dragged line / paragraph (trailing comments excluded) / enclosing environments, innermost to outermost, up to 3 levels. envs are the float
+    """The range ladder as an answer's fields: rung_ladder's rungs, the name of the default rung, its lines and the
+    kind - what a pick's body and GET /api/snippet?levels=1 carry.
+
+    A caller that works with the rungs themselves takes rung_ladder instead: read back out of this mapping every rung
+    is Any, and a rung's own line numbers are what the snippet asks its marks by (limn.pins.location.range)."""
+    levels, default, kind = rung_ladder(lines, raw_lo, raw_hi, envs)
+    return {"levels": levels, "default_level": default["level"], "lo": default["lo"], "hi": default["hi"], "kind": kind}
+
+
+def rung_ladder(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequence[str]) -> tuple[list[Level], Level, str]:
+    """The range ladder as values - every rung, the default rung, the kind: dragged line / paragraph (trailing comments excluded) / enclosing environments, innermost to outermost, up to 3 levels. envs are the float
     environments (--float-envs) a selection expands to.
 
     Snippets are included up front so the client can switch levels without a server round trip. There is no
@@ -547,7 +571,7 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
     assert default is not None
     if not default["level"].startswith("env") and kind != "paragraph":
         kind = "paragraph"
-    return {"levels": levels, "default_level": default["level"], "lo": default["lo"], "hi": default["hi"], "kind": kind}
+    return levels, default, kind
 
 
 # ---------------------------------------------------------------- Choosing a selection's range

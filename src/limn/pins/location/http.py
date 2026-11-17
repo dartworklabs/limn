@@ -5,11 +5,11 @@ from typing import Any, Protocol, TypeAlias
 
 from limn.pins.location import input as pick_input
 from limn.pins.location.figure import PickedElement, Rung
-from limn.pins.location.mapping import WEAK_SCORE, Level
+from limn.pins.location.mapping import WEAK_SCORE, Level, MarkPiece, mark_wire
 from limn.pins.location.resolve import (
     GeneratedFile,
-    MarkPiece,
     NoSourceHere,
+    PageOnScreen,
     Picked,
     PickedRegion,
     PickRefusal,
@@ -44,17 +44,39 @@ def pick(app: LocationApp, doc: Doc, body: Mapping[str, Any]) -> Body:
 
 def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
     """GET /api/snippet after the common request guards; a document with an element map gets the raw rung as its
-    ladder, and ?text=1 adds the range's exact lines (range.snippet_api)."""
-    rng = accepted(pick_input.parse_snippet(query, app.document_facts(doc)))
-    return app.location_service.snippet(
-        rng, parse_flag(query, "levels"), not doc.has_element_map, parse_flag(query, "text")
-    )
+    ladder, ?text=1 adds the range's exact lines, and with ?levels=1 every rung carries where its own lines print
+    (range.snippet_api).
+
+    Only a ladder built from the document's own text asks for marks. A figure document's rung is a line of its drawing
+    script, not of a manuscript - its marks come from the element map - and a Markdown or text document has no pages at
+    all. Without ?levels=1 there is no rung to mark either, and the viewer reads this route for every excerpt window,
+    so the page facts are not even looked up there (_page_on_screen)."""
+    facts = app.document_facts(doc)
+    rng = accepted(pick_input.parse_snippet(query, facts))
+    levels = parse_flag(query, "levels")
+    source_ladder = not doc.has_element_map  # the ladder - and so the marks - come from the document's own text
+    marks = _page_on_screen(facts) if levels and source_ladder else None
+    return app.location_service.snippet(doc, rng, levels, source_ladder, parse_flag(query, "text"), marks)
 
 
 def overlaps(app: LocationApp, doc: Doc, query: Query) -> Body:
     """GET /api/overlaps after the common request guards."""
     rng = accepted(pick_input.parse_source_range(query, app.document_facts(doc)))
     return app.location_service.overlaps(rng)
+
+
+def _page_on_screen(facts: DocumentFacts) -> PageOnScreen | None:
+    """The build on screen and the page size one answer's marks are fractions of, or None when the document has no
+    page to measure against (never built, a document the viewer draws from its source, a build slimmed to nothing).
+
+    One size for the whole answer, as a pick uses the size of the page the drag was made on: a snippet names a file
+    and a line range, never a page, and looking a size up per piece would cost a read per rung for a difference only a
+    document of mixed page sizes ever shows."""
+    found = facts.pick_pages(None)
+    if found is None:
+        return None
+    pdir, pages = found
+    return PageOnScreen(pdir.name, pages[0]) if pages else None
 
 
 # The sentences a pick's `warn` is made of (a UI hint in a 200 body, not an error). The viewer translates each by its
@@ -149,14 +171,14 @@ def _levels_with_boxes(levels: list[Level], default: str, boxes: Sequence[MarkPi
     [{"page", "frac"}, ...].
 
     Only that rung gets them. A pick runs the forward pass for its default range alone, because each call costs a
-    process (limn.pins.location.mapping.FORWARD_LINES_MAX); the viewer asks GET /api/snippet for another rung's, which
-    it already calls when the person moves up the ladder. The rung is copied rather than written into: the list
-    belongs to the resolver's Traced, and turning a body is not permission to change the value it was given. With no
-    pieces the key is left out rather than answered empty, so a client reads "no mark for this range" and not "a mark
-    of no pieces", and there is then nothing to copy."""
+    process (limn.pins.location.mapping.FORWARD_LINES_MAX); the other rungs' pieces come from GET /api/snippet?levels=1,
+    which the viewer already calls when the person moves up the ladder (limn.pins.location.range.snippet_api). The rung
+    is copied rather than written into: the list belongs to the resolver's Traced, and turning a body is not permission
+    to change the value it was given. With no pieces the key is left out rather than answered empty, so a client reads
+    "no mark for this range" and not "a mark of no pieces", and there is then nothing to copy."""
     if not boxes:
         return levels
-    pieces = [{"page": page, "frac": list(frac)} for page, frac in boxes]
+    pieces = mark_wire(boxes)
     return [{**level, "boxes": pieces} if level["level"] == default else level for level in levels]
 
 

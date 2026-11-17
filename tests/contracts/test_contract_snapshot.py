@@ -208,25 +208,41 @@ class ContractSnapshot(SnapshotBase):
 FIGURE_SNAPSHOT = Path(__file__).resolve().parents[2] / "tests" / "data" / "contract_snapshot_figure.json"
 
 
+def mark_box(pdf: Path, tex: str, line: int) -> list[tuple[int, float, float, float, float]]:
+    """The forward SyncTeX pass stood in: one box per source line, 20 pt apart, at a round x and width no real
+    document prints - so a reader of the snapshot sees at once that the marks it records were not measured from a PDF,
+    while a rung of several lines still records a taller mark than a rung of one."""
+    return [(1, 100.0, 100.0 + 20.0 * line, 300.0, 10.0)]
+
+
 class FigureContractSnapshot(SnapshotBase):
     """The figure flow, recorded in tests/data/contract_snapshot_figure.json: a map pick and its pin, an agent's pin
     without el, a pick on an element drawn without code and its region pin, pins.md and the pin list, then a re-render
-    that moves one element and removes the other (read-time mark and el_sync, 요소 잃음). pdftotext answers no text,
-    so the fallback's quote does not depend on the machine."""
+    that moves one element and removes the other (read-time mark and el_sync, 요소 잃음), and last the range ladders
+    GET /api/snippet?levels=1 answers for each kind of document - the LaTeX document's rungs carrying the boxes their
+    lines print in (docs/adr/0045-pin-marks-follow-the-range.md), the figure script's raw rung carrying none, because
+    its lines are a drawing script's and a figure's marks come from its element map. pdftotext answers no text, so the
+    fallback's quote does not depend on the machine, and the forward SyncTeX pass is mark_box, so neither do the
+    boxes."""
 
     def setUp(self):
         """The pinned clocks; a LaTeX document ms and figure document fig with BUILD1 on screen; the scripts' mtime
         T0."""
         super().setUp()
         self.fig = figure_doc(self.src, ps.APP.C.paths)
-        ps.APP.set_docs([Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths), self.fig])
+        self.ms = Doc("ms", "본문", "tex", self.src, self.main, paths=ps.APP.C.paths)
+        ps.APP.set_docs([self.ms, self.fig])
         self.addCleanup(ps.APP.set_docs, None)
         write_build(self.fig, BUILD1, b2_map())
+        write_build(self.ms, BUILD1, None)  # a page to measure a snippet's marks against (720 x 480 pt at 150 dpi)
         for path in (self.fig.src / "src" / "B2_calendar.py", self.fig.src / "lib" / "components.py"):
             os.utime(path, (T0, T0))
-        patcher = mock.patch.object(pick_source, "region_text", return_value="")
-        patcher.start()
-        self.addCleanup(patcher.stop)
+        for patcher in (
+            mock.patch.object(pick_source, "region_text", return_value=""),
+            mock.patch.object(pick_source, "synctex_view", mark_box),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def test_the_figure_pin_flow_answers_as_recorded(self):
         """Every answer and pins.md along the figure flow equal the recorded snapshot."""
@@ -301,6 +317,16 @@ class FigureContractSnapshot(SnapshotBase):
         write_build(self.fig, BUILD2, b2_map(july=(0.4, 0.18, 0.07, 0.12), august=False))
         self.step("figure: re-rendered, GET /api/pins", "GET", "/api/pins")
         self.step("figure: re-rendered, GET /pins.md", "GET", "/pins.md")
+        self.step(
+            "figure: GET /api/snippet?levels=1 on the LaTeX document beside it",
+            "GET",
+            "/api/snippet?doc=ms&file=main.tex&lo=14&hi=14&levels=1",
+        )
+        self.step(
+            "figure: GET /api/snippet?levels=1 on the figure's script",
+            "GET",
+            "/api/snippet?doc=fig&file=%s&lo=20&hi=22&levels=1" % SCRIPT,
+        )
         self.assert_recorded(FIGURE_SNAPSHOT)
 
 

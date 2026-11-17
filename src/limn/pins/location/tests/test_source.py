@@ -1,4 +1,5 @@
-"""The forward SyncTeX call reads the tool's records faithfully and answers nothing when the tool fails."""
+"""The forward SyncTeX call reads the tool's records faithfully and answers nothing when the tool fails, the name it
+selects a file by holds through a symlinked checkout, and a page of no size is answered with no boxes."""
 
 import subprocess
 from pathlib import Path
@@ -101,3 +102,47 @@ def test_synctex_view_skips_a_record_with_an_unparsable_number(monkeypatch):
     broken = "Output:x.pdf\nPage:1\nh:72.0\nv:oops\nW:50.0\nH:8.0\n"
     stub_output(monkeypatch, broken + SAMPLE)
     assert source.synctex_view(Path("x.pdf"), "x.tex", 30) == [(2, 72.0, 211.54, 228.6, 8.86)]
+
+
+def test_build_copy_name_is_the_file_inside_the_build_copy(tmp_path):
+    """A file below the build root is selected by its path inside the copy, which is the name the build recorded."""
+    src, build = tmp_path / "ms", tmp_path / "state" / "build"
+    (src / "sections").mkdir(parents=True)
+    file = src / "sections" / "part.tex"
+    file.write_text("x", encoding="utf-8")
+    assert source.build_copy_name(build, src, file) == str(build / "sections" / "part.tex")
+
+
+def test_build_copy_name_reaches_through_a_symlinked_checkout(tmp_path):
+    """The build root as the run registered it may be a link to where the files are (a temporary folder under
+    macOS's /var -> /private/var): both sides of the prefix test are resolved, so the name SyncTeX knows is still
+    found. Without that the file falls back to its checkout path, SyncTeX is asked for a name no build recorded, and
+    the mark vanishes with no signal while the pick itself still answers lines."""
+    real, build = tmp_path / "real", tmp_path / "state" / "build"
+    (real / "sections").mkdir(parents=True)
+    file = real / "sections" / "part.tex"
+    file.write_text("x", encoding="utf-8")
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    assert source.build_copy_name(build, link, file) == str(build / "sections" / "part.tex")
+    assert source.build_copy_name(build, real, link / "sections" / "part.tex") == str(build / "sections" / "part.tex")
+
+
+def test_build_copy_name_falls_back_to_the_checkout_path_outside_the_build_root(tmp_path):
+    """The copy holds the build root's tree, so a file beside that root has no name in it: the checkout path is the
+    closest name there is, and losing a mark is a smaller cost than failing the pick."""
+    src, build = tmp_path / "ms", tmp_path / "state" / "build"
+    src.mkdir(parents=True)
+    beside = tmp_path / "shared.tex"
+    beside.write_text("x", encoding="utf-8")
+    assert source.build_copy_name(build, src, beside) == str(beside)
+
+
+def test_boxes_for_range_answers_nothing_for_a_page_of_no_size(monkeypatch):
+    """A page width or height of zero means a broken page list, not a mark to draw: every other box path fails soft,
+    so this one answers no boxes instead of dividing - and spawns no process to do it."""
+    calls = []
+    monkeypatch.setattr(source, "synctex_view", lambda *a: calls.append(a) or [])
+    for size in ((0.0, 800.0), (600.0, 0.0), (-1.0, 800.0)):
+        assert source.boxes_for_range(Path("main.pdf"), "main.tex", None, ["text"], 1, 1, *size, 8) == ()
+    assert calls == []

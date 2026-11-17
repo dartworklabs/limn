@@ -362,9 +362,18 @@ interface RebuildAnswer {
   pull?: PullRecord | null;
 }
 
+// One piece of the mark a rung's lines draw: the page it is on (1-based) and its box as page fractions, [x, y, w, h]
+// from the page's top left.
+interface MarkPiece {
+  page: number;
+  frac: number[];
+}
+
 // One rung of a range ladder (POST /api/pick `levels`, GET /api/snippet?levels=1): the lines it covers and their
 // snippet, the environment for an environment rung, the element for a figure's rung, the rungs it replaced, and on a
-// traced pick how much of the drag is in its lines (score, 0-1; null when there was nothing to weigh).
+// traced pick how much of the drag is in its lines (score, 0-1; null when there was nothing to weigh). boxes is where
+// those lines print on the build being read - absent when there is no answer for them, never empty - which a pick
+// sends for its default rung alone and a snippet for every rung (docs/adr/0045-pin-marks-follow-the-range.md).
 interface Rung {
   level: string;
   lo: number;
@@ -376,6 +385,7 @@ interface Rung {
   el?: PinElement;
   merged?: string[];
   score?: number | null;
+  boxes?: MarkPiece[];
 }
 
 // An open line pin a not-yet-saved range overlaps (POST /api/pick `overlaps`), and how.

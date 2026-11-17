@@ -483,9 +483,10 @@ class SnippetLadder(unittest.TestCase):
             self.assertNotIn("default_level", out)
 
     def test_the_latex_ladder_is_never_run_for_a_map_ladder_document(self):
-        """source_ladder false never calls compute_levels, however the lines look like LaTeX."""
+        """source_ladder false never builds the LaTeX ladder (mapping.rung_ladder), however the lines look like
+        LaTeX."""
         rng = SourceRange(Path("/ms/figs/src/a.py"), self.TEX, 2, 2)
-        with mock.patch("limn.pins.location.range.compute_levels", side_effect=AssertionError("LaTeX rules")):
+        with mock.patch("limn.pins.location.range.rung_ladder", side_effect=AssertionError("LaTeX rules")):
             out = snippet_api(rng, True, ("table",), source_ladder=False)
         self.assertEqual([lv["level"] for lv in out["levels"]], ["raw"])
 
