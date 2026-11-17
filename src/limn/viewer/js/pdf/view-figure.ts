@@ -47,6 +47,10 @@ function elementPathText(selection: Selection) {
   });
   return selectedElement.path.map((id) => names.get(id) || String(id)).join(' › ');
 }
+// Whether a rung is a figure rung: it carries an element.
+function rungHasElement(rung: Rung): rung is Rung & { el: PinElement } {
+  return !!rung.el;
+}
 // A figure rung's tooltip text: the whole figure's lines for the page's root (its path is itself), else the element's.
 function rungTip(level: Rung & { el: PinElement }) {
   return Array.isArray(level.el.path) && level.el.path.length <= 1 ? TIP_TEXT.fig : TIP_TEXT.el;
@@ -136,7 +140,11 @@ function elementKind(element: PinElement) {
 // `frac` too (a mark drawn without the current map then sits where the person saw the snapped box), and the element's
 // kind when the range is that element's rung (rung given). A pick without an element is left as it is; lines set by
 // hand in the excerpt keep the kind the body already has.
-function figureFields(body: Record<string, unknown>, element: PinElement | null | undefined, rung: Rung | null) {
+function figureFields(
+  body: Record<string, unknown>,
+  element: PinElement | null | undefined,
+  rung: { el?: PinElement } | null,
+) {
   if (!element) return body;
   body.el = elementForSave(element);
   if (isFrac(element.frac)) body.frac = element.frac.slice();
@@ -186,6 +194,7 @@ export {
   pinPlace,
   renderElement,
   repickElement,
+  rungHasElement,
   rungTip,
   showElementBox,
   snapBox,

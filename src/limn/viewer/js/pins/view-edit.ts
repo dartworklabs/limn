@@ -57,18 +57,23 @@ function renderEdit() {
   });
   // the group's one Tab stop is the kind now chosen (platform/segments.ts)
   roveSegment(cardElement.querySelector('.e-kind'));
-  setCap(
-    cardElement.querySelector('.e-cap'),
-    card.region
-      ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
-      : rangeCap(card, true),
-  );
-  drawLadder(cardElement.querySelector('.e-levels'), card, true);
+  // the card's markup above has its caption, ladder and excerpt boxes
+  const caption = cardElement.querySelector('.e-cap'),
+    ladder = cardElement.querySelector('.e-levels'),
+    excerpt = cardElement.querySelector('.e-xp');
+  if (caption instanceof HTMLElement)
+    setCap(
+      caption,
+      card.region
+        ? html`<span class="e-range loc" tabindex="0" data-copy="${card.name + ' 쪽 ' + card.page}">${translateTemplate('쪽 {page} · 영역', { page: card.page })}</span>`
+        : rangeCap(card, true),
+    );
+  if (ladder instanceof HTMLElement) drawLadder(ladder, card, true);
   const pre = cardElement.querySelector('.e-snip') as HTMLElement;
   pre.className = 'e-snip wrap';
   pre.textContent = snipText(card.snippet, false);
   renderAssignEdit();
-  drawExcerpt(card, cardElement.querySelector('.e-xp'), true);
+  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true);
   // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
   renderEditSuggest(card);
   syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);

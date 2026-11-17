@@ -8,8 +8,8 @@ import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { refetchSnip } from './view-levels.ts';
-import type { RangeOwner } from './view-levels.ts';
+import { onLines, refetchSnip } from './view-levels.ts';
+import type { LineOwner, RangeOwner } from './view-levels.ts';
 import { recomputeOverlap, renderComposer } from './flow-pick.ts';
 import { $ } from '../platform/dom.ts';
 import { withDocQuery, isRegion } from '../documents/state.ts';
@@ -72,7 +72,7 @@ function excerptTake(owner: RangeOwner, snip: string | undefined) {
 // Fetches the lines the excerpt shows that the owner's cache lacks - its ends and their neighbours - in at most two
 // windows of /api/snippet, then redraws the owner's panel. A line the server did not give is cached as null ('…'), so a
 // failure never loops.
-async function excerptFetch(owner) {
+async function excerptFetch(owner: LineOwner) {
   const lineCount = owner.n_lines || owner.hi,
     want = new Set<number>();
   for (const k of [owner.lo - 1, owner.lo, owner.lo + 1, owner.hi - 1, owner.hi, owner.hi + 1])
@@ -121,24 +121,25 @@ function excerptBox(owner: RangeOwner) {
 // action on the same line; else the same action on the side the change happened - the next dimmed line above or below,
 // or the band's new end line's '−' - so another press repeats it; else the control nearest that line. was: {act, line};
 // the owner has the new range. Pure over the rows' buttons ([{act, line, el}]).
-function excerptFocusTarget(buttons, was: { act: string; line: number }, owner) {
-  const at = (act, line) => buttons.find((button) => button.act === act && button.line === line);
+type ExcerptControl = { act: string | undefined; line: number; el: HTMLElement };
+function excerptFocusTarget(buttons: ExcerptControl[], was: { act: string; line: number }, owner: LineOwner) {
+  const at = (act: string, line: number) => buttons.find((button) => button.act === act && button.line === line);
   const up = was.line <= owner.lo,
     same =
       at(was.act, was.line) ||
       (was.act === 'xp-to' ? at('xp-to', up ? owner.lo - 1 : owner.hi + 1) : at('xp-drop', up ? owner.lo : owner.hi));
   if (same) return same;
-  return buttons.reduce(
+  return buttons.reduce<ExcerptControl | null>(
     (nearest, button) =>
       !nearest || Math.abs(button.line - was.line) < Math.abs(nearest.line - was.line) ? button : nearest,
     null,
   );
 }
-// Draws the owner's excerpt into box, or clears and hides it (a region, no selection). isEdit: an edit card (the
+// Draws the owner's excerpt into box, or clears and hides it (a region, an owner without its lines, no selection). isEdit: an edit card (the
 // composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that takes the focused '+'
 // or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
-function drawExcerpt(owner, box, isEdit: boolean) {
-  const on = !!owner && !owner.region && !isRegion(owner);
+function drawExcerpt(owner: RangeOwner | null, box: HTMLElement, isEdit: boolean) {
+  const on = owner !== null && !('region' in owner && owner.region) && !isRegion(owner) && onLines(owner);
   const focused = document.activeElement as HTMLElement,
     had =
       box.contains(focused) && focused.dataset.act
@@ -172,11 +173,13 @@ ${row.edge ? html`<button class="xp-chip xp-drop" data-act="xp-drop" data-line="
   setHtml(box, html`<div class="xp-hint">${hint}</div><div class="xp-list" translate="no">${rows}</div>`);
   if (had) {
     const target = excerptFocusTarget(
-      [...box.querySelectorAll('[data-act]')].map((control) => ({
-        act: control.dataset.act,
-        line: +control.dataset.line,
-        el: control,
-      })),
+      [...box.querySelectorAll('[data-act]')]
+        .filter((control) => control instanceof HTMLElement)
+        .map((control) => ({
+          act: control.dataset.act,
+          line: Number(control.dataset.line),
+          el: control,
+        })),
       had,
       owner,
     );
@@ -201,8 +204,8 @@ function setLines(owner: RangeOwner, first: number, last: number) {
 // Applies range ([first, last], kept inside the file) to the owner as lines set by hand (setLines), then the overlap
 // (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the end
 // that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
-function applyRange(owner, range: number[] | null, anchor: number) {
-  if (!owner || !range) return;
+function applyRange(owner: RangeOwner | null, range: number[] | null, anchor: number) {
+  if (!owner || !range || !onLines(owner)) return;
   const lineCount = owner.n_lines || Math.max(range[1], owner.hi),
     first = Math.max(1, Math.min(range[0], lineCount)),
     last = Math.max(first, Math.min(range[1], lineCount));

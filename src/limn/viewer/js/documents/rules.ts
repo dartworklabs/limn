@@ -10,7 +10,9 @@ interface LevelOwner {
   snippet?: string;
   elSel?: PinElement | null;
 }
-function levelOf(owner, key) {
+// The owner's rung named key, either as its level or as one its rung merged; none for no key.
+function levelOf(owner: LevelOwner, key: string | null | undefined) {
+  if (key == null) return undefined;
   return (owner.levels || []).find((rung: Rung) => rung.level === key || (rung.merged || []).includes(key));
 }
 // Applies rung `key` to the owner (the composer's selection or an edit card): its lines, scope and source; a figure

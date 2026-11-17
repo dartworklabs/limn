@@ -61,7 +61,8 @@ async function applyRepick() {
   const repick = REPICK;
   if (!repick || !repick.cand) return;
   const candidate = repick.cand,
-    level = levelOf(candidate, candidate.default_level) || candidate;
+    rung = levelOf(candidate, candidate.default_level),
+    level = rung || candidate;
   const visit = captureVisit(),
     editing = EDITOR.current;
   let loc = {
@@ -78,8 +79,8 @@ async function applyRepick() {
     frac: candidate.frac,
     pdf_build: candidate.pdf_build || undefined,
     quote: candidate.quote,
-    scope: level.level || null,
-    kind: level.level ? kindFor(level.level, level.env) : candidate.kind,
+    scope: (rung && rung.level) || null,
+    kind: rung && rung.level ? kindFor(rung.level, rung.env) : candidate.kind,
   } as Record<string, unknown>;
   if (!loc.scope) delete loc.scope;
   if (isRegion(candidate))
