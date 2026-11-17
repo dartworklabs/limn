@@ -30,7 +30,7 @@ const STATUS_TRANSIENT_MS = 6000;
 // A build's countable progress {done, total}: integers with total > 0 and 0 <= done <= total, else null - as if the
 // field were missing (GET /api/build `progress`: the pages drawn of the PDF's while a render runs, null otherwise,
 // absent from an older server; without it the bar does not know its end, docs/handbook/build-sync.md §진행 폴링). Pure.
-function statusProgress(progress) {
+function statusProgress(progress: PagesDrawn | null | undefined) {
   if (!progress || typeof progress !== 'object') return null;
   const { done, total } = progress;
   return Number.isInteger(done) && Number.isInteger(total) && total > 0 && done >= 0 && done <= total
@@ -78,7 +78,9 @@ function statusList(input) {
     syncState = input.sync && input.sync.state;
   const notes = input.notices || [],
     alert = (notice: Notice) => !!notice.alert || notice.kind === NOTICE_KIND.ERR;
-  notes.filter(alert).forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
+  notes
+    .filter(alert)
+    .forEach((notice: Notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
   if (buildError && buildError.state === BUILD_STATE.FAIL)
     out.push({ kind: STATUS_KIND.FAILED, act: 'build-err-reopen' });
   else if (buildError && buildError.state === BUILD_STATE.OK_ERRORS)
@@ -93,8 +95,8 @@ function statusList(input) {
     });
   if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload' });
   notes
-    .filter((notice) => !alert(notice))
-    .forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
+    .filter((notice: Notice) => !alert(notice))
+    .forEach((notice: Notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
   if (running)
     out.push({
       kind: { render: STATUS_KIND.RENDERING }[build.phase] || STATUS_KIND.BUILDING,
@@ -128,10 +130,10 @@ function statusList(input) {
 // messages, a rebuild's 'no changes', a new Limn and the pins kept while cut off - its status chips (#bar2) already
 // show the build, the connection, sync, staleness and PNG, but no chip counts the kept pins, so the line is the one
 // place the desktop says there are any. Pure.
-function statusShown(list, wide) {
+function statusShown(list, wide: boolean) {
   return wide
     ? list.filter(
-        (item) =>
+        (item: StatusItem) =>
           item.kind === STATUS_KIND.NOTICE ||
           item.kind === STATUS_KIND.UNCHANGED ||
           item.kind === STATUS_KIND.OUTDATED ||
@@ -143,7 +145,7 @@ function statusShown(list, wide) {
 // A filled template's text as [label, tail], cut at the template's first placeholder: the words before it (without the
 // separator) are the label, the rest - the numbers - the tail. translateTemplate('쪽 {done}/{total}',{done:3,total:9})
 // is ['쪽', ' 3/9'].
-function statusSplit(key, values) {
+function statusSplit(key: string, values: { done: number; total: number }) {
   const template = translateTemplate(key, {}),
     brace = template.indexOf('{'),
     head = (brace < 0 ? template : template.slice(0, brace)).replace(/[\s·]+$/, ''),
@@ -154,7 +156,7 @@ function statusSplit(key, values) {
 // The text of an item in its long form (fit 'long') or its short one ('short'), as [label, tail]: the label is what a
 // screen reader hears when the item appears, the tail the seconds and pages that tick (drawn aria-hidden). Only
 // translate/translateTemplate beyond itself.
-function statusText(item, fit) {
+function statusText(item: StatusItem, fit: 'long' | 'short') {
   const long = fit !== 'short';
   switch (item.kind) {
     case STATUS_KIND.NOTICE: {
@@ -245,7 +247,7 @@ function statusText(item, fit) {
 // The leading mark of an item: a message's own (by its kind, platform/notices.ts noticeIcon), a warning triangle for a
 // failure or blocked sync, the lost-connection icon, a spinner while work runs (a check once main sync is applied), an
 // 8px warning dot for a stale PDF, the image icon for PNG.
-function statusIcon(item) {
+function statusIcon(item: StatusItem) {
   const kinds = STATUS_KIND;
   if (item.kind === kinds.NOTICE)
     return html`<span class="st-ic nk-${item.notice.kind}">${noticeIcon(item.notice.kind)}</span>`;
@@ -266,7 +268,7 @@ function statusIcon(item) {
 // 빌드] carries the tip on what a cold build is for (TIP_TEXT.buildanywaytip), [이유] the reason itself (statusWhy). A
 // message brings its own action and [x] (noticeButtons). The label is a span (.lbl) so CSS can trim it to its cap
 // height.
-function statusAct(item) {
+function statusAct(item: StatusItem) {
   if (!item.act) return html``;
   if (item.kind === STATUS_KIND.NOTICE) return noticeButtons(item.notice, true);
   const force = item.act === 'rebuild-force',
@@ -318,7 +320,7 @@ function statusInput() {
 // The answer to this tab's rebuild that kept the pages (ok, unchanged, the same seq), with [그래도 빌드] for a cold
 // build: the status line says it on every band - the desktop's line under its chips too - for STATUS_TRANSIENT_MS, then
 // shows what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
-function buildUnchanged(build) {
+function buildUnchanged(build: BuildStatus) {
   const mark = { pull: pullSuffix(build) };
   BUILD.unchanged = mark;
   drawStatus();
@@ -452,7 +454,7 @@ $('#status').addEventListener('focusout', () =>
 // The '+N' list: every item as a 44px row with its long text and its action. A modal dialog over the line, so an
 // outside tap, Esc and the back gesture fold it like the sheets; a row's action folds it too. While it is open the
 // line's undo windows wait (platform/notices.ts lineHeld).
-function drawStatusList(list) {
+function drawStatusList(list: StatusItem[]) {
   setHtml(
     $('#status-list-rows'),
     html`${list.map((item) => {

@@ -693,7 +693,7 @@ function announceNewPins(pins: Pin[]) {
       'new:' + doc,
       {
         doc: doc,
-        pins: list.map((pin) => ({
+        pins: list.map((pin: Pin) => ({
           id: pin.id,
           who: who(pin.author) || translate('누군가'),
           verdict: pin.verdict || '',

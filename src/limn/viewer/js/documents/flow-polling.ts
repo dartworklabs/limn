@@ -158,7 +158,7 @@ async function pollLightOnce() {
 // meta cache (a fresh page when you switch back). A finished build of another document - or a new source of another
 // Markdown or text document - is its update: said as that document's update message with [열기]
 // (documents/flow-updates.ts checkDocUpdate, docs/handbook/viewer.md §새 소식).
-function noteOtherDocs(list) {
+function noteOtherDocs(list: DocEntry[] | undefined) {
   if (!Array.isArray(list) || !list.length) return;
   let redraw = false;
   list.forEach((fresh) => {

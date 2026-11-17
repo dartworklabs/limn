@@ -51,7 +51,7 @@ function returnToSpot() {
 // (rebuildSources). the meta snapshots refreshDoc has had to apply, counted (a waiting one is dropped once a newer one
 // came)
 let REFRESH_GEN = 0;
-async function refreshDoc(meta?) {
+async function refreshDoc(meta?: Meta) {
   let anchor = topAnchor();
   const visitDoc = DOC,
     seq = SWITCHSEQ;
@@ -126,7 +126,7 @@ function showBuildErr(build: any, say?: boolean) {
     .join('\n');
   const close = html`<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button>`;
   const errors = (build.errors || []).map(
-    (error) => html`<div class="dim">${error.line ? 'L' + error.line + ' · ' : ''}${error.msg}</div>`,
+    (error: LatexError) => html`<div class="dim">${error.line ? 'L' + error.line + ' · ' : ''}${error.msg}</div>`,
   );
   setHtml(
     panel,
@@ -173,7 +173,7 @@ function syncBuildErrChip() {
 // rebuild's unchanged mark. force (only the status line's [그래도 빌드] of an unchanged rebuild passes it) asks for
 // ?force=1: a cold build that never ends unchanged. A rebuild already running elsewhere (409) is a warning on the
 // status line; a failed request an error there, with [다시 시도].
-async function rebuild(force?) {
+async function rebuild(force?: boolean) {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {

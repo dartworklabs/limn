@@ -29,7 +29,7 @@ function hashDoc() {
 }
 // Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the
 // back layer's pushed entry must stay recognizable after a document switch.
-function setHash(doc) {
+function setHash(doc: string | null) {
   if (!multiDoc()) return;
   const hash = '#doc=' + doc;
   if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
@@ -54,12 +54,12 @@ async function loadDocs() {
   document.body.classList.toggle('docs-multi', multiDoc());
   $('#all-docs').hidden = !multiDoc();
 }
-function docCount(doc) {
+function docCount(doc: string) {
   return OPEN_ALL.filter((pin) => pdoc(pin) === doc).length;
 }
 // A document's build state in the documents lists: a spinner while it builds, else a dot when its manuscript is newer
 // than its PDF; null for neither.
-function docState(entry) {
+function docState(entry: DocEntry) {
   return entry.building
     ? html`<span class="spin" aria-label="빌드 중"></span>`
     : entry.stale_build
@@ -68,7 +68,7 @@ function docState(entry) {
 }
 // A document's marks in the documents list: its build state (docState), view-only 'PDF', figure '그림', and its
 // open-pin count.
-function docBadge(entry) {
+function docBadge(entry: DocEntry) {
   const openCount = docCount(entry.key);
   const pdf = entry.view_only ? html`<span class="badge dvo" aria-label="보기 전용">PDF</span>` : '';
   const figure = isFigureKind(entry.kind)
@@ -78,7 +78,7 @@ function docBadge(entry) {
 }
 // A document link's description: name, path, what kind of document it is, and its build state. The link is user text
 // (translate="no", the name), so the UI words are translated here.
-function docTip(entry) {
+function docTip(entry: DocEntry) {
   return (
     entry.name +
     ' · ' +
@@ -96,7 +96,7 @@ function docTip(entry) {
 }
 // The marks of a document link: its name (.lbl, trimmed to its cap height by CSS as the view tabs' words) and page
 // count.
-function docLinkInner(entry) {
+function docLinkInner(entry: DocEntry) {
   const count = entry.n_pages
     ? html`<span class="doc-link-count">${translateTemplate('{n}쪽', { n: entry.n_pages })}</span>`
     : '';
@@ -169,11 +169,18 @@ function drawDocTabs() {
 // shownCount as large as fits, and the current document's link (index `current`, -1 for none) always among them: when
 // it would be hidden it takes the last place shown. None ([]) when not even one link and [+N] fit: the row is then a
 // single chooser (docFit). Pure.
-function docTabsShown(widths, gap, current, room, moreWidth) {
+function docTabsShown(
+  widths: number[],
+  gap: number,
+  current: number,
+  room: number,
+  moreWidth: (count: number) => number,
+) {
   const count = widths.length,
     all = widths.map((_, index) => index),
-    width = (indices) => indices.reduce((sum, index) => sum + widths[index], 0) + gap * Math.max(0, indices.length - 1),
-    fits = (x) => x <= room + 0.01;
+    width = (indices: number[]) =>
+      indices.reduce((sum, index) => sum + widths[index], 0) + gap * Math.max(0, indices.length - 1),
+    fits = (x: number) => x <= room + 0.01;
   if (fits(width(all))) return all;
   for (let shownCount = count - 1; shownCount >= 1; shownCount--) {
     const shown = all.slice(0, shownCount);
@@ -185,7 +192,7 @@ function docTabsShown(widths, gap, current, room, moreWidth) {
 // How the chooser stands when no link and [+N] fit together: 'name' - the current document's name, shortened to an
 // ellipsis as room needs - when room holds the whole name or at least the chooser's own width (chrome: padding, gap,
 // chevron) and three em of name; else 'icon'. Pure.
-function docChooser(room, full, chrome, fontSize) {
+function docChooser(room: number, full: number, chrome: number, fontSize: number) {
   return room + 0.01 >= Math.min(full, chrome + 3 * fontSize) ? 'name' : 'icon';
 }
 let DOC_FIT = ''; // the row's last fit: a measure that changes nothing writes nothing and re-fits nothing
@@ -213,7 +220,7 @@ function docFit() {
     bar = $('#doc-nav'),
     label = more.querySelector('.lbl') as HTMLElement,
     tabs = [...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[],
-    pixels = (value) => parseFloat(value) || 0,
+    pixels = (value: string) => parseFloat(value) || 0,
     had = document.activeElement;
   let fit = '',
     drop = false;
@@ -274,7 +281,7 @@ function docFit() {
       more.hidden = was;
       return x;
     };
-    const moreWidth = (count) => {
+    const moreWidth = (count: number) => {
       if (!seen.has(count)) seen.set(count, width('more', '+' + count));
       return seen.get(count);
     };
@@ -357,7 +364,7 @@ document.fonts.addEventListener('loadingdone', docFit);
 // order).
 $('#doc-links').addEventListener(
   'scroll',
-  (event) => {
+  (event: Event) => {
     const row = event.currentTarget as HTMLElement;
     if (row.scrollTop || row.scrollLeft) {
       row.scrollTop = 0;
@@ -445,7 +452,7 @@ function placeDocMenu() {
   pop.style.setProperty('--dp-room', Math.max(0, innerHeight - 8 - top) + 'px');
 }
 // Shuts the popover; back gives the focus back to its button (Esc, a choice, Shift+Tab out of it).
-function closeDocMenu(back) {
+function closeDocMenu(back: boolean) {
   const pop = $('#doc-pop'),
     more = $('#doc-more');
   if (pop.hidden) return;
@@ -479,13 +486,13 @@ function docMenuNext() {
 // to the list's row, from a row out - the popover shuts and the focus goes to the bar's next stop after the button;
 // Shift+Tab goes back: from a row to the filter, from the filter (or a row with no filter) out to the button, the
 // popover shut. Esc is the viewer's (main.ts): it shuts the popover with the focus on the button.
-$('#doc-more').addEventListener('keydown', (event) => {
+$('#doc-more').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key === 'ArrowDown' && !event.altKey) {
     event.preventDefault();
     if ($('#doc-pop').hidden) openDocMenu();
   }
 });
-$('#doc-pop').addEventListener('keydown', (event) => {
+$('#doc-pop').addEventListener('keydown', (event: KeyboardEvent) => {
   const target = event.target as HTMLElement,
     filter = $('#doc-pop-in');
   if (imeKey(event)) return;
@@ -545,7 +552,7 @@ $('#doc-pop-in').addEventListener('input', docMenuFilter);
 // The focus moving to a control outside the popover and its button (a click on another control, a shortcut that moves
 // it) shuts it; a press anywhere outside them shuts it too (the press still does what it does). Focus that goes nowhere
 // (the window losing it) leaves it open.
-$('#doc-pop').addEventListener('focusout', (event) => {
+$('#doc-pop').addEventListener('focusout', (event: FocusEvent) => {
   const to = event.relatedTarget as Node | null;
   if (to && !$('#doc-pop').contains(to) && !$('#doc-more').contains(to)) closeDocMenu(false);
 });
