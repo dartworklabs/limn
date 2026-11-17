@@ -108,7 +108,22 @@ import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
 import { dropPin, restorePin } from '../pins/flow-actions.ts';
 import { refreshDoc } from '../documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE } from '../platform/tables.ts';
-import { $, $$, typingNow, searchToPage, TABBABLE, isTabStop, findAll } from '../platform/dom.ts';
+import {
+  $,
+  $$,
+  eventClosest,
+  eventElement,
+  typingNow,
+  searchToPage,
+  TABBABLE,
+  isTabStop,
+  findAll,
+  findClosest,
+  findElement,
+  findMaybe,
+  focusedElement,
+  isDisabled,
+} from '../platform/dom.ts';
 import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE, PIN_STATE, VERDICT_PLACE } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
@@ -255,9 +270,7 @@ window.addEventListener(
   'click',
   (event) => {
     if (!ARMED_VERDICT || Date.now() < SWALLOW_CLICK) return;
-    const button = (event.target as HTMLElement).closest(
-      '[data-act="verdict-save"],[data-act="pv-save"]',
-    ) as HTMLElement | null;
+    const button = eventClosest(event, '[data-act="verdict-save"],[data-act="pv-save"]', HTMLElement);
     if (!(button && isArmedHere(button.dataset.key || '', whereOfButton(button), Number(button.dataset.page) || 0)))
       disarmVerdict(true, true);
   },
@@ -374,7 +387,7 @@ function refocusVerdictButton(focused: HTMLElement | null) {
       '"][data-page="' +
       (focused.dataset.page || '0') +
       '"]';
-  const button = document.querySelector(selector) as HTMLElement | null;
+  const button = findMaybe(document, selector, HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 // A press on a verdict button: a confirm word arms on the first press and saves on the second while what it is bound to
@@ -393,9 +406,9 @@ function verdictPress(button: HTMLElement, how?: string) {
     return;
   }
   if (choice.confirm && !(isArmedHere(key, where, page) && ARMED_VERDICT && armStillHolds(ARMED_VERDICT))) {
-    const focused = document.activeElement as HTMLElement | null;
+    const focused = focusedElement();
     armVerdict(key, where, page, choice.label, how === 'key');
-    refocusVerdictButton(focused && focused.closest && focused.closest('.vd-btns') ? focused : null);
+    refocusVerdictButton(focused && focused.closest('.vd-btns') ? focused : null);
     return;
   }
   disarmVerdict(false);
@@ -417,10 +430,10 @@ function pressPageVerdict(choice: VerdictChoice, page: number, how?: string) {
     where = VERDICT_PLACE.PAGE,
     armed = isArmedHere(key, where, page) && !!ARMED_VERDICT && armStillHolds(ARMED_VERDICT);
   const arm = () => {
-    const focused = document.activeElement as HTMLElement | null;
+    const focused = focusedElement();
     hideTip(); // no box over the armed word (it says its wait beside it)
     armVerdict(key, where, page, choice.label, how === 'key');
-    refocusVerdictButton(focused && focused.closest && focused.closest('.vd-btns') ? focused : null);
+    refocusVerdictButton(focused && focused.closest('.vd-btns') ? focused : null);
   };
   if (SAVING_LINES.has(pageLineSlot(page))) {
     if (choice.confirm && !armed) {
@@ -593,7 +606,7 @@ function renderVerdictRow() {
         : SUGGEST_DRAFT.on
           ? translate('판정을 저장하려면 [제안 수정]을 끕니다')
           : '';
-  const focused = document.activeElement as HTMLElement | null,
+  const focused = focusedElement(),
     inRow = !!focused && row.contains(focused);
   // On a figure document the lead says whose verdict it is - the selected element's figure, by name ('· PL35 … 전체') -
   // whatever element is selected: a panel that shows another figure is still this page's figure's verdict.
@@ -810,14 +823,14 @@ document.addEventListener('focusout', () => stickSoon());
 let POPOVER_PRESS = false;
 let FOLD_PRESS_HOLD: (() => void) | null = null; // the press holding the fold: drops its own wait without letting go
 function syncTypingFold() {
-  const active = document.activeElement as HTMLElement | null,
-    focusLine = active && active.closest ? (active.closest('#doc .pv') as HTMLElement | null) : null,
+  const active = focusedElement(),
+    focusLine = active ? findClosest(active, '#doc .pv', HTMLElement) : null,
     body = document.body;
-  const pop = !!active && !!active.closest && !!active.closest('#doc .pv>.pv-pop'),
+  const pop = !!active && !!active.closest('#doc .pv>.pv-pop'),
     on = (!!focusLine && typingNow()) || (body.classList.contains('pv-typing') && (pop || POPOVER_PRESS));
   if (body.classList.contains('pv-typing') === on) return;
   body.classList.toggle('pv-typing', on);
-  const line = focusLine || (document.querySelector('#doc .pv.reading') as HTMLElement | null);
+  const line = focusLine || findMaybe(document, '#doc .pv.reading', HTMLElement);
   if (line) fitPageLines([line]);
 }
 document.addEventListener('focusin', syncTypingFold);
@@ -825,10 +838,9 @@ document.addEventListener('focusout', () => setTimeout(syncTypingFold, 0));
 document.addEventListener(
   'pointerdown',
   (event) => {
-    const target = event.target as HTMLElement | null;
+    const target = eventElement(event);
     if (!(
       target &&
-      target.closest &&
       (target.closest('#doc .pv>.pv-pop') ||
         (document.body.classList.contains('pv-typing') && target.closest('#doc .pv')))
     ))
@@ -980,10 +992,9 @@ async function savePageVerdict(
   // word's button is no move.
   let away = false;
   const moved = (event: FocusEvent) => {
-    const target = event.target as HTMLElement;
+    const target = event.target;
     if (!(
-      target &&
-      target.dataset &&
+      target instanceof HTMLElement &&
       target.dataset.act === 'pv-save' &&
       target.dataset.key === key &&
       target.dataset.page === String(page)
@@ -1097,9 +1108,11 @@ async function savePageVerdict(
     settleDetachedReason(slot, saved ? got : 0, key);
     drawPageVerdicts();
     if (currentVisit(visit) && byKeyboard && !away) {
-      const reasonOpen = document.querySelector(
+      const reasonOpen = findMaybe(
+        document,
         '#doc .pv[data-page="' + page + '"] [data-act="pv-reason-open"]',
-      ) as HTMLElement | null;
+        HTMLElement,
+      );
       if (reasonOpen && saved) reasonOpen.focus({ preventScroll: true });
       else refocusLineWord(page, key);
       // never left on nothing: the line's own control
@@ -1146,9 +1159,11 @@ function pageLineName(page: number): { id: string; rest: string } {
 function refocusLineWord(page: number, key: string) {
   const active = document.activeElement;
   if (active && active !== document.body && document.contains(active)) return;
-  const button = document.querySelector(
+  const button = findMaybe(
+    document,
     '#doc .pv[data-page="' + page + '"] [data-act="pv-save"][data-key="' + CSS.escape(key) + '"]',
-  ) as HTMLButtonElement | null;
+    HTMLButtonElement,
+  );
   if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true')
     button.focus({ preventScroll: true });
 }
@@ -1284,16 +1299,14 @@ async function cancelVerdictPin(id: number, page: number, had: boolean, byKey?: 
     );
     // [이유 추가] steps out while the line offers the undo (components.css): a focus on it goes to the [되돌리기]
     // beside it.
-    const focused = document.activeElement as HTMLElement | null,
-      onAdd = !!focused && !!focused.closest && !!focused.closest('#doc .pv[data-page="' + page + '"] .pv-ra>.pv-add');
+    const focused = document.activeElement,
+      onAdd = !!focused && !!focused.closest('#doc .pv[data-page="' + page + '"] .pv-ra>.pv-add');
     if (notice) {
       LINE_UNDO_OFFERS.set(pageLineSlot(page), { id, n: notice.n });
       drawPageVerdicts();
       setTimeout(() => drawPageVerdicts(), NOTICE_MS + NOTICE_HOLD_MAX + 50);
       const active = document.activeElement,
-        undoButton = document.querySelector(
-          '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]',
-        ) as HTMLElement | null;
+        undoButton = findMaybe(document, '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]', HTMLElement);
       if (onAdd && undoButton && (active === focused || active === document.body || !active))
         undoButton.focus({ preventScroll: true });
     }
@@ -1332,19 +1345,17 @@ async function cancelVerdictPin(id: number, page: number, had: boolean, byKey?: 
   // the outline again instead of undoing. A reason popover that has the focus now is a newer one (the verdict's own
   // left with it): it keeps it - on this line too (a new verdict's, saved while the take-back was out), where moving
   // the focus to the line would make the next digit a verdict key.
-  const at = document.activeElement as HTMLElement | null,
-    pop = !!at && !!at.closest && !!at.closest('#doc .pv-pop');
+  const at = document.activeElement,
+    pop = !!at && !!at.closest('#doc .pv-pop');
   const lost =
     !pop &&
     (!at ||
       at === document.body ||
       at === $('#left') ||
-      !!(at.closest && at.closest('#doc .pv[data-page="' + page + '"]')) ||
+      !!at.closest('#doc .pv[data-page="' + page + '"]') ||
       (!!byKey && at === from));
   if ((had || inField) && lost && !slow) {
-    const undoButton = document.querySelector(
-      '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]',
-    ) as HTMLElement | null;
+    const undoButton = findMaybe(document, '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]', HTMLElement);
     if (undoButton) undoButton.focus({ preventScroll: true });
     else if (!focusLine(page)) searchToPage();
   }
@@ -1505,7 +1516,7 @@ function pressedWordHint(page: number, verdicts: DocVerdicts, key: string | null
 // A press made word key page `page`'s verdict: its line shows the pressed word's context for PRESSED_HINT_MS.
 const PRESSED_HINT_MS = 4000;
 function showPressedHint(page: number) {
-  const line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
+  const line = findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement);
   if (!line) return;
   line.classList.add('pv-onshow');
   clearTimeout(line._onT);
@@ -1537,7 +1548,7 @@ function fillPageLine(line: HTMLElement, page: number, list: Pin[] | undefined, 
   // landing while it is typed in: a morph by place can replace it), so what is typed next stays text - never a verdict
   // key.
   const active = document.activeElement,
-    field = isReasonField(active) && line.contains(active) ? (active as HTMLTextAreaElement) : null,
+    field = isReasonField(active) && line.contains(active) ? active : null,
     caret = field ? [field.selectionStart, field.selectionEnd] : null;
   if (chip) chip.remove();
   const next = document.createElement('div');
@@ -1547,9 +1558,7 @@ function fillPageLine(line: HTMLElement, page: number, list: Pin[] | undefined, 
   line.classList.toggle('pv-pop-open', !!line.querySelector(':scope>.pv-pop'));
   fillReasonField(line);
   if (field && caret && !field.isConnected) {
-    const redrawn = line.querySelector(
-      '.pv-pop .pv-reason[data-id="' + field.dataset.id + '"]',
-    ) as HTMLTextAreaElement | null;
+    const redrawn = findMaybe(line, '.pv-pop .pv-reason[data-id="' + field.dataset.id + '"]', HTMLTextAreaElement);
     if (redrawn) {
       redrawn.focus({ preventScroll: true });
       redrawn.setSelectionRange(caret[0], caret[1]);
@@ -1611,7 +1620,7 @@ function canMorph(target: Node, source: Node) {
 // attributes and children; another kind of node takes the target's place.
 function morphNode(target: Node, source: Node) {
   if (!canMorph(target, source)) {
-    (target as ChildNode).replaceWith(source);
+    if (target instanceof Element || target instanceof CharacterData) target.replaceWith(source);
     return;
   }
   if (!(target instanceof Element && source instanceof Element)) {
@@ -1797,7 +1806,7 @@ function fitPageLines(lines: HTMLElement[]) {
         if (!over[index] || narrow[index]) return over[index];
         const overflow = past(line);
         if (overflow <= 1) return false;
-        const state = line.querySelector(':scope>.pv-t') as HTMLElement;
+        const state = findElement(line, ':scope>.pv-t', Element);
         out[index] = overflow - earlierLinkRoom(state) + keySaveStateCut(line, state, addDifference) <= 1;
         return !out[index];
       });
@@ -1819,7 +1828,7 @@ function fitPageLines(lines: HTMLElement[]) {
     });
     docElement.classList.remove('pv-measure');
     const nat = lines.map((line, index) =>
-      keptHeights[index] ? (line.querySelector(':scope>.pv-t') as HTMLElement).getBoundingClientRect().height : 0,
+      keptHeights[index] ? findElement(line, ':scope>.pv-t', Element).getBoundingClientRect().height : 0,
     );
     lines.forEach((line, index) => {
       if (held[index]) return;
@@ -1874,8 +1883,8 @@ function keepLineBlocks(lines: HTMLElement[]): [HTMLElement, string, string][] {
   const blocks = [...set],
     at = blocks.map((block) => {
       const rect = block.getBoundingClientRect(),
-        next = block.nextElementSibling as Element;
-      return [rect.height, next.getBoundingClientRect().top - rect.bottom];
+        next = block.nextElementSibling;
+      return [rect.height, next ? next.getBoundingClientRect().top - rect.bottom : 0];
     });
   const kept: [HTMLElement, string, string][] = [];
   blocks.forEach((block, index) => {
@@ -1988,8 +1997,8 @@ function measureStateNeed(line: HTMLElement) {
 ${byKey ? html`<kbd class="pv-kbd">Enter</kbd> ${translate('이유 쓰기')}` : translate('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${translate('판정 취소')}</button></span>`,
     );
-    const stateRow = probe.firstElementChild as HTMLElement,
-      addButton = stateRow.querySelector('.pv-add') as HTMLElement;
+    const stateRow = findElement(probe, ':scope>.pv-t', Element),
+      addButton = findElement(stateRow, '.pv-add', Element);
     return [
       stateRow.getBoundingClientRect().width + (parseFloat(getComputedStyle(stateRow).columnGap) || 0),
       addButton.getBoundingClientRect().width,
@@ -2046,8 +2055,8 @@ function keySaveStateCut(line: HTMLElement, state: Element, difference: number):
 // hidden focus go a moment later: the move is made before that). Every way the fitting hides a control comes through
 // here, and so does a phone's floating line holding [판정 취소] back (leanFloatingLine).
 function keepFocusOnLine(lines: HTMLElement[]) {
-  const active = document.activeElement as HTMLElement | null,
-    line = active && active.closest ? (active.closest('#doc .pv') as HTMLElement | null) : null;
+  const active = focusedElement(),
+    line = active ? findClosest(active, '#doc .pv', HTMLElement) : null;
   if (
     !active ||
     !line ||
@@ -2094,7 +2103,7 @@ function holdsRows(line: HTMLElement) {
 const CHIP_WAIT_MS = 3000;
 const CHIP_WAIT_TIMERS: WeakMap<HTMLElement, number> = new WeakMap();
 function placeLineChips(lines: HTMLElement[]) {
-  const chips = lines.map((line) => line.querySelector(':scope>.nt-chip') as HTMLElement | null);
+  const chips = lines.map((line) => findMaybe(line, ':scope>.nt-chip', HTMLElement));
   lines.forEach((line, index) => {
     if (chips[index]) {
       line.classList.toggle('pv-chip-short', false);
@@ -2229,13 +2238,13 @@ function placeLineChips(lines: HTMLElement[]) {
 // (.pv-pop-below). Where neither holds it, the larger side, the popover no taller than that (--pv-pop-max; it scrolls).
 // So near the top an in-place line's popover never opens under the strip and the top bar.
 function placePopover() {
-  const pop = document.querySelector('#doc .pv>.pv-pop') as HTMLElement | null;
+  const pop = findMaybe(document, '#doc .pv>.pv-pop', HTMLElement);
   $$('#doc .pv.pv-pop-below').forEach((line) => {
     if (!pop || line !== pop.parentElement) line.classList.remove('pv-pop-below');
   });
-  if (!pop) return;
-  const line = pop.parentElement as HTMLElement,
-    area = $('#left'),
+  const line = pop && pop.parentElement;
+  if (!pop || !line) return;
+  const area = $('#left'),
     areaRect = area.getBoundingClientRect();
   if (line.id === 'pv-panel') {
     line.classList.remove('pv-pop-below');
@@ -2303,8 +2312,8 @@ const CHIP_WATCH =
 // verdicts every line goes and the marks draw every pin.
 function drawPageVerdicts() {
   const verdicts = pageVerdictsOn(),
-    focused = document.activeElement as HTMLElement | null;
-  const on = !!focused && !!focused.closest ? (focused.closest('.pv') as HTMLElement | null) : null,
+    focused = focusedElement();
+  const on = focused ? findClosest(focused, '.pv', HTMLElement) : null,
     had = !!on,
     onPage = on ? Number(on.dataset.page) || 0 : 0;
   if (ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.PAGE && (!verdicts || !armStillHolds(ARMED_VERDICT)))
@@ -2337,7 +2346,8 @@ function drawPageVerdicts() {
       removePanel();
       findAll(document, '#doc .pg', HTMLElement).forEach((pageElement) => {
         const page = Number(pageElement.dataset.page);
-        let line = pageElement.nextElementSibling as HTMLElement | null;
+        const next = pageElement.nextElementSibling;
+        let line = next instanceof HTMLElement ? next : null;
         if (!pageTakesVerdict(page)) {
           if (line && line.classList.contains('pv')) line.remove();
           return;
@@ -2397,10 +2407,10 @@ function jumpToPageLine(id: number) {
     flashPanelOn(target.page);
     return true;
   } // the panel flashes where the page lands (verdict/view-panel.ts)
-  const line = document.querySelector('#doc .pv[data-page="' + target.page + '"]') as HTMLElement | null;
-  if (!line) return false;
-  const block = line.parentElement as HTMLElement,
-    area = $('#left'),
+  const line = findMaybe(document, '#doc .pv[data-page="' + target.page + '"]', HTMLElement),
+    block = line && line.parentElement;
+  if (!line || !block) return false;
+  const area = $('#left'),
     how = block.getBoundingClientRect().height <= area.clientHeight ? 'center' : 'start';
   if (isFigure) arrivePage(target.page);
   else {
@@ -2486,7 +2496,7 @@ function stickReadingLine() {
     } // the panel shows the new reading page
     else if (verdicts)
       new Set([...was, readingPage, keyedPage]).forEach((page) => {
-        const line = (page ? document.querySelector('#doc .pv[data-page="' + page + '"]') : null) as HTMLElement | null;
+        const line = page ? findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement) : null;
         if (line) {
           fillPageLine(line, page, map.get(page), verdicts);
           refit.push(line);
@@ -2499,8 +2509,8 @@ function stickReadingLine() {
   markReadingSummary();
   lines.forEach((line) => {
     if (line.id === 'pv-panel') return; // the panel stands sticky beside the pages: it never floats at their foot
-    const pageElement = line.previousElementSibling as HTMLElement | null;
-    if (!pageElement) return;
+    const pageElement = line.previousElementSibling;
+    if (!(pageElement instanceof HTMLElement)) return;
     const rect = line.getBoundingClientRect(),
       pageBottom = pageElement.getBoundingClientRect().bottom;
     // In its own place it stands 8px under the page; held lower by a reason's room (placePopoverRoom) it floats over
@@ -2571,9 +2581,8 @@ function dropPopoverRoom(line: HTMLElement) {
 // Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then
 // (stickReadingLine).
 function placePopoverRoom(area: HTMLElement, areaRect: DOMRect): boolean {
-  const pop = document.querySelector('#doc .pv>.pv-pop') as HTMLElement | null;
-  const open =
-    pop && pop.parentElement && pop.parentElement.id !== 'pv-panel' ? (pop.parentElement as HTMLElement) : null;
+  const pop = findMaybe(document, '#doc .pv>.pv-pop', HTMLElement);
+  const open = pop && pop.parentElement && pop.parentElement.id !== 'pv-panel' ? pop.parentElement : null;
   if (!open && !POPOVER_ROOM.size) return false;
   const style = getComputedStyle(area),
     top0 = areaRect.top + area.clientTop + (parseFloat(style.paddingTop) || 0),
@@ -2581,8 +2590,8 @@ function placePopoverRoom(area: HTMLElement, areaRect: DOMRect): boolean {
     end = areaRect.top + area.clientTop + area.clientHeight - (parseFloat(style.paddingBottom) || 0);
   POPOVER_ROOM.forEach((room, line) => {
     if (line === open) return;
-    const pageElement = line.previousElementSibling as HTMLElement | null;
-    if (!line.isConnected || !pageElement || line.parentElement !== room.blk) {
+    const pageElement = line.previousElementSibling;
+    if (!line.isConnected || !(pageElement instanceof HTMLElement) || line.parentElement !== room.blk) {
       dropPopoverRoom(line);
       return;
     }
@@ -2595,7 +2604,8 @@ function placePopoverRoom(area: HTMLElement, areaRect: DOMRect): boolean {
       dropPopoverRoom(line);
   });
   if (open) {
-    const pageElement = open.previousElementSibling as HTMLElement | null,
+    const previous = open.previousElementSibling,
+      pageElement = previous instanceof HTMLElement ? previous : null,
       block = open.parentElement;
     const want =
       pop && pageElement && block && block.classList.contains('pgw')
@@ -2754,10 +2764,10 @@ function isInAreaView(element: Element) {
 // next Enter or Space would act on the page the person left - its reason would open off-screen and the text meant for
 // this page would go into that page's note. A focus put on a third page's line in view stays: the person went there.
 function moveFocusOffPage(readingPage: number, was: number) {
-  const active = document.activeElement as HTMLElement | null,
-    line = active && active.closest ? active.closest('#doc .pv') : null;
-  if (!active || !line || (active.closest && active.closest('.pv-pop'))) return;
-  const page = Number((line as HTMLElement).dataset.page);
+  const active = document.activeElement,
+    line = active ? findClosest(active, '#doc .pv', HTMLElement) : null;
+  if (!active || !line || active.closest('.pv-pop')) return;
+  const page = Number(line.dataset.page);
   if (page !== readingPage && (page === was || !isInAreaView(active))) searchToPage();
 }
 // The line control the focus went to and the reading page then: one focused on the reading page's line that is no
@@ -2765,8 +2775,8 @@ function moveFocusOffPage(readingPage: number, was: number) {
 // (moveFocusOffPage).
 let LINE_FOCUS: { el: Element; read: number } | null = null;
 document.addEventListener('focusin', (event) => {
-  const target = event.target as HTMLElement | null;
-  LINE_FOCUS = target && target.closest && target.closest('#doc .pv') ? { el: target, read: READING_LINE_PAGE } : null;
+  const target = eventElement(event);
+  LINE_FOCUS = target && target.closest('#doc .pv') ? { el: target, read: READING_LINE_PAGE } : null;
 });
 // Enter or Space on a control of a line that is not the reading page's - out of view, or the line of the page the
 // person left (focused while it was the reading page) - does not act there (a press read before the focus moved,
@@ -2775,11 +2785,11 @@ document.addEventListener('focusin', (event) => {
 function stopOffPageKey(event: KeyboardEvent) {
   if ((event.key !== 'Enter' && event.key !== ' ') || event.ctrlKey || event.metaKey || event.altKey || imeKey(event))
     return;
-  const target = event.target as HTMLElement | null;
-  const line = target && target.closest ? target.closest('#doc .pv') : null;
-  if (!target || !line || (target.closest && target.closest('.pv-pop')) || typingNow()) return;
+  const target = eventElement(event);
+  const line = target ? findClosest(target, '#doc .pv', HTMLElement) : null;
+  if (!target || !line || target.closest('.pv-pop') || typingNow()) return;
   const readingPage = pageUnderReadingLine(),
-    page = Number((line as HTMLElement).dataset.page),
+    page = Number(line.dataset.page),
     left = !!LINE_FOCUS && LINE_FOCUS.el === target && LINE_FOCUS.read === page;
   if (CANCEL_OUT.has(pageLineSlot(page))) {
     event.preventDefault();
@@ -2819,8 +2829,7 @@ addEventListener('resize', stickSoon);
   }
 } // a keyboard over the page
 $('#doc').addEventListener('input', (event: InputEvent) => {
-  const target = event.target as HTMLElement;
-  if (target.closest && target.closest('.pv-pop')) stickSoon();
+  if (eventClosest(event, '.pv-pop', Element)) stickSoon();
 }); // the reason field grows: its side again
 // composing, the sheet, the band
 new MutationObserver(stickSoon).observe(document.body, { attributes: true, attributeFilter: ['class'] });
@@ -2847,13 +2856,13 @@ function verdictKey(event: KeyboardEvent) {
     !/^[1-5]$/.test(event.key)
   )
     return;
-  const target = event.target as HTMLElement | null;
+  const target = eventElement(event);
   if (
     target &&
     (target.tagName === 'TEXTAREA' ||
       target.tagName === 'INPUT' ||
       target.tagName === 'SELECT' ||
-      target.isContentEditable)
+      (target instanceof HTMLElement && target.isContentEditable))
   )
     return;
   if (
@@ -2891,9 +2900,11 @@ function verdictKey(event: KeyboardEvent) {
   // The panel shows the page under the reading line at the key, also before the frame that would show it
   // (verdict/view-panel.ts).
   if (IS_BESIDE_PAGES && ensurePanel().dataset.page !== String(at)) stickReadingLine();
-  const button = document.querySelector(
+  const button = findMaybe(
+    document,
     '#doc .pv[data-page="' + at + '"] button[data-act="pv-save"][data-key="' + CSS.escape(choice.key) + '"]',
-  ) as HTMLElement | null;
+    HTMLElement,
+  );
   if (!button) return;
   event.preventDefault();
   // A digit pressed with the focus outside the pages (an outline entry, the page list's or the section strip's button,
@@ -2902,7 +2913,7 @@ function verdictKey(event: KeyboardEvent) {
   // reason. The area is a named region (index.html), so a screen reader says 'PDF 쪽' for the moment it has the focus,
   // not every page's text one after the other. Where the focus came from is kept: Shift+Tab from the line goes back
   // there (CAME_FROM).
-  const active = document.activeElement as HTMLElement | null,
+  const active = focusedElement(),
     area = $('#left');
   if (active && active !== document.body && active !== area && !area.contains(active)) {
     noteCameFrom(active);
@@ -2980,13 +2991,13 @@ let PRESSED_ON_PAGES = false;
 addEventListener(
   'pointerdown',
   (event) => {
-    const target = event.target as HTMLElement | null;
-    PRESSED_ON_PAGES = !!target && !!target.closest && !!target.closest('#left') && !target.closest('#doc .pv');
+    const target = eventElement(event);
+    PRESSED_ON_PAGES = !!target && !!target.closest('#left') && !target.closest('#doc .pv');
   },
   true,
 );
 document.addEventListener('focusin', (event) => {
-  const target = event.target as HTMLElement | null;
+  const target = event.target;
   if (target && target !== $('#left')) PRESSED_ON_PAGES = false;
 });
 // So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and
@@ -3001,13 +3012,9 @@ addEventListener('keydown', (event) => {
   if (!at) return; // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
   const readingPage = readingPageWithLine(),
     line = readingPage ? document.querySelector('#doc .pv[data-page="' + readingPage + '"]') : null;
-  const control = (
-    line
-      ? [...line.querySelectorAll('a,button,[tabindex="0"]')].find(
-          (x) => x instanceof HTMLElement && x.getClientRects().length > 0 && !(x as HTMLButtonElement).disabled,
-        )
-      : undefined
-  ) as HTMLElement | undefined;
+  const control = line
+    ? findAll(line, 'a,button,[tabindex="0"]', HTMLElement).find((x) => x.getClientRects().length > 0 && !isDisabled(x))
+    : undefined;
   event.preventDefault();
   const stopInView = control ? null : findStopInView(at),
     to = control || stopInView || findEdgeStop(true);
@@ -3067,7 +3074,8 @@ function findStopInView(at: number): HTMLElement | null {
 function findEdgeStop(after: boolean): HTMLElement | null {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
     acceptNode: (node) => {
-      const x = node as Element;
+      if (!(node instanceof Element)) return NodeFilter.FILTER_SKIP;
+      const x = node;
       if (
         x.hasAttribute('hidden') ||
         x.hasAttribute('inert') ||
@@ -3080,7 +3088,8 @@ function findEdgeStop(after: boolean): HTMLElement | null {
   let node: Node = $('#left');
   if (after) while (node.lastChild) node = node.lastChild; // from the area's last node the next one is past the area
   walker.currentNode = node;
-  return (after ? walker.nextNode() : walker.previousNode()) as HTMLElement | null;
+  const found = after ? walker.nextNode() : walker.previousNode();
+  return found instanceof HTMLElement ? found : null;
 }
 // Where the focus came into the pages from, while it is in them: the stop a Tab into the pages was pressed on, or the
 // control a digit key was pressed on (verdictKey) - an outline entry, a document tab, the section strip, the phone's
@@ -3123,7 +3132,7 @@ function findOutStop() {
   return edge || (isTabStop(positionButton) ? positionButton : null);
 }
 addEventListener('keydown', (event) => {
-  const active = document.activeElement as HTMLElement | null,
+  const active = focusedElement(),
     area = $('#left');
   if (
     event.key !== 'Tab' ||
@@ -3181,9 +3190,9 @@ addEventListener('keydown', (event) => {
   // Beside the pages the panel is the reading line, and it stands after the pages in the DOM (verdict/view-panel.ts):
   // from its first stop the reading page's marks come next, as they do from a line, and from the first of those the way
   // out.
-  const active = document.activeElement as HTMLElement | null,
-    panel = active && active.closest ? (active.closest('#pv-panel') as HTMLElement | null) : null;
-  const block = panel || (active && active.closest ? (active.closest('#doc .pgw') as HTMLElement | null) : null),
+  const active = focusedElement(),
+    panel = active ? findClosest(active, '#pv-panel', HTMLElement) : null;
+  const block = panel || (active ? findClosest(active, '#doc .pgw', HTMLElement) : null),
     line = panel || (block && (block.querySelector(':scope>.pv') || document.getElementById('pv-panel')));
   const inView = STOP_IN_VIEW;
   if (inView && !(currentVisit(inView.visit) && inView.build === ((META && META.pages_build) || '')))

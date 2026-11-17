@@ -78,8 +78,8 @@ function watchFarLines(lines: HTMLElement[], viewHeight: number) {
 // (no height to stand at) or no longer in the page.
 function sortFarLines(entries: IntersectionObserverEntry[]) {
   for (const entry of entries) {
-    const line = entry.target as HTMLElement;
-    if (!line.isConnected) continue;
+    const line = entry.target;
+    if (!(line instanceof HTMLElement) || !line.isConnected) continue;
     if (entry.isIntersecting) {
       line.classList.remove('pv-far');
       continue;
