@@ -269,6 +269,187 @@ class GuardRules(unittest.TestCase):
         )
         self.assertEqual(got, ["끌어서 패널 폭을 바꿉니다", ""])
 
+    def test_a_press_outside_the_selection_aimed_at_no_element_cancels_nothing(self):
+        """pressOutsideSelection (pdf/input-selection.ts) reads the press's element: a press aimed at a text node, which
+        is no element, is not outside the selection - it cancels nothing and throws nothing."""
+        got = self.run_js(
+            "class Element {}",
+            "function selectionOpen() { return true; }",
+            extract_js_fn("eventElement"),
+            extract_js_fn("pressOutsideSelection"),
+            "console.log(JSON.stringify(pressOutsideSelection({ target: { nodeType: 3 }, offsetX: 1, offsetY: 1 })));",
+        )
+        self.assertEqual(got, False)
+
+    def test_a_page_list_key_aimed_at_no_element_does_nothing(self):
+        """pageListKey (pdf/view-page-list.ts) on a key whose target is no element moves no row and throws nothing."""
+        got = self.run_js(
+            "class Element {}",
+            "function imeKey() { return false; }",
+            extract_js_fn("eventElement"),
+            extract_js_fn("pageListKey"),
+            r"""
+            let prevented = false;
+            pageListKey({ target: null, key: 'ArrowDown', preventDefault() { prevented = true; } });
+            console.log(JSON.stringify(prevented));
+            """,
+        )
+        self.assertEqual(got, False)
+
+    def test_the_caret_is_put_back_only_in_a_text_input_or_a_textarea(self):
+        """holdCaret (layout/flow.ts) puts the caret where it stands in an input or a textarea; editable content and a
+        target that is no element have no caret to put and are left alone."""
+        got = self.run_js(
+            r"""
+            let CARET_HELD = null;
+            const PUT = [];
+            class HTMLInputElement {
+              constructor(name) { this.name = name; this.selectionStart = 2; this.selectionEnd = 2; }
+              setSelectionRange(from, to) { PUT.push([this.name, from, to]); }
+            }
+            class HTMLTextAreaElement extends HTMLInputElement {}
+            """,
+            extract_js_fn("holdCaret"),
+            r"""
+            holdCaret({ target: { isContentEditable: true } });
+            holdCaret({ target: null });
+            holdCaret({ target: new HTMLInputElement('input') });
+            holdCaret({ target: new HTMLTextAreaElement('textarea') });
+            console.log(JSON.stringify(PUT));
+            """,
+        )
+        self.assertEqual(got, [["input", 2, 2], ["textarea", 2, 2]])
+
+    def test_the_canvas_measures_throw_an_error_when_the_browser_gives_no_2d_context(self):
+        """inkMetrics (layout/flow.ts) and searchMeasure (pdf/flow.ts) need a 2D canvas context: a browser that gives
+        none fails with an Error that says so."""
+        got = self.run_js(
+            "let INK_CONTEXT = null, SEARCH_CONTEXT = null;",
+            "const document = { createElement: () => ({ getContext: () => null }) };",
+            extract_js_fn("inkMetrics"),
+            extract_js_fn("searchMeasure"),
+            r"""
+            const said = [];
+            for (const measure of [() => inkMetrics({}, 'x'), () => searchMeasure('x', 'serif')])
+              try { measure(); said.push('measured'); } catch (error) { said.push(error.message); }
+            console.log(JSON.stringify(said));
+            """,
+        )
+        self.assertEqual(got, ["inkMetrics: no 2D canvas context", "searchMeasure: no 2D canvas context"])
+
+    def test_a_cards_neighbour_is_a_pin_number_only_for_an_html_card(self):
+        """cardNeighbour (pins/flow-list.ts) reads the next card's data-id; a neighbour that is no HTML element has no
+        number."""
+        got = self.run_js(
+            r"""
+            class HTMLElement {}
+            const card = (next) => ({ nextElementSibling: next, previousElementSibling: null });
+            const html = Object.assign(new HTMLElement(), { dataset: { id: '7' }, matches: () => true });
+            const other = { dataset: { id: '8' }, matches: () => true };
+            const control = (next) => ({ closest: () => card(next) });
+            """,
+            extract_js_fn("cardNeighbour"),
+            "console.log(JSON.stringify([cardNeighbour(control(html)), cardNeighbour(control(other)), cardNeighbour(control(null))]));",
+        )
+        self.assertEqual(got, [7, None, None])
+
+    def test_a_kept_pick_focus_goes_back_unless_its_control_is_disabled(self):
+        """restorePickFocus (pins/flow-review-pick.ts) gives the focus back to the kept control - a link has no
+        disabled state - and to [골라서 확인] when the control is disabled or is no HTML element."""
+        got = self.run_js(
+            r"""
+            const FOCUSED = [];
+            class HTMLElement { constructor(name) { this.name = name; } focus() { FOCUSED.push(this.name); } }
+            const disabledBox = Object.assign(new HTMLElement('box'), { disabled: true });
+            const link = new HTMLElement('link'), pick = Object.assign(new HTMLElement('pick'), { hidden: false });
+            let FOUND = [];
+            const body = {};
+            const document = { activeElement: body, body, querySelectorAll: () => FOUND };
+            const $ = (selector) => (selector === '#review-pick' ? pick : new HTMLElement('toggle'));
+            """,
+            extract_js_fn("restorePickFocus"),
+            r"""
+            for (const found of [[link], [disabledBox], [{ name: 'svg', focus() { FOCUSED.push('svg'); } }]]) {
+              FOUND = found;
+              restorePickFocus({ sel: 'x', i: 0 });
+            }
+            console.log(JSON.stringify(FOCUSED));
+            """,
+        )
+        self.assertEqual(got, ["link", "pick", "pick"])
+
+    def test_only_a_checkbox_in_the_review_section_ticks_a_result(self):
+        """tickChangedBox (pins/flow-review-pick.ts) ticks for a change of a checkbox inside the review section; any
+        other target - another input, a target that is no input - ticks nothing."""
+        got = self.run_js(
+            r"""
+            const TICKED = [];
+            function tickResultBox(box) { TICKED.push(box.name); }
+            class HTMLInputElement {
+              constructor(name, type, inside) { Object.assign(this, { name, type, inside }); }
+              closest() { return this.inside ? {} : null; }
+            }
+            """,
+            extract_js_fn("tickChangedBox"),
+            r"""
+            for (const target of [new HTMLInputElement('tick', 'checkbox', true), new HTMLInputElement('out', 'checkbox', false),
+              new HTMLInputElement('text', 'text', true), { name: 'div', type: 'checkbox', closest: () => ({}) }, null])
+              tickChangedBox({ target });
+            console.log(JSON.stringify(TICKED));
+            """,
+        )
+        self.assertEqual(got, ["tick"])
+
+    def test_a_link_target_is_read_from_its_attributes_on_any_element(self):
+        """linkTarget (revisions/view-rendered-compare.ts) is a link's data-tip-url, else its href, else its
+        data-anchor, else empty - read from the attributes, so an SVG or MathML element of a formula reads the same."""
+        got = self.run_js(
+            "const element = (attributes) => ({ getAttribute: (name) => (name in attributes ? attributes[name] : null) });",
+            extract_js_fn("linkTarget"),
+            r"""
+            console.log(JSON.stringify([
+              linkTarget(element({ 'data-tip-url': 'u', href: 'h', 'data-anchor': 'a' })),
+              linkTarget(element({ href: 'h', 'data-anchor': 'a' })),
+              linkTarget(element({ 'data-tip-url': '', 'data-anchor': 'a' })),
+              linkTarget(element({})),
+            ]));
+            """,
+        )
+        self.assertEqual(got, ["u", "h", "a", ""])
+
+    def test_a_shallow_copy_is_an_html_element_or_an_error(self):
+        """shallowCopy (revisions/view-rendered-compare.ts) gives cloneNode(false)'s copy of an HTML element, which the
+        DOM types as a Node; a copy that is no HTML element is an Error naming the tag."""
+        got = self.run_js(
+            r"""
+            class HTMLElement { constructor(tagName, copy) { this.tagName = tagName; this.copy = copy; } cloneNode() { return this.copy; } }
+            const copy = new HTMLElement('UL', null);
+            """,
+            extract_js_fn("shallowCopy"),
+            r"""
+            const said = [shallowCopy(new HTMLElement('UL', copy)) === copy];
+            try { shallowCopy(new HTMLElement('LI', {})); } catch (error) { said.push(error.message); }
+            console.log(JSON.stringify(said));
+            """,
+        )
+        self.assertEqual(got, [True, "shallowCopy: the copy of a LI is no HTMLElement"])
+
+    def test_a_reply_box_without_its_text_field_is_an_error_of_the_page(self):
+        """replyNote (pins/flow-reply.ts) is the reply box's textarea, which createReplyBox always draws; a box without
+        one is a fault of the page, an Error naming the selector."""
+        got = self.run_js(
+            "class Element {} class HTMLTextAreaElement extends Element {}",
+            extract_js_fn("findElement"),
+            extract_js_fn("replyNote"),
+            r"""
+            const field = Object.assign(new HTMLTextAreaElement(), { tagName: 'TEXTAREA' });
+            const said = [replyNote({ el: { querySelector: () => field } }) === field];
+            try { replyNote({ el: { querySelector: () => null } }); } catch (error) { said.push(error.message); }
+            console.log(JSON.stringify(said));
+            """,
+        )
+        self.assertEqual(got, [True, "textarea: no HTMLTextAreaElement"])
+
 
 class NonElementTargets(BrowserBase):
     """A text node is an event target that is no element: an event dispatched at one inside a handler's box bubbles to
