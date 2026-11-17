@@ -13857,8 +13857,7 @@ document.addEventListener(
   'pointerdown',
   (event) => {
     if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(eventElement(event))) return;
-    const active = document.activeElement,
-      focused = active instanceof HTMLElement ? active : null;
+    const focused = focusedElement();
     searchHide();
     if (focused && $('#doc-search').contains(focused)) focused.blur();
   },
@@ -14601,8 +14600,7 @@ function placeBarTools() {
     leftGroup = findElement(bar, '.bar-l', Element),
     rightGroup = findElement(bar, '.bar-r', Element);
   const selectButton = $('#btn-select'),
-    active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null,
+    focused = focusedElement(),
     had = !!focused && bar.contains(focused);
   if (LAYOUT === LAYOUT_MODE.MID) {
     if (bar.firstElementChild !== selectButton) bar.prepend(selectButton);
@@ -34517,8 +34515,7 @@ function drawTrash() {
   const dropped = TRASH_ALL ? DROPPED : listDropped(),
     box = $('#trash-list');
   if (!box) return;
-  const active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null,
+  const focused = focusedElement(),
     spot = focused && focused !== box && box.contains(focused) ? trashSpot(box, focused) : null;
   $('#trash-note').textContent = translateTemplate(
     '삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',
@@ -34757,11 +34754,9 @@ function drawPickBar(list) {
 // data-act and its place among the row's controls of that act (two #N in an explanation are both 'pin-ref'), or one of
 // the bar's controls by its id. null when the focus is elsewhere.
 function findPickFocus() {
-  const active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null;
+  const focused = focusedElement();
   if (!focused) return null;
-  const card = focused.closest('.rv-row[data-id]'),
-    row = card instanceof HTMLElement ? card : null,
+  const row = findClosest(focused, '.rv-row[data-id]', HTMLElement),
     at = row ? '.rv-row[data-id="' + row.dataset.id + '"] ' : '';
   if (row && focused.matches('input[data-pick]')) return { sel: at + 'input[data-pick]', i: 0 };
   if (row && focused.dataset.act) {
@@ -36023,10 +36018,8 @@ document.fonts.addEventListener('loadingdone', (event) => {
 // anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
 // focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
 function cardFocusKeep() {
-  const active = document.activeElement,
-    focused = active instanceof HTMLElement ? active : null,
-    card = focused ? focused.closest('#list .pin[data-id]') : null,
-    cardElement = card instanceof HTMLElement ? card : null;
+  const focused = focusedElement(),
+    cardElement = focused ? findClosest(focused, '#list .pin[data-id]', HTMLElement) : null;
   const act = focused && focused.dataset ? focused.dataset.act || '' : '';
   if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
   return {
