@@ -959,6 +959,8 @@ document.addEventListener('click', (event) => {
     case 'reload':
       reloadForUpdate();
       break;
+    case undefined: // control matched [data-act], so the attribute is there; nothing to do without it
+      break;
   }
 });
 $('#doc-select').addEventListener('change', (event: Event) => {
