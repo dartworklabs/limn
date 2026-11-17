@@ -31,7 +31,7 @@ function html(parts: TemplateStringsArray, ...values: unknown[]): Html {
 }
 
 // The markup one html`` value stands for (see html()).
-function htmlValue(value) {
+function htmlValue(value: unknown): string {
   if (value instanceof Html) return value.text;
   if (Array.isArray(value)) return value.map(htmlValue).join('');
   if (value == null) return '';
@@ -40,7 +40,7 @@ function htmlValue(value) {
 
 // The Lucide icon `name` as an inline <svg> (same shape as the server's icon_svg(); CSS sets its size through .ic), or
 // empty Html when the bundled table has no such icon. `name` comes from this code, never from user text.
-function lucideIcon(name) {
+function lucideIcon(name: string) {
   const shapes = ICONS[name];
   return new Html(
     shapes
@@ -57,7 +57,7 @@ function lucideIcon(name) {
 // cannot reach the page through here. An empty element of the markup with data-cp (a code point in hex:
 // markHiddenHtml's box) then gets that character as its text through the DOM, which keeps what the HTML parser would
 // drop or change (a NUL, a CR).
-function setHtml(element, markup) {
+function setHtml(element: Element, markup: Html) {
   if (!(markup instanceof Html)) throw new TypeError('setHtml takes Html from html`` or ic()');
   element.innerHTML = markup.text;
   if (!markup.text.includes(' data-cp="')) return; // most markup has no box: no query

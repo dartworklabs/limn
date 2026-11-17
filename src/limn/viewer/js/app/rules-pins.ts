@@ -13,7 +13,7 @@ function verdictOf(pin: Pin | null | undefined): string | null {
 }
 // Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left
 // as-is).
-function lineRange(first, last) {
+function lineRange(first: number | undefined, last: number | undefined) {
   return 'L' + first + (last !== first ? '-L' + last : '');
 }
 // docs/handbook/api.md §겹친 핀과 덧붙이기: if the pre-save selection (COMPOSE.current) overlaps an open pin, one
@@ -29,7 +29,7 @@ function rangeRelation(first, last, pinFirst, pinLast) {
   if (first <= pinFirst && pinLast <= last) return RANGE_REL.CONTAINS;
   return RANGE_REL.PARTIAL;
 }
-function overlapsFor(selection, pins) {
+function overlapsFor(selection: Selection, pins) {
   const out: PickOverlap[] = [];
   if (!selection || !selection.file) return out; // a selection on a view-only PDF has no line
   (pins || []).forEach((pin) => {

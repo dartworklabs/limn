@@ -9,18 +9,19 @@ import { markHiddenHtml } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { refetchSnip } from './view-levels.ts';
+import type { RangeOwner } from './view-levels.ts';
 import { recomputeOverlap, renderComposer } from './flow-pick.ts';
 import { $ } from '../platform/dom.ts';
 import { withDocQuery, isRegion } from '../documents/state.ts';
 import { pinFields } from './state-seams.ts';
 
 // The range first..last widened to line: [min(first, line), max(last, line)]. Pure.
-function widenTo(first, last, line) {
+function widenTo(first: number, last: number, line: number) {
   return [Math.min(first, line), Math.max(last, line)];
 }
 // The range first..last less its end line `line`: [first+1, last] or [first, last-1]; null when that line is neither
 // end of a range of two or more lines. Pure.
-function dropLine(first, last, line) {
+function dropLine(first: number, last: number, line: number) {
   if (first >= last) return null;
   return line === first ? [first + 1, last] : line === last ? [first, last - 1] : null;
 }
@@ -30,10 +31,14 @@ function dropLine(first, last, line) {
 // kind:'ctx'|'on', edge} (k: its line; edge: an end of a band of two or more). Pure. One row of the excerpt
 // (excerptRows).
 type ExcerptRow = { k: number; kind: 'ctx' | 'on'; edge: boolean } | { kind: 'fold'; n: number };
-function excerptRows(first, last, lineCount, open) {
+function excerptRows(first: number, last: number, lineCount: number, open: boolean) {
   const out: ExcerptRow[] = [],
     bandSize = last - first + 1,
-    on = (line): ExcerptRow => ({ k: line, kind: 'on', edge: bandSize > 1 && (line === first || line === last) });
+    on = (line: number): ExcerptRow => ({
+      k: line,
+      kind: 'on',
+      edge: bandSize > 1 && (line === first || line === last),
+    });
   if (first > 1) out.push({ k: first - 1, kind: 'ctx', edge: false });
   if (bandSize <= 5 || open) for (let k = first; k <= last; k++) out.push(on(k));
   else out.push(on(first), on(first + 1), { kind: 'fold', n: bandSize - 4 }, on(last - 1), on(last));
@@ -46,7 +51,7 @@ function excerptRows(first, last, lineCount, open) {
 const EXCERPT_LINES = new WeakMap(),
   EXCERPT_FETCHING = new WeakSet();
 // The line cache of owner - a selection or an edit card - in EXCERPT_LINES, made on first use.
-function excerptLines(owner) {
+function excerptLines(owner: RangeOwner) {
   let lines = EXCERPT_LINES.get(owner);
   if (!lines) {
     lines = new Map();
@@ -55,7 +60,7 @@ function excerptLines(owner) {
   return lines;
 }
 // Reads a numbered snippet ('   40  text' lines, limn.pins.location.mapping.snippet) into the owner's line cache.
-function excerptTake(owner, snip) {
+function excerptTake(owner: RangeOwner, snip: string | undefined) {
   const lines = excerptLines(owner);
   String(snip || '')
     .split('\n')
@@ -99,12 +104,12 @@ async function excerptFetch(owner) {
   excerptRedraw(owner);
 }
 // Redraws the panel the owner belongs to (the composer's selection or the open edit card); a stale owner draws nothing.
-function excerptRedraw(owner) {
+function excerptRedraw(owner: RangeOwner) {
   if (owner === COMPOSE.current) renderComposer();
   else if (owner === EDITOR.current) pinFields().drawEdit();
 }
 // The owner's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
-function excerptBox(owner) {
+function excerptBox(owner: RangeOwner) {
   const editing = EDITOR.current;
   return owner === COMPOSE.current
     ? $('#c-xp')
@@ -116,7 +121,7 @@ function excerptBox(owner) {
 // action on the same line; else the same action on the side the change happened - the next dimmed line above or below,
 // or the band's new end line's '−' - so another press repeats it; else the control nearest that line. was: {act, line};
 // the owner has the new range. Pure over the rows' buttons ([{act, line, el}]).
-function excerptFocusTarget(buttons, was, owner) {
+function excerptFocusTarget(buttons, was: { act: string; line: number }, owner) {
   const at = (act, line) => buttons.find((button) => button.act === act && button.line === line);
   const up = was.line <= owner.lo,
     same =
@@ -132,7 +137,7 @@ function excerptFocusTarget(buttons, was, owner) {
 // Draws the owner's excerpt into box, or clears and hides it (a region, no selection). isEdit: an edit card (the
 // composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that takes the focused '+'
 // or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
-function drawExcerpt(owner, box, isEdit) {
+function drawExcerpt(owner, box, isEdit: boolean) {
   const on = !!owner && !owner.region && !isRegion(owner);
   const focused = document.activeElement as HTMLElement,
     had =
@@ -147,7 +152,7 @@ function drawExcerpt(owner, box, isEdit) {
   excerptTake(owner, owner.snippet);
   excerptFetch(owner);
   const lines = excerptLines(owner),
-    text = (line) => {
+    text = (line: number) => {
       const lineText = lines.get(line);
       return lineText == null ? '…' : markHiddenHtml(lineText);
     }; // a character that would hide or reorder the line in its box (platform/hidden-chars.ts)
@@ -187,7 +192,7 @@ ${row.edge ? html`<button class="xp-chip xp-drop" data-act="xp-drop" data-line="
 }
 // Sets the owner's lines by hand: first..last, the scope 'lines' and no environment; a figure pick keeps its element
 // (elSel) - lines set in the source are a range edit, not a new place.
-function setLines(owner, first, last) {
+function setLines(owner: RangeOwner, first: number, last: number) {
   owner.lo = first;
   owner.hi = last;
   owner.scope = 'lines';
@@ -196,7 +201,7 @@ function setLines(owner, first, last) {
 // Applies range ([first, last], kept inside the file) to the owner as lines set by hand (setLines), then the overlap
 // (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the end
 // that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
-function applyRange(owner, range, anchor) {
+function applyRange(owner, range: number[] | null, anchor: number) {
   if (!owner || !range) return;
   const lineCount = owner.n_lines || Math.max(range[1], owner.hi),
     first = Math.max(1, Math.min(range[0], lineCount)),

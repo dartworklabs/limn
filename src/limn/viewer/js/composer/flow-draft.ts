@@ -61,13 +61,13 @@ function holdDraftUntil(note: Notice) {
   };
 }
 // The storage key of a draft: one per instance label and document.
-function draftKey(label, doc) {
+function draftKey(label: string, doc: string | null) {
   return 'limnDraft:' + encodeURIComponent(label || '') + ':' + doc;
 }
 // What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
 // this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
 // for nothing to keep, another document, or another record version.
-function draftRestore(record, doc, build) {
+function draftRestore(record: ReturnType<typeof draftRecord>, doc: string | null, build: string) {
   if (!record || record.v !== 1 || record.doc !== doc) return null;
   if (record.cur && record.build === build) return 'full';
   return String(record.note || '').trim() ? 'note' : null;
@@ -130,7 +130,7 @@ function savedDraftSnapshot() {
 }
 // A returned visit may clear the original draft only while its restored selection and every unsaved field still match
 // the submitted record.
-function restoredDraftOwns(snapshot) {
+function restoredDraftOwns(snapshot: ReturnType<typeof savedDraftSnapshot>) {
   const origin = DRAFT.origin;
   if (
     !snapshot ||
@@ -152,7 +152,7 @@ function restoredDraftOwns(snapshot) {
   }
 }
 // A successful save may discard its parked draft only while that record is unchanged and its document is away.
-function clearSavedDraft(snapshot) {
+function clearSavedDraft(snapshot: ReturnType<typeof savedDraftSnapshot>) {
   if (!snapshot || !snapshot.value || DOC === snapshot.doc) return;
   try {
     if (sessionStorage.getItem(snapshot.key) === snapshot.value) sessionStorage.removeItem(snapshot.key);

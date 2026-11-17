@@ -8,7 +8,7 @@ function editNote(card: EditCard): HTMLTextAreaElement {
   return card.el.querySelector('.e-note') as HTMLTextAreaElement;
 }
 // Grows a note or reply field with its text, from three lines to twelve.
-function autoGrow(field) {
+function autoGrow(field: HTMLElement) {
   field.style.height = 'auto';
   const lineHeight = 20;
   field.style.height = Math.min(12 * lineHeight, Math.max(3 * lineHeight, field.scrollHeight + 2)) + 'px';

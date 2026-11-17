@@ -4,14 +4,14 @@
 import { LOCAL_LOGIN, ROLE } from './rules-tables.ts';
 import { translate } from '../platform/i18n.ts';
 import { PEOPLE, META } from './state.ts';
-function who(person) {
+function who(person: Person | null | undefined) {
   if (person && person.login === LOCAL_LOGIN) return translate(person.name || '로컬/에이전트');
   return (person && (person.name || person.login)) || '';
 } // the stored local name is Korean ('로컬/에이전트'); shown in the UI language
 // A person = a photo or an initial circle (primary color); local/agent = a faded circle with a robot icon -
 // distinguishes people from agents at a glance. The initial is in a box of its own (.av-l): trimmed to its cap height,
 // so the circle centres the letter and not its line box.
-function isAgent(person) {
+function isAgent(person: Person | null | undefined) {
   return !!person && (person.login === LOCAL_LOGIN || String(person.login).startsWith('agent:'));
 }
 // Turns '@name' (only resolved mentions) and '#number' (an existing pin) in text into tokens (docs/handbook/viewer.md
@@ -41,7 +41,7 @@ function isHuman() {
 }
 // The reviewer shown on an awaiting-review card: the author is suggested (anyone can confirm - a trust model). If I'm
 // the author, '내 확인 차례'.
-function isMe(person) {
+function isMe(person: Person | null | undefined) {
   const me = META && META.me;
   return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
 }

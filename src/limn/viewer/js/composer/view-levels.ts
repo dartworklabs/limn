@@ -1,6 +1,7 @@
 // ------------------------------------------------ Range levels
 import { captureVisit, currentVisit, COMPOSE, EDITOR } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
+import type { Html } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { elementName, rungTip } from '../pdf/view-figure.ts';
@@ -10,13 +11,15 @@ import { VIA } from '../app/rules-tables.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
+/** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
+type RangeOwner = Selection | EditCard;
 // A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
-function wireScope(scope) {
+function wireScope(scope: string) {
   return scope === 'blocks' ? 'lines' : scope;
 }
-function kindFor(scope, env) {
+function kindFor(scope: string | null | undefined, env: string | null | undefined) {
   if (!scope) return null;
   if (scope.startsWith('env')) return 'env:' + (env || '?');
   if (scope === 'block') return 'md:' + (env || 'paragraph');
@@ -37,7 +40,7 @@ function scopeLabel(owner) {
   );
 }
 // Range-level labels come from the server in Korean ('드래그한 줄', '문단', '환경 table', '환경 table (바깥)').
-function levelLabel(label) {
+function levelLabel(label: string | undefined) {
   label = String(label || '');
   if (LANG !== UI_LANG.EN) return label;
   const match = /^환경 (.+?)( \(바깥( 2)?\))?$/.exec(label);
@@ -49,7 +52,7 @@ function levelLabel(label) {
 }
 // The rung matching the owner's range, shown as pressed: with a scope, that scope's rung (when the range matches it
 // too); otherwise the first rung whose lo/hi match (shown as '지금 범위' on an edit card).
-function currentRung(owner) {
+function currentRung(owner: RangeOwner) {
   const rungs = owner.levels || [];
   const scopeRung = owner.scope && levelOf(owner, owner.scope);
   if (scopeRung && scopeRung.lo === owner.lo && scopeRung.hi === owner.hi) return scopeRung;
@@ -59,7 +62,7 @@ function currentRung(owner) {
 // than once, '(바깥)' is kept to distinguish them. The line range is left out of the label, going instead into the
 // description (data-tip)/aria-label and the location line. A figure rung is named by its element as the server labelled
 // it (a person's words, not run through levelLabel).
-function levelName(rung, all) {
+function levelName(rung: Rung, all: Rung[]) {
   if (rung.el) return String(rung.label || elementName(rung.el));
   if (!rung.env || rung.level === 'block') return levelLabel(rung.label);
   const dup = (all || []).filter((other) => other.env === rung.env).length > 1;
@@ -69,7 +72,7 @@ function levelName(rung, all) {
 // checked. A figure rung (it carries an element) gets the element's tooltip; its line count comes from lo-hi when the
 // rung has no n. A Markdown document's rungs have descriptions of their own (TIP_TEXT.mdraw: no drag area there, a tap
 // chose the line too).
-function rungButtons(owner, isEdit) {
+function rungButtons(owner, isEdit: boolean) {
   const current = currentRung(owner),
     rungs = owner.levels || [];
   return rungs.map((rung) => {
@@ -92,7 +95,7 @@ data-tip="${lineRange(rung.lo, rung.hi) + (tip ? ' · ' + translate(tip) : '')}"
   });
 }
 // A rung's line count: the server's n, else its lo-hi span (a figure rung may come without n).
-function rungLines(rung) {
+function rungLines(rung: Rung) {
   return typeof rung.n === 'number' ? rung.n : rung.hi - rung.lo + 1;
 }
 // Draws the owner's range ladder into box (#c-levels or an edit card's .e-levels): its segments, shown only when there
@@ -101,7 +104,7 @@ function rungLines(rung) {
 // tabindex="-1" in its markup: Firefox makes a box that overflows a Tab stop of its own, so an overflowing ladder would
 // take two stops - the box, then the chosen rung. The chosen rung shows itself as the focus or the range moves
 // (revealSegment).
-function drawLadder(box, owner, isEdit) {
+function drawLadder(box, owner: RangeOwner, isEdit: boolean) {
   const rungCount = (owner.levels || []).length,
     at = segmentFocusAt(box);
   box.dataset.rungs = String(rungCount);
@@ -118,13 +121,13 @@ function drawLadder(box, owner, isEdit) {
 // card the range copies as 'file Llo-Lhi' (the composer's location line has its copy). Writes the caption markup (Html)
 // into its element only when its text changed: the caption is a polite live region (a screen reader hears the new range
 // after a rung or an excerpt press, not every redraw), and its copyable range keeps its focus.
-function setCap(caption, markup) {
+function setCap(caption, markup: Html) {
   if (caption._cap !== markup.text) {
     caption._cap = markup.text;
     setHtml(caption, markup);
   }
 }
-function rangeCap(owner, isEdit) {
+function rangeCap(owner, isEdit: boolean) {
   const rungs = owner.levels || [],
     current = currentRung(owner),
     range = lineRange(owner.lo, owner.hi);
@@ -175,7 +178,7 @@ function wholeSegmentAt(left: number, right: number, width: number, full: number
 // segment cut off at the edge would give no sign that there is more. A control that shows its selected segment whole
 // (data-reveal="whole") narrows each fade to the room between that segment and the edge (--fade-l, --fade-r), so the
 // fade lies on what there is more of and never on the selected segment.
-function fadeSegmentEdges(control) {
+function fadeSegmentEdges(control: HTMLElement) {
   if (!control) return;
   const over = control.scrollWidth - control.clientWidth;
   control.classList.toggle('fade-l', over > 1 && control.scrollLeft > 1);
@@ -184,7 +187,7 @@ function fadeSegmentEdges(control) {
   if (!on) return;
   const controlRect = control.getBoundingClientRect(),
     segmentRect = on.getBoundingClientRect(),
-    room = (px) => Math.max(0, Math.min(SEGMENT_FADE, Math.floor(px))) + 'px';
+    room = (px: number) => Math.max(0, Math.min(SEGMENT_FADE, Math.floor(px))) + 'px';
   control.style.setProperty('--fade-l', room(segmentRect.left - controlRect.left));
   control.style.setProperty('--fade-r', room(controlRect.right - segmentRect.right));
 }
@@ -199,7 +202,7 @@ document.addEventListener(
 let SNIPPET_TIMER = undefined as ReturnType<typeof setTimeout> | undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
 // survives.
-function refetchSnip(owner, after) {
+function refetchSnip(owner, after: () => void) {
   const visit = captureVisit();
   clearTimeout(SNIPPET_TIMER);
   SNIPPET_TIMER = setTimeout(async () => {
@@ -222,7 +225,7 @@ function refetchSnip(owner, after) {
     } catch (error) {}
   }, 250);
 }
-function snipText(text, open) {
+function snipText(text: string | undefined, open: boolean) {
   const rungs = String(text || '').split('\n');
   return open || rungs.length <= 8
     ? rungs.join('\n')
@@ -257,7 +260,7 @@ function mapSure(pick: any, percent: number) {
     Math.round(pick.fill * 100) >= VIA_SURE_FILL
   );
 }
-function viaTag(pick) {
+function viaTag(pick: Selection | Pin) {
   if (!pick.via || pick.score == null || (pick.via === VIA.SYNCTEX && !pick.score && !pick.quote)) return null;
   const percent = Math.round((+pick.score || 0) * 100);
   if (percent >= VIA_HIDE || mapSure(pick, percent)) return null;
@@ -288,6 +291,7 @@ function viaTag(pick) {
     low,
   };
 }
+export type { RangeOwner };
 export {
   drawLadder,
   kindFor,
