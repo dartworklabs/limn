@@ -16,7 +16,7 @@ import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { VECTOR_PDF } from './flow-open.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
-import { $, $$, searchToPage } from '../platform/dom.ts';
+import { $, $$, searchToPage, eventElement, findElement, findAll } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc } from '../documents/state.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
@@ -649,8 +649,8 @@ function searchPageHits(page: SearchPage, pageNumber: number, pattern: RegExp | 
 // measure.
 let SEARCH_CONTEXT: CanvasRenderingContext2D | null = null;
 function searchMeasure(text: string, family: string) {
-  const context = (SEARCH_CONTEXT ||
-    (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D;
+  const context = SEARCH_CONTEXT || (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'));
+  if (!context) throw new Error('searchMeasure: no 2D canvas context');
   context.font = '100px ' + family;
   return context.measureText(text).width;
 }
@@ -718,7 +718,7 @@ function searchWatch() {
   const io = (SEARCH.io = new IntersectionObserver(
     (entries) => {
       for (const en of entries) {
-        const pageNumber = Number((en.target as HTMLElement).dataset.page);
+        const pageNumber = Number(en.target instanceof HTMLElement ? en.target.dataset.page : undefined);
         if (en.isIntersecting) SEARCH.near.add(pageNumber);
         else SEARCH.near.delete(pageNumber);
         searchDrawPage(pageNumber);
@@ -1012,7 +1012,7 @@ function searchFit() {
     px = (value: string) => parseFloat(value) || 0;
   let used = 0,
     counted = 0;
-  for (const neighbour of [...navigationBar.children] as HTMLElement[]) {
+  for (const neighbour of findAll(navigationBar, ':scope > *', HTMLElement)) {
     if (neighbour === searchRoot || !neighbour.getClientRects().length) continue;
     const neighbourStyle = getComputedStyle(neighbour);
     let width = neighbour.getBoundingClientRect().width;
@@ -1054,7 +1054,7 @@ function searchCover() {
   const searchRoot = $('#doc-search'),
     navigationBar = $('#doc-nav'),
     box = $('#search-box'),
-    neighbours = ([...navigationBar.children] as HTMLElement[]).filter((neighbour) => neighbour !== searchRoot);
+    neighbours = findAll(navigationBar, ':scope > *', HTMLElement).filter((neighbour) => neighbour !== searchRoot);
   const right = (neighbour: HTMLElement) =>
     neighbour.getBoundingClientRect().right + Math.min(0, parseFloat(getComputedStyle(neighbour).marginRight) || 0);
   // The natural box first: the span is worked out from it.
@@ -1117,7 +1117,8 @@ function searchCover() {
   const least = box.getBoundingClientRect().width;
   // The first (the outline toggle) stays.
   while (span < least && left.length > 1) {
-    const nearest = left.pop() as HTMLElement;
+    const nearest = left.pop();
+    if (!nearest) break;
     nearest.classList.replace('search-left', 'search-covered');
     span = searchRoot.getBoundingClientRect().right - edge();
   }
@@ -1171,7 +1172,7 @@ function searchInk() {
     const rowRect = row.getBoundingClientRect(),
       ownRect = own.getBoundingClientRect();
     const base =
-        (probe.firstElementChild as Element).getBoundingClientRect().bottom - probe.getBoundingClientRect().top,
+        findElement(probe, ':scope > *', Element).getBoundingClientRect().bottom - probe.getBoundingClientRect().top,
       stands = field.getBoundingClientRect().top - SEARCH.ink + base;
     ink =
       getComputedStyle(row).fontSize === getComputedStyle(own).fontSize
@@ -1346,16 +1347,16 @@ $('#search-box').addEventListener('focusin', (event: FocusEvent) => {
     SEARCH.away = false;
     return;
   }
-  const from = event.relatedTarget as Element | null;
+  const from = event.relatedTarget instanceof Element ? event.relatedTarget : null;
   if (!(from && $('#search-box').contains(from))) searchFrom(from);
   if (event.target === $('#search-q')) searchShow();
 });
 $('#doc-search').addEventListener('focusout', (event: FocusEvent) => {
-  const to = event.relatedTarget as Node | null;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (to && $('#doc-search').contains(to)) return;
   // The window lost the focus, not the field.
   if (!document.hasFocus()) {
-    SEARCH.away = $('#search-box').contains(event.target as Node);
+    SEARCH.away = $('#search-box').contains(eventElement(event));
     return;
   }
   if (SEARCH.open && !SEARCH.q) searchHide();
@@ -1365,8 +1366,9 @@ $('#doc-search').addEventListener('focusout', (event: FocusEvent) => {
 document.addEventListener(
   'pointerdown',
   (event) => {
-    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(event.target as Node)) return;
-    const focused = document.activeElement as HTMLElement | null;
+    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(eventElement(event))) return;
+    const active = document.activeElement,
+      focused = active instanceof HTMLElement ? active : null;
     searchHide();
     if (focused && $('#doc-search').contains(focused)) focused.blur();
   },

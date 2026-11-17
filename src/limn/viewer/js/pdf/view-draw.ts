@@ -90,7 +90,7 @@ function observeVectorPages() {
   const io = (VECTOR_PDF.io = new IntersectionObserver(
     (entries) => {
       entries.forEach((en) => {
-        const pageNumber = Number((en.target as HTMLElement).dataset.page);
+        const pageNumber = Number(en.target instanceof HTMLElement ? en.target.dataset.page : undefined);
         if (en.isIntersecting) VECTOR_PDF.near.add(pageNumber);
         else {
           VECTOR_PDF.near.delete(pageNumber);

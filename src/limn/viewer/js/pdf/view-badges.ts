@@ -1,5 +1,5 @@
 // ----------------------------------- Mark badges on the pages: inside or beside a mark, and how far a press reaches
-import { $, $$ } from '../platform/dom.ts';
+import { $, findAll } from '../platform/dom.ts';
 import { COARSE_POINTER_QUERY } from '../app/state.ts';
 // Whether a mark's number badge goes inside the mark (docs/handbook/viewer.md §모바일 레이아웃): markLeft is the mark's
 // left as a fraction of the page, pageWidth the page width, pad the room left of the page in the PDF scroller (its
@@ -61,7 +61,7 @@ function markHitRooms(boxes: { x: number; y: number; w: number; h: number }[], r
 // inside it). Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set,
 // and setViewMode measures when the pages show again.
 function markHitSides() {
-  const badges = $$('.mark button.mark-jump') as HTMLElement[];
+  const badges = findAll(document, '.mark button.mark-jump', HTMLElement);
   if (badges.some((badge) => !badge.getClientRects().length)) return;
   const rooms = markHitRooms(
     badges.map((badge) => {
