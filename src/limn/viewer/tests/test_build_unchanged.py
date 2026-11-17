@@ -62,7 +62,10 @@ class UnchangedAnswer(unittest.TestCase):
             const setInterval=()=>1, clearInterval=()=>{}, pollBuild=()=>{};
             async function poll(reply, asked){REPLY={data:reply}; if(asked)BUILD.asked=true; await pollBuildOnce();}""",
                 JS_UPDATE_STUBS,
-                *[extract_js_fn(n) for n in ("buildsFromSource", "buildChipText", "pollBuildOnce", "buildUnchanged")],
+                *[
+                    extract_js_fn(n)
+                    for n in ("tableEntry", "buildsFromSource", "buildChipText", "pollBuildOnce", "buildUnchanged")
+                ],
                 "(async()=>{" + steps + "console.log(JSON.stringify({said:SAID,refreshes:REFRESHES,"
                 "asked:BUILD.asked,seq:BUILD.lastSeq,line:!!BUILD.unchanged,draws:DRAWS,"
                 "timers:TIMERS.map(t=>t[1])}));})();",
@@ -99,7 +102,10 @@ class UnchangedAnswer(unittest.TestCase):
                         js_markup(),
                         js_const("esc"),
                         "const ICONS={};",
-                        *[extract_js_fn(n) for n in ("statusProgress", "statusList", "statusText", "statusAct")],
+                        *[
+                            extract_js_fn(n)
+                            for n in ("tableEntry", "statusProgress", "statusList", "statusText", "statusAct")
+                        ],
                         r"""const base={notices:[],build:null,buildErr:null,offline:false,sync:null,stale:false,png:false,unchanged:{pull:''}};
                         const L=statusList({...base,canRebuild:true}),N=statusList({...base,canRebuild:false});
                         console.log(JSON.stringify([statusText(L[0],'long')[0],String(statusAct(L[0])),String(statusAct(N[0]))]));""",

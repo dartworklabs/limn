@@ -125,6 +125,26 @@ class FrontendLogic(unittest.TestCase):
             [{"id": 1, "lo": 4, "hi": 9, "rel": "equal"}, {"id": 4, "lo": 5, "hi": 5, "rel": "contains"}],
         )
 
+    def test_overlaps_for_compares_only_lines(self):
+        """A pin record that keeps its file but not its lines (a broken stored record) overlaps no selection, and a
+        selection without its lines overlaps no pin: neither has lines to compare."""
+        js = "\n".join(
+            [
+                extract_js_fn("rangeRelation"),
+                extract_js_fn("pinState"),
+                extract_js_fn("overlapsFor"),
+                r"""
+            const PINS=[{id:1,file:'/a.tex',lo:4,hi:9},{id:2,file:'/a.tex'},{id:3,file:'/a.tex',lo:4}];
+            console.log(JSON.stringify([
+              overlapsFor({file:'/a.tex',lo:4,hi:9},PINS),
+              overlapsFor({file:'/a.tex'},PINS),
+              overlapsFor({file:'/a.tex',lo:4},PINS),
+            ]));
+            """,
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [[{"id": 1, "lo": 4, "hi": 9, "rel": "equal"}], [], []])
+
     def test_pick_overlap_priority_equal_inside_contains_partial(self):
         js = "\n".join(
             [
@@ -2397,7 +2417,7 @@ class PinNumberJump(unittest.TestCase):
         self.assertNotIn(".pin .n.go::before", css)
 
     def test_view_action_still_routes_to_jumppin(self):
-        self.assertIn(sq("case 'view':jumpPin(id);break;"), SCRIPT_SQ)
+        self.assertIn(sq("case 'view':if(id!==null)jumpPin(id);break;"), SCRIPT_SQ)
 
     def test_touch_media_query_wins_over_btn_icon_btn_sm_specificity(self):
         """On touch a small icon button (.btn-icon.btn-sm: a card's fold, a message's [x]) is 44px: the touch rule is pinned
@@ -2732,7 +2752,10 @@ class FrontendDocs(unittest.TestCase):
             sq(body),
         )
         self.assertIn(sq("body.doc=selection.doc||DOC||undefined;"), sq(body))
-        self.assertIn(sq("if(!selection||!selection.file)return out;"), sq(extract_js_fn("overlapsFor")))
+        self.assertIn(
+            sq("if(!selection||!selection.file||selection.lo==null||selection.hi==null)return out;"),
+            sq(extract_js_fn("overlapsFor")),
+        )
         self.assertIn("#composer.region #c-levels", HTML)
 
 
@@ -3005,6 +3028,7 @@ class FrontendFigure(unittest.TestCase):
                     "elementName",
                     "levelName",
                     "rungLines",
+                    "rungHasElement",
                     "rungTip",
                     "rungButtons",
                 )
@@ -4969,6 +4993,7 @@ class FrontendMentions(unittest.TestCase):
             function translate(s){return s;}
             const KIND_NEW='fix'; function appendTarget(){return null;}   // no overlapped pin on offer
             const document={activeElement:null};   // nothing has the focus: a row drawn again has none to keep (keepSegmentFocus)
+            class HTMLElement {}   // the page's element class, which the preview line and the segment row are checked against
             """,
             ]
             + [
@@ -5319,7 +5344,8 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
                 r"""
             let PEOPLE=[{login:'sam@example.com',name:'Sam Lee'}], META={me:{login:'me@example.com',name:'Me'}};
             const document={activeElement:null};
-            function field(v){const box={hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},classList:{contains:c=>c==='m-preview'}};
+            class HTMLElement {}   // the preview line is an element of the page (mentionPreview checks it)
+            function field(v){const box=Object.assign(new HTMLElement(),{hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},classList:{contains:c=>c==='m-preview'}});
               return {value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box};}
             function show(v,focused){const ta=field(v); document.activeElement=focused?ta:null; mentionPreview(ta);
               const b=ta.nextElementSibling; return b.hidden?null:(b.innerHTML.match(/mention-bad[^>]*>@[^<]*/g)||[]).map(s=>s.split('>')[1]);}
