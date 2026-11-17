@@ -24,7 +24,7 @@ import {
   topPinId,
 } from '../app/state.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { API_WAIT, api, isRefusal, setApiOut } from '../platform/api.ts';
+import { API_WAIT, api, isApiError, isRefusal, setApiOut } from '../platform/api.ts';
 import type { StoredAnswer } from '../platform/api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/notices.ts';
 import { setLastPinsRevision, offlineNow } from '../documents/flow-polling.ts';
@@ -1108,8 +1108,7 @@ async function offHold(
     });
     return { at: Date.now(), held: answer.status === 200 && !!answer.data && !!answer.data.until };
   } catch (error) {
-    const apiError = error as ApiError,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? { at: Date.now(), held: false } : null;
   }
 }
@@ -1654,8 +1653,7 @@ async function offlinePlaceLines(rec: QueuedPin): Promise<LinePlace | 'net' | nu
       expect: [413],
     });
   } catch (error) {
-    const apiError = error as ApiError,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? null : 'net';
   }
   const lines =
@@ -1941,12 +1939,12 @@ async function offlineFlush() {
           saved.push(data && data.id);
           await offDel(rec.id);
         } catch (error) {
-          const apiError = error as ApiError,
-            status = (apiError && apiError.status) || 0;
-          if (status >= 400 && status < 500) {
+          const refused = isApiError(error) ? error : null,
+            status = refused ? refused.status : 0;
+          if (refused && status >= 400 && status < 500) {
             rec.sent = false;
             rec.held = true;
-            rec.why = errText(apiError.data) || 'HTTP ' + status;
+            rec.why = errText(refused.data) || 'HTTP ' + status;
             await offPut(rec);
             held++;
           } else failed++;
@@ -1994,13 +1992,13 @@ async function offlineFlush() {
         saved.push(data && data.id);
         await offDel(rec.id);
       } catch (error) {
-        const apiError = error as ApiError;
-        const status = (apiError && apiError.status) || 0;
+        const refused = isApiError(error) ? error : null;
+        const status = refused ? refused.status : 0;
         // Turned away: nothing is on the server.
-        if (status >= 400 && status < 500) {
+        if (refused && status >= 400 && status < 500) {
           rec.sent = false;
           rec.held = true;
-          rec.why = errText(apiError.data) || 'HTTP ' + status;
+          rec.why = errText(refused.data) || 'HTTP ' + status;
           await offPut(rec);
           held++;
           continue;

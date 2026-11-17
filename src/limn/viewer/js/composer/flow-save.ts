@@ -21,7 +21,7 @@ import {
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
-import { API_WAIT, api, apiFailed } from '../platform/api.ts';
+import { API_WAIT, api, apiFailed, isApiError } from '../platform/api.ts';
 import {
   BANNERS,
   bannerNote,
@@ -372,8 +372,7 @@ async function savePin(verdict?: string) {
     try {
       ({ status, data } = await api('POST /api/pin', ask));
     } catch (error) {
-      const failure = error as ApiError;
-      if (failure && failure.status) throw error;
+      if (isApiError(error) && error.status) throw error;
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict,
       // newer than any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시
       // 저장] would make it twice.
@@ -396,8 +395,8 @@ async function savePin(verdict?: string) {
         // said above the save row with [다시 저장]; so is a pin the queue will not take.
         if (
           plain &&
-          failure &&
-          failure.name === 'AbortError' &&
+          error instanceof Error &&
+          error.name === 'AbortError' &&
           (await composerQueue().save(selection, note, out, hints, { idem: body.idem as string | undefined, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);

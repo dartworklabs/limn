@@ -14,7 +14,7 @@ import { LAYOUT, scrollMotion } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { REVISION_VIEW, hunkRanges, revisionKey, drawPinGuide, revisionCurrent, revisionPinFor } from './flow.ts';
 import {
   MARKDOWN_VIEW,
@@ -1367,7 +1367,7 @@ async function showRenderedCompare(id: string, base: string, seq: number, docKey
     scope = pinDiff && pinDiff.data ? { ...(pinDiff.data.scope || {}), whole: String(pinDiff.data.diff || '') } : null;
   } catch (error) {
     if (live()) {
-      const why = error && (error as ApiError).data ? errText((error as ApiError).data) : '';
+      const why = isApiError(error) && error.data ? errText(error.data) : '';
       pane.replaceChildren(
         compareNotice(
           why

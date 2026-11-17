@@ -91,6 +91,59 @@ class GuardRules(unittest.TestCase):
         )
         self.assertEqual(got, [True, True, False, False, False, False, False, False, False])
 
+    def test_an_api_error_is_the_error_api_throws_and_nothing_else_is(self):
+        """isApiError (platform/api.ts) tells the refusal api() throws (apiError: an Error with its status and body) from
+        what else a request throws - a network failure, an ended request, a value that is no Error."""
+        got = self.run_js(
+            extract_js_fn("apiError"),
+            extract_js_fn("isApiError"),
+            r"""
+            const refused = apiError(409, {error: 'conflict'});
+            const ended = new Error('aborted'); ended.name = 'AbortError';
+            console.log(JSON.stringify([
+              [refused instanceof Error, refused.message, refused.status, refused.data],
+              isApiError(refused),
+              isApiError(Object.assign(new Error('HTTP 500'), {status: 500})),
+              isApiError(new TypeError('Failed to fetch')),
+              isApiError(ended),
+              isApiError(Object.assign(new Error('x'), {status: '500'})),
+              isApiError({status: 403, data: {error: 'no'}}),
+              isApiError(null),
+              isApiError(undefined),
+              isApiError('HTTP 500'),
+            ]));
+            """,
+        )
+        self.assertEqual(
+            got,
+            [
+                [True, "HTTP 409", 409, {"error": "conflict"}],
+                True,
+                True,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+                False,
+            ],
+        )
+
+    def test_a_record_is_any_object_and_nothing_else_is(self):
+        """isRecord (platform/tables.ts) lets a value read from outside the code be read by field: any object (an
+        array too), never null or a primitive."""
+        got = self.run_js(
+            extract_js_fn("isRecord"),
+            r"""
+            console.log(JSON.stringify([
+              isRecord({}), isRecord({a: 1}), isRecord([]),
+              isRecord(null), isRecord(undefined), isRecord('x'), isRecord(0), isRecord(true),
+            ]));
+            """,
+        )
+        self.assertEqual(got, [True, True, True, False, False, False, False, False])
+
     def test_a_table_entry_is_none_without_a_key_as_for_a_key_the_table_lacks(self):
         got = self.run_js(
             extract_js_fn("tableEntry"),

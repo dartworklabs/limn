@@ -41,7 +41,13 @@ const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' });
 function tableEntry<Value>(table: Readonly<Record<string, Value>>, key: string | null | undefined): Value | undefined {
   return key == null ? undefined : table[key];
 }
+// Whether a value read from outside the code (parsed JSON, a stored copy, a message, an error's body) is an object
+// whose fields can be read - each field still unknown. Arrays are objects too. Pure.
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
 export {
+  isRecord,
   tableEntry,
   EVENT_TYPE,
   UI_LANG,

@@ -8,7 +8,7 @@
 import { OPEN_CARDS, PEOPLE, REPLY, REPLY_DRAFT, REPLY_VISITS, SIDE_OPEN, setReply } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote } from '../platform/notices.ts';
 import { findAnyPin } from '../revisions/flow.ts';
 import { setSide } from '../layout/flow.ts';
@@ -258,9 +258,9 @@ function sendReply() {
           if (note) bannerNote(NOTICE_HOST.LIST, note, NOTICE_KIND.WARN);
         }
       } catch (error) {
-        const err = error as ApiError; // silent above: the box's own line says it, once
+        const err = isApiError(error) ? error : null; // silent above: the box's own line says it, once
         back(
-          err.status
+          err && err.status
             ? translate('보내지 못했습니다') + ' — ' + (errText(err.data) || 'HTTP ' + err.status)
             : translate('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'),
         );

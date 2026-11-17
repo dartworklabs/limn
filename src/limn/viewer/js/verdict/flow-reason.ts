@@ -37,7 +37,7 @@ import {
 } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import {
@@ -735,7 +735,7 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
   try {
     pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       lineNote(
         translateTemplate('이유 저장 실패 · {why} — {target}', { why: translate('서버에 닿지 않습니다'), target }),
@@ -1023,9 +1023,9 @@ async function checkLostWrites(session: ReasonSession): Promise<true | ApiError 
     try {
       fetched = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin || null;
     } catch (error) {
-      const x = error as ApiError;
+      const x = isApiError(error) ? error : null;
       if (!x || !x.status || x.status >= 500) {
-        sure = x || null;
+        sure = x;
         continue;
       }
     }
@@ -1097,8 +1097,8 @@ async function fenceLostWrites(
     const answered = data && data.pin;
     return answered ? { pin: answered } : { unknown: null };
   } catch (error) {
-    const x = error as ApiError;
-    return x && x.status === 404 ? { pin: null } : { unknown: x || null };
+    const x = isApiError(error) ? error : null;
+    return x && x.status === 404 ? { pin: null } : { unknown: x };
   }
 }
 // A session's evidence of pin `key`'s lost writes (ReasonPart.tried) made update(tried): in its text's parts and in
@@ -1378,7 +1378,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
   try {
     pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       sayReasonFailed(session, text, x);
       return false;
@@ -1435,7 +1435,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
       pin = answered;
     }
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (sent && (!x || !x.status || x.status >= 500)) {
       session.tried.push(sent);
       addLostWrite(session.doc, session.id, sent);
@@ -1673,12 +1673,12 @@ async function clearReason() {
       await api('POST /api/pins/{id}/edit', { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
     } catch (error) {
-      const x = error as ApiError,
-        statusCode = x && typeof x.status === 'number' ? x.status : 0;
+      const x = isApiError(error) ? error : null,
+        statusCode = x ? x.status : 0;
       if (!statusCode) session.clearTried = true;
       lineNote(
         translateTemplate('이유 지우기 실패 · {why} — {target}', {
-          why: statusCode ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
+          why: x ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
           target,
         }),
         NOTICE_KIND.ERR,

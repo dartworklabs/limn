@@ -298,7 +298,7 @@ async function runDrawJob(job: { n: number; kind: string }) {
   } catch (error) {
     if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) VECTOR_PDF.cur = null;
     dropCanvas(canvas);
-    if (error && (error as Error).name === 'RenderingCancelledException') return;
+    if (error instanceof Error && error.name === 'RenderingCancelledException') return;
     if (gen === VECTOR_PDF.gen) failVector('쪽을 그리지 못했습니다', error);
     return;
   }

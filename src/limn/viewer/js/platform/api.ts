@@ -127,6 +127,15 @@ function endpointUrl(endpoint: ApiEndpoint, id: number | null | undefined, query
 function isRefusal<Answer>(data: Answer): data is Extract<Answer, { error: string }> {
   return typeof data === 'object' && data !== null && 'error' in data;
 }
+// The error api() throws for a status >= 400 the caller did not expect: an Error with that status and the parsed body.
+function apiError(status: number, data: unknown): ApiError {
+  return Object.assign(new Error('HTTP ' + status), { status, data });
+}
+// Whether a caught value is a refusal api() threw (apiError): an Error with a numeric status. A network failure, an
+// ended request and any other throw are not. Pure.
+function isApiError(error: unknown): error is ApiError {
+  return error instanceof Error && 'status' in error && typeof error.status === 'number';
+}
 // Whether status is one of the statuses a caller expects (options.expect).
 function isExpected(status: number, expect: readonly number[]) {
   return expect.includes(status);
@@ -191,10 +200,7 @@ async function api<Endpoint extends ApiEndpoint, Refused extends RefusalStatus<E
   const status = response.status;
   if (status >= 400 && !isExpected(status, options.expect || [])) {
     if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + status, false);
-    const err = new Error('HTTP ' + status) as ApiError;
-    err.status = status;
-    err.data = body;
-    throw err;
+    throw apiError(status, body);
   }
   sourceOk(options.source);
   requestFallback().back();
@@ -283,5 +289,5 @@ function setApiOut<Value extends typeof API_OUT>(value: Value): Value {
   API_OUT = value;
   return value;
 }
-export { API_OUT, API_WAIT, api, apiFailed, copyText, isRefusal, setApiOut, setRequestFallback };
+export { API_OUT, API_WAIT, api, apiFailed, copyText, isApiError, isRefusal, setApiOut, setRequestFallback };
 export type { StoredAnswer };
