@@ -266,7 +266,7 @@ function docFit() {
       moreMargins = pixels(moreStyle.marginLeft) + pixels(moreStyle.marginRight);
     const widths = tabs.map((link) => link.getBoundingClientRect().width),
       gap = pixels(rowStyle.columnGap),
-      seen = new Map(),
+      seen = new Map<number, number>(),
       was = more.hidden;
     const showAs = (mode: string, text: string) => {
       more.dataset.fit = mode;
@@ -281,8 +281,11 @@ function docFit() {
       return x;
     };
     const moreWidth = (count: number) => {
-      if (!seen.has(count)) seen.set(count, width('more', '+' + count));
-      return seen.get(count);
+      const known = seen.get(count);
+      if (known !== undefined) return known;
+      const measured = width('more', '+' + count);
+      seen.set(count, measured);
+      return measured;
     };
     const currentIndex = Math.max(
         0,

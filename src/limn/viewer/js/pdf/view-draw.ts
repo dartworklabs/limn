@@ -190,7 +190,7 @@ function nextDrawJob() {
     top = areaRect.top,
     bottom = areaRect.top + pdfArea.clientHeight,
     centerY = (top + bottom) / 2;
-  const list: { n: number; pg: HTMLElement; vis: any; d: number }[] = []; // vis: a boolean, subtracted to sort
+  const list: { n: number; pg: HTMLElement; vis: boolean; d: number }[] = [];
   VECTOR_PDF.near.forEach((pageNumber) => {
     const pageElement = document.getElementById('p' + pageNumber);
     if (!pageElement) return;
@@ -202,7 +202,7 @@ function nextDrawJob() {
       d: Math.abs((pageRect.top + pageRect.bottom) / 2 - centerY),
     });
   });
-  list.sort((first, second) => second.vis - first.vis || first.d - second.d);
+  list.sort((first, second) => Number(second.vis) - Number(first.vis) || first.d - second.d);
   for (const candidate of list) {
     const pageState = pageDrawState(candidate.n),
       target = pageBackingTarget(candidate.pg);
@@ -340,9 +340,9 @@ async function runDrawJob(job: { n: number; kind: string }) {
     pageElement.prepend(canvas);
     pageElement.classList.add('drawn');
     if (VECTOR_PDF.tFirst === null) setVectorFirstDrawn(performance.now());
-  } else {
+  } else if (region) {
     // A detail job always measures its region above.
-    const drawnRegion = region as { x: number; y: number; w: number; h: number };
+    const drawnRegion = region;
     dropCanvas(pageState.dt);
     pageState.dt = canvas;
     pageState.reg = drawnRegion;

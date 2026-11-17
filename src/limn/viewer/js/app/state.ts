@@ -285,8 +285,9 @@ const OPEN_CARDS = new Set<number | null>(); // ids of pin cards expanded in com
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
 // place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
-// field's text and selected recipient hints ('reply:12').
-let KIND_NEW = REQUEST_KIND.FIX as string,
+// field's text and selected recipient hints ('reply:12'). KIND_NEW is one of the request kinds: composer/flow-pick.ts
+// setKind maps any other value, a stored or a control's string, to fix.
+let KIND_NEW: (typeof REQUEST_KIND)[keyof typeof REQUEST_KIND] = REQUEST_KIND.FIX,
   REPLY: ReplyBox | null = null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members +
 // pin authors/actors), PEOPLE_KNOWN = that list has arrived (until then no tag resolves, which says nothing about the

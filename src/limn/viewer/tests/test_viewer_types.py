@@ -242,7 +242,7 @@ class DeclaredSuggestionShapes(AccessBase):
 # The interfaces DeclaredViewShapes holds to the handler's answers in its three states.
 VIEWS = ["Meta", "BuildStatus", "DocsAnswer", "PeopleAnswer", "RebuildAnswer", "SyncStatus", "PullRecord"]
 VIEWS += ["Me", "PersonSeen", "PageImage", "LatexError", "BuildProgress", "LastBuild", "DocEntry"]
-VIEWS += ["PickOverlap", "DocVerdicts", "VerdictChoice"]
+VIEWS += ["PickOverlap", "DocVerdicts", "VerdictChoice", "PinEvent"]
 
 
 class DeclaredViewShapes(AccessBase):
@@ -328,6 +328,39 @@ class DeclaredViewShapes(AccessBase):
         self.answer("PeopleAnswer", "GET", "/api/people", headers=alice)
         statuses, pulls = sync_records()
         self.seen += [("SyncStatus", r) for r in statuses] + [("PullRecord", r) for r in pulls]
+        self.event_states()
+
+    def event_states(self):
+        """The light poll with a cursor, after real writes addressed Alice and Bob: Bob's question pin tags Alice, Alice
+        replies tagging Bob, closes it for review and reopens it; Bob deletes it. Each asks for its events after 0."""
+        self.set_people(
+            [
+                {"login": ALICE["Tailscale-User-Login"], "name": "Alice Kim", "role": "owner"},
+                {"login": BOB["Tailscale-User-Login"], "name": "Bob Park", "role": "editor"},
+            ]
+        )
+        line = {
+            "file": str(self.main),
+            "lo": 4,
+            "hi": 5,
+            "page": 1,
+            "note": "@Alice Kim 봐 주세요",
+            "kind_req": "question",
+        }
+        code, made = self.call("POST", "/api/pin?doc=ms", line, BOB)
+        self.assertEqual(code, 200, made)
+        pid = made["id"]
+        for path, body, who in [
+            ("reply", {"text": "의견?"}, ALICE),
+            ("close", {"review": True}, ALICE),
+            ("reopen", {"reason": "다시 봐 주세요"}, ALICE),
+            ("drop", {}, ALICE),
+        ]:
+            code, done = self.call("POST", "/api/pins/%d/%s?doc=ms" % (pid, path), body, who)
+            self.assertEqual(code, 200, (path, done))
+        for who in (ALICE, BOB):
+            meta = self.answer("Meta", "GET", "/api/meta?doc=ms&light=1&ev=0", headers=who)
+            self.assertTrue(meta["events"], meta)
 
     def test_every_answered_field_is_declared_with_its_type(self):
         """No answer in the three states, and no record the sync producers return, has an undeclared field or a value

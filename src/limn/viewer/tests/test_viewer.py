@@ -4947,7 +4947,8 @@ class FrontendReview(unittest.TestCase):
         self.assertIn('class="r-outcome"', body)
         self.assertIn('data-act="reply-flip"', body)
         self.assertIn(
-            sq("setReply({id,flip:false,toggle:null,el:createReplyBox(pin)})"), sq(extract_js_fn("openReply"))
+            sq("const replyBox={id,flip:false,toggle:null,el:createReplyBox(pin)};setReply(replyBox);"),
+            sq(extract_js_fn("openReply")),
         )  # through app/state.ts's setter (ADR-0042 D1)
 
 

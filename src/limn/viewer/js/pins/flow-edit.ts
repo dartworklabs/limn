@@ -397,15 +397,13 @@ function editTheirs(card: EditCard) {
 }
 // An edit the server answered 409 suggest_base_changed: nothing was saved and the card keeps its draft. The editor
 // shows the lines' current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps
-// its text and takes that text as its base); then [저장] again.
-function editSuggestRefused(card: EditCard, data: any) {
+// its text and takes that text as its base); then [저장] again. A card that holds a suggestion is a line pin's, so it
+// has its lines.
+function editSuggestRefused(card: EditCard, data: PinConflict) {
   if (editorOwns(card)) {
-    card.sg.current = {
-      text: String(data.current || ''),
-      file: card.file || null,
-      lo: card.lo as number,
-      hi: card.hi as number,
-    };
+    const { lo: low, hi: high } = card;
+    if (low !== undefined && high !== undefined)
+      card.sg.current = { text: String(data.current || ''), file: card.file || null, lo: low, hi: high };
     renderEdit();
   }
   bannerNote(

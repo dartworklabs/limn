@@ -203,7 +203,7 @@ interface PinNotifications {
   /** The light poll's query for the events since the cursor. */
   query(): string;
   /** Says the events a light poll's meta carries. */
-  handle(meta: unknown): void;
+  handle(meta: Meta): void;
   /** The cursor of the last event said, or null when this device has none. */
   cursor(): number | null;
   /** Opens a pin of a document, as a link to it does; restore brings it back from the Trash. */

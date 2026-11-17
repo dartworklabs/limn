@@ -500,7 +500,8 @@ const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
 // place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
-// field's text and selected recipient hints ('reply:12').
+// field's text and selected recipient hints ('reply:12'). KIND_NEW is one of the request kinds: composer/flow-pick.ts
+// setKind maps any other value, a stored or a control's string, to fix.
 let KIND_NEW = REQUEST_KIND.FIX,
   REPLY = null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members +
@@ -837,11 +838,10 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 // Lucide icons (vendor/lucide/README.md), drawn by lucideIcon() in platform/markup.ts.
 const ICONS = __LUCIDE_JSON__;
 const esc = (text) =>
-  String(text == null ? '' : text).replace(
-    /[&<>"']/g,
-    (character) =>
-      (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }))[character],
-  );
+  String(text == null ? '' : text).replace(/[&<>"']/g, (character) => {
+    const escapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return escapes[character];
+  });
 // The element an event is aimed at, or null when its target is not an element (the window, the document): a handler
 // that looks for the controls around the target finds none there.
 function eventElement(event) {
@@ -966,7 +966,8 @@ class Html {
 // condition as c?x:''. Values must sit in element content or a quoted attribute; esc() does not make an unquoted
 // attribute or a URL attribute safe. Called as a function rather than a tag, it throws a TypeError.
 function html(parts, ...values) {
-  if (!Array.isArray(parts) || !Array.isArray(parts.raw)) throw new TypeError('html is a template tag: html`...`');
+  const given = parts; // read as any value, so the check below does not retype parts
+  if (!Array.isArray(given) || !Array.isArray(parts.raw)) throw new TypeError('html is a template tag: html`...`');
   let out = parts[0];
   for (let i = 0; i < values.length; i++) out += htmlValue(values[i]) + parts[i + 1];
   return new Html(out);
@@ -1032,28 +1033,30 @@ function setHtml(element, markup) {
 // subdivision flag) shows its tags by name.
 
 const HIDDEN_RANGES = Object.freeze(
-  [
-    [0x00, 0x08],
-    [0x0b, 0x1f],
-    [0x7f, 0x9f],
-    [0xad, 0xad],
-    [0x34f, 0x34f],
-    [0x61c, 0x61c],
-    [0x115f, 0x1160],
-    [0x17b4, 0x17b5],
-    [0x180b, 0x180f],
-    [0x200b, 0x200f],
-    [0x2028, 0x202e],
-    [0x2060, 0x206f],
-    [0x3164, 0x3164],
-    [0xfe00, 0xfe0f],
-    [0xfeff, 0xfeff],
-    [0xffa0, 0xffa0],
-    [0xfff0, 0xfffb],
-    [0x1bca0, 0x1bca3],
-    [0x1d173, 0x1d17a],
-    [0xe0000, 0xe0fff],
-  ].map((range) => Object.freeze(range)),
+  (
+    [
+      [0x00, 0x08],
+      [0x0b, 0x1f],
+      [0x7f, 0x9f],
+      [0xad, 0xad],
+      [0x34f, 0x34f],
+      [0x61c, 0x61c],
+      [0x115f, 0x1160],
+      [0x17b4, 0x17b5],
+      [0x180b, 0x180f],
+      [0x200b, 0x200f],
+      [0x2028, 0x202e],
+      [0x2060, 0x206f],
+      [0x3164, 0x3164],
+      [0xfe00, 0xfe0f],
+      [0xfeff, 0xfeff],
+      [0xffa0, 0xffa0],
+      [0xfff0, 0xfffb],
+      [0x1bca0, 0x1bca3],
+      [0x1d173, 0x1d17a],
+      [0xe0000, 0xe0fff],
+    ]
+  ).map((range) => Object.freeze(range)),
 );
 // The repertoire as one regular expression over code points (a supplementary character is one match, never two halves).
 const HIDDEN_PATTERN = new RegExp(
@@ -1740,6 +1743,11 @@ async function api(
     clearTimeout(timer);
     return apiUnanswered(endpoint, url, options, error);
   }
+  // The network's trust point (docs/adr/0046-viewer-endpoint-answers.md D3): the parsed body is taken as the endpoint's
+  // answer - or, for a status options.expect lists, its ApiRefusals body - and is not checked here or by any reader;
+  // a body that is not JSON is null. The handler tests hold each declaration to what the real handler answers
+  // (src/limn/viewer/tests/test_viewer_types.py: DeclaredEndpointAnswers, DeclaredViewShapes, DeclaredPinShapes,
+  // DeclaredPicks). body is any from here to the return below, and only there.
   let body = null;
   try {
     body = await response.json();
@@ -2115,7 +2123,9 @@ function lineCap() {
     const rest = kept.filter((notice) => notice !== LINE[0]),
       oldest = (notices) =>
         notices.reduce((found, x) => (!found || x.at <= found.at ? x : found), null);
-    endNotice((oldest(rest.filter((notice) => !notice.alert)) || oldest(rest)), false);
+    const gone = oldest(rest.filter((notice) => !notice.alert)) || oldest(rest);
+    if (!gone) return; // more than LINE_MAX kept leaves one besides the newest
+    endNotice(gone, false);
   }
 }
 // Whether a message offers an undo: made as one (undoNote, a discarded selection) or holding a deferred send (gone).
@@ -2208,9 +2218,12 @@ function undoNote(place, message, act, options) {
       secOpen: !options.sec || !!SECTION_OPEN[options.sec],
       trashOpen: $('#trash').open,
     })
-  )
-    // no keys: never suppressed
-    return lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true });
+  ) {
+    // an undo is never gathered (digestHold) and, with no keys, never held back as news (newsDupe)
+    const lined = lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true });
+    if (!lined) throw new Error('an undo on the status line was not said');
+    return lined;
+  }
   const notice = makeNotice({
     ...options,
     life,
@@ -4259,8 +4272,11 @@ function docFit() {
       return x;
     };
     const moreWidth = (count) => {
-      if (!seen.has(count)) seen.set(count, width('more', '+' + count));
-      return seen.get(count);
+      const known = seen.get(count);
+      if (known !== undefined) return known;
+      const measured = width('more', '+' + count);
+      seen.set(count, measured);
+      return measured;
     };
     const currentIndex = Math.max(
         0,
@@ -5099,7 +5115,7 @@ async function loadRevisions() {
     return;
   }
   if (seq !== REVISION_VIEW.seq || docKey !== DOC) return;
-  const rows = (data.available ? data.revisions : []),
+  const rows = data.available ? data.revisions : [],
     kept = REVISION_VIEW.range;
   REVISION_VIEW.rows = rows;
   REVISION_VIEW.rowsDoc = docKey || '';
@@ -5492,7 +5508,7 @@ function openSeen(seen, rows) {
 // says the commit is not in this document's history (or shares none with it) is a record the history no longer has;
 // base_too_old is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure
 // leaves the record unread, and so kept.
-/** @param answer the /api/revision-diff answer with base */
+// answer is the /api/revision-diff answer with base.
 function seenAnswered(answer) {
   REVISION_VIEW.seenState = SEEN_STATE.OK;
   REVISION_VIEW.seenN = Number(answer.commits) || 0;
@@ -5929,12 +5945,15 @@ function drawPinGuide(message) {
     return;
   }
   const via =
-    {
-      sha: translateTemplate('참조의 커밋 {tok}', { tok: target.tokOf || '' }),
-      pr: translate('참조의 PR'),
-      lines: translate('이 줄을 바꾼 가장 최근 커밋'),
-      latest: translate('참조로 커밋을 찾지 못해 가장 최근 커밋'),
-    }[target.via] || '';
+    tableEntry(
+      {
+        sha: translateTemplate('참조의 커밋 {tok}', { tok: target.tokOf || '' }),
+        pr: translate('참조의 PR'),
+        lines: translate('이 줄을 바꾼 가장 최근 커밋'),
+        latest: translate('참조로 커밋을 찾지 못해 가장 최근 커밋'),
+      },
+      target.via,
+    ) || '';
   const where = target.region
     ? translateTemplate('쪽 {page} 영역', { page: target.page })
     : target.name + ' ' + lineRange(target.lo, target.hi);
@@ -6362,9 +6381,9 @@ function fitNavigationSheet(sheet, at, centre, refit = false) {
   const span = (range, geometry) =>
     range ? geometry[range[1]].bottom - geometry[range[0]].top : 0;
   const least = (count) =>
-    (centre
+    centre
       ? [Math.max(0, index - Math.floor((count - 1) / 2)), Math.min(last, index + Math.ceil((count - 1) / 2))]
-      : [index, Math.min(last, index + count - 1)]);
+      : [index, Math.min(last, index + count - 1)];
   const pagesOf = (count) => span(rowsAround(pageGeometry, currentPage, count), pageGeometry),
     most = Math.min(5, pageRows.length);
   const plan = show
@@ -6624,7 +6643,8 @@ function loadViews() {
     if (Array.isArray(kept))
       kept.forEach((entry) => {
         if (!Array.isArray(entry)) return;
-        const [doc, view] = entry;
+        const doc = entry[0],
+          view = entry[1];
         if (typeof doc === 'string' && docInfo(doc) && isKeptView(view)) VIEW_BY.set(doc, view);
       });
   } catch (error) {}
@@ -6975,7 +6995,7 @@ function drawMeta() {
         .replace('T', ' ');
   $('#meta-built').textContent = built;
   $('#meta-built-w').hidden = !built; // a Markdown document is never built
-  const me = meta.me || ({});
+  const me = meta.me;
   setHtml($('#me'), html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip = translateTemplate(
     '지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',
@@ -7627,8 +7647,6 @@ function noteReviewChanges(previous, listed) {
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
-// An event of the light poll that is addressed to me (limn/collaboration/events.py events_since): its type is one of the
-// notified ones, doc_name is its document's name, and to holds the logins it is for.
 // What notifyHandle reads of a light poll's answer: the latest event number, and with a cursor the events after it.
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
 let WORKER_REGISTRATION = null;
@@ -7759,13 +7777,32 @@ async function notifyShow(event) {
 // review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
 function notifyLine(event) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
-    evs: [
-      ...(isRecord(older) && Array.isArray(older.evs) ? older.evs : []).filter(
-        (x) => !isRecord(x) || x.pin !== newer.evs[0].pin,
-      ),
-      ...newer.evs,
-    ],
+    evs: [...saidEventsOf(older).filter((x) => x.pin !== newer.evs[0].pin), ...newer.evs],
   }));
+}
+// What an event's message says of it (notifyText, notifyLineView): its type, pin, document and its name, who and the
+// excerpt.
+// The events an event message's group held before this one (groupNote's merge is given it as unknown): its events, as
+// notifyLine writes them, or none. Pure.
+function saidEventsOf(older) {
+  return isRecord(older) && Array.isArray(older.evs) ? older.evs.filter(isSaidEvent) : [];
+}
+// Whether a value holds what a message says of an event (SaidEvent), with the types every released server writes
+// (make_event, events_since). Pure.
+function isSaidEvent(value) {
+  if (!isRecord(value)) return false;
+  const { by } = value;
+  return (
+    Object.values(EVENT_TYPE).some((type) => type === value.type) &&
+    typeof value.pin === 'number' &&
+    typeof value.doc === 'string' &&
+    typeof value.doc_name === 'string' &&
+    isRecord(by) &&
+    typeof by.login === 'string' &&
+    ['undefined', 'string'].includes(typeof by.name) &&
+    ['undefined', 'string'].includes(typeof by.pic) &&
+    ['undefined', 'string'].includes(typeof value.excerpt)
+  );
 }
 function notifyLineView(group) {
   const events = group.evs,
@@ -7784,16 +7821,14 @@ function notifyLineView(group) {
       ? { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview }
       : { label: '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(latest.doc, latest.pin) };
   const many =
-    (
-      {
-        mention: '나를 부른 핀 {n}개',
-        review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
-        replied: '답글이 달린 핀 {n}개',
-        reopened: '핀 {n}개 다시 열림',
-        assigned: '나에게 맡긴 핀 {n}개',
-        dropped: '핀 {n}개가 삭제됨',
-      }
-    )[latest.type] || '소식 {n}개';
+    {
+      mention: '나를 부른 핀 {n}개',
+      review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
+      replied: '답글이 달린 핀 {n}개',
+      reopened: '핀 {n}개 다시 열림',
+      assigned: '나에게 맡긴 핀 {n}개',
+      dropped: '핀 {n}개가 삭제됨',
+    }[latest.type] || '소식 {n}개';
   const ids =
       events
         .slice(0, 3)
@@ -12381,7 +12416,7 @@ function nextDrawJob() {
     top = areaRect.top,
     bottom = areaRect.top + pdfArea.clientHeight,
     centerY = (top + bottom) / 2;
-  const list = []; // vis: a boolean, subtracted to sort
+  const list = [];
   VECTOR_PDF.near.forEach((pageNumber) => {
     const pageElement = document.getElementById('p' + pageNumber);
     if (!pageElement) return;
@@ -12393,7 +12428,7 @@ function nextDrawJob() {
       d: Math.abs((pageRect.top + pageRect.bottom) / 2 - centerY),
     });
   });
-  list.sort((first, second) => second.vis - first.vis || first.d - second.d);
+  list.sort((first, second) => Number(second.vis) - Number(first.vis) || first.d - second.d);
   for (const candidate of list) {
     const pageState = pageDrawState(candidate.n),
       target = pageBackingTarget(candidate.pg);
@@ -12531,7 +12566,7 @@ async function runDrawJob(job) {
     pageElement.prepend(canvas);
     pageElement.classList.add('drawn');
     if (VECTOR_PDF.tFirst === null) setVectorFirstDrawn(performance.now());
-  } else {
+  } else if (region) {
     // A detail job always measures its region above.
     const drawnRegion = region;
     dropCanvas(pageState.dt);
@@ -12782,8 +12817,8 @@ function searchBlocks(lines) {
     const block = blockCount++,
       queue = [index];
     blockOf[index] = block;
-    while (queue.length) {
-      const currentBox = lines[queue.pop()].box;
+    for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+      const currentBox = lines[next].box;
       if (!currentBox) continue; // only a line with a box is ever in no block yet (-2), so queued
       lines.forEach((otherLine, otherIndex) => {
         const otherBox = otherLine.box;
@@ -12909,16 +12944,13 @@ function searchEdges(
       x = Math.max(box.x0, low[sideIndex]);
     left.set(key, Math.min(left.get(key) ?? x, x));
   });
+  // a line of side 0 or 1 in a crossed block has its block's edges and its side's left edge (both set above)
   return out.map((edges, index) => {
-    const sideIndex = side[index];
-    return sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])
+    const sideIndex = side[index],
+      edge = left.get(blockOf[index] + ':' + sideIndex);
+    return sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index]) || edge === undefined || !edges
       ? edges
-      : {
-          l: left.get(blockOf[index] + ':' + sideIndex),
-          r: col[sideIndex],
-          col: sideIndex,
-          blk: edges,
-        };
+      : { l: edge, r: col[sideIndex], col: sideIndex, blk: edges };
   });
 }
 // The break between a line and the next one, with their column edges (searchEdges): a SEARCH_BREAK mark. Pure.
@@ -17436,7 +17468,7 @@ function ipv6Groups(host) {
     tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
   const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
   if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null;
-  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  const groups = [...head, ...new Array(fill).fill('0'), ...tail];
   if (groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
   return groups.map((group) => parseInt(group, 16));
 }
@@ -17989,7 +18021,7 @@ async function buildMarkdownDoc() {
       );
       return;
     }
-    root = await lineView(limit, stale);
+    root = await lineView(limit ?? MARKDOWN_LIMIT.ERROR, stale); // limit is set whenever no root was drawn
     if (!root || stale()) return;
   }
   showDocumentNode(root);
@@ -18643,20 +18675,17 @@ function makeRenderer(root, context) {
   }
   // A run of raw HTML blocks in a row (htmlRunElement), or each block on its own when one has no lines.
   function* run(tokens, work) {
-    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context));
-    if (spans.some((span) => !span)) {
+    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context)),
+      first = spans[0],
+      last = spans[spans.length - 1];
+    if (!first || !last || spans.some((span) => !span)) {
       for (const htmlToken of tokens) {
         yield* token(htmlToken, work);
         if (isPauseDue(work)) yield;
       }
       return;
     }
-    const runElement = htmlRunElement(
-        tokens.length,
-        (spans[0]).lo,
-        (spans[spans.length - 1]).hi,
-        context,
-      ),
+    const runElement = htmlRunElement(tokens.length, first.lo, last.hi, context),
       body = findElement(runElement, ':scope>.md-html-body', HTMLElement);
     stack[stack.length - 1].appendChild(runElement);
     for (const htmlToken of tokens) {
@@ -19753,8 +19782,10 @@ function markChosenLines(
   chosen,
 ) {
   $$('#md .md-sel').forEach((element) => element.classList.remove('md-sel'));
-  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen))
-    lineLeaves(chosen.lo, chosen.hi).forEach((element) => element.classList.add('md-sel'));
+  const low = chosen && chosen.lo,
+    high = chosen && chosen.hi;
+  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen) && low && high)
+    lineLeaves(low, high).forEach((element) => element.classList.add('md-sel'));
   if (MARKDOWN_VIEW.spot && MARKDOWN_VIEW.spot.doc === DOC && isColumnShown()) MARKDOWN_VIEW.spot.sel = isChosenSeen();
 } // hidden, nothing is on screen: what was stays
 // The elements that stand for lines first..last: each line span in range, and each block in range that has no line
@@ -19793,8 +19824,11 @@ function drawPinMarks() {
   column.querySelectorAll('.md-badges').forEach((element) => element.remove());
   column.querySelectorAll('.md-pin').forEach((element) => element.classList.remove('md-pin', 'rv', 'st'));
   const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
-    .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
-    .sort((left, right) => (left.lo) - (right.lo) || left.id - right.id);
+    .filter(
+      (pin) =>
+        !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number',
+    )
+    .sort((left, right) => left.lo - right.lo || left.id - right.id);
   const rows = new Map(),
     top = column.getBoundingClientRect().top;
   for (const pin of pins) {
@@ -20874,7 +20908,7 @@ function inlineShape(unit, tag, reopened) {
       let lastAt = out.length - 1;
       if (name === 'code.md-math')
         // a formula's pieces: one line end apart
-        while (lastAt >= 0 && typeof out[lastAt] === 'string' && !/\S/.test(out[lastAt])) lastAt--;
+        for (let piece = out[lastAt]; typeof piece === 'string' && !/\S/.test(piece); piece = out[lastAt]) lastAt--;
       const last = out[lastAt];
       if (to !== null && typeof last === 'object' && last.t === name && last.to === to) {
         out.splice(lastAt, 1);
@@ -21170,9 +21204,9 @@ function blockOps(oldUnits, newUnits, budget) {
   out.forEach((operation) => {
     if (operation.t !== 'del') return;
     const places = added.get(oldUnits[operation.a].key);
-    if (!places || !places.length) return;
-    const index = places.shift(),
-      to = out[index];
+    const index = places && places.shift();
+    if (index === undefined) return;
+    const to = out[index];
     operation.t = 'from';
     operation.b = to.b;
     to.t = 'to';
@@ -22424,8 +22458,17 @@ function suggestBadge(pin, closed) {
 // Reads the lines owner.lo..owner.hi of owner.file exactly (GET /api/snippet?…&text=1) into the draft as its base - and
 // as its text too when `fill` - then redraws its owner. Only while owns() (the selection or the edit card is still on
 // screen), the owner still has those lines and, for a fill, the text was not typed meanwhile: otherwise the next draw
-// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기].
-async function suggestRead(draft, owner, fill, owns, redraw) {
+// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기]. An owner off lines (a
+// region) has no source to read and is left as it is; none comes here, as such an owner carries no suggestion
+// (suggestOff).
+async function suggestRead(
+  draft,
+  owner,
+  fill,
+  owns,
+  redraw,
+) {
+  if (!onLines(owner)) return;
   const key = suggestKey(owner),
     was = draft.text;
   if (draft.reading === key) return;
@@ -22473,7 +22516,13 @@ async function suggestRead(draft, owner, fill, owns, redraw) {
 // Keeps the draft on the owner's lines while its text is the source's own: an editor turned on and never filled, or not
 // edited since and now on other lines, reads them as its text and base. Nothing while off, on a selection that can
 // carry no suggestion, during a read, or after a read of these lines failed (its [원문 다시 읽기] tries again).
-function suggestFollow(draft, owner, off, owns, redraw) {
+function suggestFollow(
+  draft,
+  owner,
+  off,
+  owns,
+  redraw,
+) {
   if (!draft.on || off || draft.reading) return;
   if (draft.fail && draft.fail.key === suggestKey(owner)) return;
   if (draft.base == null || (suggestMoved(draft, owner) && !suggestEdited(draft)))
@@ -24174,8 +24223,9 @@ async function savePin(verdict) {
   // A plain pin - no verdict, no suggested edit - is one the queue can keep. It goes with a key where the server knows
   // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
   // of failing here (below).
-  const plain = !verdict && !suggestion;
-  if (plain && composerQueue().keyed()) body.idem = composerQueue().key();
+  const plain = !verdict && !suggestion,
+    idem = plain && composerQueue().keyed() ? composerQueue().key() : undefined;
+  if (idem !== undefined) body.idem = idem;
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
@@ -24235,7 +24285,7 @@ async function savePin(verdict) {
           plain &&
           error instanceof Error &&
           error.name === 'AbortError' &&
-          (await composerQueue().save(selection, note, out, hints, { idem: body.idem, top }))
+          (await composerQueue().save(selection, note, out, hints, { idem, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
           if (failed && failed.save) endNotice(failed, false);
@@ -27001,7 +27051,7 @@ function anchorKey(pin) {
 // A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a
 // JavaScript object always puts first in their numeric order - and an array or any other value as it is.
 function jsonSortedKeys(_key, value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  if (!isRecord(value) || Array.isArray(value)) return value;
   const object = value;
   return Object.fromEntries(
     Object.keys(object)
@@ -28281,10 +28331,11 @@ function cancelLineVerdict(button) {
 async function cancelVerdictPin(id, page, had, byKey) {
   const pin = OPEN_ALL.find((x) => x.id === id),
     from = document.activeElement,
-    doc = DOC;
-  if (!pin || !canCancelVerdict(pin) || viewerBlocked()) return;
-  const key = verdictOf(pin),
-    claimed = claimActive(pin),
+    doc = DOC,
+    key = verdictOf(pin);
+  // canCancelVerdict holds only for a pin with a verdict
+  if (!pin || !canCancelVerdict(pin) || viewerBlocked() || !key) return;
+  const claimed = claimActive(pin),
     target = pageTargetShort(page);
   const inField = isReasonField(document.activeElement) && !!REASON_SESSION && REASON_SESSION.id === id;
   CANCEL_HOLD.set(pageLineSlot(page), Date.now() + CANCEL_HOLD_MS);
@@ -30790,8 +30841,7 @@ function restoreReasonFocus(held) {
     return;
   }
   control.focus({ preventScroll: true });
-  if (held.sel && isReasonField(control))
-    control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2]);
+  if (held.sel && isReasonField(control)) control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2]);
 }
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let
 // go, one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is
@@ -31205,8 +31255,8 @@ async function settleWriteOnto(session, ok, page) {
     }
     pin = null;
   }
-  const got =
-    pin && !pin.dropped_at ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, pin)) : null;
+  const live = pin && !pin.dropped_at ? pin : null,
+    got = live ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, live)) : null;
   RETRY_NOTICES.delete(session); // its [다시 시도] goes either way (sourceOk)
   if (got) {
     session.saved = got.text;
@@ -31508,6 +31558,7 @@ async function checkLostWrites(session) {
             normalizeReason(attempt.text) === normalizeReason(session.text.slice(found.s, found.e)) &&
             hasLanded(attempt, pin),
         );
+        if (!landed) break; // found holds such an attempt
         takeWrittenText(session.doc, id, verdictOf(pin) || '', landed.text, null);
         if (session.via.includes(found)) break;
       } // not taken out (cannot be): stop
@@ -31579,7 +31630,7 @@ function liveSessions() {
       ...DETACHED_SESSIONS.values(),
       ...[...REASON_WRITES.values()].map((outWrite) => outWrite.r),
       ...RETRY_NOTICES.keys(),
-    ].filter(Boolean),
+    ].filter((session) => !!session),
   );
 }
 // Pin id (verdict word `word`) of document doc has text as its reason now - session `writer` wrote it, or (writer null)
@@ -33717,7 +33768,7 @@ function relBadge(rel, pin) {
   if (insides.length) {
     const span = (entry) => {
       const other = byId.get(entry.id);
-      return other ? (other.hi) - (other.lo) : Number.MAX_SAFE_INTEGER;
+      return other && other.lo !== undefined && other.hi !== undefined ? other.hi - other.lo : Number.MAX_SAFE_INTEGER;
     }; // rel names line pins
     const best = insides.reduce((best, candidate) => {
       const bestSpan = span(best),
@@ -33760,11 +33811,14 @@ function claimInfo(pin, now) {
   now = now == null ? Date.now() : now;
   const claimer = who(pin.claimed_by) || '?',
     startMs = typeof pin.claim_ts === 'number' ? pin.claim_ts * 1000 : null;
-  const tail =
-    ' · ' +
-    translateTemplate('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
-      time: clockTime((pin.claim_until) * 1000),
-    }); // claimInfo runs for an active claim (claimActive)
+  const until = pin.claim_until,
+    tail =
+      until === undefined
+        ? ''
+        : ' · ' +
+          translateTemplate('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
+            time: clockTime(until * 1000),
+          }); // claimInfo runs for an active claim (claimActive), which has its end
   const head =
     translateTemplate('처리하는 쪽: {name}', { name: claimer }) +
     (startMs ? ' · ' + translateTemplate('시작 {time}', { time: clockTime(startMs) }) : '');
@@ -34903,8 +34957,7 @@ function confirmTicked() {
       const pin = REVIEW_ALL.find((reviewed) => reviewed.id === id);
       return pin && !CONFIRMING.has(id) ? { pin, at } : null;
     })
-    .filter((item) => !!item)
-    .map((item) => item);
+    .filter((item) => !!item);
   if (!items.length) return;
   const where = new Map(items.map((item) => [item.pin.id, REVIEW_ALL.indexOf(item.pin)])),
     ticks = new Map(items.map((item) => [item.pin.id, item.at]));
@@ -34996,14 +35049,17 @@ function confirmOutcome(
       ? { out: CONFIRM_OUTCOME.REFUSED, why: errText(err.data) || 'HTTP ' + err.status }
       : { out: CONFIRM_OUTCOME.UNREACHED };
   const body = answer && answer.data;
-  if (body && body.error === PIN_STATE.OPEN) return { out: CONFIRM_OUTCOME.REOPENED };
-  if (body && body.error === 'conflict')
-    return {
-      out:
-        body.pin && pinState(body.pin) !== PIN_STATE.REVIEW
-          ? CONFIRM_OUTCOME.DONE_BY_PERSON
-          : CONFIRM_OUTCOME.CLOSED_AGAIN,
-    };
+  if (isRefusal(body)) {
+    if (body.error === PIN_STATE.OPEN) return { out: CONFIRM_OUTCOME.REOPENED };
+    if (body.error === 'conflict')
+      return {
+        out:
+          body.pin && pinState(body.pin) !== PIN_STATE.REVIEW
+            ? CONFIRM_OUTCOME.DONE_BY_PERSON
+            : CONFIRM_OUTCOME.CLOSED_AGAIN,
+      };
+    return { out: CONFIRM_OUTCOME.UNREACHED };
+  }
   return body && body.ok
     ? { out: CONFIRM_OUTCOME.OK }
     : body && body.ok === false
@@ -36922,15 +36978,12 @@ function mentionCommonStart(old, now) {
 // Follows an edit of the field's text (an input event, or the note popover's text copied in): its tags move with the
 // edit or drop out, and its logins become theirs. caret is where the edit left the caret.
 function mentionEdited(field, caret) {
-  const known = field._tags && field._tagsFrom === field._mentions && field._tagsFor != null;
-  const tags = known
-    ? mentionShift(
-        field._tags,
-        field._tagsFor,
-        field.value,
-        caret == null ? field.selectionStart : caret,
-      )
-    : mentionTags(field);
+  const held = field._tags,
+    heldFor = field._tagsFor;
+  const tags =
+    held && field._tagsFrom === field._mentions && heldFor != null
+      ? mentionShift(held, heldFor, field.value, caret == null ? field.selectionStart : caret)
+      : mentionTags(field);
   mentionKeep(field, tags);
 }
 // Stores tags as the field's own for its present text, with the logins they name (in text order) as field._mentions.
@@ -37037,8 +37090,9 @@ function mentionTokens(people) {
     [name, login, login.split('@')[0]].concat(words.length > 1 ? [words[0]] : []).forEach((candidate) => {
       if ([...candidate].length < 2) return;
       const key = candidate.toLowerCase();
-      if (!by.has(key)) by.set(key, new Set());
-      by.get(key).add(login);
+      const logins = by.get(key) || new Set();
+      logins.add(login);
+      by.set(key, logins);
     });
   });
   return [...by]
@@ -37158,14 +37212,16 @@ function renderAssignNew() {
   const noteField = $('#note'),
     box = $('#c-assign');
   if (!noteField || !box) return;
-  const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW));
+  // a new pin's outcome always names an assignee (assignOutcome); only an append's may name none
+  const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW)),
+    assignee = outcome.assignee ?? ASSIGNEE_AGENT;
   if (PEOPLE_KNOWN) {
-    ASSIGN_NEW.v = outcome.assignee;
+    ASSIGN_NEW.v = assignee;
     ASSIGN_NEW.touched = outcome.kept;
   }
   if (outcome.people.length && !appendTarget()) {
     const at = segmentFocusAt(box);
-    setHtml(box, assigneeRowHtml(outcome.people, outcome.assignee, 'assign-new'));
+    setHtml(box, assigneeRowHtml(outcome.people, assignee, 'assign-new'));
     box.hidden = false;
     roveSegment(box);
     keepSegmentFocus(box, at);
@@ -37236,7 +37292,7 @@ function mentionPreview(field) {
     ? html`<span class="m-lab">${lucideIcon('at-sign')}알림</span>${told.map((login) => html`<span class="mention${login === me ? ' me' : ''}">${personLabel(login)}${login === me ? ' ' + translate('(나 — 알림 없음)') : ''}</span>`)}`
     : '';
   const assigns = outcome
-    ? html`<span class="m-lab">${translate(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee)}`
+    ? html`<span class="m-lab">${translate(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee ?? ASSIGNEE_AGENT)}`
     : html``;
   const head = !outcome
     ? hits
@@ -37576,7 +37632,7 @@ function renderReplyOutcome() {
     mentioned = replyMentioned(field);
   let preview = pin && replyPreview(pin, isHuman(), mentioned, !!replyBox.flip);
   field.placeholder = replyPlaceholder(pin, isHuman(), !!replyBox.flip);
-  if (!preview) {
+  if (!preview || !pin) {
     box.hidden = true;
     replyBox.flip = false;
     replyBox.toggle = null;
@@ -37616,11 +37672,12 @@ function openReply(id) {
   if (REPLY) closeReply(false);
   const pin = findAnyPin(id);
   REPLY_VISITS.set(id, (REPLY_VISITS.get(id) || 0) + 1);
-  setReply({ id, flip: false, toggle: null, el: createReplyBox(pin) });
+  const replyBox = { id, flip: false, toggle: null, el: createReplyBox(pin) };
+  setReply(replyBox);
   OPEN_CARDS.add(id);
   setSide(true);
   drawPins();
-  const field = replyNote(REPLY),
+  const field = replyNote(replyBox),
     draft = REPLY_DRAFT.get('reply:' + id);
   field.value = draft ? draft.text : '';
   field._mentions = new Set(draft ? draft.mentions : []);
@@ -37628,7 +37685,7 @@ function openReply(id) {
   mentionPreview(field);
   renderReplyOutcome();
   field.focus();
-  (REPLY).el.scrollIntoView({ block: 'nearest' });
+  replyBox.el.scrollIntoView({ block: 'nearest' });
 }
 /**
  * Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing.
@@ -38176,15 +38233,13 @@ function editTheirs(card) {
 }
 // An edit the server answered 409 suggest_base_changed: nothing was saved and the card keeps its draft. The editor
 // shows the lines' current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps
-// its text and takes that text as its base); then [저장] again.
+// its text and takes that text as its base); then [저장] again. A card that holds a suggestion is a line pin's, so it
+// has its lines.
 function editSuggestRefused(card, data) {
   if (editorOwns(card)) {
-    card.sg.current = {
-      text: String(data.current || ''),
-      file: card.file || null,
-      lo: card.lo,
-      hi: card.hi,
-    };
+    const { lo: low, hi: high } = card;
+    if (low !== undefined && high !== undefined)
+      card.sg.current = { text: String(data.current || ''), file: card.file || null, lo: low, hi: high };
     renderEdit();
   }
   bannerNote(
@@ -38507,7 +38562,7 @@ function showBuildErr(build, say) {
   const panel = $('#build-err');
   const title = buildErrTitle(build);
   if (say) announce(title, true);
-  const log = String(build.log_tail || build.log || '')
+  const log = String(build.log_tail || '')
     .split('\n')
     .slice(-20)
     .join('\n');

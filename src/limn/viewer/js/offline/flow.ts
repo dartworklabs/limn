@@ -1693,7 +1693,7 @@ function offlineBox(rec: QueuedPin): { x0: number; y0: number; x1: number; y1: n
 // that pin is its page and box, as savePin sends one.
 function offlineBody(rec: QueuedPin, place: OfflinePlace): Record<string, unknown> {
   if (!place.file) {
-    const region = {
+    const region: Record<string, unknown> = {
       page: place.page,
       frac: place.frac || rec.frac,
       note: rec.note,
@@ -1702,14 +1702,14 @@ function offlineBody(rec: QueuedPin, place: OfflinePlace): Record<string, unknow
       doc: rec.doc || undefined,
       kind_req: rec.kind_req,
       assignee: rec.assignee,
-    } as Record<string, unknown>;
+    };
     if ((rec.mentions || []).length) region.mentions = rec.mentions;
     if (rec.idem) region.idem = rec.idem;
     // A figure pick: its element, and the element's box as the pin's (as savePin sends one).
     if (place.el) figureFields(region, place.el, null);
     return region;
   }
-  const body = {
+  const body: Record<string, unknown> = {
     file: place.file,
     name: place.name,
     page: place.page,
@@ -1729,7 +1729,7 @@ function offlineBody(rec: QueuedPin, place: OfflinePlace): Record<string, unknow
     doc: rec.doc || undefined,
     kind_req: rec.kind_req,
     assignee: rec.assignee,
-  } as Record<string, unknown>;
+  };
   if ('scope' in place && place.scope) body.scope = place.scope;
   if ((rec.mentions || []).length) body.mentions = rec.mentions;
   if (rec.idem) body.idem = rec.idem;

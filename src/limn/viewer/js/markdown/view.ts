@@ -690,7 +690,7 @@ async function buildMarkdownDoc() {
       );
       return;
     }
-    root = await lineView(limit as string, stale);
+    root = await lineView(limit ?? MARKDOWN_LIMIT.ERROR, stale); // limit is set whenever no root was drawn
     if (!root || stale()) return;
   }
   showDocumentNode(root);
@@ -1344,20 +1344,17 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
   }
   // A run of raw HTML blocks in a row (htmlRunElement), or each block on its own when one has no lines.
   function* run(tokens: MarkdownToken[], work: { n: number }): Generator<void, void, void> {
-    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context));
-    if (spans.some((span) => !span)) {
+    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context)),
+      first = spans[0],
+      last = spans[spans.length - 1];
+    if (!first || !last || spans.some((span) => !span)) {
       for (const htmlToken of tokens) {
         yield* token(htmlToken, work);
         if (isPauseDue(work)) yield;
       }
       return;
     }
-    const runElement = htmlRunElement(
-        tokens.length,
-        (spans[0] as { lo: number; hi: number }).lo,
-        (spans[spans.length - 1] as { lo: number; hi: number }).hi,
-        context,
-      ),
+    const runElement = htmlRunElement(tokens.length, first.lo, last.hi, context),
       body = findElement(runElement, ':scope>.md-html-body', HTMLElement);
     stack[stack.length - 1].appendChild(runElement);
     for (const htmlToken of tokens) {
@@ -2478,8 +2475,10 @@ function markChosenLines(
   chosen: { file?: string; lo?: number | null; hi?: number | null; kind?: string; pdf?: string } | null,
 ) {
   $$('#md .md-sel').forEach((element) => element.classList.remove('md-sel'));
-  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen))
-    lineLeaves(chosen.lo as number, chosen.hi as number).forEach((element) => element.classList.add('md-sel'));
+  const low = chosen && chosen.lo,
+    high = chosen && chosen.hi;
+  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen) && low && high)
+    lineLeaves(low, high).forEach((element) => element.classList.add('md-sel'));
   if (MARKDOWN_VIEW.spot && MARKDOWN_VIEW.spot.doc === DOC && isColumnShown()) MARKDOWN_VIEW.spot.sel = isChosenSeen();
 } // hidden, nothing is on screen: what was stays
 // The elements that stand for lines first..last: each line span in range, and each block in range that has no line
@@ -2518,12 +2517,15 @@ function drawPinMarks() {
   column.querySelectorAll('.md-badges').forEach((element: Element) => element.remove());
   column.querySelectorAll('.md-pin').forEach((element: Element) => element.classList.remove('md-pin', 'rv', 'st'));
   const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
-    .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
-    .sort((left, right) => (left.lo as number) - (right.lo as number) || left.id - right.id);
+    .filter(
+      (pin): pin is Pin & { lo: number; hi: number } =>
+        !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number',
+    )
+    .sort((left, right) => left.lo - right.lo || left.id - right.id);
   const rows: Map<number, HTMLElement> = new Map(),
     top = column.getBoundingClientRect().top;
   for (const pin of pins) {
-    const leaves = lineLeaves(pin.lo as number, pin.hi as number);
+    const leaves = lineLeaves(pin.lo, pin.hi);
     if (!leaves.length) continue;
     const inReview = pinState(pin) === PIN_STATE.REVIEW,
       lost = !!pin.stale;
@@ -2560,7 +2562,7 @@ function drawPinMarks() {
       '#' +
       pin.id +
       ' · ' +
-      lineRange(pin.lo as number, pin.hi as number) +
+      lineRange(pin.lo, pin.hi) +
       ' · ' +
       (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : translate('(메모 없음)'));
     box.appendChild(badge);

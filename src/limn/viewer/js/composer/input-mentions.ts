@@ -156,15 +156,12 @@ function mentionCommonStart(old: string, now: string): number {
 // Follows an edit of the field's text (an input event, or the note popover's text copied in): its tags move with the
 // edit or drop out, and its logins become theirs. caret is where the edit left the caret.
 function mentionEdited(field: HTMLTextAreaElement, caret?: number) {
-  const known = field._tags && field._tagsFrom === field._mentions && field._tagsFor != null;
-  const tags = known
-    ? mentionShift(
-        field._tags as MentionTag[],
-        field._tagsFor as string,
-        field.value,
-        caret == null ? field.selectionStart : caret,
-      )
-    : mentionTags(field);
+  const held = field._tags,
+    heldFor = field._tagsFor;
+  const tags =
+    held && field._tagsFrom === field._mentions && heldFor != null
+      ? mentionShift(held, heldFor, field.value, caret == null ? field.selectionStart : caret)
+      : mentionTags(field);
   mentionKeep(field, tags);
 }
 // Stores tags as the field's own for its present text, with the logins they name (in text order) as field._mentions.
@@ -263,7 +260,7 @@ function mentionResolve(
 // two characters (code points, as Python counts) is none. The same candidate twice for one person is one entry ('Bob'
 // for bob@example.com), and a candidate several people share lists them all (sorted) - it then needs a hint.
 function mentionTokens(people: PersonSeen[]) {
-  const by = new Map();
+  const by = new Map<string, Set<string>>();
   (people || []).forEach((person) => {
     const login = String(person.login),
       name = String(person.name || ''),
@@ -271,8 +268,9 @@ function mentionTokens(people: PersonSeen[]) {
     [name, login, login.split('@')[0]].concat(words.length > 1 ? [words[0]] : []).forEach((candidate) => {
       if ([...candidate].length < 2) return;
       const key = candidate.toLowerCase();
-      if (!by.has(key)) by.set(key, new Set());
-      by.get(key).add(login);
+      const logins = by.get(key) || new Set<string>();
+      logins.add(login);
+      by.set(key, logins);
     });
   });
   return [...by]
@@ -401,14 +399,16 @@ function renderAssignNew() {
   const noteField = $('#note'),
     box = $('#c-assign');
   if (!noteField || !box) return;
-  const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW));
+  // a new pin's outcome always names an assignee (assignOutcome); only an append's may name none
+  const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW)),
+    assignee = outcome.assignee ?? ASSIGNEE_AGENT;
   if (PEOPLE_KNOWN) {
-    ASSIGN_NEW.v = outcome.assignee as string;
+    ASSIGN_NEW.v = assignee;
     ASSIGN_NEW.touched = outcome.kept;
   }
   if (outcome.people.length && !appendTarget()) {
     const at = segmentFocusAt(box);
-    setHtml(box, assigneeRowHtml(outcome.people, outcome.assignee as string, 'assign-new'));
+    setHtml(box, assigneeRowHtml(outcome.people, assignee, 'assign-new'));
     box.hidden = false;
     roveSegment(box);
     keepSegmentFocus(box, at);
@@ -479,7 +479,7 @@ function mentionPreview(field: HTMLTextAreaElement | null | undefined) {
     ? html`<span class="m-lab">${lucideIcon('at-sign')}알림</span>${told.map((login) => html`<span class="mention${login === me ? ' me' : ''}">${personLabel(login)}${login === me ? ' ' + translate('(나 — 알림 없음)') : ''}</span>`)}`
     : '';
   const assigns = outcome
-    ? html`<span class="m-lab">${translate(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee as string)}`
+    ? html`<span class="m-lab">${translate(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee ?? ASSIGNEE_AGENT)}`
     : html``;
   const head = !outcome
     ? hits

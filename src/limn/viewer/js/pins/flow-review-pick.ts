@@ -9,7 +9,7 @@ import { DONE_ALL, MENTION_ONLY, OPEN_ALL, OPEN_CARDS, REVIEW_ALL, setReviewAll 
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { ORDER, SECTION_OPEN, savePrefs, setSectionOpen } from '../platform/prefs.ts';
-import { api, isApiError } from '../platform/api.ts';
+import { api, isApiError, isRefusal } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote, quietNote } from '../platform/notices.ts';
 import { showChange } from '../revisions/flow.ts';
 import { canConfirmReview } from '../documents/view-meta.ts';
@@ -94,7 +94,7 @@ function resultRow(pin: Pin): Html {
     : html`<button type="button" class="arc-orig-t rv-act hit" data-act="rv-card" data-tip="${translate('고르기를 끝내고 이 핀의 카드로 갑니다. 카드에서 결과를 보고 확인하세요')}">${translate('카드에서 확인')}</button>`;
   const said = !ok
     ? html`<span class="dim">${translate('설명 없이 닫힘')}</span>`
-    : html`${reply ? messageBody({ text: reply, mentions: pin.mentions } as ThreadEntry, 'rv:' + pin.id) : html`<div class="dim">${translate('설명 없음')}</div>`}\
+    : html`${reply ? messageBody({ text: reply, mentions: pin.mentions }, 'rv:' + pin.id) : html`<div class="dim">${translate('설명 없음')}</div>`}\
 ${facts.length ? html`<div class="rv-facts" translate="no">${facts.map((fact, index) => html`${index ? ' · ' : ''}<span>${fact}</span>`)}</div>` : ''}`;
   return html`<div class="rv-row${on ? ' on' : ''}${ok ? '' : ' off'}" data-id="${pin.id}" data-doc="${pdoc(pin)}">\
 <div class="rv-l1"><label class="rv-ck hit"><span class="ck"><input type="checkbox" data-pick="${pin.id}"${on ? ' checked' : ''}${ok ? '' : ' disabled'} aria-describedby="rv-a-${pin.id}">\
@@ -248,8 +248,7 @@ function confirmTicked() {
       const pin = REVIEW_ALL.find((reviewed) => reviewed.id === id);
       return pin && !CONFIRMING.has(id) ? { pin, at } : null;
     })
-    .filter((item) => !!item)
-    .map((item) => item as { pin: Pin; at: string });
+    .filter((item) => !!item);
   if (!items.length) return;
   const where = new Map(items.map((item) => [item.pin.id, REVIEW_ALL.indexOf(item.pin)])),
     ticks = new Map(items.map((item) => [item.pin.id, item.at]));
@@ -333,7 +332,7 @@ const CONFIRM_OUTCOME = Object.freeze({
 // The outcome of one confirm from its answer: status and body of an answered request (409 expected), or the refusal
 // api() threw (an ApiError, isApiError); with neither, the server was not reached. Pure.
 function confirmOutcome(
-  answer: { status: number; data: any } | null,
+  answer: { status: number; data: PinStateAnswer | PinConflict | null } | null,
   err?: ApiError | null,
 ): { out: string; why?: string } {
   if (err)
@@ -341,14 +340,17 @@ function confirmOutcome(
       ? { out: CONFIRM_OUTCOME.REFUSED, why: errText(err.data) || 'HTTP ' + err.status }
       : { out: CONFIRM_OUTCOME.UNREACHED };
   const body = answer && answer.data;
-  if (body && body.error === PIN_STATE.OPEN) return { out: CONFIRM_OUTCOME.REOPENED };
-  if (body && body.error === 'conflict')
-    return {
-      out:
-        body.pin && pinState(body.pin) !== PIN_STATE.REVIEW
-          ? CONFIRM_OUTCOME.DONE_BY_PERSON
-          : CONFIRM_OUTCOME.CLOSED_AGAIN,
-    };
+  if (isRefusal(body)) {
+    if (body.error === PIN_STATE.OPEN) return { out: CONFIRM_OUTCOME.REOPENED };
+    if (body.error === 'conflict')
+      return {
+        out:
+          body.pin && pinState(body.pin) !== PIN_STATE.REVIEW
+            ? CONFIRM_OUTCOME.DONE_BY_PERSON
+            : CONFIRM_OUTCOME.CLOSED_AGAIN,
+      };
+    return { out: CONFIRM_OUTCOME.UNREACHED };
+  }
   return body && body.ok
     ? { out: CONFIRM_OUTCOME.OK }
     : body && body.ok === false

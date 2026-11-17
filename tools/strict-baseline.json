@@ -39,87 +39,14 @@
     }
   },
   "eslint": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "src/limn/viewer/js/app/state.ts": 1,
-      "src/limn/viewer/js/composer/flow-repick.ts": 3,
-      "src/limn/viewer/js/composer/flow-save.ts": 3,
-      "src/limn/viewer/js/composer/input-mentions.ts": 5,
-      "src/limn/viewer/js/documents/flow-switch.ts": 1,
-      "src/limn/viewer/js/documents/view-meta.ts": 1,
-      "src/limn/viewer/js/markdown/view.ts": 11,
-      "src/limn/viewer/js/offline/flow.ts": 2,
-      "src/limn/viewer/js/pdf/flow.ts": 5,
-      "src/limn/viewer/js/pdf/view-draw.ts": 1,
-      "src/limn/viewer/js/pdf/view-figure.ts": 2,
-      "src/limn/viewer/js/pdf/view-outline.ts": 1,
-      "src/limn/viewer/js/pins/flow-edit.ts": 2,
-      "src/limn/viewer/js/pins/flow-notification.ts": 1,
-      "src/limn/viewer/js/pins/flow-reply.ts": 3,
-      "src/limn/viewer/js/pins/flow-review-pick.ts": 2,
-      "src/limn/viewer/js/pins/view-card-parts.ts": 3,
-      "src/limn/viewer/js/platform/dom.ts": 1,
-      "src/limn/viewer/js/platform/hidden-chars.ts": 1,
-      "src/limn/viewer/js/platform/notices.ts": 2,
-      "src/limn/viewer/js/revisions/flow.ts": 2,
-      "src/limn/viewer/js/revisions/view-rendered-compare.ts": 4,
-      "src/limn/viewer/js/verdict/flow-line.ts": 1,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 4,
-      "src/limn/viewer/js/verdict/view-pins.ts": 1
-    },
-    "@typescript-eslint/no-explicit-any": {
-      "src/limn/viewer/js/composer/flow-suggest.ts": 6,
-      "src/limn/viewer/js/composer/view-levels.ts": 1,
-      "src/limn/viewer/js/documents/flow-rebuild.ts": 2,
-      "src/limn/viewer/js/pdf/view-draw.ts": 1,
-      "src/limn/viewer/js/pdf/view-outline.ts": 1,
-      "src/limn/viewer/js/pins/flow-edit.ts": 1,
-      "src/limn/viewer/js/pins/flow-notification.ts": 2,
-      "src/limn/viewer/js/pins/flow-review-pick.ts": 1,
-      "src/limn/viewer/js/revisions/flow.ts": 1,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 1
-    },
     "@typescript-eslint/no-unsafe-argument": {
-      "src/limn/viewer/js/composer/flow-suggest.ts": 10,
-      "src/limn/viewer/js/composer/input-mentions.ts": 4,
-      "src/limn/viewer/js/documents/flow-rebuild.ts": 3,
-      "src/limn/viewer/js/markdown/rules-links.ts": 2,
-      "src/limn/viewer/js/pins/flow-notification.ts": 9,
-      "src/limn/viewer/js/pins/flow-review-pick.ts": 1,
-      "src/limn/viewer/js/platform/api.ts": 1,
-      "src/limn/viewer/js/platform/markup.ts": 1,
-      "src/limn/viewer/js/revisions/flow.ts": 1,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 3
+      "src/limn/viewer/js/platform/api.ts": 1
     },
     "@typescript-eslint/no-unsafe-assignment": {
-      "src/limn/viewer/js/composer/flow-suggest.ts": 3,
-      "src/limn/viewer/js/composer/input-mentions.ts": 4,
-      "src/limn/viewer/js/documents/flow-rebuild.ts": 1,
-      "src/limn/viewer/js/documents/flow-switch.ts": 1,
-      "src/limn/viewer/js/markdown/rules-links.ts": 1,
       "src/limn/viewer/js/offline/flow.ts": 1,
-      "src/limn/viewer/js/pdf/view-outline.ts": 1,
-      "src/limn/viewer/js/pins/flow-notification.ts": 3,
-      "src/limn/viewer/js/pins/flow-review-pick.ts": 1,
-      "src/limn/viewer/js/platform/api.ts": 2,
-      "src/limn/viewer/js/platform/markup.ts": 1
-    },
-    "@typescript-eslint/no-unsafe-call": {
-      "src/limn/viewer/js/composer/input-mentions.ts": 1,
-      "src/limn/viewer/js/documents/flow-rebuild.ts": 1
-    },
-    "@typescript-eslint/no-unsafe-member-access": {
-      "src/limn/viewer/js/composer/flow-suggest.ts": 8,
-      "src/limn/viewer/js/composer/input-mentions.ts": 2,
-      "src/limn/viewer/js/composer/view-levels.ts": 4,
-      "src/limn/viewer/js/documents/flow-rebuild.ts": 5,
-      "src/limn/viewer/js/pdf/view-outline.ts": 2,
-      "src/limn/viewer/js/pins/flow-edit.ts": 1,
-      "src/limn/viewer/js/pins/flow-notification.ts": 21,
-      "src/limn/viewer/js/pins/flow-review-pick.ts": 6,
-      "src/limn/viewer/js/revisions/flow.ts": 2
+      "src/limn/viewer/js/platform/api.ts": 2
     },
     "@typescript-eslint/no-unsafe-return": {
-      "src/limn/viewer/js/documents/view-tabs.ts": 1,
       "src/limn/viewer/js/offline/flow.ts": 1
     }
   }

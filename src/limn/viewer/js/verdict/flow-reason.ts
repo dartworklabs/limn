@@ -73,6 +73,7 @@ import {
 } from '../platform/dom.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
+import type { Visit } from '../app/state.ts';
 import { docInfo, verdictLabel, viewerBlocked, pageVerdictsOn } from '../documents/state.ts';
 import { isAutoScrolling, endJumpForScroll } from '../layout/flow-scroll.ts';
 import { canVerdict, pageTakesVerdict, pageTargetOf, pageVerdictPins } from './view-pins.ts';
@@ -143,7 +144,7 @@ type ReasonSession = {
   id: number;
   key: string;
   doc: string | null;
-  visit: any;
+  visit: Visit;
   text: string;
   base: string;
   mode: string;
@@ -315,7 +316,7 @@ function refocusAfterLines() {
 // again, beside the pages or under one - while it is still on nothing. An input method's composition ends with the old
 // field (the session's text holds what it had composed). A popover not drawn again leaves the keys typed on no verdict
 // keys (KEY_GUARD).
-type ReasonFocus = { sid: number; sel: [number, number, string] | null; act: string };
+type ReasonFocus = { sid: number; sel: [number, number, 'forward' | 'backward' | 'none'] | null; act: string };
 function holdReasonFocus(): ReasonFocus | null {
   const session = REASON_SESSION,
     active = focusedElement(),
@@ -347,8 +348,7 @@ function restoreReasonFocus(held: ReasonFocus | null) {
     return;
   }
   control.focus({ preventScroll: true });
-  if (held.sel && isReasonField(control))
-    control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2] as 'forward' | 'backward' | 'none');
+  if (held.sel && isReasonField(control)) control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2]);
 }
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let
 // go, one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is
@@ -762,8 +762,8 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     }
     pin = null;
   }
-  const got =
-    pin && !pin.dropped_at ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, pin as Pin)) : null;
+  const live = pin && !pin.dropped_at ? pin : null,
+    got = live ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, live)) : null;
   RETRY_NOTICES.delete(session); // its [다시 시도] goes either way (sourceOk)
   if (got) {
     session.saved = got.text;
@@ -1064,7 +1064,8 @@ async function checkLostWrites(session: ReasonSession): Promise<true | ApiError 
           (attempt) =>
             normalizeReason(attempt.text) === normalizeReason(session.text.slice(found.s, found.e)) &&
             hasLanded(attempt, pin),
-        ) as ReasonTry;
+        );
+        if (!landed) break; // found holds such an attempt
         takeWrittenText(session.doc, id, verdictOf(pin) || '', landed.text, null);
         if (session.via.includes(found)) break;
       } // not taken out (cannot be): stop
@@ -1136,8 +1137,8 @@ function liveSessions() {
       ...DETACHED_SESSIONS.values(),
       ...[...REASON_WRITES.values()].map((outWrite) => outWrite.r),
       ...RETRY_NOTICES.keys(),
-    ].filter(Boolean),
-  ) as Set<ReasonSession>;
+    ].filter((session): session is ReasonSession => !!session),
+  );
 }
 // Pin id (verdict word `word`) of document doc has text as its reason now - session `writer` wrote it, or (writer null)
 // a write that lost its answer is found landed. A reason ends on one verdict, so the text leaves every other place it

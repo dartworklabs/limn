@@ -7,7 +7,7 @@
 | **상태** | 제안 |
 | **결정일** | 2026-11-17 |
 | **결정자** | Limn 소유자의 위임자가 작업 지시로 정함(측정한 뒤 고름, 빈 `Meta` 자리 표시 값은 쓰지 않음, 일찍 도는 읽기가 오류를 던지던 자리의 안전한 대신은 아무것도 하지 않는 것, 사람이 보는 결과가 바뀌는 행은 멈춤). 세 모양 중의 선택, 접근자의 이름과 가드의 자리는 지시가 이 변경에 맡겼다 |
-| **출처** | `origin/main`(PR #507 합본)의 뷰어 모듈을 TypeScript 파서로 센 값, `META`를 `Meta \| null`로 둔 사본에서 `tsc`가 낸 오류 자리, 첫 `/api/meta`를 붙잡은 브라우저에서 키·휠·클릭을 넣어 잰 페이지 오류와 화면 상태 |
+| **출처** | `origin/main`(PR #507 합본, 측정 뒤 PR #509를 병합)의 뷰어 모듈을 TypeScript 파서로 센 값, `META`를 `Meta \| null`로 둔 사본에서 `tsc`가 낸 오류 자리, 첫 `/api/meta`를 붙잡은 브라우저에서 키·휠·클릭을 넣어 잰 페이지 오류와 화면 상태 |
 | **부분 대체** | 없음. [ADR-0042](0042-viewer-es-modules.md) D1의 설정 함수 방식과 [ADR-0046](0046-viewer-endpoint-answers.md)의 응답 타입을 그대로 쓰며, 그 결정의 어느 조항도 바꾸지 않는다 |
 
 ## 맥락
@@ -64,7 +64,7 @@
 
 ## 결과 (이 변경이 센 값)
 
-- `as unknown as` 상태 선언은 뷰어에 `META` 하나였고(`null as unknown as T`, `undefined as unknown as T`를 모듈 전체에서 찾았다), 이제 없다. ESLint의 `consistent-type-assertions`가 `app/state.ts`에서 3에서 1로, 뷰어 전체 기준선이 191에서 189로 줄었다. 늘어난 (규칙, 파일)은 없다.
+- `as unknown as` 상태 선언은 뷰어에 `META` 하나였고(`null as unknown as T`, `undefined as unknown as T`를 모듈 전체에서 찾았다), 이제 없다. 그 단언은 [ADR-0046](0046-viewer-endpoint-answers.md) D8이 기준선에 신뢰 지점 말고 남긴 유일한 메시지였다. 이 변경으로 `consistent-type-assertions`는 기준선에서 빠지고(`app/state.ts`의 2개), ESLint 기준선은 그 D8의 세 신뢰 지점(5개 메시지)만 센다. 늘어난 (규칙, 파일)은 없다.
 - 첫 meta를 붙잡은 브라우저에서 위 표의 길(키, 휠, 막대, 토글, 변경 보기, [더보기])을 지나며 기록한 화면 상태(배율, `ZOOMED`, 배율 숫자, 틀의 클래스, 패널·목차, 설정, 절 표시줄, 상태 줄)는 단계마다 이 변경 전과 같았고, 페이지 오류는 장치마다 6–7개에서 0개가 되었다. 바뀐 실행 동작과 그 입력은 이 변경의 PR이 적는다.
 - `test_viewer_meta_known.py`가 `knownMeta`의 이름 있는 실패, D3의 네 자리, D4의 값, 첫 meta가 늦는 브라우저의 세 장치를 지킨다.
 - 현재 규칙은 [viewer.md](../handbook/viewer.md) §타입 검사에 있다.
