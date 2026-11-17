@@ -171,7 +171,7 @@ function switchLang(lang: string | undefined) {
   if (address.href === location.href) location.reload();
   else location.replace(address.href);
 }
-const TIP_TEXT = {
+const TIP_TEXT: Record<string, string> = {
   stale:
     '핀을 찍은 첫 문장이 바뀌거나 지워져 위치를 되찾지 못했습니다. 이미 고쳐졌을 수 있으니 확인한 뒤 완료하거나 [수정] → 위치 다시 잡기를 하세요',
   ellost:
