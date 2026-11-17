@@ -85,7 +85,7 @@ import { BACK } from '../layout/input.ts';
 import { revealBox, selectionRoom } from '../pdf/input-selection.ts';
 import { imeOpen } from '../platform/composition.ts';
 import { NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, $$, focusFell, focusHold } from '../platform/dom.ts';
+import { $, $$, findAll, findClosest, findElement, findMaybe, focusFell, focusHold } from '../platform/dom.ts';
 import { LAYOUT_MODE, MARKDOWN_LIMIT, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, lineRange, overlapsFor } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isTextDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
@@ -389,11 +389,11 @@ function drawTexBox(
 function fitWideFormulas() {
   const column = $('#md');
   if (!column || !MARKDOWN_VIEW.tex) return;
-  const boxes = [...column.querySelectorAll('code.md-math.md-tex')] as HTMLElement[];
+  const boxes = findAll(column, 'code.md-math.md-tex', HTMLElement);
   if (!boxes.length) return;
   for (const box of boxes) box.classList.remove('md-tex-wide');
   const wide = boxes.filter((box) => {
-    const block = (box.closest('p,li,td,th,blockquote') || column) as HTMLElement,
+    const block = box.closest('p,li,td,th,blockquote') || column,
       style = getComputedStyle(block);
     // where the block's own text goes, not the column's padding box
     const room = block.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
@@ -414,10 +414,10 @@ function yieldToBrowser() {
 // Whether a redraw would take a text field from under the person typing in it: a field inside #doc that is composing,
 // or held by the key that ended its composition (imeHeldIn, app/state.ts §조합을 끝내는 키).
 function isFieldBusy() {
-  const active = document.activeElement as HTMLElement | null,
+  const active = document.activeElement,
     held = imeHeldIn();
   const doc = $('#doc'),
-    inDoc = (node: any) => node instanceof Node && doc.contains(node);
+    inDoc = (node: unknown) => node instanceof Node && doc.contains(node);
   return inDoc(held) || (!!active && inDoc(active) && active !== doc && COMPOSING_FIELDS.has(active));
 }
 const COMPOSING_FIELDS = new Set<EventTarget | null>();
@@ -745,7 +745,7 @@ function limitText(limit: string) {
 // by measuring them all.
 function lineElements() {
   const column = $('#md');
-  return column ? ([...column.querySelectorAll('[data-line],[data-lo]')] as HTMLElement[]) : [];
+  return column ? findAll(column, '[data-line],[data-lo]', HTMLElement) : [];
 }
 // The last of elements whose top is at or above y (viewport px), or null before the first. O(log n) measures.
 function lineElementAt(elements: HTMLElement[], y: number) {
@@ -840,7 +840,7 @@ function spotElement(spot: NonNullable<typeof MARKDOWN_VIEW.spot>) {
   if (!spot.line) return null;
   const column = $('#md'),
     attribute = spot.key === 'lo' ? 'data-lo' : 'data-line',
-    element = (column && column.querySelector('[' + attribute + '="' + spot.line + '"]')) as HTMLElement | null;
+    element = column ? findMaybe(column, '[' + attribute + '="' + spot.line + '"]', HTMLElement) : null;
   return element || lineLeaves(spot.line, spot.line)[0] || nearestLineElement(spot.line);
 }
 // The last line element that starts at or before line (lineElements are in document order, their first lines never
@@ -893,7 +893,7 @@ function keepReadingSpot() {
     const drift = rect.top + into - pane.getBoundingClientRect().top;
     if (Math.abs(drift) >= 0.5) pane.scrollTop += drift;
   }
-  if (spot.sel) revealBox(document.querySelector('#md .md-sel') as HTMLElement | null, true);
+  if (spot.sel) revealBox(findMaybe(document, '#md .md-sel', HTMLElement), true);
   readSpot(true);
 }
 // Something above the reading spot changed its height while the width stood - an image that got its size or gave way to
@@ -1215,7 +1215,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
         (spans[spans.length - 1] as { lo: number; hi: number }).hi,
         context,
       ),
-      body = runElement.lastChild as HTMLElement;
+      body = findElement(runElement, ':scope>.md-html-body', HTMLElement);
     stack[stack.length - 1].appendChild(runElement);
     for (const htmlToken of tokens) {
       const placeholder = htmlPlaceholder(htmlToken, context);
@@ -1384,12 +1384,12 @@ function holdHtmlLines(element: HTMLElement, on: boolean) {
 // Opens or closes the run of raw HTML blocks whose button is button (data-act md-html-run), then draws the marks, the
 // chosen lines and the strip again over what is shown.
 function toggleHtmlRun(button: HTMLElement) {
-  const run = button.closest('.md-html-run') as HTMLElement | null,
-    body = run && (run.querySelector('.md-html-body') as HTMLElement | null);
+  const run = findClosest(button, '.md-html-run', HTMLElement),
+    body = run && findMaybe(run, '.md-html-body', HTMLElement);
   if (!run || !body) return;
   const open = button.getAttribute('aria-expanded') !== 'true';
   holdHtmlLines(run, !open);
-  body.querySelectorAll('.md-html').forEach((placeholder) => holdHtmlLines(placeholder as HTMLElement, open));
+  findAll(body, '.md-html', HTMLElement).forEach((placeholder) => holdHtmlLines(placeholder, open));
   body.hidden = !open;
   button.setAttribute('aria-expanded', String(open));
   drawPinMarks();
@@ -1447,7 +1447,7 @@ function* drawInline(
     parent.appendChild(span);
     return span;
   };
-  let stack = [makeLineSpan(lineInfo.lo)] as HTMLElement[];
+  let stack: HTMLElement[] = [makeLineSpan(lineInfo.lo)];
   // The pieces of a drawn formula still to pass over: its head drew all of them at once (inlineTexRun), so they add
   // nothing here.
   let skip = 0;
@@ -1475,7 +1475,8 @@ function* drawInline(
         if (lineInfo.exact) {
           const next = [makeLineSpan(lineInfo.lines[i] + 1)];
           for (const open of stack.slice(1)) {
-            const copy = open.cloneNode(false) as HTMLElement;
+            const copy = open.cloneNode(false);
+            if (!(copy instanceof HTMLElement)) continue;
             ++context.els;
             next[next.length - 1].appendChild(copy);
             next.push(copy);
@@ -1722,8 +1723,9 @@ const IMAGE_SIZES: Map<string, { w: number; h: number }> = new Map();
 // new size under the same path), and then it is resized and the spot put back as for a first load. Only a size that
 // held changes nothing. The marks follow through the column's ResizeObserver (COLUMN_OBSERVER).
 function onImageLoad(event: Event) {
-  const img = event.target as HTMLImageElement,
-    box = img.parentElement;
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const box = img.parentElement;
   if (!box) return;
   void noteShownTag(img.getAttribute('src') || '');
   const width = img.naturalWidth,
@@ -1857,7 +1859,7 @@ async function checkTreeImages(): Promise<number> {
   const paneRect = $('#left').getBoundingClientRect(),
     near: { img: HTMLImageElement; d: number }[] = [],
     shown = new Set<string>();
-  for (const img of [...document.querySelectorAll('#md .md-pic img')] as HTMLImageElement[]) {
+  for (const img of findAll(document, '#md .md-pic img', HTMLImageElement)) {
     const path = img.parentElement && img.parentElement.dataset.path;
     if (path) shown.add(path);
     if (!img.complete || !img.naturalWidth) continue;
@@ -1911,7 +1913,7 @@ async function checkTreeImages(): Promise<number> {
       const next = imageUrl(docKey, path);
       keepRecent(IMAGE_TAGS, next, tag);
       if (next === url) continue; // unknown, but already at that tag's address: taken as showing it
-      for (const box of [...document.querySelectorAll('#md .md-pic')] as HTMLElement[])
+      for (const box of findAll(document, '#md .md-pic', HTMLElement))
         if (box.dataset.path === path) {
           const image = box.querySelector('img');
           if (image && image.getAttribute('src') !== next) image.src = next;
@@ -1926,8 +1928,9 @@ async function checkTreeImages(): Promise<number> {
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt
 // text, as for an image that is never loaded, saying so in the tip.
 function onImageError(event: Event) {
-  const img = event.target as HTMLImageElement,
-    box = img.parentElement;
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const box = img.parentElement;
   if (!box || !box.isConnected) return;
   const fallback = document.createElement('span'),
     path = box.dataset.path || '';
@@ -2085,32 +2088,32 @@ function goToSlug(id: string): number {
 // ---------------- Picking: selection -> lines, and the ladder
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
 function linesAt(node: Node | null) {
-  const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+  const element = node && (node instanceof Element ? node : node.parentElement);
   if (!element) return null;
   const column = $('#md');
   if (!column || !column.contains(element)) return null;
   // The nearest carrier wins. A drawn formula that was cut at a line end sits inside the span of the line it starts in
   // and carries the lines it covers itself (drawInline): those are the point's lines, not that one line's.
-  const near = element.closest('[data-line],[data-lo]') as HTMLElement | null;
+  const near = findClosest(element, '[data-line],[data-lo]', HTMLElement);
   if (near && column.contains(near)) {
     const line = +(near.dataset.line || 0);
     if (line) return { lo: line, hi: line };
     if (near.dataset.lo !== undefined) return { lo: +(near.dataset.lo || 0), hi: +(near.dataset.hi || 0) };
   }
-  const block = element.closest('[data-lo]') as HTMLElement | null;
+  const block = findClosest(element, '[data-lo]', HTMLElement);
   return block && column.contains(block) ? { lo: +(block.dataset.lo || 0), hi: +(block.dataset.hi || 0) } : null;
 }
 // The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's
 // paragraph's item or quote, else its nearest block (a run of text whose lines could not be told - kind 'lines',
 // drawInline - stands for the block it is in).
 function blockAt(node: Node | null) {
-  const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+  const element = node && (node instanceof Element ? node : node.parentElement);
   if (!element) return null;
-  let block = element.closest('#md [data-lo]') as HTMLElement | null;
+  let block = findClosest(element, '#md [data-lo]', HTMLElement);
   if (block && block.dataset.kind === 'lines' && block.parentElement)
-    block = block.parentElement.closest('#md [data-lo]') as HTMLElement | null;
+    block = findClosest(block.parentElement, '#md [data-lo]', HTMLElement);
   if (!block) return null;
-  if (block.dataset.kind === 'row') block = (block.closest('table[data-lo]') as HTMLElement | null) || block;
+  if (block.dataset.kind === 'row') block = findClosest(block, 'table[data-lo]', HTMLElement) || block;
   else if (
     block.dataset.kind === 'paragraph' &&
     block.parentElement &&
@@ -2119,7 +2122,7 @@ function blockAt(node: Node | null) {
     block = block.parentElement; // a list item's or a quote's own paragraph is that block
   // A heading or a rule is no block of its own (ADR-0025 D3's block kinds): the block it stands in, if any, is.
   while (block && !BLOCK_KINDS.includes(block.dataset.kind || ''))
-    block = block.parentElement ? (block.parentElement.closest('#md [data-lo]') as HTMLElement | null) : null;
+    block = block.parentElement ? findClosest(block.parentElement, '#md [data-lo]', HTMLElement) : null;
   return block;
 }
 // The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032) and their names on
@@ -2132,9 +2135,9 @@ function blocksMeeting(first: number, last: number) {
   const column = $('#md');
   if (!column) return [];
   const meets = (element: HTMLElement) => +(element.dataset.lo || 0) <= last && +(element.dataset.hi || 0) >= first;
-  return ([...column.querySelectorAll(BLOCK_SELECTOR)] as HTMLElement[]).filter((element) => {
+  return findAll(column, BLOCK_SELECTOR, HTMLElement).filter((element) => {
     if (!meets(element)) return false;
-    const up = (element.parentElement && element.parentElement.closest(BLOCK_SELECTOR)) as HTMLElement | null;
+    const up = element.parentElement && findClosest(element.parentElement, BLOCK_SELECTOR, HTMLElement);
     return !(up && column.contains(up) && meets(up));
   });
 }
@@ -2296,7 +2299,7 @@ function pickLines(
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
   // the chosen lines out from under the sheet (compact), as a PDF box is
-  revealBox(document.querySelector('#md .md-sel') as HTMLElement | null);
+  revealBox(findMaybe(document, '#md .md-sel', HTMLElement));
   if (LAST_POINTER === 'mouse') $('#note').focus({ preventScroll: true });
 }
 // The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (markdownLevels), or
@@ -2338,22 +2341,22 @@ function markChosenLines(
 function lineLeaves(first: number, last: number) {
   const column = $('#md');
   if (!column) return [];
-  const lines = [...column.querySelectorAll('[data-line]')].filter((element) => {
-    const line = +((element as HTMLElement).dataset.line || 0);
+  const lines = findAll(column, '[data-line]', HTMLElement).filter((element) => {
+    const line = +(element.dataset.line || 0);
     return line >= first && line <= last;
   });
-  const blocks = [...column.querySelectorAll('[data-lo]')].filter((element) => {
-    const block = element as HTMLElement,
+  const blocks = findAll(column, '[data-lo]', HTMLElement).filter((element) => {
+    const block = element,
       start = +(block.dataset.lo || 0),
       end = +(block.dataset.hi || 0);
     return start <= last && end >= first && !block.querySelector('[data-line],[data-lo]');
   });
-  const out = new Set<Element>();
+  const out = new Set<HTMLElement>();
   for (const element of [...lines, ...blocks]) {
-    const row = element.closest('tr[data-lo]');
+    const row = findClosest(element, 'tr[data-lo]', HTMLElement);
     out.add(row && column.contains(row) ? row : element);
   }
-  return [...out] as HTMLElement[];
+  return [...out];
 }
 // ---------------- Pins on the document
 // The marks of the pins on screen (marks()' branch): each pin's lines get .md-pin (review .rv, lost .st), and the first
@@ -2422,7 +2425,7 @@ function drawPinMarks() {
 // element's line span itself, a
 // sibling of the lines and in no line's text: before the whole text, every badge would be read before the first line.
 function topBlockOf(column: HTMLElement, element: Element): Element | null {
-  let child = element as Element | null;
+  let child: Element | null = element;
   const isText = column.classList.contains('tx');
   while (
     child &&
@@ -2693,15 +2696,15 @@ function pickSelection(tapTarget: EventTarget | null) {
     );
     return true;
   }
-  if (tapTarget) {
-    const target = tapTarget as Element;
-    const inertLink = target.closest('#md .md-rel') as HTMLElement | null;
+  if (tapTarget instanceof Element) {
+    const target = tapTarget;
+    const inertLink = findClosest(target, '#md .md-rel', HTMLElement);
     if (inertLink && LAST_POINTER !== 'mouse') {
       showInertTip(inertLink);
       return true;
     } // a finger has no hover
     if (target.closest('a,button,[data-act],.md-badges,.md-limit')) return false;
-    const carrier = target.closest('#md [data-lo],#md [data-line]') as HTMLElement | null;
+    const carrier = findClosest(target, '#md [data-lo],#md [data-line]', HTMLElement);
     if (!carrier) return false;
     const head = MARKDOWN_VIEW.heads.find(
       (heading) => heading.el === target.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'),
@@ -2788,8 +2791,8 @@ function rangeText(range: Range) {
 // itself when neither end is in one.
 function widenToFormulas(range: Range): Range {
   const formulaAt = (node: Node | null) => {
-    const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
-    return element ? (element.closest('#md [data-tex]') as HTMLElement | null) : null;
+    const element = node && (node instanceof Element ? node : node.parentElement);
+    return element ? element.closest('#md [data-tex]') : null;
   };
   const startFormula = formulaAt(range.startContainer),
     endFormula = formulaAt(range.endContainer);
@@ -2818,8 +2821,7 @@ function showInertTip(element: HTMLElement) {
 }
 // Whether the range takes no visible character of the line (or block) its end is in.
 function takesNothingOfEnd(range: Range) {
-  const element =
-    range.endContainer.nodeType === 1 ? (range.endContainer as Element) : range.endContainer.parentElement;
+  const element = range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement;
   if (!element) return false;
   const host = element.closest('[data-line]') || element.closest('[data-lo]');
   if (!host) return false;
