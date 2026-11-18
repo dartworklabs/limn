@@ -235,7 +235,7 @@ class FrontendLogic(unittest.TestCase):
             async function refreshDoc(){refreshes++;}
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
-            const BUILD={timer:null,error:null,lastSeq:3,booted:false,inflight:null};
+            const BUILD={timer:null,lastSeq:3,booted:false,inflight:null}; const SHOWN_BUILD={error:null};
             // 여러 문서(§Multiple documents) 전역 — 단일 문서 뷰어와 같은 값
             const DOC='main', SWITCHSEQ=0, DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function withDocQuery(u){return u;}
             """,
@@ -373,7 +373,7 @@ class FrontendLogic(unittest.TestCase):
             const prev=[{id:1},{id:2},{id:3}];
             const d=[{id:1,done:false},{id:3,done:true}];
             const dropped=[{id:2,dropped_by:{name:'Bob'}}];
-            notePinChanges(prev,d,dropped);
+            notePinChanges(prev,d,dropped,()=>{},restorePin);
             console.log(JSON.stringify(SAID));
             """,
             ]
@@ -413,7 +413,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
-            notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
+            notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}],()=>{},restorePin);
             CAPTURED.fn();
             console.log(JSON.stringify(RESTORED));
             """,
@@ -443,7 +443,7 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
-            notePinChanges([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
+            notePinChanges([{id:5}],[],[],()=>{},restorePin);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
             console.log(JSON.stringify(SAID));
             """,
             ]
@@ -481,7 +481,7 @@ class FrontendLogic(unittest.TestCase):
             const prev=[{id:1},{id:2},{id:3},{id:4}];
             const d=[{id:1,done:true},{id:3,done:true}];   // #2,#4 는 d 에 없음=삭제
             const dropped=[{id:2,dropped_by:{login:'me'}},{id:4,dropped_by:{name:'Coauthor'}}];
-            notePinChanges(prev,d,dropped);
+            notePinChanges(prev,d,dropped,()=>{},restorePin);
             console.log(JSON.stringify(SAID));
             """,
             ]
@@ -618,7 +618,9 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn(
             "setDropped(dropped)", applied
         )  # DROPPED is app/state.ts's: pins/flow-list.ts changes it through its setter (ADR-0042 D1)
-        self.assertIn(sq("notePinChanges(openBefore,rows,dropped)"), sq(applied))
+        self.assertIn(
+            sq("notePinChanges(openBefore,rows,dropped,gotoReview,id=>restoreDroppedPin(id,loadPins))"), sq(applied)
+        )
 
     def test_draw_pins_counts_the_trash(self):
         body = extract_js_fn("drawPins")
@@ -2083,7 +2085,8 @@ class FrontendSemanticAudit(unittest.TestCase):
         review); drawPinGuideActions draws them."""
         self.assertIn("#revision-pin .rp-acts{display:flex;gap:var(--space-2);flex:none;margin-left:auto}", self.css)
         self.assertIn('data-act="rev-back"', extract_js_fn("drawPinGuideActions"))
-        self.assertIn(sq("if(fromManuscript)REVISION_VIEW.back=back"), sq(extract_js_fn("showChange")))
+        self.assertIn(sq("openRevisionTarget(fromManuscript,back,"), sq(extract_js_fn("showChange")))
+        self.assertIn(sq("if(fromManuscript)REVISION_VIEW.back=back"), sq(extract_js_fn("openRevisionTarget")))
         self.assertIn("case 'rev-back':", HTML)
 
     def test_the_source_diff_always_wraps(self):
@@ -3286,7 +3289,7 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
-            notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
+            notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[],()=>{},restorePin);
             console.log(JSON.stringify(SAID));""",
             ]
         )
@@ -3316,8 +3319,8 @@ class FrontendFigure(unittest.TestCase):
             const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
             notePinChanges([at(1),at(2),at(3),at(4),at(5)],
               [at(1,{sync:'moved +3',el_sync:'ok'}),at(2,{sync:'moved +3',el_sync:'moved'}),at(3,{sync:'moved -1'}),
-               at(4,{sync:'moved +2',el_sync:'ok'}),at(5,{sync:'ok',el_sync:'ok'})],[]);
-            notePinChanges([at(2,{sync:'moved +3',el_sync:'moved'})],[at(2,{sync:'moved +3',el_sync:'moved'})],[]);
+               at(4,{sync:'moved +2',el_sync:'ok'}),at(5,{sync:'ok',el_sync:'ok'})],[],()=>{},restorePin);
+            notePinChanges([at(2,{sync:'moved +3',el_sync:'moved'})],[at(2,{sync:'moved +3',el_sync:'moved'})],[],()=>{},restorePin);
             console.log(JSON.stringify(SAID));""",
             ]
         )
@@ -3458,7 +3461,7 @@ class FrontendFigure(unittest.TestCase):
                             js_i18n(lang),
                             r"""
                         let DOC='a', SWITCHSEQ=1, META={kind:%s,pages:[1,2]}; const SAID=[]; let REPLY;
-                        const BUILD={timer:null,error:null,lastSeq:0,booted:true,inflight:null};
+                        const BUILD={timer:null,lastSeq:0,booted:true,inflight:null}; const SHOWN_BUILD={error:null};
                         const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(), META_BY=new Map();
                         const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
                         const withDocQuery=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
@@ -4917,7 +4920,7 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("pinState"),
                 JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges"),
                 r"""
-            notePinChanges([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[]);
+            notePinChanges([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[],gotoReview,restorePin);
             noteReviewChanges([{id:5},{id:6},{id:7}],[{id:5,done:true,confirmed_by:{name:'W'}},{id:6,done:false},{id:7,done:true,review:true}]);
             markMine(8); noteReviewChanges([{id:8}],[{id:8,done:true}]);
             console.log(JSON.stringify(SAID));

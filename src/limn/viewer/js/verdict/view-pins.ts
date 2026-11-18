@@ -22,6 +22,7 @@ import { verdictLabel, pdoc, docKindOf, pageVerdictsOn, isRegion } from '../docu
 import { isElementLost, pinPlace, isFrac } from '../pdf/view-figure.ts';
 import { CONFIRMING_PIN, CONFIRMING } from '../pins/state.ts';
 import { josaToward, claimActive } from '../pins/view-card-parts.ts';
+import { isMe } from '../app/state-people.ts';
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict() {
@@ -256,6 +257,61 @@ function verdictStateWord(pin: Pin) {
   if (state === PIN_STATE.DONE) return translate('처리됨');
   return claimActive(pin) ? translate('처리 중') : translate('처리 대기');
 }
+
+// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the
+// composer's lead, the floating line and the status line's undo, which say which figure a verdict is for before and
+// after the press.
+function figureShort(page: number, root: string) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return facts && facts.figure === root && facts.title ? facts.title : root;
+}
+// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's
+// figure), else the page ('7쪽').
+function pageTargetShort(page: number) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return META && isFigureKind(META.kind) && facts && typeof facts.figure === 'string'
+    ? figureShort(page, facts.figure)
+    : translateTemplate('{page}쪽', { page });
+}
+
+// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the
+// figure's code, '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the
+// rest; else the figure id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'), so the name
+// next to the buttons always says which figure a press decides. A view-only PDF's page is its page alone.
+function pageLineName(page: number): { id: string; rest: string } {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
+    at = translateTemplate('{page}쪽', { page });
+  if (!META || !isFigureKind(META.kind) || !facts || typeof facts.figure !== 'string') return { id: at, rest: '' };
+  const title = facts.title ? String(facts.title) : '';
+  if (!title) return { id: at + ' · ' + facts.figure, rest: '' };
+  const index = title.indexOf(' · '),
+    head = index > 0 ? title.slice(0, index) : '',
+    match = /^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
+  if (!head) return { id: at, rest: title };
+  return match
+    ? { id: at + ' · ' + match[2], rest: match[1] + ' ' + title.slice(index + 3) }
+    : { id: at + ' · ' + head, rest: title.slice(index + 3) };
+}
+
+// The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
+function currentVerdictOn(doc: string | null, page: number): Pin | null {
+  if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
+  let best: Pin | null = null;
+  verdictOrder(doc || DEFAULT_DOC).groups.forEach((group) => {
+    if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
+  });
+  return best;
+}
+
+// Whether the line offers [판정 취소] on a verdict pin, its page's current verdict: the person's own (isMe), still open
+// - not yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16,
+// nor a viewer). A pin whose [확인] waits for its undo is not open.
+function canCancelVerdict(pin: Pin) {
+  return (
+    !!verdictOf(pin) && canVerdict() && isMe(pin.author) && pinState(pin) === PIN_STATE.OPEN && !CONFIRMING.has(pin.id)
+  );
+}
+
 export {
   VERDICT_ARM_MS,
   canVerdict,
@@ -269,4 +325,9 @@ export {
   pageVerdictPins,
   verdictOldMarker,
   verdictStateWord,
+  figureShort,
+  pageTargetShort,
+  pageLineName,
+  currentVerdictOn,
+  canCancelVerdict,
 };

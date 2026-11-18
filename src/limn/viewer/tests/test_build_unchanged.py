@@ -46,14 +46,15 @@ class UnchangedAnswer(unittest.TestCase):
         js = "\n".join(
             [
                 js_i18n(lang),
+                JS_UPDATE_STUBS,
                 tooltip_table(),
                 transient_ms(),
                 "let LAYOUT=%s;" % json.dumps(layout),
                 r"""
             let DOC='a', SWITCHSEQ=1, META={kind:'tex',pages:[1,2]}; const SAID=[]; let REPLY, REFRESHES=0;
-            let DRAWS=0; const TIMERS=[]; const drawStatus=()=>{DRAWS++;};
+            let DRAWS=0; const TIMERS=[]; function drawStatus(){DRAWS++;}
             const setTimeout=(f,ms)=>{TIMERS.push([f,ms]); return TIMERS.length;}, clearTimeout=()=>{};
-            const BUILD={timer:null,error:null,lastSeq:5,booted:true,inflight:null,asked:false};
+            const BUILD={timer:null,lastSeq:5,booted:true,inflight:null,asked:false}; const SHOWN_BUILD={error:null};
             const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map();
             const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
             const withDocQuery=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
@@ -61,13 +62,12 @@ class UnchangedAnswer(unittest.TestCase):
             const lineNote=(m,k,a)=>{SAID.push([m,k,a?a.label:null]);};
             const setInterval=()=>1, clearInterval=()=>{}, pollBuild=()=>{};
             async function poll(reply, asked){REPLY={data:reply}; if(asked)BUILD.asked=true; await pollBuildOnce();}""",
-                JS_UPDATE_STUBS,
                 *[
                     extract_js_fn(n)
                     for n in ("tableEntry", "buildsFromSource", "buildChipText", "pollBuildOnce", "buildUnchanged")
                 ],
                 "(async()=>{" + steps + "console.log(JSON.stringify({said:SAID,refreshes:REFRESHES,"
-                "asked:BUILD.asked,seq:BUILD.lastSeq,line:!!BUILD.unchanged,draws:DRAWS,"
+                "asked:BUILD.asked,seq:BUILD.lastSeq,line:!!SHOWN_BUILD.unchanged,draws:DRAWS,"
                 "timers:TIMERS.map(t=>t[1])}));})();",
             ]
         )
@@ -75,13 +75,13 @@ class UnchangedAnswer(unittest.TestCase):
 
     def test_an_asked_rebuild_that_kept_the_pages_is_answered_on_the_status_line_on_every_band(self):
         """The tab asked, the build state is ok with unchanged true and the seq it already processed: on the desktop and
-        on the compact bands alike the status line is redrawn with BUILD.unchanged set, one timer of STATUS_TRANSIENT_MS
+        on the compact bands alike the status line is redrawn with SHOWN_BUILD.unchanged set, one timer of STATUS_TRANSIENT_MS
         clears it and redraws, nothing else is said and no page is refreshed; the same reply again says nothing more."""
         for layout in ("wide", "mid", "narrow"):
             with self.subTest(layout=layout):
                 out = self.polls(
                     "ko",
-                    "await poll({state:'ok',seq:5,unchanged:true,elapsed_s:0.3},true); const before=!!BUILD.unchanged;"
+                    "await poll({state:'ok',seq:5,unchanged:true,elapsed_s:0.3},true); const before=!!SHOWN_BUILD.unchanged;"
                     "await poll({state:'ok',seq:5,unchanged:true,elapsed_s:0.3},false);"
                     "TIMERS[0][0](); if(!before)throw Error('no line');",
                     layout=layout,

@@ -59,8 +59,9 @@ import {
   setHash,
   drawDocTabs,
 } from './documents/view-tabs.ts';
+import { REVISION_VIEW } from './revisions/state.ts';
+import { drawPinGuideActions } from './revisions/view-pin-guide.ts';
 import {
-  COMPARISON_SCOPE,
   moreRevisions,
   pressRevisionRow,
   renderRevisionFile,
@@ -71,12 +72,11 @@ import {
   setRevisionWhole,
   setViewMode,
   showChange,
-  REVISION_VIEW,
   loadRevisions,
   showRevision,
   toggleRevisionOther,
-  drawPinGuideActions,
   renderCommitList,
+  COMPARISON_SCOPE,
 } from './revisions/flow.ts';
 import {
   cycleDoc,
@@ -99,7 +99,8 @@ import {
   notifyHandle,
   notifyCursor,
 } from './pins/flow-notification.ts';
-import { BUILD, setBuildUnchanged, setBuildLastSeq, startBuildPolling } from './documents/view-build-chip.ts';
+import { setBuildLastSeq, startBuildPolling, rebuild } from './documents/flow-build.ts';
+import { setBuildUnchanged, SHOWN_BUILD } from './documents/state-build.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
 import {
   drawStatus,
@@ -109,7 +110,8 @@ import {
   setStatusSig,
   placeStatus,
 } from './documents/view-status.ts';
-import { sizePreset, toggleOutline, applySideWidth, applyOutlineState } from './layout/flow-panel-size.ts';
+import { applySideWidth, outlineOverlay } from './layout/flow-panel-size.ts';
+import { sizePreset } from './layout/flow-panel-actions.ts';
 import {
   actualSize,
   fitToWidth,
@@ -136,10 +138,11 @@ import { searchClose, searchGo, searchOpen, searchFit, searchLeave, SEARCH } fro
 import { revisionPdfActive, revisionZoom } from './revisions/input.ts';
 import { zoomKey } from './pdf/input-zoom.ts';
 import {
+  toggleOutline,
+  applyOutlineState,
   focusSideToggle,
   headInk,
   openMore,
-  outlineOverlay,
   setSelectMode,
   setSide,
   showSheet,
@@ -171,17 +174,18 @@ import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
 import {
   discardSelection,
-  recomputeOverlap,
   renderComposer,
-  renderOverlapBanner,
   setKind,
   toggleQuote,
   cancelSelection,
-  pick,
   setBusy,
-} from './composer/flow-pick.ts';
-import { saveDraftSoon, restoreDraft, parkDraft, openDraftDoc } from './composer/flow-draft.ts';
-import { appendToPin, savePin, saveButtonLabel } from './composer/flow-save.ts';
+} from './composer/flow-selection.ts';
+import { recomputeOverlap, renderOverlapBanner } from './composer/view-overlap.ts';
+import { pick } from './composer/flow-pick.ts';
+import { saveDraftSoon, parkDraft } from './composer/flow-draft.ts';
+import { restoreDraft, openDraftDoc } from './composer/flow-restore-draft.ts';
+import { appendToPin, savePin } from './composer/flow-save.ts';
+import { saveButtonLabel } from './composer/view-save.ts';
 import {
   offlineFlush,
   offlinePrepare,
@@ -198,34 +202,35 @@ import {
   offlineQueueSave,
   offlineKey,
 } from './offline/flow.ts';
+import { READING_LINE_PAGE } from './verdict/state-lines.ts';
+import { stickSoon, setVerdictLineRenderer } from './verdict/state-line-renderer.ts';
 import {
   cancelLineVerdict,
   undoFromLine,
   verdictPress,
-  READING_LINE_PAGE,
-  pageUnderReadingLine,
-  stickSoon,
   sizePageLines,
   renderVerdictRow,
   figureVerdictBody,
   figureVerdictRoot,
-  figureShort,
   verdictUndo,
   verdictDropped,
   drawPageVerdicts,
   isShownOnLine,
   jumpToPageLine,
+  goToSummaryPage,
+  fillPageLine,
+  stickReadingLine,
+  watchLineChips,
 } from './verdict/flow-line.ts';
+import { isReasonField, isComposingNow } from './verdict/view-reason-field.ts';
 import {
   actOnReason,
   focusLine,
-  isReasonField,
-  isComposingNow,
   afterComposition,
   holdReasonFocus,
   restoreReasonFocus,
 } from './verdict/flow-reason.ts';
-import { goToSummaryPage, setBuildReadingPage } from './verdict/view-panel.ts';
+import { setBuildReadingPage, pageUnderReadingLine } from './verdict/view-panel.ts';
 import {
   handPopoverToComposer,
   openSelectionPopover,
@@ -236,7 +241,8 @@ import {
 } from './composer/view-selection-popover.ts';
 import { MESSAGE_OPEN } from './pins/view-card-parts.ts';
 import { ARC_OPEN, openTrash } from './pins/view-cards.ts';
-import { REVIEW_PICK, confirmTicked, setReviewPicking, goToReviewCard } from './pins/flow-review-pick.ts';
+import { REVIEW_PICK } from './pins/view-review-pick.ts';
+import { confirmTicked, setReviewPicking, goToReviewCard } from './pins/flow-review-pick.ts';
 import {
   cardNeighbour,
   drawPins,
@@ -253,19 +259,15 @@ import {
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
-import {
-  setAssignNewValue,
-  setAssignNewTouched,
-  mentionApply,
-  renderAssignEdit,
-  renderAssignNew,
-} from './composer/input-mentions.ts';
-import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
+import { setAssignNewValue, setAssignNewTouched } from './composer/state-assignee.ts';
+import { mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
+import { renderReplyOutcome, replyNote } from './pins/view-reply.ts';
+import { closeReply, openReply, sendReply } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
 import { setPinVerdicts } from './pins/state-seams.ts';
 import { applyRepick, startRepick } from './composer/flow-repick.ts';
-import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
+import { downloadPdf, hideBuildErr, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$, eventElement, findClosest, focusedElement } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
@@ -277,6 +279,7 @@ import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
 import { releaseAllVectorPages } from './pdf/view-draw.ts';
 import {
   setChangesView,
+  setDocumentNavigation,
   setDocumentPins,
   setDocumentWork,
   setMarkdownSurface,
@@ -299,6 +302,7 @@ import {
   verdictTarget,
   verdictOldMarker,
   dropPageLineOverlaps,
+  figureShort,
 } from './verdict/view-pins.ts';
 import { fitBarWords, updateReviewCount } from './pins/view-bar.ts';
 import { dropBareDayLines, placeRow } from './pins/view-list-sections.ts';
@@ -386,6 +390,7 @@ setVerdictHold({
   composing: isComposingNow,
   afterComposition,
 });
+setDocumentNavigation({ open: switchDoc });
 setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
 // The frame's seams: the features that act on the steps of a relayout, in the order those steps' calls ran (the pin
 // list first, then the pages, the Markdown surface, the composer), and the parts of the frame features draw.
@@ -443,7 +448,7 @@ setComposerVerdict({
 });
 setComposerPins({ load: loadPins, drop: dropPin });
 setComposerQueue({ pick: offlinePick, save: offlineQueueSave, keyed: () => OFF.idem, key: offlineKey });
-setPinFields({ drawEdit: renderEdit, snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
+setPinFields({ snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
 setPinVerdicts({
   badge: verdictBadge,
   target: verdictTarget,
@@ -453,6 +458,7 @@ setPinVerdicts({
   shownOnLine: isShownOnLine,
   jumpToLine: jumpToPageLine,
 });
+setVerdictLineRenderer({ watchLineChips, drawPageVerdicts, fillPageLine, stickReadingLine });
 let HELP_BACK: HTMLElement | null = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
@@ -677,14 +683,24 @@ document.addEventListener('click', (event) => {
       const draft = inEdit ? EDITOR.current : COMPOSE.current,
         line = Number(control.dataset.line);
       if (draft && draft.lo != null && draft.hi != null)
-        applyRange(draft, widenTo(draft.lo, draft.hi, line), line < draft.lo ? draft.hi : draft.lo);
+        applyRange(
+          draft,
+          widenTo(draft.lo, draft.hi, line),
+          line < draft.lo ? draft.hi : draft.lo,
+          inEdit ? renderEdit : renderComposer,
+        );
       break;
     } // the excerpt: widen to a dimmed line
     case 'xp-drop': {
       const draft = inEdit ? EDITOR.current : COMPOSE.current,
         line = Number(control.dataset.line);
       if (draft && draft.lo != null && draft.hi != null)
-        applyRange(draft, dropLine(draft.lo, draft.hi, line), line === draft.lo ? draft.hi : draft.lo);
+        applyRange(
+          draft,
+          dropLine(draft.lo, draft.hi, line),
+          line === draft.lo ? draft.hi : draft.lo,
+          inEdit ? renderEdit : renderComposer,
+        );
       break;
     } // ...or drop an end line
     case 'view':
@@ -947,9 +963,9 @@ document.addEventListener('click', (event) => {
       hideBuildErr();
       break;
     case 'build-err-reopen':
-      if (BUILD.error) {
+      if (SHOWN_BUILD.error) {
         setSide(true);
-        showBuildErr(BUILD.error);
+        showBuildErr(SHOWN_BUILD.error);
       }
       break; // the chip floats on a collapsed panel; the log is inside it
     case 'status-more':

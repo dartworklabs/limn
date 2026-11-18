@@ -1,38 +1,4 @@
 {
-  "boundaries": {
-    "cycle": {
-      "src/limn/viewer/js/composer/flow-draft.ts": 2,
-      "src/limn/viewer/js/composer/flow-pick.ts": 6,
-      "src/limn/viewer/js/composer/flow-save.ts": 4,
-      "src/limn/viewer/js/composer/flow-suggest.ts": 2,
-      "src/limn/viewer/js/composer/input-mentions.ts": 1,
-      "src/limn/viewer/js/composer/view-excerpt.ts": 1,
-      "src/limn/viewer/js/composer/view-selection-popover.ts": 2,
-      "src/limn/viewer/js/documents/flow-polling.ts": 4,
-      "src/limn/viewer/js/documents/flow-rebuild.ts": 1,
-      "src/limn/viewer/js/documents/flow-switch.ts": 4,
-      "src/limn/viewer/js/documents/flow-updates.ts": 2,
-      "src/limn/viewer/js/documents/view-build-chip.ts": 3,
-      "src/limn/viewer/js/documents/view-status.ts": 3,
-      "src/limn/viewer/js/documents/view-tabs.ts": 1,
-      "src/limn/viewer/js/layout/flow-panel-size.ts": 2,
-      "src/limn/viewer/js/layout/flow.ts": 2,
-      "src/limn/viewer/js/layout/input.ts": 2,
-      "src/limn/viewer/js/offline/flow.ts": 1,
-      "src/limn/viewer/js/offline/view.ts": 1,
-      "src/limn/viewer/js/pins/flow-actions.ts": 1,
-      "src/limn/viewer/js/pins/flow-changes.ts": 2,
-      "src/limn/viewer/js/pins/flow-list.ts": 3,
-      "src/limn/viewer/js/pins/flow-reply.ts": 1,
-      "src/limn/viewer/js/pins/flow-review-pick.ts": 1,
-      "src/limn/viewer/js/revisions/flow.ts": 2,
-      "src/limn/viewer/js/revisions/input.ts": 1,
-      "src/limn/viewer/js/revisions/view-rendered-compare.ts": 1,
-      "src/limn/viewer/js/verdict/flow-line.ts": 2,
-      "src/limn/viewer/js/verdict/flow-reason.ts": 2,
-      "src/limn/viewer/js/verdict/view-panel.ts": 2
-    }
-  },
   "eslint": {
     "@typescript-eslint/no-unsafe-argument": {
       "src/limn/viewer/js/platform/api.ts": 1

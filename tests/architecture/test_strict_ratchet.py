@@ -1,4 +1,4 @@
-"""tools/strict_ratchet.py: the viewer's not-yet-met checks (ESLint, the module boundaries) per file only go down.
+"""tools/strict_ratchet.py: the viewer's not-yet-met ESLint rules per file only go down.
 
 The script's runs need node_modules (npm ci), which the CI lint job installs and runs it there; these tests check its
 counting and comparison on the tools' own output formats without node.
@@ -69,11 +69,11 @@ def test_eslint_counts_per_rule_and_file_and_refuses_a_file_it_could_not_check()
 def test_every_check_and_rule_is_compared_and_a_new_rule_starts_at_zero():
     """compare_all names the check and rule of each difference; a rule the baseline does not name has a baseline of 0,
     and a rule that is met everywhere may leave the baseline."""
-    found = {"eslint": {"r1": {"a.js": 2}, "new": {"b.js": 1}}, "boundaries": {}}
-    baseline = {"eslint": {"r1": {"a.js": 2}}, "boundaries": {"cycle": {"c.js": 3}}}
+    found = {"eslint": {"r1": {"a.js": 2}, "new": {"b.js": 1}}}
+    baseline = {"eslint": {"r1": {"a.js": 2}, "old": {"c.js": 3}}}
     assert ratchet.compare_all(found, baseline) == [
         "eslint new: b.js: 1 errors, baseline 0 - the new code must meet new",
-        "boundaries cycle: c.js: 0 errors, baseline 3 - lower the baseline (--update)",
+        "eslint old: c.js: 0 errors, baseline 3 - lower the baseline (--update)",
     ]
     assert ratchet.compare_all(found, found) == []
 
@@ -93,7 +93,7 @@ def test_the_naming_rules_are_held_per_file_and_only_go_down():
         },
         {"filePath": str(ROOT / "src/limn/viewer/js/b.ts"), "messages": [{"ruleId": "limn/plain-names"}]},
     ]
-    found = {"eslint": ratchet.eslint_counts(report), "boundaries": {}}
+    found = {"eslint": ratchet.eslint_counts(report)}
     held = {
         "eslint": {
             "limn/plain-names": {"src/limn/viewer/js/a.ts": 2, "src/limn/viewer/js/b.ts": 1},
@@ -115,21 +115,14 @@ def test_the_naming_rules_are_held_per_file_and_only_go_down():
 
 
 def test_the_baseline_lists_only_viewer_modules_with_violations():
-    """The committed baseline holds the two checks, each naming viewer modules (.ts) only with positive counts (a rule
+    """The committed baseline holds ESLint rules naming viewer modules (.ts) only with positive counts (a rule
     leaves it once it is met)."""
     baseline = json.loads((ROOT / "tools" / "strict-baseline.json").read_text(encoding="utf-8"))
-    assert sorted(baseline) == ["boundaries", "eslint"]
-    tables = [*baseline["eslint"].values(), *baseline["boundaries"].values()]
+    assert sorted(baseline) == ["eslint"]
+    tables = baseline["eslint"].values()
     for counts in tables:
         assert counts
         assert all(k.startswith("src/limn/viewer/js/") and k.endswith(".ts") and v > 0 for k, v in counts.items())
-
-
-def test_the_boundary_baseline_holds_only_cycle():
-    """feature-dependency, platform-isolation and role are invariants the boundary check fails on outright, so the
-    baseline counts only cycle."""
-    baseline = json.loads((ROOT / "tools" / "strict-baseline.json").read_text(encoding="utf-8"))
-    assert sorted(baseline["boundaries"]) == ["cycle"]
 
 
 def test_a_broken_boundary_invariant_fails_the_run(monkeypatch):

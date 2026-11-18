@@ -40,4 +40,14 @@ function suggestClear() {
   editor.value = '';
   editor.style.height = '';
 }
-export { SUGGEST_DRAFT, suggestDraft, suggestCopy, suggestClear, setSuggestCurrent };
+/** Whether a draft holds a text other than the one it was filled from (a draft never filled is not edited). Pure. */
+function suggestEdited(draft: SuggestDraft): boolean {
+  return draft.base != null && draft.text !== draft.base;
+}
+// Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
+// ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).
+function suggestPending() {
+  return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
+}
+
+export { suggestEdited, suggestPending, SUGGEST_DRAFT, suggestDraft, suggestCopy, suggestClear, setSuggestCurrent };

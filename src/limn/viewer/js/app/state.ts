@@ -588,6 +588,16 @@ function topPinId() {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
 }
 
+/** Find a pin across the open, review and done lists in display precedence order. */
+function findAnyPin(id: number | null) {
+  return (
+    OPEN_ALL.find((pin) => pin.id === id) ||
+    REVIEW_ALL.find((pin) => pin.id === id) ||
+    DONE_ALL.find((pin) => pin.id === id) ||
+    null
+  );
+}
+
 export type { Visit };
 export {
   setComposeCurrent,
@@ -694,4 +704,5 @@ export {
   COMPOSE,
   EDITOR,
   topPinId,
+  findAnyPin,
 };

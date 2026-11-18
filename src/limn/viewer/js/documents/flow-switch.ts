@@ -1,7 +1,5 @@
 // ---------------- Switching documents - the navigation sheet, remembered view positions
 // (docs/handbook/domain.md §여러 문서)
-// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One
-// document leaves the section out - there is nothing to switch to.
 import {
   DOC,
   DOCS,
@@ -29,17 +27,16 @@ import {
   COMPOSE,
   EDITOR,
 } from '../app/state.ts';
-import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { docBadge, drawDocTabs, hashDoc, multiDoc, setHash } from './view-tabs.ts';
+import { drawDocTabs, hashDoc, multiDoc, setHash, drawDocsMenu } from './view-tabs.ts';
 import { drawMeta } from './view-meta.ts';
-import { resetBuildForDoc } from './view-build-chip.ts';
+import { resetBuildForDoc } from './flow-build.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
-import { BACK, BACK_SKIP } from '../layout/input.ts';
+import { BACK, BACK_SKIP } from '../layout/flow-back.ts';
 import { refreshDoc } from './flow-rebuild.ts';
 import { NOTICE_HOST, isRecord } from '../platform/tables.ts';
 import { $, findMaybe, searchToPage, findAll, findElement } from '../platform/dom.ts';
@@ -55,16 +52,6 @@ import {
   pageSurface,
 } from './state-seams.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
-function drawDocsMenu() {
-  $('#ns-docs').hidden = !multiDoc();
-  setHtml(
-    $('#ns-docs-list'),
-    html`${DOCS.map((entry) => {
-      const on = entry.key === DOC;
-      return html`<button class="dm-item${on ? ' on' : ''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${entry.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${entry.name}${on ? lucideIcon('check') : ''}</span><span class="ph" translate="no">${entry.path}</span></span>${docBadge(entry)}</button>`;
-    })}`,
-  );
-}
 // The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field
 // with the page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination -
 // picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and the outline's current
@@ -332,59 +319,6 @@ function drawNavigationView() {
     radio.classList.toggle('on', on);
   }
   roveSegment($('#ns-view')); // the group's one Tab stop is the view now chosen (platform/segments.ts)
-}
-// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
-// several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
-// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for
-// translate/translateTemplate.
-function posLabel(doc: string, page: number, pageCount: number, multi: boolean, wide: boolean, mode: string) {
-  if (mode === VIEW_MODE.REVISIONS)
-    return { name: '', pages: translate('변경사항'), label: translate('이동') + ' · ' + translate('변경사항') };
-  const name = multi && wide ? doc : '',
-    pageShown = pageCount ? page : '–',
-    countShown = pageCount ? pageCount : '–';
-  return {
-    name,
-    pages: pageShown + '/' + countShown,
-    label: name
-      ? translateTemplate('이동 · {doc} · {page} / {n}쪽', { doc: name, page: pageShown, n: countShown })
-      : translateTemplate('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
-  };
-}
-// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when
-// another document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words
-// are translate()'d here.
-function drawPos() {
-  const button = $('#btn-pos');
-  if (!button) return;
-  const shown = docInfo(DOC),
-    pageCount = META && META.pages ? META.pages.length : 0,
-    isRevisions = document.body.classList.contains('revision-open');
-  const label =
-    isMarkdownDoc() && !isRevisions
-      ? // a Markdown document has lines, not pages
-        markdownSurface().positionLabel(
-          shown ? shown.name : '',
-          markdownSurface().reading().at,
-          markdownSurface().reading().lines.length,
-          multiDoc(),
-          window.innerWidth >= 400,
-        )
-      : posLabel(
-          shown ? shown.name : '',
-          pageNavigation().outlinePage() || 1,
-          pageCount,
-          multiDoc(),
-          window.innerWidth >= 400,
-          isRevisions ? VIEW_MODE.REVISIONS : VIEW_MODE.MANUSCRIPT,
-        );
-  const nameSpan = $('#btn-pos-n');
-  nameSpan.textContent = label.name;
-  nameSpan.hidden = !label.name;
-  $('#btn-pos-p').textContent = label.pages;
-  button.setAttribute('aria-label', label.label);
-  button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
-  $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
 }
 // A document's kept view (VIEW_BY, saveView): a Markdown or text document's reading line (line, off), or a PDF's top
 // spot (page, frac), its scale (k, or the page width w), its sideways scroll (sl); with the layout it was kept in.
@@ -668,9 +602,7 @@ export {
   applyViewWidth,
   cycleDoc,
   docTitle,
-  drawDocsMenu,
   drawNavigationView,
-  drawPos,
   loadViews,
   refitFilteredSheet,
   openNavigationSheet,

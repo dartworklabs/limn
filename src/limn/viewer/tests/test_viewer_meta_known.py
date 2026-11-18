@@ -122,13 +122,13 @@ class EarlyReaders(unittest.TestCase):
         self.assertEqual(got, [["frame"], full, full])
 
     def test_a_rebuild_that_ends_before_any_meta_ends_without_a_word(self):
-        """pollBuildOnce (documents/view-build-chip.ts): this tab's rebuild finished while no meta has come (the refresh
+        """pollBuildOnce (documents/flow-build.ts): this tab's rebuild finished while no meta has come (the refresh
         failed too) says nothing and leaves the build error and the update check as they were, where its success line
         threw; another build's end goes on to clear them, and with a meta this tab's says its line."""
         got = self.run_js(
             r"""
             let META = null, DOC = 'a', SWITCHSEQ = 0;
-            const BUILD = {}, BUILD_ERR_BY = new Map(), DOC_SEQ = new Map(), said = [];
+            const BUILD = {}, SHOWN_BUILD = {}, BUILD_ERR_BY = new Map(), DOC_SEQ = new Map(), said = [];
             const $ = () => ({});
             function withDocQuery(url) { return url; } function pullSuffix() { return ''; } function buildsFromSource() { return true; }
             function api() { return Promise.resolve({ data: { state: 'ok', seq: 2, elapsed_s: 3 } }); }
@@ -137,14 +137,15 @@ class EarlyReaders(unittest.TestCase):
             function checkDocUpdate() { said.push('update checked'); } function showBuildErr() {} function buildUnchanged() {}
             function buildChipText() { return ''; } function pollBuild() {}
             const start = (asked) => {
-              Object.assign(BUILD, { lastSeq: 1, asked, booted: true, timer: null, error: { state: 'fail' } });
-              BUILD_ERR_BY.set('a', BUILD.error);
+              Object.assign(BUILD, { lastSeq: 1, asked, booted: true, timer: null });
+              SHOWN_BUILD.error = { state: 'fail' };
+              BUILD_ERR_BY.set('a', SHOWN_BUILD.error);
             };
             """,
             extract_js_fn("pollBuildOnce"),
             r"""
             (async () => {
-              const run = async (asked) => { start(asked); await pollBuildOnce(); return [said.splice(0), !!BUILD.error, BUILD.lastSeq]; };
+              const run = async (asked) => { start(asked); await pollBuildOnce(); return [said.splice(0), !!SHOWN_BUILD.error, BUILD.lastSeq]; };
               const mine = await run(true), other = await run(false);
               META = { kind: 'tex', pages: [{}, {}] };
               const known = await run(true);

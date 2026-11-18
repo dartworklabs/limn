@@ -16,15 +16,6 @@ import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api, isApiError } from '../platform/api.ts';
 import {
-  REVISION_VIEW,
-  setTargetGuideLine,
-  hunkRanges,
-  revisionKey,
-  drawPinGuide,
-  revisionCurrent,
-  revisionPinFor,
-} from './flow.ts';
-import {
   advanceMarkdownSequence,
   jobAnswer,
   MARKDOWN_LIMITS,
@@ -42,6 +33,9 @@ import type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion, MarkdownTo
 import { $, findAll } from '../platform/dom.ts';
 import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';
+import { REVISION_VIEW, setTargetGuideLine, revisionKey, revisionCurrent, revisionPinFor } from './state.ts';
+import { drawPinGuide } from './view-pin-guide.ts';
+import { hunkRanges } from './rules-diff.ts';
 // RENDERED_COMPARE: the compare on screen (key: revisionKey() it was drawn for), its parse worker and job, the change
 // groups in order (stops, each the blocks of one change) and the one the navigator is at, the drawn column (root) and
 // the observer that lays its gutter chips out again when its width changes (ro), the status line it said (line) and

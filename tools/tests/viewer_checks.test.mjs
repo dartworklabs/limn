@@ -135,17 +135,17 @@ test('a role rule broken fails the check outright, naming the rule and both modu
   assert.match(got.err, /^role: js\/pins\/rules-order\.ts \(rules\) imports js\/pins\/view-cards\.ts \(pins view\)/m);
 });
 
-test('a cycle is counted for the ratchet, not failed: the check passes and its counts hold only cycle', () => {
+test('a cycle inside a feature fails both boundary check modes and names the two edges', () => {
   const modules = {
     'js/pins/view-cards.ts': "import { list } from './flow-list.ts';\nexport const card = () => list;\n",
     'js/pins/flow-list.ts': "import { card } from './view-cards.ts';\nexport const list = () => card;\n",
   };
-  assert.equal(checkOf(modules).code, 0);
-  const got = checkOf(modules, ['--json']);
-  assert.equal(got.code, 0);
-  assert.deepEqual(JSON.parse(got.out), {
-    cycle: { 'src/limn/viewer/js/pins/flow-list.ts': 1, 'src/limn/viewer/js/pins/view-cards.ts': 1 },
-  });
+  for (const argv of [[], ['--json']]) {
+    const got = checkOf(modules, argv);
+    assert.equal(got.code, 2);
+    assert.match(got.err, /cycle: js\/pins\/view-cards.ts -> js\/pins\/flow-list.ts/);
+    assert.match(got.err, /cycle: js\/pins\/flow-list.ts -> js\/pins\/view-cards.ts/);
+  }
 });
 
 test('the path says feature and role; a path that is no place says nothing', () => {

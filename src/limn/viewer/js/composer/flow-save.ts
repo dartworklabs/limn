@@ -4,21 +4,18 @@
 import {
   DEFAULT_DOC,
   DOC,
-  IS_MAC,
   KIND_NEW,
   META,
-  COARSE_POINTER_QUERY,
   OPEN_ALL,
   PINS,
   captureVisit,
   COMPOSE,
   setComposeBox,
-  setComposePendingSave,
   setComposeRetryVerdict,
   setComposeSaving,
   topPinId,
 } from '../app/state.ts';
-import { html, setHtml } from '../platform/markup.ts';
+import { togglePendingSave, syncComposeSaveButtons } from './view-save.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
 import { API_WAIT, api, apiFailed, isApiError, isRefusal } from '../platform/api.ts';
@@ -34,28 +31,28 @@ import {
 } from '../platform/notices.ts';
 import { kindFor, wireScope } from './view-levels.ts';
 import { figureRung, figureFields } from '../pdf/view-figure.ts';
-import { renderSuggest, suggestForSave, suggestOff, suggestPending, suggestRebase } from './flow-suggest.ts';
+import { renderSuggest, suggestForSave, suggestOff, suggestRebase } from './flow-suggest.ts';
+import { SUGGEST_DRAFT, setSuggestCurrent } from './state-suggest.ts';
 import {
   cancelSelection,
   composeFields,
   composeOwns,
   focusClosed,
   focusPlace,
-  renderOverlapBanner,
   restoreSelection,
   selectionSnapshot,
-} from './flow-pick.ts';
+} from './flow-selection.ts';
+import { renderOverlapBanner } from './view-overlap.ts';
 import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
 import { assignOutcome, composeAsk, mentionHints } from './input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { $, findAll } from '../platform/dom.ts';
+import { $ } from '../platform/dom.ts';
 import { REQUEST_KIND, SAVE_MODE } from '../app/rules-tables.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
 import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
-import { SUGGEST_DRAFT, setSuggestCurrent } from './state-suggest.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.
@@ -126,20 +123,6 @@ async function appendToPin(id: number, text: string) {
     syncComposeSaveButtons();
   }
 }
-/** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An
- * append also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
-function syncComposeSaveButtons() {
-  findAll(document, '#btn-save,[data-act="overlap-append"],[data-act="pop-save"]', HTMLButtonElement).forEach(
-    (button) => {
-      button.disabled = COMPOSE.saving;
-    },
-  );
-  if (suggestPending())
-    findAll(document, '[data-act="overlap-append"]', HTMLButtonElement).forEach((button) => {
-      button.disabled = true;
-    });
-  composerVerdict().drawRow();
-} // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card
 // shows it. Resolves with whether it went back (its chip waits for it, noticeAct).
 async function undoAppend(id: number, note: string, revision: number | undefined): Promise<boolean> {
@@ -157,37 +140,6 @@ async function undoAppend(id: number, note: string, revision: number | undefined
   } catch (error) {}
   await composerPins().load();
   return ok;
-}
-// The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
-// banner says a save failed, else [핀 저장]; with the shortcut where there is a keyboard.
-function saveButtonLabel() {
-  const banner = BANNERS.get(NOTICE_HOST.COMPOSER),
-    label = translate(banner && banner.save ? '다시 저장' : '핀 저장');
-  return COARSE_POINTER_QUERY.matches
-    ? html`${label}`
-    : html`${label} <span class="kh">${IS_MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>`;
-}
-// docs/handbook/viewer.md §패널 정리 (드래그 직후 저장): [핀 저장] pressed right after a drag, before the pick has
-// answered, finds no COMPOSE.current to save, so the press is queued and the save runs once the pick succeeds - the
-// note is read from #note at that moment, with whatever was typed meanwhile. A failed pick or a cancelled selection
-// clears the queue. Pressing the button again cancels the queued save (a toggle), so it can be undone without a
-// separate cancel button.
-function togglePendingSave() {
-  if (COMPOSE.pendingSave) {
-    clearPendingSave();
-    return;
-  }
-  setComposePendingSave(true);
-  const button = $('#btn-save');
-  button.dataset.pending = '1';
-  setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
-}
-function clearPendingSave() {
-  if (!COMPOSE.pendingSave) return;
-  setComposePendingSave(false);
-  const button = $('#btn-save');
-  delete button.dataset.pending;
-  setHtml(button, saveButtonLabel());
 }
 // Saves the selection as a pin (or queues the save while pick runs). Saved: a chip '저장됨 [되돌리기]' on the new pin's
 // mark for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and - only once that
@@ -564,4 +516,4 @@ function suggestSaveRefused(selection: ComposerSelection, data: SaveConflict | n
     { save: true, source },
   );
 }
-export { appendToPin, clearPendingSave, saveButtonLabel, savePin, syncComposeSaveButtons };
+export { appendToPin, savePin };

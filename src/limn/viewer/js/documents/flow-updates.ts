@@ -26,14 +26,12 @@ import {
 import { translateTemplate, translate, josaName } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { GROUPS, flushDeferred, groupNote, groupRedraw, lineNote } from '../platform/notices.ts';
-import { switchDoc } from './flow-switch.ts';
-import { drawStatus } from './view-status.ts';
 import { NOTICE_DOT, NOTICE_KIND, isRecord } from '../platform/tables.ts';
 import { $$ } from '../platform/dom.ts';
 import { VIEW_MODE } from '../app/rules-tables.ts';
 import { who } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc, REVISION_PAGE } from './state.ts';
-import { changesView, documentWork, markdownSurface, pinNotifications } from './state-seams.ts';
+import { changesView, documentWork, markdownSurface, pinNotifications, documentNavigation } from './state-seams.ts';
 interface UpdateState {
   moved: Map<string, { moved: Set<number>; lost: Set<number> }>;
   lines: Map<string, { base: string[]; ranges: { lo: number; hi: number }[]; at: number }>;
@@ -534,7 +532,7 @@ function docUpdateView(update: DocUpdate) {
   if (moves && moves.moved.size) parts.push(translateTemplate('핀 {n}개 줄 이동', { n: moves.moved.size }));
   if (moves && moves.lost.size) parts.push(translateTemplate('핀 {n}개 위치 잃음', { n: moves.lost.size }));
   const act = !here
-    ? { label: '열기', tip: '그 문서로 바꿉니다', fn: () => switchDoc(doc) }
+    ? { label: '열기', tip: '그 문서로 바꿉니다', fn: () => documentNavigation().open(doc) }
     : lines && lines.ranges.length
       ? {
           label: '바뀐 곳',
@@ -629,7 +627,7 @@ function openUpdateRange(doc: string, base: string, top?: string) {
     go();
     return;
   }
-  const opening = switchDoc(doc),
+  const opening = documentNavigation().open(doc),
     visit = SWITCHSEQ;
   opening.then(() => {
     if (DOC === doc && visit === SWITCHSEQ) go();
@@ -683,7 +681,7 @@ function tintChangedLines() {
 // lines (showLines: the reading spot is read where it lands).
 function goToNextChange(doc: string) {
   if (doc !== DOC) {
-    switchDoc(doc);
+    documentNavigation().open(doc);
     return;
   }
   const changed = UPDATE_STATE.lines.get(doc);
@@ -828,51 +826,6 @@ function newPinsView(news: { doc: string; pins: NewPinRow[] }) {
   };
 }
 
-// ---------------- Limn itself was updated
-// The page's version (the [더보기] foot's 'v0.4.51', filled in when the server made the page) and the server's (GET
-// /api/version, asked by documents/flow-polling.ts after a lost connection comes back, on return and every
-// VERSION_EVERY_MS): when they differ, this tab runs the old viewer against a new server, and the status line says so
-// with [새로 고침] until it reloads. A call while one is out (busy) is left to it, and asked again once it is answered
-// (again): the one out may fail, or have been answered by the process a restart has just replaced - the return after a
-// lost connection must not go unasked.
-const VERSION = { page: '', server: '', at: 0, busy: false, again: false };
-const VERSION_EVERY_MS = 60000;
-function versionDue() {
-  return Date.now() - VERSION.at >= VERSION_EVERY_MS;
-}
-function versionOutdated() {
-  if (!VERSION.page) {
-    const versionElement = document.querySelector('#more-foot .m-ver');
-    VERSION.page = versionElement
-      ? String(versionElement.textContent || '')
-          .trim()
-          .replace(/^v/, '')
-      : '';
-  }
-  return VERSION.server && VERSION.page && VERSION.server !== VERSION.page ? VERSION.server : '';
-}
-async function checkVersion() {
-  if (VERSION.busy) {
-    VERSION.again = true;
-    return;
-  }
-  VERSION.busy = true;
-  VERSION.again = false;
-  VERSION.at = Date.now();
-  try {
-    const answer = (await api('GET /api/version', { what: '버전 확인', silent: true })).data,
-      version = String((answer && answer.version) || '');
-    if (version && version !== VERSION.server) {
-      const was = versionOutdated();
-      VERSION.server = version;
-      if (versionOutdated() !== was) drawStatus();
-    }
-  } catch (error) {
-  } finally {
-    VERSION.busy = false;
-  }
-  if (VERSION.again) checkVersion();
-}
 // [새로 고침]: reloads this tab - the composer's draft and the reading spot are kept (sessionStorage), what waits
 // behind an undo is sent first - unless a reply or an edit is being written, which a reload would lose: that is said
 // instead.
@@ -894,14 +847,11 @@ export {
   awayTitle,
   checkDocUpdate,
   checkDocsSeen,
-  checkVersion,
   reloadForUpdate,
   expectUpdate,
   tintChangedLines,
   noteNewPins,
   countPinMove,
   compareRedrawnSource,
-  versionDue,
-  versionOutdated,
   visitedBefore,
 };

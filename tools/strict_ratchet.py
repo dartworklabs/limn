@@ -1,26 +1,7 @@
-"""Hold the viewer's not-yet-met checks to per-file counts that only go down (docs/adr/0042-viewer-es-modules.md D7,
-docs/handbook/viewer.md §타입 검사).
+"""Check viewer module boundaries and hold ESLint trust points to the committed per-file baseline.
 
-Two checks run over the viewer's ES modules (TypeScript, src/limn/viewer/js/**/*.ts), and the existing code does not
-meet all of them yet (tsc, with the full TypeScript `strict` set, is not among them: tsconfig.json turns it on and npm
-run typecheck must report no error):
-
-- eslint: every rule eslint.config.mjs turns on (no any, no type assertion, no write to another module's state, no
-  confusing global, an exhaustive switch over a closed union, a declared name of whole words, a comment with no
-  history - limn/plain-names and limn/no-history-comment, tools/viewer-names.json), per rule.
-- boundaries: tools/check_viewer_boundaries.mjs - import cycles, the one boundary rule the code does not meet yet. Its
-  other rules (feature dependencies ALLOWED does not list, platform importing a feature, role rules) are invariants:
-  the check fails outright on any violation of one, so this run fails with it and nothing of them is counted.
-
-This script runs both and compares each file's count, per check and rule, with tools/strict-baseline.json. The
-eslint part of the baseline holds only the viewer's trust points - the lines that take a value from outside as its
-declared type with nothing to check it against, each commented with what it trusts and what holds that true;
-docs/handbook/viewer.md §타입 검사 and docs/adr/0046-viewer-endpoint-answers.md D8 list them. Every other eslint message is to be fixed, not counted. A count above its baseline fails: new code must
-meet the rule. A count below fails too, until the baseline is lowered with --update, so it cannot creep back. A file
-or rule the baseline does not name has a baseline of 0. A check that fails without giving counts (a broken config, a
-parse error, a mistake in the boundary tables, a broken boundary invariant) fails this run.
-
-Run: npm ci --ignore-scripts && uv run python tools/strict_ratchet.py [--update]
+Every boundary violation fails both normal and --update runs. The baseline holds ESLint messages
+per rule and file. The trust points are documented in docs/handbook/viewer.md and ADR-0046 D8.
 """
 
 import json
@@ -39,7 +20,6 @@ VIEWER_JS = "src/limn/viewer/js"
 
 Counts = dict[str, int]  # file -> count
 RuleCounts = dict[str, Counts]  # rule -> file -> count
-CHECKS = ("eslint", "boundaries")  # the checks the baseline holds, in its order
 
 
 def eslint_counts(report: list[dict], root: Path = ROOT) -> RuleCounts:
@@ -69,14 +49,12 @@ def compare(counts: Mapping[str, int], baseline: Mapping[str, int], what: str) -
 
 
 def compare_all(found: Mapping[str, object], baseline: Mapping[str, object]) -> list[str]:
-    """compare() over every check and rule: found and baseline hold 'eslint' and 'boundaries' as rule counts. A rule
-    only one side names is compared with nothing (0) on the other."""
+    """Compare ESLint counts by rule, treating any missing rule as zero."""
+    now, base = found.get("eslint", {}), baseline.get("eslint", {})
+    assert isinstance(now, Mapping) and isinstance(base, Mapping)
     out = []
-    for check in CHECKS:
-        now, base = found.get(check, {}), baseline.get(check, {})
-        assert isinstance(now, Mapping) and isinstance(base, Mapping)
-        for rule in sorted(set(now) | set(base)):
-            out += ["%s %s: %s" % (check, rule, line) for line in compare(now.get(rule, {}), base.get(rule, {}), rule)]
+    for rule in sorted(set(now) | set(base)):
+        out += ["eslint %s: %s" % (rule, line) for line in compare(now.get(rule, {}), base.get(rule, {}), rule)]
     return out
 
 
@@ -98,23 +76,12 @@ def run_eslint() -> list[dict]:
     return json.loads(proc.stdout)
 
 
-def run_boundaries() -> RuleCounts:
-    """The boundary check's counts (cycle). Raises SystemExit when it refuses its own tables or an invariant rule is
-    broken (exit 2), or it fails."""
+def run_boundaries() -> None:
+    """Reject every broken module boundary, including when updating the ESLint baseline."""
     _require(NODE_MODULES / "rollup")
-    proc = subprocess.run(["node", str(BOUNDARIES), "--json"], cwd=ROOT, capture_output=True, text=True, check=False)
+    proc = subprocess.run(["node", str(BOUNDARIES)], cwd=ROOT, capture_output=True, text=True, check=False)
     if proc.returncode != 0:
         raise SystemExit("the boundary check failed (exit %d):\n%s%s" % (proc.returncode, proc.stdout, proc.stderr))
-    counts = json.loads(proc.stdout)
-    return {rule: c for rule, c in counts.items() if c}
-
-
-def measure() -> dict[str, object]:
-    """Every check's counts now: {'eslint': rule counts, 'boundaries': rule counts}."""
-    return {
-        "eslint": eslint_counts(run_eslint()),
-        "boundaries": run_boundaries(),
-    }
 
 
 def total(found: Mapping[str, object], check: str) -> int:
@@ -126,8 +93,9 @@ def total(found: Mapping[str, object], check: str) -> int:
 
 def main(argv: list[str]) -> int:
     """Compare the counts with the baseline (exit 1 on any difference), or with --update write them as the baseline."""
-    found = measure()
-    summary = ", ".join("%s %d" % (check, total(found, check)) for check in CHECKS)
+    run_boundaries()
+    found = {"eslint": eslint_counts(run_eslint())}
+    summary = "eslint %d" % total(found, "eslint")
     if "--update" in argv:
         BASELINE.write_text(json.dumps(found, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         print("wrote %s: %s" % (BASELINE.name, summary))

@@ -262,7 +262,23 @@ function offlineQueue(): OfflineQueue {
   if (!OFFLINE_QUEUE) throw new Error('setOfflineQueue() has not run: documents has no queued pins');
   return OFFLINE_QUEUE;
 }
+
+// A tab or update notice can start the same switch that redraws the tabs and checks for further updates.
+interface DocumentNavigation {
+  /** Opens a document chosen from the tab menu or an update notice. */
+  open(doc: string): Promise<void>;
+}
+let DOCUMENT_NAVIGATION: DocumentNavigation | null = null;
+function setDocumentNavigation(navigation: DocumentNavigation) {
+  DOCUMENT_NAVIGATION = navigation;
+}
+function documentNavigation(): DocumentNavigation {
+  if (!DOCUMENT_NAVIGATION) throw new Error('setDocumentNavigation() has not run: documents cannot open a document');
+  return DOCUMENT_NAVIGATION;
+}
 export {
+  documentNavigation,
+  setDocumentNavigation,
   changesView,
   documentPins,
   documentWork,

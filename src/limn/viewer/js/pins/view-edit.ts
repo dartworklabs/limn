@@ -1,7 +1,7 @@
 // ------------------------------------------------ The edit card, drawn
 // The open edit card (EDITOR.current) drawn from what it holds now - its kind, its range, its suggestion, its save
 // button - and whether it holds changes not saved yet. pins/flow-edit.ts opens, saves and closes it.
-import { EDITOR } from '../app/state.ts';
+import { EDITOR, findAnyPin } from '../app/state.ts';
 import { editNote } from '../composer/view-text.ts';
 import { mentionHints, renderAssignEdit } from '../composer/input-mentions.ts';
 import { suggestForEdit, suggestOff, editDocKind, renderEditSuggest } from '../composer/flow-suggest.ts';
@@ -12,7 +12,6 @@ import { html } from '../platform/markup.ts';
 import { findAll, findElement, findMaybe } from '../platform/dom.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { drawExcerpt } from '../composer/view-excerpt.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { syncQuestionHint } from '../composer/view-note-hints.ts';
 /** Reflect the editor's shared request lifetime on whichever card is currently visible. */
@@ -74,7 +73,7 @@ function renderEdit() {
   pre.className = 'e-snip wrap';
   pre.textContent = snipText(card.snippet, false);
   renderAssignEdit();
-  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true);
+  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true, renderEdit);
   // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
   renderEditSuggest(card);
   syncQuestionHint(findMaybe(cardElement, '.e-qhint', HTMLElement), editNote(card).value, card.kind_req);

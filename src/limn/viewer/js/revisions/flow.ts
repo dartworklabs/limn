@@ -1,22 +1,12 @@
 // ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
-// REVISION_VIEW: one changes-view visit owns the selected commit, source text and request sequence (seq). overlay is a
-// figure document's two builds from /api/revisions (null for any other document), side the one its overlay shows,
-// history whether it has commits. base is a range's old side ('' for one commit against its first parent); rows the
-// loaded commits (newest first, REVISION_PAGE a page) of rowsDoc, more whether older ones remain; range the quick range
-// and its ends (RevRange); seen this browser's last-seen commit of the document, seenState what the server said of it
-// (SEEN_STATE), seenN how many commits it compares with the newest and seenIds which (the server's count, never the
-// list's positions); rangeIds the commits the shown range compares (the server's commit_ids; null until it answers),
-// rangeBase its old side; listOpen whether the phone shows every loaded row; rangeLine the range's summary for the
-// status line, and rangeN its commit and file counts (the rendered compare's status line takes them,
-// revisions/view-rendered-compare.ts sayCompareStatus).
-import { DOC, DONE_ALL, LAYOUT, OPEN_ALL, REVIEW_ALL, SWITCHSEQ } from '../app/state.ts';
+import { DOC, LAYOUT, SWITCHSEQ, findAnyPin } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml } from '../platform/hidden-chars.ts';
-import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
+import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api, isApiError } from '../platform/api.ts';
-import { isRecord, tableEntry } from '../platform/tables.ts';
-import { drawNavigationView, drawPos, switchDoc } from '../documents/flow-switch.ts';
-import { canConfirmReview, confirmAccessText } from '../documents/view-meta.ts';
+import { isRecord } from '../platform/tables.ts';
+import { drawNavigationView, switchDoc } from '../documents/flow-switch.ts';
+import { drawPos } from '../documents/view-tabs.ts';
 import { POINT_PX, boundScale } from '../pdf/view-pages.ts';
 import { PDFJS_VERSION, importPdfLibrary } from '../pdf/flow-open.ts';
 import { VECTOR_PDF } from '../pdf/state-vector.ts';
@@ -48,23 +38,50 @@ import {
   DIFF_FORMAT,
   LAYOUT_MODE,
   OVERLAY_SIDE,
-  PIN_STATE,
   RANGE_MODE,
   REVISION_STATE,
   SCOPE_MODE,
-  SCOPE_SOURCE,
   SEEN_STATE,
   VIEW_MODE,
 } from '../app/rules-tables.ts';
-import { pinState, lineRange } from '../app/rules-pins.ts';
-import { isMe } from '../app/state-people.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, isRegion, pdoc, REVISION_PAGE } from '../documents/state.ts';
 import { markHitSides } from '../pdf/view-badges.ts';
-// A file's part of a source diff: its path and its patch text.
-interface RevisionFile {
-  name: string;
-  text: string;
-}
+import {
+  REVISION_VIEW,
+  revisionPinFor,
+  revisionKey,
+  revisionCurrent,
+  openSeen,
+  seenFailed,
+  seenAnswered,
+  beginRevisionComparison,
+  setRevisionRows,
+  appendRevisionRows,
+  replaceRevisionOverlay,
+  chooseRevisionSide,
+  rememberRangeCommits,
+  countRevisionRange,
+  takeWantedRange,
+  takeReturnDocument,
+  advanceRevisionVisit,
+  chooseSingleRevision,
+  openRevisionTarget,
+  keepRevisionSource,
+  clearRevisionTarget,
+  forgetRevisionRows,
+  expandRevisionRows,
+  markRevisionSourceLoaded,
+  chooseRevisionFormat,
+  setRevisionOther,
+  setRevisionPdfKey,
+  setRevisionHistoryAvailable,
+  chooseRevisionRange,
+  setRevisionRangeSummary,
+  setRevisionPinScope,
+} from './state.ts';
+import { releaseComparisonPdf, setComparisonLoading, setComparisonDocument } from './state-pdf.ts';
+import { drawPinGuide, drawPinGuideActions } from './view-pin-guide.ts';
+import { pinFileIndex, touchesPin } from './rules-diff.ts';
 // What rangeSummary reads of GET /api/revision-diff with a base: the two ends, the commits and files between them, the
 // merge base when the base was on another line, and whether the diff was cut.
 interface RevisionDiffAnswer {
@@ -75,100 +92,15 @@ interface RevisionDiffAnswer {
   files?: unknown[];
   truncated?: boolean;
 }
-// What the revision view shows and where it stands (REVISION_VIEW): the request counter, the source diff's files and
-// whole text, the commit shown and the one its source diff is of, the format, the commit's scope a pin's diff read
-// answers (GET /api/revision-diff?pin=; null before such a read), the rest of the commit's diff beside a pin's hunks,
-// the pin's target, the commit of the PDF shown, the document to go back to, the overlay and its side, whether the
-// history is open, its base, rows, their document and whether more are listed, the range and what was seen of it, the
-// range's commits, base, summary line and counts, whether the list is open, and the range the list is to paint.
-interface RevisionViewState {
-  seq: number;
-  files: { name: string; text: string }[];
-  whole: string;
-  commit: string;
-  sourceCommit: string;
-  format: string;
-  scope: RevisionPinScope | RevisionCommitScope | null;
-  other: string;
-  target: RevTarget | null;
-  pdfCommit: string;
-  back: string | null;
-  overlay: RevisionOverlay | null;
-  side: string;
-  history: boolean;
-  base: string;
-  rows: RevisionRow[];
-  rowsDoc: string;
-  more: boolean;
-  range: RevRange;
-  seen: RevSeen | null;
-  seenState: string;
-  seenN: number;
-  seenIds: Set<string>;
-  rangeIds: string[] | null;
-  rangeBase: string;
-  listOpen: boolean;
-  rangeLine: string;
-  rangeN: { commits: number; files: number } | null;
-  want: { base: string; top: string } | null;
-}
-const REVISION_VIEW: RevisionViewState = {
-  seq: 0,
-  files: [],
-  whole: '',
-  commit: '',
-  sourceCommit: '',
-  format: DIFF_FORMAT.PDF,
-  scope: null,
-  other: '',
-  target: null,
-  pdfCommit: '',
-  back: null,
-  overlay: null,
-  side: OVERLAY_SIDE.CUR,
-  history: false,
-  base: '',
-  rows: [],
-  rowsDoc: '',
-  more: false,
-  range: { mode: RANGE_MODE.ONE, start: '', end: '', endSet: false },
-  seen: null,
-  seenState: SEEN_STATE.NONE,
-  seenN: 0,
-  seenIds: new Set(),
-  rangeIds: null,
-  rangeBase: '',
-  listOpen: false,
-  rangeLine: '',
-  rangeN: null,
-  want: null,
-};
-// Sets the line the guide says for a revision view's pin (RevTarget.mdcMsg), for another module that changes it
-// (ADR-0042 D1).
-function setTargetGuideLine(target: RevTarget, line: string) {
-  target.mdcMsg = line;
-}
-// the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
-const REVISION_RECENT = 12;
-const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
 // A pin's view of a commit (docs/handbook/viewer.md §변경 보기). REVISION_VIEW.scope is the source diff's scope object
 // ({mode:'pin'|'commit', source, hunks, other, ...}). COMPARISON_SCOPE is the comparison PDF's toggle - the whole
 // commit or only this pin's hunks (whole), whether the pin owns only part of the commit (partial), whether the pin-only
-// build failed and the whole commit is shown instead (fallback). COMPARISON_PDF holds the loaded comparison PDF, its
-// loading task, its observer and its render tasks.
+// build failed and the whole commit is shown instead (fallback).
 const COMPARISON_SCOPE = { whole: false, partial: false, fallback: false };
-interface ComparisonPdfState {
-  doc: PdfDocument | null;
-  loading: PdfLoadingTask | null;
-  observer: IntersectionObserver | null;
-  tasks: Set<PdfRenderTask>;
-}
-const COMPARISON_PDF: ComparisonPdfState = {
-  doc: null,
-  loading: null,
-  observer: null,
-  tasks: new Set(),
-};
+
+// the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
+const REVISION_RECENT = 12;
+const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
 function revisionFiles(patch: string) {
   const starts: { at: number; head: string }[] = [];
   const fileHeader = /^diff --git .+$/gm;
@@ -246,13 +178,14 @@ function drawRevisionOther(scope: RevisionOtherScope | null) {
   rest.hidden = true;
   rest.replaceChildren();
   toggle.setAttribute('aria-expanded', 'false');
-  REVISION_VIEW.other =
+  setRevisionOther(
     scope && scope.mode === SCOPE_MODE.PIN
       ? String(scope.other_diff || '') +
-        (scope.other_truncated
-          ? '\n\n' + translate('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.')
-          : '')
-      : '';
+          (scope.other_truncated
+            ? '\n\n' + translate('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.')
+            : '')
+      : '',
+  );
   toggle.hidden = !REVISION_VIEW.other;
   if (scope && REVISION_VIEW.other)
     findElement(toggle, 'span', HTMLSpanElement).textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', {
@@ -279,49 +212,18 @@ function syncRevisionWhole() {
   );
   button.setAttribute('aria-pressed', String(COMPARISON_SCOPE.whole));
 }
-// The pin whose hunks a commit's view is scoped to: only the commit picked for the pin ([변경 보기]); any other commit
-// chosen in the list is shown whole (another commit's lines are not this pin's), and so is a range (pin scoping and
-// ranges do not combine; the server refuses pin with base).
-function revisionPinFor(id: string) {
-  const target = REVISION_VIEW.target;
-  return target && !target.region && target.commit && id === target.commit && !REVISION_VIEW.base ? target : null;
-}
 function setRevisionWhole(on: boolean) {
   COMPARISON_SCOPE.whole = !!on;
-  ++REVISION_VIEW.seq;
-  REVISION_VIEW.pdfCommit = '';
+  advanceRevisionVisit();
+  setRevisionPdfKey('');
   clearRevisionPdf();
   $('#revision-warning').hidden = true;
   setRevisionFormat(DIFF_FORMAT.PDF);
 }
-function revisionCurrent(seq: number, docKey: string | null, id: string) {
-  return (
-    seq === REVISION_VIEW.seq &&
-    docKey === DOC &&
-    id === REVISION_VIEW.commit &&
-    document.body.classList.contains('revision-open')
-  );
-}
 // Releases the comparison's rendering and PDF.js resources on a new visit or a change of scope.
 function clearRevisionPdf() {
   disposeRevisionZoom();
-  if (COMPARISON_PDF.observer) {
-    COMPARISON_PDF.observer.disconnect();
-    COMPARISON_PDF.observer = null;
-  }
-  COMPARISON_PDF.tasks.forEach((task) => {
-    try {
-      task.cancel();
-    } catch (error) {}
-  });
-  COMPARISON_PDF.tasks.clear();
-  if (COMPARISON_PDF.loading) {
-    try {
-      void COMPARISON_PDF.loading.destroy().catch(() => {});
-    } catch (error) {}
-    COMPARISON_PDF.loading = null;
-  }
-  COMPARISON_PDF.doc = null;
+  releaseComparisonPdf();
   $('#revision-pdf').replaceChildren();
 }
 // The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when
@@ -352,7 +254,7 @@ function drawRevisionFormat() {
 }
 // Switches the format shown, keeping the comparison's scale for the selected commit.
 function setRevisionFormat(format: string | undefined) {
-  REVISION_VIEW.format = revisionFormatFor(format, !!REVISION_VIEW.overlay, isMarkdownDoc(), isDrawnFromMarkdown());
+  chooseRevisionFormat(revisionFormatFor(format, !!REVISION_VIEW.overlay, isMarkdownDoc(), isDrawnFromMarkdown()));
   drawRevisionFormat();
   if (REVISION_VIEW.format === DIFF_FORMAT.RENDERED && REVISION_VIEW.commit) {
     if (RENDERED_COMPARE.key !== revisionKey())
@@ -375,7 +277,7 @@ function setRevisionFormat(format: string | undefined) {
   // The comparison PDF is built only when that format is viewed - [변경 보기] and a range go straight to the source
   // diff, so neither spends a latexdiff build.
   if (REVISION_VIEW.format === DIFF_FORMAT.PDF && REVISION_VIEW.commit && REVISION_VIEW.pdfCommit !== revisionKey()) {
-    REVISION_VIEW.pdfCommit = revisionKey();
+    setRevisionPdfKey(revisionKey());
     $('#revision-status').textContent = '비교 PDF 상태를 확인하는 중입니다.';
     loadRevisionPdf(REVISION_VIEW.commit, REVISION_VIEW.seq, DOC);
   }
@@ -398,12 +300,12 @@ function setViewMode(mode: string | undefined) {
   $('#view-manuscript').setAttribute('aria-pressed', String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed', String(revisions));
   if (!revisions) {
-    REVISION_VIEW.target = null;
+    clearRevisionTarget();
     clearRenderedCompare();
   }
   if (revisions) loadRevisions();
   else {
-    ++REVISION_VIEW.seq;
+    advanceRevisionVisit();
     clearRevisionPdf();
     setRevisionOverlay(null);
     $('#revision-pin').hidden = true;
@@ -424,7 +326,7 @@ function setViewMode(mode: string | undefined) {
 // answer carries its two builds (overlay): its [겹쳐 보기] takes the place of [변경 PDF] and opens first, with or
 // without history; its [소스 diff] shows only with history.
 async function loadRevisions() {
-  const seq = ++REVISION_VIEW.seq,
+  const seq = advanceRevisionVisit(),
     docKey = DOC,
     list = $('#revision-list'),
     out = $('#revision-diff'),
@@ -453,16 +355,13 @@ async function loadRevisions() {
   if (seq !== REVISION_VIEW.seq || docKey !== DOC) return;
   const rows: RevisionRow[] = data.available ? data.revisions : [],
     kept = REVISION_VIEW.range;
-  REVISION_VIEW.rows = rows;
-  REVISION_VIEW.rowsDoc = docKey || '';
-  REVISION_VIEW.more = !!data.more;
-  if (!again) REVISION_VIEW.listOpen = false;
+  setRevisionRows(rows, docKey, !!data.more, again);
   if (!again || !REVISION_VIEW.seen || REVISION_VIEW.seenState !== SEEN_STATE.OK)
     openSeen(seenRecordOf(docKey || ''), rows);
-  REVISION_VIEW.history = !!data.available && rows.length > 0;
+  setRevisionHistoryAvailable(!!data.available && rows.length > 0);
   setRevisionOverlay(data.overlay || null);
   const isFigure = !!REVISION_VIEW.overlay;
-  REVISION_VIEW.format = revisionFormatFor(REVISION_VIEW.format, isFigure, isMarkdownDoc(), isDrawnFromMarkdown());
+  chooseRevisionFormat(revisionFormatFor(REVISION_VIEW.format, isFigure, isMarkdownDoc(), isDrawnFromMarkdown()));
   // a LaTeX document after a figure leaves the overlay; a Markdown one opens its rendered compare, a text one its
   // source diff
   drawRevisionFormat();
@@ -508,7 +407,7 @@ async function loadRevisions() {
     target.commit = pick.id;
     target.via = pick.via;
     target.hit = pick.hit;
-    REVISION_VIEW.range = { mode: RANGE_MODE.ONE, start: pick.id, end: pick.id, endSet: false };
+    chooseSingleRevision(pick.id);
     // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the
     // source diff, and a Markdown pin's own hunks too - its [그린 비교] beside it compares the whole commit (ADR-0031
     // D6)
@@ -522,8 +421,7 @@ async function loadRevisions() {
   // the list painting what the server says the range holds. Commits above top (the checkout ahead of the shown build,
   // one come since) stay out, also when the list is read again for a new build: the range keeps the message's base and
   // its end (endSet).
-  const want = REVISION_VIEW.want;
-  REVISION_VIEW.want = null;
+  const want = takeWantedRange();
   if (want && want.base && !isFigure) {
     const at = (id: string) => rows.findIndex((row) => row.id === id || row.id.startsWith(id)),
       baseAt = at(want.base),
@@ -531,14 +429,13 @@ async function loadRevisions() {
     const top = topAt >= 0 ? rows[topAt].id : want.top,
       base = baseAt >= 0 ? rows[baseAt].id : want.base;
     if (top !== base && !(baseAt >= 0 && topAt > baseAt)) {
-      REVISION_VIEW.range = {
+      showRange({
         mode: RANGE_MODE.FROM,
         start: baseAt > 0 && baseAt > topAt ? rows[baseAt - 1].id : top,
         end: top,
         endSet: true,
         base,
-      };
-      showRange(REVISION_VIEW.range);
+      });
       return;
     }
   }
@@ -563,7 +460,7 @@ async function loadRevisions() {
   }
   if (REVISION_VIEW.seenState === SEEN_STATE.PENDING) resolveSeen(docKey || '', rows[0].id);
   const id = rows.some((row) => row.id === REVISION_VIEW.commit) ? REVISION_VIEW.commit : rows[0].id;
-  REVISION_VIEW.range = { mode: RANGE_MODE.ONE, start: id, end: id, endSet: false };
+  chooseSingleRevision(id);
   showRevision(id, isFigure ? DIFF_FORMAT.OVERLAY : undefined);
   drawRange();
 }
@@ -629,16 +526,12 @@ function sideRows(rows: { id: string; parents: string[] }[]): Set<string> {
   });
   return out;
 }
-// The key a source diff or comparison PDF was loaded for: the commit, or base..commit for a range.
-function revisionKey() {
-  return REVISION_VIEW.base ? REVISION_VIEW.base + '..' + REVISION_VIEW.commit : REVISION_VIEW.commit;
-}
 // Shows a range: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is
 // built only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format
 // undefined: the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps
 // the tab shown, for a range too: its rendered compare builds nothing (revisions/view-rendered-compare.ts).
 function showRange(range: RevRange, format?: string) {
-  REVISION_VIEW.range = range;
+  chooseRevisionRange(range);
   const request = rangeRequest(REVISION_VIEW.rows, range, REVISION_VIEW.seen);
   const drawn = isDrawnFromMarkdown()
     ? REVISION_VIEW.format === DIFF_FORMAT.SOURCE
@@ -774,12 +667,12 @@ ${more ? html`<button id="revision-more" class="btn-ghost" data-act="revision-mo
 // history.
 async function moreRevisions() {
   if (LAYOUT === LAYOUT_MODE.NARROW && !REVISION_VIEW.listOpen && REVISION_VIEW.rows.length > REVISION_PHONE_ROWS) {
-    REVISION_VIEW.listOpen = true;
+    expandRevisionRows();
     renderCommitList();
     return;
   }
   if (!REVISION_VIEW.more || !REVISION_VIEW.rows.length) return;
-  REVISION_VIEW.listOpen = true;
+  expandRevisionRows();
   if (await moreRows(DOC || '', REVISION_PAGE)) renderCommitList();
 }
 // Reads the next page (up to limit rows) of document docKey's window onto REVISION_VIEW.rows; whether it did. Nothing
@@ -806,8 +699,7 @@ async function moreRows(docKey: string | null, limit: number) {
     REVISION_VIEW.rows[REVISION_VIEW.rows.length - 1].id !== last
   )
     return false;
-  REVISION_VIEW.rows = REVISION_VIEW.rows.concat(data.revisions || []);
-  REVISION_VIEW.more = !!data.more;
+  appendRevisionRows(data.revisions || [], !!data.more);
   return true;
 }
 // ------------------------------------------------ The last-seen commit (docs/handbook/viewer.md §변경 보기)
@@ -827,38 +719,6 @@ function readSeenRecords(): Record<string, unknown> {
 function seenRecordOf(docKey: string): RevSeen | null {
   const record = readSeenRecords()[docKey];
   return isRecord(record) && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
-}
-// Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask
-// about.
-function openSeen(seen: RevSeen | null, rows: RevisionRow[]) {
-  REVISION_VIEW.seen = seen;
-  REVISION_VIEW.seenIds = new Set();
-  REVISION_VIEW.seenN = 0;
-  REVISION_VIEW.seenState = !seen
-    ? SEEN_STATE.NONE
-    : rows.length && rows[0].id === seen.id
-      ? SEEN_STATE.OK
-      : SEEN_STATE.PENDING;
-}
-// The server's answer for the last-seen range (seen..newest): its count and commits, or why it has none. A refusal that
-// says the commit is not in this document's history (or shares none with it) is a record the history no longer has;
-// base_too_old is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure
-// leaves the record unread, and so kept.
-// answer is the /api/revision-diff answer with base.
-function seenAnswered(answer: RevisionDiff) {
-  REVISION_VIEW.seenState = SEEN_STATE.OK;
-  REVISION_VIEW.seenN = Number(answer.commits) || 0;
-  REVISION_VIEW.seenIds = new Set(answer.commit_ids || []);
-}
-function seenFailed(error: unknown) {
-  const data = isApiError(error) ? error.data : undefined,
-    why = isRecord(data) ? data.reason : undefined;
-  REVISION_VIEW.seenState =
-    why === 'base_too_old'
-      ? SEEN_STATE.OLD
-      : why === 'commit_not_recent' || why === 'no_merge_base' || why === 'base_after_head'
-        ? SEEN_STATE.GONE
-        : SEEN_STATE.ERROR;
 }
 // Asks the server about the last-seen commit when the view does not open on its range (a pin's [변경 보기], a figure's
 // overlay).
@@ -886,7 +746,7 @@ async function resolveSeen(docKey: string, newest: string) {
 function leaveRevisions() {
   const docKey = REVISION_VIEW.rowsDoc,
     top = REVISION_VIEW.rows[0];
-  REVISION_VIEW.rowsDoc = '';
+  forgetRevisionRows();
   if (!docKey || !top) return;
   if (
     REVISION_VIEW.seenState === SEEN_STATE.PENDING ||
@@ -913,21 +773,13 @@ window.addEventListener('pagehide', () => {
 // source diff).
 async function showRevision(id: string, format?: string, base?: string) {
   setRevisionZoomRatio(1);
-  ++REVISION_VIEW.seq;
-  REVISION_VIEW.commit = id;
-  REVISION_VIEW.base = base || '';
-  REVISION_VIEW.rangeLine = '';
-  REVISION_VIEW.rangeN = null;
-  REVISION_VIEW.rangeIds = null;
-  REVISION_VIEW.rangeBase = '';
-  REVISION_VIEW.sourceCommit = '';
-  REVISION_VIEW.pdfCommit = '';
+  beginRevisionComparison(id, base);
   clearRevisionPdf();
   clearRenderedCompare();
   $('#revision-note').textContent = REVISION_VIEW.base
     ? '두 커밋 사이의 누적 변경 · 이 문서의 Git 이력 · 미커밋 수정 제외'
     : '선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외';
-  REVISION_VIEW.scope = null;
+  setRevisionPinScope(null);
   COMPARISON_SCOPE.whole = COMPARISON_SCOPE.partial = COMPARISON_SCOPE.fallback = false;
   drawRevisionOther(null);
   $('#revision-diff').textContent = '';
@@ -1010,8 +862,7 @@ function overlayStatus(overlay: RevisionOverlay) {
 // Takes a document's two builds from /api/revisions (null: not a figure document) and draws them anew, the current one
 // shown.
 function setRevisionOverlay(overlay: RevisionOverlay | null) {
-  REVISION_VIEW.overlay = overlay;
-  REVISION_VIEW.side = OVERLAY_SIDE.CUR;
+  replaceRevisionOverlay(overlay);
   renderRevisionOverlay();
   drawRevisionSide();
 }
@@ -1070,10 +921,7 @@ function drawRevisionSide() {
 }
 // Shows the previous build's pages (side PREV, when there is one) or the current build's.
 function setRevisionSide(side: string | undefined) {
-  REVISION_VIEW.side =
-    side === OVERLAY_SIDE.PREV && REVISION_VIEW.overlay && REVISION_VIEW.overlay.prev_build
-      ? OVERLAY_SIDE.PREV
-      : OVERLAY_SIDE.CUR;
+  chooseRevisionSide(side);
   drawRevisionSide();
 }
 // Brings that page of the overlay to the top of its view, once it is laid out ([변경 보기] of a pin on that page).
@@ -1101,28 +949,24 @@ async function loadRevisionSource(id: string, seq: number, docKey: string | null
     ).data;
     if (!revisionCurrent(seq, docKey, id)) return;
     if (base) {
-      REVISION_VIEW.rangeLine = rangeSummary(answer);
+      setRevisionRangeSummary(rangeSummary(answer));
       if (REVISION_VIEW.format === DIFF_FORMAT.SOURCE) $('#revision-status').textContent = REVISION_VIEW.rangeLine;
-      REVISION_VIEW.rangeN = {
-        commits: Number(answer.commits) || 0,
-        files: Array.isArray(answer.files) ? answer.files.length : 0,
-      };
+      countRevisionRange(answer);
       restateCompareStatus();
-      REVISION_VIEW.rangeIds = Array.isArray(answer.commit_ids) ? answer.commit_ids : [];
-      REVISION_VIEW.rangeBase = String(answer.base || '');
+      rememberRangeCommits(answer);
       if (REVISION_VIEW.range.mode === RANGE_MODE.LAST && REVISION_VIEW.seen && base === REVISION_VIEW.seen.id)
         seenAnswered(answer);
       drawRange();
     }
     // a pin's own hunks when it owns part of the commit; otherwise the whole commit
     const pinScope = answer.scope && answer.scope.mode === SCOPE_MODE.PIN ? answer.scope : null;
-    REVISION_VIEW.scope = answer.scope || null;
+    setRevisionPinScope(answer.scope || null);
     if (pinScope) {
       COMPARISON_SCOPE.partial = true;
       syncRevisionWhole();
     }
     const cut = '\n\n' + translate('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.');
-    REVISION_VIEW.whole = pinScope
+    const whole = pinScope
       ? pinScope.diff + (pinScope.truncated ? cut : '')
       : (answer.diff ||
           translate(
@@ -1130,7 +974,7 @@ async function loadRevisionSource(id: string, seq: number, docKey: string | null
               ? '이 범위에서 표시할 원고 텍스트 변경이 없습니다.'
               : '이 커밋에서 표시할 원고 텍스트 변경이 없습니다.',
           )) + (answer.truncated ? cut : '');
-    REVISION_VIEW.files = revisionFiles(pinScope ? pinScope.diff : answer.diff || '');
+    keepRevisionSource(whole, revisionFiles(pinScope ? pinScope.diff : answer.diff || ''));
     drawRevisionOther(pinScope);
     const select = $('#revision-file');
     setHtml(
@@ -1139,7 +983,7 @@ async function loadRevisionSource(id: string, seq: number, docKey: string | null
     );
     select.value = 'all';
     $('#revision-file-row').hidden = REVISION_VIEW.files.length < 2;
-    REVISION_VIEW.sourceCommit = revisionKey();
+    markRevisionSourceLoaded();
     const target = REVISION_VIEW.target,
       fileIndex = target ? pinFileIndex(REVISION_VIEW.files, target.file) : -1;
     if (fileIndex >= 0 && REVISION_VIEW.files.length > 1) select.value = String(fileIndex);
@@ -1209,36 +1053,6 @@ function matchRevision(ref: unknown, rows: { id: string; subject?: string }[], r
   }
   return null;
 }
-function pinFileIndex(files: RevisionFile[], file: string) {
-  file = String(file || '');
-  let best = -1,
-    bestLength = 0;
-  files.forEach((entry, index) => {
-    const name = entry.name;
-    if (name && (file === name || file.endsWith('/' + name)) && name.length > bestLength) {
-      best = index;
-      bestLength = name.length;
-    }
-  });
-  return best;
-}
-function hunkRanges(text: string) {
-  const out: number[][] = [];
-  for (const match of String(text || '').matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const start = +match[1],
-      count = match[2] === undefined ? 1 : +match[2];
-    out.push([start, start + Math.max(count, 1) - 1]);
-  }
-  return out;
-}
-// A target without lines (a region pin's) touches none.
-function touchesPin(files: RevisionFile[], target: RevTarget, slack?: number) {
-  const index = pinFileIndex(files, target.file),
-    { lo: first, hi: last } = target;
-  if (index < 0 || first == null || last == null) return false;
-  const reach = slack == null ? 5 : slack;
-  return hunkRanges(files[index].text).some(([start, end]) => end >= first - reach && start <= last + reach);
-}
 // A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows
 // reads further pages until found or the window ends, as the server resolves it), else the most recent of the first
 // REVISION_RECENT rows that touched the pin's lines, else the newest.
@@ -1276,102 +1090,6 @@ async function pickRevisionFor(
     }
   }
   return { id: recent[0].id, via: 'latest' };
-}
-// The guide line (#revision-pin) for the pin the view was opened for: which commit it shows and why, what the format
-// shown can say of the pin's lines (message, when given, in their place), and the review access this person lacks.
-function drawPinGuide(message?: string) {
-  const target = REVISION_VIEW.target,
-    box = $('#revision-pin');
-  if (!target) {
-    box.hidden = true;
-    return;
-  }
-  const via =
-    tableEntry(
-      {
-        sha: translateTemplate('참조의 커밋 {tok}', { tok: target.tokOf || '' }),
-        pr: translate('참조의 PR'),
-        lines: translate('이 줄을 바꾼 가장 최근 커밋'),
-        latest: translate('참조로 커밋을 찾지 못해 가장 최근 커밋'),
-      },
-      target.via,
-    ) || '';
-  const where = target.region
-    ? translateTemplate('쪽 {page} 영역', { page: target.page })
-    : target.name + ' ' + lineRange(target.lo, target.hi);
-  const pinScope =
-    REVISION_VIEW.format === DIFF_FORMAT.SOURCE && REVISION_VIEW.scope && REVISION_VIEW.scope.mode === SCOPE_MODE.PIN
-      ? REVISION_VIEW.scope
-      : null;
-  const scopeText = pinScope
-    ? translateTemplate('이 핀의 변경 {n}곳만 보입니다', { n: pinScope.hunks }) +
-      ' (' +
-      translate(pinScope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') +
-      ') · '
-    : '';
-  let text = message
-    ? translate(message)
-    : REVISION_VIEW.format === DIFF_FORMAT.RENDERED
-      ? target.mdcMsg || translate('두 판을 그려 견주는 중입니다.')
-      : REVISION_VIEW.format === DIFF_FORMAT.OVERLAY
-        ? translateTemplate('직전 빌드와 지금 빌드의 {page}쪽을 겹쳐 보입니다 — [이전]·[지금]으로 바꿔 보세요', {
-            page: target.page,
-          }) + (REVISION_VIEW.history ? ' · ' + translate('고친 줄은 [소스 diff]') : '')
-        : scopeText +
-          (REVISION_VIEW.format === DIFF_FORMAT.PDF
-            ? translateTemplate(
-                '비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',
-                { page: target.page },
-              )
-            : translate(
-                target.hit === false
-                  ? '이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다'
-                  : target.near
-                    ? '핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다'
-                    : '강조한 줄이 핀 범위입니다',
-              ));
-  const pin = findAnyPin(target.id),
-    access = pin && pinState(pin) === PIN_STATE.REVIEW && !canConfirmReview() ? confirmAccessText() : '';
-  setHtml(
-    box,
-    html`<span><b>${translateTemplate('핀 #{id}', { id: target.id })}</b> · ${where}${target.ref ? ' · ' + translateTemplate('참조 {ref}', { ref: target.ref }) : ''}${via ? ' · ' + via : ''}</span><span class="rp-msg">${text}${access ? html` <span class="review-access">${access}</span>` : ''}</span>`,
-  );
-  box.dataset.id = String(target.id);
-  box.hidden = false;
-  drawPinGuideActions();
-}
-// The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this
-// person may confirm (a person with write access, not a view-only region pin), the card's [확인] - the same
-// data-act="confirm" and confirmPin(), soft for the author as on the card. On the phone and tablet sheet they sit in
-// the thumb row (#revision-acts) right above the status line and the tool bar; in the other bands at the guide line's
-// right. Redrawn on a band change and whenever the pin lists change.
-function drawPinGuideActions() {
-  const target = REVISION_VIEW.target,
-    row = $('#revision-acts'),
-    narrow = LAYOUT === LAYOUT_MODE.NARROW;
-  $$('.rp-acts').forEach((element) => element.remove());
-  if (!target || $('#revision-pin').hidden) {
-    row.hidden = true;
-    document.body.classList.remove('rev-thumb');
-    return;
-  }
-  const pin = findAnyPin(target.id),
-    confirm = !!pin && pinState(pin) === PIN_STATE.REVIEW && !target.region && canConfirmReview();
-  const backDoc = REVISION_VIEW.back && REVISION_VIEW.back !== DOC ? docInfo(REVISION_VIEW.back) : null,
-    back = backDoc ? backDoc.name : null,
-    actionBox = document.createElement('span');
-  actionBox.className = 'rp-acts';
-  const confirmButton = confirm
-    ? html`<button class="btn-sm b-confirm ${isMe(pin.author) ? 'btn-soft' : 'btn-secondary'}" data-act="confirm" data-tip="${TIP_TEXT.confirm}">확인</button>`
-    : '';
-  setHtml(
-    actionBox,
-    html`<button class="btn-sm" data-act="rev-back" data-tip="${back ? translateTemplate('{name} 원고 보기로 돌아갑니다', { name: back }) : translate('원고 보기로 돌아갑니다')}">${back ? translateTemplate('{name}(으)로', { name: back }) : translate('원고로')}</button>${confirmButton}`,
-  );
-  (narrow ? row : $('#revision-pin')).appendChild(actionBox);
-  row.dataset.id = String(target.id);
-  row.hidden = !narrow;
-  document.body.classList.toggle('rev-thumb', narrow);
 }
 // A target without lines (a region pin's) marks none and neither hits nor comes near.
 function highlightPinLines(target: RevTarget) {
@@ -1417,19 +1135,10 @@ function highlightPinLines(target: RevTarget) {
   const top = first;
   if (top) requestAnimationFrame(() => top.scrollIntoView({ block: 'center' }));
 }
-function findAnyPin(id: number | null) {
-  return (
-    OPEN_ALL.find((pin) => pin.id === id) ||
-    REVIEW_ALL.find((pin) => pin.id === id) ||
-    DONE_ALL.find((pin) => pin.id === id) ||
-    null
-  );
-}
 // REVISION_VIEW.back remembers the manuscript document that opened [변경 보기], so [원고로] returns there.
 // [원고로] and Esc in the changes view: back to the manuscript view, and to the document it was opened from.
 function returnToManuscript() {
-  const back = REVISION_VIEW.back;
-  REVISION_VIEW.back = null;
+  const back = takeReturnDocument();
   setViewMode(VIEW_MODE.MANUSCRIPT);
   if (back && back !== DOC && docInfo(back)) switchDoc(back);
 }
@@ -1446,8 +1155,7 @@ async function showChange(id: number) {
     await opening;
     if (DOC !== docKey || visit !== SWITCHSEQ) return;
   }
-  if (fromManuscript) REVISION_VIEW.back = back;
-  REVISION_VIEW.target = {
+  openRevisionTarget(fromManuscript, back, {
     id: pin.id,
     file: pin.file || pin.pdf || '',
     name:
@@ -1461,9 +1169,7 @@ async function showChange(id: number) {
     page: pinPlace(pin).page,
     ref: pin.close_ref || '',
     region: isRegion(pin),
-  };
-  const match = /\b[0-9a-f]{7,40}\b/.exec(REVISION_VIEW.target.ref);
-  REVISION_VIEW.target.tokOf = match ? match[0] : '';
+  });
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
   if (document.body.classList.contains('revision-open')) loadRevisions();
   else setViewMode(VIEW_MODE.REVISIONS);
@@ -1481,7 +1187,7 @@ async function revisionStart(body: Record<string, unknown>, seq: number, docKey:
   const left = () => {
     if (!revisionCurrent(seq, docKey, id)) return true;
     if (REVISION_VIEW.format === DIFF_FORMAT.PDF) return false;
-    REVISION_VIEW.pdfCommit = '';
+    setRevisionPdfKey('');
     if (box.textContent === waiting) box.textContent = '';
     return true;
   };
@@ -1571,7 +1277,7 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
     if (!revisionCurrent(seq, docKey, id)) return;
     lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
     const loading = lib.getDocument({ data: bytes, isEvalSupported: false, useWasm: false, enableXfa: false });
-    COMPARISON_PDF.loading = loading;
+    setComparisonLoading(loading);
     const pdf = await loading.promise;
     if (!revisionCurrent(seq, docKey, id)) {
       try {
@@ -1579,7 +1285,7 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
       } catch (error) {}
       return;
     }
-    COMPARISON_PDF.doc = pdf;
+    setComparisonDocument(pdf);
     const lead =
       pin && status.scope === SCOPE_MODE.PIN
         ? translateTemplate('핀 #{id}의 변경만', { id: pin }) + ' · '
@@ -1611,24 +1317,15 @@ async function loadRevisionPdf(id: string, seq: number, docKey: string | null) {
     }
   }
 }
+
 export {
-  REVISION_VIEW,
-  setTargetGuideLine,
-  COMPARISON_PDF,
   COMPARISON_SCOPE,
-  findAnyPin,
-  hunkRanges,
   loadRevisions,
   moreRevisions,
   pressRevisionRow,
   renderCommitList,
   renderRevisionFile,
   returnToManuscript,
-  revisionKey,
-  drawPinGuideActions,
-  drawPinGuide,
-  revisionCurrent,
-  revisionPinFor,
   setRevisionFormat,
   setRevisionRange,
   setRevisionSide,

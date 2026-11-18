@@ -426,8 +426,8 @@ class PureRules(unittest.TestCase):
             function drawStatus(){} function versionOutdated(){return VERSION.server&&VERSION.server!=='0.4.51'?VERSION.server:'';}
             async function api(){calls++; if(calls===1)return new Promise((_,no)=>{fail=no;}); return {data:{version:'0.4.99'}};}
             const idle=async()=>{for(let i=0;i<5;i++)await new Promise(r=>setTimeout(r,0));};
-            (async()=>{const out={}; const a=checkVersion(); checkVersion(); fail(new Error('reset')); await a; await idle();
-              out.left=[calls,VERSION.server,VERSION.busy]; await checkVersion(); await idle(); out.alone=calls;
+            (async()=>{const out={}; const a=checkVersion(drawStatus); checkVersion(drawStatus); fail(new Error('reset')); await a; await idle();
+              out.left=[calls,VERSION.server,VERSION.busy]; await checkVersion(drawStatus); await idle(); out.alone=calls;
               console.log(JSON.stringify(out));})();""",
         )
         self.assertEqual(got["left"], [2, "0.4.99", False])
@@ -1429,7 +1429,7 @@ class ARestartedServer(ChromiumTestCase):
 
     def checked(self, page):
         """Ask the server's version as the tab does (checkVersion) and wait for the answer; the version the tab holds."""
-        page.evaluate("VERSION.server=''; checkVersion()")
+        page.evaluate("VERSION.server=''; checkVersion(drawStatus)")
         until(page, "!VERSION.busy&&!!VERSION.server")
         return page.evaluate("VERSION.server")
 

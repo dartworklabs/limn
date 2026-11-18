@@ -32,7 +32,9 @@ import {
   COMPOSE,
   EDITOR,
   setEditorCurrent,
+  findAnyPin,
 } from '../app/state.ts';
+import { restoreDroppedPin } from './flow-restore.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import {
@@ -58,19 +60,19 @@ import {
   offersIn,
 } from '../platform/notices.ts';
 import { drawDocTabs, multiDoc } from '../documents/view-tabs.ts';
-import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
+import { setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { isElementLost, hasMark, isFrac, pinPlace } from '../pdf/view-figure.ts';
 import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
-import { recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
+import { recomputeOverlap, renderOverlapBanner } from '../composer/view-overlap.ts';
 import { mentionsMe } from './view-card-parts.ts';
 import { doneCard, drawTrash, openTrash, listDropped } from './view-cards.ts';
-import { drawReviewPick } from './flow-review-pick.ts';
+import { drawReviewPick } from './view-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
 import { renderAssignNew } from '../composer/input-mentions.ts';
-import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
+import { parkReply, renderReplyOutcome, replyNote } from './view-reply.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $, $$, eventElement, findMaybe, focusedElement, findClosest } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
@@ -111,6 +113,8 @@ import {
   markTabKey,
   markCoversMoved,
 } from './view-mark-covers.ts';
+import { REVISION_VIEW } from '../revisions/state.ts';
+import { drawPinGuideActions } from '../revisions/view-pin-guide.ts';
 
 async function loadPeople() {
   try {
@@ -138,7 +142,7 @@ let PINS_LOAD_SEQ = 0,
 function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof derivePinLists>) {
   const openBefore = OPEN_ALL,
     reviewBefore = REVIEW_ALL;
-  notePinChanges(openBefore, rows, dropped);
+  notePinChanges(openBefore, rows, dropped, gotoReview, (id) => restoreDroppedPin(id, loadPins));
   noteReviewChanges(reviewBefore, rows);
   noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
   setOpenAll(lists.openAll);
@@ -170,7 +174,7 @@ function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof der
   }
   const replyBox = REPLY;
   if (replyBox && !rows.some((pin) => pin.id === replyBox.id)) {
-    closeReply(false);
+    parkReply();
     lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다', NOTICE_KIND.WARN, null, {
       dot: NOTICE_DOT.SIDE,
     });
@@ -355,7 +359,7 @@ function drawPins() {
     reviewShown.map((pin) => pin.id),
     REVIEW_ALL.map((pin) => pin.id),
   );
-  // result rows while the section picks (pins/flow-review-pick.ts)
+  // result rows while the section picks (pins/view-review-pick.ts)
   if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
   drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
   updateReviewCount();
@@ -653,7 +657,7 @@ function focusCard(id: number) {
     HTMLElement,
   );
   if (target) target.focus({ preventScroll: true });
-} // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
+} // a result row (pins/view-review-pick.ts): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
 // drawn scrolls to the page the mark would be on.
 function jumpPin(id: number) {

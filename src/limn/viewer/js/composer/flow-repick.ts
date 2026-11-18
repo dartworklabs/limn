@@ -19,7 +19,7 @@ import { switchDoc } from '../documents/flow-switch.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
 import { kindFor } from './view-levels.ts';
 import { figureFields, pinPlace, repickElement } from '../pdf/view-figure.ts';
-import { cancelSelection } from './flow-pick.ts';
+import { cancelSelection } from './flow-selection.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE } from '../app/rules-tables.ts';

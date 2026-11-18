@@ -6,16 +6,17 @@ import { announce, digestBegin, digestSoon, lineNote } from '../platform/notices
 import { drawDocTabs } from './view-tabs.ts';
 import { switchDoc } from './flow-switch.ts';
 import { updateStaleBadge, updateSyncBadge } from './view-meta.ts';
-import { BUILD, pollBuild } from './view-build-chip.ts';
-import { DIGEST_TAIL_MS, awayTitle, checkDocUpdate, checkVersion, expectUpdate, versionDue } from './flow-updates.ts';
+import { BUILD, pollBuild } from './flow-build.ts';
+import { DIGEST_TAIL_MS, awayTitle, checkDocUpdate, expectUpdate } from './flow-updates.ts';
+import { checkVersion, versionDue, POLL_FAILS, setPollFails } from './flow-connection.ts';
 import { NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { BUILD_STATE, SYNC_STATE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery } from './state.ts';
 import { documentPins, markdownSurface, offlineQueue, pinNotifications } from './state-seams.ts';
+import { drawStatus } from './view-status.ts';
 let LAST_PINS_REVISION: string | null = null,
   LAST_SRC_MTIME: string | number | null = null,
-  POLL_FAILS = 0,
   LIGHT_TIMER: ReturnType<typeof setInterval> | undefined = undefined,
   LIGHT_INFLIGHT: Promise<void> | null = null;
 // Single-flight, the same pattern as pollBuild: when visibilitychange, focus and the 5-second timer call this together
@@ -75,7 +76,7 @@ function syncHiddenNotifyTimer() {
 // document visits. Back after AWAY_MS without an answer (the tab hidden, the device asleep, the connection lost), what
 // this poll and the build it may set going say is gathered into one message (platform/notices.ts digestBegin,
 // docs/handbook/viewer.md §새 소식); a poll back from that, or one every VERSION_EVERY_MS, asks which Limn the server
-// runs (documents/flow-updates.ts checkVersion).
+// runs (documents/flow-connection.ts checkVersion).
 let LIGHT_OK_AT = 0;
 const AWAY_MS = 120000;
 async function pollLightOnce() {
@@ -100,7 +101,7 @@ async function pollLightOnce() {
   } catch (error) {
     if (back) digestSoon();
     if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-    POLL_FAILS++;
+    setPollFails(POLL_FAILS + 1);
     // read out once, as it is lost (rule 1)
     if (POLL_FAILS === 2) announce(translate('연결 끊김 · 다시 잇는 중'), true);
     if (POLL_FAILS >= 2) $('#conn-lost').hidden = false;
@@ -113,9 +114,9 @@ async function pollLightOnce() {
     if (back) digestSoon(DIGEST_TAIL_MS);
     return;
   } // a return to the same document is a new visit too
-  POLL_FAILS = 0;
+  setPollFails(0);
   $('#conn-lost').hidden = true;
-  if (back || was > 0 || versionDue()) checkVersion();
+  if (back || was > 0 || versionDue()) checkVersion(drawStatus);
   // the connection is back: the pins kept while it was gone are written (offline/flow.ts)
   if (was > 0 && offlineQueue().queued()) void offlineQueue().flush();
   updateStaleBadge(meta);
@@ -222,12 +223,4 @@ function offlineNow() {
   return POLL_FAILS >= 2 || navigator.onLine === false;
 }
 
-export {
-  POLL_FAILS,
-  pollLight,
-  setLastPinsRevision,
-  setLastSrcMtime,
-  startLightPolling,
-  syncHiddenNotifyTimer,
-  offlineNow,
-};
+export { pollLight, setLastPinsRevision, setLastSrcMtime, startLightPolling, syncHiddenNotifyTimer, offlineNow };

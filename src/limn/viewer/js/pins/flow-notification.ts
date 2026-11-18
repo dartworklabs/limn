@@ -9,13 +9,12 @@
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
-import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ } from '../app/state.ts';
+import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ, findAnyPin } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { prefs, savePrefs, setSectionOpen } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { announce, groupNote, quietNote } from '../platform/notices.ts';
 import { hashDoc } from '../documents/view-tabs.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
 import { syncHiddenNotifyTimer } from '../documents/flow-polling.ts';
 import { setSide } from '../layout/flow.ts';

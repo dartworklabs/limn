@@ -13,9 +13,9 @@ import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from '../platform/notices.ts';
 import { hideTip, showTipText } from '../platform/tooltip.ts';
 import { SYNC_REASON } from './view-meta.ts';
-import { POLL_FAILS } from './flow-polling.ts';
-import { BUILD, setBuildUnchanged, pullSuffix } from './view-build-chip.ts';
-import { versionOutdated } from './flow-updates.ts';
+import { POLL_FAILS, versionOutdated } from './flow-connection.ts';
+import { pullSuffix } from './view-build-chip.ts';
+import { setBuildUnchanged, SHOWN_BUILD } from './state-build.ts';
 import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
 import { $, findElement, findMaybe, focusedElement } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
@@ -302,14 +302,14 @@ function statusAct(item: StatusItem) {
   return html`<button class="btn-sm st-act ${item.act === 'rebuild' || reload ? 'btn-default' : 'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;
 }
 
-// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and
+// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (SHOWN_BUILD.cur) and
 // the last failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG -
 // plus whether this document and person may rebuild.
 function statusInput() {
   return {
     notices: LINE,
-    build: BUILD.cur,
-    buildErr: BUILD.error,
+    build: SHOWN_BUILD.cur,
+    buildErr: SHOWN_BUILD.error,
     offline: POLL_FAILS >= 2,
     queued: offlineQueue().queued(),
     held: offlineQueue().held(),
@@ -318,7 +318,7 @@ function statusInput() {
     stale: !$('#meta-stale').hidden,
     png: !$('#vec-chip').hidden,
     canRebuild: !!META && buildsFromSource(META.kind) && !isViewer(),
-    unchanged: BUILD.unchanged,
+    unchanged: SHOWN_BUILD.unchanged,
   };
 }
 
@@ -330,7 +330,7 @@ function buildUnchanged(build: BuildStatus) {
   setBuildUnchanged(mark);
   drawStatus();
   setTimeout(() => {
-    if (BUILD.unchanged !== mark) return;
+    if (SHOWN_BUILD.unchanged !== mark) return;
     setBuildUnchanged(null);
     drawStatus();
   }, STATUS_TRANSIENT_MS);
@@ -349,7 +349,7 @@ function buildUnchanged(build: BuildStatus) {
 // [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
-    running = !!BUILD.cur;
+    running = !!SHOWN_BUILD.cur;
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
   const held =

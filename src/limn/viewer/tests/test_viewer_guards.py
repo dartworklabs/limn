@@ -824,7 +824,7 @@ class GuardRules(unittest.TestCase):
         self.assertEqual(got, [True, False, False, False, False])
 
     def test_the_grips_hint_is_empty_text_when_the_markup_gives_none(self):
-        """GRIP_TIP (layout/flow.ts) is the handle's data-tip, which the open handle's hint is translated from; a handle
+        """GRIP_TIP (layout/view-panel-grip.ts) is the handle's data-tip, which the open handle's hint is translated from; a handle
         without one gives empty text, not undefined (which the hint would have shown as 'undefined')."""
         got = self.run_js(
             "let TIP;",

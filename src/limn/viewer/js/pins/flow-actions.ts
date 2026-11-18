@@ -13,7 +13,9 @@ import {
   setReviewAll,
   EDITOR,
   setEditorCurrent,
+  findAnyPin,
 } from '../app/state.ts';
+import { restoreDroppedPin } from './flow-restore.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { api, isApiError, isRefusal } from '../platform/api.ts';
 import {
@@ -30,7 +32,7 @@ import {
   sourceOk,
   undoNote,
 } from '../platform/notices.ts';
-import { findAnyPin, showChange } from '../revisions/flow.ts';
+import { showChange } from '../revisions/flow.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { drawTrash } from './view-cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './flow-list.ts';
@@ -284,28 +286,8 @@ function purgePin(id: number) {
     prev: cardBefore,
   });
 }
-// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is
-// there. Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure
-// says itself where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the
-// request is answered, before the list reload (trashRestore's bound is the request's).
-async function restorePin(id: number | null, settled?: () => void): Promise<boolean> {
-  let ok = false;
-  try {
-    await api('POST /api/pins/{id}/restore', {
-      id,
-      what: '되살리기',
-      where: NOTICE_HOST.LIST,
-      retry: () => {
-        restorePin(id);
-      },
-    });
-    ok = true;
-    markMine(id);
-    quietNote(translateTemplate('핀 #{id} 되살림', { id }));
-  } catch (error) {}
-  if (settled) settled();
-  await loadPins();
-  return ok;
+function restorePin(id: number | null, settled?: () => void) {
+  return restoreDroppedPin(id, loadPins, settled);
 }
 // [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it
 // without an answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash
@@ -367,4 +349,4 @@ async function unclaimPin(id: number | null) {
   } catch (error) {}
   await loadPins();
 }
-export { closePin, confirmPin, dropPin, purgePin, restorePin, trashRestore, unclaimPin };
+export { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin, restorePin };

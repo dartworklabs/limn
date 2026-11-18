@@ -5,14 +5,14 @@
 // that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
 // edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
 // diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
-import { BAND, DOC, META, isFigureKind, COMPOSE, EDITOR, setComposeIntent } from '../app/state.ts';
+import { BAND, DOC, META, isFigureKind, COMPOSE, EDITOR, setComposeIntent, findAnyPin } from '../app/state.ts';
+import { suggestEdited, SUGGEST_DRAFT, suggestDraft } from './state-suggest.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { countAddedHidden, findHidden, markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api, isRefusal } from '../platform/api.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
-import { renderOverlapBanner } from './flow-pick.ts';
+import { renderOverlapBanner } from './view-overlap.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import type { Html } from '../platform/markup.ts';
 import { $, findElement } from '../platform/dom.ts';
@@ -22,7 +22,6 @@ import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/st
 import { composerVerdict } from './state-seams.ts';
 import { onLines } from './view-levels.ts';
 import type { RangeOwner } from './view-levels.ts';
-import { SUGGEST_DRAFT, suggestDraft } from './state-suggest.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;
@@ -67,10 +66,6 @@ function suggestOff(
   if (isFigureKind(docKind)) return SUGGEST_OFF.FIGURE;
   if (!owner || owner.region || isRegion(owner) || owner.lo == null || owner.hi == null) return SUGGEST_OFF.REGION;
   return owner.hi - owner.lo + 1 > SUGGEST_LINES ? SUGGEST_OFF.LONG : null;
-}
-/** Whether a draft holds a text other than the one it was filled from (a draft never filled is not edited). Pure. */
-function suggestEdited(draft: SuggestDraft): boolean {
-  return draft.base != null && draft.text !== draft.base;
 }
 /** The lines an owner is, as a draft records them: 'file:lo-hi'. Pure. */
 function suggestKey(owner: { file?: string | null; lo?: number; hi?: number }): string {
@@ -499,12 +494,6 @@ function renderSuggest(selection: ComposerSelection) {
   composerVerdict().drawRow(); // [제안 수정] on turns the verdict buttons off
   if (BAND === LAYOUT_BAND.TABLET_SHEET) applySheet();
 }
-// Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
-// ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).
-function suggestPending() {
-  return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
-}
-
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of an edit card's document (an unknown one is LaTeX).
 function editDocKind(card: EditCard): string | undefined {
@@ -620,12 +609,10 @@ export {
   renderSuggest,
   suggestAct,
   suggestBadge,
-  suggestEdited,
   suggestForEdit,
   suggestForSave,
   suggestOfPin,
   suggestOff,
-  suggestPending,
   suggestRebase,
   suggestView,
 };

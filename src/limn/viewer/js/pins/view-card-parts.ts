@@ -1,12 +1,11 @@
-import { DOC, DROPPED, META, PEOPLE, PINS, REPLY, SHOW_ALL, THREAD_OPEN } from '../app/state.ts';
+import { DOC, DROPPED, META, PEOPLE, PINS, REPLY, SHOW_ALL, THREAD_OPEN, findAnyPin } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
 import { markHiddenPlain } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate, josa } from '../platform/i18n.ts';
 import { multiDoc } from '../documents/view-tabs.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
 import { isMarkdownPin } from '../markdown/view.ts';
-import { quoteInner, shownQuote } from '../composer/flow-pick.ts';
+import { quoteInner, shownQuote } from '../composer/flow-selection.ts';
 import { nameShared, personLabel, mentionAfterWord } from '../composer/input-mentions.ts';
 import type { Html } from '../platform/markup.ts';
 import {

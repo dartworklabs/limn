@@ -26,6 +26,7 @@ import {
   EDITOR,
   setComposeRetryVerdict,
   topPinId,
+  findAnyPin,
 } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
@@ -47,7 +48,6 @@ import {
   undoNote,
 } from '../platform/notices.ts';
 import { SWALLOW_CLICK, hideTip } from '../platform/tooltip.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { pdfAreaInnerWidth } from '../pdf/view-pages.ts';
 import { SCROLL_KEYS } from '../pdf/view-outline.ts';
 import { setSide, topAnchor } from '../layout/flow.ts';
@@ -59,7 +59,6 @@ import {
   setReasonSeen,
   WITHDRAWN_PINS,
   focusLine,
-  isReasonField,
   isKeyGuarded,
   fillReasonField,
   refocusAfterLines,
@@ -79,10 +78,9 @@ import {
   settleFailedCancelDraft,
   setKeyGuard,
   setReasonSession,
+  leaveReasonOffPage,
 } from './flow-reason.ts';
 import {
-  HELD_READING_PAGE,
-  BUILD_READING_PAGE,
   IS_BESIDE_PAGES,
   bringPage,
   flashPanelOn,
@@ -103,6 +101,10 @@ import {
   shouldStandBeside,
   markReadingSummary,
   drawSummaries,
+  pageUnderReadingLine,
+  sayGliding,
+  readingPageWithLine,
+  flashPanel,
 } from './view-panel.ts';
 import { claimActive } from '../pins/view-card-parts.ts';
 import { PINS_APPLIED_SEQ, loadPins } from '../pins/flow-list.ts';
@@ -161,17 +163,31 @@ import {
   WHOLE_PAGE,
   pageTakesVerdict,
   pageTargetOf,
-  verdictOrder,
   pageVerdictPins,
   verdictStateWord,
+  canCancelVerdict,
+  pageTargetShort,
+  figureShort,
+  currentVerdictOn,
+  pageLineName,
 } from './view-pins.ts';
 import { FAR_OBSERVER, FAR_HEIGHT, holdFarLines, letFarLinesGo, watchFarLines } from './view-far-lines.ts';
 import { getDraft, putDraft } from './state-drafts.ts';
+import {
+  SAVING_LINES,
+  pageLineSlot,
+  KEY_SAVE_OUT,
+  READING_LINE_PAGE,
+  KEYED_PAGE,
+  setReadingLinePages,
+} from './state-lines.ts';
+import { fitWrappedWords, LINE_TEXT, keepFocusOnLine } from './view-line.ts';
+import { isReasonField } from './view-reason-field.ts';
+import { stickSoon } from './state-line-renderer.ts';
 
 // The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
 // card's [보기] goes to the line (marks, jumpPin).
 let SHOWN_ON_PAGE_LINES: Set<number> = new Set();
-let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VERDICT_PLACE) and - on a page line - the page, with the document, build and
@@ -511,21 +527,6 @@ function figureName(page: number, root: string) {
     title = facts && facts.figure === root && facts.title ? facts.title : '';
   return translateTemplate('{page}쪽', { page }) + ' · ' + (title || translateTemplate('그림 {id}', { id: root }));
 }
-// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the
-// composer's lead, the floating line and the status line's undo, which say which figure a verdict is for before and
-// after the press.
-function figureShort(page: number, root: string) {
-  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return facts && facts.figure === root && facts.title ? facts.title : root;
-}
-// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's
-// figure), else the page ('7쪽').
-function pageTargetShort(page: number) {
-  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return META && isFigureKind(META.kind) && facts && typeof facts.figure === 'string'
-    ? figureShort(page, facts.figure)
-    : translateTemplate('{page}쪽', { page });
-}
 // The figure a figure document's selection is about - the root of its element's path - or null: not a figure document,
 // or a pick without an element (a map it could not read).
 function figureVerdictRoot(selection: ComposerSelection | null): string | null {
@@ -634,15 +635,6 @@ ${why ? html`<span class="vd-why" id="c-verdict-why">${why}</span>` : ''}`,
   else row.removeAttribute('aria-describedby');
   fitWrappedWords(row.querySelector('.vd-btns'));
   if (inRow) refocusVerdictButton(focused);
-}
-// A word group that wraps (the 280px panel in English with a word armed) keeps every button at its own width,
-// left-aligned (.wrapped): stretched to share the row, a lone last word would run across the whole second row. Measured
-// after drawing and when the row's width changes; the class changes how the buttons grow, never where they wrap, so it
-// never measures itself again.
-function fitWrappedWords(group: Element | null) {
-  if (!group) return;
-  const tops = new Set([...group.children].map((button) => Math.round(button.getBoundingClientRect().top)));
-  group.classList.toggle('wrapped', tops.size > 1);
 }
 if (typeof ResizeObserver !== 'undefined') {
   const row = document.getElementById('c-verdict-row');
@@ -782,21 +774,9 @@ function pageVerdictBody(answer: PickAnswer, kind: string | undefined): Record<s
     ? { page: answer.page, frac: answer.frac, quote: answer.quote, pdf_build: answer.pdf_build || undefined }
     : null;
 }
-// A page line's pending state is keyed by its document and page (pageLineSlot): a save held on one document's page must
-// not hold, queue or end the same page number's line of another document.
-/** @param [doc] - default: the document on screen */
-function pageLineSlot(page: number, doc?: string | null) {
-  return (doc === undefined ? DOC || '' : doc || '') + '\u0001' + page;
-}
-// the page lines whose verdict is being saved (pageLineSlot), with the word it saves
-const SAVING_LINES: Map<string, string> = new Map();
 // The press made on a line while its save was out, by line (pageLineSlot) - the last one: applied when that save is
 // done (pressPageVerdict).
 const NEXT_PRESS: Map<string, { key: string; how: string }> = new Map();
-// The lines whose save out was a digit key's (pageLineSlot): Enter on any control of that line then means the reason,
-// one intent with the key (openReasonOnEnter). On the word the focus rests on it pressed that word: a second verdict,
-// over the one being saved.
-const KEY_SAVE_OUT: Set<string> = new Set();
 // A line whose word was just taken back by pressing it again (pageLineSlot): that word waits until then (a double press
 // takes back one).
 const TAKEN_BACK_HOLD: Map<string, { key: string; until: number }> = new Map();
@@ -913,15 +893,6 @@ function pageSaveContext(page: number): {
     target: pageTargetShort(page),
     visit: captureVisit(),
   };
-}
-// The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
-function currentVerdictOn(doc: string | null, page: number): Pin | null {
-  if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
-  let best: Pin | null = null;
-  verdictOrder(doc || DEFAULT_DOC).groups.forEach((group) => {
-    if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
-  });
-  return best;
 }
 // A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
 // answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a
@@ -1141,24 +1112,6 @@ async function savePageVerdict(
     settleFailedCancelDraft(slot);
   }
 } // a failed take-back's draft that waited for this save (a next save started just now waits on)
-// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the
-// figure's code, '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the
-// rest; else the figure id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'), so the name
-// next to the buttons always says which figure a press decides. A view-only PDF's page is its page alone.
-function pageLineName(page: number): { id: string; rest: string } {
-  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
-    at = translateTemplate('{page}쪽', { page });
-  if (!META || !isFigureKind(META.kind) || !facts || typeof facts.figure !== 'string') return { id: at, rest: '' };
-  const title = facts.title ? String(facts.title) : '';
-  if (!title) return { id: at + ' · ' + facts.figure, rest: '' };
-  const index = title.indexOf(' · '),
-    head = index > 0 ? title.slice(0, index) : '',
-    match = /^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
-  if (!head) return { id: at, rest: title };
-  return match
-    ? { id: at + ' · ' + match[2], rest: match[1] + ' ' + title.slice(index + 3) }
-    : { id: at + ' · ' + head, rest: title.slice(index + 3) };
-}
 // Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and
 // redrawn while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile
 // (savePageVerdict watches for that) or it is on something now.
@@ -1174,14 +1127,6 @@ function refocusLineWord(page: number, key: string) {
     button.focus({ preventScroll: true });
 }
 // ---------------- Taking one's verdict back
-// Whether the line offers [판정 취소] on a verdict pin, its page's current verdict: the person's own (isMe), still open
-// - not yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16,
-// nor a viewer). A pin whose [확인] waits for its undo is not open.
-function canCancelVerdict(pin: Pin) {
-  return (
-    !!verdictOf(pin) && canVerdict() && isMe(pin.author) && pinState(pin) === PIN_STATE.OPEN && !CONFIRMING.has(pin.id)
-  );
-}
 // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
 const CANCEL_HOLD_MS = 800;
 const CANCEL_HOLD: Map<string, number> = new Map(); // line (pageLineSlot) -> until when its [판정 취소] waits
@@ -1535,7 +1480,6 @@ function showPressedHint(page: number) {
 // rewritten one would send the click to the line), and the focus stays where it was, also on a '#N' whose number just
 // changed. A line whose words are what it shows is left alone. Every verdict pin the line accounts for - the current
 // one and the earlier ones - draws no page-size mark.
-const LINE_TEXT: WeakMap<HTMLElement, string> = new WeakMap(); // what fillPageLine last wrote into each line
 function fillPageLine(line: HTMLElement, page: number, list: Pin[] | undefined, verdicts: DocVerdicts) {
   line.dataset.page = String(page);
   line.classList.toggle('reading', READING_LINE_PAGE === page);
@@ -2054,28 +1998,6 @@ function keySaveStateCut(line: HTMLElement, state: Element, difference: number):
   const earlierRoom = earlierLinkRoom(state);
   return earlierRoom ? Math.min(difference, earlierRoom) : 0;
 }
-// A focus on a control of one of these lines that its fitting just took out - the earlier link stepping out at a tight
-// row's bar (.pv-early-out), or beside 'Enter 이유 쓰기' or [되돌리기] on a row that turned tight (components.css),
-// after a resize, a zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control
-// before it on its line ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the
-// focus on it, the link would take the focus away to nothing and the next Tab would start from the top (Chromium lets a
-// hidden focus go a moment later: the move is made before that). Every way the fitting hides a control comes through
-// here, and so does a phone's floating line holding [판정 취소] back (leanFloatingLine).
-function keepFocusOnLine(lines: HTMLElement[]) {
-  const active = focusedElement(),
-    line = active ? findClosest(active, '#doc .pv', HTMLElement) : null;
-  if (
-    !active ||
-    !line ||
-    !lines.includes(line) ||
-    (active.getClientRects().length && getComputedStyle(active).visibility !== 'hidden')
-  )
-    return;
-  const controls = [...line.querySelectorAll(TABBABLE)].filter(isTabStop),
-    before = controls.filter((x) => !!(x.compareDocumentPosition(active) & Node.DOCUMENT_POSITION_FOLLOWING));
-  const to = before.length ? before[before.length - 1] : controls[0];
-  if (to) to.focus({ preventScroll: true });
-}
 // The room a state's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or
 // 0 where it shows none.
 function earlierLinkRoom(state: Element): number {
@@ -2315,6 +2237,11 @@ const CHIP_WATCH =
         drawPageVerdicts();
       })
     : null;
+
+/** Observe chip changes on page lines and on the panel that can take their place. */
+function watchLineChips(line: HTMLElement) {
+  CHIP_WATCH?.observe(line, { childList: true });
+}
 // Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page
 // verdicts every line goes and the marks draw every pin.
 function drawPageVerdicts() {
@@ -2341,14 +2268,14 @@ function drawPageVerdicts() {
   try {
     syncReasonSession();
     const map = pageVerdictPins();
-    READING_LINE_PAGE = heldReadingPage();
-    KEYED_PAGE = keyedPageFor(READING_LINE_PAGE);
+    const readingPage = heldReadingPage();
+    setReadingLinePages(readingPage, keyedPageFor(readingPage));
     // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size
     // mark.
     if (IS_BESIDE_PAGES) {
       $$('#doc .pgw>.pv').forEach((element) => element.remove());
       map.forEach((list) => list.forEach((pin) => SHOWN_ON_PAGE_LINES.add(pin.id)));
-      fillPanel(map, verdicts);
+      fillPanel(map, verdicts, leaveReasonOffPage);
     } else {
       removePanel();
       findAll(document, '#doc .pg', HTMLElement).forEach((pageElement) => {
@@ -2363,7 +2290,7 @@ function drawPageVerdicts() {
           line = document.createElement('div');
           line.className = 'pv';
           pageElement.after(line);
-          if (CHIP_WATCH) CHIP_WATCH.observe(line, { childList: true });
+          watchLineChips(line);
         }
         fillPageLine(line, page, map.get(page), verdicts);
       });
@@ -2492,13 +2419,12 @@ function stickReadingLine() {
     // the person moved on: they are not typing on into a field that went
     if (readingPage !== READING_LINE_PAGE) setKeyGuard(false);
     const was = [READING_LINE_PAGE, KEYED_PAGE];
-    READING_LINE_PAGE = readingPage;
-    KEYED_PAGE = keyedPage;
+    setReadingLinePages(readingPage, keyedPage);
     const map = pageVerdictPins(),
       verdicts = pageVerdictsOn();
     const refit: HTMLElement[] = [];
     if (verdicts && IS_BESIDE_PAGES) {
-      fillPanel(map, verdicts);
+      fillPanel(map, verdicts, leaveReasonOffPage);
       refit.push(ensurePanel());
     } // the panel shows the new reading page
     else if (verdicts)
@@ -2728,31 +2654,11 @@ function measureInsetRight() {
   }
   return Math.max(0, Math.round(edge - right));
 }
-// The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF
-// area's top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is
-// now.
-function pageUnderReadingLine() {
-  // the lines are moving beside or under the pages (verdict/view-panel.ts)
-  if (HELD_READING_PAGE) return HELD_READING_PAGE;
-  if (BUILD_READING_PAGE) return BUILD_READING_PAGE; // the pages are being built again (refreshDoc)
-  if (!pageVerdictsOn() || document.body.classList.contains('revision-open') || !$('#left').getClientRects().length)
-    return 0;
-  const anchor = topAnchor(readingDepth($('#left')));
-  return anchor ? anchor.page : 0;
-}
-// The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure
-// (READING_LINE_PAGE).
-function readingPageWithLine() {
-  const page = pageUnderReadingLine();
-  return page && pageTakesVerdict(page) ? page : 0;
-}
 // The page the keys 1-5 act on: the reading page while this screen may make a verdict, no selection is being written
 // and no text field has the focus (its digits are text).
 function keyedPageFor(readingPage: number) {
   return readingPage && canVerdict() && $('#composer').hidden && !typingNow() ? readingPage : 0;
 }
-let READING_LINE_PAGE = 0; // the reading page with a line: its line floats and names its figure
-let STICK_FRAME = 0;
 // Whether an element shows in the PDF area now (any part of it).
 function isInAreaView(element: Element) {
   const area = $('#left'),
@@ -2819,13 +2725,6 @@ function stopOffPageKey(event: KeyboardEvent) {
 }
 window.addEventListener('keydown', stopOffPageKey, true);
 window.addEventListener('keyup', stopOffPageKey, true); // keyup: a button's Space acts on its keyup
-function stickSoon() {
-  if (!STICK_FRAME)
-    STICK_FRAME = requestAnimationFrame(() => {
-      STICK_FRAME = 0;
-      stickReadingLine();
-    });
-}
 $('#left').addEventListener('scroll', stickSoon, { passive: true });
 window.addEventListener('resize', stickSoon);
 {
@@ -2977,13 +2876,6 @@ $('#left').addEventListener('scrollend', () => {
   setJumpTarget(null);
   setGliding(false);
 });
-// Said once while the pages glide: the key was not taken, press it again once they rest.
-function sayGliding() {
-  lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다', NOTICE_KIND.INFO, null, {
-    source: 'verdict-key',
-    life: NOTICE_LIFE.TIMER,
-  });
-}
 // Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line -
 // its first control - not to the first page's line, whose focus would scroll the document there. The focus on nothing
 // (body) counts as on the PDF area after a press there: a press on a page leaves the focus where it was, and Chromium's
@@ -3225,38 +3117,36 @@ window.addEventListener('keydown', (event) => {
     to.scrollIntoView({ block: 'nearest' });
   }
 }); // an outline entry comes into the outline's view; the pages stay
+
+// A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes
+// to the panel's pressed word, else its first (focusLine); the panel flashes.
+function goToSummaryPage(summary: HTMLElement) {
+  const page = Number(summary.dataset.page) || 0;
+  if (!document.getElementById('p' + page)) return;
+  noteCameFrom(summary);
+  bringPage(page);
+  stickReadingLine();
+  const panel = document.getElementById('pv-panel');
+  if (!panel || panel.dataset.page !== String(page)) return;
+  focusLine(page);
+  flashPanel(panel);
+}
+
 export {
-  SAVING_LINES,
-  CHIP_WATCH,
-  KEYED_PAGE,
-  KEY_SAVE_OUT,
-  READING_LINE_PAGE,
-  LINE_TEXT,
+  watchLineChips,
   drawPageVerdicts,
-  figureShort,
   figureVerdictBody,
   figureVerdictRoot,
   fillPageLine,
   jumpToPageLine,
-  pageTargetShort,
-  noteCameFrom,
-  canCancelVerdict,
   cancelLineVerdict,
-  currentVerdictOn,
-  pageLineName,
-  keepFocusOnLine,
   undoFromLine,
-  pageUnderReadingLine,
-  readingPageWithLine,
-  sayGliding,
   isShownOnLine,
-  pageLineSlot,
   stickReadingLine,
-  stickSoon,
   renderVerdictRow,
   sizePageLines,
-  fitWrappedWords,
   verdictDropped,
   verdictPress,
   verdictUndo,
+  goToSummaryPage,
 };

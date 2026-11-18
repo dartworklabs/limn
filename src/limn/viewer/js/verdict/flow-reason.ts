@@ -30,7 +30,6 @@ import {
   REVIEW_ALL,
   captureVisit,
   currentVisit,
-  imeHeldIn,
   imeKey,
   imeTail,
   EDITOR,
@@ -41,22 +40,13 @@ import { api, isApiError } from '../platform/api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import {
-  SAVING_LINES,
-  KEYED_PAGE,
-  KEY_SAVE_OUT,
-  READING_LINE_PAGE,
-  drawPageVerdicts,
-  fillPageLine,
-  pageTargetShort,
-  canCancelVerdict,
-  currentVerdictOn,
+  IS_BESIDE_PAGES,
+  bringPage,
+  redrawOnBesideChange,
   pageUnderReadingLine,
   readingPageWithLine,
   sayGliding,
-  pageLineSlot,
-  stickReadingLine,
-} from './flow-line.ts';
-import { IS_BESIDE_PAGES, bringPage, redrawOnBesideChange } from './view-panel.ts';
+} from './view-panel.ts';
 import { PINS_APPLIED_SEQ, gotoPinRef, loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
 import {
@@ -76,7 +66,15 @@ import { isMe } from '../app/state-people.ts';
 import type { Visit } from '../app/state.ts';
 import { docInfo, verdictLabel, viewerBlocked, pageVerdictsOn } from '../documents/state.ts';
 import { isAutoScrolling, endJumpForScroll } from '../layout/flow-scroll.ts';
-import { canVerdict, pageTakesVerdict, pageTargetOf, pageVerdictPins } from './view-pins.ts';
+import {
+  canVerdict,
+  pageTakesVerdict,
+  pageTargetOf,
+  pageVerdictPins,
+  pageTargetShort,
+  canCancelVerdict,
+  currentVerdictOn,
+} from './view-pins.ts';
 import {
   readAllDrafts,
   saveAllDrafts,
@@ -97,6 +95,15 @@ import {
   draftsMovedOff,
   cutWrittenDrafts,
 } from './state-drafts.ts';
+import { SAVING_LINES, KEYED_PAGE, KEY_SAVE_OUT, READING_LINE_PAGE, pageLineSlot } from './state-lines.ts';
+import {
+  findReasonField,
+  isReasonField,
+  COMPOSING_FIELD,
+  setComposingField,
+  isComposingNow,
+} from './view-reason-field.ts';
+import { verdictLineRenderer } from './state-line-renderer.ts';
 import type { ReasonPart, ReasonTry } from './state-drafts.ts';
 
 // A pin's write lost its answer (`attempt`): every part moved off its key keeps it as evidence, stored and in a session
@@ -231,13 +238,6 @@ function isReasonOpenOn(page: number) {
 // The pin a reason session is for, from the lists, or undefined.
 function findReasonPin(id: number) {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).find((pin) => pin.id === id);
-}
-function isReasonField(target: unknown): target is HTMLTextAreaElement {
-  return target instanceof HTMLTextAreaElement && target.classList.contains('pv-reason');
-}
-// The open popover's field, or null.
-function findReasonField() {
-  return findMaybe(document, '#doc .pv-pop .pv-reason', HTMLTextAreaElement);
 }
 // Whether the session's text is something not yet written: not empty, not the reason it opened on, not what it wrote.
 function hasUnsavedReason(session: ReasonSession) {
@@ -426,7 +426,7 @@ function restoreKeptDrafts() {
 function showDraftLine(page: number) {
   if (IS_BESIDE_PAGES) {
     bringPage(page);
-    stickReadingLine();
+    verdictLineRenderer().stickReadingLine();
   } // beside the pages the panel is the line, once the page is read (verdict/view-panel.ts)
   const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return;
@@ -463,7 +463,7 @@ function closeReasonPopover(back: boolean) {
     pop = document.querySelector('#doc .pv-pop'),
     had = !!pop && pop.contains(document.activeElement);
   REASON_SESSION = null;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (!back) {
     if (had) searchToPage();
     return;
@@ -583,7 +583,7 @@ function openReason(page: number, focus: boolean) {
   }
   KEY_GUARD = false;
   hideTip();
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (focus) focusReasonField();
 }
 // Enter while page `page`'s save is still out (a fast typist: a key, then Enter at once): the Enter is the intent to
@@ -608,7 +608,7 @@ function openPendingReason(page: number) {
   REASON_SESSION = session;
   KEY_GUARD = false;
   hideTip();
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   focusReasonField();
 }
 // Page `page`'s save failed while a popover waited for its number: what was typed stays as the page's draft ('초안
@@ -633,7 +633,7 @@ function keepUnboundReason(page: number) {
       { literal: true },
     );
   }
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (!had) return;
   KEY_GUARD = true;
   if (!focusLine(page)) searchToPage();
@@ -817,7 +817,7 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-onto' },
   );
-  if (doc === DOC) drawPageVerdicts();
+  if (doc === DOC) verdictLineRenderer().drawPageVerdicts();
 }
 // A take-back of verdict pin id about page `page` of document doc failed (cancelVerdictPin): the verdict is back. Its
 // reason popover left with it (kept: that session, or null) and comes back with its text while nothing took its place:
@@ -840,7 +840,7 @@ function bringBackReason(id: number, page: number, doc: string | null, kept: Rea
     !(kept.writing && SAVING_LINES.has(pageLineSlot(page, doc)))
   ) {
     REASON_SESSION = kept;
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     return;
   }
   placeFailedCancelDraft(id, page, doc, !!kept);
@@ -899,7 +899,7 @@ function placeFailedCancelDraft(id: number, page: number, doc: string | null, sh
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-uncancel' },
   );
-  if (doc === DOC) drawPageVerdicts();
+  if (doc === DOC) verdictLineRenderer().drawPageVerdicts();
 }
 // The save on line `slot` answered (savePageVerdict, after it bound or kept a popover waiting for it): a failed
 // take-back's draft that waited for it is placed now.
@@ -928,7 +928,7 @@ function reviveReason(id: number) {
     (REASON_SESSION && REASON_SESSION.page !== target.page) ||
     (IS_BESIDE_PAGES && target.page !== READING_LINE_PAGE)
   ) {
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     return;
   }
   leaveReason();
@@ -946,7 +946,7 @@ function reviveReason(id: number) {
   session.listed = true;
   noteReasonConflict(session, pin);
   REASON_SESSION = session;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
 }
 
 // ---------------- Writing
@@ -1225,7 +1225,7 @@ function closeTakenReason(session: ReasonSession, doc: string | null, id: number
     pop = document.querySelector('#doc .pv-pop'),
     had = (!!pop && !!active && pop.contains(active)) || (!!session.writing && (!active || active === document.body));
   REASON_SESSION = null;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (had) {
     KEY_GUARD = true;
     if (!focusLine(session.page)) searchToPage();
@@ -1261,11 +1261,11 @@ function retryReason(session: ReasonSession) {
   const text = session.text.trim();
   if (!text || session.writing) return;
   const writing = commitReason(session, text, true);
-  if (REASON_SESSION === session) drawPageVerdicts();
+  if (REASON_SESSION === session) verdictLineRenderer().drawPageVerdicts();
   writing.then((ok) => {
     if (REASON_SESSION !== session) return;
     if (ok && session.text.trim() === session.saved) closeReasonPopover(false);
-    else drawPageVerdicts();
+    else verdictLineRenderer().drawPageVerdicts();
   });
 }
 // Where a lost write's text sits in `note` when the note is what the write made of the one it was sent against - its
@@ -1523,7 +1523,7 @@ function sayReasonFailed(session: ReasonSession, text: string, error: ApiError |
   );
   if (again && notice) RETRY_NOTICES.set(session, notice);
   else RETRY_NOTICES.delete(session);
-  if (REASON_SESSION !== session && session.doc === DOC) drawPageVerdicts();
+  if (REASON_SESSION !== session && session.doc === DOC) verdictLineRenderer().drawPageVerdicts();
 } // the line marks the draft it keeps
 // A replace found the note changed elsewhere since it was read (the newer pin): nothing is written over it. The draft
 // is kept, the popover - when open - shows the newer note whole and offers [그 위에 쓰기] (writeOverNewer); every
@@ -1605,7 +1605,7 @@ async function saveReason(field: HTMLTextAreaElement) {
     closeReasonPopover(true);
     return;
   }
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   focusReasonField();
 }
 // Esc in the field, or [닫기] (how 'btn'): with nothing unsaved the popover closes. With text the first press lets the
@@ -1643,7 +1643,7 @@ function foldReason() {
   if (hasUnsavedReason(session)) keepDraft(session, true);
   else dropDraft(session.doc, session.id);
   REASON_SESSION = null;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   const control = findMaybe(
     document,
     '#doc .pv[data-page="' + session.page + '"] [data-act="pv-reason-open"]',
@@ -1730,7 +1730,7 @@ async function clearReason() {
       { life: NOTICE_LIFE.TIMER, undo: true, literal: true },
     );
   } else if (REASON_SESSION === session) {
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     focusReasonField();
   }
   if (session.doc === DOC) await loadPins();
@@ -1903,23 +1903,18 @@ function growReasonField(field: HTMLTextAreaElement) {
 function refillLine(page: number) {
   const verdicts = pageVerdictsOn(),
     line = findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement);
-  if (verdicts && line) fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
+  if (verdicts && line) verdictLineRenderer().fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
 }
 
-// ---------------- Input
-// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a
-// field drawn anew in its place (the pages built again) holds the session's text - left empty, the next input would
-// write what it holds over the reason.
-let COMPOSING_FIELD: HTMLTextAreaElement | null = null;
 $('#doc').addEventListener('compositionstart', (event: CompositionEvent) => {
-  if (isReasonField(event.target)) COMPOSING_FIELD = event.target;
+  if (isReasonField(event.target)) setComposingField(event.target);
 });
 // The composition's end settles what it brought back (followLanded, which waits for it), and what waited for it goes on
 // (runComposedWaits).
 $('#doc').addEventListener('compositionend', (event: CompositionEvent) => {
   const field = event.target;
   if (!isReasonField(field)) return;
-  COMPOSING_FIELD = null;
+  setComposingField(null);
   const session = REASON_SESSION;
   if (session && field.dataset.id === 's' + session.sid) {
     followLanded(session);
@@ -1927,18 +1922,6 @@ $('#doc').addEventListener('compositionend', (event: CompositionEvent) => {
   }
   setTimeout(runComposedWaits, 0);
 });
-// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there
-// still holds it (app/state.ts imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or
-// under the pages (shouldStandBeside) and the pages are not built again (refreshDoc, afterComposition) until it ends
-// and that key lets go. Moved or rebuilt, the field would be a new one: the old one's composition would end with it,
-// the input method's commit would land on top of the text carried over (its last syllable doubled), and the Enter
-// ibus-hangul hands on after the commit, with its repeats, would reach the new field as the viewer's - writing the
-// reason and closing the popover.
-function isComposingNow() {
-  if (COMPOSING_FIELD && COMPOSING_FIELD.isConnected) return true;
-  const field = imeHeldIn();
-  return isReasonField(field) && field.isConnected;
-}
 const COMPOSED_WAITS: (() => void)[] = []; // what waits for the composition's end (afterComposition)
 // how often a wait looks again: a field taken out of the document ends its composition without the event
 const COMPOSED_POLL_MS = 200;
@@ -2350,12 +2333,6 @@ window.addEventListener('beforeunload', (event) => {
   event.preventDefault();
   event.returnValue = '';
 });
-// Sets COMPOSING_FIELD, which this module declares, for another module that changes it (ADR-0042 D1); answers the
-// value.
-function setComposingField<Value extends typeof COMPOSING_FIELD>(value: Value): Value {
-  COMPOSING_FIELD = value;
-  return value;
-}
 // Sets KEY_GUARD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setKeyGuard<Value extends typeof KEY_GUARD>(value: Value): Value {
   KEY_GUARD = value;
@@ -2366,14 +2343,18 @@ function setReasonSession<Value extends typeof REASON_SESSION>(value: Value): Va
   REASON_SESSION = value;
   return value;
 }
+
+// Moving the panel to another page leaves an open reason on the page the reader has seen.
+function leaveReasonOffPage(page: number) {
+  if (REASON_SESSION && REASON_SESSION.seen && REASON_SESSION.page !== page) leaveReason();
+}
+
 export {
   LAST_KEY_SAVE,
   REASON_SESSION,
   setReasonSeen,
   WITHDRAWN_PINS,
-  isComposingNow,
   focusLine,
-  isReasonField,
   isKeyGuarded,
   actOnReason,
   fillReasonField,
@@ -2382,7 +2363,6 @@ export {
   afterComposition,
   hasUnsavedReason,
   openReadingReason,
-  findReasonField,
   restoreReasonFocus,
   holdReasonFocus,
   inlineReason,
@@ -2396,8 +2376,8 @@ export {
   bringBackReason,
   placeFailedCancelDraft,
   settleFailedCancelDraft,
-  setComposingField,
   setKeyGuard,
   setReasonSession,
+  leaveReasonOffPage,
 };
 export type { ReasonSession };
