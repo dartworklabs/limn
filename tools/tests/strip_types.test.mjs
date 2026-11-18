@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import ts from 'typescript';
-import { listedModules } from '../check_viewer_boundaries.mjs';
+import { viewerModules } from '../viewer_modules.mjs';
 import { stripTypes } from '../strip_types.mjs';
 
 const VIEWER = join(import.meta.dirname, '..', '..', 'src', 'limn', 'viewer');
@@ -76,7 +76,7 @@ function program(code) {
 }
 
 test("every viewer module strips to the program TypeScript's own emit gives", () => {
-  for (const name of listedModules(VIEWER)) {
+  for (const name of viewerModules(VIEWER)) {
     const code = readFileSync(join(VIEWER, name), 'utf8');
     const emitted = ts.transpileModule(code, {
       fileName: name,

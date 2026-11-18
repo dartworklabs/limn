@@ -1,6 +1,6 @@
 """Every Markdown pin kind the viewer stores is taught where agents and readers look for it.
 
-The viewer saves a Markdown block pin as kind `md:<block>`, the block kinds being markdown/view.ts's BLOCK_KINDS
+The viewer saves a Markdown block pin as kind `md:<block>`, the block kinds being markdown/view-levels.ts's BLOCK_KINDS
 (docs/adr/0025-html-document-surface.md D3; `front` and `math` from docs/adr/0032-markdown-front-matter.md D4, D9), and a
 section pin as `md:section`. The server takes any string, so nothing else stops a new block kind from reaching agents
 unexplained: this test keeps the agent contract (docs/handbook/api.md: the Markdown pins' value list and the record
@@ -16,7 +16,7 @@ from pathlib import Path
 import helpers_js
 
 ROOT = Path(__file__).resolve().parents[2]
-SURFACE = ROOT / "src" / "limn" / "viewer" / "js" / "markdown" / "view.ts"
+SURFACE = ROOT / "src" / "limn" / "viewer" / "js" / "markdown" / "view-levels.ts"
 API = ROOT / "docs" / "handbook" / "api.md"
 TAUGHT = (
     ROOT / "docs" / "handbook" / "viewer.md",
@@ -26,10 +26,10 @@ TAUGHT = (
 
 
 def stored_kinds() -> list[str]:
-    """md:<block> for every block kind of BLOCK_KINDS in markdown/view.ts, then md:section."""
+    """md:<block> for every block kind of BLOCK_KINDS in markdown/view-levels.ts, then md:section."""
     src = helpers_js.module_text(SURFACE)
     init = helpers_js.statement_init(helpers_js.module_declaration(src, "BLOCK_KINDS"), "BLOCK_KINDS")
-    assert init.startswith("["), "markdown/view.ts has no BLOCK_KINDS list"
+    assert init.startswith("["), "markdown/view-levels.ts has no BLOCK_KINDS list"
     return ["md:" + k for k in re.findall(r"'([a-z]+)'", init)] + ["md:section"]
 
 

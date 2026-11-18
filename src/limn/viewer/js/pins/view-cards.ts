@@ -18,7 +18,7 @@ import { canConfirmReview, confirmAccessText, isAgentRole } from '../documents/v
 import { showSheet } from '../layout/flow.ts';
 import { viaTag } from '../composer/view-levels.ts';
 import { isElementLost, lostElementTag, figureRegionBadge, pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownPin } from '../markdown/view.ts';
+import { isMarkdownPin, docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { suggestBadge, suggestView } from '../composer/flow-suggest.ts';
 import {
   addressedTag,
@@ -52,7 +52,6 @@ import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, ROLE, STAMP_
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
 import { who, isMe } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
-import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { pinVerdicts } from './state-seams.ts';
 import { PURGING } from './state.ts';
 import { relSpan, stampSpan, relTime, stampText, timeParts } from './view-time.ts';
@@ -312,7 +311,6 @@ function tickRel() {
     if (stampElement.textContent !== text) stampElement.textContent = text;
   });
 }
-setInterval(tickRel, 60000);
 function arcTime(stamp: string) {
   stamp = String(stamp || '');
   return /^\d{4}-\d\d-\d\d \d\d:\d\d/.test(stamp) ? stamp.slice(5, 16) : stamp;
@@ -566,4 +564,4 @@ function listDropped() {
   return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
 
-export { ARC_OPEN, card, dayName, doneCard, drawTrash, openTrash, listDropped };
+export { tickRel, ARC_OPEN, card, dayName, doneCard, drawTrash, openTrash, listDropped };

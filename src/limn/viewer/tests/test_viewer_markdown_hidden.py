@@ -31,9 +31,7 @@ from helpers import ps
 from helpers_browser import BrowserBase, settle, until
 from helpers_figure import BUILD1, viewer_build
 
-DRAWN = (
-    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
-)
+DRAWN = "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_JOB"
 RLO, LRI, PDI, ZWSP, ZWJ, WJ, BOM = "‮", "⁦", "⁩", "​", "‍", "⁠", "﻿"
 TROJAN = 'if role != "admin' + RLO + " " + LRI + "# skip check" + PDI + " " + LRI + '":'
 LINES = [

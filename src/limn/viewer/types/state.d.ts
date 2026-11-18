@@ -66,7 +66,7 @@ interface PagePick extends PickAnswer, ComposerChoice {
   rect?: { x0: number; y0: number; x1: number; y1: number } | null;
 }
 
-// Lines picked on a drawn Markdown or text document (markdown/view.ts pickLines): the lines and their ladder, with no
+// Lines picked on a drawn Markdown or text document (markdown/flow-pick.ts pickLines): the lines and their ladder, with no
 // page, box or build, no score and no warning.
 interface LinePick extends ComposerChoice {
   kind: 'lines';

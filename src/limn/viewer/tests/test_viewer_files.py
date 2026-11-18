@@ -1,14 +1,7 @@
-"""The viewer's source lives in src/limn/viewer as files the server puts together into a page and its script.
+"""The packaged viewer serves its ordered stylesheets inline and its prebuilt classic script from the same origin.
 
-parts.txt lists, per section and in order, the stylesheet parts under css/ and the ES modules under js/. index.html carries
-one __APP_CSS__ marker, where the server joins the stylesheet parts byte for byte into its one <style>. The modules are
-built into one classic script, dist/viewer.js (tools/build_viewer.mjs, docs/adr/0042-viewer-es-modules.md), which the
-repository keeps and GET /viewer.js serves (ViewerScriptRoute); the page loads it from this origin. The built script is
-the modules' code in the listed order with their import and export statements taken out - checked here without node;
-CI also builds it again and compares the bytes (npm run build:check). The page's inline scripts and the served script
-must parse as classic scripts and each module as a module: node --check runs on each of them (skipped without node,
-required where LIMN_TEST_REQUIRE_NODE=1, as in CI). The notification service worker is its own file, served at GET /sw.js
-(ServiceWorkerRoute).
+The Node build checks module reachability and bundle freshness. These tests also check the syntax of the served
+scripts and individual modules when Node is available.
 
 Run: uv run pytest -q src/limn/viewer/tests/test_viewer_files.py
 """
@@ -23,10 +16,21 @@ from pathlib import Path
 
 from limn.viewer import assemble
 
-from helpers import HTML, SCRIPT, SW_JS, VIEWER, VIEWER_FILES, Base, page_for, req, split_resp, sq, viewer_text
-from helpers_js import inline_scripts, module_code, module_texts, strip_results
-
-EXT = {"__APP_CSS__": ".css", "__APP_JS__": ".ts"}
+from helpers import (
+    HTML,
+    SCRIPT,
+    SW_JS,
+    VIEWER,
+    VIEWER_FILES,
+    Base,
+    page_for,
+    req,
+    split_resp,
+    sq,
+    viewer_css,
+    viewer_modules,
+)
+from helpers_js import inline_scripts, strip_results
 
 
 def script_errors(scripts: list[str], module: bool = False) -> list[str] | None:
@@ -48,10 +52,10 @@ def script_errors(scripts: list[str], module: bool = False) -> list[str] | None:
 
 
 def module_errors(directory: Path = VIEWER) -> list[str] | None:
-    """Each module parts.txt lists under __APP_JS__ through the build's first step and node --check: its types taken out
+    """Every module under js/ through the build's first step and node --check: its types taken out
     (tools/strip_types.mjs refuses a module TypeScript cannot parse with a SyntaxError), then its code parsed as an ES
     module. 'js/name.ts: <error>' for each that fails ([] = all parse), None without node."""
-    names = assemble.viewer_manifest(directory)["__APP_JS__"]
+    names = viewer_modules(directory)
     if not shutil.which("node"):
         return None
     results = strip_results(tuple((n, (directory / n).read_text(encoding="utf-8")) for n in names))
@@ -61,138 +65,52 @@ def module_errors(directory: Path = VIEWER) -> list[str] | None:
     return out + ["%s: %s" % (stripped[int(e.split(":")[0].split()[1])][0], e) for e in errors]
 
 
-def built_from_modules(built: str, plant: bool = False) -> str:
-    """What dist/viewer.js should hold for the modules as they are: its first three lines ('use strict' and the build's
-    note), then each listed module's code in order; with plant, one module carries an extra line."""
-    modules = [
-        module_code(t) for t in module_texts([VIEWER / n for n in assemble.viewer_manifest(VIEWER)["__APP_JS__"]])
-    ]
-    if plant:
-        modules[len(modules) // 2] += "const planted=1;\n"
-    return "\n".join(built.split("\n")[:3]) + "\n" + "\n".join(modules)
-
-
-def without_blank_lines(text: str) -> str:
-    """text with every run of line breaks made one: the build leaves or drops a blank line where it takes a module's
-    import and export statements out, and nothing else is spacing."""
-    return re.sub(r"\n+", "\n", text).strip("\n")
-
-
 class ViewerFiles(unittest.TestCase):
     """The packaged viewer files, their manifest, and how the server puts them back together."""
 
-    def test_the_page_and_every_listed_part_sit_next_to_the_server(self):
-        """The server reads the viewer from its own package folder, never from the working directory, and every
-        part the manifest names is a file there with the extension of its marker's language."""
+    def test_stylesheet_list_covers_every_css_part_once(self):
+        """An omitted stylesheet would disappear from the page."""
         self.assertEqual(assemble.VIEWER_DIR, VIEWER)
-        self.assertTrue((VIEWER / "index.html").is_file())
-        manifest = assemble.viewer_manifest(VIEWER)
-        self.assertEqual(tuple(manifest), assemble.VIEWER_MARKERS)
-        for marker, names in manifest.items():
-            for name in names:
-                self.assertTrue((VIEWER / name).is_file(), name)
-                self.assertEqual(Path(name).suffix, EXT[marker], name)
+        listed = assemble.stylesheet_parts(VIEWER)
+        on_disk = [p.relative_to(VIEWER).as_posix() for p in (VIEWER / "css").rglob("*") if p.is_file()]
+        self.assertCountEqual(listed, on_disk)
+        for name in listed:
+            self.assertTrue((VIEWER / name).read_bytes().endswith(b"\n"), name)
 
-    def test_every_part_file_is_listed_exactly_once(self):
-        """A file under css/ or js/ that the manifest forgets would silently never reach the page."""
-        on_disk = sorted(
-            p.relative_to(VIEWER).as_posix() for d in ("css", "js") for p in (VIEWER / d).rglob("*") if p.is_file()
-        )
-        listed = sorted(n for names in assemble.viewer_manifest(VIEWER).values() for n in names)
-        self.assertEqual(listed, on_disk)
-
-    def test_every_part_is_whole_lines(self):
-        """Each part ends with a newline, so joining never glues one file's last line to the next file's first (a
-        glued line could change what the script means, e.g. a `//` comment swallowing the next file's first line)."""
-        for names in assemble.viewer_manifest(VIEWER).values():
-            for name in names:
-                self.assertTrue((VIEWER / name).read_text(encoding="utf-8").endswith("\n"), name)
-
-    def test_each_marker_appears_once_in_the_page_and_never_in_the_parts(self):
-        """A marker inside CSS or JS would be replaced twice or leak into the page; the script's marker is not in the
-        page at all (the page loads the script from this origin)."""
-        page = (VIEWER / "index.html").read_text(encoding="utf-8")
-        for marker in assemble.VIEWER_MARKERS:
-            self.assertEqual(page.count(marker), 1 if marker in assemble.PAGE_MARKERS else 0, marker)
-        self.assertEqual(page.count('<script src="/viewer.js?v=__VIEWER_JS_KEY__"></script>'), 1)
-        for names in assemble.viewer_manifest(VIEWER).values():
-            for name in names:
-                text = (VIEWER / name).read_text(encoding="utf-8")
-                for marker in assemble.VIEWER_MARKERS:
-                    self.assertNotIn(marker, text, (marker, name))
+    def test_source_modules_end_with_a_newline(self):
+        """Source inspections read whole lines from each module."""
+        for name in viewer_modules():
+            self.assertTrue((VIEWER / name).read_bytes().endswith(b"\n"), name)
 
     def test_assembled_page_is_the_parts_joined_in_manifest_order(self):
         """load_viewer_html() is index.html with the stylesheet marker replaced by its parts joined in the listed order -
         nothing added between or around them - load_viewer_script() is the built script as the repository keeps it, and
         neither the served template nor the served script keeps a marker."""
         page = (VIEWER / "index.html").read_text(encoding="utf-8")
-        self.assertEqual(assemble.load_viewer_html(VIEWER), page.replace("__APP_CSS__", viewer_text("__APP_CSS__")))
+        self.assertEqual(assemble.load_viewer_html(VIEWER), page.replace("__APP_CSS__", viewer_css()))
         self.assertEqual(
             assemble.load_viewer_script(VIEWER), (VIEWER / "dist" / "viewer.js").read_text(encoding="utf-8")
         )
         self.assertNotIn("__APP_", HTML)
 
-    def test_the_built_script_is_the_modules_code_in_list_order(self):
-        """dist/viewer.js is 'use strict', the build's note, then each listed module's code (module_texts and module_code:
-        its types, import and export statements taken out) in the listed order, byte for byte but for blank lines - so the committed script
-        cannot fall behind a module, or run them in another order, without this failing (CI also rebuilds and compares
-        the bytes)."""
-        built = (VIEWER / "dist" / "viewer.js").read_text(encoding="utf-8")
-        self.assertTrue(built.startswith("'use strict';\n// Built by tools/build_viewer.mjs"), built[:80])
-        self.assertEqual(without_blank_lines(built), without_blank_lines(built_from_modules(built)))
-
-    def test_a_module_left_behind_fails_the_check(self):
-        """The check above sees a line added to one module that the built script lacks."""
-        built = (VIEWER / "dist" / "viewer.js").read_text(encoding="utf-8")
-        self.assertNotEqual(without_blank_lines(built), without_blank_lines(built_from_modules(built, plant=True)))
-
-    def test_a_missing_marker_is_a_packaging_error_at_load(self):
-        """A template without its stylesheet marker, or with the script's marker still in it, fails loudly instead of
-        serving a page without its style or with a hole for a script it no longer inlines."""
-        for page in ("<style></style><script></script>", "<style>__APP_CSS__</style><script>__APP_JS__</script>"):
-            with self.subTest(page=page), tempfile.TemporaryDirectory() as d:
-                broken = Path(d)
-                (broken / "index.html").write_text(page, encoding="utf-8")
-                (broken / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n", encoding="utf-8")
-                for name, text in (("css/a.css", "body{}\n"), ("js/a.ts", "boot();\n")):
-                    (broken / name).parent.mkdir(exist_ok=True)
-                    (broken / name).write_text(text, encoding="utf-8")
-                with self.assertRaises(ValueError):
-                    assemble.load_viewer_html(broken)
-
-    def test_a_malformed_manifest_is_a_packaging_error_at_load(self):
-        """The manifest decides what the page contains, so any line it cannot place fails at import: a part before
-        any marker, an unknown or repeated marker, a marker with no parts or missing, a part listed twice, a path
-        that could leave the viewer folder."""
-        cases = {
-            "part before a marker": "css/a.css\n__APP_CSS__\ncss/b.css\n__APP_JS__\njs/a.ts\n",
-            "unknown marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n__APP_X__\njs/b.ts\n",
-            "repeated marker": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\n__APP_CSS__\ncss/b.css\n",
-            "marker without parts": "__APP_CSS__\n__APP_JS__\njs/a.ts\n",
-            "missing marker": "__APP_JS__\njs/a.ts\n",
-            "part twice": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/a.ts\njs/a.ts\n",
-            "path out of the folder": "__APP_CSS__\n../a.css\n__APP_JS__\njs/a.ts\n",
-            "absolute path": "__APP_CSS__\n/etc/a.css\n__APP_JS__\njs/a.ts\n",
-            "nested path out of the folder": "__APP_CSS__\ncss/a.css\n__APP_JS__\njs/pins/../../a.ts\n",
-        }
-        for why, text in cases.items():
-            with self.subTest(why), tempfile.TemporaryDirectory() as d:
+    def test_a_malformed_stylesheet_list_is_a_packaging_error(self):
+        """Empty, duplicate, non-CSS or escaping paths cannot describe the cascade."""
+        for text in ("# empty", "css/a.css\ncss/a.css", "js/a.ts", "__APP_JS__", "../a.css", "/a.css", "css/../a.css"):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as d:
                 (Path(d) / "parts.txt").write_text(text, encoding="utf-8")
                 with self.assertRaises(ValueError):
-                    assemble.viewer_manifest(Path(d))
+                    assemble.stylesheet_parts(Path(d))
 
-    def test_manifest_comments_and_blank_lines_are_not_parts(self):
-        """A '#' comment (whole line or after a path) and blank lines carry no part, so the manifest can say what
-        each part is for."""
+    def test_inline_css_preserves_cascade_order_and_file_contents(self):
+        """Conflicting rules in the fixture reach the browser in the order chosen in parts.txt."""
         with tempfile.TemporaryDirectory() as d:
-            (Path(d) / "parts.txt").write_text(
-                "# order\n\n__APP_CSS__   # style\ncss/a.css  # tokens\n\n__APP_JS__\njs/a.ts\njs/pins/b.ts # last\n",
-                encoding="utf-8",
-            )
-            self.assertEqual(
-                assemble.viewer_manifest(Path(d)),
-                {"__APP_CSS__": ("css/a.css",), "__APP_JS__": ("js/a.ts", "js/pins/b.ts")},
-            )
+            root = Path(d)
+            (root / "css").mkdir()
+            (root / "css/z.css").write_text("b{color:red}\n", encoding="utf-8")
+            (root / "css/a.css").write_text("b{color:blue}\n", encoding="utf-8")
+            (root / "parts.txt").write_text("# cascade\ncss/z.css # base\n\ncss/a.css\n", encoding="utf-8")
+            (root / "index.html").write_text("<style>__APP_CSS__</style>", encoding="utf-8")
+            self.assertEqual(assemble.load_viewer_html(root), "<style>b{color:red}\nb{color:blue}\n</style>")
 
 
 class ViewerScriptParses(unittest.TestCase):
@@ -219,14 +137,14 @@ class ViewerScriptParses(unittest.TestCase):
         self.assertEqual(script_errors([*scripts, SCRIPT]), [])
 
     def test_every_module_parses_and_a_planted_error_names_its_module(self):
-        """Each listed module parses as an ES module; one bad line at the top of a module in the middle of the list is a
+        """Each source module parses as an ES module; one bad line at the top of a module in the middle of the list is a
         SyntaxError reported for that module, while the same folder without the plant parses (so the failure is the
         plant, not the copy)."""
         with tempfile.TemporaryDirectory() as d:
             copy = Path(d) / "viewer"
             shutil.copytree(VIEWER, copy)
             self.assertEqual(module_errors(copy), [])
-            names = assemble.viewer_manifest(copy)["__APP_JS__"]
+            names = viewer_modules(copy)
             victim = names[len(names) // 2]
             (copy / victim).write_text("const = 1;\n" + (copy / victim).read_text(encoding="utf-8"), encoding="utf-8")
             errors = module_errors(copy)

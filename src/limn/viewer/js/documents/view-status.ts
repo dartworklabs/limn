@@ -606,14 +606,6 @@ function placeStatusListSoon() {
       placeStatusList();
     });
 }
-window.addEventListener('resize', placeStatusListSoon);
-{
-  const viewport = window.visualViewport;
-  if (viewport) {
-    viewport.addEventListener('resize', placeStatusListSoon);
-    viewport.addEventListener('scroll', placeStatusListSoon);
-  }
-}
 
 // Moves #status to the band's place - the dock over the sheet (phone, tablet sheet), the short band's top row after the
 // view switch, the mid action row's middle, the desktop's line under its status chips (#status-wide) - keeping a focus
@@ -655,4 +647,22 @@ function setStatusSig<Value extends typeof STATUS_SIG>(value: Value): Value {
   STATUS_SIG = value;
   return value;
 }
-export { STATUS_TOP, buildUnchanged, drawStatus, placeStatus, setStatusSig, statusWhy, toggleStatusList };
+function watchStatusPlacement() {
+  window.addEventListener('resize', placeStatusListSoon);
+  const viewport = window.visualViewport;
+  if (viewport) {
+    viewport.addEventListener('resize', placeStatusListSoon);
+    viewport.addEventListener('scroll', placeStatusListSoon);
+  }
+}
+
+export {
+  watchStatusPlacement,
+  STATUS_TOP,
+  buildUnchanged,
+  drawStatus,
+  placeStatus,
+  setStatusSig,
+  statusWhy,
+  toggleStatusList,
+};

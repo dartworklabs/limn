@@ -22,7 +22,7 @@ from limn.security import access as access
 from limn.viewer import assemble, assemble as viewer_assemble, mark as mark, routes as viewer_shell_routes
 from limn.web.errors import HTTPError
 
-from helpers import page_for, ps, req, script_page_for, set_config, split_resp, viewer_text
+from helpers import page_for, ps, req, script_page_for, set_config, split_resp, viewer_css
 from helpers_access import AccessBase, talk_to
 from helpers_browser import ChromiumTestCase
 
@@ -283,9 +283,9 @@ class InlineMarkup(unittest.TestCase):
     def test_mark_classes_are_its_own(self):
         """The logo's classes are limn-mark*, which no viewer script touches: plain .mark is the pin box on the PDF that
         marks() removes and redraws (a first cut used .mark, and every mark vanished once the pins were drawn)."""
-        js = viewer_text("__APP_JS__")
+        js = viewer_assemble.load_viewer_script(viewer_assemble.VIEWER_DIR)
         self.assertNotIn("limn-mark", js)
-        css = re.sub(r"/\*.*?\*/", "", viewer_text("__APP_CSS__"), flags=re.S)
+        css = re.sub(r"/\*.*?\*/", "", viewer_css(), flags=re.S)
         rules = [r.strip() for r in re.findall(r"([^{}]*)\{[^{}]*\}", css) if "limn-mark" in r]
         self.assertEqual(len(rules), 6, rules)
         self.assertFalse([r for r in rules if re.search(r"\.mark(?![\w-])", r)])

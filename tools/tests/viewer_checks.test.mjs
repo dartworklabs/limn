@@ -74,12 +74,11 @@ test('nothing imports the entry point', () => {
 });
 
 /**
- * A viewer of its own in a temporary folder: parts.txt lists `modules` ({path: source}) under __APP_JS__ in order.
+ * A viewer of its own in a temporary folder, with one file per entry in `modules`.
  * Returns the check's exit code and what it said, on stdout and on stderr.
  */
 function checkOf(modules, argv = []) {
   const viewer = mkdtempSync(join(tmpdir(), 'limn-check-'));
-  writeFileSync(join(viewer, 'parts.txt'), '__APP_JS__\n' + Object.keys(modules).join('\n') + '\n');
   for (const [path, source] of Object.entries(modules)) {
     mkdirSync(join(viewer, path, '..'), { recursive: true });
     writeFileSync(join(viewer, path), source);

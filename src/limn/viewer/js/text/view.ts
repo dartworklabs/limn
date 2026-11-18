@@ -22,15 +22,9 @@
 //   lines alone.
 import { clipMarkedText } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import {
-  MARKDOWN_VIEW,
-  formatCount,
-  lineSnippet,
-  srcLines,
-  textNotice,
-  namesViewText,
-  markedCharactersText,
-} from '../markdown/view.ts';
+import { MARKDOWN_VIEW } from '../markdown/state.ts';
+import { formatCount, srcLines, textNotice, namesViewText, markedCharactersText } from '../markdown/view-source.ts';
+import { lineSnippet } from '../markdown/view-levels.ts';
 import { MARKDOWN_LIMIT } from '../app/rules-tables.ts';
 const TAB_COLUMNS = 4; // the columns a tab spans (CSS tab-size of the view, and indentColumns)
 const MAX_HANG_COLUMNS = 16; // the most columns a wrapped line's continuation hangs: a phone keeps room for the text

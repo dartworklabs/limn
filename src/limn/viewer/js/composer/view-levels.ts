@@ -19,7 +19,7 @@ type LineOwner = RangeOwner & { file: string; lo: number; hi: number };
 function onLines(owner: RangeOwner): owner is LineOwner {
   return typeof owner.file === 'string' && typeof owner.lo === 'number' && typeof owner.hi === 'number';
 }
-// A Markdown document's rungs (markdown/view.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
+// A Markdown document's rungs (markdown/view-levels.ts markdownLevels, ADR-0025 D3): a block is md:<its kind> (the rung's
 // env), a section md:section, and several blocks whole (level blocks) are lines - a pin's scope is one of the server's
 // (wireScope), and blocks is none of them.
 function wireScope(scope: string) {

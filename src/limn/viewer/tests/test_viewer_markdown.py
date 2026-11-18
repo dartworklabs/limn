@@ -44,9 +44,7 @@ from helpers_figure import BUILD1, viewer_build
 from helpers_outline import outline_pdf
 
 # Resolves when the Markdown document on screen is drawn (a document, the line view or a notice) and no parse is in flight.
-DRAWN = (
-    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
-)
+DRAWN = "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_JOB"
 # DRAWN with the source on screen, drawn or as the line view: a notice (a read that failed, a limit) is drawn too, and
 # a wait that must see the document waits for this.
 SHOWN = DRAWN + "&&!document.querySelector('#md.md-note')&&!!document.querySelector('#md [data-line],#md [data-lo]')"
@@ -1205,9 +1203,9 @@ class Redrawing(MarkdownBase):
         cdp.send("Input.imeSetComposition", {"text": "가", "selectionStart": 1, "selectionEnd": 1})
         page.evaluate("buildMarkdownDoc()")
         settle(page)
-        self.assertTrue(page.evaluate("MARKDOWN_VIEW.waiting&&!!document.getElementById('md-probe')"))
+        self.assertTrue(page.evaluate("MARKDOWN_DRAW_WAITING&&!!document.getElementById('md-probe')"))
         cdp.send("Input.insertText", {"text": "가"})
-        page.wait_for_function("!MARKDOWN_VIEW.waiting&&!document.getElementById('md-probe')&&" + SHOWN, timeout=8000)
+        page.wait_for_function("!MARKDOWN_DRAW_WAITING&&!document.getElementById('md-probe')&&" + SHOWN, timeout=8000)
 
     def test_a_note_composing_in_the_composer_keeps_its_text_across_a_redraw(self):
         """The composer is outside the document: a redraw while its note composes leaves the note's text, focus and
@@ -1218,7 +1216,7 @@ class Redrawing(MarkdownBase):
         cdp = page.context.new_cdp_session(page)
         cdp.send("Input.imeSetComposition", {"text": "고", "selectionStart": 1, "selectionEnd": 1})
         page.evaluate("buildMarkdownDoc()")
-        page.wait_for_function("!MARKDOWN_VIEW.waiting&&" + SHOWN, timeout=8000)
+        page.wait_for_function("!MARKDOWN_DRAW_WAITING&&" + SHOWN, timeout=8000)
         cdp.send("Input.insertText", {"text": "고"})
         self.assertEqual(
             page.evaluate("[document.activeElement.id,document.getElementById('note').value]"), ["note", "고"]
@@ -1358,7 +1356,7 @@ class Limits(MarkdownBase):
         self.hang = True
         page.route("**/vendor/markdown-it/**", module)
         page.evaluate(
-            "stopMarkdownParse(null); MARKDOWN_VIEW.worker&&MARKDOWN_VIEW.worker.terminate(); MARKDOWN_VIEW.worker=null; buildMarkdownDoc()"
+            "stopMarkdownParse(null); MARKDOWN_WORKER&&MARKDOWN_WORKER.terminate(); MARKDOWN_WORKER=null; buildMarkdownDoc()"
         )
         page.wait_for_function("MARKDOWN_VIEW.limit==='time'&&" + DRAWN, timeout=15000)
         self.assertIn("2초", page.evaluate("document.querySelector('#md .md-limit').textContent"))
@@ -1373,7 +1371,7 @@ class Limits(MarkdownBase):
         page = self.open(0)
         page.route("**/vendor/markdown-it/**", lambda r: r.fulfill(status=404, body=b"no"))
         page.evaluate(
-            "stopMarkdownParse(null); MARKDOWN_VIEW.worker&&MARKDOWN_VIEW.worker.terminate(); MARKDOWN_VIEW.worker=null; buildMarkdownDoc()"
+            "stopMarkdownParse(null); MARKDOWN_WORKER&&MARKDOWN_WORKER.terminate(); MARKDOWN_WORKER=null; buildMarkdownDoc()"
         )
         page.wait_for_function("MARKDOWN_VIEW.limit==='load'&&" + DRAWN, timeout=15000)
         self.assertIn("파서를 불러오지 못해", page.evaluate("document.querySelector('#md .md-limit').textContent"))

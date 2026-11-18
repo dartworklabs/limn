@@ -213,6 +213,18 @@ class NoticeFlows(BrowserBase):
             % json.dumps(sel)
         )
 
+    def test_a_swallowed_click_still_dismisses_the_notice_without_opening_help(self):
+        """A long press consumes the control's click after the status line sees the outside press."""
+        page = self.view("phone")
+        result = page.evaluate("""() => {
+          const notice = lineNote('Temporary notice', NOTICE_KIND.INFO, null, {life: NOTICE_LIFE.CLICK});
+          setSwallowClick(Date.now() + 900);
+          const click = new MouseEvent('click', {bubbles: true, cancelable: true});
+          document.querySelector('[data-act="help"]').dispatchEvent(click);
+          return [NOTICES.has(notice.n), click.defaultPrevented, document.querySelector('#help').open];
+        }""")
+        self.assertEqual(result, [False, True, False])
+
     def test_the_main_flows_never_create_a_toast(self):
         """Red first for #167: saving, its undo, a failed save, deleting, completing, confirming, replying, discarding a
         selection, a background close and the first-visit hint run on both screens, and no #toasts, #coach or .toast

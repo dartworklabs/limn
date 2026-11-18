@@ -67,9 +67,7 @@ from helpers_browser import BrowserBase, booted, settle, watch_idle
 from helpers_csp import add_test_style
 from helpers_figure import BUILD1, viewer_build
 
-DRAWN = (
-    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
-)
+DRAWN = "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_JOB"
 # Every tree image on screen has loaded or failed (a failed one is replaced by its alt text).
 PICS_DONE = "[...document.querySelectorAll('#md .md-pic img')].every(i=>i.complete)"
 # Holds the page's animation frames from window.__framesHeld on - as a renderer too busy to paint holds them - until
@@ -169,7 +167,7 @@ LONG = (
 INPUT_SEEN = (
     "(()=>{const L=document.querySelector('#left'); window.__seen=null;"
     " for(const t of ['keydown','wheel','pointerdown'])"
-    "  addEventListener(t,()=>{if(window.__seen)return; window.__seen={top:L.scrollTop,goTo:!!MARKDOWN_VIEW.goTo};"
+    "  addEventListener(t,()=>{if(window.__seen)return; window.__seen={top:L.scrollTop,goTo:!!HEADING_JUMP};"
     "   requestAnimationFrame(()=>{window.__seen.next=L.scrollTop;});},{capture:true,passive:true});})()"
 )
 # Where the heading '설치' is in the document pane, in px from the pane's top.
@@ -1081,7 +1079,7 @@ class ErrorOnAJumpThenEnd(AssetsBase):
         (img / "shrink.png").write_bytes(blank_png(200, 3000)[:33])  # a PNG cut short: the browser cannot draw it
         page.evaluate("window.__framesHeld=true; IMAGE_CHECK.last=-Infinity; goToHeading(0); void checkTreeImages()")
         until(page, "!document.querySelector('#md .md-pic[data-path=\"notes/img/shrink.png\"]')")
-        self.assertTrue(page.evaluate("!!MARKDOWN_VIEW.goTo"), "the jump had ended before the image failed")
+        self.assertTrue(page.evaluate("!!HEADING_JUMP"), "the jump had ended before the image failed")
         self.assertGreater(before - page.evaluate("document.querySelector('#left').scrollHeight"), 2000)
         # End meets the jump's smooth scroll however far the engine and the runner have taken it - only asked for, moving
         # (Chromium here, and Firefox on CI: run 42148218919, before #441) or at rest: the key ends it where it stands
@@ -1089,7 +1087,7 @@ class ErrorOnAJumpThenEnd(AssetsBase):
         page.evaluate("(L=>{L.tabIndex=-1; L.focus({preventScroll:true});})(document.querySelector('#left'))")
         page.keyboard.press("End")
         until(page, FROM_END + "<1")
-        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"), "End did not end the jump")
+        self.assertFalse(page.evaluate("!!HEADING_JUMP"), "End did not end the jump")
         self.hold_late = False
         self.holding = True  # answer_the_image lets go of the held late.png
         answer_the_image(self, page, lambda: self.assertAlmostEqual(page.evaluate(FROM_END), 0, delta=2))
@@ -1206,12 +1204,12 @@ class HeadingJump(AssetsBase):
         self.holding = True
         page.locator("#md a.md-doclink").first.click()
         until(page, "DOC==='gd'&&" + DRAWN, 20)
-        until(page, "!!MARKDOWN_VIEW.goTo")
+        until(page, "!!HEADING_JUMP")
         page.evaluate("document.activeElement&&document.activeElement.blur()")
         self.assertTrue(page.evaluate("document.activeElement===document.body"))
         page.keyboard.press("Home")
         until(page, "document.querySelector('#left').scrollTop===0")
-        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
+        self.assertFalse(page.evaluate("!!HEADING_JUMP"))
         for _ in range(10):
             page.wait_for_timeout(60)
             held, self.hold[:] = list(self.hold), []
@@ -1261,7 +1259,7 @@ class HeadingJump(AssetsBase):
         page.locator("#md a.md-doclink").first.click()
         until(page, "DOC==='gd'&&" + DRAWN, 20)
         until(
-            page, "!!MARKDOWN_VIEW.goTo&&document.querySelector('#left').scrollTop>200"
+            page, "!!HEADING_JUMP&&document.querySelector('#left').scrollTop>200"
         )  # on its way, its spot read below the top
         page.evaluate("document.activeElement&&document.activeElement.blur(); window.__framesHeld=true")
         if on_the_way:
@@ -1271,13 +1269,11 @@ class HeadingJump(AssetsBase):
             for r in held:
                 answer(r)
             until(page, "window.__picDone>=%d" % pictures(held))
-            self.assertTrue(
-                page.evaluate("!!MARKDOWN_VIEW.goTo")
-            )  # still on its way: the frame that would land it is held
+            self.assertTrue(page.evaluate("!!HEADING_JUMP"))  # still on its way: the frame that would land it is held
         page.keyboard.press("Home")
         until(page, "document.querySelector('#left').scrollTop===0")
         self.assertTrue(
-            page.evaluate("!MARKDOWN_VIEW.goTo&&!!MARKDOWN_VIEW.spot&&!!MARKDOWN_VIEW.spot.el")
+            page.evaluate("!HEADING_JUMP&&!!MARKDOWN_VIEW.spot&&!!MARKDOWN_VIEW.spot.el")
         )  # the key's scroll is not read yet
         held, self.hold[:] = list(self.hold), []
         self.assertTrue(held)
@@ -1303,7 +1299,7 @@ class HeadingJump(AssetsBase):
         page = self.open_md()
         self.holding = True
         page.locator("#md a.md-doclink").first.click()
-        until(page, "DOC==='gd'&&" + DRAWN + "&&!!MARKDOWN_VIEW.goTo", 20)
+        until(page, "DOC==='gd'&&" + DRAWN + "&&!!HEADING_JUMP", 20)
         page.evaluate("document.activeElement&&document.activeElement.blur()")
         page.keyboard.press("Home")
         for _ in range(10):
@@ -1312,14 +1308,14 @@ class HeadingJump(AssetsBase):
             for r in held:
                 r.fulfill(**self.answer(r.request))
         settle(page)
-        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
+        self.assertFalse(page.evaluate("!!HEADING_JUMP"))
         self.assertLess(page.evaluate("document.querySelector('#left').scrollTop"), 50)
 
 
 class InputEndsAGlide(AssetsBase):
     """A heading jump whose smooth scroll is moving - seen moving, not only asked for - ends where the person's input found
     the pane: a scroll key, a wheel, a press on the pane. The scroll does not go on to the heading afterwards (#441: in
-    Firefox, whose compositor runs that scroll, each input ended the jump (MARKDOWN_VIEW.goTo) but not its scroll, which came to rest
+    Firefox, whose compositor runs that scroll, each input ended the jump (HEADING_JUMP) but not its scroll, which came to rest
     at the heading - with the key's or the wheel's own step added to it). The jump goes 9,000px down, and Firefox's smooth
     scroll is slowed (InputEndsAGlideFirefox), so the input comes while it is still far from the heading however slow the
     runner; each test checks that it did (the input's own event read the pane first, INPUT_SEEN)."""
@@ -1332,7 +1328,7 @@ class InputEndsAGlide(AssetsBase):
         page = self.open_md()
         page.evaluate(INPUT_SEEN)
         page.evaluate("goToHeading(MARKDOWN_VIEW.heads.findIndex(h=>h.title==='아래'))")
-        until(page, "!!MARKDOWN_VIEW.goTo&&document.querySelector('#left').scrollTop>0")
+        until(page, "!!HEADING_JUMP&&document.querySelector('#left').scrollTop>0")
         return page, page.evaluate("headingScrollTop(MARKDOWN_VIEW.heads.find(h=>h.title==='아래').el)")
 
     def ends_where_seen(self, page, dest, step, delta, base="top"):
@@ -1348,7 +1344,7 @@ class InputEndsAGlide(AssetsBase):
         self.assertTrue(seen and seen["goTo"], seen)  # the input met the jump in flight
         self.assertGreater(dest - seen["top"], 1000, seen)  # still far from its heading
         self.assertIn(base, seen, seen)  # 'next' needs its frame to have run
-        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
+        self.assertFalse(page.evaluate("!!HEADING_JUMP"))
         self.assertTrue(rest["still"], rest)
         self.assertAlmostEqual(rest["top"], seen[base] + step, delta=delta, msg="the jump went on to %s" % dest)
 
@@ -1412,7 +1408,7 @@ class InputEndsAGlide(AssetsBase):
             "(()=>{const L=document.querySelector('#left'),own=L.scrollTo,out={}; let w=[];"
             " L.scrollTo=function(a){own.call(L,a); w.push(L.scrollTop);};"
             " for(const [k,t] of [['top',0],['end',L.scrollHeight-L.clientHeight]]){"
-            "  L.scrollTop=t; w=[]; MARKDOWN_VIEW.goTo={el:MARKDOWN_VIEW.heads[1].el,doc:DOC}; stopHeadingJump(); out[k]=[L.scrollTop,w];}"
+            "  L.scrollTop=t; w=[]; HEADING_JUMP={el:MARKDOWN_VIEW.heads[1].el,doc:DOC}; stopHeadingJump(); out[k]=[L.scrollTop,w];}"
             " L.scrollTo=own; return out;})()"
         )
         self.assertGreater(got["end"][0], 1000)
@@ -1422,10 +1418,10 @@ class InputEndsAGlide(AssetsBase):
 
 
 # The jump to heading '아래' set off and the pane read in the same task: where it stands at once, where the jump goes
-# (headingScrollTop), and whether the jump is still in flight (MARKDOWN_VIEW.goTo).
+# (headingScrollTop), and whether the jump is still in flight (HEADING_JUMP).
 GO_LOW_NOW = (
     "(()=>{const L=document.querySelector('#left'),i=MARKDOWN_VIEW.heads.findIndex(h=>h.title==='아래'),to=headingScrollTop(MARKDOWN_VIEW.heads[i].el);"
-    " goToHeading(i); return {now:L.scrollTop,to,flying:!!MARKDOWN_VIEW.goTo};})()"
+    " goToHeading(i); return {now:L.scrollTop,to,flying:!!HEADING_JUMP};})()"
 )
 
 
@@ -1459,7 +1455,7 @@ class MotionSetLiveHeading(AssetsBase):
                     rest = page.evaluate(PANE_AT_REST)
                     self.assertTrue(rest["still"], rest)
                     self.assertAlmostEqual(rest["top"], got["to"], delta=1)
-                    self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
+                    self.assertFalse(page.evaluate("!!HEADING_JUMP"))
             page.context.close()
 
 
@@ -1957,12 +1953,12 @@ class JumpAcrossReflow(AssetsBase):
         w0 = page.evaluate("document.querySelector('#md').getBoundingClientRect().width")
         page.evaluate("document.querySelector('#md a.md-anchor').click()")
         until(page, "document.querySelector('#left').scrollTop>1300")
-        self.assertTrue(page.evaluate("!!MARKDOWN_VIEW.goTo"))
+        self.assertTrue(page.evaluate("!!HEADING_JUMP"))
         page.evaluate("document.getElementById('btn-side').click()")
         rest(page)
         self.assertGreater(page.evaluate("document.querySelector('#md').getBoundingClientRect().width"), w0 + 50)
         self.assertAlmostEqual(page.evaluate(TOP_OF + "('끝')"), 8, delta=3)
-        self.assertFalse(page.evaluate("!!MARKDOWN_VIEW.goTo"))
+        self.assertFalse(page.evaluate("!!HEADING_JUMP"))
 
 
 # An image at the top, the reading line below it, and far below that a sentence the browser's find in page goes to.
@@ -2141,7 +2137,7 @@ class FocusAfterALink(AssetsBase):
         settle(page)
         got = page.evaluate(
             "[document.querySelectorAll('#md img,#md a,#md .md-pic,#md .md-img').length,"
-            " document.querySelector('#md').textContent.includes('![막대](img/chart.png)'), MARKDOWN_VIEW.headTo,"
+            " document.querySelector('#md').textContent.includes('![막대](img/chart.png)'), PENDING_HEADING,"
             " document.activeElement===document.getElementById('left')]"
         )
         self.assertEqual(got, [0, True, None, True])

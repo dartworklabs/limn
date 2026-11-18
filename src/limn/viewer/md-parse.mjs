@@ -1,5 +1,5 @@
 // The Markdown parse worker (docs/handbook/viewer.md §Markdown 화면, ADR-0025 D7): GET /md-parse.mjs, a module worker of
-// its own, never a part of the page. The page's markdown/view.ts starts it from this origin (no blob: worker, ADR-0026) the
+// its own, never a part of the page. The page's markdown/flow-parse.ts starts it from this origin (no blob: worker, ADR-0026) the
 // first time a Markdown document opens, sends it the source lines joined with "\n" and the limits, and builds the DOM
 // itself from what comes back; the page stops it (terminate) when the time limit passes or newer source comes.
 // It parses with the vendored markdown-it - raw HTML as its own tokens, no linkify, no typographer - and answers
@@ -82,9 +82,9 @@ function mdFirstAtOrAfter(a, x) {
 // '\[…\]' is display math only on lines of its own (mdMathBlock): in a line it is two escaped brackets, as before. The math
 // may run over line ends (a paragraph's): it becomes one math_inline token per source line, its text as written, delimiters
 // included, with a softbreak between them, so the inline token's line breaks still match its source's line ends and its lines
-// can be told (markdown/view.ts inlineLines, ADR-0025 D7). The pieces say how the formula was cut: one that needed no cutting
+// can be told (markdown/view-inline.ts inlineLines, ADR-0025 D7). The pieces say how the formula was cut: one that needed no cutting
 // carries info 'whole', one that was cut carries 'head' on the piece it starts in and 'tail' on each piece after it, so the
-// page can put them back together and draw the formula as one (markdown/view.ts inlineTexRun, ADR-0036 D2). A code span, a link or
+// page can put them back together and draw the formula as one (markdown/view-math.ts inlineTexRun, ADR-0036 D2). A code span, a link or
 // raw HTML that starts before the delimiter has taken its text already; one inside the math is math, but no delimiter inside
 // a code span closes it (mdMathEnd).
 function mdMathInline(state, silent) {
@@ -271,7 +271,7 @@ function mdMathStop(state, n, end) {
 // next line is not blank and opens a YAML mapping - a key and its colon, or a '#' comment - and a later line is '---' or
 // '...'. Anything else is left to the other rules, which read it as before (a rule, a setext heading, a paragraph). The
 // token is front_matter with map [0, the closing line + 1] and info the closing marker; its lines are shown as the server's
-// lines (markdown/view.ts), never parsed as YAML - nothing in them is a link, an image or markup. Line 0 of a quote or a list
+// lines (markdown/view-blocks.ts), never parsed as YAML - nothing in them is a link, an image or markup. Line 0 of a quote or a list
 // item is no proof of the top: their rules call this one with start 0 and the line read from after their marker ('> ---'),
 // so the rule also asks for the document itself - the root, no container open - and the line's content at the source's
 // very first character.

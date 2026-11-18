@@ -375,7 +375,6 @@ function fitToWidth() {
 // gesturestart: Safari's trackpad pinch
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
   window.addEventListener(eventType, arrivalLetGo, { capture: true, passive: true });
-window.addEventListener('resize', arrivalLetGo);
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a
 // person's scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no
 // scroll at all: a line pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what

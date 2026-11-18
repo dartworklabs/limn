@@ -65,7 +65,7 @@ DRAWN = """key => new Promise((resolve, reject) => {
 # this origin, in a module worker from this origin - ADR-0026): its column with a heading, a table row and a line span, and no
 # limit hit - or fails after the timeout. Like DRAWN, the page resolves it; nothing is evaluated by Playwright's polling.
 MD_DRAWN = """key => new Promise((resolve, reject) => {
-  const done = () => DOC === key && MARKDOWN_VIEW.shown === key && !MARKDOWN_VIEW.job && document.querySelector('article#md h1') &&
+  const done = () => DOC === key && MARKDOWN_VIEW.shown === key && !MARKDOWN_JOB && document.querySelector('article#md h1') &&
     document.querySelector('#md tr[data-lo]') && document.querySelector('#md [data-line]');
   const t0 = performance.now();
   (function poll() {

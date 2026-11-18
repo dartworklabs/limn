@@ -643,78 +643,82 @@ const isMentionField = (target: EventTarget | null): target is HTMLTextAreaEleme
     target.classList.contains('e-note') ||
     target.classList.contains('r-text') ||
     !!target._mirrorOf);
-// A mirror field's own listener has copied its text and the edit into its model (composer/view-selection-popover.ts);
-// here it only gets the list.
-document.addEventListener('input', (event) => {
-  const field = event.target;
-  if (!isMentionField(field)) return;
-  if (mentionModel(field) !== field) {
-    mentionUpdate(field);
-    return;
-  }
-  mentionEdited(field);
-  mentionUpdate(field);
-  if (field.id === 'note') {
-    renderAssignNew();
-    syncQuestionHint($('#c-qhint'), field.value, KIND_NEW);
-    saveDraftSoon();
-    return;
-  } // the row draws the preview line too
-  mentionPreview(field);
-  if (field.classList.contains('e-note')) {
-    renderAssignEdit();
-    if (EDITOR.current)
-      syncQuestionHint(findMaybe(EDITOR.current.el, '.e-qhint', HTMLElement), field.value, EDITOR.current.kind_req);
-  } else if (field.classList.contains('r-text')) pinFields().drawReplyOutcome();
-});
-window.addEventListener(
-  'keydown',
-  (event) => {
-    if (!MENTION.ta || event.target !== MENTION.ta || $('#mention-pop').hidden) return;
-    if (imeKey(event)) {
-      if (imeTail(event)) event.preventDefault();
-      return;
-    } // the Enter that ended a composition neither picks nor breaks the line (app/state.ts)
-    const count = MENTION.items.length;
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      if (!count) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      MENTION.sel = (MENTION.sel + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
-      mentionUpdate(MENTION.ta);
-    } else if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey) || event.key === 'Tab') {
-      if (!count) return;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      mentionApply(MENTION.sel);
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      mentionClose();
-    }
-  },
-  true,
-);
-// When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at
-// that point (a mirror field's: its model's preview), and an open list follows the caret: it is drawn again for the
-// '@word' the caret now ends, or closes when there is none.
-['keyup', 'click', 'focusout'].forEach((eventType) =>
-  document.addEventListener(eventType, (event) => {
+
+function watchMentions() {
+  // A mirror field's own listener has copied its text and the edit into its model (composer/view-selection-popover.ts);
+  // here it only gets the list.
+  document.addEventListener('input', (event) => {
     const field = event.target;
     if (!isMentionField(field)) return;
-    if (eventType !== 'focusout' && MENTION.ta === field && !mentionCurrent()) mentionUpdate(field);
-    setTimeout(() => mentionPreview(mentionModel(field)), 0);
-  }),
-);
-document.addEventListener('focusout', (event) => {
-  if (event.target === MENTION.ta)
-    setTimeout(() => {
-      if (document.activeElement !== MENTION.ta) mentionClose();
-    }, 150);
-});
-$('#mention-pop').addEventListener('pointerdown', (event: PointerEvent) => event.preventDefault());
+    if (mentionModel(field) !== field) {
+      mentionUpdate(field);
+      return;
+    }
+    mentionEdited(field);
+    mentionUpdate(field);
+    if (field.id === 'note') {
+      renderAssignNew();
+      syncQuestionHint($('#c-qhint'), field.value, KIND_NEW);
+      saveDraftSoon();
+      return;
+    } // the row draws the preview line too
+    mentionPreview(field);
+    if (field.classList.contains('e-note')) {
+      renderAssignEdit();
+      if (EDITOR.current)
+        syncQuestionHint(findMaybe(EDITOR.current.el, '.e-qhint', HTMLElement), field.value, EDITOR.current.kind_req);
+    } else if (field.classList.contains('r-text')) pinFields().drawReplyOutcome();
+  });
+  window.addEventListener(
+    'keydown',
+    (event) => {
+      if (!MENTION.ta || event.target !== MENTION.ta || $('#mention-pop').hidden) return;
+      if (imeKey(event)) {
+        if (imeTail(event)) event.preventDefault();
+        return;
+      } // the Enter that ended a composition neither picks nor breaks the line (app/state.ts)
+      const count = MENTION.items.length;
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        if (!count) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        MENTION.sel = (MENTION.sel + (event.key === 'ArrowDown' ? 1 : count - 1)) % count;
+        mentionUpdate(MENTION.ta);
+      } else if ((event.key === 'Enter' && !event.metaKey && !event.ctrlKey) || event.key === 'Tab') {
+        if (!count) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        mentionApply(MENTION.sel);
+      } else if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        mentionClose();
+      }
+    },
+    true,
+  );
+  // When the cursor leaves the '@word' being typed (arrow key/click/leaving the field), the preview redraws and warns at
+  // that point (a mirror field's: its model's preview), and an open list follows the caret: it is drawn again for the
+  // '@word' the caret now ends, or closes when there is none.
+  ['keyup', 'click', 'focusout'].forEach((eventType) =>
+    document.addEventListener(eventType, (event) => {
+      const field = event.target;
+      if (!isMentionField(field)) return;
+      if (eventType !== 'focusout' && MENTION.ta === field && !mentionCurrent()) mentionUpdate(field);
+      setTimeout(() => mentionPreview(mentionModel(field)), 0);
+    }),
+  );
+  document.addEventListener('focusout', (event) => {
+    if (event.target === MENTION.ta)
+      setTimeout(() => {
+        if (document.activeElement !== MENTION.ta) mentionClose();
+      }, 150);
+  });
+  $('#mention-pop').addEventListener('pointerdown', (event: PointerEvent) => event.preventDefault());
+}
 
 export {
+  watchMentions,
   MENTION,
   assignOutcome,
   composeAsk,

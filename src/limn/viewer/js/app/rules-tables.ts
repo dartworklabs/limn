@@ -117,7 +117,7 @@ const MARKDOWN_LIMIT = Object.freeze({
   LOAD: 'load',
   ERROR: 'error',
   NUL: 'nul',
-}); // the limit a Markdown document's drawing hit (markdown/view.ts, MARKDOWN_LIMITS): #md's data-limit
+}); // the limit a Markdown document's drawing hit (markdown/state.ts, MARKDOWN_LIMITS): #md's data-limit
 export {
   PIN_STATE,
   BUILD_STATE,

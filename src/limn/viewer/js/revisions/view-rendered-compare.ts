@@ -15,21 +15,12 @@ import { html, setHtml } from '../platform/markup.ts';
 import { markHiddenHtml, markHiddenPlain } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { api, isApiError } from '../platform/api.ts';
-import {
-  advanceMarkdownSequence,
-  jobAnswer,
-  MARKDOWN_LIMITS,
-  OVER_ELEMENT_LIMIT,
-  limitText,
-  formatMebibytes,
-  renderTokens,
-  newRenderContext,
-  keepRenderContext,
-  waitLine,
-  yieldToBrowser,
-  markedCharactersText,
-} from '../markdown/view.ts';
-import type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion, MarkdownToken } from '../markdown/view.ts';
+import { MARKDOWN_LIMITS, newRenderContext, keepRenderContext } from '../markdown/state.ts';
+import { advanceMarkdownSequence, jobAnswer } from '../markdown/flow-parse.ts';
+import { OVER_ELEMENT_LIMIT, yieldToBrowser } from '../markdown/view-elements.ts';
+import { limitText, formatMebibytes, waitLine, markedCharactersText } from '../markdown/view-source.ts';
+import { renderTokens } from '../markdown/view-blocks.ts';
+import type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion, MarkdownToken } from '../markdown/flow-parse.ts';
 import { $, findAll } from '../platform/dom.ts';
 import { DIFF_FORMAT, LAYOUT_MODE, MARKDOWN_LIMIT, SCOPE_MODE, SCOPE_SOURCE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, isTextDoc, withDocQuery } from '../documents/state.ts';

@@ -446,7 +446,6 @@ function restoreView(view: KeptView | undefined) {
   if (typeof view.page === 'number') restoreAnchor({ page: view.page, frac: view.frac });
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }
-window.addEventListener('pagehide', saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft. If a meta
 // cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background,
 // and pages are swapped only if the build changed. A document that cannot be opened says so on the status line, with
@@ -607,6 +606,7 @@ export {
   refitFilteredSheet,
   openNavigationSheet,
   restoreView,
+  saveView,
   switchDoc,
   switchPending,
   viaDoc,

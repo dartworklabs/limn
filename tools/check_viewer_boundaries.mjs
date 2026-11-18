@@ -7,7 +7,7 @@
 //   js/main.ts                                                 the entry point (feature entry, role main)
 // A module anywhere else (flat in js/, deeper, or in a folder that is not a feature) has no place: the check fails.
 //
-// The rules, over every import of every module listed in parts.txt (__APP_JS__):
+// The rules, over every import of every source module under js/:
 //   cycle               the import closes a cycle of modules (its target reaches the importer again)
 //   feature-dependency  a module imports another feature's module, and ALLOWED does not list that direction
 //   platform-isolation  a platform module imports a feature's module, or reaches one through other platform modules
@@ -21,6 +21,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseAst } from 'rollup/parseAst';
+import { viewerModules } from './viewer_modules.mjs';
 import { stripTypes } from './strip_types.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -102,22 +103,6 @@ export const ALLOWED = [
 ];
 
 export const RULES = ['cycle', 'feature-dependency', 'platform-isolation', 'role'];
-/** The modules parts.txt lists under __APP_JS__, as viewer-relative paths, in order. */
-export function listedModules(viewer = VIEWER) {
-  const out = [];
-  let inJs = false;
-  for (const raw of readFileSync(join(viewer, 'parts.txt'), 'utf8').split('\n')) {
-    const line = raw.split('#')[0].trim();
-    if (!line) continue;
-    if (/^__[A-Z_]+__$/.test(line)) {
-      inJs = line === '__APP_JS__';
-      continue;
-    }
-    if (inJs) out.push(line);
-  }
-  return out;
-}
-
 /**
  * The feature and role of a module path, from its place; null for a path that is no place.
  * @param {string} path a viewer-relative path such as js/pins/view-cards.ts
@@ -351,7 +336,7 @@ export function violations(graph, { allowed = ALLOWED } = {}) {
  * @param {string} [viewer]
  */
 export function main(argv, viewer = VIEWER) {
-  const modules = listedModules(viewer);
+  const modules = viewerModules(viewer);
   const errors = tableErrors({ allowed: ALLOWED, modules });
   if (errors.length) {
     for (const e of errors) console.error(e);

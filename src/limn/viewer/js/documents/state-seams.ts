@@ -70,7 +70,7 @@ function pageNavigation(): PageNavigation {
   return PAGE_NAVIGATION;
 }
 
-// What documents reads of the Markdown surface's drawn document and writes into it (markdown/view.ts MARKDOWN_VIEW):
+// What documents reads of the Markdown surface's drawn document and writes into it (markdown/state.ts MARKDOWN_VIEW):
 // which document is drawn and from which source, the line read now and the line count, the source asked for and the
 // line to come back to once it is drawn.
 interface MarkdownReading {

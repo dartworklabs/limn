@@ -1369,18 +1369,6 @@ $('#doc-search').addEventListener('focusout', (event: FocusEvent) => {
   }
   if (SEARCH.open && !SEARCH.q) searchHide();
 });
-// A press anywhere else folds an empty field away too: a tap on the page takes no focus, so on a touch screen the field
-// would stay up (and its keyboard with it).
-document.addEventListener(
-  'pointerdown',
-  (event) => {
-    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(eventElement(event))) return;
-    const focused = focusedElement();
-    searchHide();
-    if (focused && $('#doc-search').contains(focused)) focused.blur();
-  },
-  true,
-);
 // Keys in the search: Enter is the next hit and Shift+Enter the previous (not while an input method composes); Esc ends
 // the search. Neither reaches the viewer's own keys (main.ts), so Esc here never cancels a selection or a draft - but
 // with the search closed and empty (the focus on its magnifier) there is nothing to end, and Esc is the viewer's.
@@ -1426,4 +1414,30 @@ new MutationObserver(() => requestAnimationFrame(searchFit)).observe($('#status'
   attributeFilter: ['hidden'],
 });
 document.fonts.addEventListener('loadingdone', searchFit);
-export { SEARCH, pageText, searchClear, searchClose, searchFit, searchGo, searchLeave, searchOffer, searchOpen };
+function watchSearchDismissal() {
+  // A press anywhere else folds an empty field away too: a tap on the page takes no focus, so on a touch screen the field
+  // would stay up (and its keyboard with it).
+  document.addEventListener(
+    'pointerdown',
+    (event) => {
+      if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(eventElement(event))) return;
+      const focused = focusedElement();
+      searchHide();
+      if (focused && $('#doc-search').contains(focused)) focused.blur();
+    },
+    true,
+  );
+}
+
+export {
+  watchSearchDismissal,
+  SEARCH,
+  pageText,
+  searchClear,
+  searchClose,
+  searchFit,
+  searchGo,
+  searchLeave,
+  searchOffer,
+  searchOpen,
+};

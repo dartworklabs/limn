@@ -962,9 +962,14 @@ class GatedBuild:
 VIEWER = PKG / "viewer"
 
 
-def viewer_text(marker: str, directory: Path = VIEWER) -> str:
-    """The text the server puts at marker: the manifest's parts for it, joined in order."""
-    return "".join((directory / n).read_text(encoding="utf-8") for n in assemble.viewer_manifest(directory)[marker])
+def viewer_modules(directory: Path = VIEWER) -> list[str]:
+    """Paths of the viewer's TypeScript modules for source inspections."""
+    return sorted(path.relative_to(directory).as_posix() for path in (directory / "js").rglob("*.ts"))
+
+
+def viewer_css(directory: Path = VIEWER) -> str:
+    """The stylesheets in cascade order as they appear in the page."""
+    return "".join((directory / name).read_text(encoding="utf-8") for name in assemble.stylesheet_parts(directory))
 
 
 # the smallest PDF that pdftoppm/pdftotext can read (one page, one line of text). poppler rebuilds the xref itself.

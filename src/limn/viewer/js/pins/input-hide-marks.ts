@@ -114,11 +114,10 @@ function marksPressLost() {
   MARKS.held = null;
   marksLook(MARKS.off);
 }
-window.addEventListener('keydown', marksKeyDown);
 window.addEventListener('keyup', marksKeyUp);
 window.addEventListener('blur', marksPressLost);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) marksPressLost();
 });
 drawMarksSwitch();
-export { MARKS, marksSet, marksShow };
+export { marksKeyDown, MARKS, marksSet, marksShow };
