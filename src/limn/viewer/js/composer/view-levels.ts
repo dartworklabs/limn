@@ -220,14 +220,21 @@ document.addEventListener(
 // about, so every rung of it is held, each under its own lines: a rung moved to later is drawn from what is already
 // here rather than asked about again.
 //
-// An answer is held under the build whose pages it was asked about as well as under its lines, because its pieces are
-// places on those pages. A build that finishes while the composer stands open and leaves the page count alone swaps
-// every page image under the selection without replacing the selection itself (documents/flow-rebuild.ts refreshDoc
-// takes that branch rather than building the pages again, which is the only thing that lets the composing box go), so
-// an answer measured against the build before it would be drawn over the new pages for as long as the panel stays
-// open. Held under the build it was asked about, it is simply not found again, which reads as nothing having answered
-// about these lines yet: the box keeps the shape it has and the new build is asked (followRange), rather than falling
-// back to the rectangle that was dragged while that request is out.
+// An answer is held under the build its pieces were measured against as well as under its lines, because its pieces
+// are places on that build's pages. A build that finishes while the composer stands open and leaves the page count
+// alone swaps every page image under the selection without replacing the selection itself (documents/flow-rebuild.ts
+// refreshDoc takes that branch rather than building the pages again, which is the only thing that lets the composing
+// box go), so an answer measured against the build before it would be drawn over the new pages for as long as the
+// panel stays open. Held under the build it was measured against, it is simply not found again, which reads as
+// nothing having answered about these lines yet: the box keeps the shape it has and the new build is asked
+// (followRange), rather than falling back to the rectangle that was dragged while that request is out.
+//
+// The build an answer was measured against is the one the answer names (`boxes_build`), not the one this page
+// believed when it sent the request. The server measures against the build on screen as it answers, so a build that
+// finishes inside that round trip is measured against while this page still shows the one before it and its meta has
+// not caught up; held under what was believed, those pieces would be found at once and drawn over pages they are not
+// on. Held under the build the answer names, they are held under the build they are places on: they are found when
+// the pages become that build, and until then these lines read as unanswered, which keeps the box where it stands.
 const RANGE_BOXES = new WeakMap<LineOwner, Map<string, MarkPiece[]>>();
 // What build and lines an answer is held under. Pure.
 function rangeKey(build: string, first: number, last: number) {
@@ -272,18 +279,27 @@ function rangeBoxes(owner: LineOwner, shown: string): MarkPiece[] | undefined {
     answered = held && held.get(rangeKey(shown, owner.lo, owner.hi));
   return answered && answered.filter(isPiece);
 }
-// Records what a snippet answered, under the build the request was sent about: first the range it was asked about, so
-// lines with no mark are asked about once and a ladder that came without rungs cannot be asked about forever, then
-// every rung the ladder carries under that rung's own lines. One press on the ladder therefore answers the rungs
-// around it as well. The build is the one that was on screen when the request went out, not when its answer came: a
-// build that finished in between is asked about on its own, where holding the answer under it would put the pieces of
-// the pages before it on the pages after.
-function takeRangeBoxes(owner: LineOwner, answer: SnippetAnswer, shown: string) {
+// The build a snippet's pieces were measured against: the one its answer names, else the build the request was sent
+// about. An answer names none when the server had no build with pages to measure against - it then carries no piece
+// either - and so does one from a server older than this field; for both, the build this page showed as the request
+// went out is as near as anything says, and it is what every answer was held under before the name travelled.
+function measuredBuild(answer: SnippetAnswer, asked: string) {
+  return (typeof answer.boxes_build === 'string' && answer.boxes_build) || asked;
+}
+// Records what a snippet answered, under the build its pieces were measured against (measuredBuild): first the range
+// it was asked about, so lines with no mark are asked about once and a ladder that came without rungs cannot be asked
+// about forever, then every rung the ladder carries under that rung's own lines. One press on the ladder therefore
+// answers the rungs around it as well. `asked` is the build that was on screen when the request went out, which is
+// only what an answer naming no build is held under: a build that finished in between is the one the server measured
+// against, and holding its pieces under the build before it would put the places of the pages after on the pages
+// before.
+function takeRangeBoxes(owner: LineOwner, answer: SnippetAnswer, asked: string) {
   let held = RANGE_BOXES.get(owner);
   if (!held) RANGE_BOXES.set(owner, (held = new Map<string, MarkPiece[]>()));
-  held.set(rangeKey(shown, answer.lo, answer.hi), []);
+  const build = measuredBuild(answer, asked);
+  held.set(rangeKey(build, answer.lo, answer.hi), []);
   for (const rung of answer.levels || [])
-    held.set(rangeKey(shown, rung.lo, rung.hi), Array.isArray(rung.boxes) ? rung.boxes : []);
+    held.set(rangeKey(build, rung.lo, rung.hi), Array.isArray(rung.boxes) ? rung.boxes : []);
 }
 // The composing selection's box follows the lines it has chosen, and moves only onto an answer. Lines nothing has
 // answered about are asked of the snippet route - which answers every rung of the ladder round them at once - and the
@@ -323,7 +339,7 @@ function refetchSnip(owner: LineOwner, after: () => void) {
     composing = owner === COMPOSE.current;
   clearTimeout(composing ? COMPOSE_SNIPPET_TIMER : EDIT_SNIPPET_TIMER);
   const wait = setTimeout(async () => {
-    const asked = shownBuild(); // the build the pages show as this goes out, which the answer is held under
+    const asked = shownBuild(); // the build the pages show as this goes out, which an answer naming none is held under
     try {
       const { data } = await api('GET /api/snippet', {
         query: withDocQuery(

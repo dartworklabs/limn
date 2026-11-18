@@ -513,7 +513,9 @@ interface PickRefusal {
 // GET /api/snippet: the lines lo..hi of a manuscript file - its path and name, how many lines the range and the file
 // have, and the numbered snippet; with ?levels=1 the range ladder and its default rung, every rung carrying where its
 // own lines print (Rung.boxes), and with ?text=1 the lines' exact text for a range short enough to take a suggested
-// edit.
+// edit. boxes_build is the build those boxes were measured against - the page directory on screen as the server
+// answered, which a build finishing inside the round trip makes a later one than this page is showing - and comes
+// only for a request that asked for marks (?levels=1&boxes=1) and had a build with pages to measure them against.
 interface SnippetAnswer {
   file: string;
   name: string;
@@ -524,6 +526,7 @@ interface SnippetAnswer {
   snippet: string;
   levels?: Rung[];
   default_level?: string;
+  boxes_build?: string;
   text?: string;
 }
 

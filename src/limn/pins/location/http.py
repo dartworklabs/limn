@@ -45,7 +45,8 @@ def pick(app: LocationApp, doc: Doc, body: Mapping[str, Any]) -> Body:
 def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
     """GET /api/snippet after the common request guards; a document with an element map gets the raw rung as its
     ladder, ?text=1 adds the range's exact lines, ?levels=1 the range ladder, and ?boxes=1 beside it makes every rung
-    carry where its own lines print (range.snippet_api).
+    carry where its own lines print, the answer naming the build they were measured against (`boxes_build`,
+    range.snippet_api and service.PinLocationService.snippet).
 
     A mark is asked for, never implied, because it is not free: the forward pass runs one `synctex view` process per
     line of text of every rung, 13 ms each on a 35-page document, so a ladder round a pin inside a 40-line float is
@@ -55,7 +56,9 @@ def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
     rungs' lines alone - a saved pin's mark is what the pin list answers - so without the flag every card open paid
     that half second for marks it discarded. A client that does not ask gets exactly the answer this route gave
     before marks followed the range, and asks nothing of its author: `boxes` is absent where there is no answer, and
-    that absence is already the signal to fall back (docs/handbook/api.md §줄 핀의 상자 (`boxes`)).
+    that absence is already the signal to fall back (docs/handbook/api.md §줄 핀의 상자 (`boxes`)). `boxes_build` is
+    added only for a request that asked for marks and had a build with pages to measure them against, so a client
+    that asks for the ladder alone gets byte for byte what it got before this field existed.
 
     Only a ladder built from the document's own text asks for marks. A figure document's rung is a line of its drawing
     script, not of a manuscript - its marks come from the element map - and a Markdown or text document has no pages at

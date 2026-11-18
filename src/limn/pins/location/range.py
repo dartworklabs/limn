@@ -12,7 +12,8 @@ from limn.platform.values import is_int
 
 # Asks where the lines lo..hi of the range's file print: (lo, hi) -> the mark's pieces, empty when there is none. The
 # run binds one of these to the build it is reading (limn.pins.location.resolve.range_boxes); a caller that holds no
-# build facts passes no_boxes, and this module never learns what a build is.
+# build facts passes no_boxes. That build's name travels beside it (snippet_api's boxes_build): this module reads
+# nothing of a build, it only writes down the name its caller measured against.
 RangeBoxes: TypeAlias = Callable[[int, int], tuple[MarkPiece, ...]]
 
 
@@ -61,6 +62,7 @@ def snippet_api(
     source_ladder: bool = True,
     text: bool = False,
     boxes: RangeBoxes = no_boxes,
+    boxes_build: str | None = None,
 ) -> dict[str, Any]:
     """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by location.input.parse_snippet),
     and with levels the range ladder around them - mapping.rung_ladder's for the float environments envs when the
@@ -70,7 +72,12 @@ def snippet_api(
     round trip, while a caller that wants the lines alone runs no process. With text (?text=1), and only for a
     range of at most SUGGEST_LINES_MAX lines, `text` comes last: the exact lines unnumbered, joined with "\n",
     carriage returns removed - what a suggested edit's base must be (limn.pins.suggestion.lines_text). Every other
-    field is the same."""
+    field is the same.
+
+    boxes_build names the build those marks were measured against, as its caller holds it
+    (limn.pins.location.service.PinLocationService.snippet). It belongs to the ladder it labels, so it comes with the
+    ladder and before `text`, and never without one: with no levels there is no rung and so no mark to label. A
+    caller that passes none - every caller that asked for no marks - gets the bytes this route has always given."""
     f, lines, lo, hi = rng.file, rng.lines, rng.lo, rng.hi
     out: dict[str, Any] = {
         "file": str(f),
@@ -89,6 +96,8 @@ def snippet_api(
             default = rungs[0]
         out["levels"] = [_rung_with_boxes(rung, boxes) for rung in rungs]
         out["default_level"] = default["level"]
+        if boxes_build is not None:
+            out["boxes_build"] = boxes_build
     exact = lines_text(lines, lo, hi) if text and hi - lo + 1 <= SUGGEST_LINES_MAX else None
     if exact is not None:
         out["text"] = exact

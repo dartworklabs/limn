@@ -7,7 +7,9 @@ rung, so these tests stub limn.pins.location.source.synctex_view and watch which
 for. That watching is the point: marks are run only for a caller that asked for them (?boxes=1), the line cap holds per
 rung, a rung whose range no longer stands on the build's lines is asked for nothing, a build that kept no record of the
 lines it read is asked nothing at all - unlike a pick, which holds SyncTeX's own answer in that build's numbers - and a
-document whose rungs are not manuscript lines (a figure's drawing script) asks nothing either.
+document whose rungs are not manuscript lines (a figure's drawing script) asks nothing either. The answer also names
+the build it measured against (`boxes_build`), so a client can tell whether the pages it is showing are still the ones
+those marks are places on.
 
 Run: uv run pytest -q src/limn/pins/location/tests/test_snippet_boxes.py
 """
@@ -176,8 +178,9 @@ class SnippetBoxes(SnippetBase):
         The edit card is that caller - it sends levels=1 whenever it opens and after every save and re-place, and
         reads the rungs' lines alone - so on this table's ladder it would otherwise pay three `synctex view` calls
         for marks it discards, and about half a second on a pin inside a 40-line float. Asking for the marks
-        (&boxes=1) answers field for field what the route answered before the flag: the same ladder with the pieces
-        added, which is what every other test in this class reads."""
+        (&boxes=1) answers field for field what the route answered before the flag, with the pieces added to each
+        rung and the build they were measured against named on the answer (boxes_build, the test below) - nothing
+        else - which is what every other test in this class reads."""
         with self.viewed(TABLE_BOXES):
             plain = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
             ran_for_the_ladder = list(self.calls)
@@ -189,9 +192,41 @@ class SnippetBoxes(SnippetBase):
         self.assertEqual([lv for lv in plain["levels"] if "boxes" in lv], [])
         self.assertEqual(sorted(line for _, line in self.calls), [13, 14, 15])
         self.assertEqual(
-            plain, {**asked, "levels": [{k: v for k, v in lv.items() if k != "boxes"} for lv in asked["levels"]]}
+            plain,
+            {
+                **{k: v for k, v in asked.items() if k != "boxes_build"},
+                "levels": [{k: v for k, v in lv.items() if k != "boxes"} for lv in asked["levels"]],
+            },
         )
         self.assertEqual([("boxes" in lv) for lv in asked["levels"]], [True, True])
+
+    def test_the_answer_names_the_build_its_boxes_were_measured_against(self):
+        """A request that asked for marks is told which build they are places on: the page folder on screen, the name
+        /api/meta gives as pages_build. It has to be told, because the measuring happens against the build the server
+        has when it answers - a build that finishes inside the round trip is a build the client is not showing yet,
+        and pieces labelled with what the client believed when it asked would be drawn over pages they are not on.
+
+        The name comes with an answer that could measure nothing against that build too, since "no mark" is an answer
+        about that build and no other. It comes with the ladder, before text, and not at all for a request that asked
+        for the ladder alone or had no page to measure against - which is what keeps this route byte for byte what it
+        was for every client that does not ask for marks."""
+        with self.viewed(TABLE_BOXES):
+            asked = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
+            with_text = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1&text=1")
+            plain = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            lines = self.snippet("file=main.tex&lo=14&hi=14")
+        self.assertEqual(asked["boxes_build"], self.pages.name)
+        self.assertEqual(list(with_text)[-3:], ["default_level", "boxes_build", "text"])
+        self.assertNotIn("boxes_build", plain)
+        self.assertNotIn("boxes_build", lines)
+        (self.pages / built_source.SOURCE_NAME).unlink()  # a build that kept no record of the lines it read
+        with self.viewed(TABLE_BOXES):
+            measured_nothing = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
+        self.assertEqual([lv for lv in measured_nothing["levels"] if "boxes" in lv], [])
+        self.assertEqual(measured_nothing["boxes_build"], self.pages.name)
+        (self.pages / "page-1.png").unlink()  # and no page at all: no build to measure against, nothing to name
+        with self.viewed(TABLE_BOXES):
+            self.assertNotIn("boxes_build", self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1"))
 
     def test_a_rung_and_a_pick_answer_the_same_boxes_for_the_same_range(self):
         """The same file and the same lo..hi give the same mark through both paths: a drag traced to the table and the

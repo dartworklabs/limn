@@ -613,6 +613,8 @@ class DeclaredEndpointAnswers(AccessBase):
         lines = "/api/snippet?doc=ms&file=%s&lo=4&hi=5" % self.main
         self.answer("SnippetAnswer", "GET", lines)
         self.answer("SnippetAnswer", "GET", lines + "&levels=1&text=1")
+        # the marks request, the only one told which build they were measured against (boxes_build)
+        self.answer("SnippetAnswer", "GET", lines + "&levels=1&boxes=1")
         self.answer("ErrorBody", "GET", "/api/snippet?doc=ms&file=%s&lo=900&hi=901" % self.main, status=400)
         self.answer("OutlineLabelsAnswer", "GET", "/api/outline-labels?doc=ms")
         self.answer("HoldAnswer", "POST", "/api/hold?doc=ms", {"build": self.build, "days": 1})

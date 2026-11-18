@@ -43,9 +43,17 @@ class PinLocationService:
         document's ladder comes from an element map - and, with text, its exact lines (range.snippet_api).
 
         With a page to measure against (on_screen - the caller decides whether this answer's rungs may carry marks,
-        limn.pins.location.http.snippet), every rung also carries where its lines print on that build's PDF. The
-        build's facts are read once here and bound for the whole answer, not per rung; without a page the ladder is
-        the one this route has always answered.
+        limn.pins.location.http.snippet), every rung also carries where its lines print on that build's PDF, and the
+        answer names that build (`boxes_build`, docs/handbook/api.md §줄 핀의 상자 (`boxes`)). The build's facts are
+        read once here and bound for the whole answer, not per rung; without a page the ladder is the one this route
+        has always answered.
+
+        The name travels because a client cannot work it out: the pieces are places on the pages of the build this
+        run has when it answers, and a build that finishes inside the round trip is measured against while the client
+        is still showing the one before it. Labelled with what the client believed when it asked, those pieces would
+        be drawn over pages they are not on. The name comes with an answer that could measure nothing against that
+        build too - no record of its lines, no mark over the line cap - because "no mark" is an answer about that
+        build and no other; it comes at all only when a build with pages was there to measure against.
 
         A build that kept no record of the lines it read (one made by an older Limn) answers no marks at all, as the
         pin listing does for such a build (limn.builds.queries.BuildQueries.boxes,
@@ -61,7 +69,15 @@ class PinLocationService:
             built = publication.built_lines(rng.file)
             if built is not None:
                 boxes = range_boxes(doc, rng.file, built, rng.lines, publication.pdf, on_screen.pages).pieces
-        return source_range.snippet_api(rng, levels, ctx.envs, source_ladder, text, boxes)
+        return source_range.snippet_api(
+            rng,
+            levels,
+            ctx.envs,
+            source_ladder,
+            text,
+            boxes,
+            boxes_build=None if on_screen is None else on_screen.build,
+        )
 
     def overlaps(self, rng: SourceRange) -> dict[str, Any]:
         """Find open pins that intersect a validated source range."""

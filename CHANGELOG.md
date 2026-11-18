@@ -2,9 +2,9 @@
 
 ## Unreleased
 
-The agent contract gains one computed field and removes or renames nothing. A LaTeX line pin, the default rung of a
-pick and every rung of a snippet now say where the pin's own lines print; `pins.md` is unchanged and the stored
-record gains no field.
+The agent contract gains two computed fields and removes or renames nothing. A LaTeX line pin, the default rung of a
+pick and every rung of a snippet now say where the pin's own lines print, and a snippet asked for those boxes says
+which build it measured them against; `pins.md` is unchanged and the stored record gains no field.
 
 ### Added
 
@@ -35,6 +35,14 @@ record gains no field.
   asks (`&boxes=1`): measuring them runs one `synctex view` process per line of text of every rung, about half a
   second for a ladder round a pin inside a 40-line float, and the viewer's edit card reads this route for the lines
   alone.
+- **A snippet asked for boxes names the build it measured them against (`boxes_build`).** The page directory
+  `/api/meta` calls `pages_build`, after the ladder and before `text`. The measuring happens against the build the
+  server has when it answers, so a build that finishes inside the round trip is one the client is not showing yet,
+  and a client that labelled those pieces with what it believed when it asked would draw them over pages they are
+  not on - the viewer did, for as long as its meta took to catch up. The name comes with an answer that could
+  measure nothing against that build too, since "no mark" is an answer about that build and no other, and not at all
+  for a request that asked for no boxes or had no build with pages to measure against: such a request gets the bytes
+  it got before this field existed.
 
 ### Changed
 

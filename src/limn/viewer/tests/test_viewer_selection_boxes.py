@@ -22,7 +22,7 @@ import unittest
 from urllib.parse import parse_qs, urlparse
 
 from helpers import extract_js_fn, run_node
-from helpers_browser import BrowserBase, settle
+from helpers_browser import BrowserBase, settle, until
 
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
 # First-visit hints off: their line would stand over the pages the boxes are read from.
@@ -237,6 +237,7 @@ class SelectionPieces(unittest.TestCase):
                         "answeredBuild",
                         "boxedRung",
                         "rangeBoxes",
+                        "measuredBuild",
                         "takeRangeBoxes",
                     )
                 ],
@@ -278,6 +279,7 @@ class SelectionPieces(unittest.TestCase):
                         "answeredBuild",
                         "boxedRung",
                         "rangeBoxes",
+                        "measuredBuild",
                         "takeRangeBoxes",
                     )
                 ],
@@ -306,6 +308,57 @@ class SelectionPieces(unittest.TestCase):
         self.assertIsNone(held_after)  # and so is everything held about that build
         self.assertEqual(answered, [{"page": 1, "frac": FIRST}])  # the new build answers for itself
         self.assertEqual(build, "b1")  # the build a save hands over is the pick's, which a redraw never rewrites
+
+    def test_an_answer_is_held_under_the_build_it_names_not_the_one_asked_about(self):
+        """The server measures where a range prints against the build it has when it answers, and names that build
+        (`boxes_build`). A build that finishes inside the round trip is therefore measured against while this page is
+        still showing the one before it and its meta has not caught up, so an answer held under the build the request
+        was sent about would be found at once and drawn over pages its pieces are not on. Held under the build it
+        names, those lines read as unanswered on the pages being shown - not as answered with no mark, which would
+        drop the box back onto the dragged rectangle - so the box keeps its shape and the range is asked again
+        (followRange), and the pieces are found as soon as the pages are that build's.
+
+        An answer that names no build is held under the build the request was sent about, which is what every answer
+        was held under before the name travelled: a server with no page to measure against answers no piece either,
+        and one older than the field says nothing more than what this page believed when it asked. A name that is no
+        string is read as no name, the way every value an answer carries into this file is read."""
+        js = "\n".join(
+            [
+                "const RANGE_BOXES = new WeakMap();",
+                *[
+                    extract_js_fn(name)
+                    for name in (
+                        "isFrac",
+                        "isPiece",
+                        "rangeKey",
+                        "answeredBuild",
+                        "boxedRung",
+                        "rangeBoxes",
+                        "measuredBuild",
+                        "takeRangeBoxes",
+                    )
+                ],
+                # asked while the pages were b1's, answered against b2 - the build that finished in between
+                "const late = {lo: 3, hi: 9, levels: []};",
+                "takeRangeBoxes(late, {lo: 3, hi: 9, boxes_build: 'b2', levels: [{lo: 3, hi: 9,"
+                " boxes: [{page: 1, frac: %s}]}]}, 'b1');" % json.dumps(FIRST),
+                # an answer that names no build, and one whose name is no string
+                "const quiet = {lo: 4, hi: 6, levels: []};",
+                "takeRangeBoxes(quiet, {lo: 4, hi: 6, levels: [{lo: 4, hi: 6,"
+                " boxes: [{page: 2, frac: %s}]}]}, 'b1');" % json.dumps(SECOND),
+                "const odd = {lo: 5, hi: 5, levels: []};",
+                "takeRangeBoxes(odd, {lo: 5, hi: 5, boxes_build: 42, levels: [{lo: 5, hi: 5,"
+                " boxes: [{page: 1, frac: %s}]}]}, 'b1');" % json.dumps(FIRST),
+                "console.log(JSON.stringify([rangeBoxes(late, 'b1'), rangeBoxes(late, 'b2'),"
+                " rangeBoxes(quiet, 'b1'), rangeBoxes(quiet, 'b2'), rangeBoxes(odd, 'b1')]));",
+            ]
+        )
+        shown, named, unnamed, unnamed_elsewhere, no_string = json.loads(run_node(js))
+        self.assertIsNone(shown)  # the pages on screen are b1's: nothing has answered about them yet
+        self.assertEqual(named, [{"page": 1, "frac": FIRST}])  # found when the pages become the build it names
+        self.assertEqual(unnamed, [{"page": 2, "frac": SECOND}])  # no name: the build the request was sent about
+        self.assertIsNone(unnamed_elsewhere)
+        self.assertEqual(no_string, [{"page": 1, "frac": FIRST}])  # a name that is no string is no name
 
 
 # The ladder the pick answers: a dragged line, the paragraph it is in (the default) and the environment around it. The
@@ -366,9 +419,11 @@ class SelectionBoxesOnScreen(BrowserBase):
         self.PIECES = dict(PIECES)
         self.asked = []  # the lines of each ladder the viewer asked where they print
         self.asked_boxes = []  # of those, the ones that asked for the marks as well (&boxes=1)
+        self.measured = None  # the build a snippet answer names, when a test stands in for another one
 
     def route(self, route):
-        """The fixture's routes, with every snippet ladder given the pieces this class stands in for."""
+        """The fixture's routes, with every snippet ladder given the pieces this class stands in for - and, while
+        self.measured is set, named as measured against that build rather than the one on screen."""
         request = route.request
         parts = urlparse(request.url)
         query = parse_qs(parts.query)
@@ -383,6 +438,8 @@ class SelectionBoxesOnScreen(BrowserBase):
                 pieces = self.PIECES.get((rung["lo"], rung["hi"]))
                 if pieces:
                     rung["boxes"] = pieces
+            if self.measured is not None:
+                body["boxes_build"] = self.measured
             answer["body"] = json.dumps(body)
             return route.fulfill(**answer)
         return super().route(route)
@@ -474,6 +531,28 @@ class SelectionBoxesOnScreen(BrowserBase):
         self.assertGreater(at_once[0]["height"], 0.1)  # the paragraph's pieces, not the one-line drag
         settle(page)
         self.assertGreater(self.height(page), paragraph)
+
+    def test_an_answer_measured_against_another_build_is_not_drawn_and_is_asked_again(self):
+        """A build that finishes while the request is out is the build the server measures against, and the answer
+        names it (`boxes_build`) while this page is still showing - and still has the meta of - the build before it.
+        Those pieces are places on pages that are not on screen, so the box is not moved onto them: it keeps the range
+        it is showing, no second piece appears, and the range is asked again. As soon as an answer names the build on
+        screen the box follows it. Filed instead under what this page believed when it asked, that answer would be
+        found at once and the environment's pieces drawn over the pages before them."""
+        page = self.view()
+        self.drag(page)
+        paragraph = self.height(page)
+        self.measured = "pages-19990101000000"  # not the build whose pages this page shows
+        page.click("#c-levels [data-act=level][data-level=env]")
+        # one Playwright call per try, because the fixture's routes answer only inside one
+        until(page, lambda: bool(page.evaluate("1")) and len(self.asked_boxes) >= 2)
+        self.assertEqual(self.asked_boxes[:2], [(3, 9), (3, 9)])
+        self.assertAlmostEqual(self.height(page), paragraph, places=3)  # still the paragraph's pieces
+        self.assertEqual(len(self.boxes(page)), 1)
+        self.measured = None  # an answer about the build on screen
+        settle(page)
+        self.assertGreater(self.height(page), paragraph)
+        self.assertEqual([piece["page"] for piece in self.boxes(page)], ["p1", "p2"])
 
     def test_widening_in_the_excerpt_also_waits_on_its_answer(self):
         """The same on the other way of changing the range: a '+' in the range excerpt keeps the box where it is until
