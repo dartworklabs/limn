@@ -94,7 +94,7 @@ function statusList(input: ReturnType<typeof statusInput>) {
       held: input.held || 0,
       act: input.offline ? null : 'offline-flush',
     });
-  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload' });
+  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload-viewer' });
   notes
     .filter((notice: Notice) => !alert(notice))
     .forEach((notice: Notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
@@ -278,7 +278,7 @@ function statusAct(item: StatusItem) {
   if (item.kind === STATUS_KIND.NOTICE) return noticeButtons(item.notice, true);
   const force = item.act === 'rebuild-force',
     why = item.act === 'status-why',
-    reload = item.act === 'reload';
+    reload = item.act === 'reload-viewer';
   const flush = item.act === 'offline-flush';
   const name =
     item.act === 'rebuild'

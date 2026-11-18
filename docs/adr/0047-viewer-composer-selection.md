@@ -4,7 +4,7 @@
 | --- | --- |
 | **번호** | ADR-0047 |
 | **제목** | 작성 패널의 선택은 선택 종류의 합집합이고, 저장한 초안은 릴리스한 모든 모양으로 읽는다 |
-| **상태** | 제안 |
+| **상태** | 승인됨 |
 | **결정일** | 2026-11-17 |
 | **결정자** | Limn 소유자의 위임자가 작업 지시로 정함(선택 종류의 합집합으로 선언하고 그 때문에 있던 단언을 없앰, 초안의 선택 가드는 오늘 되살아나는 초안을 덜 되살리지 않음). 판별 필드와 합집합의 구성, 가드의 형태는 지시가 이 변경에 맡겼다 |
 | **출처** | 둘째 합본(DOM 값, 경계, 규칙을 나눈 네 브랜치의 합본)에서 `tsc`가 본 읽는 쪽과, v0.3.5부터 v0.4.61까지의 태그가 초안의 `cur`에 쓴 값 |
@@ -18,10 +18,10 @@
 
 | | | |
 | --- | --- | --- |
-| D1 | **선택은 종류의 합집합이다.** `ComposerSelection = PagePick \| LinePick`(`types/state.d.ts`). `PagePick`은 PDF 위의 드래그(pick의 응답, 또는 `offlinePick`의 끊긴 채의 드래그)이고, `LinePick`은 `pickLines`가 짓는 줄 선택이다. 둘 다 패널이 고른 것(`ComposerChoice`: `scope`·`env`·`elSel`·`rel`)을 가진다. 합집합은 반복 선택의 후보(`Repick.cand`)도 받는다 | 제안 |
-| D2 | **없는 것은 `?: undefined`로 적고, 쪽으로 가른다.** `LinePick`은 PDF 위의 드래그에만 있는 필드(쪽·`frac`·`pdf_build`·`via`·`fill`·`rival`·`el`·`path_names`·`view_only`·`pdf`·`n_chars`·`offline`·`rect`)를 `?: undefined`로 선언한다. 그래서 그 필드는 두 종류에서 같은 이름으로 읽히고 없을 수 있는 값이 된다. 쪽이 꼭 있어야 하는 자리(그림의 이름, 판정 줄)는 `selection.page !== undefined`로 좁힌다. 서버의 종류(`kind`)는 문자열 전체라 판별 필드가 되지 못한다 | 제안 |
-| D3 | **선언은 실제 값에 맞춘다.** 서버는 무게를 잴 글자가 없는 traced pick에 `score: null`을 보내므로 `PickAnswer.score`는 `number \| null`이다. 그려진 문서의 사다리 칸은 `env: null`을 가지므로 `Rung.env`는 `string \| null`이다 | 제안 |
-| D4 | **초안의 선택은 합집합으로 좁히고, 릴리스한 모든 모양을 받는다.** `draftSelection`(`composer/flow-draft.ts`)은 `cur`가 `LinePick`이나 `PagePick`의 모양이면 그 값을 그대로 돌려준다(가드 `isLinePick`·`isPagePick`, 사다리 칸·겹침·요소까지 본다). v0.4.60·v0.4.61의 `offlinePick`이 쓴 모양(줄·이름·요소가 `null`, 드래그가 빌드를 말하지 않으면 `pdf_build` 없음)은 지금 `offlinePick`이 쓰는 모양으로 바꿔 돌려준다. 그 밖의 값은 `null`이고 메모만 다음 선택을 기다린다. 받는 모양은 v0.3.5부터 v0.4.61까지 서버의 pick 응답(`frac`·`pdf_build`·`overlaps`가 늘 있었다), v0.4.48부터의 줄 선택(같은 필드), 패널이 더하는 필드를 태그에서 읽어 정했다 | 제안 |
+| D1 | **선택은 종류의 합집합이다.** `ComposerSelection = PagePick \| LinePick`(`types/state.d.ts`). `PagePick`은 PDF 위의 드래그(pick의 응답, 또는 `offlinePick`의 끊긴 채의 드래그)이고, `LinePick`은 `pickLines`가 짓는 줄 선택이다. 둘 다 패널이 고른 것(`ComposerChoice`: `scope`·`env`·`elSel`·`rel`)을 가진다. 합집합은 반복 선택의 후보(`Repick.cand`)도 받는다 | 승인됨 |
+| D2 | **없는 것은 `?: undefined`로 적고, 쪽으로 가른다.** `LinePick`은 PDF 위의 드래그에만 있는 필드(쪽·`frac`·`pdf_build`·`via`·`fill`·`rival`·`el`·`path_names`·`view_only`·`pdf`·`n_chars`·`offline`·`rect`)를 `?: undefined`로 선언한다. 그래서 그 필드는 두 종류에서 같은 이름으로 읽히고 없을 수 있는 값이 된다. 쪽이 꼭 있어야 하는 자리(그림의 이름, 판정 줄)는 `selection.page !== undefined`로 좁힌다. 서버의 종류(`kind`)는 문자열 전체라 판별 필드가 되지 못한다 | 승인됨 |
+| D3 | **선언은 실제 값에 맞춘다.** 서버는 무게를 잴 글자가 없는 traced pick에 `score: null`을 보내므로 `PickAnswer.score`는 `number \| null`이다. 그려진 문서의 사다리 칸은 `env: null`을 가지므로 `Rung.env`는 `string \| null`이다 | 승인됨 |
+| D4 | **초안의 선택은 합집합으로 좁히고, 릴리스한 모든 모양을 받는다.** `draftSelection`(`composer/flow-draft.ts`)은 `cur`가 `LinePick`이나 `PagePick`의 모양이면 그 값을 그대로 돌려준다(가드 `isLinePick`·`isPagePick`, 사다리 칸·겹침·요소까지 본다). v0.4.60·v0.4.61의 `offlinePick`이 쓴 모양(줄·이름·요소가 `null`, 드래그가 빌드를 말하지 않으면 `pdf_build` 없음)은 지금 `offlinePick`이 쓰는 모양으로 바꿔 돌려준다. 그 밖의 값은 `null`이고 메모만 다음 선택을 기다린다. 받는 모양은 v0.3.5부터 v0.4.61까지 서버의 pick 응답(`frac`·`pdf_build`·`overlaps`가 늘 있었다), v0.4.48부터의 줄 선택(같은 필드), 패널이 더하는 필드를 태그에서 읽어 정했다 | 승인됨 |
 
 ## 대안
 

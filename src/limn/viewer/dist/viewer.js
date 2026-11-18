@@ -9141,7 +9141,7 @@ function statusList(input) {
       held: input.held || 0,
       act: input.offline ? null : 'offline-flush',
     });
-  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload' });
+  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload-viewer' });
   notes
     .filter((notice) => !alert(notice))
     .forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
@@ -9325,7 +9325,7 @@ function statusAct(item) {
   if (item.kind === STATUS_KIND.NOTICE) return noticeButtons(item.notice, true);
   const force = item.act === 'rebuild-force',
     why = item.act === 'status-why',
-    reload = item.act === 'reload';
+    reload = item.act === 'reload-viewer';
   const flush = item.act === 'offline-flush';
   const name =
     item.act === 'rebuild'
@@ -39323,7 +39323,7 @@ document.addEventListener('click', (event) => {
     case 'notice-x':
       noticeClose(Number(control.dataset.n));
       break;
-    case 'reload':
+    case 'reload-viewer':
       reloadForUpdate();
       break;
     case undefined: // control matched [data-act], so the attribute is there; nothing to do without it
