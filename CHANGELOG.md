@@ -42,7 +42,10 @@ which build it measured them against; `pins.md` is unchanged and the stored reco
   not on - the viewer did, for as long as its meta took to catch up. The name comes with an answer that could
   measure nothing against that build too, since "no mark" is an answer about that build and no other, and not at all
   for a request that asked for no boxes or had no build with pages to measure against: such a request gets the bytes
-  it got before this field existed.
+  it got before this field existed. The composer reads the name and, while the answer it holds is about a build other
+  than the one whose pages are up, keeps the box where it stands and sends nothing more until the displayed build
+  moves - asking again cannot help, because the server measures against the build it has and no request brings this
+  page's meta forward, so it would only cost one request per redraw for as long as the poll takes.
 
 ### Changed
 

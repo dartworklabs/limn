@@ -22,7 +22,7 @@ import unittest
 from urllib.parse import parse_qs, urlparse
 
 from helpers import extract_js_fn, run_node
-from helpers_browser import BrowserBase, settle, until
+from helpers_browser import BrowserBase, settle
 
 DESKTOP = {"viewport": {"width": 1440, "height": 900}}
 # First-visit hints off: their line would stand over the pages the boxes are read from.
@@ -64,6 +64,11 @@ function drawn() {
     .map(el => ({page: el.parentElement.id, cls: el.className, snap: el.dataset.snap || '',
       box: [el.style.left, el.style.top, el.style.width, el.style.height]}));
 }"""
+
+# What the module keeps beside a composing selection: the answers held about where its ranges print, and the ranges
+# whose answer was measured against another build than the pages that are up. A node harness that pulls one of the
+# functions over them out of the page declares both, since on the page they are module state.
+HELD_MAPS = "const RANGE_BOXES = new WeakMap(), RANGE_ELSEWHERE = new WeakMap();"
 
 
 class SelectionPieces(unittest.TestCase):
@@ -227,7 +232,7 @@ class SelectionPieces(unittest.TestCase):
         carries no ladder at all, or lines with no mark would be asked about again on every redraw."""
         js = "\n".join(
             [
-                "const RANGE_BOXES = new WeakMap();",
+                HELD_MAPS,
                 *[
                     extract_js_fn(name)
                     for name in (
@@ -238,16 +243,17 @@ class SelectionPieces(unittest.TestCase):
                         "boxedRung",
                         "rangeBoxes",
                         "measuredBuild",
+                        "noteElsewhere",
                         "takeRangeBoxes",
                     )
                 ],
                 "const owner = {lo: 3, hi: 9, levels: []};",
                 "takeRangeBoxes(owner, {lo: 3, hi: 9, levels: [{lo: 3, hi: 9, boxes: [{page: 1, frac: %s}]},"
-                " {lo: 1, hi: 40, boxes: [{page: 2, frac: %s}]}, {lo: 5, hi: 5}]}, 'b1');"
+                " {lo: 1, hi: 40, boxes: [{page: 2, frac: %s}]}, {lo: 5, hi: 5}]}, 'b1', 'b1');"
                 % (json.dumps(FIRST), json.dumps(SECOND)),
                 # the owner is the selection itself, moving from rung to rung; its answers are held under it
                 "const read = (lo, hi) => {owner.lo = lo; owner.hi = hi; return rangeBoxes(owner, 'b1');};",
-                "const bare = {lo: 2, hi: 2, levels: []}; takeRangeBoxes(bare, {lo: 2, hi: 2}, 'b1');",
+                "const bare = {lo: 2, hi: 2, levels: []}; takeRangeBoxes(bare, {lo: 2, hi: 2}, 'b1', 'b1');",
                 "console.log(JSON.stringify([read(3, 9), read(1, 40), read(5, 5), read(4, 4),"
                 " rangeBoxes({lo: 3, hi: 9, levels: []}, 'b1'), rangeBoxes(bare, 'b1')]));",
             ]
@@ -269,7 +275,7 @@ class SelectionPieces(unittest.TestCase):
         shape it has until the new build answers. The lines themselves did not move: only the pages under them did."""
         js = "\n".join(
             [
-                "const RANGE_BOXES = new WeakMap();",
+                HELD_MAPS,
                 *[
                     extract_js_fn(name)
                     for name in (
@@ -280,6 +286,7 @@ class SelectionPieces(unittest.TestCase):
                         "boxedRung",
                         "rangeBoxes",
                         "measuredBuild",
+                        "noteElsewhere",
                         "takeRangeBoxes",
                     )
                 ],
@@ -287,7 +294,7 @@ class SelectionPieces(unittest.TestCase):
                 "const selection = {pdf_build: 'b1', lo: 4, hi: 6,"
                 " levels: [{level: 'para', lo: 4, hi: 6, boxes: [{page: 1, frac: %s}]}]};" % json.dumps(FIRST),
                 "takeRangeBoxes(selection, {lo: 4, hi: 6, levels: [{lo: 3, hi: 9,"
-                " boxes: [{page: 2, frac: %s}]}]}, 'b1');" % json.dumps(SECOND),
+                " boxes: [{page: 2, frac: %s}]}]}, 'b1', 'b1');" % json.dumps(SECOND),
                 "const onRung = rangeBoxes(selection, 'b1');",
                 "selection.lo = 3; selection.hi = 9;",
                 "const onHeld = rangeBoxes(selection, 'b1');",
@@ -296,7 +303,7 @@ class SelectionPieces(unittest.TestCase):
                 "const heldAfter = rangeBoxes(selection, 'b2');",
                 # answered again about b2, the selection still naming the build its drag was picked on
                 "takeRangeBoxes(selection, {lo: 3, hi: 9, levels: [{lo: 3, hi: 9,"
-                " boxes: [{page: 1, frac: %s}]}]}, 'b2');" % json.dumps(FIRST),
+                " boxes: [{page: 1, frac: %s}]}]}, 'b2', 'b2');" % json.dumps(FIRST),
                 "console.log(JSON.stringify([onRung, onHeld, rungAfter, heldAfter,"
                 " rangeBoxes(selection, 'b2'), selection.pdf_build]));",
             ]
@@ -324,7 +331,7 @@ class SelectionPieces(unittest.TestCase):
         string is read as no name, the way every value an answer carries into this file is read."""
         js = "\n".join(
             [
-                "const RANGE_BOXES = new WeakMap();",
+                HELD_MAPS,
                 *[
                     extract_js_fn(name)
                     for name in (
@@ -335,20 +342,21 @@ class SelectionPieces(unittest.TestCase):
                         "boxedRung",
                         "rangeBoxes",
                         "measuredBuild",
+                        "noteElsewhere",
                         "takeRangeBoxes",
                     )
                 ],
                 # asked while the pages were b1's, answered against b2 - the build that finished in between
                 "const late = {lo: 3, hi: 9, levels: []};",
                 "takeRangeBoxes(late, {lo: 3, hi: 9, boxes_build: 'b2', levels: [{lo: 3, hi: 9,"
-                " boxes: [{page: 1, frac: %s}]}]}, 'b1');" % json.dumps(FIRST),
+                " boxes: [{page: 1, frac: %s}]}]}, 'b1', 'b1');" % json.dumps(FIRST),
                 # an answer that names no build, and one whose name is no string
                 "const quiet = {lo: 4, hi: 6, levels: []};",
                 "takeRangeBoxes(quiet, {lo: 4, hi: 6, levels: [{lo: 4, hi: 6,"
-                " boxes: [{page: 2, frac: %s}]}]}, 'b1');" % json.dumps(SECOND),
+                " boxes: [{page: 2, frac: %s}]}]}, 'b1', 'b1');" % json.dumps(SECOND),
                 "const odd = {lo: 5, hi: 5, levels: []};",
                 "takeRangeBoxes(odd, {lo: 5, hi: 5, boxes_build: 42, levels: [{lo: 5, hi: 5,"
-                " boxes: [{page: 1, frac: %s}]}]}, 'b1');" % json.dumps(FIRST),
+                " boxes: [{page: 1, frac: %s}]}]}, 'b1', 'b1');" % json.dumps(FIRST),
                 "console.log(JSON.stringify([rangeBoxes(late, 'b1'), rangeBoxes(late, 'b2'),"
                 " rangeBoxes(quiet, 'b1'), rangeBoxes(quiet, 'b2'), rangeBoxes(odd, 'b1')]));",
             ]
@@ -359,6 +367,77 @@ class SelectionPieces(unittest.TestCase):
         self.assertEqual(unnamed, [{"page": 2, "frac": SECOND}])  # no name: the build the request was sent about
         self.assertIsNone(unnamed_elsewhere)
         self.assertEqual(no_string, [{"page": 1, "frac": FIRST}])  # a name that is no string is no name
+
+    def test_only_a_range_whose_answer_names_another_build_is_left_unasked(self):
+        """Which ranges followRange stops asking about. An answer that named a build other than the one whose pages
+        are up is noted under those pages, for the range it answered and every rung of its ladder: asking again would
+        only fetch the same answer, since the server measures against the build it has - the one that answer named -
+        and a request does not bring this page's meta forward. The note is read against the pages that are up, so it
+        stops applying the moment they move, and the answer held for that build is then found instead.
+
+        Nothing else is noted, which is what keeps the damper off the case it was never meant for: a range nothing has
+        answered about, a range whose held answer the pages have since moved past (a build that finished under the
+        open composer), and an answer that named no build at all are all still asked - there it is the build now shown
+        that has not answered, and asking is how its pieces arrive.
+
+        That is why a note is made only when the pages did not move while the answer was coming. If they did, it is
+        this page that moved on rather than the server that got ahead, so the build now shown has not answered and
+        must be asked - even though the answer in hand does name a build other than the one shown."""
+        js = "\n".join(
+            [
+                HELD_MAPS,
+                *[
+                    extract_js_fn(name)
+                    for name in (
+                        "isFrac",
+                        "isPiece",
+                        "rangeKey",
+                        "answeredBuild",
+                        "boxedRung",
+                        "rangeBoxes",
+                        "measuredBuild",
+                        "noteElsewhere",
+                        "takeRangeBoxes",
+                        "answeredElsewhere",
+                    )
+                ],
+                # answered about b2 while b1's pages were up: that range and the rung beside it
+                "const late = {lo: 3, hi: 9, levels: []};",
+                "takeRangeBoxes(late, {lo: 3, hi: 9, boxes_build: 'b2', levels: [{lo: 3, hi: 9,"
+                " boxes: [{page: 1, frac: %s}]}, {lo: 1, hi: 40}]}, 'b1', 'b1');" % json.dumps(FIRST),
+                "const at = (owner, lo, hi, shown) => {owner.lo = lo; owner.hi = hi;"
+                " return answeredElsewhere(owner, shown);};",
+                # answered about the build whose pages were up, which a later build then moved past
+                "const past = {lo: 4, hi: 6, levels: []};",
+                "takeRangeBoxes(past, {lo: 4, hi: 6, boxes_build: 'b1', levels: [{lo: 4, hi: 6,"
+                " boxes: [{page: 2, frac: %s}]}]}, 'b1', 'b1');" % json.dumps(SECOND),
+                # an answer with no build name at all, from a server with no pages to measure against
+                "const quiet = {lo: 7, hi: 7, levels: []};",
+                "takeRangeBoxes(quiet, {lo: 7, hi: 7, levels: [{lo: 7, hi: 7}]}, 'b1', 'b1');",
+                # the pages moved while the answer was coming: asked about b1, answered about b1, b2 up by then
+                "const moved = {lo: 8, hi: 8, levels: []};",
+                "takeRangeBoxes(moved, {lo: 8, hi: 8, boxes_build: 'b1', levels: [{lo: 8, hi: 8,"
+                " boxes: [{page: 1, frac: %s}]}]}, 'b1', 'b2');" % json.dumps(FIRST),
+                # and the same with the server a build behind what the pages became: b3 up, an answer about b2
+                "const both = {lo: 9, hi: 9, levels: []};",
+                "takeRangeBoxes(both, {lo: 9, hi: 9, boxes_build: 'b2', levels: [{lo: 9, hi: 9,"
+                " boxes: [{page: 1, frac: %s}]}]}, 'b1', 'b3');" % json.dumps(FIRST),
+                "console.log(JSON.stringify({noted: at(late, 3, 9, 'b1'), rung: at(late, 1, 40, 'b1'),"
+                " onThatBuild: at(late, 3, 9, 'b2'), unasked: at(late, 2, 2, 'b1'),"
+                " past: at(past, 4, 6, 'b2'), still: at(past, 4, 6, 'b1'), quiet: at(quiet, 7, 7, 'b1'),"
+                " moved: at(moved, 8, 8, 'b2'), both: at(both, 9, 9, 'b3')}));",
+            ]
+        )
+        read = json.loads(run_node(js))
+        self.assertTrue(read["noted"])  # the range it answered, while those pages are up: not asked again
+        self.assertTrue(read["rung"])  # and the rung beside it, measured against the same build by the same answer
+        self.assertFalse(read["onThatBuild"])  # the pages became that build: normal behaviour, and the answer is found
+        self.assertFalse(read["unasked"])  # lines that answer said nothing about are asked
+        self.assertFalse(read["past"])  # a held answer the pages moved past is asked again, as it always was
+        self.assertFalse(read["still"])  # and on its own build it is simply found, with nothing noted
+        self.assertFalse(read["quiet"])  # an answer that named no build is no answer about another one
+        self.assertFalse(read["moved"])  # the pages moved while it came: this page moved on, so it asks
+        self.assertFalse(read["both"])  # and still asks when both moved: the build now shown has not answered
 
 
 # The ladder the pick answers: a dragged line, the paragraph it is in (the default) and the environment around it. The
@@ -532,27 +611,55 @@ class SelectionBoxesOnScreen(BrowserBase):
         settle(page)
         self.assertGreater(self.height(page), paragraph)
 
-    def test_an_answer_measured_against_another_build_is_not_drawn_and_is_asked_again(self):
+    def test_an_answer_measured_against_another_build_is_not_drawn_and_is_asked_once(self):
         """A build that finishes while the request is out is the build the server measures against, and the answer
         names it (`boxes_build`) while this page is still showing - and still has the meta of - the build before it.
         Those pieces are places on pages that are not on screen, so the box is not moved onto them: it keeps the range
-        it is showing, no second piece appears, and the range is asked again. As soon as an answer names the build on
-        screen the box follows it. Filed instead under what this page believed when it asked, that answer would be
-        found at once and the environment's pieces drawn over the pages before them."""
+        it is showing and no second piece appears. Filed instead under what this page believed when it asked, that
+        answer would be found at once and the environment's pieces drawn over the pages before them.
+
+        Nor is the range asked again. The panel redraws for many reasons and this draw runs on each of them, but a
+        request cannot bring the meta forward and would be answered exactly as before, so five more redraws send
+        nothing: one request, not one per redraw. When the pages do become the build that answer named, the answer
+        already held for it is found - the box follows the range with no further request at all."""
         page = self.view()
         self.drag(page)
         paragraph = self.height(page)
         self.measured = "pages-19990101000000"  # not the build whose pages this page shows
-        page.click("#c-levels [data-act=level][data-level=env]")
-        # one Playwright call per try, because the fixture's routes answer only inside one
-        until(page, lambda: bool(page.evaluate("1")) and len(self.asked_boxes) >= 2)
-        self.assertEqual(self.asked_boxes[:2], [(3, 9), (3, 9)])
+        self.rung(page, "env")  # settles: the one request goes out, its answer comes, and the page is quiet again
+        self.assertEqual(self.asked_boxes, [(3, 9)])
+        page.evaluate("() => {for (let i = 0; i < 5; i++) renderComposer();}")
+        settle(page)
+        self.assertEqual(self.asked_boxes, [(3, 9)])  # the redraws asked nothing more
         self.assertAlmostEqual(self.height(page), paragraph, places=3)  # still the paragraph's pieces
         self.assertEqual(len(self.boxes(page)), 1)
-        self.measured = None  # an answer about the build on screen
+        # the pages become that build (the light poll is stopped first, so nothing puts the old name back)
+        page.evaluate("() => {clearInterval(LIGHT_TIMER); META.pages_build = 'pages-19990101000000';}")
+        page.evaluate("() => renderComposer()")
         settle(page)
         self.assertGreater(self.height(page), paragraph)
         self.assertEqual([piece["page"] for piece in self.boxes(page)], ["p1", "p2"])
+        self.assertEqual(self.asked_boxes, [(3, 9)])  # found, not asked for again
+
+    def test_the_ask_resumes_on_a_displayed_build_nothing_has_answered_about(self):
+        """The other way out of that wait: the pages move to a build the held answer is not about either. The note is
+        read against the pages that are up, so it stops applying as soon as they move, and the range is asked once for
+        the build now shown - which is the behaviour of a range nothing has answered about, as it should be. That
+        answer names the other build again, so it is noted again and the redraws after it send nothing: the asks are
+        one per displayed build, never one per redraw."""
+        page = self.view()
+        self.drag(page)
+        paragraph = self.height(page)
+        self.measured = "pages-19990101000000"
+        self.rung(page, "env")
+        self.assertEqual(self.asked_boxes, [(3, 9)])
+        page.evaluate("() => {clearInterval(LIGHT_TIMER); META.pages_build = 'pages-20200202020202';}")
+        page.evaluate("() => renderComposer()")
+        settle(page)
+        page.evaluate("() => {for (let i = 0; i < 5; i++) renderComposer();}")
+        settle(page)
+        self.assertEqual(self.asked_boxes, [(3, 9), (3, 9)])  # once for the new build, and no more
+        self.assertAlmostEqual(self.height(page), paragraph, places=3)  # and nothing of another build is drawn
 
     def test_widening_in_the_excerpt_also_waits_on_its_answer(self):
         """The same on the other way of changing the range: a '+' in the range excerpt keeps the box where it is until

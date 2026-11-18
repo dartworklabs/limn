@@ -235,7 +235,25 @@ document.addEventListener(
 // not caught up; held under what was believed, those pieces would be found at once and drawn over pages they are not
 // on. Held under the build the answer names, they are held under the build they are places on: they are found when
 // the pages become that build, and until then these lines read as unanswered, which keeps the box where it stands.
+// They are not asked again in the meantime - the answer in hand already says which build it is about, and that is
+// enough to know the question has been put (RANGE_ELSEWHERE, just below).
 const RANGE_BOXES = new WeakMap<LineOwner, Map<string, MarkPiece[]>>();
+// The ranges whose answer says outright that it was measured against another build than the one whose pages are up,
+// each noted under the build that was up when it said so - so a note stops applying the moment the pages move, with
+// nothing to clear. Kept beside the owner like the pieces, so it goes when the selection goes.
+//
+// Asking such a range again cannot answer it. The server measures against the build it has when it answers, which is
+// the build that answer already named; what is behind is this page's META, and a request does not move META. So the
+// only thing another request produces is the same answer, and one request per redraw for as long as the poll takes to
+// catch up (a build poll runs every second while a build runs, the light poll every five, and neither runs while the
+// tab is hidden). followRange therefore draws nothing and sends nothing while a note applies: the box keeps its last
+// good shape, and when the pages do become that build the answer already held for it is simply found.
+//
+// Only an answer about a build this page had not shown when it asked is noted. A range nothing has answered about is
+// not in here, nor one whose held answer the pages have moved past - whether they moved after the answer came or
+// while it was coming - because there it is the build now shown that has not answered, and asking is how its pieces
+// arrive (answeredElsewhere, takeRangeBoxes).
+const RANGE_ELSEWHERE = new WeakMap<LineOwner, Set<string>>();
 // What build and lines an answer is held under. Pure.
 function rangeKey(build: string, first: number, last: number) {
   return build + ' ' + first + ':' + last;
@@ -292,14 +310,38 @@ function measuredBuild(answer: SnippetAnswer, asked: string) {
 // answers the rungs around it as well. `asked` is the build that was on screen when the request went out, which is
 // only what an answer naming no build is held under: a build that finished in between is the one the server measured
 // against, and holding its pieces under the build before it would put the places of the pages after on the pages
-// before.
-function takeRangeBoxes(owner: LineOwner, answer: SnippetAnswer, asked: string) {
+// before. `shown` is the build whose pages are up as the answer is taken, which with `asked` says whether this is an
+// answer about a build this page has yet to show - the one kind that is not asked again (noteElsewhere).
+function takeRangeBoxes(owner: LineOwner, answer: SnippetAnswer, asked: string, shown: string) {
   let held = RANGE_BOXES.get(owner);
   if (!held) RANGE_BOXES.set(owner, (held = new Map<string, MarkPiece[]>()));
   const build = measuredBuild(answer, asked);
   held.set(rangeKey(build, answer.lo, answer.hi), []);
   for (const rung of answer.levels || [])
     held.set(rangeKey(build, rung.lo, rung.hi), Array.isArray(rung.boxes) ? rung.boxes : []);
+  // Noted only when the pages have not moved since the request went out (`asked` is still what is shown). Then the
+  // build the answer names is one this page has never shown, so it is this page's META that is behind and asking
+  // again cannot help. If the pages did move while the answer was on its way, it is this page that moved on: the
+  // build it shows now is the one that has not answered, and that is asked as it always was. measuredBuild's fallback
+  // is `shown` here, so an answer that named no build is no answer about another one and is never noted.
+  if (asked === shown && measuredBuild(answer, shown) !== shown) noteElsewhere(owner, answer, shown);
+}
+// Notes every range an answer about another build covers - the range it answered and each rung of its ladder - under
+// the build whose pages are up, so none of them is asked again while they are (RANGE_ELSEWHERE). The whole ladder
+// goes in because one answer measured all of it against that one build, so moving to a rung beside the range would
+// otherwise ask the same question again and be answered the same way.
+function noteElsewhere(owner: LineOwner, answer: SnippetAnswer, shown: string) {
+  let noted = RANGE_ELSEWHERE.get(owner);
+  if (!noted) RANGE_ELSEWHERE.set(owner, (noted = new Set<string>()));
+  noted.add(rangeKey(shown, answer.lo, answer.hi));
+  for (const rung of answer.levels || []) noted.add(rangeKey(shown, rung.lo, rung.hi));
+}
+// Whether what this page holds about the owner's chosen lines is an answer about another build than the one whose
+// pages are up, which is the one case where asking again cannot help (RANGE_ELSEWHERE). Lines nothing has answered
+// about, and lines whose answer the pages have moved past, are not noted and so are asked as they always were.
+function answeredElsewhere(owner: LineOwner, shown: string) {
+  const noted = RANGE_ELSEWHERE.get(owner);
+  return !!noted && noted.has(rangeKey(shown, owner.lo, owner.hi));
 }
 // The composing selection's box follows the lines it has chosen, and moves only onto an answer. Lines nothing has
 // answered about are asked of the snippet route - which answers every rung of the ladder round them at once - and the
@@ -307,11 +349,17 @@ function takeRangeBoxes(owner: LineOwner, answer: SnippetAnswer, asked: string) 
 // would show the person the span they dragged as the pin's range, which is the one thing this is here to stop. A
 // document whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that
 // element, and a document drawn in the browser has no page to draw a box on.
+//
+// Lines whose answer names another build are the one kind that is not asked: the box stays where it is and nothing is
+// sent until the pages move, because a request cannot bring this page's meta forward and would be answered exactly as
+// before (RANGE_ELSEWHERE). This draw happens on every redraw of the panel, so without that the panel would send a
+// request on each of them for as long as the meta took to catch up.
 function followRange(selection: ComposerSelection, box: HTMLElement | null, after: () => void) {
   if (!box || isFigureKind(META ? META.kind : undefined) || !onLines(selection)) return;
-  const pieces = rangeBoxes(selection, shownBuild());
+  const shown = shownBuild(),
+    pieces = rangeBoxes(selection, shown);
   if (!pieces) {
-    refetchSnip(selection, after);
+    if (!answeredElsewhere(selection, shown)) refetchSnip(selection, after);
     return;
   }
   snapSelectionBox(box, pieces, draggedPlace(selection));
@@ -360,7 +408,7 @@ function refetchSnip(owner: LineOwner, after: () => void) {
         data.hi === owner.hi
       ) {
         owner.snippet = data.snippet;
-        if (composing) takeRangeBoxes(owner, data, asked);
+        if (composing) takeRangeBoxes(owner, data, asked, shownBuild());
         after();
       }
     } catch (error) {}
