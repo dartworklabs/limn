@@ -141,6 +141,10 @@ document.addEventListener('input', (event) => {
   )
     autoGrow(target);
 });
+// The open card's source text, and with withLevels the range ladder round its lines (?levels=1) - on opening and
+// after a save or a re-place, which may have moved them. Never ?boxes=1: the card draws no box of its own (a saved
+// pin's mark is what GET /api/pins answers) and the server runs a process per line of every rung to answer one
+// (docs/handbook/viewer.md §핀 마크의 조각, composer/view-levels.ts refetchSnip).
 async function editSnip(withLevels: boolean) {
   const card = EDITOR.current;
   if (!card) return;

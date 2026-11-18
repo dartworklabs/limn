@@ -235,9 +235,14 @@ function boxedRung(owner: LineOwner) {
 // The caller must tell those two apart, because they ask for opposite things: an answer of no pieces means these lines
 // have no mark, so the box belongs back on the rectangle that was dragged, while no answer yet means the box must wait
 // where it is. A piece the server could not answer well is left out rather than taking the rest of the box with it.
+// What an answer put under `boxes` is read as a list only when it is one, the way pinPieces (pdf/view-figure.ts)
+// reads a pin's: an answer from a server this page does not share a version with can hold anything there, and
+// `.filter` on it would throw inside renderComposer and take the whole composer's render with it. Not a list reads as
+// "no mark for this range", which puts the box back on the drag. What is held is screened the same way on the way in
+// (takeRangeBoxes), so the second branch has a list already.
 function rangeBoxes(owner: LineOwner): MarkPiece[] | undefined {
   const rung = boxedRung(owner);
-  if (rung && rung.boxes) return rung.boxes.filter(isPiece);
+  if (rung && rung.boxes) return (Array.isArray(rung.boxes) ? rung.boxes : []).filter(isPiece);
   const held = RANGE_BOXES.get(owner),
     answered = held && held.get(rangeKey(owner.lo, owner.hi));
   return answered && answered.filter(isPiece);
@@ -249,7 +254,8 @@ function takeRangeBoxes(owner: LineOwner, answer: SnippetAnswer) {
   let held = RANGE_BOXES.get(owner);
   if (!held) RANGE_BOXES.set(owner, (held = new Map<string, MarkPiece[]>()));
   held.set(rangeKey(answer.lo, answer.hi), []);
-  for (const rung of answer.levels || []) held.set(rangeKey(rung.lo, rung.hi), rung.boxes || []);
+  for (const rung of answer.levels || [])
+    held.set(rangeKey(rung.lo, rung.hi), Array.isArray(rung.boxes) ? rung.boxes : []);
 }
 // The composing selection's box follows the lines it has chosen, and moves only onto an answer. Lines nothing has
 // answered about are asked of the snippet route - which answers every rung of the ladder round them at once - and the
@@ -279,8 +285,11 @@ function draggedPlace(selection: Selection) {
 let COMPOSE_SNIPPET_TIMER: ReturnType<typeof setTimeout> | undefined,
   EDIT_SNIPPET_TIMER: ReturnType<typeof setTimeout> | undefined;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
-// survives. The composing selection also asks for the ladder round those lines (?levels=1), since its box follows them
-// (followRange); an edit card's box is the saved pin's mark, which the pin list answers, so it asks for the text alone.
+// survives. The composing selection also asks for the ladder round those lines and for where each of its rungs prints
+// (?levels=1&boxes=1), since its box follows them (followRange). An edit card asks for neither: its box is the saved
+// pin's mark, which the pin list answers, and its ladder reads the rungs' lines alone. Marks are asked for and not
+// implied because the server runs a process per line of every rung to answer them - about half a second for a ladder
+// round a pin inside a 40-line float (docs/adr/0045-pin-marks-follow-the-range.md D4).
 function refetchSnip(owner: LineOwner, after: () => void) {
   const visit = captureVisit(),
     composing = owner === COMPOSE.current;
@@ -295,7 +304,7 @@ function refetchSnip(owner: LineOwner, after: () => void) {
             owner.lo +
             '&hi=' +
             owner.hi +
-            (composing ? '&levels=1' : ''),
+            (composing ? '&levels=1&boxes=1' : ''),
           owner.doc,
         ),
         { what: '원문 읽기' },

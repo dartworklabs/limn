@@ -303,6 +303,7 @@ class SelectionBoxesOnScreen(BrowserBase):
         self.PICK["levels"][1]["boxes"] = PIECES[(4, 6)]
         self.PIECES = dict(PIECES)
         self.asked = []  # the lines of each ladder the viewer asked where they print
+        self.asked_boxes = []  # of those, the ones that asked for the marks as well (&boxes=1)
 
     def route(self, route):
         """The fixture's routes, with every snippet ladder given the pieces this class stands in for."""
@@ -310,7 +311,10 @@ class SelectionBoxesOnScreen(BrowserBase):
         parts = urlparse(request.url)
         query = parse_qs(parts.query)
         if parts.path == "/api/snippet" and query.get("levels"):
-            self.asked.append((int(query["lo"][0]), int(query["hi"][0])))
+            lines = (int(query["lo"][0]), int(query["hi"][0]))
+            self.asked.append(lines)
+            if query.get("boxes") == ["1"]:
+                self.asked_boxes.append(lines)
             answer = self.answer(request)
             body = json.loads(answer["body"])
             for rung in body.get("levels", []):
@@ -425,7 +429,10 @@ class SelectionBoxesOnScreen(BrowserBase):
     def test_a_walk_up_the_ladder_asks_once_for_what_one_answer_holds(self):
         """One ladder answers every rung around the range it was asked about, and those are kept. So a walk over three
         rungs asks once: the default rung came answered with the pick, the environment is asked for, and the rung it
-        answers beside it - and the environment again - are drawn from what is already here."""
+        answers beside it - and the environment again - are drawn from what is already here. The one request asks for
+        the marks (&boxes=1): without the flag the server answers the ladder alone, because a mark costs a process per
+        line of every rung and the edit card reads this route without wanting any (docs/handbook/api.md §줄 핀의 상자
+        (`boxes`))."""
         page = self.view()
         self.drag(page)
         self.assertEqual(self.asked, [])  # the pick answered its own default rung
@@ -435,6 +442,7 @@ class SelectionBoxesOnScreen(BrowserBase):
         self.rung(page, "env")
         self.rung(page, "para")
         self.assertEqual(self.asked, [(3, 9)])
+        self.assertEqual(self.asked_boxes, self.asked)
         drawn = self.boxes(page)
         self.assertEqual([piece["page"] for piece in drawn], ["p1"])
         self.assertAlmostEqual(drawn[0]["frac"][3], 0.125, places=3)

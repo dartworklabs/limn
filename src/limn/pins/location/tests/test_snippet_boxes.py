@@ -1,13 +1,13 @@
-"""The boxes every rung of GET /api/snippet?levels=1 carries - where that rung's line range prints on the PDF
+"""The boxes every rung of GET /api/snippet?levels=1&boxes=1 carries - where that rung's line range prints on the PDF
 (docs/adr/0045-pin-marks-follow-the-range.md).
 
-The viewer reads this route whenever the person moves up the range ladder or types a range by hand, so each rung
-carries the mark of its own range and the box follows the range with no second round trip. The forward pass runs
-`synctex view` once per line of text of a rung, so these tests stub limn.pins.location.source.synctex_view and watch
-which lines and which file name it is asked for. That watching is the point: the line cap holds per rung, a rung whose
-range no longer stands on the build's lines is asked for nothing, a build that kept no record of the lines it read is
-asked nothing at all - unlike a pick, which holds SyncTeX's own answer in that build's numbers - and a document whose
-rungs are not manuscript lines (a figure's drawing script) asks nothing either.
+The composing box reads this route for every range it settles on, so each rung carries the mark of its own range and
+the box follows the range with no second round trip. The forward pass runs `synctex view` once per line of text of a
+rung, so these tests stub limn.pins.location.source.synctex_view and watch which lines and which file name it is asked
+for. That watching is the point: marks are run only for a caller that asked for them (?boxes=1), the line cap holds per
+rung, a rung whose range no longer stands on the build's lines is asked for nothing, a build that kept no record of the
+lines it read is asked nothing at all - unlike a pick, which holds SyncTeX's own answer in that build's numbers - and a
+document whose rungs are not manuscript lines (a figure's drawing script) asks nothing either.
 
 Run: uv run pytest -q src/limn/pins/location/tests/test_snippet_boxes.py
 """
@@ -118,7 +118,7 @@ class SnippetBase(Base):
 
 
 class SnippetBoxes(SnippetBase):
-    """GET /api/snippet?levels=1 on the manuscript's table: the ladder's rungs and the marks they carry."""
+    """GET /api/snippet?levels=1&boxes=1 on the manuscript's table: the ladder's rungs and the marks they carry."""
 
     def test_every_rung_carries_the_boxes_of_its_own_range(self):
         """The ladder of L14 is the cell's own line and the table around it: each rung's mark covers that rung's own
@@ -126,7 +126,7 @@ class SnippetBoxes(SnippetBase):
         height, the three by half the blank their 16 pt leading leaves. The table rung is one whole environment, so its
         own \\begin and \\end lines (L12, L16) are not asked and the mark covers the three lines between."""
         with self.viewed(TABLE_BOXES):
-            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
         self.assertEqual(
             [(lv["level"], lv["lo"], lv["hi"]) for lv in body["levels"]], [("para", 14, 14), ("env", 12, 16)]
         )
@@ -147,7 +147,7 @@ class SnippetBoxes(SnippetBase):
         opens an edit card with."""
         self.rebuilt(NESTED)
         with self.viewed():
-            body = self.snippet("file=main.tex&lo=4&hi=4&levels=1")
+            body = self.snippet("file=main.tex&lo=4&hi=4&levels=1&boxes=1")
         rungs = [(lv["level"], lv["lo"], lv["hi"]) for lv in body["levels"]]
         self.assertEqual(rungs, [("raw", 4, 4), ("para", 4, 5), ("env", 3, 8)])
         self.assertEqual(self.calls, [(self.built_tex(), line) for line in (4, 5, 7)])
@@ -156,7 +156,7 @@ class SnippetBoxes(SnippetBase):
         """A build whose .synctex.gz is gone or holds nothing for those lines: the key is absent from every rung,
         never an empty list, and the rest of the ladder stands."""
         with self.viewed():
-            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
         self.assertEqual([(lv["lo"], lv["hi"]) for lv in body["levels"]], [(14, 14), (12, 16)])
         self.assertEqual([lv for lv in body["levels"] if "boxes" in lv], [])
 
@@ -169,6 +169,30 @@ class SnippetBoxes(SnippetBase):
         self.assertNotIn("boxes", body)
         self.assertEqual(self.calls, [])
 
+    def test_a_ladder_asked_for_without_boxes_carries_none_and_runs_nothing(self):
+        """levels=1 alone answers the ladder this route answered before marks followed the range: every rung as it
+        was built, no boxes key on any of them, and not one process run.
+
+        The edit card is that caller - it sends levels=1 whenever it opens and after every save and re-place, and
+        reads the rungs' lines alone - so on this table's ladder it would otherwise pay three `synctex view` calls
+        for marks it discards, and about half a second on a pin inside a 40-line float. Asking for the marks
+        (&boxes=1) answers field for field what the route answered before the flag: the same ladder with the pieces
+        added, which is what every other test in this class reads."""
+        with self.viewed(TABLE_BOXES):
+            plain = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            ran_for_the_ladder = list(self.calls)
+            asked = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
+        self.assertEqual(ran_for_the_ladder, [])
+        self.assertEqual(
+            [(lv["level"], lv["lo"], lv["hi"]) for lv in plain["levels"]], [("para", 14, 14), ("env", 12, 16)]
+        )
+        self.assertEqual([lv for lv in plain["levels"] if "boxes" in lv], [])
+        self.assertEqual(sorted(line for _, line in self.calls), [13, 14, 15])
+        self.assertEqual(
+            plain, {**asked, "levels": [{k: v for k, v in lv.items() if k != "boxes"} for lv in asked["levels"]]}
+        )
+        self.assertEqual([("boxes" in lv) for lv in asked["levels"]], [True, True])
+
     def test_a_rung_and_a_pick_answer_the_same_boxes_for_the_same_range(self):
         """The same file and the same lo..hi give the same mark through both paths: a drag traced to the table and the
         snippet of the lines that drag answered carry the same pieces (Review Focus 4)."""
@@ -180,7 +204,7 @@ class SnippetBoxes(SnippetBase):
             ):
                 picked = pick_resolve.pick(self.D, request, ps.APP.location_service.context())
             body = location_http.pick_answer(picked)
-            rungs = self.snippet("file=main.tex&lo=%d&hi=%d&levels=1" % (body["lo"], body["hi"]))["levels"]
+            rungs = self.snippet("file=main.tex&lo=%d&hi=%d&levels=1&boxes=1" % (body["lo"], body["hi"]))["levels"]
         default = next(lv for lv in body["levels"] if lv["level"] == body["default_level"])
         same_range = next(lv for lv in rungs if (lv["lo"], lv["hi"]) == (body["lo"], body["hi"]))
         self.assertEqual(same_range["boxes"], default["boxes"])
@@ -193,7 +217,7 @@ class SnippetBoxes(SnippetBase):
         self.keep_built_source()
         self.write(TEX.replace("cell deltaunique \\\\", INSERTED, 1))
         with self.viewed(TABLE_BOXES):
-            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
         marked = [lv["level"] for lv in body["levels"] if "boxes" in lv]
         self.assertEqual(marked, ["raw"])
         wide = next(lv for lv in body["levels"] if lv["level"] == "env")
@@ -210,7 +234,7 @@ class SnippetBoxes(SnippetBase):
         (test_pick_boxes.py's test_a_build_without_a_source_record_gets_boxes_at_todays_lines)."""
         (self.pages / built_source.SOURCE_NAME).unlink()
         with self.viewed(TABLE_BOXES):
-            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
         self.assertEqual([(lv["lo"], lv["hi"]) for lv in body["levels"]], [(14, 14), (12, 16)])
         self.assertEqual([lv for lv in body["levels"] if "boxes" in lv], [])
         self.assertEqual(self.calls, [])
@@ -220,7 +244,7 @@ class SnippetBoxes(SnippetBase):
         boxes without one call - while the dragged line beside it on the same ladder still gets its mark."""
         self.rebuilt(paragraph(45))
         with self.viewed({4: (1, 60.0, 100.0, 300.0, 10.0)}):
-            body = self.snippet("file=main.tex&lo=4&hi=4&levels=1")
+            body = self.snippet("file=main.tex&lo=4&hi=4&levels=1&boxes=1")
         self.assertEqual([(lv["level"], lv["lo"], lv["hi"]) for lv in body["levels"]], [("raw", 4, 4), ("para", 4, 48)])
         self.assertIn("boxes", body["levels"][0])
         self.assertNotIn("boxes", body["levels"][1])
@@ -232,7 +256,7 @@ class SnippetBoxes(SnippetBase):
         asked for."""
         (self.pages / "page-1.png").unlink()
         with self.viewed(TABLE_BOXES):
-            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
         rng = source_range.SourceRange(self.main, TEX.splitlines(), 14, 14)
         self.assertEqual(body, source_range.snippet_api(rng, True, ps.APP.C.envs))
         self.assertEqual(self.calls, [])
@@ -245,14 +269,14 @@ class SnippetBoxes(SnippetBase):
         self.write(TEX.replace("cell deltaunique \\\\", INSERTED, 1))
         asked = []
 
-        def record(*args):
-            """Keep the positional arguments of one call and answer no boxes."""
-            asked.append(args)
+        def record(*args, **named):
+            """Keep the arguments of one call and answer no boxes."""
+            asked.append((args, named))
             return ()
 
         with mock.patch.object(pick_source, "boxes_for_range", record):
-            self.snippet("file=main.tex&lo=14&hi=14&levels=1")
-        pdf, tex, built, now, lo, hi, pages, limit, _view = asked[0]
+            self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
+        (pdf, tex, built, now, lo, hi, pages, limit, _view), _named = asked[0]
         self.assertEqual((pdf, tex), (self.pages / self.D.pdf_name, self.built_tex()))
         self.assertEqual((len(built), len(now)), (20, 21))
         self.assertNotIn("epsilonrow", "\n".join(built))
@@ -295,11 +319,11 @@ class MixedPageSizes(SnippetBase):
     def test_each_piece_of_a_mark_is_measured_against_its_own_page(self):
         """The piece on page 2 is divided by page 2's width and height: measured against page 1's it would be at
         0.107 x 0.410 of a page it is not on, and clipped to page 1's shorter box. The pieces come page by page, so
-        the first is still the top of the range. The range is one whole environment, so L12 and L16, its own \\begin
+        the first is the one on page 1. The range is one whole environment, so L12 and L16, its own \\begin
         and \\end, are not asked: page 2 holds L15 alone, grown by the range's own 3.0 pt
         padding, which the 16 pt leading on page 1 gives (measured once over all the range's rows, not per page)."""
         with self.viewed(self.SPLIT):
-            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1")
+            body = self.snippet("file=main.tex&lo=14&hi=14&levels=1&boxes=1")
         wide = next(lv for lv in body["levels"] if lv["level"] == "env")
         self.assertEqual(wide["boxes"], self.PIECES)
         self.assertNotEqual(self.PIECES[1]["frac"], frac(77.0, 197.0, 206.0, 16.0))  # not page 1's size
@@ -316,7 +340,7 @@ class MixedPageSizes(SnippetBase):
             ):
                 picked = pick_resolve.pick(self.D, request, ps.APP.location_service.context())
             body = location_http.pick_answer(picked)
-            rungs = self.snippet("file=main.tex&lo=%d&hi=%d&levels=1" % (body["lo"], body["hi"]))["levels"]
+            rungs = self.snippet("file=main.tex&lo=%d&hi=%d&levels=1&boxes=1" % (body["lo"], body["hi"]))["levels"]
         default = next(lv for lv in body["levels"] if lv["level"] == body["default_level"])
         same_range = next(lv for lv in rungs if (lv["lo"], lv["hi"]) == (body["lo"], body["hi"]))
         self.assertEqual(default["boxes"], self.PIECES)
@@ -334,7 +358,7 @@ class FigureSnippetBoxes(SnippetBase):
         self.addCleanup(ps.APP.set_docs, None)
         helpers_figure.write_build(fig, helpers_figure.BUILD1, helpers_figure.b2_map())
         with self.viewed({line: (1, 60.0, 100.0, 300.0, 10.0) for line in range(1, 141)}):
-            body = self.snippet("doc=fig&file=%s&lo=88&hi=95&levels=1" % helpers_figure.SCRIPT)
+            body = self.snippet("doc=fig&file=%s&lo=88&hi=95&levels=1&boxes=1" % helpers_figure.SCRIPT)
         self.assertEqual([lv["level"] for lv in body["levels"]], ["raw"])
         self.assertNotIn("boxes", body["levels"][0])
         self.assertEqual(self.calls, [])

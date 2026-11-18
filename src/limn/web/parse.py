@@ -106,8 +106,8 @@ def query_first(q: Query, key: str, default: str | None = None) -> str | None:
 
 
 def parse_flag(q: Query, name: str) -> bool:
-    """A query-string switch (?log=1, ?async=1, ?all=1, ?light=1, ?levels=1): on only when its first value is exactly
-    "1"; absent, "0", "true" or anything else is off. Never refused."""
+    """A query-string switch (?log=1, ?async=1, ?all=1, ?light=1, ?levels=1, ?boxes=1): on only when its first value
+    is exactly "1"; absent, "0", "true" or anything else is off. Never refused."""
     return query_first(q, name, "0") == "1"
 
 

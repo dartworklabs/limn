@@ -64,9 +64,10 @@ def snippet_api(
 ) -> dict[str, Any]:
     """GET /api/snippet: the source lines lo..hi of a manuscript file (a range parsed by location.input.parse_snippet),
     and with levels the range ladder around them - mapping.rung_ladder's for the float environments envs when the
-    document's ladder comes from its text (source_ladder), else the raw rung alone. Every rung carries where its own lines print
-    (`boxes`, the run's asker), because the viewer reads this route whenever the person moves up the ladder or types a
-    range by hand, and the mark must follow the range with no further round trip. With text (?text=1), and only for a
+    document's ladder comes from its text (source_ladder), else the raw rung alone. Every rung carries where its own
+    lines print (`boxes`, the run's asker) when the caller asked for marks (?boxes=1, limn.pins.location.http.snippet):
+    the composing box reads this route for every range it settles on, so the mark follows the range with no further
+    round trip, while a caller that wants the lines alone runs no process. With text (?text=1), and only for a
     range of at most SUGGEST_LINES_MAX lines, `text` comes last: the exact lines unnumbered, joined with "\n",
     carriage returns removed - what a suggested edit's base must be (limn.pins.suggestion.lines_text). Every other
     field is the same."""

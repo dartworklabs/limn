@@ -221,8 +221,9 @@ class FigureContractSnapshot(SnapshotBase):
     without el, a pick on an element drawn without code and its region pin, pins.md and the pin list, then a re-render
     that moves one element and removes the other (read-time mark and el_sync, 요소 잃음), then the range ladders
     GET /api/snippet?levels=1 answers for each kind of document - the LaTeX document's rungs carrying the boxes their
-    lines print in (docs/adr/0045-pin-marks-follow-the-range.md), the figure script's raw rung carrying none, because
-    its lines are a drawing script's and a figure's marks come from its element map - and last a drag on the LaTeX
+    lines print in, which only a request that asks for them gets (&boxes=1,
+    docs/adr/0045-pin-marks-follow-the-range.md), the figure script's raw rung carrying none, because its lines are a
+    drawing script's and a figure's marks come from its element map - and last a drag on the LaTeX
     document, the pin saved from it and the list it is on, so the `boxes` of a traced pick's default rung and of a
     stored line pin are both recorded. pdftotext answers no text, so the fallback's quote does not depend on the
     machine, and the forward SyncTeX pass is mark_box, so neither do the boxes."""
@@ -324,9 +325,9 @@ class FigureContractSnapshot(SnapshotBase):
         self.step("figure: re-rendered, GET /api/pins", "GET", "/api/pins")
         self.step("figure: re-rendered, GET /pins.md", "GET", "/pins.md")
         self.step(
-            "figure: GET /api/snippet?levels=1 on the LaTeX document beside it",
+            "figure: GET /api/snippet?levels=1&boxes=1 on the LaTeX document beside it",
             "GET",
-            "/api/snippet?doc=ms&file=main.tex&lo=14&hi=14&levels=1",
+            "/api/snippet?doc=ms&file=main.tex&lo=14&hi=14&levels=1&boxes=1",
         )
         self.step(
             "figure: GET /api/snippet?levels=1 on the figure's script",
