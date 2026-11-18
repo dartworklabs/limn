@@ -106,6 +106,20 @@ def test_synctex_view_skips_a_record_with_an_unparsable_number(monkeypatch):
     assert source.synctex_view(Path("x.pdf"), "x.tex", 30) == [(2, 72.0, 211.54, 228.6, 8.86)]
 
 
+@pytest.mark.parametrize("field", ("h", "v", "W", "H"))
+@pytest.mark.parametrize("text", ("inf", "-inf", "nan"))
+def test_synctex_view_skips_a_record_whose_coordinate_is_not_finite(monkeypatch, field, text):
+    """float() takes "inf" and "nan", and a box reaches the wire through json.dumps with Python's defaults
+    (limn.web.reply.json_reply), which writes NaN and Infinity. One such record would make the whole body invalid
+    JSON, so the viewer's JSON.parse throws and every pin of that read is lost, not just this box. TeX dimensions are
+    bounded, so the real tool prints no such record - but every other number on this wire is guarded."""
+    fields = {"Page": "1", "h": "72.0", "v": "100.0", "W": "50.0", "H": "8.0"}
+    fields[field] = text
+    broken = "Output:x.pdf\n" + "".join("%s:%s\n" % pair for pair in fields.items())
+    stub_output(monkeypatch, broken + SAMPLE)
+    assert source.synctex_view(Path("x.pdf"), "x.tex", 30) == [(2, 72.0, 211.54, 228.6, 8.86)]
+
+
 def test_build_copy_name_is_the_file_inside_the_build_copy(tmp_path):
     """A file below the build root is selected by its path inside the copy, which is the name the build recorded."""
     src, build = tmp_path / "ms", tmp_path / "state" / "build"

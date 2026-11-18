@@ -118,15 +118,23 @@ ElementFollower: TypeAlias = Callable[[str, int, Frac], ElementPosition]
 MarkPieces: TypeAlias = tuple[tuple[int, Frac], ...]
 # Where one range of one already-chosen file prints: (lo, hi) -> that range's pieces.
 MarkRange: TypeAlias = Callable[[int, int], MarkPieces]
+# Which lines of the build one range of that file is: (lo, hi) -> the build's line range, or None when nothing can be
+# measured for it because the range no longer stands whole in the lines that build read
+# (limn.pins.location.mapping.built_range). It is what a kept answer is keyed by: the pieces are a function of the
+# build and of those lines, of nothing else (artifacts.RangeBoxCache).
+BuiltRange: TypeAlias = Callable[[int, int], tuple[int, int] | None]
+# The two askers of one file, bound together to one build's facts (limn.pins.location.resolve.RangeAsker): the lines
+# the range is, then where they print.
+MarkBinding: TypeAlias = tuple[BuiltRange, MarkRange]
 # Where a range of any file of one document prints: (the file's path on this machine, lo, hi) -> its pieces. This is
 # what the pin consumer receives (limn.pins.needs.BoxesFor), bound to the build that document has on screen.
 MarkBoxes: TypeAlias = Callable[[str, int, int], MarkPieces]
 # The forward SyncTeX pass itself, which the pin consumer owns and the composition root injects
 # (limn.pins.location.resolve.range_boxes): the document, a manuscript file, that file as the build read it (None when
 # the build kept no record), the file as it is today, that build's PDF and every page of it as (width, height) in
-# points -> an asker for one range of that file. Binding it once per file is what keeps the build facts read once.
+# points -> the askers for the ranges of that file. Binding it once per file is what keeps the build facts read once.
 MarkComputation: TypeAlias = Callable[
-    [Doc, Path, Sequence[str] | None, Sequence[str], Path, Sequence[tuple[float, float]]], MarkRange
+    [Doc, Path, Sequence[str] | None, Sequence[str], Path, Sequence[tuple[float, float]]], MarkBinding
 ]
 
 

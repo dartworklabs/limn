@@ -18,10 +18,10 @@ from limn.builds.contracts import (
     ElementPosition,
     ElementSelection,
     Frac,
+    MarkBinding,
     MarkBoxes,
     MarkComputation,
     MarkPieces,
-    MarkRange,
     OutlineInput,
     PinBuildQueries,
     PositionHistory,
@@ -160,30 +160,17 @@ def no_marks(
     _now: Sequence[str],
     _pdf: Path,
     _pages: Sequence[tuple[float, float]],
-) -> MarkRange:
+) -> MarkBinding:
     """The forward pass of a run whose composition root injected none (the standalone query bindings and the tests of
-    other slices): every range prints nowhere, so no answer carries a mark and no process is run."""
-    return lambda _lo, _hi: ()
+    other slices): no range is read back into the build's lines, so no answer carries a mark, nothing is kept and no
+    process is run."""
+    return (lambda _lo, _hi: None, lambda _lo, _hi: ())
 
 
 def own_marks() -> Callable[[], artifacts.RangeBoxCache]:
     """A mark cache private to one query binding, for a caller that supplies no run-wide one."""
     cache = artifacts.RangeBoxCache()
     return lambda: cache
-
-
-def _file_version(path: Path) -> tuple[int, int] | None:
-    """The version of the file at path, (mtime_ns, size), or None when it cannot be read.
-
-    This is the part of a mark's cache key that the build does not fix: the answer is read back into the lines the
-    build read, so it depends on the file's text as well. Reading it is one stat per file per answer, and a file
-    written between this and the read of its lines leaves the answer keyed by the version before it - a key the next
-    read no longer asks for, as a map copy rewritten between its stat and its read is (artifacts.BuildMapCache)."""
-    try:
-        found = path.stat()
-    except OSError:
-        return None
-    return found.st_mtime_ns, found.st_size
 
 
 @dataclass(frozen=True)
@@ -343,12 +330,16 @@ class BuildQueries:
 
         The build facts are read once here, for the whole answer: the page folder on screen, its PDF and its page
         sizes. What depends on the file - the lines that build read (its source record) and the file as it is today -
-        is read on the first range of that file that the cache does not already hold, because the record can be tens
-        of megabytes of JSON and a listing whose every pin is cached must not read it at all. A build that kept no
-        record answers no mark: the range cannot be read back into the lines its numbers belong to, and half a
-        range's boxes passed off as the range's would cover text the pin does not hold. A pick falls back to the
-        build's numbers there; a stored pin does not, and such a build is replaced by the next rebuild
-        (docs/adr/0045-pin-marks-follow-the-range.md).
+        is read on the first range of that file that is asked for, because the record can be tens of megabytes of
+        JSON and a listing must read it once rather than once per pin. It is read even when the cache holds every
+        range: a kept answer is keyed by the lines of the build the range is, and the file's own lines are what say
+        which those are. That is the price of the key, and it is one read of the record per file per listing where
+        the version-keyed cache could sometimes make none - but the viewer reads this route only when the pins file or
+        the manuscript changed (viewer/js/documents/flow-polling.ts), and a changed manuscript missed every pin of
+        the file before. A build that kept no record answers no mark: the range cannot be read back into the
+        lines its numbers belong to, and half a range's boxes passed off as the range's would cover text the pin does
+        not hold. A pick falls back to the build's numbers there; a stored pin does not, and such a build is replaced
+        by the next rebuild (docs/adr/0045-pin-marks-follow-the-range.md).
         """
         if not doc.builds_from_source:
             return None
@@ -358,10 +349,9 @@ class BuildQueries:
             return None
         pdf = artifacts.cur_pdf(doc, pages)
         cache, compute = self.marks(), self.compute_marks
-        versions: dict[str, tuple[int, int] | None] = {}
-        askers: dict[str, MarkRange | None] = {}
+        askers: dict[str, MarkBinding | None] = {}
 
-        def bind(file: str) -> MarkRange | None:
+        def bind(file: str) -> MarkBinding | None:
             """The computation bound to that file's two line lists, read once for this answer; None when the build
             kept no record of the file or the file itself cannot be read as text."""
             key = built_source.source_key(doc.src, Path(file))
@@ -372,23 +362,20 @@ class BuildQueries:
             now = None if raw is None else built_source.text_lines(raw)
             return None if now is None else compute(doc, Path(file), built, now, pdf, sizes)
 
-        def pieces(file: str, lo: int, hi: int) -> MarkPieces:
-            """That range's pieces, binding the file's lines on the first range of it that is asked for."""
+        def answer(file: str, lo: int, hi: int) -> MarkPieces:
+            """The run's answer for one range: the lines of the build that range is, then the cache's answer for
+            those lines, computed only where it has none."""
             if file not in askers:
                 askers[file] = bind(file)
             asker = askers[file]
-            return () if asker is None else asker(lo, hi)
-
-        def answer(file: str, lo: int, hi: int) -> MarkPieces:
-            """The run's answer for one range, from the cache when it holds this build's answer for this version of
-            the file."""
-            if file not in versions:
-                versions[file] = _file_version(Path(file))
-            version = versions[file]
-            if version is None:
+            if asker is None:
                 return ()
-            key = (str(doc.dir), pages.name, file, version[0], version[1], lo, hi)
-            return cache.answer(key, lambda: pieces(file, lo, hi))
+            in_build, pieces = asker
+            found = in_build(lo, hi)
+            if found is None:
+                return ()
+            key = (str(doc.dir), pages.name, file, dpi, found[0], found[1])
+            return cache.answer(key, lambda: pieces(lo, hi))
 
         return answer
 

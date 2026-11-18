@@ -1,11 +1,11 @@
 """The pure box math behind a pin's mark: the PDF boxes SyncTeX gives for a range's lines, filtered, padded, merged
 (mapping.line_boxes, range_pad, merge_boxes), and a range of today's file read back in the file a build read
-(mapping.built_range).
+(mapping.built_range, and built_ranges for many ranges of one file).
 
 Run: uv run pytest -q src/limn/pins/location/tests/test_mapping.py
 """
 
-from limn.pins.location.mapping import BOX_LIMIT, built_range, line_boxes, merge_boxes, range_pad
+from limn.pins.location.mapping import BOX_LIMIT, built_range, built_ranges, line_boxes, merge_boxes, range_pad
 
 PAGE_W, PAGE_H = 595.28, 841.89
 
@@ -128,3 +128,23 @@ def test_built_range_is_none_when_a_line_of_the_range_is_gone():
 def test_built_range_is_none_when_a_line_was_added_inside_the_range():
     # the range's lines pair, but not next to one another in the build
     assert built_range(["a", "b"], ["a", "new", "b"], 1, 3) is None
+
+
+def test_built_ranges_answers_built_range_for_every_range_of_one_file():
+    """The bound form reads the line diff once and must answer range for range what the plain one does. A pin listing
+    asks one range per pin of the file, and the diff does not depend on the range, so reading it per pin walks the
+    whole file once per pin - and what a listing keys a kept answer by is this answer
+    (limn.builds.artifacts.RangeBoxCache)."""
+    built = ["a", "b", "c", "d", "e"]
+    now = ["x", "a", "b", "C", "d", "e"]  # one line added at the top and one edited inside
+    ask = built_ranges(built, now)
+    for lo in range(0, 8):
+        for hi in range(lo, 9):
+            assert ask(lo, hi) == built_range(built, now, lo, hi), (lo, hi)
+
+
+def test_built_ranges_of_an_unedited_file_is_the_range_itself():
+    """Nothing was edited, so every range stands on its own numbers - including one cut to the file's length."""
+    lines = ["a", "b", "c"]
+    ask = built_ranges(lines, lines)
+    assert [ask(1, 3), ask(2, 2), ask(2, 9), ask(0, 1)] == [(1, 3), (2, 2), (2, 3), (1, 1)]

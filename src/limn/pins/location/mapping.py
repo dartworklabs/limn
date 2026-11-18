@@ -218,6 +218,12 @@ Box: TypeAlias = tuple[int, float, float, float, float]
 # top left - what limn.pins.location.source.boxes_for_range answers and mark_wire puts on the wire.
 MarkPiece: TypeAlias = tuple[int, tuple[float, float, float, float]]
 
+# Reads one range of a file as it is today back into the lines a build read: (lo, hi) -> that build's line range, or
+# None when the range no longer stands there whole (built_range). A caller bound to one file holds one of these
+# (built_ranges), because it is what a mark's answer is a function of and so what a listing keys that answer by
+# (limn.builds.artifacts.RangeBoxCache).
+BuiltRange: TypeAlias = Callable[[int, int], tuple[int, int] | None]
+
 # The most boxes a pin's mark is drawn with. A range that merges into more pieces than this is scattered over the
 # document (a float's lines and its text far apart); one mark of many bits says less than none.
 BOX_LIMIT = 8
@@ -237,9 +243,10 @@ FORWARD_LINES_MAX = 40
 
 # A box at least this tall, as a share of the page height, is the page or column body, not a line of text.
 # Measured: the page body box is 65% of the page height and the tallest float box is 26.3% (a 221.67 pt graphic; four
-# more figures sit at 20.6-24.0%), so 0.45 lies about 19 points above the tallest float and 20 below the body box. It
-# raising it toward the body box's share risks letting a body box in, lowering it toward the tallest float's drops
-# graphics. At the old 0.25 the 26.3% graphic was dropped and its pin's mark covered its caption alone.
+# more figures sit at 20.6-24.0%), so 0.45 lies about 19 percentage points above the tallest float and 20 below the
+# body box - the room either side of it. Raising it toward the body box's share risks letting a body box in; lowering
+# it toward the tallest float's drops graphics. At the old 0.25 the 26.3% graphic was dropped and its pin's mark
+# covered its caption alone.
 BODY_HEIGHT_SHARE = 0.45
 # With a single line there is no blank between lines to measure; the padding is this share of the line's height.
 _LONE_LINE_PAD_SHARE = 0.175
@@ -322,8 +329,12 @@ def merge_boxes(rows: Sequence[Box], pad: float, page_w: float, page_h: float, l
     one per page. Touching is judged between the boxes as given and joins chain, so a tall block does not widen the
     threshold for what lies below it. Padding is added after joining and clipped to 0..page_w and 0..page_h, so a
     mark at the page's edge does not leave the page. More than limit pieces is a range scattered over the document,
-    and there the mark gives up: [] means "draw nothing", not "nothing found". Pieces are rounded to 2
-    decimals and sorted by (page, y, x), so the pin's number badge sits on the first one, the top of the range."""
+    and there the mark gives up: [] means "draw nothing", not "nothing found". Pieces are rounded to 2 decimals and
+    sorted by (page, y, x): the first is the topmost piece of the lowest page, which the viewer draws the pin's number
+    badge on. In a single-column layout that is the head of the range. In two columns it is not: a paragraph running
+    from the foot of column 1 into the head of column 2 answers the column 2 piece first, because that piece starts
+    higher on the page. Reading order would need the columns told apart, which no box here says; the order is the one
+    the viewer's pieces are pinned to, so changing it moves a badge and is a change of its own."""
     parent = list(range(len(rows)))
 
     def find(i: int) -> int:
@@ -371,12 +382,34 @@ def built_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> t
     A range that is only partly there - a line edited or added inside it - would get a box for some of its text and
     pass it off as the range's, so it gets none. The same rule on both paths, a fresh pick and a stored pin's listing,
     is what makes them draw the same box instead of flickering between two. A range of blank lines alone is no text
-    either, as in carry_range. lo and hi are cut to 1..len(now) first."""
+    either, as in carry_range. lo and hi are cut to 1..len(now) first.
+
+    A caller with several ranges of one file takes built_ranges, which reads the line diff of the two lists once."""
+    return _in_built(_built_at(built, now), now, lo, hi)
+
+
+def built_ranges(built: Sequence[str], now: Sequence[str]) -> BuiltRange:
+    """built_range for every range of one file, with the line diff of built and now read once.
+
+    A pin listing asks for one range per pin of the file, and the diff does not depend on the range: read per range it
+    walks the whole file once per pin, and the listing of a manuscript with dozens of pins pays that for every one of
+    them. Range for range the answer is built_range's."""
+    at = _built_at(built, now)
+    return lambda lo, hi: _in_built(at, now, lo, hi)
+
+
+def _built_at(built: Sequence[str], now: Sequence[str]) -> Mapping[int, int]:
+    """For each line of now (0-based) that the line diff pairs with a line of built, that line's 0-based index in
+    built - paired_lines read the other way round."""
+    return {j: i for i, j in enumerate(paired_lines(built, now)) if j is not None}
+
+
+def _in_built(at: Mapping[int, int], now: Sequence[str], lo: int, hi: int) -> tuple[int, int] | None:
+    """built_range from the pairing it has already read (_built_at)."""
     lo, hi = max(1, lo), min(hi, len(now))
     if lo > hi:
         return None
-    built_at = {j: i for i, j in enumerate(paired_lines(built, now)) if j is not None}
-    places = [built_at.get(j) for j in range(lo - 1, hi)]
+    places = [at.get(j) for j in range(lo - 1, hi)]
     if None in places:
         return None
     found = [i for i in places if i is not None]

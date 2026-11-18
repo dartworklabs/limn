@@ -7,6 +7,7 @@ import subprocess
 import threading
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
 from typing import TypeAlias
 
@@ -15,6 +16,7 @@ from limn.pins.location.mapping import (
     ENV_TOK_RE,
     FORWARD_LINES_MAX,
     Box,
+    BuiltRange,
     MarkPiece,
     TokenWeights,
     built_range,
@@ -70,7 +72,13 @@ def synctex_view(pdf: Path, tex: str, line: int) -> list[Box]:
     lowercase `x`/`y` are a different pair, and the banner and `before:`/`offset:`/`middle:`/`after:` lines are
     ignored). `v` is the box's bottom reference and `H` its height, so its top edge is `v - H` (measured: `y` in
     the output is not that), rounded to the tool's six printed decimals to drop subtraction noise. A record missing one of the five or holding an unreadable number is skipped.
-    Records come back out of document order, so the caller orders them; nothing is sorted or de-duplicated here."""
+    Records come back out of document order, so the caller orders them; nothing is sorted or de-duplicated here.
+
+    A record whose four coordinates are not all finite is skipped as well. float() takes "inf" and "nan", and the
+    JSON a box leaves in is written with Python's defaults, so one such record puts NaN or Infinity in the body: the
+    whole answer stops being JSON and the viewer's JSON.parse throws, which loses every pin of that read and not only
+    this box. TeX dimensions are bounded, so the real tool prints no such record - and every other number on this
+    wire is guarded the same way (limn.platform.values.wire_value for a stored one)."""
     try:
         out = subprocess.run(
             ["synctex", "view", "-i", "%d:0:%s" % (line, tex), "-o", str(pdf)],
@@ -95,6 +103,8 @@ def synctex_view(pdf: Path, tex: str, line: int) -> list[Box]:
         try:
             page, h, v, w, ht = int(rec["Page"]), float(rec["h"]), float(rec["v"]), float(rec["W"]), float(rec["H"])
         except ValueError:
+            continue
+        if not all(isfinite(number) for number in (h, v, w, ht)):
             continue
         boxes.append((page, h, round(v - ht, 6), w, ht))
     return boxes
@@ -247,6 +257,7 @@ def boxes_for_range(
     pages: Sequence[tuple[float, float]],
     limit: int,
     view: LineBoxes | None = None,
+    into_build: BuiltRange | None = None,
 ) -> tuple[MarkPiece, ...]:
     """Where lines lo..hi (1-based, inclusive) of the file as it is today (now) print on the PDF of the build that
     read `built`: the mark's pieces as (page, frac) pairs, each frac a box in fractions of its own page. Empty when
@@ -255,8 +266,10 @@ def boxes_for_range(
     Every answer that carries a mark computes it here - a pick's default range and each rung of a snippet - so the
     same lines of the same file always draw the same box (docs/adr/0045-pin-marks-follow-the-range.md). `tex` is the
     name SyncTeX selects the file by (build_copy_name), `pages` every page of that build as (width, height) in points
-    with page 1 first, `limit` the most pieces a mark may have, and `view` an already-read answer for a line
-    (LineBoxes; synctex_view itself when None).
+    with page 1 first, `limit` the most pieces a mark may have, `view` an already-read answer for a line (LineBoxes;
+    synctex_view itself when None), and `into_build` the reading of a range back into `built` with that file's line
+    diff already read (mapping.built_ranges of these same two line lists; mapping.built_range, which reads the diff
+    for each range asked, when None).
 
     Each page is measured by its own size: the body-box filter against that page's height, the joining and the clip
     against that page's box, and the fractions by that page's width and height. A document with a landscape appendix
@@ -266,8 +279,8 @@ def boxes_for_range(
     one leading for the whole range, measured over every page's boxes: it is a property of the text, and
     mapping.range_pad only ever compares boxes on one page anyway. The piece count is the whole answer's, checked
     after the pages are joined, so a range that crosses a page cannot answer twice the limit; the pieces come page by
-    page in ascending order, so the (page, y, x) order inside a page is the order of the answer, and the first piece
-    is still the top of the range.
+    page in ascending order, so the (page, y, x) order mapping.merge_boxes gives inside a page is the order of the
+    answer, and the first piece is still the topmost piece of the earliest page.
 
     The range is one the agent receives - a pick's default level, a rung of the ladder - not SyncTeX's own narrower
     range, and the text path has none at all. So it is read back into the lines that build read
@@ -292,7 +305,10 @@ def boxes_for_range(
     lo, hi = max(1, lo), min(hi, len(now))
     if lo > hi:
         return ()
-    in_build = built_range(built, now, lo, hi) if built is not None else (lo, hi)
+    if built is None:
+        in_build = (lo, hi)
+    else:
+        in_build = built_range(built, now, lo, hi) if into_build is None else into_build(lo, hi)
     if in_build is None:
         return ()
     shift = in_build[0] - lo  # built_range answers a range of the same length, so one shift places every line of it

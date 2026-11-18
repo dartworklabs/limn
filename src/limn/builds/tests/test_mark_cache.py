@@ -2,8 +2,10 @@
 
 GET /api/pins answers every open pin of every document at once, and a slow answer there delays every other GET in the
 process: one miss reads that build's source record - up to RECORD_MAX_BYTES of JSON - and runs `synctex view` once per
-line of text. So the run keeps the answers it has already computed, keyed by the build, the file, the file's version
-and the range, and shares that cache across request threads.
+line of text. So the run keeps the answers it has already computed, keyed by the build, the file, the dpi and the
+range **in the lines that build read**, and shares that cache across request threads. The lines of the build are what
+the key names because they are what the answer is a function of: an edit elsewhere in the file leaves a pin's range on
+the same lines of the build, and an agent editing the manuscript is the most ordinary thing that happens here.
 
 Run: uv run pytest -q src/limn/builds/tests/test_mark_cache.py
 """
@@ -13,10 +15,13 @@ import tempfile
 import threading
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from limn.builds import built_source
 from limn.builds.artifacts import MARK_CACHE_MAX, BuildMapCache, RangeBoxCache
 from limn.builds.queries import BuildQueries
+from limn.pins import range_boxes
+from limn.pins.location import source as pick_source
 from limn.runtime.documents import Doc, RunPaths
 
 import helpers_figure
@@ -27,9 +32,9 @@ PAGE_PX = (1500, 1000)
 PIECES = ((1, (0.1, 0.2, 0.3, 0.4)),)
 
 
-def key(build="pages-1", file="/ms/main.tex", version=(1, 2), lo=4, hi=5):
-    """One cache key: the document's state folder, the build, the file, its (mtime_ns, size) and the line range."""
-    return ("/state", build, file, version[0], version[1], lo, hi)
+def key(build="pages-1", file="/ms/main.tex", dpi=150, lo=4, hi=5):
+    """One cache key: the document's state folder, the build, the file, the dpi and the built line range."""
+    return ("/state", build, file, dpi, lo, hi)
 
 
 class RangeBoxCacheReads(unittest.TestCase):
@@ -64,19 +69,19 @@ class RangeBoxCacheReads(unittest.TestCase):
         self.assertEqual(self.runs, 1)
 
     def test_each_part_of_the_key_tells_two_answers_apart(self):
-        """Another build, another file, another version of that file, or another range is a different question."""
+        """Another build, another file, another dpi (the page sizes a piece is a fraction of are read at it), or
+        another range of the build's lines is a different question."""
         self.cache.answer(key(), self.compute())
         for other in (
             key(build="pages-2"),
             key(file="/ms/intro.tex"),
-            key(version=(9, 2)),
-            key(version=(1, 9)),
+            key(dpi=300),
             key(lo=5),
             key(hi=6),
         ):
             with self.subTest(other=other):
                 self.cache.answer(other, self.compute())
-        self.assertEqual(self.runs, 7)
+        self.assertEqual(self.runs, 6)
 
     def test_the_oldest_entry_goes_first_beyond_the_cap(self):
         """MARK_CACHE_MAX + 1 ranges asked in turn: the first is computed again, the last is still cached."""
@@ -188,3 +193,90 @@ class DocumentsWithoutMarks(unittest.TestCase):
         """Without a page there is no size to measure a mark against."""
         (self.ms.dir / BUILD1 / "page-1.png").unlink()
         self.assertIsNone(self.queries.boxes(self.ms, 150))
+
+
+class EditedManuscriptStillHits(unittest.TestCase):
+    """The listing that follows an edit of the manuscript: a pin whose range the edit did not move answers from the
+    cache, without a process.
+
+    An agent editing the manuscript is what Limn is for, so this is the most ordinary invalidation there is - and the
+    read it holds up is GET /api/pins, which answers every open pin at once and takes one of the process's four GET
+    compute slots while it runs (docs/handbook/architecture.md §HTTP 읽기 능력). Keyed by the file's version this was
+    a miss for every line pin of the file, each miss one `synctex view` process per line of text; keyed by the lines
+    of the build the range stands on, only a range the edit really moved misses.
+
+    The two pins are L4-L5 (the first paragraph of the fixture manuscript) and L8-L9 (the body lines below it).
+    """
+
+    PINS = ((4, 5), (8, 9))
+    BOX = (1, 60.0, 100.0, 300.0, 10.0)  # one line's box on page 1, well under the body-box height
+
+    def setUp(self):
+        """A manuscript with one build on screen - a page image to size a mark against, a PDF and the record of the
+        lines that build read - and one run's cache behind the asker."""
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        root = Path(self.tmp.name).resolve()
+        self.src = root / "ms"
+        self.src.mkdir()
+        self.main = self.src / "main.tex"
+        self.main.write_text(TEX, encoding="utf-8")
+        (root / "state").mkdir()
+        self.paths = RunPaths(self.src, self.main, root / "state")
+        self.ms = Doc("ms", "본문", "tex", self.src, self.main, paths=self.paths)
+        maps, marks = BuildMapCache(), RangeBoxCache()
+        self.cache = marks
+        self.queries = BuildQueries(lambda: maps, lambda: marks, range_boxes)
+        pages = self.ms.dir / BUILD1
+        pages.mkdir(parents=True, exist_ok=True)
+        (pages / "page-1.png").write_bytes(helpers_figure.png_header(*PAGE_PX))
+        (pages / self.ms.pdf_name).write_bytes(b"%PDF-1.4\n%%EOF\n")
+        (self.ms.dir / "pages.cur").write_text(BUILD1, encoding="utf-8")
+        record = built_source.encode({"main.tex": built_source.text_lines(TEX.encode("utf-8"))})
+        (pages / built_source.SOURCE_NAME).write_text(record, encoding="utf-8")
+        self.calls = []
+
+    def viewed(self):
+        """A stub of the forward pass that records every line it is asked about and answers that line a box."""
+
+        def view(_pdf, _tex, line):
+            """Record the line and answer its box."""
+            self.calls.append(line)
+            return [self.BOX]
+
+        return mock.patch.object(pick_source, "synctex_view", view)
+
+    def listing(self, pins):
+        """One GET /api/pins' worth of marks: the document's asker, made once for the read as the listing makes it,
+        asked for each pin's range in turn."""
+        asker = self.queries.boxes(self.ms, 150)
+        self.assertIsNotNone(asker)
+        return [asker(str(self.main), lo, hi) for lo, hi in pins]
+
+    def test_an_edit_outside_both_ranges_runs_no_second_process(self):
+        """A line below both pins reworded: the pins' numbers do not move, the lines of the build they stand on do
+        not change, and the second listing answers both marks without asking SyncTeX again."""
+        with self.viewed():
+            first = self.listing(self.PINS)
+            asked = list(self.calls)
+            reworded = TEX.replace("Tail paragraph zetaunique.", "Tail paragraph, reworded.")
+            self.main.write_text(reworded, encoding="utf-8")
+            second = self.listing(self.PINS)
+        self.assertTrue(all(first), first)
+        self.assertEqual(second, first)
+        self.assertEqual(sorted(asked), [4, 5, 8, 9])
+        self.assertEqual(self.calls, asked)
+        self.assertEqual(self.cache.held(), 2)
+
+    def test_lines_added_above_the_pins_are_the_same_question_at_their_new_numbers(self):
+        """Two lines added at the top of the file. The pins are re-synced to L6-L7 and L10-L11, and asked at those
+        numbers the listing answers the same marks from the same two entries: the key is the range in the lines the
+        build read, which is where both ranges still stand."""
+        with self.viewed():
+            first = self.listing(self.PINS)
+            asked = list(self.calls)
+            self.main.write_text("% added\n% added\n" + TEX, encoding="utf-8")
+            moved = self.listing(((lo + 2, hi + 2) for lo, hi in self.PINS))
+        self.assertEqual(moved, first)
+        self.assertEqual(self.calls, asked)
+        self.assertEqual(self.cache.held(), 2)

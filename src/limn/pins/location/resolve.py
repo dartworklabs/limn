@@ -3,7 +3,7 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias
+from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
@@ -11,8 +11,10 @@ from limn.pins.location import figure, source
 from limn.pins.location.mapping import (
     BOX_LIMIT,
     Box,
+    BuiltRange,
     MarkPiece,
     Traced,
+    built_ranges,
     carry_range,
     norm,
     snippet,
@@ -256,7 +258,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     traced = trace_range(tw, lines, synctex, ctx.envs)
     if traced is None:
         return NoSourceHere()
-    marks = range_boxes(D, found.path, built, lines, pdf, request.pages)
+    marks = range_boxes(D, found.path, built, lines, pdf, request.pages).pieces
 
     return Picked(
         file=found.path,
@@ -274,6 +276,18 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     )
 
 
+class RangeAsker(NamedTuple):
+    """Where the ranges of one file of one build print, bound to that build's facts (range_boxes).
+
+    `built` is which lines of the build a range of the file as it is today is, or None when nothing can be measured
+    for it; `pieces` is where those lines print. The two share one reading of the line diff between the build's lines
+    and today's, so the range a caller keys a kept answer by is the range the pieces it keeps were measured from
+    (limn.builds.queries.BuildQueries.boxes)."""
+
+    built: BuiltRange
+    pieces: RangeBoxes
+
+
 def range_boxes(
     D: Doc,
     file: Path,
@@ -281,12 +295,13 @@ def range_boxes(
     now: Sequence[str],
     pdf: Path,
     pages: Sequence[tuple[float, float]],
-) -> RangeBoxes:
-    """Where a range of manuscript file `file` prints on `pdf`, bound to the facts of one answer: (lo, hi) -> the
-    mark's pieces, empty when there is none. `built` is the file as the build whose PDF this is read it (None when
-    that build kept no record), `now` the file as it is today - the same order as source.boxes_for_range takes them,
-    because both are lines of one file and a swap would type-check - and `pages` every page of that build, so each
-    piece can be measured against the page it is on.
+) -> RangeAsker:
+    """Where a range of manuscript file `file` prints on `pdf`, bound to the facts of one answer: an asker whose
+    `pieces` takes (lo, hi) and gives the mark's pieces, empty when there is none, and whose `built` gives the lines
+    of the build those are measured from (RangeAsker). `built` is the file as the build whose PDF this is read it
+    (None when that build kept no record), `now` the file as it is today - the same order as source.boxes_for_range
+    takes them, because both are lines of one file and a swap would type-check - and `pages` every page of that
+    build, so each piece can be measured against the page it is on.
 
     Both answers that carry a mark bind it here - POST /api/pick for its default range (above) and GET /api/snippet
     once per rung (service.PinLocationService.snippet) - so the two cannot drift: the PDF, the name the build copy
@@ -297,9 +312,12 @@ def range_boxes(
 
     A line is read from SyncTeX once per answer, not once per rung: the ladder's rungs nest, so a snippet's three
     rungs ask for the drag's own line three times and for the paragraph's lines twice, and each call is a process
-    (13 ms measured on a 35-page document). The memo lives in this binding, so it is gone when the answer is - a GET
-    changes nothing that outlives it, and a cache across requests is the pin listing's to add, not this route's."""
+    (13 ms measured on a 35-page document). The line diff of the two line lists is read once for the binding too, for
+    the same reason: it does not depend on the range, and a listing asks one range per pin of the file. Both memos
+    live in this binding, so they are gone when the answer is - a GET changes nothing that outlives it, and a cache
+    across requests is the pin listing's to add, not this route's."""
     tex = source.build_copy_name(D.build, D.src, file)
+    into_build = None if built is None else built_ranges(built, now)
     seen: dict[tuple[str, int], list[Box]] = {}
 
     def view(on: Path, named: str, line: int) -> list[Box]:
@@ -309,11 +327,20 @@ def range_boxes(
             seen[key] = source.synctex_view(on, named, line)
         return seen[key]
 
+    def in_build(lo: int, hi: int) -> tuple[int, int] | None:
+        """Which lines of the build the range lo..hi of today's file is, by the rule and the diff `pieces` uses, or
+        None where `pieces` would answer nothing because the range does not stand in those lines whole. With no
+        record of the build's lines the numbers are the range's own, as source.boxes_for_range leaves them."""
+        lo, hi = max(1, lo), min(hi, len(now))
+        if lo > hi:
+            return None
+        return (lo, hi) if into_build is None else into_build(lo, hi)
+
     def pieces(lo: int, hi: int) -> tuple[MarkPiece, ...]:
         """The pieces of lines lo..hi, each as fractions of the page it prints on."""
-        return source.boxes_for_range(pdf, tex, built, now, lo, hi, pages, BOX_LIMIT, view)
+        return source.boxes_for_range(pdf, tex, built, now, lo, hi, pages, BOX_LIMIT, view, into_build=into_build)
 
-    return pieces
+    return RangeAsker(in_build, pieces)
 
 
 def _pick_region(
