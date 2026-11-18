@@ -339,7 +339,7 @@ class BuildQueries:
         the file before. A build that kept no record answers no mark: the range cannot be read back into the
         lines its numbers belong to, and half a range's boxes passed off as the range's would cover text the pin does
         not hold. A pick falls back to the build's numbers there; a stored pin does not, and such a build is replaced
-        by the next rebuild (docs/adr/0045-pin-marks-follow-the-range.md).
+        by the next rebuild (docs/adr/0049-pin-marks-follow-the-range.md).
         """
         if not doc.builds_from_source:
             return None

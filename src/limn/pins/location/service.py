@@ -49,7 +49,7 @@ class PinLocationService:
 
         A build that kept no record of the lines it read (one made by an older Limn) answers no marks at all, as the
         pin listing does for such a build (limn.builds.queries.BuildQueries.boxes,
-        docs/adr/0045-pin-marks-follow-the-range.md D7). A request here
+        docs/adr/0049-pin-marks-follow-the-range.md D7). A request here
         carries only a file and a line range of the file as it is today, and with no record nothing says those
         numbers name the same lines in the build that drew the page on screen - measuring today's numbers against an
         old layout is the one failure that rule exists to prevent. A pick does not fall here: it holds SyncTeX's own

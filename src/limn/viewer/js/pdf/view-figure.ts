@@ -178,7 +178,7 @@ function pinPlace(pin: Pin) {
 function isPiece(piece: MarkPiece) {
   return !!piece && Number.isInteger(piece.page) && piece.page >= 1 && isFrac(piece.frac);
 }
-// The pieces a pin's mark is drawn as (docs/adr/0045-pin-marks-follow-the-range.md): for a LaTeX line pin the boxes the
+// The pieces a pin's mark is drawn as (docs/adr/0049-pin-marks-follow-the-range.md): for a LaTeX line pin the boxes the
 // server computed - where that pin's own lines print on the build on screen - in the order it answers them, page by page
 // and then down each page; else the one place pinPlace names, which is what a pin whose range could not be measured, a
 // region and a figure pin draw. A figure pin's mark comes from its element map, so it carries no boxes. Empty for a pin

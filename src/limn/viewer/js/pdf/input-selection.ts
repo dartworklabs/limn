@@ -99,7 +99,7 @@ function selectionParts() {
 function clearSelectionParts() {
   selectionParts().forEach((part) => part.remove());
 }
-// Puts the composing selection on the pieces its chosen lines print as (docs/adr/0045-pin-marks-follow-the-range.md):
+// Puts the composing selection on the pieces its chosen lines print as (docs/adr/0049-pin-marks-follow-the-range.md):
 // its own box on the first piece whose page is drawn, a box beside it for each piece after that, each appended to the
 // page its piece names. A piece on a page that is not drawn gets nothing.
 //

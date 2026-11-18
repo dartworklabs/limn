@@ -222,7 +222,7 @@ class FigureContractSnapshot(SnapshotBase):
     that moves one element and removes the other (read-time mark and el_sync, 요소 잃음), then the range ladders
     GET /api/snippet?levels=1 answers for each kind of document - the LaTeX document's rungs carrying the boxes their
     lines print in, which only a request that asks for them gets (&boxes=1,
-    docs/adr/0045-pin-marks-follow-the-range.md), the figure script's raw rung carrying none, because its lines are a
+    docs/adr/0049-pin-marks-follow-the-range.md), the figure script's raw rung carrying none, because its lines are a
     drawing script's and a figure's marks come from its element map - and last a drag on the LaTeX
     document, the pin saved from it and the list it is on, so the `boxes` of a traced pick's default rung and of a
     stored line pin are both recorded. pdftotext answers no text, so the fallback's quote does not depend on the
@@ -239,7 +239,7 @@ class FigureContractSnapshot(SnapshotBase):
         write_build(self.fig, BUILD1, b2_map())
         write_build(self.ms, BUILD1, None)  # a page to measure a snippet's marks against (720 x 480 pt at 150 dpi)
         # The lines that build read: a snippet answers a rung's boxes only for a build that kept them
-        # (limn.pins.location.service.PinLocationService.snippet, ADR-0045 D7).
+        # (limn.pins.location.service.PinLocationService.snippet, ADR-0049 D7).
         record = built_source.encode({"main.tex": built_source.text_lines(self.main.read_bytes())})
         (self.ms.dir / BUILD1 / built_source.SOURCE_NAME).write_text(record, encoding="utf-8")
         for path in (self.fig.src / "src" / "B2_calendar.py", self.fig.src / "lib" / "components.py"):
@@ -340,7 +340,7 @@ class FigureContractSnapshot(SnapshotBase):
     def pick_and_pin_latex_lines(self):
         """The last three requests: a drag on the LaTeX document beside the figure, the pin saved from it, and the list
         that pin is on - the `boxes` of a traced pick's default rung and of a stored line pin, the one shape both
-        answer (docs/adr/0045-pin-marks-follow-the-range.md). The record of the lines the build read is written in
+        answer (docs/adr/0049-pin-marks-follow-the-range.md). The record of the lines the build read is written in
         the set-up, because every answer that carries a mark - a snippet's rungs as much as a stored pin - needs it."""
         named = str(self.ms.build / "main.tex")  # the name SyncTeX gives the file inside the build copy
         drag = {"doc": "ms", "page": 1, "x0": 60.0, "y0": 95.0, "x1": 360.0, "y1": 180.0}

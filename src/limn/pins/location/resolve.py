@@ -203,7 +203,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation).
 
     The last step runs SyncTeX the other way (range_boxes) and answers where the chosen range prints on that build's
-    pages, so the mark the person sees covers the lines the agent receives (docs/adr/0045-pin-marks-follow-the-range.md)."""
+    pages, so the mark the person sees covers the lines the agent receives (docs/adr/0049-pin-marks-follow-the-range.md)."""
     pdir, page, box, (pw, ph), frac = request.pdir, request.page, request.box, request.size, request.frac
     x0, y0, x1, y1 = box
     publication = ctx.builds.publication(D, pdir.name, ctx.state)
@@ -308,7 +308,7 @@ def range_boxes(
     gives the file, the lines that build read and the page sizes are chosen once, in one place, and the computation
     itself is shared (source.boxes_for_range). Binding also keeps the cost to one read of the build's facts per
     answer, not one per rung. The mark's piece count is BOX_LIMIT for both; a reader that wants another cap calls the
-    computation directly (docs/adr/0045-pin-marks-follow-the-range.md).
+    computation directly (docs/adr/0049-pin-marks-follow-the-range.md).
 
     A line is read from SyncTeX once per answer, not once per rung: the ladder's rungs nest, so a snippet's three
     rungs ask for the drag's own line three times and for the paragraph's lines twice, and each call is a process

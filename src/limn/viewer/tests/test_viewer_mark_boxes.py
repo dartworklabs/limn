@@ -1,4 +1,4 @@
-"""A LaTeX line pin's mark is drawn as the pieces of its range (docs/adr/0045-pin-marks-follow-the-range.md).
+"""A LaTeX line pin's mark is drawn as the pieces of its range (docs/adr/0049-pin-marks-follow-the-range.md).
 
 The server answers such a pin with `boxes` - where its own lines print on the build on screen, already filtered, padded,
 merged and measured against each piece's own page, ordered by page and then down the page. The viewer draws one

@@ -1,5 +1,5 @@
 """The boxes every rung of GET /api/snippet?levels=1&boxes=1 carries - where that rung's line range prints on the PDF
-(docs/adr/0045-pin-marks-follow-the-range.md).
+(docs/adr/0049-pin-marks-follow-the-range.md).
 
 The composing box reads this route for every range it settles on, so each rung carries the mark of its own range and
 the box follows the range with no second round trip. The forward pass runs `synctex view` once per line of text of a
@@ -230,7 +230,7 @@ class SnippetBoxes(SnippetBase):
         the file as it is today, and with no record nothing says those numbers name the same lines in the build that
         drew the page on screen. Measuring them against that older layout would put the mark on text the range does
         not hold, so no rung carries one and no process is run - the same refusal the pin listing makes for such a
-        build (ADR-0045 D7). A pick on the same build does answer, because SyncTeX gave it that build's own numbers
+        build (ADR-0049 D7). A pick on the same build does answer, because SyncTeX gave it that build's own numbers
         (test_pick_boxes.py's test_a_build_without_a_source_record_gets_boxes_at_todays_lines)."""
         (self.pages / built_source.SOURCE_NAME).unlink()
         with self.viewed(TABLE_BOXES):

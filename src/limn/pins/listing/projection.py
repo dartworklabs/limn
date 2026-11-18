@@ -6,7 +6,7 @@ the PDF on screen), `doc`, `addressed` and `fyi` (who it is handed to or tags fo
 before claim_ts existed the claim's start epoch - and, for a figure pin with an element, `mark`, `mark_page` and
 `el_sync` on its document's current map (docs/handbook/api.md §그림 문서의 pick·핀), or, for a line pin of a document
 a LaTeX build prints, `boxes`: where its own lines print on the build on screen, the same pieces a pick and a snippet
-answer for those lines (docs/adr/0045-pin-marks-follow-the-range.md). A verdict pin that a newer
+answer for those lines (docs/adr/0049-pin-marks-follow-the-range.md). A verdict pin that a newer
 verdict pin about the same target supersedes also gets `superseded_by`, that pin's number (limn.pins.verdict.superseded_by,
 ADR-0023): it follows `fyi` and is never stored. A pin with a suggested edit
 also gets `suggest_state` (suggest_view), last, here and in every change response's `pin` (public_record).

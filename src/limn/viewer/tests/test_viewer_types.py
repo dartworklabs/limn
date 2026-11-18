@@ -451,7 +451,7 @@ class DeclaredRungs(unittest.TestCase):
 def recorded_picks() -> list[dict]:
     """The recorded POST /api/pick answers that placed a drag: a figure element (the traced-selection keys plus el), a
     figure region that fell back (the region keys plus el), and a drag traced to a LaTeX document's lines, whose
-    default rung carries the boxes those lines print in (docs/adr/0045-pin-marks-follow-the-range.md)."""
+    default rung carries the boxes those lines print in (docs/adr/0049-pin-marks-follow-the-range.md)."""
     out = []
     for entry in json.loads(SNAPSHOTS[1].read_text(encoding="utf-8")):
         if "picks" in entry["step"] and "pins.md" not in entry["step"]:

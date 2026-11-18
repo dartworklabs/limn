@@ -49,7 +49,7 @@ def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
 
     A mark is asked for, never implied, because it is not free: the forward pass runs one `synctex view` process per
     line of text of every rung, 13 ms each on a 35-page document, so a ladder round a pin inside a 40-line float is
-    about 520 ms. ADR-0045 D4 budgets that for a person moving up the ladder, an occasional deliberate act. The one
+    about 520 ms. ADR-0049 D4 budgets that for a person moving up the ladder, an occasional deliberate act. The one
     caller that reads the answer is the composing selection's box, which sends the flag (viewer/js/composer/
     view-levels.ts); the edit card sends ?levels=1 whenever it opens and after every save and re-place, and uses the
     rungs' lines alone - a saved pin's mark is what the pin list answers - so without the flag every card open paid

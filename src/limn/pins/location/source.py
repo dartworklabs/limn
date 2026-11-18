@@ -130,7 +130,7 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
 # ---------------------------------------------------------------- Forward mapping: where a range prints
 #
 # SyncTeX the other way round: a pin's mark is the area its line range covers on the page, so an answer that
-# carries a mark asks here (docs/adr/0045-pin-marks-follow-the-range.md).
+# carries a mark asks here (docs/adr/0049-pin-marks-follow-the-range.md).
 
 # Reads the PDF boxes of one source line the way synctex_view does: (pdf, the name the build knows the file by, line)
 # -> that line's boxes in points. boxes_for_range takes one so a caller can answer from lines it has already read -
@@ -264,7 +264,7 @@ def boxes_for_range(
     there is no answer, and the mark then falls back to the rectangle that was dragged.
 
     Every answer that carries a mark computes it here - a pick's default range and each rung of a snippet - so the
-    same lines of the same file always draw the same box (docs/adr/0045-pin-marks-follow-the-range.md). `tex` is the
+    same lines of the same file always draw the same box (docs/adr/0049-pin-marks-follow-the-range.md). `tex` is the
     name SyncTeX selects the file by (build_copy_name), `pages` every page of that build as (width, height) in points
     with page 1 first, `limit` the most pieces a mark may have, `view` an already-read answer for a line (LineBoxes;
     synctex_view itself when None), and `into_build` the reading of a range back into `built` with that file's line

@@ -16425,7 +16425,7 @@ function selectionParts() {
 function clearSelectionParts() {
   selectionParts().forEach((part) => part.remove());
 }
-// Puts the composing selection on the pieces its chosen lines print as (docs/adr/0045-pin-marks-follow-the-range.md):
+// Puts the composing selection on the pieces its chosen lines print as (docs/adr/0049-pin-marks-follow-the-range.md):
 // its own box on the first piece whose page is drawn, a box beside it for each piece after that, each appended to the
 // page its piece names. A piece on a page that is not drawn gets nothing.
 //
@@ -17168,7 +17168,7 @@ document.addEventListener(
   },
   true,
 );
-// ---------------- Where the chosen lines print (docs/adr/0045-pin-marks-follow-the-range.md)
+// ---------------- Where the chosen lines print (docs/adr/0049-pin-marks-follow-the-range.md)
 // What snippets have answered about where a range owner's lines print, kept beside the owner rather than on it: the
 // composer's selection is written to the tab's draft as JSON (composer/flow-draft.ts), and boxes measured against the
 // build now on screen are not a draft's to keep. One answer carries the whole ladder round the range it was asked
@@ -17244,7 +17244,7 @@ let COMPOSE_SNIPPET_TIMER,
 // (?levels=1&boxes=1), since its box follows them (followRange). An edit card asks for neither: its box is the saved
 // pin's mark, which the pin list answers, and its ladder reads the rungs' lines alone. Marks are asked for and not
 // implied because the server runs a process per line of every rung to answer them - about half a second for a ladder
-// round a pin inside a 40-line float (docs/adr/0045-pin-marks-follow-the-range.md D4).
+// round a pin inside a 40-line float (docs/adr/0049-pin-marks-follow-the-range.md D4).
 function refetchSnip(owner, after) {
   const visit = captureVisit(),
     composing = owner === COMPOSE.current;
@@ -17732,7 +17732,7 @@ function pinPlace(pin) {
 function isPiece(piece) {
   return !!piece && Number.isInteger(piece.page) && piece.page >= 1 && isFrac(piece.frac);
 }
-// The pieces a pin's mark is drawn as (docs/adr/0045-pin-marks-follow-the-range.md): for a LaTeX line pin the boxes the
+// The pieces a pin's mark is drawn as (docs/adr/0049-pin-marks-follow-the-range.md): for a LaTeX line pin the boxes the
 // server computed - where that pin's own lines print on the build on screen - in the order it answers them, page by page
 // and then down each page; else the one place pinPlace names, which is what a pin whose range could not be measured, a
 // region and a figure pin draw. A figure pin's mark comes from its element map, so it carries no boxes. Empty for a pin

@@ -184,7 +184,7 @@ def assemble_pins(
     document capability's answer, wired by the composition root - which a new verdict pin is checked against.
     document_boxes answers where a document's line ranges print on the build it has on screen - the build capability's
     answer behind its own cache, wired the same way - which the pin listing carries as each line pin's `boxes`
-    (docs/adr/0045-pin-marks-follow-the-range.md); without it the listing answers the pins it always answered."""
+    (docs/adr/0049-pin-marks-follow-the-range.md); without it the listing answers the pins it always answered."""
     from limn.pins.location.lookup import NO_RECORDED_FOLDERS, RecordedFolders, recorded_folders, recorded_place
     from limn.pins.runtime import PinCommands
 

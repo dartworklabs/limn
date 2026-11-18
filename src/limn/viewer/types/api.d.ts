@@ -78,7 +78,7 @@ interface Pin {
   mark?: number[];
   mark_page?: number;
   // Where a line pin's own lines print on the build on screen, the pieces a pick and a snippet answer for the same
-  // lines (ADR-0045). Computed on read like mark/mark_page; absent when there is no answer, never empty. A figure
+  // lines (ADR-0049). Computed on read like mark/mark_page; absent when there is no answer, never empty. A figure
   // pin's mark comes from its element map instead, so the two never meet on one pin.
   boxes?: MarkPiece[];
   kind?: string;
@@ -400,7 +400,7 @@ interface MarkPiece {
 // snippet, the environment for an environment rung, the element for a figure's rung, the rungs it replaced, and on a
 // traced pick how much of the drag is in its lines (score, 0-1; null when there was nothing to weigh). boxes is where
 // those lines print on the build being read - absent when there is no answer for them, never empty - which a pick
-// sends for its default rung alone and a snippet for every rung (docs/adr/0045-pin-marks-follow-the-range.md).
+// sends for its default rung alone and a snippet for every rung (docs/adr/0049-pin-marks-follow-the-range.md).
 interface Rung {
   level: string;
   lo: number;

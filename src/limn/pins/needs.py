@@ -247,7 +247,7 @@ BoxesFor: TypeAlias = Callable[[str, int, int], MarkPieces]
 # document owner's verdict lookup: None for a document whose line pins are not lines a LaTeX build printed - a figure
 # document (its marks come from its element map), a Markdown or text document (no pages), a view-only PDF (no lines) -
 # and for a build that left no page to measure a mark against. The cost of answering, and the cache that makes a
-# listing of every open pin affordable, are the supplier's (docs/adr/0045-pin-marks-follow-the-range.md).
+# listing of every open pin affordable, are the supplier's (docs/adr/0049-pin-marks-follow-the-range.md).
 DocumentBoxes: TypeAlias = Callable[[Doc], BoxesFor | None]
 
 

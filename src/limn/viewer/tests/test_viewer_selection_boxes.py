@@ -1,6 +1,6 @@
 """The selection being composed is drawn over the lines it covers, not the rectangle that was dragged.
 
-A drag's pick answers where its default rung's lines print (`boxes`, docs/adr/0045-pin-marks-follow-the-range.md), and
+A drag's pick answers where its default rung's lines print (`boxes`, docs/adr/0049-pin-marks-follow-the-range.md), and
 the dashed '새 핀' box is drawn on those pieces - one box per piece, each on the page its piece names, the first piece
 keeping everything that is the selection's one place: the note popover's anchor and the identity a click-off compares.
 Moving up the range ladder or setting the lines in the range excerpt asks GET /api/snippet?levels=1 for the pieces of

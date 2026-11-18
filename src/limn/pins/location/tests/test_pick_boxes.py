@@ -1,5 +1,5 @@
 """The boxes a pick's default level carries - a drag answered with the area its line range covers on the PDF
-(docs/adr/0045-pin-marks-follow-the-range.md).
+(docs/adr/0049-pin-marks-follow-the-range.md).
 
 The forward pass runs `synctex view` once per line of the default level, so these tests stub
 limn.pins.location.source.synctex_view and watch which lines and which file name it is asked for. That watching is the

@@ -213,7 +213,7 @@ document.addEventListener(
   },
   true,
 );
-// ---------------- Where the chosen lines print (docs/adr/0045-pin-marks-follow-the-range.md)
+// ---------------- Where the chosen lines print (docs/adr/0049-pin-marks-follow-the-range.md)
 // What snippets have answered about where a range owner's lines print, kept beside the owner rather than on it: the
 // composer's selection is written to the tab's draft as JSON (composer/flow-draft.ts), and boxes measured against the
 // build now on screen are not a draft's to keep. One answer carries the whole ladder round the range it was asked
@@ -289,7 +289,7 @@ let COMPOSE_SNIPPET_TIMER: ReturnType<typeof setTimeout> | undefined,
 // (?levels=1&boxes=1), since its box follows them (followRange). An edit card asks for neither: its box is the saved
 // pin's mark, which the pin list answers, and its ladder reads the rungs' lines alone. Marks are asked for and not
 // implied because the server runs a process per line of every rung to answer them - about half a second for a ladder
-// round a pin inside a 40-line float (docs/adr/0045-pin-marks-follow-the-range.md D4).
+// round a pin inside a 40-line float (docs/adr/0049-pin-marks-follow-the-range.md D4).
 function refetchSnip(owner: LineOwner, after: () => void) {
   const visit = captureVisit(),
     composing = owner === COMPOSE.current;

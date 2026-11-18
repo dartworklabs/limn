@@ -8,7 +8,7 @@ record gains no field.
 
 ### Added
 
-- **A LaTeX line pin's box on the page is its line range, not the rectangle that was dragged (ADR-0045).** The range
+- **A LaTeX line pin's box on the page is its line range, not the rectangle that was dragged (ADR-0049).** The range
   an agent receives is the whole paragraph (or the whole float environment), so a drag over a few words drew a box
   that said the pin was about those words. The box is now the area those lines occupy on the PDF, computed from
   forward SyncTeX - the same source the range itself comes from - on every read and never stored, as a figure pin's

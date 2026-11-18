@@ -1,5 +1,5 @@
 """The `boxes` a stored LaTeX line pin carries in GET /api/pins - where its lines print on the build on screen
-(docs/adr/0045-pin-marks-follow-the-range.md).
+(docs/adr/0049-pin-marks-follow-the-range.md).
 
 A pin's mark is the area its line range covers, so the marks already on the page are drawn the way a fresh pick and a
 snippet draw them. The field is computed on every read and never stored, like `rel`, `est`, `mark` and `state`, and

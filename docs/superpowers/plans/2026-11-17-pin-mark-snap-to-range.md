@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.10+ 표준 라이브러리만(`subprocess`), 외부 실행 파일 `synctex`(이미 쓴다), TypeScript 뷰어 모듈.
 
-**Spec:** [docs/superpowers/specs/2026-11-17-pin-mark-snap-to-range.md](../specs/2026-11-17-pin-mark-snap-to-range.md) (승인됨 2026-11-17), [ADR-0045](../../adr/0045-pin-marks-follow-the-range.md)
+**Spec:** [docs/superpowers/specs/2026-11-17-pin-mark-snap-to-range.md](../specs/2026-11-17-pin-mark-snap-to-range.md) (승인됨 2026-11-17), [ADR-0049](../../adr/0049-pin-marks-follow-the-range.md)
 
 ## Global Constraints
 
@@ -506,7 +506,7 @@ I agree to the Limn CLA (CLA.md)."
 
 **Files:**
 - Modify: `docs/handbook/domain.md`, `docs/handbook/api.md`, `docs/handbook/viewer.md`, `CHANGELOG.md`
-- Modify: `docs/adr/0045-pin-marks-follow-the-range.md` (상태 `제안` → `승인됨`), `docs/adr/index.md`
+- Modify: `docs/adr/0049-pin-marks-follow-the-range.md` (상태 `제안` → `승인됨`), `docs/adr/index.md`
 
 - [ ] **Step 1: 네 기기군 PoC를 만들어 소유자에게 보인다**
 
@@ -516,7 +516,7 @@ I agree to the Limn CLA (CLA.md)."
 
 - [ ] **Step 3: Handbook을 현재 상태에 맞춘다**
 
-[domain.md](../../handbook/domain.md)에 상자가 범위를 그린다는 규칙과 여백·낡은 빌드·폴백의 이유를 현재형으로 쓰고 ADR-0045를 짧게 인용한다. [api.md](../../handbook/api.md)에 `boxes`의 모양과 세 경로를 적는다. [viewer.md](../../handbook/viewer.md)에 조각 여럿과 첫 조각 기준을 적는다. 날짜·전후 수치·진행 기록은 넣지 않는다(PR과 CHANGELOG가 맡는다).
+[domain.md](../../handbook/domain.md)에 상자가 범위를 그린다는 규칙과 여백·낡은 빌드·폴백의 이유를 현재형으로 쓰고 ADR-0049를 짧게 인용한다. [api.md](../../handbook/api.md)에 `boxes`의 모양과 세 경로를 적는다. [viewer.md](../../handbook/viewer.md)에 조각 여럿과 첫 조각 기준을 적는다. 날짜·전후 수치·진행 기록은 넣지 않는다(PR과 CHANGELOG가 맡는다).
 
 - [ ] **Step 4: Run the full gate**
 
