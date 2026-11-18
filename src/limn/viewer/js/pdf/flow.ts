@@ -14,7 +14,7 @@
 //   openVectorDocument), the changes view and a PDF that cannot be read (searchOffer hides it).
 import { BAND, IS_MAC, MID_OVERLAY, SIDE_OPEN, imeKey } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { VECTOR_PDF } from './flow-open.ts';
+import { VECTOR_PDF } from './state-vector.ts';
 import { relayout, setSide, topAnchor } from '../layout/flow.ts';
 import { $, $$, searchToPage, eventElement, findElement, findAll, focusedElement } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';

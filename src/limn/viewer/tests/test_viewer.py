@@ -874,7 +874,7 @@ class FrontendVector(unittest.TestCase):
         # on PNG via 'Invalid page request').
         body = self.fn("openVectorDocument")
         i_if = body.index("if(!doc){")
-        i_null = body.index("VECTOR_PDF.doc=null")
+        i_null = body.index("setVectorDocument(null)")
         i_fetch = body.index("await fetch(")
         self.assertLess(i_if, i_null)
         self.assertLess(i_null, i_fetch)
@@ -884,7 +884,7 @@ class FrontendVector(unittest.TestCase):
 
     def test_fallback_to_png_on_any_failure(self):
         boot = self.fn("bootVector")
-        self.assertIn(sq("catch(error){VECTOR_PDF.lib=null; failVector("), sq(boot))
+        self.assertIn(sq("catch(error){setVectorLibrary(null); failVector("), sq(boot))
         self.assertIn("failVector('PDF 를 벡터로 열지 못했습니다'", self.fn("openVectorDocument"))
         run = self.fn("runDrawJob")
         self.assertIn("RenderingCancelledException", run)  # a cancellation is not a failure
@@ -960,6 +960,11 @@ class FrontendVectorLogic(unittest.TestCase):
                 extract_js_fn("closeVectorDocument"),
                 extract_js_fn("cancelVectorDraw"),
                 extract_js_fn("nextDrawJob"),
+                extract_js_fn("advanceVectorGeneration"),
+                extract_js_fn("setVectorDocument"),
+                extract_js_fn("setVectorBuild"),
+                extract_js_fn("setVectorFailed"),
+                extract_js_fn("setVectorOpenedAt"),
                 extract_js_fn("openVectorDocument"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 r"""

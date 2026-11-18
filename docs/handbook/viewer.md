@@ -175,7 +175,7 @@
 
 검사하는 규칙은 넷이다. `feature-dependency`·`platform-isolation`·`role`은 불변식이다. 위반이 하나라도 있으면 표 자체의 실수처럼 검사가 바로 실패하고, 메시지는 규칙과 가져오는 모듈, 가져온 모듈을 말한다. `cycle`만 줄기만 하는 기준선에 든다(§타입 검사).
 
-- `cycle`: import가 모듈의 순환을 닫는다. 남은 순환은 모두 한 기능 안의 모듈 사이에 있다.
+- `cycle`: import가 모듈의 순환을 닫는다. 남은 순환은 모두 한 기능 안의 모듈 사이에 있다. PDF 기능은 순환이 없다. 열기·그리기·검색은 같은 PDF 상태(`pdf/state-vector.ts`)를 읽고, 목차를 다 읽은 흐름(`pdf/flow-outline.ts`)이 목차와 쪽 목록을 함께 갱신한다.
 - `feature-dependency`: 다른 기능의 모듈을 가져오는데 그 방향이 `ALLOWED`에 없다. `ALLOWED`는 방향마다 업무상의 이유를 적고, 모든 기능은 `platform`과 `app`을 가져올 수 있으며, 나열한 방향끼리는 순환이 없어야 한다. 새 방향은 diff에 새 줄로 보인다.
 - `platform-isolation`: 공용 모듈이 기능의 모듈을 가져오거나, 다른 공용 모듈을 거쳐 닿는다.
 - `role`: `rules`가 제 기능의 `rules`와 `platform` 밖을 가져오거나, `state`·`api`가 제 기능·`app`·`platform`의 `rules`·`state` 밖을 가져오거나, 누구든 입구를 가져온다.

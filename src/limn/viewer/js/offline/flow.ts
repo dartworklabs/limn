@@ -30,7 +30,7 @@ import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/
 import { setLastPinsRevision, offlineNow } from '../documents/flow-polling.ts';
 import { WORKER_REGISTRATION, setWorkerRegistration } from '../pins/flow-notification.ts';
 import { drawStatus } from '../documents/view-status.ts';
-import { VECTOR_PDF } from '../pdf/flow-open.ts';
+import { VECTOR_PDF } from '../pdf/state-vector.ts';
 import { pageText } from '../pdf/flow.ts';
 import { kindFor, wireScope } from '../composer/view-levels.ts';
 import { figureFields } from '../pdf/view-figure.ts';

@@ -1,7 +1,7 @@
 import { translateTemplate } from '../platform/i18n.ts';
 import { REVISION_VIEW, COMPARISON_PDF, drawPinGuide, revisionCurrent } from './flow.ts';
 import { ZOOM_STEP } from '../pdf/view-pages.ts';
-import { VECTOR_PIXEL_CAP } from '../pdf/flow-open.ts';
+import { VECTOR_PIXEL_CAP } from '../pdf/state-vector.ts';
 import { canvasBackingTarget } from '../pdf/view-draw.ts';
 import { wheelFactor } from '../pdf/input-zoom.ts';
 import { $ } from '../platform/dom.ts';
