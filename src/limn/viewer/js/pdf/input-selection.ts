@@ -10,7 +10,9 @@ import {
   PAGE_SCALE,
   LAYOUT,
   META,
+  knownMeta,
   REPICK,
+  setRepickBox,
   REPLY,
   SELMODE,
   SIDE_OPEN,
@@ -31,11 +33,7 @@ import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
 import { pageSelection } from './state-seams.ts';
 
-// The mouse press #doc hears: it lands on an element, never on a text node.
-interface ElementMouseEvent extends MouseEvent {
-  target: Element;
-}
-let DRAG = null as {
+let DRAG: {
     pg: HTMLElement;
     sx: number;
     sy: number;
@@ -45,8 +43,8 @@ let DRAG = null as {
     cy: number;
     box: HTMLElement | null;
     badge?: boolean;
-  } | null,
-  LONG_PRESS = null as { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null;
+  } | null = null,
+  LONG_PRESS: { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null = null;
 const clampUnit = (value: number) => Math.min(1, Math.max(0, value));
 const TAP_SLOP = 8,
   QUICK_HALF_WIDTH = 0.07,
@@ -164,16 +162,17 @@ function cancelLongPress() {
 }
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), so the note field keeps its
 // focus.
-$('#doc').addEventListener('mousedown', (event: ElementMouseEvent) => {
-  if (event.button === 0 && event.target.closest('.pg')) event.preventDefault();
+$('#doc').addEventListener('mousedown', (event: MouseEvent) => {
+  const target = eventElement(event);
+  if (event.button === 0 && target && target.closest('.pg')) event.preventDefault();
 });
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click
 // that follows the touch would land on it (it would open an edit, switch the kind, focus the note) - that one click is
 // swallowed (SWALLOW_CLICK). LONG_PRESS_PICKED = the pointer whose long-press already picked. TAP/LAST_TAP = double-tap
 // zoom (touch, outside [선택] mode).
-let LONG_PRESS_PICKED = null as number | null,
-  TAP = null as { id: number; x: number; y: number; t: number } | null,
-  LAST_TAP = null as { t: number; x: number; y: number } | null;
+let LONG_PRESS_PICKED: number | null = null,
+  TAP: { id: number; x: number; y: number; t: number } | null = null,
+  LAST_TAP: { t: number; x: number; y: number } | null = null;
 // BADGE_HOLD = the SWALLOW_CLICK a drag from a badge armed at its release (0 for none). A pen's drag is followed by a
 // click, but a finger's is not, so the hold would outlive the gesture and swallow the next tap, on another badge: the
 // next press retires it (a click always comes before the next press) - unless another hold has taken SWALLOW_CLICK over
@@ -336,8 +335,8 @@ window.addEventListener('pointercancel', (event) => {
 // window (isDoubleTap), so the first tap of a double tap does not close the composer under the zoom. PRESS_OFF is the
 // press that may become one (set on pointerdown, resolved on pointerup); CLICKOFF_TIMER the finger's wait.
 const CLICKOFF_WAIT_MS = 350;
-let PRESS_OFF = null as { id: number; mouse: boolean; x: number; y: number; box: HTMLElement | null } | null,
-  CLICKOFF_TIMER = null as ReturnType<typeof setTimeout> | null;
+let PRESS_OFF: { id: number; mouse: boolean; x: number; y: number; box: HTMLElement | null } | null = null,
+  CLICKOFF_TIMER: ReturnType<typeof setTimeout> | null = null;
 // Whether the point (x, y) lies in one of rects ({left, top, right, bottom}), each grown by pad px. Pure.
 function hitsAny(rects: DOMRect[], x: number, y: number, pad: number) {
   return rects.some(
@@ -355,8 +354,8 @@ function selectionOpen() {
 // ignore the pointer, so the page is what the press lands on). Every piece counts as inside: a press on the second
 // block of a range is a press on the selection, as much as one on the block the popover hangs from.
 function pressOutsideSelection(event: PointerEvent) {
-  const target = event.target as Element;
-  if (!selectionOpen()) return false;
+  const target = eventElement(event);
+  if (!target || !selectionOpen()) return false;
   // A press on the Markdown surface picks (markdown/view.ts), never cancels.
   if (isMarkdownDoc() && target.closest('#md')) return false;
   if (target.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))
@@ -433,7 +432,7 @@ function doubleTapZoom(x: number, y: number) {
 // point on a figure document - and then widened or narrowed via the range ladder.
 function quickPick(pageElement: HTMLElement, clientX: number, clientY: number) {
   const [x, y] = fracAt(pageElement, clientX, clientY),
-    quickFrac = quickBox(x, y, isFigureKind(META && META.kind));
+    quickFrac = quickBox(x, y, isFigureKind(META ? META.kind : undefined));
   finishRect(pageElement, newBox(pageElement), quickFrac[0], quickFrac[1], quickFrac[2], quickFrac[3]);
 }
 // The box a quick selection sends around the point (x, y), as page fractions [x0, y0, x1, y1]: about one text line on a
@@ -460,7 +459,7 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
   box.classList.add('pending');
   if (REPICK) {
     if (REPICK.box) REPICK.box.remove();
-    REPICK.box = box;
+    setRepickBox(REPICK, box);
     pendingBadge(box, '새 위치');
   } else {
     clearSelectionParts();
@@ -469,7 +468,8 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
     pendingBadge(box, '새 핀');
   }
   const page = Number(pageElement.dataset.page),
-    pageInfo = META.pages[page - 1],
+    meta = knownMeta(),
+    pageInfo = meta.pages[page - 1],
     repick = !!REPICK;
   pageSelection().pick({
     page,
@@ -478,7 +478,7 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
     x1: Math.max(startX, x) * pageInfo.pt_w,
     y1: Math.max(startY, y) * pageInfo.pt_h,
     frac: [Math.min(startX, x), Math.min(startY, y), width, height],
-    pdf_build: META.pages_build || undefined,
+    pdf_build: meta.pages_build || undefined,
     doc: DOC || undefined,
   });
   // A mouse drag's note popover (composer/view-selection-popover.ts); pick() has opened the composer.

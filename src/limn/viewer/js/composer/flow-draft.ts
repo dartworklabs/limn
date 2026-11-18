@@ -5,39 +5,34 @@
 // restores it (restoreDraft). Saving clears it; a discard clears it once its undo window is over (DRAFT.holds has that
 // document's undo). Only this tab sees it. The tab owns the debounce timer and the active document's draft key; a
 // discard's undo holds its own document's key.
-import {
-  DOC,
-  KIND_NEW,
-  LAYOUT,
-  META,
-  setSnipOpen,
-  COMPOSE,
-  setComposeBox,
-  setComposeCurrent,
-  setComposeIntent,
-} from '../app/state.ts';
-import { NOTICES, lineNote } from '../platform/notices.ts';
-import { applySide, setSide } from '../layout/flow.ts';
-import { drawBox, newBox, pendingBadge, revealBox } from '../pdf/input-selection.ts';
-import { relevelForLineView } from '../markdown/view.ts';
-import { cancelSelection, discardSelection, recomputeOverlap, renderComposer, setKind } from './flow-pick.ts';
-import { ASSIGN_NEW, renderAssignNew } from './input-mentions.ts';
-import { NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
+import { DOC, KIND_NEW, META, COMPOSE } from '../app/state.ts';
+import { NOTICES } from '../platform/notices.ts';
+import { ASSIGN_NEW } from './state-assignee.ts';
 import { $ } from '../platform/dom.ts';
-import { ASSIGNEE_AGENT, REQUEST_KIND, LAYOUT_MODE } from '../app/rules-tables.ts';
-import { isMarkdownDoc } from '../documents/state.ts';
-import { autoGrow } from './view-text.ts';
-import { SUGGEST_DRAFT, suggestClear, suggestCopy } from './state-suggest.ts';
-const DRAFT = {
-  timer: 0 as ReturnType<typeof setTimeout> | 0,
+import { SUGGEST_DRAFT, suggestCopy } from './state-suggest.ts';
+// A discarded draft kept until its undo note leaves: the note, the stored draft's key and the bytes it held.
+interface HeldDraft {
+  note: Notice;
+  key: string | null;
+  value: string | null;
+}
+interface DraftState {
+  timer: ReturnType<typeof setTimeout> | 0;
+  ready: boolean;
+  holds: Map<string | null, HeldDraft>;
+  key: string | null;
+  origin: { key: string | null; value: string | null; current: ComposerSelection | null } | null;
+}
+const DRAFT: DraftState = {
+  timer: 0,
   ready: false,
   holds: new Map(),
-  key: null as string | null,
-  origin: null as { key: string | null; value: string | null; current: Selection | null } | null,
+  key: null,
+  origin: null,
 };
 // Keep a discarded draft until its undo (note, on the status line) leaves, unless a newer draft replaced it first.
 function holdDraftUntil(note: Notice) {
-  let value = null as string | null;
+  let value: string | null = null;
   try {
     if (DRAFT.key) value = sessionStorage.getItem(DRAFT.key);
   } catch (error) {}
@@ -63,14 +58,6 @@ function holdDraftUntil(note: Notice) {
 // The storage key of a draft: one per instance label and document.
 function draftKey(label: string, doc: string | null) {
   return 'limnDraft:' + encodeURIComponent(label || '') + ':' + doc;
-}
-// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
-// this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
-// for nothing to keep, another document, or another record version.
-function draftRestore(record: ReturnType<typeof draftRecord>, doc: string | null, build: string) {
-  if (!record || record.v !== 1 || record.doc !== doc) return null;
-  if (record.cur && record.build === build) return 'full';
-  return String(record.note || '').trim() ? 'note' : null;
 }
 // The draft on screen now, or null: the open composer (with its pick, or a note while the pick is still running) or a
 // note kept in the hidden composer for the next pick.
@@ -158,6 +145,26 @@ function clearSavedDraft(snapshot: ReturnType<typeof savedDraftSnapshot>) {
     if (sessionStorage.getItem(snapshot.key) === snapshot.value) sessionStorage.removeItem(snapshot.key);
   } catch (error) {}
 }
+// Open the current document's stored record and track subsequent edits under its key.
+function openStoredDraft() {
+  let stored: unknown = null,
+    raw: string | null = null;
+  const key = META ? draftKey(META.label, DOC) : null;
+  try {
+    raw = key ? sessionStorage.getItem(key) : null;
+    stored = JSON.parse(raw || 'null');
+  } catch (error) {
+    stored = null;
+  }
+  DRAFT.origin = null;
+  DRAFT.key = stored ? key : null;
+  DRAFT.ready = true;
+  return { key, raw, stored };
+}
+// Keep the identity of a restored selection so a late save can recognize it.
+function rememberRestoredDraft(key: string | null, value: string | null, current: ComposerSelection) {
+  DRAFT.origin = { key, value, current };
+}
 // Finish one document's draft before a switch; later debounce and pagehide callbacks must not write it under the next
 // document.
 function parkDraft() {
@@ -168,110 +175,18 @@ function parkDraft() {
   DRAFT.key = null;
   DRAFT.origin = null;
 }
-// Start the next document with its own note and assignment before restoring any stored draft for it.
-function openDraftDoc() {
-  const noteField = $('#note');
-  noteField.value = '';
-  noteField._mentions = null;
-  ASSIGN_NEW.v = ASSIGNEE_AGENT;
-  ASSIGN_NEW.touched = false;
-  setKind(REQUEST_KIND.FIX);
-  suggestClear();
-  renderAssignNew();
-  autoGrow(noteField);
-  restoreDraft();
-}
-addEventListener('pagehide', syncDraft);
+window.addEventListener('pagehide', syncDraft);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) syncDraft();
 });
-// Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the
-// next press elsewhere. A full restore redraws the box and opens a collapsed panel or sheet (not remembered); a
-// note-only one leaves the note in the note field for the next pick. [버리기] is the usual discard (a full draft gets
-// its undo; the draft goes once that window is over). A pick the person made on this document while the boot was still
-// reading the pins (a Markdown document is drawn before they come) is newer than the kept one and stays: only the kept
-// note comes into it, when its field is still empty, and the kept selection and suggested edit are dropped.
-function restoreDraft() {
-  let record = null as any,
-    raw = null as string | null;
-  const key = META ? draftKey(META.label, DOC) : null;
-  DRAFT.origin = null;
-  try {
-    raw = key ? sessionStorage.getItem(key) : null;
-    record = JSON.parse(raw || 'null');
-  } catch (error) {
-    record = null;
-  }
-  const kept = draftRestore(record, DOC, META && META.pages_build),
-    picked = !!COMPOSE.current && COMPOSE.current.doc === DOC;
-  const how = kept && picked ? (String(record.note || '').trim() && !$('#note').value.trim() ? 'note' : null) : kept;
-  DRAFT.key = record ? key : null;
-  DRAFT.ready = true;
-  if (!how) {
-    syncDraft();
-    return;
-  }
-  const noteField = $('#note');
-  noteField.value = record.note || '';
-  noteField._mentions = record.mentions && record.mentions.length ? new Set(record.mentions) : null;
-  setKind(record.kind);
-  Object.assign(ASSIGN_NEW, record.assign || {});
-  if (record.sg && !picked) Object.assign(SUGGEST_DRAFT, suggestCopy(record.sg));
-  renderAssignNew();
-  autoGrow(noteField);
-  if (picked) saveDraftSoon();
-  if (how === 'full') {
-    const keptPick: Selection = record.cur,
-      page = document.getElementById('p' + keptPick.page);
-    if (page && Array.isArray(keptPick.frac)) {
-      const box = newBox(page),
-        frac = keptPick.frac;
-      drawBox(box, frac[0], frac[1], frac[0] + frac[2], frac[1] + frac[3]);
-      box.classList.add('pending');
-      pendingBadge(box, '새 핀');
-      setComposeBox(box);
-    }
-    setComposeCurrent(keptPick);
-    setComposeIntent(COMPOSE.intent + 1);
-    recomputeOverlap();
-    setSnipOpen(false);
-    $('#c-err').hidden = true;
-    $('#c-body').hidden = false;
-    $('#composer').hidden = false;
-    renderComposer();
-    DRAFT.origin = { key: key, value: raw, current: keptPick };
-    setSide(true);
-    applySide();
-    if (LAYOUT !== LAYOUT_MODE.WIDE) revealBox(COMPOSE.box);
-    if (isMarkdownDoc()) relevelForLineView();
-  } // the Markdown surface's line view takes the kept lines as lines
-  lineNote(
-    how === 'full' || picked
-      ? '작성 중이던 메모를 되살렸습니다'
-      : '작성 중이던 메모를 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다',
-    NOTICE_KIND.INFO,
-    {
-      label: '버리기',
-      tip: '되살린 선택과 메모를 버립니다',
-      fn: () => {
-        if (!$('#composer').hidden) discardSelection();
-        else {
-          cancelSelection(true);
-          syncDraft();
-        }
-      },
-    },
-    { life: NOTICE_LIFE.CLICK },
-  );
-}
 export {
   clearSavedDraft,
   holdDraftUntil,
-  openDraftDoc,
   parkDraft,
-  restoreDraft,
   restoredDraftOwns,
   saveDraftSoon,
   savedDraftSnapshot,
   syncDraft,
+  openStoredDraft,
+  rememberRestoredDraft,
 };

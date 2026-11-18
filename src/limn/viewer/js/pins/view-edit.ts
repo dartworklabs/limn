@@ -1,7 +1,7 @@
 // ------------------------------------------------ The edit card, drawn
 // The open edit card (EDITOR.current) drawn from what it holds now - its kind, its range, its suggestion, its save
 // button - and whether it holds changes not saved yet. pins/flow-edit.ts opens, saves and closes it.
-import { EDITOR } from '../app/state.ts';
+import { EDITOR, findAnyPin } from '../app/state.ts';
 import { editNote } from '../composer/view-text.ts';
 import { mentionHints, renderAssignEdit } from '../composer/input-mentions.ts';
 import { suggestForEdit, suggestOff, editDocKind, renderEditSuggest } from '../composer/flow-suggest.ts';
@@ -9,15 +9,15 @@ import { REQUEST_KIND, PIN_STATE } from '../app/rules-tables.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { setCap, rangeCap, drawLadder, snipText } from '../composer/view-levels.ts';
 import { html } from '../platform/markup.ts';
+import { findAll, findElement, findMaybe } from '../platform/dom.ts';
 import { translateTemplate } from '../platform/i18n.ts';
 import { drawExcerpt } from '../composer/view-excerpt.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { syncQuestionHint } from '../composer/view-note-hints.ts';
 /** Reflect the editor's shared request lifetime on whichever card is currently visible. */
 function syncEditSaveButton() {
   const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
-  if (button) (button as HTMLButtonElement).disabled = EDITOR.saving;
+  if (button instanceof HTMLButtonElement) button.disabled = EDITOR.saving;
 }
 // Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
 /**
@@ -50,7 +50,7 @@ function renderEdit() {
   if (!card) return;
   const cardElement = card.el;
   syncEditSaveButton();
-  (cardElement.querySelectorAll('.e-kind button') as NodeListOf<HTMLElement>).forEach((button) => {
+  findAll(cardElement, '.e-kind button', HTMLElement).forEach((button) => {
     const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
@@ -69,20 +69,20 @@ function renderEdit() {
         : rangeCap(card, true),
     );
   if (ladder instanceof HTMLElement) drawLadder(ladder, card, true);
-  const pre = cardElement.querySelector('.e-snip') as HTMLElement;
+  const pre = findElement(cardElement, '.e-snip', Element);
   pre.className = 'e-snip wrap';
   pre.textContent = snipText(card.snippet, false);
   renderAssignEdit();
-  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true);
+  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true, renderEdit);
   // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
   renderEditSuggest(card);
-  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
+  syncQuestionHint(findMaybe(cardElement, '.e-qhint', HTMLElement), editNote(card).value, card.kind_req);
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
-  (cardElement.querySelector('.b-repick') as HTMLElement).hidden = closed;
+  findElement(cardElement, '.b-repick', HTMLElement).hidden = closed;
   if (closed) {
-    (cardElement.querySelector('.e-levels') as HTMLElement).hidden = true;
-    (cardElement.querySelector('.e-xp') as HTMLElement).hidden = true;
+    findElement(cardElement, '.e-levels', HTMLElement).hidden = true;
+    findElement(cardElement, '.e-xp', HTMLElement).hidden = true;
   }
 }
 export { syncEditSaveButton, editDirty, renderEdit };

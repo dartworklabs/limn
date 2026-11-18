@@ -65,6 +65,10 @@ jobs:
       # again and fail if the committed bytes differ, so an instance never serves a script its modules no longer make.
       - name: Viewer build is fresh
         run: npm run build:check
+      # The viewer's element types are generated from its page (tools/page_elements.py, docs/adr/0045-viewer-page-elements.md):
+      # write them again and fail if the committed declaration differs, so $('#id') is never typed from an older page.
+      - name: Viewer page declaration is fresh
+        run: uv run python tools/page_elements.py --check
       - name: Viewer type check
         run: npm run typecheck
       # Prettier's output is the viewer modules' layout (.prettierrc.json; .prettierignore names what it covers).
@@ -73,7 +77,7 @@ jobs:
       # The viewer checks' own cases (tools/tests): the boundary rules and tables, and the local ESLint rules.
       - name: Viewer check tests
         run: npm test
-      # Strict tsc, ESLint and the module boundary check's cycle edges (tools/check_viewer_boundaries.mjs), each file's
+      # ESLint and the module boundary check's cycle edges (tools/check_viewer_boundaries.mjs), each file's
       # count held to tools/strict-baseline.json: a new violation fails, and so does a count that fell without the
       # baseline lowered. The boundary check's other rules are invariants: one violation fails it, and so this step.
       - name: Viewer strict ratchet

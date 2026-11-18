@@ -1,7 +1,5 @@
 // ---------------- Switching documents - the navigation sheet, remembered view positions
 // (docs/handbook/domain.md §여러 문서)
-// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One
-// document leaves the section out - there is nothing to switch to.
 import {
   DOC,
   DOCS,
@@ -9,6 +7,7 @@ import {
   PAGE_SCALE,
   LAYOUT,
   META,
+  knownMeta,
   META_BY,
   NAVGEN,
   OPEN_ALL,
@@ -28,20 +27,19 @@ import {
   COMPOSE,
   EDITOR,
 } from '../app/state.ts';
-import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { savePrefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { docBadge, drawDocTabs, hashDoc, multiDoc, setHash } from './view-tabs.ts';
+import { drawDocTabs, hashDoc, multiDoc, setHash, drawDocsMenu } from './view-tabs.ts';
 import { drawMeta } from './view-meta.ts';
-import { resetBuildForDoc } from './view-build-chip.ts';
+import { resetBuildForDoc } from './flow-build.ts';
 import { checkDocUpdate } from './flow-updates.ts';
 import { showSheet, restoreAnchor, topAnchor } from '../layout/flow.ts';
-import { BACK, BACK_SKIP } from '../layout/input.ts';
+import { BACK, BACK_SKIP } from '../layout/flow-back.ts';
 import { refreshDoc } from './flow-rebuild.ts';
-import { NOTICE_HOST } from '../platform/tables.ts';
-import { $, $$, searchToPage } from '../platform/dom.ts';
+import { NOTICE_HOST, isRecord } from '../platform/tables.ts';
+import { $, findMaybe, searchToPage, findAll, findElement } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo, withDocQuery, pdoc } from './state.ts';
@@ -54,16 +52,6 @@ import {
   pageSurface,
 } from './state-seams.ts';
 import { endJumpForScroll } from '../layout/flow-scroll.ts';
-function drawDocsMenu() {
-  $('#ns-docs').hidden = !multiDoc();
-  setHtml(
-    $('#ns-docs-list'),
-    html`${DOCS.map((entry) => {
-      const on = entry.key === DOC;
-      return html`<button class="dm-item${on ? ' on' : ''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${entry.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${entry.name}${on ? lucideIcon('check') : ''}</span><span class="ph" translate="no">${entry.path}</span></span>${docBadge(entry)}</button>`;
-    })}`,
-  );
-}
 // The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field
 // with the page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination -
 // picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and the outline's current
@@ -93,11 +81,11 @@ function openNavigationSheet() {
 function revealSheetOutline(sheet: HTMLDialogElement) {
   const rows = sheetOutlineRows(),
     current = $('#ns-outline-items').querySelector(':scope>.ol-active');
-  fitNavigationSheet(sheet, current ? rows.indexOf(current as HTMLElement) : 0, true);
+  fitNavigationSheet(sheet, current ? rows.findIndex((row) => row === current) : 0, true);
 }
 /** @returns the rows of the sheet's outline (the unread entries' note is not one) */
 function sheetOutlineRows(): HTMLElement[] {
-  return [...$('#ns-outline-items').querySelectorAll(':scope>button')] as HTMLElement[];
+  return findAll($('#ns-outline-items'), ':scope>button', HTMLElement);
 }
 // the open sheet's height as last fitted to the screen: a filter's fewer results keep it, so the top does not move
 let NAVIGATION_SHEET_HEIGHT = 0;
@@ -113,10 +101,10 @@ let NAVIGATION_SHEET_HEIGHT = 0;
  * view) pinned under the head over what the step brought there (sheetScrollStep). Fitted again after a filter's results
  * (from the first, or the current section when the filter is emptied) and when the sheet's height changes. */
 function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, refit: boolean = false) {
-  const list = $('#ns-outline-items') as HTMLElement,
-    outlineSection = $('#ns-outline') as HTMLElement;
-  const pages = $('#ns-pages') as HTMLElement,
-    head = sheet.querySelector('.ns-head') as HTMLElement,
+  const list = $('#ns-outline-items'),
+    outlineSection = $('#ns-outline');
+  const pages = $('#ns-pages'),
+    head = findElement(sheet, '.ns-head', HTMLElement),
     rectOf = (element: Element) => element.getBoundingClientRect();
   list.style.maxHeight =
     list.style.minHeight =
@@ -160,10 +148,10 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   list.style.maxHeight = pages.style.display = '';
   const span = (range: [number, number] | null, geometry: { top: number; bottom: number }[]) =>
     range ? geometry[range[1]].bottom - geometry[range[0]].top : 0;
-  const least = (count: number) =>
-    (centre
+  const least = (count: number): [number, number] =>
+    centre
       ? [Math.max(0, index - Math.floor((count - 1) / 2)), Math.min(last, index + Math.ceil((count - 1) / 2))]
-      : [index, Math.min(last, index + count - 1)]) as [number, number];
+      : [index, Math.min(last, index + count - 1)];
   const pagesOf = (count: number) => span(rowsAround(pageGeometry, currentPage, count), pageGeometry),
     most = Math.min(5, pageRows.length);
   const plan = show
@@ -206,8 +194,7 @@ function fitNavigationSheet(sheet: HTMLElement, at: number, centre: boolean, ref
   const need = sheet.scrollHeight - sheet.clientHeight;
   if (need <= 0) return;
   const top = rectOf(head).bottom,
-    keep = (sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') ||
-      sheet.querySelector('#ns-view')) as HTMLElement,
+    keep = sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') || findElement(sheet, '#ns-view', Element),
     keepRect = rectOf(keep);
   const parts = [
     ...sheet.querySelectorAll('#ns-docs,#ns-docs .dm-item,#ns-view,#ns-page,#ns-pages,#ns-outline,#ns-outline>.ns-oh'),
@@ -254,7 +241,7 @@ function rowsAround(rows: { top: number; bottom: number }[], current: number, co
 for (const target of [window.visualViewport, window])
   if (target)
     target.addEventListener('resize', () => {
-      const sheet = $('#nav-sheet') as HTMLDialogElement;
+      const sheet = $('#nav-sheet');
       if (sheet.open)
         requestAnimationFrame(() => {
           if (!sheet.open) return;
@@ -276,7 +263,7 @@ for (const target of [window.visualViewport, window])
 // The sheet's filter has drawn its list again (pdf/view-outline.ts): fitted from the first result, keeping the sheet's
 // height - or, emptied, back at the current section.
 function refitFilteredSheet() {
-  const sheet = $('#nav-sheet') as HTMLDialogElement;
+  const sheet = $('#nav-sheet');
   if (!sheet.open) return;
   if ($('#ns-outline-search').value.trim()) fitNavigationSheet(sheet, 0, false, true);
   else revealSheetOutline(sheet);
@@ -326,72 +313,19 @@ function sheetScrollStep(
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavigationView() {
   const isRevisions = document.body.classList.contains('revision-open');
-  for (const radio of $$('#ns-view [role=radio]')) {
+  for (const radio of findAll(document, '#ns-view [role=radio]', HTMLElement)) {
     const on = (radio.dataset.mode === VIEW_MODE.REVISIONS) === isRevisions;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
   roveSegment($('#ns-view')); // the group's one Tab stop is the view now chosen (platform/segments.ts)
 }
-// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
-// several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
-// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for
-// translate/translateTemplate.
-function posLabel(doc: string, page: number, pageCount: number, multi: boolean, wide: boolean, mode: string) {
-  if (mode === VIEW_MODE.REVISIONS)
-    return { name: '', pages: translate('변경사항'), label: translate('이동') + ' · ' + translate('변경사항') };
-  const name = multi && wide ? doc : '',
-    pageShown = pageCount ? page : '–',
-    countShown = pageCount ? pageCount : '–';
-  return {
-    name,
-    pages: pageShown + '/' + countShown,
-    label: name
-      ? translateTemplate('이동 · {doc} · {page} / {n}쪽', { doc: name, page: pageShown, n: countShown })
-      : translateTemplate('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
-  };
-}
-// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when
-// another document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words
-// are translate()'d here.
-function drawPos() {
-  const button = $('#btn-pos');
-  if (!button) return;
-  const shown = docInfo(DOC),
-    pageCount = META && META.pages ? META.pages.length : 0,
-    isRevisions = document.body.classList.contains('revision-open');
-  const label =
-    isMarkdownDoc() && !isRevisions
-      ? // a Markdown document has lines, not pages
-        markdownSurface().positionLabel(
-          shown ? shown.name : '',
-          markdownSurface().reading().at,
-          markdownSurface().reading().lines.length,
-          multiDoc(),
-          innerWidth >= 400,
-        )
-      : posLabel(
-          shown ? shown.name : '',
-          pageNavigation().outlinePage() || 1,
-          pageCount,
-          multiDoc(),
-          innerWidth >= 400,
-          isRevisions ? VIEW_MODE.REVISIONS : VIEW_MODE.MANUSCRIPT,
-        );
-  const nameSpan = $('#btn-pos-n');
-  nameSpan.textContent = label.name;
-  nameSpan.hidden = !label.name;
-  $('#btn-pos-p').textContent = label.pages;
-  button.setAttribute('aria-label', label.label);
-  button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
-  $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
-}
 // A document's kept view (VIEW_BY, saveView): a Markdown or text document's reading line (line, off), or a PDF's top
 // spot (page, frac), its scale (k, or the page width w), its sideways scroll (sl); with the layout it was kept in.
 interface KeptLineView {
   line: number;
   off: number;
-  lay: string;
+  lay: string | null;
   page?: undefined;
   frac?: undefined;
   k?: undefined;
@@ -408,7 +342,7 @@ interface KeptPageView {
   w?: number;
   zoomed?: boolean;
   sl?: number;
-  lay: string;
+  lay: string | null;
 }
 type KeptView = KeptLineView | KeptPageView;
 // Viewed position: page/fraction anchored at the top, page scale (PAGE_SCALE), whether zoomed manually in compact,
@@ -421,7 +355,7 @@ function saveView() {
     saveViews();
     return;
   } // its reading line
-  if (!$('#doc .pg')) return;
+  if (!findMaybe(document, '#doc .pg', HTMLElement)) return;
   const anchor = topAnchor();
   VIEW_BY.set(DOC, {
     page: anchor ? anchor.page : 1,
@@ -443,12 +377,39 @@ function saveViews() {
 function loadViews() {
   if (!multiDoc()) return;
   try {
-    const kept = JSON.parse(sessionStorage.getItem('pinDocView') || '[]');
+    const kept: unknown = JSON.parse(sessionStorage.getItem('pinDocView') || '[]');
     if (Array.isArray(kept))
-      kept.forEach((x) => {
-        if (Array.isArray(x) && docInfo(x[0]) && x[1] && typeof x[1] === 'object') VIEW_BY.set(x[0], x[1]);
+      kept.forEach((entry: unknown) => {
+        if (!Array.isArray(entry)) return;
+        const doc: unknown = entry[0],
+          view: unknown = entry[1];
+        if (typeof doc === 'string' && docInfo(doc) && isKeptView(view)) VIEW_BY.set(doc, view);
       });
   } catch (error) {}
+}
+// Whether a stored value is a kept view as saveView writes it - a page view with its page width w (kept before the scale
+// k was) or its scale, or a reading line. A value of another shape is not restored: the document opens where it opens
+// without one. Pure.
+function isKeptView(value: unknown): value is KeptView {
+  if (!isRecord(value) || (typeof value.lay !== 'string' && value.lay !== null)) return false;
+  const { line, off, page, frac, k: scale, w: width, zoomed, sl: scrolled } = value;
+  const optionalNumber = (field: unknown) => field === undefined || typeof field === 'number';
+  if (page === undefined)
+    return (
+      typeof line === 'number' &&
+      typeof off === 'number' &&
+      [frac, scale, width, zoomed, scrolled].every((field) => field === undefined)
+    );
+  return (
+    typeof page === 'number' &&
+    typeof frac === 'number' &&
+    line === undefined &&
+    off === undefined &&
+    optionalNumber(scale) &&
+    optionalNumber(width) &&
+    optionalNumber(scrolled) &&
+    (zoomed === undefined || typeof zoomed === 'boolean')
+  );
 }
 // A kept view's scale: its k, or - for a view kept with the page width (w) instead - that width over the widest page
 // (points); 0 when it has neither. Pure.
@@ -485,7 +446,7 @@ function restoreView(view: KeptView | undefined) {
   if (typeof view.page === 'number') restoreAnchor({ page: view.page, frac: view.frac });
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }
-addEventListener('pagehide', saveView);
+window.addEventListener('pagehide', saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft. If a meta
 // cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background,
 // and pages are swapped only if the build changed. A document that cannot be opened says so on the status line, with
@@ -514,7 +475,8 @@ async function switchDoc(doc: string | undefined) {
     SWITCH_TO = { k: doc, seq, nav: navigation };
     try {
       meta = (
-        await api(withDocQuery('/api/meta', doc), {
+        await api('GET /api/meta', {
+          query: withDocQuery('', doc),
           what: '문서 열기',
           where: NOTICE_HOST.LINE,
           retry: () => {
@@ -546,9 +508,11 @@ async function switchDoc(doc: string | undefined) {
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
     try {
-      const fresh = (await api(withDocQuery('/api/meta', doc), { what: '문서 열기', silent: true })).data;
+      const fresh = (await api('GET /api/meta', { query: withDocQuery('', doc), what: '문서 열기', silent: true }))
+        .data;
       if (seq === SWITCHSEQ && DOC === doc) {
-        const changed = fresh.pages_build !== META.pages_build || fresh.pages.length !== META.pages.length;
+        const shown = knownMeta(),
+          changed = fresh.pages_build !== shown.pages_build || fresh.pages.length !== shown.pages.length;
         META_BY.set(doc, fresh);
         if (changed) await refreshDoc(fresh);
         else {
@@ -560,7 +524,7 @@ async function switchDoc(doc: string | undefined) {
   }
 }
 // The switch waiting for its document's meta (switchDoc), or null.
-let SWITCH_TO = null as { k: string; seq: number; nav: number } | null;
+let SWITCH_TO: { k: string; seq: number; nav: number } | null = null;
 // Whether a switch to `doc` is on its way and still the one that will open: the newest switch, no history traversal
 // since.
 function switchPending(doc: string) {
@@ -638,9 +602,7 @@ export {
   applyViewWidth,
   cycleDoc,
   docTitle,
-  drawDocsMenu,
   drawNavigationView,
-  drawPos,
   loadViews,
   refitFilteredSheet,
   openNavigationSheet,
@@ -649,3 +611,4 @@ export {
   switchPending,
   viaDoc,
 };
+export type { KeptView };

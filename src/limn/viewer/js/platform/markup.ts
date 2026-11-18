@@ -24,7 +24,8 @@ class Html {
 // condition as c?x:''. Values must sit in element content or a quoted attribute; esc() does not make an unquoted
 // attribute or a URL attribute safe. Called as a function rather than a tag, it throws a TypeError.
 function html(parts: TemplateStringsArray, ...values: unknown[]): Html {
-  if (!Array.isArray(parts) || !Array.isArray(parts.raw)) throw new TypeError('html is a template tag: html`...`');
+  const given: unknown = parts; // read as any value, so the check below does not retype parts
+  if (!Array.isArray(given) || !Array.isArray(parts.raw)) throw new TypeError('html is a template tag: html`...`');
   let out = parts[0];
   for (let i = 0; i < values.length; i++) out += htmlValue(values[i]) + parts[i + 1];
   return new Html(out);

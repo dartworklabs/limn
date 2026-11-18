@@ -19,12 +19,12 @@
 //   A script's measure inside a skipped line lays it out for the answer (the keys' Tab stops), but the innerText of
 //   what is skipped is empty.
 // Without IntersectionObserver no line is skipped.
-import { $, $$ } from '../platform/dom.ts';
-let FAR_OBSERVER = null as IntersectionObserver | null,
+import { $, findAll } from '../platform/dom.ts';
+let FAR_OBSERVER: IntersectionObserver | null = null,
   FAR_HEIGHT = -1;
-const FAR_WATCHED = new Set() as Set<HTMLElement>; // the lines the observer watches
+const FAR_WATCHED: Set<HTMLElement> = new Set(); // the lines the observer watches
 // when fitPageLines last kept each line's height (performance.now())
-const FITTED_AT = new WeakMap() as WeakMap<HTMLElement, number>;
+const FITTED_AT: WeakMap<HTMLElement, number> = new WeakMap();
 // The lines fitPageLines is about to measure are laid out, skipped or not (.pv-fitting).
 function holdFarLines(lines: HTMLElement[]) {
   if (typeof IntersectionObserver === 'undefined') return;
@@ -57,7 +57,7 @@ function watchFarLines(lines: HTMLElement[], viewHeight: number) {
     FAR_WATCHED.clear();
     FAR_HEIGHT = viewHeight;
     FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
-    lines = $$('#doc .pgw>.pv,#doc .pv-sum');
+    lines = findAll(document, '#doc .pgw>.pv,#doc .pv-sum', HTMLElement);
   } // a line or a summary under a page; never the panel
   const io = FAR_OBSERVER;
   FAR_WATCHED.forEach((line) => {
@@ -78,8 +78,8 @@ function watchFarLines(lines: HTMLElement[], viewHeight: number) {
 // (no height to stand at) or no longer in the page.
 function sortFarLines(entries: IntersectionObserverEntry[]) {
   for (const entry of entries) {
-    const line = entry.target as HTMLElement;
-    if (!line.isConnected) continue;
+    const line = entry.target;
+    if (!(line instanceof HTMLElement) || !line.isConnected) continue;
     if (entry.isIntersecting) {
       line.classList.remove('pv-far');
       continue;

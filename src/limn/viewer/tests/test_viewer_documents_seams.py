@@ -166,7 +166,11 @@ class SwitchAndShow(unittest.TestCase):
 REFRESH_SCOPE = r"""
 let DOC='a',SWITCHSEQ=1,REFRESH_GEN=0,META={pages:[{n:1},{n:2}]},MARKDOWN=false;
 const META_BY=new Map();
-const document={body:{classList:{contains:(c)=>c==='revision-open'}}};
+class HTMLElement {} class HTMLImageElement extends HTMLElement {}
+const IMGS=[new HTMLImageElement(),new HTMLImageElement()];
+// the drawn pages, each an HTML element holding its picture
+const document={body:{classList:{contains:(c)=>c==='revision-open'}},
+  querySelectorAll:()=>IMGS.map((img)=>Object.assign(new HTMLElement(),{dataset:{},style:{},querySelector:()=>img}))};
 function rendersInBrowser(){return MARKDOWN;}
 function withDocQuery(u){return u;} function api(){return Promise.resolve({data:SNAPSHOT});}
 function topAnchor(){return {page:1};} function restoreAnchor(){LOG.push(['restoreAnchor',BUILD_READING_PAGE]);}
@@ -178,8 +182,6 @@ var BUILD_READING_PAGE=0; function pageUnderReadingLine(){return 4;}
 function setBuildReadingPage(value){BUILD_READING_PAGE=value; return value;}
 function buildDoc(){LOG.push(['build',BUILD_READING_PAGE]);}
 function loadPins(){LOG.push(['loadPins']); return Promise.resolve(true);}
-const IMGS=[{},{}];
-function $$(){return IMGS.map((img)=>({dataset:{},style:{},querySelector:()=>img}));}
 """
 
 
@@ -193,6 +195,8 @@ class Refresh(unittest.TestCase):
     def refresh(self, setup):
         return run(
             REFRESH_SCOPE,
+            extract_js_fn("findElement"),
+            extract_js_fn("findAll"),
             extract_js_fn("refreshDoc"),
             setup,
             "refreshDoc(SNAPSHOT).then(()=>console.log(JSON.stringify({log:LOG,imgs:IMGS.map(i=>i.src)})));",
@@ -286,7 +290,7 @@ class ReadingPosition(unittest.TestCase):
     POSITION = r"""
     let DOC='a',MD=true,META={pages:[{},{},{}]},LAYOUT='wide';
     const DOCS=[],VIEW_BY=new Map(); var VIEW_MODE={MANUSCRIPT:'manuscript',REVISIONS:'revisions'};
-    const document={body:{classList:{contains:()=>false}}}; const innerWidth=500;
+    const document={body:{classList:{contains:()=>false}}}; const window={innerWidth:500};
     const ELS={}; function $(sel){return ELS[sel]||(ELS[sel]={hidden:false,dataset:{},setAttribute(k,v){this[k]=v;},scrollLeft:0});}
     function isMarkdownDoc(){return MD;} function docInfo(){return {name:'main'};} function multiDoc(){return true;}
     function saveViews(){}
@@ -368,9 +372,12 @@ class Navigation(unittest.TestCase):
             r"""
             const DOCS=[]; const COARSE_POINTER_QUERY={matches:false};
             const ELS={}; function $(sel){return ELS[sel]||(ELS[sel]={hidden:true,setAttribute(){},focus(){},scrollIntoView(){}});}
+            class HTMLElement { focus() {} scrollIntoView() {} }
+            const document={querySelector:()=>new HTMLElement()};   // the current document's row
             function hideTip(){LOG.push(['hideTip']);} function drawDocMenu(){LOG.push(['drawDocMenu']);}
             function placeDocMenu(){LOG.push(['placeDocMenu']);}
             """,
+            extract_js_fn("findMaybe"),
             extract_js_fn("openDocMenu"),
             "openDocMenu(); console.log(JSON.stringify(LOG));",
         )
@@ -532,7 +539,7 @@ class LeavingWork(unittest.TestCase):
             let FIELD={value:''}; function replyNote(reply){LOG.push(['replyNote',reply.id]); return FIELD;}
             function editDirty(){LOG.push(['editDirty']); return false;}
             function lineNote(){LOG.push(['said']);} function flushDeferred(){LOG.push(['flush']);}
-            const location={reload(){LOG.push(['reload']);}};
+            const window={location:{reload(){LOG.push(['reload']);}}};
             """,
             extract_js_fn("reloadForUpdate"),
             "reloadForUpdate(); LOG.push(['--']); FIELD={value:'답'}; reloadForUpdate(); console.log(JSON.stringify(LOG));",
@@ -556,7 +563,7 @@ function updateStaleBadge(){LOG.push(['staleBadge']);} function updateSyncBadge(
 let APPLIED=true; function loadPins(){LOG.push(['loadPins']); return Promise.resolve(APPLIED);}
 function pollBuild(){} function announce(){}
 let META={tag:'m',pins_rev:'r2',src_sig:'s'};
-function api(url){LOG.push(['api',url]); return Promise.resolve({data:META});}
+function api(endpoint,o){LOG.push(['api',endpointUrl(endpoint,o.id,o.query)]); return Promise.resolve({data:META});}
 """
 
 
@@ -573,6 +580,7 @@ class LightPoll(unittest.TestCase):
             JS_UPDATE_STUBS + extract_js_fn("pollLightOnce"),
             extract_js_fn("pollHiddenNotify"),
             extract_js_fn("pollHiddenNotifyOnce"),
+            extract_js_fn("endpointUrl"),
             POLL_SCOPE,
             setup,
             "Promise.resolve(%s).then(()=>console.log(JSON.stringify({log:LOG,rev:LAST_PINS_REVISION})));" % call,
@@ -693,7 +701,7 @@ class QueuedPins(unittest.TestCase):
     def test_the_status_input_counts_the_queued_and_held_pins(self):
         got = run(
             r"""
-            const OFF={n:3,held:1}; const LINE=[],BUILD={cur:null,error:null,unchanged:null};
+            const OFF={n:3,held:1}; const LINE=[],SHOWN_BUILD={cur:null,error:null,unchanged:null};
             let POLL_FAILS=0,STATUS_SYNC=null,META=null;
             function versionOutdated(){return false;} function $(){return {hidden:true};}
             function buildsFromSource(){return false;} function isViewer(){return false;}

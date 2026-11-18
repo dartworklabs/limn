@@ -13,96 +13,23 @@
 // No text-selection layer is added: dragging selects a region, and a text layer would conflict with it.
 import { DOC, META } from '../app/state.ts';
 import { translateTemplate } from '../platform/i18n.ts';
-import { loadOutline, outlineForget } from './view-outline.ts';
+import { loadOutline } from './flow-outline.ts';
+import { outlineForget } from './view-outline.ts';
 import { cancelVectorDraw, closeVectorDocument, failVector, scheduleVectorDraw } from './view-draw.ts';
 import { searchClear, searchOffer } from './flow.ts';
 import { $ } from '../platform/dom.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
+import {
+  VECTOR_PDF,
+  advanceVectorGeneration,
+  setVectorDocument,
+  setVectorBuild,
+  setVectorFailed,
+  setVectorOpenedAt,
+  setVectorLibrary,
+  isVectorCached,
+} from './state-vector.ts';
 const PDFJS_VERSION = '__PDFJS_VERSION__';
-const VECTOR_PIXEL_CAP = 16777216,
-  VECTOR_KEEP_MARGIN = '150% 0px',
-  VECTOR_DETAIL_MARGIN = 0.25;
-// PDF.js has no type declarations here: these name the parts of its document, page and outline objects that the viewer
-// calls. A page's reference in a PDF's object table, which an outline destination may name instead of a page number.
-interface PdfPageReference {
-  num: number;
-  gen: number;
-}
-// An outline destination: the page (a number, or its reference), the kind of view ({ name: 'XYZ' } carries the left and
-// top edges that follow), and the view's numbers.
-type PdfDestination = [
-  PdfPageReference | number | null,
-  { name: string } | null,
-  number | null,
-  number | null,
-  number | null,
-];
-// One item of a PDF's outline: its title, where it goes (a destination, or the name of one) and its children.
-interface PdfOutlineItem {
-  title?: string;
-  dest?: string | PdfDestination | null;
-  items: PdfOutlineItem[];
-}
-// A page's viewport at a scale: its size and the matrix from PDF units to the canvas.
-interface PdfViewport {
-  width: number;
-  height: number;
-  transform: number[];
-}
-// A render of a page onto a canvas, which cancel() ends early.
-interface PdfRenderTask {
-  promise: Promise<void>;
-  cancel(): void;
-}
-// A page of a PDF document (PDFPageProxy).
-interface PdfPage {
-  getViewport(options: { scale: number }): PdfViewport;
-  render(options: {
-    canvasContext: CanvasRenderingContext2D | null;
-    viewport: PdfViewport;
-    transform: number[];
-  }): PdfRenderTask;
-}
-// What is drawn for one page (view-draw.ts pageDrawState): its page canvas and the size it was drawn at, its detail canvas
-// with the region of the page (fractions) it covers and the size and pixel ratio it was drawn at, and whether the page
-// must be drawn again.
-interface PageDrawState {
-  base: HTMLCanvasElement | null;
-  bw: number;
-  bh: number;
-  dt: HTMLCanvasElement | null;
-  reg: { x: number; y: number; w: number; h: number } | null;
-  dtCw: number;
-  dtK: number;
-  stale: boolean;
-}
-// An opened PDF document (PDFDocumentProxy).
-interface PdfDocument {
-  numPages: number;
-  loadingTask: { destroy(): unknown };
-  getPage(pageNumber: number): Promise<PdfPage>;
-  getOutline(): Promise<PdfOutlineItem[] | null>;
-  getDestination(name: string): Promise<PdfDestination | null>;
-  getPageIndex(reference: PdfPageReference): Promise<number>;
-}
-// The PDF.js library and a render task are `any`; its document is a PdfDocument, though the cached ones are `any` too.
-const VECTOR_PDF = {
-  lib: null as any,
-  doc: null as PdfDocument | null,
-  build: null as string | null,
-  gen: 0,
-  failed: null as string | null,
-  io: null as IntersectionObserver | null,
-  near: new Set<number>(),
-  st: new Map<number, PageDrawState>(),
-  cur: null as { n: number; task: any } | null,
-  pumping: false,
-  timer: 0,
-  stats: [] as { n: number; kind: string; ms: number; w: number; h: number }[],
-  tFirst: null as number | null,
-  tDoc: null as number | null,
-  cache: new Map(),
-};
 // Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
 // switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first
 // (worker memory). An old build of the same document is closed when a new build opens.
@@ -115,33 +42,38 @@ function cacheVectorDocument(key: string, doc: PdfDocument) {
   cache.delete(key);
   cache.set(key, doc);
   const docPrefix = key.split('|')[0] + '|';
-  Array.from(cache.keys()).forEach((cachedKey) => {
+  Array.from(cache).forEach(([cachedKey, cachedDoc]) => {
     if (cachedKey !== key && cachedKey.startsWith(docPrefix)) {
-      const cachedDoc = cache.get(cachedKey);
       cache.delete(cachedKey);
       if (cachedDoc !== VECTOR_PDF.doc) closeVectorDocument(cachedDoc);
     }
   });
   while (cache.size > VECTOR_CACHE_MAX) {
-    const cachedKey = cache.keys().next().value,
-      cachedDoc = cache.get(cachedKey);
+    const [cachedKey, cachedDoc] = Array.from(cache)[0];
     cache.delete(cachedKey);
     if (cachedDoc !== VECTOR_PDF.doc && cachedDoc !== doc) closeVectorDocument(cachedDoc);
   }
 }
-// Whether a PDF document object is one the cache still holds (and so must not be closed).
-function isVectorCached(doc: PdfDocument | null) {
-  for (const cachedDoc of VECTOR_PDF.cache.values()) if (cachedDoc === doc) return true;
-  return false;
+// Whether a value is the PDF.js module as the viewer uses it (types/pdfjs.d.ts PdfLibrary): a getDocument function and
+// the worker options.
+function isPdfLibrary(value: unknown): value is PdfLibrary {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'getDocument' in value &&
+    typeof value.getDocument === 'function' &&
+    'GlobalWorkerOptions' in value &&
+    typeof value.GlobalWorkerOptions === 'function' &&
+    'workerSrc' in value.GlobalWorkerOptions
+  );
 }
-// Drops a PDF document object from the cache without closing it.
-function forgetVectorDocument(doc: PdfDocument | null) {
-  VECTOR_PDF.cache.forEach((cachedDoc, cachedKey) => {
-    if (cachedDoc === doc) VECTOR_PDF.cache.delete(cachedKey);
-  });
+// Imports the vendored PDF.js module; rejects when what loads is not the module the viewer uses.
+async function importPdfLibrary(): Promise<PdfLibrary> {
+  const loaded: unknown = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
+  if (!isPdfLibrary(loaded))
+    throw new Error('pdf.js did not load as a module with getDocument and GlobalWorkerOptions');
+  return loaded;
 }
-// For measurement (Playwright): canvas count, render time.
-window.__pinVec = VECTOR_PDF;
 // Loads pdf.js (once) and opens the PDF on screen; a browser without IntersectionObserver keeps the PNG pages.
 async function bootVector() {
   if (!window.IntersectionObserver) {
@@ -149,10 +81,11 @@ async function bootVector() {
     return;
   }
   try {
-    VECTOR_PDF.lib = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
-    VECTOR_PDF.lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
+    const library = await importPdfLibrary();
+    setVectorLibrary(library);
+    library.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
   } catch (error) {
-    VECTOR_PDF.lib = null;
+    setVectorLibrary(null);
     failVector('pdf.js 를 불러오지 못했습니다', error);
     return;
   }
@@ -164,12 +97,12 @@ async function openVectorDocument() {
   // A Markdown document has no PDF: the PDF work still pending for the document left (its fetch, outline, pages) is
   // stale from here, or its outline would land over the Markdown headings.
   if (isMarkdownDoc()) {
-    VECTOR_PDF.gen++;
+    advanceVectorGeneration();
     cancelVectorDraw();
     return;
   }
   if (!VECTOR_PDF.lib || !META) return;
-  const gen = ++VECTOR_PDF.gen,
+  const gen = advanceVectorGeneration(),
     build = META.pages_build || '',
     pageCount = META.pages.length,
     key = vectorCacheKey(DOC, build);
@@ -183,8 +116,8 @@ async function openVectorDocument() {
     // The old document (a different document or an old build) is never used for the new page DOM: the PNG pages show
     // while the PDF is fetched.
     const previousDoc = VECTOR_PDF.doc;
-    VECTOR_PDF.doc = null;
-    VECTOR_PDF.build = null;
+    setVectorDocument(null);
+    setVectorBuild(null);
     if (previousDoc && !isVectorCached(previousDoc)) closeVectorDocument(previousDoc);
     try {
       const response = await fetch(
@@ -214,10 +147,10 @@ async function openVectorDocument() {
   } else cacheVectorDocument(key, doc); // promoted as most recently used
   if (gen !== VECTOR_PDF.gen) return;
   const old = VECTOR_PDF.doc;
-  VECTOR_PDF.doc = doc;
-  VECTOR_PDF.build = build;
-  VECTOR_PDF.failed = null;
-  VECTOR_PDF.tDoc = performance.now();
+  setVectorDocument(doc);
+  setVectorBuild(build);
+  setVectorFailed(null);
+  setVectorOpenedAt(performance.now());
   $('#vec-chip').hidden = true;
   loadOutline(doc, gen);
   searchOffer(); // its text can be searched now
@@ -227,14 +160,4 @@ async function openVectorDocument() {
   if (old && old !== doc && !isVectorCached(old)) closeVectorDocument(old);
   scheduleVectorDraw(0);
 }
-export type { PdfDestination, PdfDocument, PdfOutlineItem };
-export {
-  PDFJS_VERSION,
-  VECTOR_PDF,
-  VECTOR_DETAIL_MARGIN,
-  VECTOR_KEEP_MARGIN,
-  VECTOR_PIXEL_CAP,
-  bootVector,
-  forgetVectorDocument,
-  openVectorDocument,
-};
+export { PDFJS_VERSION, bootVector, importPdfLibrary, isPdfLibrary, openVectorDocument };

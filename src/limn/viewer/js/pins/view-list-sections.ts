@@ -7,13 +7,12 @@ import { translateTemplate } from '../platform/i18n.ts';
 import { LIST_ORDER, NOTICE_PLACE } from '../platform/tables.ts';
 import { timeParts } from './view-time.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
-import { DOCS, SHOW_ALL, OPEN_ALL, DOC, EDITOR, DONE_ALL, DONE, REVIEW_ALL } from '../app/state.ts';
+import { DOCS, SHOW_ALL, OPEN_ALL, DOC, EDITOR, DONE_ALL, DONE, REVIEW_ALL, findAnyPin } from '../app/state.ts';
 import { pdoc } from '../documents/state.ts';
 import type { Html } from '../platform/markup.ts';
 import { NOTICES } from '../platform/notices.ts';
 import { dayName, card } from './view-cards.ts';
-import { findAnyPin } from '../revisions/flow.ts';
-import { $$, $ } from '../platform/dom.ts';
+import { $$, $, findAll } from '../platform/dom.ts';
 import { roveSegment } from '../platform/segments.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { PIN_STATE } from '../app/rules-tables.ts';
@@ -121,7 +120,7 @@ function orderPins(list: Pin[], order: string): Pin[] {
 // the server's order the row follows the card drawn before it.
 function cardRows(list: Pin[], section: string): Html {
   const now = Date.now(),
-    slots = new Map();
+    slots = new Map<Pin, number>();
   let day = '';
   if (ORDER !== LIST_ORDER.ID)
     for (const notice of NOTICES.values())
@@ -154,15 +153,14 @@ function placeRow(box: HTMLElement, notice: Notice, row: HTMLElement) {
     else box.prepend(row);
     return;
   }
-  const drawn = new Map() as Map<Pin, Element>;
-  for (const child of box.children) {
-    const element = child as HTMLElement,
-      drawnPin = element.matches('.pin.card')
-        ? findAnyPin(Number(element.dataset.id))
-        : element.matches('.nt-row')
-          ? (NOTICES.get(Number(element.dataset.n)) || {}).rec || null
-          : null;
-    if (drawnPin && drawnPin !== notice.rec) drawn.set(drawnPin, child);
+  const drawn: Map<Pin, Element> = new Map();
+  for (const element of findAll(box, ':scope > *', HTMLElement)) {
+    const drawnPin = element.matches('.pin.card')
+      ? findAnyPin(Number(element.dataset.id))
+      : element.matches('.nt-row')
+        ? (NOTICES.get(Number(element.dataset.n)) || {}).rec || null
+        : null;
+    if (drawnPin && drawnPin !== notice.rec) drawn.set(drawnPin, element);
   }
   const order = orderPins([...drawn.keys(), notice.rec], ORDER),
     index = order.indexOf(notice.rec),
@@ -171,22 +169,25 @@ function placeRow(box: HTMLElement, notice: Notice, row: HTMLElement) {
     now = Date.now();
   const day = (pin: Pin | undefined) => (pin && ORDER === LIST_ORDER.NEW ? dayName(pin.at, now) : ''),
     dayText = day(notice.rec);
-  if (before && day(before) === dayText) {
-    (drawn.get(before) as Element).after(row);
+  // The pins beside notice.rec in the order are drawn ones: each has its element in drawn.
+  const beforeElement = before && drawn.get(before),
+    afterElement = after && drawn.get(after);
+  if (beforeElement && day(before) === dayText) {
+    beforeElement.after(row);
     return;
   }
-  if (after && day(after) === dayText) {
-    (drawn.get(after) as Element).before(row);
+  if (afterElement && day(after) === dayText) {
+    afterElement.before(row);
     return;
   }
-  const dayLine = document.createElement('div');
+  const dayLine = document.createElement('div'),
+    dayLabel = document.createElement('span');
   dayLine.className = 'day-line';
-  dayLine.append(document.createElement('span'));
-  (dayLine.firstChild as HTMLElement).textContent = dayText;
-  if (before) (drawn.get(before) as Element).after(dayLine);
-  else if (after) {
-    const afterElement = drawn.get(after) as Element,
-      over = afterElement.previousElementSibling;
+  dayLine.append(dayLabel);
+  dayLabel.textContent = dayText;
+  if (beforeElement) beforeElement.after(dayLine);
+  else if (afterElement) {
+    const over = afterElement.previousElementSibling;
     (over && over.matches('.day-line') ? over : afterElement).before(dayLine);
   } else box.prepend(dayLine);
   if (dayText) dayLine.after(row);
@@ -204,7 +205,7 @@ function drawOrderControl(any: boolean) {
   const control = $('#list-order');
   control.hidden = !any;
   for (const button of control.querySelectorAll('button')) {
-    const on = (button as HTMLElement).dataset.order === ORDER;
+    const on = button.dataset.order === ORDER;
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   }

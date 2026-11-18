@@ -31,7 +31,7 @@ function rangeRelation(first: number, last: number, pinFirst: number, pinLast: n
 }
 // Only lines overlap: a selection on a view-only PDF has none, and a pin record without its lines (a broken stored
 // record that keeps its file) has none to compare.
-function overlapsFor(selection: Selection, pins: Pin[] | null | undefined) {
+function overlapsFor(selection: ComposerSelection, pins: Pin[] | null | undefined) {
   const out: PickOverlap[] = [];
   if (!selection || !selection.file || selection.lo == null || selection.hi == null) return out;
   const { file, lo: first, hi: last } = selection;

@@ -14,6 +14,7 @@ import {
   DEFAULT_DOC,
 } from '../app/state.ts';
 import { ROLE, PIN_STATE } from '../app/rules-tables.ts';
+import { isRecord } from '../platform/tables.ts';
 import { verdictOf, pinState } from '../app/rules-pins.ts';
 import { html } from '../platform/markup.ts';
 import { translate, translateTemplate, josa } from '../platform/i18n.ts';
@@ -21,6 +22,7 @@ import { verdictLabel, pdoc, docKindOf, pageVerdictsOn, isRegion } from '../docu
 import { isElementLost, pinPlace, isFrac } from '../pdf/view-figure.ts';
 import { CONFIRMING_PIN, CONFIRMING } from '../pins/state.ts';
 import { josaToward, claimActive } from '../pins/view-card-parts.ts';
+import { isMe } from '../app/state-people.ts';
 const VERDICT_ARM_MS = 4000; // how long a confirm word's first press waits for its second (D9)
 // Whether this screen may make a verdict pin: a person who edits (a viewer reads, an agent never makes one, D11).
 function canVerdict() {
@@ -149,8 +151,8 @@ function anchorKey(pin: Pin): string | null {
 // A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a
 // JavaScript object always puts first in their numeric order - and an array or any other value as it is.
 function jsonSortedKeys(_key: string, value: unknown): unknown {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-  const object = value as Record<string, unknown>;
+  if (!isRecord(value) || Array.isArray(value)) return value;
+  const object = value;
   return Object.fromEntries(
     Object.keys(object)
       .sort()
@@ -165,7 +167,7 @@ function sameLines(first: VerdictTarget, second: VerdictTarget) {
     y = second.lines;
   return !x || !y || (x.open && y.open) || (!!x.anchor && x.anchor === y.anchor);
 }
-let VERDICT_ORDER_CACHE = { lists: [], by: new Map() } as { lists: unknown[]; by: Map<string, VerdictOrder> };
+let VERDICT_ORDER_CACHE: { lists: unknown[]; by: Map<string, VerdictOrder> } = { lists: [], by: new Map() };
 // The verdict order of document doc (D4, docs/handbook/domain.md §순서): its verdict pins that are not deleted - open,
 // awaiting review (one whose [확인] waits for its undo too: it leaves the review list at once, but it is still a
 // verdict, while the list still has it - applyPinLists) and done - by resolved target (verdictTargetOf), newest
@@ -183,8 +185,8 @@ function verdictOrder(doc: string): VerdictOrder {
   const hit = VERDICT_ORDER_CACHE.by.get(doc);
   if (hit) return hit;
   const kind = docKindOf(doc),
-    groups = new Map() as Map<string, { t: VerdictTarget; all: { p: Pin; t: VerdictTarget }[] }>,
-    seen = new Set();
+    groups: Map<string, { t: VerdictTarget; all: { p: Pin; t: VerdictTarget }[] }> = new Map(),
+    seen = new Set<number>();
   for (const pin of OPEN_ALL.concat(REVIEW_ALL, DONE_ALL, [...CONFIRMING_PIN.values()])) {
     if (seen.has(pin.id) || pdoc(pin) !== doc || !verdictOf(pin)) continue;
     seen.add(pin.id);
@@ -194,7 +196,7 @@ function verdictOrder(doc: string): VerdictOrder {
     group.all.push({ p: pin, t: target });
     groups.set(target.key, group);
   }
-  const out = { groups: new Map(), cur: new Map() } as VerdictOrder;
+  const out: VerdictOrder = { groups: new Map(), cur: new Map() };
   groups.forEach((group, key) => {
     group.all.sort((left, right) => right.p.id - left.p.id);
     group.all.forEach((x) => {
@@ -214,7 +216,7 @@ function verdictOrder(doc: string): VerdictOrder {
 // The verdict pins about each page's whole target on the document on screen, in the verdict order (verdictOrder), by
 // page. A page whose pins name two figures (a re-render moved one away) keeps the figure of its newest pin.
 function pageVerdictPins(): Map<number, Pin[]> {
-  const out = new Map() as Map<number, Pin[]>;
+  const out: Map<number, Pin[]> = new Map();
   verdictOrder(DOC || DEFAULT_DOC).groups.forEach((group) => {
     if (!group.whole) return;
     const had = out.get(group.page);
@@ -255,6 +257,61 @@ function verdictStateWord(pin: Pin) {
   if (state === PIN_STATE.DONE) return translate('처리됨');
   return claimActive(pin) ? translate('처리 중') : translate('처리 대기');
 }
+
+// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the
+// composer's lead, the floating line and the status line's undo, which say which figure a verdict is for before and
+// after the press.
+function figureShort(page: number, root: string) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return facts && facts.figure === root && facts.title ? facts.title : root;
+}
+// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's
+// figure), else the page ('7쪽').
+function pageTargetShort(page: number) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return META && isFigureKind(META.kind) && facts && typeof facts.figure === 'string'
+    ? figureShort(page, facts.figure)
+    : translateTemplate('{page}쪽', { page });
+}
+
+// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the
+// figure's code, '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the
+// rest; else the figure id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'), so the name
+// next to the buttons always says which figure a press decides. A view-only PDF's page is its page alone.
+function pageLineName(page: number): { id: string; rest: string } {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
+    at = translateTemplate('{page}쪽', { page });
+  if (!META || !isFigureKind(META.kind) || !facts || typeof facts.figure !== 'string') return { id: at, rest: '' };
+  const title = facts.title ? String(facts.title) : '';
+  if (!title) return { id: at + ' · ' + facts.figure, rest: '' };
+  const index = title.indexOf(' · '),
+    head = index > 0 ? title.slice(0, index) : '',
+    match = /^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
+  if (!head) return { id: at, rest: title };
+  return match
+    ? { id: at + ' · ' + match[2], rest: match[1] + ' ' + title.slice(index + 3) }
+    : { id: at + ' · ' + head, rest: title.slice(index + 3) };
+}
+
+// The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
+function currentVerdictOn(doc: string | null, page: number): Pin | null {
+  if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
+  let best: Pin | null = null;
+  verdictOrder(doc || DEFAULT_DOC).groups.forEach((group) => {
+    if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
+  });
+  return best;
+}
+
+// Whether the line offers [판정 취소] on a verdict pin, its page's current verdict: the person's own (isMe), still open
+// - not yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16,
+// nor a viewer). A pin whose [확인] waits for its undo is not open.
+function canCancelVerdict(pin: Pin) {
+  return (
+    !!verdictOf(pin) && canVerdict() && isMe(pin.author) && pinState(pin) === PIN_STATE.OPEN && !CONFIRMING.has(pin.id)
+  );
+}
+
 export {
   VERDICT_ARM_MS,
   canVerdict,
@@ -268,4 +325,9 @@ export {
   pageVerdictPins,
   verdictOldMarker,
   verdictStateWord,
+  figureShort,
+  pageTargetShort,
+  pageLineName,
+  currentVerdictOn,
+  canCancelVerdict,
 };

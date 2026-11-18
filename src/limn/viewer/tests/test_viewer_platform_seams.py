@@ -101,9 +101,11 @@ class Unregistered(unittest.TestCase):
                 js_const("API_WAIT"),
                 js_const("API_OUT"),
                 js_seam("setRequestFallback"),
+                extract_js_fn("endpointUrl"),
+                extract_js_fn("isExpected"),
                 extract_js_fn("apiUnanswered"),
                 extract_js_fn("api"),
-                "api('/api/x',{}).then(()=>console.log(JSON.stringify('answered')),"
+                "api('GET /api/x',{}).then(()=>console.log(JSON.stringify('answered')),"
                 "e=>console.log(JSON.stringify({why:e.message,fetched:FETCHED})));",
             ]
         )
@@ -115,12 +117,12 @@ class Unregistered(unittest.TestCase):
 # Recording stand-ins for the offline code, under the names js/main.ts registers (offline/flow.ts).
 REQUEST_SCOPE = r"""
 const LOG=[]; let KEY='k', SERVE=false, KEPT=null, FETCH=()=>Promise.resolve({status:200,json:()=>Promise.resolve({a:1})});
-function offReadKey(url,options){LOG.push(['readKey',url,options.source]); return KEY;}
+function offReadKey(endpoint,url){LOG.push(['readKey',endpoint,url]); return KEY;}
 function offlineMayServe(){LOG.push(['mayServe']); return SERVE;}
-function offStashed(url){LOG.push(['stashed',url]); return Promise.resolve(KEPT);}
+function offStashed(endpoint,url){LOG.push(['stashed',endpoint,url]); return Promise.resolve(KEPT);}
 function offStaleSaid(at){LOG.push(['staleSaid',at]);}
 function offlineBack(){LOG.push(['back']);}
-function offStash(url,data,status){LOG.push(['stash',url,data,status]);}
+function offStash(endpoint,url,data,status){LOG.push(['stash',endpoint,url,data,status]);}
 function sourceOk(source){LOG.push(['sourceOk',source]);} function apiFailed(){LOG.push(['apiFailed']);}
 globalThis.fetch=(url)=>{LOG.push(['fetch',url]); return FETCH(url);};
 """
@@ -143,10 +145,12 @@ class RequestFallback(unittest.TestCase):
                 js_const("API_WAIT"),
                 js_const("API_OUT"),
                 js_seam_wired("setRequestFallback"),
+                extract_js_fn("endpointUrl"),
+                extract_js_fn("isExpected"),
                 extract_js_fn("apiUnanswered"),
                 extract_js_fn("api"),
                 setup,
-                "api('/api/x',{}).then(r=>LOG.push(['answer',r.status,r.data]),e=>LOG.push(['threw',e.message]))"
+                "api('GET /api/x',{}).then(r=>LOG.push(['answer',r.status,r.data]),e=>LOG.push(['threw',e.message]))"
                 ".then(()=>console.log(JSON.stringify(LOG)));",
             ]
         )
@@ -158,11 +162,11 @@ class RequestFallback(unittest.TestCase):
         self.assertEqual(
             self.run_api(""),
             [
-                ["readKey", "/api/x", "GET /api/x"],
+                ["readKey", "GET /api/x", "/api/x"],
                 ["fetch", "/api/x"],
                 ["sourceOk", "GET /api/x"],
                 ["back"],
-                ["stash", "/api/x", {"a": 1}, 200],
+                ["stash", "GET /api/x", "/api/x", {"a": 1}, 200],
                 ["answer", 200, {"a": 1}],
             ],
         )
@@ -173,9 +177,9 @@ class RequestFallback(unittest.TestCase):
         self.assertEqual(
             got,
             [
-                ["readKey", "/api/x", "GET /api/x"],
+                ["readKey", "GET /api/x", "/api/x"],
                 ["mayServe"],
-                ["stashed", "/api/x"],
+                ["stashed", "GET /api/x", "/api/x"],
                 ["staleSaid", 5],
                 ["sourceOk", "GET /api/x"],
                 ["answer", 200, ["kept"]],
@@ -190,10 +194,10 @@ class RequestFallback(unittest.TestCase):
         self.assertEqual(
             got,
             [
-                ["readKey", "/api/x", "GET /api/x"],
+                ["readKey", "GET /api/x", "/api/x"],
                 ["fetch", "/api/x"],
                 ["mayServe"],
-                ["stashed", "/api/x"],
+                ["stashed", "GET /api/x", "/api/x"],
                 ["staleSaid", 7],
                 ["sourceOk", "GET /api/x"],
                 ["answer", 200, ["kept"]],
@@ -206,6 +210,7 @@ class RequestFallback(unittest.TestCase):
 # pin list's day lines and review pins, the focus's places, the composer's save label.
 NOTICE_SCOPE = r"""
 const LOG=[];
+class HTMLElement {}
 const stub=()=>({open:false,hidden:true,dataset:{},addEventListener(){},getClientRects:()=>[],matches:()=>false,
   closest:()=>null,querySelector:()=>null,querySelectorAll:()=>[],remove(){}});
 const ELS={}; const $=s=>ELS[s]||(ELS[s]=stub());
@@ -237,7 +242,7 @@ NOTICE_FNS = [
     "noticeHeld", "lineHeld", "holdLine", "releaseLine", "lineHoverOut", "lineVisible", "sourceEntry", "sameWords",
     "lineCap", "digestHold", "noticeDots", "holdsDot", "newsDupe", "foldedNews", "gatheredDupe", "gatheredLess",
     "dotHeld", "newsSlot", "isUndo", "noticeFocusBack", "syncSaveButton", "dropStaleReview", "reviewNewsStale",
-    "foldedGone", "gatheredGone", "regroup",
+    "foldedGone", "gatheredGone", "regroup", "focusedElement", "findClosest",
 ]  # fmt: skip
 NOTICE_SEAMS = ("setNoticeStatusLine", "setNoticePanel", "setNoticeFocus", "setNoticeComposer")
 
@@ -303,7 +308,8 @@ class NoticeSeams(unittest.TestCase):
         open, are page lines drawn, then the line of the message's page - or, with none, the reading line's page - and,
         failing that, the reading area."""
         body = r"""
-        const own={closest:s=>s.startsWith('[data-act^="notice-"]')?{}:s==='#doc .pv'?{dataset:{page:PAGE}}:null};
+        const line=()=>Object.assign(new HTMLElement(),{dataset:{page:PAGE}});
+        const own=Object.assign(new HTMLElement(),{closest:s=>s.startsWith('[data-act^="notice-"]')?{}:s==='#doc .pv'?line():null});
         let PAGE='3'; document.activeElement=own; let back=noticeFocusBack({n:1});
         document.activeElement=document.body; back(); LOG.push(['--']);
         PAGE='0'; document.activeElement=own; back=noticeFocusBack({n:1});
@@ -340,11 +346,13 @@ if __name__ == "__main__":
 
 
 # The frame's own steps and the features' functions it reaches, as recording stand-ins under the names js/main.ts
-# registers and the frame calls; the page's elements are inert stand-ins (any property, any call).
+# registers and the frame calls; the page's elements are inert stand-ins (any property, any call), and so is what
+# platform/dom.ts's checked lookups find in them.
 FRAME_SCOPE = r"""
 const LOG=[], rec=(name)=>(...a)=>{LOG.push(a.length?[name,...a]:[name]);};
 const ANY=new Proxy(function(){},{get:(t,k)=>k===Symbol.toPrimitive?()=>'':k==='length'?0:ANY,apply:()=>ANY,set:()=>true});
 const ELS={}; const $=s=>ELS[s]||ANY, $$=()=>[];
+const findElement=()=>ANY, findMaybe=()=>ANY, findAll=()=>[]; class HTMLElement {}
 const document={body:ANY,activeElement:null}; function setTimeout(fn){TIMERS.push(fn); return 1;} function clearTimeout(){}
 const TIMERS=[];
 let SIDE_OPEN=false, BAND=null, LAYOUT=null;
@@ -352,7 +360,7 @@ let META={}, CHANGED=true, PINS=[], REVIEW_ALL=[], SIDE_SLIDE=null, SHEET_KEPT=f
 const COMPOSE={current:{}}, EDITOR={current:null}, REVISION_VIEW={target:null,rows:[]}, SEARCH={open:false};
 for (const name of ['topAnchor','applySideWidth','applyOutlineState','restoreAnchor','hideTip','stickTop',
   'keepFieldInView','drawPins','autoFitWidth','keepReadingSpot','renderComposer','updateSectionStrip','fitBarWords',
-  'gripAria','syncBackLayer','updateReviewCount','syncBuildErrChip','placeStatus','drawPinGuideActions',
+  'gripAria','syncBackLayer','closeTopLayer','updateReviewCount','syncBuildErrChip','placeStatus','drawPinGuideActions',
   'renderCommitList','stickSoon','drawZoom','renderSizeSegment','placeMore','showSheet','footInk','setHash',
   'endSideSlide','setSheetKept','refit']) globalThis[name]=rec(name);
 function applyLayout(){LOG.push(['applyLayout']); return CHANGED;}
@@ -498,3 +506,103 @@ class FrameSeamsInTheBrowser(BrowserBase):
         page.click("#nav-side")
         settle(page)
         self.assertEqual(page.evaluate("[SIDE_OPEN, document.querySelector('#build-err-chip').hidden]"), [True, True])
+
+
+# Each request api() sends by an endpoint key against the URL and method the call sent before it took one: the old
+# address is built by the old expression (withDocQuery over the whole path, a pin's number concatenated in), the same
+# withDocQuery serving both. One row per endpoint of ApiAnswers, and one per query shape a call site builds.
+ENDPOINT_CASES = r"""
+const ID=7, DOCKEY='nt', COMMIT='a'.repeat(40);
+const CASES=[
+  ['GET /api/meta',{query:withDocQuery('')},withDocQuery('/api/meta'),'GET'],
+  ['GET /api/meta',{query:withDocQuery('',DOCKEY)},withDocQuery('/api/meta',DOCKEY),'GET'],
+  ['GET /api/meta',{query:withDocQuery('?light=1')+'&ev=4'},withDocQuery('/api/meta?light=1')+'&ev=4','GET'],
+  ['GET /api/docs',{},'/api/docs','GET'],
+  ['GET /api/people',{},'/api/people','GET'],
+  ['GET /api/build',{query:withDocQuery('?log=1')},withDocQuery('/api/build?log=1'),'GET'],
+  ['POST /api/rebuild',{query:withDocQuery('?async=1'+'&force=1')},withDocQuery('/api/rebuild?async=1'+'&force=1'),'POST'],
+  ['POST /api/hold',{query:withDocQuery('',DOCKEY),body:{build:'pages-1',days:7}},withDocQuery('/api/hold',DOCKEY),'POST'],
+  ['GET /api/outline-labels',{query:withDocQuery('',DOCKEY)},withDocQuery('/api/outline-labels',DOCKEY),'GET'],
+  ['GET /api/source',{query:withDocQuery('')},withDocQuery('/api/source'),'GET'],
+  ['GET /api/version',{},'/api/version','GET'],
+  ['GET /api/snippet',{query:withDocQuery('?file='+encodeURIComponent('a b.tex')+'&lo='+3+'&hi='+4+'&levels=1',DOCKEY)},
+    withDocQuery('/api/snippet?file='+encodeURIComponent('a b.tex')+'&lo='+3+'&hi='+4+'&levels=1',DOCKEY),'GET'],
+  ['POST /api/pick',{body:{page:1,x0:0}},'/api/pick','POST'],
+  ['GET /api/pins',{query:'?all=1'},'/api/pins?all=1','GET'],
+  ['GET /api/pins/dropped',{},'/api/pins/dropped','GET'],
+  ['GET /api/pins/{id}',{id:ID},'/api/pins/'+ID,'GET'],
+  ['POST /api/pin',{body:{note:'n',lo:1}},'/api/pin','POST'],
+  ['POST /api/pins/{id}/edit',{id:ID,body:{note:'',base_rev:2}},'/api/pins/'+ID+'/edit','POST'],
+  ['POST /api/pins/{id}/close',{id:ID},'/api/pins/'+ID+'/close','POST'],
+  ['POST /api/pins/{id}/reopen',{id:ID},'/api/pins/'+ID+'/reopen','POST'],
+  ['POST /api/pins/{id}/confirm',{id:ID,body:{done_at:'t'}},'/api/pins/'+ID+'/confirm','POST'],
+  ['POST /api/pins/{id}/reply',{id:ID,body:{text:'r'}},'/api/pins/'+ID+'/reply','POST'],
+  ['POST /api/pins/{id}/unclaim',{id:null},'/api/pins/'+null+'/unclaim','POST'],
+  ['POST /api/pins/{id}/drop',{id:ID},'/api/pins/'+ID+'/drop','POST'],
+  ['POST /api/pins/{id}/restore',{id:ID},'/api/pins/'+ID+'/restore','POST'],
+  ['POST /api/pins/{id}/purge',{id:ID},'/api/pins/'+ID+'/purge','POST'],
+  ['GET /api/revisions',{query:withDocQuery('?before='+encodeURIComponent(COMMIT)+'&limit='+50,DOCKEY)},
+    withDocQuery('/api/revisions?before='+encodeURIComponent(COMMIT)+'&limit='+50,DOCKEY),'GET'],
+  ['GET /api/revision-diff',{query:withDocQuery('?commit='+encodeURIComponent(COMMIT)+'&pin='+ID,DOCKEY)},
+    withDocQuery('/api/revision-diff?commit='+encodeURIComponent(COMMIT)+'&pin='+ID,DOCKEY),'GET'],
+  ['GET /api/revision-source',{query:withDocQuery('?commit='+COMMIT+'&base='+COMMIT,DOCKEY)},
+    withDocQuery('/api/revision-source?commit='+COMMIT+'&base='+COMMIT,DOCKEY),'GET'],
+  ['GET /api/revision-build',{query:withDocQuery('?commit='+COMMIT+'&pin='+ID,DOCKEY)},
+    withDocQuery('/api/revision-build?commit='+COMMIT+'&pin='+ID,DOCKEY),'GET'],
+  ['POST /api/revision-build',{body:{commit:COMMIT,pin:ID}},'/api/revision-build','POST'],
+];
+const SENT=[];
+globalThis.fetch=(url,init)=>{SENT.push([url,init.method,init.body===undefined?null:init.body,init.headers]);
+  return Promise.resolve({status:200,json:()=>Promise.resolve({})});};
+(async()=>{const out=[];
+  for(const [endpoint,options,url,method] of CASES){SENT.length=0; await api(endpoint,options);
+    const body=options.body===undefined?null:JSON.stringify(options.body);
+    out.push({endpoint,sent:SENT[0],was:[url,method,body,body===null?{}:{'Content-Type':'application/json'}]});}
+  console.log(JSON.stringify(out));})();
+"""
+
+
+class EndpointRequests(unittest.TestCase):
+    """api() sends the request it sent before it took an endpoint key: for each endpoint the viewer calls (ApiAnswers)
+    the URL its path, pin number and query make, the endpoint's method, and the body as JSON, byte for byte the same as
+    the address the call built itself (withDocQuery over the whole path) with the method it named."""
+
+    def setUp(self):
+        """Skip without node."""
+        node_or_skip(self)
+
+    def requests(self, doc):
+        """The [endpoint, sent, was] of every ENDPOINT_CASES row, with DOC (the document on screen) set to doc."""
+        script = "\n".join(
+            [
+                js_i18n("ko"),
+                REQUEST_SCOPE.replace("let KEY='k'", "let KEY=null"),
+                js_const("API_WAIT"),
+                js_const("API_OUT"),
+                js_seam_wired("setRequestFallback"),
+                extract_js_fn("endpointUrl"),
+                extract_js_fn("isExpected"),
+                extract_js_fn("apiUnanswered"),
+                extract_js_fn("api"),
+                "let DOC=%s;" % json.dumps(doc),
+                extract_js_fn("withDocQuery"),
+                ENDPOINT_CASES,
+            ]
+        )
+        return json.loads(run_node(script))
+
+    def test_every_endpoint_sends_what_its_call_sent_before(self):
+        """With a document on screen and without one (withDocQuery then adds nothing): URL, method, body and headers."""
+        for doc in ("ms", ""):
+            with self.subTest(doc=doc):
+                got = self.requests(doc)
+                self.assertEqual([row["sent"] for row in got], [row["was"] for row in got])
+                self.assertIn("/api/meta?doc=ms" if doc else "/api/meta", [row["sent"][0] for row in got])
+
+    def test_every_endpoint_of_api_answers_has_a_row(self):
+        """A new endpoint gets its row: every ApiAnswers key is sent by some case."""
+        text = (VIEWER / "types" / "api.d.ts").read_text(encoding="utf-8")
+        block = re.search(r"^interface ApiAnswers \{\n(.*?)^\}", text, re.M | re.S)
+        assert block
+        keys = set(re.findall(r"^  '([A-Z]+ /[^']+)':", block.group(1), re.M))
+        self.assertEqual(sorted(keys - {row["endpoint"] for row in self.requests("ms")}), [])

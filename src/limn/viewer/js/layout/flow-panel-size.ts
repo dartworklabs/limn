@@ -6,14 +6,13 @@
 // the width where the panel's tool bar fits on one line, the maximum is the width that leaves the body (PDF) side its
 // minimum width. The outline's width bounds: 220-320px as an overlay; beside the document at most what leaves the PDF
 // 290px beside the panel.
-import { BAND, LAYOUT, COARSE_POINTER_QUERY, OUTLINE_MID_OPEN, SIDE_OPEN, setOutlineMidOpen } from '../app/state.ts';
+import { BAND, LAYOUT, COARSE_POINTER_QUERY } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
-import { prefs, savePrefs } from '../platform/prefs.ts';
-import { gripAria, outlineOverlay, panelField, relayout, setSide, restoreAnchor, topAnchor } from './flow.ts';
-import { syncBackLayer } from './input.ts';
-import { $ } from '../platform/dom.ts';
+import { prefs } from '../platform/prefs.ts';
+import { $, typingNow } from '../platform/dom.ts';
 import { segmentFocusAt, keepSegmentFocus, roveSegment } from '../platform/segments.ts';
 import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
+import { showSideWidth } from './view-panel-grip.ts';
 // A panel's width range, and with it (the side panel's) the default width and the three presets.
 interface PanelBounds {
   min: number;
@@ -25,7 +24,7 @@ interface SideBounds extends PanelBounds {
 }
 function outlineBounds() {
   if (outlineOverlay()) return { min: 220, max: 320 };
-  const max = Math.max(180, Math.min(320, innerWidth - currentSideWidth() - 290));
+  const max = Math.max(180, Math.min(320, window.innerWidth - currentSideWidth() - 290));
   return { min: Math.min(220, max), max };
 }
 // Shows an outline width clamped to its bounds (--outline-width and the grip's ARIA) and answers it; nothing is saved.
@@ -34,49 +33,10 @@ function showOutlineWidth(width: number) {
   width = Math.round(Math.max(bounds.min, Math.min(bounds.max, width)));
   document.documentElement.style.setProperty('--outline-width', width + 'px');
   const grip = $('#outline-grip');
-  grip.setAttribute('aria-valuemin', bounds.min);
-  grip.setAttribute('aria-valuemax', bounds.max);
-  grip.setAttribute('aria-valuenow', width);
+  grip.setAttribute('aria-valuemin', String(bounds.min));
+  grip.setAttribute('aria-valuemax', String(bounds.max));
+  grip.setAttribute('aria-valuenow', String(width));
   return width;
-}
-// Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
-// own, unsaved) and syncs the back layer. The wide outline follows pinPrefs.outlineClosed; until one is saved it starts
-// open with a mouse and collapsed on touch. The phone has no outline (CSS), so it draws no width.
-function applyOutlineState() {
-  const preferences = prefs(),
-    closed = outlineOverlay()
-      ? !OUTLINE_MID_OPEN
-      : typeof preferences.outlineClosed === 'boolean'
-        ? preferences.outlineClosed
-        : COARSE_POINTER_QUERY.matches;
-  document.body.classList.toggle('outline-collapsed', closed);
-  const toggle = $('#nav-toc-toggle');
-  toggle.setAttribute('aria-expanded', String(!closed));
-  toggle.setAttribute('aria-label', closed ? '목차 펼치기' : '목차 접기');
-  if (BAND !== LAYOUT_BAND.PHONE)
-    showOutlineWidth(typeof preferences.outlineWidth === 'number' ? preferences.outlineWidth : 240);
-  syncBackLayer(); // the mid outline overlay is a layer the back gesture closes
-}
-// Sets and remembers the outline width (pinPrefs.outlineWidth), then re-fits; the phone has no outline.
-function setOutlineWidth(width: number) {
-  if (BAND === LAYOUT_BAND.PHONE) return;
-  width = showOutlineWidth(width);
-  savePrefs({ outlineWidth: width });
-  relayout();
-}
-// Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin
-// panel as it opens; wide remembers it in pinPrefs.outlineClosed.
-function toggleOutline() {
-  const anchor = topAnchor(),
-    closed = !document.body.classList.contains('outline-collapsed');
-  if (outlineOverlay()) {
-    setOutlineMidOpen(!closed);
-    if (!closed) setSide(false);
-  } else savePrefs({ outlineClosed: closed });
-  applyOutlineState();
-  relayout();
-  restoreAnchor(anchor);
-  $('#nav-toc-toggle').focus({ preventScroll: true });
 }
 // The panel's width bounds, default width and the three presets ([좁게] [보통] [넓게]) for a layout at a window
 // width.
@@ -147,15 +107,6 @@ function sideKey() {
 function currentSideWidth() {
   return Math.round($('#right').getBoundingClientRect().width);
 }
-// The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
-let SIDE_SHOWN = null as { w: number; min: number; max: number } | null;
-// Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
-function showSideWidth(width: number, bounds: PanelBounds) {
-  $('#right').style.width = width + 'px';
-  document.documentElement.style.setProperty('--side-w', width + 'px');
-  SIDE_SHOWN = { w: width, min: bounds.min, max: bounds.max };
-  if (SIDE_OPEN) gripAria();
-}
 // The width the panel has in this layout, open or folded: the layout's saved width (sideKey), else its default, inside
 // its bounds. applySideWidth draws it; renderSizeSegment checks it.
 function sideWidthFor(bounds: SideBounds) {
@@ -169,25 +120,8 @@ function applySideWidth() {
     applySheet();
     return;
   }
-  const bounds = sideBounds(LAYOUT, innerWidth);
+  const bounds = sideBounds(LAYOUT, window.innerWidth);
   showSideWidth(sideWidthFor(bounds), bounds);
-}
-// Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses
-// topAnchor/restoreAnchor).
-function setSideWidth(width: number) {
-  if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const bounds = sideBounds(LAYOUT, innerWidth);
-  width = clampSide(width, bounds);
-  showSideWidth(width, bounds);
-  savePrefs({ [sideKey()]: width });
-  relayout();
-  renderSizeSegment();
-}
-// The handle's double click and Space: the next preset width.
-function cycleSideWidth() {
-  if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const bounds = sideBounds(LAYOUT, innerWidth);
-  setSideWidth(nextPreset(bounds.presets, currentSideWidth()));
 }
 // Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height
 // when the keyboard is up.
@@ -248,25 +182,7 @@ function tabletLift() {
     panel = $('#right'),
     last = open ? editor : verdictRow.getClientRects().length ? verdictRow : $('#note'),
     bottom = last.getBoundingClientRect().bottom - panel.getBoundingClientRect().top + panel.scrollTop;
-  return sheetLift(fraction, (bottom + 8 + $('#c-actions').offsetHeight) / innerHeight);
-}
-// Sets and remembers the sheet height (a fraction, clamped to 30-100%, kept to 1/10000: a whole pixel on any screen)
-// under the band's key, opens a collapsed sheet, and ends the composing lift.
-function setSheetFraction(fraction: number) {
-  keepSheet();
-  fraction = Math.min(1, Math.max(SHEET_MIN_FRACTION, fraction));
-  savePrefs({ [sheetPref().key]: Math.round(fraction * 10000) / 10000 });
-  applySheet();
-  if (!SIDE_OPEN) setSide(true);
-  renderSizeSegment();
-}
-// The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
-function cycleSheet() {
-  const shown = document.body.classList.contains('sheet-up')
-      ? Math.max(sheetFraction(), SHEET_COMPOSE_FRACTION)
-      : sheetFraction(),
-    nextIndex = SHEET_FRACTIONS.findIndex((stop) => stop > shown + 0.02);
-  setSheetFraction(SHEET_FRACTIONS[nextIndex < 0 ? 0 : nextIndex]);
+  return sheetLift(fraction, (bottom + 8 + $('#c-actions').offsetHeight) / window.innerHeight);
 }
 // The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯], the size now chosen checked. The width
 // checked is the one the layout gives the panel (sideWidthFor), not one measured or last shown: a folded panel measures
@@ -287,7 +203,7 @@ function renderSizeSegment() {
     checkedIndex = SHEET_FRACTIONS.findIndex((stop) => Math.abs(stop - fraction) <= 0.02);
   } else {
     names = ['좁게', '보통', '넓게'];
-    const bounds = sideBounds(LAYOUT, innerWidth);
+    const bounds = sideBounds(LAYOUT, window.innerWidth);
     checkedIndex = presetIndex(bounds.presets, sideWidthFor(bounds));
   }
   setHtml(
@@ -298,44 +214,46 @@ function renderSizeSegment() {
   roveSegment(box);
   keepSegmentFocus(box, at);
 }
-// Applies the size row's preset at index: a sheet height on narrow, else a panel width.
-function sizePreset(index: number) {
-  if (LAYOUT === LAYOUT_MODE.NARROW) {
-    setSheetFraction(SHEET_FRACTIONS[index]);
-    return;
-  }
-  setSideWidth(sideBounds(LAYOUT, innerWidth).presets[index]);
-}
 // Sets SHEET_KEPT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setSheetKept<Value extends typeof SHEET_KEPT>(value: Value): Value {
   SHEET_KEPT = value;
   return value;
+}
+
+// Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN,
+// never saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the
+// document.
+function outlineOverlay() {
+  return LAYOUT === LAYOUT_MODE.MID || BAND === LAYOUT_BAND.TABLET_SHEET;
+}
+// The panel's text field that has focus (a note, an edit or a reply), or null.
+function panelField() {
+  const focused = document.activeElement;
+  return typingNow() && $('#right').contains(focused) ? focused : null;
 }
 export {
   SHEET_CLOSE_FRACTION,
   SHEET_FRACTIONS,
   SHEET_KEPT,
   SHEET_MIN_FRACTION,
-  SIDE_SHOWN,
-  applyOutlineState,
   applySheet,
   applySideWidth,
   currentSideWidth,
-  cycleSheet,
-  cycleSideWidth,
   gripKey,
   keepSheet,
   outlineBounds,
   renderSizeSegment,
-  setOutlineWidth,
-  setSheetFraction,
   setSheetKept,
-  setSideWidth,
   sheetFraction,
   showOutlineWidth,
-  showSideWidth,
   sideBounds,
-  sizePreset,
   snapSide,
-  toggleOutline,
+  outlineOverlay,
+  panelField,
+  sideKey,
+  clampSide,
+  nextPreset,
+  SHEET_COMPOSE_FRACTION,
+  sheetPref,
 };
+export type { PanelBounds };

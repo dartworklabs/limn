@@ -170,6 +170,7 @@ class AnchorParity(unittest.TestCase):
         ]
         js = "\n".join(
             [
+                extract_js_fn("isRecord"),
                 extract_js_fn("jsonSortedKeys"),
                 extract_js_fn("anchorKey"),
                 "const pairs=[%s];" % ",".join("[%s,%s]" % (a, b) for a, b, _ in pairs),

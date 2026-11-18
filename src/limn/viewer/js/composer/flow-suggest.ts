@@ -5,22 +5,23 @@
 // that base is. Until the text is edited it follows the range - a new pick, a rung, the excerpt's + and − - and once
 // edited a range change keeps it and one line offers to read the new range's lines. A card shows a suggestion as a line
 // diff of base -> text in the changes view's source-diff look, folded past five rows as the excerpt's band is.
-import { BAND, DOC, META, isFigureKind, COMPOSE, EDITOR, setComposeIntent } from '../app/state.ts';
+import { BAND, DOC, META, isFigureKind, COMPOSE, EDITOR, setComposeIntent, findAnyPin } from '../app/state.ts';
+import { suggestEdited, SUGGEST_DRAFT, suggestDraft } from './state-suggest.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { countAddedHidden, findHidden, markHiddenHtml } from '../platform/hidden-chars.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
-import { findAnyPin } from '../revisions/flow.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import { applySheet } from '../layout/flow-panel-size.ts';
-import { renderOverlapBanner } from './flow-pick.ts';
+import { renderOverlapBanner } from './view-overlap.ts';
 import { saveDraftSoon } from './flow-draft.ts';
 import type { Html } from '../platform/markup.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement } from '../platform/dom.ts';
 import { DOC_KIND, LAYOUT_BAND, PIN_STATE, SUGGEST_OFF, SUGGEST_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { composerVerdict } from './state-seams.ts';
-import { SUGGEST_DRAFT, suggestDraft } from './state-suggest.ts';
+import { onLines } from './view-levels.ts';
+import type { RangeOwner } from './view-levels.ts';
 
 // the most lines a suggestion may replace (limn.pins.editing.values.SUGGEST_LINES_MAX, the snippet's cap)
 const SUGGEST_LINES = 80;
@@ -65,10 +66,6 @@ function suggestOff(
   if (isFigureKind(docKind)) return SUGGEST_OFF.FIGURE;
   if (!owner || owner.region || isRegion(owner) || owner.lo == null || owner.hi == null) return SUGGEST_OFF.REGION;
   return owner.hi - owner.lo + 1 > SUGGEST_LINES ? SUGGEST_OFF.LONG : null;
-}
-/** Whether a draft holds a text other than the one it was filled from (a draft never filled is not edited). Pure. */
-function suggestEdited(draft: SuggestDraft): boolean {
-  return draft.base != null && draft.text !== draft.base;
 }
 /** The lines an owner is, as a draft records them: 'file:lo-hi'. Pure. */
 function suggestKey(owner: { file?: string | null; lo?: number; hi?: number }): string {
@@ -184,7 +181,7 @@ function suggestHiddenHtml(draft: SuggestDraft, hidden: { added: [string, number
 }
 
 // ---------------- A card's suggestion
-const SUGGEST_OPEN = new Set(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
+const SUGGEST_OPEN = new Set<string>(); // the cards whose suggestion diff is unfolded ('<doc>:<id>'), kept across redraws
 // A card's suggested edit, after its note: the diff of base -> text, folded past SUGGEST_FOLD rows with [제안 펼치기 ·
 // N줄] under it to unfold. null when the pin has none.
 function suggestView(pin: Pin): Html | null {
@@ -246,32 +243,37 @@ function suggestBadge(pin: Pin, closed: boolean): Html | null {
 // Reads the lines owner.lo..owner.hi of owner.file exactly (GET /api/snippet?…&text=1) into the draft as its base - and
 // as its text too when `fill` - then redraws its owner. Only while owns() (the selection or the edit card is still on
 // screen), the owner still has those lines and, for a fill, the text was not typed meanwhile: otherwise the next draw
-// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기].
-async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns: () => boolean, redraw: () => void) {
+// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기]. An owner off lines (a
+// region) has no source to read and is left as it is; none comes here, as such an owner carries no suggestion
+// (suggestOff).
+async function suggestRead(
+  draft: SuggestDraft,
+  owner: RangeOwner,
+  fill: boolean,
+  owns: () => boolean,
+  redraw: () => void,
+) {
+  if (!onLines(owner)) return;
   const key = suggestKey(owner),
     was = draft.text;
   if (draft.reading === key) return;
   draft.reading = key;
   draft.fail = null;
   redraw();
-  let text = null as string | null,
+  let text: string | null = null,
     fail = '';
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
-          encodeURIComponent(String(owner.file)) +
-          '&lo=' +
-          owner.lo +
-          '&hi=' +
-          owner.hi +
-          '&text=1',
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' + encodeURIComponent(String(owner.file)) + '&lo=' + owner.lo + '&hi=' + owner.hi + '&text=1',
         owner.doc,
       ),
-      { what: '원문 읽기', expect: [400], silent: true },
-    );
+      what: '원문 읽기',
+      expect: [400],
+      silent: true,
+    });
     if (status === 400) fail = errText(data);
-    else if (data && typeof data.text === 'string') text = data.text;
+    else if (data && !isRefusal(data) && typeof data.text === 'string') text = data.text;
     else fail = translate('80줄이 넘는 범위는 원문을 받지 못합니다');
   } catch (error) {
     fail = translate('서버에 닿지 않습니다');
@@ -299,7 +301,13 @@ async function suggestRead(draft: SuggestDraft, owner: any, fill: boolean, owns:
 // Keeps the draft on the owner's lines while its text is the source's own: an editor turned on and never filled, or not
 // edited since and now on other lines, reads them as its text and base. Nothing while off, on a selection that can
 // carry no suggestion, during a read, or after a read of these lines failed (its [원문 다시 읽기] tries again).
-function suggestFollow(draft: SuggestDraft, owner: any, off: string | null, owns: () => boolean, redraw: () => void) {
+function suggestFollow(
+  draft: SuggestDraft,
+  owner: RangeOwner,
+  off: string | null,
+  owns: () => boolean,
+  redraw: () => void,
+) {
   if (!draft.on || off || draft.reading) return;
   if (draft.fail && draft.fail.key === suggestKey(owner)) return;
   if (draft.base == null || (suggestMoved(draft, owner) && !suggestEdited(draft)))
@@ -307,7 +315,7 @@ function suggestFollow(draft: SuggestDraft, owner: any, off: string | null, owns
 }
 // [지금 원문으로 맞추기]: the draft keeps its text and takes the owner's current lines as its base - the text a 409
 // answered with when it is those lines, else read now.
-function suggestRebase(draft: SuggestDraft, owner: any, owns: () => boolean, redraw: () => void) {
+function suggestRebase(draft: SuggestDraft, owner: RangeOwner | null, owns: () => boolean, redraw: () => void) {
   const current = draft.current;
   draft.current = null;
   if (current && owner && suggestKey(current) === suggestKey(owner)) {
@@ -329,7 +337,7 @@ function suggestRebase(draft: SuggestDraft, owner: any, owns: () => boolean, red
 // and the line goes, as the card's will once it is saved.
 function suggestLine(
   draft: SuggestDraft,
-  owner: any,
+  owner: RangeOwner,
   off: string | null,
   isEdit: boolean,
   state: string | undefined,
@@ -394,7 +402,7 @@ function suggestGrow(editor: HTMLTextAreaElement) {
 // polite live region, so it is written only when what it says changes (typing redraws it on every key).
 function drawSuggest(
   draft: SuggestDraft,
-  owner: any,
+  owner: RangeOwner,
   off: string | null,
   elements: {
     tg: HTMLElement;
@@ -462,7 +470,7 @@ function composerSuggestElements() {
     tg: $('#c-sg-tg'),
     why: $('#c-sg-why'),
     box: $('#c-sg'),
-    ta: $('#c-sg-text') as HTMLTextAreaElement,
+    ta: $('#c-sg-text'),
     line: $('#c-sg-note'),
     cc: $('#c-sg-cc'),
     cur: $('#c-sg-cur'),
@@ -472,7 +480,7 @@ function composerSuggestElements() {
 // keeps an unedited draft on its lines. A read's answer redraws it, the overlap notice ([덧붙이기] waits on an edited
 // suggestion) and the stored draft. The tablet sheet's height follows the editor as it opens, fills, grows and closes
 // (applySheet, tabletLift).
-function renderSuggest(selection: Selection) {
+function renderSuggest(selection: ComposerSelection) {
   const off = suggestOff(selection, META ? META.kind : undefined),
     owns = () => COMPOSE.current === selection;
   const redraw = () => {
@@ -486,12 +494,6 @@ function renderSuggest(selection: Selection) {
   composerVerdict().drawRow(); // [제안 수정] on turns the verdict buttons off
   if (BAND === LAYOUT_BAND.TABLET_SHEET) applySheet();
 }
-// Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
-// ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).
-function suggestPending() {
-  return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
-}
-
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of an edit card's document (an unknown one is LaTeX).
 function editDocKind(card: EditCard): string | undefined {
@@ -500,12 +502,12 @@ function editDocKind(card: EditCard): string | undefined {
 }
 /** An edit card's suggestion elements. */
 function editSuggestElements(card: EditCard) {
-  const find = (selector: string) => card.el.querySelector(selector) as HTMLElement;
+  const find = (selector: string) => findElement(card.el, selector, HTMLElement);
   return {
     tg: find('.e-sg-row .sg-tg'),
     why: find('.e-sg-row .sg-why'),
     box: find('.e-sg'),
-    ta: find('.e-sg-text') as HTMLTextAreaElement,
+    ta: findElement(card.el, '.e-sg-text', HTMLTextAreaElement),
     line: find('.e-sg .sg-note'),
     cc: find('.e-sg .sg-cc'),
     cur: find('.e-sg .sg-cur'),
@@ -517,8 +519,8 @@ function renderEditSuggest(card: EditCard) {
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN,
     elements = editSuggestElements(card);
-  const row = card.el.querySelector('.e-sg-row') as HTMLElement,
-    readOnly = card.el.querySelector('.e-sg-ro') as HTMLElement;
+  const row = findElement(card.el, '.e-sg-row', HTMLElement),
+    readOnly = findElement(card.el, '.e-sg-ro', HTMLElement);
   row.hidden = closed;
   const view = closed && pin ? suggestView(pin) : null;
   readOnly.hidden = !view;
@@ -540,7 +542,7 @@ function renderEditSuggest(card: EditCard) {
 // else the composer's.
 function suggestOwner(
   control: HTMLElement,
-): { sg: SuggestDraft; o: any; owns: () => boolean; redraw: () => void } | null {
+): { sg: SuggestDraft; o: RangeOwner; owns: () => boolean; redraw: () => void } | null {
   if (control.closest('.edit')) {
     const card = EDITOR.current;
     if (!card) return null;
@@ -593,8 +595,8 @@ function suggestAct(control: HTMLElement, act: string) {
 // Typing in an editor: its draft takes the text; the line under it and - in the composer - the overlap notice and the
 // tab's draft follow.
 document.addEventListener('input', (event) => {
-  const editor = event.target as HTMLTextAreaElement;
-  if (!editor.classList || !editor.classList.contains('sg-text')) return;
+  const editor = event.target;
+  if (!(editor instanceof HTMLTextAreaElement) || !editor.classList.contains('sg-text')) return;
   const owner = suggestOwner(editor);
   if (!owner) return;
   owner.sg.text = editor.value;
@@ -607,12 +609,10 @@ export {
   renderSuggest,
   suggestAct,
   suggestBadge,
-  suggestEdited,
   suggestForEdit,
   suggestForSave,
   suggestOfPin,
   suggestOff,
-  suggestPending,
   suggestRebase,
   suggestView,
 };

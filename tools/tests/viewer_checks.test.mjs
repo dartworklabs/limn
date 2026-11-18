@@ -10,8 +10,9 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { Linter } from 'eslint';
 import tseslint from 'typescript-eslint';
+import ts from 'typescript';
 import { importGraph, main, placeOf, tableErrors, violations } from '../check_viewer_boundaries.mjs';
-import { limnRules } from '../../eslint.config.mjs';
+import { UNCHECKED_QUERIES, limnRules } from '../../eslint.config.mjs';
 
 /** The rules found for a graph given as {module: [imports]}, with these tables. */
 const rulesOf = (graph, allowed = []) =>
@@ -134,17 +135,17 @@ test('a role rule broken fails the check outright, naming the rule and both modu
   assert.match(got.err, /^role: js\/pins\/rules-order\.ts \(rules\) imports js\/pins\/view-cards\.ts \(pins view\)/m);
 });
 
-test('a cycle is counted for the ratchet, not failed: the check passes and its counts hold only cycle', () => {
+test('a cycle inside a feature fails both boundary check modes and names the two edges', () => {
   const modules = {
     'js/pins/view-cards.ts': "import { list } from './flow-list.ts';\nexport const card = () => list;\n",
     'js/pins/flow-list.ts': "import { card } from './view-cards.ts';\nexport const list = () => card;\n",
   };
-  assert.equal(checkOf(modules).code, 0);
-  const got = checkOf(modules, ['--json']);
-  assert.equal(got.code, 0);
-  assert.deepEqual(JSON.parse(got.out), {
-    cycle: { 'src/limn/viewer/js/pins/flow-list.ts': 1, 'src/limn/viewer/js/pins/view-cards.ts': 1 },
-  });
+  for (const argv of [[], ['--json']]) {
+    const got = checkOf(modules, argv);
+    assert.equal(got.code, 2);
+    assert.match(got.err, /cycle: js\/pins\/view-cards.ts -> js\/pins\/flow-list.ts/);
+    assert.match(got.err, /cycle: js\/pins\/flow-list.ts -> js\/pins\/view-cards.ts/);
+  }
 });
 
 test('the path says feature and role; a path that is no place says nothing', () => {
@@ -257,5 +258,98 @@ test("a write through another module's binding is refused through a type asserti
   assert.deepEqual(
     lintTs("import { OFF } from './state.ts';\n(OFF as { n: number }).n = 1;\nOFF!.n++;\n(<any>OFF).k = 2;\n"),
     ['limn/no-imported-state-write', 'limn/no-imported-state-write', 'limn/no-imported-state-write'],
+  );
+});
+
+/** The messages ESLint's no-restricted-syntax gives code, a TypeScript module, with the viewer's UNCHECKED_QUERIES. */
+function lintQueries(code) {
+  const linter = new Linter({ configType: 'flat' });
+  return linter
+    .verify(
+      code,
+      [
+        {
+          files: ['**/*.ts'],
+          languageOptions: { ecmaVersion: 2024, sourceType: 'module', parser: tseslint.parser },
+          rules: { 'no-restricted-syntax': ['error', ...UNCHECKED_QUERIES] },
+        },
+      ],
+      'module.ts',
+    )
+    .map((m) => m.ruleId || `fatal: ${m.message}`);
+}
+
+test('a type argument on a DOM query is refused, called plainly or optionally; the query without one and other calls pass', () => {
+  for (const call of [
+    "document.querySelector<HTMLInputElement>('#q');",
+    "root.querySelectorAll<HTMLElement>('.row');",
+    "target.closest<HTMLElement>('.card');",
+    "maybe?.querySelector<HTMLDivElement>('.x');",
+  ])
+    assert.deepEqual(lintQueries(call), ['no-restricted-syntax'], call);
+  assert.deepEqual(
+    lintQueries(
+      "document.querySelector('#q');\nroot.querySelectorAll('.row');\ntarget.closest('.card');\nnew Map<string, number>();\npick<number>(1);\n",
+    ),
+    [],
+  );
+});
+
+/**
+ * The limn/no-inferred-query-class messages ESLint gives code, a TypeScript module checked with the DOM types and the
+ * strict set: the rule needs the type checker, so the module is written to a scratch folder and read as a program.
+ */
+function lintInferred(code) {
+  const dir = mkdtempSync(join(tmpdir(), 'limn-inferred-'));
+  const file = join(dir, 'module.ts');
+  writeFileSync(file, code);
+  const program = ts.createProgram([file], {
+    strict: true,
+    noEmit: true,
+    target: ts.ScriptTarget.ES2022,
+    lib: ['lib.es2022.d.ts', 'lib.dom.d.ts', 'lib.dom.iterable.d.ts'],
+  });
+  const linter = new Linter({ configType: 'flat', cwd: dir });
+  return linter
+    .verify(
+      code,
+      [
+        {
+          files: ['**/*.ts'],
+          languageOptions: {
+            ecmaVersion: 2024,
+            sourceType: 'module',
+            parser: tseslint.parser,
+            parserOptions: { programs: [program] },
+          },
+          plugins: { limn: { rules: limnRules } },
+          rules: { 'limn/no-inferred-query-class': 'error' },
+        },
+      ],
+      file,
+    )
+    .map((m) => m.ruleId || `fatal: ${m.message}`);
+}
+
+test('a DOM query whose class is inferred from where its answer goes is refused; Element, a tag name and a checked find pass', () => {
+  const take = 'function take(element: HTMLElement | null) { return element; }\n';
+  for (const call of [
+    "take(document.querySelector('.hint'));",
+    "take(document.body.closest('.card'));",
+    "const rows: NodeListOf<HTMLElement> = document.querySelectorAll('.row');\nrows.forEach(take);",
+    "const box: HTMLDivElement | null = document.querySelector('.box');\ntake(box);",
+  ])
+    assert.deepEqual(lintInferred(take + call + '\n'), ['limn/no-inferred-query-class'], call);
+  assert.deepEqual(
+    lintInferred(
+      take +
+        "const found = document.querySelector('.hint');\n" +
+        'take(found instanceof HTMLElement ? found : null);\n' +
+        "take(document.querySelector('a'));\n" +
+        "const near = document.body?.closest('.card');\n" +
+        "document.querySelectorAll('.row').forEach((row) => row.remove());\n" +
+        'export { near };\n',
+    ),
+    [],
   );
 });

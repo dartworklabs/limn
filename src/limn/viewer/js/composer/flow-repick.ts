@@ -13,13 +13,13 @@ import {
   EDITOR,
 } from '../app/state.ts';
 import { translateTemplate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
 import { kindFor } from './view-levels.ts';
 import { figureFields, pinPlace, repickElement } from '../pdf/view-figure.ts';
-import { cancelSelection } from './flow-pick.ts';
+import { cancelSelection } from './flow-selection.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE } from '../app/rules-tables.ts';
@@ -65,7 +65,7 @@ async function applyRepick() {
     level = rung || candidate;
   const visit = captureVisit(),
     editing = EDITOR.current;
-  let loc = {
+  let loc: Record<string, unknown> = {
     file: candidate.file,
     page: candidate.page,
     lo: level.lo,
@@ -81,7 +81,7 @@ async function applyRepick() {
     quote: candidate.quote,
     scope: (rung && rung.level) || null,
     kind: rung && rung.level ? kindFor(rung.level, rung.env) : candidate.kind,
-  } as Record<string, unknown>;
+  };
   if (!loc.scope) delete loc.scope;
   if (isRegion(candidate))
     loc = {
@@ -94,8 +94,8 @@ async function applyRepick() {
   figureFields(loc, repickElement(candidate), isRegion(candidate) || !level.el ? null : level);
   const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : 0;
   try {
-    const { status, data } = await api('/api/pins/' + repick.id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id: repick.id,
       body: { loc, base_rev: base },
       what: '위치 바꾸기',
       where: NOTICE_HOST.LIST,
@@ -105,7 +105,7 @@ async function applyRepick() {
     if (status === 409) {
       bannerNote(
         NOTICE_HOST.LIST,
-        data && data.error === PIN_STATE.DONE
+        isRefusal(data) && data.error === PIN_STATE.DONE
           ? '닫힌 핀은 위치를 바꿀 수 없습니다'
           : '다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다',
         NOTICE_KIND.WARN,
@@ -139,7 +139,7 @@ async function applyRepick() {
         id: pin.id,
         where: isRegion(pin)
           ? translateTemplate('쪽 {page} 영역', { page: pinPlace(pin).page })
-          : lineRange(pin.lo as number, pin.hi as number),
+          : lineRange(pin.lo, pin.hi),
       }),
     );
     await composerPins().load();

@@ -10,10 +10,9 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
 import { onLines, refetchSnip } from './view-levels.ts';
 import type { LineOwner, RangeOwner } from './view-levels.ts';
-import { recomputeOverlap, renderComposer } from './flow-pick.ts';
-import { $ } from '../platform/dom.ts';
+import { recomputeOverlap } from './view-overlap.ts';
+import { $, focusedElement } from '../platform/dom.ts';
 import { withDocQuery, isRegion } from '../documents/state.ts';
-import { pinFields } from './state-seams.ts';
 
 // The range first..last widened to line: [min(first, line), max(last, line)]. Pure.
 function widenTo(first: number, last: number, line: number) {
@@ -48,13 +47,13 @@ function excerptRows(first: number, last: number, lineCount: number, open: boole
 // Each selection's or edit card's source lines (line -> text, null when the server gave none) and the ones being
 // fetched. Kept beside the object, not on it: the composer's selection is written to the tab's draft
 // (composer/flow-draft.ts) as JSON.
-const EXCERPT_LINES = new WeakMap(),
+const EXCERPT_LINES = new WeakMap<RangeOwner, Map<number, string | null>>(),
   EXCERPT_FETCHING = new WeakSet();
 // The line cache of owner - a selection or an edit card - in EXCERPT_LINES, made on first use.
 function excerptLines(owner: RangeOwner) {
   let lines = EXCERPT_LINES.get(owner);
   if (!lines) {
-    lines = new Map();
+    lines = new Map<number, string | null>();
     EXCERPT_LINES.set(owner, lines);
   }
   return lines;
@@ -72,7 +71,7 @@ function excerptTake(owner: RangeOwner, snip: string | undefined) {
 // Fetches the lines the excerpt shows that the owner's cache lacks - its ends and their neighbours - in at most two
 // windows of /api/snippet, then redraws the owner's panel. A line the server did not give is cached as null ('…'), so a
 // failure never loops.
-async function excerptFetch(owner: LineOwner) {
+async function excerptFetch(owner: LineOwner, redraw: () => void) {
   const lineCount = owner.n_lines || owner.hi,
     want = new Set<number>();
   for (const k of [owner.lo - 1, owner.lo, owner.lo + 1, owner.hi - 1, owner.hi, owner.hi + 1])
@@ -89,10 +88,10 @@ async function excerptFetch(owner: LineOwner) {
   });
   try {
     for (const [from, to] of fetchWindows) {
-      const { data } = await api(
-        withDocQuery('/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
-        { what: '원문 읽기' },
-      );
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery('?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
+        what: '원문 읽기',
+      });
       excerptTake(owner, data.snippet);
       if (data.n_lines) owner.n_lines = data.n_lines;
     }
@@ -101,12 +100,11 @@ async function excerptFetch(owner: LineOwner) {
     if (!lines.has(line)) lines.set(line, null);
   });
   EXCERPT_FETCHING.delete(owner);
-  excerptRedraw(owner);
+  excerptRedraw(owner, redraw);
 }
 // Redraws the panel the owner belongs to (the composer's selection or the open edit card); a stale owner draws nothing.
-function excerptRedraw(owner: RangeOwner) {
-  if (owner === COMPOSE.current) renderComposer();
-  else if (owner === EDITOR.current) pinFields().drawEdit();
+function excerptRedraw(owner: RangeOwner, redraw: () => void) {
+  if (owner === COMPOSE.current || owner === EDITOR.current) redraw();
 }
 // The owner's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
 function excerptBox(owner: RangeOwner) {
@@ -138,11 +136,11 @@ function excerptFocusTarget(buttons: ExcerptControl[], was: { act: string; line:
 // Draws the owner's excerpt into box, or clears and hides it (a region, an owner without its lines, no selection). isEdit: an edit card (the
 // composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that takes the focused '+'
 // or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
-function drawExcerpt(owner: RangeOwner | null, box: HTMLElement, isEdit: boolean) {
+function drawExcerpt(owner: RangeOwner | null, box: HTMLElement, isEdit: boolean, redraw: () => void) {
   const on = owner !== null && !('region' in owner && owner.region) && !isRegion(owner) && onLines(owner);
-  const focused = document.activeElement as HTMLElement,
+  const focused = focusedElement(),
     had =
-      box.contains(focused) && focused.dataset.act
+      focused && box.contains(focused) && focused.dataset.act
         ? { act: focused.dataset.act, line: Number(focused.dataset.line) }
         : null;
   box.hidden = !on;
@@ -151,7 +149,7 @@ function drawExcerpt(owner: RangeOwner | null, box: HTMLElement, isEdit: boolean
     return;
   }
   excerptTake(owner, owner.snippet);
-  excerptFetch(owner);
+  excerptFetch(owner, redraw);
   const lines = excerptLines(owner),
     text = (line: number) => {
       const lineText = lines.get(line);
@@ -204,7 +202,7 @@ function setLines(owner: RangeOwner, first: number, last: number) {
 // Applies range ([first, last], kept inside the file) to the owner as lines set by hand (setLines), then the overlap
 // (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the end
 // that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
-function applyRange(owner: RangeOwner | null, range: number[] | null, anchor: number) {
+function applyRange(owner: RangeOwner | null, range: number[] | null, anchor: number, redraw: () => void) {
   if (!owner || !range || !onLines(owner)) return;
   const lineCount = owner.n_lines || Math.max(range[1], owner.hi),
     first = Math.max(1, Math.min(range[0], lineCount)),
@@ -221,9 +219,10 @@ function applyRange(owner: RangeOwner | null, range: number[] | null, anchor: nu
     setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
   }
-  excerptRedraw(owner);
+  excerptRedraw(owner, redraw);
   const rowAfter = row();
-  if (rowBefore && rowAfter) $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
-  refetchSnip(owner, () => excerptRedraw(owner));
+  if (rowBefore && rowAfter && topBefore !== null)
+    $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
+  refetchSnip(owner, () => excerptRedraw(owner, redraw));
 }
 export { applyRange, drawExcerpt, dropLine, widenTo };

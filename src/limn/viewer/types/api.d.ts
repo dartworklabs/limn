@@ -84,7 +84,7 @@ interface Pin {
   kind?: string;
   scope?: string;
   via?: string;
-  score?: number;
+  score?: number | null;
   fill?: number;
   rival?: boolean;
   quote?: string;
@@ -316,6 +316,8 @@ interface Meta {
   // The server counts a build hold per holder (POST /api/hold holder); absent on an older Limn.
   hold_holder?: boolean;
   ev_seq: number;
+  // With a cursor (ev=<seq>): the events after it addressed to the identity asking (PinEvent).
+  events?: PinEvent[];
   n_open?: number;
   n_done?: number;
   n_review?: number;
@@ -323,6 +325,25 @@ interface Meta {
   verdicts_error?: string;
   docs?: DocEntry[];
   src_sig?: string;
+}
+
+// An event of the light poll addressed to the identity asking (GET /api/meta?light=1&ev=<seq>,
+// limn/collaboration/events.py make_event, EventLog.emit and events_since): its type is one of the notified ones, to
+// holds the logins it is for, doc_name is its document's name, kind_req the pin's request kind, msg the thread entry
+// it says, seq/at/ts its number and stamps.
+interface PinEvent {
+  seq: number;
+  type: 'mention' | 'review_requested' | 'replied' | 'reopened' | 'assigned' | 'dropped';
+  pin: number;
+  doc: string;
+  doc_name: string;
+  to: string[];
+  by: Person;
+  kind_req?: string;
+  msg?: number;
+  excerpt?: string;
+  at: string;
+  ts: number;
 }
 
 // A running render's count: page images written of the PDF's pages (GET /api/build `progress`).
@@ -349,6 +370,7 @@ interface BuildStatus {
   head: string | null;
   pull: PullRecord | null;
   elapsed_s: number;
+  unchanged?: boolean;
 }
 
 // POST /api/rebuild's answer once the build has run (`pull` only when the run pulls remote main first).
@@ -364,6 +386,7 @@ interface RebuildAnswer {
   build: string;
   pages: number;
   pull?: PullRecord | null;
+  unchanged?: boolean;
 }
 
 // One piece of the mark a rung's lines draw: the page it is on (1-based) and its box as page fractions, [x, y, w, h]
@@ -385,27 +408,11 @@ interface Rung {
   n: number;
   label: string;
   snippet: string;
-  env?: string;
+  env?: string | null;
   el?: PinElement;
   merged?: string[];
   score?: number | null;
   boxes?: MarkPiece[];
-}
-
-// GET /api/snippet's answer: the manuscript file and the lines asked for, their numbered text and the file's line
-// count. With ?levels=1 the range ladder round those lines comes too, every rung carrying where its own lines print
-// (Rung.boxes); with ?text=1 the lines themselves, which a suggested edit takes as its base.
-interface SnippetAnswer {
-  file: string;
-  name: string;
-  lo: number;
-  hi: number;
-  n: number;
-  n_lines: number;
-  snippet: string;
-  levels?: Rung[];
-  default_level?: string;
-  text?: string;
 }
 
 // An open line pin a not-yet-saved range overlaps (POST /api/pick `overlaps`), and how.
@@ -428,7 +435,7 @@ interface PickAnswer {
   raw_hi?: number;
   kind: string;
   via?: string;
-  score?: number;
+  score?: number | null;
   fill?: number;
   rival?: boolean;
   warn: string;
@@ -447,3 +454,319 @@ interface PickAnswer {
   pdf?: string;
   n_chars?: number;
 }
+
+// A refusal's body (limn.web.errors.HTTPError, docs/handbook/api.md §오류 응답): the Korean message and its stable
+// reason code. A refusal a caller expects (api() options.expect) is read as its endpoint's ApiRefusals entry.
+interface ErrorBody {
+  error: string;
+  reason: string;
+}
+
+// A 409 on one pin that carries the pin as stored (POST /api/pins/{id}/edit and /confirm): reason conflict (someone
+// changed it), done or open (its state forbids the change; detail says why), or suggest_base_changed for an edit whose
+// suggested edit no longer fits its lines (current: what they read now).
+interface PinConflict {
+  error: string;
+  reason: string;
+  pin: Pin;
+  detail?: string;
+  current?: string;
+}
+
+// A 409 of POST /api/pin: idem_unknown (no pin was made with that idempotency key), or suggest_base_changed with the
+// lines' current text.
+interface SaveConflict {
+  error: string;
+  reason: string;
+  current?: string;
+}
+
+// The 413 of GET /api/source (source_too_large): the file's size and the limit, in bytes; no lines.
+interface SourceTooLarge {
+  error: string;
+  reason: string;
+  bytes: number;
+  limit: number;
+}
+
+// The 409 of POST /api/rebuild while the document is building already: busy, with state running for ?async=1 and ok
+// false without it.
+interface RebuildBusy {
+  busy: boolean;
+  state?: string;
+  ok?: boolean;
+}
+
+// POST /api/rebuild?async=1's answer when the build started (202).
+interface RebuildStarted {
+  state: string;
+}
+
+// POST /api/pick's 200 for a selection that is not traced (PICK_REFUSALS) or names a page directory that is gone
+// (pdf_build_gone true).
+interface PickRefusal {
+  error: string;
+  reason: string;
+  pdf_build_gone?: boolean;
+}
+
+// GET /api/snippet: the lines lo..hi of a manuscript file - its path and name, how many lines the range and the file
+// have, and the numbered snippet; with ?levels=1 the range ladder and its default rung, every rung carrying where its
+// own lines print (Rung.boxes), and with ?text=1 the lines' exact text for a range short enough to take a suggested
+// edit.
+interface SnippetAnswer {
+  file: string;
+  name: string;
+  lo: number;
+  hi: number;
+  n: number;
+  n_lines: number;
+  snippet: string;
+  levels?: Rung[];
+  default_level?: string;
+  text?: string;
+}
+
+// GET /api/source: the source of a document the viewer draws itself (Markdown, text) - its document key, the file a
+// pin on it stores, the stamp read before the lines, the lines as the server numbers them, and the line ends among them
+// that are neither LF nor CRLF, by name with their counts.
+interface SourceAnswer {
+  doc: string;
+  file: string;
+  src_mtime: number;
+  lines: string[];
+  line_ends: Record<string, number>;
+}
+
+// One row of GET /api/outline-labels: a heading's LaTeX number, title, printed page, sectioning level and anchor.
+interface OutlineLabelRow {
+  number: string;
+  title: string;
+  page: string;
+  level: string;
+  anchor: string;
+}
+
+// GET /api/outline-labels: the page directory on screen and the outline rows of the .aux it published.
+interface OutlineLabelsAnswer {
+  build: string;
+  labels: OutlineLabelRow[];
+}
+
+// GET /api/version: the application's name and installed version.
+interface VersionAnswer {
+  name: string;
+  version: string;
+}
+
+// POST /api/hold: the build asked about and when it is held to over all its holders, null once none holds it.
+interface HoldAnswer {
+  build: string;
+  until: string | null;
+}
+
+// GET /api/pins/{id}.
+interface PinAnswer {
+  pin: Pin;
+}
+
+// GET /api/pins/dropped: the Trash.
+interface DroppedAnswer {
+  dropped: Pin[];
+}
+
+// POST /api/pin: the new pin's number, with replay true when its idempotency key already made it.
+interface PinSaved {
+  id: number;
+  replay?: boolean;
+}
+
+// POST /api/pins/{id}/edit, /restore: the pin as stored after the change.
+interface PinChanged {
+  ok: boolean;
+  pin: Pin;
+}
+
+// POST /api/pins/{id}/close, /reopen, /confirm: whether the pin was found, and then the pin and its state.
+interface PinStateAnswer {
+  ok: boolean;
+  pin: Pin | null;
+  state: string | null;
+}
+
+// POST /api/pins/{id}/reply: whether the pin was found, and then the pin, the new thread entry, the pin's state and
+// whether the reply reopened it.
+interface PinReplyAnswer {
+  ok: boolean;
+  pin: Pin | null;
+  msg: ThreadEntry | null;
+  state: string | null;
+  reopened: boolean;
+}
+
+// POST /api/pins/{id}/unclaim: whether the pin was found, and then the pin.
+interface PinUnclaimed {
+  ok: boolean;
+  pin: Pin | null;
+}
+
+// POST /api/pins/{id}/drop: whether the pin was found.
+interface PinDropped {
+  ok: boolean;
+}
+
+// POST /api/pins/{id}/purge: the number of the pin deleted for good.
+interface PinPurged {
+  ok: boolean;
+  purged: number;
+}
+
+// GET /api/revisions: the document's manuscript commits, newest first, or available false when it has no history
+// (reason too_many_files with the limit when it has too many history files); a page of them (?before=, ?limit=) says
+// whether more follow, and a figure document adds its two builds (overlay).
+interface RevisionsAnswer {
+  available: boolean;
+  revisions: RevisionRow[];
+  more?: boolean;
+  reason?: string;
+  limit?: number;
+  overlay?: RevisionOverlay;
+}
+
+// Which of a commit's hunks belong to one pin (GET /api/revision-diff?pin= `scope`) when the pin owns part of the
+// commit: the pin, where its hunks were found (source), how many are the pin's and how many are not, the two patches
+// and whether each was cut.
+interface RevisionPinScope {
+  pin: number;
+  mode: 'pin';
+  source: string;
+  hunks: number;
+  other: number;
+  diff: string;
+  other_diff: string;
+  truncated: boolean;
+  other_truncated: boolean;
+}
+
+// GET /api/revision-diff?pin= `scope` when the pin owns the whole commit or none of it: the counts without patches.
+interface RevisionCommitScope {
+  pin: number;
+  mode: 'commit';
+  source: string;
+  hunks: number;
+  other: number;
+}
+
+// One file of a range's diff (GET /api/revision-diff?base= `files`): its path, the path it was renamed from, and the
+// lines added and deleted (null for a binary file).
+interface RangeFile {
+  path: string;
+  old_path?: string;
+  add: number | null;
+  del: number | null;
+}
+
+// GET /api/revision-diff: a commit's unified diff and whether it was cut; with ?pin= the pin's scope; with ?base= the
+// range's old side, the merge base when that was used, how many commits the range holds and which, and its files.
+interface RevisionDiff {
+  id: string;
+  diff: string;
+  truncated: boolean;
+  scope?: RevisionPinScope | RevisionCommitScope;
+  base?: string;
+  merge_base?: string;
+  commits?: number;
+  commit_ids?: string[];
+  files?: RangeFile[];
+}
+
+// One side of GET /api/revision-source: the file's lines, and where git's lines start among them when the two count
+// lines differently; or, for a side that cannot be drawn, why (with the size and limit for source_too_large).
+interface RevisionSide {
+  lines?: string[];
+  git_line_starts?: number[][];
+  reason?: string;
+  bytes?: number;
+  limit?: number;
+}
+
+// GET /api/revision-source: a browser-drawn document's file on the two sides of a commit (or of a range with ?base=):
+// the commit, the old side's commit (null for a root commit), the merge base when that was used, the file's path in
+// the repository, and each side (null where the file is not there).
+interface RevisionSources {
+  id: string;
+  base: string | null;
+  merge_base?: string;
+  path: string;
+  old: RevisionSide | null;
+  new: RevisionSide | null;
+}
+
+// GET and POST /api/revision-build: a comparison PDF's job and its state (idle, running, ready, error) with its
+// warnings and, failed, the error and its reason; a pin's comparison adds its scope fields, a range compared from its
+// merge base adds that.
+interface RevisionBuildStatus {
+  job_id: string;
+  base: string;
+  head: string;
+  engine: string;
+  state: string;
+  warnings: string[];
+  error: string | null;
+  reason: string | null;
+  scope?: string;
+  pin?: number;
+  source?: string;
+  hunks?: number;
+  other?: number;
+  merge_base?: string;
+}
+
+// The answer each endpoint the viewer calls gives, by its method and path ({id}: a pin's number). api() takes the key,
+// builds the request from it and answers this type; the query does not change it, so a field only some queries bring
+// is optional. src/limn/viewer/tests/test_viewer_types.py holds each type to the real handler.
+interface ApiAnswers {
+  'GET /api/meta': Meta;
+  'GET /api/docs': DocsAnswer;
+  'GET /api/people': PeopleAnswer;
+  'GET /api/build': BuildStatus;
+  'POST /api/rebuild': RebuildAnswer | RebuildStarted;
+  'POST /api/hold': HoldAnswer;
+  'GET /api/outline-labels': OutlineLabelsAnswer;
+  'GET /api/source': SourceAnswer;
+  'GET /api/version': VersionAnswer;
+  'GET /api/snippet': SnippetAnswer;
+  'POST /api/pick': PickAnswer | PickRefusal;
+  'GET /api/pins': Pin[];
+  'GET /api/pins/dropped': DroppedAnswer;
+  'GET /api/pins/{id}': PinAnswer;
+  'POST /api/pin': PinSaved;
+  'POST /api/pins/{id}/edit': PinChanged;
+  'POST /api/pins/{id}/close': PinStateAnswer;
+  'POST /api/pins/{id}/reopen': PinStateAnswer;
+  'POST /api/pins/{id}/confirm': PinStateAnswer;
+  'POST /api/pins/{id}/reply': PinReplyAnswer;
+  'POST /api/pins/{id}/unclaim': PinUnclaimed;
+  'POST /api/pins/{id}/drop': PinDropped;
+  'POST /api/pins/{id}/restore': PinChanged;
+  'POST /api/pins/{id}/purge': PinPurged;
+  'GET /api/revisions': RevisionsAnswer;
+  'GET /api/revision-diff': RevisionDiff;
+  'GET /api/revision-source': RevisionSources;
+  'GET /api/revision-build': RevisionBuildStatus;
+  'POST /api/revision-build': RevisionBuildStatus;
+}
+
+// The refusals a caller may hand api() in options.expect, by endpoint and status, with the body each answers: api()
+// gives such a refusal back as an answer instead of throwing it.
+interface ApiRefusals {
+  'POST /api/rebuild': { 409: RebuildBusy };
+  'GET /api/source': { 413: SourceTooLarge };
+  'GET /api/snippet': { 400: ErrorBody };
+  'POST /api/pin': { 409: SaveConflict };
+  'POST /api/pins/{id}/edit': { 409: PinConflict };
+  'POST /api/pins/{id}/confirm': { 409: PinConflict };
+}
+
+// An endpoint the viewer calls (ApiAnswers).
+type ApiEndpoint = keyof ApiAnswers;

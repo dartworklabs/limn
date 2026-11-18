@@ -3,6 +3,7 @@ import {
   PAGE_SCALE,
   LAYOUT,
   META,
+  knownMeta,
   ZOOMED,
   imeKey,
   isFigureKind,
@@ -15,7 +16,7 @@ import { translateTemplate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
 import { placeChips } from '../platform/notices.ts';
 import { invalidateVectorDraws, observeVectorPages } from './view-draw.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { $, findAll, findMaybe } from '../platform/dom.ts';
 import { LAYOUT_MODE, VIEW_MODE } from '../app/rules-tables.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { restoreAnchor, topAnchor } from '../layout/flow.ts';
@@ -26,11 +27,12 @@ import { clampPage, goPage } from './view-page-jump.ts';
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page: PageImage) {
-  const build = META.pages_build;
+  const meta = knownMeta(),
+    build = meta.pages_build;
   return withDocQuery(
     build
       ? '/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name)
-      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(META.built_at),
+      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(meta.built_at),
   );
 }
 // Page sizes (docs/handbook/viewer.md §PDF 영역 전용 확대): every page box is its own paper width (pt_w, in points)
@@ -49,7 +51,7 @@ function widestPagePoints() {
 // The most common of the page widths (points): the mode, the wider on a tie; 0 for none. A figure document opens by it
 // (openScale): its one wide outlier (a graphical abstract) scrolls sideways instead of shrinking every figure. Pure.
 function commonWidth(widths: number[]) {
-  const counts = new Map();
+  const counts = new Map<number, number>();
   let best = 0,
     most = 0;
   for (const width of widths) {
@@ -91,7 +93,7 @@ function buildDoc() {
     focus = pageVerdicts().holdReasonFocus();
   doc.replaceChildren();
   setComposeBox(null);
-  META.pages.forEach((page, index) => {
+  knownMeta().pages.forEach((page, index) => {
     const pageBox = document.createElement('div');
     pageBox.className = 'pg';
     pageBox.id = 'p' + (index + 1);
@@ -146,15 +148,20 @@ function setScale(scale: number, save?: boolean) {
   pageMarks().placeBadges();
   pageVerdicts().sizeLines();
   placeChips();
-  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
+  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) {
+    // Before the first meta there is no document to keep the scale for: nothing is saved, and the zoom figure waits for
+    // the pages' first draw (buildDoc), which writes it.
+    if (!META) return;
+    saveScale();
+  }
   invalidateVectorDraws();
   drawZoom();
 }
 // Gives every page box its width at the scale PAGE_SCALE, bounded or not (setScale bounds the scale first).
 function sizePages() {
   const widest = widestPagePoints();
-  $$('.pg').forEach((pageBox) => {
-    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, PAGE_SCALE) + 'px';
+  findAll(document, '.pg', HTMLElement).forEach((pageBox) => {
+    pageBox.style.width = pageWidth(Number(pageBox.dataset.ptw) || widest, PAGE_SCALE) + 'px';
   });
   pageWidthVars();
 }
@@ -163,8 +170,9 @@ function sizePages() {
 function pageWidthVars() {
   const widest = widestPagePoints();
   $('#doc').style.setProperty('--pg-max', pageWidth(widest, PAGE_SCALE) + 'px');
-  $$('#doc .pgw>.pg').forEach((pageBox) => {
-    (pageBox.parentElement as HTMLElement).style.setProperty('--pg-w', (pageBox as HTMLElement).style.width);
+  findAll(document, '#doc .pgw>.pg', HTMLElement).forEach((pageBox) => {
+    const holder = pageBox.parentElement;
+    if (holder) holder.style.setProperty('--pg-w', pageBox.style.width);
   });
 }
 // Whether the pages stand at a scale PAGE_SCALE that no PDF-area width has bounded since their sizes changed
@@ -218,13 +226,13 @@ function drawZoom() {
 // document never takes it, and opens at its own default (openScale) until a zoom is chosen on it.
 function savedScale() {
   const preferences = prefs();
-  if (isFigureKind(META.kind))
+  if (isFigureKind(knownMeta().kind))
     return typeof preferences.figZoom === 'number' && preferences.figZoom > 0 ? preferences.figZoom * POINT_PX : null;
   return typeof preferences.w === 'number' && preferences.w > 0 ? preferences.w / widestPagePoints() : null;
 }
 // Saves the scale on screen as savedScale reads it back.
 function saveScale() {
-  if (isFigureKind(META.kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
+  if (isFigureKind(knownMeta().kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
   else savePrefs({ w: pageWidth(widestPagePoints(), PAGE_SCALE) });
 }
 // The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the
@@ -237,7 +245,7 @@ function openScale(isFigure: boolean, common: number, widest: number, fit: numbe
 // The scale the screen picks for the document on screen (openScale).
 function defaultScale() {
   return openScale(
-    isFigureKind(META.kind),
+    isFigureKind(knownMeta().kind),
     commonPageWidth(),
     widestPagePoints(),
     fitWidth(),
@@ -248,7 +256,8 @@ function defaultScale() {
 // only a chosen one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing
 // back on it is not.
 function markZoomed() {
-  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
+  // Before the first meta there is no screen scale to compare with (defaultScale): ZOOMED stays as it is.
+  if (LAYOUT !== LAYOUT_MODE.WIDE && META) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
 }
 // The PDF area's width inside its padding (px).
 function pdfAreaInnerWidth() {
@@ -278,12 +287,12 @@ function autoFitWidth() {
 // on every page of a document whose pages are all one size, wherever the column puts them (a manuscript keeps its
 // numbers in the corners).
 function pageNoSides() {
-  const pageBoxes = $$('#doc .pg');
+  const pageBoxes = findAll(document, '#doc .pg', HTMLElement);
   if (!pageBoxes.length || !pageBoxes[0].getClientRects().length) return;
   const widths = pageBoxes.map((pageBox) => pageBox.getBoundingClientRect().width),
     widest = Math.max(...widths);
   pageBoxes.forEach((pageBox, index) => {
-    const no = pageBox.querySelector('.no') as HTMLElement | null;
+    const no = findMaybe(pageBox, '.no', HTMLElement);
     if (no) pageBox.classList.toggle('no-out', (widest - widths[index]) / 2 >= no.offsetWidth + 8);
   });
 }
@@ -307,9 +316,9 @@ function zoomAnchor(clientX?: number, clientY?: number): ZoomAnchor | null {
   const centre = clientX == null || clientY == null,
     pointX = centre ? areaRect.left + pdfArea.clientWidth / 2 : clientX,
     pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
-  let best = null as { pg: HTMLElement; r: DOMRect } | null,
+  let best: { pg: HTMLElement; r: DOMRect } | null = null,
     bestDistance = Infinity;
-  for (const pageBox of $$('.pg')) {
+  for (const pageBox of findAll(document, '.pg', HTMLElement)) {
     const rect = pageBox.getBoundingClientRect(),
       distance = pointY < rect.top ? rect.top - pointY : pointY > rect.bottom ? pointY - rect.bottom : 0;
     if (distance < bestDistance) {
@@ -363,9 +372,10 @@ function fitToWidth() {
   restoreAnchor(anchor);
   pdfArea.scrollLeft = 0;
 }
+// gesturestart: Safari's trackpad pinch
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
-  addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
-addEventListener('resize', arrivalLetGo);
+  window.addEventListener(eventType, arrivalLetGo, { capture: true, passive: true });
+window.addEventListener('resize', arrivalLetGo);
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a
 // person's scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no
 // scroll at all: a line pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what

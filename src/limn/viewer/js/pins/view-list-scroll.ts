@@ -1,7 +1,7 @@
 // ------------------------------------------------ The pin list's scroll
 // What the list keeps of its scroll across a redraw (the row at its top, the section it is in), and the cards far from
 // its view, which the browser skips until they come near.
-import { $, $$ } from '../platform/dom.ts';
+import { $, $$, findAll, findMaybe } from '../platform/dom.ts';
 // Cards far from the list's view are left for the browser to skip (.lazy: content-visibility:auto, list.css): it does
 // not lay them out or paint them until they come near the view. Their markup stays whole and current all the while - a
 // card coming back is drawn from what it holds then - and a focus, a find or a selection reaching into one draws it at
@@ -21,8 +21,8 @@ import { $, $$ } from '../platform/dom.ts';
 // near: the browser's scroll anchoring keeps the view where it stands as it grows or shrinks. A draw makes new
 // elements, which that anchoring cannot hold, so a row in the view before it (listKeep) is put back where it stood: its
 // cards may stand at other heights than the ones they replace.
-let LAZY_IO = null as IntersectionObserver | null,
-  LAZY_ROOT = null as HTMLElement | null,
+let LAZY_IO: IntersectionObserver | null = null,
+  LAZY_ROOT: HTMLElement | null = null,
   LAZY_WIDTH = 0,
   LAZY_HEIGHT = -1;
 // After a draw: the first row kept (listKeep) that is still drawn in the section it was in is put back where it stood -
@@ -32,7 +32,7 @@ let LAZY_IO = null as IntersectionObserver | null,
 function lazyCards(keep: { sel: string; sec: string; top: number }[]) {
   const scroller = listScroller();
   for (const kept of keep) {
-    const row = document.querySelector(kept.sel) as HTMLElement | null;
+    const row = findMaybe(document, kept.sel, HTMLElement);
     if (!row || !row.getClientRects().length || listSection(row) !== kept.sec) continue;
     const moved = row.getBoundingClientRect().top - kept.top;
     if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
@@ -62,7 +62,9 @@ function lazyWatch() {
 // at), being edited or holding the reply box.
 function lazySort(entries: IntersectionObserverEntry[]) {
   for (const entry of entries) {
-    const card = entry.target as HTMLElement;
+    const card = entry.target;
+    // LAZY_IO observes the list's cards (lazyWatch), all HTML.
+    if (!(card instanceof HTMLElement)) continue;
     if (entry.isIntersecting) {
       card.classList.remove('lazy');
       continue;
@@ -108,7 +110,11 @@ function listKeep(): { sel: string; sec: string; top: number }[] {
     out: { sel: string; sec: string; top: number }[] = [];
   if (!scroller.scrollTop || !scroller.getClientRects().length) return out;
   const viewRect = scroller.getBoundingClientRect();
-  for (const row of $$('#list .pin[data-id],#list .arc-row[data-id],#list .rv-row[data-id]') as HTMLElement[]) {
+  for (const row of findAll(
+    document,
+    '#list .pin[data-id],#list .arc-row[data-id],#list .rv-row[data-id]',
+    HTMLElement,
+  )) {
     if (!row.getClientRects().length) continue;
     const rect = row.getBoundingClientRect();
     if (rect.bottom <= viewRect.top) continue;

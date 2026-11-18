@@ -93,7 +93,7 @@ class ReviewRoleAndKeyboard(BrowserBase):
         settle(page)
         self.assertEqual(page.locator("#revision-pin [data-act=confirm],#revision-acts [data-act=confirm]").count(), 0)
         self.assertTrue(page.locator("#revision-pin .review-access").is_visible())
-        result = page.evaluate("async id=>await api('/api/pins/'+id+'/confirm',{method:'POST',expect:[403]})", pid)
+        result = page.evaluate("async id=>await api('POST /api/pins/{id}/confirm',{id,expect:[403]})", pid)
         self.assertEqual(result["status"], 403)
         self.assertTrue(find_record(ps.APP.snapshot_pins(), pid)["review"])
 

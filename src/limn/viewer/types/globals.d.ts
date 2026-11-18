@@ -14,6 +14,20 @@ interface Window {
   CloseWatcher?: typeof CloseWatcher;
 }
 
+// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
+// pinch's scale since it began and where it is. An element's listener for one of them gets this event
+// (pdf/input-zoom.ts, revisions/input.ts).
+interface SafariGestureEvent extends UIEvent {
+  scale: number;
+  clientX: number;
+  clientY: number;
+}
+interface HTMLElementEventMap {
+  gesturestart: SafariGestureEvent;
+  gesturechange: SafariGestureEvent;
+  gestureend: SafariGestureEvent;
+}
+
 // The back-gesture hook of Chromium (layout/input.ts); the DOM library does not have it yet.
 declare class CloseWatcher {
   onclose: (() => void) | null;
@@ -52,8 +66,9 @@ interface NotificationOptions {
   actions?: { action: string; title: string }[];
 }
 
-// An api() failure (platform/api.ts): the HTTP status and the parsed body ride on the Error.
+// An api() refusal (platform/api.ts apiError): the HTTP status and the parsed body ride on the Error; isApiError tells
+// it from any other value a request throws.
 interface ApiError extends Error {
-  status?: number;
-  data?: unknown;
+  status: number;
+  data: unknown;
 }

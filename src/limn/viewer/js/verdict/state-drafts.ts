@@ -1,5 +1,6 @@
 // ------------------------------------------------ A verdict reason's drafts, kept per pin (sessionStorage)
 import { META } from '../app/state.ts';
+import { isRecord } from '../platform/tables.ts';
 import type { ReasonSession } from './flow-reason.ts';
 type ReasonDraft = {
   text: string;
@@ -42,15 +43,17 @@ const DRAFT_VERSION = 1;
 function draftStorageKey() {
   return 'limnReason:' + encodeURIComponent((META && META.label) || '');
 }
-function readAllDrafts(): Record<string, ReasonDraft> {
+// Every draft kept for this label, by key, as stored: each is read with parseDraft, and one it cannot read is kept as it
+// is when the others are written back.
+function readAllDrafts(): Record<string, unknown> {
   try {
-    const stored = JSON.parse(sessionStorage.getItem(draftStorageKey()) || 'null');
-    return stored && stored.v === DRAFT_VERSION && stored.d && typeof stored.d === 'object' ? stored.d : {};
+    const stored: unknown = JSON.parse(sessionStorage.getItem(draftStorageKey()) || 'null');
+    return isRecord(stored) && stored.v === DRAFT_VERSION && isRecord(stored.d) ? stored.d : {};
   } catch (error) {
     return {};
   }
 }
-function saveAllDrafts(drafts: Record<string, ReasonDraft>) {
+function saveAllDrafts(drafts: Record<string, unknown>) {
   try {
     if (Object.keys(drafts).length)
       sessionStorage.setItem(draftStorageKey(), JSON.stringify({ v: DRAFT_VERSION, d: drafts }));
@@ -61,20 +64,20 @@ function saveAllDrafts(drafts: Record<string, ReasonDraft>) {
 function reasonDraftKey(doc: string | null, id: number | string) {
   return (doc || '') + ':' + id;
 }
-function parseDraft(x: any): ReasonDraft | null {
-  return x && typeof x.text === 'string' && x.text.trim()
+function parseDraft(x: unknown): ReasonDraft | null {
+  if (!isRecord(x)) return null;
+  const { text, base } = x;
+  return typeof text === 'string' && text.trim()
     ? {
-        text: x.text,
-        base: typeof x.base === 'string' ? x.base : '',
+        text,
+        base: typeof base === 'string' ? base : '',
         rev: typeof x.rev === 'number' ? x.rev : -1,
         mode:
-          x.mode === 'replace' || (x.mode !== 'add' && typeof x.base === 'string' && !!x.base.trim())
-            ? 'replace'
-            : 'add',
+          x.mode === 'replace' || (x.mode !== 'add' && typeof base === 'string' && !!base.trim()) ? 'replace' : 'add',
         folded: !!x.folded,
         at: Number(x.at) || 0,
         tried: Array.isArray(x.tried) ? x.tried.filter(isReasonTry) : [],
-        from: parseDraftParts(x.from, x.text),
+        from: parseDraftParts(x.from, text),
       }
     : null;
 }
@@ -82,24 +85,21 @@ function parseDraft(x: any): ReasonDraft | null {
 function parseDraftParts(x: unknown, text: string): ReasonPart[] {
   if (typeof x === 'string') return x ? [{ k: x, s: 0, e: text.length, tried: [] }] : [];
   if (!Array.isArray(x)) return [];
-  return x
-    .filter(
-      (part) =>
-        !!part &&
-        typeof part.k === 'string' &&
-        !!part.k &&
-        Number.isInteger(part.s) &&
-        Number.isInteger(part.e) &&
-        part.s >= 0 &&
-        part.s < part.e &&
-        part.e <= text.length,
-    )
-    .map((part) => ({
-      k: part.k,
-      s: part.s,
-      e: part.e,
-      tried: Array.isArray(part.tried) ? part.tried.filter(isReasonTry) : [],
-    }));
+  return x.flatMap((part: unknown) => {
+    if (!isRecord(part)) return [];
+    const { k: key, s: start, e: end } = part;
+    return typeof key === 'string' &&
+      !!key &&
+      typeof start === 'number' &&
+      Number.isInteger(start) &&
+      typeof end === 'number' &&
+      Number.isInteger(end) &&
+      start >= 0 &&
+      start < end &&
+      end <= text.length
+      ? [{ k: key, s: start, e: end, tried: Array.isArray(part.tried) ? part.tried.filter(isReasonTry) : [] }]
+      : [];
+  });
 }
 // Text compared as a reason is written: line breaks as '\n', no space around it (a write sends the draft trimmed).
 function normalizeReason(text: string) {
@@ -184,9 +184,9 @@ function cutWrittenParts(
   return hit ? { text: text, from: remaining } : null;
 }
 // Whether a stored lost write is one (ReasonTry).
-function isReasonTry(value: any): value is ReasonTry {
+function isReasonTry(value: unknown): value is ReasonTry {
   return (
-    !!value &&
+    isRecord(value) &&
     typeof value.text === 'string' &&
     typeof value.rev === 'number' &&
     typeof value.pre === 'string' &&

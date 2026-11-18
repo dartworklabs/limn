@@ -235,7 +235,7 @@ class FrontendLogic(unittest.TestCase):
             async function refreshDoc(){refreshes++;}
             const META={pages:[1,2]};
             let timers=0; function setInterval(){timers++; return 1;} function clearInterval(){}
-            const BUILD={timer:null,error:null,lastSeq:3,booted:false,inflight:null};
+            const BUILD={timer:null,lastSeq:3,booted:false,inflight:null}; const SHOWN_BUILD={error:null};
             // 여러 문서(§Multiple documents) 전역 — 단일 문서 뷰어와 같은 값
             const DOC='main', SWITCHSEQ=0, DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(); function withDocQuery(u){return u;}
             """,
@@ -312,20 +312,22 @@ class FrontendLogic(unittest.TestCase):
             [
                 r"""
             // jumpToCard 가 쓰는 만큼만 최소 DOM 을 흉내낸다.
+            class HTMLElement {}   // the card is an element of the page (findMaybe checks it)
             function makeEl(){
               const classes=new Set();
-              return {
+              return Object.setPrototypeOf({
                 classList:{add:(...c)=>c.forEach(x=>classes.add(x)),
                            remove:(...c)=>c.forEach(x=>classes.delete(x)),
                            contains:c=>classes.has(c)},
                 scrollIntoView(){}, get offsetWidth(){return 0;},
-              };
+              }, HTMLElement.prototype);
             }
             const el=makeEl();
             const document={querySelector:()=>el, querySelectorAll:()=>[]};
             const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
             function scrollMotion(){return 'auto';} function openSectionFor(){return false;}
             """,
+                extract_js_fn("findMaybe"),
                 extract_js_fn("jumpToCard"),
                 r"""
             jumpToCard(1);
@@ -362,12 +364,16 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const prev=[{id:1},{id:2},{id:3}];
             const d=[{id:1,done:false},{id:3,done:true}];
             const dropped=[{id:2,dropped_by:{name:'Bob'}}];
-            notePinChanges(prev,d,dropped);
+            notePinChanges(prev,d,dropped,()=>{},restorePin);
             console.log(JSON.stringify(SAID));
             """,
             ]
@@ -401,9 +407,13 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
-            notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}]);
+            notePinChanges([{id:9}],[],[{id:9,dropped_by:{login:'x'}}],()=>{},restorePin);
             CAPTURED.fn();
             console.log(JSON.stringify(RESTORED));
             """,
@@ -427,9 +437,13 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
-            notePinChanges([{id:5}],[],[]);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
+            notePinChanges([{id:5}],[],[],()=>{},restorePin);   // dropped 목록에도 없음(폴링 경합) — 그래도 삭제로는 알린다
             console.log(JSON.stringify(SAID));
             """,
             ]
@@ -457,13 +471,17 @@ class FrontendLogic(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             markMine(1); markMine(2);   // 이 탭이 방금 #1 을 완료, #2 를 삭제했다
             const prev=[{id:1},{id:2},{id:3},{id:4}];
             const d=[{id:1,done:true},{id:3,done:true}];   // #2,#4 는 d 에 없음=삭제
             const dropped=[{id:2,dropped_by:{login:'me'}},{id:4,dropped_by:{name:'Coauthor'}}];
-            notePinChanges(prev,d,dropped);
+            notePinChanges(prev,d,dropped,()=>{},restorePin);
             console.log(JSON.stringify(SAID));
             """,
             ]
@@ -568,7 +586,9 @@ class FrontendStructure(unittest.TestCase):
         )
 
     def test_pdf_build_travels_drag_to_pick_to_save_and_repick(self):
-        self.assertIn(sq("pdf_build:META.pages_build"), SCRIPT_SQ)  # drag -> /api/pick
+        drag = sq(extract_js_fn("finishRect"))  # drag -> /api/pick: the build of the open document's meta
+        self.assertIn(sq("meta=knownMeta(),"), drag)
+        self.assertIn(sq("pdf_build:meta.pages_build"), drag)
         self.assertIn(sq("quote:selection.quote,pdf_build:selection.pdf_build"), SCRIPT_SQ)  # pick response -> /api/pin
         self.assertIn(sq("frac:candidate.frac,pdf_build:candidate.pdf_build"), SCRIPT_SQ)  # relocate -> loc
 
@@ -598,7 +618,9 @@ class FrontendStructure(unittest.TestCase):
         self.assertIn(
             "setDropped(dropped)", applied
         )  # DROPPED is app/state.ts's: pins/flow-list.ts changes it through its setter (ADR-0042 D1)
-        self.assertIn(sq("notePinChanges(openBefore,rows,dropped)"), sq(applied))
+        self.assertIn(
+            sq("notePinChanges(openBefore,rows,dropped,gotoReview,id=>restoreDroppedPin(id,loadPins))"), sq(applied)
+        )
 
     def test_draw_pins_counts_the_trash(self):
         body = extract_js_fn("drawPins")
@@ -639,14 +661,14 @@ class FrontendClaimUI(unittest.TestCase):
         self.assertIn('data-act="unclaim"', HTML)
         self.assertIn(sq("case 'unclaim':unclaimPin(id)"), SCRIPT_SQ)
         self.assertIn("function unclaimPin(", HTML)
-        self.assertIn(sq("'/api/pins/'+id+'/unclaim'"), SCRIPT_SQ)
+        self.assertIn(sq("api('POST /api/pins/{id}/unclaim',{id,"), SCRIPT_SQ)
 
     def test_no_claim_button_offered_to_viewer(self):
         # the viewer never claims (agent-only) — there must be no 'claim' action button.
         self.assertNotIn('data-act="claim"', HTML)
 
     def test_build_status_fetch_requests_full_log(self):
-        self.assertIn("/api/build?log=1", HTML)
+        self.assertIn(sq("api('GET /api/build',{query:withDocQuery('?log=1')"), SCRIPT_SQ)
 
     def test_pull_line_wiring(self):
         """The pull phase has its words, and a build's completion carries the pull's line (pullSuffix)."""
@@ -795,7 +817,7 @@ class FrontendMobileStructure(unittest.TestCase):
             sq(js_fn_body("pick")),
         )
         self.assertIn(
-            sq("if(touchRecent()||NO_HOVER_QUERY.matches)return; const target=event.target; armTip("),
+            sq("if(touchRecent()||NO_HOVER_QUERY.matches)return; const target=eventElement(event); armTip("),
             SCRIPT_SQ,
         )
         # devices without hover don't show the focus tooltip either (QA phone: the tooltip stayed stuck over the list after a tap),
@@ -854,7 +876,7 @@ class FrontendVector(unittest.TestCase):
         # on PNG via 'Invalid page request').
         body = self.fn("openVectorDocument")
         i_if = body.index("if(!doc){")
-        i_null = body.index("VECTOR_PDF.doc=null")
+        i_null = body.index("setVectorDocument(null)")
         i_fetch = body.index("await fetch(")
         self.assertLess(i_if, i_null)
         self.assertLess(i_null, i_fetch)
@@ -864,7 +886,7 @@ class FrontendVector(unittest.TestCase):
 
     def test_fallback_to_png_on_any_failure(self):
         boot = self.fn("bootVector")
-        self.assertIn(sq("catch(error){VECTOR_PDF.lib=null; failVector("), sq(boot))
+        self.assertIn(sq("catch(error){setVectorLibrary(null); failVector("), sq(boot))
         self.assertIn("failVector('PDF 를 벡터로 열지 못했습니다'", self.fn("openVectorDocument"))
         run = self.fn("runDrawJob")
         self.assertIn("RenderingCancelledException", run)  # a cancellation is not a failure
@@ -940,6 +962,11 @@ class FrontendVectorLogic(unittest.TestCase):
                 extract_js_fn("closeVectorDocument"),
                 extract_js_fn("cancelVectorDraw"),
                 extract_js_fn("nextDrawJob"),
+                extract_js_fn("advanceVectorGeneration"),
+                extract_js_fn("setVectorDocument"),
+                extract_js_fn("setVectorBuild"),
+                extract_js_fn("setVectorFailed"),
+                extract_js_fn("setVectorOpenedAt"),
                 extract_js_fn("openVectorDocument"),
                 "function isMarkdownDoc(){return false;} function rendersInBrowser(){return false;}",  # every document here has pages (documents/state.ts)
                 r"""
@@ -2058,7 +2085,8 @@ class FrontendSemanticAudit(unittest.TestCase):
         review); drawPinGuideActions draws them."""
         self.assertIn("#revision-pin .rp-acts{display:flex;gap:var(--space-2);flex:none;margin-left:auto}", self.css)
         self.assertIn('data-act="rev-back"', extract_js_fn("drawPinGuideActions"))
-        self.assertIn(sq("if(fromManuscript)REVISION_VIEW.back=back"), sq(extract_js_fn("showChange")))
+        self.assertIn(sq("openRevisionTarget(fromManuscript,back,"), sq(extract_js_fn("showChange")))
+        self.assertIn(sq("if(fromManuscript)REVISION_VIEW.back=back"), sq(extract_js_fn("openRevisionTarget")))
         self.assertIn("case 'rev-back':", HTML)
 
     def test_the_source_diff_always_wraps(self):
@@ -2535,7 +2563,7 @@ class FrontendDocs(unittest.TestCase):
     def test_default_theme_is_light(self):
         self.assertIn('<html lang="ko" data-theme="light">', HTML)
         self.assertIn("p={theme:'light'}", HTML)
-        self.assertIn(sq("prefs().theme||'light'"), SCRIPT_SQ)
+        self.assertIn(sq("theme=typeof saved==='string'&&THEMES.includes(saved)?saved:'light'"), SCRIPT_SQ)
 
     def test_outline_labels_only_attach_to_matching_pdf_entries(self):
         js = "\n".join(
@@ -2674,7 +2702,7 @@ class FrontendDocs(unittest.TestCase):
             [
                 r"""
             const DOCS=[{key:'ms'},{key:'rr'},{key:'rv'}]; let DOC='ms'; let _prefs={}; function prefs(){return _prefs;}
-            const location={hash:''};
+            const window={location:{hash:''}};
             """,
                 extract_js_fn("docInfo"),
                 extract_js_fn("withDocQuery"),
@@ -2683,10 +2711,10 @@ class FrontendDocs(unittest.TestCase):
                 r"""
             const out=[];
             out.push(withDocQuery('/api/meta'), withDocQuery('/api/meta?light=1'), withDocQuery('/pdf?build=x','rr'));
-            location.hash='#doc=rr'; out.push(initialDoc());
-            location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
-            location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
-            location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
+            window.location.hash='#doc=rr'; out.push(initialDoc());
+            window.location.hash='#doc=Nope'; _prefs={lastDoc:'rv'}; out.push(initialDoc());       // 해시가 틀리면 마지막 문서
+            window.location.hash='#doc=zz'; _prefs={lastDoc:'gone'}; out.push(initialDoc());      // 둘 다 없으면 첫 문서
+            window.location.hash='#x=1&doc=rv'; _prefs={}; out.push(hashDoc());
             console.log(JSON.stringify(out));
             """,
             ]
@@ -2704,7 +2732,9 @@ class FrontendDocs(unittest.TestCase):
         i = body.index("if(multiDoc()&&!inField){")
         self.assertIn("event.key==='PageUp'||event.key==='PageDown'", body[i:])
         self.assertIn("/^Digit[1-9]$/.test(event.code||'')", body[i:])
-        self.assertLess(body.index(sq("const target=event.target,inField=")), i)
+        self.assertLess(
+            body.index(sq("const target=event.target instanceof HTMLElement?event.target:null,inField=")), i
+        )
 
     def test_view_memory_and_pdfjs_cache_are_bounded(self):
         self.assertIn(sq("const VECTOR_CACHE_MAX=3;"), SCRIPT_SQ)
@@ -2718,6 +2748,43 @@ class FrontendDocs(unittest.TestCase):
         show = extract_js_fn("showDoc")
         self.assertIn("restoreView(view)", show)
         self.assertIn("pageSurface().openVector()", show)
+
+    def test_the_cache_of_opened_pdf_documents_closes_what_it_drops(self):
+        """Caching a document drops an older build of the same document and, beyond VECTOR_CACHE_MAX, the least recently
+        cached one, and closes each dropped document unless it is the one on screen or the one being cached."""
+        got = json.loads(
+            run_node(
+                "\n".join(
+                    [
+                        "const VECTOR_CACHE_MAX=3,CLOSED=[],VECTOR_PDF={doc:null,cache:new Map()};",
+                        "function closeVectorDocument(doc){CLOSED.push(doc.name);}",
+                        extract_js_fn("cacheVectorDocument"),
+                        r"""
+            const make=(name)=>({name});
+            const [a1,a2,b1,c1,d1,e1]=['a1','a2','b1','c1','d1','e1'].map(make);
+            const steps=[];
+            const put=(key,doc)=>{cacheVectorDocument(key,doc);steps.push([[...VECTOR_PDF.cache.keys()],[...CLOSED]]);};
+            put('a|1',a1);put('b|1',b1);put('a|2',a2);        // a new build of a closes the old one
+            put('c|1',c1);                                      // three entries: none goes
+            put('d|1',d1);                                      // four: the oldest (b|1) is closed
+            VECTOR_PDF.doc=a2;put('e|1',e1);                    // the oldest (a|2) is on screen: dropped, kept open
+            console.log(JSON.stringify(steps));
+            """,
+                    ]
+                )
+            )
+        )
+        self.assertEqual(
+            got,
+            [
+                [["a|1"], []],
+                [["a|1", "b|1"], []],
+                [["b|1", "a|2"], ["a1"]],
+                [["b|1", "a|2", "c|1"], ["a1"]],
+                [["a|2", "c|1", "d|1"], ["a1", "b1"]],
+                [["c|1", "d|1", "e|1"], ["a1", "b1"]],
+            ],
+        )
 
     def test_cross_doc_card_actions_switch_first(self):
         self.assertIn(sq("function jumpPin(id){if(viaDoc(id,jumpPin))return;"), SCRIPT_SQ)
@@ -2866,7 +2933,7 @@ class FrontendFigure(unittest.TestCase):
         )
         self.assertNotIn("body.view-only", css)
         self.assertIn(
-            sq("document.body.classList.toggle('no-rebuild',!buildsFromSource(META.kind))"),
+            sq("const meta=knownMeta();document.body.classList.toggle('no-rebuild',!buildsFromSource(meta.kind))"),
             sq(extract_js_fn("drawMeta")),
         )
         for fn in ("drawMeta", "pollBuildOnce", "noteOtherDocs", "docUpdateView"):
@@ -3216,9 +3283,13 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
-            notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[]);
+            notePinChanges([{id:1,el_sync:'ok'},{id:2,el_sync:'lost'},{id:3}],[{id:1,el_sync:'lost'},{id:2,el_sync:'lost'},{id:3,el_sync:'moved'}],[],()=>{},restorePin);
             console.log(JSON.stringify(SAID));""",
             ]
         )
@@ -3239,13 +3310,17 @@ class FrontendFigure(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 r"""
             const at=(id,extra)=>Object.assign({id,sync:'ok'},extra);
             notePinChanges([at(1),at(2),at(3),at(4),at(5)],
               [at(1,{sync:'moved +3',el_sync:'ok'}),at(2,{sync:'moved +3',el_sync:'moved'}),at(3,{sync:'moved -1'}),
-               at(4,{sync:'moved +2',el_sync:'ok'}),at(5,{sync:'ok',el_sync:'ok'})],[]);
-            notePinChanges([at(2,{sync:'moved +3',el_sync:'moved'})],[at(2,{sync:'moved +3',el_sync:'moved'})],[]);
+               at(4,{sync:'moved +2',el_sync:'ok'}),at(5,{sync:'ok',el_sync:'ok'})],[],()=>{},restorePin);
+            notePinChanges([at(2,{sync:'moved +3',el_sync:'moved'})],[at(2,{sync:'moved +3',el_sync:'moved'})],[],()=>{},restorePin);
             console.log(JSON.stringify(SAID));""",
             ]
         )
@@ -3396,7 +3471,7 @@ class FrontendFigure(unittest.TestCase):
                             js_i18n(lang),
                             r"""
                         let DOC='a', SWITCHSEQ=1, META={kind:%s,pages:[1,2]}; const SAID=[]; let REPLY;
-                        const BUILD={timer:null,error:null,lastSeq:0,booted:true,inflight:null};
+                        const BUILD={timer:null,lastSeq:0,booted:true,inflight:null}; const SHOWN_BUILD={error:null};
                         const DOC_SEQ=new Map(), BUILD_ERR_BY=new Map(), META_BY=new Map();
                         const chip={hidden:false,textContent:''}, btn={disabled:false}; const $=s=>s==='#build-chip'?chip:btn;
                         const withDocQuery=u=>u; const pullSuffix=()=>''; const hideBuildErr=()=>{}; const showBuildErr=()=>{};
@@ -4164,8 +4239,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
         homes do nothing), then extra_body; returns the script."""
         stub = r"""
             const COARSE_POINTER_QUERY={matches:false}; const IS_MAC=false;
-            function el(){return {hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
-              scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}};}
+            class HTMLButtonElement {}   // the page's controls, which the save buttons are found as
+            function el(){return Object.assign(new HTMLButtonElement(),{hidden:true,textContent:'',innerHTML:'',value:'',dataset:{},
+              scrollTop:0,disabled:false,classList:{toggle(){}},focus(){},remove(){}});}
             const els={}; const $=s=>(els[s]=els[s]||el());
             let PICKSEQ=0,REPICK=null; const COMPOSE={current:null,box:null,saving:false,picking:false,pendingSave:false,dismissedOverlap:null};
             const document={querySelectorAll:()=>[$('#btn-save')]};
@@ -4190,9 +4266,9 @@ class FrontendSaveWhilePicking(unittest.TestCase):
             const SUGGEST_DRAFT={on:false,text:'',base:null}; let META=null; function suggestClear(){} function suggestPending(){return false;}
             function suggestOff(){return null;} function suggestForSave(){return null;}   // no suggested edit (composer/flow-suggest.ts)
             const apiCalls=[]; let pickResolve=null, pickReject=null, pinResolve=null;
-            function api(url){apiCalls.push(url);
-              if(url==='/api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
-              if(url==='/api/pin')return new Promise(res=>{pinResolve=res;});
+            function api(endpoint){apiCalls.push(endpoint);
+              if(endpoint==='POST /api/pick')return new Promise((res,rej)=>{pickResolve=res;pickReject=rej;});
+              if(endpoint==='POST /api/pin')return new Promise(res=>{pinResolve=res;});
               return Promise.resolve({data:{}});}
             """
         return "\n".join(
@@ -4200,6 +4276,8 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 stub,
                 js_esc(),
                 js_markup(),
+                extract_js_fn("isRefusal"),
+                extract_js_fn("isApiError"),
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("saveButtonLabel"),
@@ -4208,6 +4286,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("findAll"),
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
                 extract_js_fn("savePin"),
@@ -4227,12 +4306,12 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               savePin();   // 사용자가 pick 이 끝나기 전에 [핀 저장]을 누름
               out.queued = COMPOSE.pendingSave;
               out.btnPendingLabel = /위치 찾는 중.*저장 대기/.test(els['#btn-save'].innerHTML);
-              out.pinCallsBeforeResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsBeforeResolve = apiCalls.filter(u=>u==='POST /api/pin').length;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p;
               out.autoSaved = COMPOSE.pendingSave===false;
-              out.pinCallsAfterResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsAfterResolve = apiCalls.filter(u=>u==='POST /api/pin').length;
               out.curSetBeforeSave = !!COMPOSE.current || out.pinCallsAfterResolve>0;
               pinResolve({data:{id:42}});
               await Promise.resolve(); await Promise.resolve(); await Promise.resolve();
@@ -4281,7 +4360,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               pickResolve({data:{error:'못 찾음'}});
               await p;
               out.queuedAfterFailure = COMPOSE.pendingSave;
-              out.pinCalls = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCalls = apiCalls.filter(u=>u==='POST /api/pin').length;
               out.errorShown = els['#c-err'].hidden===false && els['#c-err'].textContent==='못 찾음';
               out.composerStillOpen = els['#composer'].hidden!==true || true;   // 실제 hidden 토글은 composer 표시측이 이미 맡는다
               console.log(JSON.stringify(out));
@@ -4310,7 +4389,7 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:5,hi:5,raw_lo:5,raw_hi:5,page:1,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p;
-              out.noAutoSaveAfterCancel = apiCalls.filter(u=>u==='/api/pin').length===0;
+              out.noAutoSaveAfterCancel = apiCalls.filter(u=>u==='POST /api/pin').length===0;
               console.log(JSON.stringify(out));
             })();
             """)
@@ -4339,13 +4418,13 @@ class FrontendSaveWhilePicking(unittest.TestCase):
               await Promise.resolve(); await Promise.resolve();
               out.curClearedOnNewPick = (COMPOSE.current===null);
               savePin();   // 스피너가 도는 동안(새 위치 응답 전) [핀 저장]을 누름
-              out.pinCallsWhileWaiting = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsWhileWaiting = apiCalls.filter(u=>u==='POST /api/pin').length;
               out.queued = COMPOSE.pendingSave;
               pickResolve({data:{file:'/m.tex',name:'m.tex',lo:900,hi:920,raw_lo:900,raw_hi:920,page:5,
                 default_level:null,overlaps:[],via:null,score:1,frac:0,quote:'',kind:'line'}});
               await p2;
               out.autoSaved = COMPOSE.pendingSave===false;
-              out.pinCallsAfterSecondResolve = apiCalls.filter(u=>u==='/api/pin').length;
+              out.pinCallsAfterSecondResolve = apiCalls.filter(u=>u==='POST /api/pin').length;
               console.log(JSON.stringify(out));
             })();
             """)
@@ -4745,9 +4824,7 @@ class FrontendThread(unittest.TestCase):
         self.assertIn('id="c-kind"', HTML)
         send = extract_js_fn("sendReply")
         # one path; the server decides - and silent, as the reply box's own error line says a failed send (one alert)
-        self.assertIn(
-            sq("api('/api/pins/'+id+'/reply',{method:'POST',body,what:'답글',silent:true,keepalive:true})"), sq(send)
-        )
+        self.assertIn(sq("api('POST /api/pins/{id}/reply',{id,body,what:'답글',silent:true,keepalive:true})"), sq(send))
         self.assertIn(
             sq("body.reopen=replyBox.toggle==='reopen'"), sq(send)
         )  # the one override: [상태 유지] / [다시 열기]
@@ -4845,11 +4922,15 @@ class FrontendReview(unittest.TestCase):
                 extract_js_fn("pinState"),
                 extract_js_fn("josa"),
                 extract_js_fn("josaName"),
+                extract_js_fn("keptNews"),
+                extract_js_fn("reviewNewsWithout"),
+                extract_js_fn("droppedNewsWithout"),
+                extract_js_fn("reopenedNewsWithout"),
                 JS_UPDATE_STUBS + extract_js_fn("notePinChanges"),
                 extract_js_fn("pinState"),
                 JS_UPDATE_STUBS + extract_js_fn("noteReviewChanges"),
                 r"""
-            notePinChanges([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[]);
+            notePinChanges([{id:1},{id:2}],[{id:1,done:true,review:true},{id:2,done:true}],[],gotoReview,restorePin);
             noteReviewChanges([{id:5},{id:6},{id:7}],[{id:5,done:true,confirmed_by:{name:'W'}},{id:6,done:false},{id:7,done:true,review:true}]);
             markMine(8); noteReviewChanges([{id:8}],[{id:8,done:true}]);
             console.log(JSON.stringify(SAID));
@@ -4884,7 +4965,8 @@ class FrontendReview(unittest.TestCase):
         self.assertIn('class="r-outcome"', body)
         self.assertIn('data-act="reply-flip"', body)
         self.assertIn(
-            sq("setReply({id,flip:false,toggle:null,el:createReplyBox(pin)})"), sq(extract_js_fn("openReply"))
+            sq("const replyBox={id,flip:false,toggle:null,el:createReplyBox(pin)};setReply(replyBox);"),
+            sq(extract_js_fn("openReply")),
         )  # through app/state.ts's setter (ADR-0042 D1)
 
 
@@ -5004,6 +5086,7 @@ class FrontendMentions(unittest.TestCase):
             const KIND_NEW='fix'; function appendTarget(){return null;}   // no overlapped pin on offer
             const document={activeElement:null};   // nothing has the focus: a row drawn again has none to keep (keepSegmentFocus)
             class HTMLElement {}   // the page's element class, which the preview line and the segment row are checked against
+            class HTMLTextAreaElement extends HTMLElement {} class HTMLButtonElement extends HTMLElement {}
             """,
             ]
             + [
@@ -5044,6 +5127,9 @@ class FrontendMentions(unittest.TestCase):
                     "renderAssignNew",
                     "editNote",
                     "renderAssignEdit",
+                    "findElement",
+                    "findMaybe",
+                    "findAll",
                 )
             ]
             + [script]
@@ -5157,11 +5243,11 @@ class FrontendMentions(unittest.TestCase):
         word '@Wendy' drops that hint, so the server tags nobody; the row must then offer nobody and default to the
         agent. It used to offer and default to Wendy Kim, saving a pin handed to someone its note never tagged."""
         out = self.run_js(r"""
-            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>({hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
+            const W=PEOPLE.find(p=>p.name==='Wendy Kim').login, box=()=>Object.assign(new HTMLElement(),{hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},querySelector(){return null;},querySelectorAll(){return [];}});
             const note={value:'@Wendy 봐 주세요',_mentions:new Set([W])},cbox=box();
             function $(s){return s==='#note'?note:s==='#c-assign'?cbox:null;}
             let PEOPLE_KNOWN=true; const ASSIGN_NEW={v:'agent',touched:false};
-            const ta={value:'@Wendy 봐 주세요',_mentions:new Set([W])},ebox=box();
+            const ta=Object.assign(new HTMLTextAreaElement(),{value:'@Wendy 봐 주세요',_mentions:new Set([W])}),ebox=box();
             const EDITOR={current:{el:{querySelector:s=>s==='.e-note'?ta:s==='.e-assign'?ebox:null},assignee:'agent'},saving:false};
             renderAssignNew(); renderAssignEdit(); const edited=[ASSIGN_NEW.v,cbox.hidden,ebox.hidden];
             note.value='@Wendy Kim 봐 주세요'; renderAssignNew();   // the picked full name kept: the hint stands
@@ -5355,8 +5441,9 @@ class FrontendMentionTypingNotFlagged(unittest.TestCase):
             let PEOPLE=[{login:'sam@example.com',name:'Sam Lee'}], META={me:{login:'me@example.com',name:'Me'}};
             const document={activeElement:null};
             class HTMLElement {}   // the preview line is an element of the page (mentionPreview checks it)
+            class HTMLTextAreaElement extends HTMLElement {}   // the field, which mentionPreview finds focused by its class
             function field(v){const box=Object.assign(new HTMLElement(),{hidden:true,innerHTML:'',replaceChildren(){this.innerHTML='';},classList:{contains:c=>c==='m-preview'}});
-              return {value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box};}
+              return Object.assign(new HTMLTextAreaElement(),{value:v,selectionStart:v.length,selectionEnd:v.length,nextElementSibling:box});}
             function show(v,focused){const ta=field(v); document.activeElement=focused?ta:null; mentionPreview(ta);
               const b=ta.nextElementSibling; return b.hidden?null:(b.innerHTML.match(/mention-bad[^>]*>@[^<]*/g)||[]).map(s=>s.split('>')[1]);}
             """,
@@ -5753,6 +5840,7 @@ class ViewerFunctions(unittest.TestCase):
         js = "\n".join(
             [
                 "const SECTION_OPEN_DEFAULT={open:true,review:true,done:false};",
+                extract_js_fn("isRecord"),
                 extract_js_fn("readSectionsExpanded"),
                 extract_js_fn("countNewInSection"),
                 r"""

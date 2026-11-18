@@ -4,24 +4,21 @@
 import {
   DEFAULT_DOC,
   DOC,
-  IS_MAC,
   KIND_NEW,
   META,
-  COARSE_POINTER_QUERY,
   OPEN_ALL,
   PINS,
   captureVisit,
   COMPOSE,
   setComposeBox,
-  setComposePendingSave,
   setComposeRetryVerdict,
   setComposeSaving,
   topPinId,
 } from '../app/state.ts';
-import { html, setHtml } from '../platform/markup.ts';
+import { togglePendingSave, syncComposeSaveButtons } from './view-save.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
 import { SECTION_SEEN } from '../platform/prefs.ts';
-import { API_WAIT, api, apiFailed } from '../platform/api.ts';
+import { API_WAIT, api, apiFailed, isApiError, isRefusal } from '../platform/api.ts';
 import {
   BANNERS,
   bannerNote,
@@ -34,17 +31,18 @@ import {
 } from '../platform/notices.ts';
 import { kindFor, wireScope } from './view-levels.ts';
 import { figureRung, figureFields } from '../pdf/view-figure.ts';
-import { renderSuggest, suggestForSave, suggestOff, suggestPending, suggestRebase } from './flow-suggest.ts';
+import { renderSuggest, suggestForSave, suggestOff, suggestRebase } from './flow-suggest.ts';
+import { SUGGEST_DRAFT, setSuggestCurrent } from './state-suggest.ts';
 import {
   cancelSelection,
   composeFields,
   composeOwns,
   focusClosed,
   focusPlace,
-  renderOverlapBanner,
   restoreSelection,
   selectionSnapshot,
-} from './flow-pick.ts';
+} from './flow-selection.ts';
+import { renderOverlapBanner } from './view-overlap.ts';
 import { clearSavedDraft, restoredDraftOwns, saveDraftSoon, savedDraftSnapshot, syncDraft } from './flow-draft.ts';
 import { assignOutcome, composeAsk, mentionHints } from './input-mentions.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
@@ -55,7 +53,6 @@ import { isMe } from '../app/state-people.ts';
 import { isRegion, pdoc, verdictLabel, viewerBlocked } from '../documents/state.ts';
 import { offlineNow } from '../documents/flow-polling.ts';
 import { composerPins, composerQueue, composerVerdict } from './state-seams.ts';
-import { SUGGEST_DRAFT } from './state-suggest.ts';
 /**
  * Append once to the displayed pin revision; conflicts keep the draft, and undo can restore only that verified prior
  * note.
@@ -78,11 +75,11 @@ async function appendToPin(id: number, text: string) {
   // The hints go along, as on a new pin and an edit: the pin's own first (its note's tags), then the ones picked for
   // this text - without them a name two people share would tag nobody, while the preview line names whom it tells.
   const hints = [...new Set((prior.mentions || []).concat(mentionHints($('#note'))))],
-    body = { note_append: text, base_rev: prior.rev || 0 } as Record<string, unknown>;
+    body: Record<string, unknown> = { note_append: text, base_rev: prior.rev || 0 };
   if (hints.length) body.mentions = hints;
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       body,
       what: '메모 덧붙이기',
       where: NOTICE_HOST.COMPOSER,
@@ -126,25 +123,13 @@ async function appendToPin(id: number, text: string) {
     syncComposeSaveButtons();
   }
 }
-/** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An
- * append also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
-function syncComposeSaveButtons() {
-  document.querySelectorAll('#btn-save,[data-act="overlap-append"],[data-act="pop-save"]').forEach((button) => {
-    (button as HTMLButtonElement).disabled = COMPOSE.saving;
-  });
-  if (suggestPending())
-    document.querySelectorAll('[data-act="overlap-append"]').forEach((button) => {
-      (button as HTMLButtonElement).disabled = true;
-    });
-  composerVerdict().drawRow();
-} // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card
 // shows it. Resolves with whether it went back (its chip waits for it, noticeAct).
-async function undoAppend(id: number, note: string, revision: number): Promise<boolean> {
+async function undoAppend(id: number, note: string, revision: number | undefined): Promise<boolean> {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/edit', {
+      id,
       body: { note: note, base_rev: revision },
       what: '되돌리기',
       where: NOTICE_HOST.LIST,
@@ -155,37 +140,6 @@ async function undoAppend(id: number, note: string, revision: number): Promise<b
   } catch (error) {}
   await composerPins().load();
   return ok;
-}
-// The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
-// banner says a save failed, else [핀 저장]; with the shortcut where there is a keyboard.
-function saveButtonLabel() {
-  const banner = BANNERS.get(NOTICE_HOST.COMPOSER),
-    label = translate(banner && banner.save ? '다시 저장' : '핀 저장');
-  return COARSE_POINTER_QUERY.matches
-    ? html`${label}`
-    : html`${label} <span class="kh">${IS_MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>`;
-}
-// docs/handbook/viewer.md §패널 정리 (드래그 직후 저장): [핀 저장] pressed right after a drag, before the pick has
-// answered, finds no COMPOSE.current to save, so the press is queued and the save runs once the pick succeeds - the
-// note is read from #note at that moment, with whatever was typed meanwhile. A failed pick or a cancelled selection
-// clears the queue. Pressing the button again cancels the queued save (a toggle), so it can be undone without a
-// separate cancel button.
-function togglePendingSave() {
-  if (COMPOSE.pendingSave) {
-    clearPendingSave();
-    return;
-  }
-  setComposePendingSave(true);
-  const button = $('#btn-save');
-  button.dataset.pending = '1';
-  setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
-}
-function clearPendingSave() {
-  if (!COMPOSE.pendingSave) return;
-  setComposePendingSave(false);
-  const button = $('#btn-save');
-  delete button.dataset.pending;
-  setHtml(button, saveButtonLabel());
 }
 // Saves the selection as a pin (or queues the save while pick runs). Saved: a chip '저장됨 [되돌리기]' on the new pin's
 // mark for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and - only once that
@@ -237,7 +191,7 @@ async function savePin(verdict?: string) {
     !SUGGEST_DRAFT.on
   )
     verdict = retry.key;
-  let body = {
+  let body: Record<string, unknown> = {
     file: selection.file,
     name: selection.name,
     page: selection.page,
@@ -253,7 +207,7 @@ async function savePin(verdict?: string) {
     note: note,
     quote: selection.quote,
     pdf_build: selection.pdf_build || undefined,
-  } as Record<string, unknown>;
+  };
   if (selection.scope) {
     body.scope = wireScope(selection.scope);
     body.kind = kindFor(selection.scope, selection.env);
@@ -284,7 +238,7 @@ async function savePin(verdict?: string) {
   // the server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as
   // going until the queue has answered: let go before that, a second press while the store is still opening would keep
   // the same selection twice, under two keys, and reconnecting would write two pins.
-  if ((selection as any).offline || offlineNow()) {
+  if (selection.offline || offlineNow()) {
     const done = () => {
       setComposeSaving(false);
       syncComposeSaveButtons();
@@ -336,8 +290,9 @@ async function savePin(verdict?: string) {
   // A plain pin - no verdict, no suggested edit - is one the queue can keep. It goes with a key where the server knows
   // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
   // of failing here (below).
-  const plain = !verdict && !suggestion;
-  if (plain && composerQueue().keyed()) body.idem = composerQueue().key();
+  const plain = !verdict && !suggestion,
+    idem = plain && composerQueue().keyed() ? composerQueue().key() : undefined;
+  if (idem !== undefined) body.idem = idem;
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
@@ -359,22 +314,20 @@ async function savePin(verdict?: string) {
   const top = topPinId(); // a save whose answer is lost is looked for above it before it is called a failure
   try {
     let status = 0,
-      data = null as any;
+      data: PinSaved | SaveConflict | null = null;
     const ask = {
-      method: 'POST',
       body,
       what: verdict ? '판정 저장' : '핀 저장',
       where: NOTICE_HOST.COMPOSER,
       save: true,
-      expect: suggestion ? [409] : [],
+      expect: suggestion ? ([409] as const) : [],
       wait: API_WAIT.SAVE,
       quietUnreached: plain,
     };
     try {
-      ({ status, data } = await api('/api/pin', ask));
+      ({ status, data } = await api('POST /api/pin', ask));
     } catch (error) {
-      const failure = error as ApiError;
-      if (failure && failure.status) throw error;
+      if (isApiError(error) && error.status) throw error;
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict,
       // newer than any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시
       // 저장] would make it twice.
@@ -397,9 +350,9 @@ async function savePin(verdict?: string) {
         // said above the save row with [다시 저장]; so is a pin the queue will not take.
         if (
           plain &&
-          failure &&
-          failure.name === 'AbortError' &&
-          (await composerQueue().save(selection, note, out, hints, { idem: body.idem as string | undefined, top }))
+          error instanceof Error &&
+          error.name === 'AbortError' &&
+          (await composerQueue().save(selection, note, out, hints, { idem, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
           if (failed && failed.save) endNotice(failed, false);
@@ -426,10 +379,13 @@ async function savePin(verdict?: string) {
       data = { id: got.id };
       sourceOk('POST /api/pin');
     }
-    if (status === 409) {
-      suggestSaveRefused(selection, data);
+    // the expected 409 (a suggested edit's lines changed meanwhile) is a refusal's body (isRefusal); a pin saved is not
+    if (status === 409 || isRefusal(data)) {
+      suggestSaveRefused(selection, isRefusal(data) ? data : null);
       return;
     }
+    // a 2xx whose body was no JSON names no pin: the save ends as one that failed, unsaid (below)
+    if (!data) throw new Error('POST /api/pin answered no pin');
     const id = data.id,
       failed = BANNERS.get(NOTICE_HOST.COMPOSER);
     if (failed && failed.save) endNotice(failed, false); // this save went through: its earlier failure is over
@@ -471,13 +427,14 @@ async function savePin(verdict?: string) {
         };
     const word = verdict ? verdictLabel(verdict) : '',
       figureRoot = verdict ? composerVerdict().figureRoot(selection) : null; // a figure's verdict names the figure
-    const said = figureRoot
-      ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
-          id,
-          word: word,
-          target: composerVerdict().figureShort(selection.page, figureRoot),
-        })
-      : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
+    const said =
+      figureRoot && selection.page !== undefined
+        ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
+            id,
+            word: word,
+            target: composerVerdict().figureShort(selection.page, figureRoot),
+          })
+        : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
     const chip = verdict
       ? undoNote(
           NOTICE_PLACE.CHIP,
@@ -514,7 +471,7 @@ async function savePin(verdict?: string) {
 // current text against the draft and the banner over the save row offers [지금 원문으로 맞추기] (the draft keeps its
 // text and takes that text as its base); any other 409 is said as the failure it is. Either way the save row reads
 // [다시 저장].
-function suggestSaveRefused(selection: Selection, data: any) {
+function suggestSaveRefused(selection: ComposerSelection, data: SaveConflict | null) {
   const source = 'POST /api/pin',
     head = translateTemplate('{what} 실패', { what: translate('핀 저장') });
   if (!(data && data.reason === 'suggest_base_changed')) {
@@ -524,13 +481,13 @@ function suggestSaveRefused(selection: Selection, data: any) {
     });
     return;
   }
-  if (COMPOSE.current === selection) {
-    SUGGEST_DRAFT.current = {
+  if (COMPOSE.current === selection && typeof selection.lo === 'number' && typeof selection.hi === 'number') {
+    setSuggestCurrent({
       text: String(data.current || ''),
       file: selection.file || null,
-      lo: selection.lo as number,
-      hi: selection.hi as number,
-    };
+      lo: selection.lo,
+      hi: selection.hi,
+    });
     renderSuggest(selection);
   }
   bannerNote(
@@ -559,4 +516,4 @@ function suggestSaveRefused(selection: Selection, data: any) {
     { save: true, source },
   );
 }
-export { appendToPin, clearPendingSave, saveButtonLabel, savePin, syncComposeSaveButtons };
+export { appendToPin, savePin };

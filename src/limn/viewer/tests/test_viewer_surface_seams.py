@@ -249,9 +249,11 @@ class HandingTheSelection(unittest.TestCase):
         got = run(
             self.SELECTION,
             extract_js_fn("selectionOpen"),
+            extract_js_fn("eventElement"),
             extract_js_fn("pressOutsideSelection"),
             r"""
-            const press={target:{closest:()=>null},offsetX:1,offsetY:1,clientX:1,clientY:1};
+            class Element { closest() { return null; } }
+            const press={target:new Element(),offsetX:1,offsetY:1,clientX:1,clientY:1};
             pressOutsideSelection(press); POPOVER_OPEN=true; pressOutsideSelection(press); console.log(JSON.stringify(LOG));
             """,
         )
@@ -312,7 +314,7 @@ class PickingLines(unittest.TestCase):
     let DOC='a',REPICK=null,PICKSEQ=0,LAYOUT='wide',LAST_POINTER='touch',PINS=[]; var LAYOUT_MODE={WIDE:'wide'};
     const MARKDOWN_VIEW={heads:[],file:'a.md',name:'a.md',lines:['x','y']}; const COMPOSE={intent:0};
     const ELS={}; function $(s){return ELS[s]||(ELS[s]={hidden:true,scrollTop:1,focus(){}});}
-    const document={querySelector:()=>null};
+    const document={querySelector:()=>null}; class HTMLElement {}
     function isTextDoc(){return false;} function markdownLevels(){return [];} function levelOf(){return null;}
     function lineSnippet(){return '';} function endTopic(){} function setPickseq(v){PICKSEQ=v;}
     function useLevel(){LOG.push(['useLevel']);} function setSide(){LOG.push(['setSide']);} function applySide(){}
@@ -333,6 +335,7 @@ class PickingLines(unittest.TestCase):
         the snippet folds and before the selection is revealed."""
         got = run_lines(
             extract_js_fn("pickLines"),
+            extract_js_fn("findMaybe"),
             self.PICK,
             "pickLines({lo:1,hi:2},null,null,'q',false); console.log(JSON.stringify(LOG));",
         )
@@ -397,6 +400,7 @@ class DrawingTheLines(unittest.TestCase):
             function showDocumentNode(node){LOG.push(['show',node.id]);}
             function compareRedrawnSource(doc){LOG.push(['compare',doc]);}
             """,
+            extract_js_fn("isRefusal"),
             extract_js_fn("buildMarkdownDoc"),
             "(async()=>{await buildMarkdownDoc(); LOG.push(['--']); GONE=true; await buildMarkdownDoc();"
             "console.log(JSON.stringify(LOG));})();",

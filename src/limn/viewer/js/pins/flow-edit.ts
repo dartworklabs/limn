@@ -1,8 +1,9 @@
 // ------------------------------------------------ Edit
 import { PINS, rendersInBrowser, EDITOR, setEditorCurrent, setEditorSaving } from '../app/state.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
+import { findElement } from '../platform/dom.ts';
 import { errText, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import { bannerNote, quietNote } from '../platform/notices.ts';
 import { viaDoc } from '../documents/flow-switch.ts';
 import { kindFor, wireScope } from '../composer/view-levels.ts';
@@ -82,7 +83,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
 <button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${TIP_TEXT.ecancel}">취소</button>\
 <button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${TIP_TEXT.esave}">저장</button></div>`,
   );
-  const noteField = cardElement.querySelector('.e-note') as HTMLTextAreaElement;
+  const noteField = findElement(cardElement, '.e-note', HTMLTextAreaElement);
   noteField.value = pin.note || '';
   noteField._mentions = new Set(pin.mentions || []);
   autoGrow(noteField);
@@ -134,9 +135,9 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   editSnip(true);
 }
 document.addEventListener('input', (event) => {
-  const target = event.target as HTMLElement;
+  const target = event.target;
   if (
-    target.classList &&
+    target instanceof HTMLElement &&
     (target.classList.contains('e-note') || target.classList.contains('r-text') || target.id === 'note')
   )
     autoGrow(target);
@@ -156,9 +157,9 @@ async function editSnip(withLevels: boolean) {
     return;
   } // view-only: there is no source line
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' +
           encodeURIComponent(String(card.file)) +
           '&lo=' +
           card.lo +
@@ -167,10 +168,11 @@ async function editSnip(withLevels: boolean) {
           (withLevels ? '&levels=1' : ''),
         card.doc,
       ),
-      { what: '원문 읽기', expect: [400] },
-    );
+      what: '원문 읽기',
+      expect: [400],
+    });
     if (EDITOR.current !== card) return;
-    if (status === 400) {
+    if (status === 400 || isRefusal(data)) {
       card.snippet =
         translate('원문을 읽지 못했습니다') + ' — ' + errText(data) + '\n' + translate('위치 다시 잡기로 고치세요.');
       renderEdit();
@@ -212,7 +214,7 @@ async function saveEdit() {
   if (!card || EDITOR.saving || viewerBlocked()) return;
   const note = editNote(card).value,
     body: {
-      base_rev: number;
+      base_rev: number | undefined;
       note?: string;
       kind_req?: string;
       assignee?: string;
@@ -266,8 +268,8 @@ async function saveEdit() {
   setEditorSaving(true);
   syncEditSaveButton();
   try {
-    const { status, data } = await api('/api/pins/' + card.id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id: card.id,
       body,
       what: '핀 수정',
       where: NOTICE_HOST.LIST,
@@ -275,11 +277,11 @@ async function saveEdit() {
       intent: 'edit',
     });
     if (status === 409) {
-      if (data && data.reason === 'suggest_base_changed') {
+      if (isRefusal(data) && data.reason === 'suggest_base_changed') {
         editSuggestRefused(card, data);
         return;
       }
-      if (data && data.error === PIN_STATE.DONE) {
+      if (isRefusal(data) && data.error === PIN_STATE.DONE) {
         bannerNote(
           NOTICE_HOST.LIST,
           translateTemplate('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다', { id: card.id }),
@@ -399,15 +401,13 @@ function editTheirs(card: EditCard) {
 }
 // An edit the server answered 409 suggest_base_changed: nothing was saved and the card keeps its draft. The editor
 // shows the lines' current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps
-// its text and takes that text as its base); then [저장] again.
-function editSuggestRefused(card: EditCard, data: any) {
+// its text and takes that text as its base); then [저장] again. A card that holds a suggestion is a line pin's, so it
+// has its lines.
+function editSuggestRefused(card: EditCard, data: PinConflict) {
   if (editorOwns(card)) {
-    card.sg.current = {
-      text: String(data.current || ''),
-      file: card.file || null,
-      lo: card.lo as number,
-      hi: card.hi as number,
-    };
+    const { lo: low, hi: high } = card;
+    if (low !== undefined && high !== undefined)
+      card.sg.current = { text: String(data.current || ''), file: card.file || null, lo: low, hi: high };
     renderEdit();
   }
   bannerNote(

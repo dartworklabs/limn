@@ -32,6 +32,7 @@ import {
   setZoomed,
   COMPOSE,
   EDITOR,
+  OUTLINE_MID_OPEN,
 } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
@@ -39,18 +40,19 @@ import { lineNote, noticeSeen } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import {
   SHEET_KEPT,
-  SIDE_SHOWN,
-  applyOutlineState,
   applySheet,
   applySideWidth,
   renderSizeSegment,
   setSheetKept,
+  showOutlineWidth,
+  outlineOverlay,
+  panelField,
 } from './flow-panel-size.ts';
-import { syncBackLayer } from './input.ts';
-import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, typingNow, $$ } from '../platform/dom.ts';
+import { syncBackLayer, sheetDialog, backLayer } from './flow-back.ts';
+import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
+import { $, findElement, typingNow, findAll, focusedElement } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
-
+import { gripAria } from './view-panel-grip.ts';
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
 // registers them before boot() runs (no code that runs while the script loads lays out the page), and the frame calls
 // each at the point, with the arguments and in the order it called the feature code directly. A call before the
@@ -136,7 +138,7 @@ function layoutFor(width: number, height: number, coarse: boolean) {
 }
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput() {
-  return { w: innerWidth, h: innerHeight, coarse: COARSE_POINTER_QUERY.matches };
+  return { w: window.innerWidth, h: window.innerHeight, coarse: COARSE_POINTER_QUERY.matches };
 }
 type BandInput = ReturnType<typeof bandInput>;
 // Keeping the band steady on touch (docs/handbook/viewer.md §모바일 레이아웃): a height change under BAND_HOLD_PX from
@@ -216,10 +218,10 @@ function applyLayout() {
 // back yet (its bar not shown before applySide) is returned, and applyLayout tries again.
 function placeBarTools() {
   const bar = $('#bar1'),
-    leftGroup = bar.querySelector('.bar-l') as HTMLElement,
-    rightGroup = bar.querySelector('.bar-r') as HTMLElement;
+    leftGroup = findElement(bar, '.bar-l', Element),
+    rightGroup = findElement(bar, '.bar-r', Element);
   const selectButton = $('#btn-select'),
-    focused = document.activeElement as HTMLElement | null,
+    focused = focusedElement(),
     had = !!focused && bar.contains(focused);
   if (LAYOUT === LAYOUT_MODE.MID) {
     if (bar.firstElementChild !== selectButton) bar.prepend(selectButton);
@@ -235,12 +237,6 @@ function placeBarTools() {
   }
   if (had && focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
   return had && focused && document.activeElement !== focused ? focused : null;
-}
-// Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN,
-// never saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the
-// document.
-function outlineOverlay() {
-  return LAYOUT === LAYOUT_MODE.MID || BAND === LAYOUT_BAND.TABLET_SHEET;
 }
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation.
 // Collapsing by a drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
@@ -282,38 +278,14 @@ function applySide() {
   for (const toggle of [$('#btn-side'), $('#nav-side')]) {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', toggle.id === 'btn-side' && LAYOUT !== LAYOUT_MODE.WIDE ? sheet : label);
-    toggle.querySelector('.side-n').textContent = pinCount;
-    toggle.querySelector('.c-dot').hidden = !dot;
+    findElement(toggle, '.side-n', HTMLElement).textContent = String(pinCount);
+    findElement(toggle, '.c-dot', HTMLElement).hidden = !dot;
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
   frameHost().updateReviewCount();
-  syncBackLayer();
+  syncBackLayer(closeTopLayer);
   frameHost().syncBuildErrorChip();
-}
-// The open handle's hint (the markup's, translated by translate()).
-const GRIP_TIP = $('#grip').dataset.tip;
-// The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
-// wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
-function gripAria() {
-  const grip = $('#grip'),
-    shown = SIDE_SHOWN;
-  if (!SIDE_OPEN) {
-    grip.setAttribute('aria-valuenow', '0');
-    grip.setAttribute('aria-valuemin', '0');
-    grip.setAttribute('aria-label', translate('패널 폭') + ' · ' + translate('접힘'));
-    grip.dataset.tip = translate(
-      '끌어서 핀 패널을 폅니다. 두 번 클릭(터치는 탭)하거나 Enter 를 누르면 전에 쓰던 폭으로 폅니다',
-    );
-    return;
-  }
-  grip.setAttribute('aria-label', translate('패널 폭'));
-  grip.dataset.tip = translate(GRIP_TIP);
-  if (shown) {
-    grip.setAttribute('aria-valuenow', shown.w);
-    grip.setAttribute('aria-valuemin', shown.min);
-    grip.setAttribute('aria-valuemax', shown.max);
-  }
 }
 // Opens or collapses the pin panel in every layout (the wide side panel, the mid side or overlay panel, the narrow
 // sheet). remember = the user did it (a toggle, Ctrl+\, a handle drag or key, a swipe): wide keeps it per device in
@@ -349,7 +321,7 @@ function setSide(open: boolean, remember?: boolean, slide?: boolean) {
 // The panel's slide (0.18s; none with reduced motion, and none beside the document at 901-1099px, where the page
 // re-fits instead). While it slides out the body keeps side-open, so the layout does not jump until it is gone.
 const SLIDE_MS = 180;
-let SIDE_SLIDE = null as { kind: string; t: ReturnType<typeof setTimeout> } | null;
+let SIDE_SLIDE: { kind: string; t: ReturnType<typeof setTimeout> } | null = null;
 // The slide's length for this layout in ms: 0 with reduced motion, beside the document (901-1099px) and for the narrow
 // sheet.
 function slideMs() {
@@ -414,6 +386,10 @@ function relayout() {
   if (changed && META) for (const listener of listeners) listener.layoutChanged?.();
   applySideWidth();
   applyOutlineState();
+  // Before the first meta there is no document to fit: while the PDF area is drawn, the fit to its width and every step
+  // after it wait for boot(), which fits the pages it draws. A PDF area that is not drawn (the changes view) has nothing
+  // to fit, and the steps after the fit go on.
+  if (!META && $('#left').getClientRects().length) return;
   for (const listener of listeners) listener.widthsApplied?.();
   restoreAnchor(anchor);
   for (const listener of listeners) listener.anchorRestored?.();
@@ -452,7 +428,7 @@ if (window.ResizeObserver)
 // text field has focus, and the scroller's scroll padding keeps a field scrolled into view below it (responsive.css). A
 // long file name wraps the line past its 44px, so it is measured; 0 while the composer is hidden.
 if (window.ResizeObserver) {
-  const row = $('#composer .c-loc-row');
+  const row = findElement(document, '#composer .c-loc-row', HTMLElement);
   new ResizeObserver(() => {
     document.documentElement.style.setProperty('--loc-h', row.offsetHeight + 'px');
   }).observe(row, { box: 'border-box' });
@@ -542,8 +518,8 @@ function onViewport() {
   }
 }
 document.addEventListener('focusin', (event) => {
-  const target = event.target as HTMLElement;
-  if (LAYOUT !== LAYOUT_MODE.WIDE && target && target.tagName === 'TEXTAREA' && $('#right').contains(target))
+  const target = event.target;
+  if (LAYOUT !== LAYOUT_MODE.WIDE && target instanceof HTMLTextAreaElement && $('#right').contains(target))
     setTimeout(() => {
       if (BAND === LAYOUT_BAND.TABLET_SHEET) keepFieldInView();
       else {
@@ -561,10 +537,10 @@ document.addEventListener('focusin', (event) => {
 // into the field with the focus. It is done on the key and not on the focus because a tap's own caret lands after
 // focusin - and once per turn in the field, before that key is handled, so the key itself lands.
 // The field whose caret has been put since it took the focus.
-let CARET_HELD = null as EventTarget | null;
+let CARET_HELD: EventTarget | null = null;
 function holdCaret(event: KeyboardEvent) {
-  const field = event.target as HTMLInputElement;
-  if (!field || field === CARET_HELD || typeof field.setSelectionRange !== 'function') return;
+  const field = event.target;
+  if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) || field === CARET_HELD) return;
   CARET_HELD = field;
   const at = field.selectionStart;
   // A selection is the person's.
@@ -647,8 +623,10 @@ function fieldRoom(field: HTMLElement, key: string, shift: boolean) {
 function fieldScrollKey(event: KeyboardEvent) {
   const key = event.key;
   if (!READ_ONLY_KEYS.has(key) || event.metaKey || event.ctrlKey || event.altKey || !typingNow()) return;
-  const field = document.activeElement as HTMLInputElement,
-    isReadOnly = field.readOnly === true;
+  const field = document.activeElement;
+  // typingNow() has said it is a text field: a textarea, a text input or editable content.
+  if (!(field instanceof HTMLElement)) return;
+  const isReadOnly = (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && field.readOnly;
   if (isReadOnly) {
     // Shift with a moving key moves nothing outside (Firefox selects, Chromium keeps the selection).
     if (event.shiftKey && key !== ' ') return;
@@ -668,11 +646,6 @@ function fieldScrollKey(event: KeyboardEvent) {
   event.preventDefault();
 }
 document.addEventListener('keydown', fieldScrollKey, true);
-// The panel's text field that has focus (a note, an edit or a reply), or null.
-function panelField() {
-  const focused = document.activeElement;
-  return typingNow() && $('#right').contains(focused) ? focused : null;
-}
 // performance.now() of the last pointerup: a focus change that soon after is that press's.
 let TYPING_PRESS = -1e9;
 document.addEventListener(
@@ -726,7 +699,7 @@ function keepFieldInView() {
   // Touch only: a mouse window keeps its own scroll.
   if (!field || !COARSE_POINTER_QUERY.matches) return;
   if (field === $('#note') && BAND === LAYOUT_BAND.TABLET_SHEET)
-    $('#composer .c-loc-row').scrollIntoView({ block: 'start' });
+    findElement(document, '#composer .c-loc-row', HTMLElement).scrollIntoView({ block: 'start' });
   field.scrollIntoView({ block: 'nearest' });
   if (field === $('#note')) noteRowInView();
 }
@@ -738,7 +711,7 @@ function noteRowInView() {
   const row = $('#c-verdict-row');
   if (row.hidden || !row.getClientRects().length) return;
   const panel = $('#right'),
-    loc = $('#composer .c-loc-row'),
+    loc = findElement(document, '#composer .c-loc-row', HTMLElement),
     stuck = getComputedStyle(loc).position === 'sticky';
   const save = $('#c-actions').getBoundingClientRect().top - 8;
   const top = stuck
@@ -754,7 +727,8 @@ function noteRowInView() {
 // on the status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel
 // ('side').
 function coach(key: string, text: string) {
-  const seen = Object.assign({}, prefs().coach || {});
+  const kept = prefs().coach,
+    seen: Record<string, unknown> = Object.assign({}, isRecord(kept) ? kept : {});
   if (seen[key]) return;
   seen[key] = 1;
   savePrefs({ coach: seen });
@@ -777,7 +751,7 @@ function setSelectMode(on: boolean) {
   document.body.classList.toggle('selmode', SELMODE);
   const button = $('#btn-select');
   button.setAttribute('aria-pressed', String(SELMODE));
-  (button.querySelector('.lbl') as HTMLElement).textContent = translate(SELMODE ? '선택 중' : '선택');
+  findElement(button, '.lbl', Element).textContent = translate(SELMODE ? '선택 중' : '선택');
   $('#sel-sr').textContent = SELMODE ? $('#sel-bar-t').textContent : '';
   if (SELMODE) fitSelectModeBar();
   else if ($('#sel-bar').contains(document.activeElement)) button.focus({ preventScroll: true });
@@ -869,10 +843,10 @@ function footInk() {
     help = foot && foot.querySelector('[data-act=help]'),
     version = foot && foot.querySelector('.m-ver');
   if (!help || !version) return;
-  const labelText = [...help.childNodes].find((node) => node.nodeType === 3 && node.nodeValue.trim()),
+  const labelText = [...help.childNodes].find((node): node is Text => node instanceof Text && node.data.trim() !== ''),
     chevron = help.querySelector('svg');
   if (!labelText) return;
-  const label = labelText.nodeValue.trim(),
+  const label = labelText.data.trim(),
     hangul = hangulOf(label),
     labelInk = inkMetrics(help, label);
   const drops = inkDrops(hangul ? inkMetrics(help, hangul).d : 0, inkMetrics(version, version.textContent.trim()).d);
@@ -894,13 +868,13 @@ function footInk() {
   foot.style.setProperty('--help-chev', inkMiddle - (chevronRect.top + chevronRect.height / 2) + 'px');
 }
 // inkMetrics()'s canvas context, made on first use.
-let INK_CONTEXT = null as CanvasRenderingContext2D | null;
+let INK_CONTEXT: CanvasRenderingContext2D | null = null;
 // The ink of a text in an element's font as {a, d}: how far it rises above and reaches below the baseline (px), from
 // the canvas's text metrics read at 64 times the size, because the canvas rounds them to whole pixels.
 function inkMetrics(element: Element, text: string) {
-  const context = (INK_CONTEXT ||
-      (INK_CONTEXT = document.createElement('canvas').getContext('2d'))) as CanvasRenderingContext2D,
-    scale = 64,
+  const context = INK_CONTEXT || (INK_CONTEXT = document.createElement('canvas').getContext('2d'));
+  if (!context) throw new Error('inkMetrics: no 2D canvas context');
+  const scale = 64,
     barStyle = getComputedStyle(element);
   context.font =
     barStyle.fontStyle +
@@ -940,7 +914,7 @@ document.fonts.addEventListener('loadingdone', () => {
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
-  $(dialogSelector).addEventListener('click', (event: MouseEvent) => {
+  findElement(document, dialogSelector, HTMLDialogElement).addEventListener('click', (event: MouseEvent) => {
     const dialog = event.currentTarget;
     if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
@@ -966,11 +940,11 @@ function topAnchor(offset?: number) {
     top = scrollerTop + (offset || 0),
     atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
     edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
+  for (const pageElement of findAll(document, '.pg', HTMLElement)) {
     const rect = pageElement.getBoundingClientRect();
     if (rect.bottom > top + edge)
       return {
-        page: +pageElement.dataset.page,
+        page: Number(pageElement.dataset.page),
         frac: Math.max(0, (top - rect.top) / rect.height),
         gap: Math.max(0, rect.top - top),
         atTop,
@@ -1004,6 +978,51 @@ function restoreAnchor(anchor: ReturnType<typeof topAnchor> | { page: number; fr
   scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (('gap' in anchor && anchor.gap) || 0);
 }
 
+// Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
+// own, unsaved) and syncs the back layer. The wide outline follows pinPrefs.outlineClosed; until one is saved it starts
+// open with a mouse and collapsed on touch. The phone has no outline (CSS), so it draws no width.
+function applyOutlineState() {
+  const preferences = prefs(),
+    closed = outlineOverlay()
+      ? !OUTLINE_MID_OPEN
+      : typeof preferences.outlineClosed === 'boolean'
+        ? preferences.outlineClosed
+        : COARSE_POINTER_QUERY.matches;
+  document.body.classList.toggle('outline-collapsed', closed);
+  const toggle = $('#nav-toc-toggle');
+  toggle.setAttribute('aria-expanded', String(!closed));
+  toggle.setAttribute('aria-label', closed ? '목차 펼치기' : '목차 접기');
+  if (BAND !== LAYOUT_BAND.PHONE)
+    showOutlineWidth(typeof preferences.outlineWidth === 'number' ? preferences.outlineWidth : 240);
+  syncBackLayer(closeTopLayer); // the mid outline overlay is a layer the back gesture closes
+}
+// Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin
+// panel as it opens; wide remembers it in pinPrefs.outlineClosed.
+function toggleOutline() {
+  const anchor = topAnchor(),
+    closed = !document.body.classList.contains('outline-collapsed');
+  if (outlineOverlay()) {
+    setOutlineMidOpen(!closed);
+    if (!closed) setSide(false);
+  } else savePrefs({ outlineClosed: closed });
+  applyOutlineState();
+  relayout();
+  restoreAnchor(anchor);
+  $('#nav-toc-toggle').focus({ preventScroll: true });
+}
+
+// The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
+// (remembered, with the slide).
+function closeTopLayer() {
+  const dialog = sheetDialog(),
+    layer = backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !!dialog);
+  if (layer === 'dialog') dialog?.close();
+  else if (layer === 'outline') toggleOutline();
+  else if (layer === 'side') {
+    setSide(false, true, true);
+    focusSideToggle();
+  }
+}
 export {
   onRelayout,
   setFrameHost,
@@ -1017,11 +1036,8 @@ export {
   draftOpen,
   finishSideSlide,
   focusSideToggle,
-  gripAria,
   headInk,
   openMore,
-  outlineOverlay,
-  panelField,
   relayout,
   setSelectMode,
   setSide,
@@ -1029,4 +1045,7 @@ export {
   toggleSide,
   topAnchor,
   restoreAnchor,
+  applyOutlineState,
+  toggleOutline,
+  closeTopLayer,
 };

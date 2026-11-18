@@ -2,7 +2,7 @@
 // A pin's mark on the page sits under its badge, the open composer or the panel: where the badge stands (markBadgeSides),
 // which marks something covers, and bringing a covered mark into view; the mark Tab stops among them.
 import { pageNoSides } from '../pdf/view-pages.ts';
-import { $$, $ } from '../platform/dom.ts';
+import { $, findAll } from '../platform/dom.ts';
 import { markBadgeRoom, markBadgeIn, markHitSides } from '../pdf/view-badges.ts';
 import { pendingBadgeSide } from '../pdf/input-selection.ts';
 import { MARK_HIDDEN, TIP_AT, armedTipElement, hideTip, keyInput } from '../platform/tooltip.ts';
@@ -13,14 +13,14 @@ import { endJumpForScroll } from '../layout/flow-scroll.ts';
 // again.
 function markBadgeSides() {
   pageNoSides();
-  const rooms = new Map();
-  $$('.mark').forEach((mark) => {
+  const rooms = new Map<HTMLElement | null, ReturnType<typeof markBadgeRoom>>();
+  findAll(document, '.mark', HTMLElement).forEach((mark) => {
     const page = mark.parentElement;
     if (!rooms.has(page)) rooms.set(page, markBadgeRoom(page));
     const room = rooms.get(page);
-    if (room) mark.classList.toggle('in', markBadgeIn(+mark.dataset.fx, room.w, room.pad, room.reach));
+    if (room) mark.classList.toggle('in', markBadgeIn(Number(mark.dataset.fx), room.w, room.pad, room.reach));
   });
-  $$('.sel.pending').forEach(pendingBadgeSide);
+  findAll(document, '.sel.pending', HTMLElement).forEach(pendingBadgeSide);
   markHitSides();
   markCoverSkip();
 } // the pending boxes' '+' badges follow the same rule
@@ -49,8 +49,8 @@ function markView(): { left: number; top: number; right: number; bottom: number 
   return {
     left: Math.max(rect.left, 0),
     top: Math.max(rect.top, 0),
-    right: Math.min(rect.right, innerWidth),
-    bottom: Math.min(rect.bottom, innerHeight),
+    right: Math.min(rect.right, window.innerWidth),
+    bottom: Math.min(rect.bottom, window.innerHeight),
   };
 }
 /** The covers' boxes laid out over the view, each cut to it. */
@@ -90,7 +90,7 @@ function markShift(
     );
   }
   const height = badge.bottom - badge.top;
-  let best = null as number | null;
+  let best: number | null = null;
   for (const [top, bottom] of spans) {
     if (bottom - top < height) continue;
     const margin = badge.top >= top && badge.bottom <= bottom ? 0 : Math.min(MARK_EDGE, (bottom - top - height) / 2);
@@ -118,7 +118,7 @@ function markCoverSkip() {
     covers = markCoverBoxes(view),
     minScroll = -pane.scrollTop,
     maxScroll = pane.scrollHeight - pane.clientHeight - pane.scrollTop;
-  const badges = $$('.mark button.mark-jump') as HTMLElement[];
+  const badges = findAll(document, '.mark button.mark-jump', HTMLElement);
   const at = badges.map((badge) => {
     const rect = badge.getBoundingClientRect();
     if (!rect.width) return { stop: 0, hid: false };

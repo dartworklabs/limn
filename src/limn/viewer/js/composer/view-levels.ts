@@ -13,7 +13,7 @@ import { lineRange } from '../app/rules-pins.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 /** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
-type RangeOwner = Selection | EditCard;
+type RangeOwner = ComposerSelection | EditCard;
 /** A range owner on lines: its file and both end lines are there, as on every owner that is not a region. */
 type LineOwner = RangeOwner & { file: string; lo: number; hi: number };
 function onLines(owner: RangeOwner): owner is LineOwner {
@@ -197,7 +197,7 @@ function fadeSegmentEdges(control: HTMLElement) {
   const over = control.scrollWidth - control.clientWidth;
   control.classList.toggle('fade-l', over > 1 && control.scrollLeft > 1);
   control.classList.toggle('fade-r', over > 1 && over - control.scrollLeft > 1);
-  const on = control.dataset.reveal === 'whole' ? (control.querySelector('.on') as HTMLElement | null) : null;
+  const on = control.dataset.reveal === 'whole' ? control.querySelector('.on') : null;
   if (!on) return;
   const controlRect = control.getBoundingClientRect(),
     segmentRect = on.getBoundingClientRect(),
@@ -208,8 +208,8 @@ function fadeSegmentEdges(control: HTMLElement) {
 document.addEventListener(
   'scroll',
   (event) => {
-    const target = event.target as HTMLElement;
-    if (target && target.classList && target.classList.contains('seg')) fadeSegmentEdges(target);
+    const target = event.target;
+    if (target instanceof HTMLElement && target.classList.contains('seg')) fadeSegmentEdges(target);
   },
   true,
 );
@@ -263,8 +263,8 @@ function takeRangeBoxes(owner: LineOwner, answer: SnippetAnswer) {
 // would show the person the span they dragged as the pin's range, which is the one thing this is here to stop. A
 // document whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that
 // element, and a document drawn in the browser has no page to draw a box on.
-function followRange(selection: Selection, box: HTMLElement | null, after: () => void) {
-  if (!box || isFigureKind(META && META.kind) || !onLines(selection)) return;
+function followRange(selection: ComposerSelection, box: HTMLElement | null, after: () => void) {
+  if (!box || isFigureKind(META ? META.kind : undefined) || !onLines(selection)) return;
   const pieces = rangeBoxes(selection);
   if (!pieces) {
     refetchSnip(selection, after);
@@ -274,7 +274,7 @@ function followRange(selection: Selection, box: HTMLElement | null, after: () =>
 }
 // Where the drag that began the selection was made - its page and its rectangle as it was sent - which a range with no
 // pieces puts the box back on; null when the answer carries neither.
-function draggedPlace(selection: Selection) {
+function draggedPlace(selection: ComposerSelection) {
   return typeof selection.page === 'number' && isFrac(selection.frac)
     ? { page: selection.page, frac: selection.frac }
     : null;
@@ -296,9 +296,9 @@ function refetchSnip(owner: LineOwner, after: () => void) {
   clearTimeout(composing ? COMPOSE_SNIPPET_TIMER : EDIT_SNIPPET_TIMER);
   const wait = setTimeout(async () => {
     try {
-      const { data }: { data: SnippetAnswer } = await api(
-        withDocQuery(
-          '/api/snippet?file=' +
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery(
+          '?file=' +
             encodeURIComponent(owner.file) +
             '&lo=' +
             owner.lo +
@@ -307,8 +307,8 @@ function refetchSnip(owner: LineOwner, after: () => void) {
             (composing ? '&levels=1&boxes=1' : ''),
           owner.doc,
         ),
-        { what: '원문 읽기' },
-      );
+        what: '원문 읽기',
+      });
       if (
         (owner === EDITOR.current || (owner === COMPOSE.current && currentVisit(visit))) &&
         data.lo === owner.lo &&
@@ -349,7 +349,7 @@ const VIA_HIDE = 90,
   VIA_SURE_SCORE = 75,
   VIA_SURE_FILL = 95;
 /** Whether a map pick that is under VIA_HIDE is surely the element the drag meant (see above). */
-function mapSure(pick: any, percent: number) {
+function mapSure(pick: ComposerSelection | Pin, percent: number) {
   return (
     pick.via === VIA.MAP &&
     pick.rival === false &&
@@ -358,7 +358,7 @@ function mapSure(pick: any, percent: number) {
     Math.round(pick.fill * 100) >= VIA_SURE_FILL
   );
 }
-function viaTag(pick: Selection | Pin) {
+function viaTag(pick: ComposerSelection | Pin) {
   if (!pick.via || pick.score == null || (pick.via === VIA.SYNCTEX && !pick.score && !pick.quote)) return null;
   const percent = Math.round((+pick.score || 0) * 100);
   if (percent >= VIA_HIDE || mapSure(pick, percent)) return null;

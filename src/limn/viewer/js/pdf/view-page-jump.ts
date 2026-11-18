@@ -85,7 +85,7 @@ function figureTop(pageNumber: number) {
 }
 // Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
 function goPage(entry?: number) {
-  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
+  arrivePage(parseInt(entry === undefined ? $('#jump').value : String(entry), 10));
 }
 // The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
 // empty or non-number entry, which goes nowhere. Pure.

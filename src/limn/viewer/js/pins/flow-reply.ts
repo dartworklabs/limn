@@ -5,68 +5,43 @@
 // whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
 // the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
 // Sending is deferred behind an undo in the card, where the box was (deferredNote).
-import { OPEN_CARDS, PEOPLE, REPLY, REPLY_DRAFT, REPLY_VISITS, SIDE_OPEN, setReply } from '../app/state.ts';
-import { html, setHtml } from '../platform/markup.ts';
+import {
+  OPEN_CARDS,
+  REPLY,
+  setReplyFlip,
+  REPLY_DRAFT,
+  REPLY_VISITS,
+  SIDE_OPEN,
+  setReply,
+  findAnyPin,
+} from '../app/state.ts';
+import {
+  replyReopens,
+  replyMentioned,
+  createReplyBox,
+  renderReplyOutcome,
+  replyNote,
+  parkReply,
+} from './view-reply.ts';
+import { findElement, findMaybe } from '../platform/dom.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { bannerNote, deferred, deferredNote, lineNote } from '../platform/notices.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { setSide } from '../layout/flow.ts';
 import { drawPins, loadPins } from './flow-list.ts';
-import { mentionHints, mentionPreview, mentionScan } from '../composer/input-mentions.ts';
+import { mentionHints, mentionPreview } from '../composer/input-mentions.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND, NOTICE_PLACE } from '../platform/tables.ts';
-import { REQUEST_KIND, PIN_STATE, ROLE } from '../app/rules-tables.ts';
+import { PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
-import { meLogin, peopleName, isHuman } from '../app/state-people.ts';
+import { isHuman } from '../app/state-people.ts';
 import { viewerBlocked } from '../documents/state.ts';
 import { autoGrow } from '../composer/view-text.ts';
 import { markMine } from './state.ts';
-// Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false)
-// wins; otherwise a person's reply on a closed pin reopens it unless it tags a person or the pin is a question.
-// mentioned = the post's resolved @-tags without me.
-function replyReopens(pin: Pin, human: boolean, mentioned: string[], override?: boolean | null) {
-  if (pinState(pin) === PIN_STATE.OPEN) return false;
-  if (override !== undefined && override !== null) return !!override;
-  if (pin.kind_req === REQUEST_KIND.QUESTION || !human) return false;
-  return !(mentioned && mentioned.length);
-}
-// The outcome line: {text, toggle}, or null for an open pin (a reply never changes it). toggle names the one rare
-// override the box offers: 'keep' ([상태 유지], reopen:false) where the rule would reopen, 'reopen' ([다시 열기],
-// reopen:true) where it keeps a closed pin as it is. flip = that toggle is pressed.
-function replyPreview(pin: Pin | null, human: boolean, mentioned: string[], flip: boolean) {
-  if (!pin || pinState(pin) === PIN_STATE.OPEN) return null;
-  const mentions = mentioned || [];
-  const reopens = replyReopens(pin, human, mentions),
-    toggle = reopens ? 'keep' : 'reopen',
-    names = mentions.map(peopleName).join(', ');
-  if (flip && !reopens)
-    return {
-      text: mentions.length
-        ? translateTemplate('보내면 이 핀이 다시 열려 에이전트에게 가고, {names}에게 알림이 갑니다', { names })
-        : translate('보내면 이 핀이 다시 열려 에이전트에게 갑니다'),
-      toggle,
-    };
-  if (flip) return { text: translate('보내도 상태는 그대로입니다'), toggle };
-  if (reopens) return { text: translate('보내면 이 핀이 다시 열려 에이전트에게 갑니다'), toggle };
-  if (pin.kind_req === REQUEST_KIND.QUESTION) return { text: translate('답으로 남고 상태는 그대로입니다'), toggle };
-  if (!human) return { text: translate('이 화면은 에이전트로 보내므로 상태는 그대로입니다'), toggle };
-  return { text: translateTemplate('보내면 {names}에게 알림이 가고 상태는 그대로입니다', { names }), toggle };
-}
-// The empty box's placeholder says the same outcome as the line under it would for a reply without @-tags.
-function replyPlaceholder(pin: Pin | null, human: boolean, flip: boolean) {
-  const closed = !!pin && pinState(pin) !== PIN_STATE.OPEN,
-    reopensByDefault = closed && replyReopens(pin, human, []);
-  return translate(
-    closed && (flip ? !reopensByDefault : reopensByDefault)
-      ? '무엇이 틀렸는지 적으면 다시 열려 에이전트에게 갑니다 (⌘/Ctrl+Enter 보내기)'
-      : '답글 (⌘/Ctrl+Enter 보내기)',
-  );
-}
 // The answer to a reply (POST /api/pins/{id}/reply): whether the pin was found, whether the reply reopened it, and its state.
 interface ReplyAnswer {
   ok?: boolean;
   reopened?: boolean;
-  state?: string;
+  state?: string | null;
 }
 // After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while
 // the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
@@ -77,71 +52,6 @@ function replyServerNote(id: number, predicted: boolean, data: ReplyAnswer | nul
     ? translateTemplate('#{id} 은 그사이 이미 열려 있어 답글로만 남았습니다', { id })
     : translateTemplate('#{id} 은 다시 열리지 않고 답글로만 남았습니다', { id });
 }
-// The post's @-tags that count as asking a person: without me and without agent-role accounts (as the server's rule).
-// Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the
-// same hints, so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will
-// do.
-function replyMentioned(field: HTMLTextAreaElement) {
-  const me = meLogin();
-  return mentionScan(field.value, new Set(mentionHints(field))).hit.filter(
-    (login) => login !== me && (PEOPLE.find((x) => x.login === login) || {}).role !== ROLE.AGENT,
-  );
-}
-function createReplyBox(pin: Pin | null) {
-  const box = document.createElement('div');
-  box.className = 'reply-box';
-  setHtml(
-    box,
-    html`<textarea class="r-text" rows="2" maxlength="1000" aria-label="답글" placeholder="${replyPlaceholder(pin, isHuman(), false)}"></textarea><div class="m-preview" aria-live="polite" hidden></div>\
-<div class="r-outcome" aria-live="polite" hidden><span class="r-out-t"></span><button type="button" class="btn-sm r-keep" role="switch" data-act="reply-flip" aria-checked="false"></button></div>\
-<div class="r-err errline" role="alert" hidden></div>\
-<div class="r-acts"><button class="btn-sm" data-act="reply-cancel" data-tip="입력 칸을 닫습니다 (Esc). 쓰던 글은 남겨 둡니다">취소</button>\
-<button class="btn-sm btn-default" data-act="reply-send" data-tip="답글을 보냅니다. 카드에 남는 [되돌리기]를 누르면 보내기 전에 취소됩니다">보내기</button></div>`,
-  );
-  return box;
-}
-// The text field of a reply box (createReplyBox puts exactly one in every box).
-function replyNote(replyBox: ReplyBox): HTMLTextAreaElement {
-  return replyBox.el.querySelector('textarea') as HTMLTextAreaElement;
-}
-function renderReplyOutcome() {
-  const replyBox = REPLY;
-  if (!replyBox) return;
-  const box = replyBox.el.querySelector('.r-outcome') as HTMLElement,
-    field = replyNote(replyBox);
-  if (!box || !field) return;
-  const pin = findAnyPin(replyBox.id),
-    mentioned = replyMentioned(field);
-  let preview = pin && replyPreview(pin, isHuman(), mentioned, !!replyBox.flip);
-  field.placeholder = replyPlaceholder(pin, isHuman(), !!replyBox.flip);
-  if (!preview) {
-    box.hidden = true;
-    replyBox.flip = false;
-    replyBox.toggle = null;
-    return;
-  }
-  if (replyBox.toggle && replyBox.toggle !== preview.toggle && replyBox.flip) {
-    replyBox.flip = false;
-    preview = replyPreview(pin, isHuman(), mentioned, false);
-    if (!preview) return;
-  } // the rule changed direction (a tag added/removed): the override resets
-  replyBox.toggle = preview.toggle;
-  box.hidden = false;
-  (box.querySelector('.r-out-t') as HTMLElement).textContent = preview.text;
-  box.classList.toggle(
-    'reopen',
-    replyReopens(pin as Pin, isHuman(), mentioned, replyBox.flip ? preview.toggle === 'reopen' : undefined),
-  );
-  const flipButton = box.querySelector('[data-act=reply-flip]') as HTMLElement,
-    keep = preview.toggle === 'keep';
-  flipButton.textContent = translate(keep ? '상태 유지' : '다시 열기');
-  flipButton.dataset.tip = translate(
-    keep
-      ? '보내도 핀을 다시 열지 않고 답글만 남깁니다(드물게 씁니다)'
-      : '보내면서 핀을 다시 열어 에이전트에게 보냅니다(드물게 씁니다)',
-  );
-  flipButton.setAttribute('aria-checked', String(!!replyBox.flip));
-}
 /**
  * Focus the existing box, or open pin id with copied draft hints and a reset override; expand the panel for a new box.
  */
@@ -151,14 +61,15 @@ function openReply(id: number) {
     if (field) field.focus();
     return;
   }
-  if (REPLY) closeReply(false);
+  if (REPLY) parkReply();
   const pin = findAnyPin(id);
   REPLY_VISITS.set(id, (REPLY_VISITS.get(id) || 0) + 1);
-  setReply({ id, flip: false, toggle: null, el: createReplyBox(pin) });
+  const replyBox: ReplyBox = { id, flip: false, toggle: null, el: createReplyBox(pin) };
+  setReply(replyBox);
   OPEN_CARDS.add(id);
   setSide(true);
   drawPins();
-  const field = replyNote(REPLY as ReplyBox),
+  const field = replyNote(replyBox),
     draft = REPLY_DRAFT.get('reply:' + id);
   field.value = draft ? draft.text : '';
   field._mentions = new Set(draft ? draft.mentions : []);
@@ -166,19 +77,13 @@ function openReply(id: number) {
   mentionPreview(field);
   renderReplyOutcome();
   field.focus();
-  (REPLY as ReplyBox).el.scrollIntoView({ block: 'nearest' });
+  replyBox.el.scrollIntoView({ block: 'nearest' });
 }
-/**
- * Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing.
- */
-function closeReply(redraw?: boolean) {
+// Close the reply field at the user's request and redraw the list with the draft parked.
+function closeReply() {
   if (!REPLY) return;
-  const field = replyNote(REPLY);
-  if (field && field.value.trim())
-    REPLY_DRAFT.set('reply:' + REPLY.id, { text: field.value, mentions: mentionHints(field) });
-  else REPLY_DRAFT.delete('reply:' + REPLY.id);
-  setReply(null);
-  if (redraw !== false) drawPins();
+  parkReply();
+  drawPins();
 }
 /** Defer a nonblank reply; recover its input only before a newer visit, reporting a late failure on the status line. */
 function sendReply() {
@@ -186,7 +91,7 @@ function sendReply() {
   if (!replyBox || viewerBlocked()) return;
   const field = replyNote(replyBox),
     text = field.value.trim();
-  const errorLine = replyBox.el.querySelector('.r-err') as HTMLElement;
+  const errorLine = findElement(replyBox.el, '.r-err', HTMLElement);
   if (!text) {
     errorLine.textContent = translate('답글이 비어 있습니다');
     errorLine.hidden = false;
@@ -216,11 +121,11 @@ function sendReply() {
     }
     REPLY_DRAFT.set('reply:' + id, { text, mentions: hints });
     openReply(id);
-    const boxErrorLine = REPLY && REPLY.id === id ? (REPLY.el.querySelector('.r-err') as HTMLElement) : null;
+    const boxErrorLine = REPLY && REPLY.id === id ? findMaybe(REPLY.el, '.r-err', HTMLElement) : null;
     if (REPLY && REPLY.id === id) {
       const field = replyNote(REPLY);
       field._mentions = new Set(hints);
-      REPLY.flip = flip;
+      setReplyFlip(REPLY, flip);
       mentionPreview(field);
       renderReplyOutcome();
       if (boxErrorLine) {
@@ -245,8 +150,8 @@ function sendReply() {
     async () => {
       markMine(id);
       try {
-        const { data } = await api('/api/pins/' + id + '/reply', {
-          method: 'POST',
+        const { data } = await api('POST /api/pins/{id}/reply', {
+          id,
           body,
           what: '답글',
           silent: true,
@@ -258,9 +163,9 @@ function sendReply() {
           if (note) bannerNote(NOTICE_HOST.LIST, note, NOTICE_KIND.WARN);
         }
       } catch (error) {
-        const err = error as ApiError; // silent above: the box's own line says it, once
+        const err = isApiError(error) ? error : null; // silent above: the box's own line says it, once
         back(
-          err.status
+          err && err.status
             ? translate('보내지 못했습니다') + ' — ' + (errText(err.data) || 'HTTP ' + err.status)
             : translate('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'),
         );
@@ -277,6 +182,6 @@ function sendReply() {
   );
   // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the reply still goes when its undo does.
   const undoButton = document.querySelector('[data-act="notice-act"][data-n="' + note.n + '"]');
-  if (undoButton) (undoButton as HTMLElement).focus({ preventScroll: true });
+  if (undoButton instanceof HTMLElement) undoButton.focus({ preventScroll: true });
 }
-export { closeReply, openReply, renderReplyOutcome, replyNote, sendReply };
+export { closeReply, openReply, sendReply };

@@ -642,9 +642,9 @@ class ColdDeepLink(BrowserBase):
         page.locator("#note").fill("Saved during round trip")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path==='/api/pin'&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pin')
                 return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
               return result;};}"""
         )
@@ -669,9 +669,9 @@ class ColdDeepLink(BrowserBase):
         page.locator("#note").fill("Saved A draft")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path==='/api/pin'&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pin')
                 return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
               return result;};}"""
         )
@@ -695,9 +695,9 @@ class ColdDeepLink(BrowserBase):
         page.locator("#note").fill("Appended A note")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path.endsWith('/edit')&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pins/{id}/edit')
                 return result.then(value=>new Promise(resolve=>{window.releaseAppend=()=>resolve(value);}));
               return result;};}"""
         )
@@ -723,9 +723,9 @@ class ColdDeepLink(BrowserBase):
         page.locator("#note").fill("Appended A note")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path.endsWith('/edit')&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pins/{id}/edit')
                 return result.then(value=>new Promise(resolve=>{window.releaseAppend=()=>resolve(value);}));
               return result;};}"""
         )
@@ -764,9 +764,9 @@ class ColdDeepLink(BrowserBase):
         page.locator("#note").fill("Already saved A")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path==='/api/pin'&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pin')
                 return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
               return result;};}"""
         )
@@ -787,9 +787,9 @@ class ColdDeepLink(BrowserBase):
         page.locator("#note").fill("Submitted A note")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path==='/api/pin'&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pin')
                 return result.then(value=>new Promise(resolve=>{window.releaseSave=()=>resolve(value);}));
               return result;};}"""
         )
@@ -818,9 +818,9 @@ class ColdDeepLink(BrowserBase):
         page.locator("#note").fill("Already appended A")
         page.wait_for_function("DRAFT.timer===0&&!!sessionStorage.getItem(draftKey(META.label,'ms'))", timeout=8000)
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path.endsWith('/edit')&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pins/{id}/edit')
                 return result.then(value=>new Promise(resolve=>{window.releaseAppend=()=>resolve(value);}));
               return result;};}"""
         )
@@ -906,9 +906,9 @@ class ColdDeepLink(BrowserBase):
         page = self.cold("#doc=ms", "desktop")
         pid = page.evaluate("() => OPEN_ALL.find(p=>p.doc==='ms').id")
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path==='/api/pick')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pick')
                 return result.then(value=>new Promise(resolve=>{window.releasePick=()=>resolve(value);}));
               return result;};}"""
         )
@@ -954,9 +954,9 @@ class ColdDeepLink(BrowserBase):
         page.evaluate("id=>openEdit(id)", pid)
         page.locator(".e-note").fill("Saved during switch")
         page.evaluate(
-            """() => {const realApi=api; api=(path,options) => {
-              const result=realApi(path,options);
-              if(path.endsWith('/edit')&&options?.method==='POST')
+            """() => {const realApi=api; api=(endpoint,options) => {
+              const result=realApi(endpoint,options);
+              if(endpoint==='POST /api/pins/{id}/edit')
                 return result.then(value=>new Promise(resolve=>{window.releaseEdit=()=>resolve(value);}));
               return result;};}"""
         )
@@ -2199,8 +2199,8 @@ class FigureDocuments(BrowserBase):
         page = self.open_fig()
         page.evaluate(
             """()=>{const real=api; window.heldPicks=[];
-              api=(path,options)=>path==='/api/pick'?new Promise((ok,no)=>window.heldPicks.push(()=>real(path,options).then(ok,no)))
-                :real(path,options);}"""
+              api=(endpoint,options)=>endpoint==='POST /api/pick'?new Promise((ok,no)=>window.heldPicks.push(()=>real(endpoint,options).then(ok,no)))
+                :real(endpoint,options);}"""
         )
         page.evaluate("(()=>{const pg=document.getElementById('p1');finishRect(pg,newBox(pg),0.48,0.2,0.52,0.28);})()")
         page.wait_for_function("window.heldPicks.length===1", timeout=8000)

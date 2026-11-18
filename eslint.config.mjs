@@ -6,12 +6,13 @@
 // fewer until the baseline is lowered. A file or rule the baseline does not name must have none. `npm run lint` shows
 // the messages themselves.
 //
-// The rules are type-aware: typescript-eslint reads tsconfig.strict.json, the types tsc infers with noImplicitAny (an
-// unannotated `let x;` or `[]` takes the type its assignments give it), so a value of type any is found whether it
+// The rules are type-aware: typescript-eslint reads tsconfig.json, the types tsc infers with its strict set (under
+// noImplicitAny an unannotated `let x;` or `[]` takes the type its assignments give it), so a value of type any is found whether it
 // came from an annotation, an untyped library or a JSON.parse. The escape hatches are typescript-eslint's rules: an
 // explicit any, a type assertion (`x as T`, `<T>x`), a non-null assertion (`x!`) and a @ts- directive. Two checks no
 // plugin makes are local rules (limnRules below): a write through another module's binding, and a JSDoc type, which
-// TypeScript does not read in a .ts file at all. Two more local rules keep the code readable
+// TypeScript does not read in a .ts file at all. A third, also local, finds a DOM query whose element class TypeScript
+// inferred from where its answer goes. Two more local rules keep the code readable
 // (docs/adr/0044-viewer-name-and-comment-gates.md): a declared name is whole words, and a comment carries no history.
 import globals from 'globals';
 import tseslint from 'typescript-eslint';
@@ -41,6 +42,9 @@ function jsdocTypes(text) {
 
 // The TypeScript nodes that wrap a value in a type and nothing else.
 const UNWRAP = new Set(['TSAsExpression', 'TSNonNullExpression', 'TSSatisfiesExpression', 'TSTypeAssertion']);
+
+// The DOM queries whose generic overload can take its class from the receiving type (no-inferred-query-class).
+const QUERY_NAMES = new Set(['querySelector', 'querySelectorAll', 'closest']);
 
 /** @type {Record<string, RuleModule>} */
 export const limnRules = {
@@ -156,6 +160,53 @@ export const limnRules = {
             }
             first = last + 1;
           }
+        },
+      };
+    },
+  },
+  // A DOM query whose element class TypeScript took from where its answer goes: querySelector, querySelectorAll and
+  // closest with a selector string have a generic overload (`<E extends Element = Element>`), and passing the call
+  // straight to a parameter typed `HTMLElement | null` infers E from that parameter - the class said without a check,
+  // as a type argument says it (UNCHECKED_QUERIES), but in no syntax a selector can see. A query names its class by
+  // checking it (findElement, findMaybe, findAll, findClosest in js/platform/dom.ts); its own answer is Element. A tag
+  // name (`querySelector('a')`) takes the tag's overload, which the DOM types by the tag, and passes.
+  'no-inferred-query-class': {
+    meta: {
+      type: 'problem',
+      messages: {
+        inferred:
+          '{{name}} answers {{found}} here only because TypeScript took the class from where the answer goes: check it with findElement, findMaybe, findAll or findClosest (js/platform/dom.ts).',
+      },
+      schema: [],
+    },
+    create(context) {
+      const services = context.sourceCode.parserServices;
+      if (!services || !services.program) return {};
+      const checker = services.program.getTypeChecker();
+      /** The element class a query's answer holds: E of E | null, or of NodeListOf<E>. @param {any} answer */
+      const elementOf = (answer) => {
+        const found = checker.getNonNullableType(answer);
+        const listed = found.symbol && found.symbol.name === 'NodeListOf' ? checker.getTypeArguments(found) : [];
+        return listed.length ? listed[0] : found;
+      };
+      return {
+        /** @param {any} node */
+        CallExpression(node) {
+          const callee = node.callee;
+          if (
+            node.typeArguments ||
+            callee.type !== 'MemberExpression' ||
+            callee.computed ||
+            !QUERY_NAMES.has(callee.property.name)
+          )
+            return;
+          const signature = checker.getResolvedSignature(services.esTreeNodeToTSNodeMap.get(node));
+          const declaration = signature && signature.getDeclaration();
+          const parameter = declaration && declaration.typeParameters && declaration.typeParameters[0];
+          if (!signature || !parameter || !parameter.default) return; // not the selector-string overload
+          const found = checker.typeToString(elementOf(signature.getReturnType()));
+          if (found !== 'Element')
+            context.report({ node, messageId: 'inferred', data: { name: callee.property.name, found } });
         },
       };
     },
@@ -283,6 +334,18 @@ const CONFUSING_GLOBALS = [
   'top',
 ];
 
+// A type argument on a DOM query (`querySelector<HTMLInputElement>(...)`, `closest<HTMLElement>(...)`) says what class
+// the element is without checking it - an assertion no other rule sees. The page's elements by id are declared from
+// index.html (types/page.d.ts, docs/adr/0045-viewer-page-elements.md); any other query gives Element | null, narrowed
+// with findElement, findMaybe or findAll (js/platform/dom.ts), which check the class.
+export const UNCHECKED_QUERIES = [
+  {
+    selector: 'CallExpression[typeArguments][callee.property.name=/^(querySelector|querySelectorAll|closest)$/]',
+    message:
+      'A type argument on querySelector, querySelectorAll or closest asserts the element class unchecked: use findElement, findMaybe or findAll (js/platform/dom.ts), which check it.',
+  },
+];
+
 export default [
   {
     files: ['src/limn/viewer/js/**/*.ts'],
@@ -290,7 +353,7 @@ export default [
       ecmaVersion: 2024,
       sourceType: 'module',
       parser: tseslint.parser,
-      parserOptions: { project: './tsconfig.strict.json', tsconfigRootDir: import.meta.dirname },
+      parserOptions: { project: './tsconfig.json', tsconfigRootDir: import.meta.dirname },
       globals: {
         ...globals.browser,
         // Filled by the server in the built script (limn/viewer/assemble.py viewer_script); declared for tsc in
@@ -306,6 +369,9 @@ export default [
       // of src/limn/viewer/types/ that no-undef cannot - so no-undef is not run. A declared browser global that reads like
       // a local variable is still refused here: code says window.x when it means the window's.
       'no-restricted-globals': ['error', ...CONFUSING_GLOBALS],
+      // A DOM query says the class of what it found by checking it, not by a type argument.
+      'no-restricted-syntax': ['error', ...UNCHECKED_QUERIES],
+      'limn/no-inferred-query-class': 'error',
       // State is owned by the module that declares it.
       'no-import-assign': 'error',
       'limn/no-imported-state-write': 'error',

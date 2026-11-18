@@ -9,44 +9,31 @@
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
-import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ } from '../app/state.ts';
+import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ, findAnyPin } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { SECTION_OPEN, prefs, savePrefs } from '../platform/prefs.ts';
+import { prefs, savePrefs, setSectionOpen } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { announce, groupNote, quietNote } from '../platform/notices.ts';
 import { hashDoc } from '../documents/view-tabs.ts';
-import { findAnyPin } from '../revisions/flow.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
 import { syncHiddenNotifyTimer } from '../documents/flow-polling.ts';
 import { setSide } from '../layout/flow.ts';
 import { openTrash } from './view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from './flow-list.ts';
 import { restorePin } from './flow-actions.ts';
-import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND, isRecord } from '../platform/tables.ts';
+import { $, findMaybe } from '../platform/dom.ts';
 import { LOCAL_LOGIN, NOTIFY_STATE, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { who } from '../app/state-people.ts';
 import { docInfo, withDocQuery, isViewer } from '../documents/state.ts';
-// An event of the light poll that is addressed to me (limn/collaboration/events.py events_since): its type is one of the
-// notified ones, doc_name is its document's name, and to holds the logins it is for.
-interface PinEvent {
-  seq: number;
-  type: (typeof EVENT_TYPE)[keyof typeof EVENT_TYPE];
-  pin: number;
-  doc?: string;
-  doc_name?: string;
-  to?: string[];
-  by?: Person;
-  excerpt?: string;
-}
 // What notifyHandle reads of a light poll's answer: the latest event number, and with a cursor the events after it.
 interface PinEventsMeta {
   ev_seq?: number;
   events?: PinEvent[];
 }
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
-let WORKER_REGISTRATION = null as ServiceWorkerRegistration | null;
+let WORKER_REGISTRATION: ServiceWorkerRegistration | null = null;
 function notifySupported() {
   return !!(window.isSecureContext && 'serviceWorker' in navigator && 'Notification' in window);
 }
@@ -59,7 +46,7 @@ function notifyOn() {
 // The cursor this tab last set, kept in memory too: a browser whose storage refuses (a SecurityError on reading it, a
 // full quota on writing) still has one for this visit - the boot goes on, and an event is said once - and the newer of
 // the two is the cursor, so another tab's advance in storage counts as well.
-let NOTIFY_CURSOR_MEM = null as number | null;
+let NOTIFY_CURSOR_MEM: number | null = null;
 function notifyCursor(): number | null {
   let stored = NaN;
   try {
@@ -105,7 +92,7 @@ function pickNotifications(events: PinEvent[] | null | undefined, me: Me | null 
   });
   return Array.from(by.values()).sort((earlier, later) => earlier.seq - later.seq);
 }
-function notifyText(event: PinEvent) {
+function notifyText(event: SaidEvent) {
   const name = who(event.by) || translate('누군가'),
     excerpt = String(event.excerpt || '')
       .split('\n')[0]
@@ -154,11 +141,9 @@ async function notifyShow(event: PinEvent) {
       body: shown.body,
       tag: 'pin-' + event.pin,
       icon: (
-        (document.querySelector('link[rel=apple-touch-icon]') ||
-          document.querySelector('link[rel=icon]') || {
-            href: undefined,
-          }) as HTMLLinkElement
-      ).href,
+        findMaybe(document, 'link[rel=apple-touch-icon]', HTMLLinkElement) ||
+        findMaybe(document, 'link[rel=icon]', HTMLLinkElement)
+      )?.href,
       // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       actions:
         event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: translate('되살리기') }] : [],
@@ -174,12 +159,37 @@ async function notifyShow(event: PinEvent) {
 // an agent closing twelve of my pins one by one is one message that grows. One pin says what its notification says,
 // with [열기] (a deleted one [되살리기], a viewer's [열기]); more say how many, their numbers and who, with [보기] for
 // review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
-function notifyLine(event: any) {
+function notifyLine(event: SaidEvent) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
-    evs: [...older.evs.filter((x: any) => x.pin !== newer.evs[0].pin), ...newer.evs],
+    evs: [...saidEventsOf(older).filter((x) => x.pin !== newer.evs[0].pin), ...newer.evs],
   }));
 }
-function notifyLineView(group: { evs: any[] }) {
+// What an event's message says of it (notifyText, notifyLineView): its type, pin, document and its name, who and the
+// excerpt.
+type SaidEvent = Pick<PinEvent, 'type' | 'pin' | 'doc' | 'doc_name' | 'by' | 'excerpt'>;
+// The events an event message's group held before this one (groupNote's merge is given it as unknown): its events, as
+// notifyLine writes them, or none. Pure.
+function saidEventsOf(older: unknown): SaidEvent[] {
+  return isRecord(older) && Array.isArray(older.evs) ? older.evs.filter(isSaidEvent) : [];
+}
+// Whether a value holds what a message says of an event (SaidEvent), with the types every released server writes
+// (make_event, events_since). Pure.
+function isSaidEvent(value: unknown): value is SaidEvent {
+  if (!isRecord(value)) return false;
+  const { by } = value;
+  return (
+    Object.values(EVENT_TYPE).some((type) => type === value.type) &&
+    typeof value.pin === 'number' &&
+    typeof value.doc === 'string' &&
+    typeof value.doc_name === 'string' &&
+    isRecord(by) &&
+    typeof by.login === 'string' &&
+    ['undefined', 'string'].includes(typeof by.name) &&
+    ['undefined', 'string'].includes(typeof by.pic) &&
+    ['undefined', 'string'].includes(typeof value.excerpt)
+  );
+}
+function notifyLineView(group: { evs: SaidEvent[] }) {
   const events = group.evs,
     latest = events[events.length - 1],
     count = events.length,
@@ -196,16 +206,14 @@ function notifyLineView(group: { evs: any[] }) {
       ? { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview }
       : { label: '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(latest.doc, latest.pin) };
   const many =
-    (
-      {
-        mention: '나를 부른 핀 {n}개',
-        review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
-        replied: '답글이 달린 핀 {n}개',
-        reopened: '핀 {n}개 다시 열림',
-        assigned: '나에게 맡긴 핀 {n}개',
-        dropped: '핀 {n}개가 삭제됨',
-      } as Record<string, string>
-    )[latest.type] || '소식 {n}개';
+    {
+      mention: '나를 부른 핀 {n}개',
+      review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
+      replied: '답글이 달린 핀 {n}개',
+      reopened: '핀 {n}개 다시 열림',
+      assigned: '나에게 맡긴 핀 {n}개',
+      dropped: '핀 {n}개가 삭제됨',
+    }[latest.type] || '소식 {n}개';
   const ids =
       events
         .slice(0, 3)
@@ -338,7 +346,7 @@ async function notifyToggle() {
   await notifyRegister();
   savePrefs({ notify: true });
   try {
-    const meta = (await api(withDocQuery('/api/meta?light=1'), { silent: true })).data;
+    const meta = (await api('GET /api/meta', { query: withDocQuery('?light=1'), silent: true })).data;
     if (notifyCursor() == null) setNotifyCursor(meta.ev_seq);
   } catch (error) {}
   drawNotify();
@@ -355,15 +363,23 @@ function notifyWhy(text: string) {
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that
 // document and opens that pin.
 function hashPin() {
-  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash || '');
+  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(window.location.hash || '');
   return match ? +match[1] : null;
 }
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
 // reload never repeats it (a reload of an &act=restore link would restore again a pin someone has since deleted).
 function takeLinkHash() {
-  const link = { pin: hashPin(), doc: hashDoc(), restore: /(?:^#|[#&])act=restore(?:&|$)/.test(location.hash || '') };
+  const link = {
+    pin: hashPin(),
+    doc: hashDoc(),
+    restore: /(?:^#|[#&])act=restore(?:&|$)/.test(window.location.hash || ''),
+  };
   if (link.pin)
-    history.replaceState(history.state, '', location.pathname + location.search + (link.doc ? '#doc=' + link.doc : ''));
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.search + (link.doc ? '#doc=' + link.doc : ''),
+    );
   return link;
 }
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a
@@ -392,7 +408,7 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
     return;
   }
   if (pinState(found) === PIN_STATE.DONE) {
-    SECTION_OPEN.done = true;
+    setSectionOpen('done', true);
   }
   OPEN_CARDS.add(pin);
   setSide(true);
@@ -403,10 +419,14 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
   });
 }
 if ('serviceWorker' in navigator)
+  // A notification pressed while a tab is open (sw.js notificationclick: {type, pin, doc}); the worker's other messages
+  // are the offline store's (offline/flow.ts).
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const message = event.data || {};
-    if (message.type === 'open-pin') openPinFromLink(message.doc, +message.pin);
-    else if (message.type === 'restore-pin' && !isViewer()) restorePin(+message.pin);
+    const message: unknown = event.data;
+    if (!isRecord(message)) return;
+    const doc = typeof message.doc === 'string' ? message.doc : null;
+    if (message.type === 'open-pin') openPinFromLink(doc, Number(message.pin));
+    else if (message.type === 'restore-pin' && !isViewer()) restorePin(Number(message.pin));
   });
 window.addEventListener('hashchange', () => {
   const link = takeLinkHash();

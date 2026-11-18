@@ -21,28 +21,30 @@ import { html } from './markup.ts';
 import type { Html } from './markup.ts';
 
 const HIDDEN_RANGES: ReadonlyArray<readonly [number, number]> = Object.freeze(
-  [
-    [0x00, 0x08],
-    [0x0b, 0x1f],
-    [0x7f, 0x9f],
-    [0xad, 0xad],
-    [0x34f, 0x34f],
-    [0x61c, 0x61c],
-    [0x115f, 0x1160],
-    [0x17b4, 0x17b5],
-    [0x180b, 0x180f],
-    [0x200b, 0x200f],
-    [0x2028, 0x202e],
-    [0x2060, 0x206f],
-    [0x3164, 0x3164],
-    [0xfe00, 0xfe0f],
-    [0xfeff, 0xfeff],
-    [0xffa0, 0xffa0],
-    [0xfff0, 0xfffb],
-    [0x1bca0, 0x1bca3],
-    [0x1d173, 0x1d17a],
-    [0xe0000, 0xe0fff],
-  ].map((range) => Object.freeze(range as [number, number])),
+  (
+    [
+      [0x00, 0x08],
+      [0x0b, 0x1f],
+      [0x7f, 0x9f],
+      [0xad, 0xad],
+      [0x34f, 0x34f],
+      [0x61c, 0x61c],
+      [0x115f, 0x1160],
+      [0x17b4, 0x17b5],
+      [0x180b, 0x180f],
+      [0x200b, 0x200f],
+      [0x2028, 0x202e],
+      [0x2060, 0x206f],
+      [0x3164, 0x3164],
+      [0xfe00, 0xfe0f],
+      [0xfeff, 0xfeff],
+      [0xffa0, 0xffa0],
+      [0xfff0, 0xfffb],
+      [0x1bca0, 0x1bca3],
+      [0x1d173, 0x1d17a],
+      [0xe0000, 0xe0fff],
+    ] as const
+  ).map((range) => Object.freeze(range)),
 );
 // The repertoire as one regular expression over code points (a supplementary character is one match, never two halves).
 const HIDDEN_PATTERN = new RegExp(
@@ -167,7 +169,7 @@ function clipMarkedText(text: string, max: number) {
     if (++read > max + 2) break;
     head += character;
   }
-  const pieces = [] as string[];
+  const pieces: string[] = [];
   let at = 0;
   for (const marked of findHidden(head)) {
     pieces.push(...head.slice(at, marked.at), '\u27e8' + hiddenName(marked.ch.codePointAt(0) || 0) + '\u27e9');
@@ -189,7 +191,7 @@ function clipMarkedText(text: string, max: number) {
 // a diff shows it. Pure.
 function countAddedHidden(text: string, base: string): [string, number][] {
   const count = (text: string) => {
-    const counts = new Map();
+    const counts = new Map<string, number>();
     for (const line of String(text).split('\n'))
       for (const marked of findHidden(line)) {
         const name = hiddenName(marked.ch.codePointAt(0) || 0);
@@ -199,7 +201,7 @@ function countAddedHidden(text: string, base: string): [string, number][] {
   };
   const textCounts = count(text),
     baseCounts = count(base),
-    out = [] as [string, number][];
+    out: [string, number][] = [];
   for (const [name, count] of textCounts) {
     const extra = count - (baseCounts.get(name) || 0);
     if (extra > 0) out.push([name, extra]);

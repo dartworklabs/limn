@@ -8,6 +8,7 @@ import {
   OUTLINE_MID_OPEN,
   REPICK,
   REPLY,
+  setReplyFlip,
   SELMODE,
   SHOW_ALL,
   SIDE_OPEN,
@@ -20,7 +21,7 @@ import {
   REVIEW_ALL,
   setDoc,
   setMeta,
-  META,
+  knownMeta,
   META_BY,
   DOC,
   VIEW_BY,
@@ -58,8 +59,9 @@ import {
   setHash,
   drawDocTabs,
 } from './documents/view-tabs.ts';
+import { REVISION_VIEW } from './revisions/state.ts';
+import { drawPinGuideActions } from './revisions/view-pin-guide.ts';
 import {
-  COMPARISON_SCOPE,
   moreRevisions,
   pressRevisionRow,
   renderRevisionFile,
@@ -70,12 +72,11 @@ import {
   setRevisionWhole,
   setViewMode,
   showChange,
-  REVISION_VIEW,
   loadRevisions,
   showRevision,
   toggleRevisionOther,
-  drawPinGuideActions,
   renderCommitList,
+  COMPARISON_SCOPE,
 } from './revisions/flow.ts';
 import {
   cycleDoc,
@@ -98,7 +99,8 @@ import {
   notifyHandle,
   notifyCursor,
 } from './pins/flow-notification.ts';
-import { BUILD, startBuildPolling } from './documents/view-build-chip.ts';
+import { setBuildLastSeq, startBuildPolling, rebuild } from './documents/flow-build.ts';
+import { setBuildUnchanged, SHOWN_BUILD } from './documents/state-build.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
 import {
   drawStatus,
@@ -108,7 +110,8 @@ import {
   setStatusSig,
   placeStatus,
 } from './documents/view-status.ts';
-import { sizePreset, toggleOutline, applySideWidth, applyOutlineState } from './layout/flow-panel-size.ts';
+import { applySideWidth, outlineOverlay } from './layout/flow-panel-size.ts';
+import { sizePreset } from './layout/flow-panel-actions.ts';
 import {
   actualSize,
   fitToWidth,
@@ -135,10 +138,11 @@ import { searchClose, searchGo, searchOpen, searchFit, searchLeave, SEARCH } fro
 import { revisionPdfActive, revisionZoom } from './revisions/input.ts';
 import { zoomKey } from './pdf/input-zoom.ts';
 import {
+  toggleOutline,
+  applyOutlineState,
   focusSideToggle,
   headInk,
   openMore,
-  outlineOverlay,
   setSelectMode,
   setSide,
   showSheet,
@@ -170,17 +174,18 @@ import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
 import {
   discardSelection,
-  recomputeOverlap,
   renderComposer,
-  renderOverlapBanner,
   setKind,
   toggleQuote,
   cancelSelection,
-  pick,
   setBusy,
-} from './composer/flow-pick.ts';
-import { saveDraftSoon, restoreDraft, parkDraft, openDraftDoc } from './composer/flow-draft.ts';
-import { appendToPin, savePin, saveButtonLabel } from './composer/flow-save.ts';
+} from './composer/flow-selection.ts';
+import { recomputeOverlap, renderOverlapBanner } from './composer/view-overlap.ts';
+import { pick } from './composer/flow-pick.ts';
+import { saveDraftSoon, parkDraft } from './composer/flow-draft.ts';
+import { restoreDraft, openDraftDoc } from './composer/flow-restore-draft.ts';
+import { appendToPin, savePin } from './composer/flow-save.ts';
+import { saveButtonLabel } from './composer/view-save.ts';
 import {
   offlineFlush,
   offlinePrepare,
@@ -197,34 +202,35 @@ import {
   offlineQueueSave,
   offlineKey,
 } from './offline/flow.ts';
+import { READING_LINE_PAGE } from './verdict/state-lines.ts';
+import { stickSoon, setVerdictLineRenderer } from './verdict/state-line-renderer.ts';
 import {
   cancelLineVerdict,
   undoFromLine,
   verdictPress,
-  READING_LINE_PAGE,
-  pageUnderReadingLine,
-  stickSoon,
   sizePageLines,
   renderVerdictRow,
   figureVerdictBody,
   figureVerdictRoot,
-  figureShort,
   verdictUndo,
   verdictDropped,
   drawPageVerdicts,
   isShownOnLine,
   jumpToPageLine,
+  goToSummaryPage,
+  fillPageLine,
+  stickReadingLine,
+  watchLineChips,
 } from './verdict/flow-line.ts';
+import { isReasonField, isComposingNow } from './verdict/view-reason-field.ts';
 import {
   actOnReason,
   focusLine,
-  isReasonField,
-  isComposingNow,
   afterComposition,
   holdReasonFocus,
   restoreReasonFocus,
 } from './verdict/flow-reason.ts';
-import { goToSummaryPage, setBuildReadingPage } from './verdict/view-panel.ts';
+import { setBuildReadingPage, pageUnderReadingLine } from './verdict/view-panel.ts';
 import {
   handPopoverToComposer,
   openSelectionPopover,
@@ -235,7 +241,8 @@ import {
 } from './composer/view-selection-popover.ts';
 import { MESSAGE_OPEN } from './pins/view-card-parts.ts';
 import { ARC_OPEN, openTrash } from './pins/view-cards.ts';
-import { REVIEW_PICK, confirmTicked, setReviewPicking, goToReviewCard } from './pins/flow-review-pick.ts';
+import { REVIEW_PICK } from './pins/view-review-pick.ts';
+import { confirmTicked, setReviewPicking, goToReviewCard } from './pins/flow-review-pick.ts';
 import {
   cardNeighbour,
   drawPins,
@@ -252,15 +259,17 @@ import {
 } from './pins/flow-list.ts';
 import { MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
-import { ASSIGN_NEW, mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
-import { closeReply, openReply, renderReplyOutcome, sendReply, replyNote } from './pins/flow-reply.ts';
+import { setAssignNewValue, setAssignNewTouched } from './composer/state-assignee.ts';
+import { mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
+import { renderReplyOutcome, replyNote } from './pins/view-reply.ts';
+import { closeReply, openReply, sendReply } from './pins/flow-reply.ts';
 import { cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
 import { setPinVerdicts } from './pins/state-seams.ts';
 import { applyRepick, startRepick } from './composer/flow-repick.ts';
-import { downloadPdf, hideBuildErr, rebuild, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
+import { downloadPdf, hideBuildErr, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
-import { $, $$ } from './platform/dom.ts';
+import { $, $$, eventElement, findClosest, focusedElement } from './platform/dom.ts';
 import { offeredWords, shownWords, roveSegment } from './platform/segments.ts';
 import { REQUEST_KIND, LAYOUT_MODE } from './app/rules-tables.ts';
 import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc, pageVerdictsOn } from './documents/state.ts';
@@ -270,6 +279,7 @@ import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
 import { releaseAllVectorPages } from './pdf/view-draw.ts';
 import {
   setChangesView,
+  setDocumentNavigation,
   setDocumentPins,
   setDocumentWork,
   setMarkdownSurface,
@@ -292,6 +302,7 @@ import {
   verdictTarget,
   verdictOldMarker,
   dropPageLineOverlaps,
+  figureShort,
 } from './verdict/view-pins.ts';
 import { fitBarWords, updateReviewCount } from './pins/view-bar.ts';
 import { dropBareDayLines, placeRow } from './pins/view-list-sections.ts';
@@ -379,6 +390,7 @@ setVerdictHold({
   composing: isComposingNow,
   afterComposition,
 });
+setDocumentNavigation({ open: switchDoc });
 setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
 // The frame's seams: the features that act on the steps of a relayout, in the order those steps' calls ran (the pin
 // list first, then the pages, the Markdown surface, the composer), and the parts of the frame features draw.
@@ -436,7 +448,7 @@ setComposerVerdict({
 });
 setComposerPins({ load: loadPins, drop: dropPin });
 setComposerQueue({ pick: offlinePick, save: offlineQueueSave, keyed: () => OFF.idem, key: offlineKey });
-setPinFields({ drawEdit: renderEdit, snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
+setPinFields({ snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
 setPinVerdicts({
   badge: verdictBadge,
   target: verdictTarget,
@@ -446,12 +458,13 @@ setPinVerdicts({
   shownOnLine: isShownOnLine,
   jumpToLine: jumpToPageLine,
 });
-let HELP_BACK = null as HTMLElement | null;
+setVerdictLineRenderer({ watchLineChips, drawPageVerdicts, fillPageLine, stickReadingLine });
+let HELP_BACK: HTMLElement | null = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
   const dialog = $('#help');
   if (dialog.open) return;
-  HELP_BACK = document.activeElement as HTMLElement | null;
+  HELP_BACK = focusedElement();
   hideTip();
   showSheet(dialog);
   headInk();
@@ -486,18 +499,19 @@ function openTappedCard(target: Element) {
   drawPins();
 }
 document.addEventListener('click', (event) => {
-  const target = event.target as HTMLElement;
-  const copier = target.closest('[data-copy]') as HTMLElement;
+  const target = eventElement(event);
+  if (!target) return;
+  const copier = findClosest(target, '[data-copy]', HTMLElement);
   if (copier) {
     copyText(copier.dataset.copy || '', copier);
     return;
   }
-  const control = target.closest('[data-act]') as HTMLElement;
+  const control = findClosest(target, '[data-act]', HTMLElement);
   if (!control) {
     openTappedCard(target);
     return;
   }
-  const host = control.closest('[data-id]') as HTMLElement,
+  const host = findClosest(control, '[data-id]', HTMLElement),
     id = host ? Number(host.dataset.id) : null,
     inEdit = !!control.closest('.edit');
   const fromMore = !!control.closest('#more');
@@ -541,7 +555,7 @@ document.addEventListener('click', (event) => {
       downloadPdf();
       break;
     case 'rebuild-force':
-      BUILD.unchanged = null;
+      setBuildUnchanged(null);
       drawStatus();
       rebuild(true);
       break; // the status line's [그래도 빌드]: a cold build
@@ -669,14 +683,24 @@ document.addEventListener('click', (event) => {
       const draft = inEdit ? EDITOR.current : COMPOSE.current,
         line = Number(control.dataset.line);
       if (draft && draft.lo != null && draft.hi != null)
-        applyRange(draft, widenTo(draft.lo, draft.hi, line), line < draft.lo ? draft.hi : draft.lo);
+        applyRange(
+          draft,
+          widenTo(draft.lo, draft.hi, line),
+          line < draft.lo ? draft.hi : draft.lo,
+          inEdit ? renderEdit : renderComposer,
+        );
       break;
     } // the excerpt: widen to a dimmed line
     case 'xp-drop': {
       const draft = inEdit ? EDITOR.current : COMPOSE.current,
         line = Number(control.dataset.line);
       if (draft && draft.lo != null && draft.hi != null)
-        applyRange(draft, dropLine(draft.lo, draft.hi, line), line === draft.lo ? draft.hi : draft.lo);
+        applyRange(
+          draft,
+          dropLine(draft.lo, draft.hi, line),
+          line === draft.lo ? draft.hi : draft.lo,
+          inEdit ? renderEdit : renderComposer,
+        );
       break;
     } // ...or drop an end line
     case 'view':
@@ -789,8 +813,8 @@ document.addEventListener('click', (event) => {
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break; // by keyboard the focus goes to the card
     case 'assign-new':
-      ASSIGN_NEW.v = control.dataset.v || 'agent';
-      ASSIGN_NEW.touched = true;
+      setAssignNewValue(control.dataset.v || 'agent');
+      setAssignNewTouched(true);
       renderAssignNew();
       saveDraftSoon();
       break;
@@ -865,7 +889,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'reply-flip':
       if (REPLY) {
-        REPLY.flip = !REPLY.flip;
+        setReplyFlip(REPLY, !REPLY.flip);
         renderReplyOutcome();
       }
       break;
@@ -939,9 +963,9 @@ document.addEventListener('click', (event) => {
       hideBuildErr();
       break;
     case 'build-err-reopen':
-      if (BUILD.error) {
+      if (SHOWN_BUILD.error) {
         setSide(true);
-        showBuildErr(BUILD.error);
+        showBuildErr(SHOWN_BUILD.error);
       }
       break; // the chip floats on a collapsed panel; the log is inside it
     case 'status-more':
@@ -956,8 +980,10 @@ document.addEventListener('click', (event) => {
     case 'notice-x':
       noticeClose(Number(control.dataset.n));
       break;
-    case 'reload':
+    case 'reload-viewer':
       reloadForUpdate();
+      break;
+    case undefined: // control matched [data-act], so the attribute is there; nothing to do without it
       break;
   }
 });
@@ -979,13 +1005,13 @@ const SEGMENT_STEP: Partial<Record<string, number>> = { ArrowLeft: -1, ArrowUp: 
 // the groups in the page's markup; a drawn one calls roveSegment itself
 for (const group of $$('[role=radiogroup]')) roveSegment(group);
 document.addEventListener('keydown', (event) => {
-  const target = event.target as HTMLElement;
+  const target = event.target;
   if (imeKey(event) || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (!target || !target.closest || target.getAttribute('role') !== 'radio') return;
+  if (!(target instanceof HTMLButtonElement) || target.getAttribute('role') !== 'radio') return;
   const group = target.closest('[role=radiogroup]');
   if (!group) return;
   const words = shownWords(group),
-    index = words.indexOf(target as HTMLButtonElement);
+    index = words.indexOf(target);
   if (index < 0) return;
   const step = SEGMENT_STEP[event.key];
   const to =
@@ -1013,9 +1039,9 @@ document.addEventListener('keydown', (event) => {
 // The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come
 // back to.
 function leaveManualSegment(event: FocusEvent) {
-  const target = event.target as HTMLElement,
-    group = target && target.closest ? target.closest('[role=radiogroup][data-seg-manual]') : null;
-  const to = event.relatedTarget as Node | null;
+  const target = eventElement(event),
+    group = target ? target.closest('[role=radiogroup][data-seg-manual]') : null;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (group && !(to && group.contains(to))) roveSegment(group);
 }
 document.addEventListener('focusout', leaveManualSegment);
@@ -1025,8 +1051,8 @@ document.addEventListener('focusout', leaveManualSegment);
 // to the group's one stop (roveSegment's word) as no new focus (focusGivenBack: no description), and Tab leaves from
 // there, as from a word.
 function passLadderBoxFocus(event: FocusEvent) {
-  const box = event.target as HTMLElement;
-  if (!box || !box.matches || !box.matches('.seg.lad[tabindex="-1"]')) return;
+  const box = eventElement(event);
+  if (!box || !box.matches('.seg.lad[tabindex="-1"]')) return;
   const group = box.matches('[role=radiogroup]') ? box : box.querySelector('[role=radiogroup]') || box,
     words = offeredWords(group),
     word = words.find((offered) => offered.tabIndex === 0) || words[0];
@@ -1036,7 +1062,7 @@ document.addEventListener('focusin', passLadderBoxFocus);
 
 document.addEventListener('keydown', (event) => {
   if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (app/state.ts)
-  const target = event.target as HTMLElement,
+  const target = event.target instanceof HTMLElement ? event.target : null,
     inField =
       target &&
       (target.tagName === 'TEXTAREA' ||
@@ -1224,12 +1250,15 @@ async function boot() {
   await loadDocs();
   setDoc(initialDoc());
   try {
-    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
+    setMeta(
+      (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data,
+    );
   } catch (error) {
     return;
   }
-  if (META.doc) setDoc(META.doc);
-  META_BY.set(DOC, META);
+  const first = knownMeta();
+  if (first.doc) setDoc(first.doc);
+  META_BY.set(DOC, first);
   loadViews();
   const view = VIEW_BY.get(DOC);
   if (multiDoc()) {
@@ -1265,14 +1294,16 @@ async function boot() {
     coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   // a mouse user's first hint how to pin (the PDF also shows a crosshair)
   else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
+  // The open document's meta now: a switch while the pins loaded may have replaced the first one.
+  const meta = knownMeta();
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if (pinsLoaded) {
-    setLastPinsRevision(META.pins_rev);
-    setLastSrcMtime(META.src_sig || META.src_mtime);
+    setLastPinsRevision(meta.pins_rev);
+    setLastSrcMtime(meta.src_sig || meta.src_mtime);
   }
   // the build count this tab has already "seen"
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
-  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
+  setBuildLastSeq(typeof meta.build_seq === 'number' ? meta.build_seq : 0);
+  (meta.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();
   offlineBoot();

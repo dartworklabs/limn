@@ -124,7 +124,7 @@ JS_UPDATE_STUBS = (
     + r"""
 var LIGHT_OK_AT=0,AWAY_MS=120000,DIGEST_TAIL_MS=0,DIGEST=null;
 function digestBegin(){} function digestSoon(){} function awayTitle(){return '';} function checkVersion(){}
-function versionDue(){return false;} function expectUpdate(){} function countPinMove(){return false;} function noteNewPins(){}
+function drawStatus(){} function versionDue(){return false;} function expectUpdate(){} function countPinMove(){return false;} function noteNewPins(){}
 function checkDocUpdate(){} function compareRedrawnSource(){} function tintChangedLines(){} function seenStore(){return {};} function visitedBefore(){return false;} function checkDocsSeen(){}
 function groupNote(group,data,view){const v=view(data); return lineNote(v.msg,v.kind,v.act,v.o);} function newsWithout(){return ()=>null;}
 """

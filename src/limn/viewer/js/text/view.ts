@@ -127,7 +127,7 @@ function indentBlockAround(lines: string[], first: number, last: number) {
 // merges into that one (as markdownLevels does). Array.prototype.sort is stable, so rungs of one length keep that
 // order.
 function textLevels(range: { lo: number; hi: number }) {
-  const rungs = [] as any[],
+  const rungs: (Rung & { tip: string | null })[] = [],
     lines = MARKDOWN_VIEW.lines;
   const add = (level: string, label: string, first: number, last: number, tip: string | null) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);

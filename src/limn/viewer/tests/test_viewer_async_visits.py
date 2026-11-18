@@ -25,12 +25,13 @@ class AsyncDocumentVisits(unittest.TestCase):
             [
                 extract_js_fn("withDocQuery"),
                 extract_js_fn("rebuild"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1; const BUILD={inflight:null};
                 const nodes=new Map(),calls=[];
                 let finish;
                 function $(name){if(!nodes.has(name))nodes.set(name,{hidden:false});return nodes.get(name);}
-                function api(url){calls.push(url);return new Promise(resolve=>{finish=resolve;});}
+                function api(endpoint,o){calls.push(endpointUrl(endpoint,o.id,o.query));return new Promise(resolve=>{finish=resolve;});}
                 function pollBuild(){calls.push('poll:'+DOC);}
                 function lineNote(){calls.push('said');}
                 (async()=>{
@@ -76,13 +77,14 @@ class AsyncDocumentVisits(unittest.TestCase):
             [
                 extract_js_fn("withDocQuery"),
                 extract_js_fn("rebuild"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1;
                 let release;
                 const calls=[];
                 const BUILD={inflight:new Promise(resolve=>{release=resolve;})};
                 function $(name){return {hidden:false};}
-                function api(url){calls.push(url);return Promise.resolve({status:200});}
+                function api(endpoint,o){calls.push(endpointUrl(endpoint,o.id,o.query));return Promise.resolve({status:200});}
                 function pollBuild(){calls.push('poll:'+DOC);}
                 (async()=>{
                   const old=rebuild();await Promise.resolve();
@@ -138,16 +140,20 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("findAll"),
+                "class HTMLButtonElement { disabled = false; }",
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 "function topPinId(){return 0;}",  # the mark a lost answer is looked for above (app/state.ts)
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                extract_js_fn("isApiError"),
+                extract_js_fn("isRefusal"),
                 extract_js_fn("savePin"),
                 """
                 let DOC='a',SWITCHSEQ=1; const COMPOSE={current:{doc:'a',file:'a.tex',page:1,lo:1,hi:1},box:{remove(){removes++;}},saving:false,picking:false};
                 let KIND_NEW='fix',PINS=[],removes=0,clears=0,drafts=0,loads=0,drops=0,restores=0;
                 const SECTION_SEEN={open:new Set()},ASSIGN_NEW={v:'agent'};
                 let finish,undo;
-                function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
+                function $(name){return name==='#note'?{value:'note'}:new HTMLButtonElement();}
                 const document={querySelectorAll:()=>[$('#btn-save')]};
                 function isRegion(){return false;}function kindFor(){return 'line';}function figureFields(b){return b;}function figureRung(){return null;}
                 function mentionHints(){return [];}function renderAssignNew(){}
@@ -247,6 +253,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("composeOwns"),
                 extract_js_fn("composeFields"),
                 extract_js_fn("syncComposeSaveButtons"),
+                extract_js_fn("findAll"),
+                "class HTMLButtonElement { disabled = false; }",
                 "function renderVerdictRow(){}",  # no verdict words here (verdict/flow-line.ts)
                 extract_js_fn("isViewer"),
                 extract_js_fn("viewerBlocked"),
@@ -255,7 +263,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 """
                 let DOC='a',SWITCHSEQ=1,PINS=[{id:7,note:'old'}]; const COMPOSE={current:{doc:'a'},box:{remove(){removed++;}}};
                 const KIND_NEW='fix',ASSIGN_NEW={v:'agent',touched:false};
-                function $(name){return name==='#note'?{value:'note'}:{disabled:false};}
+                function $(name){return name==='#note'?{value:'note'}:new HTMLButtonElement();}
                 const document={querySelectorAll:()=>[$('#btn-save')]};
                 let finish,removed=0,cleared=0,said=0,loads=0;
                 function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -287,6 +295,8 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 extract_js_fn("dropPin"),
+                extract_js_fn("isApiError"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',SWITCHSEQ=1,PINS_APPLIED_SEQ=0,OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]]; const EDITOR={current:null,saving:false};
                 let fail,draws=0,marksCount=0,loads=0;
@@ -310,6 +320,8 @@ class VisitLocalContinuations(unittest.TestCase):
         js = "\n".join(
             [
                 extract_js_fn("dropPin"),
+                extract_js_fn("isApiError"),
+                extract_js_fn("endpointUrl"),
                 """
                 let DOC='a',PINS_APPLIED_SEQ=0;
                 let OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'a'},{id:3,doc:'a'}],PINS=OPEN_ALL; const EDITOR={current:null,saving:false};
@@ -317,7 +329,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 function pdoc(p){return p.doc;}
                 function drawPins(){}function marks(){}function markMine(){}function findAnyPin(){return null;}function sourceOk(){}const DROPPED=[];
                 function translateTemplate(s){return s;}function undoNote(){}function quietNote(){}function restorePin(){}function $(){return {};}function drawnBefore(){return null;}
-                function api(url){const id=Number(url.split('/')[3]);return new Promise((resolve,reject)=>{pending[id]={resolve,reject};});}
+                function api(endpoint,o){const id=Number(endpointUrl(endpoint,o.id,o.query).split('/')[3]);return new Promise((resolve,reject)=>{pending[id]={resolve,reject};});}
                 function loadPins(){loads++;return Promise.resolve(false);}
                 (async()=>{
                   const first=dropPin(1,false),second=dropPin(2,false);
@@ -340,12 +352,16 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("findElement"),
+                "class HTMLTextAreaElement {}",
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                "class HTMLButtonElement {}",  # the save button's class (syncEditSaveButton checks it)
+                extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
+                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return Object.assign(new HTMLTextAreaElement(),{value:'changed'});}}};
                 const EDITOR={current:first,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
@@ -372,12 +388,16 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("findElement"),
+                "class HTMLTextAreaElement {}",
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                "class HTMLButtonElement {}",  # the save button's class (syncEditSaveButton checks it)
+                extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
+                const first={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return Object.assign(new HTMLTextAreaElement(),{value:'changed'});}}};
                 const EDITOR={current:first,saving:false};let finish,loads=0,snips=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
@@ -402,12 +422,16 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("editorOwns"),
                 extract_js_fn("editNote"),
+                extract_js_fn("findElement"),
+                "class HTMLTextAreaElement {}",
                 extract_js_fn("editFields"),
                 extract_js_fn("syncEditSaveButton"),
+                "class HTMLButtonElement {}",  # the save button's class (syncEditSaveButton checks it)
+                extract_js_fn("isRefusal"),
                 extract_js_fn("saveEdit"),
                 """
                 let DOC='a',SWITCHSEQ=1;
-                const card={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return {value:'changed'};}}};
+                const card={id:1,base_rev:1,lo:1,hi:1,orig:{note:'old',lo:1,hi:1},sg:{on:false,text:'',base:null,had:null},el:{querySelector(){return Object.assign(new HTMLTextAreaElement(),{value:'changed'});}}};
                 const EDITOR={current:card,saving:false};let finish,loads=0,said=0;
                 function viewerBlocked(){return false;}
                 function suggestForEdit(){return undefined;} function suggestOff(){return null;} function editDocKind(){return undefined;}
@@ -432,6 +456,7 @@ class VisitLocalContinuations(unittest.TestCase):
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
                 js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                extract_js_fn("isRefusal"),
                 extract_js_fn("applyRepick"),
                 extract_js_fn("lineRange"),
                 """
@@ -473,6 +498,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("hasMark"),
                         extract_js_fn("pinPlace"),
                         js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                        extract_js_fn("isRefusal"),
                         extract_js_fn("applyRepick"),
                         extract_js_fn("lineRange"),
                         """
@@ -501,6 +527,7 @@ class VisitLocalContinuations(unittest.TestCase):
                         extract_js_fn("captureVisit"),
                         extract_js_fn("currentVisit"),
                         js_seams_wired(COMPOSER_SEAMS),  # the composer's seams, wired as js/main.ts does
+                        extract_js_fn("isRefusal"),
                         extract_js_fn("applyRepick"),
                         extract_js_fn("lineRange"),
                         """
@@ -590,7 +617,7 @@ class VisitLocalContinuations(unittest.TestCase):
     def test_revision_import_finishing_after_switch_does_not_start_pdf(self):
         """A late PDF.js module import cannot attach a loading task to another document's revision view."""
         source, n = re.subn(
-            r"await import\(\s*'/vendor/pdfjs/pdf\.min\.mjs\?v='\s*\+\s*PDFJS_VERSION\s*\)",
+            r"await importPdfLibrary\(\)",
             "await delayedImport()",
             extract_js_fn("loadRevisionPdf"),
         )
@@ -599,12 +626,14 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 source,
                 extract_js_fn("revisionStart"),
+                extract_js_fn("findElement"),
                 """
+                class HTMLElement{} class HTMLPreElement extends HTMLElement{}
                 let DOC='a';const REVISION_VIEW={seq:1,commit:'head',target:null};
                 const COMPARISON_SCOPE={whole:false,fallback:false},COMPARISON_PDF={loading:null};
                 const VECTOR_PDF={lib:null},PDFJS_VERSION='test';
                 let finishImport,opened=0;
-                const statusBox={textContent:''},warningBox={hidden:true,open:false,querySelector(){return {textContent:''};}};
+                const statusBox={textContent:''},warningBox={hidden:true,open:false,querySelector(s){return s==='pre'?new HTMLPreElement():new HTMLElement();}};
                 function $(name){return name==='#revision-status'?statusBox:warningBox;}
                 function revisionPinFor(){return null;}
                 function revisionCurrent(seq,k,id){return seq===REVISION_VIEW.seq&&k===DOC&&id===REVISION_VIEW.commit;}

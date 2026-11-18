@@ -9,9 +9,16 @@ import {
   VECTOR_KEEP_MARGIN,
   VECTOR_PIXEL_CAP,
   forgetVectorDocument,
-} from './flow-open.ts';
+  setVectorFailed,
+  advanceVectorGeneration,
+  setVectorDocument,
+  setVectorObserver,
+  setVectorTimer,
+  setVectorPumping,
+  setVectorCurrent,
+  setVectorFirstDrawn,
+} from './state-vector.ts';
 import { searchOffer } from './flow.ts';
-import type { PdfDocument } from './flow-open.ts';
 import { $, $$ } from '../platform/dom.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
 function closeVectorDocument(doc: PdfDocument | null) {
@@ -22,13 +29,13 @@ function closeVectorDocument(doc: PdfDocument | null) {
 }
 // Gives up on vector drawing for the document on screen: the pages stay PNG, and #vec-chip says why.
 function failVector(message: string, cause?: unknown) {
-  VECTOR_PDF.failed = message;
-  VECTOR_PDF.gen++;
+  setVectorFailed(message);
+  advanceVectorGeneration();
   cancelVectorDraw();
   releaseAllVectorPages();
   forgetVectorDocument(VECTOR_PDF.doc);
   closeVectorDocument(VECTOR_PDF.doc);
-  VECTOR_PDF.doc = null;
+  setVectorDocument(null);
   // No PDF to read: no search.
   searchOffer();
   const chip = $('#vec-chip');
@@ -76,7 +83,7 @@ function releaseAllVectorPages() {
 }
 function cancelVectorDraw() {
   const drawing = VECTOR_PDF.cur;
-  VECTOR_PDF.cur = null;
+  setVectorCurrent(null);
   if (drawing && drawing.task) {
     try {
       drawing.task.cancel();
@@ -88,10 +95,10 @@ function observeVectorPages() {
   releaseAllVectorPages();
   VECTOR_PDF.near.clear();
   if (!window.IntersectionObserver) return;
-  const io = (VECTOR_PDF.io = new IntersectionObserver(
+  const io = new IntersectionObserver(
     (entries) => {
       entries.forEach((en) => {
-        const pageNumber = Number((en.target as HTMLElement).dataset.page);
+        const pageNumber = Number(en.target instanceof HTMLElement ? en.target.dataset.page : undefined);
         if (en.isIntersecting) VECTOR_PDF.near.add(pageNumber);
         else {
           VECTOR_PDF.near.delete(pageNumber);
@@ -101,12 +108,13 @@ function observeVectorPages() {
       scheduleVectorDraw(0);
     },
     { root: $('#left'), rootMargin: VECTOR_KEEP_MARGIN },
-  ));
+  );
+  setVectorObserver(io);
   $$('.pg').forEach((pageElement) => io.observe(pageElement));
 }
 function scheduleVectorDraw(ms: number) {
   clearTimeout(VECTOR_PDF.timer);
-  VECTOR_PDF.timer = setTimeout(pumpDrawJobs, ms || 0);
+  setVectorTimer(setTimeout(pumpDrawJobs, ms || 0));
 }
 // Zoom, window size or DPR changed: whatever was being drawn (at the old size) is discarded and redrawn shortly after.
 // Meanwhile, the old canvas is shown stretched.
@@ -182,7 +190,7 @@ function nextDrawJob() {
     top = areaRect.top,
     bottom = areaRect.top + pdfArea.clientHeight,
     centerY = (top + bottom) / 2;
-  const list: { n: number; pg: HTMLElement; vis: any; d: number }[] = []; // vis: a boolean, subtracted to sort
+  const list: { n: number; pg: HTMLElement; vis: boolean; d: number }[] = [];
   VECTOR_PDF.near.forEach((pageNumber) => {
     const pageElement = document.getElementById('p' + pageNumber);
     if (!pageElement) return;
@@ -194,7 +202,7 @@ function nextDrawJob() {
       d: Math.abs((pageRect.top + pageRect.bottom) / 2 - centerY),
     });
   });
-  list.sort((first, second) => second.vis - first.vis || first.d - second.d);
+  list.sort((first, second) => Number(second.vis) - Number(first.vis) || first.d - second.d);
   for (const candidate of list) {
     const pageState = pageDrawState(candidate.n),
       target = pageBackingTarget(candidate.pg);
@@ -222,7 +230,7 @@ function nextDrawJob() {
 // Runs the draw jobs one after another until none is left; one pump at a time.
 async function pumpDrawJobs() {
   if (VECTOR_PDF.pumping || !VECTOR_PDF.doc) return;
-  VECTOR_PDF.pumping = true;
+  setVectorPumping(true);
   try {
     for (let i = 0; i < 400; i++) {
       const job = nextDrawJob();
@@ -230,7 +238,7 @@ async function pumpDrawJobs() {
       await runDrawJob(job);
     }
   } finally {
-    VECTOR_PDF.pumping = false;
+    setVectorPumping(false);
   }
 }
 async function runDrawJob(job: { n: number; kind: string }) {
@@ -256,7 +264,7 @@ async function runDrawJob(job: { n: number; kind: string }) {
     canvas = document.createElement('canvas');
   let scale,
     transform,
-    region = null as { x: number; y: number; w: number; h: number } | null;
+    region: { x: number; y: number; w: number; h: number } | null = null;
   // Width and height are fit independently (the transform's vertical scale) - the page box's aspect ratio comes from
   // the PNG pixel dimensions and differs from the PDF page's aspect ratio by less than 0.1%. The PNG fills that same
   // box, so this is what lands the canvas's text at the same % position as the PNG's.
@@ -286,22 +294,24 @@ async function runDrawJob(job: { n: number; kind: string }) {
   }
   const canvasContext = canvas.getContext('2d', { alpha: false }),
     startedAt = performance.now();
+  // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way, outside the try.
+  if (!canvasContext) throw new Error('the page canvas has no 2D context');
   const task = page.render({
     canvasContext: canvasContext,
     viewport: page.getViewport({ scale }),
     transform: transform,
   });
-  VECTOR_PDF.cur = { n: pageNumber, task };
+  setVectorCurrent({ n: pageNumber, task });
   try {
     await task.promise;
   } catch (error) {
-    if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) VECTOR_PDF.cur = null;
+    if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) setVectorCurrent(null);
     dropCanvas(canvas);
-    if (error && (error as Error).name === 'RenderingCancelledException') return;
+    if (error instanceof Error && error.name === 'RenderingCancelledException') return;
     if (gen === VECTOR_PDF.gen) failVector('쪽을 그리지 못했습니다', error);
     return;
   }
-  if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) VECTOR_PDF.cur = null;
+  if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) setVectorCurrent(null);
   const targetAfter =
     gen === VECTOR_PDF.gen && VECTOR_PDF.near.has(pageNumber) && document.contains(pageElement)
       ? pageBackingTarget(pageElement)
@@ -329,10 +339,10 @@ async function runDrawJob(job: { n: number; kind: string }) {
     canvas.className = 'vb';
     pageElement.prepend(canvas);
     pageElement.classList.add('drawn');
-    if (VECTOR_PDF.tFirst === null) VECTOR_PDF.tFirst = performance.now();
-  } else {
+    if (VECTOR_PDF.tFirst === null) setVectorFirstDrawn(performance.now());
+  } else if (region) {
     // A detail job always measures its region above.
-    const drawnRegion = region as { x: number; y: number; w: number; h: number };
+    const drawnRegion = region;
     dropCanvas(pageState.dt);
     pageState.dt = canvas;
     pageState.reg = drawnRegion;

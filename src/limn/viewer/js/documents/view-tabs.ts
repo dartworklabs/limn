@@ -8,23 +8,22 @@ import {
   isFigureKind,
   setDefaultDoc,
   setDocs,
+  META,
 } from '../app/state.ts';
-import { html, lucideIcon, setHtml } from '../platform/markup.ts';
+import { type Html, html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate } from '../platform/i18n.ts';
 import { prefs } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import { hideTip } from '../platform/tooltip.ts';
-import { drawDocsMenu, drawPos, switchDoc } from './flow-switch.ts';
-import type { Html } from '../platform/markup.ts';
-import { $, $$ } from '../platform/dom.ts';
-import { docInfo, pdoc } from './state.ts';
-import { pageNavigation } from './state-seams.ts';
-
+import { $, $$, eventElement, findAll, findElement, findMaybe, focusedElement, isDisabled } from '../platform/dom.ts';
+import { docInfo, pdoc, isMarkdownDoc } from './state.ts';
+import { pageNavigation, markdownSurface, documentNavigation } from './state-seams.ts';
+import { VIEW_MODE } from '../app/rules-tables.ts';
 function multiDoc() {
   return DOCS.length > 1;
 }
 function hashDoc() {
-  const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
+  const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(window.location.hash || '');
   return match ? match[1] : null;
 }
 // Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the
@@ -32,7 +31,8 @@ function hashDoc() {
 function setHash(doc: string | null) {
   if (!multiDoc()) return;
   const hash = '#doc=' + doc;
-  if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
+  if (window.location.hash !== hash)
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + hash);
 }
 // The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first
 // document.
@@ -40,12 +40,12 @@ function initialDoc() {
   const fromHash = hashDoc();
   if (fromHash && docInfo(fromHash)) return fromHash;
   const last = prefs().lastDoc;
-  if (last && docInfo(last)) return last;
+  if (typeof last === 'string' && last && docInfo(last)) return last;
   return DOCS.length ? DOCS[0].key : null;
 }
 async function loadDocs() {
   try {
-    const answer = (await api('/api/docs', { what: '문서 목록', silent: true })).data;
+    const answer = (await api('GET /api/docs', { what: '문서 목록', silent: true })).data;
     setDocs(Array.isArray(answer.docs) ? answer.docs : []);
     setDefaultDoc(answer.default || (DOCS[0] && DOCS[0].key) || 'main');
   } catch (error) {
@@ -103,7 +103,7 @@ function docLinkInner(entry: DocEntry) {
   return html`<span class="lbl">${entry.name}</span>${count}`;
 }
 // What a link's or a popover row's inside was last drawn from, so a redraw that changes nothing writes nothing.
-const DOC_DRAWN = new WeakMap() as WeakMap<Element, string>;
+const DOC_DRAWN: WeakMap<Element, string> = new WeakMap();
 // Sets the inside of an element to `markup`, drawn from key - unless it was drawn from key already. The element itself
 // stays: one that has the focus keeps it, and no focusout or focusin is sent.
 function docInner(element: Element, markup: Html, key: string) {
@@ -131,10 +131,10 @@ function drawDocTabs() {
   if (DOC) box.value = DOC;
   const row = $('#doc-links'),
     more = $('#doc-more'),
-    had = document.activeElement as HTMLElement | null,
-    old = [...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[];
+    had = focusedElement(),
+    old = findAll(row, ':scope>[data-doc]', HTMLElement);
   const same = old.length === DOCS.length && old.every((link, index) => link.dataset.doc === DOCS[index].key);
-  let was = null as string | null | undefined;
+  let was: string | null | undefined = null;
   if (!same) {
     was = had && had !== more && row.contains(had) ? had.dataset.doc : null;
     old.forEach((link) => link.remove());
@@ -145,7 +145,7 @@ function drawDocTabs() {
     );
     more.before(...links.children);
   }
-  ([...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[]).forEach((link, index) => {
+  findAll(row, ':scope>[data-doc]', HTMLElement).forEach((link, index) => {
     const entry = DOCS[index];
     setAttributeIfChanged(link, 'aria-current', entry.key === DOC ? 'page' : 'false');
     setAttributeIfChanged(link, 'title', docTip(entry));
@@ -154,9 +154,7 @@ function drawDocTabs() {
   drawPos();
   docFit();
   const back = was
-    ? ([...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[]).find(
-        (link) => link.dataset.doc === was && !link.hidden,
-      )
+    ? findAll(row, ':scope>[data-doc]', HTMLElement).find((link) => link.dataset.doc === was && !link.hidden)
     : null;
   if (back) back.focus({ preventScroll: true });
   if ($('#nav-sheet').open) drawDocsMenu();
@@ -218,8 +216,8 @@ function docFit() {
   const row = $('#doc-links'),
     more = $('#doc-more'),
     bar = $('#doc-nav'),
-    label = more.querySelector('.lbl') as HTMLElement,
-    tabs = [...row.querySelectorAll(':scope>[data-doc]')] as HTMLElement[],
+    label = findElement(more, '.lbl', Element),
+    tabs = findAll(row, ':scope>[data-doc]', HTMLElement),
     pixels = (value: string) => parseFloat(value) || 0,
     had = document.activeElement;
   let fit = '',
@@ -239,7 +237,7 @@ function docFit() {
     };
     let used = 0,
       controls = 0;
-    for (const control of [...bar.children] as HTMLElement[]) {
+    for (const control of findAll(bar, ':scope>*', HTMLElement)) {
       if (control === row || !control.getClientRects().length) continue;
       const style = getComputedStyle(control);
       controls++;
@@ -267,7 +265,7 @@ function docFit() {
       moreMargins = pixels(moreStyle.marginLeft) + pixels(moreStyle.marginRight);
     const widths = tabs.map((link) => link.getBoundingClientRect().width),
       gap = pixels(rowStyle.columnGap),
-      seen = new Map(),
+      seen = new Map<number, number>(),
       was = more.hidden;
     const showAs = (mode: string, text: string) => {
       more.dataset.fit = mode;
@@ -282,8 +280,11 @@ function docFit() {
       return x;
     };
     const moreWidth = (count: number) => {
-      if (!seen.has(count)) seen.set(count, width('more', '+' + count));
-      return seen.get(count);
+      const known = seen.get(count);
+      if (known !== undefined) return known;
+      const measured = width('more', '+' + count);
+      seen.set(count, measured);
+      return measured;
     };
     const currentIndex = Math.max(
         0,
@@ -365,8 +366,8 @@ document.fonts.addEventListener('loadingdone', docFit);
 $('#doc-links').addEventListener(
   'scroll',
   (event: Event) => {
-    const row = event.currentTarget as HTMLElement;
-    if (row.scrollTop || row.scrollLeft) {
+    const row = event.currentTarget;
+    if (row instanceof Element && (row.scrollTop || row.scrollLeft)) {
       row.scrollTop = 0;
       row.scrollLeft = 0;
     }
@@ -382,13 +383,13 @@ $('#doc-links').addEventListener(
 // what changed - so a focused row keeps its node and the focus, and the filter and the list's scroll stay.
 function drawDocMenu() {
   const list = $('#doc-pop-list'),
-    old = [...list.children] as HTMLElement[];
+    old = findAll(list, ':scope>*', HTMLElement);
   if (!(old.length === DOCS.length && old.every((row, index) => row.dataset.doc === DOCS[index].key)))
     setHtml(
       list,
       html`${DOCS.map((entry) => html`<button class="dp-row" role="option" data-act="doc" data-doc="${entry.key}"></button>`)}`,
     );
-  ([...list.children] as HTMLElement[]).forEach((row, index) => {
+  findAll(list, ':scope>*', HTMLElement).forEach((row, index) => {
     const entry = DOCS[index],
       on = entry.key === DOC,
       state = entry.building ? 'spin' : entry.stale_build ? 'dot' : '';
@@ -406,9 +407,9 @@ function drawDocMenu() {
 // Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says
 // so when none does.
 function docMenuFilter() {
-  const query = ($('#doc-pop-in') as HTMLInputElement).value.trim().toLowerCase();
+  const query = $('#doc-pop-in').value.trim().toLowerCase();
   let shown = 0;
-  for (const row of [...$('#doc-pop-list').children] as HTMLElement[]) {
+  for (const row of findAll($('#doc-pop-list'), ':scope>*', HTMLElement)) {
     const entry = docInfo(row.dataset.doc || '');
     row.hidden = !!query && !(entry && (entry.name + ' ' + entry.path).toLowerCase().includes(query));
     if (!row.hidden) shown++;
@@ -419,7 +420,7 @@ function docMenuFilter() {
 // keyboard comes up - and a list without it get the current document's row, scrolled into view.
 function openDocMenu() {
   const pop = $('#doc-pop'),
-    filter = $('#doc-pop-in') as HTMLInputElement;
+    filter = $('#doc-pop-in');
   hideTip();
   pageNavigation().closePageList(false);
   filter.hidden = DOCS.length < 9;
@@ -428,7 +429,7 @@ function openDocMenu() {
   pop.hidden = false;
   drawDocMenu();
   placeDocMenu();
-  const row = $('#doc-pop-list [aria-selected=true]') as HTMLElement | null;
+  const row = findMaybe(document, '#doc-pop-list [aria-selected=true]', HTMLElement);
   if (row) row.scrollIntoView({ block: 'nearest' });
   const to = !filter.hidden && !COARSE_POINTER_QUERY.matches ? filter : row || pop;
   to.focus({ preventScroll: true });
@@ -447,9 +448,9 @@ function placeDocMenu() {
   const rect = more.getBoundingClientRect(),
     top = Math.round(rect.bottom) + 4,
     width = pop.offsetWidth;
-  pop.style.left = Math.max(8, Math.min(Math.round(rect.left), innerWidth - 8 - width)) + 'px';
+  pop.style.left = Math.max(8, Math.min(Math.round(rect.left), window.innerWidth - 8 - width)) + 'px';
   pop.style.top = top + 'px';
-  pop.style.setProperty('--dp-room', Math.max(0, innerHeight - 8 - top) + 'px');
+  pop.style.setProperty('--dp-room', Math.max(0, window.innerHeight - 8 - top) + 'px');
 }
 // Shuts the popover; back gives the focus back to its button (Esc, a choice, Shift+Tab out of it).
 function closeDocMenu(back: boolean) {
@@ -469,11 +470,11 @@ function toggleDocMenu() {
 // popover lands on. Null when the button is the bar's last.
 function docMenuNext() {
   const more = $('#doc-more'),
-    stops = ([...$('#doc-nav').querySelectorAll('button,input,select,a[href],[tabindex]')] as HTMLElement[]).filter(
+    stops = findAll($('#doc-nav'), 'button,input,select,a[href],[tabindex]', HTMLElement).filter(
       (stop) =>
         stop === more ||
         (stop.tabIndex >= 0 &&
-          !(stop as HTMLButtonElement).disabled &&
+          !isDisabled(stop) &&
           stop.getClientRects().length > 0 &&
           getComputedStyle(stop).visibility !== 'hidden'),
     );
@@ -493,10 +494,10 @@ $('#doc-more').addEventListener('keydown', (event: KeyboardEvent) => {
   }
 });
 $('#doc-pop').addEventListener('keydown', (event: KeyboardEvent) => {
-  const target = event.target as HTMLElement,
+  const target = eventElement(event),
     filter = $('#doc-pop-in');
   if (imeKey(event)) return;
-  const rows = ([...$('#doc-pop-list').children] as HTMLElement[]).filter((row) => !row.hidden),
+  const rows = findAll($('#doc-pop-list'), ':scope>*', HTMLElement).filter((row) => !row.hidden),
     field = !filter.hidden;
   if (event.altKey && !event.ctrlKey && !event.metaKey && /^Digit[1-9]$/.test(event.code || '')) {
     const entry = DOCS[+event.code.slice(5) - 1];
@@ -504,7 +505,7 @@ $('#doc-pop').addEventListener('keydown', (event: KeyboardEvent) => {
     event.stopPropagation();
     if (entry) {
       closeDocMenu(true);
-      switchDoc(entry.key);
+      documentNavigation().open(entry.key);
     }
     return;
   }
@@ -534,7 +535,7 @@ $('#doc-pop').addEventListener('keydown', (event: KeyboardEvent) => {
     }
     return;
   }
-  const index = rows.indexOf(target);
+  const index = rows.findIndex((row) => row === target);
   if (index < 0) return;
   if (event.key === 'ArrowUp' && index === 0 && field) {
     event.preventDefault();
@@ -553,17 +554,94 @@ $('#doc-pop-in').addEventListener('input', docMenuFilter);
 // it) shuts it; a press anywhere outside them shuts it too (the press still does what it does). Focus that goes nowhere
 // (the window losing it) leaves it open.
 $('#doc-pop').addEventListener('focusout', (event: FocusEvent) => {
-  const to = event.relatedTarget as Node | null;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (to && !$('#doc-pop').contains(to) && !$('#doc-more').contains(to)) closeDocMenu(false);
 });
 document.addEventListener(
   'pointerdown',
   (event) => {
-    const target = event.target as Node;
+    const target = event.target instanceof Node ? event.target : null;
     if (!$('#doc-pop').hidden && !$('#doc-pop').contains(target) && !$('#doc-more').contains(target))
       closeDocMenu(false);
   },
   true,
 );
-addEventListener('resize', placeDocMenu);
-export { closeDocMenu, docBadge, drawDocTabs, hashDoc, initialDoc, loadDocs, multiDoc, setHash, toggleDocMenu };
+window.addEventListener('resize', placeDocMenu);
+
+// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One
+// document leaves the section out - there is nothing to switch to.
+function drawDocsMenu() {
+  $('#ns-docs').hidden = !multiDoc();
+  setHtml(
+    $('#ns-docs-list'),
+    html`${DOCS.map((entry) => {
+      const on = entry.key === DOC;
+      return html`<button class="dm-item${on ? ' on' : ''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${entry.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${entry.name}${on ? lucideIcon('check') : ''}</span><span class="ph" translate="no">${entry.path}</span></span>${docBadge(entry)}</button>`;
+    })}`,
+  );
+}
+// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
+// several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
+// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for
+// translate/translateTemplate.
+function posLabel(doc: string, page: number, pageCount: number, multi: boolean, wide: boolean, mode: string) {
+  if (mode === VIEW_MODE.REVISIONS)
+    return { name: '', pages: translate('변경사항'), label: translate('이동') + ' · ' + translate('변경사항') };
+  const name = multi && wide ? doc : '',
+    pageShown = pageCount ? page : '–',
+    countShown = pageCount ? pageCount : '–';
+  return {
+    name,
+    pages: pageShown + '/' + countShown,
+    label: name
+      ? translateTemplate('이동 · {doc} · {page} / {n}쪽', { doc: name, page: pageShown, n: countShown })
+      : translateTemplate('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
+  };
+}
+// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when
+// another document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words
+// are translate()'d here.
+function drawPos() {
+  const button = $('#btn-pos');
+  if (!button) return;
+  const shown = docInfo(DOC),
+    pageCount = META && META.pages ? META.pages.length : 0,
+    isRevisions = document.body.classList.contains('revision-open');
+  const label =
+    isMarkdownDoc() && !isRevisions
+      ? // a Markdown document has lines, not pages
+        markdownSurface().positionLabel(
+          shown ? shown.name : '',
+          markdownSurface().reading().at,
+          markdownSurface().reading().lines.length,
+          multiDoc(),
+          window.innerWidth >= 400,
+        )
+      : posLabel(
+          shown ? shown.name : '',
+          pageNavigation().outlinePage() || 1,
+          pageCount,
+          multiDoc(),
+          window.innerWidth >= 400,
+          isRevisions ? VIEW_MODE.REVISIONS : VIEW_MODE.MANUSCRIPT,
+        );
+  const nameSpan = $('#btn-pos-n');
+  nameSpan.textContent = label.name;
+  nameSpan.hidden = !label.name;
+  $('#btn-pos-p').textContent = label.pages;
+  button.setAttribute('aria-label', label.label);
+  button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
+  $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
+}
+export {
+  closeDocMenu,
+  drawDocTabs,
+  hashDoc,
+  initialDoc,
+  loadDocs,
+  multiDoc,
+  setHash,
+  toggleDocMenu,
+  drawDocsMenu,
+  drawPos,
+};

@@ -32,7 +32,9 @@ import {
   COMPOSE,
   EDITOR,
   setEditorCurrent,
+  findAnyPin,
 } from '../app/state.ts';
+import { restoreDroppedPin } from './flow-restore.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import {
@@ -43,6 +45,8 @@ import {
   listOrderOf,
   savePrefs,
   setOrder,
+  setSectionOpen,
+  setSectionSeen,
 } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
 import {
@@ -56,21 +60,21 @@ import {
   offersIn,
 } from '../platform/notices.ts';
 import { drawDocTabs, multiDoc } from '../documents/view-tabs.ts';
-import { REVISION_VIEW, findAnyPin, drawPinGuideActions, setViewMode } from '../revisions/flow.ts';
+import { setViewMode } from '../revisions/flow.ts';
 import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { isElementLost, hasMark, pinPieces, pinPlace } from '../pdf/view-figure.ts';
 import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
-import { recomputeOverlap, renderOverlapBanner } from '../composer/flow-pick.ts';
+import { recomputeOverlap, renderOverlapBanner } from '../composer/view-overlap.ts';
 import { mentionsMe } from './view-card-parts.ts';
 import { doneCard, drawTrash, openTrash, listDropped } from './view-cards.ts';
-import { drawReviewPick } from './flow-review-pick.ts';
+import { drawReviewPick } from './view-review-pick.ts';
 import { marksShow } from './input-hide-marks.ts';
 import { renderAssignNew } from '../composer/input-mentions.ts';
-import { closeReply, renderReplyOutcome, replyNote } from './flow-reply.ts';
+import { parkReply, renderReplyOutcome, replyNote } from './view-reply.ts';
 import { NOTICE_DOT, NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { $, $$, eventElement } from '../platform/dom.ts';
+import { $, $$, eventElement, findMaybe, focusedElement, findClosest } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE, VIEW_MODE } from '../app/rules-tables.ts';
 import { pinState } from '../app/rules-pins.ts';
 import { isMarkdownDoc, docInfo, pdoc } from '../documents/state.ts';
@@ -109,10 +113,12 @@ import {
   markTabKey,
   markCoversMoved,
 } from './view-mark-covers.ts';
+import { REVISION_VIEW } from '../revisions/state.ts';
+import { drawPinGuideActions } from '../revisions/view-pin-guide.ts';
 
 async function loadPeople() {
   try {
-    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
+    const answer = (await api('GET /api/people', { what: '사람 목록', silent: true })).data;
     if (Array.isArray(answer.people)) {
       const was = JSON.stringify(PEOPLE),
         first = !PEOPLE_KNOWN;
@@ -136,7 +142,7 @@ let PINS_LOAD_SEQ = 0,
 function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof derivePinLists>) {
   const openBefore = OPEN_ALL,
     reviewBefore = REVIEW_ALL;
-  notePinChanges(openBefore, rows, dropped);
+  notePinChanges(openBefore, rows, dropped, gotoReview, (id) => restoreDroppedPin(id, loadPins));
   noteReviewChanges(reviewBefore, rows);
   noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
   setOpenAll(lists.openAll);
@@ -155,7 +161,7 @@ function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof der
   });
   const card = EDITOR.current;
   if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
-    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
+    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) setSectionOpen('open', true);
     else {
       lineNote(
         translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
@@ -168,15 +174,15 @@ function applyPinLists(rows: Pin[], dropped: Pin[], lists: ReturnType<typeof der
   }
   const replyBox = REPLY;
   if (replyBox && !rows.some((pin) => pin.id === replyBox.id)) {
-    closeReply(false);
+    parkReply();
     lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다', NOTICE_KIND.WARN, null, {
       dot: NOTICE_DOT.SIDE,
     });
   }
   if (!SECTION_SEEN.open) {
-    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
-    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
-    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
+    setSectionSeen('open', new Set(OPEN_ALL.map((pin) => pin.id)));
+    setSectionSeen('review', new Set(REVIEW_ALL.map((pin) => pin.id)));
+    setSectionSeen('done', new Set(DONE_ALL.map((pin) => pin.id)));
   }
   drawPins();
   marks();
@@ -195,7 +201,8 @@ async function loadPins() {
   let rows;
   try {
     rows = (
-      await api('/api/pins?all=1', {
+      await api('GET /api/pins', {
+        query: '?all=1',
         what: '핀 읽기',
         where: NOTICE_HOST.LIST,
         retry: () => {
@@ -213,7 +220,7 @@ async function loadPins() {
   try {
     dropped =
       (
-        await api('/api/pins/dropped', {
+        await api('GET /api/pins/dropped', {
           what: '삭제한 핀',
           where: NOTICE_HOST.LIST,
           retry: () => {
@@ -248,7 +255,7 @@ function gotoReview() {
   noticeSeen(NOTICE_DOT.RV);
   if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
   if (!SECTION_OPEN.review) {
-    SECTION_OPEN.review = true;
+    setSectionOpen('review', true);
     savePrefs({ sec: SECTION_OPEN });
   }
   drawPins();
@@ -260,7 +267,7 @@ function gotoReview() {
 }
 function toggleSection(key: string | undefined, force?: boolean) {
   if (key === undefined || !(key in SECTION_OPEN_DEFAULT)) return;
-  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
+  setSectionOpen(key, force === undefined ? !SECTION_OPEN[key] : !!force);
   savePrefs({ sec: SECTION_OPEN });
   drawPins();
 }
@@ -294,13 +301,14 @@ function drawPins() {
     replyFocus =
       replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
   // The edit card's note or suggested-edit field keeps its focus and selection the same way.
-  const editField =
-    EDITOR.current &&
-    document.activeElement &&
-    EDITOR.current.el.contains(document.activeElement) &&
-    document.activeElement.matches('.e-note,.e-sg-text')
-      ? (document.activeElement as HTMLTextAreaElement)
-      : null;
+  const active = document.activeElement,
+    editField =
+      EDITOR.current &&
+      active instanceof HTMLTextAreaElement &&
+      EDITOR.current.el.contains(active) &&
+      active.matches('.e-note,.e-sg-text')
+        ? active
+        : null;
   const editArea = editField,
     editFocus = editArea ? [editArea.selectionStart, editArea.selectionEnd] : null,
     cardFocus = cardFocusKeep();
@@ -313,11 +321,11 @@ function drawPins() {
   const allDocsButton = $('#all-docs');
   allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
   setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
-  $('#side-n').textContent = PINS.length;
+  $('#side-n').textContent = String(PINS.length);
   applySide();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
-  $('#m-trash-n').textContent = trashCount;
+  $('#m-trash-n').textContent = String(trashCount);
   $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
   $('#trash-link').hidden = !trashCount;
   $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
@@ -330,7 +338,7 @@ function drawPins() {
       : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
   ); // with no card, an undo row still gets its slot (cardRows)
   if (EDITOR.current) {
-    const slot = $('#pins .edit-slot');
+    const slot = findMaybe(document, '#pins .edit-slot', HTMLElement);
     if (slot) slot.replaceWith(EDITOR.current.el);
     else $('#pins').appendChild(EDITOR.current.el);
     renderEdit();
@@ -351,7 +359,7 @@ function drawPins() {
     reviewShown.map((pin) => pin.id),
     REVIEW_ALL.map((pin) => pin.id),
   );
-  // result rows while the section picks (pins/flow-review-pick.ts)
+  // result rows while the section picks (pins/view-review-pick.ts)
   if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
   drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
   updateReviewCount();
@@ -414,20 +422,15 @@ if (window.ResizeObserver) {
 document.fonts.addEventListener('loadingdone', (event) => {
   if (!$$('#list .pin.card.lazy').length) return;
   const listFonts = getComputedStyle($('#list')).fontFamily;
-  if (
-    (event as FontFaceSetLoadEvent).fontfaces.some((face) =>
-      listFonts.includes(face.family.replace(/^["']|["']$/g, '')),
-    )
-  )
-    lazyAgain();
+  if (event.fontfaces.some((face) => listFonts.includes(face.family.replace(/^["']|["']$/g, '')))) lazyAgain();
 });
 // A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
 // drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
 // anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
 // focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
 function cardFocusKeep(): { el: HTMLElement; id: string; act: string; i: number } | null {
-  const focused = document.activeElement as HTMLElement | null,
-    cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]') as HTMLElement | null) : null;
+  const focused = focusedElement(),
+    cardElement = focused ? findClosest(focused, '#list .pin[data-id]', HTMLElement) : null;
   const act = focused && focused.dataset ? focused.dataset.act || '' : '';
   if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
   return {
@@ -446,7 +449,8 @@ function cardFocusBack(kept: { el: HTMLElement; id: string; act: string; i: numb
   } // the edit card or the reply, put back in its slot
   const cardElement = document.querySelector('#list .pin[data-id="' + CSS.escape(kept.id) + '"]'),
     same = cardElement ? cardElement.querySelectorAll('[data-act="' + CSS.escape(kept.act) + '"]') : null;
-  const target = (same && (same[Math.max(0, kept.i)] || same[0])) as HTMLElement | null;
+  const found = same && (same[Math.max(0, kept.i)] || same[0]),
+    target = found instanceof HTMLElement ? found : null;
   if (target) target.focus({ preventScroll: true });
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
@@ -571,7 +575,7 @@ function openSectionFor(id: number | null) {
   const state = pinState(pin),
     key = state === PIN_STATE.REVIEW ? 'review' : state === PIN_STATE.DONE ? 'done' : 'open';
   if (SECTION_OPEN[key]) return false;
-  SECTION_OPEN[key] = true;
+  setSectionOpen(key, true);
   savePrefs({ sec: SECTION_OPEN });
   return true;
 }
@@ -587,7 +591,7 @@ function revealCard(id: number | null) {
 }
 function jumpToCard(id: number | null) {
   if (openSectionFor(id)) drawPins();
-  const cardElement = document.querySelector('.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]') as HTMLElement;
+  const cardElement = findMaybe(document, '.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]', HTMLElement);
   if (!cardElement) return; // a result row while the review section picks
   cardElement.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
   $$('.pin.cur').forEach((other) => {
@@ -610,18 +614,20 @@ function gotoPinRef(id: number, focus?: boolean) {
   }
   const state = pinState(pin);
   if (multiDoc() && DOC && pdoc(pin) !== DOC) setShowAll(true);
-  if (state === PIN_STATE.DONE) SECTION_OPEN.done = true;
+  if (state === PIN_STATE.DONE) setSectionOpen('done', true);
   else {
     OPEN_CARDS.add(id);
-    SECTION_OPEN[state === PIN_STATE.REVIEW ? 'review' : 'open'] = true;
+    setSectionOpen(state === PIN_STATE.REVIEW ? 'review' : 'open', true);
   }
   savePrefs({ sec: SECTION_OPEN });
   setSide(true);
   drawPins();
   requestAnimationFrame(() => {
-    const row = document.querySelector(
+    const row = findMaybe(
+      document,
       '.pin[data-id="' + id + '"],.arc-row[data-id="' + id + '"],.rv-row[data-id="' + id + '"]',
-    ) as HTMLElement;
+      HTMLElement,
+    );
     if (!row) return;
     row.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
     row.classList.remove('flash');
@@ -641,12 +647,13 @@ function cardNeighbour(control: HTMLElement): number | null {
   while (next && !next.matches('.pin.card')) next = next.nextElementSibling;
   let previous = cardElement.previousElementSibling;
   while (previous && !previous.matches('.pin.card')) previous = previous.previousElementSibling;
-  const neighbour = (next || previous) as HTMLElement | null;
-  return neighbour ? Number(neighbour.dataset.id) : null;
+  const neighbour = next || previous;
+  return neighbour instanceof HTMLElement ? Number(neighbour.dataset.id) : null;
 }
 // Puts the focus on pin id's card - its number (a button) - when it is drawn.
 function focusCard(id: number) {
-  const target = document.querySelector(
+  const target = findMaybe(
+    document,
     '.pin[data-id="' +
       id +
       '"] .n.go,.arc-row[data-id="' +
@@ -656,9 +663,10 @@ function focusCard(id: number) {
       '"] input:not(:disabled),.rv-row[data-id="' +
       id +
       '"] .rv-act',
-  ) as HTMLElement | null;
+    HTMLElement,
+  );
   if (target) target.focus({ preventScroll: true });
-} // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
+} // a result row (pins/view-review-pick.ts): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first) - its first piece, where
 // its badge stands, when the mark is drawn as several; a pin whose mark is not drawn scrolls to the page the mark would
 // be on.
@@ -686,7 +694,7 @@ function jumpPin(id: number) {
     jumpToPinLines(id);
     return;
   } // its first line on the Markdown surface
-  const mark = document.querySelector('.mark[data-pin="' + id + '"]') as HTMLElement;
+  const mark = findMaybe(document, '.mark[data-pin="' + id + '"]', HTMLElement);
   if (mark) {
     const pane = $('#left'),
       paneRect = pane.getBoundingClientRect(),

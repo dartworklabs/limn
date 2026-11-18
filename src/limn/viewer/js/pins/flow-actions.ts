@@ -13,9 +13,11 @@ import {
   setReviewAll,
   EDITOR,
   setEditorCurrent,
+  findAnyPin,
 } from '../app/state.ts';
+import { restoreDroppedPin } from './flow-restore.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError, isRefusal } from '../platform/api.ts';
 import {
   NOTICE_ACT_WAIT,
   NOTICE_LATE_SRC,
@@ -30,7 +32,7 @@ import {
   sourceOk,
   undoNote,
 } from '../platform/notices.ts';
-import { findAnyPin, showChange } from '../revisions/flow.ts';
+import { showChange } from '../revisions/flow.ts';
 import { drawStatus } from '../documents/view-status.ts';
 import { drawTrash } from './view-cards.ts';
 import { PINS_APPLIED_SEQ, drawPins, loadPins, marks } from './flow-list.ts';
@@ -44,8 +46,8 @@ async function closePin(id: number) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;
   try {
-    const { data } = await api('/api/pins/' + id + '/close', {
-      method: 'POST',
+    const { data } = await api('POST /api/pins/{id}/close', {
+      id,
       what: '완료',
       where: NOTICE_HOST.LIST,
       retry: () => closePin(id),
@@ -113,22 +115,22 @@ function confirmPin(id: number) {
   const pendingConfirm = deferred(
     async () => {
       try {
-        const { data } = await api('/api/pins/' + id + '/confirm', {
-          method: 'POST',
+        const { data } = await api('POST /api/pins/{id}/confirm', {
+          id,
           what: '확인',
           where: NOTICE_HOST.REVIEW,
           expect: [409],
           keepalive: true,
           body: pin && pin.done_at ? { done_at: pin.done_at } : {},
         });
-        if (data && data.error === PIN_STATE.OPEN)
+        if (isRefusal(data) && data.error === PIN_STATE.OPEN)
           bannerNote(
             NOTICE_HOST.REVIEW,
             translateTemplate('핀 #{id} 은 이미 다시 열렸습니다', { id }),
             NOTICE_KIND.WARN,
           );
-        else if (data && data.error === 'conflict') confirmConflict(id, data.pin);
-        else if (!data.ok)
+        else if (isRefusal(data) && data.error === 'conflict') confirmConflict(id, data.pin);
+        else if (isRefusal(data) || !data.ok)
           bannerNote(
             NOTICE_HOST.REVIEW,
             translateTemplate('확인 실패 — 핀 #{id} 이 없습니다', { id }),
@@ -172,7 +174,7 @@ function confirmPin(id: number) {
 async function reopenPin(id: number): Promise<boolean> {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/reopen', { method: 'POST', what: '다시 열기', where: NOTICE_HOST.LIST });
+    await api('POST /api/pins/{id}/reopen', { id, what: '다시 열기', where: NOTICE_HOST.LIST });
     ok = true;
     markMine(id);
     quietNote(translateTemplate('핀 #{id} 완료를 되돌렸습니다', { id }));
@@ -207,8 +209,8 @@ async function dropPin(
   markMine(id);
   const source = 'POST /api/pins/' + id + '/drop';
   try {
-    await api('/api/pins/' + id + '/drop', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/drop', {
+      id,
       what: (options && options.what) || '삭제',
       where: (options && options.where) || NOTICE_HOST.LIST,
       retry:
@@ -219,8 +221,7 @@ async function dropPin(
     });
     ok = true;
   } catch (error) {
-    const failure = error as ApiError;
-    lost = !failure || !failure.status;
+    lost = !isApiError(error);
     if (PINS_APPLIED_SEQ === applied) {
       const old = was.find((pin) => pin.id === id);
       if (old && !OPEN_ALL.some((pin) => pin.id === id)) {
@@ -264,8 +265,8 @@ function purgePin(id: number) {
   const pendingPurge = deferred(
     async () => {
       try {
-        await api('/api/pins/' + id + '/purge', {
-          method: 'POST',
+        await api('POST /api/pins/{id}/purge', {
+          id,
           what: '영구 삭제',
           where: NOTICE_HOST.TRASH,
           keepalive: true,
@@ -285,28 +286,8 @@ function purgePin(id: number) {
     prev: cardBefore,
   });
 }
-// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is
-// there. Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure
-// says itself where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the
-// request is answered, before the list reload (trashRestore's bound is the request's).
-async function restorePin(id: number | null, settled?: () => void): Promise<boolean> {
-  let ok = false;
-  try {
-    await api('/api/pins/' + id + '/restore', {
-      method: 'POST',
-      what: '되살리기',
-      where: NOTICE_HOST.LIST,
-      retry: () => {
-        restorePin(id);
-      },
-    });
-    ok = true;
-    markMine(id);
-    quietNote(translateTemplate('핀 #{id} 되살림', { id }));
-  } catch (error) {}
-  if (settled) settled();
-  await loadPins();
-  return ok;
+function restorePin(id: number | null, settled?: () => void) {
+  return restoreDroppedPin(id, loadPins, settled);
 }
 // [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it
 // without an answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash
@@ -317,7 +298,7 @@ async function restorePin(id: number | null, settled?: () => void): Promise<bool
 // into the Trash, else to the pages.
 async function trashRestore(id: number | null) {
   const source = NOTICE_LATE_SRC + 'restore:' + id,
-    trash = $('#trash') as HTMLDialogElement;
+    trash = $('#trash');
   const say = () => {
     const text = translate('되살리기의 답이 늦습니다') + ' · ' + translateTemplate('핀 #{id}', { id });
     const message = bannerNote(NOTICE_HOST.LIST, text, NOTICE_KIND.WARN, null, { literal: true, source: source });
@@ -344,11 +325,12 @@ async function trashRestore(id: number | null) {
     sourceOk(source);
     if (!had) return;
     const trashList = $('#trash-list'),
-      target = trash.open
-        ? ((trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
-            trashList.querySelector('[data-act="restore"]') ||
-            trash.querySelector('[data-act="trash-close"]')) as HTMLElement | null)
-        : null;
+      found = trash.open
+        ? trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
+          trashList.querySelector('[data-act="restore"]') ||
+          trash.querySelector('[data-act="trash-close"]')
+        : null,
+      target = found instanceof HTMLElement ? found : null;
     if (target) target.focus();
     else searchToPage();
   });
@@ -356,8 +338,8 @@ async function trashRestore(id: number | null) {
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
 async function unclaimPin(id: number | null) {
   try {
-    await api('/api/pins/' + id + '/unclaim', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/unclaim', {
+      id,
       what: '처리 중 풀기',
       where: NOTICE_HOST.LIST,
       retry: () => unclaimPin(id),
@@ -367,4 +349,4 @@ async function unclaimPin(id: number | null) {
   } catch (error) {}
   await loadPins();
 }
-export { closePin, confirmPin, dropPin, purgePin, restorePin, trashRestore, unclaimPin };
+export { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin, restorePin };

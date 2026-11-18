@@ -53,24 +53,34 @@ js/platform/segments.ts                # segmented controls: the words on offer,
 js/documents/view-tabs.ts              # several documents: the list, tabs and links
 js/documents/state.ts                  # the open document's facts: entries and their kinds, the pin's document, queries, verdict words, the viewer role
 js/documents/state-seams.ts            # what documents asks the features above it: the pages, their outline and page list, the Markdown surface, the changes view, the drafts and edits, the pins, notifications, the verdict's hold, the queued pins
+js/revisions/state.ts                  # the comparison visit, its history, range and pin target
+js/revisions/state-pdf.ts              # loading and rendering resources of the current comparison PDF
+js/revisions/rules-diff.ts             # matching source diff files and hunk ranges to a pin
+js/revisions/view-pin-guide.ts         # the pin guide and review actions shared by the comparison formats
 js/revisions/flow.ts                   # the changes view: source diff, comparison PDF, [변경 보기] from a pin
 js/documents/flow-switch.ts            # the documents sheet, remembered view positions, switching documents
 js/documents/view-meta.ts              # the header: meta, stale and sync badges, viewer role
+js/documents/flow-connection.ts        # connection failures and the viewer and server versions used by the status line
 js/documents/flow-polling.ts           # meta polling, other documents' builds
 js/pins/state-seams.ts                 # what the pin list asks the verdicts: a verdict's badge, figure and old mark, its page lines
 js/pins/state.ts                       # the pin actions in flight (a confirm, a purge) and this tab's own recent actions
 js/pins/flow-changes.ts                # status-line messages for pins changed elsewhere, this tab's own actions kept from them
 js/pins/flow-notification.ts           # browser notifications and pin links (#doc=&pin=)
-js/documents/view-build-chip.ts        # build progress polling and its chip
-js/documents/flow-updates.ts           # what came while viewing: a document's update, others' new pins, a new Limn, the seen record
+js/documents/state-build.ts            # the build progress, errors, and unchanged result shown for this visit
+js/documents/view-build-chip.ts        # build progress and pull result text
+js/documents/flow-build.ts             # rebuild requests and the active visit's build poll
+js/documents/flow-updates.ts           # document and pin updates, update actions, and the seen record
 js/documents/view-status.ts            # the status line: its items, text, progress bar and place per band
 js/layout/flow-panel-size.ts           # outline width, panel width and sheet height, their presets
+js/layout/flow-panel-actions.ts        # panel and sheet size commands that open the panel or refit the document
 js/layout/flow-scroll.ts               # scrolling the reading area: a jump's target, its glide, the hand's scroll, the arrival watch
 js/pdf/view-page-jump.ts               # going to a page or a spot on one: the reading line's depth, a figure page's figure
 js/pdf/view-pages.ts                   # the page elements, page width and zoom steps, page jump
 js/pdf/view-area.ts                    # the part of the PDF area nothing covers
 js/pdf/view-badges.ts                  # where a mark's badge stands on its page and how far its press area reaches
 js/pdf/state-seams.ts                  # what the page surface asks the features above it: the pins' marks, the verdict lines, the composer, the Markdown surface, the changes view
+js/pdf/state-vector.ts                 # the current PDF document and rendering state
+js/pdf/flow-outline.ts                 # reading the PDF outline and updating both navigation lists
 js/pdf/flow-open.ts                    # PDF.js: loading, the document cache, opening the current build
 js/pdf/view-outline.ts                 # the PDF outline and the section strip
 js/pdf/view-page-list.ts               # the page list: the page counts' popover and the navigation sheet's page rows
@@ -78,7 +88,9 @@ js/pdf/view-draw.ts                    # PDF.js: canvases, what to draw next, re
 js/pdf/flow.ts                         # in-document text search: reading page text, matching, the field per layout, hit boxes
 js/revisions/input.ts                  # Comparison PDF geometry, rendering and input
 js/pdf/input-zoom.ts                   # PDF-area zoom input: Ctrl+wheel, pinch, keys
+js/layout/view-panel-grip.ts           # side panel width and splitter accessibility
 js/layout/flow.ts                      # layout by width, the panel's open state and slide, virtual keyboard, coach, dialogs
+js/layout/flow-back.ts                 # the system back gesture's CloseWatcher or temporary history entry
 js/layout/input.ts                     # handle, outline-handle and sheet drags, pull-down, overlay swipe, the back gesture
 js/pdf/input-selection.ts              # drag and quick selection on the PDF, double-tap zoom
 js/documents/rules.ts                  # the range ladder's levels of a document's source
@@ -95,13 +107,22 @@ js/revisions/view-rendered-compare.ts  # the rendered compare of a Markdown docu
 js/composer/state-suggest.ts           # the suggested edit's draft: empty, copied, cleared
 js/composer/flow-suggest.ts            # suggested edits: the draft, its switch and editor (composer, edit card), a card's badge and line diff
 js/platform/composition.ts             # whether an input method's composition is open: the element it is in, kept by three listeners
-js/composer/flow-pick.ts               # pick() and the composer: overlap banner, kind, question hint, discard and restore
+js/composer/view-overlap.ts            # the overlap notice for a selection
+js/composer/flow-selection.ts          # drawing, discarding and restoring a composer selection
+js/composer/flow-pick.ts               # resolve a dragged PDF region and finish a queued save or re-placement
 js/composer/flow-draft.ts              # the composer draft kept per tab (sessionStorage)
+js/composer/flow-restore-draft.ts      # restore the tab's draft on its current document
+js/composer/view-save.ts               # the save buttons and a save queued during a pick
 js/composer/flow-save.ts               # saving a pin, appending to one, the queued save
 js/offline/flow.ts                     # seeing and pinning while cut off: the service worker's copies, the pin queue (IndexedDB), its send
 js/offline/view.ts                     # the queued pins on screen: their marks on the page, their rows in the panel
+js/offline/input.ts                    # queued pin navigation, discard, re-place, and undo
 js/verdict/view-pins.ts                # a verdict pin as the lists draw it: what it is about, its order among one target's verdicts, its badges
 js/verdict/view-far-lines.ts           # the page verdict lines far from the view, which the browser skips until they come near
+js/verdict/state-lines.ts              # the reading and keyed pages and pending verdict saves
+js/verdict/state-line-renderer.ts      # requests to redraw a verdict line or update its reading position
+js/verdict/view-reason-field.ts        # the verdict reason field and its input method composition
+js/verdict/view-line.ts                # the last markup on a verdict line, its wrapped words and focus after a refit
 js/verdict/flow-line.ts                # verdict pins: the composer's verdict row, the page verdict line, a confirm word's two presses, the card badge
 js/verdict/state-drafts.ts             # a verdict reason's drafts kept per pin for this tab (sessionStorage): reading, keeping, moving them
 js/verdict/flow-reason.ts              # a page verdict's reason: its popover over the line, drafts kept per pin (sessionStorage), its writes
@@ -113,6 +134,7 @@ js/pins/view-time.ts                   # when, said on a card: how long ago, the
 js/pins/view-card-parts.ts             # what a card is built from: people, badges, claims, @-tags and #refs in text, the thread
 js/pins/flow-claims.ts                 # the claim badges' clock: their text every 30 seconds, the list when a claim ends
 js/pins/view-cards.ts                  # the open and review card, archive and Trash rows, the Trash dialog
+js/pins/view-review-pick.ts            # the review section's result rows and selected revisions
 js/pins/flow-review-pick.ts            # confirming several pins awaiting review from their result rows (ADR-0035)
 js/pins/view-list-sections.ts          # the pin list's sections: which pins each lists, in order, as day-grouped rows under its head
 js/pins/view-list-scroll.ts            # the pin list's scroll kept across a redraw, and the cards far from its view
@@ -120,12 +142,15 @@ js/pins/view-mark-covers.ts            # marks a badge or card covers: the badge
 js/pins/view-bar.ts                    # the bar's pin and review counts, and its words fitted to its width
 js/pins/flow-list.ts                   # loading pins, drawPins, marks on the PDF, jumping to a pin or card
 js/pins/input-hide-marks.ts            # taking the pin marks off the page for a look: the H key (switch, or a look while held), [더보기]'s switch, the reminder
+js/pins/flow-restore.ts                # restore a dropped pin and refresh its list
 js/pins/flow-actions.ts                # close, confirm, reopen, drop, purge, restore, unclaim
+js/composer/state-assignee.ts          # the assignee chosen for the new pin
 js/composer/input-mentions.ts          # @-tag autocomplete, preview and the assignee choice
-js/pins/flow-reply.ts                  # the reply box and its outcome line
+js/pins/view-reply.ts                  # the reply box, its outcome and its draft
+js/pins/flow-reply.ts                  # opening, closing and sending replies
 js/pins/view-edit.ts                   # the edit card drawn from what it holds, and whether it has unsaved changes
 js/pins/flow-edit.ts                   # the edit card
 js/composer/flow-repick-banner.ts      # a re-place's banner and its end
 js/composer/flow-repick.ts             # re-placing a pin's location
-js/documents/flow-rebuild.ts           # view anchors, refreshing the document, the build error panel, rebuild
+js/documents/flow-rebuild.ts           # view anchors, refreshing the document, the build error panel, PDF download
 js/main.ts                             # help dialog, the click and key dispatch, boot() and its call

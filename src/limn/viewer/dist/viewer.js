@@ -44,6 +44,11 @@ const LIST_ORDER = Object.freeze({ NEW: 'new', PAGE: 'page', ID: 'id' });
 function tableEntry(table, key) {
   return key == null ? undefined : table[key];
 }
+// Whether a value read from outside the code (parsed JSON, a stored copy, a message, an error's body) is an object
+// whose fields can be read - each field still unknown. Arrays are objects too. Pure.
+function isRecord(value) {
+  return typeof value === 'object' && value !== null;
+}
 
 // ----------------------------------------------- The app's closed value tables (platform/tables.ts has the platform's)
 // Closed sets (docs/handbook/viewer.md §닫힌 값 표): every value the viewer compares a state, status or mode against is
@@ -379,8 +384,8 @@ function imeForget() {
   IME_PRESSED = null;
   imeEnd();
 }
-addEventListener('compositionstart', imeForget, true);
-addEventListener(
+window.addEventListener('compositionstart', imeForget, true);
+window.addEventListener(
   'compositionend',
   (event) => {
     const pressed = IME_PRESSED;
@@ -393,7 +398,7 @@ addEventListener(
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'keyup',
   (event) => {
     if (IME_PRESSED && imeUp(event, IME_PRESSED)) IME_PRESSED = null;
@@ -403,7 +408,7 @@ addEventListener(
 );
 // The field's blur (focus events pass the window on their way down) and the window's own; a field's is looked at once
 // the task that blurred it is done, when a field drawn anew has taken its place.
-addEventListener(
+window.addEventListener(
   'blur',
   (event) => {
     const target = event.target;
@@ -415,7 +420,7 @@ addEventListener(
   },
   true,
 );
-addEventListener('pagehide', imeForget, true);
+window.addEventListener('pagehide', imeForget, true);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) imeForget();
 });
@@ -423,7 +428,7 @@ document.addEventListener('visibilitychange', () => {
 // modal dialog), which the same Esc on a platform that marks it composing does not do. A tail Enter's default stays: in
 // a note it is the new line the input method gives with every Linux program. Where Enter is the viewer's own key in a
 // text box (the reason field, the @-list) its handler takes the newline away too (imeTail).
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     const ended = IME_END;
@@ -463,7 +468,11 @@ function imeHeldIn() {
 function imeKey(event) {
   return event.isComposing || event.keyCode === 229 || imeTail(event);
 }
-// META is null only until boot() reads /api/meta; nothing reads it before.
+// META is the open document's meta (GET /api/meta): null until the first answer arrives - boot() reads it after the
+// document list, and a switch made before that answer reads its own - and never null again: setMeta takes a Meta, and
+// every later answer (a switch, a refresh) replaces it whole. Code that can run before the first answer (a listener
+// registered while the script loads) reads META and narrows it; code that runs only once a document is open reads
+// knownMeta().
 let META = null,
   PINS = [],
   DONE = [],
@@ -491,7 +500,8 @@ const OPEN_CARDS = new Set(); // ids of pin cards expanded in compact
 // Pin kind/thread (docs/handbook/viewer.md §스레드와 검토): KIND_NEW = the composer panel's kind (fix|question), REPLY
 // = the open reply/reopen input field {id,mode,el} (holds onto the DOM like EDITOR.current does, and re-inserts it in
 // place when the list redraws), THREAD_OPEN = cards with the thread fully expanded, REPLY_DRAFT = a closed input
-// field's text and selected recipient hints ('reply:12').
+// field's text and selected recipient hints ('reply:12'). KIND_NEW is one of the request kinds: composer/flow-pick.ts
+// setKind maps any other value, a stored or a control's string, to fix.
 let KIND_NEW = REQUEST_KIND.FIX,
   REPLY = null;
 // @-tags (docs/handbook/viewer.md §@태그): PEOPLE = /api/people (people recorded on a real change or added as members +
@@ -599,10 +609,19 @@ function setMentionOnly(value) {
   MENTION_ONLY = value;
   return value;
 }
-// Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+// Sets META, which this module declares, for another module that changes it (ADR-0042 D1); answers the value. It takes
+// a Meta: META is never set back to null.
 function setMeta(value) {
   META = value;
   return value;
+}
+/**
+ * The open document's meta, for code that runs only once a document is open (after boot() has read the first answer).
+ * Throws, naming META, when it is read before that: such a read is a bug in the order the viewer starts in.
+ */
+function knownMeta() {
+  if (!META) throw new Error('META is read before setMeta() has run: the first /api/meta answer has not arrived');
+  return META;
 }
 // Sets MID_OVERLAY, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setMidOverlay(value) {
@@ -751,9 +770,29 @@ function setEditAssignee(card, assignee) {
 function setEditRequestKind(card, kind) {
   card.kind_req = kind;
 }
+// Sets whether the open reply box (REPLY) flips its pin's state, and the open repick's (REPICK) candidate and box.
+function setReplyFlip(reply, flip) {
+  reply.flip = flip;
+}
+function setRepickCandidate(repick, candidate) {
+  repick.cand = candidate;
+}
+function setRepickBox(repick, box) {
+  repick.box = box;
+}
 // The largest pin number the lists hold: a verdict whose answer was lost is looked for above it (findLandedVerdict).
 function topPinId() {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).reduce((highest, pin) => Math.max(highest, pin.id), 0);
+}
+
+/** Find a pin across the open, review and done lists in display precedence order. */
+function findAnyPin(id) {
+  return (
+    OPEN_ALL.find((pin) => pin.id === id) ||
+    REVIEW_ALL.find((pin) => pin.id === id) ||
+    DONE_ALL.find((pin) => pin.id === id) ||
+    null
+  );
 }
 
 // ------------------------------------------------ People
@@ -809,26 +848,66 @@ const $$ = (selector) => Array.from(document.querySelectorAll(selector));
 // Lucide icons (vendor/lucide/README.md), drawn by lucideIcon() in platform/markup.ts.
 const ICONS = __LUCIDE_JSON__;
 const esc = (text) =>
-  String(text == null ? '' : text).replace(
-    /[&<>"']/g,
-    (character) =>
-      (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }))[character],
-  );
+  String(text == null ? '' : text).replace(/[&<>"']/g, (character) => {
+    const escapes = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+    return escapes[character];
+  });
 // The element an event is aimed at, or null when its target is not an element (the window, the document): a handler
 // that looks for the controls around the target finds none there.
 function eventElement(event) {
   return event.target instanceof Element ? event.target : null;
+}
+// A DOM class as instanceof takes it (HTMLElement, HTMLInputElement, ...): what findElement, findMaybe and findAll check the
+// elements they give against.
+// The first element under scope that matches selector, which the code needs there and of that class: none, or one of
+// another class, is a fault of the page, thrown as an Error that names the selector and the class.
+function findElement(scope, selector, type) {
+  const found = scope.querySelector(selector);
+  if (found instanceof type) return found;
+  throw new Error(selector + ': ' + (found ? 'a ' + found.tagName + ', not a ' : 'no ') + type.name);
+}
+// The first element under scope that matches selector when it is of that class, else null - for an element that is
+// there only in some states (a card being edited, the drawn pages).
+function findMaybe(scope, selector, type) {
+  const found = scope.querySelector(selector);
+  return found instanceof type ? found : null;
+}
+// Every element under scope that matches selector and is of that class, in document order; the others are left out.
+function findAll(scope, selector, type) {
+  return Array.from(scope.querySelectorAll(selector)).filter((found) => found instanceof type);
+}
+// The nearest of element and its ancestors that matches selector, when it is of that class, else null - the control or
+// row around an event's target (eventElement).
+function findClosest(element, selector, type) {
+  const found = element.closest(selector);
+  return found instanceof type ? found : null;
+}
+// The nearest of an event's target and its ancestors that matches selector, when it is of that class, else null (as for
+// a target that is no element, eventElement).
+function eventClosest(event, selector, type) {
+  const target = eventElement(event);
+  return target ? findClosest(target, selector, type) : null;
 }
 // Whether a text field has focus - a textarea, a text input or editable content - which on a touch screen means the
 // keyboard is up.
 function typingNow() {
   const focused = document.activeElement;
   if (!focused || focused === document.body) return false;
-  if (focused.isContentEditable || focused.tagName === 'TEXTAREA') return true;
+  if ((focused instanceof HTMLElement && focused.isContentEditable) || focused.tagName === 'TEXTAREA') return true;
   return (
-    focused.tagName === 'INPUT' &&
+    focused instanceof HTMLInputElement &&
     !/^(checkbox|radio|button|submit|reset|range|color|file|image|hidden)$/i.test(focused.type || '')
   );
+}
+// The HTML element that has the focus, or null when none has it or it is on something else (an SVG element): what the
+// code focuses again later or reads as a control.
+function focusedElement() {
+  const focused = document.activeElement;
+  return focused instanceof HTMLElement ? focused : null;
+}
+// Whether an element is a control that is disabled now; an element that cannot be disabled (a link, a span) is not.
+function isDisabled(element) {
+  return 'disabled' in element && element.disabled === true;
 }
 // Puts the focus on the PDF's scroller - where the keys then scroll - for as long as it stays there: it is not a tab
 // stop and draws no ring (search.css).
@@ -866,7 +945,7 @@ function isTabStop(x) {
     x instanceof HTMLElement &&
     x.matches(TABBABLE) &&
     x.tabIndex >= 0 &&
-    !(x).disabled &&
+    !isDisabled(x) &&
     x.getClientRects().length > 0 &&
     !x.closest('[inert],[hidden]') &&
     getComputedStyle(x).visibility !== 'hidden'
@@ -897,7 +976,8 @@ class Html {
 // condition as c?x:''. Values must sit in element content or a quoted attribute; esc() does not make an unquoted
 // attribute or a URL attribute safe. Called as a function rather than a tag, it throws a TypeError.
 function html(parts, ...values) {
-  if (!Array.isArray(parts) || !Array.isArray(parts.raw)) throw new TypeError('html is a template tag: html`...`');
+  const given = parts; // read as any value, so the check below does not retype parts
+  if (!Array.isArray(given) || !Array.isArray(parts.raw)) throw new TypeError('html is a template tag: html`...`');
   let out = parts[0];
   for (let i = 0; i < values.length; i++) out += htmlValue(values[i]) + parts[i + 1];
   return new Html(out);
@@ -963,28 +1043,30 @@ function setHtml(element, markup) {
 // subdivision flag) shows its tags by name.
 
 const HIDDEN_RANGES = Object.freeze(
-  [
-    [0x00, 0x08],
-    [0x0b, 0x1f],
-    [0x7f, 0x9f],
-    [0xad, 0xad],
-    [0x34f, 0x34f],
-    [0x61c, 0x61c],
-    [0x115f, 0x1160],
-    [0x17b4, 0x17b5],
-    [0x180b, 0x180f],
-    [0x200b, 0x200f],
-    [0x2028, 0x202e],
-    [0x2060, 0x206f],
-    [0x3164, 0x3164],
-    [0xfe00, 0xfe0f],
-    [0xfeff, 0xfeff],
-    [0xffa0, 0xffa0],
-    [0xfff0, 0xfffb],
-    [0x1bca0, 0x1bca3],
-    [0x1d173, 0x1d17a],
-    [0xe0000, 0xe0fff],
-  ].map((range) => Object.freeze(range)),
+  (
+    [
+      [0x00, 0x08],
+      [0x0b, 0x1f],
+      [0x7f, 0x9f],
+      [0xad, 0xad],
+      [0x34f, 0x34f],
+      [0x61c, 0x61c],
+      [0x115f, 0x1160],
+      [0x17b4, 0x17b5],
+      [0x180b, 0x180f],
+      [0x200b, 0x200f],
+      [0x2028, 0x202e],
+      [0x2060, 0x206f],
+      [0x3164, 0x3164],
+      [0xfe00, 0xfe0f],
+      [0xfeff, 0xfeff],
+      [0xffa0, 0xffa0],
+      [0xfff0, 0xfffb],
+      [0x1bca0, 0x1bca3],
+      [0x1d173, 0x1d17a],
+      [0xe0000, 0xe0fff],
+    ]
+  ).map((range) => Object.freeze(range)),
 );
 // The repertoire as one regular expression over code points (a supplementary character is one match, never two halves).
 const HIDDEN_PATTERN = new RegExp(
@@ -1307,7 +1389,7 @@ function i18nTree(root) {
 // Checks the current language in [더보기]'s language segment, then in English translates the page once and everything
 // drawn or changed after it (text nodes and UI attributes), leaving user text alone (i18nUser).
 function i18nStart() {
-  for (const radio of document.querySelectorAll('#m-lang [role=radio]')) {
+  for (const radio of findAll(document, '#m-lang [role=radio]', HTMLElement)) {
     const on = radio.dataset.lang === LANG;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
@@ -1319,7 +1401,7 @@ function i18nStart() {
     for (const mutation of mutations) {
       if (mutation.type === 'childList') mutation.addedNodes.forEach(i18nTree);
       else if (mutation.type === 'characterData') i18nText(mutation.target);
-      else if (mutation.type === 'attributes' && mutation.target.nodeType === 1 && !i18nUser(mutation.target)) {
+      else if (mutation.type === 'attributes' && mutation.target instanceof Element && !i18nUser(mutation.target)) {
         const element = mutation.target,
           name = mutation.attributeName || '',
           value = element.getAttribute(name);
@@ -1347,10 +1429,10 @@ function switchLang(lang) {
   try {
     localStorage.setItem('limnLang', lang);
   } catch (error) {}
-  const address = new URL(location.href);
+  const address = new URL(window.location.href);
   address.searchParams.delete('lang');
-  if (address.href === location.href) location.reload();
-  else location.replace(address.href);
+  if (address.href === window.location.href) window.location.reload();
+  else window.location.replace(address.href);
 }
 const TIP_TEXT = {
   stale:
@@ -1438,10 +1520,12 @@ function josaName(name, afterConsonant, afterVowel) {
 // ------------------------------------------- Preferences (merged save): per-device pinPrefs, list-section state, theme
 const LIGHT_SCHEME_QUERY = matchMedia('(prefers-color-scheme: light)');
 
+// This device's preferences (localStorage pinPrefs) by key, each as stored: every reader checks its own key's type and
+// takes its default for any other value. Not an object (nothing stored, or unreadable): none.
 function prefs() {
   try {
     const stored = JSON.parse(localStorage.getItem('pinPrefs') || '{}');
-    return stored && typeof stored === 'object' ? stored : {};
+    return isRecord(stored) ? stored : {};
   } catch (error) {
     return {};
   }
@@ -1456,7 +1540,7 @@ function savePrefs(patch) {
 // (savedScale).
 (function () {
   const stored = prefs();
-  if (stored.side) $('#right').style.width = stored.side + 'px';
+  if (stored.side) $('#right').style.width = String(stored.side) + 'px';
   if ('wrap' in stored || 'diffWrap' in stored) {
     delete stored.wrap;
     delete stored.diffWrap;
@@ -1472,7 +1556,7 @@ function savePrefs(patch) {
 const SECTION_OPEN_DEFAULT = { open: true, review: true, done: false };
 function readSectionsExpanded(saved) {
   const expanded = Object.assign({}, SECTION_OPEN_DEFAULT);
-  if (saved && typeof saved === 'object')
+  if (isRecord(saved))
     for (const section in SECTION_OPEN_DEFAULT)
       if (typeof saved[section] === 'boolean') expanded[section] = saved[section];
   return expanded;
@@ -1490,7 +1574,7 @@ const SECTION_SEEN = {
 // The pin list's order (docs/handbook/viewer.md §목록 순서): one choice for this browser across documents, remembered
 // in pinPrefs.order. Returns the saved value when it names an order, else the default: newest first.
 function listOrderOf(saved) {
-  return Object.values(LIST_ORDER).includes(saved) ? (saved) : LIST_ORDER.NEW;
+  return Object.values(LIST_ORDER).find((order) => order === saved) || LIST_ORDER.NEW;
 }
 let ORDER = listOrderOf(prefs().order);
 
@@ -1500,12 +1584,12 @@ const THEMES = ['system', 'light', 'dark'],
 // segments - the saved one checked, and under 시스템 what the system gives now ('지금 밝게'). The segments are the one
 // theme control on every layout.
 function applyTheme() {
-  let theme = prefs().theme || 'light';
-  if (!THEMES.includes(theme)) theme = 'light';
+  const saved = prefs().theme,
+    theme = typeof saved === 'string' && THEMES.includes(saved) ? saved : 'light';
   const shownTheme =
     theme === 'system' ? (LIGHT_SCHEME_QUERY.matches ? 'light' : 'dark') : theme === 'light' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', shownTheme);
-  for (const radio of $$('#m-theme [role=radio]')) {
+  for (const radio of findAll(document, '#m-theme [role=radio]', HTMLElement)) {
     const on = radio.dataset.theme === theme;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
@@ -1526,6 +1610,15 @@ function setTheme(theme) {
   applyTheme();
 }
 
+// Sets whether list section `section` is expanded, for another module that changes it (ADR-0042 D1): the assignment,
+// nothing more (saving it is the caller's).
+function setSectionOpen(section, open) {
+  SECTION_OPEN[section] = open;
+}
+// Sets the ids list section `section` has seen, for another module that changes them (ADR-0042 D1).
+function setSectionSeen(section, ids) {
+  SECTION_SEEN[section] = ids;
+}
 // Sets ORDER, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setOrder(value) {
   ORDER = value;
@@ -1533,8 +1626,10 @@ function setOrder(value) {
 }
 
 // ------------------------------------------------ Server calls
-// Calls the server (JSON in and out) and returns {status, data}; a network failure or an unexpected status >= 400
-// throws. Unless options.silent it is said first (apiFailed): options.what names the request ('핀 저장'), options.where
+// Calls the server (JSON in and out) at endpoint, an ApiAnswers key (types/api.d.ts): its method, and its path with
+// options.id in place of {id}, followed by options.query as the caller built it ('?a=1&doc=ms', withDocQuery). Returns
+// {status, data}, data the endpoint's declared answer, or for a status options.expect lists the endpoint's ApiRefusals
+// body (isRefusal tells the two apart); a network failure or an unexpected status >= 400 throws. Unless options.silent it is said first (apiFailed): options.what names the request ('핀 저장'), options.where
 // the place (a NOTICE_HOST), options.retry the action a network failure offers, options.save that it was a pin's save.
 // options.quietUnreached leaves a failure to reach the server to the caller to say (a refusal is still said).
 // options.expect lists the statuses the caller handles itself; options.keepalive lets the request outlive the page;
@@ -1562,7 +1657,9 @@ function setOrder(value) {
 // feature, so this is a seam: js/main.ts registers it once, before boot() runs (no code that runs while the script loads
 // sends a request), and api() calls it at the point, with the arguments and in the order it calls the offline code. A
 // request before the registration throws, naming the seam.
-// url and options are api()'s own, as its caller gave them.
+// endpoint is the request's ApiAnswers key and url the address api() built from it; a stored answer is an earlier answer
+// of the network to the same url, which names its endpoint, so it is that endpoint's answer.
+/** An answer kept for a read, with its status and when (ms since the epoch) the network gave it. */
 let REQUEST_FALLBACK = null;
 // Registers the copies kept for reading while cut off; js/main.ts calls it once.
 function setRequestFallback(fallback) {
@@ -1575,21 +1672,62 @@ function requestFallback() {
 }
 const API_WAIT = { POLL: 8000, READ: 8000, PICK: 8000, SAVE: 10000, SEND: 30000 };
 let API_OUT = false;
-/** What a caller tells api() about a request (the header above says what each field does). */
-async function api(url, options) {
-  options = { ...(options || {}) };
-  options.source =
-    options.source || (options.method || 'GET') + ' ' + url + (options.intent ? ' ' + options.intent : '');
-  const init = { method: options.method || 'GET', headers: {} };
+/** What a caller tells api() about a request (the header above says what each field does); expect names statuses of the
+ * endpoint's ApiRefusals entry. */
+/** The statuses endpoint's refusals may be expected with (ApiRefusals), none for an endpoint it does not name. */
+/** The body of endpoint's refusal with status Refused. */
+/** The pin number an endpoint whose path names one ({id}) is called with; null, which a card action may hold, goes out
+ * as 'null' and names no pin. */
+/** What api() answers for endpoint: its status and body - the endpoint's answer, or an expected refusal's body. */
+// The URL a request to endpoint goes to: the endpoint's path, with id in place of {id}, then the query as the caller
+// built it ('?a=1&doc=ms', or '' for none).
+function endpointUrl(endpoint, id, query) {
+  return (
+    endpoint
+      .slice(endpoint.indexOf(' ') + 1)
+      .split('{id}')
+      .join(String(id)) + (query || '')
+  );
+}
+// Whether an answer is a refusal's body rather than its endpoint's answer: an object with an `error` field, as every
+// refusal that says why has (ErrorBody) and no endpoint's answer the viewer narrows this way has. A POST /api/pick
+// that cannot trace a selection answers so with 200, and an expected refusal (options.expect) comes back as an answer.
+function isRefusal(data) {
+  return typeof data === 'object' && data !== null && 'error' in data;
+}
+// The error api() throws for a status >= 400 the caller did not expect: an Error with that status and the parsed body.
+function apiError(status, data) {
+  return Object.assign(new Error('HTTP ' + status), { status, data });
+}
+// Whether a caught value is a refusal api() threw (apiError): an Error with a numeric status. A network failure, an
+// ended request and any other throw are not. Pure.
+function isApiError(error) {
+  return error instanceof Error && 'status' in error && typeof error.status === 'number';
+}
+// Whether status is one of the statuses a caller expects (options.expect).
+function isExpected(status, expect) {
+  return expect.includes(status);
+}
+async function api(
+  endpoint,
+  given,
+) {
+  const url = endpointUrl(endpoint, given.id, given.query),
+    method = endpoint.slice(0, endpoint.indexOf(' '));
+  const options = {
+    ...given,
+    source: given.source || method + ' ' + url + (given.intent ? ' ' + given.intent : ''),
+  };
+  const init = { method, headers: {} };
   if (options.keepalive) init.keepalive = true;
   if (options.signal) init.signal = options.signal;
   if (options.body !== undefined) {
     init.body = JSON.stringify(options.body);
     init.headers['Content-Type'] = 'application/json';
   }
-  const read = !!requestFallback().readKey(url, options);
+  const read = !!requestFallback().readKey(endpoint, url);
   if (read && API_OUT && requestFallback().mayServe()) {
-    const kept = await requestFallback().stashed(url, options);
+    const kept = await requestFallback().stashed(endpoint, url);
     if (kept) {
       requestFallback().staleSaid(kept.at);
       sourceOk(options.source);
@@ -1613,8 +1751,13 @@ async function api(url, options) {
     response = await fetch(url, init);
   } catch (error) {
     clearTimeout(timer);
-    return apiUnanswered(url, options, error);
+    return apiUnanswered(endpoint, url, options, error);
   }
+  // The network's trust point (docs/adr/0046-viewer-endpoint-answers.md D3): the parsed body is taken as the endpoint's
+  // answer - or, for a status options.expect lists, its ApiRefusals body - and is not checked here or by any reader;
+  // a body that is not JSON is null. The handler tests hold each declaration to what the real handler answers
+  // (src/limn/viewer/tests/test_viewer_types.py: DeclaredEndpointAnswers, DeclaredViewShapes, DeclaredPinShapes,
+  // DeclaredPicks). body is any from here to the return below, and only there.
   let body = null;
   try {
     body = await response.json();
@@ -1623,31 +1766,35 @@ async function api(url, options) {
       clearTimeout(timer);
       throw error;
     } // a body the caller's signal cut off is no answer, not an empty one
-    if (controller && controller.signal.aborted) return apiUnanswered(url, options, error);
+    if (controller && controller.signal.aborted) return apiUnanswered(endpoint, url, options, error);
   } // nor is one the wait ran out on
   clearTimeout(timer);
   API_OUT = false;
-  if (response.status >= 400 && !(options.expect || []).includes(response.status)) {
-    if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + response.status, false);
-    const err = new Error('HTTP ' + response.status);
-    err.status = response.status;
-    err.data = body;
-    throw err;
+  const status = response.status;
+  if (status >= 400 && !isExpected(status, options.expect || [])) {
+    if (!options.silent) apiFailed(options, errText(body) || 'HTTP ' + status, false);
+    throw apiError(status, body);
   }
   sourceOk(options.source);
   requestFallback().back();
-  // a document read the server answered is kept for a later visit with no network
-  requestFallback().stash(url, body, response.status, options);
-  return { status: response.status, data: body };
+  // a document read the server answered is kept for a later visit with no network; an expected refusal is no
+  // document, and its body is the endpoint's ApiRefusals entry
+  if (status < 400) requestFallback().stash(endpoint, url, body, status);
+  return { status, data: body };
 }
 // A request that got no answer - refused by the network, or ended at its wait.
 // A document read is answered from the last answer stored for it, where there is one and only where that is meant
 // (offlineMayServe: this visit's first reads, or a connection known to be gone): a tab opened again with no network is
 // drawn from it instead of staying empty. Writes, every other read, and a read that fails while the viewer is
 // connected fail.
-async function apiUnanswered(url, options, error) {
+async function apiUnanswered(
+  endpoint,
+  url,
+  options,
+  error,
+) {
   if (!(options.signal && options.signal.aborted)) API_OUT = true; // ended by its caller is not unanswered
-  const kept = requestFallback().mayServe() ? await requestFallback().stashed(url, options) : null;
+  const kept = requestFallback().mayServe() ? await requestFallback().stashed(endpoint, url) : null;
   if (kept) {
     requestFallback().staleSaid(kept.at);
     sourceOk(options.source);
@@ -1986,7 +2133,9 @@ function lineCap() {
     const rest = kept.filter((notice) => notice !== LINE[0]),
       oldest = (notices) =>
         notices.reduce((found, x) => (!found || x.at <= found.at ? x : found), null);
-    endNotice((oldest(rest.filter((notice) => !notice.alert)) || oldest(rest)), false);
+    const gone = oldest(rest.filter((notice) => !notice.alert)) || oldest(rest);
+    if (!gone) return; // more than LINE_MAX kept leaves one besides the newest
+    endNotice(gone, false);
   }
 }
 // Whether a message offers an undo: made as one (undoNote, a discarded selection) or holding a deferred send (gone).
@@ -2079,9 +2228,12 @@ function undoNote(place, message, act, options) {
       secOpen: !options.sec || !!SECTION_OPEN[options.sec],
       trashOpen: $('#trash').open,
     })
-  )
-    // no keys: never suppressed
-    return lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true });
+  ) {
+    // an undo is never gathered (digestHold) and, with no keys, never held back as news (newsDupe)
+    const lined = lineNote(message, NOTICE_KIND.OK, action, { ...options, life, undo: true });
+    if (!lined) throw new Error('an undo on the status line was not said');
+    return lined;
+  }
   const notice = makeNotice({
     ...options,
     life,
@@ -2113,7 +2265,7 @@ function drawnBefore(box, selector, id) {
   const own = box.querySelector(selector + '[data-id="' + id + '"]');
   let before = own && own.previousElementSibling;
   while (before && !before.matches(selector)) before = before.previousElementSibling;
-  return before ? Number((before).dataset.id) : null;
+  return before instanceof HTMLElement ? Number(before.dataset.id) : null;
 }
 
 // A message's text as one line: its title, then ' · ' and its description.
@@ -2284,9 +2436,9 @@ function dotHeld(dot) {
 // document without page lines too. An action's press goes without it, for the action may put the focus where it wants;
 // the window's end and [x] have no action.
 function noticeFocusBack(notice, anyDoc) {
-  const focused = document.activeElement;
-  const own = !!focused && !!focused.closest && !!focused.closest('[data-act^="notice-"][data-n="' + notice.n + '"]');
-  const line = own && focused ? (focused.closest('#doc .pv')) : null,
+  const focused = focusedElement();
+  const own = !!focused && !!focused.closest('[data-act^="notice-"][data-n="' + notice.n + '"]');
+  const line = own && focused ? findClosest(focused, '#doc .pv', HTMLElement) : null,
     page = line ? Number(line.dataset.page) || 0 : 0;
   return () => {
     const nowFocused = document.activeElement;
@@ -2336,9 +2488,8 @@ function noticeAct(number) {
     noticeLate(notice, action);
   }, NOTICE_ACT_WAIT);
   const seen = (event) => {
-    const target = event.target;
-    if (!target || !target.closest || !target.closest('[data-act="notice-act"][data-n="' + notice.n + '"]'))
-      moved = true;
+    const target = eventElement(event);
+    if (!target || !target.closest('[data-act="notice-act"][data-n="' + notice.n + '"]')) moved = true;
   };
   document.addEventListener('focusin', seen, true);
   const run = { away: () => late && moved };
@@ -2423,10 +2574,9 @@ function noticeLate(notice, action) {
 document.addEventListener(
   'mousedown',
   (event) => {
-    const target = event.target;
+    const target = eventElement(event);
     if (
       !!target &&
-      !!target.closest &&
       !!target.closest('[data-act="notice-act"]') &&
       focusAfterNotice().isReasonField(document.activeElement)
     )
@@ -2520,7 +2670,26 @@ function dropStaleReview() {
 // message, which says the rest in place (noticeLess) - the others stay. Such a message coming by growing its own
 // group's message does the same, and a group's message folded in a gathered line not yet unfolded, or still being
 // gathered, gives way as one on the line does (newsDupe, foldedLess, gatheredLess).
+// A group's data is the caller's (Data): GROUPS keeps it as it was said, and the next event's merge, which is given it
+// as unknown, reads it as its own group's data. Everything else reads it only through the entry's said and less, which
+// close over it with the view and less it was said with.
+// A group's entry: its data as last said, its message (n, null while gathered), what it says now (said), and - for a
+// group that can leave events out (less) - its data without the events of keys, said, and kept, or null with none left.
 const GROUPS = new Map();
+// Keeps data in entry as its group's data, said with view and left out of with less.
+function keepGroupData(entry, data, view, less) {
+  entry.data = data;
+  entry.said = () => view(data);
+  entry.less = less
+    ? (keys) => {
+        const rest = less(data, keys);
+        if (rest == null) return null;
+        keepGroupData(entry, rest, view, less);
+        return view(rest);
+      }
+    : null;
+}
+// Data is the type of data: view, merge and less take it as it is.
 function groupNote(
   group,
   data,
@@ -2533,8 +2702,9 @@ function groupNote(
     const options = view(data).o || {},
       held = keysHeld(options.keys || [], options.rank || 1);
     if (held.length) {
-      data = less(data, held);
-      if (data == null) return entry && entry.n && NOTICES.has(entry.n.n) ? entry.n : null;
+      const rest = less(data, held);
+      if (rest == null) return entry && entry.n && NOTICES.has(entry.n.n) ? entry.n : null;
+      data = rest;
     }
   }
   const alive =
@@ -2547,13 +2717,13 @@ function groupNote(
   if (alive && entry && entry.n && NOTICES.has(entry.n.n)) {
     const options = view(data).o || {};
     newsDupe(options.keys || [], options.rank || 1, entry.n); // what this event says, said elsewhere
-    entry.data = merged;
-    entry.view = view;
-    entry.less = less || null;
+    keepGroupData(entry, merged, view, less || null);
     regroup(entry.n, said);
     return entry.n;
   }
-  GROUPS.set(group, { data: merged, n: null, view, less: less || null });
+  const kept = { data: merged, n: null, said: () => said, less: null };
+  keepGroupData(kept, merged, view, less || null);
+  GROUPS.set(group, kept);
   const notice = lineNote(said.msg, said.kind, said.act, { ...said.o, group });
   const stored = GROUPS.get(group);
   if (stored && notice) stored.n = notice;
@@ -2620,16 +2790,14 @@ function gatheredLess(group, keys) {
     item = digest ? digest.items.get(group) : undefined;
   if (!digest || !item) return;
   const entry = GROUPS.get(group),
-    rest = entry && entry.less ? entry.less(entry.data, keys) : null;
-  if (!entry || rest == null) {
+    said = entry && entry.less ? entry.less(keys) : null;
+  if (!entry || said == null) {
     const options = item[3] || {};
     digest.items.delete(group);
     if (entry && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(group);
     if (options.onEnd) options.onEnd(false, false);
     return;
   }
-  entry.data = rest;
-  const said = entry.view(rest);
   digest.items.set(group, [said.msg, said.kind, said.act, { ...said.o, group: group }]);
 }
 // Group's message says its data again wherever it stands - on the line (regroup), gathered (DIGEST) or folded in a
@@ -2639,10 +2807,10 @@ function groupRedraw(group) {
   const entry = GROUPS.get(group);
   if (!entry) return false;
   if (entry.n && NOTICES.has(entry.n.n)) {
-    regroup(entry.n, entry.view(entry.data));
+    regroup(entry.n, entry.said());
     return true;
   }
-  const said = entry.view(entry.data),
+  const said = entry.said(),
     item = [said.msg, said.kind, said.act, { ...said.o, group }];
   if (DIGEST && DIGEST.items.has(group)) {
     DIGEST.items.set(group, item);
@@ -2675,13 +2843,11 @@ function foldedLess(folded, keys) {
     options = folded.item[3] || {},
     entry = options.group ? GROUPS.get(options.group) : undefined;
   if (index < 0) return;
-  const rest = entry && entry.less ? entry.less(entry.data, keys) : null;
-  if (!entry || rest == null) {
+  const said = entry && entry.less ? entry.less(keys) : null;
+  if (!entry || said == null) {
     foldedGone(folded, false);
     return;
   }
-  entry.data = rest;
-  const said = entry.view(rest);
   items[index] = [said.msg, said.kind, said.act, { ...said.o, group: options.group }];
   digestRetitle(folded.line);
 }
@@ -2695,7 +2861,7 @@ function foldedGone(folded, seen) {
     entry = options.group ? GROUPS.get(options.group) : undefined;
   if (index < 0) return;
   items.splice(index, 1);
-  if (entry && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(options.group);
+  if (entry && options.group && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(options.group);
   if (options.onEnd) options.onEnd(false, seen);
   digestRetitle(folded.line);
 }
@@ -2704,13 +2870,12 @@ function foldedGone(folded, seen) {
 // window started again - and one with nothing left, or that cannot, goes.
 function noticeLess(notice, keys) {
   const entry = notice.group ? GROUPS.get(notice.group) : undefined,
-    rest = entry && entry.n === notice && entry.less ? entry.less(entry.data, keys) : null;
-  if (!entry || rest == null) {
+    said = entry && entry.n === notice && entry.less ? entry.less(keys) : null;
+  if (!entry || said == null) {
     endNotice(notice, false);
     return;
   }
-  entry.data = rest;
-  regroup(notice, entry.view(rest), true);
+  regroup(notice, said, true);
 }
 // Where news (a message of a group) stands on the line: right behind the last undo still standing - an undo lives its
 // window where it can be pressed (rule 2), and news arriving meanwhile must not hide it behind '+N' - else first.
@@ -2881,7 +3046,7 @@ function digestClosed(items, seen) {
   items.forEach((item) => {
     const group = (item[3] || {}).group,
       entry = group ? GROUPS.get(group) : undefined;
-    if (entry && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(group);
+    if (entry && group && !(entry.n && NOTICES.has(entry.n.n))) GROUPS.delete(group);
   });
   items.forEach((item) => {
     const ended = (item[3] || {}).onEnd;
@@ -2942,12 +3107,12 @@ function digestRetitle(notice) {
 document.addEventListener(
   'click',
   (event) => {
-    const target = event.target;
+    const target = event.target instanceof Node ? event.target : null;
     NOTICES.forEach((notice) => {
       if (notice.life !== NOTICE_LIFE.CLICK) return;
       const own =
         notice.place === NOTICE_PLACE.LINE
-          ? !!(target.closest && target.closest('#status,#status-list'))
+          ? !!(target instanceof Element && target.closest('#status,#status-list'))
           : !!(notice.el && notice.el.contains(target));
       if (!own) endNotice(notice, false);
     });
@@ -3012,8 +3177,8 @@ ${close ? html`<button type="button" class="btn-icon btn-sm btn-ghost nt-x" data
 
 // The focused element inside a drawn message, if any: a redraw that detaches it gives the focus back (noticeRefocus).
 function noticeFocus() {
-  const active = document.activeElement;
-  return active && active.closest && active.closest('.nt') ? active : null;
+  const active = focusedElement();
+  return active && active.closest('.nt') ? active : null;
 }
 function noticeRefocus(focused) {
   if (focused && document.contains(focused) && document.activeElement !== focused)
@@ -3111,9 +3276,10 @@ function drawOffers(focus) {
 function drawChips() {
   NOTICES.forEach((notice) => {
     if (notice.place !== NOTICE_PLACE.CHIP) return;
-    const anchor = (document.querySelector('.mark[data-pin="' + notice.pin + '"]') ||
+    const anchor =
+      findMaybe(document, '.mark[data-pin="' + notice.pin + '"]', HTMLElement) ||
       // a page verdict line shows its pin instead of a mark
-      document.querySelector('#doc .pv[data-pin="' + notice.pin + '"]'));
+      findMaybe(document, '#doc .pv[data-pin="' + notice.pin + '"]', HTMLElement);
     if (!anchor) {
       if (!notice.pending) offerToLine(notice);
       return;
@@ -3440,7 +3606,7 @@ function showTipText(element, text) {
   if (box && besideLeft >= 4) {
     TIP.style.left = besideLeft + 'px';
     TIP.style.top =
-      Math.max(4, Math.min(rect.top + rect.height / 2 - tipHeight / 2, innerHeight - tipHeight - 4)) + 'px';
+      Math.max(4, Math.min(rect.top + rect.height / 2 - tipHeight / 2, window.innerHeight - tipHeight - 4)) + 'px';
     return;
   }
   TIP.classList.remove('tip-beside');
@@ -3462,12 +3628,12 @@ function showTipText(element, text) {
     }
   }
   if (top < 4) top = rect.bottom + 8;
-  if (top > innerHeight - tipHeight - 4 && MOUSE_AT) {
+  if (top > window.innerHeight - tipHeight - 4 && MOUSE_AT) {
     top = MOUSE_AT[1] + 18;
     centerX = MOUSE_AT[0];
   } // an element taller than the window (#grip/a long card) anchors to the pointer instead
-  top = Math.max(4, Math.min(top, innerHeight - tipHeight - 4));
-  const left = Math.min(Math.max(4, centerX - tipWidth / 2), innerWidth - tipWidth - 4);
+  top = Math.max(4, Math.min(top, window.innerHeight - tipHeight - 4));
+  const left = Math.min(Math.max(4, centerX - tipWidth / 2), window.innerWidth - tipWidth - 4);
   TIP.style.left = left + 'px';
   TIP.style.top = top + 'px';
 }
@@ -3518,8 +3684,8 @@ document.addEventListener('keydown', inputFromKey, true);
 const keyInput = () => document.documentElement.dataset.input === 'key';
 document.addEventListener('mouseover', (event) => {
   if (touchRecent() || NO_HOVER_QUERY.matches) return;
-  const target = event.target;
-  armTip(target.closest ? target.closest('[data-tip]') : null);
+  const target = eventElement(event);
+  armTip(target ? findClosest(target, '[data-tip]', HTMLElement) : null);
 });
 // Puts the focus back on an element the page drew again in place of the control that had it (keepSegmentFocus,
 // main.ts). It is no new focus: after a key it shows the element's description as the keyboard's focus does, after a
@@ -3542,13 +3708,13 @@ function focusGivenBack(element) {
 // without one. A focus the page gives back itself (focusGivenBack) arms the box only when the keyboard had the focus
 // there.
 document.addEventListener('focusin', (event) => {
-  const target = event.target;
+  const target = eventElement(event);
   if (FOCUS_GIVEN_BACK && !keyInput()) return;
   if ((target && target.tagName === 'TEXTAREA') || (!keyInput() && (touchRecent() || NO_HOVER_QUERY.matches))) {
     if (Date.now() >= SWALLOW_CLICK) hideTip();
     return;
   }
-  armTip(target.closest ? target.closest('[data-tip]') : null);
+  armTip(target ? findClosest(target, '[data-tip]', HTMLElement) : null);
 });
 // Esc closes a showing box first (the key dispatch, main.ts); one still waiting to show (armTip's 300ms) goes with
 // any Esc, so it never opens after the key that dismissed it. A box over a control in an open sheet, menu or help (a
@@ -3675,8 +3841,8 @@ document.addEventListener(
 );
 document.addEventListener('contextmenu', (event) => {
   if (LAST_POINTER === 'mouse') return;
-  const target = event.target;
-  if (target && target.closest && (target.closest('.pg') || pressTarget(target))) event.preventDefault();
+  const target = eventElement(event);
+  if (target && (target.closest('.pg') || pressTarget(target))) event.preventDefault();
 });
 document.addEventListener('input', hideTip, true);
 document.addEventListener('focusout', hideTip);
@@ -3780,7 +3946,7 @@ function tipDescribe(element) {
 }
 /** tipDescribe for node and everything under it that has an explanation. */
 function tipDescribeTree(node) {
-  if (node.nodeType !== 1) return;
+  if (!(node instanceof Element)) return;
   const element = node;
   if (element.matches(TIP_SELECTOR)) tipDescribe(element);
   for (const descendant of element.querySelectorAll(TIP_SELECTOR)) tipDescribe(descendant);
@@ -3791,11 +3957,11 @@ new MutationObserver((mutations) => {
   for (const mutation of mutations) {
     const target = mutation.target;
     if (mutation.type === 'attributes') {
-      tipDescribe(target);
+      if (target instanceof Element) tipDescribe(target);
       continue;
     }
     if (mutation.type === 'childList') mutation.addedNodes.forEach(tipDescribeTree);
-    const host = target.nodeType === 1 ? (target) : target.parentElement;
+    const host = target instanceof Element ? target : target.parentElement;
     const owner = host && host.closest(TIP_SELECTOR);
     if (owner) tipDescribe(owner);
   }
@@ -3818,9 +3984,7 @@ function setSwallowClick(value) {
 // draw replaces the words.
 /** The words of a radio group that can take the focus: neither disabled nor hidden. */
 function offeredWords(group) {
-  return ([...group.querySelectorAll('[role=radio]')]).filter(
-    (word) => !word.disabled && !word.hidden,
-  );
+  return findAll(group, '[role=radio]', HTMLButtonElement).filter((word) => !word.disabled && !word.hidden);
 }
 /** The words of a group on offer that are laid out - the ones a key walks. */
 function shownWords(group) {
@@ -3828,7 +3992,8 @@ function shownWords(group) {
 }
 /** Where the focus is among the words a group shows (shownWords), -1 when it is not on one of them. */
 function segmentFocusAt(group) {
-  return shownWords(group).indexOf(document.activeElement);
+  const focused = document.activeElement;
+  return focused instanceof HTMLButtonElement ? shownWords(group).indexOf(focused) : -1;
 }
 // Three groups draw their words again: the assignee row on every pick and every change of the note
 // (composer/input-mentions.ts assigneeRowHtml), the range ladder with every range (composer/view-levels.ts drawLadder - a
@@ -3855,12 +4020,11 @@ function roveSegment(group) {
 }
 
 // ------------------------------------------- Multiple documents - list/tabs/links (docs/handbook/domain.md §여러 문서)
-
 function multiDoc() {
   return DOCS.length > 1;
 }
 function hashDoc() {
-  const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(location.hash || '');
+  const match = /(?:^#|[#&])doc=([a-z0-9-]{1,24})(?:&|$)/.exec(window.location.hash || '');
   return match ? match[1] : null;
 }
 // Puts #doc=<key> in the address (several documents only) without a new history entry, keeping the entry's state - the
@@ -3868,7 +4032,8 @@ function hashDoc() {
 function setHash(doc) {
   if (!multiDoc()) return;
   const hash = '#doc=' + doc;
-  if (location.hash !== hash) history.replaceState(history.state, '', location.pathname + location.search + hash);
+  if (window.location.hash !== hash)
+    window.history.replaceState(window.history.state, '', window.location.pathname + window.location.search + hash);
 }
 // The document shown first: URL hash (link sharing/reload) > the last document viewed on this device > the first
 // document.
@@ -3876,12 +4041,12 @@ function initialDoc() {
   const fromHash = hashDoc();
   if (fromHash && docInfo(fromHash)) return fromHash;
   const last = prefs().lastDoc;
-  if (last && docInfo(last)) return last;
+  if (typeof last === 'string' && last && docInfo(last)) return last;
   return DOCS.length ? DOCS[0].key : null;
 }
 async function loadDocs() {
   try {
-    const answer = (await api('/api/docs', { what: '문서 목록', silent: true })).data;
+    const answer = (await api('GET /api/docs', { what: '문서 목록', silent: true })).data;
     setDocs(Array.isArray(answer.docs) ? answer.docs : []);
     setDefaultDoc(answer.default || (DOCS[0] && DOCS[0].key) || 'main');
   } catch (error) {
@@ -3967,8 +4132,8 @@ function drawDocTabs() {
   if (DOC) box.value = DOC;
   const row = $('#doc-links'),
     more = $('#doc-more'),
-    had = document.activeElement,
-    old = [...row.querySelectorAll(':scope>[data-doc]')];
+    had = focusedElement(),
+    old = findAll(row, ':scope>[data-doc]', HTMLElement);
   const same = old.length === DOCS.length && old.every((link, index) => link.dataset.doc === DOCS[index].key);
   let was = null;
   if (!same) {
@@ -3981,7 +4146,7 @@ function drawDocTabs() {
     );
     more.before(...links.children);
   }
-  ([...row.querySelectorAll(':scope>[data-doc]')]).forEach((link, index) => {
+  findAll(row, ':scope>[data-doc]', HTMLElement).forEach((link, index) => {
     const entry = DOCS[index];
     setAttributeIfChanged(link, 'aria-current', entry.key === DOC ? 'page' : 'false');
     setAttributeIfChanged(link, 'title', docTip(entry));
@@ -3990,9 +4155,7 @@ function drawDocTabs() {
   drawPos();
   docFit();
   const back = was
-    ? ([...row.querySelectorAll(':scope>[data-doc]')]).find(
-        (link) => link.dataset.doc === was && !link.hidden,
-      )
+    ? findAll(row, ':scope>[data-doc]', HTMLElement).find((link) => link.dataset.doc === was && !link.hidden)
     : null;
   if (back) back.focus({ preventScroll: true });
   if ($('#nav-sheet').open) drawDocsMenu();
@@ -4054,8 +4217,8 @@ function docFit() {
   const row = $('#doc-links'),
     more = $('#doc-more'),
     bar = $('#doc-nav'),
-    label = more.querySelector('.lbl'),
-    tabs = [...row.querySelectorAll(':scope>[data-doc]')],
+    label = findElement(more, '.lbl', Element),
+    tabs = findAll(row, ':scope>[data-doc]', HTMLElement),
     pixels = (value) => parseFloat(value) || 0,
     had = document.activeElement;
   let fit = '',
@@ -4075,7 +4238,7 @@ function docFit() {
     };
     let used = 0,
       controls = 0;
-    for (const control of [...bar.children]) {
+    for (const control of findAll(bar, ':scope>*', HTMLElement)) {
       if (control === row || !control.getClientRects().length) continue;
       const style = getComputedStyle(control);
       controls++;
@@ -4118,8 +4281,11 @@ function docFit() {
       return x;
     };
     const moreWidth = (count) => {
-      if (!seen.has(count)) seen.set(count, width('more', '+' + count));
-      return seen.get(count);
+      const known = seen.get(count);
+      if (known !== undefined) return known;
+      const measured = width('more', '+' + count);
+      seen.set(count, measured);
+      return measured;
     };
     const currentIndex = Math.max(
         0,
@@ -4202,7 +4368,7 @@ $('#doc-links').addEventListener(
   'scroll',
   (event) => {
     const row = event.currentTarget;
-    if (row.scrollTop || row.scrollLeft) {
+    if (row instanceof Element && (row.scrollTop || row.scrollLeft)) {
       row.scrollTop = 0;
       row.scrollLeft = 0;
     }
@@ -4218,13 +4384,13 @@ $('#doc-links').addEventListener(
 // what changed - so a focused row keeps its node and the focus, and the filter and the list's scroll stay.
 function drawDocMenu() {
   const list = $('#doc-pop-list'),
-    old = [...list.children];
+    old = findAll(list, ':scope>*', HTMLElement);
   if (!(old.length === DOCS.length && old.every((row, index) => row.dataset.doc === DOCS[index].key)))
     setHtml(
       list,
       html`${DOCS.map((entry) => html`<button class="dp-row" role="option" data-act="doc" data-doc="${entry.key}"></button>`)}`,
     );
-  ([...list.children]).forEach((row, index) => {
+  findAll(list, ':scope>*', HTMLElement).forEach((row, index) => {
     const entry = DOCS[index],
       on = entry.key === DOC,
       state = entry.building ? 'spin' : entry.stale_build ? 'dot' : '';
@@ -4242,9 +4408,9 @@ function drawDocMenu() {
 // Shows the rows whose document's name or path holds the field's text (case folded, as the outline's search), and says
 // so when none does.
 function docMenuFilter() {
-  const query = ($('#doc-pop-in')).value.trim().toLowerCase();
+  const query = $('#doc-pop-in').value.trim().toLowerCase();
   let shown = 0;
-  for (const row of [...$('#doc-pop-list').children]) {
+  for (const row of findAll($('#doc-pop-list'), ':scope>*', HTMLElement)) {
     const entry = docInfo(row.dataset.doc || '');
     row.hidden = !!query && !(entry && (entry.name + ' ' + entry.path).toLowerCase().includes(query));
     if (!row.hidden) shown++;
@@ -4264,7 +4430,7 @@ function openDocMenu() {
   pop.hidden = false;
   drawDocMenu();
   placeDocMenu();
-  const row = $('#doc-pop-list [aria-selected=true]');
+  const row = findMaybe(document, '#doc-pop-list [aria-selected=true]', HTMLElement);
   if (row) row.scrollIntoView({ block: 'nearest' });
   const to = !filter.hidden && !COARSE_POINTER_QUERY.matches ? filter : row || pop;
   to.focus({ preventScroll: true });
@@ -4283,9 +4449,9 @@ function placeDocMenu() {
   const rect = more.getBoundingClientRect(),
     top = Math.round(rect.bottom) + 4,
     width = pop.offsetWidth;
-  pop.style.left = Math.max(8, Math.min(Math.round(rect.left), innerWidth - 8 - width)) + 'px';
+  pop.style.left = Math.max(8, Math.min(Math.round(rect.left), window.innerWidth - 8 - width)) + 'px';
   pop.style.top = top + 'px';
-  pop.style.setProperty('--dp-room', Math.max(0, innerHeight - 8 - top) + 'px');
+  pop.style.setProperty('--dp-room', Math.max(0, window.innerHeight - 8 - top) + 'px');
 }
 // Shuts the popover; back gives the focus back to its button (Esc, a choice, Shift+Tab out of it).
 function closeDocMenu(back) {
@@ -4305,11 +4471,11 @@ function toggleDocMenu() {
 // popover lands on. Null when the button is the bar's last.
 function docMenuNext() {
   const more = $('#doc-more'),
-    stops = ([...$('#doc-nav').querySelectorAll('button,input,select,a[href],[tabindex]')]).filter(
+    stops = findAll($('#doc-nav'), 'button,input,select,a[href],[tabindex]', HTMLElement).filter(
       (stop) =>
         stop === more ||
         (stop.tabIndex >= 0 &&
-          !(stop).disabled &&
+          !isDisabled(stop) &&
           stop.getClientRects().length > 0 &&
           getComputedStyle(stop).visibility !== 'hidden'),
     );
@@ -4329,10 +4495,10 @@ $('#doc-more').addEventListener('keydown', (event) => {
   }
 });
 $('#doc-pop').addEventListener('keydown', (event) => {
-  const target = event.target,
+  const target = eventElement(event),
     filter = $('#doc-pop-in');
   if (imeKey(event)) return;
-  const rows = ([...$('#doc-pop-list').children]).filter((row) => !row.hidden),
+  const rows = findAll($('#doc-pop-list'), ':scope>*', HTMLElement).filter((row) => !row.hidden),
     field = !filter.hidden;
   if (event.altKey && !event.ctrlKey && !event.metaKey && /^Digit[1-9]$/.test(event.code || '')) {
     const entry = DOCS[+event.code.slice(5) - 1];
@@ -4340,7 +4506,7 @@ $('#doc-pop').addEventListener('keydown', (event) => {
     event.stopPropagation();
     if (entry) {
       closeDocMenu(true);
-      switchDoc(entry.key);
+      documentNavigation().open(entry.key);
     }
     return;
   }
@@ -4370,7 +4536,7 @@ $('#doc-pop').addEventListener('keydown', (event) => {
     }
     return;
   }
-  const index = rows.indexOf(target);
+  const index = rows.findIndex((row) => row === target);
   if (index < 0) return;
   if (event.key === 'ArrowUp' && index === 0 && field) {
     event.preventDefault();
@@ -4389,19 +4555,85 @@ $('#doc-pop-in').addEventListener('input', docMenuFilter);
 // it) shuts it; a press anywhere outside them shuts it too (the press still does what it does). Focus that goes nowhere
 // (the window losing it) leaves it open.
 $('#doc-pop').addEventListener('focusout', (event) => {
-  const to = event.relatedTarget;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (to && !$('#doc-pop').contains(to) && !$('#doc-more').contains(to)) closeDocMenu(false);
 });
 document.addEventListener(
   'pointerdown',
   (event) => {
-    const target = event.target;
+    const target = event.target instanceof Node ? event.target : null;
     if (!$('#doc-pop').hidden && !$('#doc-pop').contains(target) && !$('#doc-more').contains(target))
       closeDocMenu(false);
   },
   true,
 );
-addEventListener('resize', placeDocMenu);
+window.addEventListener('resize', placeDocMenu);
+
+// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One
+// document leaves the section out - there is nothing to switch to.
+function drawDocsMenu() {
+  $('#ns-docs').hidden = !multiDoc();
+  setHtml(
+    $('#ns-docs-list'),
+    html`${DOCS.map((entry) => {
+      const on = entry.key === DOC;
+      return html`<button class="dm-item${on ? ' on' : ''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${entry.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${entry.name}${on ? lucideIcon('check') : ''}</span><span class="ph" translate="no">${entry.path}</span></span>${docBadge(entry)}</button>`;
+    })}`,
+  );
+}
+// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
+// several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
+// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for
+// translate/translateTemplate.
+function posLabel(doc, page, pageCount, multi, wide, mode) {
+  if (mode === VIEW_MODE.REVISIONS)
+    return { name: '', pages: translate('변경사항'), label: translate('이동') + ' · ' + translate('변경사항') };
+  const name = multi && wide ? doc : '',
+    pageShown = pageCount ? page : '–',
+    countShown = pageCount ? pageCount : '–';
+  return {
+    name,
+    pages: pageShown + '/' + countShown,
+    label: name
+      ? translateTemplate('이동 · {doc} · {page} / {n}쪽', { doc: name, page: pageShown, n: countShown })
+      : translateTemplate('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
+  };
+}
+// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when
+// another document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words
+// are translate()'d here.
+function drawPos() {
+  const button = $('#btn-pos');
+  if (!button) return;
+  const shown = docInfo(DOC),
+    pageCount = META && META.pages ? META.pages.length : 0,
+    isRevisions = document.body.classList.contains('revision-open');
+  const label =
+    isMarkdownDoc() && !isRevisions
+      ? // a Markdown document has lines, not pages
+        markdownSurface().positionLabel(
+          shown ? shown.name : '',
+          markdownSurface().reading().at,
+          markdownSurface().reading().lines.length,
+          multiDoc(),
+          window.innerWidth >= 400,
+        )
+      : posLabel(
+          shown ? shown.name : '',
+          pageNavigation().outlinePage() || 1,
+          pageCount,
+          multiDoc(),
+          window.innerWidth >= 400,
+          isRevisions ? VIEW_MODE.REVISIONS : VIEW_MODE.MANUSCRIPT,
+        );
+  const nameSpan = $('#btn-pos-n');
+  nameSpan.textContent = label.name;
+  nameSpan.hidden = !label.name;
+  $('#btn-pos-p').textContent = label.pages;
+  button.setAttribute('aria-label', label.label);
+  button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
+  $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
+}
 
 // ------------------------------------------------ The open document's facts
 // Read from the page's shared state: the document entries and their kinds, the document a pin belongs to, the query
@@ -4424,7 +4656,8 @@ function pdoc(pin) {
 function isRegion(pin) {
   return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
 }
-// Appends ?doc=<key> to a document-scoped path (the server treats it as the first document if absent).
+// Appends ?doc=<key> to a document-scoped path, or to the query of one ('' or '?a=1', api() options.query); the server
+// treats it as the first document if absent.
 function withDocQuery(path, doc) {
   doc = doc || DOC;
   if (!doc) return path;
@@ -4605,7 +4838,16 @@ function offlineQueue() {
   return OFFLINE_QUEUE;
 }
 
-// ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
+// A tab or update notice can start the same switch that redraws the tabs and checks for further updates.
+let DOCUMENT_NAVIGATION = null;
+function setDocumentNavigation(navigation) {
+  DOCUMENT_NAVIGATION = navigation;
+}
+function documentNavigation() {
+  if (!DOCUMENT_NAVIGATION) throw new Error('setDocumentNavigation() has not run: documents cannot open a document');
+  return DOCUMENT_NAVIGATION;
+}
+
 // REVISION_VIEW: one changes-view visit owns the selected commit, source text and request sequence (seq). overlay is a
 // figure document's two builds from /api/revisions (null for any other document), side the one its overlay shows,
 // history whether it has commits. base is a range's old side ('' for one commit against its first parent); rows the
@@ -4616,9 +4858,13 @@ function offlineQueue() {
 // rangeBase its old side; listOpen whether the phone shows every loaded row; rangeLine the range's summary for the
 // status line, and rangeN its commit and file counts (the rendered compare's status line takes them,
 // revisions/view-rendered-compare.ts sayCompareStatus).
-// A file's part of a source diff: its path and its patch text.
-// What rangeSummary reads of GET /api/revision-diff with a base: the two ends, the commits and files between them, the
-// merge base when the base was on another line, and whether the diff was cut.
+
+// What the revision view shows and where it stands (REVISION_VIEW): the request counter, the source diff's files and
+// whole text, the commit shown and the one its source diff is of, the format, the commit's scope a pin's diff read
+// answers (GET /api/revision-diff?pin=; null before such a read), the rest of the commit's diff beside a pin's hunks,
+// the pin's target, the commit of the PDF shown, the document to go back to, the overlay and its side, whether the
+// history is open, its base, rows, their document and whether more are listed, the range and what was seen of it, the
+// range's commits, base, summary line and counts, whether the list is open, and the range the list is to paint.
 const REVISION_VIEW = {
   seq: 0,
   files: [],
@@ -4650,21 +4896,397 @@ const REVISION_VIEW = {
   rangeN: null,
   want: null,
 };
-// the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
-const REVISION_RECENT = 12;
-const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
-// A pin's view of a commit (docs/handbook/viewer.md §변경 보기). REVISION_VIEW.scope is the source diff's scope object
-// ({mode:'pin'|'commit', source, hunks, other, ...}). COMPARISON_SCOPE is the comparison PDF's toggle - the whole
-// commit or only this pin's hunks (whole), whether the pin owns only part of the commit (partial), whether the pin-only
-// build failed and the whole commit is shown instead (fallback). COMPARISON_PDF holds the loaded comparison PDF, its
-// loading task, its observer and its render tasks.
-const COMPARISON_SCOPE = { whole: false, partial: false, fallback: false };
+// Sets the line the guide says for a revision view's pin (RevTarget.mdcMsg), for another module that changes it
+// (ADR-0042 D1).
+function setTargetGuideLine(target, line) {
+  target.mdcMsg = line;
+}
+
+// The pin whose hunks a commit's view is scoped to: only the commit picked for the pin ([변경 보기]); any other commit
+// chosen in the list is shown whole (another commit's lines are not this pin's), and so is a range (pin scoping and
+// ranges do not combine; the server refuses pin with base).
+function revisionPinFor(id) {
+  const target = REVISION_VIEW.target;
+  return target && !target.region && target.commit && id === target.commit && !REVISION_VIEW.base ? target : null;
+}
+
+function revisionCurrent(seq, docKey, id) {
+  return (
+    seq === REVISION_VIEW.seq &&
+    docKey === DOC &&
+    id === REVISION_VIEW.commit &&
+    document.body.classList.contains('revision-open')
+  );
+}
+
+// The key a source diff or comparison PDF was loaded for: the commit, or base..commit for a range.
+function revisionKey() {
+  return REVISION_VIEW.base ? REVISION_VIEW.base + '..' + REVISION_VIEW.commit : REVISION_VIEW.commit;
+}
+
+// Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask
+// about.
+function openSeen(seen, rows) {
+  REVISION_VIEW.seen = seen;
+  REVISION_VIEW.seenIds = new Set();
+  REVISION_VIEW.seenN = 0;
+  REVISION_VIEW.seenState = !seen
+    ? SEEN_STATE.NONE
+    : rows.length && rows[0].id === seen.id
+      ? SEEN_STATE.OK
+      : SEEN_STATE.PENDING;
+}
+// The server's answer for the last-seen range (seen..newest): its count and commits, or why it has none. A refusal that
+// says the commit is not in this document's history (or shares none with it) is a record the history no longer has;
+// base_too_old is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure
+// leaves the record unread, and so kept.
+// answer is the /api/revision-diff answer with base.
+function seenAnswered(answer) {
+  REVISION_VIEW.seenState = SEEN_STATE.OK;
+  REVISION_VIEW.seenN = Number(answer.commits) || 0;
+  REVISION_VIEW.seenIds = new Set(answer.commit_ids || []);
+}
+function seenFailed(error) {
+  const data = isApiError(error) ? error.data : undefined,
+    why = isRecord(data) ? data.reason : undefined;
+  REVISION_VIEW.seenState =
+    why === 'base_too_old'
+      ? SEEN_STATE.OLD
+      : why === 'commit_not_recent' || why === 'no_merge_base' || why === 'base_after_head'
+        ? SEEN_STATE.GONE
+        : SEEN_STATE.ERROR;
+}
+
+/** Start a new commit or range and invalidate results from the previous comparison. */
+function beginRevisionComparison(id, base) {
+  ++REVISION_VIEW.seq;
+  REVISION_VIEW.commit = id;
+  REVISION_VIEW.base = base || '';
+  REVISION_VIEW.rangeLine = '';
+  REVISION_VIEW.rangeN = null;
+  REVISION_VIEW.rangeIds = null;
+  REVISION_VIEW.rangeBase = '';
+  REVISION_VIEW.sourceCommit = '';
+  REVISION_VIEW.pdfCommit = '';
+}
+
+/** Replace the history page, retaining the expanded list on a repeat visit. */
+function setRevisionRows(rows, docKey, more, again) {
+  REVISION_VIEW.rows = rows;
+  REVISION_VIEW.rowsDoc = docKey || '';
+  REVISION_VIEW.more = more;
+  if (!again) REVISION_VIEW.listOpen = false;
+}
+
+/** Append the next page of history and remember whether there is another. */
+function appendRevisionRows(rows, more) {
+  REVISION_VIEW.rows = REVISION_VIEW.rows.concat(rows);
+  REVISION_VIEW.more = more;
+}
+
+/** Install the pair of builds and select the current build. */
+function replaceRevisionOverlay(overlay) {
+  REVISION_VIEW.overlay = overlay;
+  REVISION_VIEW.side = OVERLAY_SIDE.CUR;
+}
+
+/** Select the previous build only when the overlay includes it. */
+function chooseRevisionSide(side) {
+  REVISION_VIEW.side =
+    side === OVERLAY_SIDE.PREV && REVISION_VIEW.overlay && REVISION_VIEW.overlay.prev_build
+      ? OVERLAY_SIDE.PREV
+      : OVERLAY_SIDE.CUR;
+}
+
+/** Remember the commits and base that the server actually compared. */
+function rememberRangeCommits(answer) {
+  REVISION_VIEW.rangeIds = Array.isArray(answer.commit_ids) ? answer.commit_ids : [];
+  REVISION_VIEW.rangeBase = String(answer.base || '');
+}
+
+/** Keep the server counts used by the rendered comparison status. */
+function countRevisionRange(answer) {
+  REVISION_VIEW.rangeN = {
+    commits: Number(answer.commits) || 0,
+    files: Array.isArray(answer.files) ? answer.files.length : 0,
+  };
+}
+
+/** Consume the range requested by a document update. */
+function takeWantedRange() {
+  const want = REVISION_VIEW.want;
+  REVISION_VIEW.want = null;
+  return want;
+}
+
+/** Consume the document to reopen after leaving a pin comparison. */
+function takeReturnDocument() {
+  const back = REVISION_VIEW.back;
+  REVISION_VIEW.back = null;
+  return back;
+}
+
+/** Invalidate outstanding requests and return the new visit sequence. */
+function advanceRevisionVisit() {
+  return ++REVISION_VIEW.seq;
+}
+
+/** Choose a single commit against its parent. */
+function chooseSingleRevision(id) {
+  REVISION_VIEW.range = { mode: RANGE_MODE.ONE, start: id, end: id, endSet: false };
+}
+
+/** Remember the pin and its reference, preserving the return document on subsequent pin comparisons. */
+function openRevisionTarget(fromManuscript, back, target) {
+  if (fromManuscript) REVISION_VIEW.back = back;
+  REVISION_VIEW.target = target;
+  const match = /\b[0-9a-f]{7,40}\b/.exec(target.ref);
+  target.tokOf = match ? match[0] : '';
+}
+
+/** Store the whole patch and its file choices from the same diff. */
+function keepRevisionSource(whole, files) {
+  REVISION_VIEW.whole = whole;
+  REVISION_VIEW.files = files;
+}
+
+/** Forget the pin when returning to the manuscript. */
+function clearRevisionTarget() {
+  REVISION_VIEW.target = null;
+}
+
+/** Invalidate the history list so the next visit reloads its document. */
+function forgetRevisionRows() {
+  REVISION_VIEW.rowsDoc = '';
+}
+
+/** Show all loaded history rows on a narrow screen. */
+function expandRevisionRows() {
+  REVISION_VIEW.listOpen = true;
+}
+
+/** Record which commit or range the source pane shows. */
+function markRevisionSourceLoaded() {
+  REVISION_VIEW.sourceCommit = revisionKey();
+}
+
+/** Select the format displayed by all comparison panes. */
+function chooseRevisionFormat(value) {
+  REVISION_VIEW.format = value;
+}
+
+/** Keep the remainder of a pin-scoped diff for its disclosure control. */
+function setRevisionOther(value) {
+  REVISION_VIEW.other = value;
+}
+
+/** Record the PDF request key, or clear it to allow another request. */
+function setRevisionPdfKey(value) {
+  REVISION_VIEW.pdfCommit = value;
+}
+
+/** Remember whether the loaded history offers commits to compare. */
+function setRevisionHistoryAvailable(value) {
+  REVISION_VIEW.history = value;
+}
+
+/** Keep the range chosen in the revision picker. */
+function chooseRevisionRange(value) {
+  REVISION_VIEW.range = value;
+}
+
+/** Store the summary for the source and rendered status lines. */
+function setRevisionRangeSummary(value) {
+  REVISION_VIEW.rangeLine = value;
+}
+
+/** Record which part of the commit the pin-scoped source request returned. */
+function setRevisionPinScope(value) {
+  REVISION_VIEW.scope = value;
+}
+
+// PDF.js resources held by the current comparison.
 const COMPARISON_PDF = {
   doc: null,
   loading: null,
   observer: null,
   tasks: new Set(),
 };
+
+/** Release the previous comparison's rendering tasks, loading request and document. */
+function releaseComparisonPdf() {
+  if (COMPARISON_PDF.observer) {
+    COMPARISON_PDF.observer.disconnect();
+    COMPARISON_PDF.observer = null;
+  }
+  COMPARISON_PDF.tasks.forEach((task) => {
+    try {
+      task.cancel();
+    } catch (error) {}
+  });
+  COMPARISON_PDF.tasks.clear();
+  if (COMPARISON_PDF.loading) {
+    try {
+      void COMPARISON_PDF.loading.destroy().catch(() => {});
+    } catch (error) {}
+    COMPARISON_PDF.loading = null;
+  }
+  COMPARISON_PDF.doc = null;
+}
+
+/** Keep the active PDF.js request so a change of visit can destroy it. */
+function setComparisonLoading(loading) {
+  COMPARISON_PDF.loading = loading;
+}
+/** Keep the PDF associated with the completed request until the view releases it. */
+function setComparisonDocument(pdf) {
+  COMPARISON_PDF.doc = pdf;
+}
+
+// A file's part of a source diff: its path and its patch text.
+
+/** Read the new-side line ranges of patch hunks, including the anchor of a deletion. */
+function hunkRanges(text) {
+  const out = [];
+  for (const match of String(text || '').matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
+    const start = +match[1],
+      count = match[2] === undefined ? 1 : +match[2];
+    out.push([start, start + Math.max(count, 1) - 1]);
+  }
+  return out;
+}
+
+function pinFileIndex(files, file) {
+  file = String(file || '');
+  let best = -1,
+    bestLength = 0;
+  files.forEach((entry, index) => {
+    const name = entry.name;
+    if (name && (file === name || file.endsWith('/' + name)) && name.length > bestLength) {
+      best = index;
+      bestLength = name.length;
+    }
+  });
+  return best;
+}
+// A target without lines (a region pin's) touches none.
+function touchesPin(files, target, slack) {
+  const index = pinFileIndex(files, target.file),
+    { lo: first, hi: last } = target;
+  if (index < 0 || first == null || last == null) return false;
+  const reach = slack == null ? 5 : slack;
+  return hunkRanges(files[index].text).some(([start, end]) => end >= first - reach && start <= last + reach);
+}
+
+// The guide line (#revision-pin) for the pin the view was opened for: which commit it shows and why, what the format
+// shown can say of the pin's lines (message, when given, in their place), and the review access this person lacks.
+function drawPinGuide(message) {
+  const target = REVISION_VIEW.target,
+    box = $('#revision-pin');
+  if (!target) {
+    box.hidden = true;
+    return;
+  }
+  const via =
+    tableEntry(
+      {
+        sha: translateTemplate('참조의 커밋 {tok}', { tok: target.tokOf || '' }),
+        pr: translate('참조의 PR'),
+        lines: translate('이 줄을 바꾼 가장 최근 커밋'),
+        latest: translate('참조로 커밋을 찾지 못해 가장 최근 커밋'),
+      },
+      target.via,
+    ) || '';
+  const where = target.region
+    ? translateTemplate('쪽 {page} 영역', { page: target.page })
+    : target.name + ' ' + lineRange(target.lo, target.hi);
+  const pinScope =
+    REVISION_VIEW.format === DIFF_FORMAT.SOURCE && REVISION_VIEW.scope && REVISION_VIEW.scope.mode === SCOPE_MODE.PIN
+      ? REVISION_VIEW.scope
+      : null;
+  const scopeText = pinScope
+    ? translateTemplate('이 핀의 변경 {n}곳만 보입니다', { n: pinScope.hunks }) +
+      ' (' +
+      translate(pinScope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') +
+      ') · '
+    : '';
+  let text = message
+    ? translate(message)
+    : REVISION_VIEW.format === DIFF_FORMAT.RENDERED
+      ? target.mdcMsg || translate('두 판을 그려 견주는 중입니다.')
+      : REVISION_VIEW.format === DIFF_FORMAT.OVERLAY
+        ? translateTemplate('직전 빌드와 지금 빌드의 {page}쪽을 겹쳐 보입니다 — [이전]·[지금]으로 바꿔 보세요', {
+            page: target.page,
+          }) + (REVISION_VIEW.history ? ' · ' + translate('고친 줄은 [소스 diff]') : '')
+        : scopeText +
+          (REVISION_VIEW.format === DIFF_FORMAT.PDF
+            ? translateTemplate(
+                '비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',
+                { page: target.page },
+              )
+            : translate(
+                target.hit === false
+                  ? '이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다'
+                  : target.near
+                    ? '핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다'
+                    : '강조한 줄이 핀 범위입니다',
+              ));
+  const pin = findAnyPin(target.id),
+    access = pin && pinState(pin) === PIN_STATE.REVIEW && !canConfirmReview() ? confirmAccessText() : '';
+  setHtml(
+    box,
+    html`<span><b>${translateTemplate('핀 #{id}', { id: target.id })}</b> · ${where}${target.ref ? ' · ' + translateTemplate('참조 {ref}', { ref: target.ref }) : ''}${via ? ' · ' + via : ''}</span><span class="rp-msg">${text}${access ? html` <span class="review-access">${access}</span>` : ''}</span>`,
+  );
+  box.dataset.id = String(target.id);
+  box.hidden = false;
+  drawPinGuideActions();
+}
+// The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this
+// person may confirm (a person with write access, not a view-only region pin), the card's [확인] - the same
+// data-act="confirm" and confirmPin(), soft for the author as on the card. On the phone and tablet sheet they sit in
+// the thumb row (#revision-acts) right above the status line and the tool bar; in the other bands at the guide line's
+// right. Redrawn on a band change and whenever the pin lists change.
+function drawPinGuideActions() {
+  const target = REVISION_VIEW.target,
+    row = $('#revision-acts'),
+    narrow = LAYOUT === LAYOUT_MODE.NARROW;
+  $$('.rp-acts').forEach((element) => element.remove());
+  if (!target || $('#revision-pin').hidden) {
+    row.hidden = true;
+    document.body.classList.remove('rev-thumb');
+    return;
+  }
+  const pin = findAnyPin(target.id),
+    confirm = !!pin && pinState(pin) === PIN_STATE.REVIEW && !target.region && canConfirmReview();
+  const backDoc = REVISION_VIEW.back && REVISION_VIEW.back !== DOC ? docInfo(REVISION_VIEW.back) : null,
+    back = backDoc ? backDoc.name : null,
+    actionBox = document.createElement('span');
+  actionBox.className = 'rp-acts';
+  const confirmButton = confirm
+    ? html`<button class="btn-sm b-confirm ${isMe(pin.author) ? 'btn-soft' : 'btn-secondary'}" data-act="confirm" data-tip="${TIP_TEXT.confirm}">확인</button>`
+    : '';
+  setHtml(
+    actionBox,
+    html`<button class="btn-sm" data-act="rev-back" data-tip="${back ? translateTemplate('{name} 원고 보기로 돌아갑니다', { name: back }) : translate('원고 보기로 돌아갑니다')}">${back ? translateTemplate('{name}(으)로', { name: back }) : translate('원고로')}</button>${confirmButton}`,
+  );
+  (narrow ? row : $('#revision-pin')).appendChild(actionBox);
+  row.dataset.id = String(target.id);
+  row.hidden = !narrow;
+  document.body.classList.toggle('rev-thumb', narrow);
+}
+
+// ------------------------------------------------ The changes view (docs/handbook/viewer.md §변경 보기)
+// What rangeSummary reads of GET /api/revision-diff with a base: the two ends, the commits and files between them, the
+// merge base when the base was on another line, and whether the diff was cut.
+// A pin's view of a commit (docs/handbook/viewer.md §변경 보기). REVISION_VIEW.scope is the source diff's scope object
+// ({mode:'pin'|'commit', source, hunks, other, ...}). COMPARISON_SCOPE is the comparison PDF's toggle - the whole
+// commit or only this pin's hunks (whole), whether the pin owns only part of the commit (partial), whether the pin-only
+// build failed and the whole commit is shown instead (fallback).
+const COMPARISON_SCOPE = { whole: false, partial: false, fallback: false };
+
+// the commits [변경 보기] picks a pin's commit among - the server resolves a close_ref among the same
+const REVISION_RECENT = 12;
+const REVISION_PHONE_ROWS = 5; // rows the phone's list shows before [더 보기]
 function revisionFiles(patch) {
   const starts = [];
   const fileHeader = /^diff --git .+$/gm;
@@ -4741,16 +5363,19 @@ function drawRevisionOther(scope) {
   rest.hidden = true;
   rest.replaceChildren();
   toggle.setAttribute('aria-expanded', 'false');
-  REVISION_VIEW.other =
+  setRevisionOther(
     scope && scope.mode === SCOPE_MODE.PIN
       ? String(scope.other_diff || '') +
-        (scope.other_truncated
-          ? '\n\n' + translate('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.')
-          : '')
-      : '';
+          (scope.other_truncated
+            ? '\n\n' + translate('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.')
+            : '')
+      : '',
+  );
   toggle.hidden = !REVISION_VIEW.other;
   if (scope && REVISION_VIEW.other)
-    toggle.querySelector('span').textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', { n: scope.other });
+    findElement(toggle, 'span', HTMLSpanElement).textContent = translateTemplate('이 커밋의 다른 변경 {n}곳', {
+      n: scope.other,
+    });
 }
 function toggleRevisionOther() {
   const toggle = $('#revision-other-toggle'),
@@ -4772,49 +5397,18 @@ function syncRevisionWhole() {
   );
   button.setAttribute('aria-pressed', String(COMPARISON_SCOPE.whole));
 }
-// The pin whose hunks a commit's view is scoped to: only the commit picked for the pin ([변경 보기]); any other commit
-// chosen in the list is shown whole (another commit's lines are not this pin's), and so is a range (pin scoping and
-// ranges do not combine; the server refuses pin with base).
-function revisionPinFor(id) {
-  const target = REVISION_VIEW.target;
-  return target && !target.region && target.commit && id === target.commit && !REVISION_VIEW.base ? target : null;
-}
 function setRevisionWhole(on) {
   COMPARISON_SCOPE.whole = !!on;
-  ++REVISION_VIEW.seq;
-  REVISION_VIEW.pdfCommit = '';
+  advanceRevisionVisit();
+  setRevisionPdfKey('');
   clearRevisionPdf();
   $('#revision-warning').hidden = true;
   setRevisionFormat(DIFF_FORMAT.PDF);
 }
-function revisionCurrent(seq, docKey, id) {
-  return (
-    seq === REVISION_VIEW.seq &&
-    docKey === DOC &&
-    id === REVISION_VIEW.commit &&
-    document.body.classList.contains('revision-open')
-  );
-}
 // Releases the comparison's rendering and PDF.js resources on a new visit or a change of scope.
 function clearRevisionPdf() {
   disposeRevisionZoom();
-  if (COMPARISON_PDF.observer) {
-    COMPARISON_PDF.observer.disconnect();
-    COMPARISON_PDF.observer = null;
-  }
-  COMPARISON_PDF.tasks.forEach((task) => {
-    try {
-      task.cancel();
-    } catch (error) {}
-  });
-  COMPARISON_PDF.tasks.clear();
-  if (COMPARISON_PDF.loading) {
-    try {
-      void COMPARISON_PDF.loading.destroy().catch(() => {});
-    } catch (error) {}
-    COMPARISON_PDF.loading = null;
-  }
-  COMPARISON_PDF.doc = null;
+  releaseComparisonPdf();
   $('#revision-pdf').replaceChildren();
 }
 // The format a document's changes show for the one asked (docs/handbook/viewer.md §변경 보기): the source diff when
@@ -4845,7 +5439,7 @@ function drawRevisionFormat() {
 }
 // Switches the format shown, keeping the comparison's scale for the selected commit.
 function setRevisionFormat(format) {
-  REVISION_VIEW.format = revisionFormatFor(format, !!REVISION_VIEW.overlay, isMarkdownDoc(), isDrawnFromMarkdown());
+  chooseRevisionFormat(revisionFormatFor(format, !!REVISION_VIEW.overlay, isMarkdownDoc(), isDrawnFromMarkdown()));
   drawRevisionFormat();
   if (REVISION_VIEW.format === DIFF_FORMAT.RENDERED && REVISION_VIEW.commit) {
     if (RENDERED_COMPARE.key !== revisionKey())
@@ -4868,7 +5462,7 @@ function setRevisionFormat(format) {
   // The comparison PDF is built only when that format is viewed - [변경 보기] and a range go straight to the source
   // diff, so neither spends a latexdiff build.
   if (REVISION_VIEW.format === DIFF_FORMAT.PDF && REVISION_VIEW.commit && REVISION_VIEW.pdfCommit !== revisionKey()) {
-    REVISION_VIEW.pdfCommit = revisionKey();
+    setRevisionPdfKey(revisionKey());
     $('#revision-status').textContent = '비교 PDF 상태를 확인하는 중입니다.';
     loadRevisionPdf(REVISION_VIEW.commit, REVISION_VIEW.seq, DOC);
   }
@@ -4891,12 +5485,12 @@ function setViewMode(mode) {
   $('#view-manuscript').setAttribute('aria-pressed', String(!revisions));
   $('#view-revisions').setAttribute('aria-pressed', String(revisions));
   if (!revisions) {
-    REVISION_VIEW.target = null;
+    clearRevisionTarget();
     clearRenderedCompare();
   }
   if (revisions) loadRevisions();
   else {
-    ++REVISION_VIEW.seq;
+    advanceRevisionVisit();
     clearRevisionPdf();
     setRevisionOverlay(null);
     $('#revision-pin').hidden = true;
@@ -4917,7 +5511,7 @@ function setViewMode(mode) {
 // answer carries its two builds (overlay): its [겹쳐 보기] takes the place of [변경 PDF] and opens first, with or
 // without history; its [소스 diff] shows only with history.
 async function loadRevisions() {
-  const seq = ++REVISION_VIEW.seq,
+  const seq = advanceRevisionVisit(),
     docKey = DOC,
     list = $('#revision-list'),
     out = $('#revision-diff'),
@@ -4933,25 +5527,26 @@ async function loadRevisions() {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, docKey), { what: '변경사항 읽기', silent: true })
+      await api('GET /api/revisions', {
+        query: withDocQuery('?limit=' + REVISION_PAGE, docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
   } catch (error) {
     if (seq === REVISION_VIEW.seq) list.textContent = '변경사항을 읽지 못했습니다.';
     return;
   }
   if (seq !== REVISION_VIEW.seq || docKey !== DOC) return;
-  const rows = (data.available ? data.revisions : []),
+  const rows = data.available ? data.revisions : [],
     kept = REVISION_VIEW.range;
-  REVISION_VIEW.rows = rows;
-  REVISION_VIEW.rowsDoc = docKey || '';
-  REVISION_VIEW.more = !!data.more;
-  if (!again) REVISION_VIEW.listOpen = false;
+  setRevisionRows(rows, docKey, !!data.more, again);
   if (!again || !REVISION_VIEW.seen || REVISION_VIEW.seenState !== SEEN_STATE.OK)
     openSeen(seenRecordOf(docKey || ''), rows);
-  REVISION_VIEW.history = !!data.available && rows.length > 0;
+  setRevisionHistoryAvailable(!!data.available && rows.length > 0);
   setRevisionOverlay(data.overlay || null);
   const isFigure = !!REVISION_VIEW.overlay;
-  REVISION_VIEW.format = revisionFormatFor(REVISION_VIEW.format, isFigure, isMarkdownDoc(), isDrawnFromMarkdown());
+  chooseRevisionFormat(revisionFormatFor(REVISION_VIEW.format, isFigure, isMarkdownDoc(), isDrawnFromMarkdown()));
   // a LaTeX document after a figure leaves the overlay; a Markdown one opens its rendered compare, a text one its
   // source diff
   drawRevisionFormat();
@@ -4997,7 +5592,7 @@ async function loadRevisions() {
     target.commit = pick.id;
     target.via = pick.via;
     target.hit = pick.hit;
-    REVISION_VIEW.range = { mode: RANGE_MODE.ONE, start: pick.id, end: pick.id, endSet: false };
+    chooseSingleRevision(pick.id);
     // a figure's lines and pictures are both exact: its overlay opens first; a LaTeX pin's lines exist only in the
     // source diff, and a Markdown pin's own hunks too - its [그린 비교] beside it compares the whole commit (ADR-0031
     // D6)
@@ -5011,8 +5606,7 @@ async function loadRevisions() {
   // the list painting what the server says the range holds. Commits above top (the checkout ahead of the shown build,
   // one come since) stay out, also when the list is read again for a new build: the range keeps the message's base and
   // its end (endSet).
-  const want = REVISION_VIEW.want;
-  REVISION_VIEW.want = null;
+  const want = takeWantedRange();
   if (want && want.base && !isFigure) {
     const at = (id) => rows.findIndex((row) => row.id === id || row.id.startsWith(id)),
       baseAt = at(want.base),
@@ -5020,14 +5614,13 @@ async function loadRevisions() {
     const top = topAt >= 0 ? rows[topAt].id : want.top,
       base = baseAt >= 0 ? rows[baseAt].id : want.base;
     if (top !== base && !(baseAt >= 0 && topAt > baseAt)) {
-      REVISION_VIEW.range = {
+      showRange({
         mode: RANGE_MODE.FROM,
         start: baseAt > 0 && baseAt > topAt ? rows[baseAt - 1].id : top,
         end: top,
         endSet: true,
         base,
-      };
-      showRange(REVISION_VIEW.range);
+      });
       return;
     }
   }
@@ -5052,7 +5645,7 @@ async function loadRevisions() {
   }
   if (REVISION_VIEW.seenState === SEEN_STATE.PENDING) resolveSeen(docKey || '', rows[0].id);
   const id = rows.some((row) => row.id === REVISION_VIEW.commit) ? REVISION_VIEW.commit : rows[0].id;
-  REVISION_VIEW.range = { mode: RANGE_MODE.ONE, start: id, end: id, endSet: false };
+  chooseSingleRevision(id);
   showRevision(id, isFigure ? DIFF_FORMAT.OVERLAY : undefined);
   drawRange();
 }
@@ -5118,16 +5711,12 @@ function sideRows(rows) {
   });
   return out;
 }
-// The key a source diff or comparison PDF was loaded for: the commit, or base..commit for a range.
-function revisionKey() {
-  return REVISION_VIEW.base ? REVISION_VIEW.base + '..' + REVISION_VIEW.commit : REVISION_VIEW.commit;
-}
 // Shows a range: opens what it asks, then draws the picker - a range always in its source diff (its comparison PDF is
 // built only when [변경 PDF] is pressed, whatever format was shown), one commit as a list choice always opened (format
 // undefined: the comparison PDF of a LaTeX document, the format shown of a figure document). A Markdown document keeps
 // the tab shown, for a range too: its rendered compare builds nothing (revisions/view-rendered-compare.ts).
 function showRange(range, format) {
-  REVISION_VIEW.range = range;
+  chooseRevisionRange(range);
   const request = rangeRequest(REVISION_VIEW.rows, range, REVISION_VIEW.seen);
   const drawn = isDrawnFromMarkdown()
     ? REVISION_VIEW.format === DIFF_FORMAT.SOURCE
@@ -5157,7 +5746,7 @@ function drawRange() {
     range = REVISION_VIEW.range,
     seenState = REVISION_VIEW.seenState;
   $('#revision-range').hidden = !rows.length;
-  for (const button of $$('#revision-range [role=radio]')) {
+  for (const button of findAll(document, '#revision-range [role=radio]', HTMLButtonElement)) {
     const on = button.dataset.range === range.mode;
     button.setAttribute('aria-checked', String(on));
     button.classList.toggle('on', on);
@@ -5206,7 +5795,7 @@ function renderCommitList() {
     return;
   }
   const focused = document.activeElement,
-    refocus = focused && focused.classList.contains('rc-row') ? focused.dataset.commit : null;
+    refocus = focused instanceof HTMLElement && focused.classList.contains('rc-row') ? focused.dataset.commit : null;
   const inside = new Set(
       paintedIds({ commit: REVISION_VIEW.commit, base: REVISION_VIEW.base }, REVISION_VIEW.rangeIds),
     ),
@@ -5252,10 +5841,10 @@ ${fresh.has(row.id) ? html`<span class="rc-tag">새로</span>` : ''}</button>`;
     html`<div class="rc-head">${translate(hint)}</div><div class="rc-list">${items}</div>\
 ${more ? html`<button id="revision-more" class="btn-ghost" data-act="revision-more">${lucideIcon('chevron-down')}<span>${more}</span></button>` : ''}`,
   );
-  for (const element of $$('#revision-commits [data-i]'))
+  for (const element of findAll(document, '#revision-commits [data-i]', HTMLElement))
     element.hidden = Number(element.dataset.i) >= cut;
   if (refocus) {
-    const again = box.querySelector('.rc-row[data-commit="' + refocus + '"]');
+    const again = findMaybe(box, '.rc-row[data-commit="' + refocus + '"]', HTMLElement);
     if (again) again.focus();
   }
 }
@@ -5263,12 +5852,12 @@ ${more ? html`<button id="revision-more" class="btn-ghost" data-act="revision-mo
 // history.
 async function moreRevisions() {
   if (LAYOUT === LAYOUT_MODE.NARROW && !REVISION_VIEW.listOpen && REVISION_VIEW.rows.length > REVISION_PHONE_ROWS) {
-    REVISION_VIEW.listOpen = true;
+    expandRevisionRows();
     renderCommitList();
     return;
   }
   if (!REVISION_VIEW.more || !REVISION_VIEW.rows.length) return;
-  REVISION_VIEW.listOpen = true;
+  expandRevisionRows();
   if (await moreRows(DOC || '', REVISION_PAGE)) renderCommitList();
 }
 // Reads the next page (up to limit rows) of document docKey's window onto REVISION_VIEW.rows; whether it did. Nothing
@@ -5279,7 +5868,8 @@ async function moreRows(docKey, limit) {
   let data;
   try {
     data = (
-      await api(withDocQuery('/api/revisions?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey), {
+      await api('GET /api/revisions', {
+        query: withDocQuery('?before=' + encodeURIComponent(last) + '&limit=' + limit, docKey),
         what: '변경사항 읽기',
         silent: true,
       })
@@ -5294,57 +5884,26 @@ async function moreRows(docKey, limit) {
     REVISION_VIEW.rows[REVISION_VIEW.rows.length - 1].id !== last
   )
     return false;
-  REVISION_VIEW.rows = REVISION_VIEW.rows.concat(data.revisions || []);
-  REVISION_VIEW.more = !!data.more;
+  appendRevisionRows(data.revisions || [], !!data.more);
   return true;
 }
 // ------------------------------------------------ The last-seen commit (docs/handbook/viewer.md §변경 보기)
 // This browser's last-seen commit per document (localStorage limnRevSeen: {<doc>:{id, at}}). No server state: another
 // browser or device keeps its own. The server says what it is (resolveSeen): how many commits it compares with the
 // newest, or that it is no longer in the history. A record is never overwritten until the server has answered for it.
+// Every document's record as stored: seenRecordOf reads one, and one it cannot read stays as it is when another is
+// written.
 function readSeenRecords() {
   try {
     const stored = JSON.parse(localStorage.getItem('limnRevSeen') || '{}');
-    return stored && typeof stored === 'object' ? stored : {};
+    return isRecord(stored) ? stored : {};
   } catch (error) {
     return {};
   }
 }
 function seenRecordOf(docKey) {
   const record = readSeenRecords()[docKey];
-  return record && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
-}
-// Takes the document's record for this visit: none, the newest commit itself (0 new, nothing to ask), or one to ask
-// about.
-function openSeen(seen, rows) {
-  REVISION_VIEW.seen = seen;
-  REVISION_VIEW.seenIds = new Set();
-  REVISION_VIEW.seenN = 0;
-  REVISION_VIEW.seenState = !seen
-    ? SEEN_STATE.NONE
-    : rows.length && rows[0].id === seen.id
-      ? SEEN_STATE.OK
-      : SEEN_STATE.PENDING;
-}
-// The server's answer for the last-seen range (seen..newest): its count and commits, or why it has none. A refusal that
-// says the commit is not in this document's history (or shares none with it) is a record the history no longer has;
-// base_too_old is a record still in the history but older than the window (SEEN_STATE.OLD, kept); any other failure
-// leaves the record unread, and so kept.
-/** @param answer the /api/revision-diff answer with base */
-function seenAnswered(answer) {
-  REVISION_VIEW.seenState = SEEN_STATE.OK;
-  REVISION_VIEW.seenN = Number(answer.commits) || 0;
-  REVISION_VIEW.seenIds = new Set(answer.commit_ids || []);
-}
-function seenFailed(error) {
-  const data = (error && (error).data),
-    why = data && data.reason;
-  REVISION_VIEW.seenState =
-    why === 'base_too_old'
-      ? SEEN_STATE.OLD
-      : why === 'commit_not_recent' || why === 'no_merge_base' || why === 'base_after_head'
-        ? SEEN_STATE.GONE
-        : SEEN_STATE.ERROR;
+  return isRecord(record) && typeof record.id === 'string' ? { id: record.id, at: String(record.at || '') } : null;
 }
 // Asks the server about the last-seen commit when the view does not open on its range (a pin's [변경 보기], a figure's
 // overlay).
@@ -5353,13 +5912,11 @@ async function resolveSeen(docKey, newest) {
   if (!seen) return;
   try {
     const answer = (
-      await api(
-        withDocQuery(
-          '/api/revision-diff?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id),
-          docKey,
-        ),
-        { what: '변경사항 읽기', silent: true },
-      )
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(newest) + '&base=' + encodeURIComponent(seen.id), docKey),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
     if (docKey === DOC && REVISION_VIEW.seen === seen) seenAnswered(answer);
   } catch (error) {
@@ -5374,7 +5931,7 @@ async function resolveSeen(docKey, newest) {
 function leaveRevisions() {
   const docKey = REVISION_VIEW.rowsDoc,
     top = REVISION_VIEW.rows[0];
-  REVISION_VIEW.rowsDoc = '';
+  forgetRevisionRows();
   if (!docKey || !top) return;
   if (
     REVISION_VIEW.seenState === SEEN_STATE.PENDING ||
@@ -5393,29 +5950,21 @@ function leaveRevisions() {
     localStorage.setItem('limnRevSeen', JSON.stringify(all));
   } catch (error) {}
 }
-addEventListener('pagehide', () => {
+window.addEventListener('pagehide', () => {
   if (document.body.classList.contains('revision-open')) leaveRevisions();
 });
 // A newly selected commit (or range, from base) starts with fit width. Without a format a LaTeX document shows its
 // comparison PDF and a figure document stays in the format it shows (choosing a commit in its source diff keeps the
 // source diff).
 async function showRevision(id, format, base) {
-  REVISION_ZOOM.ratio = 1;
-  ++REVISION_VIEW.seq;
-  REVISION_VIEW.commit = id;
-  REVISION_VIEW.base = base || '';
-  REVISION_VIEW.rangeLine = '';
-  REVISION_VIEW.rangeN = null;
-  REVISION_VIEW.rangeIds = null;
-  REVISION_VIEW.rangeBase = '';
-  REVISION_VIEW.sourceCommit = '';
-  REVISION_VIEW.pdfCommit = '';
+  setRevisionZoomRatio(1);
+  beginRevisionComparison(id, base);
   clearRevisionPdf();
   clearRenderedCompare();
   $('#revision-note').textContent = REVISION_VIEW.base
     ? '두 커밋 사이의 누적 변경 · 이 문서의 Git 이력 · 미커밋 수정 제외'
     : '선택 커밋의 첫 부모와 비교 · 이 문서의 Git 이력 · 미커밋 수정 제외';
-  REVISION_VIEW.scope = null;
+  setRevisionPinScope(null);
   COMPARISON_SCOPE.whole = COMPARISON_SCOPE.partial = COMPARISON_SCOPE.fallback = false;
   drawRevisionOther(null);
   $('#revision-diff').textContent = '';
@@ -5492,8 +6041,7 @@ function overlayStatus(overlay) {
 // Takes a document's two builds from /api/revisions (null: not a figure document) and draws them anew, the current one
 // shown.
 function setRevisionOverlay(overlay) {
-  REVISION_VIEW.overlay = overlay;
-  REVISION_VIEW.side = OVERLAY_SIDE.CUR;
+  replaceRevisionOverlay(overlay);
   renderRevisionOverlay();
   drawRevisionSide();
 }
@@ -5528,7 +6076,7 @@ ${side(page.prev, overlay.prev_build, 'ov-prev', translateTemplate('이전 {page
       ['img.ov-cur', page.cur],
       ['img.ov-prev', page.prev],
     ]) {
-      const img = pageBox.querySelector(selector);
+      const img = findMaybe(pageBox, selector, HTMLElement);
       if (img && image) {
         img.style.width = image.w + '%';
         img.style.height = image.h + '%';
@@ -5541,7 +6089,7 @@ ${side(page.prev, overlay.prev_build, 'ov-prev', translateTemplate('이전 {page
 function drawRevisionSide() {
   const overlay = REVISION_VIEW.overlay,
     none = !overlay || !overlay.prev_build;
-  for (const button of $$('#revision-side [role=radio]')) {
+  for (const button of findAll(document, '#revision-side [role=radio]', HTMLButtonElement)) {
     const on = button.dataset.side === REVISION_VIEW.side;
     button.setAttribute('aria-checked', String(on));
     button.classList.toggle('on', on);
@@ -5552,10 +6100,7 @@ function drawRevisionSide() {
 }
 // Shows the previous build's pages (side PREV, when there is one) or the current build's.
 function setRevisionSide(side) {
-  REVISION_VIEW.side =
-    side === OVERLAY_SIDE.PREV && REVISION_VIEW.overlay && REVISION_VIEW.overlay.prev_build
-      ? OVERLAY_SIDE.PREV
-      : OVERLAY_SIDE.CUR;
+  chooseRevisionSide(side);
   drawRevisionSide();
 }
 // Brings that page of the overlay to the top of its view, once it is laid out ([변경 보기] of a pin on that page).
@@ -5575,35 +6120,32 @@ async function loadRevisionSource(id, seq, docKey) {
     query = pinTarget ? '&pin=' + pinTarget.id : base ? '&base=' + encodeURIComponent(base) : '';
   try {
     const answer = (
-      await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + query, docKey), {
+      await api('GET /api/revision-diff', {
+        query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
         what: '변경 내용 읽기',
         silent: true,
       })
     ).data;
     if (!revisionCurrent(seq, docKey, id)) return;
     if (base) {
-      REVISION_VIEW.rangeLine = rangeSummary(answer);
+      setRevisionRangeSummary(rangeSummary(answer));
       if (REVISION_VIEW.format === DIFF_FORMAT.SOURCE) $('#revision-status').textContent = REVISION_VIEW.rangeLine;
-      REVISION_VIEW.rangeN = {
-        commits: Number(answer.commits) || 0,
-        files: Array.isArray(answer.files) ? answer.files.length : 0,
-      };
+      countRevisionRange(answer);
       restateCompareStatus();
-      REVISION_VIEW.rangeIds = Array.isArray(answer.commit_ids) ? answer.commit_ids : [];
-      REVISION_VIEW.rangeBase = String(answer.base || '');
+      rememberRangeCommits(answer);
       if (REVISION_VIEW.range.mode === RANGE_MODE.LAST && REVISION_VIEW.seen && base === REVISION_VIEW.seen.id)
         seenAnswered(answer);
       drawRange();
     }
     // a pin's own hunks when it owns part of the commit; otherwise the whole commit
     const pinScope = answer.scope && answer.scope.mode === SCOPE_MODE.PIN ? answer.scope : null;
-    REVISION_VIEW.scope = answer.scope || null;
+    setRevisionPinScope(answer.scope || null);
     if (pinScope) {
       COMPARISON_SCOPE.partial = true;
       syncRevisionWhole();
     }
     const cut = '\n\n' + translate('변경 내용이 커서 앞부분만 표시했습니다. 저장소에서 전체 diff를 확인하세요.');
-    REVISION_VIEW.whole = pinScope
+    const whole = pinScope
       ? pinScope.diff + (pinScope.truncated ? cut : '')
       : (answer.diff ||
           translate(
@@ -5611,7 +6153,7 @@ async function loadRevisionSource(id, seq, docKey) {
               ? '이 범위에서 표시할 원고 텍스트 변경이 없습니다.'
               : '이 커밋에서 표시할 원고 텍스트 변경이 없습니다.',
           )) + (answer.truncated ? cut : '');
-    REVISION_VIEW.files = revisionFiles(pinScope ? pinScope.diff : answer.diff || '');
+    keepRevisionSource(whole, revisionFiles(pinScope ? pinScope.diff : answer.diff || ''));
     drawRevisionOther(pinScope);
     const select = $('#revision-file');
     setHtml(
@@ -5620,7 +6162,7 @@ async function loadRevisionSource(id, seq, docKey) {
     );
     select.value = 'all';
     $('#revision-file-row').hidden = REVISION_VIEW.files.length < 2;
-    REVISION_VIEW.sourceCommit = revisionKey();
+    markRevisionSourceLoaded();
     const target = REVISION_VIEW.target,
       fileIndex = target ? pinFileIndex(REVISION_VIEW.files, target.file) : -1;
     if (fileIndex >= 0 && REVISION_VIEW.files.length > 1) select.value = String(fileIndex);
@@ -5628,7 +6170,7 @@ async function loadRevisionSource(id, seq, docKey) {
     if (target) highlightPinLines(target);
   } catch (error) {
     if (revisionCurrent(seq, docKey, id)) {
-      const why = error && (error).data ? errText((error).data) : '';
+      const why = isApiError(error) && error.data ? errText(error.data) : '';
       out.textContent = why
         ? translateTemplate('소스 변경 내용을 읽지 못했습니다: {error}', { error: why })
         : translate('소스 변경 내용을 읽지 못했습니다.');
@@ -5690,36 +6232,6 @@ function matchRevision(ref, rows, recent) {
   }
   return null;
 }
-function pinFileIndex(files, file) {
-  file = String(file || '');
-  let best = -1,
-    bestLength = 0;
-  files.forEach((entry, index) => {
-    const name = entry.name;
-    if (name && (file === name || file.endsWith('/' + name)) && name.length > bestLength) {
-      best = index;
-      bestLength = name.length;
-    }
-  });
-  return best;
-}
-function hunkRanges(text) {
-  const out = [];
-  for (const match of String(text || '').matchAll(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,(\d+))? @@/gm)) {
-    const start = +match[1],
-      count = match[2] === undefined ? 1 : +match[2];
-    out.push([start, start + Math.max(count, 1) - 1]);
-  }
-  return out;
-}
-// A target without lines (a region pin's) touches none.
-function touchesPin(files, target, slack) {
-  const index = pinFileIndex(files, target.file),
-    { lo: first, hi: last } = target;
-  if (index < 0 || first == null || last == null) return false;
-  const reach = slack == null ? 5 : slack;
-  return hunkRanges(files[index].text).some(([start, end]) => end >= first - reach && start <= last + reach);
-}
 // A pin's commit: the one its close_ref names (matchRevision over the whole window - a hash not among the loaded rows
 // reads further pages until found or the window ends, as the server resolves it), else the most recent of the first
 // REVISION_RECENT rows that touched the pin's lines, else the newest.
@@ -5746,7 +6258,8 @@ async function pickRevisionFor(
       if (seq !== REVISION_VIEW.seq || docKey !== DOC) break;
       try {
         const answer = (
-          await api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(row.id), docKey), {
+          await api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(row.id), docKey),
             what: '변경 내용 읽기',
             silent: true,
           })
@@ -5756,99 +6269,6 @@ async function pickRevisionFor(
     }
   }
   return { id: recent[0].id, via: 'latest' };
-}
-// The guide line (#revision-pin) for the pin the view was opened for: which commit it shows and why, what the format
-// shown can say of the pin's lines (message, when given, in their place), and the review access this person lacks.
-function drawPinGuide(message) {
-  const target = REVISION_VIEW.target,
-    box = $('#revision-pin');
-  if (!target) {
-    box.hidden = true;
-    return;
-  }
-  const via =
-    {
-      sha: translateTemplate('참조의 커밋 {tok}', { tok: target.tokOf || '' }),
-      pr: translate('참조의 PR'),
-      lines: translate('이 줄을 바꾼 가장 최근 커밋'),
-      latest: translate('참조로 커밋을 찾지 못해 가장 최근 커밋'),
-    }[target.via] || '';
-  const where = target.region
-    ? translateTemplate('쪽 {page} 영역', { page: target.page })
-    : target.name + ' ' + lineRange(target.lo, target.hi);
-  const pinScope =
-    REVISION_VIEW.format === DIFF_FORMAT.SOURCE && REVISION_VIEW.scope && REVISION_VIEW.scope.mode === SCOPE_MODE.PIN
-      ? REVISION_VIEW.scope
-      : null;
-  const scopeText = pinScope
-    ? translateTemplate('이 핀의 변경 {n}곳만 보입니다', { n: pinScope.hunks }) +
-      ' (' +
-      translate(pinScope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') +
-      ') · '
-    : '';
-  let text = message
-    ? translate(message)
-    : REVISION_VIEW.format === DIFF_FORMAT.RENDERED
-      ? target.mdcMsg || translate('두 판을 그려 견주는 중입니다.')
-      : REVISION_VIEW.format === DIFF_FORMAT.OVERLAY
-        ? translateTemplate('직전 빌드와 지금 빌드의 {page}쪽을 겹쳐 보입니다 — [이전]·[지금]으로 바꿔 보세요', {
-            page: target.page,
-          }) + (REVISION_VIEW.history ? ' · ' + translate('고친 줄은 [소스 diff]') : '')
-        : scopeText +
-          (REVISION_VIEW.format === DIFF_FORMAT.PDF
-            ? translateTemplate(
-                '비교 PDF에는 줄 대응이 없어 원고 {page}쪽 근처로만 옮겼습니다(삭제 문장이 끼어 쪽이 밀릴 수 있음). 정확한 줄은 [소스 diff]',
-                { page: target.page },
-              )
-            : translate(
-                target.hit === false
-                  ? '이 커밋의 diff에서 핀 범위를 찾지 못했습니다 — 가장 가까운 줄을 보입니다'
-                  : target.near
-                    ? '핀 범위 줄 자체는 바뀌지 않았고 바로 곁(±5줄)이 바뀌었습니다 — 가장 가까운 줄을 보입니다'
-                    : '강조한 줄이 핀 범위입니다',
-              ));
-  const pin = findAnyPin(target.id),
-    access = pin && pinState(pin) === PIN_STATE.REVIEW && !canConfirmReview() ? confirmAccessText() : '';
-  setHtml(
-    box,
-    html`<span><b>${translateTemplate('핀 #{id}', { id: target.id })}</b> · ${where}${target.ref ? ' · ' + translateTemplate('참조 {ref}', { ref: target.ref }) : ''}${via ? ' · ' + via : ''}</span><span class="rp-msg">${text}${access ? html` <span class="review-access">${access}</span>` : ''}</span>`,
-  );
-  box.dataset.id = target.id;
-  box.hidden = false;
-  drawPinGuideActions();
-}
-// The guide line's buttons (docs/handbook/viewer.md §변경 보기): [원고로] and, for a pin awaiting review that this
-// person may confirm (a person with write access, not a view-only region pin), the card's [확인] - the same
-// data-act="confirm" and confirmPin(), soft for the author as on the card. On the phone and tablet sheet they sit in
-// the thumb row (#revision-acts) right above the status line and the tool bar; in the other bands at the guide line's
-// right. Redrawn on a band change and whenever the pin lists change.
-function drawPinGuideActions() {
-  const target = REVISION_VIEW.target,
-    row = $('#revision-acts'),
-    narrow = LAYOUT === LAYOUT_MODE.NARROW;
-  $$('.rp-acts').forEach((element) => element.remove());
-  if (!target || $('#revision-pin').hidden) {
-    row.hidden = true;
-    document.body.classList.remove('rev-thumb');
-    return;
-  }
-  const pin = findAnyPin(target.id),
-    confirm = !!pin && pinState(pin) === PIN_STATE.REVIEW && !target.region && canConfirmReview();
-  const backDoc = REVISION_VIEW.back && REVISION_VIEW.back !== DOC ? docInfo(REVISION_VIEW.back) : null,
-    back = backDoc ? backDoc.name : null,
-    actionBox = document.createElement('span');
-  actionBox.className = 'rp-acts';
-  const confirmButton = confirm
-    ? html`<button class="btn-sm b-confirm ${isMe(pin.author) ? 'btn-soft' : 'btn-secondary'}" data-act="confirm" data-tip="${TIP_TEXT.confirm}">확인</button>`
-    : '';
-  setHtml(
-    actionBox,
-    html`<button class="btn-sm" data-act="rev-back" data-tip="${back ? translateTemplate('{name} 원고 보기로 돌아갑니다', { name: back }) : translate('원고 보기로 돌아갑니다')}">${back ? translateTemplate('{name}(으)로', { name: back }) : translate('원고로')}</button>${confirmButton}`,
-  );
-  (narrow ? row : $('#revision-pin')).appendChild(actionBox);
-  row.dataset.id = target.id;
-  row.hidden = !narrow;
-  document.body.classList.toggle('rev-thumb', narrow);
 }
 // A target without lines (a region pin's) marks none and neither hits nor comes near.
 function highlightPinLines(target) {
@@ -5861,14 +6281,14 @@ function highlightPinLines(target) {
   }
   const rows = $$('#revision-diff .rd-line');
   let first = null;
-  rows.forEach((line) => {
-    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) return;
-    const lineNumber = +line.querySelector('.rd-no').textContent;
+  for (const line of rows) {
+    if (!(line.classList.contains('rd-add') || line.classList.contains('rd-context'))) continue;
+    const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
     if (lineNumber >= firstLine && lineNumber <= lastLine) {
       line.classList.add('rd-pin');
       if (!first) first = line;
     }
-  });
+  }
   target.hit = !!first || touchesPin(REVISION_VIEW.files, target, 5);
   // when only a neighbouring line changed, the guide never speaks of "the highlighted line": there is none
   target.near = !first && target.hit;
@@ -5878,15 +6298,15 @@ function highlightPinLines(target) {
     else {
       let best = null,
         bestDistance = Infinity;
-      rows.forEach((line) => {
-        const lineNumber = +line.querySelector('.rd-no').textContent;
-        if (!lineNumber) return;
+      for (const line of rows) {
+        const lineNumber = +findElement(line, '.rd-no', HTMLElement).textContent;
+        if (!lineNumber) continue;
         const distance = Math.min(Math.abs(lineNumber - firstLine), Math.abs(lineNumber - lastLine));
         if (distance < bestDistance) {
           bestDistance = distance;
           best = line;
         }
-      });
+      }
       first = best;
     }
   }
@@ -5894,19 +6314,10 @@ function highlightPinLines(target) {
   const top = first;
   if (top) requestAnimationFrame(() => top.scrollIntoView({ block: 'center' }));
 }
-function findAnyPin(id) {
-  return (
-    OPEN_ALL.find((pin) => pin.id === id) ||
-    REVIEW_ALL.find((pin) => pin.id === id) ||
-    DONE_ALL.find((pin) => pin.id === id) ||
-    null
-  );
-}
 // REVISION_VIEW.back remembers the manuscript document that opened [변경 보기], so [원고로] returns there.
 // [원고로] and Esc in the changes view: back to the manuscript view, and to the document it was opened from.
 function returnToManuscript() {
-  const back = REVISION_VIEW.back;
-  REVISION_VIEW.back = null;
+  const back = takeReturnDocument();
   setViewMode(VIEW_MODE.MANUSCRIPT);
   if (back && back !== DOC && docInfo(back)) switchDoc(back);
 }
@@ -5923,8 +6334,7 @@ async function showChange(id) {
     await opening;
     if (DOC !== docKey || visit !== SWITCHSEQ) return;
   }
-  if (fromManuscript) REVISION_VIEW.back = back;
-  REVISION_VIEW.target = {
+  openRevisionTarget(fromManuscript, back, {
     id: pin.id,
     file: pin.file || pin.pdf || '',
     name:
@@ -5938,9 +6348,7 @@ async function showChange(id) {
     page: pinPlace(pin).page,
     ref: pin.close_ref || '',
     region: isRegion(pin),
-  };
-  const match = /\b[0-9a-f]{7,40}\b/.exec(REVISION_VIEW.target.ref);
-  REVISION_VIEW.target.tokOf = match ? match[0] : '';
+  });
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false);
   if (document.body.classList.contains('revision-open')) loadRevisions();
   else setViewMode(VIEW_MODE.REVISIONS);
@@ -5958,16 +6366,16 @@ async function revisionStart(body, seq, docKey, id) {
   const left = () => {
     if (!revisionCurrent(seq, docKey, id)) return true;
     if (REVISION_VIEW.format === DIFF_FORMAT.PDF) return false;
-    REVISION_VIEW.pdfCommit = '';
+    setRevisionPdfKey('');
     if (box.textContent === waiting) box.textContent = '';
     return true;
   };
   for (let waits = 0; ; waits++) {
     try {
-      return (await api('/api/revision-build', { method: 'POST', body, what: '비교 PDF 만들기', silent: true })).data;
+      return (await api('POST /api/revision-build', { body, what: '비교 PDF 만들기', silent: true })).data;
     } catch (error) {
-      const answer = (error).data;
-      if (!answer || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
+      const answer = isApiError(error) ? error.data : undefined;
+      if (!isRecord(answer) || answer.reason !== 'busy' || waits >= REVISION_BUSY_WAITS) throw error;
       if (left()) return null;
       box.textContent = waiting;
       await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -6007,7 +6415,8 @@ async function loadRevisionPdf(id, seq, docKey) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       if (!revisionCurrent(seq, docKey, id)) return;
       status = (
-        await api(withDocQuery('/api/revision-build?commit=' + encodeURIComponent(id) + query, docKey), {
+        await api('GET /api/revision-build', {
+          query: withDocQuery('?commit=' + encodeURIComponent(id) + query, docKey),
           what: '비교 PDF 상태',
           silent: true,
         })
@@ -6032,8 +6441,10 @@ async function loadRevisionPdf(id, seq, docKey) {
     if (status.head && status.head !== id) throw new Error(translate('요청한 커밋과 비교 PDF의 커밋이 다릅니다.'));
     const warnings = Array.isArray(status.warnings) ? status.warnings : [];
     warningBox.hidden = !warnings.length;
-    warningBox.querySelector('summary').textContent = translateTemplate('빌드 경고 {n}건 보기', { n: warnings.length });
-    warningBox.querySelector('pre').textContent = warnings.join('\n');
+    findElement(warningBox, 'summary', HTMLElement).textContent = translateTemplate('빌드 경고 {n}건 보기', {
+      n: warnings.length,
+    });
+    findElement(warningBox, 'pre', HTMLPreElement).textContent = warnings.join('\n');
     warningBox.open = false;
     statusBox.textContent = '비교 PDF를 읽는 중입니다.';
     const response = await fetch(withDocQuery('/api/revision-pdf?commit=' + encodeURIComponent(id) + query, docKey));
@@ -6041,11 +6452,11 @@ async function loadRevisionPdf(id, seq, docKey) {
       throw new Error(translateTemplate('비교 PDF를 열지 못했습니다 (HTTP {status}).', { status: response.status }));
     const bytes = new Uint8Array(await response.arrayBuffer());
     if (!revisionCurrent(seq, docKey, id)) return;
-    const lib = VECTOR_PDF.lib || (await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION));
+    const lib = VECTOR_PDF.lib || (await importPdfLibrary());
     if (!revisionCurrent(seq, docKey, id)) return;
     lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
     const loading = lib.getDocument({ data: bytes, isEvalSupported: false, useWasm: false, enableXfa: false });
-    COMPARISON_PDF.loading = loading;
+    setComparisonLoading(loading);
     const pdf = await loading.promise;
     if (!revisionCurrent(seq, docKey, id)) {
       try {
@@ -6053,7 +6464,7 @@ async function loadRevisionPdf(id, seq, docKey) {
       } catch (error) {}
       return;
     }
-    COMPARISON_PDF.doc = pdf;
+    setComparisonDocument(pdf);
     const lead =
       pin && status.scope === SCOPE_MODE.PIN
         ? translateTemplate('핀 #{id}의 변경만', { id: pin }) + ' · '
@@ -6073,13 +6484,13 @@ async function loadRevisionPdf(id, seq, docKey) {
   } catch (error) {
     if (revisionCurrent(seq, docKey, id)) {
       clearRevisionPdf();
-      const data = (error && (error).data);
+      const data = isApiError(error) ? error.data : undefined;
       statusBox.textContent = translateTemplate('비교 PDF: {error} 소스 diff에서 변경 내용을 확인할 수 있습니다.', {
         error:
-          data && data.error
+          isRecord(data) && data.error
             ? errText(data)
-            : error && (error).message
-              ? (error).message
+            : error instanceof Error && error.message
+              ? error.message
               : translate('표시하지 못했습니다.'),
       });
     }
@@ -6088,18 +6499,6 @@ async function loadRevisionPdf(id, seq, docKey) {
 
 // ---------------- Switching documents - the navigation sheet, remembered view positions
 // (docs/handbook/domain.md §여러 문서)
-// Draws the navigation sheet's document rows: the name and path are user text (translate="no"), the badges UI. One
-// document leaves the section out - there is nothing to switch to.
-function drawDocsMenu() {
-  $('#ns-docs').hidden = !multiDoc();
-  setHtml(
-    $('#ns-docs-list'),
-    html`${DOCS.map((entry) => {
-      const on = entry.key === DOC;
-      return html`<button class="dm-item${on ? ' on' : ''}" role="option" aria-selected="${on}" data-act="doc" data-doc="${entry.key}" data-close="1"><span class="tx"><span class="nm" translate="no">${entry.name}${on ? lucideIcon('check') : ''}</span><span class="ph" translate="no">${entry.path}</span></span>${docBadge(entry)}</button>`;
-    })}`,
-  );
-}
 // The phone's navigation sheet (docs/handbook/viewer.md §모바일 레이아웃): documents, [원고 | 변경사항], the page field
 // with the page rows under it (drawSheetPages, scrolled to the current page) and the outline, each a destination -
 // picking one goes there and closes the sheet. The focus is the sheet itself (showSheet) and the outline's current
@@ -6129,11 +6528,11 @@ function openNavigationSheet() {
 function revealSheetOutline(sheet) {
   const rows = sheetOutlineRows(),
     current = $('#ns-outline-items').querySelector(':scope>.ol-active');
-  fitNavigationSheet(sheet, current ? rows.indexOf(current) : 0, true);
+  fitNavigationSheet(sheet, current ? rows.findIndex((row) => row === current) : 0, true);
 }
 /** @returns the rows of the sheet's outline (the unread entries' note is not one) */
 function sheetOutlineRows() {
-  return [...$('#ns-outline-items').querySelectorAll(':scope>button')];
+  return findAll($('#ns-outline-items'), ':scope>button', HTMLElement);
 }
 // the open sheet's height as last fitted to the screen: a filter's fewer results keep it, so the top does not move
 let NAVIGATION_SHEET_HEIGHT = 0;
@@ -6152,7 +6551,7 @@ function fitNavigationSheet(sheet, at, centre, refit = false) {
   const list = $('#ns-outline-items'),
     outlineSection = $('#ns-outline');
   const pages = $('#ns-pages'),
-    head = sheet.querySelector('.ns-head'),
+    head = findElement(sheet, '.ns-head', HTMLElement),
     rectOf = (element) => element.getBoundingClientRect();
   list.style.maxHeight =
     list.style.minHeight =
@@ -6197,9 +6596,9 @@ function fitNavigationSheet(sheet, at, centre, refit = false) {
   const span = (range, geometry) =>
     range ? geometry[range[1]].bottom - geometry[range[0]].top : 0;
   const least = (count) =>
-    (centre
+    centre
       ? [Math.max(0, index - Math.floor((count - 1) / 2)), Math.min(last, index + Math.ceil((count - 1) / 2))]
-      : [index, Math.min(last, index + count - 1)]);
+      : [index, Math.min(last, index + count - 1)];
   const pagesOf = (count) => span(rowsAround(pageGeometry, currentPage, count), pageGeometry),
     most = Math.min(5, pageRows.length);
   const plan = show
@@ -6242,8 +6641,7 @@ function fitNavigationSheet(sheet, at, centre, refit = false) {
   const need = sheet.scrollHeight - sheet.clientHeight;
   if (need <= 0) return;
   const top = rectOf(head).bottom,
-    keep = (sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') ||
-      sheet.querySelector('#ns-view')),
+    keep = sheet.querySelector('#ns-docs:not([hidden]) .dm-item.on') || findElement(sheet, '#ns-view', Element),
     keepRect = rectOf(keep);
   const parts = [
     ...sheet.querySelectorAll('#ns-docs,#ns-docs .dm-item,#ns-view,#ns-page,#ns-pages,#ns-outline,#ns-outline>.ns-oh'),
@@ -6362,65 +6760,12 @@ function sheetScrollStep(
 // The navigation sheet's view switch: the view on screen is the checked radio.
 function drawNavigationView() {
   const isRevisions = document.body.classList.contains('revision-open');
-  for (const radio of $$('#ns-view [role=radio]')) {
+  for (const radio of findAll(document, '#ns-view [role=radio]', HTMLElement)) {
     const on = (radio.dataset.mode === VIEW_MODE.REVISIONS) === isRevisions;
     radio.setAttribute('aria-checked', String(on));
     radio.classList.toggle('on', on);
   }
   roveSegment($('#ns-view')); // the group's one Tab stop is the view now chosen (platform/segments.ts)
-}
-// The phone's position button (docs/handbook/viewer.md §모바일 레이아웃): [본문 3/25 ▾] - the document's name only with
-// several documents on a 400px-or-wider phone, the reading line's page of the pages, '–/–' before they are known, and
-// '변경사항' in the changes view - as {name, pages, label}; label is its accessible name. Pure but for
-// translate/translateTemplate.
-function posLabel(doc, page, pageCount, multi, wide, mode) {
-  if (mode === VIEW_MODE.REVISIONS)
-    return { name: '', pages: translate('변경사항'), label: translate('이동') + ' · ' + translate('변경사항') };
-  const name = multi && wide ? doc : '',
-    pageShown = pageCount ? page : '–',
-    countShown = pageCount ? pageCount : '–';
-  return {
-    name,
-    pages: pageShown + '/' + countShown,
-    label: name
-      ? translateTemplate('이동 · {doc} · {page} / {n}쪽', { doc: name, page: pageShown, n: countShown })
-      : translateTemplate('이동 · {page} / {n}쪽', { page: pageShown, n: countShown }),
-  };
-}
-// Draws [본문 3/25 ▾] from the document on screen, the reading line's page and the view (posLabel), with a dot when
-// another document's manuscript is newer or building. The button is translate="no" (a document name), so its UI words
-// are translate()'d here.
-function drawPos() {
-  const button = $('#btn-pos');
-  if (!button) return;
-  const shown = docInfo(DOC),
-    pageCount = META && META.pages ? META.pages.length : 0,
-    isRevisions = document.body.classList.contains('revision-open');
-  const label =
-    isMarkdownDoc() && !isRevisions
-      ? // a Markdown document has lines, not pages
-        markdownSurface().positionLabel(
-          shown ? shown.name : '',
-          markdownSurface().reading().at,
-          markdownSurface().reading().lines.length,
-          multiDoc(),
-          innerWidth >= 400,
-        )
-      : posLabel(
-          shown ? shown.name : '',
-          pageNavigation().outlinePage() || 1,
-          pageCount,
-          multiDoc(),
-          innerWidth >= 400,
-          isRevisions ? VIEW_MODE.REVISIONS : VIEW_MODE.MANUSCRIPT,
-        );
-  const nameSpan = $('#btn-pos-n');
-  nameSpan.textContent = label.name;
-  nameSpan.hidden = !label.name;
-  $('#btn-pos-p').textContent = label.pages;
-  button.setAttribute('aria-label', label.label);
-  button.dataset.tip = translate('문서·보기·쪽·목차로 갑니다');
-  $('#btn-pos-dot').hidden = !DOCS.some((other) => other.key !== DOC && (other.stale_build || other.building));
 }
 // A document's kept view (VIEW_BY, saveView): a Markdown or text document's reading line (line, off), or a PDF's top
 // spot (page, frac), its scale (k, or the page width w), its sideways scroll (sl); with the layout it was kept in.
@@ -6434,7 +6779,7 @@ function saveView() {
     saveViews();
     return;
   } // its reading line
-  if (!$('#doc .pg')) return;
+  if (!findMaybe(document, '#doc .pg', HTMLElement)) return;
   const anchor = topAnchor();
   VIEW_BY.set(DOC, {
     page: anchor ? anchor.page : 1,
@@ -6458,10 +6803,37 @@ function loadViews() {
   try {
     const kept = JSON.parse(sessionStorage.getItem('pinDocView') || '[]');
     if (Array.isArray(kept))
-      kept.forEach((x) => {
-        if (Array.isArray(x) && docInfo(x[0]) && x[1] && typeof x[1] === 'object') VIEW_BY.set(x[0], x[1]);
+      kept.forEach((entry) => {
+        if (!Array.isArray(entry)) return;
+        const doc = entry[0],
+          view = entry[1];
+        if (typeof doc === 'string' && docInfo(doc) && isKeptView(view)) VIEW_BY.set(doc, view);
       });
   } catch (error) {}
+}
+// Whether a stored value is a kept view as saveView writes it - a page view with its page width w (kept before the scale
+// k was) or its scale, or a reading line. A value of another shape is not restored: the document opens where it opens
+// without one. Pure.
+function isKeptView(value) {
+  if (!isRecord(value) || (typeof value.lay !== 'string' && value.lay !== null)) return false;
+  const { line, off, page, frac, k: scale, w: width, zoomed, sl: scrolled } = value;
+  const optionalNumber = (field) => field === undefined || typeof field === 'number';
+  if (page === undefined)
+    return (
+      typeof line === 'number' &&
+      typeof off === 'number' &&
+      [frac, scale, width, zoomed, scrolled].every((field) => field === undefined)
+    );
+  return (
+    typeof page === 'number' &&
+    typeof frac === 'number' &&
+    line === undefined &&
+    off === undefined &&
+    optionalNumber(scale) &&
+    optionalNumber(width) &&
+    optionalNumber(scrolled) &&
+    (zoomed === undefined || typeof zoomed === 'boolean')
+  );
 }
 // A kept view's scale: its k, or - for a view kept with the page width (w) instead - that width over the widest page
 // (points); 0 when it has neither. Pure.
@@ -6498,7 +6870,7 @@ function restoreView(view) {
   if (typeof view.page === 'number') restoreAnchor({ page: view.page, frac: view.frac });
   if (typeof view.sl === 'number') $('#left').scrollLeft = view.sl;
 }
-addEventListener('pagehide', saveView);
+window.addEventListener('pagehide', saveView);
 // Switches documents. Remembers the current view and draft, then opens only the destination document's draft. If a meta
 // cache exists, that document is drawn immediately without waiting, then the latest meta is fetched in the background,
 // and pages are swapped only if the build changed. A document that cannot be opened says so on the status line, with
@@ -6527,7 +6899,8 @@ async function switchDoc(doc) {
     SWITCH_TO = { k: doc, seq, nav: navigation };
     try {
       meta = (
-        await api(withDocQuery('/api/meta', doc), {
+        await api('GET /api/meta', {
+          query: withDocQuery('', doc),
           what: '문서 열기',
           where: NOTICE_HOST.LINE,
           retry: () => {
@@ -6559,9 +6932,11 @@ async function switchDoc(doc) {
   if (inPages && (!document.activeElement || document.activeElement === document.body)) searchToPage();
   if (cached) {
     try {
-      const fresh = (await api(withDocQuery('/api/meta', doc), { what: '문서 열기', silent: true })).data;
+      const fresh = (await api('GET /api/meta', { query: withDocQuery('', doc), what: '문서 열기', silent: true }))
+        .data;
       if (seq === SWITCHSEQ && DOC === doc) {
-        const changed = fresh.pages_build !== META.pages_build || fresh.pages.length !== META.pages.length;
+        const shown = knownMeta(),
+          changed = fresh.pages_build !== shown.pages_build || fresh.pages.length !== shown.pages.length;
         META_BY.set(doc, fresh);
         if (changed) await refreshDoc(fresh);
         else {
@@ -6663,7 +7038,8 @@ function updateStaleBadge(meta) {
   let stale;
   if (typeof meta.stale_build === 'boolean') stale = meta.stale_build;
   else {
-    const ref = typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META && META.built_at);
+    const ref =
+      typeof meta.build_src_mtime === 'number' ? meta.build_src_mtime : builtAtEpoch(META ? META.built_at : '');
     stale = ref != null && typeof meta.src_mtime === 'number' && meta.src_mtime > ref + 2;
   }
   if (!stale) {
@@ -6740,10 +7116,11 @@ function confirmAccessText() {
 // signed in, the stale and sync badges and the pins.md help text; the rebuild button is hidden unless the document
 // builds from source. Reads META only and sends nothing.
 function drawMeta() {
+  const meta = knownMeta();
   // only a LaTeX document builds from source; a view-only PDF and a figure redraw when their files change
-  document.body.classList.toggle('no-rebuild', !buildsFromSource(META.kind));
+  document.body.classList.toggle('no-rebuild', !buildsFromSource(meta.kind));
   // a figure document's marks are a frame with no tint (components.css)
-  document.body.classList.toggle('fig-doc', isFigureKind(META.kind));
+  document.body.classList.toggle('fig-doc', isFigureKind(meta.kind));
   document.body.classList.toggle('md-surface', isMarkdownDoc());
   markdownSurface().showHint(); // a Markdown document: no pages, so the page-only controls hide (md-surface.css)
   // the document area's name says what it holds
@@ -6752,17 +7129,17 @@ function drawMeta() {
     translate(isMarkdownDoc() ? (isTextDoc() ? '텍스트 문서' : 'Markdown 문서') : 'PDF 쪽'),
   );
   document.body.classList.toggle('role-viewer', isViewer());
-  $('#m-download').disabled = !META.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
+  $('#m-download').disabled = !meta.pages_build || isMarkdownDoc(); // no build on screen, no PDF to save
   // A Markdown document has no PDF: its file is the tab's source, 'Markdown' its form, and no build time (nor its ' ·
   // ').
-  $('#meta-main').textContent = META.main;
+  $('#meta-main').textContent = meta.main;
   $('#meta-main').dataset.tip = translate(isMarkdownDoc() ? '이 탭의 원문 파일' : 'PDF를 만든 최상위 원고 파일');
   const isText = isMarkdownDoc() && isTextDoc(); // a text document's form is 텍스트 (text/view.ts)
   $('#meta-pages').textContent = isText
     ? translate('텍스트')
     : isMarkdownDoc()
       ? 'Markdown'
-      : translateTemplate('{n}쪽', { n: META.pages.length });
+      : translateTemplate('{n}쪽', { n: meta.pages.length });
   $('#meta-pages').dataset.tip = translate(
     isText
       ? '브라우저가 원문 줄을 그대로 보이는 문서 형식'
@@ -6770,17 +7147,17 @@ function drawMeta() {
         ? '브라우저가 원문에서 그리는 문서 형식'
         : '지금 화면에 있는 PDF의 쪽 수',
   );
-  const head = commitShown(META.head);
+  const head = commitShown(meta.head);
   $('#meta-head').textContent = head;
   $('#meta-head-w').hidden = !head;
   const built = isMarkdownDoc()
     ? ''
-    : String(META.built_at || '')
+    : String(meta.built_at || '')
         .slice(0, 16)
         .replace('T', ' ');
   $('#meta-built').textContent = built;
   $('#meta-built-w').hidden = !built; // a Markdown document is never built
-  const me = META.me || ({});
+  const me = meta.me;
   setHtml($('#me'), html`${avatar(me)}<span class="au-n" translate="no">${who(me)}</span>`);
   $('#me').dataset.tip = translateTemplate(
     '지금 이 화면을 쓰는 사람: {name}. 핀을 저장·수정·완료하면 이 이름으로 기록됩니다',
@@ -6789,10 +7166,10 @@ function drawMeta() {
         (isAgent(me) ? who(me) : me.name || '') + (me.login && me.login !== LOCAL_LOGIN ? ' (' + me.login + ')' : ''),
     },
   );
-  updateStaleBadge(META);
-  updateSyncBadge(META.sync);
-  $('#help-pins-md').textContent = META.pins_md || '';
-  setHtml($('#more-info'), moreInfo(META, me));
+  updateStaleBadge(meta);
+  updateSyncBadge(meta.sync);
+  $('#help-pins-md').textContent = meta.pins_md || '';
+  setHtml($('#more-info'), moreInfo(meta, me));
 }
 // [더보기]'s meta (compact, where #bar2's line is hidden) as two lines: the file · pages · commit, then the build time
 // · me. Each piece keeps its words together and the lines break only between pieces; a piece longer than the line (a
@@ -6818,10 +7195,62 @@ function commitShown(head) {
   return text === '-' || text === '?' ? '' : text;
 }
 
+// ---------------- Limn itself was updated
+// The page's version (the [더보기] foot's 'v0.4.51', filled in when the server made the page) and the server's (GET
+// /api/version, asked by documents/flow-polling.ts after a lost connection comes back, on return and every
+// VERSION_EVERY_MS): when they differ, this tab runs the old viewer against a new server, and the status line says so
+// with [새로 고침] until it reloads. A call while one is out (busy) is left to it, and asked again once it is answered
+// (again): the one out may fail, or have been answered by the process a restart has just replaced - the return after a
+// lost connection must not go unasked.
+const VERSION = { page: '', server: '', at: 0, busy: false, again: false };
+const VERSION_EVERY_MS = 60000;
+function versionDue() {
+  return Date.now() - VERSION.at >= VERSION_EVERY_MS;
+}
+function versionOutdated() {
+  if (!VERSION.page) {
+    const versionElement = document.querySelector('#more-foot .m-ver');
+    VERSION.page = versionElement
+      ? String(versionElement.textContent || '')
+          .trim()
+          .replace(/^v/, '')
+      : '';
+  }
+  return VERSION.server && VERSION.page && VERSION.server !== VERSION.page ? VERSION.server : '';
+}
+
+async function checkVersion(drawStatus) {
+  if (VERSION.busy) {
+    VERSION.again = true;
+    return;
+  }
+  VERSION.busy = true;
+  VERSION.again = false;
+  VERSION.at = Date.now();
+  try {
+    const answer = (await api('GET /api/version', { what: '버전 확인', silent: true })).data,
+      version = String((answer && answer.version) || '');
+    if (version && version !== VERSION.server) {
+      const was = versionOutdated();
+      VERSION.server = version;
+      if (versionOutdated() !== was) drawStatus();
+    }
+  } catch (error) {
+  } finally {
+    VERSION.busy = false;
+  }
+  if (VERSION.again) checkVersion(drawStatus);
+}
+// Consecutive light-poll failures used by the status line and the offline pin queue.
+let POLL_FAILS = 0;
+function setPollFails(value) {
+  POLL_FAILS = value;
+  return value;
+}
+
 // ------------------ Auto sync - lightweight meta polling (docs/handbook/build-sync.md §자동 동기화 (가벼운 meta 폴링))
 let LAST_PINS_REVISION = null,
   LAST_SRC_MTIME = null,
-  POLL_FAILS = 0,
   LIGHT_TIMER = undefined,
   LIGHT_INFLIGHT = null;
 // Single-flight, the same pattern as pollBuild: when visibilitychange, focus and the 5-second timer call this together
@@ -6855,7 +7284,8 @@ async function pollHiddenNotifyOnce() {
   let meta;
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '알림 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -6880,7 +7310,7 @@ function syncHiddenNotifyTimer() {
 // document visits. Back after AWAY_MS without an answer (the tab hidden, the device asleep, the connection lost), what
 // this poll and the build it may set going say is gathered into one message (platform/notices.ts digestBegin,
 // docs/handbook/viewer.md §새 소식); a poll back from that, or one every VERSION_EVERY_MS, asks which Limn the server
-// runs (documents/flow-updates.ts checkVersion).
+// runs (documents/flow-connection.ts checkVersion).
 let LIGHT_OK_AT = 0;
 const AWAY_MS = 120000;
 async function pollLightOnce() {
@@ -6895,7 +7325,8 @@ async function pollLightOnce() {
   // poll is out at a time, and a poll left waiting would count no failure for as long as the system let it wait.
   try {
     meta = (
-      await api(withDocQuery('/api/meta?light=1') + pinNotifications().query(), {
+      await api('GET /api/meta', {
+        query: withDocQuery('?light=1') + pinNotifications().query(),
         what: '상태 확인',
         silent: true,
         wait: API_WAIT.POLL,
@@ -6904,7 +7335,7 @@ async function pollLightOnce() {
   } catch (error) {
     if (back) digestSoon();
     if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-    POLL_FAILS++;
+    setPollFails(POLL_FAILS + 1);
     // read out once, as it is lost (rule 1)
     if (POLL_FAILS === 2) announce(translate('연결 끊김 · 다시 잇는 중'), true);
     if (POLL_FAILS >= 2) $('#conn-lost').hidden = false;
@@ -6917,9 +7348,9 @@ async function pollLightOnce() {
     if (back) digestSoon(DIGEST_TAIL_MS);
     return;
   } // a return to the same document is a new visit too
-  POLL_FAILS = 0;
+  setPollFails(0);
   $('#conn-lost').hidden = true;
-  if (back || was > 0 || versionDue()) checkVersion();
+  if (back || was > 0 || versionDue()) checkVersion(drawStatus);
   // the connection is back: the pins kept while it was gone are written (offline/flow.ts)
   if (was > 0 && offlineQueue().queued()) void offlineQueue().flush();
   updateStaleBadge(meta);
@@ -7070,19 +7501,64 @@ function markMine(id) {
 
 // --------------------------------------- Pins changed elsewhere: what the status line says between two list refreshes
 // A pin the review changes message names: its number and who confirmed or reopened it.
-// A list comparison's group without the pins whose events a message of a higher rank says (groupNote's less): the pins
-// named '<type>:<id>' leave group[field] - numbers or pins - and each of `also` beside them, or null when none is left.
-// Pure.
-function newsWithout(type, field, ...also) {
-  return (group, keys) => {
-    const keep = group[field].map((x) => !keys.includes(type + ':' + (typeof x === 'number' ? x : x.id)));
-    if (!keep.some(Boolean)) return null;
-    const out = { ...group };
-    [field, ...also].forEach((key) => {
-      out[key] = group[key].filter((_, index) => keep[index]);
-    });
-    return out;
-  };
+// What a list comparison's group held before this event (groupNote's merge is given it as unknown): its pins by
+// number, its moved lines, its settled pins - each, as these groups write it, or none. Pure.
+function pinNumbersOf(older) {
+  return isRecord(older) && Array.isArray(older.ids)
+    ? older.ids.filter((id) => typeof id === 'number')
+    : [];
+}
+function linesMovedOf(older) {
+  return isRecord(older) && Array.isArray(older.moves)
+    ? older.moves.filter(
+        (move) =>
+          isRecord(move) && typeof move.id === 'number' && typeof move.delta === 'string',
+      )
+    : [];
+}
+function droppedOf(older) {
+  if (!isRecord(older)) return { ids: [], names: [] };
+  const { ids, names } = older;
+  return Array.isArray(ids) &&
+    Array.isArray(names) &&
+    ids.every((id) => typeof id === 'number') &&
+    names.every((name) => typeof name === 'string')
+    ? { ids, names }
+    : { ids: [], names: [] };
+}
+function settledPinsOf(older) {
+  return isRecord(older) && Array.isArray(older.pins)
+    ? older.pins.filter(
+        (pin) => isRecord(pin) && typeof pin.id === 'number' && typeof pin.by === 'string',
+      )
+    : [];
+}
+// Which items of a list comparison's group stay when a message of a higher rank says their events (groupNote's less):
+// an item - a pin number or a pin - leaves when keys name '<type>:<its id>'. true for each item kept, in order; null
+// when none is left. Pure.
+function keptNews(type, items, keys) {
+  const keep = items.map((item) => !keys.includes(type + ':' + (typeof item === 'number' ? item : item.id)));
+  return keep.some(Boolean) ? keep : null;
+}
+// The list comparison's groups without the pins whose events keys name (groupNote's less): the review requests, the
+// dropped pins with their names beside their ids, the reopened pins; null when none is left. Pure.
+function reviewNewsWithout(group, keys) {
+  const keep = keptNews(EVENT_TYPE.REVIEW_REQUESTED, group.ids, keys);
+  return keep && { ...group, ids: group.ids.filter((_, index) => keep[index]) };
+}
+function droppedNewsWithout(group, keys) {
+  const keep = keptNews(EVENT_TYPE.DROPPED, group.ids, keys);
+  return (
+    keep && {
+      ...group,
+      ids: group.ids.filter((_, index) => keep[index]),
+      names: group.names.filter((_, index) => keep[index]),
+    }
+  );
+}
+function reopenedNewsWithout(group, keys) {
+  const keep = keptNews(EVENT_TYPE.REOPENED, group.pins, keys);
+  return keep && { ...group, pins: group.pins.filter((_, index) => keep[index]) };
 }
 function consumeMine(id) {
   const until = MY_ACTIONS.get(id);
@@ -7095,7 +7571,13 @@ function consumeMine(id) {
 // figure element was lost or whose lines moved. What needs a look stays until [x] or its action and dots [핀 N];
 // passing news (closed elsewhere, lines moved) goes after NOTICE_MS. An action this tab performed is swallowed
 // (markMine).
-function notePinChanges(previous, listed, dropped) {
+function notePinChanges(
+  previous,
+  listed,
+  dropped,
+  gotoReview,
+  restorePin,
+) {
   // previous is only the "open pins" this tab saw last time (PINS never holds done ones); listed is every open+closed
   // pin (all=1) from this GET. An id of previous that is in listed with done=true was completed; one not in listed at
   // all (neither open nor closed) was dropped. The two are told apart, so a pin a co-author deleted is never announced
@@ -7127,7 +7609,10 @@ function notePinChanges(previous, listed, dropped) {
     numbers.length <= 3
       ? translateTemplate(one, { ids: numbers.join(', #'), n: numbers.length })
       : translateTemplate(many, { n: numbers.length }) + ' — ' + ids(numbers);
-  const merge = (older, newer) => ({ ...newer, ids: [...new Set([...older.ids, ...newer.ids])] });
+  const merge = (older, newer) => ({
+    ...newer,
+    ids: [...new Set([...pinNumbersOf(older), ...newer.ids])],
+  });
   if (closed.length)
     groupNote(
       'done',
@@ -7169,7 +7654,7 @@ function notePinChanges(previous, listed, dropped) {
         },
       }),
       merge,
-      newsWithout(EVENT_TYPE.REVIEW_REQUESTED, 'ids'),
+      reviewNewsWithout,
     );
   // One dropped pin offers [되살리기]; several, the Trash they are in.
   if (droppedIds.length)
@@ -7215,15 +7700,14 @@ function notePinChanges(previous, listed, dropped) {
       }, // translateTemplate() spoke the UI language; the name is as written
       (older, newer) => {
         // names stay beside their ids
-        const add = newer.ids
-          .map((id, index) => index)
-          .filter((index) => !older.ids.includes(newer.ids[index]));
+        const was = droppedOf(older),
+          add = newer.ids.map((id, index) => index).filter((index) => !was.ids.includes(newer.ids[index]));
         return {
-          ids: [...older.ids, ...add.map((index) => newer.ids[index])],
-          names: [...older.names, ...add.map((index) => newer.names[index])],
+          ids: [...was.ids, ...add.map((index) => newer.ids[index])],
+          names: [...was.names, ...add.map((index) => newer.names[index])],
         };
       },
-      newsWithout(EVENT_TYPE.DROPPED, 'ids', 'names'),
+      droppedNewsWithout,
     );
   const lost = [],
     gone = [],
@@ -7298,7 +7782,7 @@ function notePinChanges(previous, listed, dropped) {
         };
       },
       (older, newer) => ({
-        moves: [...older.moves.filter((x) => !newer.moves.some((y) => y.id === x.id)), ...newer.moves],
+        moves: [...linesMovedOf(older).filter((x) => !newer.moves.some((y) => y.id === x.id)), ...newer.moves],
       }),
     );
 }
@@ -7331,9 +7815,10 @@ function noteReviewChanges(previous, listed) {
           .map((x) => '#' + x.id)
           .join(', ') +
         (entries.length > 3 ? ' ' + translateTemplate('외 {n}개', { n: entries.length - 3 }) : '');
-  const merge = (older, newer) => ({
-    pins: [...older.pins, ...newer.pins.filter((x) => !older.pins.some((y) => y.id === x.id))],
-  });
+  const merge = (older, newer) => {
+    const was = settledPinsOf(older);
+    return { pins: [...was, ...newer.pins.filter((x) => !was.some((y) => y.id === x.id))] };
+  };
   if (ok.length)
     groupNote(
       'confirmed',
@@ -7367,7 +7852,7 @@ function noteReviewChanges(previous, listed) {
         },
       }),
       merge,
-      newsWithout(EVENT_TYPE.REOPENED, 'pins'),
+      reopenedNewsWithout,
     );
 }
 
@@ -7382,8 +7867,6 @@ function noteReviewChanges(previous, listed) {
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
-// An event of the light poll that is addressed to me (limn/collaboration/events.py events_since): its type is one of the
-// notified ones, doc_name is its document's name, and to holds the logins it is for.
 // What notifyHandle reads of a light poll's answer: the latest event number, and with a cursor the events after it.
 const NOTIFY_RANK = { dropped: 6, assigned: 5, mention: 4, reopened: 3, review_requested: 2, replied: 1 };
 let WORKER_REGISTRATION = null;
@@ -7494,11 +7977,9 @@ async function notifyShow(event) {
       body: shown.body,
       tag: 'pin-' + event.pin,
       icon: (
-        (document.querySelector('link[rel=apple-touch-icon]') ||
-          document.querySelector('link[rel=icon]') || {
-            href: undefined,
-          })
-      ).href,
+        findMaybe(document, 'link[rel=apple-touch-icon]', HTMLLinkElement) ||
+        findMaybe(document, 'link[rel=icon]', HTMLLinkElement)
+      )?.href,
       // [되살리기] on "X deleted your pin" (the service worker hands it to this tab)
       actions:
         event.type === EVENT_TYPE.DROPPED && !isViewer() ? [{ action: 'restore', title: translate('되살리기') }] : [],
@@ -7516,8 +7997,32 @@ async function notifyShow(event) {
 // review requests (the review section), the Trash for deleted ones, else [열기] on the newest.
 function notifyLine(event) {
   groupNote('ev:' + event.type, { evs: [event] }, notifyLineView, (older, newer) => ({
-    evs: [...older.evs.filter((x) => x.pin !== newer.evs[0].pin), ...newer.evs],
+    evs: [...saidEventsOf(older).filter((x) => x.pin !== newer.evs[0].pin), ...newer.evs],
   }));
+}
+// What an event's message says of it (notifyText, notifyLineView): its type, pin, document and its name, who and the
+// excerpt.
+// The events an event message's group held before this one (groupNote's merge is given it as unknown): its events, as
+// notifyLine writes them, or none. Pure.
+function saidEventsOf(older) {
+  return isRecord(older) && Array.isArray(older.evs) ? older.evs.filter(isSaidEvent) : [];
+}
+// Whether a value holds what a message says of an event (SaidEvent), with the types every released server writes
+// (make_event, events_since). Pure.
+function isSaidEvent(value) {
+  if (!isRecord(value)) return false;
+  const { by } = value;
+  return (
+    Object.values(EVENT_TYPE).some((type) => type === value.type) &&
+    typeof value.pin === 'number' &&
+    typeof value.doc === 'string' &&
+    typeof value.doc_name === 'string' &&
+    isRecord(by) &&
+    typeof by.login === 'string' &&
+    ['undefined', 'string'].includes(typeof by.name) &&
+    ['undefined', 'string'].includes(typeof by.pic) &&
+    ['undefined', 'string'].includes(typeof value.excerpt)
+  );
 }
 function notifyLineView(group) {
   const events = group.evs,
@@ -7536,16 +8041,14 @@ function notifyLineView(group) {
       ? { label: '보기', tip: '검토 대기 핀으로 갑니다', fn: gotoReview }
       : { label: '열기', tip: '그 핀으로 갑니다', fn: () => openPinFromLink(latest.doc, latest.pin) };
   const many =
-    (
-      {
-        mention: '나를 부른 핀 {n}개',
-        review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
-        replied: '답글이 달린 핀 {n}개',
-        reopened: '핀 {n}개 다시 열림',
-        assigned: '나에게 맡긴 핀 {n}개',
-        dropped: '핀 {n}개가 삭제됨',
-      }
-    )[latest.type] || '소식 {n}개';
+    {
+      mention: '나를 부른 핀 {n}개',
+      review_requested: '핀 {n}개가 검토 대기로 넘어왔습니다',
+      replied: '답글이 달린 핀 {n}개',
+      reopened: '핀 {n}개 다시 열림',
+      assigned: '나에게 맡긴 핀 {n}개',
+      dropped: '핀 {n}개가 삭제됨',
+    }[latest.type] || '소식 {n}개';
   const ids =
       events
         .slice(0, 3)
@@ -7678,7 +8181,7 @@ async function notifyToggle() {
   await notifyRegister();
   savePrefs({ notify: true });
   try {
-    const meta = (await api(withDocQuery('/api/meta?light=1'), { silent: true })).data;
+    const meta = (await api('GET /api/meta', { query: withDocQuery('?light=1'), silent: true })).data;
     if (notifyCursor() == null) setNotifyCursor(meta.ev_seq);
   } catch (error) {}
   drawNotify();
@@ -7695,15 +8198,23 @@ function notifyWhy(text) {
 // Clicking a notification (service worker -> postMessage, or a new tab's #doc=<key>&pin=<number>) switches to that
 // document and opens that pin.
 function hashPin() {
-  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(location.hash || '');
+  const match = /(?:^#|[#&])pin=(\d{1,9})(?:&|$)/.exec(window.location.hash || '');
   return match ? +match[1] : null;
 }
 // Reads a one-shot pin link (#doc=<key>&pin=<n>[&act=restore]) and removes pin=/act= from the address right away, so a
 // reload never repeats it (a reload of an &act=restore link would restore again a pin someone has since deleted).
 function takeLinkHash() {
-  const link = { pin: hashPin(), doc: hashDoc(), restore: /(?:^#|[#&])act=restore(?:&|$)/.test(location.hash || '') };
+  const link = {
+    pin: hashPin(),
+    doc: hashDoc(),
+    restore: /(?:^#|[#&])act=restore(?:&|$)/.test(window.location.hash || ''),
+  };
   if (link.pin)
-    history.replaceState(history.state, '', location.pathname + location.search + (link.doc ? '#doc=' + link.doc : ''));
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.search + (link.doc ? '#doc=' + link.doc : ''),
+    );
   return link;
 }
 // restore = the [되살리기] action of a 'dropped' notification: bring the pin back from the Trash first (never for a
@@ -7732,7 +8243,7 @@ async function openPinFromLink(doc, pin, restore) {
     return;
   }
   if (pinState(found) === PIN_STATE.DONE) {
-    SECTION_OPEN.done = true;
+    setSectionOpen('done', true);
   }
   OPEN_CARDS.add(pin);
   setSide(true);
@@ -7743,10 +8254,14 @@ async function openPinFromLink(doc, pin, restore) {
   });
 }
 if ('serviceWorker' in navigator)
+  // A notification pressed while a tab is open (sw.js notificationclick: {type, pin, doc}); the worker's other messages
+  // are the offline store's (offline/flow.ts).
   navigator.serviceWorker.addEventListener('message', (event) => {
-    const message = event.data || {};
-    if (message.type === 'open-pin') openPinFromLink(message.doc, +message.pin);
-    else if (message.type === 'restore-pin' && !isViewer()) restorePin(+message.pin);
+    const message = event.data;
+    if (!isRecord(message)) return;
+    const doc = typeof message.doc === 'string' ? message.doc : null;
+    if (message.type === 'open-pin') openPinFromLink(doc, Number(message.pin));
+    else if (message.type === 'restore-pin' && !isViewer()) restorePin(Number(message.pin));
   });
 window.addEventListener('hashchange', () => {
   const link = takeLinkHash();
@@ -7759,49 +8274,21 @@ function setWorkerRegistration(value) {
   return value;
 }
 
-// ---------------------------------------------- Async build-progress chip (docs/handbook/build-sync.md §비동기 재빌드)
-// BUILD.timer only exists while a build is actually running - /api/build is never hit every second once there's nothing
-// to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
-// pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot. A
-// finished build is counted via build_seq (the server bumps it by 1 per build). BUILD.lastSeq is the value this tab has
-// already processed - processing (swapping the screen, saying so) happens exactly once per seq. Neither the started_at
-// string nor "was running ever seen" can count: they miss a build that finishes within a 5-second gap, and process one
-// completion twice when a hidden tab comes back through two paths at once. The active document visit owns one poll
-// timer, request and completion baseline; the error panel follows that visit. BUILD.cur is the running build's last
-// /api/build answer (null when none runs): the status line reads its phase and seconds. BUILD.unchanged is {pull} while
-// the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
-const BUILD = {
-  timer: null,
+const SHOWN_BUILD = {
   error: null,
-  lastSeq: null,
-  booted: false,
-  inflight: null,
-  asked: false,
   cur: null,
   unchanged: null,
 };
-// Reset the visible build controls and baseline when a different document takes the screen.
-function resetBuildForDoc() {
-  if (BUILD.timer) {
-    clearInterval(BUILD.timer);
-    BUILD.timer = null;
-  }
-  BUILD.cur = null;
-  BUILD.unchanged = null;
-  $('#build-chip').hidden = true;
-  $('#btn-rebuild').disabled = false;
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
-  BUILD.asked = false;
-  BUILD.error = BUILD_ERR_BY.get(DOC) || null;
-  if (BUILD.error) hideBuildErr();
-  else {
-    $('#build-err').hidden = true;
-    $('#build-err-chip').hidden = true;
-  }
-  BUILD.booted = true;
-  if (BUILD.inflight) BUILD.inflight.then(() => pollBuild());
-  else pollBuild();
+function setBuildError(value) {
+  SHOWN_BUILD.error = value;
 }
+function setCurrentBuild(value) {
+  SHOWN_BUILD.cur = value;
+}
+function setBuildUnchanged(value) {
+  SHOWN_BUILD.unchanged = value;
+}
+
 function buildChipText(build) {
   const label =
     tableEntry(
@@ -7834,6 +8321,51 @@ function pullSuffix(build) {
     );
   return '';
 }
+
+// ---------------------------------------------- Async build-progress chip (docs/handbook/build-sync.md §비동기 재빌드)
+// BUILD.timer only exists while a build is actually running - /api/build is never hit every second once there's nothing
+// to do (already settled into idle/ok/fail). There are only three places it starts: this tab pressing rebuild(),
+// pollLight (the 5-second poll) seeing build.state==='running', and catching an already-running build at boot. A
+// finished build is counted via build_seq (the server bumps it by 1 per build). BUILD.lastSeq is the value this tab has
+// already processed - processing (swapping the screen, saying so) happens exactly once per seq. Neither the started_at
+// string nor "was running ever seen" can count: they miss a build that finishes within a 5-second gap, and process one
+// completion twice when a hidden tab comes back through two paths at once. The active document visit owns one poll
+// timer, request and completion baseline; the error panel follows that visit. SHOWN_BUILD.cur is the running build's last
+// /api/build answer (null when none runs): the status line reads its phase and seconds. SHOWN_BUILD.unchanged is {pull} while
+// the status line answers an unchanged rebuild of this tab (buildUnchanged), else null.
+const BUILD = {
+  timer: null,
+  lastSeq: null,
+  booted: false,
+  inflight: null,
+  asked: false,
+};
+function setBuildLastSeq(value) {
+  BUILD.lastSeq = value;
+}
+// Reset the visible build controls and baseline when a different document takes the screen.
+function resetBuildForDoc() {
+  if (BUILD.timer) {
+    clearInterval(BUILD.timer);
+    BUILD.timer = null;
+  }
+  setCurrentBuild(null);
+  setBuildUnchanged(null);
+  $('#build-chip').hidden = true;
+  $('#btn-rebuild').disabled = false;
+  const meta = knownMeta();
+  BUILD.lastSeq = typeof meta.build_seq === 'number' ? meta.build_seq : 0;
+  BUILD.asked = false;
+  setBuildError(BUILD_ERR_BY.get(DOC) || null);
+  if (SHOWN_BUILD.error) hideBuildErr();
+  else {
+    $('#build-err').hidden = true;
+    $('#build-err-chip').hidden = true;
+  }
+  BUILD.booted = true;
+  if (BUILD.inflight) BUILD.inflight.then(() => pollBuild());
+  else pollBuild();
+}
 // Single-flight: if a request is already in flight, that same promise is returned instead of sending a new one (even if
 // the 1-second timer, visibilitychange, focus, and pollLight all call it together, /api/build only goes out once and
 // completion is only processed once).
@@ -7856,7 +8388,7 @@ async function pollBuildOnce() {
   const visitDoc = DOC,
     visit = SWITCHSEQ;
   try {
-    build = (await api(withDocQuery('/api/build?log=1'), { what: '빌드 상태', silent: true })).data;
+    build = (await api('GET /api/build', { query: withDocQuery('?log=1'), what: '빌드 상태', silent: true })).data;
   } catch (error) {
     return;
   }
@@ -7864,8 +8396,8 @@ async function pollBuildOnce() {
   if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
   const chip = $('#build-chip');
   if (build.state === BUILD_STATE.RUNNING) {
-    BUILD.cur = build;
-    BUILD.unchanged = null;
+    setCurrentBuild(build);
+    setBuildUnchanged(null);
     chip.hidden = false;
     chip.textContent = buildChipText(build);
     $('#btn-rebuild').disabled = true;
@@ -7873,7 +8405,7 @@ async function pollBuildOnce() {
     BUILD.booted = true;
     return;
   }
-  BUILD.cur = null;
+  setCurrentBuild(null);
   chip.hidden = true;
   $('#btn-rebuild').disabled = false;
   if (BUILD.timer) {
@@ -7901,11 +8433,14 @@ async function pollBuildOnce() {
     if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
     const seconds = Math.round(build.elapsed_s || 0);
     if (build.state === BUILD_STATE.OK) {
+      // This tab's rebuild asked for before the first meta came, whose refresh failed too, has no document to word its
+      // end by: it ends here and says nothing, as the build's next poll finds it already seen.
+      if (mine && !META) return;
       if (mine)
         lineNote(
-          translate(!buildsFromSource(META.kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
+          translate(!buildsFromSource(knownMeta().kind) ? 'PDF가 바뀌어 쪽을 새로 그렸습니다' : 'PDF 재빌드 완료') +
             ' · ' +
-            translateTemplate('{n}쪽', { n: META.pages.length }) +
+            translateTemplate('{n}쪽', { n: knownMeta().pages.length }) +
             ' · ' +
             translateTemplate('{s}초', { s: seconds }) +
             pullSuffix(build),
@@ -7913,7 +8448,7 @@ async function pollBuildOnce() {
           null,
           { life: NOTICE_LIFE.TIMER },
         );
-      BUILD.error = null;
+      setBuildError(null);
       BUILD_ERR_BY.delete(visitDoc);
       hideBuildErr();
       // its panel opens and it is read out; the line and the chips keep the failure
@@ -7932,6 +8467,45 @@ function startBuildPolling() {
   window.addEventListener('focus', () => pollBuild());
   // once at boot - if a build is already running (started by another session), this turns on the 1-second poll
   pollBuild();
+}
+
+// docs/handbook/build-sync.md §비동기 재빌드: rebuild is async - the POST returns immediately, and the #build-chip
+// poller (startBuildPolling) shows progress, then does the in-place swap and says so once it finishes. A build started
+// by someone else is caught by the same poller. Its completion may update controls or start polling only while the
+// initiating document visit remains active. BUILD.asked marks that this tab asked, so an unchanged rebuild (no new seq)
+// still gets its answer; it is set only after any older in-flight poll settled, since that one may carry the previous
+// rebuild's unchanged mark. force (only the status line's [그래도 빌드] of an unchanged rebuild passes it) asks for
+// ?force=1: a cold build that never ends unchanged. A rebuild already running elsewhere (409) is a warning on the
+// status line; a failed request an error there, with [다시 시도].
+async function rebuild(force) {
+  const visitDoc = DOC,
+    visit = SWITCHSEQ;
+  try {
+    const { status } = await api('POST /api/rebuild', {
+      query: withDocQuery('?async=1' + (force === true ? '&force=1' : '')),
+      what: 'PDF 재빌드',
+      where: NOTICE_HOST.LINE,
+      retry: () => rebuild(force),
+      expect: [409],
+    });
+    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
+    if (status === 409) {
+      lineNote('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요', NOTICE_KIND.WARN);
+      return;
+    }
+    $('#build-err').hidden = true;
+    // If a request already went out before this POST, its completion is awaited before asking again - that request
+    // carries a stale state (ok) and would never turn on 1-second polling. Completion is distinguished by build_seq, so
+    // this tab has nothing separate to remember.
+    if (BUILD.inflight) {
+      try {
+        await BUILD.inflight;
+      } catch (error) {}
+    }
+    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
+    BUILD.asked = true;
+    await pollBuild();
+  } catch (error) {}
 }
 
 // ------------------------------------------------ What came while you were viewing (docs/handbook/viewer.md §새 소식)
@@ -7967,6 +8541,8 @@ const LINE_DIFF_MAX = 500; // edit steps the line comparison tries before callin
 // own. A browser whose storage refuses (a SecurityError, a full quota) keeps it in memory for this visit (SEEN_MEM)
 // from the first refusal.
 let SEEN_MEM = null;
+// The record as stored, each field as it was written: its readers check the field they read (seenDoc, seenPin), and one
+// whose field is not as it is written takes that field as never seen. Not an object: nothing seen.
 function seenStore() {
   let raw = SEEN_MEM;
   if (raw === null)
@@ -7977,7 +8553,7 @@ function seenStore() {
     }
   try {
     const parsed = JSON.parse(raw || '{}');
-    return parsed && typeof parsed === 'object' ? parsed : {};
+    return isRecord(parsed) ? parsed : {};
   } catch (error) {
     return {};
   }
@@ -7996,17 +8572,19 @@ function seenSave(all) {
   }
 }
 function seenDoc(doc) {
-  const record = (seenStore().docs || {})[doc];
-  return record && typeof record.ver === 'string' ? { ver: record.ver, rev: String(record.rev || '') } : null;
+  const docs = seenStore().docs,
+    record = isRecord(docs) ? docs[doc] : undefined;
+  return isRecord(record) && typeof record.ver === 'string' ? { ver: record.ver, rev: String(record.rev || '') } : null;
 }
 // Records `record` as what `doc` showed when seen - unless the record kept already names a later version (verAfter):
 // another tab of this browser saw a newer one meanwhile, and an old tab dismissing its older message never takes that
 // back.
 function setSeenDoc(doc, record) {
   const all = seenStore(),
-    was = (all.docs || {})[doc];
-  if (was && typeof was.ver === 'string' && verAfter(was.ver, record.ver)) return;
-  all.docs = { ...(all.docs || {}), [doc]: record };
+    docs = isRecord(all.docs) ? all.docs : {},
+    was = docs[doc];
+  if (isRecord(was) && typeof was.ver === 'string' && verAfter(was.ver, record.ver)) return;
+  all.docs = { ...docs, [doc]: record };
   seenSave(all);
 }
 // Whether `version` (limnSeen's ver) is later than `other`: a drawn document's source mtime ('src:<seconds>') by its
@@ -8202,7 +8780,7 @@ function shownDocState(doc) {
   const meta = doc === DOC ? META : META_BY.get(doc),
     entry = docInfo(doc),
     kind = (entry && entry.kind) || (meta && meta.kind) || '',
-    source = (meta || entry);
+    source = meta || entry;
   if (!source) return null;
   // a drawn document on screen: its source as last read (MARKDOWN_VIEW.mtime), not the meta it was opened with; off
   // screen: the document list's (noteOtherDocs keeps it fresh) - MARKDOWN_VIEW still holds the lines of one drawn
@@ -8226,9 +8804,13 @@ function shownDocState(doc) {
 async function docRows(doc) {
   try {
     const answer = (
-      await api(withDocQuery('/api/revisions?limit=' + REVISION_PAGE, doc), { what: '변경사항 읽기', silent: true })
+      await api('GET /api/revisions', {
+        query: withDocQuery('?limit=' + REVISION_PAGE, doc),
+        what: '변경사항 읽기',
+        silent: true,
+      })
     ).data;
-    return answer.available ? ((answer.revisions || [])) : [];
+    return answer.available ? answer.revisions || [] : [];
   } catch (error) {
     return null;
   }
@@ -8242,10 +8824,11 @@ async function docBuild(
   now,
 ) {
   if (rendersInBrowser(now.kind)) return { head: '', behind: false };
-  let meta = (doc === DOC ? META : META_BY.get(doc));
+  let meta = doc === DOC ? META : META_BY.get(doc);
   if (!meta || 'build:' + meta.pages_build !== now.ver) {
     try {
-      meta = (await api(withDocQuery('/api/meta?light=1', doc), { what: '상태 확인', silent: true })).data;
+      meta = (await api('GET /api/meta', { query: withDocQuery('?light=1', doc), what: '상태 확인', silent: true }))
+        .data;
     } catch (error) {
       return null;
     }
@@ -8359,6 +8942,9 @@ function checkDocsSeen() {
     if (doc) checkDocUpdate(doc, {});
   });
 }
+// A document's update message as checkDocUpdate keeps it: the document (key, its name and kind), the version it says
+// (ver) and the commit last seen (seenRev), the newest commit it covers (top), its commits and whether the document
+// has history.
 // What a document's update message says (groupNote's view): '<name>이(가) 바뀌었습니다' and then the commits (one: its
 // PR and subject and author; several: how many, their PRs and authors; none named when which are new is not known), the
 // places a drawn document changed, the pins it moved or lost. Its action: [바뀐 곳] on a drawn document of this visit
@@ -8406,7 +8992,7 @@ function docUpdateView(update) {
   if (moves && moves.moved.size) parts.push(translateTemplate('핀 {n}개 줄 이동', { n: moves.moved.size }));
   if (moves && moves.lost.size) parts.push(translateTemplate('핀 {n}개 위치 잃음', { n: moves.lost.size }));
   const act = !here
-    ? { label: '열기', tip: '그 문서로 바꿉니다', fn: () => switchDoc(doc) }
+    ? { label: '열기', tip: '그 문서로 바꿉니다', fn: () => documentNavigation().open(doc) }
     : lines && lines.ranges.length
       ? {
           label: '바뀐 곳',
@@ -8501,7 +9087,7 @@ function openUpdateRange(doc, base, top) {
     go();
     return;
   }
-  const opening = switchDoc(doc),
+  const opening = documentNavigation().open(doc),
     visit = SWITCHSEQ;
   opening.then(() => {
     if (DOC === doc && visit === SWITCHSEQ) go();
@@ -8555,7 +9141,7 @@ function tintChangedLines() {
 // lines (showLines: the reading spot is read where it lands).
 function goToNextChange(doc) {
   if (doc !== DOC) {
-    switchDoc(doc);
+    documentNavigation().open(doc);
     return;
   }
   const changed = UPDATE_STATE.lines.get(doc);
@@ -8590,12 +9176,29 @@ function noteNewPins(rows) {
   if (fresh.length) announceNewPins(fresh);
   else if (![...GROUPS.keys()].some((key) => key.startsWith('new:'))) setSeenPin(UPDATE_STATE.top);
 }
+// A new pin as its document's new-pins message names it: its number, who, its verdict, its place and its note's start.
+// The new pins a document's new-pins group held before this event (groupNote's merge is given them as unknown), as
+// announceNewPins writes them, or none. Pure.
+function newPinRowsOf(older) {
+  return isRecord(older) && Array.isArray(older.pins)
+    ? older.pins.filter(
+        (row) =>
+          isRecord(row) &&
+          typeof row.id === 'number' &&
+          typeof row.who === 'string' &&
+          typeof row.verdict === 'string' &&
+          typeof row.place === 'string' &&
+          typeof row.note === 'string',
+      )
+    : [];
+}
 function announceNewPins(pins) {
   const by = new Map();
   pins.forEach((pin) => {
-    const doc = pdoc(pin);
-    if (!by.has(doc)) by.set(doc, []);
-    by.get(doc).push(pin);
+    const doc = pdoc(pin),
+      listed = by.get(doc);
+    if (listed) listed.push(pin);
+    else by.set(doc, [pin]);
   });
   if (!pins.length) {
     setSeenPin(UPDATE_STATE.top || 0);
@@ -8621,10 +9224,13 @@ function announceNewPins(pins) {
         })),
       },
       newPinsView,
-      (older, newer) => ({
-        doc: older.doc,
-        pins: [...older.pins, ...newer.pins.filter((x) => !older.pins.some((y) => y.id === x.id))],
-      }),
+      (older, newer) => {
+        const was = newPinRowsOf(older);
+        return {
+          doc: isRecord(older) && typeof older.doc === 'string' ? older.doc : newer.doc,
+          pins: [...was, ...newer.pins.filter((x) => !was.some((y) => y.id === x.id))],
+        };
+      },
     ),
   );
 }
@@ -8673,51 +9279,6 @@ function newPinsView(news) {
   };
 }
 
-// ---------------- Limn itself was updated
-// The page's version (the [더보기] foot's 'v0.4.51', filled in when the server made the page) and the server's (GET
-// /api/version, asked by documents/flow-polling.ts after a lost connection comes back, on return and every
-// VERSION_EVERY_MS): when they differ, this tab runs the old viewer against a new server, and the status line says so
-// with [새로 고침] until it reloads. A call while one is out (busy) is left to it, and asked again once it is answered
-// (again): the one out may fail, or have been answered by the process a restart has just replaced - the return after a
-// lost connection must not go unasked.
-const VERSION = { page: '', server: '', at: 0, busy: false, again: false };
-const VERSION_EVERY_MS = 60000;
-function versionDue() {
-  return Date.now() - VERSION.at >= VERSION_EVERY_MS;
-}
-function versionOutdated() {
-  if (!VERSION.page) {
-    const versionElement = document.querySelector('#more-foot .m-ver');
-    VERSION.page = versionElement
-      ? String(versionElement.textContent || '')
-          .trim()
-          .replace(/^v/, '')
-      : '';
-  }
-  return VERSION.server && VERSION.page && VERSION.server !== VERSION.page ? VERSION.server : '';
-}
-async function checkVersion() {
-  if (VERSION.busy) {
-    VERSION.again = true;
-    return;
-  }
-  VERSION.busy = true;
-  VERSION.again = false;
-  VERSION.at = Date.now();
-  try {
-    const answer = (await api('/api/version', { what: '버전 확인', silent: true })).data,
-      version = String((answer && answer.version) || '');
-    if (version && version !== VERSION.server) {
-      const was = versionOutdated();
-      VERSION.server = version;
-      if (versionOutdated() !== was) drawStatus();
-    }
-  } catch (error) {
-  } finally {
-    VERSION.busy = false;
-  }
-  if (VERSION.again) checkVersion();
-}
 // [새로 고침]: reloads this tab - the composer's draft and the reading spot are kept (sessionStorage), what waits
 // behind an undo is sent first - unless a reply or an edit is being written, which a reload would lose: that is said
 // instead.
@@ -8732,7 +9293,7 @@ function reloadForUpdate() {
     return;
   }
   flushDeferred();
-  location.reload();
+  window.location.reload();
 }
 
 // ---------------------------------------- The status line (docs/handbook/viewer.md §모바일 레이아웃, 상태는 한 줄이다)
@@ -8797,7 +9358,7 @@ function statusList(input) {
       held: input.held || 0,
       act: input.offline ? null : 'offline-flush',
     });
-  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload' });
+  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload-viewer' });
   notes
     .filter((notice) => !alert(notice))
     .forEach((notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
@@ -8981,7 +9542,7 @@ function statusAct(item) {
   if (item.kind === STATUS_KIND.NOTICE) return noticeButtons(item.notice, true);
   const force = item.act === 'rebuild-force',
     why = item.act === 'status-why',
-    reload = item.act === 'reload';
+    reload = item.act === 'reload-viewer';
   const flush = item.act === 'offline-flush';
   const name =
     item.act === 'rebuild'
@@ -9005,14 +9566,14 @@ function statusAct(item) {
   return html`<button class="btn-sm st-act ${item.act === 'rebuild' || reload ? 'btn-default' : 'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;
 }
 
-// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and
+// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (SHOWN_BUILD.cur) and
 // the last failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG -
 // plus whether this document and person may rebuild.
 function statusInput() {
   return {
     notices: LINE,
-    build: BUILD.cur,
-    buildErr: BUILD.error,
+    build: SHOWN_BUILD.cur,
+    buildErr: SHOWN_BUILD.error,
     offline: POLL_FAILS >= 2,
     queued: offlineQueue().queued(),
     held: offlineQueue().held(),
@@ -9021,7 +9582,7 @@ function statusInput() {
     stale: !$('#meta-stale').hidden,
     png: !$('#vec-chip').hidden,
     canRebuild: !!META && buildsFromSource(META.kind) && !isViewer(),
-    unchanged: BUILD.unchanged,
+    unchanged: SHOWN_BUILD.unchanged,
   };
 }
 
@@ -9030,11 +9591,11 @@ function statusInput() {
 // shows what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
 function buildUnchanged(build) {
   const mark = { pull: pullSuffix(build) };
-  BUILD.unchanged = mark;
+  setBuildUnchanged(mark);
   drawStatus();
   setTimeout(() => {
-    if (BUILD.unchanged !== mark) return;
-    BUILD.unchanged = null;
+    if (SHOWN_BUILD.unchanged !== mark) return;
+    setBuildUnchanged(null);
     drawStatus();
   }, STATUS_TRANSIENT_MS);
 }
@@ -9052,9 +9613,7 @@ function buildUnchanged(build) {
 // [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
-    spoken = box.querySelector('.st-sr'),
-    body = box.querySelector('.st-body'),
-    running = !!BUILD.cur;
+    running = !!SHOWN_BUILD.cur;
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
   const held =
@@ -9071,7 +9630,7 @@ function drawStatus() {
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
-    const tail = rebuildRow.querySelector('.m-tail');
+    const tail = findMaybe(rebuildRow, '.m-tail', HTMLElement);
     if (tail) tail.hidden = !running;
   }
   document.body.classList.toggle('has-status', !!top);
@@ -9082,10 +9641,10 @@ function drawStatus() {
   } // its rows changed: placed again once the line is drawn
   if (!top) {
     if (STATUS_SIG) {
-      body.replaceChildren();
+      findElement(box, '.st-body', HTMLElement).replaceChildren();
       STATUS_SIG = '';
     }
-    spoken.textContent = '';
+    findElement(box, '.st-sr', HTMLElement).textContent = '';
     lineVisible(false);
     return;
   } // hidden: it holds nothing
@@ -9109,9 +9668,12 @@ function drawStatus() {
     const bar = running
       ? html`<span class="st-bar" role="progressbar" aria-label="${translate('빌드 진행')}"><i></i></span>`
       : '';
-    setHtml(body, html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);
+    setHtml(
+      findElement(box, '.st-body', HTMLElement),
+      html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`,
+    );
   }
-  const textSpan = box.querySelector('.st-tx'),
+  const textSpan = findElement(box, '.st-tx', HTMLElement),
     long = statusText(top, 'long'),
     short = statusText(top, 'short');
   // the short band's one row always takes the short text
@@ -9122,6 +9684,7 @@ function drawStatus() {
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
   const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
+  const spoken = findElement(box, '.st-sr', HTMLElement);
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
@@ -9130,7 +9693,7 @@ function drawStatus() {
     { done, total } = progress || { done: 0, total: 0 },
     percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
-  bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
+  findElement(bar, 'i', HTMLElement).style.width = percent === null ? '' : percent + '%';
   if (percent === null) {
     bar.removeAttribute('aria-valuenow');
   } else {
@@ -9143,8 +9706,8 @@ function drawStatus() {
 // The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
 // action), or null: the line's redraw gives the focus back to it (refocusStatus).
 function statusFocus() {
-  const active = document.activeElement;
-  return active && active.closest && active.closest('#status,#status-list') && active.dataset.act
+  const active = focusedElement();
+  return active && active.closest('#status,#status-list') && active.dataset.act
     ? { act: active.dataset.act, n: active.dataset.n || '' }
     : null;
 }
@@ -9156,8 +9719,8 @@ function refocusStatus(focused) {
   if (active && active !== document.body && document.contains(active)) return;
   const selector = '[data-act="' + focused.act + '"]' + (focused.n ? '[data-n="' + focused.n + '"]' : ''),
     listDialog = $('#status-list');
-  const button = ((listDialog.open && listDialog.querySelector(selector)) ||
-    $('#status').querySelector(selector));
+  const button =
+    (listDialog.open && findMaybe(listDialog, selector, HTMLElement)) || findMaybe($('#status'), selector, HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 // The line follows the focus: when it leaves a message's button, the line shows again what comes first.
@@ -9224,7 +9787,7 @@ $('#status-list').addEventListener('close', () => {
   const active = document.activeElement,
     line = $('#status');
   if (active && active !== document.body && !$('#status-list').contains(active)) return;
-  const button = (line.querySelector('[data-act="status-more"]') || line.querySelector('button'));
+  const button = findMaybe(line, '[data-act="status-more"]', HTMLElement) || findMaybe(line, 'button', HTMLElement);
   if (button) button.focus({ preventScroll: true });
 });
 // Which side of the status line the '+N' list opens on, for a list `height` px tall with room px free above and below
@@ -9256,7 +9819,7 @@ function placeStatusList() {
   if (!dialog.open) return;
   const viewport = window.visualViewport,
     viewTop = viewport ? viewport.offsetTop : 0,
-    viewBottom = viewport ? viewTop + viewport.height : innerHeight,
+    viewBottom = viewport ? viewTop + viewport.height : window.innerHeight,
     lineRect = $('#status').getBoundingClientRect();
   // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and
   // it reaches left from there: centred in the window it would stand about 350px left of the line, over the PDF.
@@ -9264,7 +9827,7 @@ function placeStatusList() {
   // inside the visible part, narrowed to it where it is narrower, so a phone zoomed in never has the list run past both
   // sides of what it shows.
   const viewLeft = viewport ? viewport.offsetLeft : 0,
-    viewRight = viewport ? viewLeft + viewport.width : innerWidth;
+    viewRight = viewport ? viewLeft + viewport.width : window.innerWidth;
   dialog.style.left = '';
   dialog.style.right = '';
   const style = getComputedStyle(dialog),
@@ -9275,7 +9838,7 @@ function placeStatusList() {
     baseLeft = Math.max(8, baseRight - max);
   } else {
     const barLeft = parseFloat(style.left),
-      barRight = innerWidth - parseFloat(style.right),
+      barRight = window.innerWidth - parseFloat(style.right),
       barWidth = Math.min(max, barRight - barLeft);
     baseLeft = barLeft + (barRight - barLeft - barWidth) / 2;
     baseRight = baseLeft + barWidth;
@@ -9283,20 +9846,20 @@ function placeStatusList() {
   const width = Math.min(baseRight - baseLeft, viewRight - viewLeft - 16),
     left = Math.min(Math.max(baseLeft, viewLeft + 8), viewRight - 8 - width);
   dialog.style.left = Math.round(left) + 'px';
-  dialog.style.right = Math.round(innerWidth - left - width) + 'px';
+  dialog.style.right = Math.round(window.innerWidth - left - width) + 'px';
   const lineTop = Math.min(Math.max(lineRect.top, viewTop), viewBottom),
     // the line's edges, held inside the visible part
     lineBottom = Math.min(Math.max(lineRect.bottom, viewTop), viewBottom);
   const above = lineTop - viewTop - 4 - 8,
     below = viewBottom - lineBottom - 4 - 8,
     height = dialog.scrollHeight + dialog.offsetHeight - dialog.clientHeight;
-  const row = dialog.querySelector('.st-row'),
+  const row = findMaybe(dialog, '.st-row', HTMLElement),
     one = height - $('#status-list-rows').offsetHeight + (row ? row.offsetHeight : 0); // a row, its padding, border
   const up = statusListUp(height, above, below, BAND === LAYOUT_BAND.SHORT),
     room = Math.floor(Math.min(Math.max(up ? above : below, one), viewBottom - viewTop - 16));
   dialog.style.setProperty('--sl-room', room + 'px');
   dialog.style.top = up ? 'auto' : Math.round(Math.min(lineBottom + 4, viewBottom - 8 - room)) + 'px';
-  dialog.style.bottom = up ? Math.round(innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
+  dialog.style.bottom = up ? Math.round(window.innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
 }
 // placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
 let STATUS_LIST_PLACE = 0;
@@ -9307,7 +9870,7 @@ function placeStatusListSoon() {
       placeStatusList();
     });
 }
-addEventListener('resize', placeStatusListSoon);
+window.addEventListener('resize', placeStatusListSoon);
 {
   const viewport = window.visualViewport;
   if (viewport) {
@@ -9321,8 +9884,8 @@ addEventListener('resize', placeStatusListSoon);
 // that was inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus() {
   const line = $('#status'),
-    active = document.activeElement,
-    had = line.contains(active);
+    active = focusedElement(),
+    had = !!active && line.contains(active);
   if ($('#status-list').open) $('#status-list').close();
   lineVisible(false); // moved out from under the pointer: no hover is left holding its windows
   if (BAND === LAYOUT_BAND.SHORT) {
@@ -9332,7 +9895,7 @@ function placeStatus() {
   } else if (LAYOUT === LAYOUT_MODE.WIDE) {
     if (line.parentNode !== $('#status-wide')) $('#status-wide').appendChild(line);
   } else if (line.parentNode !== $('#status-dock')) $('#status-dock').appendChild(line);
-  if (had && active.focus) active.focus({ preventScroll: true });
+  if (had && active) active.focus({ preventScroll: true });
   STATUS_SIG = '';
   drawStatus();
 }
@@ -9368,7 +9931,7 @@ function setStatusSig(value) {
 // A panel's width range, and with it (the side panel's) the default width and the three presets.
 function outlineBounds() {
   if (outlineOverlay()) return { min: 220, max: 320 };
-  const max = Math.max(180, Math.min(320, innerWidth - currentSideWidth() - 290));
+  const max = Math.max(180, Math.min(320, window.innerWidth - currentSideWidth() - 290));
   return { min: Math.min(220, max), max };
 }
 // Shows an outline width clamped to its bounds (--outline-width and the grip's ARIA) and answers it; nothing is saved.
@@ -9377,49 +9940,10 @@ function showOutlineWidth(width) {
   width = Math.round(Math.max(bounds.min, Math.min(bounds.max, width)));
   document.documentElement.style.setProperty('--outline-width', width + 'px');
   const grip = $('#outline-grip');
-  grip.setAttribute('aria-valuemin', bounds.min);
-  grip.setAttribute('aria-valuemax', bounds.max);
-  grip.setAttribute('aria-valuenow', width);
+  grip.setAttribute('aria-valuemin', String(bounds.min));
+  grip.setAttribute('aria-valuemax', String(bounds.max));
+  grip.setAttribute('aria-valuenow', String(width));
   return width;
-}
-// Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
-// own, unsaved) and syncs the back layer. The wide outline follows pinPrefs.outlineClosed; until one is saved it starts
-// open with a mouse and collapsed on touch. The phone has no outline (CSS), so it draws no width.
-function applyOutlineState() {
-  const preferences = prefs(),
-    closed = outlineOverlay()
-      ? !OUTLINE_MID_OPEN
-      : typeof preferences.outlineClosed === 'boolean'
-        ? preferences.outlineClosed
-        : COARSE_POINTER_QUERY.matches;
-  document.body.classList.toggle('outline-collapsed', closed);
-  const toggle = $('#nav-toc-toggle');
-  toggle.setAttribute('aria-expanded', String(!closed));
-  toggle.setAttribute('aria-label', closed ? '목차 펼치기' : '목차 접기');
-  if (BAND !== LAYOUT_BAND.PHONE)
-    showOutlineWidth(typeof preferences.outlineWidth === 'number' ? preferences.outlineWidth : 240);
-  syncBackLayer(); // the mid outline overlay is a layer the back gesture closes
-}
-// Sets and remembers the outline width (pinPrefs.outlineWidth), then re-fits; the phone has no outline.
-function setOutlineWidth(width) {
-  if (BAND === LAYOUT_BAND.PHONE) return;
-  width = showOutlineWidth(width);
-  savePrefs({ outlineWidth: width });
-  relayout();
-}
-// Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin
-// panel as it opens; wide remembers it in pinPrefs.outlineClosed.
-function toggleOutline() {
-  const anchor = topAnchor(),
-    closed = !document.body.classList.contains('outline-collapsed');
-  if (outlineOverlay()) {
-    setOutlineMidOpen(!closed);
-    if (!closed) setSide(false);
-  } else savePrefs({ outlineClosed: closed });
-  applyOutlineState();
-  relayout();
-  restoreAnchor(anchor);
-  $('#nav-toc-toggle').focus({ preventScroll: true });
 }
 // The panel's width bounds, default width and the three presets ([좁게] [보통] [넓게]) for a layout at a window
 // width.
@@ -9489,15 +10013,6 @@ function sideKey() {
 function currentSideWidth() {
   return Math.round($('#right').getBoundingClientRect().width);
 }
-// The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
-let SIDE_SHOWN = null;
-// Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
-function showSideWidth(width, bounds) {
-  $('#right').style.width = width + 'px';
-  document.documentElement.style.setProperty('--side-w', width + 'px');
-  SIDE_SHOWN = { w: width, min: bounds.min, max: bounds.max };
-  if (SIDE_OPEN) gripAria();
-}
 // The width the panel has in this layout, open or folded: the layout's saved width (sideKey), else its default, inside
 // its bounds. applySideWidth draws it; renderSizeSegment checks it.
 function sideWidthFor(bounds) {
@@ -9511,25 +10026,8 @@ function applySideWidth() {
     applySheet();
     return;
   }
-  const bounds = sideBounds(LAYOUT, innerWidth);
+  const bounds = sideBounds(LAYOUT, window.innerWidth);
   showSideWidth(sideWidthFor(bounds), bounds);
-}
-// Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses
-// topAnchor/restoreAnchor).
-function setSideWidth(width) {
-  if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const bounds = sideBounds(LAYOUT, innerWidth);
-  width = clampSide(width, bounds);
-  showSideWidth(width, bounds);
-  savePrefs({ [sideKey()]: width });
-  relayout();
-  renderSizeSegment();
-}
-// The handle's double click and Space: the next preset width.
-function cycleSideWidth() {
-  if (LAYOUT === LAYOUT_MODE.NARROW) return;
-  const bounds = sideBounds(LAYOUT, innerWidth);
-  setSideWidth(nextPreset(bounds.presets, currentSideWidth()));
 }
 // Sheet height is stored as a fraction of screen height (--sheet-f) - CSS shrinks it to fit within the visible height
 // when the keyboard is up.
@@ -9590,25 +10088,7 @@ function tabletLift() {
     panel = $('#right'),
     last = open ? editor : verdictRow.getClientRects().length ? verdictRow : $('#note'),
     bottom = last.getBoundingClientRect().bottom - panel.getBoundingClientRect().top + panel.scrollTop;
-  return sheetLift(fraction, (bottom + 8 + $('#c-actions').offsetHeight) / innerHeight);
-}
-// Sets and remembers the sheet height (a fraction, clamped to 30-100%, kept to 1/10000: a whole pixel on any screen)
-// under the band's key, opens a collapsed sheet, and ends the composing lift.
-function setSheetFraction(fraction) {
-  keepSheet();
-  fraction = Math.min(1, Math.max(SHEET_MIN_FRACTION, fraction));
-  savePrefs({ [sheetPref().key]: Math.round(fraction * 10000) / 10000 });
-  applySheet();
-  if (!SIDE_OPEN) setSide(true);
-  renderSizeSegment();
-}
-// The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
-function cycleSheet() {
-  const shown = document.body.classList.contains('sheet-up')
-      ? Math.max(sheetFraction(), SHEET_COMPOSE_FRACTION)
-      : sheetFraction(),
-    nextIndex = SHEET_FRACTIONS.findIndex((stop) => stop > shown + 0.02);
-  setSheetFraction(SHEET_FRACTIONS[nextIndex < 0 ? 0 : nextIndex]);
+  return sheetLift(fraction, (bottom + 8 + $('#c-actions').offsetHeight) / window.innerHeight);
 }
 // The '패널 폭' (wide/mid) / '시트 높이' (narrow) segment control inside [⋯], the size now chosen checked. The width
 // checked is the one the layout gives the panel (sideWidthFor), not one measured or last shown: a folded panel measures
@@ -9629,7 +10109,7 @@ function renderSizeSegment() {
     checkedIndex = SHEET_FRACTIONS.findIndex((stop) => Math.abs(stop - fraction) <= 0.02);
   } else {
     names = ['좁게', '보통', '넓게'];
-    const bounds = sideBounds(LAYOUT, innerWidth);
+    const bounds = sideBounds(LAYOUT, window.innerWidth);
     checkedIndex = presetIndex(bounds.presets, sideWidthFor(bounds));
   }
   setHtml(
@@ -9640,18 +10120,73 @@ function renderSizeSegment() {
   roveSegment(box);
   keepSegmentFocus(box, at);
 }
+// Sets SHEET_KEPT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
+function setSheetKept(value) {
+  SHEET_KEPT = value;
+  return value;
+}
+
+// Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN,
+// never saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the
+// document.
+function outlineOverlay() {
+  return LAYOUT === LAYOUT_MODE.MID || BAND === LAYOUT_BAND.TABLET_SHEET;
+}
+// The panel's text field that has focus (a note, an edit or a reply), or null.
+function panelField() {
+  const focused = document.activeElement;
+  return typingNow() && $('#right').contains(focused) ? focused : null;
+}
+
+// Sets and remembers the outline width (pinPrefs.outlineWidth), then re-fits; the phone has no outline.
+function setOutlineWidth(width) {
+  if (BAND === LAYOUT_BAND.PHONE) return;
+  width = showOutlineWidth(width);
+  savePrefs({ outlineWidth: width });
+  relayout();
+}
+// Sets and remembers the width, then re-fits page width/marks (position is preserved - relayout uses
+// topAnchor/restoreAnchor).
+function setSideWidth(width) {
+  if (LAYOUT === LAYOUT_MODE.NARROW) return;
+  const bounds = sideBounds(LAYOUT, window.innerWidth);
+  width = clampSide(width, bounds);
+  showSideWidth(width, bounds);
+  savePrefs({ [sideKey()]: width });
+  relayout();
+  renderSizeSegment();
+}
+// The handle's double click and Space: the next preset width.
+function cycleSideWidth() {
+  if (LAYOUT === LAYOUT_MODE.NARROW) return;
+  const bounds = sideBounds(LAYOUT, window.innerWidth);
+  setSideWidth(nextPreset(bounds.presets, currentSideWidth()));
+}
+// Sets and remembers the sheet height (a fraction, clamped to 30-100%, kept to 1/10000: a whole pixel on any screen)
+// under the band's key, opens a collapsed sheet, and ends the composing lift.
+function setSheetFraction(fraction) {
+  keepSheet();
+  fraction = Math.min(1, Math.max(SHEET_MIN_FRACTION, fraction));
+  savePrefs({ [sheetPref().key]: Math.round(fraction * 10000) / 10000 });
+  applySheet();
+  if (!SIDE_OPEN) setSide(true);
+  renderSizeSegment();
+}
+// The next height stop above the one shown (the composing lift counts as shown); wraps to the lowest.
+function cycleSheet() {
+  const shown = document.body.classList.contains('sheet-up')
+      ? Math.max(sheetFraction(), SHEET_COMPOSE_FRACTION)
+      : sheetFraction(),
+    nextIndex = SHEET_FRACTIONS.findIndex((stop) => stop > shown + 0.02);
+  setSheetFraction(SHEET_FRACTIONS[nextIndex < 0 ? 0 : nextIndex]);
+}
 // Applies the size row's preset at index: a sheet height on narrow, else a panel width.
 function sizePreset(index) {
   if (LAYOUT === LAYOUT_MODE.NARROW) {
     setSheetFraction(SHEET_FRACTIONS[index]);
     return;
   }
-  setSideWidth(sideBounds(LAYOUT, innerWidth).presets[index]);
-}
-// Sets SHEET_KEPT, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
-function setSheetKept(value) {
-  SHEET_KEPT = value;
-  return value;
+  setSideWidth(sideBounds(LAYOUT, window.innerWidth).presets[index]);
 }
 
 // ------------------------------------------------ Scrolling the reading area: jumps, glides and arrival
@@ -9919,7 +10454,7 @@ function figureTop(pageNumber) {
 }
 // Goes to the page typed in the tool bar's [쪽 이동] field, or to the page given.
 function goPage(entry) {
-  arrivePage(parseInt(entry === undefined ? $('#jump').value : entry, 10));
+  arrivePage(parseInt(entry === undefined ? $('#jump').value : String(entry), 10));
 }
 // The page a typed entry goes to in a document of pageCount pages: a whole number clamped to 1..pageCount; null for an
 // empty or non-number entry, which goes nowhere. Pure.
@@ -9934,11 +10469,12 @@ function clampPage(entry, pageCount) {
 // The URL of a page's image in the build on screen: /pages/<META.pages_build>/<name>, which the server caches for a
 // year because a build's images never change (docs/handbook/api.md). Without a build name, /pages/<name>?v=<built_at>.
 function pageSrc(page) {
-  const build = META.pages_build;
+  const meta = knownMeta(),
+    build = meta.pages_build;
   return withDocQuery(
     build
       ? '/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name)
-      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(META.built_at),
+      : '/pages/' + encodeURIComponent(page.name) + '?v=' + encodeURIComponent(meta.built_at),
   );
 }
 // Page sizes (docs/handbook/viewer.md §PDF 영역 전용 확대): every page box is its own paper width (pt_w, in points)
@@ -9999,7 +10535,7 @@ function buildDoc() {
     focus = pageVerdicts().holdReasonFocus();
   doc.replaceChildren();
   setComposeBox(null);
-  META.pages.forEach((page, index) => {
+  knownMeta().pages.forEach((page, index) => {
     const pageBox = document.createElement('div');
     pageBox.className = 'pg';
     pageBox.id = 'p' + (index + 1);
@@ -10054,15 +10590,20 @@ function setScale(scale, save) {
   pageMarks().placeBadges();
   pageVerdicts().sizeLines();
   placeChips();
-  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) saveScale();
+  if (save !== false && LAYOUT === LAYOUT_MODE.WIDE) {
+    // Before the first meta there is no document to keep the scale for: nothing is saved, and the zoom figure waits for
+    // the pages' first draw (buildDoc), which writes it.
+    if (!META) return;
+    saveScale();
+  }
   invalidateVectorDraws();
   drawZoom();
 }
 // Gives every page box its width at the scale PAGE_SCALE, bounded or not (setScale bounds the scale first).
 function sizePages() {
   const widest = widestPagePoints();
-  $$('.pg').forEach((pageBox) => {
-    pageBox.style.width = pageWidth(+pageBox.dataset.ptw || widest, PAGE_SCALE) + 'px';
+  findAll(document, '.pg', HTMLElement).forEach((pageBox) => {
+    pageBox.style.width = pageWidth(Number(pageBox.dataset.ptw) || widest, PAGE_SCALE) + 'px';
   });
   pageWidthVars();
 }
@@ -10071,8 +10612,9 @@ function sizePages() {
 function pageWidthVars() {
   const widest = widestPagePoints();
   $('#doc').style.setProperty('--pg-max', pageWidth(widest, PAGE_SCALE) + 'px');
-  $$('#doc .pgw>.pg').forEach((pageBox) => {
-    (pageBox.parentElement).style.setProperty('--pg-w', (pageBox).style.width);
+  findAll(document, '#doc .pgw>.pg', HTMLElement).forEach((pageBox) => {
+    const holder = pageBox.parentElement;
+    if (holder) holder.style.setProperty('--pg-w', pageBox.style.width);
   });
 }
 // Whether the pages stand at a scale PAGE_SCALE that no PDF-area width has bounded since their sizes changed
@@ -10126,13 +10668,13 @@ function drawZoom() {
 // document never takes it, and opens at its own default (openScale) until a zoom is chosen on it.
 function savedScale() {
   const preferences = prefs();
-  if (isFigureKind(META.kind))
+  if (isFigureKind(knownMeta().kind))
     return typeof preferences.figZoom === 'number' && preferences.figZoom > 0 ? preferences.figZoom * POINT_PX : null;
   return typeof preferences.w === 'number' && preferences.w > 0 ? preferences.w / widestPagePoints() : null;
 }
 // Saves the scale on screen as savedScale reads it back.
 function saveScale() {
-  if (isFigureKind(META.kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
+  if (isFigureKind(knownMeta().kind)) savePrefs({ figZoom: Math.round((PAGE_SCALE / POINT_PX) * 1e4) / 1e4 });
   else savePrefs({ w: pageWidth(widestPagePoints(), PAGE_SCALE) });
 }
 // The scale a document opens at with nothing saved, for its most common and its widest page width (points) and the
@@ -10145,7 +10687,7 @@ function openScale(isFigure, common, widest, fit, wide) {
 // The scale the screen picks for the document on screen (openScale).
 function defaultScale() {
   return openScale(
-    isFigureKind(META.kind),
+    isFigureKind(knownMeta().kind),
     commonPageWidth(),
     widestPagePoints(),
     fitWidth(),
@@ -10156,7 +10698,8 @@ function defaultScale() {
 // only a chosen one survives a re-fit (ZOOMED). Pressing [↔] on a figure that opened at print size is a choice; landing
 // back on it is not.
 function markZoomed() {
-  if (LAYOUT !== LAYOUT_MODE.WIDE) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
+  // Before the first meta there is no screen scale to compare with (defaultScale): ZOOMED stays as it is.
+  if (LAYOUT !== LAYOUT_MODE.WIDE && META) setZoomed(Math.abs(PAGE_SCALE - defaultScale()) > PAGE_SCALE * 1e-3);
 }
 // The PDF area's width inside its padding (px).
 function pdfAreaInnerWidth() {
@@ -10186,12 +10729,12 @@ function autoFitWidth() {
 // on every page of a document whose pages are all one size, wherever the column puts them (a manuscript keeps its
 // numbers in the corners).
 function pageNoSides() {
-  const pageBoxes = $$('#doc .pg');
+  const pageBoxes = findAll(document, '#doc .pg', HTMLElement);
   if (!pageBoxes.length || !pageBoxes[0].getClientRects().length) return;
   const widths = pageBoxes.map((pageBox) => pageBox.getBoundingClientRect().width),
     widest = Math.max(...widths);
   pageBoxes.forEach((pageBox, index) => {
-    const no = pageBox.querySelector('.no');
+    const no = findMaybe(pageBox, '.no', HTMLElement);
     if (no) pageBox.classList.toggle('no-out', (widest - widths[index]) / 2 >= no.offsetWidth + 8);
   });
 }
@@ -10216,7 +10759,7 @@ function zoomAnchor(clientX, clientY) {
     pointY = centre ? areaRect.top + pdfArea.clientHeight / 2 : clientY;
   let best = null,
     bestDistance = Infinity;
-  for (const pageBox of $$('.pg')) {
+  for (const pageBox of findAll(document, '.pg', HTMLElement)) {
     const rect = pageBox.getBoundingClientRect(),
       distance = pointY < rect.top ? rect.top - pointY : pointY > rect.bottom ? pointY - rect.bottom : 0;
     if (distance < bestDistance) {
@@ -10270,9 +10813,10 @@ function fitToWidth() {
   restoreAnchor(anchor);
   pdfArea.scrollLeft = 0;
 }
+// gesturestart: Safari's trackpad pinch
 for (const eventType of ['pointerdown', 'keydown', 'wheel', 'touchstart', 'gesturestart'])
-  addEventListener(eventType, arrivalLetGo, { capture: true, passive: true }); // gesturestart: Safari's trackpad pinch
-addEventListener('resize', arrivalLetGo);
+  window.addEventListener(eventType, arrivalLetGo, { capture: true, passive: true });
+window.addEventListener('resize', arrivalLetGo);
 // A scroll while it watches - the glide's own, an anchoring adjustment, a correction - waits for the next rest; a
 // person's scroll (HAND_ON_PAGES) lets it go at that rest. So does a change of the pages' column's height, with no
 // scroll at all: a line pass that holds anchoring off (holdPageView) or a far line drawn at its new height moves what
@@ -10384,7 +10928,7 @@ function markHitRooms(boxes, reach) {
 // inside it). Badges that are not laid out (the changes view hides the pages) have no boxes to read: nothing is set,
 // and setViewMode measures when the pages show again.
 function markHitSides() {
-  const badges = $$('.mark button.mark-jump');
+  const badges = findAll(document, '.mark button.mark-jump', HTMLElement);
   if (badges.some((badge) => !badge.getClientRects().length)) return;
   const rooms = markHitRooms(
     badges.map((badge) => {
@@ -10477,36 +11021,18 @@ function pageChanges() {
   return PAGE_CHANGES;
 }
 
-// ------------------------------------------------ Vector rendering (PDF.js) - docs/handbook/viewer.md §벡터 렌더링
-// Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's
-// pinch scale), and app zoom is already baked into each page's CSS width (pt_w x PAGE_SCALE). The page box, aspect
-// ratio and % coordinates are the PNG page's, so drag frac, marks and pdf_build do not depend on the renderer.
-// - Only pages near the visible area (VECTOR_KEEP_MARGIN) are drawn; canvases for pages that scroll away are released
-//   (IntersectionObserver).
-// - A single canvas never exceeds VECTOR_PIXEL_CAP pixels. At zoom beyond that, the page canvas is capped and a detail
-//   canvas (.dt) rendered at native resolution for just the visible portion is overlaid on top.
-// - When zoom changes, the existing canvas is stretched via CSS to stay visible while a debounced redraw happens (no
-//   flicker).
-// - If pdf.js or the PDF fails to load or render, the canvas is torn down, falling back to the PNG <img>, and the
-//   status chip (#vec-chip) reports it.
-// No text-selection layer is added: dragging selects a region, and a text layer would conflict with it.
-const PDFJS_VERSION = '__PDFJS_VERSION__';
+// The PDF document on screen, its drawing state and cached documents.
 const VECTOR_PIXEL_CAP = 16777216,
   VECTOR_KEEP_MARGIN = '150% 0px',
   VECTOR_DETAIL_MARGIN = 0.25;
-// PDF.js has no type declarations here: these name the parts of its document, page and outline objects that the viewer
-// calls. A page's reference in a PDF's object table, which an outline destination may name instead of a page number.
-// An outline destination: the page (a number, or its reference), the kind of view ({ name: 'XYZ' } carries the left and
-// top edges that follow), and the view's numbers.
-// One item of a PDF's outline: its title, where it goes (a destination, or the name of one) and its children.
-// A page's viewport at a scale: its size and the matrix from PDF units to the canvas.
-// A render of a page onto a canvas, which cancel() ends early.
-// A page of a PDF document (PDFPageProxy).
 // What is drawn for one page (view-draw.ts pageDrawState): its page canvas and the size it was drawn at, its detail canvas
 // with the region of the page (fractions) it covers and the size and pixel ratio it was drawn at, and whether the page
 // must be drawn again.
-// An opened PDF document (PDFDocumentProxy).
-// The PDF.js library and a render task are `any`; its document is a PdfDocument, though the cached ones are `any` too.
+// The vector view's state (VECTOR_PDF): the PDF.js library once imported, the document on screen and its build, the
+// generation each open and each failure bumps (a draw of an older one is dropped), why vector drawing gave up, the observer of the pages near the view and those pages,
+// what is drawn for each page, the render running now, whether the draw queue is being worked, its timer, the draws'
+// timings, when the first page and the document were drawn, and the opened documents cached by 'document|build'.
+// The PDF.js library (types/pdfjs.d.ts), the document on screen and the opened documents cached by 'document|build'.
 const VECTOR_PDF = {
   lib: null,
   doc: null,
@@ -10524,31 +11050,30 @@ const VECTOR_PDF = {
   tDoc: null,
   cache: new Map(),
 };
-// Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
-// switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first
-// (worker memory). An old build of the same document is closed when a new build opens.
-const VECTOR_CACHE_MAX = 3;
-function vectorCacheKey(docName, build) {
-  return (docName || '') + '|' + (build || '');
+// Each sets one field of VECTOR_PDF for another module that changes it (ADR-0042 D1): the assignment, nothing more.
+function setVectorFailed(value) {
+  VECTOR_PDF.failed = value;
 }
-function cacheVectorDocument(key, doc) {
-  const cache = VECTOR_PDF.cache;
-  cache.delete(key);
-  cache.set(key, doc);
-  const docPrefix = key.split('|')[0] + '|';
-  Array.from(cache.keys()).forEach((cachedKey) => {
-    if (cachedKey !== key && cachedKey.startsWith(docPrefix)) {
-      const cachedDoc = cache.get(cachedKey);
-      cache.delete(cachedKey);
-      if (cachedDoc !== VECTOR_PDF.doc) closeVectorDocument(cachedDoc);
-    }
-  });
-  while (cache.size > VECTOR_CACHE_MAX) {
-    const cachedKey = cache.keys().next().value,
-      cachedDoc = cache.get(cachedKey);
-    cache.delete(cachedKey);
-    if (cachedDoc !== VECTOR_PDF.doc && cachedDoc !== doc) closeVectorDocument(cachedDoc);
-  }
+function advanceVectorGeneration() {
+  return ++VECTOR_PDF.gen;
+}
+function setVectorDocument(value) {
+  VECTOR_PDF.doc = value;
+}
+function setVectorObserver(value) {
+  VECTOR_PDF.io = value;
+}
+function setVectorTimer(value) {
+  VECTOR_PDF.timer = value;
+}
+function setVectorPumping(value) {
+  VECTOR_PDF.pumping = value;
+}
+function setVectorCurrent(value) {
+  VECTOR_PDF.cur = value;
+}
+function setVectorFirstDrawn(value) {
+  VECTOR_PDF.tFirst = value;
 }
 // Whether a PDF document object is one the cache still holds (and so must not be closed).
 function isVectorCached(doc) {
@@ -10563,103 +11088,18 @@ function forgetVectorDocument(doc) {
 }
 // For measurement (Playwright): canvas count, render time.
 window.__pinVec = VECTOR_PDF;
-// Loads pdf.js (once) and opens the PDF on screen; a browser without IntersectionObserver keeps the PNG pages.
-async function bootVector() {
-  if (!window.IntersectionObserver) {
-    failVector('이 브라우저는 IntersectionObserver 가 없습니다');
-    return;
-  }
-  try {
-    VECTOR_PDF.lib = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
-    VECTOR_PDF.lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
-  } catch (error) {
-    VECTOR_PDF.lib = null;
-    failVector('pdf.js 를 불러오지 못했습니다', error);
-    return;
-  }
-  await openVectorDocument();
+
+function setVectorLibrary(library) {
+  VECTOR_PDF.lib = library;
 }
-// Opens the PDF for the currently displayed build (META.pages_build). A PDF whose page count differs from the pages on
-// screen is never used: its coordinates would be off.
-async function openVectorDocument() {
-  // A Markdown document has no PDF: the PDF work still pending for the document left (its fetch, outline, pages) is
-  // stale from here, or its outline would land over the Markdown headings.
-  if (isMarkdownDoc()) {
-    VECTOR_PDF.gen++;
-    cancelVectorDraw();
-    return;
-  }
-  if (!VECTOR_PDF.lib || !META) return;
-  const gen = ++VECTOR_PDF.gen,
-    build = META.pages_build || '',
-    pageCount = META.pages.length,
-    key = vectorCacheKey(DOC, build);
-  let doc = VECTOR_PDF.cache.get(key);
-  cancelVectorDraw();
-  // Another document or build: its search starts empty (pdf/flow.ts), and the outline and page names of the document
-  // left behind are not the new one's (pdf/view-outline.ts).
-  searchClear();
-  outlineForget();
-  if (!doc) {
-    // The old document (a different document or an old build) is never used for the new page DOM: the PNG pages show
-    // while the PDF is fetched.
-    const previousDoc = VECTOR_PDF.doc;
-    VECTOR_PDF.doc = null;
-    VECTOR_PDF.build = null;
-    if (previousDoc && !isVectorCached(previousDoc)) closeVectorDocument(previousDoc);
-    try {
-      const response = await fetch(
-        withDocQuery('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(META.built_at || '')),
-      );
-      if (!response.ok) throw new Error('PDF HTTP ' + response.status);
-      const data = new Uint8Array(await response.arrayBuffer());
-      if (gen !== VECTOR_PDF.gen) return;
-      doc = await VECTOR_PDF.lib.getDocument({ data, isEvalSupported: false, useWasm: false, enableXfa: false })
-        .promise;
-    } catch (error) {
-      if (gen === VECTOR_PDF.gen) failVector('PDF 를 벡터로 열지 못했습니다', error);
-      return;
-    }
-    if (gen !== VECTOR_PDF.gen) {
-      closeVectorDocument(doc);
-      return;
-    }
-    if (doc.numPages !== pageCount) {
-      closeVectorDocument(doc);
-      failVector(
-        translateTemplate('PDF 쪽 수({pdf})가 화면({view})과 다릅니다', { pdf: doc.numPages, view: pageCount }),
-      );
-      return;
-    }
-    cacheVectorDocument(key, doc);
-  } else cacheVectorDocument(key, doc); // promoted as most recently used
-  if (gen !== VECTOR_PDF.gen) return;
-  const old = VECTOR_PDF.doc;
-  VECTOR_PDF.doc = doc;
+function setVectorBuild(build) {
   VECTOR_PDF.build = build;
-  VECTOR_PDF.failed = null;
-  VECTOR_PDF.tDoc = performance.now();
-  $('#vec-chip').hidden = true;
-  loadOutline(doc, gen);
-  searchOffer(); // its text can be searched now
-  VECTOR_PDF.st.forEach((pageState) => {
-    pageState.stale = true;
-  });
-  if (old && old !== doc && !isVectorCached(old)) closeVectorDocument(old);
-  scheduleVectorDraw(0);
+}
+function setVectorOpenedAt(time) {
+  VECTOR_PDF.tDoc = time;
 }
 
-// ------------------------------------------------ The outline: reading it, the section strip, picks and the filter
-
-// One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
-// Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
-// One label of GET /api/outline-labels: the LaTeX number, title, printed page, sectioning level and anchor of a heading.
-// How much of a PDF's outline the viewer reads (docs/handbook/viewer.md §모바일 레이아웃): the first
-// OUTLINE_MAX_ENTRIES entries in outline order, down to level OUTLINE_MAX_DEPTH (0 is the top level, so five levels).
-// What is left unread is counted (OUTLINE_CUT) and said at the end of the outline and of its filter's results
-// (outlineCutNote) - never dropped without a word.
-const OUTLINE_MAX_ENTRIES = 2000,
-  OUTLINE_MAX_DEPTH = 4;
+// Read the opened PDF's outline and update both the outline and page lists.
 // Sibling entries whose destinations are resolved at once (each is a round trip to the PDF.js worker).
 const OUTLINE_BATCH = 100;
 // How many entries that name a place (a destination) lie in item and below it. Counts without resolving anything, and
@@ -10673,11 +11113,6 @@ function outlineCount(item) {
   }
   return count;
 }
-// Which document and build the entries in OUTLINE_ENTRIES were read for (outlineForget drops them when another document
-// comes on screen; the page list names a figure's pages by them only while they are those of the build on screen,
-// outlineOnScreen).
-let OUTLINE_DOC = null,
-  OUTLINE_BUILD = '';
 // Reads the outline of the PDF document opened as generation gen (VECTOR_PDF.gen) into OUTLINE_ENTRIES, with the
 // numbers and printed page labels the server reads for the build (mergeOutlineLabels), and draws it. A newer open drops
 // it.
@@ -10750,13 +11185,180 @@ async function loadOutline(doc, gen) {
   // The PDF's own outline is still usable when the numbering service cannot be reached.
   if (entries.length) {
     try {
-      const answer = (await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true }))
-        .data;
-      if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
+      const answer = (
+        await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true })
+      ).data;
+      if (!stale() && docName === DOC && build === knownMeta().pages_build && answer.build === build)
         entries = mergeOutlineLabels(entries, answer.labels || []);
     } catch (error) {}
   }
   if (stale()) return;
+  applyPdfOutline(entries, cut, docName, build);
+  // A page list opened while this was read names its pages now.
+  refreshPageLists();
+}
+
+// ------------------------------------------------ Vector rendering (PDF.js) - docs/handbook/viewer.md §벡터 렌더링
+// Each page draws the PDF directly onto a canvas. Backing size = page CSS size x devicePixelRatio (x the browser's
+// pinch scale), and app zoom is already baked into each page's CSS width (pt_w x PAGE_SCALE). The page box, aspect
+// ratio and % coordinates are the PNG page's, so drag frac, marks and pdf_build do not depend on the renderer.
+// - Only pages near the visible area (VECTOR_KEEP_MARGIN) are drawn; canvases for pages that scroll away are released
+//   (IntersectionObserver).
+// - A single canvas never exceeds VECTOR_PIXEL_CAP pixels. At zoom beyond that, the page canvas is capped and a detail
+//   canvas (.dt) rendered at native resolution for just the visible portion is overlaid on top.
+// - When zoom changes, the existing canvas is stretched via CSS to stay visible while a debounced redraw happens (no
+//   flicker).
+// - If pdf.js or the PDF fails to load or render, the canvas is torn down, falling back to the PNG <img>, and the
+//   status chip (#vec-chip) reports it.
+// No text-selection layer is added: dragging selects a region, and a text layer would conflict with it.
+const PDFJS_VERSION = '__PDFJS_VERSION__';
+// Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
+// switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first
+// (worker memory). An old build of the same document is closed when a new build opens.
+const VECTOR_CACHE_MAX = 3;
+function vectorCacheKey(docName, build) {
+  return (docName || '') + '|' + (build || '');
+}
+function cacheVectorDocument(key, doc) {
+  const cache = VECTOR_PDF.cache;
+  cache.delete(key);
+  cache.set(key, doc);
+  const docPrefix = key.split('|')[0] + '|';
+  Array.from(cache).forEach(([cachedKey, cachedDoc]) => {
+    if (cachedKey !== key && cachedKey.startsWith(docPrefix)) {
+      cache.delete(cachedKey);
+      if (cachedDoc !== VECTOR_PDF.doc) closeVectorDocument(cachedDoc);
+    }
+  });
+  while (cache.size > VECTOR_CACHE_MAX) {
+    const [cachedKey, cachedDoc] = Array.from(cache)[0];
+    cache.delete(cachedKey);
+    if (cachedDoc !== VECTOR_PDF.doc && cachedDoc !== doc) closeVectorDocument(cachedDoc);
+  }
+}
+// Whether a value is the PDF.js module as the viewer uses it (types/pdfjs.d.ts PdfLibrary): a getDocument function and
+// the worker options.
+function isPdfLibrary(value) {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'getDocument' in value &&
+    typeof value.getDocument === 'function' &&
+    'GlobalWorkerOptions' in value &&
+    typeof value.GlobalWorkerOptions === 'function' &&
+    'workerSrc' in value.GlobalWorkerOptions
+  );
+}
+// Imports the vendored PDF.js module; rejects when what loads is not the module the viewer uses.
+async function importPdfLibrary() {
+  const loaded = await import('/vendor/pdfjs/pdf.min.mjs?v=' + PDFJS_VERSION);
+  if (!isPdfLibrary(loaded))
+    throw new Error('pdf.js did not load as a module with getDocument and GlobalWorkerOptions');
+  return loaded;
+}
+// Loads pdf.js (once) and opens the PDF on screen; a browser without IntersectionObserver keeps the PNG pages.
+async function bootVector() {
+  if (!window.IntersectionObserver) {
+    failVector('이 브라우저는 IntersectionObserver 가 없습니다');
+    return;
+  }
+  try {
+    const library = await importPdfLibrary();
+    setVectorLibrary(library);
+    library.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
+  } catch (error) {
+    setVectorLibrary(null);
+    failVector('pdf.js 를 불러오지 못했습니다', error);
+    return;
+  }
+  await openVectorDocument();
+}
+// Opens the PDF for the currently displayed build (META.pages_build). A PDF whose page count differs from the pages on
+// screen is never used: its coordinates would be off.
+async function openVectorDocument() {
+  // A Markdown document has no PDF: the PDF work still pending for the document left (its fetch, outline, pages) is
+  // stale from here, or its outline would land over the Markdown headings.
+  if (isMarkdownDoc()) {
+    advanceVectorGeneration();
+    cancelVectorDraw();
+    return;
+  }
+  if (!VECTOR_PDF.lib || !META) return;
+  const gen = advanceVectorGeneration(),
+    build = META.pages_build || '',
+    pageCount = META.pages.length,
+    key = vectorCacheKey(DOC, build);
+  let doc = VECTOR_PDF.cache.get(key);
+  cancelVectorDraw();
+  // Another document or build: its search starts empty (pdf/flow.ts), and the outline and page names of the document
+  // left behind are not the new one's (pdf/view-outline.ts).
+  searchClear();
+  outlineForget();
+  if (!doc) {
+    // The old document (a different document or an old build) is never used for the new page DOM: the PNG pages show
+    // while the PDF is fetched.
+    const previousDoc = VECTOR_PDF.doc;
+    setVectorDocument(null);
+    setVectorBuild(null);
+    if (previousDoc && !isVectorCached(previousDoc)) closeVectorDocument(previousDoc);
+    try {
+      const response = await fetch(
+        withDocQuery('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(META.built_at || '')),
+      );
+      if (!response.ok) throw new Error('PDF HTTP ' + response.status);
+      const data = new Uint8Array(await response.arrayBuffer());
+      if (gen !== VECTOR_PDF.gen) return;
+      doc = await VECTOR_PDF.lib.getDocument({ data, isEvalSupported: false, useWasm: false, enableXfa: false })
+        .promise;
+    } catch (error) {
+      if (gen === VECTOR_PDF.gen) failVector('PDF 를 벡터로 열지 못했습니다', error);
+      return;
+    }
+    if (gen !== VECTOR_PDF.gen) {
+      closeVectorDocument(doc);
+      return;
+    }
+    if (doc.numPages !== pageCount) {
+      closeVectorDocument(doc);
+      failVector(
+        translateTemplate('PDF 쪽 수({pdf})가 화면({view})과 다릅니다', { pdf: doc.numPages, view: pageCount }),
+      );
+      return;
+    }
+    cacheVectorDocument(key, doc);
+  } else cacheVectorDocument(key, doc); // promoted as most recently used
+  if (gen !== VECTOR_PDF.gen) return;
+  const old = VECTOR_PDF.doc;
+  setVectorDocument(doc);
+  setVectorBuild(build);
+  setVectorFailed(null);
+  setVectorOpenedAt(performance.now());
+  $('#vec-chip').hidden = true;
+  loadOutline(doc, gen);
+  searchOffer(); // its text can be searched now
+  VECTOR_PDF.st.forEach((pageState) => {
+    pageState.stale = true;
+  });
+  if (old && old !== doc && !isVectorCached(old)) closeVectorDocument(old);
+  scheduleVectorDraw(0);
+}
+
+// ------------------------------------------------ The outline: reading it, the section strip, picks and the filter
+// One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
+// Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
+// One label of GET /api/outline-labels: the LaTeX number, title, printed page, sectioning level and anchor of a heading.
+// How much of a PDF's outline the viewer reads (docs/handbook/viewer.md §모바일 레이아웃): the first
+// OUTLINE_MAX_ENTRIES entries in outline order, down to level OUTLINE_MAX_DEPTH (0 is the top level, so five levels).
+// What is left unread is counted (OUTLINE_CUT) and said at the end of the outline and of its filter's results
+// (outlineCutNote) - never dropped without a word.
+const OUTLINE_MAX_ENTRIES = 2000,
+  OUTLINE_MAX_DEPTH = 4;
+// Which document and build the entries in OUTLINE_ENTRIES were read for (outlineForget drops them when another document
+// comes on screen; the page list names a figure's pages by them only while they are those of the build on screen,
+// outlineOnScreen).
+let OUTLINE_DOC = null,
+  OUTLINE_BUILD = '';
+function applyPdfOutline(entries, cut, docName, build) {
   OUTLINE_ENTRIES = entries;
   OUTLINE_CUT = cut;
   OUTLINE_DOC = docName;
@@ -10766,8 +11368,6 @@ async function loadOutline(doc, gen) {
   OUTLINE_PINNED = null;
   renderOutline();
   updateSectionStrip();
-  // A page list opened while this was read names its pages now.
-  refreshPageLists();
 }
 // Drops the outline of the document that was on screen before, when another one comes on screen (openVectorDocument):
 // the page list and the section strip would otherwise name its pages by the old document's headings until the new
@@ -11052,7 +11652,7 @@ function outlineFiltered() {
 // focus after its pick: reading on must not leave the outline behind.
 function outlineHeld() {
   const focused = document.activeElement;
-  const onRow = !!focused && !!focused.closest && !!focused.closest('#outline-items');
+  const onRow = !!focused && !!focused.closest('#outline-items');
   return (
     outlineFiltered() ||
     OUTLINE_OVER ||
@@ -11095,7 +11695,7 @@ function outlineFollow(open) {
       start = start.previousElementSibling;
     return start.getBoundingClientRect().top - from;
   };
-  const entry = OUTLINE_ENTRIES[Number((row).dataset.index)],
+  const entry = OUTLINE_ENTRIES[Number(row instanceof HTMLElement ? row.dataset.index : undefined)],
     sectionHead = entry && entry.up >= 0 ? list.querySelector('[data-index="' + entry.up + '"]') : null;
   // The tablet sheet's bar and the status line on it stand over the overlay's foot (frame.css: the overlay runs to the
   // screen's bottom): what they cover is out of view, so the view is that much shorter and so is what the list can
@@ -11391,7 +11991,7 @@ function updateSectionStrip() {
 // and typed in, and the first ↓ must show where the focus went.
 /** @returns the result rows (the unread-entries note is not one) */
 function outlineRows(box) {
-  return [...box.querySelectorAll('button[data-act="outline-page"]')];
+  return findAll(box, 'button[data-act="outline-page"]', HTMLElement);
 }
 // Wires one filter field to its list and its live region (outlineSay).
 function outlineFilter(field, box, status) {
@@ -11419,12 +12019,9 @@ function outlineFilter(field, box, status) {
     if (event.key === 'Enter') first.click();
   });
   box.addEventListener('keydown', (event) => {
-    const row = (
-      event.target && (event.target).closest
-        ? (event.target).closest('button[data-act="outline-page"]')
-        : null
-    );
-    if (!row || !mine(event)) return;
+    const target = eventElement(event),
+      row = target ? target.closest('button[data-act="outline-page"]') : null;
+    if (!(row instanceof HTMLElement) || !mine(event)) return;
     const rows = outlineRows(box),
       at = rows.indexOf(row);
     if (event.key === 'Escape') {
@@ -11563,12 +12160,12 @@ for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, dropOutlinePick, { passive: true });
 // A key scrolls the pages when nothing else has the focus, or something on the pages has it.
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const focused = document.activeElement;
   if (SCROLL_KEYS.has(event.key) && (!focused || focused === document.body || $('#left').contains(focused)))
     dropOutlinePick();
 });
-addEventListener('resize', dropOutlinePick);
+window.addEventListener('resize', dropOutlinePick);
 // Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setOutlineBuild(value) {
   OUTLINE_BUILD = value;
@@ -11677,7 +12274,7 @@ function pageRowsHtml(pageTotal, currentPage) {
 }
 // Scrolls list so that its selected row sits in the middle of the list's box (as far as the list can scroll).
 function revealPageRow(list) {
-  const selectedRow = list.querySelector('[aria-selected=true]');
+  const selectedRow = findMaybe(list, '[aria-selected=true]', HTMLElement);
   if (!selectedRow) return;
   list.scrollTop = selectedRow.offsetTop - (list.clientHeight - selectedRow.offsetHeight) / 2;
 }
@@ -11700,7 +12297,7 @@ function openPageList(from) {
   popover.hidden = false;
   drawPopoverRows();
   revealPageRow(list);
-  const row = list.querySelector('[aria-selected=true]');
+  const row = findMaybe(list, '[aria-selected=true]', HTMLElement);
   (COARSE_POINTER_QUERY.matches && row ? row : pageField).focus({ preventScroll: true });
 }
 // Draws the popover's rows - for the page on screen, the names and titles as they are now - and what depends on them:
@@ -11723,9 +12320,9 @@ function drawPopoverRows() {
 function keepRowFocus(list, draw) {
   const focused = document.activeElement,
     row = focused && list.contains(focused) ? focused.closest('.pl-row') : null,
-    page = row && (row).dataset.page;
+    page = row instanceof HTMLElement ? row.dataset.page : undefined;
   draw();
-  const again = page ? (list.querySelector('.pl-row[data-page="' + page + '"]')) : null;
+  const again = page ? findMaybe(list, '.pl-row[data-page="' + page + '"]', HTMLElement) : null;
   if (again) again.focus({ preventScroll: true });
 }
 // A figure document's row whose title the row cuts short (an ellipsis) carries the whole title as its description:
@@ -11733,8 +12330,9 @@ function keepRowFocus(list, draw) {
 // press is swallowed - a tap still goes to the page). A title that fits carries none. Needs the rows laid out.
 function tipCutTitles(list) {
   if (pageListNamed()) return;
-  for (const nameCell of list.querySelectorAll('.pl-s')) {
+  for (const nameCell of findAll(list, '.pl-s', HTMLElement)) {
     const row = nameCell.closest('.pl-row');
+    if (!(row instanceof HTMLElement)) continue;
     if (nameCell.scrollWidth > nameCell.clientWidth + 0.5) row.dataset.tip = nameCell.textContent || '';
     else delete row.dataset.tip;
   }
@@ -11763,9 +12361,9 @@ function placePageList() {
   const rect = from.getBoundingClientRect(),
     popoverWidth = popover.offsetWidth,
     top = rect.bottom + 4;
-  popover.style.left = Math.max(8, Math.min(rect.right - popoverWidth, innerWidth - 8 - popoverWidth)) + 'px';
+  popover.style.left = Math.max(8, Math.min(rect.right - popoverWidth, window.innerWidth - 8 - popoverWidth)) + 'px';
   popover.style.top = top + 'px';
-  popover.style.setProperty('--pl-room', Math.max(0, innerHeight - 8 - top) + 'px');
+  popover.style.setProperty('--pl-room', Math.max(0, window.innerHeight - 8 - top) + 'px');
 }
 // Shuts the popover; back gives the focus back to the page count that opened it (Esc, a choice), an outside click
 // leaves it.
@@ -11804,15 +12402,15 @@ function drawSheetPages() {
 // go to the current page's row; Enter on a row is its click, Enter in the field goes to the typed page (clamped to the
 // page count).
 function pageListKey(event) {
-  const target = event.target;
-  if (imeKey(event)) return;
+  const target = eventElement(event);
+  if (!target || imeKey(event)) return;
   if (target.id === 'page-pop-in') {
     if (event.key === 'Enter') {
       event.preventDefault();
-      const page = clampPage((target).value, pageCount());
+      const page = clampPage($('#page-pop-in').value, pageCount());
       if (page !== null) goListedPage(page);
     } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      const selectedRow = $('#page-pop-list [aria-selected=true]');
+      const selectedRow = findMaybe(document, '#page-pop-list [aria-selected=true]', HTMLElement);
       if (selectedRow) {
         event.preventDefault();
         selectedRow.focus();
@@ -11820,9 +12418,10 @@ function pageListKey(event) {
     }
     return;
   }
-  const row = target.closest('.pl-row');
-  if (!row) return;
-  const rows = [...(row.parentElement).children],
+  const row = target.closest('.pl-row'),
+    rowList = row && row.parentElement;
+  if (!(row instanceof HTMLElement) || !rowList) return;
+  const rows = findAll(rowList, ':scope > *', HTMLElement),
     rowIndex = rows.indexOf(row);
   const to = { ArrowDown: rowIndex + 1, ArrowUp: rowIndex - 1, Home: 0, End: rows.length - 1 }[event.key];
   if (to === undefined) return;
@@ -11837,7 +12436,7 @@ $('#ns-pages').addEventListener('keydown', pageListKey);
 document.addEventListener(
   'click',
   (event) => {
-    const target = event.target;
+    const target = eventElement(event);
     if (
       !$('#page-pop').hidden &&
       !$('#page-pop').contains(target) &&
@@ -11847,7 +12446,7 @@ document.addEventListener(
   },
   true,
 );
-addEventListener('resize', placePageList);
+window.addEventListener('resize', placePageList);
 
 // ------------------------------------------ Vector rendering: drawing the pages (docs/handbook/viewer.md §벡터 렌더링)
 // The pages of the PDF pdf/flow-open.ts opened, drawn onto canvases one job at a time: pages within the viewport first,
@@ -11862,13 +12461,13 @@ function closeVectorDocument(doc) {
 }
 // Gives up on vector drawing for the document on screen: the pages stay PNG, and #vec-chip says why.
 function failVector(message, cause) {
-  VECTOR_PDF.failed = message;
-  VECTOR_PDF.gen++;
+  setVectorFailed(message);
+  advanceVectorGeneration();
   cancelVectorDraw();
   releaseAllVectorPages();
   forgetVectorDocument(VECTOR_PDF.doc);
   closeVectorDocument(VECTOR_PDF.doc);
-  VECTOR_PDF.doc = null;
+  setVectorDocument(null);
   // No PDF to read: no search.
   searchOffer();
   const chip = $('#vec-chip');
@@ -11916,7 +12515,7 @@ function releaseAllVectorPages() {
 }
 function cancelVectorDraw() {
   const drawing = VECTOR_PDF.cur;
-  VECTOR_PDF.cur = null;
+  setVectorCurrent(null);
   if (drawing && drawing.task) {
     try {
       drawing.task.cancel();
@@ -11928,10 +12527,10 @@ function observeVectorPages() {
   releaseAllVectorPages();
   VECTOR_PDF.near.clear();
   if (!window.IntersectionObserver) return;
-  const io = (VECTOR_PDF.io = new IntersectionObserver(
+  const io = new IntersectionObserver(
     (entries) => {
       entries.forEach((en) => {
-        const pageNumber = Number((en.target).dataset.page);
+        const pageNumber = Number(en.target instanceof HTMLElement ? en.target.dataset.page : undefined);
         if (en.isIntersecting) VECTOR_PDF.near.add(pageNumber);
         else {
           VECTOR_PDF.near.delete(pageNumber);
@@ -11941,12 +12540,13 @@ function observeVectorPages() {
       scheduleVectorDraw(0);
     },
     { root: $('#left'), rootMargin: VECTOR_KEEP_MARGIN },
-  ));
+  );
+  setVectorObserver(io);
   $$('.pg').forEach((pageElement) => io.observe(pageElement));
 }
 function scheduleVectorDraw(ms) {
   clearTimeout(VECTOR_PDF.timer);
-  VECTOR_PDF.timer = setTimeout(pumpDrawJobs, ms || 0);
+  setVectorTimer(setTimeout(pumpDrawJobs, ms || 0));
 }
 // Zoom, window size or DPR changed: whatever was being drawn (at the old size) is discarded and redrawn shortly after.
 // Meanwhile, the old canvas is shown stretched.
@@ -12022,7 +12622,7 @@ function nextDrawJob() {
     top = areaRect.top,
     bottom = areaRect.top + pdfArea.clientHeight,
     centerY = (top + bottom) / 2;
-  const list = []; // vis: a boolean, subtracted to sort
+  const list = [];
   VECTOR_PDF.near.forEach((pageNumber) => {
     const pageElement = document.getElementById('p' + pageNumber);
     if (!pageElement) return;
@@ -12034,7 +12634,7 @@ function nextDrawJob() {
       d: Math.abs((pageRect.top + pageRect.bottom) / 2 - centerY),
     });
   });
-  list.sort((first, second) => second.vis - first.vis || first.d - second.d);
+  list.sort((first, second) => Number(second.vis) - Number(first.vis) || first.d - second.d);
   for (const candidate of list) {
     const pageState = pageDrawState(candidate.n),
       target = pageBackingTarget(candidate.pg);
@@ -12062,7 +12662,7 @@ function nextDrawJob() {
 // Runs the draw jobs one after another until none is left; one pump at a time.
 async function pumpDrawJobs() {
   if (VECTOR_PDF.pumping || !VECTOR_PDF.doc) return;
-  VECTOR_PDF.pumping = true;
+  setVectorPumping(true);
   try {
     for (let i = 0; i < 400; i++) {
       const job = nextDrawJob();
@@ -12070,7 +12670,7 @@ async function pumpDrawJobs() {
       await runDrawJob(job);
     }
   } finally {
-    VECTOR_PDF.pumping = false;
+    setVectorPumping(false);
   }
 }
 async function runDrawJob(job) {
@@ -12126,22 +12726,24 @@ async function runDrawJob(job) {
   }
   const canvasContext = canvas.getContext('2d', { alpha: false }),
     startedAt = performance.now();
+  // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way, outside the try.
+  if (!canvasContext) throw new Error('the page canvas has no 2D context');
   const task = page.render({
     canvasContext: canvasContext,
     viewport: page.getViewport({ scale }),
     transform: transform,
   });
-  VECTOR_PDF.cur = { n: pageNumber, task };
+  setVectorCurrent({ n: pageNumber, task });
   try {
     await task.promise;
   } catch (error) {
-    if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) VECTOR_PDF.cur = null;
+    if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) setVectorCurrent(null);
     dropCanvas(canvas);
-    if (error && (error).name === 'RenderingCancelledException') return;
+    if (error instanceof Error && error.name === 'RenderingCancelledException') return;
     if (gen === VECTOR_PDF.gen) failVector('쪽을 그리지 못했습니다', error);
     return;
   }
-  if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) VECTOR_PDF.cur = null;
+  if (VECTOR_PDF.cur && VECTOR_PDF.cur.task === task) setVectorCurrent(null);
   const targetAfter =
     gen === VECTOR_PDF.gen && VECTOR_PDF.near.has(pageNumber) && document.contains(pageElement)
       ? pageBackingTarget(pageElement)
@@ -12169,8 +12771,8 @@ async function runDrawJob(job) {
     canvas.className = 'vb';
     pageElement.prepend(canvas);
     pageElement.classList.add('drawn');
-    if (VECTOR_PDF.tFirst === null) VECTOR_PDF.tFirst = performance.now();
-  } else {
+    if (VECTOR_PDF.tFirst === null) setVectorFirstDrawn(performance.now());
+  } else if (region) {
     // A detail job always measures its region above.
     const drawnRegion = region;
     dropCanvas(pageState.dt);
@@ -12421,8 +13023,9 @@ function searchBlocks(lines) {
     const block = blockCount++,
       queue = [index];
     blockOf[index] = block;
-    while (queue.length) {
-      const currentBox = lines[queue.pop()].box;
+    for (let next = queue.pop(); next !== undefined; next = queue.pop()) {
+      const currentBox = lines[next].box;
+      if (!currentBox) continue; // only a line with a box is ever in no block yet (-2), so queued
       lines.forEach((otherLine, otherIndex) => {
         const otherBox = otherLine.box;
         if (blockOf[otherIndex] !== -2 || !otherBox || otherBox.ang !== currentBox.ang) return;
@@ -12450,7 +13053,7 @@ const SEARCH_GUTTER = Object.freeze({ MIN: 8, MIDDLE: 0.2, SIDE: 0.25, BAR: 0.1 
 // running head cross it. The count changes only where a line starts or ends, so it is read there and a column gap is
 // measured as wide as it is (LaTeX's default \columnsep is 10pt). Pure.
 function searchGutter(lines) {
-  const boxes = lines.map((line) => line.box).filter((box) => box && box.ang === 0);
+  const boxes = lines.map((line) => line.box).filter((box) => !!box && box.ang === 0);
   if (boxes.length < 8) return null;
   const at = [...new Set(boxes.flatMap((box) => [box.x0, box.x1]))].sort((first, second) => first - second),
     low = at[0],
@@ -12485,7 +13088,8 @@ function searchGutter(lines) {
   if (!best || best[1] - best[0] < SEARCH_GUTTER.MIN) return null;
   const gutter = best,
     middle = (gutter[0] + gutter[1]) / 2;
-  const lengthOf = (test) => boxes.filter(test).reduce((sum, box) => sum + box.x1 - box.x0, 0),
+  const lengthOf = (test) =>
+      boxes.filter(test).reduce((sum, box) => sum + box.x1 - box.x0, 0),
     all = lengthOf(() => true);
   return lengthOf((box) => box.x1 <= middle) < SEARCH_GUTTER.SIDE * all ||
     lengthOf((box) => box.x0 >= middle) < SEARCH_GUTTER.SIDE * all
@@ -12504,13 +13108,15 @@ function searchGutter(lines) {
 // under such a line would otherwise reach its own longest entry and run into the next entry (ADR-0017's rejected
 // candidate D). The crossing line keeps its block's edges, and a block that crosses nothing keeps its own. A column's
 // measure says whose it is (col: 0 left, 1 right) and carries the block's edges (blk), for searchJoin. Pure.
-function searchEdges(lines) {
+function searchEdges(
+  lines,
+) {
   const blockOf = searchBlocks(lines),
     blockEdges = [];
   lines.forEach((line, index) => {
-    const block = blockOf[index];
-    if (block < 0) return;
-    const box = line.box;
+    const block = blockOf[index],
+      box = line.box;
+    if (block < 0 || !box) return; // a line in a block has a box (searchBlocks)
     blockEdges[block] = blockEdges[block]
       ? { l: Math.min(blockEdges[block].l, box.x0), r: Math.max(blockEdges[block].r, box.x1) }
       : { l: box.x0, r: box.x1 };
@@ -12526,7 +13132,9 @@ function searchEdges(lines) {
     high = [gutter[0], Infinity];
   const col = [0, 1].map((sideIndex) =>
     Math.max(
-      ...lines.filter((line, index) => side[index] === sideIndex).map((line) => Math.min(line.box.x1, high[sideIndex])),
+      ...lines
+        .filter((line, index) => side[index] === sideIndex && !!line.box)
+        .map((line) => Math.min(line.box.x1, high[sideIndex])),
     ),
   );
   const crossed = new Set(
@@ -12534,22 +13142,21 @@ function searchEdges(lines) {
     ),
     left = new Map();
   lines.forEach((line, index) => {
-    const sideIndex = side[index];
-    if (sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])) return;
+    const sideIndex = side[index],
+      box = line.box;
+    // side 0 or 1 is a line with a box
+    if (sideIndex > 1 || sideIndex < 0 || !box || !crossed.has(blockOf[index])) return;
     const key = blockOf[index] + ':' + sideIndex,
-      x = Math.max(line.box.x0, low[sideIndex]);
+      x = Math.max(box.x0, low[sideIndex]);
     left.set(key, Math.min(left.get(key) ?? x, x));
   });
+  // a line of side 0 or 1 in a crossed block has its block's edges and its side's left edge (both set above)
   return out.map((edges, index) => {
-    const sideIndex = side[index];
-    return sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index])
+    const sideIndex = side[index],
+      edge = left.get(blockOf[index] + ':' + sideIndex);
+    return sideIndex > 1 || sideIndex < 0 || !crossed.has(blockOf[index]) || edge === undefined || !edges
       ? edges
-      : {
-          l: left.get(blockOf[index] + ':' + sideIndex),
-          r: col[sideIndex],
-          col: sideIndex,
-          blk: edges,
-        };
+      : { l: edge, r: col[sideIndex], col: sideIndex, blk: edges };
   });
 }
 // The break between a line and the next one, with their column edges (searchEdges): a SEARCH_BREAK mark. Pure.
@@ -12730,10 +13337,10 @@ function searchKey(
   return /^\p{Script=Latin}$/u.test(key) ? key.toLowerCase() === 'f' : event.code === 'KeyF';
 }
 
-// One text item of a PDF page as PDF.js reads it (getTextContent): its text, its transform matrix, its width in PDF units,
-// its font's name and whether a line ends after it.
-// A font's metrics as PDF.js gives them with the text: its family and its ascent and descent in em.
 // Where a line piece stands (searchLines): along the line x0 to x1, across it y, with its font size and angle.
+// One text item of a line being read (searchLines): its index among the page's items, the item, whether its matrix is
+// upright (ok), where it starts along the line (x), how wide it is, where it stands across the line (y), its font size
+// and the line's angle in whole degrees.
 // One piece of a line (searchLines): its folded text, the map back to its own text, the items it holds, its last
 // character, whether its line is in one piece, and its geometry (null for text that is skewed or mirrored).
 // A page's text as one flow (searchFlow): the flow and, for each line, where it starts, how many characters the trim cuts
@@ -12794,8 +13401,8 @@ function searchPageHits(page, pageNumber, pattern) {
 // measure.
 let SEARCH_CONTEXT = null;
 function searchMeasure(text, family) {
-  const context = (SEARCH_CONTEXT ||
-    (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d')));
+  const context = SEARCH_CONTEXT || (SEARCH_CONTEXT = document.createElement('canvas').getContext('2d'));
+  if (!context) throw new Error('searchMeasure: no 2D canvas context');
   context.font = '100px ' + family;
   return context.measureText(text).width;
 }
@@ -12826,11 +13433,15 @@ function searchPieceBox(page, [line, from, to]) {
   }
   return x1 >= x0 ? [x0, y0, x1 - x0, y1 - y0] : [0, 0, 0, 0];
 }
-// A hit's boxes on its page, one for each line it lies on.
+// A hit's boxes on its page, one for each line it lies on. A hit is of the searched document, so none without one.
 function searchBoxes(hit) {
-  return (
-    hit.boxes || (hit.boxes = hit.pieces.map((piece) => searchPieceBox(searchPages(SEARCH.doc)[hit.page - 1], piece)))
-  );
+  if (hit.boxes) return hit.boxes;
+  const doc = SEARCH.doc;
+  if (!doc) return [];
+  // A hit is found on a read page and a read page stays read, so the page is there; the type does not say so.
+  const page = searchPages(doc)[hit.page - 1];
+  if (!page) return [];
+  return (hit.boxes = hit.pieces.map((piece) => searchPieceBox(page, piece)));
 }
 // Draws a page's hit boxes (the current hit's marked, every one of them), or removes them when the page is not near the
 // view or has none.
@@ -12862,7 +13473,7 @@ function searchWatch() {
   const io = (SEARCH.io = new IntersectionObserver(
     (entries) => {
       for (const en of entries) {
-        const pageNumber = Number((en.target).dataset.page);
+        const pageNumber = Number(en.target instanceof HTMLElement ? en.target.dataset.page : undefined);
         if (en.isIntersecting) SEARCH.near.add(pageNumber);
         else SEARCH.near.delete(pageNumber);
         searchDrawPage(pageNumber);
@@ -12969,9 +13580,10 @@ function searchShift(hit) {
 // Picks the current hit when there is none: the first at or after the reference, once every page between the two has
 // been read (or could not be); the first of all once the pages from the reference on hold none.
 function searchPick() {
-  if (SEARCH.cur || !SEARCH.hits.length) return;
+  const doc = SEARCH.doc;
+  if (SEARCH.cur || !SEARCH.hits.length || !doc) return;
   const reference = SEARCH.ref,
-    pages = searchPages(SEARCH.doc);
+    pages = searchPages(doc);
   const candidate = SEARCH.hits.find(
     (hit) =>
       hit.page > reference.page ||
@@ -13013,7 +13625,10 @@ function searchPaint() {
 // A page's text in PDF document doc: its items and styles, and the page's viewport at scale 1. The one place a page's
 // text is read - the search reads every page through it, and a selection made with no network the page it was drawn
 // on (offline/flow.ts offlineQuote). Rejects as PDF.js does when the page cannot be read.
-async function pageText(doc, pageNumber) {
+async function pageText(
+  doc,
+  pageNumber,
+) {
   const page = await doc.getPage(pageNumber),
     textContent = await page.getTextContent(),
     viewport = page.getViewport({ scale: 1 });
@@ -13059,7 +13674,8 @@ async function searchRead() {
         if (SEARCH.doc === doc) SEARCH.failed.add(pageNumber);
       }
       if (SEARCH.doc !== doc || !SEARCH.q) return;
-      const more = pages[pageNumber - 1] ? searchPageHits(pages[pageNumber - 1], pageNumber, SEARCH.re) : [];
+      const read = pages[pageNumber - 1],
+        more = read ? searchPageHits(read, pageNumber, SEARCH.re) : [];
       if (more.length) SEARCH.hits = SEARCH.hits.concat(more).sort(searchOrder);
       searchPick();
       searchPaint();
@@ -13151,7 +13767,7 @@ function searchFit() {
     px = (value) => parseFloat(value) || 0;
   let used = 0,
     counted = 0;
-  for (const neighbour of [...navigationBar.children]) {
+  for (const neighbour of findAll(navigationBar, ':scope > *', HTMLElement)) {
     if (neighbour === searchRoot || !neighbour.getClientRects().length) continue;
     const neighbourStyle = getComputedStyle(neighbour);
     let width = neighbour.getBoundingClientRect().width;
@@ -13193,7 +13809,7 @@ function searchCover() {
   const searchRoot = $('#doc-search'),
     navigationBar = $('#doc-nav'),
     box = $('#search-box'),
-    neighbours = ([...navigationBar.children]).filter((neighbour) => neighbour !== searchRoot);
+    neighbours = findAll(navigationBar, ':scope > *', HTMLElement).filter((neighbour) => neighbour !== searchRoot);
   const right = (neighbour) =>
     neighbour.getBoundingClientRect().right + Math.min(0, parseFloat(getComputedStyle(neighbour).marginRight) || 0);
   // The natural box first: the span is worked out from it.
@@ -13257,6 +13873,7 @@ function searchCover() {
   // The first (the outline toggle) stays.
   while (span < least && left.length > 1) {
     const nearest = left.pop();
+    if (!nearest) break;
     nearest.classList.replace('search-left', 'search-covered');
     span = searchRoot.getBoundingClientRect().right - edge();
   }
@@ -13310,7 +13927,7 @@ function searchInk() {
     const rowRect = row.getBoundingClientRect(),
       ownRect = own.getBoundingClientRect();
     const base =
-        (probe.firstElementChild).getBoundingClientRect().bottom - probe.getBoundingClientRect().top,
+        findElement(probe, ':scope > *', Element).getBoundingClientRect().bottom - probe.getBoundingClientRect().top,
       stands = field.getBoundingClientRect().top - SEARCH.ink + base;
     ink =
       getComputedStyle(row).fontSize === getComputedStyle(own).fontSize
@@ -13458,7 +14075,7 @@ function searchClose(back) {
 // Another build is on screen (openVectorDocument): the query, its hits and the reading of the old text end; the field
 // stays open while it has the focus, else it folds away with the bar whole again.
 function searchClear() {
-  ($('#search-q')).value = '';
+  $('#search-q').value = '';
   searchRun();
   if (SEARCH.open && !$('#doc-search').contains(document.activeElement)) searchHide();
 }
@@ -13485,16 +14102,16 @@ $('#search-box').addEventListener('focusin', (event) => {
     SEARCH.away = false;
     return;
   }
-  const from = event.relatedTarget;
+  const from = event.relatedTarget instanceof Element ? event.relatedTarget : null;
   if (!(from && $('#search-box').contains(from))) searchFrom(from);
   if (event.target === $('#search-q')) searchShow();
 });
 $('#doc-search').addEventListener('focusout', (event) => {
-  const to = event.relatedTarget;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (to && $('#doc-search').contains(to)) return;
   // The window lost the focus, not the field.
   if (!document.hasFocus()) {
-    SEARCH.away = $('#search-box').contains(event.target);
+    SEARCH.away = $('#search-box').contains(eventElement(event));
     return;
   }
   if (SEARCH.open && !SEARCH.q) searchHide();
@@ -13504,8 +14121,8 @@ $('#doc-search').addEventListener('focusout', (event) => {
 document.addEventListener(
   'pointerdown',
   (event) => {
-    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(event.target)) return;
-    const focused = document.activeElement;
+    if (!SEARCH.open || SEARCH.q || $('#doc-search').contains(eventElement(event))) return;
+    const focused = focusedElement();
     searchHide();
     if (focused && $('#doc-search').contains(focused)) focused.blur();
   },
@@ -13563,8 +14180,6 @@ document.fonts.addEventListener('loadingdone', searchFit);
 // laid out at, the generation stale work compares against (gen), the generation a paint runs for (busy), the frame a
 // paint waits on, whether a paint was asked for while one ran (repaint), the pages, the reading point kept across a
 // layout (anchor) and the reset of the gesture state (resetInput).
-// The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
-// The Safari pinch gesture's event, which the DOM library does not have: the scale since it began and the pinch's point.
 const REVISION_ZOOM = {
   ratio: 1,
   fit: 0,
@@ -13577,6 +14192,10 @@ const REVISION_ZOOM = {
   anchor: null,
   resetInput: () => {},
 };
+// Sets the revision view's zoom ratio, for another module that changes it (ADR-0042 D1).
+function setRevisionZoomRatio(value) {
+  REVISION_ZOOM.ratio = value;
+}
 
 /** Clamp a requested ratio, including non-finite input, to the comparison range. */
 function revisionRatio(ratio) {
@@ -13805,8 +14424,11 @@ async function paintRevisionPdf() {
       item.el.append(canvas);
       item.el.dataset.state = 'loading';
       const viewport = item.page.getViewport({ scale: width / item.base.width });
+      const canvasContext = canvas.getContext('2d');
+      // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way.
+      if (!canvasContext) throw new Error('the comparison canvas has no 2D context');
       const task = item.page.render({
-        canvasContext: canvas.getContext('2d'),
+        canvasContext,
         viewport,
         transform: [target.bw / width, 0, 0, target.bh / height, 0, 0],
       });
@@ -13967,8 +14589,6 @@ async function paintRevisionPdf() {
 // - A Markdown document (markdown/view.ts) has no pages to scale: every one of these leaves its input to the browser -
 //   Ctrl+wheel, a trackpad's gesture and two fingers zoom the page as anywhere else (md-surface.css lets #left pinch
 //   there).
-// Safari's trackpad pinch events (gesturestart, gesturechange, gestureend), which the DOM library does not have: the
-// pinch's scale since it began and where it is.
 // The zoom a key event asks for: 'in', 'out', 'fit' (fit width), or null for any other key.
 function zoomKey(event) {
   const key = event.key,
@@ -14104,6 +14724,40 @@ function wheelFactor(deltaY, mode) {
   pdfArea.addEventListener('touchcancel', end);
 })();
 
+// The width last shown and its bounds - the handle's ARIA value while the panel is open (gripAria).
+let SIDE_SHOWN = null;
+// Shows a panel width without saving it: #right, --side-w, and the handle's ARIA while the panel is open.
+function showSideWidth(width, bounds) {
+  $('#right').style.width = width + 'px';
+  document.documentElement.style.setProperty('--side-w', width + 'px');
+  SIDE_SHOWN = { w: width, min: bounds.min, max: bounds.max };
+  if (SIDE_OPEN) gripAria();
+}
+// The open handle's hint (the markup's, translated by translate()); empty text if the markup gave none.
+const GRIP_TIP = $('#grip').dataset.tip ?? '';
+// The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
+// wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
+function gripAria() {
+  const grip = $('#grip'),
+    shown = SIDE_SHOWN;
+  if (!SIDE_OPEN) {
+    grip.setAttribute('aria-valuenow', '0');
+    grip.setAttribute('aria-valuemin', '0');
+    grip.setAttribute('aria-label', translate('패널 폭') + ' · ' + translate('접힘'));
+    grip.dataset.tip = translate(
+      '끌어서 핀 패널을 폅니다. 두 번 클릭(터치는 탭)하거나 Enter 를 누르면 전에 쓰던 폭으로 폅니다',
+    );
+    return;
+  }
+  grip.setAttribute('aria-label', translate('패널 폭'));
+  grip.dataset.tip = translate(GRIP_TIP);
+  if (shown) {
+    grip.setAttribute('aria-valuenow', String(shown.w));
+    grip.setAttribute('aria-valuemin', String(shown.min));
+    grip.setAttribute('aria-valuemax', String(shown.max));
+  }
+}
+
 // ------------------------------------------------ Layout bands (docs/handbook/viewer.md §모바일 레이아웃)
 // The window's width, height and primary pointer pick a band (layoutFor), and the band a layout mode (BAND_MODE): wide
 // - a right sidebar (width-adjustable); mid - the panel between the nav bar and the action row (an overlay up to 900px,
@@ -14111,7 +14765,6 @@ function wheelFactor(deltaY, mode) {
 // sheet, collapsed by default. If the band changes partway through a collapse/expand or a rotation, the page width is
 // re-fit while preserving the viewed position (topAnchor). Marks and the selection box are % coordinates within the
 // page, so they fall back into place automatically once the page width is fit.
-
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
 // registers them before boot() runs (no code that runs while the script loads lays out the page), and the frame calls
 // each at the point, with the arguments and in the order it called the feature code directly. A call before the
@@ -14163,7 +14816,7 @@ function layoutFor(width, height, coarse) {
 }
 // What layoutFor reads from the window now: {w, h, coarse}.
 function bandInput() {
-  return { w: innerWidth, h: innerHeight, coarse: COARSE_POINTER_QUERY.matches };
+  return { w: window.innerWidth, h: window.innerHeight, coarse: COARSE_POINTER_QUERY.matches };
 }
 // Keeping the band steady on touch (docs/handbook/viewer.md §모바일 레이아웃): a height change under BAND_HOLD_PX from
 // the settled one is the address bar, and a new size or pointer must stay BAND_SETTLE_MS before the band follows it.
@@ -14242,10 +14895,10 @@ function applyLayout() {
 // back yet (its bar not shown before applySide) is returned, and applyLayout tries again.
 function placeBarTools() {
   const bar = $('#bar1'),
-    leftGroup = bar.querySelector('.bar-l'),
-    rightGroup = bar.querySelector('.bar-r');
+    leftGroup = findElement(bar, '.bar-l', Element),
+    rightGroup = findElement(bar, '.bar-r', Element);
   const selectButton = $('#btn-select'),
-    focused = document.activeElement,
+    focused = focusedElement(),
     had = !!focused && bar.contains(focused);
   if (LAYOUT === LAYOUT_MODE.MID) {
     if (bar.firstElementChild !== selectButton) bar.prepend(selectButton);
@@ -14261,12 +14914,6 @@ function placeBarTools() {
   }
   if (had && focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
   return had && focused && document.activeElement !== focused ? focused : null;
-}
-// Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN,
-// never saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the
-// document.
-function outlineOverlay() {
-  return LAYOUT === LAYOUT_MODE.MID || BAND === LAYOUT_BAND.TABLET_SHEET;
 }
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation.
 // Collapsing by a drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
@@ -14308,38 +14955,14 @@ function applySide() {
   for (const toggle of [$('#btn-side'), $('#nav-side')]) {
     toggle.setAttribute('aria-expanded', String(open));
     toggle.setAttribute('aria-label', toggle.id === 'btn-side' && LAYOUT !== LAYOUT_MODE.WIDE ? sheet : label);
-    toggle.querySelector('.side-n').textContent = pinCount;
-    toggle.querySelector('.c-dot').hidden = !dot;
+    findElement(toggle, '.side-n', HTMLElement).textContent = String(pinCount);
+    findElement(toggle, '.c-dot', HTMLElement).hidden = !dot;
   }
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
   frameHost().updateReviewCount();
-  syncBackLayer();
+  syncBackLayer(closeTopLayer);
   frameHost().syncBuildErrorChip();
-}
-// The open handle's hint (the markup's, translated by translate()).
-const GRIP_TIP = $('#grip').dataset.tip;
-// The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
-// wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
-function gripAria() {
-  const grip = $('#grip'),
-    shown = SIDE_SHOWN;
-  if (!SIDE_OPEN) {
-    grip.setAttribute('aria-valuenow', '0');
-    grip.setAttribute('aria-valuemin', '0');
-    grip.setAttribute('aria-label', translate('패널 폭') + ' · ' + translate('접힘'));
-    grip.dataset.tip = translate(
-      '끌어서 핀 패널을 폅니다. 두 번 클릭(터치는 탭)하거나 Enter 를 누르면 전에 쓰던 폭으로 폅니다',
-    );
-    return;
-  }
-  grip.setAttribute('aria-label', translate('패널 폭'));
-  grip.dataset.tip = translate(GRIP_TIP);
-  if (shown) {
-    grip.setAttribute('aria-valuenow', shown.w);
-    grip.setAttribute('aria-valuemin', shown.min);
-    grip.setAttribute('aria-valuemax', shown.max);
-  }
 }
 // Opens or collapses the pin panel in every layout (the wide side panel, the mid side or overlay panel, the narrow
 // sheet). remember = the user did it (a toggle, Ctrl+\, a handle drag or key, a swipe): wide keeps it per device in
@@ -14440,6 +15063,10 @@ function relayout() {
   if (changed && META) for (const listener of listeners) listener.layoutChanged?.();
   applySideWidth();
   applyOutlineState();
+  // Before the first meta there is no document to fit: while the PDF area is drawn, the fit to its width and every step
+  // after it wait for boot(), which fits the pages it draws. A PDF area that is not drawn (the changes view) has nothing
+  // to fit, and the steps after the fit go on.
+  if (!META && $('#left').getClientRects().length) return;
   for (const listener of listeners) listener.widthsApplied?.();
   restoreAnchor(anchor);
   for (const listener of listeners) listener.anchorRestored?.();
@@ -14478,7 +15105,7 @@ if (window.ResizeObserver)
 // text field has focus, and the scroller's scroll padding keeps a field scrolled into view below it (responsive.css). A
 // long file name wraps the line past its 44px, so it is measured; 0 while the composer is hidden.
 if (window.ResizeObserver) {
-  const row = $('#composer .c-loc-row');
+  const row = findElement(document, '#composer .c-loc-row', HTMLElement);
   new ResizeObserver(() => {
     document.documentElement.style.setProperty('--loc-h', row.offsetHeight + 'px');
   }).observe(row, { box: 'border-box' });
@@ -14569,7 +15196,7 @@ function onViewport() {
 }
 document.addEventListener('focusin', (event) => {
   const target = event.target;
-  if (LAYOUT !== LAYOUT_MODE.WIDE && target && target.tagName === 'TEXTAREA' && $('#right').contains(target))
+  if (LAYOUT !== LAYOUT_MODE.WIDE && target instanceof HTMLTextAreaElement && $('#right').contains(target))
     setTimeout(() => {
       if (BAND === LAYOUT_BAND.TABLET_SHEET) keepFieldInView();
       else {
@@ -14590,7 +15217,7 @@ document.addEventListener('focusin', (event) => {
 let CARET_HELD = null;
 function holdCaret(event) {
   const field = event.target;
-  if (!field || field === CARET_HELD || typeof field.setSelectionRange !== 'function') return;
+  if (!(field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) || field === CARET_HELD) return;
   CARET_HELD = field;
   const at = field.selectionStart;
   // A selection is the person's.
@@ -14673,8 +15300,10 @@ function fieldRoom(field, key, shift) {
 function fieldScrollKey(event) {
   const key = event.key;
   if (!READ_ONLY_KEYS.has(key) || event.metaKey || event.ctrlKey || event.altKey || !typingNow()) return;
-  const field = document.activeElement,
-    isReadOnly = field.readOnly === true;
+  const field = document.activeElement;
+  // typingNow() has said it is a text field: a textarea, a text input or editable content.
+  if (!(field instanceof HTMLElement)) return;
+  const isReadOnly = (field instanceof HTMLInputElement || field instanceof HTMLTextAreaElement) && field.readOnly;
   if (isReadOnly) {
     // Shift with a moving key moves nothing outside (Firefox selects, Chromium keeps the selection).
     if (event.shiftKey && key !== ' ') return;
@@ -14694,11 +15323,6 @@ function fieldScrollKey(event) {
   event.preventDefault();
 }
 document.addEventListener('keydown', fieldScrollKey, true);
-// The panel's text field that has focus (a note, an edit or a reply), or null.
-function panelField() {
-  const focused = document.activeElement;
-  return typingNow() && $('#right').contains(focused) ? focused : null;
-}
 // performance.now() of the last pointerup: a focus change that soon after is that press's.
 let TYPING_PRESS = -1e9;
 document.addEventListener(
@@ -14752,7 +15376,7 @@ function keepFieldInView() {
   // Touch only: a mouse window keeps its own scroll.
   if (!field || !COARSE_POINTER_QUERY.matches) return;
   if (field === $('#note') && BAND === LAYOUT_BAND.TABLET_SHEET)
-    $('#composer .c-loc-row').scrollIntoView({ block: 'start' });
+    findElement(document, '#composer .c-loc-row', HTMLElement).scrollIntoView({ block: 'start' });
   field.scrollIntoView({ block: 'nearest' });
   if (field === $('#note')) noteRowInView();
 }
@@ -14764,7 +15388,7 @@ function noteRowInView() {
   const row = $('#c-verdict-row');
   if (row.hidden || !row.getClientRects().length) return;
   const panel = $('#right'),
-    loc = $('#composer .c-loc-row'),
+    loc = findElement(document, '#composer .c-loc-row', HTMLElement),
     stuck = getComputedStyle(loc).position === 'sticky';
   const save = $('#c-actions').getBoundingClientRect().top - 8;
   const top = stuck
@@ -14780,7 +15404,8 @@ function noteRowInView() {
 // on the status line until [x] or until the person does what it says - picks ('touch', 'mouse') or opens the panel
 // ('side').
 function coach(key, text) {
-  const seen = Object.assign({}, prefs().coach || {});
+  const kept = prefs().coach,
+    seen = Object.assign({}, isRecord(kept) ? kept : {});
   if (seen[key]) return;
   seen[key] = 1;
   savePrefs({ coach: seen });
@@ -14803,7 +15428,7 @@ function setSelectMode(on) {
   document.body.classList.toggle('selmode', SELMODE);
   const button = $('#btn-select');
   button.setAttribute('aria-pressed', String(SELMODE));
-  (button.querySelector('.lbl')).textContent = translate(SELMODE ? '선택 중' : '선택');
+  findElement(button, '.lbl', Element).textContent = translate(SELMODE ? '선택 중' : '선택');
   $('#sel-sr').textContent = SELMODE ? $('#sel-bar-t').textContent : '';
   if (SELMODE) fitSelectModeBar();
   else if ($('#sel-bar').contains(document.activeElement)) button.focus({ preventScroll: true });
@@ -14895,10 +15520,10 @@ function footInk() {
     help = foot && foot.querySelector('[data-act=help]'),
     version = foot && foot.querySelector('.m-ver');
   if (!help || !version) return;
-  const labelText = [...help.childNodes].find((node) => node.nodeType === 3 && node.nodeValue.trim()),
+  const labelText = [...help.childNodes].find((node) => node instanceof Text && node.data.trim() !== ''),
     chevron = help.querySelector('svg');
   if (!labelText) return;
-  const label = labelText.nodeValue.trim(),
+  const label = labelText.data.trim(),
     hangul = hangulOf(label),
     labelInk = inkMetrics(help, label);
   const drops = inkDrops(hangul ? inkMetrics(help, hangul).d : 0, inkMetrics(version, version.textContent.trim()).d);
@@ -14924,9 +15549,9 @@ let INK_CONTEXT = null;
 // The ink of a text in an element's font as {a, d}: how far it rises above and reaches below the baseline (px), from
 // the canvas's text metrics read at 64 times the size, because the canvas rounds them to whole pixels.
 function inkMetrics(element, text) {
-  const context = (INK_CONTEXT ||
-      (INK_CONTEXT = document.createElement('canvas').getContext('2d'))),
-    scale = 64,
+  const context = INK_CONTEXT || (INK_CONTEXT = document.createElement('canvas').getContext('2d'));
+  if (!context) throw new Error('inkMetrics: no 2D canvas context');
+  const scale = 64,
     barStyle = getComputedStyle(element);
   context.font =
     barStyle.fontStyle +
@@ -14966,7 +15591,7 @@ document.fonts.addEventListener('loadingdone', () => {
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
 for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
-  $(dialogSelector).addEventListener('click', (event) => {
+  findElement(document, dialogSelector, HTMLDialogElement).addEventListener('click', (event) => {
     const dialog = event.currentTarget;
     if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;
     const rect = dialog.getBoundingClientRect();
@@ -14992,11 +15617,11 @@ function topAnchor(offset) {
     top = scrollerTop + (offset || 0),
     atTop = COARSE_POINTER_QUERY.matches && scroller.scrollTop <= 0,
     edge = offset ? 0 : 1;
-  for (const pageElement of $$('.pg')) {
+  for (const pageElement of findAll(document, '.pg', HTMLElement)) {
     const rect = pageElement.getBoundingClientRect();
     if (rect.bottom > top + edge)
       return {
-        page: +pageElement.dataset.page,
+        page: Number(pageElement.dataset.page),
         frac: Math.max(0, (top - rect.top) / rect.height),
         gap: Math.max(0, rect.top - top),
         atTop,
@@ -15028,6 +15653,155 @@ function restoreAnchor(anchor) {
   if ('y' in anchor && Math.abs(rect.top - scrollerTop - anchor.y) < 0.5 && Math.abs(rect.height - anchor.h) < 0.5)
     return;
   scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (('gap' in anchor && anchor.gap) || 0);
+}
+
+// Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
+// own, unsaved) and syncs the back layer. The wide outline follows pinPrefs.outlineClosed; until one is saved it starts
+// open with a mouse and collapsed on touch. The phone has no outline (CSS), so it draws no width.
+function applyOutlineState() {
+  const preferences = prefs(),
+    closed = outlineOverlay()
+      ? !OUTLINE_MID_OPEN
+      : typeof preferences.outlineClosed === 'boolean'
+        ? preferences.outlineClosed
+        : COARSE_POINTER_QUERY.matches;
+  document.body.classList.toggle('outline-collapsed', closed);
+  const toggle = $('#nav-toc-toggle');
+  toggle.setAttribute('aria-expanded', String(!closed));
+  toggle.setAttribute('aria-label', closed ? '목차 펼치기' : '목차 접기');
+  if (BAND !== LAYOUT_BAND.PHONE)
+    showOutlineWidth(typeof preferences.outlineWidth === 'number' ? preferences.outlineWidth : 240);
+  syncBackLayer(closeTopLayer); // the mid outline overlay is a layer the back gesture closes
+}
+// Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin
+// panel as it opens; wide remembers it in pinPrefs.outlineClosed.
+function toggleOutline() {
+  const anchor = topAnchor(),
+    closed = !document.body.classList.contains('outline-collapsed');
+  if (outlineOverlay()) {
+    setOutlineMidOpen(!closed);
+    if (!closed) setSide(false);
+  } else savePrefs({ outlineClosed: closed });
+  applyOutlineState();
+  relayout();
+  restoreAnchor(anchor);
+  $('#nav-toc-toggle').focus({ preventScroll: true });
+}
+
+// The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
+// (remembered, with the slide).
+function closeTopLayer() {
+  const dialog = sheetDialog(),
+    layer = backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !!dialog);
+  if (layer === 'dialog') dialog?.close();
+  else if (layer === 'outline') toggleOutline();
+  else if (layer === 'side') {
+    setSide(false, true, true);
+    focusSideToggle();
+  }
+}
+
+// On a phone or tablet the system back gesture closes the top layer first (docs/handbook/viewer.md §모바일 레이아웃)
+// instead of leaving Limn with a draft on screen. While a sheet, the overlay panel or the outline overlay is open, one
+// CloseWatcher stands for it (Chrome on Android routes back there; modal dialogs have their own); without CloseWatcher,
+// one history entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press,
+// and document switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is
+// registered there.
+let BACK = null,
+  BACK_SKIP = false;
+// Which layer covers the document for a band (overlay = MID_OVERLAY): an open bottom-sheet dialog on top (dialogOpen -
+// the caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline
+// overlay (the mid bands and the tablet sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short
+// band up to 900px). The desktop has none. 'dialog'|'side'|'outline'|null.
+function backLayer(
+  band,
+  overlay,
+  sideOpen,
+  outlineOpen,
+  dialogOpen,
+) {
+  if (band === LAYOUT_BAND.WIDE) return null;
+  if (dialogOpen) return 'dialog';
+  if (band === LAYOUT_BAND.PHONE) return sideOpen ? 'side' : null;
+  if (outlineOpen) return 'outline';
+  return sideOpen && (band === LAYOUT_BAND.TABLET_SHEET || overlay) ? 'side' : null;
+}
+// The open bottom-sheet dialog the back gesture closes first, or null: the navigation sheet, [더보기], help, the Trash,
+// the status line's list.
+function sheetDialog() {
+  return findMaybe(
+    document,
+    '#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open]',
+    HTMLDialogElement,
+  );
+}
+// Registers or removes the back layer to match the screen (called by applySide, applyOutlineState and a sheet dialog
+// opening or closing; idempotent).
+function syncBackLayer(closeTopLayer) {
+  const want =
+    COARSE_POINTER_QUERY.matches &&
+    !!backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !window.CloseWatcher && !!sheetDialog());
+  if (want && !BACK) armBack(closeTopLayer);
+  else if (!want && BACK) disarmBack();
+}
+// Stands one CloseWatcher for the open layer, or pushes one history entry (same URL) where CloseWatcher is missing.
+function armBack(closeTopLayer) {
+  if (window.CloseWatcher) {
+    try {
+      const watcher = new window.CloseWatcher();
+      BACK = { kind: 'watcher', w: watcher };
+      watcher.onclose = () => {
+        if (BACK && BACK.w === watcher) {
+          BACK = null;
+          closeTopLayer();
+        }
+      };
+      return;
+    } catch (error) {}
+  }
+  window.history.pushState({ limnLayer: 1 }, '', window.location.href);
+  BACK = { kind: 'history' };
+}
+// Removes the layer without closing anything: destroys the watcher, or pops our entry (that popstate is skipped).
+function disarmBack() {
+  const layer = BACK;
+  BACK = null;
+  if (!layer) return;
+  if (layer.kind === 'watcher') {
+    if (layer.w) layer.w.destroy();
+    return;
+  }
+  const state = window.history.state;
+  if (isRecord(state) && state.limnLayer) {
+    BACK_SKIP = true;
+    window.history.back();
+  }
+}
+// Listen after document navigation, which reads the back entry before it is consumed.
+function watchBackLayer(closeTopLayer, setHash) {
+  for (const dialog of $$('#nav-sheet,#more,#help,#trash,#status-list'))
+    new MutationObserver(() => syncBackLayer(closeTopLayer)).observe(dialog, {
+      attributes: true,
+      attributeFilter: ['open'],
+    });
+  window.addEventListener('popstate', () => {
+    const ours = BACK_SKIP || (BACK && BACK.kind === 'history');
+    if (!ours) return;
+    if (DOC) setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
+    if (BACK_SKIP) {
+      BACK_SKIP = false;
+      return;
+    }
+    BACK = null;
+    // A dialog over the sheet closes first.
+    const dialog = findMaybe(document, 'dialog[open]', HTMLDialogElement);
+    if (dialog) {
+      dialog.close();
+      syncBackLayer(closeTopLayer);
+      return;
+    }
+    closeTopLayer();
+  });
 }
 
 // Panel width handle - mouse, touch and pen all share one Pointer Events path. The handle has touch-action:none, so
@@ -15084,7 +15858,7 @@ const LONGPRESS_MS = 450;
     const deltaX = drag.x - event.clientX;
     if (!drag.moved && Math.abs(deltaX) < 4) return;
     drag.moved = true;
-    const bounds = sideBounds(LAYOUT, innerWidth),
+    const bounds = sideBounds(LAYOUT, window.innerWidth),
       snap = snapSide(drag.w + deltaX, bounds, draftOpen());
     drag.zone = snap.zone;
     if (drag.rail) preview(snap.zone === 'follow' || snap.zone === 'min');
@@ -15143,7 +15917,7 @@ const LONGPRESS_MS = 450;
   });
   grip.addEventListener('keydown', (event) => {
     if (LAYOUT === LAYOUT_MODE.NARROW) return;
-    const action = gripKey(event.key, currentSideWidth(), sideBounds(LAYOUT, innerWidth), !SIDE_OPEN);
+    const action = gripKey(event.key, currentSideWidth(), sideBounds(LAYOUT, window.innerWidth), !SIDE_OPEN);
     if (!action) return;
     event.preventDefault();
     if (action.act === 'collapse' || action.act === 'open') toggleSide();
@@ -15240,7 +16014,7 @@ function shownSheetFraction() {
   const panel = $('#right'),
     height = panel.getBoundingClientRect().height,
     maxHeight = parseFloat(getComputedStyle(panel).maxHeight);
-  return { f: height / innerHeight, keep: height >= maxHeight - 1 ? 1 : (height + 0.5) / innerHeight };
+  return { f: height / window.innerHeight, keep: height >= maxHeight - 1 ? 1 : (height + 0.5) / window.innerHeight };
 }
 // Carries out sheetRelease() for the height the sheet shows (shownSheetFraction) and the draft state now: collapse the
 // sheet (remembered) or set its height.
@@ -15257,7 +16031,7 @@ function dragSheetTo(height) {
   keepSheet();
   document.documentElement.style.setProperty(
     '--sheet-f',
-    String(Math.max(draftOpen() ? SHEET_MIN_FRACTION : 0.12, height / innerHeight)),
+    String(Math.max(draftOpen() ? SHEET_MIN_FRACTION : 0.12, height / window.innerHeight)),
   );
 }
 // Sheet height (narrow): the handle in the tool bar's row and the whole tool bar move the sheet. On the handle a drag
@@ -15585,109 +16359,7 @@ function dismissOutcome(distance, size, speed) {
 })();
 
 // ------------------------------------------------ The back gesture closes the top layer (touch)
-// On a phone or tablet the system back gesture closes the top layer first (docs/handbook/viewer.md §모바일 레이아웃)
-// instead of leaving Limn with a draft on screen. While a sheet, the overlay panel or the outline overlay is open, one
-// CloseWatcher stands for it (Chrome on Android routes back there; modal dialogs have their own); without CloseWatcher,
-// one history entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press,
-// and document switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is
-// registered there.
-let BACK = null,
-  BACK_SKIP = false;
-// Which layer covers the document for a band (overlay = MID_OVERLAY): an open bottom-sheet dialog on top (dialogOpen -
-// the caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline
-// overlay (the mid bands and the tablet sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short
-// band up to 900px). The desktop has none. 'dialog'|'side'|'outline'|null.
-function backLayer(
-  band,
-  overlay,
-  sideOpen,
-  outlineOpen,
-  dialogOpen,
-) {
-  if (band === LAYOUT_BAND.WIDE) return null;
-  if (dialogOpen) return 'dialog';
-  if (band === LAYOUT_BAND.PHONE) return sideOpen ? 'side' : null;
-  if (outlineOpen) return 'outline';
-  return sideOpen && (band === LAYOUT_BAND.TABLET_SHEET || overlay) ? 'side' : null;
-}
-// The open bottom-sheet dialog the back gesture closes first, or null: the navigation sheet, [더보기], help, the Trash,
-// the status line's list.
-function sheetDialog() {
-  return document.querySelector('#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open]');
-}
-// Registers or removes the back layer to match the screen (called by applySide, applyOutlineState and a sheet dialog
-// opening or closing; idempotent).
-function syncBackLayer() {
-  const want =
-    COARSE_POINTER_QUERY.matches &&
-    !!backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !window.CloseWatcher && !!sheetDialog());
-  if (want && !BACK) armBack();
-  else if (!want && BACK) disarmBack();
-}
-for (const dialog of $$('#nav-sheet,#more,#help,#trash,#status-list'))
-  new MutationObserver(() => syncBackLayer()).observe(dialog, { attributes: true, attributeFilter: ['open'] });
-// Stands one CloseWatcher for the open layer, or pushes one history entry (same URL) where CloseWatcher is missing.
-function armBack() {
-  if (window.CloseWatcher) {
-    try {
-      const watcher = new window.CloseWatcher();
-      BACK = { kind: 'watcher', w: watcher };
-      watcher.onclose = () => {
-        if (BACK && BACK.w === watcher) {
-          BACK = null;
-          closeTopLayer();
-        }
-      };
-      return;
-    } catch (error) {}
-  }
-  history.pushState({ limnLayer: 1 }, '', location.href);
-  BACK = { kind: 'history' };
-}
-// Removes the layer without closing anything: destroys the watcher, or pops our entry (that popstate is skipped).
-function disarmBack() {
-  const layer = BACK;
-  BACK = null;
-  if (!layer) return;
-  if (layer.kind === 'watcher') {
-    if (layer.w) layer.w.destroy();
-    return;
-  }
-  if (history.state && history.state.limnLayer) {
-    BACK_SKIP = true;
-    history.back();
-  }
-}
-// The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
-// (remembered, with the slide).
-function closeTopLayer() {
-  const dialog = sheetDialog(),
-    layer = backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !!dialog);
-  if (layer === 'dialog') dialog.close();
-  else if (layer === 'outline') toggleOutline();
-  else if (layer === 'side') {
-    setSide(false, true, true);
-    focusSideToggle();
-  }
-}
-window.addEventListener('popstate', () => {
-  const ours = BACK_SKIP || (BACK && BACK.kind === 'history');
-  if (!ours) return;
-  if (DOC) frameHost().setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
-  if (BACK_SKIP) {
-    BACK_SKIP = false;
-    return;
-  }
-  BACK = null;
-  // A dialog over the sheet closes first.
-  const dialog = document.querySelector('dialog[open]');
-  if (dialog) {
-    dialog.close();
-    syncBackLayer();
-    return;
-  }
-  closeTopLayer();
-});
+watchBackLayer(closeTopLayer, (doc) => frameHost().setHash(doc));
 
 // ------------------------------------------------ Drag selection (mouse/touch/pen - one Pointer Events path)
 // Mouse: press and drag draws a rectangle. Touch/pen: a drag draws a rectangle only in selection mode
@@ -15697,7 +16369,6 @@ window.addEventListener('popstate', () => {
 // Coordinates are computed as fractions within the page from clientX/Y and getBoundingClientRect on the same
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
 
-// The mouse press #doc hears: it lands on an element, never on a text node.
 let DRAG = null,
   LONG_PRESS = null;
 const clampUnit = (value) => Math.min(1, Math.max(0, value));
@@ -15818,7 +16489,8 @@ function cancelLongPress() {
 // Prevents the default behavior of a mouse press on a page (focus shift, image dragging), so the note field keeps its
 // focus.
 $('#doc').addEventListener('mousedown', (event) => {
-  if (event.button === 0 && event.target.closest('.pg')) event.preventDefault();
+  const target = eventElement(event);
+  if (event.button === 0 && target && target.closest('.pg')) event.preventDefault();
 });
 // A quick selection made by a long-press or a [선택]-mode tap opens the panel or sheet under the finger, and the click
 // that follows the touch would land on it (it would open an edit, switch the kind, focus the note) - that one click is
@@ -16008,8 +16680,8 @@ function selectionOpen() {
 // ignore the pointer, so the page is what the press lands on). Every piece counts as inside: a press on the second
 // block of a range is a press on the selection, as much as one on the block the popover hangs from.
 function pressOutsideSelection(event) {
-  const target = event.target;
-  if (!selectionOpen()) return false;
+  const target = eventElement(event);
+  if (!target || !selectionOpen()) return false;
   // A press on the Markdown surface picks (markdown/view.ts), never cancels.
   if (isMarkdownDoc() && target.closest('#md')) return false;
   if (target.closest('.mark [data-act=mark-jump],button,a,input,textarea,select,[data-act],[role=button],#sel-pop'))
@@ -16086,7 +16758,7 @@ function doubleTapZoom(x, y) {
 // point on a figure document - and then widened or narrowed via the range ladder.
 function quickPick(pageElement, clientX, clientY) {
   const [x, y] = fracAt(pageElement, clientX, clientY),
-    quickFrac = quickBox(x, y, isFigureKind(META && META.kind));
+    quickFrac = quickBox(x, y, isFigureKind(META ? META.kind : undefined));
   finishRect(pageElement, newBox(pageElement), quickFrac[0], quickFrac[1], quickFrac[2], quickFrac[3]);
 }
 // The box a quick selection sends around the point (x, y), as page fractions [x0, y0, x1, y1]: about one text line on a
@@ -16113,7 +16785,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
   box.classList.add('pending');
   if (REPICK) {
     if (REPICK.box) REPICK.box.remove();
-    REPICK.box = box;
+    setRepickBox(REPICK, box);
     pendingBadge(box, '새 위치');
   } else {
     clearSelectionParts();
@@ -16122,7 +16794,8 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     pendingBadge(box, '새 핀');
   }
   const page = Number(pageElement.dataset.page),
-    pageInfo = META.pages[page - 1],
+    meta = knownMeta(),
+    pageInfo = meta.pages[page - 1],
     repick = !!REPICK;
   pageSelection().pick({
     page,
@@ -16131,7 +16804,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     x1: Math.max(startX, x) * pageInfo.pt_w,
     y1: Math.max(startY, y) * pageInfo.pt_h,
     frac: [Math.min(startX, x), Math.min(startY, y), width, height],
-    pdf_build: META.pages_build || undefined,
+    pdf_build: meta.pages_build || undefined,
     doc: DOC || undefined,
   });
   // A mouse drag's note popover (composer/view-selection-popover.ts); pick() has opened the composer.
@@ -16237,8 +16910,8 @@ function composerQueue() {
   return COMPOSER_QUEUE;
 }
 
-// A pin's own fields that use the composer's text tools (pins/flow-edit.ts, pins/flow-reply.ts): the open edit card,
-// whose excerpt, place and @-tags the composer's code changes, and the reply box's outcome line.
+// A pin's own fields that use the composer's text tools (pins/flow-edit.ts, pins/flow-reply.ts): the open edit card's
+// snippet after a range change and the reply box's outcome after a mention changes.
 let PIN_FIELDS = null;
 // Registers the edit card and the reply box; js/main.ts calls it once.
 function setPinFields(fields) {
@@ -16479,7 +17152,7 @@ function fadeSegmentEdges(control) {
   const over = control.scrollWidth - control.clientWidth;
   control.classList.toggle('fade-l', over > 1 && control.scrollLeft > 1);
   control.classList.toggle('fade-r', over > 1 && over - control.scrollLeft > 1);
-  const on = control.dataset.reveal === 'whole' ? (control.querySelector('.on')) : null;
+  const on = control.dataset.reveal === 'whole' ? control.querySelector('.on') : null;
   if (!on) return;
   const controlRect = control.getBoundingClientRect(),
     segmentRect = on.getBoundingClientRect(),
@@ -16491,7 +17164,7 @@ document.addEventListener(
   'scroll',
   (event) => {
     const target = event.target;
-    if (target && target.classList && target.classList.contains('seg')) fadeSegmentEdges(target);
+    if (target instanceof HTMLElement && target.classList.contains('seg')) fadeSegmentEdges(target);
   },
   true,
 );
@@ -16546,7 +17219,7 @@ function takeRangeBoxes(owner, answer) {
 // document whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that
 // element, and a document drawn in the browser has no page to draw a box on.
 function followRange(selection, box, after) {
-  if (!box || isFigureKind(META && META.kind) || !onLines(selection)) return;
+  if (!box || isFigureKind(META ? META.kind : undefined) || !onLines(selection)) return;
   const pieces = rangeBoxes(selection);
   if (!pieces) {
     refetchSnip(selection, after);
@@ -16578,9 +17251,9 @@ function refetchSnip(owner, after) {
   clearTimeout(composing ? COMPOSE_SNIPPET_TIMER : EDIT_SNIPPET_TIMER);
   const wait = setTimeout(async () => {
     try {
-      const { data } = await api(
-        withDocQuery(
-          '/api/snippet?file=' +
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery(
+          '?file=' +
             encodeURIComponent(owner.file) +
             '&lo=' +
             owner.lo +
@@ -16589,8 +17262,8 @@ function refetchSnip(owner, after) {
             (composing ? '&levels=1&boxes=1' : ''),
           owner.doc,
         ),
-        { what: '원문 읽기' },
-      );
+        what: '원문 읽기',
+      });
       if (
         (owner === EDITOR.current || (owner === COMPOSE.current && currentVisit(visit))) &&
         data.lo === owner.lo &&
@@ -16734,7 +17407,7 @@ function excerptTake(owner, snip) {
 // Fetches the lines the excerpt shows that the owner's cache lacks - its ends and their neighbours - in at most two
 // windows of /api/snippet, then redraws the owner's panel. A line the server did not give is cached as null ('…'), so a
 // failure never loops.
-async function excerptFetch(owner) {
+async function excerptFetch(owner, redraw) {
   const lineCount = owner.n_lines || owner.hi,
     want = new Set();
   for (const k of [owner.lo - 1, owner.lo, owner.lo + 1, owner.hi - 1, owner.hi, owner.hi + 1])
@@ -16751,10 +17424,10 @@ async function excerptFetch(owner) {
   });
   try {
     for (const [from, to] of fetchWindows) {
-      const { data } = await api(
-        withDocQuery('/api/snippet?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
-        { what: '원문 읽기' },
-      );
+      const { data } = await api('GET /api/snippet', {
+        query: withDocQuery('?file=' + encodeURIComponent(owner.file) + '&lo=' + from + '&hi=' + to, owner.doc),
+        what: '원문 읽기',
+      });
       excerptTake(owner, data.snippet);
       if (data.n_lines) owner.n_lines = data.n_lines;
     }
@@ -16763,12 +17436,11 @@ async function excerptFetch(owner) {
     if (!lines.has(line)) lines.set(line, null);
   });
   EXCERPT_FETCHING.delete(owner);
-  excerptRedraw(owner);
+  excerptRedraw(owner, redraw);
 }
 // Redraws the panel the owner belongs to (the composer's selection or the open edit card); a stale owner draws nothing.
-function excerptRedraw(owner) {
-  if (owner === COMPOSE.current) renderComposer();
-  else if (owner === EDITOR.current) pinFields().drawEdit();
+function excerptRedraw(owner, redraw) {
+  if (owner === COMPOSE.current || owner === EDITOR.current) redraw();
 }
 // The owner's excerpt box: the composer's #c-xp or the open edit card's .e-xp, else null.
 function excerptBox(owner) {
@@ -16799,11 +17471,11 @@ function excerptFocusTarget(buttons, was, owner) {
 // Draws the owner's excerpt into box, or clears and hides it (a region, an owner without its lines, no selection). isEdit: an edit card (the
 // composer's [원문 펼치기] unfolds a long band; an edit card's band stays folded). A redraw that takes the focused '+'
 // or '−' puts the focus on its successor (excerptFocusTarget), so a keyboard keeps its place.
-function drawExcerpt(owner, box, isEdit) {
+function drawExcerpt(owner, box, isEdit, redraw) {
   const on = owner !== null && !('region' in owner && owner.region) && !isRegion(owner) && onLines(owner);
-  const focused = document.activeElement,
+  const focused = focusedElement(),
     had =
-      box.contains(focused) && focused.dataset.act
+      focused && box.contains(focused) && focused.dataset.act
         ? { act: focused.dataset.act, line: Number(focused.dataset.line) }
         : null;
   box.hidden = !on;
@@ -16812,7 +17484,7 @@ function drawExcerpt(owner, box, isEdit) {
     return;
   }
   excerptTake(owner, owner.snippet);
-  excerptFetch(owner);
+  excerptFetch(owner, redraw);
   const lines = excerptLines(owner),
     text = (line) => {
       const lineText = lines.get(line);
@@ -16865,7 +17537,7 @@ function setLines(owner, first, last) {
 // Applies range ([first, last], kept inside the file) to the owner as lines set by hand (setLines), then the overlap
 // (composer), the panel and the source text. The sheet scrolls by whatever the redraw moved line anchor's row - the end
 // that stayed - so a row that came or went above never shifts the band under the finger. Nothing changed: nothing done.
-function applyRange(owner, range, anchor) {
+function applyRange(owner, range, anchor, redraw) {
   if (!owner || !range || !onLines(owner)) return;
   const lineCount = owner.n_lines || Math.max(range[1], owner.hi),
     first = Math.max(1, Math.min(range[0], lineCount)),
@@ -16882,10 +17554,11 @@ function applyRange(owner, range, anchor) {
     setComposeIntent(COMPOSE.intent + 1);
     recomputeOverlap();
   }
-  excerptRedraw(owner);
+  excerptRedraw(owner, redraw);
   const rowAfter = row();
-  if (rowBefore && rowAfter) $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
-  refetchSnip(owner, () => excerptRedraw(owner));
+  if (rowBefore && rowAfter && topBefore !== null)
+    $('#right').scrollTop += rowAfter.getBoundingClientRect().top - topBefore;
+  refetchSnip(owner, () => excerptRedraw(owner, redraw));
 }
 
 // ------------------------------------------------ Figure documents: the element a pick chose, its box and path
@@ -17210,7 +17883,7 @@ function ipv6Groups(host) {
     tail = parts.length === 2 && parts[1] ? parts[1].split(':') : [];
   const fill = parts.length === 2 ? 8 - head.length - tail.length : 0;
   if (fill < 0 || (parts.length === 1 && head.length !== 8)) return null;
-  const groups = [...head, ...Array(fill).fill('0'), ...tail];
+  const groups = [...head, ...new Array(fill).fill('0'), ...tail];
   if (groups.some((group) => !/^[0-9a-f]{1,4}$/.test(group))) return null;
   return groups.map((group) => parseInt(group, 16));
 }
@@ -17289,12 +17962,14 @@ const MARKDOWN_VIEW = {
   want: null,
   jumpTo: null,
   spot: null,
-  // a heading a link from another document asked for, gone to once this document is drawn in that visit (goToDocLink),
-  // and the heading a jump in flight is going to (goToHeading: an image that gets its size moves the destination, not
-  // the reading spot)
   headTo: null,
   goTo: null,
 };
+// Counts one more Markdown job and answers its number (MARKDOWN_VIEW.seq), for another module that starts one
+// (ADR-0042 D1).
+function advanceMarkdownSequence() {
+  return ++MARKDOWN_VIEW.seq;
+}
 // A draw's render context (RenderContext): the source lines it numbers its blocks from (lines), the elements built so
 // far (els), the characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its
 // byte-order mark kept (bom, drawText), the headings (heads), and how many formulas were drawn - a count to draw them
@@ -17321,6 +17996,57 @@ function isMarkdownPin(pin) {
   return !!entry && rendersInBrowser(entry.kind);
 }
 // ---------------- The parse worker
+// A markdown-it token as the parse worker sends it (md-parse.mjs plain: a Token's own fields, as plain data - its
+// prototype does not survive postMessage), its inline children alike. An attribute's value is a string, but an ordered
+// list's start, which markdown-it keeps as the number its first marker has.
+// What the page asks the worker (md-parse.mjs onmessage): the source and the limits it parses within.
+// The worker's answer to question id (md-parse.mjs postMessage): the tokens; or a limit it hit ('nesting', 'blocks',
+// 'inlines') with what it counted and the most allowed; or 'error' with what the parser threw.
+// What a parse ends with: the worker's answer, or the page's own end of it - the worker did not load or answer in time,
+// a NUL it is not given, or an answer of no known form (MARKDOWN_LIMIT).
+// A parse in flight: its question's id, what ends it, and the timer that stops it.
+// Whether a value is a token as the worker sends it (plain), its children too. Pure.
+function isMarkdownToken(value) {
+  if (!isRecord(value)) return false;
+  const { map, attrs, children } = value;
+  return (
+    typeof value.type === 'string' &&
+    typeof value.tag === 'string' &&
+    typeof value.nesting === 'number' &&
+    (map === null || (Array.isArray(map) && map.length === 2 && map.every((line) => typeof line === 'number'))) &&
+    typeof value.content === 'string' &&
+    typeof value.info === 'string' &&
+    typeof value.hidden === 'boolean' &&
+    typeof value.level === 'number' &&
+    typeof value.markup === 'string' &&
+    (attrs === null ||
+      (Array.isArray(attrs) &&
+        attrs.every(
+          (attribute) =>
+            Array.isArray(attribute) &&
+            attribute.length === 2 &&
+            typeof attribute[0] === 'string' &&
+            (typeof attribute[1] === 'string' || typeof attribute[1] === 'number'),
+        ))) &&
+    (children === null || (Array.isArray(children) && children.every(isMarkdownToken)))
+  );
+}
+// The worker's message as its answer (md-parse.mjs postMessage), or null for a message of no known form. Pure.
+function markdownParseAnswer(value) {
+  if (!isRecord(value) || typeof value.id !== 'number') return null;
+  const { id, limit, tokens, count, max, message } = value;
+  if (value.ok === true)
+    return Array.isArray(tokens) && tokens.every(isMarkdownToken) ? { id, ok: true, tokens } : null;
+  if (value.ok !== false || typeof limit !== 'string') return null;
+  if (typeof count === 'number' && typeof max === 'number') return { id, ok: false, limit, count, max };
+  return typeof message === 'string' ? { id, ok: false, limit, message } : null;
+}
+// The worker's message to the job in flight: its answer, a parse error for a message to it of no known form, or null
+// for a message to another question (one the job took over from) or with no question's id.
+function jobAnswer(job, value) {
+  if (!isRecord(value) || value.id !== job.id) return null;
+  return markdownParseAnswer(value) || { ok: false, limit: MARKDOWN_LIMIT.ERROR };
+}
 // Parses text in the worker within MARKDOWN_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MARKDOWN_LIMIT), or null
 // when a newer parse took the worker over. The worker is started the first time and kept; one that runs past
 // MARKDOWN_LIMITS.ms, fails to load or is taken over is stopped (terminate) and a new one starts next time.
@@ -17333,11 +18059,12 @@ function parseMarkdown(text) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
         MARKDOWN_VIEW.worker = worker;
         worker.onmessage = (message) => {
-          const job = MARKDOWN_VIEW.job;
-          if (!job || !message.data || message.data.id !== job.id) return;
+          const job = MARKDOWN_VIEW.job,
+            answer = job && jobAnswer(job, message.data);
+          if (!job || !answer) return;
           clearTimeout(job.t);
           MARKDOWN_VIEW.job = null;
-          job.resolve(message.data);
+          job.resolve(answer);
         };
         worker.onerror = (event) => {
           event.preventDefault();
@@ -17354,11 +18081,12 @@ function parseMarkdown(text) {
       resolve,
       t: setTimeout(() => stopMarkdownParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
     };
-    worker.postMessage({
+    const question = {
       id,
       text,
       limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
-    });
+    };
+    worker.postMessage(question);
   });
 }
 // Ends the parse in flight, if any, with answer (null: taken over), and stops its worker.
@@ -17403,12 +18131,22 @@ async function loadTexRenderer() {
   } catch (error) {
     return null;
   }
-  const lib = katexModule && (katexModule.default || katexModule);
-  if (!lib || typeof lib.render !== 'function') return null;
+  const lib = texLibraryOf(katexModule);
+  if (!lib) return null;
   if (!(await loadTexStyle())) return null;
   TEX_RENDERER.lib = lib;
   TEX_RENDERER.state = 'ready';
   return lib;
+}
+// Whether a value is the KaTeX library the viewer draws with (types/katex.d.ts): an object with a render function. Pure.
+function isKatexLibrary(value) {
+  return isRecord(value) && typeof value.render === 'function';
+}
+// The KaTeX library in what the import loaded: its default export, else the module itself - whichever is there - when
+// it is the library (isKatexLibrary); null for anything else, which is no renderer. Pure.
+function texLibraryOf(loaded) {
+  const library = isRecord(loaded) && loaded.default ? loaded.default : loaded;
+  return isKatexLibrary(library) ? library : null;
 }
 // The stylesheet, added once; true once the browser has it. A link element pointing at this origin - never an inline
 // style element and never a style attribute, which the page policy admits neither of (viewer.md §페이지 정책).
@@ -17486,9 +18224,11 @@ function drawTexBox(
   display,
   context,
 ) {
+  const library = TEX_RENDERER.lib;
   if (
     context.tex === null ||
     TEX_RENDERER.state !== 'ready' ||
+    !library ||
     tex === null ||
     !tex.trim() ||
     tex.length > MARKDOWN_LIMITS.tex ||
@@ -17497,7 +18237,7 @@ function drawTexBox(
     return null;
   const box = document.createElement(tag);
   try {
-    TEX_RENDERER.lib.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
+    library.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
   } catch (error) {
     return null;
   }
@@ -17520,11 +18260,11 @@ function drawTexBox(
 function fitWideFormulas() {
   const column = $('#md');
   if (!column || !MARKDOWN_VIEW.tex) return;
-  const boxes = [...column.querySelectorAll('code.md-math.md-tex')];
+  const boxes = findAll(column, 'code.md-math.md-tex', HTMLElement);
   if (!boxes.length) return;
   for (const box of boxes) box.classList.remove('md-tex-wide');
   const wide = boxes.filter((box) => {
-    const block = (box.closest('p,li,td,th,blockquote') || column),
+    const block = box.closest('p,li,td,th,blockquote') || column,
       style = getComputedStyle(block);
     // where the block's own text goes, not the column's padding box
     const room = block.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
@@ -17602,7 +18342,7 @@ async function buildMarkdownDoc() {
   }
   let answer;
   try {
-    answer = await api(withDocQuery('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api('GET /api/source', { query: withDocQuery(''), what: '원문 읽기', silent: true, expect: [413] });
   } catch (error) {
     if (!stale()) {
       MARKDOWN_VIEW.asked = null;
@@ -17614,8 +18354,8 @@ async function buildMarkdownDoc() {
     // document never matches again), so the next light poll asks again
   }
   if (stale()) return;
-  if (answer.status === 413) {
-    MARKDOWN_VIEW.lines = [];
+  if (isRefusal(answer.data)) {
+    MARKDOWN_VIEW.lines = []; // 413: too large to send
     MARKDOWN_VIEW.heads = [];
     MARKDOWN_VIEW.mtime = MARKDOWN_VIEW.asked;
     showDocumentNode(
@@ -17696,7 +18436,7 @@ async function buildMarkdownDoc() {
       );
       return;
     }
-    root = await lineView(limit, stale);
+    root = await lineView(limit ?? MARKDOWN_LIMIT.ERROR, stale); // limit is set whenever no root was drawn
     if (!root || stale()) return;
   }
   showDocumentNode(root);
@@ -17766,6 +18506,8 @@ function relevelForLineView() {
     isRegion(selection) ||
     selection.doc !== DOC ||
     selection.file !== MARKDOWN_VIEW.file ||
+    typeof selection.lo !== 'number' ||
+    typeof selection.hi !== 'number' ||
     !$('#md.md-lines')
   )
     return;
@@ -17876,7 +18618,7 @@ function limitText(limit) {
 // by measuring them all.
 function lineElements() {
   const column = $('#md');
-  return column ? ([...column.querySelectorAll('[data-line],[data-lo]')]) : [];
+  return column ? findAll(column, '[data-line],[data-lo]', HTMLElement) : [];
 }
 // The last of elements whose top is at or above y (viewport px), or null before the first. O(log n) measures.
 function lineElementAt(elements, y) {
@@ -17971,7 +18713,7 @@ function spotElement(spot) {
   if (!spot.line) return null;
   const column = $('#md'),
     attribute = spot.key === 'lo' ? 'data-lo' : 'data-line',
-    element = (column && column.querySelector('[' + attribute + '="' + spot.line + '"]'));
+    element = column ? findMaybe(column, '[' + attribute + '="' + spot.line + '"]', HTMLElement) : null;
   return element || lineLeaves(spot.line, spot.line)[0] || nearestLineElement(spot.line);
 }
 // The last line element that starts at or before line (lineElements are in document order, their first lines never
@@ -18024,7 +18766,7 @@ function keepReadingSpot() {
     const drift = rect.top + into - pane.getBoundingClientRect().top;
     if (Math.abs(drift) >= 0.5) pane.scrollTop += drift;
   }
-  if (spot.sel) revealBox(document.querySelector('#md .md-sel'), true);
+  if (spot.sel) revealBox(findMaybe(document, '#md .md-sel', HTMLElement), true);
   readSpot(true);
 }
 // Something above the reading spot changed its height while the width stood - an image that got its size or gave way to
@@ -18118,7 +18860,11 @@ async function renderDocument(tokens, stale) {
 // paragraph of 120,000 inline tokens or one code block of 30,000 lines pauses inside itself. Two or more raw HTML
 // blocks in a row are one run (htmlRunElement). context is the draw's render context (RenderContext): its lines, its
 // element count, its marked characters and its headings.
-function* renderTokens(root, tokens, context) {
+function* renderTokens(
+  root,
+  tokens,
+  context,
+) {
   const renderer = makeRenderer(root, context),
     work = { n: 0 };
   for (let i = 0; i < tokens.length; i++) {
@@ -18140,10 +18886,22 @@ function isPauseDue(work) {
   return true;
 }
 const OVER_ELEMENT_LIMIT = { over: true }; // thrown by countedElement past MARKDOWN_LIMITS.elements
-// One element of the drawn document, counted against MARKDOWN_LIMITS.elements on the draw's render context.
-function countedElement(tag, context) {
+// One element of the drawn document, counted against MARKDOWN_LIMITS.elements on the draw's render context: the DOM
+// class of its tag (countedElement('a', context) is an HTMLAnchorElement).
+function countedElement(
+  tag,
+  context,
+) {
   if (++context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
   return document.createElement(tag);
+}
+// The same for a tag the source names (a block token's tag, any lowercase name): an HTML element, of its tag's class
+// or HTMLUnknownElement; throws an Error for a name the document makes no HTML element of.
+function countedTagElement(tag, context) {
+  if (++context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
+  const element = document.createElement(tag);
+  if (!(element instanceof HTMLElement)) throw new Error('countedTagElement: <' + tag + '> is no HTML element');
+  return element;
 }
 // ---------------- Hidden characters in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
 // Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a
@@ -18247,7 +19005,7 @@ function makeRenderer(root, context) {
         return;
       }
       const tag = /^[a-z][a-z0-9]*$/.test(markdownToken.tag || '') ? markdownToken.tag : 'div',
-        element = countedElement(tag, context),
+        element = countedTagElement(tag, context),
         kind = BLOCK_KIND[markdownToken.type];
       if (kind) mapLines(element, markdownToken, kind, context);
       if (markdownToken.type === 'ordered_list_open') {
@@ -18332,21 +19090,18 @@ function makeRenderer(root, context) {
   }
   // A run of raw HTML blocks in a row (htmlRunElement), or each block on its own when one has no lines.
   function* run(tokens, work) {
-    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context));
-    if (spans.some((span) => !span)) {
+    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context)),
+      first = spans[0],
+      last = spans[spans.length - 1];
+    if (!first || !last || spans.some((span) => !span)) {
       for (const htmlToken of tokens) {
         yield* token(htmlToken, work);
         if (isPauseDue(work)) yield;
       }
       return;
     }
-    const runElement = htmlRunElement(
-        tokens.length,
-        (spans[0]).lo,
-        (spans[spans.length - 1]).hi,
-        context,
-      ),
-      body = runElement.lastChild;
+    const runElement = htmlRunElement(tokens.length, first.lo, last.hi, context),
+      body = findElement(runElement, ':scope>.md-html-body', HTMLElement);
     stack[stack.length - 1].appendChild(runElement);
     for (const htmlToken of tokens) {
       const placeholder = htmlPlaceholder(htmlToken, context);
@@ -18515,12 +19270,12 @@ function holdHtmlLines(element, on) {
 // Opens or closes the run of raw HTML blocks whose button is button (data-act md-html-run), then draws the marks, the
 // chosen lines and the strip again over what is shown.
 function toggleHtmlRun(button) {
-  const run = button.closest('.md-html-run'),
-    body = run && (run.querySelector('.md-html-body'));
+  const run = findClosest(button, '.md-html-run', HTMLElement),
+    body = run && findMaybe(run, '.md-html-body', HTMLElement);
   if (!run || !body) return;
   const open = button.getAttribute('aria-expanded') !== 'true';
   holdHtmlLines(run, !open);
-  body.querySelectorAll('.md-html').forEach((placeholder) => holdHtmlLines(placeholder, open));
+  findAll(body, '.md-html', HTMLElement).forEach((placeholder) => holdHtmlLines(placeholder, open));
   body.hidden = !open;
   button.setAttribute('aria-expanded', String(open));
   drawPinMarks();
@@ -18602,6 +19357,7 @@ function* drawInline(
           const next = [makeLineSpan(lineInfo.lines[i] + 1)];
           for (const open of stack.slice(1)) {
             const copy = open.cloneNode(false);
+            if (!(copy instanceof HTMLElement)) continue;
             ++context.els;
             next[next.length - 1].appendChild(copy);
             next.push(copy);
@@ -18787,7 +19543,11 @@ function linkAction(
 // in a box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned
 // it (IMAGE_SIZES) - and once it loads the reading spot is put back (onImageLoad), so an image above the reading line
 // never moves the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-function* drawImage(token, work, context) {
+function* drawImage(
+  token,
+  work,
+  context,
+) {
   const raw = String(tokenAttribute(token, 'src') || ''),
     alt = String(token.content || tokenAttribute(token, 'alt') || ''),
     place = imageSource(raw, documentTreePath());
@@ -18837,8 +19597,9 @@ const IMAGE_SIZES = new Map();
 // new size under the same path), and then it is resized and the spot put back as for a first load. Only a size that
 // held changes nothing. The marks follow through the column's ResizeObserver (COLUMN_OBSERVER).
 function onImageLoad(event) {
-  const img = event.target,
-    box = img.parentElement;
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const box = img.parentElement;
   if (!box) return;
   void noteShownTag(img.getAttribute('src') || '');
   const width = img.naturalWidth,
@@ -18964,7 +19725,7 @@ async function checkTreeImages() {
   const paneRect = $('#left').getBoundingClientRect(),
     near = [],
     shown = new Set();
-  for (const img of [...document.querySelectorAll('#md .md-pic img')]) {
+  for (const img of findAll(document, '#md .md-pic img', HTMLImageElement)) {
     const path = img.parentElement && img.parentElement.dataset.path;
     if (path) shown.add(path);
     if (!img.complete || !img.naturalWidth) continue;
@@ -19018,7 +19779,7 @@ async function checkTreeImages() {
       const next = imageUrl(docKey, path);
       keepRecent(IMAGE_TAGS, next, tag);
       if (next === url) continue; // unknown, but already at that tag's address: taken as showing it
-      for (const box of [...document.querySelectorAll('#md .md-pic')])
+      for (const box of findAll(document, '#md .md-pic', HTMLElement))
         if (box.dataset.path === path) {
           const image = box.querySelector('img');
           if (image && image.getAttribute('src') !== next) image.src = next;
@@ -19033,8 +19794,9 @@ async function checkTreeImages() {
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt
 // text, as for an image that is never loaded, saying so in the tip.
 function onImageError(event) {
-  const img = event.target,
-    box = img.parentElement;
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const box = img.parentElement;
   if (!box || !box.isConnected) return;
   const fallback = document.createElement('span'),
     path = box.dataset.path || '';
@@ -19057,7 +19819,7 @@ function onImageError(event) {
 // an image of the tree opens in a new tab from GET /api/asset; anything else is inert text with its target, and why, in
 // the tip.
 function drawLink(href, context) {
-  const target = linkAction(href, location.origin, documentTreePath(), DOCS);
+  const target = linkAction(href, window.location.origin, documentTreePath(), DOCS);
   if (target.open === 'web' || target.open === 'mail') {
     const link = countedElement('a', context);
     link.href = target.href;
@@ -19137,7 +19899,7 @@ function goToDocLink(link) {
     return;
   }
   if (!switchPending(docKey)) {
-    if (!BACK) history.pushState(null, '', location.pathname + location.search + '#doc=' + docKey);
+    if (!BACK) window.history.pushState(null, '', window.location.pathname + window.location.search + '#doc=' + docKey);
     void switchDoc(docKey);
   }
   MARKDOWN_VIEW.headTo = rendersInBrowser(entry.kind)
@@ -19192,32 +19954,32 @@ function goToSlug(id) {
 // ---------------- Picking: selection -> lines, and the ladder
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
 function linesAt(node) {
-  const element = node && (node.nodeType === 1 ? (node) : node.parentElement);
+  const element = node && (node instanceof Element ? node : node.parentElement);
   if (!element) return null;
   const column = $('#md');
   if (!column || !column.contains(element)) return null;
   // The nearest carrier wins. A drawn formula that was cut at a line end sits inside the span of the line it starts in
   // and carries the lines it covers itself (drawInline): those are the point's lines, not that one line's.
-  const near = element.closest('[data-line],[data-lo]');
+  const near = findClosest(element, '[data-line],[data-lo]', HTMLElement);
   if (near && column.contains(near)) {
     const line = +(near.dataset.line || 0);
     if (line) return { lo: line, hi: line };
     if (near.dataset.lo !== undefined) return { lo: +(near.dataset.lo || 0), hi: +(near.dataset.hi || 0) };
   }
-  const block = element.closest('[data-lo]');
+  const block = findClosest(element, '[data-lo]', HTMLElement);
   return block && column.contains(block) ? { lo: +(block.dataset.lo || 0), hi: +(block.dataset.hi || 0) } : null;
 }
 // The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's
 // paragraph's item or quote, else its nearest block (a run of text whose lines could not be told - kind 'lines',
 // drawInline - stands for the block it is in).
 function blockAt(node) {
-  const element = node && (node.nodeType === 1 ? (node) : node.parentElement);
+  const element = node && (node instanceof Element ? node : node.parentElement);
   if (!element) return null;
-  let block = element.closest('#md [data-lo]');
+  let block = findClosest(element, '#md [data-lo]', HTMLElement);
   if (block && block.dataset.kind === 'lines' && block.parentElement)
-    block = block.parentElement.closest('#md [data-lo]');
+    block = findClosest(block.parentElement, '#md [data-lo]', HTMLElement);
   if (!block) return null;
-  if (block.dataset.kind === 'row') block = (block.closest('table[data-lo]')) || block;
+  if (block.dataset.kind === 'row') block = findClosest(block, 'table[data-lo]', HTMLElement) || block;
   else if (
     block.dataset.kind === 'paragraph' &&
     block.parentElement &&
@@ -19226,7 +19988,7 @@ function blockAt(node) {
     block = block.parentElement; // a list item's or a quote's own paragraph is that block
   // A heading or a rule is no block of its own (ADR-0025 D3's block kinds): the block it stands in, if any, is.
   while (block && !BLOCK_KINDS.includes(block.dataset.kind || ''))
-    block = block.parentElement ? (block.parentElement.closest('#md [data-lo]')) : null;
+    block = block.parentElement ? findClosest(block.parentElement, '#md [data-lo]', HTMLElement) : null;
   return block;
 }
 // The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032) and their names on
@@ -19239,9 +20001,9 @@ function blocksMeeting(first, last) {
   const column = $('#md');
   if (!column) return [];
   const meets = (element) => +(element.dataset.lo || 0) <= last && +(element.dataset.hi || 0) >= first;
-  return ([...column.querySelectorAll(BLOCK_SELECTOR)]).filter((element) => {
+  return findAll(column, BLOCK_SELECTOR, HTMLElement).filter((element) => {
     if (!meets(element)) return false;
-    const up = (element.parentElement && element.parentElement.closest(BLOCK_SELECTOR));
+    const up = element.parentElement && findClosest(element.parentElement, BLOCK_SELECTOR, HTMLElement);
     return !(up && column.contains(up) && meets(up));
   });
 }
@@ -19377,7 +20139,7 @@ function pickLines(
     overlaps: [],
   };
   if (REPICK) {
-    REPICK.cand = selection;
+    setRepickCandidate(REPICK, selection);
     linePick().compare();
     return;
   }
@@ -19403,7 +20165,7 @@ function pickLines(
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
   // the chosen lines out from under the sheet (compact), as a PDF box is
-  revealBox(document.querySelector('#md .md-sel'));
+  revealBox(findMaybe(document, '#md .md-sel', HTMLElement));
   if (LAST_POINTER === 'mouse') $('#note').focus({ preventScroll: true });
 }
 // The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (markdownLevels), or
@@ -19435,8 +20197,10 @@ function markChosenLines(
   chosen,
 ) {
   $$('#md .md-sel').forEach((element) => element.classList.remove('md-sel'));
-  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen))
-    lineLeaves(chosen.lo, chosen.hi).forEach((element) => element.classList.add('md-sel'));
+  const low = chosen && chosen.lo,
+    high = chosen && chosen.hi;
+  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen) && low && high)
+    lineLeaves(low, high).forEach((element) => element.classList.add('md-sel'));
   if (MARKDOWN_VIEW.spot && MARKDOWN_VIEW.spot.doc === DOC && isColumnShown()) MARKDOWN_VIEW.spot.sel = isChosenSeen();
 } // hidden, nothing is on screen: what was stays
 // The elements that stand for lines first..last: each line span in range, and each block in range that has no line
@@ -19445,11 +20209,11 @@ function markChosenLines(
 function lineLeaves(first, last) {
   const column = $('#md');
   if (!column) return [];
-  const lines = [...column.querySelectorAll('[data-line]')].filter((element) => {
-    const line = +((element).dataset.line || 0);
+  const lines = findAll(column, '[data-line]', HTMLElement).filter((element) => {
+    const line = +(element.dataset.line || 0);
     return line >= first && line <= last;
   });
-  const blocks = [...column.querySelectorAll('[data-lo]')].filter((element) => {
+  const blocks = findAll(column, '[data-lo]', HTMLElement).filter((element) => {
     const block = element,
       start = +(block.dataset.lo || 0),
       end = +(block.dataset.hi || 0);
@@ -19457,7 +20221,7 @@ function lineLeaves(first, last) {
   });
   const out = new Set();
   for (const element of [...lines, ...blocks]) {
-    const row = element.closest('tr[data-lo]');
+    const row = findClosest(element, 'tr[data-lo]', HTMLElement);
     out.add(row && column.contains(row) ? row : element);
   }
   return [...out];
@@ -19475,8 +20239,11 @@ function drawPinMarks() {
   column.querySelectorAll('.md-badges').forEach((element) => element.remove());
   column.querySelectorAll('.md-pin').forEach((element) => element.classList.remove('md-pin', 'rv', 'st'));
   const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
-    .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
-    .sort((left, right) => (left.lo) - (right.lo) || left.id - right.id);
+    .filter(
+      (pin) =>
+        !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number',
+    )
+    .sort((left, right) => left.lo - right.lo || left.id - right.id);
   const rows = new Map(),
     top = column.getBoundingClientRect().top;
   for (const pin of pins) {
@@ -19758,7 +20525,7 @@ for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, stopHeadingJump, { passive: true });
 // A key scrolls the pane when nothing else has the focus or something in the pane has it - pdf/view-outline.ts's scope
 // (SCROLL_KEYS): with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const active = document.activeElement;
   if (SCROLL_KEYS.has(event.key) && (!active || active === document.body || $('#left').contains(active)))
     stopHeadingJump();
@@ -19800,15 +20567,15 @@ function pickSelection(tapTarget) {
     );
     return true;
   }
-  if (tapTarget) {
+  if (tapTarget instanceof Element) {
     const target = tapTarget;
-    const inertLink = target.closest('#md .md-rel');
+    const inertLink = findClosest(target, '#md .md-rel', HTMLElement);
     if (inertLink && LAST_POINTER !== 'mouse') {
       showInertTip(inertLink);
       return true;
     } // a finger has no hover
     if (target.closest('a,button,[data-act],.md-badges,.md-limit')) return false;
-    const carrier = target.closest('#md [data-lo],#md [data-line]');
+    const carrier = findClosest(target, '#md [data-lo],#md [data-line]', HTMLElement);
     if (!carrier) return false;
     const head = MARKDOWN_VIEW.heads.find(
       (heading) => heading.el === target.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'),
@@ -19895,8 +20662,8 @@ function rangeText(range) {
 // itself when neither end is in one.
 function widenToFormulas(range) {
   const formulaAt = (node) => {
-    const element = node && (node.nodeType === 1 ? (node) : node.parentElement);
-    return element ? (element.closest('#md [data-tex]')) : null;
+    const element = node && (node instanceof Element ? node : node.parentElement);
+    return element ? element.closest('#md [data-tex]') : null;
   };
   const startFormula = formulaAt(range.startContainer),
     endFormula = formulaAt(range.endContainer);
@@ -19925,8 +20692,7 @@ function showInertTip(element) {
 }
 // Whether the range takes no visible character of the line (or block) its end is in.
 function takesNothingOfEnd(range) {
-  const element =
-    range.endContainer.nodeType === 1 ? (range.endContainer) : range.endContainer.parentElement;
+  const element = range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement;
   if (!element) return false;
   const host = element.closest('[data-line]') || element.closest('[data-lo]');
   if (!host) return false;
@@ -20332,11 +21098,12 @@ function parseSide(text) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
         RENDERED_COMPARE.worker = worker;
         worker.onmessage = (message) => {
-          const job = RENDERED_COMPARE.job;
-          if (!job || !message.data || message.data.id !== job.id) return;
+          const job = RENDERED_COMPARE.job,
+            answer = job && jobAnswer(job, message.data);
+          if (!job || !answer) return;
           clearTimeout(job.t);
           RENDERED_COMPARE.job = null;
-          job.resolve(message.data);
+          job.resolve(answer);
         };
         worker.onerror = (event) => {
           event.preventDefault();
@@ -20347,17 +21114,18 @@ function parseSide(text) {
       resolve({ ok: false, limit: MARKDOWN_LIMIT.LOAD });
       return;
     }
-    const id = ++MARKDOWN_VIEW.seq;
+    const id = advanceMarkdownSequence();
     RENDERED_COMPARE.job = {
       id,
       resolve,
       t: setTimeout(() => stopSideParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
     };
-    worker.postMessage({
+    const question = {
       id,
       text,
       limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
-    });
+    };
+    worker.postMessage(question);
   });
 }
 function stopSideParse(answer) {
@@ -20395,8 +21163,7 @@ async function buildSide(tokens, lines, live) {
   }
   keepRenderContext(root, context); // an image that fails later draws its alt text on this side's count (onImageError)
   root.querySelectorAll('[id]').forEach((element) => element.removeAttribute('id'));
-  root.querySelectorAll('[data-act="md-anchor"],[data-act="md-doc"]').forEach((element) => {
-    const link = element;
+  findAll(root, '[data-act="md-anchor"],[data-act="md-doc"]', HTMLElement).forEach((link) => {
     delete link.dataset.act;
     link.removeAttribute('role');
     link.removeAttribute('tabindex');
@@ -20405,6 +21172,9 @@ async function buildSide(tokens, lines, live) {
   return root;
 }
 // ---------------- Blocks and their keys
+// One step of a comparison of two sides (commonSubsequence, blockOps): the item kept (eq), taken out (del, a only),
+// added (ins, b only), changed in place (mod), or moved (from where it was, to where it is now); a and b index the old
+// and the new side's items (-1 for none), and how says what split or joined between two kept blocks (markRegroups).
 // Whether element is a block another unit stands for: a list, a nested paragraph or code, a quote, a table - a tight
 // list item's own text leaves these out.
 function isNestedBlock(element) {
@@ -20462,8 +21232,7 @@ function blockLines(unit) {
 // space folded, as it is drawn.
 function compareUnits(root) {
   const out = [];
-  for (const match of root.querySelectorAll(UNIT_SELECTOR)) {
-    const unit = match;
+  for (const unit of findAll(root, UNIT_SELECTOR, HTMLElement)) {
     if (!isCompareUnit(unit)) continue;
     const tag = unitTag(unit),
       text = unitText(unit, tag),
@@ -20534,7 +21303,7 @@ function inlineShape(unit, tag, reopened) {
         if (child.nodeValue) out.push(child.nodeValue);
         continue;
       }
-      if (child.nodeType !== 1) continue;
+      if (!(child instanceof Element)) continue;
       const element = child;
       if ((unit.tagName === 'LI' && isNestedBlock(element)) || element.classList.contains('sr-only')) continue;
       if (element.classList.contains('cc')) {
@@ -20554,7 +21323,7 @@ function inlineShape(unit, tag, reopened) {
       let lastAt = out.length - 1;
       if (name === 'code.md-math')
         // a formula's pieces: one line end apart
-        while (lastAt >= 0 && typeof out[lastAt] === 'string' && !/\S/.test(out[lastAt])) lastAt--;
+        for (let piece = out[lastAt]; typeof piece === 'string' && !/\S/.test(piece); piece = out[lastAt]) lastAt--;
       const last = out[lastAt];
       if (to !== null && typeof last === 'object' && last.t === name && last.to === to) {
         out.splice(lastAt, 1);
@@ -20587,7 +21356,9 @@ function isReopenedRun(element) {
 }
 // Where a link element points (its target, as unitReferences names it; '' for an emphasis). Pure over the DOM.
 function linkTarget(element) {
-  return element.dataset.tipUrl || element.getAttribute('href') || element.dataset.anchor || '';
+  return (
+    element.getAttribute('data-tip-url') || element.getAttribute('href') || element.getAttribute('data-anchor') || ''
+  );
 }
 // A block of lines' inline structure: its language (a code block's fence's info word, '' for any other) and its lines,
 // spaces and all, serialized without ambiguity (JSON after a marker no other shape starts with) - so a code block whose
@@ -20600,7 +21371,8 @@ function linedShape(lang, lines) {
 function shapeLanguage(shape) {
   if (!shape.startsWith('\u0002pre\u0003')) return '';
   try {
-    return String(JSON.parse(shape.slice(5))[0]);
+    const parsed = JSON.parse(shape.slice(5));
+    return Array.isArray(parsed) ? String(parsed[0]) : '';
   } catch {
     return '';
   }
@@ -20647,7 +21419,7 @@ function unitText(unit, tag) {
   const walk = (node) => {
     for (const child of node.childNodes) {
       if (child.nodeType === 3) text += child.nodeValue;
-      else if (child.nodeType === 1 && !(unit.tagName === 'LI' && isNestedBlock(child))) walk(child);
+      else if (child instanceof Element && !(unit.tagName === 'LI' && isNestedBlock(child))) walk(child);
     }
   };
   walk(unit);
@@ -20659,14 +21431,13 @@ function unitText(unit, tag) {
 // not counted again.
 function unitReferences(unit, selector, skip) {
   const out = [];
-  for (const match of unit.querySelectorAll(selector)) {
-    const element = match;
+  for (const element of unit.querySelectorAll(selector)) {
     if (!isOwnPart(unit, element) || (skip && skip.has(element))) continue;
     out.push(
-      element.dataset.path ||
-        element.dataset.tipUrl ||
+      element.getAttribute('data-path') ||
+        element.getAttribute('data-tip-url') ||
         element.getAttribute('href') ||
-        element.dataset.anchor ||
+        element.getAttribute('data-anchor') ||
         element.textContent ||
         '',
     );
@@ -20815,8 +21586,8 @@ function blockOps(oldUnits, newUnits, budget) {
     while (takenAt < takenOutOps.length || addedAt < addedOps.length) {
       const taken = takenOutOps[takenAt],
         added = addedOps[addedAt];
-      if (taken && pair.has(taken)) {
-        const partner = pair.get(taken);
+      const partner = taken && pair.get(taken);
+      if (taken && partner) {
         if (added && added !== partner) {
           out.push(added);
           addedAt++;
@@ -20848,9 +21619,9 @@ function blockOps(oldUnits, newUnits, budget) {
   out.forEach((operation) => {
     if (operation.t !== 'del') return;
     const places = added.get(oldUnits[operation.a].key);
-    if (!places || !places.length) return;
-    const index = places.shift(),
-      to = out[index];
+    const index = places && places.shift();
+    if (index === undefined) return;
+    const to = out[index];
     operation.t = 'from';
     operation.b = to.b;
     to.t = 'to';
@@ -20871,11 +21642,7 @@ function blockOps(oldUnits, newUnits, budget) {
 // own, so a split or a join adds, takes out or changes that row (th cells for td), and that row says it - two tables
 // joined are not "quotes or lists". Pure over the units' boxes (grp: which boxes, by identity; box: their kinds, one
 // for each) but for the ops it marks.
-function markRegroups(
-  oldUnits,
-  newUnits,
-  ops,
-) {
+function markRegroups(oldUnits, newUnits, ops) {
   const kept = ops.filter((operation) => operation.t === 'eq' || operation.t === 'mod'),
     memo = new Map();
   // a unit's quote and list boxes, outermost first: each box (by identity) and its kind (a numbered list's start aside)
@@ -20953,8 +21720,7 @@ function unitWords(unit) {
   const out = [];
   let spaced = false;
   if (isLinedTag(unitTag(unit))) {
-    for (const line of unit.querySelectorAll('.ln')) {
-      const lineElement = line;
+    for (const lineElement of unit.querySelectorAll('.ln')) {
       out.push({
         node: null,
         el: lineElement,
@@ -20969,7 +21735,7 @@ function unitWords(unit) {
   }
   const walk = (node, inside) => {
     for (const child of node.childNodes) {
-      if (child.nodeType === 3) {
+      if (child instanceof Text) {
         const text = String(child.nodeValue || '');
         let at = 0;
         for (const match of text.matchAll(/[\p{L}\p{N}_]+|[^\s\p{L}\p{N}_]/gu)) {
@@ -20990,7 +21756,7 @@ function unitWords(unit) {
         if (/\s/.test(text.slice(at))) spaced = true;
         continue;
       }
-      if (child.nodeType !== 1) continue;
+      if (!(child instanceof Element)) continue;
       const element = child;
       if ((unit.tagName === 'LI' && isNestedBlock(element)) || element.classList.contains('sr-only')) continue;
       if (element.classList.contains('cc')) {
@@ -21099,13 +21865,13 @@ function markChangedWords(oldUnit, newUnit, budget) {
     for (const edit of nodeEdits) {
       if (edit.kind === 'put') {
         const rest = node.splitText(edit.s);
-        (rest.parentNode).insertBefore(wordMark('del', edit.text || ''), rest);
+        rest.before(wordMark('del', edit.text || ''));
         continue;
       }
       const word = node.splitText(edit.s);
       word.splitText(edit.e - edit.s);
       const wrapper = wordMark(edit.kind === 'ins' ? 'ins' : 'del', '');
-      (word.parentNode).insertBefore(wrapper, word);
+      word.before(wrapper);
       wrapper.appendChild(word);
     }
   }
@@ -21127,8 +21893,8 @@ function markChangedWords(oldUnit, newUnit, budget) {
     // a line: its content, up to its line end (the end stays outside, so the mark ends with the line's text)
     const end = wrap.el.lastChild,
       lineEnd =
-        end && end.nodeType === 3 && /\n$/.test(String(end.nodeValue || ''))
-          ? (end).splitText(String(end.nodeValue).length - 1)
+        end instanceof Text && /\n$/.test(String(end.nodeValue || ''))
+          ? end.splitText(String(end.nodeValue).length - 1)
           : null;
     wrapper.append(...[...wrap.el.childNodes].filter((child) => child !== lineEnd));
     wrap.el.insertBefore(wrapper, lineEnd);
@@ -21139,10 +21905,8 @@ function markChangedWords(oldUnit, newUnit, budget) {
 // changes. A list item's own links only (isOwnPart): a nested block's are that block's.
 function markChangedLinks(oldUnit, newUnit) {
   const selector = 'a,.md-rel,[data-anchor]',
-    to = (link) => {
-      const element = link;
-      return element.dataset.tipUrl || element.getAttribute('href') || element.dataset.anchor || '';
-    };
+    to = (link) =>
+      link.getAttribute('data-tip-url') || link.getAttribute('href') || link.getAttribute('data-anchor') || '';
   const oldLinks = [...oldUnit.querySelectorAll(selector)].filter((link) => isOwnPart(oldUnit, link)),
     newLinks = [...newUnit.querySelectorAll(selector)].filter((link) => isOwnPart(newUnit, link)),
     oldTargets = new Set(oldLinks.map(to)),
@@ -21151,7 +21915,7 @@ function markChangedLinks(oldUnit, newUnit) {
     const target = to(link);
     if (target && !oldTargets.has(target)) {
       link.classList.add('mdc-wl');
-      (link).dataset.tip = translateTemplate('링크 대상이 바뀜 · {to}', { to: markHiddenPlain(target) });
+      link.setAttribute('data-tip', translateTemplate('링크 대상이 바뀜 · {to}', { to: markHiddenPlain(target) }));
     }
   }
   for (const link of oldLinks) {
@@ -21195,9 +21959,16 @@ function markUnit(unit, kind, why) {
 // alt text as in the document view.
 function ownElement(unit) {
   if (unit.el.tagName !== 'LI') return unit.el;
-  const copy = unit.el.cloneNode(false);
+  const copy = shallowCopy(unit.el);
   for (const child of [...unit.el.childNodes])
-    if (!(child.nodeType === 1 && isNestedBlock(child))) copy.appendChild(child);
+    if (!(child instanceof Element && isNestedBlock(child))) copy.appendChild(child);
+  return copy;
+}
+// A shallow copy of an HTML element: cloneNode(false), which the DOM types as a Node.
+function shallowCopy(element) {
+  const copy = element.cloneNode(false);
+  if (!(copy instanceof HTMLElement))
+    throw new Error('shallowCopy: the copy of a ' + element.tagName + ' is no HTMLElement');
   return copy;
 }
 function parentBoxTag(element, root) {
@@ -21255,14 +22026,15 @@ function placeTakenOut(
   let node = block,
     oldBox = oldPlace.parentElement;
   for (; oldBox && oldBox !== oldRoot && !boxes.has(oldBox); oldBox = oldBox.parentElement) {
-    const copy = oldBox.cloneNode(false);
+    const copy = shallowCopy(oldBox);
     delete copy.dataset.lo;
     delete copy.dataset.hi;
     copy.appendChild(node);
     standFor(boxes, oldBox, copy);
     node = copy;
   }
-  const holders = oldBox && oldBox !== oldRoot ? (boxes.get(oldBox)) : [root],
+  // The loop above stops at a box that boxes has, or at the root.
+  const holders = (oldBox && oldBox !== oldRoot && boxes.get(oldBox)) || [root],
     box =
       holders.find((holder) => !!previous && holder.contains(previous)) ||
       holders.find((holder) => !!next && holder.contains(next)) ||
@@ -21289,8 +22061,8 @@ function movedPlaceLine(unit, to) {
   line.dataset.n = '1';
   const text = translateTemplate('여기 있던 블록을 L{line}로 옮김', { line: to.lo }),
     box = tag === 'tr' ? document.createElement('td') : line;
-  if (tag === 'tr') {
-    (box).colSpan = Math.max(1, unit.el.children.length);
+  if (box instanceof HTMLTableCellElement) {
+    box.colSpan = Math.max(1, unit.el.children.length);
     line.appendChild(box);
   }
   box.textContent = text;
@@ -21393,9 +22165,8 @@ function layGutterChips() {
   layer.setAttribute('aria-hidden', 'true');
   const top = root.getBoundingClientRect().top;
   const items = [];
-  for (const node of root.querySelectorAll('[data-mdc],.mdc-pin')) {
-    const element = node,
-      rect = element.getBoundingClientRect();
+  for (const element of findAll(root, '[data-mdc],.mdc-pin', HTMLElement)) {
+    const rect = element.getBoundingClientRect();
     if (!rect.height) continue;
     if (element.classList.contains('mdc-pin'))
       items.push({ y: rect.top - top, cls: 'pin', text: element.dataset.mdcPin || '' });
@@ -21422,9 +22193,7 @@ function layGutterChips() {
 // The unit elements of a drawn side in document order, as compareUnits takes them (and a moved block's old place,
 // ghosts).
 function unitElements(root, ghosts) {
-  return [...root.querySelectorAll(UNIT_SELECTOR + (ghosts ? ',.mdc-ghost' : ''))]
-    .map((node) => node)
-    .filter(isCompareUnit);
+  return findAll(root, UNIT_SELECTOR + (ghosts ? ',.mdc-ghost' : ''), HTMLElement).filter(isCompareUnit);
 }
 // ---------------- Showing a compare
 // Git's lines [first, last] of a side (counted on LF alone, as a hunk counts them) as the screen's lines of that side
@@ -21475,8 +22244,8 @@ function drawCompareNavigator() {
     : RENDERED_COMPARE.at < 0
       ? translateTemplate('바뀐 곳 {n}곳', { n: count })
       : translateTemplate('바뀐 곳 {at}/{n}', { at: RENDERED_COMPARE.at + 1, n: count });
-  ($('#mdc-prev')).disabled = RENDERED_COMPARE.at <= 0;
-  ($('#mdc-next')).disabled = RENDERED_COMPARE.at >= count - 1;
+  $('#mdc-prev').disabled = RENDERED_COMPARE.at <= 0;
+  $('#mdc-next').disabled = RENDERED_COMPARE.at >= count - 1;
 }
 // Goes to change group index: brings its first block to a third of the pane's height and, with ring, rings the group
 // for a moment.
@@ -21527,15 +22296,18 @@ function compareNotice(text) {
   );
   return notice;
 }
+// What the compare knows of a pin's place in the commit: GET /api/revision-diff?pin='s scope spread out (none when the
+// server sent no scope) with that diff's whole patch (whole).
 // Why a side carries no lines (GET /api/revision-source's reason), in a line.
 function sideFailureText(side, which) {
-  switch (side && side.reason) {
-    case 'source_too_large':
-      return translateTemplate('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
-        side: which,
-        size: formatMebibytes(side.bytes),
-        limit: formatMebibytes(side.limit),
-      });
+  // the server sends bytes and limit with this reason (revisions/core.py); formatMebibytes reads none as 0
+  if (side && side.reason === 'source_too_large')
+    return translateTemplate('{side}이 {size}라 그려 비교하지 않습니다(한도 {limit})', {
+      side: which,
+      size: formatMebibytes(side.bytes || 0),
+      limit: formatMebibytes(side.limit || 0),
+    });
+  switch ((side && side.reason) || '') {
     case 'source_not_utf8':
       return translateTemplate('{side}이 UTF-8이 아니라 그려 비교하지 않습니다', { side: which });
     case 'not_a_file':
@@ -21578,19 +22350,19 @@ async function showRenderedCompare(id, base, seq, docKey) {
     RENDERED_COMPARE.ro = null;
   }
   // the guide line says what this compare finds, once it has (ringPinBlocks)
-  if (REVISION_VIEW.target) REVISION_VIEW.target.mdcMsg = '';
+  if (REVISION_VIEW.target) setTargetGuideLine(REVISION_VIEW.target, '');
   pane.replaceChildren(waitLine(translate('두 판을 읽는 중입니다.')));
   drawCompareNavigator();
   const pinTarget = revisionPinFor(id);
   let answer,
     scope = null;
   try {
-    const path =
-      '/api/revision-source?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
+    const query = '?commit=' + encodeURIComponent(id) + (base ? '&base=' + encodeURIComponent(base) : '');
     const [sides, pinDiff] = await Promise.all([
-      api(withDocQuery(path, docKey), { what: '두 판 읽기', silent: true }),
+      api('GET /api/revision-source', { query: withDocQuery(query, docKey), what: '두 판 읽기', silent: true }),
       pinTarget
-        ? api(withDocQuery('/api/revision-diff?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey), {
+        ? api('GET /api/revision-diff', {
+            query: withDocQuery('?commit=' + encodeURIComponent(id) + '&pin=' + pinTarget.id, docKey),
             what: '변경 내용 읽기',
             silent: true,
           }).catch(() => null)
@@ -21600,7 +22372,7 @@ async function showRenderedCompare(id, base, seq, docKey) {
     scope = pinDiff && pinDiff.data ? { ...(pinDiff.data.scope || {}), whole: String(pinDiff.data.diff || '') } : null;
   } catch (error) {
     if (live()) {
-      const why = error && (error).data ? errText((error).data) : '';
+      const why = isApiError(error) && error.data ? errText(error.data) : '';
       pane.replaceChildren(
         compareNotice(
           why
@@ -21612,10 +22384,12 @@ async function showRenderedCompare(id, base, seq, docKey) {
     return;
   }
   if (!live()) return;
-  const bad = [
-    [answer.old, translate('옛 판')],
-    [answer.new, translate('새 판')],
-  ].find(([side]) => side && !Array.isArray(side.lines));
+  const bad = (
+    [
+      [answer.old, translate('옛 판')],
+      [answer.new, translate('새 판')],
+    ]
+  ).find(([side]) => side && !Array.isArray(side.lines));
   if (bad) {
     pane.replaceChildren(compareNotice(sideFailureText(bad[0], bad[1])));
     sayCompareStatus(answer, null);
@@ -21728,7 +22502,10 @@ function compareInfoLine(text, status) {
 // The status line of a compare: its two sides - a range's with the commits and files its source diff counted
 // (REVISION_VIEW.rangeN, once that answer is in) - and what changed. Kept (RENDERED_COMPARE.said) so the range's counts
 // can join it when they come (restateCompareStatus).
-function sayCompareStatus(answer, counts) {
+function sayCompareStatus(
+  answer,
+  counts,
+) {
   RENDERED_COMPARE.said = { r: answer, c: counts };
   const ends =
       (answer.base ? String(answer.base).slice(0, 8) : translate('없음')) + ' → ' + String(answer.id || '').slice(0, 8),
@@ -21771,7 +22548,12 @@ function restateCompareStatus() {
 // part of it the line says so and points at [소스 diff], which shows the pin's hunks alone. Returns the change group to
 // open at (-1: none), and leaves on the pin the line the guide says (pinTarget.mdcMsg).
 /** @param side the new side GET /api/revision-source gave */
-function ringPinBlocks(pinTarget, scope, newUnits, side) {
+function ringPinBlocks(
+  pinTarget,
+  scope,
+  newUnits,
+  side,
+) {
   const target = REVISION_VIEW.target;
   if (target && !pinTarget)
     target.mdcMsg = translateTemplate('핀 #{id}의 커밋을 볼 때만 핀 자리를 표시합니다', { id: target.id });
@@ -21786,7 +22568,7 @@ function ringPinBlocks(pinTarget, scope, newUnits, side) {
   const part = !!scope && scope.mode === SCOPE_MODE.PIN,
     ranges = part
       ? hunks(scope.diff)
-      : scope && scope.hunks > 0
+      : scope && scope.hunks !== undefined && scope.hunks > 0
         ? hunks(scope.whole)
         : [[firstLine, pinTarget.hi || firstLine]];
   const meets = newUnits.filter(
@@ -21804,7 +22586,7 @@ function ringPinBlocks(pinTarget, scope, newUnits, side) {
           id: pinTarget.id,
           n: changed.length,
         }) +
-        (scope && scope.hunks > 0
+        (scope && scope.hunks !== undefined && scope.hunks > 0
           ? ' (' + translate(scope.source === SCOPE_SOURCE.CHANGES ? '에이전트가 기록한 줄' : '핀 자리로 추정') + ')'
           : '')
       : meets.length
@@ -21836,6 +22618,10 @@ function suggestDraft() {
   };
 }
 const SUGGEST_DRAFT = suggestDraft(); // the composer's draft; an open edit card keeps its own (EditCard.sg)
+// Sets the composer's draft's current text and place, for another module that changes it (ADR-0042 D1).
+function setSuggestCurrent(value) {
+  SUGGEST_DRAFT.current = value;
+}
 /** A copy of a draft to keep (a discard's undo, the tab's stored draft): what it holds, without a read under way or its
  * failure. */
 function suggestCopy(draft) {
@@ -21853,6 +22639,15 @@ function suggestClear() {
   const editor = $('#c-sg-text');
   editor.value = '';
   editor.style.height = '';
+}
+/** Whether a draft holds a text other than the one it was filled from (a draft never filled is not edited). Pure. */
+function suggestEdited(draft) {
+  return draft.base != null && draft.text !== draft.base;
+}
+// Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
+// ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).
+function suggestPending() {
+  return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
 }
 
 // ------------------------------------------------ Suggested edits (docs/handbook/viewer.md §제안 수정, ADR-0020)
@@ -21906,10 +22701,6 @@ function suggestOff(
   if (isFigureKind(docKind)) return SUGGEST_OFF.FIGURE;
   if (!owner || owner.region || isRegion(owner) || owner.lo == null || owner.hi == null) return SUGGEST_OFF.REGION;
   return owner.hi - owner.lo + 1 > SUGGEST_LINES ? SUGGEST_OFF.LONG : null;
-}
-/** Whether a draft holds a text other than the one it was filled from (a draft never filled is not edited). Pure. */
-function suggestEdited(draft) {
-  return draft.base != null && draft.text !== draft.base;
 }
 /** The lines an owner is, as a draft records them: 'file:lo-hi'. Pure. */
 function suggestKey(owner) {
@@ -22087,8 +22878,17 @@ function suggestBadge(pin, closed) {
 // Reads the lines owner.lo..owner.hi of owner.file exactly (GET /api/snippet?…&text=1) into the draft as its base - and
 // as its text too when `fill` - then redraws its owner. Only while owns() (the selection or the edit card is still on
 // screen), the owner still has those lines and, for a fill, the text was not typed meanwhile: otherwise the next draw
-// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기].
-async function suggestRead(draft, owner, fill, owns, redraw) {
+// decides again. A failure keeps the draft and says why on its line (fail), with [원문 다시 읽기]. An owner off lines (a
+// region) has no source to read and is left as it is; none comes here, as such an owner carries no suggestion
+// (suggestOff).
+async function suggestRead(
+  draft,
+  owner,
+  fill,
+  owns,
+  redraw,
+) {
+  if (!onLines(owner)) return;
   const key = suggestKey(owner),
     was = draft.text;
   if (draft.reading === key) return;
@@ -22098,21 +22898,17 @@ async function suggestRead(draft, owner, fill, owns, redraw) {
   let text = null,
     fail = '';
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
-          encodeURIComponent(String(owner.file)) +
-          '&lo=' +
-          owner.lo +
-          '&hi=' +
-          owner.hi +
-          '&text=1',
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' + encodeURIComponent(String(owner.file)) + '&lo=' + owner.lo + '&hi=' + owner.hi + '&text=1',
         owner.doc,
       ),
-      { what: '원문 읽기', expect: [400], silent: true },
-    );
+      what: '원문 읽기',
+      expect: [400],
+      silent: true,
+    });
     if (status === 400) fail = errText(data);
-    else if (data && typeof data.text === 'string') text = data.text;
+    else if (data && !isRefusal(data) && typeof data.text === 'string') text = data.text;
     else fail = translate('80줄이 넘는 범위는 원문을 받지 못합니다');
   } catch (error) {
     fail = translate('서버에 닿지 않습니다');
@@ -22140,7 +22936,13 @@ async function suggestRead(draft, owner, fill, owns, redraw) {
 // Keeps the draft on the owner's lines while its text is the source's own: an editor turned on and never filled, or not
 // edited since and now on other lines, reads them as its text and base. Nothing while off, on a selection that can
 // carry no suggestion, during a read, or after a read of these lines failed (its [원문 다시 읽기] tries again).
-function suggestFollow(draft, owner, off, owns, redraw) {
+function suggestFollow(
+  draft,
+  owner,
+  off,
+  owns,
+  redraw,
+) {
   if (!draft.on || off || draft.reading) return;
   if (draft.fail && draft.fail.key === suggestKey(owner)) return;
   if (draft.base == null || (suggestMoved(draft, owner) && !suggestEdited(draft)))
@@ -22319,12 +23121,6 @@ function renderSuggest(selection) {
   composerVerdict().drawRow(); // [제안 수정] on turns the verdict buttons off
   if (BAND === LAYOUT_BAND.TABLET_SHEET) applySheet();
 }
-// Whether the composer's draft is a suggestion a save would send, so its note may not join an overlapped pin instead
-// ([덧붙이기] appends a note; the suggestion belongs to this selection's lines).
-function suggestPending() {
-  return SUGGEST_DRAFT.on && suggestEdited(SUGGEST_DRAFT);
-}
-
 // ---------------- An edit card's draft (EditCard.sg)
 // The kind of an edit card's document (an unknown one is LaTeX).
 function editDocKind(card) {
@@ -22333,12 +23129,12 @@ function editDocKind(card) {
 }
 /** An edit card's suggestion elements. */
 function editSuggestElements(card) {
-  const find = (selector) => card.el.querySelector(selector);
+  const find = (selector) => findElement(card.el, selector, HTMLElement);
   return {
     tg: find('.e-sg-row .sg-tg'),
     why: find('.e-sg-row .sg-why'),
     box: find('.e-sg'),
-    ta: find('.e-sg-text'),
+    ta: findElement(card.el, '.e-sg-text', HTMLTextAreaElement),
     line: find('.e-sg .sg-note'),
     cc: find('.e-sg .sg-cc'),
     cur: find('.e-sg .sg-cur'),
@@ -22350,8 +23146,8 @@ function renderEditSuggest(card) {
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN,
     elements = editSuggestElements(card);
-  const row = card.el.querySelector('.e-sg-row'),
-    readOnly = card.el.querySelector('.e-sg-ro');
+  const row = findElement(card.el, '.e-sg-row', HTMLElement),
+    readOnly = findElement(card.el, '.e-sg-ro', HTMLElement);
   row.hidden = closed;
   const view = closed && pin ? suggestView(pin) : null;
   readOnly.hidden = !view;
@@ -22427,7 +23223,7 @@ function suggestAct(control, act) {
 // tab's draft follow.
 document.addEventListener('input', (event) => {
   const editor = event.target;
-  if (!editor.classList || !editor.classList.contains('sg-text')) return;
+  if (!(editor instanceof HTMLTextAreaElement) || !editor.classList.contains('sg-text')) return;
   const owner = suggestOwner(editor);
   if (!owner) return;
   owner.sg.text = editor.value;
@@ -22441,21 +23237,21 @@ document.addEventListener('input', (event) => {
 // compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
 // the moment it is asked.
 let COMPOSITION_ELEMENT = null;
-addEventListener(
+window.addEventListener(
   'compositionstart',
   (event) => {
     COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'compositionend',
   (event) => {
     if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'focusout',
   (event) => {
     if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
@@ -22470,194 +23266,8 @@ function imeOpen() {
   return !!COMPOSITION_ELEMENT;
 }
 
-// ------------------------------------------------ composer
+// The overlap notice for the current selection.
 
-/** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
- * and snippet updates do not count as new input. */
-function composeFields() {
-  const selection = COMPOSE.current,
-    noteField = $('#note');
-  return JSON.stringify({
-    note: noteField.value,
-    mentions: Array.from(noteField._mentions || []),
-    kind: KIND_NEW,
-    assign: { ...ASSIGN_NEW },
-    range: selection && {
-      lo: selection.lo,
-      hi: selection.hi,
-      scope: selection.scope,
-      kind: selection.kind,
-      env: selection.env,
-      elSel: selection.elSel,
-    },
-    sg: { on: SUGGEST_DRAFT.on, text: SUGGEST_DRAFT.text, base: SUGGEST_DRAFT.base },
-  });
-}
-/**
- * A successful request may clear its original selection only when every submitted editable field is still unchanged.
- */
-function composeOwns(selection, box, visit, fields) {
-  return currentVisit(visit) && COMPOSE.current === selection && COMPOSE.box === box && composeFields() === fields;
-}
-function setBusy(on) {
-  $('#c-spin').hidden = !on;
-  $('#c-body').classList.toggle('busy', on);
-}
-// Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner. A
-// new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it.
-// The first-visit hint on how to pick goes (endTopic): it has been done.
-async function pick(region) {
-  const seq = setPickseq(PICKSEQ + 1),
-    repick = REPICK;
-  endTopic(NOTICE_TOPIC.PICK); // the first-visit hint on how to pick has been done
-  // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared at once, so a [핀 저장] while
-  // the pick runs never saves the stale COMPOSE.current - the old place - and instead goes through the
-  // COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to save the place just chosen.
-  if (repick) {
-    banner(html`<span>되짚는 중…</span>`);
-  } else {
-    setComposeCurrent(null);
-    setComposeIntent(COMPOSE.intent + 1);
-    $('#composer').hidden = false;
-    setBusy(true);
-    setComposePicking(true);
-    $('#c-err').hidden = true;
-    $('#c-body').hidden = false;
-    // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
-    composerVerdict().drawRow();
-    setSide(true);
-    applySide(); // a collapsed panel opens for a new selection in every layout (wide included)
-    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
-    if (MID_OVERLAY) relayout();
-    if (LAYOUT !== LAYOUT_MODE.WIDE) {
-      $('#right').scrollTop = 0;
-      revealBox(COMPOSE.box);
-    }
-  }
-  let answer;
-  // A new selection the server cannot be reached for is not a failure: offlinePick opens the composer on it and says
-  // what happens next, so the call does not say '위치 찾기 실패' over that. A re-place and a Markdown or text
-  // document have no such way on, and say it.
-  // While the connection is known to be gone, or the last request to end got no answer (API_OUT - the poll has not
-  // counted its two failures yet), the server is not asked at all: each drag would wait out a request that cannot be
-  // answered before its composer opened. And a request that is asked waits no longer than API_WAIT.PICK.
-  try {
-    if (!repick && !isMarkdownDoc() && (offlineNow() || API_OUT)) throw new Error('cut off');
-    answer = (
-      await api('/api/pick', {
-        method: 'POST',
-        body: region,
-        what: '위치 찾기',
-        quietUnreached: !repick && !isMarkdownDoc(),
-        wait: API_WAIT.PICK,
-      })
-    ).data;
-  } catch (error) {
-    if (seq !== PICKSEQ) return;
-    setBusy(false);
-    if (!repick) {
-      setComposePicking(false);
-      clearPendingSave();
-    }
-    // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
-    // composer opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back
-    // (offline/flow.ts).
-    const failure = error;
-    if (!repick && !(failure && failure.status) && !isMarkdownDoc()) {
-      void composerQueue().pick(region);
-      return;
-    }
-    if (repick) {
-      bannerRepick();
-    } else {
-      clearSelectionParts();
-      if (COMPOSE.box) {
-        COMPOSE.box.remove();
-        setComposeBox(null);
-      }
-      if (!COMPOSE.current) {
-        $('#composer').hidden = true;
-        applySide();
-      }
-      drawSelectionPopover();
-    }
-    return;
-  }
-  if (seq !== PICKSEQ) return;
-  setBusy(false);
-  if (!repick) setComposePicking(false);
-  if (answer.error) {
-    if (answer.pdf_build_gone) {
-      try {
-        await refreshDoc();
-      } catch (error) {}
-      if (seq !== PICKSEQ) return;
-      if (repick && repick.box) {
-        repick.box.remove();
-        repick.box = null;
-      } else if (!repick && COMPOSE.box) {
-        clearSelectionParts();
-        COMPOSE.box.remove();
-        setComposeBox(null);
-      }
-    }
-    if (repick) {
-      bannerRepick(errText(answer));
-      return;
-    }
-    // A failed pick never carries out a pending save - only the error panel is shown, so a save never fails silently.
-    setComposeCurrent(null);
-    setComposeIntent(COMPOSE.intent + 1);
-    clearPendingSave();
-    $('#c-err').textContent = errText(answer);
-    $('#c-err').hidden = false;
-    $('#c-body').hidden = true;
-    drawSelectionPopover();
-    return;
-  }
-  if (repick) {
-    repick.cand = answer;
-    bannerCompare();
-    return;
-  }
-  const selection = answer;
-  setComposeCurrent(selection);
-  setComposeIntent(COMPOSE.intent + 1);
-  selection.scope = null;
-  selection.elSel = answer.el || null;
-  if (!isRegion(answer)) {
-    useLevel(selection, answer.default_level);
-    if (!selection.scope) {
-      selection.lo = answer.lo;
-      selection.hi = answer.hi;
-    }
-  }
-  // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
-  setComposeDismissedOverlap(null);
-  selection.overlaps = overlapsFor(selection, PINS);
-  // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
-  // re-fetched - loadPins recomputes overlap too.
-  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id)))
-    composerPins().load();
-  setSnipOpen(false);
-  $('#c-err').hidden = true;
-  $('#c-body').hidden = false;
-  renderComposer();
-  // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
-  $('#composer').scrollTop = 0;
-  if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
-  // Drag -> straight into the note field - the popover's by the box while it is open
-  // (composer/view-selection-popover.ts), else the composer's. Never focused on touch - the virtual keyboard would pop
-  // up immediately and cover the range ladder and page.
-  if (LAST_POINTER === 'mouse')
-    (isSelectionPopoverOpen() ? SELECTION_POPOVER_FIELD : $('#note')).focus({ preventScroll: true });
-  // If [핀 저장] was pressed while the pick was still running, the queued save runs here (COMPOSE.current has just been
-  // filled in).
-  if (COMPOSE.pendingSave) {
-    clearPendingSave();
-    savePin();
-  }
-}
 // Overlap-banner wording: what relationship the selection has to that pin - '#4와 같은 범위' - '#4 범위 안' - '#4를
 // 감쌈' - '#4와 일부 겹침'. The whole banner sentence in the UI language: '열린 핀 #4와 같은 범위입니다' / 'Same range
 // as open pin #4'.
@@ -22729,6 +23339,40 @@ function overlapShort(rel, id) {
     p: rel === RANGE_REL.CONTAINS ? josa(id, '을', '를') : josa(id, '과', '와'),
   });
 }
+
+// Draw, discard and restore the current composer selection.
+
+/** Capture editable composer fields by value - the suggested edit's switch, text and base among them; derived overlap
+ * and snippet updates do not count as new input. */
+function composeFields() {
+  const selection = COMPOSE.current,
+    noteField = $('#note');
+  return JSON.stringify({
+    note: noteField.value,
+    mentions: Array.from(noteField._mentions || []),
+    kind: KIND_NEW,
+    assign: { ...ASSIGN_NEW },
+    range: selection && {
+      lo: selection.lo,
+      hi: selection.hi,
+      scope: selection.scope,
+      kind: selection.kind,
+      env: selection.env,
+      elSel: selection.elSel,
+    },
+    sg: { on: SUGGEST_DRAFT.on, text: SUGGEST_DRAFT.text, base: SUGGEST_DRAFT.base },
+  });
+}
+/**
+ * A successful request may clear its original selection only when every submitted editable field is still unchanged.
+ */
+function composeOwns(selection, box, visit, fields) {
+  return currentVisit(visit) && COMPOSE.current === selection && COMPOSE.box === box && composeFields() === fields;
+}
+function setBusy(on) {
+  $('#c-spin').hidden = !on;
+  $('#c-body').classList.toggle('busy', on);
+}
 // Location is one line: 'file L159' + page + match badge + [copy]. Range kind/line count are never repeated: the range
 // caption (rangeCap) under it says them, and the ladder's pressed segment. The dragged line goes into the description.
 // Selection on a view-only PDF: the location is '쪽 N - 영역', and the region's text (pdftotext) is shown in the source
@@ -22742,7 +23386,7 @@ function renderRegionComposer(selection) {
   $('#c-loc').dataset.copy = (selection.name ? selection.name + ' ' : '') + '쪽 ' + selection.page;
   // A figure region: '코드 없는 요소' (element without code lines, its box snapped) or '영역' (map unreadable).
   const pageTag = $('#c-page'),
-    regionBadge = figureRegionBadge(selection.el, isFigureKind(META && META.kind));
+    regionBadge = figureRegionBadge(selection.el, isFigureKind(META ? META.kind : undefined));
   pageTag.hidden = false;
   pageTag.textContent = selection.offline
     ? translate('오프라인')
@@ -22760,7 +23404,7 @@ function renderRegionComposer(selection) {
   $('#c-overlap').hidden = true;
   $('#c-levels').replaceChildren();
   setCap($('#c-cap'), html``);
-  drawExcerpt(null, $('#c-xp'), false);
+  drawExcerpt(null, $('#c-xp'), false, renderComposer);
   const pre = $('#c-snip');
   pre.className = 'wrap open';
   pre.textContent = selection.quote
@@ -22804,7 +23448,7 @@ function renderComposer() {
     pageText +
     (scope ? ' · ' + scope : '') +
     ' · ' +
-    translateTemplate('{n}줄', { n: (selection.hi) - (selection.lo) + 1 }) +
+    translateTemplate('{n}줄', { n: onLines(selection) ? selection.hi - selection.lo + 1 : NaN }) +
     ' · ' +
     translateTemplate('드래그한 줄 {range}', { range: lineRange(selection.raw_lo, selection.raw_hi) });
   const locationTag = viaTag(selection),
@@ -22832,7 +23476,7 @@ function renderComposer() {
   $('#c-expand').textContent = SNIP_OPEN
     ? translate('원문 접기')
     : translate('원문 펼치기') + (lineCount > 1 ? ' · ' + translateTemplate('{n}줄', { n: lineCount }) : '');
-  drawExcerpt(selection, $('#c-xp'), false); // the range excerpt (composer/view-excerpt.ts)
+  drawExcerpt(selection, $('#c-xp'), false, renderComposer); // the range excerpt (composer/view-excerpt.ts)
   drawComposerQuote(selection);
   renderSuggest(selection); // the [제안 수정] switch and its editor follow the range (composer/flow-suggest.ts)
   drawSelectionPopover(); // the popover by the box shows the same location
@@ -22906,7 +23550,7 @@ function setKind(kind) {
   setKindNew(kind === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   saveDraftSoon();
   if (KIND_NEW !== was) setComposeIntent(COMPOSE.intent + 1); // a failed verdict save's retry is for the intent it was pressed with
-  $$('#c-kind button').forEach((button) => {
+  findAll(document, '#c-kind button', HTMLElement).forEach((button) => {
     const on = button.dataset.kind === KIND_NEW;
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
@@ -22941,7 +23585,7 @@ function cancelSelection(clearNote) {
   if (clearNote) {
     $('#note').value = '';
     $('#note')._mentions = null;
-    ASSIGN_NEW.touched = false;
+    setAssignNewTouched(false);
     renderAssignNew();
     setKind(REQUEST_KIND.FIX);
     suggestClear();
@@ -23034,9 +23678,7 @@ function focusPlace(
 ) {
   if (closed && !(currentVisit(closed.visit) && COMPOSE.intent === closed.intent)) return;
   if (COMPOSE.current || COMPOSE.picking || !$('#composer').hidden || imeOpen() || !focusFell()) return;
-  const mark = (
-    id ? document.querySelector('#doc [data-act="mark-jump"][data-id="' + id + '"]') : null
-  );
+  const mark = id ? findMaybe(document, '#doc [data-act="mark-jump"][data-id="' + id + '"]', HTMLElement) : null;
   if (mark && mark.getClientRects().length) {
     mark.focus({ preventScroll: true });
     return;
@@ -23074,6 +23716,162 @@ function discardSelection() {
   if (note) holdDraftUntil(note);
 } // the kept draft goes when the window does
 
+// ------------------------------------------------ composer
+
+// Turns a dragged PDF region into source lines (/api/pick) and fills the composer - or, while relocating, the banner. A
+// new selection opens a collapsed panel; stale responses (PICKSEQ) are dropped; a save queued meanwhile runs after it.
+// The first-visit hint on how to pick goes (endTopic): it has been done.
+async function pick(region) {
+  const seq = setPickseq(PICKSEQ + 1),
+    repick = REPICK;
+  endTopic(NOTICE_TOPIC.PICK); // the first-visit hint on how to pick has been done
+  // When a new selection (not a re-place) starts, the previous COMPOSE.current is cleared at once, so a [핀 저장] while
+  // the pick runs never saves the stale COMPOSE.current - the old place - and instead goes through the
+  // COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to save the place just chosen.
+  if (repick) {
+    banner(html`<span>되짚는 중…</span>`);
+  } else {
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
+    $('#composer').hidden = false;
+    setBusy(true);
+    setComposePicking(true);
+    $('#c-err').hidden = true;
+    $('#c-body').hidden = false;
+    // a second pick over a selection: its verdict buttons go off, with the reason, until the place is found
+    composerVerdict().drawRow();
+    setSide(true);
+    applySide(); // a collapsed panel opens for a new selection in every layout (wide included)
+    // composing in the overlay pads the PDF by the panel width (CSS): re-fit now, then reveal the box
+    if (MID_OVERLAY) relayout();
+    if (LAYOUT !== LAYOUT_MODE.WIDE) {
+      $('#right').scrollTop = 0;
+      revealBox(COMPOSE.box);
+    }
+  }
+  let answer;
+  // A new selection the server cannot be reached for is not a failure: offlinePick opens the composer on it and says
+  // what happens next, so the call does not say '위치 찾기 실패' over that. A re-place and a Markdown or text
+  // document have no such way on, and say it.
+  // While the connection is known to be gone, or the last request to end got no answer (API_OUT - the poll has not
+  // counted its two failures yet), the server is not asked at all: each drag would wait out a request that cannot be
+  // answered before its composer opened. And a request that is asked waits no longer than API_WAIT.PICK.
+  try {
+    if (!repick && !isMarkdownDoc() && (offlineNow() || API_OUT)) throw new Error('cut off');
+    answer = (
+      await api('POST /api/pick', {
+        body: region,
+        what: '위치 찾기',
+        quietUnreached: !repick && !isMarkdownDoc(),
+        wait: API_WAIT.PICK,
+      })
+    ).data;
+  } catch (error) {
+    if (seq !== PICKSEQ) return;
+    setBusy(false);
+    if (!repick) {
+      setComposePicking(false);
+      clearPendingSave();
+    }
+    // The server could not be reached (a refusal carries a status): the drag is not lost. Its box stays and the
+    // composer opens on a selection with no lines, which [핀 저장] keeps in the queue until the connection is back
+    // (offline/flow.ts).
+    if (!repick && !isApiError(error) && !isMarkdownDoc()) {
+      void composerQueue().pick(region);
+      return;
+    }
+    if (repick) {
+      bannerRepick();
+    } else {
+      clearSelectionParts();
+      if (COMPOSE.box) {
+        COMPOSE.box.remove();
+        setComposeBox(null);
+      }
+      if (!COMPOSE.current) {
+        $('#composer').hidden = true;
+        applySide();
+      }
+      drawSelectionPopover();
+    }
+    return;
+  }
+  if (seq !== PICKSEQ) return;
+  setBusy(false);
+  if (!repick) setComposePicking(false);
+  if (isRefusal(answer)) {
+    if (answer.pdf_build_gone) {
+      try {
+        await refreshDoc();
+      } catch (error) {}
+      if (seq !== PICKSEQ) return;
+      if (repick && repick.box) {
+        repick.box.remove();
+        repick.box = null;
+      } else if (!repick && COMPOSE.box) {
+        clearSelectionParts();
+        COMPOSE.box.remove();
+        setComposeBox(null);
+      }
+    }
+    if (repick) {
+      bannerRepick(errText(answer));
+      return;
+    }
+    // A failed pick never carries out a pending save - only the error panel is shown, so a save never fails silently.
+    setComposeCurrent(null);
+    setComposeIntent(COMPOSE.intent + 1);
+    clearPendingSave();
+    $('#c-err').textContent = errText(answer);
+    $('#c-err').hidden = false;
+    $('#c-body').hidden = true;
+    drawSelectionPopover();
+    return;
+  }
+  if (repick) {
+    repick.cand = answer;
+    bannerCompare();
+    return;
+  }
+  const selection = answer;
+  setComposeCurrent(selection);
+  setComposeIntent(COMPOSE.intent + 1);
+  selection.scope = null;
+  selection.elSel = answer.el || null;
+  if (!isRegion(answer)) {
+    useLevel(selection, answer.default_level);
+    if (!selection.scope) {
+      selection.lo = answer.lo;
+      selection.hi = answer.hi;
+    }
+  }
+  // a freshly chosen selection - re-notified even if [별도 핀으로 저장] was pressed for a previous selection
+  setComposeDismissedOverlap(null);
+  selection.overlaps = overlapsFor(selection, PINS);
+  // If a pin the server saw as overlapping isn't in this tab's PINS (someone else just saved it), the list is
+  // re-fetched - loadPins recomputes overlap too.
+  if ((answer.overlaps || []).some((overlap) => !PINS.some((pin) => pin.id === overlap.id)))
+    composerPins().load();
+  setSnipOpen(false);
+  $('#c-err').hidden = true;
+  $('#c-body').hidden = false;
+  renderComposer();
+  // so a second drag's new location/ladder never hides above the scroll (the note stays as-is)
+  $('#composer').scrollTop = 0;
+  if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
+  // Drag -> straight into the note field - the popover's by the box while it is open
+  // (composer/view-selection-popover.ts), else the composer's. Never focused on touch - the virtual keyboard would pop
+  // up immediately and cover the range ladder and page.
+  if (LAST_POINTER === 'mouse')
+    (isSelectionPopoverOpen() ? SELECTION_POPOVER_FIELD : $('#note')).focus({ preventScroll: true });
+  // If [핀 저장] was pressed while the pick was still running, the queued save runs here (COMPOSE.current has just been
+  // filled in).
+  if (COMPOSE.pendingSave) {
+    clearPendingSave();
+    savePin();
+  }
+}
+
 // ----------------------------------------------- The composer draft, kept per tab (docs/handbook/viewer.md §패널 정리)
 // A draft - the composer's selection, box, note, kind, assignee and suggested edit, or a note waiting for the next pick
 // - is written to sessionStorage on every edit (debounced 300ms, flushed when the page hides) under draftKey(label,
@@ -23081,6 +23879,7 @@ function discardSelection() {
 // restores it (restoreDraft). Saving clears it; a discard clears it once its undo window is over (DRAFT.holds has that
 // document's undo). Only this tab sees it. The tab owns the debounce timer and the active document's draft key; a
 // discard's undo holds its own document's key.
+// A discarded draft kept until its undo note leaves: the note, the stored draft's key and the bytes it held.
 const DRAFT = {
   timer: 0,
   ready: false,
@@ -23116,14 +23915,6 @@ function holdDraftUntil(note) {
 // The storage key of a draft: one per instance label and document.
 function draftKey(label, doc) {
   return 'limnDraft:' + encodeURIComponent(label || '') + ':' + doc;
-}
-// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
-// this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
-// for nothing to keep, another document, or another record version.
-function draftRestore(record, doc, build) {
-  if (!record || record.v !== 1 || record.doc !== doc) return null;
-  if (record.cur && record.build === build) return 'full';
-  return String(record.note || '').trim() ? 'note' : null;
 }
 // The draft on screen now, or null: the open composer (with its pick, or a note while the pick is still running) or a
 // note kept in the hidden composer for the next pick.
@@ -23211,6 +24002,26 @@ function clearSavedDraft(snapshot) {
     if (sessionStorage.getItem(snapshot.key) === snapshot.value) sessionStorage.removeItem(snapshot.key);
   } catch (error) {}
 }
+// Open the current document's stored record and track subsequent edits under its key.
+function openStoredDraft() {
+  let stored = null,
+    raw = null;
+  const key = META ? draftKey(META.label, DOC) : null;
+  try {
+    raw = key ? sessionStorage.getItem(key) : null;
+    stored = JSON.parse(raw || 'null');
+  } catch (error) {
+    stored = null;
+  }
+  DRAFT.origin = null;
+  DRAFT.key = stored ? key : null;
+  DRAFT.ready = true;
+  return { key, raw, stored };
+}
+// Keep the identity of a restored selection so a late save can recognize it.
+function rememberRestoredDraft(key, value, current) {
+  DRAFT.origin = { key, value, current };
+}
 // Finish one document's draft before a switch; later debounce and pagehide callbacks must not write it under the next
 // document.
 function parkDraft() {
@@ -23221,23 +24032,281 @@ function parkDraft() {
   DRAFT.key = null;
   DRAFT.origin = null;
 }
+window.addEventListener('pagehide', syncDraft);
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) syncDraft();
+});
+
+// Restore this tab's composer draft for the open document.
+
+// What a stored draft brings back on this document and build: 'full' (selection, box, note) when its box was drawn on
+// this build, 'note' (the note waits for the next pick) when the build changed or no selection had come back yet, null
+// for nothing to keep, another document, or another record version.
+function draftRestore(record, doc, build) {
+  if (!record || record.v !== 1 || record.doc !== doc) return null;
+  if (record.cur && record.build === build) return 'full';
+  return String(record.note || '').trim() ? 'note' : null;
+}
+// A draft as draftRecord writes it, read back from sessionStorage (storedDraft), its selection (cur) read by
+// draftSelection.
+// The stored draft in value (parsed from sessionStorage), or null for a value that is no draft of this record version,
+// of no document, or without its note. The record's form has not changed since drafts were first kept, so every draft a
+// tab can hold is read; sg is absent from drafts written before suggested edits. What is not as draftRecord writes it
+// is left out and the note still comes back: a selection or build (the note then waits for the next pick, as after a
+// rebuild), @-tag hints (none), kind (the default), assignee (as it is), suggested edit (none). Pure.
+function storedDraft(value) {
+  if (!isRecord(value) || value.v !== 1) return null;
+  const { doc, build, cur, note, mentions, kind, assign } = value;
+  if ((typeof doc !== 'string' && doc !== null) || typeof note !== 'string') return null;
+  // a selection that cannot be placed again leaves the note to wait for the next pick
+  const selection = typeof build === 'string' ? draftSelection(cur) : null;
+  return {
+    v: 1,
+    doc,
+    build: selection && typeof build === 'string' ? build : '',
+    cur: selection,
+    note,
+    mentions: Array.isArray(mentions) ? mentions.filter((login) => typeof login === 'string') : [],
+    kind: typeof kind === 'string' ? kind : undefined,
+    assign:
+      isRecord(assign) && typeof assign.v === 'string' && typeof assign.touched === 'boolean'
+        ? { v: assign.v, touched: assign.touched }
+        : null,
+    sg: isSuggestDraft(value.sg) ? value.sg : null,
+  };
+}
+// Whether a stored value is a suggested edit's draft as suggestCopy writes it. Pure.
+function isSuggestDraft(value) {
+  if (!isRecord(value)) return false;
+  const { on, text, base, file, had, current, reading, fail } = value;
+  return (
+    typeof on === 'boolean' &&
+    typeof text === 'string' &&
+    (typeof base === 'string' || base === null) &&
+    (typeof file === 'string' || file === null) &&
+    typeof value.lo === 'number' &&
+    typeof value.hi === 'number' &&
+    (had === null || (isRecord(had) && typeof had.base === 'string' && typeof had.text === 'string')) &&
+    (current === null ||
+      (isRecord(current) &&
+        typeof current.text === 'string' &&
+        (typeof current.file === 'string' || current.file === null) &&
+        typeof current.lo === 'number' &&
+        typeof current.hi === 'number')) &&
+    typeof reading === 'string' &&
+    fail === null
+  );
+}
+// Whether value is a list of what each item's guard accepts. Pure.
+function isListOf(value, isItem) {
+  return Array.isArray(value) && value.every(isItem);
+}
+// Whether value is a string, a number: the item guards of isListOf. Pure.
+function isString(value) {
+  return typeof value === 'string';
+}
+function isNumber(value) {
+  return typeof value === 'number';
+}
+// Whether a stored field is absent or what guard accepts. Pure.
+function absentOr(value, guard) {
+  return value === undefined || guard(value);
+}
+// Whether a stored field is absent, null or what guard accepts. Pure.
+function absentNullOr(
+  value,
+  guard,
+) {
+  return value === undefined || value === null || guard(value);
+}
+// Whether value is a figure element as a pick names it (el, a rung's el, the composer's elSel). Pure.
+function isPinElement(value) {
+  if (!isRecord(value)) return false;
+  const { impl } = value;
+  return (
+    typeof value.id === 'string' &&
+    isListOf(value.path, isString) &&
+    absentOr(value.label, isString) &&
+    absentOr(value.part, isString) &&
+    (impl === undefined ||
+      (isRecord(impl) &&
+        typeof impl.file === 'string' &&
+        typeof impl.lo === 'number' &&
+        typeof impl.hi === 'number')) &&
+    absentOr(value.frac, (frac) => isListOf(frac, isNumber))
+  );
+}
+// Whether value is a ladder rung as a pick's answer, a drawn document's ladder or a text document's writes it. Pure.
+function isRung(value) {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.level === 'string' &&
+    typeof value.lo === 'number' &&
+    typeof value.hi === 'number' &&
+    typeof value.n === 'number' &&
+    typeof value.label === 'string' &&
+    typeof value.snippet === 'string' &&
+    absentNullOr(value.env, isString) &&
+    absentOr(value.el, isPinElement) &&
+    absentOr(value.merged, (merged) => isListOf(merged, isString)) &&
+    absentNullOr(value.score, isNumber)
+  );
+}
+// Whether value is an open pin a selection overlaps, as a pick's answer and overlapsFor write it. Pure.
+function isPickOverlap(value) {
+  return (
+    isRecord(value) &&
+    typeof value.id === 'number' &&
+    typeof value.lo === 'number' &&
+    typeof value.hi === 'number' &&
+    typeof value.rel === 'string'
+  );
+}
+// Whether value holds what the composer chooses on a selection as it writes it (scope, env, elSel, rel). Pure.
+function hasComposerChoice(value) {
+  return (
+    absentNullOr(value.scope, isString) &&
+    absentNullOr(value.env, isString) &&
+    absentNullOr(value.elSel, isPinElement) &&
+    absentOr(value.rel, (rel) => isListOf(rel, isPickOverlap))
+  );
+}
+// Whether value is lines picked on a drawn Markdown or text document as markdown/view.ts pickLines writes them,
+// with the rung, lines and snippet the composer chose since. Pure.
+function isLinePick(value) {
+  if (!isRecord(value)) return false;
+  return (
+    value.kind === 'lines' &&
+    value.page === undefined &&
+    (value.doc === null || typeof value.doc === 'string') &&
+    typeof value.file === 'string' &&
+    typeof value.name === 'string' &&
+    typeof value.lo === 'number' &&
+    typeof value.hi === 'number' &&
+    typeof value.raw_lo === 'number' &&
+    typeof value.raw_hi === 'number' &&
+    value.score === null &&
+    value.warn === null &&
+    typeof value.snippet === 'string' &&
+    isListOf(value.levels, isRung) &&
+    typeof value.default_level === 'string' &&
+    typeof value.n_lines === 'number' &&
+    typeof value.quote === 'string' &&
+    isListOf(value.overlaps, isPickOverlap) &&
+    hasComposerChoice(value)
+  );
+}
+// Whether value is a box in PDF points (an offline drag's rect). Pure.
+function isPointBox(value) {
+  return (
+    isRecord(value) &&
+    typeof value.x0 === 'number' &&
+    typeof value.y0 === 'number' &&
+    typeof value.x1 === 'number' &&
+    typeof value.y1 === 'number'
+  );
+}
+// Whether value is a drag on the PDF as the composer keeps it: POST /api/pick's answer (every release has sent name,
+// page, kind, warn, frac, quote, overlaps and pdf_build), or offlinePick's region, with what the composer chose since.
+// Pure.
+function isPagePick(value) {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.name === 'string' &&
+    typeof value.page === 'number' &&
+    typeof value.kind === 'string' &&
+    typeof value.warn === 'string' &&
+    isListOf(value.frac, isNumber) &&
+    typeof value.quote === 'string' &&
+    isListOf(value.overlaps, isPickOverlap) &&
+    typeof value.pdf_build === 'string' &&
+    absentOr(value.file, isString) &&
+    absentOr(value.lo, isNumber) &&
+    absentOr(value.hi, isNumber) &&
+    absentOr(value.raw_lo, isNumber) &&
+    absentOr(value.raw_hi, isNumber) &&
+    absentOr(value.via, isString) &&
+    absentNullOr(value.score, isNumber) &&
+    absentOr(value.fill, isNumber) &&
+    absentOr(value.rival, (rival) => typeof rival === 'boolean') &&
+    absentOr(value.n_lines, isNumber) &&
+    absentOr(value.snippet, isString) &&
+    absentOr(value.levels, (levels) => isListOf(levels, isRung)) &&
+    absentOr(value.default_level, isString) &&
+    absentOr(value.el, isPinElement) &&
+    absentOr(value.path_names, (names) => isListOf(names, isString)) &&
+    absentOr(value.doc, isString) &&
+    absentOr(value.view_only, (only) => typeof only === 'boolean') &&
+    absentOr(value.pdf, isString) &&
+    absentOr(value.n_chars, isNumber) &&
+    absentOr(value.offline, (offline) => typeof offline === 'boolean') &&
+    absentNullOr(value.rect, isPointBox) &&
+    hasComposerChoice(value)
+  );
+}
+// An offline drag's region as the releases before offlinePick took the region answer's shape wrote it (null for
+// the lines, the name and the element it has none of, pdf_build absent when the drag named none), as offlinePick
+// writes it now, field for field in its order; null for anything else. Pure.
+function earlierOfflinePick(value) {
+  if (!isRecord(value) || value.offline !== true || value.kind !== 'region') return null;
+  const { page, frac, quote, name, pdf, pdf_build: build, doc, rect, overlaps, scope, env, warn, snippet } = value;
+  if (
+    typeof page !== 'number' ||
+    !isListOf(frac, isNumber) ||
+    typeof quote !== 'string' ||
+    !absentNullOr(name, isString) ||
+    !absentNullOr(pdf, isString) ||
+    !absentNullOr(build, isString) ||
+    !absentNullOr(doc, isString) ||
+    !isPointBox(rect) ||
+    !isListOf(overlaps, isPickOverlap) ||
+    !absentNullOr(scope, isString) ||
+    !absentNullOr(env, isString) ||
+    !absentNullOr(warn, isString) ||
+    !absentNullOr(snippet, isString)
+  )
+    return null;
+  return {
+    kind: 'region',
+    page,
+    frac,
+    quote,
+    name: name || '',
+    pdf: pdf || undefined,
+    pdf_build: build || '',
+    doc: doc || undefined,
+    offline: true,
+    rect,
+    levels: [],
+    overlaps,
+    scope: scope || null,
+    env: env || null,
+    elSel: null,
+    warn: warn || '',
+    snippet: snippet || '',
+    n_lines: 0,
+  };
+}
+// The selection a stored draft keeps (draftRecord's cur, COMPOSE.current when it was written): lines of a drawn
+// document or a drag on the PDF as the composer wrote it, the same value, or an earlier release's offline drag in
+// today's form; null for anything else (the note then waits for the next pick). Pure.
+function draftSelection(value) {
+  if (isLinePick(value) || isPagePick(value)) return value;
+  return earlierOfflinePick(value);
+}
 // Start the next document with its own note and assignment before restoring any stored draft for it.
 function openDraftDoc() {
   const noteField = $('#note');
   noteField.value = '';
   noteField._mentions = null;
-  ASSIGN_NEW.v = ASSIGNEE_AGENT;
-  ASSIGN_NEW.touched = false;
+  setAssignNewValue(ASSIGNEE_AGENT);
+  setAssignNewTouched(false);
   setKind(REQUEST_KIND.FIX);
   suggestClear();
   renderAssignNew();
   autoGrow(noteField);
   restoreDraft();
 }
-addEventListener('pagehide', syncDraft);
-document.addEventListener('visibilitychange', () => {
-  if (document.hidden) syncDraft();
-});
 // Boot: brings back this tab's draft for the document on screen and says so on the status line with [버리기], until the
 // next press elsewhere. A full restore redraws the box and opens a collapsed panel or sheet (not remembered); a
 // note-only one leaves the note in the note field for the next pick. [버리기] is the usual discard (a full draft gets
@@ -23245,37 +24314,27 @@ document.addEventListener('visibilitychange', () => {
 // reading the pins (a Markdown document is drawn before they come) is newer than the kept one and stays: only the kept
 // note comes into it, when its field is still empty, and the kept selection and suggested edit are dropped.
 function restoreDraft() {
-  let record = null,
-    raw = null;
-  const key = META ? draftKey(META.label, DOC) : null;
-  DRAFT.origin = null;
-  try {
-    raw = key ? sessionStorage.getItem(key) : null;
-    record = JSON.parse(raw || 'null');
-  } catch (error) {
-    record = null;
-  }
+  const { key, raw, stored } = openStoredDraft();
+  const record = storedDraft(stored);
   const kept = draftRestore(record, DOC, META && META.pages_build),
     picked = !!COMPOSE.current && COMPOSE.current.doc === DOC;
-  const how = kept && picked ? (String(record.note || '').trim() && !$('#note').value.trim() ? 'note' : null) : kept;
-  DRAFT.key = record ? key : null;
-  DRAFT.ready = true;
-  if (!how) {
+  const how = kept && picked ? (record && record.note.trim() && !$('#note').value.trim() ? 'note' : null) : kept;
+  if (!how || !record) {
     syncDraft();
     return;
   }
   const noteField = $('#note');
-  noteField.value = record.note || '';
-  noteField._mentions = record.mentions && record.mentions.length ? new Set(record.mentions) : null;
+  noteField.value = record.note;
+  noteField._mentions = record.mentions.length ? new Set(record.mentions) : null;
   setKind(record.kind);
-  Object.assign(ASSIGN_NEW, record.assign || {});
+  if (record.assign) Object.assign(ASSIGN_NEW, record.assign);
   if (record.sg && !picked) Object.assign(SUGGEST_DRAFT, suggestCopy(record.sg));
   renderAssignNew();
   autoGrow(noteField);
   if (picked) saveDraftSoon();
-  if (how === 'full') {
-    const keptPick = record.cur,
-      page = document.getElementById('p' + keptPick.page);
+  const keptPick = how === 'full' ? record.cur : null;
+  if (keptPick) {
+    const page = document.getElementById('p' + keptPick.page);
     if (page && Array.isArray(keptPick.frac)) {
       const box = newBox(page),
         frac = keptPick.frac;
@@ -23292,7 +24351,7 @@ function restoreDraft() {
     $('#c-body').hidden = false;
     $('#composer').hidden = false;
     renderComposer();
-    DRAFT.origin = { key: key, value: raw, current: keptPick };
+    rememberRestoredDraft(key, raw, keptPick);
     setSide(true);
     applySide();
     if (LAYOUT !== LAYOUT_MODE.WIDE) revealBox(COMPOSE.box);
@@ -23316,6 +24375,54 @@ function restoreDraft() {
     },
     { life: NOTICE_LIFE.CLICK },
   );
+}
+
+// The composer's save controls, including a save waiting for an outstanding pick.
+
+/** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An
+ * append also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
+function syncComposeSaveButtons() {
+  findAll(document, '#btn-save,[data-act="overlap-append"],[data-act="pop-save"]', HTMLButtonElement).forEach(
+    (button) => {
+      button.disabled = COMPOSE.saving;
+    },
+  );
+  if (suggestPending())
+    findAll(document, '[data-act="overlap-append"]', HTMLButtonElement).forEach((button) => {
+      button.disabled = true;
+    });
+  composerVerdict().drawRow();
+} // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
+// The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
+// banner says a save failed, else [핀 저장]; with the shortcut where there is a keyboard.
+function saveButtonLabel() {
+  const banner = BANNERS.get(NOTICE_HOST.COMPOSER),
+    label = translate(banner && banner.save ? '다시 저장' : '핀 저장');
+  return COARSE_POINTER_QUERY.matches
+    ? html`${label}`
+    : html`${label} <span class="kh">${IS_MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>`;
+}
+// docs/handbook/viewer.md §패널 정리 (드래그 직후 저장): [핀 저장] pressed right after a drag, before the pick has
+// answered, finds no COMPOSE.current to save, so the press is queued and the save runs once the pick succeeds - the
+// note is read from #note at that moment, with whatever was typed meanwhile. A failed pick or a cancelled selection
+// clears the queue. Pressing the button again cancels the queued save (a toggle), so it can be undone without a
+// separate cancel button.
+function togglePendingSave() {
+  if (COMPOSE.pendingSave) {
+    clearPendingSave();
+    return;
+  }
+  setComposePendingSave(true);
+  const button = $('#btn-save');
+  button.dataset.pending = '1';
+  setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
+}
+function clearPendingSave() {
+  if (!COMPOSE.pendingSave) return;
+  setComposePendingSave(false);
+  const button = $('#btn-save');
+  delete button.dataset.pending;
+  setHtml(button, saveButtonLabel());
 }
 
 // Append a note to an existing pin; a late response must leave any newer selection on screen. Its undo is a chip on
@@ -23346,8 +24453,8 @@ async function appendToPin(id, text) {
     body = { note_append: text, base_rev: prior.rev || 0 };
   if (hints.length) body.mentions = hints;
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       body,
       what: '메모 덧붙이기',
       where: NOTICE_HOST.COMPOSER,
@@ -23391,25 +24498,13 @@ async function appendToPin(id, text) {
     syncComposeSaveButtons();
   }
 }
-/** Keep all create and append controls in step with their shared request lifetime; editable fields remain available. An
- * append also waits while a suggested edit is written (it is saved with a new pin only, renderOverlapBanner). */
-function syncComposeSaveButtons() {
-  document.querySelectorAll('#btn-save,[data-act="overlap-append"],[data-act="pop-save"]').forEach((button) => {
-    (button).disabled = COMPOSE.saving;
-  });
-  if (suggestPending())
-    document.querySelectorAll('[data-act="overlap-append"]').forEach((button) => {
-      (button).disabled = true;
-    });
-  composerVerdict().drawRow();
-} // the verdict buttons wait for the request too, and come back when it ends - a selection picked meanwhile included
 // Undo of an append: the note goes back to what it was before (base_rev = the append's revision). Silent - the card
 // shows it. Resolves with whether it went back (its chip waits for it, noticeAct).
 async function undoAppend(id, note, revision) {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/edit', {
+      id,
       body: { note: note, base_rev: revision },
       what: '되돌리기',
       where: NOTICE_HOST.LIST,
@@ -23420,37 +24515,6 @@ async function undoAppend(id, note, revision) {
   } catch (error) {}
   await composerPins().load();
   return ok;
-}
-// The save-pin button's label (boot, clearing the pending state, syncSaveButton): [다시 저장] while the composer's
-// banner says a save failed, else [핀 저장]; with the shortcut where there is a keyboard.
-function saveButtonLabel() {
-  const banner = BANNERS.get(NOTICE_HOST.COMPOSER),
-    label = translate(banner && banner.save ? '다시 저장' : '핀 저장');
-  return COARSE_POINTER_QUERY.matches
-    ? html`${label}`
-    : html`${label} <span class="kh">${IS_MAC ? '⌘ Enter' : 'Ctrl+Enter'}</span>`;
-}
-// docs/handbook/viewer.md §패널 정리 (드래그 직후 저장): [핀 저장] pressed right after a drag, before the pick has
-// answered, finds no COMPOSE.current to save, so the press is queued and the save runs once the pick succeeds - the
-// note is read from #note at that moment, with whatever was typed meanwhile. A failed pick or a cancelled selection
-// clears the queue. Pressing the button again cancels the queued save (a toggle), so it can be undone without a
-// separate cancel button.
-function togglePendingSave() {
-  if (COMPOSE.pendingSave) {
-    clearPendingSave();
-    return;
-  }
-  setComposePendingSave(true);
-  const button = $('#btn-save');
-  button.dataset.pending = '1';
-  setHtml(button, html`${translate('위치 찾는 중… 저장 대기')} <span class="spin" aria-hidden="true"></span>`);
-}
-function clearPendingSave() {
-  if (!COMPOSE.pendingSave) return;
-  setComposePendingSave(false);
-  const button = $('#btn-save');
-  delete button.dataset.pending;
-  setHtml(button, saveButtonLabel());
 }
 // Saves the selection as a pin (or queues the save while pick runs). Saved: a chip '저장됨 [되돌리기]' on the new pin's
 // mark for NOTICE_MS, visible with the phone's sheet folded; its [되돌리기] drops the pin again and - only once that
@@ -23549,7 +24613,7 @@ async function savePin(verdict) {
   // the server's found place can carry - so it says so and keeps the selection for a retry. The save stays marked as
   // going until the queue has answered: let go before that, a second press while the store is still opening would keep
   // the same selection twice, under two keys, and reconnecting would write two pins.
-  if ((selection).offline || offlineNow()) {
+  if (selection.offline || offlineNow()) {
     const done = () => {
       setComposeSaving(false);
       syncComposeSaveButtons();
@@ -23601,8 +24665,9 @@ async function savePin(verdict) {
   // A plain pin - no verdict, no suggested edit - is one the queue can keep. It goes with a key where the server knows
   // a write by its key, so that a save left without an answer can be kept and asked about by that key later instead
   // of failing here (below).
-  const plain = !verdict && !suggestion;
-  if (plain && composerQueue().keyed()) body.idem = composerQueue().key();
+  const plain = !verdict && !suggestion,
+    idem = plain && composerQueue().keyed() ? composerQueue().key() : undefined;
+  if (idem !== undefined) body.idem = idem;
   if (verdict) {
     body.verdict = verdict;
     body.kind_req = REQUEST_KIND.FIX;
@@ -23626,20 +24691,18 @@ async function savePin(verdict) {
     let status = 0,
       data = null;
     const ask = {
-      method: 'POST',
       body,
       what: verdict ? '판정 저장' : '핀 저장',
       where: NOTICE_HOST.COMPOSER,
       save: true,
-      expect: suggestion ? [409] : [],
+      expect: suggestion ? ([409]) : [],
       wait: API_WAIT.SAVE,
       quietUnreached: plain,
     };
     try {
-      ({ status, data } = await api('/api/pin', ask));
+      ({ status, data } = await api('POST /api/pin', ask));
     } catch (error) {
-      const failure = error;
-      if (failure && failure.status) throw error;
+      if (isApiError(error) && error.status) throw error;
       // No answer: the pin may be on the server - this person's, on this document and place, this note and verdict,
       // newer than any before the press. Then it is a save (its failure banner goes below), not a failure whose [다시
       // 저장] would make it twice.
@@ -23662,9 +24725,9 @@ async function savePin(verdict) {
         // said above the save row with [다시 저장]; so is a pin the queue will not take.
         if (
           plain &&
-          failure &&
-          failure.name === 'AbortError' &&
-          (await composerQueue().save(selection, note, out, hints, { idem: body.idem, top }))
+          error instanceof Error &&
+          error.name === 'AbortError' &&
+          (await composerQueue().save(selection, note, out, hints, { idem, top }))
         ) {
           const failed = BANNERS.get(NOTICE_HOST.COMPOSER);
           if (failed && failed.save) endNotice(failed, false);
@@ -23691,10 +24754,13 @@ async function savePin(verdict) {
       data = { id: got.id };
       sourceOk('POST /api/pin');
     }
-    if (status === 409) {
-      suggestSaveRefused(selection, data);
+    // the expected 409 (a suggested edit's lines changed meanwhile) is a refusal's body (isRefusal); a pin saved is not
+    if (status === 409 || isRefusal(data)) {
+      suggestSaveRefused(selection, isRefusal(data) ? data : null);
       return;
     }
+    // a 2xx whose body was no JSON names no pin: the save ends as one that failed, unsaid (below)
+    if (!data) throw new Error('POST /api/pin answered no pin');
     const id = data.id,
       failed = BANNERS.get(NOTICE_HOST.COMPOSER);
     if (failed && failed.save) endNotice(failed, false); // this save went through: its earlier failure is over
@@ -23736,13 +24802,14 @@ async function savePin(verdict) {
         };
     const word = verdict ? verdictLabel(verdict) : '',
       figureRoot = verdict ? composerVerdict().figureRoot(selection) : null; // a figure's verdict names the figure
-    const said = figureRoot
-      ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
-          id,
-          word: word,
-          target: composerVerdict().figureShort(selection.page, figureRoot),
-        })
-      : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
+    const said =
+      figureRoot && selection.page !== undefined
+        ? translateTemplate('#{id} {word} 판정 저장됨 · {target} — 되돌리면 판정을 거둡니다', {
+            id,
+            word: word,
+            target: composerVerdict().figureShort(selection.page, figureRoot),
+          })
+        : translateTemplate('#{id} 저장됨 · {word} 판정', { id, word: word });
     const chip = verdict
       ? undoNote(
           NOTICE_PLACE.CHIP,
@@ -23789,13 +24856,13 @@ function suggestSaveRefused(selection, data) {
     });
     return;
   }
-  if (COMPOSE.current === selection) {
-    SUGGEST_DRAFT.current = {
+  if (COMPOSE.current === selection && typeof selection.lo === 'number' && typeof selection.hi === 'number') {
+    setSuggestCurrent({
       text: String(data.current || ''),
       file: selection.file || null,
       lo: selection.lo,
       hi: selection.hi,
-    };
+    });
     renderSuggest(selection);
   }
   bannerNote(
@@ -23847,13 +24914,13 @@ const OFF_WROTE = 'wrote';
 // not among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored,
 // and no answer to a write ever is.
 const OFF_READS = [
-  '/api/meta',
-  '/api/docs',
-  '/api/pins',
-  '/api/pins/dropped',
-  '/api/people',
-  '/api/outline-labels',
-  '/api/source',
+  'GET /api/meta',
+  'GET /api/docs',
+  'GET /api/pins',
+  'GET /api/pins/dropped',
+  'GET /api/people',
+  'GET /api/outline-labels',
+  'GET /api/source',
 ];
 // idem: the server said it knows a write by its key (meta's pin_idem, offStash). boot: this visit's first reads are
 // still under way (cleared by offlineBoot, which boot() calls last). staleNote: the status line's message that the
@@ -23864,6 +24931,8 @@ const OFF_READS = [
 // before which none is tried again; failSaid - that failure was said this visit. holder: the server said it counts a
 // build's hold per holder (meta's hold_holder); me: this browser's name among those holders, once read or made
 // (offHolderId).
+// n, held: the records queued and those of them that lost their place; flushing: a send of the queue is running;
+// prep: [오프라인으로 받기] is running; saidStale: the stored reads' age was said this visit; db: the opened store.
 const OFF = {
   n: 0,
   held: 0,
@@ -23963,24 +25032,106 @@ function offQueue(
 ) {
   return offIn(OFF_STORE, mode, operation);
 }
-/** Every queued record, oldest first - the order they were written is the order they are sent. */
-function offAll() {
-  return offQueue('readonly', (store) => store.getAll()).then((records) => (Array.isArray(records) ? records : []));
+/** Every record in the queue as the store holds it, oldest first, or null when the queue cannot be read. */
+function offRecords() {
+  return offQueue('readonly', (store) => store.getAll()).then((records) =>
+    Array.isArray(records) ? records : null,
+  );
 }
-// A pin queued while the connection was gone: what its send needs to place it again and write it. id is its key in the
-// queue, set once it is stored.
-// Adds a record to the queue; answers its key, or null when it was not kept.
+/** Every queued record, oldest first - the order they were written is the order they are sent. */
+// A record the store holds that is not a queued pin (isQueuedPin) is left out: not counted, drawn or sent, and left in
+// the store as it is - never deleted.
+function offAll() {
+  return offRecords().then((records) => (records || []).filter(isQueuedPin));
+}
+// A pin queued while the connection was gone (offlineQueueSave writes it, offlineFlush marks it): what its send needs
+// to place it again and write it. id is its key in the queue, which the store gives it when it is added. A line pin of
+// a Markdown or text document has no page and no page fractions (absent, or null) - its lines are its place; a drag
+// has no lines.
+// The checks a stored record's fields take: a string or a number that may be absent, a string that may be null, a list
+// of strings or of numbers. Pure.
+function isTextOrAbsent(value) {
+  return value === undefined || typeof value === 'string';
+}
+function isNumberOrAbsent(value) {
+  return value === undefined || typeof value === 'number';
+}
+function isTextOrNull(value) {
+  return value === null || typeof value === 'string';
+}
+function isTextList(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+function isNumberList(value) {
+  return Array.isArray(value) && value.every((item) => typeof item === 'number');
+}
+// Whether a record read from the queue is a queued pin: every field offlineQueueSave writes, of the type it writes it
+// (offlineFlush changes held, why, sent and top, to the same types). Every Limn that has a queue writes this shape, so
+// a record that is not one was put there by something else; it is left where it is (offAll). Pure.
+function isQueuedPin(value) {
+  if (!isRecord(value)) return false;
+  const { rect, pt: size, place, lines } = value;
+  return (
+    typeof value.id === 'number' &&
+    typeof value.v === 'number' &&
+    typeof value.label === 'string' &&
+    isTextOrNull(value.doc) &&
+    typeof value.build === 'string' &&
+    (value.page === null || isNumberOrAbsent(value.page)) &&
+    (rect === null ||
+      (isRecord(rect) &&
+        typeof rect.x0 === 'number' &&
+        typeof rect.y0 === 'number' &&
+        typeof rect.x1 === 'number' &&
+        typeof rect.y1 === 'number')) &&
+    (value.frac === undefined || value.frac === null || isNumberList(value.frac)) &&
+    (size === null || (isRecord(size) && typeof size.w === 'number' && typeof size.h === 'number')) &&
+    typeof value.quote === 'string' &&
+    typeof value.note === 'string' &&
+    isTextOrNull(value.kind_req) &&
+    isTextOrNull(value.assignee) &&
+    isTextList(value.mentions) &&
+    typeof value.at === 'string' &&
+    typeof value.held === 'boolean' &&
+    typeof value.why === 'string' &&
+    typeof value.sent === 'boolean' &&
+    isNumberOrAbsent(value.top) &&
+    (place === null ||
+      (isRecord(place) &&
+        isTextOrAbsent(place.file) &&
+        typeof place.name === 'string' &&
+        isNumberOrAbsent(place.lo) &&
+        isNumberOrAbsent(place.hi))) &&
+    (lines === null ||
+      (isRecord(lines) &&
+        isTextOrAbsent(lines.file) &&
+        typeof lines.name === 'string' &&
+        typeof lines.lo === 'number' &&
+        typeof lines.hi === 'number' &&
+        typeof lines.text === 'string' &&
+        isTextOrNull(lines.kind) &&
+        isTextOrNull(lines.scope))) &&
+    typeof value.idem === 'string'
+  );
+}
+// Adds a record to the queue; answers its key, or null when it was not kept. The store numbers its records
+// (autoIncrement), so a key is a number.
 function offAdd(rec) {
-  return offQueue('readwrite', (store) => store.add(rec));
+  return offQueue('readwrite', (store) => store.add(rec)).then((key) => (typeof key === 'number' ? key : null));
 }
 // The pins this browser's queue has written, kept in the state store (OFF_WROTE, newest last, OFF_WROTE_MAX of them).
 // A record whose answer never came is looked for in the pin list, and a pin that is in here was written by a different
 // record of this queue - it is not this one's, however alike the two are. Without that, a record that lost its answer
 // while a twin of it was written (the same place, the same note) would match the twin's pin and be deleted unwritten.
 function offWrote() {
-  return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_WROTE)).then((stored) =>
-    Array.isArray(stored && stored.ids) ? stored.ids : [],
-  );
+  return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_WROTE)).then(wroteIds);
+}
+// The pin numbers a stored OFF_WROTE record holds ({key, ids}, written by offWroteAdd and offWroteKeep): its ids that
+// are numbers, which is every one those write; none when there is no such record. Pure.
+function wroteIds(stored) {
+  return isRecord(stored) && Array.isArray(stored.ids)
+    ? stored.ids.filter((id) => typeof id === 'number')
+    : [];
 }
 // Notes a pin this queue wrote (offWrote).
 async function offWroteAdd(id) {
@@ -23994,10 +25145,11 @@ async function offWroteAdd(id) {
 // one it was attempted after (its `top`), so every number at or below the smallest of those tops is past being
 // needed; an empty queue needs none of them. Capping the list by its length instead would drop the very number a
 // record that waited through many writes still needs.
+// rest is every record the store holds, read as it is: one that is not a queued pin keeps what its top needs as well.
 async function offWroteKeep(rest) {
   const ids = await offWrote();
   if (!ids.length) return;
-  const tops = rest.map((record) => (typeof record.top === 'number' ? record.top : 0));
+  const tops = rest.map((record) => (isRecord(record) && typeof record.top === 'number' ? record.top : 0));
   const floor = tops.length ? Math.min(...tops) : Infinity;
   const kept = rest.length ? ids.filter((id) => id > floor) : [];
   if (kept.length !== ids.length)
@@ -24019,7 +25171,7 @@ function offDel(id) {
 async function offlineSync() {
   const all = await offAll();
   OFF.n = all.length;
-  OFF.held = all.filter((record) => record && record.held).length;
+  OFF.held = all.filter((record) => record.held).length;
   drawStatus();
   // The queued pins on the page and in the panel (offline/view.ts).
   offlineUiSync(all);
@@ -24031,54 +25183,88 @@ async function offlineSync() {
 // list, so nothing is drawn and nothing can be dragged. So the last answer to each read of OFF_READS is stored, and a
 // read the network refuses is answered from that store instead of failing - said once on the status line, with when it
 // was read, so a stored list is never taken for the current one.
-/** The store key of a read: its path and query without the cache-busting bits. */
-function offReadKey(url, options) {
-  if (options && options.method && options.method !== 'GET') return null;
+/** The store key of a read of endpoint at url: the url, for a read of OFF_READS that is not a light poll. */
+function offReadKey(endpoint, url) {
   const address = String(url);
   if (address.indexOf('light=1') >= 0) return null;
-  const path = address.split('?')[0];
-  if (!OFF_READS.includes(path)) return null;
+  if (!OFF_READS.includes(endpoint)) return null;
   return address;
 }
 // Stores the answer to a document read, so a later visit with no network can be drawn from it. Only an answer the
 // server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
 // Markdown document past the drawing limit answers 413 with its reason, markdown/view.ts), and that answer is not the
 // document. Stored, it would come back on the next visit as a document that opens empty.
-function offStash(url, data, status, options) {
-  // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
-  // the light poll's included, carries pin_idem when a write is known by its key (api.md POST /api/pin).
-  // A meta answer also says which build each document is on now, which is what keeps a kept copy current
-  // (offlineFollowSeen). And hold_holder when a build's hold is counted per holder, which is what lets this browser let
-  // go of its own (offFollowTidy).
-  if (status === 200 && data && String(url).split('?')[0] === '/api/meta') {
-    OFF.idem = data.pin_idem === true;
-    OFF.holder = data.hold_holder === true;
-    offlineFollowSeen(data);
-  }
-  const key = offReadKey(url, options || null);
+function offStash(
+  endpoint,
+  url,
+  data,
+  status,
+) {
+  // Every success the network answers passes here, so this is also where the server says what it can do (OFF_HEARD).
+  const heard = OFF_HEARD[endpoint];
+  if (status === 200 && data && heard) heard(data);
+  const key = offReadKey(endpoint, url);
   if (!key) return;
   if (!(status >= 200 && status < 300) || data === null || data === undefined) return;
-  void offIn(OFF_STATE, 'readwrite', (store) => store.put({ key, data, status, at: Date.now() }));
+  const stored = { key, data, status, at: Date.now() };
+  void offIn(OFF_STATE, 'readwrite', (store) => store.put(stored));
 }
-/** The stored answer to a read, or null - never one the server refused. */
+// A read's answer as offStash stores it under the read's key (offReadKey): its body, its status and when it came.
+// Answer is what the body is known to be: unknown as the store gives it back, the endpoint's answer once offStashed
+// takes it as one.
+// The stored answer a value read under a read's key is, or null when it is none: offStash writes every field, so a
+// record without its body, its status or its time was not written by it. Its status is not judged here. Pure.
+function storedRead(stored) {
+  if (!isRecord(stored) || !('data' in stored)) return null;
+  const { key, data, status, at } = stored;
+  return typeof key === 'string' && typeof status === 'number' && typeof at === 'number'
+    ? { key, data, status, at }
+    : null;
+}
+// What an endpoint's answer tells this browser, by endpoint (offStash). A meta answer, the light poll's included,
+// carries pin_idem when a write is known by its key (api.md POST /api/pin). It also says which build each document is
+// on now, which is what keeps a kept copy current (offlineFollowSeen). And hold_holder when a build's hold is counted per
+// holder, which is what lets this browser let go of its own (offFollowTidy).
+const OFF_HEARD = {
+  'GET /api/meta': (meta) => {
+    OFF.idem = meta.pin_idem === true;
+    OFF.holder = meta.hold_holder === true;
+    offlineFollowSeen(meta);
+  },
+};
+// The answer that stands in for a stored one, by endpoint (offStashed): for a meta read, the meta of the build this
+// browser keeps whole (offKeptMeta); null keeps the stored answer.
+const OFF_STAND_INS = {
+  'GET /api/meta': async (key, last) => offKeptMeta(await offKeptAnswers(), key, last),
+};
+/** The stored answer to a read of endpoint at url, or null - never one the server refused. */
 function offStashed(
+  endpoint,
   url,
-  options,
 ) {
-  const key = offReadKey(url, options);
+  const key = offReadKey(endpoint, url);
   if (!key) return Promise.resolve(null);
-  return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (stored) => {
-    if (!stored || !('data' in stored)) return null;
+  // record is the store's value as IndexedDB gives it back (any); value is the same record, read as unknown and
+  // narrowed.
+  return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (record) => {
+    const value = record;
+    if (!isRecord(value) || !('data' in value)) return null;
     // The record has to say for itself that the server answered it with a success. A record that does not say so is
     // not trusted and is dropped: a record written by another build of this viewer may hold a refusal, and read as a
     // success it opens a document that is simply empty. A read that finds nothing asks the network, which is the right
     // answer.
-    if (typeof stored.status !== 'number' || stored.status < 200 || stored.status >= 300) {
+    if (typeof value.status !== 'number' || value.status < 200 || value.status >= 300) {
       void offIn(OFF_STATE, 'readwrite', (store) => store.delete(key));
       return null;
     }
-    if (key.split('?')[0] === '/api/meta') {
-      const whole = offKeptMeta(await offKept(), key, stored.data);
+    // One without the rest of what offStash writes (when it came) is not served either: the network is asked. The
+    // record is narrowed; the answer it carries is the one api() was given for this url and is not checked again
+    // (platform/api.ts trusts response.json() the same way, docs/adr/0046-viewer-endpoint-answers.md D3).
+    const stored = storedRead(value) ? record : null;
+    if (!stored) return null;
+    const standIn = OFF_STAND_INS[endpoint];
+    if (standIn) {
+      const whole = await standIn(key, stored.data);
       if (whole) return whole;
     }
     return { data: stored.data, status: stored.status, at: stored.at };
@@ -24092,14 +25278,14 @@ function offStashed(
 // document (it has no build), a record from before the meta was carried, or the same build. Pure.
 /** @param kept the kept record @param key the read's address @param last the last meta read */
 function offKeptMeta(kept, key, last) {
-  if (!kept || !kept.docs || !last || typeof last !== 'object') return null;
+  if (!kept || !kept.docs || !isRecord(last)) return null;
   const query = key.indexOf('?') >= 0 ? key.slice(key.indexOf('?') + 1) : '';
-  const docName = last.doc || new URLSearchParams(query).get('doc') || '',
+  const docName = (typeof last.doc === 'string' && last.doc) || new URLSearchParams(query).get('doc') || '',
     keptDoc = kept.docs[docName];
   if (
     !keptDoc ||
     !keptDoc.build ||
-    !keptDoc.meta ||
+    !isRecord(keptDoc.meta) ||
     keptDoc.meta.pages_build !== keptDoc.build ||
     last.pages_build === keptDoc.build
   )
@@ -24160,6 +25346,19 @@ async function offlineWorker() {
     return null;
   }
 }
+// The questions this page asks the worker (sw.js, its message listener): keep these files, drop these copies, and
+// whether its copies are answering because the network did not (offlineAskDown).
+// The worker's answer to keep: how many of the files it kept, and the address of each it could not.
+// What an answer to keep says, or null when there was none (offlineAsk's null, or not an object): a count that is
+// not a number counts none, a failed list that is not one lists none, and only its addresses are listed. Pure.
+function keepAnswer(answer) {
+  if (!isRecord(answer)) return null;
+  const { kept, failed } = answer;
+  return {
+    kept: typeof kept === 'number' ? kept : 0,
+    failed: Array.isArray(failed) ? failed.filter((address) => typeof address === 'string') : [],
+  };
+}
 // One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits
 // the question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is
 // not 3s, and a wait that short would call a keep that is still going a failure.
@@ -24210,17 +25409,21 @@ async function offlineAskDown() {
       resolve(null);
     }
   });
-  if (answer && answer.down === true) setApiOut(true);
+  if (isRecord(answer) && answer.down === true) setApiOut(true);
 }
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
 // (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
 function offlineUrls() {
-  const out = new Set([location.pathname + location.search]);
+  const out = new Set([window.location.pathname + window.location.search]);
   try {
     performance.getEntriesByType('resource').forEach((entry) => {
-      const address = new URL(entry.name, location.href);
-      if (address.origin === location.origin && !address.pathname.startsWith('/api/') && address.pathname !== '/sw.js')
+      const address = new URL(entry.name, window.location.href);
+      if (
+        address.origin === window.location.origin &&
+        !address.pathname.startsWith('/api/') &&
+        address.pathname !== '/sw.js'
+      )
         out.add(address.href);
     });
   } catch (error) {}
@@ -24229,10 +25432,13 @@ function offlineUrls() {
 // The PDF and the page images of a document as its meta names them - the very addresses the viewer asks for when that
 // document is on screen (pdf/flow-open.ts openVectorDocument, pdf/view-pages.ts pageSrc), since a copy is found again
 // by its address. Pure.
-function offlineDocFiles(docName, meta) {
+function offlineDocFiles(
+  docName,
+  meta,
+) {
   const build = (meta && meta.pages_build) || '',
     out = [];
-  if (!build) return out;
+  if (!meta || !build) return out;
   out.push(
     withDocQuery('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(meta.built_at || ''), docName),
   );
@@ -24283,18 +25489,24 @@ async function offlinePrepare() {
       let meta = null;
       const seen = Date.now();
       try {
-        meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+        meta = (await api('GET /api/meta', { query: withDocQuery('', docName), what: '화면 정보 읽기', silent: true }))
+          .data;
       } catch (error) {
         lost++;
         continue;
       }
       docs++;
       const info = docName ? docInfo(docName) : null,
-        kind = (meta && meta.kind) || (info && info.kind),
+        kind = (meta && meta.kind) || (info && info.kind) || undefined,
         key = (meta && meta.doc) || docName || '';
       if (rendersInBrowser(kind)) {
         try {
-          await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+          await api('GET /api/source', {
+            query: withDocQuery('', docName),
+            what: '원문 읽기',
+            silent: true,
+            expect: [413],
+          });
           got.push({ k: key, entry: { build: '', files: [], at: 0, src: (meta && meta.src_mtime) ?? null, seen } });
         } catch (error) {
           lost++;
@@ -24304,20 +25516,29 @@ async function offlinePrepare() {
       const files = offlineDocFiles(docName, meta);
       files.forEach((address) => urls.add(address));
       try {
-        await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+        await api('GET /api/outline-labels', {
+          query: withDocQuery('', docName),
+          what: '목차 번호 읽기',
+          silent: true,
+        });
       } catch (error) {}
       if (meta && meta.pages_build) {
-        // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
-        // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
+        // Held only when the server says until when. A 404 is thrown, and offHold's catch turns it, as any 4xx, into
+        // no hold: an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
         const hold = await offHold(docName, meta.pages_build, 7);
         if (hold && hold.held) held++;
         got.push({ k: key, entry: { build: meta.pages_build, files, at: hold ? hold.at : 0, seen, meta: meta } });
       }
     }
     // The lists every document shares, as they stand now.
-    for (const address of ['/api/docs', '/api/pins?all=1', '/api/pins/dropped', '/api/people']) {
+    for (const [endpoint, query] of [
+      ['GET /api/docs', ''],
+      ['GET /api/pins', '?all=1'],
+      ['GET /api/pins/dropped', ''],
+      ['GET /api/people', ''],
+    ]) {
       try {
-        await api(address, { what: '핀 읽기', silent: true });
+        await api(endpoint, { query, what: '핀 읽기', silent: true });
       } catch (error) {
         lost++;
       }
@@ -24328,7 +25549,9 @@ async function offlinePrepare() {
       failed = 0;
     for (let i = 0; i < all.length; i += OFF_KEEP_CHUNK) {
       say(translateTemplate('오프라인용으로 받는 중… {n}/{m}', { n: i, m: all.length }));
-      const answer = await offlineAsk({ type: 'keep', urls: all.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS);
+      const answer = keepAnswer(
+        await offlineAsk({ type: 'keep', urls: all.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS),
+      );
       if (!answer) {
         if (note) endNotice(note, false);
         lineNote(
@@ -24345,9 +25568,9 @@ async function offlinePrepare() {
         );
         return;
       }
-      kept += answer.kept || 0;
-      failed += (answer.failed || []).length;
-      (answer.failed || []).forEach((address) => missed.add(address));
+      kept += answer.kept;
+      failed += answer.failed.length;
+      answer.failed.forEach((address) => missed.add(address));
     }
     // A document is recorded as kept only with every one of its files: a build half kept is not one to follow from.
     // What it kept before then goes to the old builds, which the next follow drops unless a queued pin was drawn on it.
@@ -24404,10 +25627,66 @@ const OFF_KEPT = 'kept',
   OFF_RETRY_MAX = 1800000,
   OFF_SAY_AFTER = 3,
   OFF_LOCK = 'limn-offline-follow';
+// The kept record as the state store holds it under OFF_KEPT: what each document keeps (docs) and the old builds not
+// dropped yet (old). Carried is what each document's meta is known to be (KeptDoc).
+// What a document keeps (offlinePrepare, offFollowDoc): its build and that build's file addresses, when its hold was
+// last answered (at, 0 for never) and when the server was asked for that build (seen); the meta it was read with, which
+// a stored meta read is answered with (offKeptMeta) and is otherwise only handed on; a Markdown or text document's
+// source time (src) instead, with no build and no files. Carried is what the meta is known to be: unknown as the store
+// gives it back, the meta answer it was once it is taken as one (offKeptAnswers).
+// A build a document kept before, not dropped yet: its files, when its hold was last answered, and unheld when this
+// browser never held it (offKeptPart).
+function isKeptDoc(value) {
+  return (
+    isRecord(value) &&
+    typeof value.build === 'string' &&
+    isTextList(value.files) &&
+    typeof value.at === 'number' &&
+    typeof value.seen === 'number' &&
+    (value.src === undefined || value.src === null || typeof value.src === 'number')
+  );
+}
+function isOldBuild(value) {
+  return (
+    isRecord(value) &&
+    typeof value.doc === 'string' &&
+    typeof value.build === 'string' &&
+    isTextList(value.files) &&
+    typeof value.at === 'number' &&
+    (value.unheld === undefined || typeof value.unheld === 'boolean')
+  );
+}
+// Whether a value read under OFF_KEPT is the kept record: what offKeptWith, offKeptPart and offKeptHeld write, every
+// document's entry and every old build whole. Every Limn that keeps a copy writes this shape. Pure.
+function isKeptRecord(value) {
+  if (!isRecord(value)) return false;
+  const { docs, old } = value;
+  return (
+    typeof value.key === 'string' &&
+    isRecord(docs) &&
+    !Array.isArray(docs) &&
+    Object.values(docs).every(isKeptDoc) &&
+    Array.isArray(old) &&
+    old.every(isOldBuild)
+  );
+}
+// The kept record a value read under OFF_KEPT is, or null - for an instance never kept, and for a record that is not
+// one (isKeptRecord): read as never kept, it follows nothing, and the next [오프라인으로 받기] writes a new one over it.
+// Pure.
+function keptRecord(value) {
+  return isKeptRecord(value) ? value : null;
+}
 /** The kept record, or null for an instance never kept. */
 function offKept() {
+  return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_KEPT)).then(keptRecord);
+}
+// The kept record with each document's meta taken as the GET /api/meta answer it is, or null as offKept: the record is
+// narrowed (keptRecord); the metas it carries are the answers offlinePrepare and offFollowDoc were given and kept, not
+// checked again (platform/api.ts trusts response.json() the same way, docs/adr/0046-viewer-endpoint-answers.md D3).
+// record is the store's value as IndexedDB gives it back (any).
+function offKeptAnswers() {
   return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_KEPT)).then((record) =>
-    record && record.docs ? record : null,
+    keptRecord(record) ? record : null,
   );
 }
 // Changes the kept record in one transaction, read and written together: two tabs of this browser share it, and a
@@ -24428,7 +25707,7 @@ function offKeptUpdate(change) {
             request = store.get(OFF_KEPT);
           request.onsuccess = () => {
             try {
-              out = change(request.result && request.result.docs ? request.result : null);
+              out = change(keptRecord(request.result));
               if (out) store.put(out);
             } catch (error) {
               out = null;
@@ -24462,16 +25741,23 @@ function offKeptShow() {
 }
 // What a meta answer says each document is on: the document it answers for and, with several documents, each one's
 // summary - the page build, the source time, the kind. Pure.
+// What a meta answer says one document is on (offSeenIn): its page build ('' for none), its source time and its kind.
+// meta is an answer to GET /api/meta as it was handed to offStash; a field of the wrong type reads as missing.
 function offSeenIn(meta) {
   const out = {};
-  if (!meta || typeof meta !== 'object') return out;
+  if (!isRecord(meta)) return out;
   const put = (summary, key) => {
+    const { pages_build: build, src_mtime: src, kind } = summary;
     if (typeof key === 'string' && key)
-      out[key] = { build: summary.pages_build || '', src: summary.src_mtime ?? null, kind: summary.kind || null };
+      out[key] = {
+        build: (typeof build === 'string' && build) || '',
+        src: typeof src === 'number' ? src : null,
+        kind: (typeof kind === 'string' && kind) || null,
+      };
   };
   put(meta, meta.doc);
   (Array.isArray(meta.docs) ? meta.docs : []).forEach((summary) => {
-    if (summary && typeof summary === 'object') put(summary, summary.key);
+    if (isRecord(summary)) put(summary, summary.key);
   });
   return out;
 }
@@ -24483,15 +25769,17 @@ function offBehind(kept, seen) {
   return Object.keys(seen).filter((docName) => {
     const shown = seen[docName],
       keptDoc = docs[docName];
-    if (rendersInBrowser(shown.kind)) return !keptDoc || keptDoc.src !== shown.src;
+    if (rendersInBrowser(shown.kind ?? undefined)) return !keptDoc || keptDoc.src !== shown.src;
     return !!shown.build && (!keptDoc || keptDoc.build !== shown.build);
   });
 }
 // The old builds no queued pin was drawn on: those whose copies may be dropped and whose hold need not be asked again.
 // A record names its document and the build it was drawn on; a record with no document is taken to be drawn on that
 // build in any document - keeping a build too long costs space, dropping it loses the pin's place. Pure.
+// queue is every record the store holds, read as it is: a record that is not a queued pin (isQueuedPin) keeps the
+// build it names all the same.
 function offFree(old, queue) {
-  const drawn = (queue || []).filter((record) => record && record.build);
+  const drawn = (queue || []).filter(isRecord).filter((record) => record.build);
   return (old || []).filter(
     (oldBuild) =>
       !drawn.some((record) => record.build === oldBuild.build && (!record.doc || record.doc === oldBuild.doc)),
@@ -24502,7 +25790,8 @@ function offFree(old, queue) {
 function offRenewDue(kept, now) {
   const out = [];
   if (!kept) return out;
-  const due = (entry) => !!entry && !!entry.build && !entry.unheld && !(now - (entry.at || 0) < OFF_RENEW_MS);
+  const due = (entry) =>
+    !!entry && !!entry.build && !entry.unheld && !(now - (entry.at || 0) < OFF_RENEW_MS);
   Object.keys(kept.docs || {}).forEach((docName) => {
     if (due(kept.docs[docName])) out.push({ doc: docName, build: kept.docs[docName].build });
   });
@@ -24574,8 +25863,8 @@ async function offHold(
 ) {
   const holder = (await offHolderId()) || undefined;
   try {
-    const answer = await api(withDocQuery('/api/hold', docName), {
-      method: 'POST',
+    const answer = await api('POST /api/hold', {
+      query: withDocQuery('', docName),
       body: { build: build, days, holder },
       what: '빌드 보류',
       silent: true,
@@ -24583,8 +25872,7 @@ async function offHold(
     });
     return { at: Date.now(), held: answer.status === 200 && !!answer.data && !!answer.data.until };
   } catch (error) {
-    const apiError = error,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? { at: Date.now(), held: false } : null;
   }
 }
@@ -24608,7 +25896,10 @@ function offHolderId() {
             request = store.get(OFF_HOLDER);
           request.onsuccess = () => {
             const stored = request.result;
-            id = stored && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id) ? stored.id : '';
+            id =
+              isRecord(stored) && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id)
+                ? stored.id
+                : '';
             if (!id) {
               id = offlineKey();
               store.put({ key: OFF_HOLDER, id });
@@ -24714,14 +26005,20 @@ async function offFollowDoc(docName) {
   // When the server was asked: a reading asked later is the newer one (offKeptWith).
   const seen = Date.now();
   try {
-    meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+    meta = (await api('GET /api/meta', { query: withDocQuery('', docName), what: '화면 정보 읽기', silent: true }))
+      .data;
   } catch (error) {
     return false;
   }
   if (!meta) return false;
   if (rendersInBrowser(meta.kind)) {
     try {
-      await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+      await api('GET /api/source', {
+        query: withDocQuery('', docName),
+        what: '원문 읽기',
+        silent: true,
+        expect: [413],
+      });
     } catch (error) {
       return false;
     }
@@ -24734,7 +26031,7 @@ async function offFollowDoc(docName) {
   // Nothing to keep.
   if (!build) return true;
   try {
-    await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+    await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true });
   } catch (error) {}
   const files = offlineDocFiles(docName, meta);
   // Half a build is not kept: the one before stays whole, and what was fetched of this one is noted to go in turn.
@@ -24743,8 +26040,10 @@ async function offFollowDoc(docName) {
     return false;
   };
   for (let i = 0; i < files.length; i += OFF_KEEP_CHUNK) {
-    const answer = await offlineAsk({ type: 'keep', urls: files.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS);
-    if (!answer || (answer.failed || []).length) return half();
+    const answer = keepAnswer(
+      await offlineAsk({ type: 'keep', urls: files.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS),
+    );
+    if (!answer || answer.failed.length) return half();
   }
   const hold = await offHold(docName, build, 7);
   // Not held, it may be gone before its pins are sent.
@@ -24761,8 +26060,8 @@ async function offFollowTidy() {
   let ok = true;
   const kept = await offKept();
   if (!kept) return true;
-  const queue = await offQueue('readonly', (store) => store.getAll());
-  if (!Array.isArray(queue)) return false;
+  const queue = await offRecords();
+  if (!queue) return false;
   const shown = (oldBuild) => !!OFF.seen[oldBuild.doc] && OFF.seen[oldBuild.doc].build === oldBuild.build;
   for (const oldBuild of offFree(kept.old, queue).filter((oldBuild) => !shown(oldBuild))) {
     if (offlineNow()) return false;
@@ -24783,9 +26082,7 @@ async function offFollowTidy() {
       (record) =>
         record && {
           ...record,
-          old: (record.old || []).filter(
-            (other) => !(other.doc === oldBuild.doc && other.build === oldBuild.build),
-          ),
+          old: (record.old || []).filter((other) => !(other.doc === oldBuild.doc && other.build === oldBuild.build)),
         },
     );
   }
@@ -24834,9 +26131,12 @@ function offFollowDone(ok) {
 async function offlineQuote(page, rect) {
   if (!VECTOR_PDF.doc) return '';
   try {
-    // The one reader of a page's text (pdf/flow.ts).
-    const { items, vp: viewport } = await pageText(VECTOR_PDF.doc, page);
-    return quoteIn(items, viewport.height, rect);
+    // The one reader of a page's text (pdf/flow.ts): PDF.js's text content items and the page's viewport at scale 1,
+    // whose height is a number (pdfjs-dist PageViewport).
+    const text = await pageText(VECTOR_PDF.doc, page);
+    const viewport = text.vp;
+    if (!isRecord(viewport) || typeof viewport.height !== 'number') return '';
+    return quoteIn(text.items, viewport.height, rect);
   } catch (error) {
     return '';
   }
@@ -24846,11 +26146,17 @@ async function offlineQuote(page, rect) {
 // An item counts when its run crosses the box and the middle of its line is inside it. Judged by where the item
 // starts alone, a line that begins at the margin and runs through the box would be left out - which is most lines, so
 // the quote would come back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
-function quoteIn(items, pageHeight, rect) {
+// items are PDF.js text content items (types/pdfjs.d.ts PdfTextItem); one that is not an object with a list of numbers
+// for its transform - a marked content item has none - is passed over.
+function quoteIn(
+  items,
+  pageHeight,
+  rect,
+) {
   const out = [];
   (items || []).forEach((item) => {
-    const matrix = item && item.transform;
-    if (!matrix || typeof item.str !== 'string' || !item.str.trim()) return;
+    const matrix = isRecord(item) && isNumberList(item.transform) ? item.transform : null;
+    if (!isRecord(item) || !matrix || typeof item.str !== 'string' || !item.str.trim()) return;
     const x = matrix[4],
       width = Number(item.width) || 0,
       height = Number(item.height) || Math.hypot(matrix[2], matrix[3]) || 0,
@@ -24870,18 +26176,18 @@ async function offlinePick(drag) {
     quote = await offlineQuote(drag.page, rect);
   // A newer drag or a cancel owns the composer now.
   if (seq !== PICKSEQ) return;
+  // A region's shape, as POST /api/pick answers one for a view-only PDF (pins/location/http.py _region_body): no file
+  // and no lines, which the composer reads as absent, a name only the found place will have (''), the build the drag
+  // was drawn on ('' when the drag named none), and absent for a PDF or a document it cannot name.
   const selection = {
     kind: 'region',
     page: drag.page,
     frac: drag.frac,
     quote,
-    file: null,
-    name: null,
-    lo: null,
-    hi: null,
-    pdf: META ? META.pages_build : null,
-    pdf_build: drag.pdf_build,
-    doc: drag.doc || DOC,
+    name: '',
+    pdf: META ? META.pages_build : undefined,
+    pdf_build: drag.pdf_build || '',
+    doc: drag.doc || DOC || undefined,
     offline: true,
     rect,
     levels: [],
@@ -24889,13 +26195,9 @@ async function offlinePick(drag) {
     scope: null,
     env: null,
     elSel: null,
-    el: null,
-    via: null,
-    score: null,
     warn: '',
     snippet: '',
     n_lines: 0,
-    default_level: null,
   };
   setComposeCurrent(selection);
   setComposeIntent(COMPOSE.intent + 1);
@@ -24942,7 +26244,7 @@ async function offlineQueueSave(
   // as placed and points elsewhere. So the record carries the box as page fractions (frac, which every drag has) and
   // the page's size in points on the build it was drawn on, which together rebuild that pick request exactly. The
   // lines a pick already found are kept only to tell the person what the pin used to point at if its place is lost.
-  const pageFacts = META && META.pages && META.pages[selection.page - 1];
+  const pageFacts = META && META.pages && selection.page !== undefined && META.pages[selection.page - 1];
   const found =
     !selection.offline &&
     !isRegion(selection) &&
@@ -24952,9 +26254,8 @@ async function offlineQueueSave(
   // A Markdown or text document has no page: its lines are the place, and the browser drew them from the source it
   // holds. The record keeps those lines' own text, so the send can tell whether they still read the same - and find
   // them again when lines were only added or removed above them.
-  const lined = found && typeof selection.page !== 'number' && MARKDOWN_VIEW.doc === (selection.doc || DOC);
-  const firstLine = selection.lo,
-    lastLine = selection.hi;
+  const lined =
+    found && selection.page === undefined && MARKDOWN_VIEW.doc === (selection.doc || DOC) ? selection : null;
   const rec = {
     v: 1,
     label: META ? META.label : '',
@@ -24977,13 +26278,13 @@ async function offlineQueueSave(
     place: found ? { file: selection.file, name: selection.name, lo: selection.lo, hi: selection.hi } : null,
     lines: lined
       ? {
-          file: selection.file,
-          name: selection.name,
-          lo: firstLine,
-          hi: lastLine,
-          text: MARKDOWN_VIEW.lines.slice(firstLine - 1, lastLine).join('\n'),
-          kind: selection.scope ? kindFor(selection.scope, selection.env) : selection.kind,
-          scope: selection.scope ? wireScope(selection.scope) : null,
+          file: lined.file,
+          name: lined.name,
+          lo: lined.lo,
+          hi: lined.hi,
+          text: MARKDOWN_VIEW.lines.slice(lined.lo - 1, lined.hi).join('\n'),
+          kind: lined.scope ? kindFor(lined.scope, lined.env) : lined.kind,
+          scope: lined.scope ? wireScope(lined.scope) : null,
         }
       : null,
     idem: (tried && tried.idem) || offlineKey(),
@@ -25069,30 +26370,40 @@ function linesWhere(lines, want) {
     }
   return count === 1 ? { lo: hit, hi: hit + lineCount - 1 } : null;
 }
+// Where a kept Markdown or text record's lines stand now (offlinePlaceLines), in the shape offlineBody takes.
+// The place a record is written at: its lines found again (LinePlace), or pick's answer for its drag (POST /api/pick).
 // The place a kept Markdown or text record is written at: its lines as the source reads now (linesWhere), in the shape
 // offlineBody takes. 'net' when the source could not be asked for (the record waits), null when the lines are gone.
 async function offlinePlaceLines(rec) {
+  const kept = rec.lines;
+  if (!kept) return null;
   let answer;
   try {
-    answer = await api(withDocQuery('/api/source', rec.doc), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api('GET /api/source', {
+      query: withDocQuery('', rec.doc),
+      what: '원문 읽기',
+      silent: true,
+      expect: [413],
+    });
   } catch (error) {
-    const apiError = error,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? null : 'net';
   }
   const lines =
-    answer.status === 200 && answer.data && Array.isArray(answer.data.lines) ? answer.data.lines.map(String) : null;
-  const at = lines ? linesWhere(lines, rec.lines) : null;
+    answer.status === 200 && answer.data && !isRefusal(answer.data) && Array.isArray(answer.data.lines)
+      ? answer.data.lines.map(String)
+      : null;
+  const at = lines ? linesWhere(lines, kept) : null;
   if (!at) return null;
   return {
-    file: rec.lines.file,
-    name: rec.lines.name,
+    file: kept.file,
+    name: kept.name,
     lo: at.lo,
     hi: at.hi,
     raw_lo: at.lo,
     raw_hi: at.hi,
-    kind: rec.lines.kind,
-    scope: rec.lines.scope || undefined,
+    kind: kept.kind,
+    scope: kept.scope || undefined,
     quote: rec.quote,
   };
 }
@@ -25154,7 +26465,7 @@ function offlineBody(rec, place) {
     kind_req: rec.kind_req,
     assignee: rec.assignee,
   };
-  if (place.scope) body.scope = place.scope;
+  if ('scope' in place && place.scope) body.scope = place.scope;
   if ((rec.mentions || []).length) body.mentions = rec.mentions;
   if (rec.idem) body.idem = rec.idem;
   // A figure pick names its element. Without it the pin has no element to follow: its mark stays where it was drawn
@@ -25220,7 +26531,12 @@ async function offlineFlush() {
   // event, and a server may have been rolled back to a Limn that drops the key it does not know. The answer sets
   // OFF.idem on its way through api() (offStash). No answer means the connection is not there after all.
   try {
-    await api(withDocQuery('/api/meta?light=1'), { what: '상태 확인', silent: true, wait: API_WAIT.POLL });
+    await api('GET /api/meta', {
+      query: withDocQuery('?light=1'),
+      what: '상태 확인',
+      silent: true,
+      wait: API_WAIT.POLL,
+    });
   } catch (error) {
     OFF.flushing = false;
     return;
@@ -25243,15 +26559,14 @@ async function offlineFlush() {
       const keyed = OFF.idem && !!rec.idem;
       if (keyed && rec.sent) {
         try {
-          const answer = await api('/api/pin', {
-            method: 'POST',
+          const answer = await api('POST /api/pin', {
             body: { idem: rec.idem, replay_only: true, doc: rec.doc || undefined },
             what: '핀 저장',
             silent: true,
             expect: [409],
             wait: API_WAIT.SEND,
           });
-          if (answer.status === 200 && answer.data && typeof answer.data.id === 'number') {
+          if (answer.status === 200 && answer.data && !isRefusal(answer.data) && typeof answer.data.id === 'number') {
             claimed.add(answer.data.id);
             await offWroteAdd(answer.data.id);
             saved.push(answer.data.id);
@@ -25277,11 +26592,12 @@ async function offlineFlush() {
       // stands at those numbers now.
       let place = null;
       if (rec.lines) {
-        place = await offlinePlaceLines(rec);
-        if (place === 'net') {
+        const placed = await offlinePlaceLines(rec);
+        if (placed === 'net') {
           failed++;
           continue;
         }
+        place = placed;
         if (!place) {
           rec.held = true;
           rec.why = translate('그사이 그 줄들의 글이 바뀌었습니다');
@@ -25308,28 +26624,25 @@ async function offlineFlush() {
           pdf_build: rec.build || undefined,
           doc: rec.doc || undefined,
         };
+        // A drag pick cannot trace answers 200 with what it could not do (pins/location/http.py pick_answer).
+        let picked;
         try {
-          place = (
-            await api('/api/pick', {
-              method: 'POST',
-              body: pickRequest,
-              what: '위치 찾기',
-              silent: true,
-              wait: API_WAIT.SEND,
-            })
+          picked = (
+            await api('POST /api/pick', { body: pickRequest, what: '위치 찾기', silent: true, wait: API_WAIT.SEND })
           ).data;
         } catch (error) {
           // No answer or a refusal: the record stays for the next send.
           failed++;
           continue;
         }
-        if (!place || place.error) {
+        if (!picked || typeof picked !== 'object' || isRefusal(picked)) {
           rec.held = true;
-          rec.why = errText(place) || translate('위치를 찾지 못했습니다');
+          rec.why = errText(picked) || translate('위치를 찾지 못했습니다');
           await offPut(rec);
           held++;
           continue;
         }
+        place = picked;
       }
       // A server that knows a write by its key needs none of the looking below: the same key is the same pin, so the
       // record is sent with it until an answer comes, and an answer to a second attempt names the pin the first made.
@@ -25346,8 +26659,7 @@ async function offlineFlush() {
         rec.top = topPinId();
         await offPut(rec);
         try {
-          const { data } = await api('/api/pin', {
-            method: 'POST',
+          const { data } = await api('POST /api/pin', {
             body: offlineBody(rec, place),
             what: '핀 저장',
             silent: true,
@@ -25360,12 +26672,12 @@ async function offlineFlush() {
           saved.push(data && data.id);
           await offDel(rec.id);
         } catch (error) {
-          const apiError = error,
-            status = (apiError && apiError.status) || 0;
-          if (status >= 400 && status < 500) {
+          const refused = isApiError(error) ? error : null,
+            status = refused ? refused.status : 0;
+          if (refused && status >= 400 && status < 500) {
             rec.sent = false;
             rec.held = true;
-            rec.why = errText(apiError.data) || 'HTTP ' + status;
+            rec.why = errText(refused.data) || 'HTTP ' + status;
             await offPut(rec);
             held++;
           } else failed++;
@@ -25400,8 +26712,7 @@ async function offlineFlush() {
       // The pins that existed before this write, as savePin notes for its own.
       await offPut(rec);
       try {
-        const { data } = await api('/api/pin', {
-          method: 'POST',
+        const { data } = await api('POST /api/pin', {
           body: offlineBody(rec, place),
           what: '핀 저장',
           silent: true,
@@ -25414,13 +26725,13 @@ async function offlineFlush() {
         saved.push(data && data.id);
         await offDel(rec.id);
       } catch (error) {
-        const apiError = error;
-        const status = (apiError && apiError.status) || 0;
+        const refused = isApiError(error) ? error : null;
+        const status = refused ? refused.status : 0;
         // Turned away: nothing is on the server.
-        if (status >= 400 && status < 500) {
+        if (refused && status >= 400 && status < 500) {
           rec.sent = false;
           rec.held = true;
-          rec.why = errText(apiError.data) || 'HTTP ' + status;
+          rec.why = errText(refused.data) || 'HTTP ' + status;
           await offPut(rec);
           held++;
           continue;
@@ -25495,7 +26806,7 @@ function offlineBoot() {
     offFollowCheck(true);
   });
 }
-addEventListener('online', () => {
+window.addEventListener('online', () => {
   void offlineFlush();
 });
 
@@ -25512,6 +26823,8 @@ addEventListener('online', () => {
  * its undo row until its window ends: NOTICE_MS from `from` (its start, again when a mouse leaves it), held while a
  * mouse is on the row (hover), never past NOTICE_HOLD_MAX beyond its first window (`at`).
  */
+// The queue's panel and page marks (OFFUI): the queued pins last drawn, whether the panel is open, the undo row of each
+// record just dropped or taken back, by its key, and the timer that ends a panel row's flash (0 before the first).
 const OFFUI = {
   all: [],
   open: true,
@@ -25545,7 +26858,7 @@ function offUiRows(all, doc, defaultDoc, build, pageCount) {
     .map((rec) => {
       const here = (rec.doc || defaultDoc) === (doc || defaultDoc),
         lines = rec.page == null && !!rec.lines && typeof rec.lines === 'object';
-      const page = Number.isInteger(rec.page) && rec.page >= 1 ? rec.page : null,
+      const page = typeof rec.page === 'number' && Number.isInteger(rec.page) && rec.page >= 1 ? rec.page : null,
         onDoc = page !== null && page <= pageCount;
       const mark = here && !lines && onDoc && !!build && rec.build === build && offUiFrac(rec.frac);
       return {
@@ -25586,7 +26899,9 @@ function offUiPlace(rec) {
         : translateTemplate('{lo}줄', { lo: firstLine }))
     );
   }
-  return rec && Number.isInteger(rec.page) && rec.page >= 1 ? translateTemplate('{page}쪽', { page: rec.page }) : '';
+  return rec && typeof rec.page === 'number' && Number.isInteger(rec.page) && rec.page >= 1
+    ? translateTemplate('{page}쪽', { page: rec.page })
+    : '';
 }
 // A one-line excerpt of text: its white space folded, cut at limit characters with an ellipsis. Pure.
 function offUiClip(text, limit) {
@@ -25622,8 +26937,9 @@ function offUiMarks(rows) {
   rows.forEach((row) => {
     if (!row.mark) return;
     const pageBox = document.getElementById('p' + row.page);
-    if (!pageBox) return;
+    // A mark's frac is a box on the page (offUiFrac).
     const frac = row.rec.frac;
+    if (!pageBox || !frac) return;
     const mark = document.createElement('div');
     mark.className = 'qmark' + (row.held ? ' held' : '');
     mark.dataset.qid = String(row.rec.id);
@@ -25734,8 +27050,8 @@ function offUiUndoRow(undo) {
 // The keyboard focus on one of the section's buttons, as its action and record, so a redraw gives it back (a redraw
 // comes whenever the queue is read, which another tab or a send may cause at any time).
 function offUiFocus() {
-  const active = document.activeElement;
-  return active && active.closest && active.closest('#sec-queue') && active.dataset.q
+  const active = focusedElement();
+  return active && active.closest('#sec-queue') && active.dataset.q
     ? { q: active.dataset.q, id: active.dataset.qid || '' }
     : null;
 }
@@ -25744,15 +27060,12 @@ function offUiFocusBack(focused) {
   if (!focused) return;
   const active = document.activeElement;
   if (active && active !== document.body && document.contains(active)) return;
-  const button = $('#sec-queue').querySelector(
+  const button = findMaybe(
+    $('#sec-queue'),
     '[data-q="' + focused.q + '"]' + (focused.id ? '[data-qid="' + focused.id + '"]' : ''),
+    HTMLElement,
   );
   if (button) button.focus({ preventScroll: true });
-}
-
-// The queued record with this id, or null.
-function offUiRec(id) {
-  return OFFUI.all.find((record) => record && record.id === id) || null;
 }
 // Shows the row of record id in the panel: opens the panel and the section, scrolls the row into view and flashes it.
 function offUiReveal(id) {
@@ -25762,7 +27075,7 @@ function offUiReveal(id) {
     offUiDraw();
   }
   requestAnimationFrame(() => {
-    const row = document.querySelector('.qrow[data-qid="' + id + '"]');
+    const row = findMaybe(document, '.qrow[data-qid="' + id + '"]', HTMLElement);
     if (!row) return;
     row.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
     row.classList.remove('flash');
@@ -25771,6 +27084,15 @@ function offUiReveal(id) {
     clearTimeout(OFFUI.flashT);
     OFFUI.flashT = setTimeout(() => row.classList.remove('flash'), 1200);
   });
+}
+function toggleQueueSection() {
+  OFFUI.open = !OFFUI.open;
+  offUiDraw();
+}
+
+// The queued record with this id, or null.
+function offUiRec(id) {
+  return OFFUI.all.find((record) => record && record.id === id) || null;
 }
 // A row's place: this document's page (and its mark, flashed), or another document, switched to.
 function offUiGo(rec) {
@@ -25781,8 +27103,9 @@ function offUiGo(rec) {
   }
   if (LAYOUT === LAYOUT_MODE.NARROW) setSide(false); // the sheet folds first so the page is not under it
   marksShow();
-  arrivePage(rec.page);
-  const mark = document.querySelector('.qmark[data-qid="' + rec.id + '"]');
+  // A record with no page (a line pin) has no page to go to.
+  if (typeof rec.page === 'number') arrivePage(rec.page);
+  const mark = findMaybe(document, '.qmark[data-qid="' + rec.id + '"]', HTMLElement);
   if (mark) {
     mark.classList.remove('flash');
     void mark.offsetWidth;
@@ -25838,8 +27161,8 @@ async function offUiRedo(rec, button) {
   note._mentions = (rec.mentions || []).length ? new Set(rec.mentions) : null;
   setKind(rec.kind_req === REQUEST_KIND.QUESTION ? REQUEST_KIND.QUESTION : REQUEST_KIND.FIX);
   if (rec.assignee) {
-    ASSIGN_NEW.v = rec.assignee;
-    ASSIGN_NEW.touched = true;
+    setAssignNewValue(rec.assignee);
+    setAssignNewTouched(true);
   }
   renderAssignNew();
   autoGrow(note);
@@ -25850,7 +27173,8 @@ async function offUiRedo(rec, button) {
   if (!$('#composer').hidden) note.focus({ preventScroll: true });
   else if (had) offUiFocusUndo(rec.id);
   // The page it was on, beside the panel.
-  if (LAYOUT === LAYOUT_MODE.WIDE && Number.isInteger(rec.page) && !isMarkdownDoc()) arrivePage(rec.page);
+  if (LAYOUT === LAYOUT_MODE.WIDE && typeof rec.page === 'number' && Number.isInteger(rec.page) && !isMarkdownDoc())
+    arrivePage(rec.page);
 }
 // While the queue is being sent a record may be on its way: it is neither dropped nor taken back until that is over.
 function offUiBusy() {
@@ -25893,13 +27217,13 @@ function offUiUndoEnd(id) {
   const active = document.activeElement,
     row = active && active.closest ? active.closest('#queue-rows>[data-undo]') : null,
     isInRow = !!row && row.getAttribute('data-qid') === String(id);
-  const sibling =
-    isInRow && row ? ((row.nextElementSibling || row.previousElementSibling)) : null;
+  const sibling = isInRow && row ? row.nextElementSibling || row.previousElementSibling : null;
   offUiDraw();
   if (isInRow) {
-    const button = ((sibling && sibling.isConnected && sibling.querySelector('button')) ||
+    const button =
+      (sibling && sibling.isConnected && sibling.querySelector('button')) ||
       (!$('#sec-queue').hidden && $('#queue-toggle')) ||
-      null);
+      null;
     if (button) button.focus({ preventScroll: true });
   }
 }
@@ -25947,26 +27271,26 @@ async function offUiUndo(id) {
     return;
   }
   if (isInRow) {
-    const button = $('#sec-queue').querySelector(
+    const button = findMaybe(
+      $('#sec-queue'),
       '.qrow[data-qid="' + id + '"] [data-q="' + (undo.redo ? 'redo' : 'drop') + '"]',
+      HTMLElement,
     );
     if (button) button.focus({ preventScroll: true });
   }
 }
 // Puts the focus on a record's undo row's [되돌리기].
 function offUiFocusUndo(id) {
-  const button = $('#sec-queue').querySelector(
-    '[data-undo][data-qid="' + id + '"] [data-q="undo"]',
-  );
+  const button = findMaybe($('#sec-queue'), '[data-undo][data-qid="' + id + '"] [data-q="undo"]', HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 
 $('#sec-queue').addEventListener('click', (event) => {
-  const button = (event.target).closest('button');
+  const target = eventElement(event),
+    button = target && target.closest('button');
   if (!button) return;
   if (button.id === 'queue-toggle') {
-    OFFUI.open = !OFFUI.open;
-    offUiDraw();
+    toggleQueueSection();
     return;
   }
   const id = Number(button.dataset.qid),
@@ -25990,7 +27314,7 @@ $('#queue-rows').addEventListener(
   'pointermove',
   (event) => {
     if (event.pointerType !== 'mouse') return;
-    const row = (event.target).closest('[data-undo]');
+    const row = eventClosest(event, '[data-undo]', HTMLElement);
     const undo = row ? OFFUI.undos.get(Number(row.dataset.qid)) : undefined;
     if (undo && !undo.hover) {
       undo.hover = true;
@@ -26000,9 +27324,9 @@ $('#queue-rows').addEventListener(
   { passive: true },
 );
 $('#queue-rows').addEventListener('pointerout', (event) => {
-  const row = (event.target).closest('[data-undo]');
+  const row = eventClosest(event, '[data-undo]', HTMLElement);
   if (!row) return;
-  const to = event.relatedTarget;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (to && row.contains(to)) return;
   const undo = OFFUI.undos.get(Number(row.dataset.qid));
   if (undo && undo.hover) {
@@ -26017,14 +27341,14 @@ $('#queue-rows').addEventListener('pointerout', (event) => {
 $('#doc').addEventListener(
   'pointerdown',
   (event) => {
-    if ((event.target).closest('.qmark-jump')) event.stopPropagation();
+    if (eventClosest(event, '.qmark-jump', Element)) event.stopPropagation();
   },
   true,
 );
 $('#doc').addEventListener(
   'mousedown',
   (event) => {
-    if ((event.target).closest('.qmark-jump')) {
+    if (eventClosest(event, '.qmark-jump', Element)) {
       event.stopPropagation();
       event.preventDefault();
     }
@@ -26032,7 +27356,7 @@ $('#doc').addEventListener(
   true,
 );
 $('#doc').addEventListener('click', (event) => {
-  const button = (event.target).closest('.qmark-jump');
+  const button = eventClosest(event, '.qmark-jump', HTMLElement);
   if (!button) return;
   offUiReveal(Number(button.dataset.qid));
 });
@@ -26172,7 +27496,7 @@ function anchorKey(pin) {
 // A JSON.stringify replacer that writes each object with its keys sorted - after the integer-like keys, which a
 // JavaScript object always puts first in their numeric order - and an array or any other value as it is.
 function jsonSortedKeys(_key, value) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
+  if (!isRecord(value) || Array.isArray(value)) return value;
   const object = value;
   return Object.fromEntries(
     Object.keys(object)
@@ -26279,6 +27603,60 @@ function verdictStateWord(pin) {
   return claimActive(pin) ? translate('처리 중') : translate('처리 대기');
 }
 
+// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the
+// composer's lead, the floating line and the status line's undo, which say which figure a verdict is for before and
+// after the press.
+function figureShort(page, root) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return facts && facts.figure === root && facts.title ? facts.title : root;
+}
+// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's
+// figure), else the page ('7쪽').
+function pageTargetShort(page) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
+  return META && isFigureKind(META.kind) && facts && typeof facts.figure === 'string'
+    ? figureShort(page, facts.figure)
+    : translateTemplate('{page}쪽', { page });
+}
+
+// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the
+// figure's code, '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the
+// rest; else the figure id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'), so the name
+// next to the buttons always says which figure a press decides. A view-only PDF's page is its page alone.
+function pageLineName(page) {
+  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
+    at = translateTemplate('{page}쪽', { page });
+  if (!META || !isFigureKind(META.kind) || !facts || typeof facts.figure !== 'string') return { id: at, rest: '' };
+  const title = facts.title ? String(facts.title) : '';
+  if (!title) return { id: at + ' · ' + facts.figure, rest: '' };
+  const index = title.indexOf(' · '),
+    head = index > 0 ? title.slice(0, index) : '',
+    match = /^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
+  if (!head) return { id: at, rest: title };
+  return match
+    ? { id: at + ' · ' + match[2], rest: match[1] + ' ' + title.slice(index + 3) }
+    : { id: at + ' · ' + head, rest: title.slice(index + 3) };
+}
+
+// The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
+function currentVerdictOn(doc, page) {
+  if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
+  let best = null;
+  verdictOrder(doc || DEFAULT_DOC).groups.forEach((group) => {
+    if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
+  });
+  return best;
+}
+
+// Whether the line offers [판정 취소] on a verdict pin, its page's current verdict: the person's own (isMe), still open
+// - not yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16,
+// nor a viewer). A pin whose [확인] waits for its undo is not open.
+function canCancelVerdict(pin) {
+  return (
+    !!verdictOf(pin) && canVerdict() && isMe(pin.author) && pinState(pin) === PIN_STATE.OPEN && !CONFIRMING.has(pin.id)
+  );
+}
+
 // ------------------------------------------------ Page verdict lines far from the view (docs/handbook/viewer.md §판정 핀)
 // A line more than a view's height above or below what the PDF area shows is left for the browser to skip (.pv-far:
 // content-visibility:auto, components.css): it is not laid out or painted until it comes near. Each page PDF.js draws
@@ -26337,7 +27715,7 @@ function watchFarLines(lines, viewHeight) {
     FAR_WATCHED.clear();
     FAR_HEIGHT = viewHeight;
     FAR_OBSERVER = new IntersectionObserver(sortFarLines, { root: $('#left'), rootMargin: viewHeight + 'px 0px' });
-    lines = $$('#doc .pgw>.pv,#doc .pv-sum');
+    lines = findAll(document, '#doc .pgw>.pv,#doc .pv-sum', HTMLElement);
   } // a line or a summary under a page; never the panel
   const io = FAR_OBSERVER;
   FAR_WATCHED.forEach((line) => {
@@ -26359,7 +27737,7 @@ function watchFarLines(lines, viewHeight) {
 function sortFarLines(entries) {
   for (const entry of entries) {
     const line = entry.target;
-    if (!line.isConnected) continue;
+    if (!(line instanceof HTMLElement) || !line.isConnected) continue;
     if (entry.isIntersecting) {
       line.classList.remove('pv-far');
       continue;
@@ -26369,6 +27747,124 @@ function sortFarLines(entries) {
       line.style.setProperty('--pv-h', entry.boundingClientRect.height + 'px');
     line.classList.add('pv-far');
   }
+}
+
+let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
+
+let READING_LINE_PAGE = 0; // the reading page with a line: its line floats and names its figure
+
+// A page line's pending state is keyed by its document and page (pageLineSlot): a save held on one document's page must
+// not hold, queue or end the same page number's line of another document.
+/** @param [doc] - default: the document on screen */
+function pageLineSlot(page, doc) {
+  return (doc === undefined ? DOC || '' : doc || '') + '\u0001' + page;
+}
+// the page lines whose verdict is being saved (pageLineSlot), with the word it saves
+const SAVING_LINES = new Map();
+
+// The lines whose save out was a digit key's (pageLineSlot): Enter on any control of that line then means the reason,
+// one intent with the key (openReasonOnEnter). On the word the focus rests on it pressed that word: a second verdict,
+// over the one being saved.
+const KEY_SAVE_OUT = new Set();
+
+// The page shown as reading and the one accepting verdict keys change together.
+function setReadingLinePages(readingPage, keyedPage) {
+  READING_LINE_PAGE = readingPage;
+  KEYED_PAGE = keyedPage;
+}
+
+// Panel and reason changes redraw the affected line or update its reading position.
+let VERDICT_LINE_RENDERER = null;
+
+/** Connect the line renderer before the first draw or input event. */
+function setVerdictLineRenderer(renderer) {
+  VERDICT_LINE_RENDERER = renderer;
+}
+
+/** Return the renderer registered by main, or fail immediately if it has not been wired. */
+function verdictLineRenderer() {
+  if (!VERDICT_LINE_RENDERER) throw new Error('setVerdictLineRenderer() has not run');
+  return VERDICT_LINE_RENDERER;
+}
+
+let STICK_FRAME = 0;
+
+/** Coalesce reading-line updates from scroll and layout into the next animation frame. */
+function stickSoon() {
+  if (!STICK_FRAME)
+    STICK_FRAME = requestAnimationFrame(() => {
+      STICK_FRAME = 0;
+      verdictLineRenderer().stickReadingLine();
+    });
+}
+
+function isReasonField(target) {
+  return target instanceof HTMLTextAreaElement && target.classList.contains('pv-reason');
+}
+// The open popover's field, or null.
+function findReasonField() {
+  return findMaybe(document, '#doc .pv-pop .pv-reason', HTMLTextAreaElement);
+}
+
+// ---------------- Input
+// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a
+// field drawn anew in its place (the pages built again) holds the session's text - left empty, the next input would
+// write what it holds over the reason.
+let COMPOSING_FIELD = null;
+
+// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there
+// still holds it (app/state.ts imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or
+// under the pages (shouldStandBeside) and the pages are not built again (refreshDoc, afterComposition) until it ends
+// and that key lets go. Moved or rebuilt, the field would be a new one: the old one's composition would end with it,
+// the input method's commit would land on top of the text carried over (its last syllable doubled), and the Enter
+// ibus-hangul hands on after the commit, with its repeats, would reach the new field as the viewer's - writing the
+// reason and closing the popover.
+function isComposingNow() {
+  if (COMPOSING_FIELD && COMPOSING_FIELD.isConnected) return true;
+  const field = imeHeldIn();
+  return isReasonField(field) && field.isConnected;
+}
+
+// Sets COMPOSING_FIELD, which this module declares, for another module that changes it (ADR-0042 D1); answers the
+// value.
+function setComposingField(value) {
+  COMPOSING_FIELD = value;
+  return value;
+}
+
+const LINE_TEXT = new WeakMap(); // what fillPageLine last wrote into each line
+
+// A word group that wraps (the 280px panel in English with a word armed) keeps every button at its own width,
+// left-aligned (.wrapped): stretched to share the row, a lone last word would run across the whole second row. Measured
+// after drawing and when the row's width changes; the class changes how the buttons grow, never where they wrap, so it
+// never measures itself again.
+function fitWrappedWords(group) {
+  if (!group) return;
+  const tops = new Set([...group.children].map((button) => Math.round(button.getBoundingClientRect().top)));
+  group.classList.toggle('wrapped', tops.size > 1);
+}
+
+// A focus on a control of one of these lines that its fitting just took out - the earlier link stepping out at a tight
+// row's bar (.pv-early-out), or beside 'Enter 이유 쓰기' or [되돌리기] on a row that turned tight (components.css),
+// after a resize, a zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control
+// before it on its line ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the
+// focus on it, the link would take the focus away to nothing and the next Tab would start from the top (Chromium lets a
+// hidden focus go a moment later: the move is made before that). Every way the fitting hides a control comes through
+// here, and so does a phone's floating line holding [판정 취소] back (leanFloatingLine).
+function keepFocusOnLine(lines) {
+  const active = focusedElement(),
+    line = active ? findClosest(active, '#doc .pv', HTMLElement) : null;
+  if (
+    !active ||
+    !line ||
+    !lines.includes(line) ||
+    (active.getClientRects().length && getComputedStyle(active).visibility !== 'hidden')
+  )
+    return;
+  const controls = [...line.querySelectorAll(TABBABLE)].filter(isTabStop),
+    before = controls.filter((x) => !!(x.compareDocumentPosition(active) & Node.DOCUMENT_POSITION_FOLLOWING));
+  const to = before.length ? before[before.length - 1] : controls[0];
+  if (to) to.focus({ preventScroll: true });
 }
 
 // ------------------------------------------------ Verdict pins (docs/handbook/viewer.md §판정 핀, domain.md §판정 핀)
@@ -26382,7 +27878,6 @@ function sortFarLines(entries) {
 // The ids of the pins a page verdict line shows now (drawPageVerdicts): their page-size mark is not drawn and their
 // card's [보기] goes to the line (marks, jumpPin).
 let SHOWN_ON_PAGE_LINES = new Set();
-let KEYED_PAGE = 0; // the page whose line the keys 1-5 act on (keyedPageFor), 0 for none
 
 // ---------------- Two presses for a confirm word (D9)
 // The armed first press: the word, where (VERDICT_PLACE) and - on a page line - the page, with the document, build and
@@ -26472,9 +27967,7 @@ window.addEventListener(
   'click',
   (event) => {
     if (!ARMED_VERDICT || Date.now() < SWALLOW_CLICK) return;
-    const button = (event.target).closest(
-      '[data-act="verdict-save"],[data-act="pv-save"]',
-    );
+    const button = eventClosest(event, '[data-act="verdict-save"],[data-act="pv-save"]', HTMLElement);
     if (!(button && isArmedHere(button.dataset.key || '', whereOfButton(button), Number(button.dataset.page) || 0)))
       disarmVerdict(true, true);
   },
@@ -26591,7 +28084,7 @@ function refocusVerdictButton(focused) {
       '"][data-page="' +
       (focused.dataset.page || '0') +
       '"]';
-  const button = document.querySelector(selector);
+  const button = findMaybe(document, selector, HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 // A press on a verdict button: a confirm word arms on the first press and saves on the second while what it is bound to
@@ -26610,9 +28103,9 @@ function verdictPress(button, how) {
     return;
   }
   if (choice.confirm && !(isArmedHere(key, where, page) && ARMED_VERDICT && armStillHolds(ARMED_VERDICT))) {
-    const focused = document.activeElement;
+    const focused = focusedElement();
     armVerdict(key, where, page, choice.label, how === 'key');
-    refocusVerdictButton(focused && focused.closest && focused.closest('.vd-btns') ? focused : null);
+    refocusVerdictButton(focused && focused.closest('.vd-btns') ? focused : null);
     return;
   }
   disarmVerdict(false);
@@ -26634,10 +28127,10 @@ function pressPageVerdict(choice, page, how) {
     where = VERDICT_PLACE.PAGE,
     armed = isArmedHere(key, where, page) && !!ARMED_VERDICT && armStillHolds(ARMED_VERDICT);
   const arm = () => {
-    const focused = document.activeElement;
+    const focused = focusedElement();
     hideTip(); // no box over the armed word (it says its wait beside it)
     armVerdict(key, where, page, choice.label, how === 'key');
-    refocusVerdictButton(focused && focused.closest && focused.closest('.vd-btns') ? focused : null);
+    refocusVerdictButton(focused && focused.closest('.vd-btns') ? focused : null);
   };
   if (SAVING_LINES.has(pageLineSlot(page))) {
     if (choice.confirm && !armed) {
@@ -26702,7 +28195,7 @@ function pressedAsOf(pin) {
 // page's region, else its file and lines.
 function selectionTargetName(selection) {
   const figureRoot = figureVerdictRoot(selection);
-  if (figureRoot) return figureName(selection.page, figureRoot);
+  if (figureRoot && selection.page !== undefined) return figureName(selection.page, figureRoot);
   return isRegion(selection)
     ? translateTemplate('{page}쪽 영역', { page: selection.page })
     : selection.name + ' ' + lineRange(selection.lo, selection.hi);
@@ -26713,21 +28206,6 @@ function figureName(page, root) {
   const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
     title = facts && facts.figure === root && facts.title ? facts.title : '';
   return translateTemplate('{page}쪽', { page }) + ' · ' + (title || translateTemplate('그림 {id}', { id: root }));
-}
-// A figure's short name: its map title ('[후보] PL26 · …') while page `page` still shows it, else its id. For the
-// composer's lead, the floating line and the status line's undo, which say which figure a verdict is for before and
-// after the press.
-function figureShort(page, root) {
-  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return facts && facts.figure === root && facts.title ? facts.title : root;
-}
-// What page `page`'s verdict is about, by a short name: on a figure document its figure (figureShort of the map's
-// figure), else the page ('7쪽').
-function pageTargetShort(page) {
-  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null;
-  return META && isFigureKind(META.kind) && facts && typeof facts.figure === 'string'
-    ? figureShort(page, facts.figure)
-    : translateTemplate('{page}쪽', { page });
 }
 // The figure a figure document's selection is about - the root of its element's path - or null: not a figure document,
 // or a pick without an element (a map it could not read).
@@ -26797,7 +28275,12 @@ function renderVerdictRow() {
     !!verdicts &&
     canVerdict() &&
     !$('#composer').hidden &&
-    !(selection && isFigureKind(docKindOf(selection.doc || DOC || '')) && !pageTakesVerdict(selection.page));
+    !(
+      selection &&
+      isFigureKind(docKindOf(selection.doc || DOC || '')) &&
+      selection.page !== undefined &&
+      !pageTakesVerdict(selection.page)
+    );
   row.hidden = !show;
   if (ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.COMPOSER && (!show || !armStillHolds(ARMED_VERDICT)))
     disarmVerdict(false);
@@ -26810,7 +28293,7 @@ function renderVerdictRow() {
         : SUGGEST_DRAFT.on
           ? translate('판정을 저장하려면 [제안 수정]을 끕니다')
           : '';
-  const focused = document.activeElement,
+  const focused = focusedElement(),
     inRow = !!focused && row.contains(focused);
   // On a figure document the lead says whose verdict it is - the selected element's figure, by name ('· PL35 … 전체') -
   // whatever element is selected: a panel that shows another figure is still this page's figure's verdict.
@@ -26818,7 +28301,7 @@ function renderVerdictRow() {
     mark = '\u0001',
     parts = translateTemplate('{name} 전체', { name: mark }).split(mark);
   const scope =
-    figureRoot && selection
+    figureRoot && selection && selection.page !== undefined
       ? html`<span class="vd-scope"> · ${parts[0]}<span class="vd-fig" translate="no">${figureShort(selection.page, figureRoot)}</span>${parts[1] || ''}</span>`
       : isFigureKind(docKindOf((selection && selection.doc) || DOC || '')) && !selection
         ? html`<span class="vd-scope"> · ${translate('그림 전체')}</span>`
@@ -26832,15 +28315,6 @@ ${why ? html`<span class="vd-why" id="c-verdict-why">${why}</span>` : ''}`,
   else row.removeAttribute('aria-describedby');
   fitWrappedWords(row.querySelector('.vd-btns'));
   if (inRow) refocusVerdictButton(focused);
-}
-// A word group that wraps (the 280px panel in English with a word armed) keeps every button at its own width,
-// left-aligned (.wrapped): stretched to share the row, a lone last word would run across the whole second row. Measured
-// after drawing and when the row's width changes; the class changes how the buttons grow, never where they wrap, so it
-// never measures itself again.
-function fitWrappedWords(group) {
-  if (!group) return;
-  const tops = new Set([...group.children].map((button) => Math.round(button.getBoundingClientRect().top)));
-  group.classList.toggle('wrapped', tops.size > 1);
 }
 if (typeof ResizeObserver !== 'undefined') {
   const row = document.getElementById('c-verdict-row');
@@ -26881,7 +28355,7 @@ function verdictUndo(id) {
   const undo = async () => {
     let was = null;
     try {
-      was = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin;
+      was = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin;
     } catch (error) {}
     const session = REASON_SESSION && REASON_SESSION.id === id ? REASON_SESSION : null;
     if (session && hasUnsavedReason(session))
@@ -26980,21 +28454,9 @@ function pageVerdictBody(answer, kind) {
     ? { page: answer.page, frac: answer.frac, quote: answer.quote, pdf_build: answer.pdf_build || undefined }
     : null;
 }
-// A page line's pending state is keyed by its document and page (pageLineSlot): a save held on one document's page must
-// not hold, queue or end the same page number's line of another document.
-/** @param [doc] - default: the document on screen */
-function pageLineSlot(page, doc) {
-  return (doc === undefined ? DOC || '' : doc || '') + '\u0001' + page;
-}
-// the page lines whose verdict is being saved (pageLineSlot), with the word it saves
-const SAVING_LINES = new Map();
 // The press made on a line while its save was out, by line (pageLineSlot) - the last one: applied when that save is
 // done (pressPageVerdict).
 const NEXT_PRESS = new Map();
-// The lines whose save out was a digit key's (pageLineSlot): Enter on any control of that line then means the reason,
-// one intent with the key (openReasonOnEnter). On the word the focus rests on it pressed that word: a second verdict,
-// over the one being saved.
-const KEY_SAVE_OUT = new Set();
 // A line whose word was just taken back by pressing it again (pageLineSlot): that word waits until then (a double press
 // takes back one).
 const TAKEN_BACK_HOLD = new Map();
@@ -27027,14 +28489,14 @@ document.addEventListener('focusout', () => stickSoon());
 let POPOVER_PRESS = false;
 let FOLD_PRESS_HOLD = null; // the press holding the fold: drops its own wait without letting go
 function syncTypingFold() {
-  const active = document.activeElement,
-    focusLine = active && active.closest ? (active.closest('#doc .pv')) : null,
+  const active = focusedElement(),
+    focusLine = active ? findClosest(active, '#doc .pv', HTMLElement) : null,
     body = document.body;
-  const pop = !!active && !!active.closest && !!active.closest('#doc .pv>.pv-pop'),
+  const pop = !!active && !!active.closest('#doc .pv>.pv-pop'),
     on = (!!focusLine && typingNow()) || (body.classList.contains('pv-typing') && (pop || POPOVER_PRESS));
   if (body.classList.contains('pv-typing') === on) return;
   body.classList.toggle('pv-typing', on);
-  const line = focusLine || (document.querySelector('#doc .pv.reading'));
+  const line = focusLine || findMaybe(document, '#doc .pv.reading', HTMLElement);
   if (line) fitPageLines([line]);
 }
 document.addEventListener('focusin', syncTypingFold);
@@ -27042,10 +28504,9 @@ document.addEventListener('focusout', () => setTimeout(syncTypingFold, 0));
 document.addEventListener(
   'pointerdown',
   (event) => {
-    const target = event.target;
+    const target = eventElement(event);
     if (!(
       target &&
-      target.closest &&
       (target.closest('#doc .pv>.pv-pop') ||
         (document.body.classList.contains('pv-typing') && target.closest('#doc .pv')))
     ))
@@ -27104,15 +28565,6 @@ function pageSaveContext(page) {
     target: pageTargetShort(page),
     visit: captureVisit(),
   };
-}
-// The current verdict of page `page` on document doc - one not on screen too: the verdict order holds every document's.
-function currentVerdictOn(doc, page) {
-  if (doc === DOC || (!doc && !DOC)) return (pageVerdictPins().get(page) || [])[0] || null;
-  let best = null;
-  verdictOrder(doc || DEFAULT_DOC).groups.forEach((group) => {
-    if (group.whole && group.page === page && (!best || best.id < group.pins[0].id)) best = group.pins[0];
-  });
-  return best;
 }
 // A verdict pin this person saved with word key about page `page` of document doc since pin number top - a save whose
 // answer was lost may have landed: it is read again before the press is called a failure, or pressed again (a
@@ -27191,8 +28643,7 @@ async function savePageVerdict(
   const moved = (event) => {
     const target = event.target;
     if (!(
-      target &&
-      target.dataset &&
+      target instanceof HTMLElement &&
       target.dataset.act === 'pv-save' &&
       target.dataset.key === key &&
       target.dataset.page === String(page)
@@ -27215,8 +28666,7 @@ async function savePageVerdict(
   if (onUndo) refocusLineWord(page, key);
   try {
     const answer = (
-      await api('/api/pick', {
-        method: 'POST',
+      await api('POST /api/pick', {
         body: {
           page,
           x0: 0,
@@ -27231,7 +28681,7 @@ async function savePageVerdict(
         silent: true,
       })
     ).data;
-    if (answer.error) {
+    if (isRefusal(answer)) {
       failed(errText(answer));
       if (answer.pdf_build_gone && here()) refreshDoc().catch(() => {});
       return;
@@ -27253,9 +28703,9 @@ async function savePageVerdict(
     });
     let id = 0;
     try {
-      id = (await api('/api/pin', { method: 'POST', body, what: '판정 저장', silent: true })).data.id;
+      id = (await api('POST /api/pin', { body, what: '판정 저장', silent: true })).data.id;
     } catch (error) {
-      const x = error;
+      const x = isApiError(error) ? error : null;
       // no answer, or a 5xx (it may have been written first): the list says whether it landed
       if (x && x.status && x.status < 500) throw error;
       await loadPins();
@@ -27287,7 +28737,7 @@ async function savePageVerdict(
     settleChip(chip);
     if (here()) showPressedHint(page);
   } catch (error) {
-    const x = error;
+    const x = isApiError(error) ? error : null;
     if (!saved) failed(x && x.status ? errText(x.data) || 'HTTP ' + x.status : translate('서버에 닿지 않습니다'));
   } finally {
     document.removeEventListener('focusin', moved);
@@ -27307,8 +28757,10 @@ async function savePageVerdict(
     settleDetachedReason(slot, saved ? got : 0, key);
     drawPageVerdicts();
     if (currentVisit(visit) && byKeyboard && !away) {
-      const reasonOpen = document.querySelector(
+      const reasonOpen = findMaybe(
+        document,
         '#doc .pv[data-page="' + page + '"] [data-act="pv-reason-open"]',
+        HTMLElement,
       );
       if (reasonOpen && saved) reasonOpen.focus({ preventScroll: true });
       else refocusLineWord(page, key);
@@ -27332,45 +28784,21 @@ async function savePageVerdict(
     settleFailedCancelDraft(slot);
   }
 } // a failed take-back's draft that waited for this save (a next save started just now waits on)
-// The reading line's name for page `page`, in two parts: a short identifier that is never cut - the page and the
-// figure's code, '6쪽 · PL17' (the map title's head before its first ' · ', a leading tag such as '[후보]' moved to the
-// rest; else the figure id) - and the rest of the title, cut first ('[후보] 다섯 비교 쌍의 월별 효과 — …'), so the name
-// next to the buttons always says which figure a press decides. A view-only PDF's page is its page alone.
-function pageLineName(page) {
-  const facts = META && Array.isArray(META.pages) ? META.pages[page - 1] : null,
-    at = translateTemplate('{page}쪽', { page });
-  if (!META || !isFigureKind(META.kind) || !facts || typeof facts.figure !== 'string') return { id: at, rest: '' };
-  const title = facts.title ? String(facts.title) : '';
-  if (!title) return { id: at + ' · ' + facts.figure, rest: '' };
-  const index = title.indexOf(' · '),
-    head = index > 0 ? title.slice(0, index) : '',
-    match = /^(\[[^\]]*\])\s*(\S.*)$/.exec(head);
-  if (!head) return { id: at, rest: title };
-  return match
-    ? { id: at + ' · ' + match[2], rest: match[1] + ' ' + title.slice(index + 3) }
-    : { id: at + ' · ' + head, rest: title.slice(index + 3) };
-}
 // Gives the focus back to word key's button on page `page`'s line after its save: the pressed button was disabled and
 // redrawn while the request ran, which dropped the focus. Not when the person put the focus somewhere else meanwhile
 // (savePageVerdict watches for that) or it is on something now.
 function refocusLineWord(page, key) {
   const active = document.activeElement;
   if (active && active !== document.body && document.contains(active)) return;
-  const button = document.querySelector(
+  const button = findMaybe(
+    document,
     '#doc .pv[data-page="' + page + '"] [data-act="pv-save"][data-key="' + CSS.escape(key) + '"]',
+    HTMLButtonElement,
   );
   if (button && !button.disabled && button.getAttribute('aria-disabled') !== 'true')
     button.focus({ preventScroll: true });
 }
 // ---------------- Taking one's verdict back
-// Whether the line offers [판정 취소] on a verdict pin, its page's current verdict: the person's own (isMe), still open
-// - not yet handled; a handled one's card still offers [지우기] - to a person who may make a verdict (no agent, D16,
-// nor a viewer). A pin whose [확인] waits for its undo is not open.
-function canCancelVerdict(pin) {
-  return (
-    !!verdictOf(pin) && canVerdict() && isMe(pin.author) && pinState(pin) === PIN_STATE.OPEN && !CONFIRMING.has(pin.id)
-  );
-}
 // after a cancel on a page, how long that page's next [판정 취소] waits (a double press never takes two)
 const CANCEL_HOLD_MS = 800;
 const CANCEL_HOLD = new Map(); // line (pageLineSlot) -> until when its [판정 취소] waits
@@ -27448,10 +28876,11 @@ function cancelLineVerdict(button) {
 async function cancelVerdictPin(id, page, had, byKey) {
   const pin = OPEN_ALL.find((x) => x.id === id),
     from = document.activeElement,
-    doc = DOC;
-  if (!pin || !canCancelVerdict(pin) || viewerBlocked()) return;
-  const key = verdictOf(pin),
-    claimed = claimActive(pin),
+    doc = DOC,
+    key = verdictOf(pin);
+  // canCancelVerdict holds only for a pin with a verdict
+  if (!pin || !canCancelVerdict(pin) || viewerBlocked() || !key) return;
+  const claimed = claimActive(pin),
     target = pageTargetShort(page);
   const inField = isReasonField(document.activeElement) && !!REASON_SESSION && REASON_SESSION.id === id;
   CANCEL_HOLD.set(pageLineSlot(page), Date.now() + CANCEL_HOLD_MS);
@@ -27495,15 +28924,13 @@ async function cancelVerdictPin(id, page, had, byKey) {
     // [이유 추가] steps out while the line offers the undo (components.css): a focus on it goes to the [되돌리기]
     // beside it.
     const focused = document.activeElement,
-      onAdd = !!focused && !!focused.closest && !!focused.closest('#doc .pv[data-page="' + page + '"] .pv-ra>.pv-add');
+      onAdd = !!focused && !!focused.closest('#doc .pv[data-page="' + page + '"] .pv-ra>.pv-add');
     if (notice) {
       LINE_UNDO_OFFERS.set(pageLineSlot(page), { id, n: notice.n });
       drawPageVerdicts();
       setTimeout(() => drawPageVerdicts(), NOTICE_MS + NOTICE_HOLD_MAX + 50);
       const active = document.activeElement,
-        undoButton = document.querySelector(
-          '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]',
-        );
+        undoButton = findMaybe(document, '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]', HTMLElement);
       if (onAdd && undoButton && (active === focused || active === document.body || !active))
         undoButton.focus({ preventScroll: true });
     }
@@ -27543,18 +28970,16 @@ async function cancelVerdictPin(id, page, had, byKey) {
   // left with it): it keeps it - on this line too (a new verdict's, saved while the take-back was out), where moving
   // the focus to the line would make the next digit a verdict key.
   const at = document.activeElement,
-    pop = !!at && !!at.closest && !!at.closest('#doc .pv-pop');
+    pop = !!at && !!at.closest('#doc .pv-pop');
   const lost =
     !pop &&
     (!at ||
       at === document.body ||
       at === $('#left') ||
-      !!(at.closest && at.closest('#doc .pv[data-page="' + page + '"]')) ||
+      !!at.closest('#doc .pv[data-page="' + page + '"]') ||
       (!!byKey && at === from));
   if ((had || inField) && lost && !slow) {
-    const undoButton = document.querySelector(
-      '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]',
-    );
+    const undoButton = findMaybe(document, '#doc .pv[data-page="' + page + '"] [data-act="pv-undo"]', HTMLElement);
     if (undoButton) undoButton.focus({ preventScroll: true });
     else if (!focusLine(page)) searchToPage();
   }
@@ -27715,7 +29140,7 @@ function pressedWordHint(page, verdicts, key, pressed) {
 // A press made word key page `page`'s verdict: its line shows the pressed word's context for PRESSED_HINT_MS.
 const PRESSED_HINT_MS = 4000;
 function showPressedHint(page) {
-  const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
+  const line = findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement);
   if (!line) return;
   line.classList.add('pv-onshow');
   clearTimeout(line._onT);
@@ -27727,7 +29152,6 @@ function showPressedHint(page) {
 // rewritten one would send the click to the line), and the focus stays where it was, also on a '#N' whose number just
 // changed. A line whose words are what it shows is left alone. Every verdict pin the line accounts for - the current
 // one and the earlier ones - draws no page-size mark.
-const LINE_TEXT = new WeakMap(); // what fillPageLine last wrote into each line
 function fillPageLine(line, page, list, verdicts) {
   line.dataset.page = String(page);
   line.classList.toggle('reading', READING_LINE_PAGE === page);
@@ -27747,7 +29171,7 @@ function fillPageLine(line, page, list, verdicts) {
   // landing while it is typed in: a morph by place can replace it), so what is typed next stays text - never a verdict
   // key.
   const active = document.activeElement,
-    field = isReasonField(active) && line.contains(active) ? (active) : null,
+    field = isReasonField(active) && line.contains(active) ? active : null,
     caret = field ? [field.selectionStart, field.selectionEnd] : null;
   if (chip) chip.remove();
   const next = document.createElement('div');
@@ -27757,9 +29181,7 @@ function fillPageLine(line, page, list, verdicts) {
   line.classList.toggle('pv-pop-open', !!line.querySelector(':scope>.pv-pop'));
   fillReasonField(line);
   if (field && caret && !field.isConnected) {
-    const redrawn = line.querySelector(
-      '.pv-pop .pv-reason[data-id="' + field.dataset.id + '"]',
-    );
+    const redrawn = findMaybe(line, '.pv-pop .pv-reason[data-id="' + field.dataset.id + '"]', HTMLTextAreaElement);
     if (redrawn) {
       redrawn.focus({ preventScroll: true });
       redrawn.setSelectionRange(caret[0], caret[1]);
@@ -27821,7 +29243,7 @@ function canMorph(target, source) {
 // attributes and children; another kind of node takes the target's place.
 function morphNode(target, source) {
   if (!canMorph(target, source)) {
-    (target).replaceWith(source);
+    if (target instanceof Element || target instanceof CharacterData) target.replaceWith(source);
     return;
   }
   if (!(target instanceof Element && source instanceof Element)) {
@@ -27848,7 +29270,7 @@ const MIN_CUT_LINE_WIDTH = 320;
 function sizePageLines() {
   const insetRight = measureInsetRight(),
     area = $('#left'),
-    lines = $$('#doc .pv');
+    lines = findAll(document, '#doc .pv', HTMLElement);
   area.style.setProperty('--pv-inset-r', insetRight + 'px');
   INSET_RIGHT = insetRight;
   $('#doc').classList.remove('pv-stack');
@@ -28007,7 +29429,7 @@ function fitPageLines(lines) {
         if (!over[index] || narrow[index]) return over[index];
         const overflow = past(line);
         if (overflow <= 1) return false;
-        const state = line.querySelector(':scope>.pv-t');
+        const state = findElement(line, ':scope>.pv-t', Element);
         out[index] = overflow - earlierLinkRoom(state) + keySaveStateCut(line, state, addDifference) <= 1;
         return !out[index];
       });
@@ -28029,7 +29451,7 @@ function fitPageLines(lines) {
     });
     docElement.classList.remove('pv-measure');
     const nat = lines.map((line, index) =>
-      keptHeights[index] ? (line.querySelector(':scope>.pv-t')).getBoundingClientRect().height : 0,
+      keptHeights[index] ? findElement(line, ':scope>.pv-t', Element).getBoundingClientRect().height : 0,
     );
     lines.forEach((line, index) => {
       if (held[index]) return;
@@ -28085,7 +29507,7 @@ function keepLineBlocks(lines) {
     at = blocks.map((block) => {
       const rect = block.getBoundingClientRect(),
         next = block.nextElementSibling;
-      return [rect.height, next.getBoundingClientRect().top - rect.bottom];
+      return [rect.height, next ? next.getBoundingClientRect().top - rect.bottom : 0];
     });
   const kept = [];
   blocks.forEach((block, index) => {
@@ -28198,8 +29620,8 @@ function measureStateNeed(line) {
 ${byKey ? html`<kbd class="pv-kbd">Enter</kbd> ${translate('이유 쓰기')}` : translate('이유 추가')}</button></span>\
 <span class="pv-sep pv-cn">·</span><button type="button" class="btn-ghost btn-sm pv-cancel pv-cn hit" tabindex="-1">${translate('판정 취소')}</button></span>`,
     );
-    const stateRow = probe.firstElementChild,
-      addButton = stateRow.querySelector('.pv-add');
+    const stateRow = findElement(probe, ':scope>.pv-t', Element),
+      addButton = findElement(stateRow, '.pv-add', Element);
     return [
       stateRow.getBoundingClientRect().width + (parseFloat(getComputedStyle(stateRow).columnGap) || 0),
       addButton.getBoundingClientRect().width,
@@ -28248,28 +29670,6 @@ function keySaveStateCut(line, state, difference) {
   const earlierRoom = earlierLinkRoom(state);
   return earlierRoom ? Math.min(difference, earlierRoom) : 0;
 }
-// A focus on a control of one of these lines that its fitting just took out - the earlier link stepping out at a tight
-// row's bar (.pv-early-out), or beside 'Enter 이유 쓰기' or [되돌리기] on a row that turned tight (components.css),
-// after a resize, a zoom of the browser or of the pages, or a redraw - moves at once, without a scroll, to the control
-// before it on its line ([판정 취소], 'Enter 이유 쓰기', the '#N' link), else to the line's first. Hidden with the
-// focus on it, the link would take the focus away to nothing and the next Tab would start from the top (Chromium lets a
-// hidden focus go a moment later: the move is made before that). Every way the fitting hides a control comes through
-// here, and so does a phone's floating line holding [판정 취소] back (leanFloatingLine).
-function keepFocusOnLine(lines) {
-  const active = document.activeElement,
-    line = active && active.closest ? (active.closest('#doc .pv')) : null;
-  if (
-    !active ||
-    !line ||
-    !lines.includes(line) ||
-    (active.getClientRects().length && getComputedStyle(active).visibility !== 'hidden')
-  )
-    return;
-  const controls = [...line.querySelectorAll(TABBABLE)].filter(isTabStop),
-    before = controls.filter((x) => !!(x.compareDocumentPosition(active) & Node.DOCUMENT_POSITION_FOLLOWING));
-  const to = before.length ? before[before.length - 1] : controls[0];
-  if (to) to.focus({ preventScroll: true });
-}
 // The room a state's earlier link takes in its row as drawn - its width, the dot before it and the gap before each - or
 // 0 where it shows none.
 function earlierLinkRoom(state) {
@@ -28304,7 +29704,7 @@ function holdsRows(line) {
 const CHIP_WAIT_MS = 3000;
 const CHIP_WAIT_TIMERS = new WeakMap();
 function placeLineChips(lines) {
-  const chips = lines.map((line) => line.querySelector(':scope>.nt-chip'));
+  const chips = lines.map((line) => findMaybe(line, ':scope>.nt-chip', HTMLElement));
   lines.forEach((line, index) => {
     if (chips[index]) {
       line.classList.toggle('pv-chip-short', false);
@@ -28439,13 +29839,13 @@ function placeLineChips(lines) {
 // (.pv-pop-below). Where neither holds it, the larger side, the popover no taller than that (--pv-pop-max; it scrolls).
 // So near the top an in-place line's popover never opens under the strip and the top bar.
 function placePopover() {
-  const pop = document.querySelector('#doc .pv>.pv-pop');
+  const pop = findMaybe(document, '#doc .pv>.pv-pop', HTMLElement);
   $$('#doc .pv.pv-pop-below').forEach((line) => {
     if (!pop || line !== pop.parentElement) line.classList.remove('pv-pop-below');
   });
-  if (!pop) return;
-  const line = pop.parentElement,
-    area = $('#left'),
+  const line = pop && pop.parentElement;
+  if (!pop || !line) return;
+  const area = $('#left'),
     areaRect = area.getBoundingClientRect();
   if (line.id === 'pv-panel') {
     line.classList.remove('pv-pop-below');
@@ -28509,12 +29909,17 @@ const CHIP_WATCH =
         drawPageVerdicts();
       })
     : null;
+
+/** Observe chip changes on page lines and on the panel that can take their place. */
+function watchLineChips(line) {
+  CHIP_WATCH?.observe(line, { childList: true });
+}
 // Draws the page verdict line under every page after the pages, the pin lists or the build change. Without page
 // verdicts every line goes and the marks draw every pin.
 function drawPageVerdicts() {
   const verdicts = pageVerdictsOn(),
-    focused = document.activeElement;
-  const on = !!focused && !!focused.closest ? (focused.closest('.pv')) : null,
+    focused = focusedElement();
+  const on = focused ? findClosest(focused, '.pv', HTMLElement) : null,
     had = !!on,
     onPage = on ? Number(on.dataset.page) || 0 : 0;
   if (ARMED_VERDICT && ARMED_VERDICT.where === VERDICT_PLACE.PAGE && (!verdicts || !armStillHolds(ARMED_VERDICT)))
@@ -28535,19 +29940,20 @@ function drawPageVerdicts() {
   try {
     syncReasonSession();
     const map = pageVerdictPins();
-    READING_LINE_PAGE = heldReadingPage();
-    KEYED_PAGE = keyedPageFor(READING_LINE_PAGE);
+    const readingPage = heldReadingPage();
+    setReadingLinePages(readingPage, keyedPageFor(readingPage));
     // Beside the pages: one panel for the reading page, and every page's verdicts are its - none draws a page-size
     // mark.
     if (IS_BESIDE_PAGES) {
       $$('#doc .pgw>.pv').forEach((element) => element.remove());
       map.forEach((list) => list.forEach((pin) => SHOWN_ON_PAGE_LINES.add(pin.id)));
-      fillPanel(map, verdicts);
+      fillPanel(map, verdicts, leaveReasonOffPage);
     } else {
       removePanel();
-      $$('#doc .pg').forEach((pageElement) => {
-        const page = +pageElement.dataset.page;
-        let line = pageElement.nextElementSibling;
+      findAll(document, '#doc .pg', HTMLElement).forEach((pageElement) => {
+        const page = Number(pageElement.dataset.page);
+        const next = pageElement.nextElementSibling;
+        let line = next instanceof HTMLElement ? next : null;
         if (!pageTakesVerdict(page)) {
           if (line && line.classList.contains('pv')) line.remove();
           return;
@@ -28556,7 +29962,7 @@ function drawPageVerdicts() {
           line = document.createElement('div');
           line.className = 'pv';
           pageElement.after(line);
-          if (CHIP_WATCH) CHIP_WATCH.observe(line, { childList: true });
+          watchLineChips(line);
         }
         fillPageLine(line, page, map.get(page), verdicts);
       });
@@ -28607,10 +30013,10 @@ function jumpToPageLine(id) {
     flashPanelOn(target.page);
     return true;
   } // the panel flashes where the page lands (verdict/view-panel.ts)
-  const line = document.querySelector('#doc .pv[data-page="' + target.page + '"]');
-  if (!line) return false;
-  const block = line.parentElement,
-    area = $('#left'),
+  const line = findMaybe(document, '#doc .pv[data-page="' + target.page + '"]', HTMLElement),
+    block = line && line.parentElement;
+  if (!line || !block) return false;
+  const area = $('#left'),
     how = block.getBoundingClientRect().height <= area.clientHeight ? 'center' : 'start';
   if (isFigure) arrivePage(target.page);
   else {
@@ -28643,7 +30049,7 @@ if (window.ResizeObserver && window.IntersectionObserver)
 function stickReadingLine() {
   // the room crossed its bar: drawn again beside or under the pages (verdict/view-panel.ts), which ran this
   if (pageVerdictsOn() && redrawOnBesideChange()) return;
-  const lines = $$('#doc .pv');
+  const lines = findAll(document, '#doc .pv', HTMLElement);
   if (!lines.length) return;
   const area = $('#left'),
     areaRect = area.getBoundingClientRect();
@@ -28665,7 +30071,7 @@ function stickReadingLine() {
   const at = heldPanelPage() || pageUnderReadingLine(),
     readingPage = at && pageTakesVerdict(at) ? at : 0,
     keyedPage = keyedPageFor(readingPage); // a jump's glide: the panel's page held (verdict/view-panel.ts)
-  if (REASON_SESSION && REASON_SESSION.page === readingPage) REASON_SESSION.seen = true;
+  if (REASON_SESSION && REASON_SESSION.page === readingPage) setReasonSeen(REASON_SESSION, true);
   else if (REASON_SESSION && REASON_SESSION.seen) leaveReason(); // the reading page left the field's page: moving on
   // A key's armed confirm word belongs to the page it was read on: another reading page lets it go.
   if (
@@ -28685,18 +30091,17 @@ function stickReadingLine() {
     // the person moved on: they are not typing on into a field that went
     if (readingPage !== READING_LINE_PAGE) setKeyGuard(false);
     const was = [READING_LINE_PAGE, KEYED_PAGE];
-    READING_LINE_PAGE = readingPage;
-    KEYED_PAGE = keyedPage;
+    setReadingLinePages(readingPage, keyedPage);
     const map = pageVerdictPins(),
       verdicts = pageVerdictsOn();
     const refit = [];
     if (verdicts && IS_BESIDE_PAGES) {
-      fillPanel(map, verdicts);
+      fillPanel(map, verdicts, leaveReasonOffPage);
       refit.push(ensurePanel());
     } // the panel shows the new reading page
     else if (verdicts)
       new Set([...was, readingPage, keyedPage]).forEach((page) => {
-        const line = (page ? document.querySelector('#doc .pv[data-page="' + page + '"]') : null);
+        const line = page ? findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement) : null;
         if (line) {
           fillPageLine(line, page, map.get(page), verdicts);
           refit.push(line);
@@ -28710,7 +30115,7 @@ function stickReadingLine() {
   lines.forEach((line) => {
     if (line.id === 'pv-panel') return; // the panel stands sticky beside the pages: it never floats at their foot
     const pageElement = line.previousElementSibling;
-    if (!pageElement) return;
+    if (!(pageElement instanceof HTMLElement)) return;
     const rect = line.getBoundingClientRect(),
       pageBottom = pageElement.getBoundingClientRect().bottom;
     // In its own place it stands 8px under the page; held lower by a reason's room (placePopoverRoom) it floats over
@@ -28781,9 +30186,8 @@ function dropPopoverRoom(line) {
 // Whether it lifted a held line (its floating place rose above it): the popover's side is chosen again then
 // (stickReadingLine).
 function placePopoverRoom(area, areaRect) {
-  const pop = document.querySelector('#doc .pv>.pv-pop');
-  const open =
-    pop && pop.parentElement && pop.parentElement.id !== 'pv-panel' ? (pop.parentElement) : null;
+  const pop = findMaybe(document, '#doc .pv>.pv-pop', HTMLElement);
+  const open = pop && pop.parentElement && pop.parentElement.id !== 'pv-panel' ? pop.parentElement : null;
   if (!open && !POPOVER_ROOM.size) return false;
   const style = getComputedStyle(area),
     top0 = areaRect.top + area.clientTop + (parseFloat(style.paddingTop) || 0),
@@ -28792,7 +30196,7 @@ function placePopoverRoom(area, areaRect) {
   POPOVER_ROOM.forEach((room, line) => {
     if (line === open) return;
     const pageElement = line.previousElementSibling;
-    if (!line.isConnected || !pageElement || line.parentElement !== room.blk) {
+    if (!line.isConnected || !(pageElement instanceof HTMLElement) || line.parentElement !== room.blk) {
       dropPopoverRoom(line);
       return;
     }
@@ -28805,7 +30209,8 @@ function placePopoverRoom(area, areaRect) {
       dropPopoverRoom(line);
   });
   if (open) {
-    const pageElement = open.previousElementSibling,
+    const previous = open.previousElementSibling,
+      pageElement = previous instanceof HTMLElement ? previous : null,
       block = open.parentElement;
     const want =
       pop && pageElement && block && block.classList.contains('pgw')
@@ -28921,31 +30326,11 @@ function measureInsetRight() {
   }
   return Math.max(0, Math.round(edge - right));
 }
-// The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF
-// area's top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is
-// now.
-function pageUnderReadingLine() {
-  // the lines are moving beside or under the pages (verdict/view-panel.ts)
-  if (HELD_READING_PAGE) return HELD_READING_PAGE;
-  if (BUILD_READING_PAGE) return BUILD_READING_PAGE; // the pages are being built again (refreshDoc)
-  if (!pageVerdictsOn() || document.body.classList.contains('revision-open') || !$('#left').getClientRects().length)
-    return 0;
-  const anchor = topAnchor(readingDepth($('#left')));
-  return anchor ? anchor.page : 0;
-}
-// The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure
-// (READING_LINE_PAGE).
-function readingPageWithLine() {
-  const page = pageUnderReadingLine();
-  return page && pageTakesVerdict(page) ? page : 0;
-}
 // The page the keys 1-5 act on: the reading page while this screen may make a verdict, no selection is being written
 // and no text field has the focus (its digits are text).
 function keyedPageFor(readingPage) {
   return readingPage && canVerdict() && $('#composer').hidden && !typingNow() ? readingPage : 0;
 }
-let READING_LINE_PAGE = 0; // the reading page with a line: its line floats and names its figure
-let STICK_FRAME = 0;
 // Whether an element shows in the PDF area now (any part of it).
 function isInAreaView(element) {
   const area = $('#left'),
@@ -28965,9 +30350,9 @@ function isInAreaView(element) {
 // this page would go into that page's note. A focus put on a third page's line in view stays: the person went there.
 function moveFocusOffPage(readingPage, was) {
   const active = document.activeElement,
-    line = active && active.closest ? active.closest('#doc .pv') : null;
-  if (!active || !line || (active.closest && active.closest('.pv-pop'))) return;
-  const page = Number((line).dataset.page);
+    line = active ? findClosest(active, '#doc .pv', HTMLElement) : null;
+  if (!active || !line || active.closest('.pv-pop')) return;
+  const page = Number(line.dataset.page);
   if (page !== readingPage && (page === was || !isInAreaView(active))) searchToPage();
 }
 // The line control the focus went to and the reading page then: one focused on the reading page's line that is no
@@ -28975,8 +30360,8 @@ function moveFocusOffPage(readingPage, was) {
 // (moveFocusOffPage).
 let LINE_FOCUS = null;
 document.addEventListener('focusin', (event) => {
-  const target = event.target;
-  LINE_FOCUS = target && target.closest && target.closest('#doc .pv') ? { el: target, read: READING_LINE_PAGE } : null;
+  const target = eventElement(event);
+  LINE_FOCUS = target && target.closest('#doc .pv') ? { el: target, read: READING_LINE_PAGE } : null;
 });
 // Enter or Space on a control of a line that is not the reading page's - out of view, or the line of the page the
 // person left (focused while it was the reading page) - does not act there (a press read before the focus moved,
@@ -28985,11 +30370,11 @@ document.addEventListener('focusin', (event) => {
 function stopOffPageKey(event) {
   if ((event.key !== 'Enter' && event.key !== ' ') || event.ctrlKey || event.metaKey || event.altKey || imeKey(event))
     return;
-  const target = event.target;
-  const line = target && target.closest ? target.closest('#doc .pv') : null;
-  if (!target || !line || (target.closest && target.closest('.pv-pop')) || typingNow()) return;
+  const target = eventElement(event);
+  const line = target ? findClosest(target, '#doc .pv', HTMLElement) : null;
+  if (!target || !line || target.closest('.pv-pop') || typingNow()) return;
   const readingPage = pageUnderReadingLine(),
-    page = Number((line).dataset.page),
+    page = Number(line.dataset.page),
     left = !!LINE_FOCUS && LINE_FOCUS.el === target && LINE_FOCUS.read === page;
   if (CANCEL_OUT.has(pageLineSlot(page))) {
     event.preventDefault();
@@ -29010,17 +30395,10 @@ function stopOffPageKey(event) {
     life: NOTICE_LIFE.TIMER,
   });
 }
-addEventListener('keydown', stopOffPageKey, true);
-addEventListener('keyup', stopOffPageKey, true); // keyup: a button's Space acts on its keyup
-function stickSoon() {
-  if (!STICK_FRAME)
-    STICK_FRAME = requestAnimationFrame(() => {
-      STICK_FRAME = 0;
-      stickReadingLine();
-    });
-}
+window.addEventListener('keydown', stopOffPageKey, true);
+window.addEventListener('keyup', stopOffPageKey, true); // keyup: a button's Space acts on its keyup
 $('#left').addEventListener('scroll', stickSoon, { passive: true });
-addEventListener('resize', stickSoon);
+window.addEventListener('resize', stickSoon);
 {
   const viewport = window.visualViewport;
   if (viewport) {
@@ -29029,8 +30407,7 @@ addEventListener('resize', stickSoon);
   }
 } // a keyboard over the page
 $('#doc').addEventListener('input', (event) => {
-  const target = event.target;
-  if (target.closest && target.closest('.pv-pop')) stickSoon();
+  if (eventClosest(event, '.pv-pop', Element)) stickSoon();
 }); // the reason field grows: its side again
 // composing, the sheet, the band
 new MutationObserver(stickSoon).observe(document.body, { attributes: true, attributeFilter: ['class'] });
@@ -29057,13 +30434,13 @@ function verdictKey(event) {
     !/^[1-5]$/.test(event.key)
   )
     return;
-  const target = event.target;
+  const target = eventElement(event);
   if (
     target &&
     (target.tagName === 'TEXTAREA' ||
       target.tagName === 'INPUT' ||
       target.tagName === 'SELECT' ||
-      target.isContentEditable)
+      (target instanceof HTMLElement && target.isContentEditable))
   )
     return;
   if (
@@ -29101,8 +30478,10 @@ function verdictKey(event) {
   // The panel shows the page under the reading line at the key, also before the frame that would show it
   // (verdict/view-panel.ts).
   if (IS_BESIDE_PAGES && ensurePanel().dataset.page !== String(at)) stickReadingLine();
-  const button = document.querySelector(
+  const button = findMaybe(
+    document,
     '#doc .pv[data-page="' + at + '"] button[data-act="pv-save"][data-key="' + CSS.escape(choice.key) + '"]',
+    HTMLElement,
   );
   if (!button) return;
   event.preventDefault();
@@ -29112,7 +30491,7 @@ function verdictKey(event) {
   // reason. The area is a named region (index.html), so a screen reader says 'PDF 쪽' for the moment it has the focus,
   // not every page's text one after the other. Where the focus came from is kept: Shift+Tab from the line goes back
   // there (CAME_FROM).
-  const active = document.activeElement,
+  const active = focusedElement(),
     area = $('#left');
   if (active && active !== document.body && active !== area && !area.contains(active)) {
     noteCameFrom(active);
@@ -29120,7 +30499,7 @@ function verdictKey(event) {
   }
   verdictPress(button, 'key');
 }
-addEventListener('keydown', verdictKey);
+window.addEventListener('keydown', verdictKey);
 for (const eventType of ['wheel', 'touchstart', 'touchmove', 'pointerdown'])
   $('#left').addEventListener(eventType, HAND_ON_PAGES, { passive: true, capture: true });
 $('#left').addEventListener(
@@ -29134,7 +30513,7 @@ $('#left').addEventListener(
 // line's word lets the arrows through) or on nothing - not in a text field, and not Space on a button, which it
 // presses. ↓ in the outline's filter or list moves to a result, and the Enter after it starts a jump the guard must not
 // take for the person's own scroll, or a digit pressed while it glides would save on a page passed.
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     if (!SCROLL_KEYS.has(event.key)) return;
@@ -29169,13 +30548,6 @@ $('#left').addEventListener('scrollend', () => {
   setJumpTarget(null);
   setGliding(false);
 });
-// Said once while the pages glide: the key was not taken, press it again once they rest.
-function sayGliding() {
-  lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다', NOTICE_KIND.INFO, null, {
-    source: 'verdict-key',
-    life: NOTICE_LIFE.TIMER,
-  });
-}
 // Tab from the PDF area (where Esc, a moved-on popover or a search leaves the focus) goes to the reading page's line -
 // its first control - not to the first page's line, whose focus would scroll the document there. The focus on nothing
 // (body) counts as on the PDF area after a press there: a press on a page leaves the focus where it was, and Chromium's
@@ -29187,11 +30559,11 @@ function sayGliding() {
 // action, the panel's grip), else nowhere (the focus stays). Left to the DOM's order it would go to the first line
 // after the pages' start and scroll them there, also on first open.
 let PRESSED_ON_PAGES = false;
-addEventListener(
+window.addEventListener(
   'pointerdown',
   (event) => {
-    const target = event.target;
-    PRESSED_ON_PAGES = !!target && !!target.closest && !!target.closest('#left') && !target.closest('#doc .pv');
+    const target = eventElement(event);
+    PRESSED_ON_PAGES = !!target && !!target.closest('#left') && !target.closest('#doc .pv');
   },
   true,
 );
@@ -29201,7 +30573,7 @@ document.addEventListener('focusin', (event) => {
 });
 // So does Tab with nothing focused where no stop is drawn before the pages - a phone, whose nav bar, outline and
 // section strip are not, whose first Tab after opening would otherwise go to a later page's line and scroll there.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const active = document.activeElement;
   if (event.key !== 'Tab' || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || event.defaultPrevented)
     return;
@@ -29211,13 +30583,9 @@ addEventListener('keydown', (event) => {
   if (!at) return; // no page lines, or the pages are not shown: the DOM's order scrolls nothing to a line
   const readingPage = readingPageWithLine(),
     line = readingPage ? document.querySelector('#doc .pv[data-page="' + readingPage + '"]') : null;
-  const control = (
-    line
-      ? [...line.querySelectorAll('a,button,[tabindex="0"]')].find(
-          (x) => x instanceof HTMLElement && x.getClientRects().length > 0 && !(x).disabled,
-        )
-      : undefined
-  );
+  const control = line
+    ? findAll(line, 'a,button,[tabindex="0"]', HTMLElement).find((x) => x.getClientRects().length > 0 && !isDisabled(x))
+    : undefined;
   event.preventDefault();
   const stopInView = control ? null : findStopInView(at),
     to = control || stopInView || findEdgeStop(true);
@@ -29239,8 +30607,8 @@ function findStopInView(at) {
     areaRect = area.getBoundingClientRect(),
     top = Math.max(0, areaRect.top + area.clientTop),
     left = Math.max(0, areaRect.left + area.clientLeft);
-  const bot = Math.min(innerHeight, areaRect.top + area.clientTop + area.clientHeight),
-    right = Math.min(innerWidth, areaRect.left + area.clientLeft + area.clientWidth);
+  const bot = Math.min(window.innerHeight, areaRect.top + area.clientTop + area.clientHeight),
+    right = Math.min(window.innerWidth, areaRect.left + area.clientLeft + area.clientWidth);
   for (
     let page = at, block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
     block;
@@ -29277,6 +30645,7 @@ function findStopInView(at) {
 function findEdgeStop(after) {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_ELEMENT, {
     acceptNode: (node) => {
+      if (!(node instanceof Element)) return NodeFilter.FILTER_SKIP;
       const x = node;
       if (
         x.hasAttribute('hidden') ||
@@ -29290,7 +30659,8 @@ function findEdgeStop(after) {
   let node = $('#left');
   if (after) while (node.lastChild) node = node.lastChild; // from the area's last node the next one is past the area
   walker.currentNode = node;
-  return (after ? walker.nextNode() : walker.previousNode());
+  const found = after ? walker.nextNode() : walker.previousNode();
+  return found instanceof HTMLElement ? found : null;
 }
 // Where the focus came into the pages from, while it is in them: the stop a Tab into the pages was pressed on, or the
 // control a digit key was pressed on (verdictKey) - an outline entry, a document tab, the section strip, the phone's
@@ -29332,8 +30702,8 @@ function findOutStop() {
   const positionButton = $('#btn-pos');
   return edge || (isTabStop(positionButton) ? positionButton : null);
 }
-addEventListener('keydown', (event) => {
-  const active = document.activeElement,
+window.addEventListener('keydown', (event) => {
+  const active = focusedElement(),
     area = $('#left');
   if (
     event.key !== 'Tab' ||
@@ -29378,7 +30748,7 @@ addEventListener('keydown', (event) => {
 // page in turn. A line with its reason popover open keeps Tab to itself first (verdict/flow-reason.ts, on #doc), and
 // another page's line or mark is left to the DOM's order - but for the stop Tab from the PDF area went to in view while
 // the reading page had no line (STOP_IN_VIEW), which leaves the same way.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (
     event.key !== 'Tab' ||
     !event.shiftKey ||
@@ -29391,10 +30761,10 @@ addEventListener('keydown', (event) => {
   // Beside the pages the panel is the reading line, and it stands after the pages in the DOM (verdict/view-panel.ts):
   // from its first stop the reading page's marks come next, as they do from a line, and from the first of those the way
   // out.
-  const active = document.activeElement,
-    panel = active && active.closest ? (active.closest('#pv-panel')) : null;
-  const block = panel || (active && active.closest ? (active.closest('#doc .pgw')) : null),
-    line = panel || (block && (block.querySelector(':scope>.pv') || document.getElementById('pv-panel')));
+  const active = focusedElement(),
+    panel = active ? findClosest(active, '#pv-panel', HTMLElement) : null;
+  const block = panel || (active ? findClosest(active, '#doc .pgw', HTMLElement) : null),
+    line = panel || (block && (findMaybe(block, ':scope>.pv', HTMLElement) || document.getElementById('pv-panel')));
   const inView = STOP_IN_VIEW;
   if (inView && !(currentVisit(inView.visit) && inView.build === ((META && META.pages_build) || '')))
     STOP_IN_VIEW = null;
@@ -29419,6 +30789,20 @@ addEventListener('keydown', (event) => {
     to.scrollIntoView({ block: 'nearest' });
   }
 }); // an outline entry comes into the outline's view; the pages stay
+
+// A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes
+// to the panel's pressed word, else its first (focusLine); the panel flashes.
+function goToSummaryPage(summary) {
+  const page = Number(summary.dataset.page) || 0;
+  if (!document.getElementById('p' + page)) return;
+  noteCameFrom(summary);
+  bringPage(page);
+  stickReadingLine();
+  const panel = document.getElementById('pv-panel');
+  if (!panel || panel.dataset.page !== String(page)) return;
+  focusLine(page);
+  flashPanel(panel);
+}
 
 // ------------------------------------------------ A verdict reason's drafts, kept per pin (sessionStorage)
 // A part of a draft's text moved off pin key k: text[s, e) is what k's reason write may put on k, and tried are k's
@@ -29450,10 +30834,12 @@ const DRAFT_VERSION = 1;
 function draftStorageKey() {
   return 'limnReason:' + encodeURIComponent((META && META.label) || '');
 }
+// Every draft kept for this label, by key, as stored: each is read with parseDraft, and one it cannot read is kept as it
+// is when the others are written back.
 function readAllDrafts() {
   try {
     const stored = JSON.parse(sessionStorage.getItem(draftStorageKey()) || 'null');
-    return stored && stored.v === DRAFT_VERSION && stored.d && typeof stored.d === 'object' ? stored.d : {};
+    return isRecord(stored) && stored.v === DRAFT_VERSION && isRecord(stored.d) ? stored.d : {};
   } catch (error) {
     return {};
   }
@@ -29470,19 +30856,19 @@ function reasonDraftKey(doc, id) {
   return (doc || '') + ':' + id;
 }
 function parseDraft(x) {
-  return x && typeof x.text === 'string' && x.text.trim()
+  if (!isRecord(x)) return null;
+  const { text, base } = x;
+  return typeof text === 'string' && text.trim()
     ? {
-        text: x.text,
-        base: typeof x.base === 'string' ? x.base : '',
+        text,
+        base: typeof base === 'string' ? base : '',
         rev: typeof x.rev === 'number' ? x.rev : -1,
         mode:
-          x.mode === 'replace' || (x.mode !== 'add' && typeof x.base === 'string' && !!x.base.trim())
-            ? 'replace'
-            : 'add',
+          x.mode === 'replace' || (x.mode !== 'add' && typeof base === 'string' && !!base.trim()) ? 'replace' : 'add',
         folded: !!x.folded,
         at: Number(x.at) || 0,
         tried: Array.isArray(x.tried) ? x.tried.filter(isReasonTry) : [],
-        from: parseDraftParts(x.from, x.text),
+        from: parseDraftParts(x.from, text),
       }
     : null;
 }
@@ -29490,24 +30876,21 @@ function parseDraft(x) {
 function parseDraftParts(x, text) {
   if (typeof x === 'string') return x ? [{ k: x, s: 0, e: text.length, tried: [] }] : [];
   if (!Array.isArray(x)) return [];
-  return x
-    .filter(
-      (part) =>
-        !!part &&
-        typeof part.k === 'string' &&
-        !!part.k &&
-        Number.isInteger(part.s) &&
-        Number.isInteger(part.e) &&
-        part.s >= 0 &&
-        part.s < part.e &&
-        part.e <= text.length,
-    )
-    .map((part) => ({
-      k: part.k,
-      s: part.s,
-      e: part.e,
-      tried: Array.isArray(part.tried) ? part.tried.filter(isReasonTry) : [],
-    }));
+  return x.flatMap((part) => {
+    if (!isRecord(part)) return [];
+    const { k: key, s: start, e: end } = part;
+    return typeof key === 'string' &&
+      !!key &&
+      typeof start === 'number' &&
+      Number.isInteger(start) &&
+      typeof end === 'number' &&
+      Number.isInteger(end) &&
+      start >= 0 &&
+      start < end &&
+      end <= text.length
+      ? [{ k: key, s: start, e: end, tried: Array.isArray(part.tried) ? part.tried.filter(isReasonTry) : [] }]
+      : [];
+  });
 }
 // Text compared as a reason is written: line breaks as '\n', no space around it (a write sends the draft trimmed).
 function normalizeReason(text) {
@@ -29594,7 +30977,7 @@ function cutWrittenParts(
 // Whether a stored lost write is one (ReasonTry).
 function isReasonTry(value) {
   return (
-    !!value &&
+    isRecord(value) &&
     typeof value.text === 'string' &&
     typeof value.rev === 'number' &&
     typeof value.pre === 'string' &&
@@ -29788,6 +31171,11 @@ function addLostWrite(doc, id, attempt) {
 // elsewhere, with their parts (placeParts).
 // What a session's field held, for its undo and redo (placeParts).
 let REASON_SESSION = null;
+// Marks whether the reading line has been on a session's page (ReasonSession.seen), for another module that sees it
+// (ADR-0042 D1).
+function setReasonSeen(session, seen) {
+  session.seen = seen;
+}
 let SESSION_SEQUENCE = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
 // by line (pageLineSlot of the document they were typed on): each stays bound to that save, not to the screen.
@@ -29843,13 +31231,6 @@ function isReasonOpenOn(page) {
 // The pin a reason session is for, from the lists, or undefined.
 function findReasonPin(id) {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).find((pin) => pin.id === id);
-}
-function isReasonField(target) {
-  return target instanceof HTMLTextAreaElement && target.classList.contains('pv-reason');
-}
-// The open popover's field, or null.
-function findReasonField() {
-  return document.querySelector('#doc .pv-pop .pv-reason');
 }
 // Whether the session's text is something not yet written: not empty, not the reason it opened on, not what it wrote.
 function hasUnsavedReason(session) {
@@ -29918,7 +31299,7 @@ function refocusAfterLines() {
   const owed = PENDING_REFOCUS;
   if (!owed) return;
   PENDING_REFOCUS = null;
-  const control = document.querySelector('#doc .pv[data-page="' + owed.page + '"] ' + owed.sel);
+  const control = findMaybe(document, '#doc .pv[data-page="' + owed.page + '"] ' + owed.sel, HTMLElement);
   if (control) control.focus({ preventScroll: true });
 }
 // A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it would fall to nothing:
@@ -29930,8 +31311,8 @@ function refocusAfterLines() {
 // keys (KEY_GUARD).
 function holdReasonFocus() {
   const session = REASON_SESSION,
-    active = document.activeElement,
-    pop = active && active.closest ? active.closest('#doc .pv-pop') : null;
+    active = focusedElement(),
+    pop = active ? active.closest('#doc .pv-pop') : null;
   if (!session || !active || !pop || pop.getAttribute('data-id') !== 's' + session.sid) return null;
   if (isReasonField(active))
     return {
@@ -29947,22 +31328,19 @@ function restoreReasonFocus(held) {
   const session = REASON_SESSION,
     pop =
       session && session.sid === held.sid ? document.querySelector('#doc .pv-pop[data-id="s' + held.sid + '"]') : null;
-  const control = (
-    !pop
-      ? null
-      : held.sel
-        ? pop.querySelector('.pv-reason')
-        : held.act
-          ? pop.querySelector('[data-act="' + held.act + '"]')
-          : null
-  );
+  const control = !pop
+    ? null
+    : held.sel
+      ? findMaybe(pop, '.pv-reason', HTMLElement)
+      : held.act
+        ? findMaybe(pop, '[data-act="' + held.act + '"]', HTMLElement)
+        : null;
   if (!control) {
     KEY_GUARD = true;
     return;
   }
   control.focus({ preventScroll: true });
-  if (held.sel && isReasonField(control))
-    control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2]);
+  if (held.sel && isReasonField(control)) control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2]);
 }
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let
 // go, one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is
@@ -30040,18 +31418,18 @@ function restoreKeptDrafts() {
 function showDraftLine(page) {
   if (IS_BESIDE_PAGES) {
     bringPage(page);
-    stickReadingLine();
+    verdictLineRenderer().stickReadingLine();
   } // beside the pages the panel is the line, once the page is read (verdict/view-panel.ts)
   const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return;
   if (!IS_BESIDE_PAGES) {
-    const block = (line.parentElement || line);
+    const block = line.parentElement || line;
     endJumpForScroll();
     block.scrollIntoView({ block: block.getBoundingClientRect().height <= $('#left').clientHeight ? 'center' : 'end' });
   }
   requestAnimationFrame(() => {
     if (isReasonField(document.activeElement)) return; // the mark was already pressed: its field keeps the focus
-    const mark = document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft');
+    const mark = findMaybe(document, '#doc .pv[data-page="' + page + '"] .pv-draft', HTMLElement);
     if (mark) mark.focus({ preventScroll: true });
     else if (!focusLine(page)) searchToPage();
   });
@@ -30077,7 +31455,7 @@ function closeReasonPopover(back) {
     pop = document.querySelector('#doc .pv-pop'),
     had = !!pop && pop.contains(document.activeElement);
   REASON_SESSION = null;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (!back) {
     if (had) searchToPage();
     return;
@@ -30089,9 +31467,10 @@ function closeReasonPopover(back) {
 function focusLine(page) {
   const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return false;
-  const control = (line.querySelector('[data-act="pv-reason-open"]') ||
-    line.querySelector('.vd-b[aria-pressed="true"]') ||
-    line.querySelector('.vd-b'));
+  const control =
+    findMaybe(line, '[data-act="pv-reason-open"]', HTMLElement) ||
+    findMaybe(line, '.vd-b[aria-pressed="true"]', HTMLElement) ||
+    findMaybe(line, '.vd-b', HTMLElement);
   if (!control) return false;
   control.focus({ preventScroll: true });
   return true;
@@ -30196,7 +31575,7 @@ function openReason(page, focus) {
   }
   KEY_GUARD = false;
   hideTip();
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (focus) focusReasonField();
 }
 // Enter while page `page`'s save is still out (a fast typist: a key, then Enter at once): the Enter is the intent to
@@ -30221,7 +31600,7 @@ function openPendingReason(page) {
   REASON_SESSION = session;
   KEY_GUARD = false;
   hideTip();
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   focusReasonField();
 }
 // Page `page`'s save failed while a popover waited for its number: what was typed stays as the page's draft ('초안
@@ -30246,7 +31625,7 @@ function keepUnboundReason(page) {
       { literal: true },
     );
   }
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (!had) return;
   KEY_GUARD = true;
   if (!focusLine(page)) searchToPage();
@@ -30361,9 +31740,9 @@ async function settleWriteOnto(session, ok, page) {
   } // nothing of it was left to write: a pin it came from had it (commitReason)
   let pin = undefined;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       lineNote(
         translateTemplate('이유 저장 실패 · {why} — {target}', { why: translate('서버에 닿지 않습니다'), target }),
@@ -30375,8 +31754,8 @@ async function settleWriteOnto(session, ok, page) {
     }
     pin = null;
   }
-  const got =
-    pin && !pin.dropped_at ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, pin)) : null;
+  const live = pin && !pin.dropped_at ? pin : null,
+    got = live ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, live)) : null;
   RETRY_NOTICES.delete(session); // its [다시 시도] goes either way (sourceOk)
   if (got) {
     session.saved = got.text;
@@ -30430,7 +31809,7 @@ async function settleWriteOnto(session, ok, page) {
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-onto' },
   );
-  if (doc === DOC) drawPageVerdicts();
+  if (doc === DOC) verdictLineRenderer().drawPageVerdicts();
 }
 // A take-back of verdict pin id about page `page` of document doc failed (cancelVerdictPin): the verdict is back. Its
 // reason popover left with it (kept: that session, or null) and comes back with its text while nothing took its place:
@@ -30453,7 +31832,7 @@ function bringBackReason(id, page, doc, kept) {
     !(kept.writing && SAVING_LINES.has(pageLineSlot(page, doc)))
   ) {
     REASON_SESSION = kept;
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     return;
   }
   placeFailedCancelDraft(id, page, doc, !!kept);
@@ -30512,7 +31891,7 @@ function placeFailedCancelDraft(id, page, doc, shown) {
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-uncancel' },
   );
-  if (doc === DOC) drawPageVerdicts();
+  if (doc === DOC) verdictLineRenderer().drawPageVerdicts();
 }
 // The save on line `slot` answered (savePageVerdict, after it bound or kept a popover waiting for it): a failed
 // take-back's draft that waited for it is placed now.
@@ -30541,7 +31920,7 @@ function reviveReason(id) {
     (REASON_SESSION && REASON_SESSION.page !== target.page) ||
     (IS_BESIDE_PAGES && target.page !== READING_LINE_PAGE)
   ) {
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     return;
   }
   leaveReason();
@@ -30559,7 +31938,7 @@ function reviveReason(id) {
   session.listed = true;
   noteReasonConflict(session, pin);
   REASON_SESSION = session;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
 }
 
 // ---------------- Writing
@@ -30649,11 +32028,11 @@ async function checkLostWrites(session) {
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
     let fetched = null;
     try {
-      fetched = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
+      fetched = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin || null;
     } catch (error) {
-      const x = error;
+      const x = isApiError(error) ? error : null;
       if (!x || !x.status || x.status >= 500) {
-        sure = x || null;
+        sure = x;
         continue;
       }
     }
@@ -30678,6 +32057,7 @@ async function checkLostWrites(session) {
             normalizeReason(attempt.text) === normalizeReason(session.text.slice(found.s, found.e)) &&
             hasLanded(attempt, pin),
         );
+        if (!landed) break; // found holds such an attempt
         takeWrittenText(session.doc, id, verdictOf(pin) || '', landed.text, null);
         if (session.via.includes(found)) break;
       } // not taken out (cannot be): stop
@@ -30714,8 +32094,8 @@ async function fenceLostWrites(
   pin,
 ) {
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       intent: 'reason-fence',
       silent: true,
       expect: [409],
@@ -30725,8 +32105,8 @@ async function fenceLostWrites(
     const answered = data && data.pin;
     return answered ? { pin: answered } : { unknown: null };
   } catch (error) {
-    const x = error;
-    return x && x.status === 404 ? { pin: null } : { unknown: x || null };
+    const x = isApiError(error) ? error : null;
+    return x && x.status === 404 ? { pin: null } : { unknown: x };
   }
 }
 // A session's evidence of pin `key`'s lost writes (ReasonPart.tried) made update(tried): in its text's parts and in
@@ -30749,7 +32129,7 @@ function liveSessions() {
       ...DETACHED_SESSIONS.values(),
       ...[...REASON_WRITES.values()].map((outWrite) => outWrite.r),
       ...RETRY_NOTICES.keys(),
-    ].filter(Boolean),
+    ].filter((session) => !!session),
   );
 }
 // Pin id (verdict word `word`) of document doc has text as its reason now - session `writer` wrote it, or (writer null)
@@ -30819,7 +32199,7 @@ function handOnCopy(copy) {
 function closeTakenReason(session, doc, id, word, part) {
   if (part) {
     refillLine(session.page);
-    const line = document.querySelector('#doc .pv[data-page="' + session.page + '"]');
+    const line = findMaybe(document, '#doc .pv[data-page="' + session.page + '"]', HTMLElement);
     if (line) fillReasonField(line);
     lineNote(
       translateTemplate('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
@@ -30837,7 +32217,7 @@ function closeTakenReason(session, doc, id, word, part) {
     pop = document.querySelector('#doc .pv-pop'),
     had = (!!pop && !!active && pop.contains(active)) || (!!session.writing && (!active || active === document.body));
   REASON_SESSION = null;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (had) {
     KEY_GUARD = true;
     if (!focusLine(session.page)) searchToPage();
@@ -30873,11 +32253,11 @@ function retryReason(session) {
   const text = session.text.trim();
   if (!text || session.writing) return;
   const writing = commitReason(session, text, true);
-  if (REASON_SESSION === session) drawPageVerdicts();
+  if (REASON_SESSION === session) verdictLineRenderer().drawPageVerdicts();
   writing.then((ok) => {
     if (REASON_SESSION !== session) return;
     if (ok && session.text.trim() === session.saved) closeReasonPopover(false);
-    else drawPageVerdicts();
+    else verdictLineRenderer().drawPageVerdicts();
   });
 }
 // Where a lost write's text sits in `note` when the note is what the write made of the one it was sent against - its
@@ -31004,9 +32384,9 @@ async function writeReason(session, text, said) {
   if (viewerBlocked()) return false;
   let pin;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       sayReasonFailed(session, text, x);
       return false;
@@ -31027,9 +32407,8 @@ async function writeReason(session, text, said) {
     keepConflict(session, text, pin);
     return false;
   } // changed since it was read: never sent
-  const url = '/api/pins/' + session.id + '/edit',
-    // silent: sayReasonFailed says a failure, with its target
-    options = { method: 'POST', intent: 'reason', silent: true };
+  // silent: sayReasonFailed says a failure, with its target
+  const options = { id: session.id, intent: 'reason', silent: true };
   let sent = null; // the write out now, while its answer is awaited
   try {
     for (let round = 1; ; round++) {
@@ -31041,7 +32420,7 @@ async function writeReason(session, text, said) {
         return false;
       }
       sent = edit.sent;
-      const { status, data } = await api(url, {
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
         ...options,
         body: edit.body,
         expect: round < CONFLICT_RETRIES ? [409] : [],
@@ -31064,7 +32443,7 @@ async function writeReason(session, text, said) {
       pin = answered;
     }
   } catch (error) {
-    const x = error;
+    const x = isApiError(error) ? error : null;
     if (sent && (!x || !x.status || x.status >= 500)) {
       session.tried.push(sent);
       addLostWrite(session.doc, session.id, sent);
@@ -31136,7 +32515,7 @@ function sayReasonFailed(session, text, error, why0) {
   );
   if (again && notice) RETRY_NOTICES.set(session, notice);
   else RETRY_NOTICES.delete(session);
-  if (REASON_SESSION !== session && session.doc === DOC) drawPageVerdicts();
+  if (REASON_SESSION !== session && session.doc === DOC) verdictLineRenderer().drawPageVerdicts();
 } // the line marks the draft it keeps
 // A replace found the note changed elsewhere since it was read (the newer pin): nothing is written over it. The draft
 // is kept, the popover - when open - shows the newer note whole and offers [그 위에 쓰기] (writeOverNewer); every
@@ -31218,7 +32597,7 @@ async function saveReason(field) {
     closeReasonPopover(true);
     return;
   }
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   focusReasonField();
 }
 // Esc in the field, or [닫기] (how 'btn'): with nothing unsaved the popover closes. With text the first press lets the
@@ -31256,9 +32635,11 @@ function foldReason() {
   if (hasUnsavedReason(session)) keepDraft(session, true);
   else dropDraft(session.doc, session.id);
   REASON_SESSION = null;
-  drawPageVerdicts();
-  const control = document.querySelector(
+  verdictLineRenderer().drawPageVerdicts();
+  const control = findMaybe(
+    document,
     '#doc .pv[data-page="' + session.page + '"] [data-act="pv-reason-open"]',
+    HTMLElement,
   );
   if (control) control.focus({ preventScroll: true });
   else focusLine(session.page);
@@ -31280,14 +32661,17 @@ async function clearReason() {
     target = reasonTargetName(session),
     word = verdictLabel(session.key),
     url = '/api/pins/' + session.id + '/edit',
-    options = { method: 'POST', intent: 'reason', silent: true, expect: [409] };
+    options = { id: session.id, intent: 'reason', silent: true, expect: [409] };
   const go = async () => {
     try {
       if (session.clearTried) {
-        const pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+        const pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
         if (pin && !String(pin.note || '').trim()) return 'ok';
       }
-      const { status, data } = await api(url, { ...options, body: { note: '', base_rev: session.rev } });
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
+        ...options,
+        body: { note: '', base_rev: session.rev },
+      });
       if (status !== 409) return 'ok';
       const answered = data && data.pin;
       if (!answered) return 'gone';
@@ -31296,15 +32680,15 @@ async function clearReason() {
         keepConflict(session, session.text, answered);
         return 'conflict';
       }
-      await api(url, { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
+      await api('POST /api/pins/{id}/edit', { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
     } catch (error) {
-      const x = error,
-        statusCode = x && typeof x.status === 'number' ? x.status : 0;
+      const x = isApiError(error) ? error : null,
+        statusCode = x ? x.status : 0;
       if (!statusCode) session.clearTried = true;
       lineNote(
         translateTemplate('이유 지우기 실패 · {why} — {target}', {
-          why: statusCode ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
+          why: x ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
           target,
         }),
         NOTICE_KIND.ERR,
@@ -31338,7 +32722,7 @@ async function clearReason() {
       { life: NOTICE_LIFE.TIMER, undo: true, literal: true },
     );
   } else if (REASON_SESSION === session) {
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     focusReasonField();
   }
   if (session.doc === DOC) await loadPins();
@@ -31347,10 +32731,10 @@ async function clearReason() {
 async function undoClearReason(id, old) {
   let ok = false;
   try {
-    const pin = (await api('/api/pins/' + id, { what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
+    const pin = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
     if (pin && !String(pin.note || '').trim()) {
-      await api('/api/pins/' + id + '/edit', {
-        method: 'POST',
+      await api('POST /api/pins/{id}/edit', {
+        id,
         body: { note: old, base_rev: pin.rev },
         intent: 'reason',
         what: '이유 되돌리기',
@@ -31490,7 +32874,7 @@ data-tip="${translate('이 판정의 이유를 씁니다. 메모로 붙습니다
 // input method is composing - and its height follows its lines.
 function fillReasonField(line) {
   const session = REASON_SESSION,
-    field = line.querySelector('.pv-pop .pv-reason');
+    field = findMaybe(line, '.pv-pop .pv-reason', HTMLTextAreaElement);
   if (!session || !field) return;
   if (field.value !== session.text && COMPOSING_FIELD !== field) {
     const had = document.activeElement === field;
@@ -31510,24 +32894,19 @@ function growReasonField(field) {
 // Page `page`'s line drawn again now: what its popover says follows the field's text and focus.
 function refillLine(page) {
   const verdicts = pageVerdictsOn(),
-    line = document.querySelector('#doc .pv[data-page="' + page + '"]');
-  if (verdicts && line) fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
+    line = findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement);
+  if (verdicts && line) verdictLineRenderer().fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
 }
 
-// ---------------- Input
-// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a
-// field drawn anew in its place (the pages built again) holds the session's text - left empty, the next input would
-// write what it holds over the reason.
-let COMPOSING_FIELD = null;
 $('#doc').addEventListener('compositionstart', (event) => {
-  if (isReasonField(event.target)) COMPOSING_FIELD = event.target;
+  if (isReasonField(event.target)) setComposingField(event.target);
 });
 // The composition's end settles what it brought back (followLanded, which waits for it), and what waited for it goes on
 // (runComposedWaits).
 $('#doc').addEventListener('compositionend', (event) => {
   const field = event.target;
   if (!isReasonField(field)) return;
-  COMPOSING_FIELD = null;
+  setComposingField(null);
   const session = REASON_SESSION;
   if (session && field.dataset.id === 's' + session.sid) {
     followLanded(session);
@@ -31535,18 +32914,6 @@ $('#doc').addEventListener('compositionend', (event) => {
   }
   setTimeout(runComposedWaits, 0);
 });
-// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there
-// still holds it (app/state.ts imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or
-// under the pages (shouldStandBeside) and the pages are not built again (refreshDoc, afterComposition) until it ends
-// and that key lets go. Moved or rebuilt, the field would be a new one: the old one's composition would end with it,
-// the input method's commit would land on top of the text carried over (its last syllable doubled), and the Enter
-// ibus-hangul hands on after the commit, with its repeats, would reach the new field as the viewer's - writing the
-// reason and closing the popover.
-function isComposingNow() {
-  if (COMPOSING_FIELD && COMPOSING_FIELD.isConnected) return true;
-  const field = imeHeldIn();
-  return isReasonField(field) && field.isConnected;
-}
 const COMPOSED_WAITS = []; // what waits for the composition's end (afterComposition)
 // how often a wait looks again: a field taken out of the document ends its composition without the event
 const COMPOSED_POLL_MS = 200;
@@ -31669,13 +33036,12 @@ function followLanded(session) {
 // key is the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons
 // ([접기], [닫기], [저장], [지우기]) is the field's Esc.
 $('#doc').addEventListener('keydown', (event) => {
-  const target = event.target;
+  const target = eventElement(event);
   if (
     event.key === 'Escape' &&
     !isReasonField(target) &&
     REASON_SESSION &&
     target &&
-    target.closest &&
     target.closest('#doc .pv-pop') &&
     !event.ctrlKey &&
     !event.metaKey &&
@@ -31713,20 +33079,19 @@ $('#doc').addEventListener('keydown', (event) => {
 // popover, writing what is being edited.
 $('#doc').addEventListener('keydown', (event) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return;
-  const target = event.target,
-    line = target && target.closest ? target.closest('#doc .pv') : null;
+  const target = eventElement(event),
+    line = target ? target.closest('#doc .pv') : null;
   const pop = line && line.querySelector(':scope>.pv-pop');
   if (!line || !pop) return;
-  const vis = (x) =>
-    x instanceof HTMLElement && x.getClientRects().length > 0 && !(x).disabled;
-  const all = [...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(vis);
+  const vis = (x) => x.getClientRects().length > 0 && !isDisabled(x);
+  const all = findAll(line, 'a,button,textarea,[tabindex="0"]', HTMLElement).filter(vis);
   if (all.length < 2) return;
   if (!event.shiftKey && target === all[all.length - 1]) {
     event.preventDefault();
-    (all[0]).focus({ preventScroll: true });
+    all[0].focus({ preventScroll: true });
   } else if (event.shiftKey && target === all[0]) {
     event.preventDefault();
-    (all[all.length - 1]).focus({ preventScroll: true });
+    all[all.length - 1].focus({ preventScroll: true });
   }
 });
 // The field's focus changes what it says (the keys). The popover stays open while the focus is anywhere inside it - Tab
@@ -31736,8 +33101,7 @@ let POPOVER_PRESS_AT = 0; // performance.now() of the last press inside a popove
 $('#doc').addEventListener(
   'pointerdown',
   (event) => {
-    const target = event.target;
-    if (target && target.closest && target.closest('.pv-pop')) POPOVER_PRESS_AT = performance.now();
+    if (eventClosest(event, '.pv-pop', Element)) POPOVER_PRESS_AT = performance.now();
   },
   true,
 );
@@ -31747,10 +33111,9 @@ $('#doc').addEventListener('focusin', (event) => {
   refillLine(REASON_SESSION.page);
 });
 $('#doc').addEventListener('focusout', (event) => {
-  const target = event.target,
-    pop = target && target.closest ? target.closest('.pv-pop') : null;
+  const pop = eventClosest(event, '.pv-pop', Element);
   if (!pop) return;
-  const rel = event.relatedTarget;
+  const rel = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (rel && pop.contains(rel)) return;
   setTimeout(() => {
     const session = REASON_SESSION;
@@ -31818,14 +33181,11 @@ function openReasonOnEnter(event) {
     event.repeat
   )
     return;
-  const target = event.target,
+  const target = eventElement(event),
     area = $('#left');
   // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of
   // them.
-  const line =
-      !!target && !!target.closest && !target.closest('.pv-pop')
-        ? (target.closest('#doc .pv'))
-        : null,
+  const line = !!target && !target.closest('.pv-pop') ? findClosest(target, '#doc .pv', HTMLElement) : null,
     page = line ? Number(line.dataset.page) || 0 : 0;
   if (page && KEY_SAVE_OUT.has(pageLineSlot(page)) && page === pageUnderReadingLine()) {
     event.preventDefault();
@@ -31837,7 +33197,7 @@ function openReasonOnEnter(event) {
     target === document.body ||
     target === area ||
     target === $('#doc') ||
-    (!!target && !!target.closest && !!target.closest('#doc .pg'))
+    (!!target && !!target.closest('#doc .pg'))
   ))
     return;
   openReadingReason(event);
@@ -31890,14 +33250,14 @@ function isKeyGuarded(event) {
   );
   return true;
 }
-addEventListener(
+window.addEventListener(
   'pointerdown',
   () => {
     KEY_GUARD = false;
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     if (event.key === 'Escape') KEY_GUARD = false;
@@ -31960,17 +33320,11 @@ function hasUnsavedDrafts() {
 }
 // Leaving the page (a reload, closing the tab, another address) with a reason not written yet asks first. The draft is
 // kept either way for this tab: a reload brings it back.
-addEventListener('beforeunload', (event) => {
+window.addEventListener('beforeunload', (event) => {
   if (!hasUnsavedDrafts()) return;
   event.preventDefault();
   event.returnValue = '';
 });
-// Sets COMPOSING_FIELD, which this module declares, for another module that changes it (ADR-0042 D1); answers the
-// value.
-function setComposingField(value) {
-  COMPOSING_FIELD = value;
-  return value;
-}
 // Sets KEY_GUARD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setKeyGuard(value) {
   KEY_GUARD = value;
@@ -31980,6 +33334,11 @@ function setKeyGuard(value) {
 function setReasonSession(value) {
   REASON_SESSION = value;
   return value;
+}
+
+// Moving the panel to another page leaves an open reason on the page the reader has seen.
+function leaveReasonOffPage(page) {
+  if (REASON_SESSION && REASON_SESSION.seen && REASON_SESSION.page !== page) leaveReason();
 }
 
 // ---------------------------------------- The page verdict panel beside the pages (docs/handbook/viewer.md §판정 패널)
@@ -32039,7 +33398,7 @@ function applyBeside(on) {
 // frame after it): they are drawn again, beside or under the pages. Whether it did.
 function redrawOnBesideChange() {
   if (shouldStandBeside() === IS_BESIDE_PAGES) return false;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   return true;
 }
 // The reading page held while the lines move (startBesideTurn to settleBesideTurn), 0 otherwise: read from the layout
@@ -32051,6 +33410,25 @@ var HELD_READING_PAGE = 0;
 // column before that, it would be a neighbour, and the reason being typed on the panel would be moved on from - written
 // and closed.
 var BUILD_READING_PAGE = 0;
+// The page under the reading line - the one the section strip and the page count name, readingDepth under the PDF
+// area's top - while the pages are shown and the document has page lines; 0 otherwise. Read from the layout as it is
+// now.
+function pageUnderReadingLine() {
+  // the lines are moving beside or under the pages (verdict/view-panel.ts)
+  if (HELD_READING_PAGE) return HELD_READING_PAGE;
+  if (BUILD_READING_PAGE) return BUILD_READING_PAGE; // the pages are being built again (refreshDoc)
+  if (!pageVerdictsOn() || document.body.classList.contains('revision-open') || !$('#left').getClientRects().length)
+    return 0;
+  const anchor = topAnchor(readingDepth($('#left')));
+  return anchor ? anchor.page : 0;
+}
+// The reading page when it has a line (pageTakesVerdict), else 0: its line floats and names its figure
+// (READING_LINE_PAGE).
+function readingPageWithLine() {
+  const page = pageUnderReadingLine();
+  return page && pageTakesVerdict(page) ? page : 0;
+}
+
 // Before the lines are drawn (drawPageVerdicts): follows the room. When it crossed its bar every line goes and new ones
 // come, so what the person has must be carried over: the reading page, the point of it under the reading line, and the
 // focus. Null when the lines stay where they are. A composition cannot cross: its field goes, and with it its end.
@@ -32058,8 +33436,8 @@ function startBesideTurn() {
   const on = shouldStandBeside();
   if (on === IS_BESIDE_PAGES) return null;
   const area = $('#left'),
-    active = document.activeElement,
-    field = isReasonField(active) ? (active) : null,
+    active = focusedElement(),
+    field = isReasonField(active) ? active : null,
     at = pageUnderReadingLine();
   const keep = {
     spot: area.scrollTop > 0 ? topAnchor(readingDepth(area)) : null,
@@ -32107,9 +33485,7 @@ function finishBesideTurn(kept) {
     field.setSelectionRange(kept.caret[0], kept.caret[1]);
     return;
   }
-  const button = (
-    kept.popAct ? document.querySelector('#doc .pv-pop [data-act="' + kept.popAct + '"]') : null
-  );
+  const button = kept.popAct ? findMaybe(document, '#doc .pv-pop [data-act="' + kept.popAct + '"]', HTMLElement) : null;
   if (button) {
     button.focus({ preventScroll: true });
     return;
@@ -32132,7 +33508,7 @@ function describeControl(
 ) {
   if (!(element instanceof HTMLElement) || !element.closest || element.closest('.pv-pop') || isReasonField(element))
     return null;
-  const line = element.closest('#doc .pv');
+  const line = findClosest(element, '#doc .pv', HTMLElement);
   const act = element.dataset.act || '';
   if (!line || !act) return null;
   return {
@@ -32151,15 +33527,14 @@ function findControlAgain(described) {
   const line = described ? document.querySelector('#doc .pv[data-page="' + CSS.escape(described.page) + '"]') : null;
   if (!described || !line) return null;
   return (
-    ([...line.querySelectorAll('[data-act="' + CSS.escape(described.act) + '"]')].find(
+    findAll(line, '[data-act="' + CSS.escape(described.act) + '"]', HTMLElement).find(
       (element) =>
-        element instanceof HTMLElement &&
         (element.dataset.key || '') === described.key &&
         (element.dataset.ref || '') === described.ref &&
         (element.dataset.id || '') === described.id &&
         (element.dataset.n || '') === described.n &&
         element.getClientRects().length > 0,
-    )) || null
+    ) || null
   );
 }
 
@@ -32182,7 +33557,7 @@ function ensurePanel() {
     panel.dataset.tipAt = 'left'; // its descriptions stand left of it (platform/tooltip.ts)
     at.appendChild(panel);
     $('#doc').appendChild(at);
-    if (CHIP_WATCH) CHIP_WATCH.observe(panel, { childList: true });
+    verdictLineRenderer().watchLineChips(panel);
   }
   return panel;
 }
@@ -32196,17 +33571,17 @@ function removePanel() {
 // verdict pages' split of a title at its first ' · ' (pageLineName) would put a board's '비교판' beside its page and
 // leave a list page's title out. A save chip on the panel for a pin of another page goes to the status line with its
 // undo (chipAway), as a chip whose mark is not drawn does: the panel does not show the verdict it undoes.
-function fillPanel(map, verdicts) {
+function fillPanel(map, verdicts, leaveReasonOffPage) {
   const panel = ensurePanel(),
     readingPage = READING_LINE_PAGE,
     at = heldPanelPage() || pageUnderReadingLine(),
     list = readingPage ? map.get(readingPage) || [] : [];
-  leavePanelPage(panel, at);
-  const chip = panel.querySelector(':scope>.nt-chip');
+  leavePanelPage(panel, at, leaveReasonOffPage);
+  const chip = findMaybe(panel, ':scope>.nt-chip', HTMLElement);
   if (chip && !list.some((x) => x.id === pinOfChip(chip))) chipAway(chip);
   if (readingPage) {
     panel.classList.remove('pv-quiet');
-    fillPageLine(panel, readingPage, map.get(readingPage), verdicts);
+    verdictLineRenderer().fillPageLine(panel, readingPage, map.get(readingPage), verdicts);
     placePanel();
     flashOnArrival(readingPage);
     return;
@@ -32244,9 +33619,9 @@ function isPanelStale(at) {
 // the PDF area, as one on a left line's does (moveFocusOffPage). This must come before the filling: the morph keeps the
 // element and hands it to the new page, so Enter or Space on '채택' would press the next page's word, and a control
 // that goes would leave the focus on nothing.
-function leavePanelPage(panel, at) {
+function leavePanelPage(panel, at, leaveReasonOffPage) {
   if (panel.dataset.page === String(at)) return;
-  if (REASON_SESSION && REASON_SESSION.seen && REASON_SESSION.page !== at) leaveReason();
+  leaveReasonOffPage(at);
   const active = document.activeElement;
   if (!!active && panel.contains(active)) searchToPage();
 }
@@ -32398,9 +33773,9 @@ function summaryHtml(page, list) {
 // being far from the view (watchFarLines: a far row is skipped like a far line).
 function drawSummaries(map) {
   const made = [];
-  $$('#doc .pgw').forEach((block) => {
-    const page = Number((block).dataset.page) || 0;
-    let summary = block.querySelector(':scope>.pv-sum');
+  findAll(document, '#doc .pgw', HTMLElement).forEach((block) => {
+    const page = Number(block.dataset.page) || 0;
+    let summary = findMaybe(block, ':scope>.pv-sum', HTMLElement);
     if (!IS_BESIDE_PAGES || !pageTakesVerdict(page)) {
       if (summary) summary.remove();
       return;
@@ -32430,24 +33805,11 @@ function drawSummaries(map) {
 // The reading page's summary is bold (.on): the page the panel shows - a weight, never a height.
 function markReadingSummary() {
   const readingPage = String(IS_BESIDE_PAGES ? READING_LINE_PAGE || 0 : 0);
-  $$('#doc .pv-sum.on').forEach((element) => {
-    if ((element).dataset.page !== readingPage) element.classList.remove('on');
+  findAll(document, '#doc .pv-sum.on', HTMLElement).forEach((element) => {
+    if (element.dataset.page !== readingPage) element.classList.remove('on');
   });
   const summary = document.querySelector('#doc .pv-sum[data-page="' + readingPage + '"]');
   if (summary) summary.classList.add('on');
-}
-// A press on page `page`'s summary: the page comes to the reading place, the panel shows it at once, and the focus goes
-// to the panel's pressed word, else its first (focusLine); the panel flashes.
-function goToSummaryPage(summary) {
-  const page = Number(summary.dataset.page) || 0;
-  if (!document.getElementById('p' + page)) return;
-  noteCameFrom(summary);
-  bringPage(page);
-  stickReadingLine();
-  const panel = document.getElementById('pv-panel');
-  if (!panel || panel.dataset.page !== String(page)) return;
-  focusLine(page);
-  flashPanel(panel);
 }
 // ---------------- A jump's glide
 // A jump to a far page (the outline, the page list, a card's [보기]) glides past every page between, and the digits and
@@ -32516,11 +33878,11 @@ function flashPanel(panel) {
 // marks.
 function markStops(page) {
   const block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
-  return block ? ([...block.querySelectorAll(TABBABLE)].filter(isTabStop)) : [];
+  return block ? [...block.querySelectorAll(TABBABLE)].filter(isTabStop) : [];
 }
 // Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next
 // stop is a later page's mark, whose focus would scroll the pages there.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (
     event.key !== 'Tab' ||
     event.shiftKey ||
@@ -32531,7 +33893,7 @@ addEventListener('keydown', (event) => {
     !IS_BESIDE_PAGES
   )
     return;
-  const active = document.activeElement,
+  const active = focusedElement(),
     readingPage = readingPageWithLine(),
     marks = readingPage ? markStops(readingPage) : [];
   if (!active || !(active === marks[marks.length - 1] || active.classList.contains('pv-sum'))) return;
@@ -32543,7 +33905,7 @@ addEventListener('keydown', (event) => {
 });
 // Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on
 // the pages. A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   if (event.key !== 'Escape' || event.defaultPrevented || !IS_BESIDE_PAGES) return;
   const active = document.activeElement;
   if (!active || !active.closest || !active.closest('#pv-panel') || active.closest('.pv-pop')) return;
@@ -32581,8 +33943,7 @@ function revealFocused() {
 }
 const RING_ROOM = 2; // px kept clear past a revealed control's focus ring
 $('#doc').addEventListener('focusin', (event) => {
-  const target = event.target;
-  if (target && target.closest && target.closest('#pv-panel.pv-tall')) requestAnimationFrame(revealFocused);
+  if (eventClosest(event, '#pv-panel.pv-tall', Element)) requestAnimationFrame(revealFocused);
 });
 // The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
 if (typeof ResizeObserver !== 'undefined')
@@ -32596,6 +33957,14 @@ function setBuildReadingPage(value) {
   return value;
 }
 
+// Said once while the pages glide: the key was not taken, press it again once they rest.
+function sayGliding() {
+  lineNote('쪽으로 가는 중이라 판정 키를 받지 않았습니다 — 멈춘 뒤 다시 누릅니다', NOTICE_KIND.INFO, null, {
+    source: 'verdict-key',
+    life: NOTICE_LIFE.TIMER,
+  });
+}
+
 // ---------------------- The note popover by the selection box (docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모')
 // With a mouse on the desktop and mid layouts, a drag that ends opens a small popover under the dashed box: the
 // location, a note field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the
@@ -32606,7 +33975,7 @@ function setBuildReadingPage(value) {
 // click off the box cancel the selection as they do without it; a press on the popover is a press inside the box
 // (pressOutsideSelection). Touch and the phone keep the composer alone (it is a sheet).
 const SELECTION_POPOVER = $('#sel-pop'),
-  SELECTION_POPOVER_FIELD = SELECTION_POPOVER.querySelector('textarea'),
+  SELECTION_POPOVER_FIELD = findElement(SELECTION_POPOVER, 'textarea', HTMLTextAreaElement),
   SELECTION_POPOVER_GAP = 8;
 SELECTION_POPOVER_FIELD._mirrorOf = $('#note'); // its @-tags are the note's, which saves them
 // The box the popover belongs to; null while it is closed.
@@ -32672,7 +34041,7 @@ function drawSelectionPopover() {
     closeSelectionPopover();
     return;
   }
-  const loc = SELECTION_POPOVER.querySelector('.sp-loc');
+  const loc = findElement(SELECTION_POPOVER, '.sp-loc', HTMLElement);
   loc.textContent = !selection
     ? translate('찾는 중')
     : isRegion(selection)
@@ -32719,11 +34088,11 @@ SELECTION_POPOVER_FIELD.addEventListener('input', () => {
   saveDraftSoon();
 });
 $('#note').addEventListener('input', () => {
-  const note = ($('#note')).value;
+  const note = $('#note').value;
   if (isSelectionPopoverOpen() && SELECTION_POPOVER_FIELD.value !== note) SELECTION_POPOVER_FIELD.value = note;
 });
 SELECTION_POPOVER_FIELD.addEventListener('focus', () => {
-  SELECTION_POPOVER_FIELD.value = ($('#note')).value;
+  SELECTION_POPOVER_FIELD.value = $('#note').value;
 });
 // [자세히 →]: the composer in the panel takes over with the focus in its note; the popover does not come back for this
 // selection.
@@ -32734,7 +34103,7 @@ function handPopoverToComposer() {
   $('#note').focus();
 }
 $('#left').addEventListener('scroll', placeSelectionPopover, { passive: true });
-addEventListener('resize', placeSelectionPopover);
+window.addEventListener('resize', placeSelectionPopover);
 new ResizeObserver(placeSelectionPopover).observe($('#doc')); // a zoom moves the box with its page
 
 // ------------------------------------------------ A person's avatar
@@ -32756,7 +34125,7 @@ function avatar(person) {
 const QUOTE_OPEN = new Set();
 // The note field of an edit card (openEdit puts exactly one in every card).
 function editNote(card) {
-  return card.el.querySelector('.e-note');
+  return findElement(card.el, '.e-note', HTMLTextAreaElement);
 }
 // Grows a note or reply field with its text, from three lines to twelve.
 function autoGrow(field) {
@@ -32843,7 +34212,7 @@ document.addEventListener(
   'error',
   (event) => {
     const image = event.target;
-    if (image && image.tagName === 'IMG' && image.classList.contains('av')) {
+    if (image instanceof HTMLImageElement && image.classList.contains('av')) {
       FAILED_AVATARS.add(image.getAttribute('src'));
       const circle = document.createElement('span');
       circle.className = 'av i';
@@ -32894,7 +34263,7 @@ function relBadge(rel, pin) {
   if (insides.length) {
     const span = (entry) => {
       const other = byId.get(entry.id);
-      return other ? (other.hi) - (other.lo) : Number.MAX_SAFE_INTEGER;
+      return other && other.lo !== undefined && other.hi !== undefined ? other.hi - other.lo : Number.MAX_SAFE_INTEGER;
     }; // rel names line pins
     const best = insides.reduce((best, candidate) => {
       const bestSpan = span(best),
@@ -32937,11 +34306,14 @@ function claimInfo(pin, now) {
   now = now == null ? Date.now() : now;
   const claimer = who(pin.claimed_by) || '?',
     startMs = typeof pin.claim_ts === 'number' ? pin.claim_ts * 1000 : null;
-  const tail =
-    ' · ' +
-    translateTemplate('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
-      time: clockTime((pin.claim_until) * 1000),
-    }); // claimInfo runs for an active claim (claimActive)
+  const until = pin.claim_until,
+    tail =
+      until === undefined
+        ? ''
+        : ' · ' +
+          translateTemplate('잠금 자동 해제 {time}(그 뒤에는 다른 쪽이 잡을 수 있습니다). 에이전트가 멈췄으면 [풀기]', {
+            time: clockTime(until * 1000),
+          }); // claimInfo runs for an active claim (claimActive), which has its end
   const head =
     translateTemplate('처리하는 쪽: {name}', { name: claimer }) +
     (startMs ? ' · ' + translateTemplate('시작 {time}', { time: clockTime(startMs) }) : '');
@@ -33206,7 +34578,7 @@ function addressedTag(pin) {
   const to = pin.addressed || [];
   if (!to.length) return null;
   const me = META && META.me && META.me.login,
-    mine = to.includes(me),
+    mine = me !== null && to.includes(me),
     others = to.filter((login) => login !== me);
   const self = mine
     ? html`<span class="badge badge-mention" data-tip="이 핀이 나를 @태그했습니다 — 에이전트는 이 핀을 건너뜁니다(사용자가 시키면 예외)">${lucideIcon('at-sign')}나를 부름</span>`
@@ -33329,14 +34701,14 @@ function reviewerLabel(pin) {
 function tickClaims() {
   if (document.hidden) return;
   let gone = false;
-  $$('.badge-claimed[data-claim]').forEach((badge) => {
-    const pin = OPEN_ALL.find((listed) => listed.id === +badge.dataset.claim);
+  findAll(document, '.badge-claimed[data-claim]', HTMLElement).forEach((badge) => {
+    const pin = OPEN_ALL.find((listed) => listed.id === Number(badge.dataset.claim));
     if (!pin || !claimActive(pin)) {
       gone = true;
       return;
     }
     const claim = claimInfo(pin);
-    badge.querySelector('.ct').textContent = claim.t;
+    findElement(badge, '.ct', HTMLElement).textContent = claim.t;
     badge.dataset.tip = claim.tip;
     badge.classList.toggle('late', claim.late);
   });
@@ -33592,7 +34964,7 @@ function dayName(stamp, now) {
 // Every 60 seconds the drawn times say what they say now: a comment's by its form, the rest by relTime.
 function tickRel() {
   if (document.hidden) return;
-  $$('.rt[data-at]').forEach((stampElement) => {
+  findAll(document, '.rt[data-at]', HTMLElement).forEach((stampElement) => {
     const form = stampElement.dataset.form,
       text = form ? stampText(stampElement.dataset.at, form) : relTime(stampElement.dataset.at);
     if (stampElement.textContent !== text) stampElement.textContent = text;
@@ -33724,7 +35096,7 @@ function drawTrash() {
   const dropped = TRASH_ALL ? DROPPED : listDropped(),
     box = $('#trash-list');
   if (!box) return;
-  const focused = document.activeElement,
+  const focused = focusedElement(),
     spot = focused && focused !== box && box.contains(focused) ? trashSpot(box, focused) : null;
   $('#trash-note').textContent = translateTemplate(
     '삭제한 핀은 {n}일 동안 여기 있다가 저절로 지워집니다. 되살리면 같은 번호로 돌아옵니다',
@@ -33750,11 +35122,10 @@ function trashSpot(
   box,
   focused,
 ) {
-  const row = focused.closest('.arc-row[data-id]'),
+  const found = focused.closest('.arc-row[data-id]'),
+    row = found instanceof HTMLElement ? found : null,
     id = row ? Number(row.dataset.id) : null;
-  const ids = [...box.querySelectorAll('.arc-row[data-id]')].map((rowElement) =>
-    Number((rowElement).dataset.id),
-  );
+  const ids = findAll(box, '.arc-row[data-id]', HTMLElement).map((rowElement) => Number(rowElement.dataset.id));
   return { id, act: focused.dataset.act || '', ids, at: id == null ? -1 : ids.indexOf(id) };
 }
 // A redraw took the focus out of the Trash's list (setHtml; restorePin's list reload after its answer): it comes back -
@@ -33769,10 +35140,9 @@ function trashRefocus(
   focused,
 ) {
   const findControl = (id, act) => {
-    const row = box.querySelector('.arc-row[data-id="' + id + '"]');
-    return (row &&
-      (row.querySelector('[data-act="' + act + '"]') ||
-        row.querySelector('[data-act="restore"]')));
+    const row = box.querySelector('.arc-row[data-id="' + id + '"]'),
+      control = row && (row.querySelector('[data-act="' + act + '"]') || row.querySelector('[data-act="restore"]'));
+    return control instanceof HTMLElement ? control : null;
   };
   let target = focused.isConnected ? focused : null;
   if (!target && spot.id != null) {
@@ -33782,14 +35152,14 @@ function trashRefocus(
       const undoRow = [...NOTICES.values()].find(
         (notice) => notice.place === NOTICE_PLACE.TRASH && notice.pin === id && !!notice.el && box.contains(notice.el),
       );
-      target = undoRow && undoRow.el ? undoRow.el.querySelector('[data-act="notice-act"]') : null;
+      target = undoRow && undoRow.el ? findMaybe(undoRow.el, '[data-act="notice-act"]', HTMLElement) : null;
     }
     for (const otherId of [...spot.ids.slice(spot.at + 1), ...spot.ids.slice(0, Math.max(0, spot.at)).reverse()]) {
       if (target) break;
       target = findControl(otherId, 'restore');
     }
   }
-  if (!target) target = $('#trash').querySelector('[data-act="trash-close"]');
+  if (!target) target = findMaybe($('#trash'), '[data-act="trash-close"]', HTMLElement);
   if (target) target.focus();
 }
 function openTrash(flashId) {
@@ -33803,7 +35173,7 @@ function openTrash(flashId) {
   }
   if (flashId != null)
     requestAnimationFrame(() => {
-      const row = document.querySelector('#trash .arc-row[data-id="' + flashId + '"]');
+      const row = findMaybe(document, '#trash .arc-row[data-id="' + flashId + '"]', HTMLElement);
       if (!row) return;
       row.scrollIntoView({ block: 'nearest' });
       row.classList.remove('flash');
@@ -33823,7 +35193,7 @@ $('#trash').addEventListener('keydown', (event) => {
   const trash = $('#trash');
   const all = [...trash.querySelectorAll(TABBABLE)].filter(isTabStop),
     focused = document.activeElement,
-    index = all.indexOf(focused);
+    index = focused instanceof HTMLElement ? all.indexOf(focused) : -1;
   const to = !all.length
     ? null
     : event.shiftKey
@@ -33854,17 +35224,14 @@ function listDropped() {
   return SHOW_ALL && multiDoc() ? DROPPED : DROPPED.filter((pin) => pdoc(pin) === DOC || !DOC);
 }
 
-// ------------------------------------------- Confirming several pins awaiting review from their result rows (ADR-0035)
-// The review section's [골라서 확인] (#review-pick) turns its cards into result rows: a box with #N and the place, the
-// badges, what was asked, what the agent said (its explanation, reference and changed lines) and [변경 보기]. A person
-// ticks the rows whose result they have read and confirms them together with [N건 확인] in the section head's second
-// line (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed
-// again since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the
-// rules.
+// The review section's result rows and their selected revisions.
 
 // The ticked rows while the review section picks: pin id -> the done_at its row showed when it was ticked ('' for a
 // close with none). null while the section shows cards.
 let REVIEW_PICK = null;
+function setReviewPick(value) {
+  REVIEW_PICK = value;
+}
 
 // Whether a pin's row shows a result a person can have read: the agent's explanation or the lines it changed. A row
 // without one cannot be ticked - that pin is confirmed from its card (ADR-0035 D2). Pure.
@@ -33958,16 +35325,16 @@ function drawPickBar(list) {
 <span class="lbl">${translateTemplate('모두 고르기 ({n})', { n: can.length })}</span></label><span class="sp"></span>\
 <button type="button" class="btn-sm btn-soft rv-go" id="rv-go" data-act="rv-go"${tickedCount ? '' : ' disabled'} data-tip="${translate('고른 핀을 확인해 완료로 옮깁니다. 6초 안에 되돌릴 수 있습니다')}">${tickedCount ? translateTemplate('{n}건 확인', { n: tickedCount }) : translate('확인')}</button>`,
   );
-  ($('#rv-all')).indeterminate = tickedCount > 0 && !all;
+  findElement(document, '#rv-all', HTMLInputElement).indeterminate = tickedCount > 0 && !all;
 }
 
 // What has the focus in the picking section, as a redraw can find it again: a row's box, or a control of the row by its
 // data-act and its place among the row's controls of that act (two #N in an explanation are both 'pin-ref'), or one of
 // the bar's controls by its id. null when the focus is elsewhere.
 function findPickFocus() {
-  const focused = document.activeElement;
-  if (!focused || !focused.closest) return null;
-  const row = focused.closest('.rv-row[data-id]'),
+  const focused = focusedElement();
+  if (!focused) return null;
+  const row = findClosest(focused, '.rv-row[data-id]', HTMLElement),
     at = row ? '.rv-row[data-id="' + row.dataset.id + '"] ' : '';
   if (row && focused.matches('input[data-pick]')) return { sel: at + 'input[data-pick]', i: 0 };
   if (row && focused.dataset.act) {
@@ -33983,14 +35350,10 @@ function restorePickFocus(kept) {
   const focused = document.activeElement;
   if (!kept || (focused && focused !== document.body)) return;
   const all = document.querySelectorAll(kept.sel),
-    target = (all[Math.max(0, kept.i)] || all[0] || null),
+    found = all[Math.max(0, kept.i)] || all[0] || null,
+    target = found instanceof HTMLElement ? found : null,
     pick = $('#review-pick');
-  const to =
-    target && !(target).disabled
-      ? target
-      : !pick.hidden
-        ? pick
-        : ($('#review-toggle'));
+  const to = target && !('disabled' in target && target.disabled) ? target : !pick.hidden ? pick : $('#review-toggle');
   to.focus({ preventScroll: true });
 }
 
@@ -34003,7 +35366,7 @@ function drawReviewPick(list) {
     keep = REVIEW_PICK ? findPickFocus() : null;
   if (REVIEW_PICK && (!can || !SECTION_OPEN.review)) {
     REVIEW_PICK = null;
-    if (keep) ($('#review-toggle')).focus({ preventScroll: true });
+    if (keep) $('#review-toggle').focus({ preventScroll: true });
   } // the cards drawn next hold no focus
   if (REVIEW_PICK) {
     const listed = new Map(list.map((pin) => [pin.id, pin]));
@@ -34024,18 +35387,26 @@ function drawReviewPick(list) {
   return !!REVIEW_PICK;
 }
 
+// ------------------------------------------- Confirming several pins awaiting review from their result rows (ADR-0035)
+// The review section's [골라서 확인] (#review-pick) turns its cards into result rows: a box with #N and the place, the
+// badges, what was asked, what the agent said (its explanation, reference and changed lines) and [변경 보기]. A person
+// ticks the rows whose result they have read and confirms them together with [N건 확인] in the section head's second
+// line (#rv-bar). Each confirm is the one-pin route with the done_at the row showed when it was ticked, so a pin closed
+// again since is refused (409 conflict) instead of confirmed (ADR-0013). docs/handbook/viewer.md §스레드와 검토 has the
+// rules.
+
 // Starts (on) or ends picking. Starting opens a collapsed section (and keeps it open, as [검토 M] does), brings the
 // section to the top of the list and gives the focus to [모두 고르기]; ending gives it back to [골라서 확인].
 function setReviewPicking(on) {
-  REVIEW_PICK = on ? new Map() : null;
+  setReviewPick(on ? new Map() : null);
   if (on && !SECTION_OPEN.review) {
-    SECTION_OPEN.review = true;
+    setSectionOpen('review', true);
     savePrefs({ sec: SECTION_OPEN });
   }
   drawPins();
   // the section, not its head: a stuck head is where it is shown already and would not scroll
   if (on) $('#sec-review').scrollIntoView({ block: 'start' });
-  const target = (on ? $('#rv-all') : $('#review-pick'));
+  const target = on ? $('#rv-all') : $('#review-pick');
   if (target && target.getClientRects().length) target.focus({ preventScroll: true });
 }
 
@@ -34046,9 +35417,7 @@ function goToReviewCard(id) {
   OPEN_CARDS.add(id);
   drawPins();
   jumpToCard(id);
-  const confirmButton = document.querySelector(
-    '#review-pins .pin[data-id="' + id + '"] [data-act=confirm]',
-  );
+  const confirmButton = findMaybe(document, '#review-pins .pin[data-id="' + id + '"] [data-act=confirm]', HTMLElement);
   if (confirmButton) confirmButton.focus({ preventScroll: true });
 }
 
@@ -34058,8 +35427,8 @@ function tickResultBox(box) {
   if (!REVIEW_PICK) return;
   const list = listReviewShown();
   if (box.id === 'rv-all') {
-    REVIEW_PICK = new Map(
-      box.checked ? list.filter(showsResult).map((pin) => [pin.id, String(pin.done_at || '')]) : [],
+    setReviewPick(
+      new Map(box.checked ? list.filter(showsResult).map((pin) => [pin.id, String(pin.done_at || '')]) : []),
     );
   } else {
     const id = Number(box.dataset.pick),
@@ -34088,8 +35457,7 @@ function confirmTicked() {
       const pin = REVIEW_ALL.find((reviewed) => reviewed.id === id);
       return pin && !CONFIRMING.has(id) ? { pin, at } : null;
     })
-    .filter((item) => !!item)
-    .map((item) => item);
+    .filter((item) => !!item);
   if (!items.length) return;
   const where = new Map(items.map((item) => [item.pin.id, REVIEW_ALL.indexOf(item.pin)])),
     ticks = new Map(items.map((item) => [item.pin.id, item.at]));
@@ -34119,9 +35487,9 @@ function confirmTicked() {
   );
   const section = $('#sec-review');
   if (!section.hidden) section.scrollIntoView({ block: 'start' }); // the undo row is the section's first
-  const undoButton = (note.el && note.el.querySelector('.nt-act'));
+  const undoButton = note.el ? findMaybe(note.el, '.nt-act', HTMLElement) : null;
   if (undoButton && document.contains(undoButton)) undoButton.focus({ preventScroll: true });
-  else ($('#review-toggle')).focus({ preventScroll: true });
+  else $('#review-toggle').focus({ preventScroll: true });
 }
 
 // The undo of [N건 확인]: each pin comes back as the latest list has it (CONFIRMING_PIN) at the place it had. While the
@@ -34148,8 +35516,8 @@ function undoConfirms(items, where, ticks) {
   drawPins();
   marks();
   // the undo row that had the focus is gone
-  const to = (REVIEW_PICK ? $('#rv-go') : $('#review-pick'));
-  if (to && to.getClientRects().length && !(to).disabled) to.focus({ preventScroll: true });
+  const to = REVIEW_PICK ? $('#rv-go') : $('#review-pick');
+  if (to && to.getClientRects().length && !to.disabled) to.focus({ preventScroll: true });
   if (lost.length)
     lineNote(
       translateTemplate('핀 {ids} 은 그사이 다른 곳에서 지워졌습니다', { ids: lost.map((id) => '#' + id).join(', ') }),
@@ -34170,8 +35538,8 @@ const CONFIRM_OUTCOME = Object.freeze({
   REFUSED: 'refused',
   UNREACHED: 'unreached',
 });
-// The outcome of one confirm from its answer: status and body of an answered request (409 expected), or the error api()
-// threw (an ApiError with a status for a refusal, none when the server was not reached). Pure.
+// The outcome of one confirm from its answer: status and body of an answered request (409 expected), or the refusal
+// api() threw (an ApiError, isApiError); with neither, the server was not reached. Pure.
 function confirmOutcome(
   answer,
   err,
@@ -34181,14 +35549,17 @@ function confirmOutcome(
       ? { out: CONFIRM_OUTCOME.REFUSED, why: errText(err.data) || 'HTTP ' + err.status }
       : { out: CONFIRM_OUTCOME.UNREACHED };
   const body = answer && answer.data;
-  if (body && body.error === PIN_STATE.OPEN) return { out: CONFIRM_OUTCOME.REOPENED };
-  if (body && body.error === 'conflict')
-    return {
-      out:
-        body.pin && pinState(body.pin) !== PIN_STATE.REVIEW
-          ? CONFIRM_OUTCOME.DONE_BY_PERSON
-          : CONFIRM_OUTCOME.CLOSED_AGAIN,
-    };
+  if (isRefusal(body)) {
+    if (body.error === PIN_STATE.OPEN) return { out: CONFIRM_OUTCOME.REOPENED };
+    if (body.error === 'conflict')
+      return {
+        out:
+          body.pin && pinState(body.pin) !== PIN_STATE.REVIEW
+            ? CONFIRM_OUTCOME.DONE_BY_PERSON
+            : CONFIRM_OUTCOME.CLOSED_AGAIN,
+      };
+    return { out: CONFIRM_OUTCOME.UNREACHED };
+  }
   return body && body.ok
     ? { out: CONFIRM_OUTCOME.OK }
     : body && body.ok === false
@@ -34208,8 +35579,8 @@ const CONFIRM_SEND_MS = 15000;
 function sendOneConfirm(pin, at) {
   const stop = new AbortController(),
     bound = setTimeout(() => stop.abort(), CONFIRM_SEND_MS);
-  return api('/api/pins/' + pin.id + '/confirm', {
-    method: 'POST',
+  return api('POST /api/pins/{id}/confirm', {
+    id: pin.id,
     silent: true,
     expect: [409],
     keepalive: true,
@@ -34218,7 +35589,7 @@ function sendOneConfirm(pin, at) {
   })
     .then(
       (answer) => confirmOutcome(answer),
-      (error) => confirmOutcome(null, error),
+      (error) => confirmOutcome(null, isApiError(error) ? error : null),
     )
     .then((outcome) => {
       clearTimeout(bound);
@@ -34312,7 +35683,7 @@ function retryConfirms(items) {
 // A box's change (a click on it or its label, Space on it) ticks or clears it.
 function tickChangedBox(event) {
   const box = event.target;
-  if (box && box.type === 'checkbox' && box.closest && box.closest('#sec-review')) tickResultBox(box);
+  if (box instanceof HTMLInputElement && box.type === 'checkbox' && box.closest('#sec-review')) tickResultBox(box);
 }
 document.addEventListener('change', tickChangedBox);
 
@@ -34456,14 +35827,13 @@ function placeRow(box, notice, row) {
     return;
   }
   const drawn = new Map();
-  for (const child of box.children) {
-    const element = child,
-      drawnPin = element.matches('.pin.card')
-        ? findAnyPin(Number(element.dataset.id))
-        : element.matches('.nt-row')
-          ? (NOTICES.get(Number(element.dataset.n)) || {}).rec || null
-          : null;
-    if (drawnPin && drawnPin !== notice.rec) drawn.set(drawnPin, child);
+  for (const element of findAll(box, ':scope > *', HTMLElement)) {
+    const drawnPin = element.matches('.pin.card')
+      ? findAnyPin(Number(element.dataset.id))
+      : element.matches('.nt-row')
+        ? (NOTICES.get(Number(element.dataset.n)) || {}).rec || null
+        : null;
+    if (drawnPin && drawnPin !== notice.rec) drawn.set(drawnPin, element);
   }
   const order = orderPins([...drawn.keys(), notice.rec], ORDER),
     index = order.indexOf(notice.rec),
@@ -34472,22 +35842,25 @@ function placeRow(box, notice, row) {
     now = Date.now();
   const day = (pin) => (pin && ORDER === LIST_ORDER.NEW ? dayName(pin.at, now) : ''),
     dayText = day(notice.rec);
-  if (before && day(before) === dayText) {
-    (drawn.get(before)).after(row);
+  // The pins beside notice.rec in the order are drawn ones: each has its element in drawn.
+  const beforeElement = before && drawn.get(before),
+    afterElement = after && drawn.get(after);
+  if (beforeElement && day(before) === dayText) {
+    beforeElement.after(row);
     return;
   }
-  if (after && day(after) === dayText) {
-    (drawn.get(after)).before(row);
+  if (afterElement && day(after) === dayText) {
+    afterElement.before(row);
     return;
   }
-  const dayLine = document.createElement('div');
+  const dayLine = document.createElement('div'),
+    dayLabel = document.createElement('span');
   dayLine.className = 'day-line';
-  dayLine.append(document.createElement('span'));
-  (dayLine.firstChild).textContent = dayText;
-  if (before) (drawn.get(before)).after(dayLine);
-  else if (after) {
-    const afterElement = drawn.get(after),
-      over = afterElement.previousElementSibling;
+  dayLine.append(dayLabel);
+  dayLabel.textContent = dayText;
+  if (beforeElement) beforeElement.after(dayLine);
+  else if (afterElement) {
+    const over = afterElement.previousElementSibling;
     (over && over.matches('.day-line') ? over : afterElement).before(dayLine);
   } else box.prepend(dayLine);
   if (dayText) dayLine.after(row);
@@ -34505,7 +35878,7 @@ function drawOrderControl(any) {
   const control = $('#list-order');
   control.hidden = !any;
   for (const button of control.querySelectorAll('button')) {
-    const on = (button).dataset.order === ORDER;
+    const on = button.dataset.order === ORDER;
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
   }
@@ -34545,7 +35918,7 @@ let LAZY_IO = null,
 function lazyCards(keep) {
   const scroller = listScroller();
   for (const kept of keep) {
-    const row = document.querySelector(kept.sel);
+    const row = findMaybe(document, kept.sel, HTMLElement);
     if (!row || !row.getClientRects().length || listSection(row) !== kept.sec) continue;
     const moved = row.getBoundingClientRect().top - kept.top;
     if (Math.abs(moved) >= 0.5) scroller.scrollTop += moved;
@@ -34576,6 +35949,8 @@ function lazyWatch() {
 function lazySort(entries) {
   for (const entry of entries) {
     const card = entry.target;
+    // LAZY_IO observes the list's cards (lazyWatch), all HTML.
+    if (!(card instanceof HTMLElement)) continue;
     if (entry.isIntersecting) {
       card.classList.remove('lazy');
       continue;
@@ -34621,7 +35996,11 @@ function listKeep() {
     out = [];
   if (!scroller.scrollTop || !scroller.getClientRects().length) return out;
   const viewRect = scroller.getBoundingClientRect();
-  for (const row of $$('#list .pin[data-id],#list .arc-row[data-id],#list .rv-row[data-id]')) {
+  for (const row of findAll(
+    document,
+    '#list .pin[data-id],#list .arc-row[data-id],#list .rv-row[data-id]',
+    HTMLElement,
+  )) {
     if (!row.getClientRects().length) continue;
     const rect = row.getBoundingClientRect();
     if (rect.bottom <= viewRect.top) continue;
@@ -34655,13 +36034,13 @@ function listSection(row) {
 function markBadgeSides() {
   pageNoSides();
   const rooms = new Map();
-  $$('.mark').forEach((mark) => {
+  findAll(document, '.mark', HTMLElement).forEach((mark) => {
     const page = mark.parentElement;
     if (!rooms.has(page)) rooms.set(page, markBadgeRoom(page));
     const room = rooms.get(page);
-    if (room) mark.classList.toggle('in', markBadgeIn(+mark.dataset.fx, room.w, room.pad, room.reach));
+    if (room) mark.classList.toggle('in', markBadgeIn(Number(mark.dataset.fx), room.w, room.pad, room.reach));
   });
-  $$('.sel.pending').forEach(pendingBadgeSide);
+  findAll(document, '.sel.pending', HTMLElement).forEach(pendingBadgeSide);
   markHitSides();
   markCoverSkip();
 } // the pending boxes' '+' badges follow the same rule
@@ -34690,8 +36069,8 @@ function markView() {
   return {
     left: Math.max(rect.left, 0),
     top: Math.max(rect.top, 0),
-    right: Math.min(rect.right, innerWidth),
-    bottom: Math.min(rect.bottom, innerHeight),
+    right: Math.min(rect.right, window.innerWidth),
+    bottom: Math.min(rect.bottom, window.innerHeight),
   };
 }
 /** The covers' boxes laid out over the view, each cut to it. */
@@ -34759,7 +36138,7 @@ function markCoverSkip() {
     covers = markCoverBoxes(view),
     minScroll = -pane.scrollTop,
     maxScroll = pane.scrollHeight - pane.clientHeight - pane.scrollTop;
-  const badges = $$('.mark button.mark-jump');
+  const badges = findAll(document, '.mark button.mark-jump', HTMLElement);
   const at = badges.map((badge) => {
     const rect = badge.getBoundingClientRect();
     if (!rect.width) return { stop: 0, hid: false };
@@ -34847,7 +36226,7 @@ function markCoversMoved() {
 // where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
 function holdSelectWidth() {
   const button = $('#btn-select'),
-    label = button.querySelector('.lbl');
+    label = findElement(button, '.lbl', Element);
   button.style.removeProperty('--sel-w');
   if (!button.getClientRects().length || getComputedStyle(label).display === 'none') return;
   const pressed = button.getAttribute('aria-pressed') || 'false',
@@ -34866,11 +36245,11 @@ function holdSelectWidth() {
 // (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
 // its width (holdSelectWidth, every band); decoration only - nothing moves.
 function fitBarWords() {
-  const bar = $('#bar1'),
-    leftCell = bar.querySelector('.bar-l');
+  const bar = $('#bar1');
   bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
   holdSelectWidth();
   if (LAYOUT !== LAYOUT_MODE.NARROW) return;
+  const leftCell = findElement(bar, '.bar-l', HTMLElement);
   const over = () => {
     // the last control's edge, not scrollWidth: the hits overflow too
     const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
@@ -34891,14 +36270,14 @@ function fitBarWords() {
 function updateReviewCount() {
   const count = REVIEW_ALL.length,
     chip = $('#rv-chip');
-  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
+  for (const pill of findAll(document, '#btn-side .rv-n,#nav-side .rv-n', HTMLElement)) {
     pill.hidden = !count;
     setHtml(pill, html`${lucideIcon('eye')}${count}`);
     pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
   }
   const reviewButton = $('#btn-rv');
   reviewButton.hidden = !count;
-  reviewButton.querySelector('.rv-c').textContent = count;
+  findElement(reviewButton, '.rv-c', HTMLElement).textContent = String(count);
   // the sheet bar's [검토 M] half: its name starts with what it shows
   reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
   fitBarWords();
@@ -34916,7 +36295,7 @@ function updateReviewCount() {
 
 async function loadPeople() {
   try {
-    const answer = (await api('/api/people', { what: '사람 목록', silent: true })).data;
+    const answer = (await api('GET /api/people', { what: '사람 목록', silent: true })).data;
     if (Array.isArray(answer.people)) {
       const was = JSON.stringify(PEOPLE),
         first = !PEOPLE_KNOWN;
@@ -34940,7 +36319,7 @@ let PINS_LOAD_SEQ = 0,
 function applyPinLists(rows, dropped, lists) {
   const openBefore = OPEN_ALL,
     reviewBefore = REVIEW_ALL;
-  notePinChanges(openBefore, rows, dropped);
+  notePinChanges(openBefore, rows, dropped, gotoReview, (id) => restoreDroppedPin(id, loadPins));
   noteReviewChanges(reviewBefore, rows);
   noteNewPins(rows); // others' new pins (documents/flow-updates.ts)
   setOpenAll(lists.openAll);
@@ -34959,7 +36338,7 @@ function applyPinLists(rows, dropped, lists) {
   });
   const card = EDITOR.current;
   if (card && !OPEN_ALL.some((pin) => pin.id === card.id)) {
-    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) SECTION_OPEN.open = true;
+    if (rows.some((pin) => pin.id === card.id) && (EDITOR.saving || editDirty())) setSectionOpen('open', true);
     else {
       lineNote(
         translateTemplate('편집 중이던 핀 #{id} 이 목록에서 빠졌습니다(다른 쪽에서 닫았거나 지움)', { id: card.id }),
@@ -34972,15 +36351,15 @@ function applyPinLists(rows, dropped, lists) {
   }
   const replyBox = REPLY;
   if (replyBox && !rows.some((pin) => pin.id === replyBox.id)) {
-    closeReply(false);
+    parkReply();
     lineNote('답글을 쓰던 핀이 목록에서 빠졌습니다(지워짐) — 쓰던 글은 남겨 둡니다', NOTICE_KIND.WARN, null, {
       dot: NOTICE_DOT.SIDE,
     });
   }
   if (!SECTION_SEEN.open) {
-    SECTION_SEEN.open = new Set(OPEN_ALL.map((pin) => pin.id));
-    SECTION_SEEN.review = new Set(REVIEW_ALL.map((pin) => pin.id));
-    SECTION_SEEN.done = new Set(DONE_ALL.map((pin) => pin.id));
+    setSectionSeen('open', new Set(OPEN_ALL.map((pin) => pin.id)));
+    setSectionSeen('review', new Set(REVIEW_ALL.map((pin) => pin.id)));
+    setSectionSeen('done', new Set(DONE_ALL.map((pin) => pin.id)));
   }
   drawPins();
   marks();
@@ -34999,7 +36378,8 @@ async function loadPins() {
   let rows;
   try {
     rows = (
-      await api('/api/pins?all=1', {
+      await api('GET /api/pins', {
+        query: '?all=1',
         what: '핀 읽기',
         where: NOTICE_HOST.LIST,
         retry: () => {
@@ -35017,7 +36397,7 @@ async function loadPins() {
   try {
     dropped =
       (
-        await api('/api/pins/dropped', {
+        await api('GET /api/pins/dropped', {
           what: '삭제한 핀',
           where: NOTICE_HOST.LIST,
           retry: () => {
@@ -35052,7 +36432,7 @@ function gotoReview() {
   noticeSeen(NOTICE_DOT.RV);
   if (!listReview().length && REVIEW_ALL.length && multiDoc()) setShowAll(true);
   if (!SECTION_OPEN.review) {
-    SECTION_OPEN.review = true;
+    setSectionOpen('review', true);
     savePrefs({ sec: SECTION_OPEN });
   }
   drawPins();
@@ -35064,7 +36444,7 @@ function gotoReview() {
 }
 function toggleSection(key, force) {
   if (key === undefined || !(key in SECTION_OPEN_DEFAULT)) return;
-  SECTION_OPEN[key] = force === undefined ? !SECTION_OPEN[key] : !!force;
+  setSectionOpen(key, force === undefined ? !SECTION_OPEN[key] : !!force);
   savePrefs({ sec: SECTION_OPEN });
   drawPins();
 }
@@ -35098,13 +36478,14 @@ function drawPins() {
     replyFocus =
       replyField && document.activeElement === replyField ? [replyField.selectionStart, replyField.selectionEnd] : null;
   // The edit card's note or suggested-edit field keeps its focus and selection the same way.
-  const editField =
-    EDITOR.current &&
-    document.activeElement &&
-    EDITOR.current.el.contains(document.activeElement) &&
-    document.activeElement.matches('.e-note,.e-sg-text')
-      ? (document.activeElement)
-      : null;
+  const active = document.activeElement,
+    editField =
+      EDITOR.current &&
+      active instanceof HTMLTextAreaElement &&
+      EDITOR.current.el.contains(active) &&
+      active.matches('.e-note,.e-sg-text')
+        ? active
+        : null;
   const editArea = editField,
     editFocus = editArea ? [editArea.selectionStart, editArea.selectionEnd] : null,
     cardFocus = cardFocusKeep();
@@ -35117,11 +36498,11 @@ function drawPins() {
   const allDocsButton = $('#all-docs');
   allDocsButton.setAttribute('aria-pressed', String(SHOW_ALL));
   setHtml(allDocsButton, html`${SHOW_ALL ? lucideIcon('check') : ''}${translate('모든 문서')}`);
-  $('#side-n').textContent = PINS.length;
+  $('#side-n').textContent = String(PINS.length);
   applySide();
   // In compact, the Trash is a row in [⋯] with its count. On desktop the Trash is the link under the list.
   const trashCount = droppedListed.filter((pin) => !PURGING.has(pin.id)).length;
-  $('#m-trash-n').textContent = trashCount;
+  $('#m-trash-n').textContent = String(trashCount);
   $('#trash-link').textContent = translateTemplate('휴지통 {n}', { n: trashCount });
   $('#trash-link').hidden = !trashCount;
   $('#empty').hidden = openShown.length > 0 || OPEN_ALL.length > 0 || REVIEW_ALL.length > 0 || !!EDITOR.current;
@@ -35134,7 +36515,7 @@ function drawPins() {
       : html`${cardRows([], 'open')}${multiDoc() && !SHOW_ALL && OPEN_ALL.length ? html`<div class="dim list-empty">${translateTemplate('이 문서에는 없습니다 · 다른 문서에 {n}건', { n: OPEN_ALL.length })}</div>` : ''}`,
   ); // with no card, an undo row still gets its slot (cardRows)
   if (EDITOR.current) {
-    const slot = $('#pins .edit-slot');
+    const slot = findMaybe(document, '#pins .edit-slot', HTMLElement);
     if (slot) slot.replaceWith(EDITOR.current.el);
     else $('#pins').appendChild(EDITOR.current.el);
     renderEdit();
@@ -35155,7 +36536,7 @@ function drawPins() {
     reviewShown.map((pin) => pin.id),
     REVIEW_ALL.map((pin) => pin.id),
   );
-  // result rows while the section picks (pins/flow-review-pick.ts)
+  // result rows while the section picks (pins/view-review-pick.ts)
   if (!drawReviewPick(reviewShown)) setHtml($('#review-pins'), cardRows(reviewShown, 'review'));
   drawOrderControl((SECTION_OPEN.open && openShown.length > 0) || (SECTION_OPEN.review && reviewShown.length > 0));
   updateReviewCount();
@@ -35218,20 +36599,15 @@ if (window.ResizeObserver) {
 document.fonts.addEventListener('loadingdone', (event) => {
   if (!$$('#list .pin.card.lazy').length) return;
   const listFonts = getComputedStyle($('#list')).fontFamily;
-  if (
-    (event).fontfaces.some((face) =>
-      listFonts.includes(face.family.replace(/^["']|["']$/g, '')),
-    )
-  )
-    lazyAgain();
+  if (event.fontfaces.some((face) => listFonts.includes(face.family.replace(/^["']|["']$/g, '')))) lazyAgain();
 });
 // A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
 // drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
 // anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
 // focus where it fell, and a focus that is somewhere again (a notice's, drawOffers) stays there.
 function cardFocusKeep() {
-  const focused = document.activeElement,
-    cardElement = focused && focused.closest ? (focused.closest('#list .pin[data-id]')) : null;
+  const focused = focusedElement(),
+    cardElement = focused ? findClosest(focused, '#list .pin[data-id]', HTMLElement) : null;
   const act = focused && focused.dataset ? focused.dataset.act || '' : '';
   if (!focused || !cardElement || !act || focused.matches('textarea,input')) return null;
   return {
@@ -35250,7 +36626,8 @@ function cardFocusBack(kept) {
   } // the edit card or the reply, put back in its slot
   const cardElement = document.querySelector('#list .pin[data-id="' + CSS.escape(kept.id) + '"]'),
     same = cardElement ? cardElement.querySelectorAll('[data-act="' + CSS.escape(kept.act) + '"]') : null;
-  const target = (same && (same[Math.max(0, kept.i)] || same[0]));
+  const found = same && (same[Math.max(0, kept.i)] || same[0]),
+    target = found instanceof HTMLElement ? found : null;
   if (target) target.focus({ preventScroll: true });
 }
 // Location estimation (.est, dashed) is judged by the server and carried as est in /api/pins (pin_est - comparing the
@@ -35375,7 +36752,7 @@ function openSectionFor(id) {
   const state = pinState(pin),
     key = state === PIN_STATE.REVIEW ? 'review' : state === PIN_STATE.DONE ? 'done' : 'open';
   if (SECTION_OPEN[key]) return false;
-  SECTION_OPEN[key] = true;
+  setSectionOpen(key, true);
   savePrefs({ sec: SECTION_OPEN });
   return true;
 }
@@ -35391,7 +36768,7 @@ function revealCard(id) {
 }
 function jumpToCard(id) {
   if (openSectionFor(id)) drawPins();
-  const cardElement = document.querySelector('.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]');
+  const cardElement = findMaybe(document, '.pin[data-id="' + id + '"],.rv-row[data-id="' + id + '"]', HTMLElement);
   if (!cardElement) return; // a result row while the review section picks
   cardElement.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
   $$('.pin.cur').forEach((other) => {
@@ -35414,17 +36791,19 @@ function gotoPinRef(id, focus) {
   }
   const state = pinState(pin);
   if (multiDoc() && DOC && pdoc(pin) !== DOC) setShowAll(true);
-  if (state === PIN_STATE.DONE) SECTION_OPEN.done = true;
+  if (state === PIN_STATE.DONE) setSectionOpen('done', true);
   else {
     OPEN_CARDS.add(id);
-    SECTION_OPEN[state === PIN_STATE.REVIEW ? 'review' : 'open'] = true;
+    setSectionOpen(state === PIN_STATE.REVIEW ? 'review' : 'open', true);
   }
   savePrefs({ sec: SECTION_OPEN });
   setSide(true);
   drawPins();
   requestAnimationFrame(() => {
-    const row = document.querySelector(
+    const row = findMaybe(
+      document,
       '.pin[data-id="' + id + '"],.arc-row[data-id="' + id + '"],.rv-row[data-id="' + id + '"]',
+      HTMLElement,
     );
     if (!row) return;
     row.scrollIntoView({ behavior: scrollMotion(), block: 'nearest' });
@@ -35445,12 +36824,13 @@ function cardNeighbour(control) {
   while (next && !next.matches('.pin.card')) next = next.nextElementSibling;
   let previous = cardElement.previousElementSibling;
   while (previous && !previous.matches('.pin.card')) previous = previous.previousElementSibling;
-  const neighbour = (next || previous);
-  return neighbour ? Number(neighbour.dataset.id) : null;
+  const neighbour = next || previous;
+  return neighbour instanceof HTMLElement ? Number(neighbour.dataset.id) : null;
 }
 // Puts the focus on pin id's card - its number (a button) - when it is drawn.
 function focusCard(id) {
-  const target = document.querySelector(
+  const target = findMaybe(
+    document,
     '.pin[data-id="' +
       id +
       '"] .n.go,.arc-row[data-id="' +
@@ -35460,9 +36840,10 @@ function focusCard(id) {
       '"] input:not(:disabled),.rv-row[data-id="' +
       id +
       '"] .rv-act',
+    HTMLElement,
   );
   if (target) target.focus({ preventScroll: true });
-} // a result row (pins/flow-review-pick.ts): its box, or its first link when the box is off
+} // a result row (pins/view-review-pick.ts): its box, or its first link when the box is off
 // Scrolls the mark of pin id into view and flashes it (switching to the pin's document first) - its first piece, where
 // its badge stands, when the mark is drawn as several; a pin whose mark is not drawn scrolls to the page the mark would
 // be on.
@@ -35490,7 +36871,7 @@ function jumpPin(id) {
     jumpToPinLines(id);
     return;
   } // its first line on the Markdown surface
-  const mark = document.querySelector('.mark[data-pin="' + id + '"]');
+  const mark = findMaybe(document, '.mark[data-pin="' + id + '"]', HTMLElement);
   if (mark) {
     const pane = $('#left'),
       paneRect = pane.getBoundingClientRect(),
@@ -35558,8 +36939,7 @@ function marksAfterPress(off, ms) {
 function marksLook(off) {
   const focused = document.activeElement;
   // A badge with the focus would keep it unseen: the focus goes to the document area, as after a search (searchToPage).
-  if (off && focused && focused.closest && focused.closest('.mark,.md-badges') && !focused.closest('.nt-chip'))
-    searchToPage();
+  if (off && focused && focused.closest('.mark,.md-badges') && !focused.closest('.nt-chip')) searchToPage();
   document.body.classList.toggle('marks-off', off);
 }
 // Paints [더보기]'s switch from the state: on while the marks show.
@@ -35602,7 +36982,7 @@ function marksKeyDown(event) {
   if (event.isComposing || !marksKey(event)) return;
   const target = event.target,
     inField =
-      !!target &&
+      target instanceof HTMLElement &&
       (target.tagName === 'TEXTAREA' ||
         target.tagName === 'INPUT' ||
         target.tagName === 'SELECT' ||
@@ -35630,13 +37010,41 @@ function marksPressLost() {
   MARKS.held = null;
   marksLook(MARKS.off);
 }
-addEventListener('keydown', marksKeyDown);
-addEventListener('keyup', marksKeyUp);
-addEventListener('blur', marksPressLost);
+window.addEventListener('keydown', marksKeyDown);
+window.addEventListener('keyup', marksKeyUp);
+window.addEventListener('blur', marksPressLost);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) marksPressLost();
 });
 drawMarksSwitch();
+
+// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is
+// there. Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure
+// says itself where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the
+// request is answered, before the list reload (trashRestore's bound is the request's).
+async function restoreDroppedPin(
+  id,
+  reload,
+  settled,
+) {
+  let ok = false;
+  try {
+    await api('POST /api/pins/{id}/restore', {
+      id,
+      what: '되살리기',
+      where: NOTICE_HOST.LIST,
+      retry: () => {
+        restoreDroppedPin(id, reload);
+      },
+    });
+    ok = true;
+    markMine(id);
+    quietNote(translateTemplate('핀 #{id} 되살림', { id }));
+  } catch (error) {}
+  if (settled) settled();
+  await reload();
+  return ok;
+}
 
 // [완료] on an open card. Done (or sent to review, for a screen without identity): a row in the card's place with
 // [되돌리기] (reopenPin) for NOTICE_MS - other presses never end it (docs/handbook/viewer.md §알림 자리). A refusal: a
@@ -35645,8 +37053,8 @@ async function closePin(id) {
   const cardBefore = drawnBefore($('#pins'), '.pin.card', id),
     record = OPEN_ALL.find((pin) => pin.id === id) || null;
   try {
-    const { data } = await api('/api/pins/' + id + '/close', {
-      method: 'POST',
+    const { data } = await api('POST /api/pins/{id}/close', {
+      id,
       what: '완료',
       where: NOTICE_HOST.LIST,
       retry: () => closePin(id),
@@ -35714,22 +37122,22 @@ function confirmPin(id) {
   const pendingConfirm = deferred(
     async () => {
       try {
-        const { data } = await api('/api/pins/' + id + '/confirm', {
-          method: 'POST',
+        const { data } = await api('POST /api/pins/{id}/confirm', {
+          id,
           what: '확인',
           where: NOTICE_HOST.REVIEW,
           expect: [409],
           keepalive: true,
           body: pin && pin.done_at ? { done_at: pin.done_at } : {},
         });
-        if (data && data.error === PIN_STATE.OPEN)
+        if (isRefusal(data) && data.error === PIN_STATE.OPEN)
           bannerNote(
             NOTICE_HOST.REVIEW,
             translateTemplate('핀 #{id} 은 이미 다시 열렸습니다', { id }),
             NOTICE_KIND.WARN,
           );
-        else if (data && data.error === 'conflict') confirmConflict(id, data.pin);
-        else if (!data.ok)
+        else if (isRefusal(data) && data.error === 'conflict') confirmConflict(id, data.pin);
+        else if (isRefusal(data) || !data.ok)
           bannerNote(
             NOTICE_HOST.REVIEW,
             translateTemplate('확인 실패 — 핀 #{id} 이 없습니다', { id }),
@@ -35773,7 +37181,7 @@ function confirmPin(id) {
 async function reopenPin(id) {
   let ok = false;
   try {
-    await api('/api/pins/' + id + '/reopen', { method: 'POST', what: '다시 열기', where: NOTICE_HOST.LIST });
+    await api('POST /api/pins/{id}/reopen', { id, what: '다시 열기', where: NOTICE_HOST.LIST });
     ok = true;
     markMine(id);
     quietNote(translateTemplate('핀 #{id} 완료를 되돌렸습니다', { id }));
@@ -35808,8 +37216,8 @@ async function dropPin(
   markMine(id);
   const source = 'POST /api/pins/' + id + '/drop';
   try {
-    await api('/api/pins/' + id + '/drop', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/drop', {
+      id,
       what: (options && options.what) || '삭제',
       where: (options && options.where) || NOTICE_HOST.LIST,
       retry:
@@ -35820,8 +37228,7 @@ async function dropPin(
     });
     ok = true;
   } catch (error) {
-    const failure = error;
-    lost = !failure || !failure.status;
+    lost = !isApiError(error);
     if (PINS_APPLIED_SEQ === applied) {
       const old = was.find((pin) => pin.id === id);
       if (old && !OPEN_ALL.some((pin) => pin.id === id)) {
@@ -35865,8 +37272,8 @@ function purgePin(id) {
   const pendingPurge = deferred(
     async () => {
       try {
-        await api('/api/pins/' + id + '/purge', {
-          method: 'POST',
+        await api('POST /api/pins/{id}/purge', {
+          id,
           what: '영구 삭제',
           where: NOTICE_HOST.TRASH,
           keepalive: true,
@@ -35886,28 +37293,8 @@ function purgePin(id) {
     prev: cardBefore,
   });
 }
-// [되살리기] (the Trash, a deleted pin's row, a background message): the pin is back as it was. Silent - its card is
-// there. Resolves with whether it was restored: a message whose action this is stays until then (noticeAct); a failure
-// says itself where it can be seen (bannerNote: the status line while the panel is closed). settled runs once the
-// request is answered, before the list reload (trashRestore's bound is the request's).
-async function restorePin(id, settled) {
-  let ok = false;
-  try {
-    await api('/api/pins/' + id + '/restore', {
-      method: 'POST',
-      what: '되살리기',
-      where: NOTICE_HOST.LIST,
-      retry: () => {
-        restorePin(id);
-      },
-    });
-    ok = true;
-    markMine(id);
-    quietNote(translateTemplate('핀 #{id} 되살림', { id }));
-  } catch (error) {}
-  if (settled) settled();
-  await loadPins();
-  return ok;
+function restorePin(id, settled) {
+  return restoreDroppedPin(id, loadPins, settled);
 }
 // [되살리기] on a Trash row: restorePin with the bound an undo's request has (noticeAct, NOTICE_ACT_WAIT). Past it
 // without an answer '되살리기의 답이 늦습니다 · 핀 #N' is said where a failure of it would be (bannerNote: the Trash
@@ -35945,11 +37332,12 @@ async function trashRestore(id) {
     sourceOk(source);
     if (!had) return;
     const trashList = $('#trash-list'),
-      target = trash.open
-        ? ((trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
-            trashList.querySelector('[data-act="restore"]') ||
-            trash.querySelector('[data-act="trash-close"]')))
-        : null;
+      found = trash.open
+        ? trashList.querySelector('.arc-row[data-id="' + id + '"] [data-act="restore"]') ||
+          trashList.querySelector('[data-act="restore"]') ||
+          trash.querySelector('[data-act="trash-close"]')
+        : null,
+      target = found instanceof HTMLElement ? found : null;
     if (target) target.focus();
     else searchToPage();
   });
@@ -35957,8 +37345,8 @@ async function trashRestore(id) {
 // [풀기]: the in-progress mark goes. Silent - the badge goes with it.
 async function unclaimPin(id) {
   try {
-    await api('/api/pins/' + id + '/unclaim', {
-      method: 'POST',
+    await api('POST /api/pins/{id}/unclaim', {
+      id,
       what: '처리 중 풀기',
       where: NOTICE_HOST.LIST,
       retry: () => unclaimPin(id),
@@ -35967,6 +37355,18 @@ async function unclaimPin(id) {
     quietNote(translateTemplate('핀 #{id} 처리 중 표시를 풀었습니다', { id }));
   } catch (error) {}
   await loadPins();
+}
+
+// The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time
+// the note changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the
+// save carries (mentionHints), so they offer exactly whom the server tags.
+const ASSIGN_NEW = { v: ASSIGNEE_AGENT, touched: false };
+// Each sets one field of ASSIGN_NEW for another module that changes it (ADR-0042 D1): the assignment, nothing more.
+function setAssignNewValue(value) {
+  ASSIGN_NEW.v = value;
+}
+function setAssignNewTouched(value) {
+  ASSIGN_NEW.touched = value;
 }
 
 // ------------------------------------------------ @-tag autocomplete (docs/handbook/viewer.md §@태그)
@@ -36106,15 +37506,12 @@ function mentionCommonStart(old, now) {
 // Follows an edit of the field's text (an input event, or the note popover's text copied in): its tags move with the
 // edit or drop out, and its logins become theirs. caret is where the edit left the caret.
 function mentionEdited(field, caret) {
-  const known = field._tags && field._tagsFrom === field._mentions && field._tagsFor != null;
-  const tags = known
-    ? mentionShift(
-        field._tags,
-        field._tagsFor,
-        field.value,
-        caret == null ? field.selectionStart : caret,
-      )
-    : mentionTags(field);
+  const held = field._tags,
+    heldFor = field._tagsFor;
+  const tags =
+    held && field._tagsFrom === field._mentions && heldFor != null
+      ? mentionShift(held, heldFor, field.value, caret == null ? field.selectionStart : caret)
+      : mentionTags(field);
   mentionKeep(field, tags);
 }
 // Stores tags as the field's own for its present text, with the logins they name (in text order) as field._mentions.
@@ -36221,8 +37618,9 @@ function mentionTokens(people) {
     [name, login, login.split('@')[0]].concat(words.length > 1 ? [words[0]] : []).forEach((candidate) => {
       if ([...candidate].length < 2) return;
       const key = candidate.toLowerCase();
-      if (!by.has(key)) by.set(key, new Set());
-      by.get(key).add(login);
+      const logins = by.get(key) || new Set();
+      logins.add(login);
+      by.set(key, logins);
     });
   });
   return [...by]
@@ -36321,10 +37719,6 @@ function assigneeRowHtml(people, value, act) {
   );
   return html`<span class="as-lab">${translate('담당')}</span><div class="seg lad as-seg" data-reveal="whole" tabindex="-1"><div class="lad-t">${agent}${others}</div></div>`;
 }
-// The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time
-// the note changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the
-// save carries (mentionHints), so they offer exactly whom the server tags.
-const ASSIGN_NEW = { v: ASSIGNEE_AGENT, touched: false };
 // Draws the composer's assignee row and the preview line from the note as it is now (assignOutcome), and drops a pick
 // whose person left the note. No row without a tagged colleague - the agent has the pin - and none while the note would
 // join an existing pin (appendTarget): an append keeps that pin's assignee, so the row would choose nothing. Before the
@@ -36335,14 +37729,16 @@ function renderAssignNew() {
   const noteField = $('#note'),
     box = $('#c-assign');
   if (!noteField || !box) return;
-  const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW));
+  // a new pin's outcome always names an assignee (assignOutcome); only an append's may name none
+  const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW)),
+    assignee = outcome.assignee ?? ASSIGNEE_AGENT;
   if (PEOPLE_KNOWN) {
-    ASSIGN_NEW.v = outcome.assignee;
-    ASSIGN_NEW.touched = outcome.kept;
+    setAssignNewValue(assignee);
+    setAssignNewTouched(outcome.kept);
   }
   if (outcome.people.length && !appendTarget()) {
     const at = segmentFocusAt(box);
-    setHtml(box, assigneeRowHtml(outcome.people, outcome.assignee, 'assign-new'));
+    setHtml(box, assigneeRowHtml(outcome.people, assignee, 'assign-new'));
     box.hidden = false;
     roveSegment(box);
     keepSegmentFocus(box, at);
@@ -36360,7 +37756,7 @@ function renderAssignEdit() {
   const card = EDITOR.current;
   if (!card) return;
   const noteField = editNote(card),
-    box = card.el.querySelector('.e-assign');
+    box = findMaybe(card.el, '.e-assign', HTMLElement);
   if (!noteField || !box) return;
   const people = assignPeople(noteField.value, mentionHints(noteField), PEOPLE, meLogin(), card.assignee);
   if (!people.length) {
@@ -36395,7 +37791,7 @@ function mentionPreview(field) {
   scan.bad = mentionBadSettled(
     scan.bad,
     field.value,
-    focused && mentionModel(focused) === field ? mentionQuery(focused) : null,
+    focused instanceof HTMLTextAreaElement && mentionModel(focused) === field ? mentionQuery(focused) : null,
   );
   if (!scan.hit.length && !scan.bad.length) {
     box.hidden = true;
@@ -36413,7 +37809,7 @@ function mentionPreview(field) {
     ? html`<span class="m-lab">${lucideIcon('at-sign')}알림</span>${told.map((login) => html`<span class="mention${login === me ? ' me' : ''}">${personLabel(login)}${login === me ? ' ' + translate('(나 — 알림 없음)') : ''}</span>`)}`
     : '';
   const assigns = outcome
-    ? html`<span class="m-lab">${translate(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee)}`
+    ? html`<span class="m-lab">${translate(join ? '따로 저장하면 담당' : '담당')}</span>${name(outcome.assignee ?? ASSIGNEE_AGENT)}`
     : html``;
   const head = !outcome
     ? hits
@@ -36479,15 +37875,15 @@ function mentionPlace() {
     guard = mentionGuard(field);
   const guardRect = guard ? guard.getBoundingClientRect() : null,
     top = viewport ? viewport.offsetTop : 0,
-    bottom = viewport ? viewport.offsetTop + viewport.height : innerHeight;
+    bottom = viewport ? viewport.offsetTop + viewport.height : window.innerHeight;
   const at = field.closest('#sel-pop')
     ? mentionRoom(fieldRect, guardRect, listHeight, top, bottom)
     : { top: mentionTop(fieldRect, guardRect, listHeight, top, bottom), max: null };
   pop.style.top = at.top + 'px';
-  pop.style.left = Math.max(4, Math.min(fieldRect.left, innerWidth - listWidth - 4)) + 'px';
+  pop.style.left = Math.max(4, Math.min(fieldRect.left, window.innerWidth - listWidth - 4)) + 'px';
   if (at.max == null) return;
   pop.style.maxHeight = at.max + 'px';
-  const selected = pop.querySelector('[aria-selected=true]');
+  const selected = findMaybe(pop, '[aria-selected=true]', HTMLElement);
   pop.scrollTop = selected
     ? Math.min(selected.offsetTop, Math.max(was, selected.offsetTop + selected.offsetHeight - pop.clientHeight))
     : was;
@@ -36582,8 +37978,7 @@ function mentionApply(index) {
   else if (model.classList.contains('r-text')) pinFields().drawReplyOutcome();
 }
 const isMentionField = (target) =>
-  !!target &&
-  target.tagName === 'TEXTAREA' &&
+  target instanceof HTMLTextAreaElement &&
   (target.id === 'note' ||
     target.classList.contains('e-note') ||
     target.classList.contains('r-text') ||
@@ -36609,7 +38004,7 @@ document.addEventListener('input', (event) => {
   if (field.classList.contains('e-note')) {
     renderAssignEdit();
     if (EDITOR.current)
-      syncQuestionHint(EDITOR.current.el.querySelector('.e-qhint'), field.value, EDITOR.current.kind_req);
+      syncQuestionHint(findMaybe(EDITOR.current.el, '.e-qhint', HTMLElement), field.value, EDITOR.current.kind_req);
   } else if (field.classList.contains('r-text')) pinFields().drawReplyOutcome();
 });
 window.addEventListener(
@@ -36659,13 +38054,8 @@ document.addEventListener('focusout', (event) => {
 });
 $('#mention-pop').addEventListener('pointerdown', (event) => event.preventDefault());
 
-// ------------------------------------------------ Reply input field (docs/handbook/viewer.md §스레드와 검토)
-// Only one input field is ever open. Its DOM is held on REPLY.el, and when drawPins() redraws cards, it's re-inserted
-// into .reply-slot - so the 5-second auto-sync redrawing the list never loses the draft text or cursor (focus is
-// restored too). There is one [답글] for every state: on a closed pin (awaiting review or done) the server decides
-// whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
-// the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
-// Sending is deferred behind an undo in the card, where the box was (deferredNote).
+// The reply box, its predicted outcome and the draft kept as it closes.
+
 // Mirrors limn.pins.lifecycle.rules.reopens_on_reply(): an open pin never changes; an explicit override (true/false)
 // wins; otherwise a person's reply on a closed pin reopens it unless it tags a person or the pin is a question.
 // mentioned = the post's resolved @-tags without me.
@@ -36707,16 +38097,6 @@ function replyPlaceholder(pin, human, flip) {
       : '답글 (⌘/Ctrl+Enter 보내기)',
   );
 }
-// The answer to a reply (POST /api/pins/{id}/reply): whether the pin was found, whether the reply reopened it, and its state.
-// After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while
-// the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
-function replyServerNote(id, predicted, data) {
-  if (!data || !data.ok || !!data.reopened === !!predicted) return null;
-  if (data.reopened) return translateTemplate('#{id} 은 그사이 닫혀서 이 답글이 다시 열었습니다', { id });
-  return data.state === PIN_STATE.OPEN
-    ? translateTemplate('#{id} 은 그사이 이미 열려 있어 답글로만 남았습니다', { id })
-    : translateTemplate('#{id} 은 다시 열리지 않고 답글로만 남았습니다', { id });
-}
 // The post's @-tags that count as asking a person: without me and without agent-role accounts (as the server's rule).
 // Resolved with exactly the hints the request will carry (mentionHints) - the server resolves the same text with the
 // same hints, so an autocompleted '@Robin Lee' later edited down to an ambiguous '@Robin' previews what the server will
@@ -36742,19 +38122,19 @@ function createReplyBox(pin) {
 }
 // The text field of a reply box (createReplyBox puts exactly one in every box).
 function replyNote(replyBox) {
-  return replyBox.el.querySelector('textarea');
+  return findElement(replyBox.el, 'textarea', HTMLTextAreaElement);
 }
 function renderReplyOutcome() {
   const replyBox = REPLY;
   if (!replyBox) return;
-  const box = replyBox.el.querySelector('.r-outcome'),
+  const box = findMaybe(replyBox.el, '.r-outcome', HTMLElement),
     field = replyNote(replyBox);
   if (!box || !field) return;
   const pin = findAnyPin(replyBox.id),
     mentioned = replyMentioned(field);
   let preview = pin && replyPreview(pin, isHuman(), mentioned, !!replyBox.flip);
   field.placeholder = replyPlaceholder(pin, isHuman(), !!replyBox.flip);
-  if (!preview) {
+  if (!preview || !pin) {
     box.hidden = true;
     replyBox.flip = false;
     replyBox.toggle = null;
@@ -36767,12 +38147,12 @@ function renderReplyOutcome() {
   } // the rule changed direction (a tag added/removed): the override resets
   replyBox.toggle = preview.toggle;
   box.hidden = false;
-  (box.querySelector('.r-out-t')).textContent = preview.text;
+  findElement(box, '.r-out-t', Element).textContent = preview.text;
   box.classList.toggle(
     'reopen',
     replyReopens(pin, isHuman(), mentioned, replyBox.flip ? preview.toggle === 'reopen' : undefined),
   );
-  const flipButton = box.querySelector('[data-act=reply-flip]'),
+  const flipButton = findElement(box, '[data-act=reply-flip]', HTMLElement),
     keep = preview.toggle === 'keep';
   flipButton.textContent = translate(keep ? '상태 유지' : '다시 열기');
   flipButton.dataset.tip = translate(
@@ -36783,6 +38163,35 @@ function renderReplyOutcome() {
   flipButton.setAttribute('aria-checked', String(!!replyBox.flip));
 }
 /**
+ * Keep a nonblank reply's text and only the recipient hints its remaining tags carry.
+ */
+function parkReply() {
+  if (!REPLY) return;
+  const field = replyNote(REPLY);
+  if (field && field.value.trim())
+    REPLY_DRAFT.set('reply:' + REPLY.id, { text: field.value, mentions: mentionHints(field) });
+  else REPLY_DRAFT.delete('reply:' + REPLY.id);
+  setReply(null);
+}
+
+// ------------------------------------------------ Reply input field (docs/handbook/viewer.md §스레드와 검토)
+// Only one input field is ever open. Its DOM is held on REPLY.el, and when drawPins() redraws cards, it's re-inserted
+// into .reply-slot - so the 5-second auto-sync redrawing the list never loses the draft text or cursor (focus is
+// restored too). There is one [답글] for every state: on a closed pin (awaiting review or done) the server decides
+// whether the reply reopens it (reopens_on_reply), and the line under the box (.r-outcome) previews that decision with
+// the same rule (replyReopens) - [상태 유지] (REPLY.flip with REPLY.toggle 'keep') overrides it with reopen:false.
+// Sending is deferred behind an undo in the card, where the box was (deferredNote).
+// The answer to a reply (POST /api/pins/{id}/reply): whether the pin was found, whether the reply reopened it, and its state.
+// After the deferred send: a note only when the server's decision differs from the preview (the pin changed state while
+// the undo was up, e.g. someone else's reply reopened it first). Worded from the response, not from the guess.
+function replyServerNote(id, predicted, data) {
+  if (!data || !data.ok || !!data.reopened === !!predicted) return null;
+  if (data.reopened) return translateTemplate('#{id} 은 그사이 닫혀서 이 답글이 다시 열었습니다', { id });
+  return data.state === PIN_STATE.OPEN
+    ? translateTemplate('#{id} 은 그사이 이미 열려 있어 답글로만 남았습니다', { id })
+    : translateTemplate('#{id} 은 다시 열리지 않고 답글로만 남았습니다', { id });
+}
+/**
  * Focus the existing box, or open pin id with copied draft hints and a reset override; expand the panel for a new box.
  */
 function openReply(id) {
@@ -36791,14 +38200,15 @@ function openReply(id) {
     if (field) field.focus();
     return;
   }
-  if (REPLY) closeReply(false);
+  if (REPLY) parkReply();
   const pin = findAnyPin(id);
   REPLY_VISITS.set(id, (REPLY_VISITS.get(id) || 0) + 1);
-  setReply({ id, flip: false, toggle: null, el: createReplyBox(pin) });
+  const replyBox = { id, flip: false, toggle: null, el: createReplyBox(pin) };
+  setReply(replyBox);
   OPEN_CARDS.add(id);
   setSide(true);
   drawPins();
-  const field = replyNote(REPLY),
+  const field = replyNote(replyBox),
     draft = REPLY_DRAFT.get('reply:' + id);
   field.value = draft ? draft.text : '';
   field._mentions = new Set(draft ? draft.mentions : []);
@@ -36806,19 +38216,13 @@ function openReply(id) {
   mentionPreview(field);
   renderReplyOutcome();
   field.focus();
-  (REPLY).el.scrollIntoView({ block: 'nearest' });
+  replyBox.el.scrollIntoView({ block: 'nearest' });
 }
-/**
- * Keep a nonblank reply's text and only the recipient hints its remaining tags carry; optionally redraw after closing.
- */
-function closeReply(redraw) {
+// Close the reply field at the user's request and redraw the list with the draft parked.
+function closeReply() {
   if (!REPLY) return;
-  const field = replyNote(REPLY);
-  if (field && field.value.trim())
-    REPLY_DRAFT.set('reply:' + REPLY.id, { text: field.value, mentions: mentionHints(field) });
-  else REPLY_DRAFT.delete('reply:' + REPLY.id);
-  setReply(null);
-  if (redraw !== false) drawPins();
+  parkReply();
+  drawPins();
 }
 /** Defer a nonblank reply; recover its input only before a newer visit, reporting a late failure on the status line. */
 function sendReply() {
@@ -36826,7 +38230,7 @@ function sendReply() {
   if (!replyBox || viewerBlocked()) return;
   const field = replyNote(replyBox),
     text = field.value.trim();
-  const errorLine = replyBox.el.querySelector('.r-err');
+  const errorLine = findElement(replyBox.el, '.r-err', HTMLElement);
   if (!text) {
     errorLine.textContent = translate('답글이 비어 있습니다');
     errorLine.hidden = false;
@@ -36856,11 +38260,11 @@ function sendReply() {
     }
     REPLY_DRAFT.set('reply:' + id, { text, mentions: hints });
     openReply(id);
-    const boxErrorLine = REPLY && REPLY.id === id ? (REPLY.el.querySelector('.r-err')) : null;
+    const boxErrorLine = REPLY && REPLY.id === id ? findMaybe(REPLY.el, '.r-err', HTMLElement) : null;
     if (REPLY && REPLY.id === id) {
       const field = replyNote(REPLY);
       field._mentions = new Set(hints);
-      REPLY.flip = flip;
+      setReplyFlip(REPLY, flip);
       mentionPreview(field);
       renderReplyOutcome();
       if (boxErrorLine) {
@@ -36885,8 +38289,8 @@ function sendReply() {
     async () => {
       markMine(id);
       try {
-        const { data } = await api('/api/pins/' + id + '/reply', {
-          method: 'POST',
+        const { data } = await api('POST /api/pins/{id}/reply', {
+          id,
           body,
           what: '답글',
           silent: true,
@@ -36898,9 +38302,9 @@ function sendReply() {
           if (note) bannerNote(NOTICE_HOST.LIST, note, NOTICE_KIND.WARN);
         }
       } catch (error) {
-        const err = error; // silent above: the box's own line says it, once
+        const err = isApiError(error) ? error : null; // silent above: the box's own line says it, once
         back(
-          err.status
+          err && err.status
             ? translate('보내지 못했습니다') + ' — ' + (errText(err.data) || 'HTTP ' + err.status)
             : translate('보내지 못했습니다 — 글은 그대로 두었습니다. 연결을 확인하고 다시 보내세요'),
         );
@@ -36917,7 +38321,7 @@ function sendReply() {
   );
   // Keyboard users (Ctrl+Enter) land on [되돌리기], so Enter undoes; the reply still goes when its undo does.
   const undoButton = document.querySelector('[data-act="notice-act"][data-n="' + note.n + '"]');
-  if (undoButton) (undoButton).focus({ preventScroll: true });
+  if (undoButton instanceof HTMLElement) undoButton.focus({ preventScroll: true });
 }
 
 // ------------------------------------------------ The edit card, drawn
@@ -36926,7 +38330,7 @@ function sendReply() {
 /** Reflect the editor's shared request lifetime on whichever card is currently visible. */
 function syncEditSaveButton() {
   const button = EDITOR.current && EDITOR.current.el.querySelector('.b-esave');
-  if (button) (button).disabled = EDITOR.saving;
+  if (button instanceof HTMLButtonElement) button.disabled = EDITOR.saving;
 }
 // Does the edit field have unsaved changes (whether it's safe to close the edit when switching documents)?
 /**
@@ -36959,7 +38363,7 @@ function renderEdit() {
   if (!card) return;
   const cardElement = card.el;
   syncEditSaveButton();
-  (cardElement.querySelectorAll('.e-kind button')).forEach((button) => {
+  findAll(cardElement, '.e-kind button', HTMLElement).forEach((button) => {
     const on = button.dataset.kind === (card.kind_req || REQUEST_KIND.FIX);
     button.classList.toggle('on', on);
     button.setAttribute('aria-checked', String(on));
@@ -36978,20 +38382,20 @@ function renderEdit() {
         : rangeCap(card, true),
     );
   if (ladder instanceof HTMLElement) drawLadder(ladder, card, true);
-  const pre = cardElement.querySelector('.e-snip');
+  const pre = findElement(cardElement, '.e-snip', Element);
   pre.className = 'e-snip wrap';
   pre.textContent = snipText(card.snippet, false);
   renderAssignEdit();
-  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true);
+  if (excerpt instanceof HTMLElement) drawExcerpt(card, excerpt, true, renderEdit);
   // the [제안 수정] switch and its editor (composer/flow-suggest.ts); a closed pin's suggestion read-only
   renderEditSuggest(card);
-  syncQuestionHint(cardElement.querySelector('.e-qhint'), editNote(card).value, card.kind_req);
+  syncQuestionHint(findMaybe(cardElement, '.e-qhint', HTMLElement), editNote(card).value, card.kind_req);
   const pin = findAnyPin(card.id),
     closed = !!pin && pinState(pin) !== PIN_STATE.OPEN;
-  (cardElement.querySelector('.b-repick')).hidden = closed;
+  findElement(cardElement, '.b-repick', HTMLElement).hidden = closed;
   if (closed) {
-    (cardElement.querySelector('.e-levels')).hidden = true;
-    (cardElement.querySelector('.e-xp')).hidden = true;
+    findElement(cardElement, '.e-levels', HTMLElement).hidden = true;
+    findElement(cardElement, '.e-xp', HTMLElement).hidden = true;
   }
 }
 
@@ -37051,7 +38455,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
 <button class="btn-sm b-ecancel" data-act="ecancel" data-tip="${TIP_TEXT.ecancel}">취소</button>\
 <button class="btn-sm btn-default b-esave" data-act="esave" data-tip="${TIP_TEXT.esave}">저장</button></div>`,
   );
-  const noteField = cardElement.querySelector('.e-note');
+  const noteField = findElement(cardElement, '.e-note', HTMLTextAreaElement);
   noteField.value = pin.note || '';
   noteField._mentions = new Set(pin.mentions || []);
   autoGrow(noteField);
@@ -37105,7 +38509,7 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
 document.addEventListener('input', (event) => {
   const target = event.target;
   if (
-    target.classList &&
+    target instanceof HTMLElement &&
     (target.classList.contains('e-note') || target.classList.contains('r-text') || target.id === 'note')
   )
     autoGrow(target);
@@ -37125,9 +38529,9 @@ async function editSnip(withLevels) {
     return;
   } // view-only: there is no source line
   try {
-    const { status, data } = await api(
-      withDocQuery(
-        '/api/snippet?file=' +
+    const { status, data } = await api('GET /api/snippet', {
+      query: withDocQuery(
+        '?file=' +
           encodeURIComponent(String(card.file)) +
           '&lo=' +
           card.lo +
@@ -37136,10 +38540,11 @@ async function editSnip(withLevels) {
           (withLevels ? '&levels=1' : ''),
         card.doc,
       ),
-      { what: '원문 읽기', expect: [400] },
-    );
+      what: '원문 읽기',
+      expect: [400],
+    });
     if (EDITOR.current !== card) return;
-    if (status === 400) {
+    if (status === 400 || isRefusal(data)) {
       card.snippet =
         translate('원문을 읽지 못했습니다') + ' — ' + errText(data) + '\n' + translate('위치 다시 잡기로 고치세요.');
       renderEdit();
@@ -37224,8 +38629,8 @@ async function saveEdit() {
   setEditorSaving(true);
   syncEditSaveButton();
   try {
-    const { status, data } = await api('/api/pins/' + card.id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id: card.id,
       body,
       what: '핀 수정',
       where: NOTICE_HOST.LIST,
@@ -37233,11 +38638,11 @@ async function saveEdit() {
       intent: 'edit',
     });
     if (status === 409) {
-      if (data && data.reason === 'suggest_base_changed') {
+      if (isRefusal(data) && data.reason === 'suggest_base_changed') {
         editSuggestRefused(card, data);
         return;
       }
-      if (data && data.error === PIN_STATE.DONE) {
+      if (isRefusal(data) && data.error === PIN_STATE.DONE) {
         bannerNote(
           NOTICE_HOST.LIST,
           translateTemplate('핀 #{id} 은 이미 닫혀 범위를 바꿀 수 없습니다 — 메모만 고칠 수 있습니다', { id: card.id }),
@@ -37357,15 +38762,13 @@ function editTheirs(card) {
 }
 // An edit the server answered 409 suggest_base_changed: nothing was saved and the card keeps its draft. The editor
 // shows the lines' current text against the draft and the list's banner offers [지금 원문으로 맞추기] (the draft keeps
-// its text and takes that text as its base); then [저장] again.
+// its text and takes that text as its base); then [저장] again. A card that holds a suggestion is a line pin's, so it
+// has its lines.
 function editSuggestRefused(card, data) {
   if (editorOwns(card)) {
-    card.sg.current = {
-      text: String(data.current || ''),
-      file: card.file || null,
-      lo: card.lo,
-      hi: card.hi,
-    };
+    const { lo: low, hi: high } = card;
+    if (low !== undefined && high !== undefined)
+      card.sg.current = { text: String(data.current || ''), file: card.file || null, lo: low, hi: high };
     renderEdit();
   }
   bannerNote(
@@ -37527,8 +38930,8 @@ async function applyRepick() {
   figureFields(loc, repickElement(candidate), isRegion(candidate) || !level.el ? null : level);
   const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : 0;
   try {
-    const { status, data } = await api('/api/pins/' + repick.id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id: repick.id,
       body: { loc, base_rev: base },
       what: '위치 바꾸기',
       where: NOTICE_HOST.LIST,
@@ -37538,7 +38941,7 @@ async function applyRepick() {
     if (status === 409) {
       bannerNote(
         NOTICE_HOST.LIST,
-        data && data.error === PIN_STATE.DONE
+        isRefusal(data) && data.error === PIN_STATE.DONE
           ? '닫힌 핀은 위치를 바꿀 수 없습니다'
           : '다른 쪽이 이 핀을 먼저 바꿨습니다 — 최신 값을 불러왔습니다',
         NOTICE_KIND.WARN,
@@ -37625,7 +39028,7 @@ async function refreshDoc(meta) {
     seq = SWITCHSEQ;
   const snapshot =
     meta === undefined
-      ? (await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
+      ? (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
       : meta;
   if (visitDoc !== DOC || seq !== SWITCHSEQ) return;
   const gen = ++REFRESH_GEN;
@@ -37656,11 +39059,11 @@ async function refreshDoc(meta) {
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
     pageSurface().releaseVector();
-    $$('.pg').forEach((pageElement, index) => {
-      const page = META.pages[index];
+    findAll(document, '.pg', HTMLElement).forEach((pageElement, index) => {
+      const page = knownMeta().pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSurface().pageSource(page);
+      findElement(pageElement, 'img', HTMLImageElement).src = pageSurface().pageSource(page);
     });
     pageSurface().reapplyScale();
   } else {
@@ -37679,16 +39082,16 @@ async function refreshDoc(meta) {
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel
-// is not on screen: syncBuildErrChip) keep a way to open it again as long as BUILD.error exists. say = a build this
+// is not on screen: syncBuildErrChip) keep a way to open it again as long as SHOWN_BUILD.error exists. say = a build this
 // visit watched has just failed: its title is read out as an alert too (rule 1) - the desktop's panel and chip are no
 // live region.
 function showBuildErr(build, say) {
-  BUILD.error = build;
+  setBuildError(build);
   if (DOC) BUILD_ERR_BY.set(DOC, build);
   const panel = $('#build-err');
   const title = buildErrTitle(build);
   if (say) announce(title, true);
-  const log = String(build.log_tail || build.log || '')
+  const log = String(build.log_tail || '')
     .split('\n')
     .slice(-20)
     .join('\n');
@@ -37731,47 +39134,8 @@ function hideBuildErr() {
 // inside a collapsed panel - where only the status chips float, so it is the one sign of a failed build on a collapsed
 // desktop.
 function syncBuildErrChip() {
-  $('#build-err-chip').hidden = !BUILD.error || (SIDE_OPEN && !$('#build-err').hidden);
+  $('#build-err-chip').hidden = !SHOWN_BUILD.error || (SIDE_OPEN && !$('#build-err').hidden);
 }
-// docs/handbook/build-sync.md §비동기 재빌드: rebuild is async - the POST returns immediately, and the #build-chip
-// poller (startBuildPolling) shows progress, then does the in-place swap and says so once it finishes. A build started
-// by someone else is caught by the same poller. Its completion may update controls or start polling only while the
-// initiating document visit remains active. BUILD.asked marks that this tab asked, so an unchanged rebuild (no new seq)
-// still gets its answer; it is set only after any older in-flight poll settled, since that one may carry the previous
-// rebuild's unchanged mark. force (only the status line's [그래도 빌드] of an unchanged rebuild passes it) asks for
-// ?force=1: a cold build that never ends unchanged. A rebuild already running elsewhere (409) is a warning on the
-// status line; a failed request an error there, with [다시 시도].
-async function rebuild(force) {
-  const visitDoc = DOC,
-    visit = SWITCHSEQ;
-  try {
-    const { status } = await api(withDocQuery('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
-      method: 'POST',
-      what: 'PDF 재빌드',
-      where: NOTICE_HOST.LINE,
-      retry: () => rebuild(force),
-      expect: [409],
-    });
-    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-    if (status === 409) {
-      lineNote('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요', NOTICE_KIND.WARN);
-      return;
-    }
-    $('#build-err').hidden = true;
-    // If a request already went out before this POST, its completion is awaited before asking again - that request
-    // carries a stale state (ok) and would never turn on 1-second polling. Completion is distinguished by build_seq, so
-    // this tab has nothing separate to remember.
-    if (BUILD.inflight) {
-      try {
-        await BUILD.inflight;
-      } catch (error) {}
-    }
-    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-    BUILD.asked = true;
-    await pollBuild();
-  } catch (error) {}
-}
-
 // [더보기]'s [PDF 내려받기]: saves the PDF of the build on screen (META.pages_build) of this document as a file. The
 // server names it after the document (GET /pdf?download=1 adds Content-Disposition: attachment, docs/handbook/api.md);
 // a click on a link that carries the download attribute is the browser's own save, so the page stays where it is.
@@ -37871,6 +39235,7 @@ setVerdictHold({
   composing: isComposingNow,
   afterComposition,
 });
+setDocumentNavigation({ open: switchDoc });
 setOfflineQueue({ queued: () => OFF.n, held: () => OFF.held, flush: offlineFlush });
 // The frame's seams: the features that act on the steps of a relayout, in the order those steps' calls ran (the pin
 // list first, then the pages, the Markdown surface, the composer), and the parts of the frame features draw.
@@ -37928,7 +39293,7 @@ setComposerVerdict({
 });
 setComposerPins({ load: loadPins, drop: dropPin });
 setComposerQueue({ pick: offlinePick, save: offlineQueueSave, keyed: () => OFF.idem, key: offlineKey });
-setPinFields({ drawEdit: renderEdit, snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
+setPinFields({ snipEdit: editSnip, drawReplyOutcome: renderReplyOutcome });
 setPinVerdicts({
   badge: verdictBadge,
   target: verdictTarget,
@@ -37938,12 +39303,13 @@ setPinVerdicts({
   shownOnLine: isShownOnLine,
   jumpToLine: jumpToPageLine,
 });
+setVerdictLineRenderer({ watchLineChips, drawPageVerdicts, fillPageLine, stickReadingLine });
 let HELP_BACK = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
   const dialog = $('#help');
   if (dialog.open) return;
-  HELP_BACK = document.activeElement;
+  HELP_BACK = focusedElement();
   hideTip();
   showSheet(dialog);
   headInk();
@@ -37978,18 +39344,19 @@ function openTappedCard(target) {
   drawPins();
 }
 document.addEventListener('click', (event) => {
-  const target = event.target;
-  const copier = target.closest('[data-copy]');
+  const target = eventElement(event);
+  if (!target) return;
+  const copier = findClosest(target, '[data-copy]', HTMLElement);
   if (copier) {
     copyText(copier.dataset.copy || '', copier);
     return;
   }
-  const control = target.closest('[data-act]');
+  const control = findClosest(target, '[data-act]', HTMLElement);
   if (!control) {
     openTappedCard(target);
     return;
   }
-  const host = control.closest('[data-id]'),
+  const host = findClosest(control, '[data-id]', HTMLElement),
     id = host ? Number(host.dataset.id) : null,
     inEdit = !!control.closest('.edit');
   const fromMore = !!control.closest('#more');
@@ -38033,7 +39400,7 @@ document.addEventListener('click', (event) => {
       downloadPdf();
       break;
     case 'rebuild-force':
-      BUILD.unchanged = null;
+      setBuildUnchanged(null);
       drawStatus();
       rebuild(true);
       break; // the status line's [그래도 빌드]: a cold build
@@ -38161,14 +39528,24 @@ document.addEventListener('click', (event) => {
       const draft = inEdit ? EDITOR.current : COMPOSE.current,
         line = Number(control.dataset.line);
       if (draft && draft.lo != null && draft.hi != null)
-        applyRange(draft, widenTo(draft.lo, draft.hi, line), line < draft.lo ? draft.hi : draft.lo);
+        applyRange(
+          draft,
+          widenTo(draft.lo, draft.hi, line),
+          line < draft.lo ? draft.hi : draft.lo,
+          inEdit ? renderEdit : renderComposer,
+        );
       break;
     } // the excerpt: widen to a dimmed line
     case 'xp-drop': {
       const draft = inEdit ? EDITOR.current : COMPOSE.current,
         line = Number(control.dataset.line);
       if (draft && draft.lo != null && draft.hi != null)
-        applyRange(draft, dropLine(draft.lo, draft.hi, line), line === draft.lo ? draft.hi : draft.lo);
+        applyRange(
+          draft,
+          dropLine(draft.lo, draft.hi, line),
+          line === draft.lo ? draft.hi : draft.lo,
+          inEdit ? renderEdit : renderComposer,
+        );
       break;
     } // ...or drop an end line
     case 'view':
@@ -38281,8 +39658,8 @@ document.addEventListener('click', (event) => {
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break; // by keyboard the focus goes to the card
     case 'assign-new':
-      ASSIGN_NEW.v = control.dataset.v || 'agent';
-      ASSIGN_NEW.touched = true;
+      setAssignNewValue(control.dataset.v || 'agent');
+      setAssignNewTouched(true);
       renderAssignNew();
       saveDraftSoon();
       break;
@@ -38357,7 +39734,7 @@ document.addEventListener('click', (event) => {
       break;
     case 'reply-flip':
       if (REPLY) {
-        REPLY.flip = !REPLY.flip;
+        setReplyFlip(REPLY, !REPLY.flip);
         renderReplyOutcome();
       }
       break;
@@ -38431,9 +39808,9 @@ document.addEventListener('click', (event) => {
       hideBuildErr();
       break;
     case 'build-err-reopen':
-      if (BUILD.error) {
+      if (SHOWN_BUILD.error) {
         setSide(true);
-        showBuildErr(BUILD.error);
+        showBuildErr(SHOWN_BUILD.error);
       }
       break; // the chip floats on a collapsed panel; the log is inside it
     case 'status-more':
@@ -38448,8 +39825,10 @@ document.addEventListener('click', (event) => {
     case 'notice-x':
       noticeClose(Number(control.dataset.n));
       break;
-    case 'reload':
+    case 'reload-viewer':
       reloadForUpdate();
+      break;
+    case undefined: // control matched [data-act], so the attribute is there; nothing to do without it
       break;
   }
 });
@@ -38473,7 +39852,7 @@ for (const group of $$('[role=radiogroup]')) roveSegment(group);
 document.addEventListener('keydown', (event) => {
   const target = event.target;
   if (imeKey(event) || event.ctrlKey || event.metaKey || event.altKey) return;
-  if (!target || !target.closest || target.getAttribute('role') !== 'radio') return;
+  if (!(target instanceof HTMLButtonElement) || target.getAttribute('role') !== 'radio') return;
   const group = target.closest('[role=radiogroup]');
   if (!group) return;
   const words = shownWords(group),
@@ -38505,9 +39884,9 @@ document.addEventListener('keydown', (event) => {
 // The focus has left a group walked without choosing: its stop is the chosen word again, where Tab and Shift+Tab come
 // back to.
 function leaveManualSegment(event) {
-  const target = event.target,
-    group = target && target.closest ? target.closest('[role=radiogroup][data-seg-manual]') : null;
-  const to = event.relatedTarget;
+  const target = eventElement(event),
+    group = target ? target.closest('[role=radiogroup][data-seg-manual]') : null;
+  const to = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (group && !(to && group.contains(to))) roveSegment(group);
 }
 document.addEventListener('focusout', leaveManualSegment);
@@ -38517,8 +39896,8 @@ document.addEventListener('focusout', leaveManualSegment);
 // to the group's one stop (roveSegment's word) as no new focus (focusGivenBack: no description), and Tab leaves from
 // there, as from a word.
 function passLadderBoxFocus(event) {
-  const box = event.target;
-  if (!box || !box.matches || !box.matches('.seg.lad[tabindex="-1"]')) return;
+  const box = eventElement(event);
+  if (!box || !box.matches('.seg.lad[tabindex="-1"]')) return;
   const group = box.matches('[role=radiogroup]') ? box : box.querySelector('[role=radiogroup]') || box,
     words = offeredWords(group),
     word = words.find((offered) => offered.tabIndex === 0) || words[0];
@@ -38528,7 +39907,7 @@ document.addEventListener('focusin', passLadderBoxFocus);
 
 document.addEventListener('keydown', (event) => {
   if (imeKey(event)) return; // an input method's key, the Enter or Esc that ended its composition too (app/state.ts)
-  const target = event.target,
+  const target = event.target instanceof HTMLElement ? event.target : null,
     inField =
       target &&
       (target.tagName === 'TEXTAREA' ||
@@ -38716,12 +40095,15 @@ async function boot() {
   await loadDocs();
   setDoc(initialDoc());
   try {
-    setMeta((await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data);
+    setMeta(
+      (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data,
+    );
   } catch (error) {
     return;
   }
-  if (META.doc) setDoc(META.doc);
-  META_BY.set(DOC, META);
+  const first = knownMeta();
+  if (first.doc) setDoc(first.doc);
+  META_BY.set(DOC, first);
   loadViews();
   const view = VIEW_BY.get(DOC);
   if (multiDoc()) {
@@ -38757,14 +40139,16 @@ async function boot() {
     coach('touch', 'PDF를 길게 누르면 그 문단을 고릅니다 · [선택]을 켜면 끌어서 고릅니다');
   // a mouse user's first hint how to pin (the PDF also shows a crosshair)
   else coach('mouse', 'PDF를 끌어서 고칠 곳을 고르세요');
+  // The open document's meta now: a switch while the pins loaded may have replaced the first one.
+  const meta = knownMeta();
   // A failed first read has no pin baseline; the light poll must retry even when meta has not changed.
   if (pinsLoaded) {
-    setLastPinsRevision(META.pins_rev);
-    setLastSrcMtime(META.src_sig || META.src_mtime);
+    setLastPinsRevision(meta.pins_rev);
+    setLastSrcMtime(meta.src_sig || meta.src_mtime);
   }
   // the build count this tab has already "seen"
-  BUILD.lastSeq = typeof META.build_seq === 'number' ? META.build_seq : 0;
-  (META.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
+  setBuildLastSeq(typeof meta.build_seq === 'number' ? meta.build_seq : 0);
+  (meta.docs || []).forEach((entry) => DOC_SEQ.set(entry.key, entry.build_seq));
   startLightPolling();
   startBuildPolling();
   offlineBoot();

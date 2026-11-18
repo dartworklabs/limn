@@ -13,11 +13,11 @@ import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { LINE, announce, holdLine, lineVisible, noticeButtons, noticeIcon } from '../platform/notices.ts';
 import { hideTip, showTipText } from '../platform/tooltip.ts';
 import { SYNC_REASON } from './view-meta.ts';
-import { POLL_FAILS } from './flow-polling.ts';
-import { BUILD, pullSuffix } from './view-build-chip.ts';
-import { versionOutdated } from './flow-updates.ts';
+import { POLL_FAILS, versionOutdated } from './flow-connection.ts';
+import { pullSuffix } from './view-build-chip.ts';
+import { setBuildUnchanged, SHOWN_BUILD } from './state-build.ts';
 import { NOTICE_KIND, tableEntry } from '../platform/tables.ts';
-import { $ } from '../platform/dom.ts';
+import { $, findElement, findMaybe, focusedElement } from '../platform/dom.ts';
 import { BUILD_STATE, LAYOUT_BAND, LAYOUT_MODE, STATUS_KIND, SYNC_STATE } from '../app/rules-tables.ts';
 import { isViewer, STATUS_SYNC } from './state.ts';
 import { offlineQueue } from './state-seams.ts';
@@ -94,7 +94,7 @@ function statusList(input: ReturnType<typeof statusInput>) {
       held: input.held || 0,
       act: input.offline ? null : 'offline-flush',
     });
-  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload' });
+  if (input.outdated) out.push({ kind: STATUS_KIND.OUTDATED, version: input.outdated, act: 'reload-viewer' });
   notes
     .filter((notice: Notice) => !alert(notice))
     .forEach((notice: Notice) => out.push({ kind: STATUS_KIND.NOTICE, notice: notice, act: 'notice' }));
@@ -278,7 +278,7 @@ function statusAct(item: StatusItem) {
   if (item.kind === STATUS_KIND.NOTICE) return noticeButtons(item.notice, true);
   const force = item.act === 'rebuild-force',
     why = item.act === 'status-why',
-    reload = item.act === 'reload';
+    reload = item.act === 'reload-viewer';
   const flush = item.act === 'offline-flush';
   const name =
     item.act === 'rebuild'
@@ -302,14 +302,14 @@ function statusAct(item: StatusItem) {
   return html`<button class="btn-sm st-act ${item.act === 'rebuild' || reload ? 'btn-default' : 'btn-secondary'}" data-act="${item.act}"${tip}><span class="lbl">${name}</span></button>`;
 }
 
-// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (BUILD.cur) and
+// What the status line is drawn from, gathered from the shell: its messages (LINE), the running build (SHOWN_BUILD.cur) and
 // the last failed one, the light poll's failures, the last meta `sync`, and the chips that already say stale and PNG -
 // plus whether this document and person may rebuild.
 function statusInput() {
   return {
     notices: LINE,
-    build: BUILD.cur,
-    buildErr: BUILD.error,
+    build: SHOWN_BUILD.cur,
+    buildErr: SHOWN_BUILD.error,
     offline: POLL_FAILS >= 2,
     queued: offlineQueue().queued(),
     held: offlineQueue().held(),
@@ -318,7 +318,7 @@ function statusInput() {
     stale: !$('#meta-stale').hidden,
     png: !$('#vec-chip').hidden,
     canRebuild: !!META && buildsFromSource(META.kind) && !isViewer(),
-    unchanged: BUILD.unchanged,
+    unchanged: SHOWN_BUILD.unchanged,
   };
 }
 
@@ -327,11 +327,11 @@ function statusInput() {
 // shows what it showed before; a build that starts, a document switch or [그래도 빌드] ends it sooner.
 function buildUnchanged(build: BuildStatus) {
   const mark = { pull: pullSuffix(build) };
-  BUILD.unchanged = mark;
+  setBuildUnchanged(mark);
   drawStatus();
   setTimeout(() => {
-    if (BUILD.unchanged !== mark) return;
-    BUILD.unchanged = null;
+    if (SHOWN_BUILD.unchanged !== mark) return;
+    setBuildUnchanged(null);
     drawStatus();
   }, STATUS_TRANSIENT_MS);
 }
@@ -349,9 +349,7 @@ function buildUnchanged(build: BuildStatus) {
 // [PDF 재빌드]: off with '빌드 중' while a build runs. body.has-status says a line is up (the sheet joins it).
 function drawStatus() {
   const box = $('#status'),
-    spoken = box.querySelector('.st-sr'),
-    body = box.querySelector('.st-body'),
-    running = !!BUILD.cur;
+    running = !!SHOWN_BUILD.cur;
   const focused = statusFocus();
   let list = statusShown(statusList(statusInput()), LAYOUT === LAYOUT_MODE.WIDE);
   const held =
@@ -368,7 +366,7 @@ function drawStatus() {
   const rebuildRow = $('#m-rebuild');
   if (rebuildRow) {
     rebuildRow.disabled = running;
-    const tail = rebuildRow.querySelector('.m-tail');
+    const tail = findMaybe(rebuildRow, '.m-tail', HTMLElement);
     if (tail) tail.hidden = !running;
   }
   document.body.classList.toggle('has-status', !!top);
@@ -379,10 +377,10 @@ function drawStatus() {
   } // its rows changed: placed again once the line is drawn
   if (!top) {
     if (STATUS_SIG) {
-      body.replaceChildren();
+      findElement(box, '.st-body', HTMLElement).replaceChildren();
       STATUS_SIG = '';
     }
-    spoken.textContent = '';
+    findElement(box, '.st-sr', HTMLElement).textContent = '';
     lineVisible(false);
     return;
   } // hidden: it holds nothing
@@ -406,9 +404,12 @@ function drawStatus() {
     const bar = running
       ? html`<span class="st-bar" role="progressbar" aria-label="${translate('빌드 진행')}"><i></i></span>`
       : '';
-    setHtml(body, html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`);
+    setHtml(
+      findElement(box, '.st-body', HTMLElement),
+      html`${statusIcon(top)}<span class="st-tx" aria-hidden="true"></span>${more}${statusAct(top)}${bar}`,
+    );
   }
-  const textSpan = box.querySelector('.st-tx'),
+  const textSpan = findElement(box, '.st-tx', HTMLElement),
     long = statusText(top, 'long'),
     short = statusText(top, 'short');
   // the short band's one row always takes the short text
@@ -419,6 +420,7 @@ function drawStatus() {
     : // OUTDATED is read out politely here
       top.kind === STATUS_KIND.FAILED || top.kind === STATUS_KIND.ERRORS || top.kind === STATUS_KIND.OFFLINE;
   const say = said || (topNotice && topNotice.quiet) ? '' : long[0];
+  const spoken = findElement(box, '.st-sr', HTMLElement);
   if (spoken.textContent !== say) spoken.textContent = say; // a quiet one (a moved undo) was said when it came
   refocusStatus(focused);
   const bar = box.querySelector('.st-bar');
@@ -427,7 +429,7 @@ function drawStatus() {
     { done, total } = progress || { done: 0, total: 0 },
     percent = progress ? Math.round((done / total) * 100) : null;
   bar.classList.toggle('indet', percent === null);
-  bar.querySelector('i').style.width = percent === null ? '' : percent + '%';
+  findElement(bar, 'i', HTMLElement).style.width = percent === null ? '' : percent + '%';
   if (percent === null) {
     bar.removeAttribute('aria-valuenow');
   } else {
@@ -440,8 +442,8 @@ function drawStatus() {
 // The button of the line or its '+N' list that has the keyboard focus, as its data-act and data-n ('' for an item's own
 // action), or null: the line's redraw gives the focus back to it (refocusStatus).
 function statusFocus(): { act: string; n: string } | null {
-  const active = document.activeElement as HTMLElement | null;
-  return active && active.closest && active.closest('#status,#status-list') && active.dataset.act
+  const active = focusedElement();
+  return active && active.closest('#status,#status-list') && active.dataset.act
     ? { act: active.dataset.act, n: active.dataset.n || '' }
     : null;
 }
@@ -453,8 +455,8 @@ function refocusStatus(focused: { act: string; n: string } | null) {
   if (active && active !== document.body && document.contains(active)) return;
   const selector = '[data-act="' + focused.act + '"]' + (focused.n ? '[data-n="' + focused.n + '"]' : ''),
     listDialog = $('#status-list');
-  const button = ((listDialog.open && listDialog.querySelector(selector)) ||
-    $('#status').querySelector(selector)) as HTMLElement | null;
+  const button =
+    (listDialog.open && findMaybe(listDialog, selector, HTMLElement)) || findMaybe($('#status'), selector, HTMLElement);
   if (button) button.focus({ preventScroll: true });
 }
 // The line follows the focus: when it leaves a message's button, the line shows again what comes first.
@@ -521,7 +523,7 @@ $('#status-list').addEventListener('close', () => {
   const active = document.activeElement,
     line = $('#status');
   if (active && active !== document.body && !$('#status-list').contains(active)) return;
-  const button = (line.querySelector('[data-act="status-more"]') || line.querySelector('button')) as HTMLElement | null;
+  const button = findMaybe(line, '[data-act="status-more"]', HTMLElement) || findMaybe(line, 'button', HTMLElement);
   if (button) button.focus({ preventScroll: true });
 });
 // Which side of the status line the '+N' list opens on, for a list `height` px tall with room px free above and below
@@ -553,7 +555,7 @@ function placeStatusList() {
   if (!dialog.open) return;
   const viewport = window.visualViewport,
     viewTop = viewport ? viewport.offsetTop : 0,
-    viewBottom = viewport ? viewTop + viewport.height : innerHeight,
+    viewBottom = viewport ? viewTop + viewport.height : window.innerHeight,
     lineRect = $('#status').getBoundingClientRect();
   // On the desktop the list's right edge follows the line's - its rows' [되돌리기] and [x] under the line's own - and
   // it reaches left from there: centred in the window it would stand about 350px left of the line, over the PDF.
@@ -561,7 +563,7 @@ function placeStatusList() {
   // inside the visible part, narrowed to it where it is narrower, so a phone zoomed in never has the list run past both
   // sides of what it shows.
   const viewLeft = viewport ? viewport.offsetLeft : 0,
-    viewRight = viewport ? viewLeft + viewport.width : innerWidth;
+    viewRight = viewport ? viewLeft + viewport.width : window.innerWidth;
   dialog.style.left = '';
   dialog.style.right = '';
   const style = getComputedStyle(dialog),
@@ -572,7 +574,7 @@ function placeStatusList() {
     baseLeft = Math.max(8, baseRight - max);
   } else {
     const barLeft = parseFloat(style.left),
-      barRight = innerWidth - parseFloat(style.right),
+      barRight = window.innerWidth - parseFloat(style.right),
       barWidth = Math.min(max, barRight - barLeft);
     baseLeft = barLeft + (barRight - barLeft - barWidth) / 2;
     baseRight = baseLeft + barWidth;
@@ -580,20 +582,20 @@ function placeStatusList() {
   const width = Math.min(baseRight - baseLeft, viewRight - viewLeft - 16),
     left = Math.min(Math.max(baseLeft, viewLeft + 8), viewRight - 8 - width);
   dialog.style.left = Math.round(left) + 'px';
-  dialog.style.right = Math.round(innerWidth - left - width) + 'px';
+  dialog.style.right = Math.round(window.innerWidth - left - width) + 'px';
   const lineTop = Math.min(Math.max(lineRect.top, viewTop), viewBottom),
     // the line's edges, held inside the visible part
     lineBottom = Math.min(Math.max(lineRect.bottom, viewTop), viewBottom);
   const above = lineTop - viewTop - 4 - 8,
     below = viewBottom - lineBottom - 4 - 8,
     height = dialog.scrollHeight + dialog.offsetHeight - dialog.clientHeight;
-  const row = dialog.querySelector('.st-row') as HTMLElement | null,
+  const row = findMaybe(dialog, '.st-row', HTMLElement),
     one = height - $('#status-list-rows').offsetHeight + (row ? row.offsetHeight : 0); // a row, its padding, border
   const up = statusListUp(height, above, below, BAND === LAYOUT_BAND.SHORT),
     room = Math.floor(Math.min(Math.max(up ? above : below, one), viewBottom - viewTop - 16));
   dialog.style.setProperty('--sl-room', room + 'px');
   dialog.style.top = up ? 'auto' : Math.round(Math.min(lineBottom + 4, viewBottom - 8 - room)) + 'px';
-  dialog.style.bottom = up ? Math.round(innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
+  dialog.style.bottom = up ? Math.round(window.innerHeight - Math.max(lineTop - 4, viewTop + 8 + room)) + 'px' : 'auto';
 }
 // placeStatusList at the next frame, once for all the changes before it: the line is drawn by then.
 let STATUS_LIST_PLACE = 0;
@@ -604,7 +606,7 @@ function placeStatusListSoon() {
       placeStatusList();
     });
 }
-addEventListener('resize', placeStatusListSoon);
+window.addEventListener('resize', placeStatusListSoon);
 {
   const viewport = window.visualViewport;
   if (viewport) {
@@ -618,8 +620,8 @@ addEventListener('resize', placeStatusListSoon);
 // that was inside it, then draws it. An open '+N' list folds: it was placed for the old band.
 function placeStatus() {
   const line = $('#status'),
-    active = document.activeElement as HTMLElement,
-    had = line.contains(active);
+    active = focusedElement(),
+    had = !!active && line.contains(active);
   if ($('#status-list').open) $('#status-list').close();
   lineVisible(false); // moved out from under the pointer: no hover is left holding its windows
   if (BAND === LAYOUT_BAND.SHORT) {
@@ -629,7 +631,7 @@ function placeStatus() {
   } else if (LAYOUT === LAYOUT_MODE.WIDE) {
     if (line.parentNode !== $('#status-wide')) $('#status-wide').appendChild(line);
   } else if (line.parentNode !== $('#status-dock')) $('#status-dock').appendChild(line);
-  if (had && active.focus) active.focus({ preventScroll: true });
+  if (had && active) active.focus({ preventScroll: true });
   STATUS_SIG = '';
   drawStatus();
 }

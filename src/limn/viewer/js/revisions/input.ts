@@ -1,11 +1,13 @@
+import { COMPARISON_PDF } from './state-pdf.ts';
 import { translateTemplate } from '../platform/i18n.ts';
-import { REVISION_VIEW, COMPARISON_PDF, drawPinGuide, revisionCurrent } from './flow.ts';
 import { ZOOM_STEP } from '../pdf/view-pages.ts';
-import { VECTOR_PIXEL_CAP } from '../pdf/flow-open.ts';
+import { VECTOR_PIXEL_CAP } from '../pdf/state-vector.ts';
 import { canvasBackingTarget } from '../pdf/view-draw.ts';
 import { wheelFactor } from '../pdf/input-zoom.ts';
 import { $ } from '../platform/dom.ts';
 import { DIFF_FORMAT } from '../app/rules-tables.ts';
+import { REVISION_VIEW, revisionCurrent } from './state.ts';
+import { drawPinGuide } from './view-pin-guide.ts';
 // ------------------------------------------------ The comparison PDF's zoom (docs/handbook/viewer.md §변경 보기)
 // The changes view's own page geometry, zoom and rendering: its ratio is the comparison's alone, and nothing here
 // writes the manuscript's zoom or any other preference. REVISION_ZOOM: the ratio, the fit width and pane height it was
@@ -14,24 +16,25 @@ import { DIFF_FORMAT } from '../app/rules-tables.ts';
 // layout (anchor) and the reset of the gesture state (resetInput).
 type RevisionPage = {
   el: HTMLElement;
-  page: any;
-  base: { width: number; height: number };
+  page: PdfPage;
+  base: PdfViewport;
   canvas: HTMLCanvasElement | null;
-  task: any;
+  task: PdfRenderTask | null;
 };
-// The comparison PDF as mountRevisionPdf reads it (a PDF.js document): its page count and each page's size at scale 1.
-interface RevisionPdf {
-  numPages: number;
-  getPage(pageNumber: number): Promise<{ getViewport(options: { scale: number }): { width: number; height: number } }>;
-}
-// The Safari pinch gesture's event, which the DOM library does not have: the scale since it began and the pinch's point.
-interface GestureEvent extends UIEvent {
-  scale: number;
-  clientX: number;
-  clientY: number;
-}
 type RevisionAnchor = { el: HTMLElement; fx: number; fy: number; x: number; y: number };
-const REVISION_ZOOM = {
+interface RevisionZoomState {
+  ratio: number;
+  fit: number;
+  height: number;
+  gen: number;
+  busy: number;
+  frame: number;
+  repaint: boolean;
+  pages: RevisionPage[];
+  anchor: RevisionAnchor | null;
+  resetInput: () => void;
+}
+const REVISION_ZOOM: RevisionZoomState = {
   ratio: 1,
   fit: 0,
   height: 0,
@@ -39,10 +42,14 @@ const REVISION_ZOOM = {
   busy: 0,
   frame: 0,
   repaint: false,
-  pages: [] as RevisionPage[],
-  anchor: null as RevisionAnchor | null,
+  pages: [],
+  anchor: null,
   resetInput: () => {},
 };
+// Sets the revision view's zoom ratio, for another module that changes it (ADR-0042 D1).
+function setRevisionZoomRatio(value: number) {
+  REVISION_ZOOM.ratio = value;
+}
 
 /** Clamp a requested ratio, including non-finite input, to the comparison range. */
 function revisionRatio(ratio: number) {
@@ -100,12 +107,12 @@ function disposeRevisionZoom() {
 }
 
 /** Remember the nearest page and fractional position under a viewport point. */
-function revisionAnchor(x?, y?) {
+function revisionAnchor(x?: number, y?: number) {
   const box = $('#revision-pdf'),
     boxRect = box.getBoundingClientRect();
   x = x ?? boxRect.left + box.clientWidth / 2;
   y = y ?? boxRect.top + box.clientHeight / 2;
-  let nearest = null as HTMLElement | null,
+  let nearest: HTMLElement | null = null,
     distance = Infinity;
   for (const item of REVISION_ZOOM.pages) {
     const pageRect = item.el.getBoundingClientRect(),
@@ -195,9 +202,9 @@ function revisionZoom(action: string | undefined) {
 }
 
 /** Obtain page geometry without allocating canvases; abandon stale PDF visits. */
-async function mountRevisionPdf(pdf: RevisionPdf, seq: number, docKey: string | null, id: string) {
+async function mountRevisionPdf(pdf: PdfDocument, seq: number, docKey: string | null, id: string) {
   const generation = REVISION_ZOOM.gen,
-    pages = [] as RevisionPage[];
+    pages: RevisionPage[] = [];
   for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber++) {
     const page = await pdf.getPage(pageNumber);
     if (generation !== REVISION_ZOOM.gen || !revisionCurrent(seq, docKey, id)) return;
@@ -271,8 +278,11 @@ async function paintRevisionPdf() {
       item.el.append(canvas);
       item.el.dataset.state = 'loading';
       const viewport = item.page.getViewport({ scale: width / item.base.width });
+      const canvasContext = canvas.getContext('2d');
+      // PDF.js reads canvasContext.canvas, so it fails on a null context as well; this fails the same way.
+      if (!canvasContext) throw new Error('the comparison canvas has no 2D context');
       const task = item.page.render({
-        canvasContext: canvas.getContext('2d'),
+        canvasContext,
         viewport,
         transform: [target.bw / width, 0, 0, target.bh / height, 0, 0],
       });
@@ -307,9 +317,9 @@ async function paintRevisionPdf() {
   const box = $('#revision-pdf');
   let frame = 0,
     pendingFactor = 1,
-    point = null as number[] | null;
-  let gesture = null as { ratio: number; anchor: RevisionAnchor | null } | null;
-  let touch = null as { distance: number; ratio: number; anchor: RevisionAnchor | null } | null;
+    point: number[] | null = null;
+  let gesture: { ratio: number; anchor: RevisionAnchor | null } | null = null;
+  let touch: { distance: number; ratio: number; anchor: RevisionAnchor | null } | null = null;
   /** Apply the composed wheel gesture only to the current comparison. */
   const flush = () => {
     frame = 0;
@@ -340,7 +350,7 @@ async function paintRevisionPdf() {
   );
   box.addEventListener(
     'gesturestart',
-    (event: GestureEvent) => {
+    (event: SafariGestureEvent) => {
       if (!revisionPdfActive()) return;
       event.preventDefault();
       gesture = { ratio: REVISION_ZOOM.ratio, anchor: revisionAnchor(event.clientX, event.clientY) };
@@ -349,7 +359,7 @@ async function paintRevisionPdf() {
   );
   box.addEventListener(
     'gesturechange',
-    (event: GestureEvent) => {
+    (event: SafariGestureEvent) => {
       if (!gesture || touch || !revisionPdfActive() || !(event.scale > 0)) return;
       event.preventDefault();
       revisionZoomTo(gesture.ratio * event.scale, event.clientX, event.clientY, gesture.anchor);
@@ -420,6 +430,7 @@ async function paintRevisionPdf() {
 })();
 export {
   REVISION_ZOOM,
+  setRevisionZoomRatio,
   disposeRevisionZoom,
   drawRevisionZoom,
   mountRevisionPdf,

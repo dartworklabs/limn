@@ -1,7 +1,7 @@
 // ------------------------------------------------ The bar's pin and review counts
 // The panel toggles' and the sheet bar's counts of open pins and of pins awaiting review, and the bar's words fitted to
 // its width (the select button's width held while the bar is measured).
-import { $, $$ } from '../platform/dom.ts';
+import { $, findElement, findAll } from '../platform/dom.ts';
 import { translate, translateTemplate } from '../platform/i18n.ts';
 import { LAYOUT, REVIEW_ALL, SIDE_OPEN } from '../app/state.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
@@ -16,7 +16,7 @@ import { listReview } from './view-list-sections.ts';
 // where the label is hidden (the portrait phone's 36px icon, a stepped-down sheet bar).
 function holdSelectWidth() {
   const button = $('#btn-select'),
-    label = button.querySelector('.lbl') as HTMLElement;
+    label = findElement(button, '.lbl', Element);
   button.style.removeProperty('--sel-w');
   if (!button.getClientRects().length || getComputedStyle(label).display === 'none') return;
   const pressed = button.getAttribute('aria-pressed') || 'false',
@@ -35,11 +35,11 @@ function holdSelectWidth() {
 // (#bar1.bar-tight) - so a count never stands alone. Measured each time a count or the band changes, after [⬚ 선택] has
 // its width (holdSelectWidth, every band); decoration only - nothing moves.
 function fitBarWords() {
-  const bar = $('#bar1'),
-    leftCell = bar.querySelector('.bar-l');
+  const bar = $('#bar1');
   bar.classList.remove('bar-sel-icon', 'bar-snug', 'bar-tight');
   holdSelectWidth();
   if (LAYOUT !== LAYOUT_MODE.NARROW) return;
+  const leftCell = findElement(bar, '.bar-l', HTMLElement);
   const over = () => {
     // the last control's edge, not scrollWidth: the hits overflow too
     const shown = [...leftCell.children].filter((child) => child.getClientRects().length);
@@ -60,14 +60,14 @@ function fitBarWords() {
 function updateReviewCount() {
   const count = REVIEW_ALL.length,
     chip = $('#rv-chip');
-  for (const pill of $$('#btn-side .rv-n,#nav-side .rv-n')) {
+  for (const pill of findAll(document, '#btn-side .rv-n,#nav-side .rv-n', HTMLElement)) {
     pill.hidden = !count;
     setHtml(pill, html`${lucideIcon('eye')}${count}`);
     pill.setAttribute('aria-label', translateTemplate('검토 대기 {n}', { n: count }));
   }
   const reviewButton = $('#btn-rv');
   reviewButton.hidden = !count;
-  reviewButton.querySelector('.rv-c').textContent = count;
+  findElement(reviewButton, '.rv-c', HTMLElement).textContent = String(count);
   // the sheet bar's [검토 M] half: its name starts with what it shows
   reviewButton.setAttribute('aria-label', translateTemplate('검토 {n} · 검토 대기 핀으로 가기', { n: count }));
   fitBarWords();

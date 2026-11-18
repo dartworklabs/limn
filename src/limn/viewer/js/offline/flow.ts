@@ -24,21 +24,22 @@ import {
   topPinId,
 } from '../app/state.ts';
 import { errText, translateTemplate, translate } from '../platform/i18n.ts';
-import { API_WAIT, api, setApiOut } from '../platform/api.ts';
+import { API_WAIT, api, isApiError, isRefusal, setApiOut } from '../platform/api.ts';
+import type { StoredAnswer } from '../platform/api.ts';
 import { NOTICES, bannerNote, endNotice, lineNote, undoNote } from '../platform/notices.ts';
 import { setLastPinsRevision, offlineNow } from '../documents/flow-polling.ts';
 import { WORKER_REGISTRATION, setWorkerRegistration } from '../pins/flow-notification.ts';
 import { drawStatus } from '../documents/view-status.ts';
-import { VECTOR_PDF } from '../pdf/flow-open.ts';
+import { VECTOR_PDF } from '../pdf/state-vector.ts';
 import { pageText } from '../pdf/flow.ts';
 import { kindFor, wireScope } from '../composer/view-levels.ts';
 import { figureFields } from '../pdf/view-figure.ts';
 import { MARKDOWN_VIEW } from '../markdown/view.ts';
-import { renderComposer } from '../composer/flow-pick.ts';
+import { renderComposer } from '../composer/flow-selection.ts';
 import { offlineUiSync } from './view.ts';
 import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';
 import { loadPins } from '../pins/flow-list.ts';
-import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC } from '../platform/tables.ts';
+import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE, NOTICE_PLACE, NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { isMe } from '../app/state-people.ts';
 import { docInfo, withDocQuery, isRegion, pdoc, viewerBlocked } from '../documents/state.ts';
@@ -56,14 +57,14 @@ const OFF_WROTE = 'wrote';
 // the people, the outline labels, and the source a Markdown or text document is drawn from. A light poll (light=1) is
 // not among them - that one has to fail, so the status line says the connection is gone. Nothing else is ever stored,
 // and no answer to a write ever is.
-const OFF_READS = [
-  '/api/meta',
-  '/api/docs',
-  '/api/pins',
-  '/api/pins/dropped',
-  '/api/people',
-  '/api/outline-labels',
-  '/api/source',
+const OFF_READS: ApiEndpoint[] = [
+  'GET /api/meta',
+  'GET /api/docs',
+  'GET /api/pins',
+  'GET /api/pins/dropped',
+  'GET /api/people',
+  'GET /api/outline-labels',
+  'GET /api/source',
 ];
 // idem: the server said it knows a write by its key (meta's pin_idem, offStash). boot: this visit's first reads are
 // still under way (cleared by offlineBoot, which boot() calls last). staleNote: the status line's message that the
@@ -74,7 +75,30 @@ const OFF_READS = [
 // before which none is tried again; failSaid - that failure was said this visit. holder: the server said it counts a
 // build's hold per holder (meta's hold_holder); me: this browser's name among those holders, once read or made
 // (offHolderId).
-const OFF = {
+// n, held: the records queued and those of them that lost their place; flushing: a send of the queue is running;
+// prep: [오프라인으로 받기] is running; saidStale: the stored reads' age was said this visit; db: the opened store.
+interface OfflineState {
+  n: number;
+  held: number;
+  flushing: boolean;
+  prep: boolean;
+  saidStale: boolean;
+  boot: boolean;
+  idem: boolean;
+  staleNote: Notice | null | undefined;
+  db: IDBDatabase | null;
+  following: boolean;
+  kept: KeptRecord | null | undefined;
+  keptAt: number;
+  seen: Record<string, DocSeen>;
+  timer: ReturnType<typeof setTimeout> | undefined;
+  fails: number;
+  after: number;
+  failSaid: boolean;
+  holder: boolean;
+  me: string;
+}
+const OFF: OfflineState = {
   n: 0,
   held: 0,
   flushing: false,
@@ -82,13 +106,13 @@ const OFF = {
   saidStale: false,
   boot: true,
   idem: false,
-  staleNote: null as Notice | null | undefined,
-  db: null as IDBDatabase | null,
+  staleNote: null,
+  db: null,
   following: false,
-  kept: undefined as any,
+  kept: undefined,
   keptAt: 0,
-  seen: {} as Record<string, { build: string; src: any; kind: any }>,
-  timer: undefined as ReturnType<typeof setTimeout> | undefined,
+  seen: {},
+  timer: undefined,
   fails: 0,
   after: 0,
   failSaid: false,
@@ -139,10 +163,10 @@ function offIn<Result>(
   store: string,
   mode: 'readonly' | 'readwrite',
   operation: (store: IDBObjectStore) => IDBRequest<Result>,
-): Promise<any> {
+): Promise<Result | null> {
   return offDb().then(
     (db) =>
-      new Promise((resolve) => {
+      new Promise<Result | null>((resolve) => {
         if (!db) {
           resolve(null);
           return;
@@ -170,24 +194,34 @@ function offIn<Result>(
 function offQueue<Result>(
   mode: 'readonly' | 'readwrite',
   operation: (store: IDBObjectStore) => IDBRequest<Result>,
-): Promise<any> {
+): Promise<Result | null> {
   return offIn(OFF_STORE, mode, operation);
 }
-/** Every queued record, oldest first - the order they were written is the order they are sent. */
-function offAll(): Promise<any[]> {
-  return offQueue('readonly', (store) => store.getAll()).then((records) => (Array.isArray(records) ? records : []));
+/** Every record in the queue as the store holds it, oldest first, or null when the queue cannot be read. */
+function offRecords(): Promise<unknown[] | null> {
+  return offQueue<unknown[]>('readonly', (store) => store.getAll()).then((records) =>
+    Array.isArray(records) ? records : null,
+  );
 }
-// A pin queued while the connection was gone: what its send needs to place it again and write it. id is its key in the
-// queue, set once it is stored.
+/** Every queued record, oldest first - the order they were written is the order they are sent. */
+// A record the store holds that is not a queued pin (isQueuedPin) is left out: not counted, drawn or sent, and left in
+// the store as it is - never deleted.
+function offAll(): Promise<QueuedPin[]> {
+  return offRecords().then((records) => (records || []).filter(isQueuedPin));
+}
+// A pin queued while the connection was gone (offlineQueueSave writes it, offlineFlush marks it): what its send needs
+// to place it again and write it. id is its key in the queue, which the store gives it when it is added. A line pin of
+// a Markdown or text document has no page and no page fractions (absent, or null) - its lines are its place; a drag
+// has no lines.
 interface QueuedPin {
-  id?: number;
+  id: number;
   v: number;
   label: string;
   doc: string | null;
   build: string;
-  page: number;
+  page?: number | null;
   rect: { x0: number; y0: number; x1: number; y1: number } | null;
-  frac: number[];
+  frac?: number[] | null;
   pt: { w: number; h: number } | null;
   quote: string;
   note: string;
@@ -211,18 +245,90 @@ interface QueuedPin {
   } | null;
   idem: string;
 }
-// Adds a record to the queue; answers its key, or null when it was not kept.
-function offAdd(rec: QueuedPin) {
-  return offQueue('readwrite', (store) => store.add(rec));
+// The checks a stored record's fields take: a string or a number that may be absent, a string that may be null, a list
+// of strings or of numbers. Pure.
+function isTextOrAbsent(value: unknown): value is string | undefined {
+  return value === undefined || typeof value === 'string';
+}
+function isNumberOrAbsent(value: unknown): value is number | undefined {
+  return value === undefined || typeof value === 'number';
+}
+function isTextOrNull(value: unknown): value is string | null {
+  return value === null || typeof value === 'string';
+}
+function isTextList(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+}
+function isNumberList(value: unknown): value is number[] {
+  return Array.isArray(value) && value.every((item) => typeof item === 'number');
+}
+// Whether a record read from the queue is a queued pin: every field offlineQueueSave writes, of the type it writes it
+// (offlineFlush changes held, why, sent and top, to the same types). Every Limn that has a queue writes this shape, so
+// a record that is not one was put there by something else; it is left where it is (offAll). Pure.
+function isQueuedPin(value: unknown): value is QueuedPin {
+  if (!isRecord(value)) return false;
+  const { rect, pt: size, place, lines } = value;
+  return (
+    typeof value.id === 'number' &&
+    typeof value.v === 'number' &&
+    typeof value.label === 'string' &&
+    isTextOrNull(value.doc) &&
+    typeof value.build === 'string' &&
+    (value.page === null || isNumberOrAbsent(value.page)) &&
+    (rect === null ||
+      (isRecord(rect) &&
+        typeof rect.x0 === 'number' &&
+        typeof rect.y0 === 'number' &&
+        typeof rect.x1 === 'number' &&
+        typeof rect.y1 === 'number')) &&
+    (value.frac === undefined || value.frac === null || isNumberList(value.frac)) &&
+    (size === null || (isRecord(size) && typeof size.w === 'number' && typeof size.h === 'number')) &&
+    typeof value.quote === 'string' &&
+    typeof value.note === 'string' &&
+    isTextOrNull(value.kind_req) &&
+    isTextOrNull(value.assignee) &&
+    isTextList(value.mentions) &&
+    typeof value.at === 'string' &&
+    typeof value.held === 'boolean' &&
+    typeof value.why === 'string' &&
+    typeof value.sent === 'boolean' &&
+    isNumberOrAbsent(value.top) &&
+    (place === null ||
+      (isRecord(place) &&
+        isTextOrAbsent(place.file) &&
+        typeof place.name === 'string' &&
+        isNumberOrAbsent(place.lo) &&
+        isNumberOrAbsent(place.hi))) &&
+    (lines === null ||
+      (isRecord(lines) &&
+        isTextOrAbsent(lines.file) &&
+        typeof lines.name === 'string' &&
+        typeof lines.lo === 'number' &&
+        typeof lines.hi === 'number' &&
+        typeof lines.text === 'string' &&
+        isTextOrNull(lines.kind) &&
+        isTextOrNull(lines.scope))) &&
+    typeof value.idem === 'string'
+  );
+}
+// Adds a record to the queue; answers its key, or null when it was not kept. The store numbers its records
+// (autoIncrement), so a key is a number.
+function offAdd(rec: Omit<QueuedPin, 'id'>): Promise<number | null> {
+  return offQueue('readwrite', (store) => store.add(rec)).then((key) => (typeof key === 'number' ? key : null));
 }
 // The pins this browser's queue has written, kept in the state store (OFF_WROTE, newest last, OFF_WROTE_MAX of them).
 // A record whose answer never came is looked for in the pin list, and a pin that is in here was written by a different
 // record of this queue - it is not this one's, however alike the two are. Without that, a record that lost its answer
 // while a twin of it was written (the same place, the same note) would match the twin's pin and be deleted unwritten.
 function offWrote(): Promise<number[]> {
-  return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_WROTE)).then((stored) =>
-    Array.isArray(stored && stored.ids) ? stored.ids : [],
-  );
+  return offIn<unknown>(OFF_STATE, 'readonly', (store) => store.get(OFF_WROTE)).then(wroteIds);
+}
+// The pin numbers a stored OFF_WROTE record holds ({key, ids}, written by offWroteAdd and offWroteKeep): its ids that
+// are numbers, which is every one those write; none when there is no such record. Pure.
+function wroteIds(stored: unknown): number[] {
+  return isRecord(stored) && Array.isArray(stored.ids)
+    ? stored.ids.filter((id): id is number => typeof id === 'number')
+    : [];
 }
 // Notes a pin this queue wrote (offWrote).
 async function offWroteAdd(id: number) {
@@ -236,10 +342,11 @@ async function offWroteAdd(id: number) {
 // one it was attempted after (its `top`), so every number at or below the smallest of those tops is past being
 // needed; an empty queue needs none of them. Capping the list by its length instead would drop the very number a
 // record that waited through many writes still needs.
-async function offWroteKeep(rest: any[]) {
+// rest is every record the store holds, read as it is: one that is not a queued pin keeps what its top needs as well.
+async function offWroteKeep(rest: readonly unknown[]) {
   const ids = await offWrote();
   if (!ids.length) return;
-  const tops = rest.map((record) => (typeof record.top === 'number' ? record.top : 0));
+  const tops = rest.map((record) => (isRecord(record) && typeof record.top === 'number' ? record.top : 0));
   const floor = tops.length ? Math.min(...tops) : Infinity;
   const kept = rest.length ? ids.filter((id) => id > floor) : [];
   if (kept.length !== ids.length)
@@ -261,7 +368,7 @@ function offDel(id: number) {
 async function offlineSync() {
   const all = await offAll();
   OFF.n = all.length;
-  OFF.held = all.filter((record) => record && record.held).length;
+  OFF.held = all.filter((record) => record.held).length;
   drawStatus();
   // The queued pins on the page and in the panel (offline/view.ts).
   offlineUiSync(all);
@@ -273,54 +380,96 @@ async function offlineSync() {
 // list, so nothing is drawn and nothing can be dragged. So the last answer to each read of OFF_READS is stored, and a
 // read the network refuses is answered from that store instead of failing - said once on the status line, with when it
 // was read, so a stored list is never taken for the current one.
-/** The store key of a read: its path and query without the cache-busting bits. */
-function offReadKey(url: string, options: { method?: string } | null | undefined): string | null {
-  if (options && options.method && options.method !== 'GET') return null;
+/** The store key of a read of endpoint at url: the url, for a read of OFF_READS that is not a light poll. */
+function offReadKey(endpoint: ApiEndpoint, url: string): string | null {
   const address = String(url);
   if (address.indexOf('light=1') >= 0) return null;
-  const path = address.split('?')[0];
-  if (!OFF_READS.includes(path)) return null;
+  if (!OFF_READS.includes(endpoint)) return null;
   return address;
 }
 // Stores the answer to a document read, so a later visit with no network can be drawn from it. Only an answer the
 // server gave as a success, with a body of its own: a read may hand its caller an error it expects to handle (a
 // Markdown document past the drawing limit answers 413 with its reason, markdown/view.ts), and that answer is not the
 // document. Stored, it would come back on the next visit as a document that opens empty.
-function offStash(url: string, data: any, status: number, options?: { method?: string } | null) {
-  // Every answer the network gives passes here, so this is also where the server says what it can do: a meta answer,
-  // the light poll's included, carries pin_idem when a write is known by its key (api.md POST /api/pin).
-  // A meta answer also says which build each document is on now, which is what keeps a kept copy current
-  // (offlineFollowSeen). And hold_holder when a build's hold is counted per holder, which is what lets this browser let
-  // go of its own (offFollowTidy).
-  if (status === 200 && data && String(url).split('?')[0] === '/api/meta') {
-    OFF.idem = data.pin_idem === true;
-    OFF.holder = data.hold_holder === true;
-    offlineFollowSeen(data);
-  }
-  const key = offReadKey(url, options || null);
+function offStash<Endpoint extends ApiEndpoint>(
+  endpoint: Endpoint,
+  url: string,
+  data: ApiAnswers[Endpoint],
+  status: number,
+) {
+  // Every success the network answers passes here, so this is also where the server says what it can do (OFF_HEARD).
+  const heard = OFF_HEARD[endpoint];
+  if (status === 200 && data && heard) heard(data);
+  const key = offReadKey(endpoint, url);
   if (!key) return;
   if (!(status >= 200 && status < 300) || data === null || data === undefined) return;
-  void offIn(OFF_STATE, 'readwrite', (store) => store.put({ key, data, status, at: Date.now() }));
+  const stored: StoredRead = { key, data, status, at: Date.now() };
+  void offIn(OFF_STATE, 'readwrite', (store) => store.put(stored));
 }
-/** The stored answer to a read, or null - never one the server refused. */
-function offStashed(
+// A read's answer as offStash stores it under the read's key (offReadKey): its body, its status and when it came.
+// Answer is what the body is known to be: unknown as the store gives it back, the endpoint's answer once offStashed
+// takes it as one.
+interface StoredRead<Answer = unknown> {
+  key: string;
+  data: Answer;
+  status: number;
+  at: number;
+}
+// The stored answer a value read under a read's key is, or null when it is none: offStash writes every field, so a
+// record without its body, its status or its time was not written by it. Its status is not judged here. Pure.
+function storedRead(stored: unknown): StoredRead | null {
+  if (!isRecord(stored) || !('data' in stored)) return null;
+  const { key, data, status, at } = stored;
+  return typeof key === 'string' && typeof status === 'number' && typeof at === 'number'
+    ? { key, data, status, at }
+    : null;
+}
+// What an endpoint's answer tells this browser, by endpoint (offStash). A meta answer, the light poll's included,
+// carries pin_idem when a write is known by its key (api.md POST /api/pin). It also says which build each document is
+// on now, which is what keeps a kept copy current (offlineFollowSeen). And hold_holder when a build's hold is counted per
+// holder, which is what lets this browser let go of its own (offFollowTidy).
+const OFF_HEARD: { [Endpoint in ApiEndpoint]?: (data: ApiAnswers[Endpoint]) => void } = {
+  'GET /api/meta': (meta) => {
+    OFF.idem = meta.pin_idem === true;
+    OFF.holder = meta.hold_holder === true;
+    offlineFollowSeen(meta);
+  },
+};
+// The answer that stands in for a stored one, by endpoint (offStashed): for a meta read, the meta of the build this
+// browser keeps whole (offKeptMeta); null keeps the stored answer.
+const OFF_STAND_INS: {
+  [Endpoint in ApiEndpoint]?: (key: string, last: ApiAnswers[Endpoint]) => Promise<StoredAnswer<Endpoint> | null>;
+} = {
+  'GET /api/meta': async (key, last) => offKeptMeta(await offKeptAnswers(), key, last),
+};
+/** The stored answer to a read of endpoint at url, or null - never one the server refused. */
+function offStashed<Endpoint extends ApiEndpoint>(
+  endpoint: Endpoint,
   url: string,
-  options: { method?: string } | null | undefined,
-): Promise<{ data: any; status: number; at: number } | null> {
-  const key = offReadKey(url, options);
+): Promise<StoredAnswer<Endpoint> | null> {
+  const key = offReadKey(endpoint, url);
   if (!key) return Promise.resolve(null);
-  return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (stored) => {
-    if (!stored || !('data' in stored)) return null;
+  // record is the store's value as IndexedDB gives it back (any); value is the same record, read as unknown and
+  // narrowed.
+  return offIn(OFF_STATE, 'readonly', (store) => store.get(key)).then(async (record) => {
+    const value: unknown = record;
+    if (!isRecord(value) || !('data' in value)) return null;
     // The record has to say for itself that the server answered it with a success. A record that does not say so is
     // not trusted and is dropped: a record written by another build of this viewer may hold a refusal, and read as a
     // success it opens a document that is simply empty. A read that finds nothing asks the network, which is the right
     // answer.
-    if (typeof stored.status !== 'number' || stored.status < 200 || stored.status >= 300) {
+    if (typeof value.status !== 'number' || value.status < 200 || value.status >= 300) {
       void offIn(OFF_STATE, 'readwrite', (store) => store.delete(key));
       return null;
     }
-    if (key.split('?')[0] === '/api/meta') {
-      const whole = offKeptMeta(await offKept(), key, stored.data);
+    // One without the rest of what offStash writes (when it came) is not served either: the network is asked. The
+    // record is narrowed; the answer it carries is the one api() was given for this url and is not checked again
+    // (platform/api.ts trusts response.json() the same way, docs/adr/0046-viewer-endpoint-answers.md D3).
+    const stored: StoredRead<ApiAnswers[Endpoint]> | null = storedRead(value) ? record : null;
+    if (!stored) return null;
+    const standIn = OFF_STAND_INS[endpoint];
+    if (standIn) {
+      const whole = await standIn(key, stored.data);
       if (whole) return whole;
     }
     return { data: stored.data, status: stored.status, at: stored.at };
@@ -333,15 +482,15 @@ function offStashed(
 // null when there is nothing to put in its place: an instance never kept, a document not kept, a Markdown or text
 // document (it has no build), a record from before the meta was carried, or the same build. Pure.
 /** @param kept the kept record @param key the read's address @param last the last meta read */
-function offKeptMeta(kept: any, key: string, last: any): { data: any; status: number; at: number } | null {
-  if (!kept || !kept.docs || !last || typeof last !== 'object') return null;
+function offKeptMeta(kept: KeptRecord<Meta> | null, key: string, last: Meta): StoredAnswer<'GET /api/meta'> | null {
+  if (!kept || !kept.docs || !isRecord(last)) return null;
   const query = key.indexOf('?') >= 0 ? key.slice(key.indexOf('?') + 1) : '';
-  const docName = last.doc || new URLSearchParams(query).get('doc') || '',
+  const docName = (typeof last.doc === 'string' && last.doc) || new URLSearchParams(query).get('doc') || '',
     keptDoc = kept.docs[docName];
   if (
     !keptDoc ||
     !keptDoc.build ||
-    !keptDoc.meta ||
+    !isRecord(keptDoc.meta) ||
     keptDoc.meta.pages_build !== keptDoc.build ||
     last.pages_build === keptDoc.build
   )
@@ -402,10 +551,28 @@ async function offlineWorker(): Promise<ServiceWorkerRegistration | null> {
     return null;
   }
 }
+// The questions this page asks the worker (sw.js, its message listener): keep these files, drop these copies, and
+// whether its copies are answering because the network did not (offlineAskDown).
+type WorkerQuestion = { type: 'keep' | 'drop'; urls: string[] } | { type: 'down' };
+// The worker's answer to keep: how many of the files it kept, and the address of each it could not.
+interface KeepAnswer {
+  kept: number;
+  failed: string[];
+}
+// What an answer to keep says, or null when there was none (offlineAsk's null, or not an object): a count that is
+// not a number counts none, a failed list that is not one lists none, and only its addresses are listed. Pure.
+function keepAnswer(answer: unknown): KeepAnswer | null {
+  if (!isRecord(answer)) return null;
+  const { kept, failed } = answer;
+  return {
+    kept: typeof kept === 'number' ? kept : 0,
+    failed: Array.isArray(failed) ? failed.filter((address): address is string => typeof address === 'string') : [],
+  };
+}
 // One question to the worker, answered on its own port so a replaced worker never leaves this waiting. The wait fits
 // the question: a count comes back at once (3s), files have to be fetched first - over a tailnet from a phone that is
 // not 3s, and a wait that short would call a keep that is still going a failure.
-async function offlineAsk(message: { type: string; urls?: string[] }, ms?: number): Promise<any> {
+async function offlineAsk(message: WorkerQuestion, ms?: number): Promise<unknown> {
   const reg = await offlineWorker();
   if (!reg) return null;
   let worker = navigator.serviceWorker.controller;
@@ -416,10 +583,10 @@ async function offlineAsk(message: { type: string; urls?: string[] }, ms?: numbe
     worker = navigator.serviceWorker.controller;
   }
   if (!worker) return null;
-  return new Promise((resolve) => {
+  return new Promise<unknown>((resolve) => {
     const channel = new MessageChannel(),
       timer = setTimeout(() => resolve(null), ms || 3000);
-    channel.port1.onmessage = (event) => {
+    channel.port1.onmessage = (event: MessageEvent<unknown>) => {
       clearTimeout(timer);
       resolve(event.data);
     };
@@ -438,10 +605,10 @@ async function offlineAsk(message: { type: string; urls?: string[] }, ms?: numbe
 async function offlineAskDown() {
   const worker = 'serviceWorker' in navigator ? navigator.serviceWorker.controller : null;
   if (!worker) return;
-  const answer = await new Promise<{ down?: unknown } | null>((resolve) => {
+  const answer = await new Promise<unknown>((resolve) => {
     const channel = new MessageChannel(),
       timer = setTimeout(() => resolve(null), 300);
-    channel.port1.onmessage = (event) => {
+    channel.port1.onmessage = (event: MessageEvent<unknown>) => {
       clearTimeout(timer);
       resolve(event.data);
     };
@@ -452,17 +619,21 @@ async function offlineAskDown() {
       resolve(null);
     }
   });
-  if (answer && answer.down === true) setApiOut(true);
+  if (isRecord(answer) && answer.down === true) setApiOut(true);
 }
 // What the page needs to open with no network: the page itself and everything it has already loaded from this origin
 // (its script /viewer.js, the vendored PDF.js, fonts, KaTeX and the Markdown worker). Nothing is hardcoded, so a
 // change to the vendored files follows along.
 function offlineUrls(): string[] {
-  const out = new Set([location.pathname + location.search]);
+  const out = new Set([window.location.pathname + window.location.search]);
   try {
     performance.getEntriesByType('resource').forEach((entry) => {
-      const address = new URL(entry.name, location.href);
-      if (address.origin === location.origin && !address.pathname.startsWith('/api/') && address.pathname !== '/sw.js')
+      const address = new URL(entry.name, window.location.href);
+      if (
+        address.origin === window.location.origin &&
+        !address.pathname.startsWith('/api/') &&
+        address.pathname !== '/sw.js'
+      )
         out.add(address.href);
     });
   } catch (error) {}
@@ -471,14 +642,17 @@ function offlineUrls(): string[] {
 // The PDF and the page images of a document as its meta names them - the very addresses the viewer asks for when that
 // document is on screen (pdf/flow-open.ts openVectorDocument, pdf/view-pages.ts pageSrc), since a copy is found again
 // by its address. Pure.
-function offlineDocFiles(docName: string | null, meta: any): string[] {
+function offlineDocFiles(
+  docName: string | null,
+  meta: Pick<Meta, 'pages_build' | 'built_at' | 'pages'> | null | undefined,
+): string[] {
   const build = (meta && meta.pages_build) || '',
-    out = [] as string[];
-  if (!build) return out;
+    out: string[] = [];
+  if (!meta || !build) return out;
   out.push(
     withDocQuery('/pdf?build=' + encodeURIComponent(build) + '&v=' + encodeURIComponent(meta.built_at || ''), docName),
   );
-  (meta.pages || []).forEach((page: any) =>
+  (meta.pages || []).forEach((page) =>
     out.push(withDocQuery('/pages/' + encodeURIComponent(build) + '/' + encodeURIComponent(page.name), docName)),
   );
   return out;
@@ -517,26 +691,32 @@ async function offlinePrepare() {
     const urls = new Set(offlineUrls()),
       keys = DOCS.length ? DOCS.map((docEntry) => docEntry.key) : [DOC];
     // Each document's entry for the kept record, once its files are known whole.
-    const got = [] as { k: string; entry: any }[];
+    const got: { k: string; entry: KeptDoc }[] = [];
     let docs = 0,
       held = 0,
       lost = 0;
     for (const docName of keys) {
-      let meta = null as any;
+      let meta: Meta | null = null;
       const seen = Date.now();
       try {
-        meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+        meta = (await api('GET /api/meta', { query: withDocQuery('', docName), what: '화면 정보 읽기', silent: true }))
+          .data;
       } catch (error) {
         lost++;
         continue;
       }
       docs++;
       const info = docName ? docInfo(docName) : null,
-        kind = (meta && meta.kind) || (info && info.kind),
+        kind = (meta && meta.kind) || (info && info.kind) || undefined,
         key = (meta && meta.doc) || docName || '';
       if (rendersInBrowser(kind)) {
         try {
-          await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+          await api('GET /api/source', {
+            query: withDocQuery('', docName),
+            what: '원문 읽기',
+            silent: true,
+            expect: [413],
+          });
           got.push({ k: key, entry: { build: '', files: [], at: 0, src: (meta && meta.src_mtime) ?? null, seen } });
         } catch (error) {
           lost++;
@@ -546,31 +726,42 @@ async function offlinePrepare() {
       const files = offlineDocFiles(docName, meta);
       files.forEach((address) => urls.add(address));
       try {
-        await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+        await api('GET /api/outline-labels', {
+          query: withDocQuery('', docName),
+          what: '목차 번호 읽기',
+          silent: true,
+        });
       } catch (error) {}
       if (meta && meta.pages_build) {
-        // Held only when the server says until when. A 404 is handed back, not thrown (expect), and it is not a hold:
-        // an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
+        // Held only when the server says until when. A 404 is thrown, and offHold's catch turns it, as any 4xx, into
+        // no hold: an older Limn has no such route, and a build that left while this ran answers pdf_build_gone.
         const hold = await offHold(docName, meta.pages_build, 7);
         if (hold && hold.held) held++;
         got.push({ k: key, entry: { build: meta.pages_build, files, at: hold ? hold.at : 0, seen, meta: meta } });
       }
     }
     // The lists every document shares, as they stand now.
-    for (const address of ['/api/docs', '/api/pins?all=1', '/api/pins/dropped', '/api/people']) {
+    for (const [endpoint, query] of [
+      ['GET /api/docs', ''],
+      ['GET /api/pins', '?all=1'],
+      ['GET /api/pins/dropped', ''],
+      ['GET /api/people', ''],
+    ] as const) {
       try {
-        await api(address, { what: '핀 읽기', silent: true });
+        await api(endpoint, { query, what: '핀 읽기', silent: true });
       } catch (error) {
         lost++;
       }
     }
     const all = Array.from(urls),
-      missed = new Set();
+      missed = new Set<string>();
     let kept = 0,
       failed = 0;
     for (let i = 0; i < all.length; i += OFF_KEEP_CHUNK) {
       say(translateTemplate('오프라인용으로 받는 중… {n}/{m}', { n: i, m: all.length }));
-      const answer = await offlineAsk({ type: 'keep', urls: all.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS);
+      const answer = keepAnswer(
+        await offlineAsk({ type: 'keep', urls: all.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS),
+      );
       if (!answer) {
         if (note) endNotice(note, false);
         lineNote(
@@ -587,15 +778,15 @@ async function offlinePrepare() {
         );
         return;
       }
-      kept += answer.kept || 0;
-      failed += (answer.failed || []).length;
-      (answer.failed || []).forEach((address: string) => missed.add(address));
+      kept += answer.kept;
+      failed += answer.failed.length;
+      answer.failed.forEach((address) => missed.add(address));
     }
     // A document is recorded as kept only with every one of its files: a build half kept is not one to follow from.
     // What it kept before then goes to the old builds, which the next follow drops unless a queued pin was drawn on it.
     // The meta answers above have already set a follow going (offStash), which drops those old builds.
     for (const keptDoc of got)
-      if (keptDoc.k && !keptDoc.entry.files.some((address: string) => missed.has(address)))
+      if (keptDoc.k && !keptDoc.entry.files.some((address) => missed.has(address)))
         await offKeptSet((record) => offKeptWith(record, keptDoc.k, keptDoc.entry));
     if (note) endNotice(note, false);
     const bad = failed + lost;
@@ -646,31 +837,107 @@ const OFF_KEPT = 'kept',
   OFF_RETRY_MAX = 1800000,
   OFF_SAY_AFTER = 3,
   OFF_LOCK = 'limn-offline-follow';
+// The kept record as the state store holds it under OFF_KEPT: what each document keeps (docs) and the old builds not
+// dropped yet (old). Carried is what each document's meta is known to be (KeptDoc).
+interface KeptRecord<Carried = unknown> {
+  key: string;
+  docs: Record<string, KeptDoc<Carried>>;
+  old: OldBuild[];
+}
+// What a document keeps (offlinePrepare, offFollowDoc): its build and that build's file addresses, when its hold was
+// last answered (at, 0 for never) and when the server was asked for that build (seen); the meta it was read with, which
+// a stored meta read is answered with (offKeptMeta) and is otherwise only handed on; a Markdown or text document's
+// source time (src) instead, with no build and no files. Carried is what the meta is known to be: unknown as the store
+// gives it back, the meta answer it was once it is taken as one (offKeptAnswers).
+interface KeptDoc<Carried = unknown> {
+  build: string;
+  files: string[];
+  at: number;
+  seen: number;
+  src?: number | null;
+  meta?: Carried;
+}
+// A build a document kept before, not dropped yet: its files, when its hold was last answered, and unheld when this
+// browser never held it (offKeptPart).
+interface OldBuild {
+  doc: string;
+  build: string;
+  files: string[];
+  at: number;
+  unheld?: boolean;
+}
+function isKeptDoc(value: unknown): value is KeptDoc {
+  return (
+    isRecord(value) &&
+    typeof value.build === 'string' &&
+    isTextList(value.files) &&
+    typeof value.at === 'number' &&
+    typeof value.seen === 'number' &&
+    (value.src === undefined || value.src === null || typeof value.src === 'number')
+  );
+}
+function isOldBuild(value: unknown): value is OldBuild {
+  return (
+    isRecord(value) &&
+    typeof value.doc === 'string' &&
+    typeof value.build === 'string' &&
+    isTextList(value.files) &&
+    typeof value.at === 'number' &&
+    (value.unheld === undefined || typeof value.unheld === 'boolean')
+  );
+}
+// Whether a value read under OFF_KEPT is the kept record: what offKeptWith, offKeptPart and offKeptHeld write, every
+// document's entry and every old build whole. Every Limn that keeps a copy writes this shape. Pure.
+function isKeptRecord(value: unknown): value is KeptRecord {
+  if (!isRecord(value)) return false;
+  const { docs, old } = value;
+  return (
+    typeof value.key === 'string' &&
+    isRecord(docs) &&
+    !Array.isArray(docs) &&
+    Object.values(docs).every(isKeptDoc) &&
+    Array.isArray(old) &&
+    old.every(isOldBuild)
+  );
+}
+// The kept record a value read under OFF_KEPT is, or null - for an instance never kept, and for a record that is not
+// one (isKeptRecord): read as never kept, it follows nothing, and the next [오프라인으로 받기] writes a new one over it.
+// Pure.
+function keptRecord(value: unknown): KeptRecord | null {
+  return isKeptRecord(value) ? value : null;
+}
 /** The kept record, or null for an instance never kept. */
-function offKept(): Promise<any> {
+function offKept(): Promise<KeptRecord | null> {
+  return offIn<unknown>(OFF_STATE, 'readonly', (store) => store.get(OFF_KEPT)).then(keptRecord);
+}
+// The kept record with each document's meta taken as the GET /api/meta answer it is, or null as offKept: the record is
+// narrowed (keptRecord); the metas it carries are the answers offlinePrepare and offFollowDoc were given and kept, not
+// checked again (platform/api.ts trusts response.json() the same way, docs/adr/0046-viewer-endpoint-answers.md D3).
+// record is the store's value as IndexedDB gives it back (any).
+function offKeptAnswers(): Promise<KeptRecord<Meta> | null> {
   return offIn(OFF_STATE, 'readonly', (store) => store.get(OFF_KEPT)).then((record) =>
-    record && record.docs ? record : null,
+    keptRecord(record) ? record : null,
   );
 }
 // Changes the kept record in one transaction, read and written together: two tabs of this browser share it, and a
 // change made between another tab's read and its write would be lost. change gets the record (or null) and answers
 // the new one, or null to leave it. Answers what was written, or null.
-function offKeptUpdate(change: (record: any) => any): Promise<any> {
+function offKeptUpdate(change: (record: KeptRecord | null) => KeptRecord | null): Promise<KeptRecord | null> {
   return offDb().then(
     (db) =>
-      new Promise((resolve) => {
+      new Promise<KeptRecord | null>((resolve) => {
         if (!db) {
           resolve(null);
           return;
         }
-        let out = null as any;
+        let out: KeptRecord | null = null;
         try {
           const transaction = db.transaction(OFF_STATE, 'readwrite'),
             store = transaction.objectStore(OFF_STATE),
-            request = store.get(OFF_KEPT);
+            request: IDBRequest<unknown> = store.get(OFF_KEPT);
           request.onsuccess = () => {
             try {
-              out = change(request.result && request.result.docs ? request.result : null);
+              out = change(keptRecord(request.result));
               if (out) store.put(out);
             } catch (error) {
               out = null;
@@ -686,7 +953,7 @@ function offKeptUpdate(change: (record: any) => any): Promise<any> {
   );
 }
 /** offKeptUpdate, and this tab's copy of the record follows. */
-async function offKeptSet(change: (record: any) => any): Promise<any> {
+async function offKeptSet(change: (record: KeptRecord | null) => KeptRecord | null): Promise<KeptRecord | null> {
   const written = await offKeptUpdate(change);
   if (written) {
     OFF.kept = written;
@@ -704,36 +971,50 @@ function offKeptShow() {
 }
 // What a meta answer says each document is on: the document it answers for and, with several documents, each one's
 // summary - the page build, the source time, the kind. Pure.
-function offSeenIn(meta: any): Record<string, { build: string; src: any; kind: any }> {
-  const out = {} as Record<string, { build: string; src: any; kind: any }>;
-  if (!meta || typeof meta !== 'object') return out;
-  const put = (summary: any, key: any) => {
+// What a meta answer says one document is on (offSeenIn): its page build ('' for none), its source time and its kind.
+interface DocSeen {
+  build: string;
+  src: number | null;
+  kind: string | null;
+}
+// meta is an answer to GET /api/meta as it was handed to offStash; a field of the wrong type reads as missing.
+function offSeenIn(meta: Meta): Record<string, DocSeen> {
+  const out: Record<string, DocSeen> = {};
+  if (!isRecord(meta)) return out;
+  const put = (summary: Record<string, unknown>, key: unknown) => {
+    const { pages_build: build, src_mtime: src, kind } = summary;
     if (typeof key === 'string' && key)
-      out[key] = { build: summary.pages_build || '', src: summary.src_mtime ?? null, kind: summary.kind || null };
+      out[key] = {
+        build: (typeof build === 'string' && build) || '',
+        src: typeof src === 'number' ? src : null,
+        kind: (typeof kind === 'string' && kind) || null,
+      };
   };
   put(meta, meta.doc);
-  (Array.isArray(meta.docs) ? meta.docs : []).forEach((summary: any) => {
-    if (summary && typeof summary === 'object') put(summary, summary.key);
+  (Array.isArray(meta.docs) ? meta.docs : []).forEach((summary: unknown) => {
+    if (isRecord(summary)) put(summary, summary.key);
   });
   return out;
 }
 // The documents whose kept copy is behind what the server shows: a page document on another build (or one not kept yet
 // - a document added to a kept instance is part of it), a Markdown or text document whose source changed. A document
 // with no build has nothing to keep; one the server no longer lists is not looked at. Pure.
-function offBehind(kept: any, seen: Record<string, { build: string; src: any; kind: any }>): string[] {
-  const docs = (kept && kept.docs) || {};
+function offBehind(kept: KeptRecord | null, seen: Record<string, DocSeen>): string[] {
+  const docs: Record<string, KeptDoc | undefined> = (kept && kept.docs) || {};
   return Object.keys(seen).filter((docName) => {
     const shown = seen[docName],
       keptDoc = docs[docName];
-    if (rendersInBrowser(shown.kind)) return !keptDoc || keptDoc.src !== shown.src;
+    if (rendersInBrowser(shown.kind ?? undefined)) return !keptDoc || keptDoc.src !== shown.src;
     return !!shown.build && (!keptDoc || keptDoc.build !== shown.build);
   });
 }
 // The old builds no queued pin was drawn on: those whose copies may be dropped and whose hold need not be asked again.
 // A record names its document and the build it was drawn on; a record with no document is taken to be drawn on that
 // build in any document - keeping a build too long costs space, dropping it loses the pin's place. Pure.
-function offFree(old: any[], queue: any[]): any[] {
-  const drawn = (queue || []).filter((record) => record && record.build);
+// queue is every record the store holds, read as it is: a record that is not a queued pin (isQueuedPin) keeps the
+// build it names all the same.
+function offFree(old: readonly OldBuild[], queue: readonly unknown[]): OldBuild[] {
+  const drawn = (queue || []).filter(isRecord).filter((record) => record.build);
   return (old || []).filter(
     (oldBuild) =>
       !drawn.some((record) => record.build === oldBuild.build && (!record.doc || record.doc === oldBuild.doc)),
@@ -741,14 +1022,15 @@ function offFree(old: any[], queue: any[]): any[] {
 }
 // The holds to ask again: of each document's build and each old build still kept, those last answered OFF_RENEW_MS
 // ago or never. Pure.
-function offRenewDue(kept: any, now: number): { doc: string; build: string }[] {
-  const out = [] as { doc: string; build: string }[];
+function offRenewDue(kept: KeptRecord | null, now: number): { doc: string; build: string }[] {
+  const out: { doc: string; build: string }[] = [];
   if (!kept) return out;
-  const due = (entry: any) => !!entry && !!entry.build && !entry.unheld && !(now - (entry.at || 0) < OFF_RENEW_MS);
+  const due = (entry: { build: string; at: number; unheld?: boolean } | undefined) =>
+    !!entry && !!entry.build && !entry.unheld && !(now - (entry.at || 0) < OFF_RENEW_MS);
   Object.keys(kept.docs || {}).forEach((docName) => {
     if (due(kept.docs[docName])) out.push({ doc: docName, build: kept.docs[docName].build });
   });
-  (kept.old || []).forEach((oldBuild: any) => {
+  (kept.old || []).forEach((oldBuild) => {
     if (due(oldBuild)) out.push({ doc: oldBuild.doc, build: oldBuild.build });
   });
   return out;
@@ -759,14 +1041,14 @@ function offRenewDue(kept: any, now: number): { doc: string; build: string }[] {
 // whatever a tab fetched is accounted for and dropped in turn - never the build that won, whichever tab fetched it.
 // (Asked in the same millisecond, the later write wins; the next follow sees the server's build and puts it right.) A
 // build kept again leaves the old ones. Pure.
-function offKeptWith(kept: any, docName: string, entry: any): any {
+function offKeptWith(kept: KeptRecord | null, docName: string, entry: KeptDoc): KeptRecord {
   const out = { key: OFF_KEPT, docs: { ...((kept && kept.docs) || {}) }, old: ((kept && kept.old) || []).slice() };
   const current = out.docs[docName] || null;
-  const toOld = (retired: any) => {
+  const toOld = (retired: KeptDoc) => {
     if (
       !retired ||
       !retired.build ||
-      out.old.some((oldBuild: any) => oldBuild.doc === docName && oldBuild.build === retired.build)
+      out.old.some((oldBuild) => oldBuild.doc === docName && oldBuild.build === retired.build)
     )
       return;
     out.old.push({ doc: docName, build: retired.build, files: retired.files || [], at: retired.at || 0 });
@@ -777,29 +1059,29 @@ function offKeptWith(kept: any, docName: string, entry: any): any {
   }
   if (current && current.build !== entry.build) toOld(current);
   out.docs[docName] = entry;
-  out.old = out.old.filter((oldBuild: any) => !(oldBuild.doc === docName && oldBuild.build === entry.build));
+  out.old = out.old.filter((oldBuild) => !(oldBuild.doc === docName && oldBuild.build === entry.build));
   return out;
 }
 // The kept record once a follow of a document to a build stopped before that build was kept: the files it asked for
 // are noted with the old builds, never held by this browser (unheld - its hold is not asked again), so they are dropped
 // in turn and do not stay on the device unaccounted for. null when there is nothing to note - the build is what the
 // document keeps. Pure.
-function offKeptPart(kept: any, docName: string, build: string, files: string[]): any {
+function offKeptPart(kept: KeptRecord | null, docName: string, build: string, files: string[]): KeptRecord | null {
   if (!kept || (kept.docs && kept.docs[docName] && kept.docs[docName].build === build)) return null;
   const old = (kept.old || []).slice(),
-    oldIndex = old.findIndex((oldBuild: any) => oldBuild.doc === docName && oldBuild.build === build);
+    oldIndex = old.findIndex((oldBuild) => oldBuild.doc === docName && oldBuild.build === build);
   if (oldIndex >= 0)
     old[oldIndex] = { ...old[oldIndex], files: Array.from(new Set([...(old[oldIndex].files || []), ...files])) };
   else old.push({ doc: docName, build: build, files: files.slice(), at: 0, unheld: true });
   return { ...kept, old };
 }
 // The kept record with the hold of a document's build answered at `at`. Pure.
-function offKeptHeld(kept: any, docName: string, build: string, at: number): any {
+function offKeptHeld(kept: KeptRecord | null, docName: string, build: string, at: number): KeptRecord | null {
   if (!kept) return null;
   const out = {
     ...kept,
     docs: { ...(kept.docs || {}) },
-    old: (kept.old || []).map((oldBuild: any) =>
+    old: (kept.old || []).map((oldBuild) =>
       oldBuild.doc === docName && oldBuild.build === build ? { ...oldBuild, at } : oldBuild,
     ),
   };
@@ -816,8 +1098,8 @@ async function offHold(
 ): Promise<{ at: number; held: boolean } | null> {
   const holder = (await offHolderId()) || undefined;
   try {
-    const answer = await api(withDocQuery('/api/hold', docName), {
-      method: 'POST',
+    const answer = await api('POST /api/hold', {
+      query: withDocQuery('', docName),
       body: { build: build, days, holder },
       what: '빌드 보류',
       silent: true,
@@ -825,8 +1107,7 @@ async function offHold(
     });
     return { at: Date.now(), held: answer.status === 200 && !!answer.data && !!answer.data.until };
   } catch (error) {
-    const apiError = error as ApiError,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? { at: Date.now(), held: false } : null;
   }
 }
@@ -847,10 +1128,13 @@ function offHolderId(): Promise<string> {
         try {
           const transaction = db.transaction(OFF_STATE, 'readwrite'),
             store = transaction.objectStore(OFF_STATE),
-            request = store.get(OFF_HOLDER);
+            request: IDBRequest<unknown> = store.get(OFF_HOLDER);
           request.onsuccess = () => {
             const stored = request.result;
-            id = stored && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id) ? stored.id : '';
+            id =
+              isRecord(stored) && typeof stored.id === 'string' && /^[A-Za-z0-9_-]{16,64}$/.test(stored.id)
+                ? stored.id
+                : '';
             if (!id) {
               id = offlineKey();
               store.put({ key: OFF_HOLDER, id });
@@ -869,7 +1153,7 @@ function offHolderId(): Promise<string> {
   );
 }
 // A meta answer seen: what each document is on is noted, and a follow is set going when one is due.
-function offlineFollowSeen(meta: any) {
+function offlineFollowSeen(meta: Meta) {
   const now = offSeenIn(meta);
   let moved = false;
   Object.keys(now).forEach((docName) => {
@@ -952,18 +1236,24 @@ async function offFollowRun() {
 // that build held - all of it before it is recorded, so the build it kept stays whole until this one is. A Markdown or
 // text document reads its source again. Answers whether it is done.
 async function offFollowDoc(docName: string): Promise<boolean> {
-  let meta;
+  let meta: Meta | null;
   // When the server was asked: a reading asked later is the newer one (offKeptWith).
   const seen = Date.now();
   try {
-    meta = (await api(withDocQuery('/api/meta', docName), { what: '화면 정보 읽기', silent: true })).data;
+    meta = (await api('GET /api/meta', { query: withDocQuery('', docName), what: '화면 정보 읽기', silent: true }))
+      .data;
   } catch (error) {
     return false;
   }
   if (!meta) return false;
   if (rendersInBrowser(meta.kind)) {
     try {
-      await api(withDocQuery('/api/source', docName), { what: '원문 읽기', silent: true, expect: [413] });
+      await api('GET /api/source', {
+        query: withDocQuery('', docName),
+        what: '원문 읽기',
+        silent: true,
+        expect: [413],
+      });
     } catch (error) {
       return false;
     }
@@ -976,7 +1266,7 @@ async function offFollowDoc(docName: string): Promise<boolean> {
   // Nothing to keep.
   if (!build) return true;
   try {
-    await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true });
+    await api('GET /api/outline-labels', { query: withDocQuery('', docName), what: '목차 번호 읽기', silent: true });
   } catch (error) {}
   const files = offlineDocFiles(docName, meta);
   // Half a build is not kept: the one before stays whole, and what was fetched of this one is noted to go in turn.
@@ -985,8 +1275,10 @@ async function offFollowDoc(docName: string): Promise<boolean> {
     return false;
   };
   for (let i = 0; i < files.length; i += OFF_KEEP_CHUNK) {
-    const answer = await offlineAsk({ type: 'keep', urls: files.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS);
-    if (!answer || (answer.failed || []).length) return half();
+    const answer = keepAnswer(
+      await offlineAsk({ type: 'keep', urls: files.slice(i, i + OFF_KEEP_CHUNK) }, OFF_KEEP_MS),
+    );
+    if (!answer || answer.failed.length) return half();
   }
   const hold = await offHold(docName, build, 7);
   // Not held, it may be gone before its pins are sent.
@@ -1003,10 +1295,10 @@ async function offFollowTidy(): Promise<boolean> {
   let ok = true;
   const kept = await offKept();
   if (!kept) return true;
-  const queue = await offQueue('readonly', (store) => store.getAll());
-  if (!Array.isArray(queue)) return false;
-  const shown = (oldBuild: any) => !!OFF.seen[oldBuild.doc] && OFF.seen[oldBuild.doc].build === oldBuild.build;
-  for (const oldBuild of offFree(kept.old, queue).filter((oldBuild: any) => !shown(oldBuild))) {
+  const queue = await offRecords();
+  if (!queue) return false;
+  const shown = (oldBuild: OldBuild) => !!OFF.seen[oldBuild.doc] && OFF.seen[oldBuild.doc].build === oldBuild.build;
+  for (const oldBuild of offFree(kept.old, queue).filter((oldBuild) => !shown(oldBuild))) {
     if (offlineNow()) return false;
     const urls = oldBuild.files || [];
     if (urls.length && !(await offlineAsk({ type: 'drop', urls }))) {
@@ -1025,9 +1317,7 @@ async function offFollowTidy(): Promise<boolean> {
       (record) =>
         record && {
           ...record,
-          old: (record.old || []).filter(
-            (other: any) => !(other.doc === oldBuild.doc && other.build === oldBuild.build),
-          ),
+          old: (record.old || []).filter((other) => !(other.doc === oldBuild.doc && other.build === oldBuild.build)),
         },
     );
   }
@@ -1076,9 +1366,12 @@ function offFollowDone(ok: boolean) {
 async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: number; y1: number }): Promise<string> {
   if (!VECTOR_PDF.doc) return '';
   try {
-    // The one reader of a page's text (pdf/flow.ts).
-    const { items, vp: viewport } = await pageText(VECTOR_PDF.doc, page);
-    return quoteIn(items, viewport.height, rect);
+    // The one reader of a page's text (pdf/flow.ts): PDF.js's text content items and the page's viewport at scale 1,
+    // whose height is a number (pdfjs-dist PageViewport).
+    const text = await pageText(VECTOR_PDF.doc, page);
+    const viewport = text.vp;
+    if (!isRecord(viewport) || typeof viewport.height !== 'number') return '';
+    return quoteIn(text.items, viewport.height, rect);
   } catch (error) {
     return '';
   }
@@ -1088,11 +1381,17 @@ async function offlineQuote(page: number, rect: { x0: number; y0: number; x1: nu
 // An item counts when its run crosses the box and the middle of its line is inside it. Judged by where the item
 // starts alone, a line that begins at the margin and runs through the box would be left out - which is most lines, so
 // the quote would come back empty. Cut at 160 characters the way the server cuts its own (159 and an ellipsis). Pure.
-function quoteIn(items: any[], pageHeight: number, rect: { x0: number; y0: number; x1: number; y1: number }): string {
-  const out = [] as string[];
+// items are PDF.js text content items (types/pdfjs.d.ts PdfTextItem); one that is not an object with a list of numbers
+// for its transform - a marked content item has none - is passed over.
+function quoteIn(
+  items: PdfTextItem[],
+  pageHeight: number,
+  rect: { x0: number; y0: number; x1: number; y1: number },
+): string {
+  const out: string[] = [];
   (items || []).forEach((item) => {
-    const matrix = item && item.transform;
-    if (!matrix || typeof item.str !== 'string' || !item.str.trim()) return;
+    const matrix = isRecord(item) && isNumberList(item.transform) ? item.transform : null;
+    if (!isRecord(item) || !matrix || typeof item.str !== 'string' || !item.str.trim()) return;
     const x = matrix[4],
       width = Number(item.width) || 0,
       height = Number(item.height) || Math.hypot(matrix[2], matrix[3]) || 0,
@@ -1121,18 +1420,18 @@ async function offlinePick(drag: {
     quote = await offlineQuote(drag.page, rect);
   // A newer drag or a cancel owns the composer now.
   if (seq !== PICKSEQ) return;
-  const selection = {
+  // A region's shape, as POST /api/pick answers one for a view-only PDF (pins/location/http.py _region_body): no file
+  // and no lines, which the composer reads as absent, a name only the found place will have (''), the build the drag
+  // was drawn on ('' when the drag named none), and absent for a PDF or a document it cannot name.
+  const selection: ComposerSelection = {
     kind: 'region',
     page: drag.page,
     frac: drag.frac,
     quote,
-    file: null,
-    name: null,
-    lo: null,
-    hi: null,
-    pdf: META ? META.pages_build : null,
-    pdf_build: drag.pdf_build,
-    doc: drag.doc || DOC,
+    name: '',
+    pdf: META ? META.pages_build : undefined,
+    pdf_build: drag.pdf_build || '',
+    doc: drag.doc || DOC || undefined,
     offline: true,
     rect,
     levels: [],
@@ -1140,15 +1439,11 @@ async function offlinePick(drag: {
     scope: null,
     env: null,
     elSel: null,
-    el: null,
-    via: null,
-    score: null,
     warn: '',
     snippet: '',
     n_lines: 0,
-    default_level: null,
-  } as any;
-  setComposeCurrent(selection as Selection);
+  };
+  setComposeCurrent(selection);
   setComposeIntent(COMPOSE.intent + 1);
   setComposePicking(false);
   setComposeDismissedOverlap(null);
@@ -1172,7 +1467,7 @@ async function offlinePick(drag: {
 // as one whose write was attempted - under the key the save went with, if it had one, and with the newest pin that
 // stood before it - so the send asks for it before it writes it.
 async function offlineQueueSave(
-  selection: Selection,
+  selection: ComposerSelection,
   note: string,
   out: { kind: string | null; assignee: string | null },
   mentions: string[],
@@ -1193,7 +1488,7 @@ async function offlineQueueSave(
   // as placed and points elsewhere. So the record carries the box as page fractions (frac, which every drag has) and
   // the page's size in points on the build it was drawn on, which together rebuild that pick request exactly. The
   // lines a pick already found are kept only to tell the person what the pin used to point at if its place is lost.
-  const pageFacts = META && META.pages && META.pages[selection.page - 1];
+  const pageFacts = META && META.pages && selection.page !== undefined && META.pages[selection.page - 1];
   const found =
     !selection.offline &&
     !isRegion(selection) &&
@@ -1203,10 +1498,9 @@ async function offlineQueueSave(
   // A Markdown or text document has no page: its lines are the place, and the browser drew them from the source it
   // holds. The record keeps those lines' own text, so the send can tell whether they still read the same - and find
   // them again when lines were only added or removed above them.
-  const lined = found && typeof selection.page !== 'number' && MARKDOWN_VIEW.doc === (selection.doc || DOC);
-  const firstLine = selection.lo as number,
-    lastLine = selection.hi as number;
-  const rec = {
+  const lined =
+    found && selection.page === undefined && MARKDOWN_VIEW.doc === (selection.doc || DOC) ? selection : null;
+  const rec: Omit<QueuedPin, 'id'> = {
     v: 1,
     label: META ? META.label : '',
     doc: selection.doc || DOC,
@@ -1228,13 +1522,13 @@ async function offlineQueueSave(
     place: found ? { file: selection.file, name: selection.name, lo: selection.lo, hi: selection.hi } : null,
     lines: lined
       ? {
-          file: selection.file,
-          name: selection.name,
-          lo: firstLine,
-          hi: lastLine,
-          text: MARKDOWN_VIEW.lines.slice(firstLine - 1, lastLine).join('\n'),
-          kind: selection.scope ? kindFor(selection.scope, selection.env) : selection.kind,
-          scope: selection.scope ? wireScope(selection.scope) : null,
+          file: lined.file,
+          name: lined.name,
+          lo: lined.lo,
+          hi: lined.hi,
+          text: MARKDOWN_VIEW.lines.slice(lined.lo - 1, lined.hi).join('\n'),
+          kind: lined.scope ? kindFor(lined.scope, lined.env) : lined.kind,
+          scope: lined.scope ? wireScope(lined.scope) : null,
         }
       : null,
     idem: (tried && tried.idem) || offlineKey(),
@@ -1320,30 +1614,61 @@ function linesWhere(lines: string[], want: { lo: number; text: string }): { lo: 
     }
   return count === 1 ? { lo: hit, hi: hit + lineCount - 1 } : null;
 }
+// Where a kept Markdown or text record's lines stand now (offlinePlaceLines), in the shape offlineBody takes.
+interface LinePlace {
+  file?: string;
+  name: string;
+  lo: number;
+  hi: number;
+  raw_lo: number;
+  raw_hi: number;
+  kind: string | null;
+  scope?: string;
+  quote: string;
+  page?: undefined;
+  frac?: undefined;
+  pdf_build?: undefined;
+  el?: undefined;
+  via?: undefined;
+  score?: undefined;
+  fill?: undefined;
+  rival?: undefined;
+  default_level?: undefined;
+}
+// The place a record is written at: its lines found again (LinePlace), or pick's answer for its drag (POST /api/pick).
+type OfflinePlace = LinePlace | PickAnswer;
 // The place a kept Markdown or text record is written at: its lines as the source reads now (linesWhere), in the shape
 // offlineBody takes. 'net' when the source could not be asked for (the record waits), null when the lines are gone.
-async function offlinePlaceLines(rec: any): Promise<any> {
+async function offlinePlaceLines(rec: QueuedPin): Promise<LinePlace | 'net' | null> {
+  const kept = rec.lines;
+  if (!kept) return null;
   let answer;
   try {
-    answer = await api(withDocQuery('/api/source', rec.doc), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api('GET /api/source', {
+      query: withDocQuery('', rec.doc),
+      what: '원문 읽기',
+      silent: true,
+      expect: [413],
+    });
   } catch (error) {
-    const apiError = error as ApiError,
-      status = (apiError && apiError.status) || 0;
+    const status = isApiError(error) ? error.status : 0;
     return status >= 400 && status < 500 ? null : 'net';
   }
   const lines =
-    answer.status === 200 && answer.data && Array.isArray(answer.data.lines) ? answer.data.lines.map(String) : null;
-  const at = lines ? linesWhere(lines, rec.lines) : null;
+    answer.status === 200 && answer.data && !isRefusal(answer.data) && Array.isArray(answer.data.lines)
+      ? answer.data.lines.map(String)
+      : null;
+  const at = lines ? linesWhere(lines, kept) : null;
   if (!at) return null;
   return {
-    file: rec.lines.file,
-    name: rec.lines.name,
+    file: kept.file,
+    name: kept.name,
     lo: at.lo,
     hi: at.hi,
     raw_lo: at.lo,
     raw_hi: at.hi,
-    kind: rec.lines.kind,
-    scope: rec.lines.scope || undefined,
+    kind: kept.kind,
+    scope: kept.scope || undefined,
     quote: rec.quote,
   };
 }
@@ -1351,7 +1676,7 @@ async function offlinePlaceLines(rec: any): Promise<any> {
 // page's size on the build make - the same product pdf/input-selection.ts sends when the drag happens. Null when the
 // record has neither, which is the one case nothing can be placed from (a box of zeros would resolve to the page's
 // corner). Pure.
-function offlineBox(rec: any): { x0: number; y0: number; x1: number; y1: number } | null {
+function offlineBox(rec: QueuedPin): { x0: number; y0: number; x1: number; y1: number } | null {
   if (rec.rect) return rec.rect;
   const frac = rec.frac,
     pagePoints = rec.pt;
@@ -1366,9 +1691,9 @@ function offlineBox(rec: any): { x0: number; y0: number; x1: number; y1: number 
 // The pin body a found place and a kept record make, the same whitelist POST /api/pin takes (api.md §핀 추가). A pick
 // that answered with no file is a region answer - a view-only PDF, or a figure element with no code behind it - and
 // that pin is its page and box, as savePin sends one.
-function offlineBody(rec: any, place: any): Record<string, unknown> {
+function offlineBody(rec: QueuedPin, place: OfflinePlace): Record<string, unknown> {
   if (!place.file) {
-    const region = {
+    const region: Record<string, unknown> = {
       page: place.page,
       frac: place.frac || rec.frac,
       note: rec.note,
@@ -1377,14 +1702,14 @@ function offlineBody(rec: any, place: any): Record<string, unknown> {
       doc: rec.doc || undefined,
       kind_req: rec.kind_req,
       assignee: rec.assignee,
-    } as Record<string, unknown>;
+    };
     if ((rec.mentions || []).length) region.mentions = rec.mentions;
     if (rec.idem) region.idem = rec.idem;
     // A figure pick: its element, and the element's box as the pin's (as savePin sends one).
     if (place.el) figureFields(region, place.el, null);
     return region;
   }
-  const body = {
+  const body: Record<string, unknown> = {
     file: place.file,
     name: place.name,
     page: place.page,
@@ -1404,8 +1729,8 @@ function offlineBody(rec: any, place: any): Record<string, unknown> {
     doc: rec.doc || undefined,
     kind_req: rec.kind_req,
     assignee: rec.assignee,
-  } as Record<string, unknown>;
-  if (place.scope) body.scope = place.scope;
+  };
+  if ('scope' in place && place.scope) body.scope = place.scope;
   if ((rec.mentions || []).length) body.mentions = rec.mentions;
   if (rec.idem) body.idem = rec.idem;
   // A figure pick names its element. Without it the pin has no element to follow: its mark stays where it was drawn
@@ -1433,7 +1758,7 @@ function fracSame(first: unknown, second: unknown) {
 // deliberate pins may be alike in every field this reads, and only one of them is that pin. Nor is a pin that was
 // already there when this record was attempted (rec.top, as findLandedVerdict reads its own lost answer): whatever that
 // pin is, it is not the write this record made afterwards.
-function offlineLanded(rec: any, place: any, claimed: Set<number>): number {
+function offlineLanded(rec: QueuedPin, place: OfflinePlace, claimed: Set<number>): number {
   // A figure pin's box is its element's (offlineBody).
   const frac = place.el && Array.isArray(place.el.frac) ? place.el.frac : place.frac || rec.frac;
   const top = typeof rec.top === 'number' ? rec.top : 0;
@@ -1471,12 +1796,17 @@ async function offlineFlush() {
   // event, and a server may have been rolled back to a Limn that drops the key it does not know. The answer sets
   // OFF.idem on its way through api() (offStash). No answer means the connection is not there after all.
   try {
-    await api(withDocQuery('/api/meta?light=1'), { what: '상태 확인', silent: true, wait: API_WAIT.POLL });
+    await api('GET /api/meta', {
+      query: withDocQuery('?light=1'),
+      what: '상태 확인',
+      silent: true,
+      wait: API_WAIT.POLL,
+    });
   } catch (error) {
     OFF.flushing = false;
     return;
   }
-  const saved = [] as number[],
+  const saved: number[] = [],
     claimed = new Set(await offWrote());
   let held = 0,
     failed = 0;
@@ -1494,15 +1824,14 @@ async function offlineFlush() {
       const keyed = OFF.idem && !!rec.idem;
       if (keyed && rec.sent) {
         try {
-          const answer = await api('/api/pin', {
-            method: 'POST',
+          const answer = await api('POST /api/pin', {
             body: { idem: rec.idem, replay_only: true, doc: rec.doc || undefined },
             what: '핀 저장',
             silent: true,
             expect: [409],
             wait: API_WAIT.SEND,
           });
-          if (answer.status === 200 && answer.data && typeof answer.data.id === 'number') {
+          if (answer.status === 200 && answer.data && !isRefusal(answer.data) && typeof answer.data.id === 'number') {
             claimed.add(answer.data.id);
             await offWroteAdd(answer.data.id);
             saved.push(answer.data.id);
@@ -1526,13 +1855,14 @@ async function offlineFlush() {
       // or text document are looked for in its source as it reads now. The lines a pick once answered are never
       // written: the manuscript moves while a person is away, and writing them would anchor the pin to whatever
       // stands at those numbers now.
-      let place = null as any;
+      let place: OfflinePlace | null = null;
       if (rec.lines) {
-        place = await offlinePlaceLines(rec);
-        if (place === 'net') {
+        const placed = await offlinePlaceLines(rec);
+        if (placed === 'net') {
           failed++;
           continue;
         }
+        place = placed;
         if (!place) {
           rec.held = true;
           rec.why = translate('그사이 그 줄들의 글이 바뀌었습니다');
@@ -1559,28 +1889,25 @@ async function offlineFlush() {
           pdf_build: rec.build || undefined,
           doc: rec.doc || undefined,
         };
+        // A drag pick cannot trace answers 200 with what it could not do (pins/location/http.py pick_answer).
+        let picked: ApiAnswers['POST /api/pick'] | null;
         try {
-          place = (
-            await api('/api/pick', {
-              method: 'POST',
-              body: pickRequest,
-              what: '위치 찾기',
-              silent: true,
-              wait: API_WAIT.SEND,
-            })
+          picked = (
+            await api('POST /api/pick', { body: pickRequest, what: '위치 찾기', silent: true, wait: API_WAIT.SEND })
           ).data;
         } catch (error) {
           // No answer or a refusal: the record stays for the next send.
           failed++;
           continue;
         }
-        if (!place || place.error) {
+        if (!picked || typeof picked !== 'object' || isRefusal(picked)) {
           rec.held = true;
-          rec.why = errText(place) || translate('위치를 찾지 못했습니다');
+          rec.why = errText(picked) || translate('위치를 찾지 못했습니다');
           await offPut(rec);
           held++;
           continue;
         }
+        place = picked;
       }
       // A server that knows a write by its key needs none of the looking below: the same key is the same pin, so the
       // record is sent with it until an answer comes, and an answer to a second attempt names the pin the first made.
@@ -1597,8 +1924,7 @@ async function offlineFlush() {
         rec.top = topPinId();
         await offPut(rec);
         try {
-          const { data } = await api('/api/pin', {
-            method: 'POST',
+          const { data } = await api('POST /api/pin', {
             body: offlineBody(rec, place),
             what: '핀 저장',
             silent: true,
@@ -1611,12 +1937,12 @@ async function offlineFlush() {
           saved.push(data && data.id);
           await offDel(rec.id);
         } catch (error) {
-          const apiError = error as ApiError,
-            status = (apiError && apiError.status) || 0;
-          if (status >= 400 && status < 500) {
+          const refused = isApiError(error) ? error : null,
+            status = refused ? refused.status : 0;
+          if (refused && status >= 400 && status < 500) {
             rec.sent = false;
             rec.held = true;
-            rec.why = errText(apiError.data) || 'HTTP ' + status;
+            rec.why = errText(refused.data) || 'HTTP ' + status;
             await offPut(rec);
             held++;
           } else failed++;
@@ -1651,8 +1977,7 @@ async function offlineFlush() {
       // The pins that existed before this write, as savePin notes for its own.
       await offPut(rec);
       try {
-        const { data } = await api('/api/pin', {
-          method: 'POST',
+        const { data } = await api('POST /api/pin', {
           body: offlineBody(rec, place),
           what: '핀 저장',
           silent: true,
@@ -1665,13 +1990,13 @@ async function offlineFlush() {
         saved.push(data && data.id);
         await offDel(rec.id);
       } catch (error) {
-        const apiError = error as ApiError;
-        const status = (apiError && apiError.status) || 0;
+        const refused = isApiError(error) ? error : null;
+        const status = refused ? refused.status : 0;
         // Turned away: nothing is on the server.
-        if (status >= 400 && status < 500) {
+        if (refused && status >= 400 && status < 500) {
           rec.sent = false;
           rec.held = true;
-          rec.why = errText(apiError.data) || 'HTTP ' + status;
+          rec.why = errText(refused.data) || 'HTTP ' + status;
           await offPut(rec);
           held++;
           continue;
@@ -1746,9 +2071,10 @@ function offlineBoot() {
     offFollowCheck(true);
   });
 }
-addEventListener('online', () => {
+window.addEventListener('online', () => {
   void offlineFlush();
 });
+export type { QueuedPin };
 export {
   OFF,
   offDel,

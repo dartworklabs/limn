@@ -31,10 +31,10 @@ function elementName(element: PinElement | null | undefined) {
 // carries it, else by the pick's own element, else by the id itself: an ancestor merged into an inner rung, past the
 // ladder's cap, drawn in another file or above a region answer's element has no rung, and the map's name or its id
 // still says where it is.
-function elementPathText(selection: Selection) {
+function elementPathText(selection: ComposerSelection) {
   const selectedElement = selection && selection.elSel;
   if (!selectedElement || !Array.isArray(selectedElement.path)) return '';
-  const names = new Map();
+  const names = new Map<string, string>();
   if (selection.el && selection.el.id) names.set(selection.el.id, elementName(selection.el));
   (selection.levels || []).forEach((level) => {
     if (level.el && level.el.id) names.set(level.el.id, String(level.label || elementName(level.el)));
@@ -65,7 +65,7 @@ function snapBox(box: HTMLElement | null, element: PinElement | null | undefined
 }
 // The element part of the composer for the selection and its pending box: the path line '#c-path' (hidden when the pick
 // found no element - a manuscript, a view-only PDF, a figure whose map is unreadable) and the snapped box.
-function renderElement(selection: Selection, box: HTMLElement | null) {
+function renderElement(selection: ComposerSelection, box: HTMLElement | null) {
   const line = $('#c-path'),
     selectedElement = selection.elSel;
   line.hidden = !selectedElement;
@@ -91,7 +91,7 @@ for (const [eventName, on] of [
   ['focus', true],
   ['mouseleave', false],
   ['blur', false],
-] as [string, boolean][])
+] as const)
   $('#c-path').addEventListener(eventName, () => highlightElementBox(on));
 function showElementBox() {
   const box = COMPOSE.box;
@@ -152,17 +152,17 @@ function figureFields(
   return body;
 }
 // The rung the selection's scope names when it is a figure rung (it carries an element), else null.
-function figureRung(selection: Selection) {
+function figureRung(selection: ComposerSelection) {
   const level = selection && selection.scope && levelOf(selection, selection.scope);
   return level && level.el ? level : null;
 }
 // The element a re-place candidate would move the pin to: its default rung's, else the answer's own (a region answer).
-function repickElement(candidate: PickAnswer) {
+function repickElement(candidate: ComposerSelection) {
   const level = levelOf(candidate, candidate.default_level);
   return (level && level.el) || candidate.el || null;
 }
 // Whether the server found this figure pin's element in the current build: the read-time `mark` box on `mark_page`.
-function hasMark(pin: Pin) {
+function hasMark(pin: Pin): pin is Pin & { mark: number[]; mark_page: number } {
   return isFrac(pin.mark) && typeof pin.mark_page === 'number' && Number.isInteger(pin.mark_page) && pin.mark_page >= 1;
 }
 // Where a pin's mark goes (docs/handbook/viewer.md §상태 표현): its element's box in the current build when the server
@@ -170,7 +170,7 @@ function hasMark(pin: Pin) {
 // was lost or whose map is unreadable. The box can be null (a stored box that is not finite reads null as a whole): the
 // caller draws nothing for it.
 function pinPlace(pin: Pin) {
-  return hasMark(pin) ? { page: pin.mark_page as number, frac: pin.mark } : { page: pin.page, frac: pin.frac };
+  return hasMark(pin) ? { page: pin.mark_page, frac: pin.mark } : { page: pin.page, frac: pin.frac };
 }
 // Whether a piece of a mark can be drawn: an entry with a page of the build (1-based) and a box on it. The entry itself
 // is read as it came - a row of a server's answer this page does not share a version with can be anything, and one that

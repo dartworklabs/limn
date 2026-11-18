@@ -14,9 +14,9 @@ interface ComposerVerdict {
   /** Draws the composer's verdict row for the selection and the kind as they are now. */
   drawRow(): void;
   /** The pin body of a verdict saved on a figure document (the figure's, whatever element is picked), or null. */
-  figureBody(selection: Selection): Record<string, unknown> | null;
+  figureBody(selection: ComposerSelection): Record<string, unknown> | null;
   /** The figure a selection on a figure document is about, or null. */
-  figureRoot(selection: Selection | null): string | null;
+  figureRoot(selection: ComposerSelection | null): string | null;
   /** A figure's short name while its page still shows it. */
   figureShort(page: number, root: string): string;
   /** The [되돌리기] of a saved verdict pin. */
@@ -73,7 +73,7 @@ interface ComposerQueue {
   pick(drag: PickDrag): Promise<void>;
   /** Keeps a pin in the queue; whether it was kept. */
   save(
-    selection: Selection,
+    selection: ComposerSelection,
     note: string,
     out: { kind: string | null; assignee: string | null },
     mentions: string[],
@@ -95,11 +95,9 @@ function composerQueue(): ComposerQueue {
   return COMPOSER_QUEUE;
 }
 
-// A pin's own fields that use the composer's text tools (pins/flow-edit.ts, pins/flow-reply.ts): the open edit card,
-// whose excerpt, place and @-tags the composer's code changes, and the reply box's outcome line.
+// A pin's own fields that use the composer's text tools (pins/flow-edit.ts, pins/flow-reply.ts): the open edit card's
+// snippet after a range change and the reply box's outcome after a mention changes.
 interface PinFields {
-  /** Draws the open edit card again. */
-  drawEdit(): void;
   /** Reads the open edit card's snippet again (with its range ladder when withLevels). */
   snipEdit(withLevels: boolean): Promise<void>;
   /** Draws the reply box's outcome line again. */

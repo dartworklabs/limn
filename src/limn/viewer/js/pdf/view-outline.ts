@@ -2,19 +2,15 @@
 import { BAND, DOC, META, REDUCED_MOTION_QUERY, imeKey, isFigureKind, scrollMotion } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
-import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
-import { VECTOR_PDF } from './flow-open.ts';
-import type { PdfDestination, PdfDocument, PdfOutlineItem } from './flow-open.ts';
-import { refreshPageLists } from './view-page-list.ts';
-import { $ } from '../platform/dom.ts';
+import { refitFilteredSheet } from '../documents/flow-switch.ts';
+import { drawPos } from '../documents/view-tabs.ts';
+import { $, eventElement, findAll } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
-import { isMarkdownDoc, docInfo, withDocQuery } from '../documents/state.ts';
+import { isMarkdownDoc, docInfo } from '../documents/state.ts';
 import { topAnchor } from '../layout/flow.ts';
 import { arrivalWatch, glideTo } from '../layout/flow-scroll.ts';
 import { pageChanges, pageMarkdown } from './state-seams.ts';
 import { goPage, jumpOnItsWay, OUTLINE_PICK_GAP, spotTop, readingDepth } from './view-page-jump.ts';
-
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
 // Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
 type OutlineEntry = {
@@ -41,103 +37,12 @@ type OutlineLabel = {
 // (outlineCutNote) - never dropped without a word.
 const OUTLINE_MAX_ENTRIES = 2000,
   OUTLINE_MAX_DEPTH = 4;
-// Sibling entries whose destinations are resolved at once (each is a round trip to the PDF.js worker).
-const OUTLINE_BATCH = 100;
-// How many entries that name a place (a destination) lie in item and below it. Counts without resolving anything, and
-// with a stack of its own: an outline can nest deeper than the call stack.
-function outlineCount(item: PdfOutlineItem) {
-  let count = 0;
-  const todo = [item];
-  for (let node = todo.pop(); node; node = todo.pop()) {
-    if (node.dest != null) count++;
-    for (const child of node.items || []) todo.push(child);
-  }
-  return count;
-}
 // Which document and build the entries in OUTLINE_ENTRIES were read for (outlineForget drops them when another document
 // comes on screen; the page list names a figure's pages by them only while they are those of the build on screen,
 // outlineOnScreen).
-let OUTLINE_DOC = null as string | null,
+let OUTLINE_DOC: string | null = null,
   OUTLINE_BUILD = '';
-// Reads the outline of the PDF document opened as generation gen (VECTOR_PDF.gen) into OUTLINE_ENTRIES, with the
-// numbers and printed page labels the server reads for the build (mergeOutlineLabels), and draws it. A newer open drops
-// it.
-async function loadOutline(doc: PdfDocument, gen: number) {
-  const docName = DOC,
-    build = (META && META.pages_build) || '',
-    // a newer open (another document or build) took over
-    stale = () => gen !== VECTOR_PDF.gen || doc !== VECTOR_PDF.doc;
-  let entries: OutlineEntry[] = [],
-    cut = 0;
-  try {
-    const items = await doc.getOutline();
-    // One outline item as an entry (without its depth), or null when it names no page of this PDF - or when its
-    // destination cannot be resolved: one broken link leaves out that entry only, not the outline.
-    async function entryOf(item: PdfOutlineItem) {
-      try {
-        let destination = item.dest;
-        if (typeof destination === 'string') destination = await doc.getDestination(destination);
-        if (!Array.isArray(destination) || destination[0] == null) return null;
-        const page =
-          typeof destination[0] === 'number' ? destination[0] + 1 : (await doc.getPageIndex(destination[0])) + 1;
-        const pageHeight = META && META.pages && META.pages[page - 1] ? +META.pages[page - 1].pt_h : 0;
-        if (!(Number.isInteger(page) && page >= 1 && page <= doc.numPages)) return null;
-        return {
-          title: item.title || translate('제목 없음'),
-          page,
-          depth: 0,
-          up: -1,
-          frac: destinationFraction(destination, pageHeight),
-          x: destinationLeft(destination),
-        };
-      } catch (error) {
-        return null;
-      }
-    }
-    // up: the index in entries of the nearest entry above these rows (-1 at the top, or when every row above has no
-    // entry of its own).
-    async function walk(rows: PdfOutlineItem[], depth: number, up: number) {
-      for (let i = 0; i < rows.length; i += OUTLINE_BATCH) {
-        // Between batches: a document left behind does not go on asking the worker.
-        if (stale()) return;
-        if (entries.length >= OUTLINE_MAX_ENTRIES) {
-          for (let j = i; j < rows.length; j++) cut += outlineCount(rows[j]);
-          return;
-        }
-        const batch = rows.slice(i, i + OUTLINE_BATCH),
-          got = await Promise.all(batch.map(entryOf));
-        if (stale()) return;
-        for (let j = 0; j < batch.length; j++) {
-          if (entries.length >= OUTLINE_MAX_ENTRIES) {
-            cut += outlineCount(batch[j]);
-            continue;
-          }
-          const at = entries.length,
-            entry = got[j];
-          if (entry) entries.push(Object.assign(entry, { depth, up }));
-          if (depth < OUTLINE_MAX_DEPTH) {
-            await walk(batch[j].items, depth + 1, entry ? at : up);
-            if (stale()) return;
-          } else for (const child of batch[j].items || []) cut += outlineCount(child);
-        }
-      }
-    }
-    await walk(items || [], 0, -1);
-  } catch (error) {
-    entries = [];
-    cut = 0;
-  }
-  if (stale()) return;
-  // The PDF's own outline is still usable when the numbering service cannot be reached.
-  if (entries.length) {
-    try {
-      const answer = (await api(withDocQuery('/api/outline-labels', docName), { what: '목차 번호 읽기', silent: true }))
-        .data;
-      if (!stale() && docName === DOC && build === META.pages_build && answer.build === build)
-        entries = mergeOutlineLabels(entries, answer.labels || []);
-    } catch (error) {}
-  }
-  if (stale()) return;
+function applyPdfOutline(entries: OutlineEntry[], cut: number, docName: string | null, build: string) {
   OUTLINE_ENTRIES = entries;
   OUTLINE_CUT = cut;
   OUTLINE_DOC = docName;
@@ -147,8 +52,6 @@ async function loadOutline(doc: PdfDocument, gen: number) {
   OUTLINE_PINNED = null;
   renderOutline();
   updateSectionStrip();
-  // A page list opened while this was read names its pages now.
-  refreshPageLists();
 }
 // Drops the outline of the document that was on screen before, when another one comes on screen (openVectorDocument):
 // the page list and the section strip would otherwise name its pages by the old document's headings until the new
@@ -192,7 +95,7 @@ function mergeOutlineLabels(entries: OutlineEntry[], labels: OutlineLabel[]) {
   let cursor = 0;
   return entries.map((entry) => {
     const title = normalize(entry.title);
-    let matched = null as any;
+    let matched: OutlineLabel | null = null;
     if (title)
       for (let i = cursor; i < labels.length; i++) {
         const label = labels[i];
@@ -282,7 +185,7 @@ function outlineGroupName(entry: OutlineEntry) {
 // manuscript figure that holds it. Entries that differ in number or title tell themselves apart, and a title said twice
 // under one group, or at the top, has no group to say. Over all the entries, not the rows found, so a row reads the
 // same whatever is typed. Memoised on the entries.
-let OUTLINE_GROUPED = { for: null, set: new Set() } as { for: object[] | null; set: Set<number> };
+let OUTLINE_GROUPED: { for: object[] | null; set: Set<number> } = { for: null, set: new Set() };
 function outlineGrouped(entries: OutlineEntry[]) {
   if (OUTLINE_GROUPED.for === entries) return OUTLINE_GROUPED.set;
   const normalize = (text: string) =>
@@ -291,9 +194,9 @@ function outlineGrouped(entries: OutlineEntry[]) {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase(); // as mergeOutlineLabels reads a title
-  const under = new Map(),
-    several = new Set(),
-    set = new Set() as Set<number>;
+  const under = new Map<string, number>(),
+    several = new Set<string>(),
+    set: Set<number> = new Set();
   entries.forEach((entry) => {
     const key = normalize((entry.number || '') + ' ' + entry.title),
       up = typeof entry.up === 'number' ? entry.up : -1;
@@ -378,7 +281,7 @@ let OUTLINE_MARKED = -1,
   OUTLINE_OVER = false,
   OUTLINE_HANDLED = -Infinity,
   OUTLINE_SHOWN = false,
-  OUTLINE_AIM = null as { top: number; at: number } | null;
+  OUTLINE_AIM: { top: number; at: number } | null = null;
 // Where the list (scrollTop, view height viewHeight, content height contentHeight) scrolls to bring a row at [top,
 // bottom] of its content into view: null when the row stands margin px clear of both edges - else the nearest place
 // where it does (less on a view too short for that, and a row taller than the view by its top). The view's top edge is
@@ -432,8 +335,8 @@ function outlineFiltered() {
 // on the pages does not take it away, so the outline would wait for good - nor a row a mouse pressed, which keeps the
 // focus after its pick: reading on must not leave the outline behind.
 function outlineHeld() {
-  const focused = document.activeElement as HTMLElement | null;
-  const onRow = !!focused && !!focused.closest && !!focused.closest('#outline-items');
+  const focused = document.activeElement;
+  const onRow = !!focused && !!focused.closest('#outline-items');
   return (
     outlineFiltered() ||
     OUTLINE_OVER ||
@@ -476,7 +379,7 @@ function outlineFollow(open?: boolean) {
       start = start.previousElementSibling;
     return start.getBoundingClientRect().top - from;
   };
-  const entry = OUTLINE_ENTRIES[Number((row as HTMLElement).dataset.index)],
+  const entry = OUTLINE_ENTRIES[Number(row instanceof HTMLElement ? row.dataset.index : undefined)],
     sectionHead = entry && entry.up >= 0 ? list.querySelector('[data-index="' + entry.up + '"]') : null;
   // The tablet sheet's bar and the status line on it stand over the overlay's foot (frame.css: the overlay runs to the
   // screen's bottom): what they cover is out of view, so the view is that much shorter and so is what the list can
@@ -655,7 +558,7 @@ function outlineIndexAt(entries: OutlineEntry[], page: number, frac: number) {
 // let go before it is reached, so that a later visit to its page by hand shows that page's own entry: when the reader
 // takes over (a wheel, a touch, a press on the pages or the scroll bar, a scrolling key), when the window changes size,
 // when another pick replaces it, and when the pages have come to rest short of its page (outlinePickRest).
-let OUTLINE_PINNED = null as { page: number; index: number; reached: boolean } | null,
+let OUTLINE_PINNED: { page: number; index: number; reached: boolean } | null = null,
   OUTLINE_PICK_WAIT = 0;
 // A smooth scroll moves the pages every frame; this long without a scroll, the pick looks whether they rest.
 const OUTLINE_PICK_SETTLE_MS = 250;
@@ -772,11 +675,11 @@ function updateSectionStrip() {
 // and typed in, and the first ↓ must show where the focus went.
 /** @returns the result rows (the unread-entries note is not one) */
 function outlineRows(box: HTMLElement): HTMLElement[] {
-  return [...box.querySelectorAll('button[data-act="outline-page"]')] as HTMLElement[];
+  return findAll(box, 'button[data-act="outline-page"]', HTMLElement);
 }
 // Wires one filter field to its list and its live region (outlineSay).
-function outlineFilter(field: HTMLElement, box: HTMLElement, status: HTMLElement) {
-  const input = field as HTMLInputElement,
+function outlineFilter(field: HTMLInputElement, box: HTMLElement, status: HTMLElement) {
+  const input = field,
     keyed = () => {
       document.documentElement.dataset.input = 'key';
     },
@@ -800,12 +703,9 @@ function outlineFilter(field: HTMLElement, box: HTMLElement, status: HTMLElement
     if (event.key === 'Enter') first.click();
   });
   box.addEventListener('keydown', (event) => {
-    const row = (
-      event.target && (event.target as HTMLElement).closest
-        ? (event.target as HTMLElement).closest('button[data-act="outline-page"]')
-        : null
-    ) as HTMLElement | null;
-    if (!row || !mine(event)) return;
+    const target = eventElement(event),
+      row = target ? target.closest('button[data-act="outline-page"]') : null;
+    if (!(row instanceof HTMLElement) || !mine(event)) return;
     const rows = outlineRows(box),
       at = rows.indexOf(row);
     if (event.key === 'Escape') {
@@ -944,12 +844,12 @@ for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, dropOutlinePick, { passive: true });
 // A key scrolls the pages when nothing else has the focus, or something on the pages has it.
 const SCROLL_KEYS = new Set(['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' ']);
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const focused = document.activeElement;
   if (SCROLL_KEYS.has(event.key) && (!focused || focused === document.body || $('#left').contains(focused)))
     dropOutlinePick();
 });
-addEventListener('resize', dropOutlinePick);
+window.addEventListener('resize', dropOutlinePick);
 // Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setOutlineBuild<Value extends typeof OUTLINE_BUILD>(value: Value): Value {
   OUTLINE_BUILD = value;
@@ -983,7 +883,12 @@ export {
   OUTLINE_ENTRIES,
   OUTLINE_SELECTED,
   SCROLL_KEYS,
-  loadOutline,
+  applyPdfOutline,
+  OUTLINE_MAX_ENTRIES,
+  OUTLINE_MAX_DEPTH,
+  destinationFraction,
+  destinationLeft,
+  mergeOutlineLabels,
   markOutline,
   outlineForget,
   outlineOnScreen,

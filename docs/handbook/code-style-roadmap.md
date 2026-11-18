@@ -28,7 +28,7 @@ Limn의 코딩 규칙은 팀 스킬 `code-implement`, `code-testing`, `code-secu
 
 basedpyright는 `all`에서 네 규칙만 끈다. `reportImplicitOverride`는 `@override`가 Python 3.12의 `typing`이나 `typing_extensions`에만 있어 3.10·표준 라이브러리 런타임에서 쓸 수 없어서다. `reportImplicitStringConcatenation`은 배치 규칙이라 Ruff format의 몫이고, 긴 계약 문장을 이웃한 문자열로 감싸는 것이 포매터의 방식이라서다. `reportUnusedCallResult`는 버린 반환값(`os.write`·`list.pop`)이 타입 결함이 아니어서다. `reportImportCycles`는 슬라이스 사이의 순환이 경계 검사의 몫이고, pyright가 `TYPE_CHECKING` 아래의 import까지 세어 지연 로드하는 모든 슬라이스 표면을 실행되지 않는 순환으로 보고하기 때문이다. 이유는 `pyproject.toml`의 각 줄 위에도 있다.
 
-뷰어 모듈(`src/limn/viewer/js/`)의 경계는 [`tools/check_viewer_boundaries.mjs`](../../tools/check_viewer_boundaries.mjs)가 집행한다. 허락되지 않은 기능 방향(`feature-dependency`), 기능을 아는 공용 모듈(`platform-isolation`), 역할 규칙(`role`)은 불변식이라 위반 하나가 검사를 실패시킨다. 모듈 순환(`cycle`)만 아직 다 풀리지 않아 줄기만 하는 기준선이 센다. 규칙의 정의는 [viewer.md](viewer.md) §모듈 경계다.
+뷰어 모듈(`src/limn/viewer/js/`)의 경계는 [`tools/check_viewer_boundaries.mjs`](../../tools/check_viewer_boundaries.mjs)가 집행한다. 모듈 순환(`cycle`), 허락되지 않은 기능 방향(`feature-dependency`), 기능을 아는 공용 모듈(`platform-isolation`), 역할 규칙(`role`)은 불변식이라 위반 하나가 검사를 실패시킨다. 규칙의 정의는 [viewer.md](viewer.md) §모듈 경계다.
 
 ## R5 보이지 않는 전역 상태를 명시적 인자로
 

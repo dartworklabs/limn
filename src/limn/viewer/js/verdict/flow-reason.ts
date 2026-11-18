@@ -30,41 +30,51 @@ import {
   REVIEW_ALL,
   captureVisit,
   currentVisit,
-  imeHeldIn,
   imeKey,
   imeTail,
   EDITOR,
 } from '../app/state.ts';
 import { html, lucideIcon } from '../platform/markup.ts';
 import { errText, translateTemplate, translate, TIP_TEXT, josa } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isApiError } from '../platform/api.ts';
 import { announce, endNotice, lineNote, quietNote, sourceOk } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import {
-  SAVING_LINES,
-  KEYED_PAGE,
-  KEY_SAVE_OUT,
-  READING_LINE_PAGE,
-  drawPageVerdicts,
-  fillPageLine,
-  pageTargetShort,
-  canCancelVerdict,
-  currentVerdictOn,
+  IS_BESIDE_PAGES,
+  bringPage,
+  redrawOnBesideChange,
   pageUnderReadingLine,
   readingPageWithLine,
   sayGliding,
-  pageLineSlot,
-  stickReadingLine,
-} from './flow-line.ts';
-import { IS_BESIDE_PAGES, bringPage, redrawOnBesideChange } from './view-panel.ts';
+} from './view-panel.ts';
 import { PINS_APPLIED_SEQ, gotoPinRef, loadPins } from '../pins/flow-list.ts';
 import { NOTICE_HOST, NOTICE_KIND, NOTICE_LIFE } from '../platform/tables.ts';
-import { $, typingNow, searchToPage } from '../platform/dom.ts';
+import {
+  $,
+  eventClosest,
+  eventElement,
+  findAll,
+  findClosest,
+  findMaybe,
+  focusedElement,
+  isDisabled,
+  typingNow,
+  searchToPage,
+} from '../platform/dom.ts';
 import { verdictOf } from '../app/rules-pins.ts';
 import { isMe } from '../app/state-people.ts';
+import type { Visit } from '../app/state.ts';
 import { docInfo, verdictLabel, viewerBlocked, pageVerdictsOn } from '../documents/state.ts';
 import { isAutoScrolling, endJumpForScroll } from '../layout/flow-scroll.ts';
-import { canVerdict, pageTakesVerdict, pageTargetOf, pageVerdictPins } from './view-pins.ts';
+import {
+  canVerdict,
+  pageTakesVerdict,
+  pageTargetOf,
+  pageVerdictPins,
+  pageTargetShort,
+  canCancelVerdict,
+  currentVerdictOn,
+} from './view-pins.ts';
 import {
   readAllDrafts,
   saveAllDrafts,
@@ -85,6 +95,15 @@ import {
   draftsMovedOff,
   cutWrittenDrafts,
 } from './state-drafts.ts';
+import { SAVING_LINES, KEYED_PAGE, KEY_SAVE_OUT, READING_LINE_PAGE, pageLineSlot } from './state-lines.ts';
+import {
+  findReasonField,
+  isReasonField,
+  COMPOSING_FIELD,
+  setComposingField,
+  isComposingNow,
+} from './view-reason-field.ts';
+import { verdictLineRenderer } from './state-line-renderer.ts';
 import type { ReasonPart, ReasonTry } from './state-drafts.ts';
 
 // A pin's write lost its answer (`attempt`): every part moved off its key keeps it as evidence, stored and in a session
@@ -132,7 +151,7 @@ type ReasonSession = {
   id: number;
   key: string;
   doc: string | null;
-  visit: any;
+  visit: Visit;
   text: string;
   base: string;
   mode: string;
@@ -158,18 +177,23 @@ type ReasonHist = {
   size: number;
   landed: { doc: string | null; id: number; word: string; text: string }[];
 };
-let REASON_SESSION = null as ReasonSession | null;
+let REASON_SESSION: ReasonSession | null = null;
+// Marks whether the reading line has been on a session's page (ReasonSession.seen), for another module that sees it
+// (ADR-0042 D1).
+function setReasonSeen(session: ReasonSession, seen: boolean) {
+  session.seen = seen;
+}
 let SESSION_SEQUENCE = 0;
 // The popovers moved away from (another page, another document, another popover) before their verdict's save answered,
 // by line (pageLineSlot of the document they were typed on): each stays bound to that save, not to the screen.
-const DETACHED_SESSIONS = new Map() as Map<string, ReasonSession>;
+const DETACHED_SESSIONS: Map<string, ReasonSession> = new Map();
 // the verdict pin the last save on a page line made: its line offers the way to its reason wherever it is
 let LAST_LINE_SAVE = 0;
 let LAST_KEY_SAVE = 0; // ...when that save was a key's: its line says 'Enter 이유 쓰기'
 // The pins this person withdrew (the save's undo, [판정 취소], a pressed word pressed again) while a reason for them
 // may still be on its way: its failure, or its finding the pin gone, is no news to them - nothing is said. A failed
 // withdrawal or a restore takes the pin out again.
-const WITHDRAWN_PINS = new Set() as Set<number>;
+const WITHDRAWN_PINS: Set<number> = new Set();
 function createReasonSession(
   page: number,
   id: number,
@@ -214,13 +238,6 @@ function isReasonOpenOn(page: number) {
 // The pin a reason session is for, from the lists, or undefined.
 function findReasonPin(id: number) {
   return OPEN_ALL.concat(REVIEW_ALL, DONE_ALL).find((pin) => pin.id === id);
-}
-function isReasonField(target: unknown): target is HTMLTextAreaElement {
-  return target instanceof HTMLTextAreaElement && target.classList.contains('pv-reason');
-}
-// The open popover's field, or null.
-function findReasonField() {
-  return document.querySelector('#doc .pv-pop .pv-reason') as HTMLTextAreaElement | null;
 }
 // Whether the session's text is something not yet written: not empty, not the reason it opened on, not what it wrote.
 function hasUnsavedReason(session: ReasonSession) {
@@ -284,12 +301,12 @@ function keepLostReason(session: ReasonSession) {
 }
 // After the lines are drawn (drawPageVerdicts): a focus a session's end owes goes to its line's control
 // (PENDING_REFOCUS).
-let PENDING_REFOCUS = null as { page: number; sel: string } | null;
+let PENDING_REFOCUS: { page: number; sel: string } | null = null;
 function refocusAfterLines() {
   const owed = PENDING_REFOCUS;
   if (!owed) return;
   PENDING_REFOCUS = null;
-  const control = document.querySelector('#doc .pv[data-page="' + owed.page + '"] ' + owed.sel) as HTMLElement | null;
+  const control = findMaybe(document, '#doc .pv[data-page="' + owed.page + '"] ' + owed.sel, HTMLElement);
   if (control) control.focus({ preventScroll: true });
 }
 // A rebuild of the pages (buildDoc) takes the open popover away with them, and a focus in it would fall to nothing:
@@ -299,11 +316,11 @@ function refocusAfterLines() {
 // again, beside the pages or under one - while it is still on nothing. An input method's composition ends with the old
 // field (the session's text holds what it had composed). A popover not drawn again leaves the keys typed on no verdict
 // keys (KEY_GUARD).
-type ReasonFocus = { sid: number; sel: [number, number, string] | null; act: string };
+type ReasonFocus = { sid: number; sel: [number, number, 'forward' | 'backward' | 'none'] | null; act: string };
 function holdReasonFocus(): ReasonFocus | null {
   const session = REASON_SESSION,
-    active = document.activeElement as HTMLElement | null,
-    pop = active && active.closest ? active.closest('#doc .pv-pop') : null;
+    active = focusedElement(),
+    pop = active ? active.closest('#doc .pv-pop') : null;
   if (!session || !active || !pop || pop.getAttribute('data-id') !== 's' + session.sid) return null;
   if (isReasonField(active))
     return {
@@ -319,29 +336,26 @@ function restoreReasonFocus(held: ReasonFocus | null) {
   const session = REASON_SESSION,
     pop =
       session && session.sid === held.sid ? document.querySelector('#doc .pv-pop[data-id="s' + held.sid + '"]') : null;
-  const control = (
-    !pop
-      ? null
-      : held.sel
-        ? pop.querySelector('.pv-reason')
-        : held.act
-          ? pop.querySelector('[data-act="' + held.act + '"]')
-          : null
-  ) as HTMLElement | null;
+  const control = !pop
+    ? null
+    : held.sel
+      ? findMaybe(pop, '.pv-reason', HTMLElement)
+      : held.act
+        ? findMaybe(pop, '[data-act="' + held.act + '"]', HTMLElement)
+        : null;
   if (!control) {
     KEY_GUARD = true;
     return;
   }
   control.focus({ preventScroll: true });
-  if (held.sel && isReasonField(control))
-    control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2] as 'forward' | 'backward' | 'none');
+  if (held.sel && isReasonField(control)) control.setSelectionRange(held.sel[0], held.sel[1], held.sel[2]);
 }
 // Once per document in this page's life, when its first lines are drawn: the drafts kept for pins that are gone are let
 // go, one kept for a verdict that is not its line's current one of the person's becomes its page's draft (only that is
 // marked there), and the others wait on their lines ('초안 있음') - none opens by itself: a popover restored on a page
 // far from the reading one would open out of sight, said only to a screen reader. The status line says how many came
 // back, with [보기], which brings the first one's line into view and puts the focus on its mark.
-const RESTORED_DOCS = new Set() as Set<string>;
+const RESTORED_DOCS: Set<string> = new Set();
 function restoreKeptDrafts() {
   const doc = DOC || '';
   if (RESTORED_DOCS.has(doc) || !META) return;
@@ -350,7 +364,7 @@ function restoreKeptDrafts() {
     pre = doc + ':',
     kind = META.kind;
   let changed = false;
-  const pages = new Set() as Set<number>;
+  const pages: Set<number> = new Set();
   for (const k of Object.keys(drafts)) {
     if (!k.startsWith(pre)) continue;
     const rest = k.slice(pre.length),
@@ -412,18 +426,18 @@ function restoreKeptDrafts() {
 function showDraftLine(page: number) {
   if (IS_BESIDE_PAGES) {
     bringPage(page);
-    stickReadingLine();
+    verdictLineRenderer().stickReadingLine();
   } // beside the pages the panel is the line, once the page is read (verdict/view-panel.ts)
-  const line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
+  const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return;
   if (!IS_BESIDE_PAGES) {
-    const block = (line.parentElement || line) as HTMLElement;
+    const block = line.parentElement || line;
     endJumpForScroll();
     block.scrollIntoView({ block: block.getBoundingClientRect().height <= $('#left').clientHeight ? 'center' : 'end' });
   }
   requestAnimationFrame(() => {
     if (isReasonField(document.activeElement)) return; // the mark was already pressed: its field keeps the focus
-    const mark = document.querySelector('#doc .pv[data-page="' + page + '"] .pv-draft') as HTMLElement | null;
+    const mark = findMaybe(document, '#doc .pv[data-page="' + page + '"] .pv-draft', HTMLElement);
     if (mark) mark.focus({ preventScroll: true });
     else if (!focusLine(page)) searchToPage();
   });
@@ -449,7 +463,7 @@ function closeReasonPopover(back: boolean) {
     pop = document.querySelector('#doc .pv-pop'),
     had = !!pop && pop.contains(document.activeElement);
   REASON_SESSION = null;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (!back) {
     if (had) searchToPage();
     return;
@@ -461,9 +475,10 @@ function closeReasonPopover(back: boolean) {
 function focusLine(page: number) {
   const line = document.querySelector('#doc .pv[data-page="' + page + '"]');
   if (!line) return false;
-  const control = (line.querySelector('[data-act="pv-reason-open"]') ||
-    line.querySelector('.vd-b[aria-pressed="true"]') ||
-    line.querySelector('.vd-b')) as HTMLElement | null;
+  const control =
+    findMaybe(line, '[data-act="pv-reason-open"]', HTMLElement) ||
+    findMaybe(line, '.vd-b[aria-pressed="true"]', HTMLElement) ||
+    findMaybe(line, '.vd-b', HTMLElement);
   if (!control) return false;
   control.focus({ preventScroll: true });
   return true;
@@ -568,7 +583,7 @@ function openReason(page: number, focus: boolean) {
   }
   KEY_GUARD = false;
   hideTip();
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (focus) focusReasonField();
 }
 // Enter while page `page`'s save is still out (a fast typist: a key, then Enter at once): the Enter is the intent to
@@ -593,7 +608,7 @@ function openPendingReason(page: number) {
   REASON_SESSION = session;
   KEY_GUARD = false;
   hideTip();
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   focusReasonField();
 }
 // Page `page`'s save failed while a popover waited for its number: what was typed stays as the page's draft ('초안
@@ -618,7 +633,7 @@ function keepUnboundReason(page: number) {
       { literal: true },
     );
   }
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (!had) return;
   KEY_GUARD = true;
   if (!focusLine(page)) searchToPage();
@@ -731,11 +746,11 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     else session.onto = 0;
     return;
   } // nothing of it was left to write: a pin it came from had it (commitReason)
-  let pin = undefined as Pin | null | undefined;
+  let pin: Pin | null | undefined = undefined;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       lineNote(
         translateTemplate('이유 저장 실패 · {why} — {target}', { why: translate('서버에 닿지 않습니다'), target }),
@@ -747,8 +762,8 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     }
     pin = null;
   }
-  const got =
-    pin && !pin.dropped_at ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, pin as Pin)) : null;
+  const live = pin && !pin.dropped_at ? pin : null,
+    got = live ? [...session.tried].reverse().find((attempt) => hasLanded(attempt, live)) : null;
   RETRY_NOTICES.delete(session); // its [다시 시도] goes either way (sourceOk)
   if (got) {
     session.saved = got.text;
@@ -802,7 +817,7 @@ async function settleWriteOnto(session: ReasonSession, ok: boolean, page: number
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-onto' },
   );
-  if (doc === DOC) drawPageVerdicts();
+  if (doc === DOC) verdictLineRenderer().drawPageVerdicts();
 }
 // A take-back of verdict pin id about page `page` of document doc failed (cancelVerdictPin): the verdict is back. Its
 // reason popover left with it (kept: that session, or null) and comes back with its text while nothing took its place:
@@ -825,7 +840,7 @@ function bringBackReason(id: number, page: number, doc: string | null, kept: Rea
     !(kept.writing && SAVING_LINES.has(pageLineSlot(page, doc)))
   ) {
     REASON_SESSION = kept;
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     return;
   }
   placeFailedCancelDraft(id, page, doc, !!kept);
@@ -844,7 +859,7 @@ function bringBackReason(id: number, page: number, doc: string | null, kept: Rea
 // - a warning after the take-back's own failure, which stands first with its [다시 시도]. shown: a popover was
 // displaced. A draft kept for the verdict without one (folded, or a failed write) moves the same way and is said too;
 // one that stays on its verdict's line, where it was before, is not.
-const FAILED_CANCEL_WAITS = new Map() as Map<string, { id: number; page: number; doc: string | null; shown: boolean }>;
+const FAILED_CANCEL_WAITS: Map<string, { id: number; page: number; doc: string | null; shown: boolean }> = new Map();
 function placeFailedCancelDraft(id: number, page: number, doc: string | null, shown: boolean) {
   const outWrite = REASON_WRITES.get(reasonDraftKey(doc, id));
   if (outWrite) {
@@ -884,7 +899,7 @@ function placeFailedCancelDraft(id: number, page: number, doc: string | null, sh
     doc === DOC ? { label: '보기', fn: () => showDraftLine(page) } : null,
     { literal: true, source: 'reason-uncancel' },
   );
-  if (doc === DOC) drawPageVerdicts();
+  if (doc === DOC) verdictLineRenderer().drawPageVerdicts();
 }
 // The save on line `slot` answered (savePageVerdict, after it bound or kept a popover waiting for it): a failed
 // take-back's draft that waited for it is placed now.
@@ -913,7 +928,7 @@ function reviveReason(id: number) {
     (REASON_SESSION && REASON_SESSION.page !== target.page) ||
     (IS_BESIDE_PAGES && target.page !== READING_LINE_PAGE)
   ) {
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     return;
   }
   leaveReason();
@@ -931,7 +946,7 @@ function reviveReason(id: number) {
   session.listed = true;
   noteReasonConflict(session, pin);
   REASON_SESSION = session;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
 }
 
 // ---------------- Writing
@@ -949,11 +964,11 @@ function reviveReason(id: number) {
 // leaves it unsure: nothing is written, the draft stays and the status line says the write failed, with [다시 시도]. So
 // the reason never lands on both verdicts - also when the moved copy is opened and Enter pressed before the old
 // verdict's [다시 시도] answers, when that answer was lost after it landed, or after a reload.
-const REASON_WRITES = new Map() as Map<string, { r: ReasonSession; w: Promise<boolean> }>;
+const REASON_WRITES: Map<string, { r: ReasonSession; w: Promise<boolean> }> = new Map();
 // The sessions whose failure the status line offers [다시 시도] for (sayReasonFailed), with that message: a write
 // elsewhere of their text takes it out of them and the message goes (takeWrittenText) - the [다시 시도] would write it
 // a second time.
-const RETRY_NOTICES = new Map() as Map<ReasonSession, Notice>;
+const RETRY_NOTICES: Map<ReasonSession, Notice> = new Map();
 function commitReason(session: ReasonSession, text: string, said: boolean): Promise<boolean> {
   if (session.saved === text) return Promise.resolve(true);
   if (!session.writing) {
@@ -1016,16 +1031,16 @@ function waitForKinWrites(session: ReasonSession): Promise<unknown> | null {
 // copy written - the old request never lands after it. Resolves true when every pin is settled, else with what left one
 // unknown - a read or a fence without an answer, a 5xx, a refusal (null: no answer at all): nothing is decided for it.
 async function checkLostWrites(session: ReasonSession): Promise<true | ApiError | null> {
-  let sure = true as true | ApiError | null;
+  let sure: true | ApiError | null = true;
   for (const k of new Set(session.via.filter((part) => part.tried.length).map((part) => part.k))) {
     const id = Number(k.slice(k.lastIndexOf(':') + 1));
-    let fetched = null as Pin | null;
+    let fetched: Pin | null = null;
     try {
-      fetched = (await api('/api/pins/' + id, { what: '핀 읽기', silent: true })).data.pin || null;
+      fetched = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', silent: true })).data.pin || null;
     } catch (error) {
-      const x = error as ApiError;
+      const x = isApiError(error) ? error : null;
       if (!x || !x.status || x.status >= 500) {
-        sure = x || null;
+        sure = x;
         continue;
       }
     }
@@ -1049,7 +1064,8 @@ async function checkLostWrites(session: ReasonSession): Promise<true | ApiError 
           (attempt) =>
             normalizeReason(attempt.text) === normalizeReason(session.text.slice(found.s, found.e)) &&
             hasLanded(attempt, pin),
-        ) as ReasonTry;
+        );
+        if (!landed) break; // found holds such an attempt
         takeWrittenText(session.doc, id, verdictOf(pin) || '', landed.text, null);
         if (session.via.includes(found)) break;
       } // not taken out (cannot be): stop
@@ -1086,8 +1102,8 @@ async function fenceLostWrites(
   pin: Pin,
 ): Promise<{ fenced: true } | { pin: Pin | null } | { unknown: ApiError | null }> {
   try {
-    const { status, data } = await api('/api/pins/' + id + '/edit', {
-      method: 'POST',
+    const { status, data } = await api('POST /api/pins/{id}/edit', {
+      id,
       intent: 'reason-fence',
       silent: true,
       expect: [409],
@@ -1097,8 +1113,8 @@ async function fenceLostWrites(
     const answered = data && data.pin;
     return answered ? { pin: answered } : { unknown: null };
   } catch (error) {
-    const x = error as ApiError;
-    return x && x.status === 404 ? { pin: null } : { unknown: x || null };
+    const x = isApiError(error) ? error : null;
+    return x && x.status === 404 ? { pin: null } : { unknown: x };
   }
 }
 // A session's evidence of pin `key`'s lost writes (ReasonPart.tried) made update(tried): in its text's parts and in
@@ -1121,8 +1137,8 @@ function liveSessions() {
       ...DETACHED_SESSIONS.values(),
       ...[...REASON_WRITES.values()].map((outWrite) => outWrite.r),
       ...RETRY_NOTICES.keys(),
-    ].filter(Boolean),
-  ) as Set<ReasonSession>;
+    ].filter((session): session is ReasonSession => !!session),
+  );
 }
 // Pin id (verdict word `word`) of document doc has text as its reason now - session `writer` wrote it, or (writer null)
 // a write that lost its answer is found landed. A reason ends on one verdict, so the text leaves every other place it
@@ -1191,7 +1207,7 @@ function handOnCopy(copy: ReasonSession) {
 function closeTakenReason(session: ReasonSession, doc: string | null, id: number, word: string, part: boolean) {
   if (part) {
     refillLine(session.page);
-    const line = document.querySelector('#doc .pv[data-page="' + session.page + '"]') as HTMLElement | null;
+    const line = findMaybe(document, '#doc .pv[data-page="' + session.page + '"]', HTMLElement);
     if (line) fillReasonField(line);
     lineNote(
       translateTemplate('이유 일부는 이전 판정 #{id} {word}에 저장됨 · 초안에는 나머지를 남겼습니다 — {target}', {
@@ -1209,7 +1225,7 @@ function closeTakenReason(session: ReasonSession, doc: string | null, id: number
     pop = document.querySelector('#doc .pv-pop'),
     had = (!!pop && !!active && pop.contains(active)) || (!!session.writing && (!active || active === document.body));
   REASON_SESSION = null;
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   if (had) {
     KEY_GUARD = true;
     if (!focusLine(session.page)) searchToPage();
@@ -1245,11 +1261,11 @@ function retryReason(session: ReasonSession) {
   const text = session.text.trim();
   if (!text || session.writing) return;
   const writing = commitReason(session, text, true);
-  if (REASON_SESSION === session) drawPageVerdicts();
+  if (REASON_SESSION === session) verdictLineRenderer().drawPageVerdicts();
   writing.then((ok) => {
     if (REASON_SESSION !== session) return;
     if (ok && session.text.trim() === session.saved) closeReasonPopover(false);
-    else drawPageVerdicts();
+    else verdictLineRenderer().drawPageVerdicts();
   });
 }
 // Where a lost write's text sits in `note` when the note is what the write made of the one it was sent against - its
@@ -1376,9 +1392,9 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
   if (viewerBlocked()) return false;
   let pin;
   try {
-    pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+    pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (!x || !x.status || x.status >= 500) {
       sayReasonFailed(session, text, x);
       return false;
@@ -1399,10 +1415,9 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
     keepConflict(session, text, pin);
     return false;
   } // changed since it was read: never sent
-  const url = '/api/pins/' + session.id + '/edit',
-    // silent: sayReasonFailed says a failure, with its target
-    options = { method: 'POST', intent: 'reason', silent: true };
-  let sent = null as ReasonTry | null; // the write out now, while its answer is awaited
+  // silent: sayReasonFailed says a failure, with its target
+  const options = { id: session.id, intent: 'reason', silent: true };
+  let sent: ReasonTry | null = null; // the write out now, while its answer is awaited
   try {
     for (let round = 1; ; round++) {
       const edit = reasonEditBody(session, text, pin);
@@ -1413,7 +1428,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
         return false;
       }
       sent = edit.sent;
-      const { status, data } = await api(url, {
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
         ...options,
         body: edit.body,
         expect: round < CONFLICT_RETRIES ? [409] : [],
@@ -1436,7 +1451,7 @@ async function writeReason(session: ReasonSession, text: string, said: boolean):
       pin = answered;
     }
   } catch (error) {
-    const x = error as ApiError;
+    const x = isApiError(error) ? error : null;
     if (sent && (!x || !x.status || x.status >= 500)) {
       session.tried.push(sent);
       addLostWrite(session.doc, session.id, sent);
@@ -1508,7 +1523,7 @@ function sayReasonFailed(session: ReasonSession, text: string, error: ApiError |
   );
   if (again && notice) RETRY_NOTICES.set(session, notice);
   else RETRY_NOTICES.delete(session);
-  if (REASON_SESSION !== session && session.doc === DOC) drawPageVerdicts();
+  if (REASON_SESSION !== session && session.doc === DOC) verdictLineRenderer().drawPageVerdicts();
 } // the line marks the draft it keeps
 // A replace found the note changed elsewhere since it was read (the newer pin): nothing is written over it. The draft
 // is kept, the popover - when open - shows the newer note whole and offers [그 위에 쓰기] (writeOverNewer); every
@@ -1590,7 +1605,7 @@ async function saveReason(field: HTMLTextAreaElement) {
     closeReasonPopover(true);
     return;
   }
-  drawPageVerdicts();
+  verdictLineRenderer().drawPageVerdicts();
   focusReasonField();
 }
 // Esc in the field, or [닫기] (how 'btn'): with nothing unsaved the popover closes. With text the first press lets the
@@ -1628,10 +1643,12 @@ function foldReason() {
   if (hasUnsavedReason(session)) keepDraft(session, true);
   else dropDraft(session.doc, session.id);
   REASON_SESSION = null;
-  drawPageVerdicts();
-  const control = document.querySelector(
+  verdictLineRenderer().drawPageVerdicts();
+  const control = findMaybe(
+    document,
     '#doc .pv[data-page="' + session.page + '"] [data-act="pv-reason-open"]',
-  ) as HTMLElement | null;
+    HTMLElement,
+  );
   if (control) control.focus({ preventScroll: true });
   else focusLine(session.page);
   announce(translate('이유 초안을 접었습니다 — 줄의 [초안 있음]이 다시 엽니다'));
@@ -1652,14 +1669,17 @@ async function clearReason() {
     target = reasonTargetName(session),
     word = verdictLabel(session.key),
     url = '/api/pins/' + session.id + '/edit',
-    options = { method: 'POST', intent: 'reason', silent: true, expect: [409] };
+    options = { id: session.id, intent: 'reason', silent: true, expect: [409] as const };
   const go = async () => {
     try {
       if (session.clearTried) {
-        const pin = (await api('/api/pins/' + session.id, { what: '핀 읽기', silent: true })).data.pin;
+        const pin = (await api('GET /api/pins/{id}', { id: session.id, what: '핀 읽기', silent: true })).data.pin;
         if (pin && !String(pin.note || '').trim()) return 'ok';
       }
-      const { status, data } = await api(url, { ...options, body: { note: '', base_rev: session.rev } });
+      const { status, data } = await api('POST /api/pins/{id}/edit', {
+        ...options,
+        body: { note: '', base_rev: session.rev },
+      });
       if (status !== 409) return 'ok';
       const answered = data && data.pin;
       if (!answered) return 'gone';
@@ -1668,15 +1688,15 @@ async function clearReason() {
         keepConflict(session, session.text, answered);
         return 'conflict';
       }
-      await api(url, { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
+      await api('POST /api/pins/{id}/edit', { ...options, expect: [], body: { note: '', base_rev: answered.rev } });
       return 'ok';
     } catch (error) {
-      const x = error as ApiError,
-        statusCode = x && typeof x.status === 'number' ? x.status : 0;
+      const x = isApiError(error) ? error : null,
+        statusCode = x ? x.status : 0;
       if (!statusCode) session.clearTried = true;
       lineNote(
         translateTemplate('이유 지우기 실패 · {why} — {target}', {
-          why: statusCode ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
+          why: x ? (x.data && errText(x.data)) || 'HTTP ' + statusCode : translate('서버에 닿지 않습니다'),
           target,
         }),
         NOTICE_KIND.ERR,
@@ -1710,7 +1730,7 @@ async function clearReason() {
       { life: NOTICE_LIFE.TIMER, undo: true, literal: true },
     );
   } else if (REASON_SESSION === session) {
-    drawPageVerdicts();
+    verdictLineRenderer().drawPageVerdicts();
     focusReasonField();
   }
   if (session.doc === DOC) await loadPins();
@@ -1719,10 +1739,10 @@ async function clearReason() {
 async function undoClearReason(id: number, old: string): Promise<boolean> {
   let ok = false;
   try {
-    const pin = (await api('/api/pins/' + id, { what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
+    const pin = (await api('GET /api/pins/{id}', { id, what: '핀 읽기', where: NOTICE_HOST.LINE })).data.pin;
     if (pin && !String(pin.note || '').trim()) {
-      await api('/api/pins/' + id + '/edit', {
-        method: 'POST',
+      await api('POST /api/pins/{id}/edit', {
+        id,
         body: { note: old, base_rev: pin.rev },
         intent: 'reason',
         what: '이유 되돌리기',
@@ -1862,7 +1882,7 @@ data-tip="${translate('이 판정의 이유를 씁니다. 메모로 붙습니다
 // input method is composing - and its height follows its lines.
 function fillReasonField(line: HTMLElement) {
   const session = REASON_SESSION,
-    field = line.querySelector('.pv-pop .pv-reason') as HTMLTextAreaElement | null;
+    field = findMaybe(line, '.pv-pop .pv-reason', HTMLTextAreaElement);
   if (!session || !field) return;
   if (field.value !== session.text && COMPOSING_FIELD !== field) {
     const had = document.activeElement === field;
@@ -1882,24 +1902,19 @@ function growReasonField(field: HTMLTextAreaElement) {
 // Page `page`'s line drawn again now: what its popover says follows the field's text and focus.
 function refillLine(page: number) {
   const verdicts = pageVerdictsOn(),
-    line = document.querySelector('#doc .pv[data-page="' + page + '"]') as HTMLElement | null;
-  if (verdicts && line) fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
+    line = findMaybe(document, '#doc .pv[data-page="' + page + '"]', HTMLElement);
+  if (verdicts && line) verdictLineRenderer().fillPageLine(line, page, pageVerdictPins().get(page), verdicts);
 }
 
-// ---------------- Input
-// The reason field an input method is composing in: its value is not put back. The composition ends with its field: a
-// field drawn anew in its place (the pages built again) holds the session's text - left empty, the next input would
-// write what it holds over the reason.
-let COMPOSING_FIELD = null as HTMLTextAreaElement | null;
 $('#doc').addEventListener('compositionstart', (event: CompositionEvent) => {
-  if (isReasonField(event.target)) COMPOSING_FIELD = event.target;
+  if (isReasonField(event.target)) setComposingField(event.target);
 });
 // The composition's end settles what it brought back (followLanded, which waits for it), and what waited for it goes on
 // (runComposedWaits).
 $('#doc').addEventListener('compositionend', (event: CompositionEvent) => {
   const field = event.target;
   if (!isReasonField(field)) return;
-  COMPOSING_FIELD = null;
+  setComposingField(null);
   const session = REASON_SESSION;
   if (session && field.dataset.id === 's' + session.sid) {
     followLanded(session);
@@ -1907,19 +1922,7 @@ $('#doc').addEventListener('compositionend', (event: CompositionEvent) => {
   }
   setTimeout(runComposedWaits, 0);
 });
-// Whether an input method is composing a syllable in a reason field in the document, or the key that ended it there
-// still holds it (app/state.ts imeHeldIn). Nothing takes that field away meanwhile: the lines do not move beside or
-// under the pages (shouldStandBeside) and the pages are not built again (refreshDoc, afterComposition) until it ends
-// and that key lets go. Moved or rebuilt, the field would be a new one: the old one's composition would end with it,
-// the input method's commit would land on top of the text carried over (its last syllable doubled), and the Enter
-// ibus-hangul hands on after the commit, with its repeats, would reach the new field as the viewer's - writing the
-// reason and closing the popover.
-function isComposingNow() {
-  if (COMPOSING_FIELD && COMPOSING_FIELD.isConnected) return true;
-  const field = imeHeldIn();
-  return isReasonField(field) && field.isConnected;
-}
-const COMPOSED_WAITS = [] as (() => void)[]; // what waits for the composition's end (afterComposition)
+const COMPOSED_WAITS: (() => void)[] = []; // what waits for the composition's end (afterComposition)
 // how often a wait looks again: a field taken out of the document ends its composition without the event
 const COMPOSED_POLL_MS = 200;
 // Resolves once no syllable is being composed in a reason field and the key that ended one has let it go
@@ -2041,13 +2044,12 @@ function followLanded(session: ReasonSession) {
 // key is the field's own - digits included. Nothing while an input method composes. Esc on the popover's buttons
 // ([접기], [닫기], [저장], [지우기]) is the field's Esc.
 $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
-  const target = event.target as HTMLElement;
+  const target = eventElement(event);
   if (
     event.key === 'Escape' &&
     !isReasonField(target) &&
     REASON_SESSION &&
     target &&
-    target.closest &&
     target.closest('#doc .pv-pop') &&
     !event.ctrlKey &&
     !event.metaKey &&
@@ -2085,20 +2087,19 @@ $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
 // popover, writing what is being edited.
 $('#doc').addEventListener('keydown', (event: KeyboardEvent) => {
   if (event.key !== 'Tab' || event.ctrlKey || event.metaKey || event.altKey) return;
-  const target = event.target as HTMLElement,
-    line = target && target.closest ? target.closest('#doc .pv') : null;
+  const target = eventElement(event),
+    line = target ? target.closest('#doc .pv') : null;
   const pop = line && line.querySelector(':scope>.pv-pop');
   if (!line || !pop) return;
-  const vis = (x: Element) =>
-    x instanceof HTMLElement && x.getClientRects().length > 0 && !(x as HTMLButtonElement).disabled;
-  const all = [...line.querySelectorAll('a,button,textarea,[tabindex="0"]')].filter(vis);
+  const vis = (x: HTMLElement) => x.getClientRects().length > 0 && !isDisabled(x);
+  const all = findAll(line, 'a,button,textarea,[tabindex="0"]', HTMLElement).filter(vis);
   if (all.length < 2) return;
   if (!event.shiftKey && target === all[all.length - 1]) {
     event.preventDefault();
-    (all[0] as HTMLElement).focus({ preventScroll: true });
+    all[0].focus({ preventScroll: true });
   } else if (event.shiftKey && target === all[0]) {
     event.preventDefault();
-    (all[all.length - 1] as HTMLElement).focus({ preventScroll: true });
+    all[all.length - 1].focus({ preventScroll: true });
   }
 });
 // The field's focus changes what it says (the keys). The popover stays open while the focus is anywhere inside it - Tab
@@ -2108,8 +2109,7 @@ let POPOVER_PRESS_AT = 0; // performance.now() of the last press inside a popove
 $('#doc').addEventListener(
   'pointerdown',
   (event: PointerEvent) => {
-    const target = event.target as HTMLElement;
-    if (target && target.closest && target.closest('.pv-pop')) POPOVER_PRESS_AT = performance.now();
+    if (eventClosest(event, '.pv-pop', Element)) POPOVER_PRESS_AT = performance.now();
   },
   true,
 );
@@ -2119,10 +2119,9 @@ $('#doc').addEventListener('focusin', (event: FocusEvent) => {
   refillLine(REASON_SESSION.page);
 });
 $('#doc').addEventListener('focusout', (event: FocusEvent) => {
-  const target = event.target as HTMLElement,
-    pop = target && target.closest ? target.closest('.pv-pop') : null;
+  const pop = eventClosest(event, '.pv-pop', Element);
   if (!pop) return;
-  const rel = event.relatedTarget as Node | null;
+  const rel = event.relatedTarget instanceof Node ? event.relatedTarget : null;
   if (rel && pop.contains(rel)) return;
   setTimeout(() => {
     const session = REASON_SESSION;
@@ -2190,14 +2189,11 @@ function openReasonOnEnter(event: KeyboardEvent) {
     event.repeat
   )
     return;
-  const target = event.target as HTMLElement | null,
+  const target = eventElement(event),
     area = $('#left');
   // On a control of the line whose digit key's save is out the Enter is that intent too: the focus may rest on any of
   // them.
-  const line =
-      !!target && !!target.closest && !target.closest('.pv-pop')
-        ? (target.closest('#doc .pv') as HTMLElement | null)
-        : null,
+  const line = !!target && !target.closest('.pv-pop') ? findClosest(target, '#doc .pv', HTMLElement) : null,
     page = line ? Number(line.dataset.page) || 0 : 0;
   if (page && KEY_SAVE_OUT.has(pageLineSlot(page)) && page === pageUnderReadingLine()) {
     event.preventDefault();
@@ -2209,7 +2205,7 @@ function openReasonOnEnter(event: KeyboardEvent) {
     target === document.body ||
     target === area ||
     target === $('#doc') ||
-    (!!target && !!target.closest && !!target.closest('#doc .pg'))
+    (!!target && !!target.closest('#doc .pg'))
   ))
     return;
   openReadingReason(event);
@@ -2262,14 +2258,14 @@ function isKeyGuarded(event: KeyboardEvent) {
   );
   return true;
 }
-addEventListener(
+window.addEventListener(
   'pointerdown',
   () => {
     KEY_GUARD = false;
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'keydown',
   (event) => {
     if (event.key === 'Escape') KEY_GUARD = false;
@@ -2332,17 +2328,11 @@ function hasUnsavedDrafts() {
 }
 // Leaving the page (a reload, closing the tab, another address) with a reason not written yet asks first. The draft is
 // kept either way for this tab: a reload brings it back.
-addEventListener('beforeunload', (event) => {
+window.addEventListener('beforeunload', (event) => {
   if (!hasUnsavedDrafts()) return;
   event.preventDefault();
   event.returnValue = '';
 });
-// Sets COMPOSING_FIELD, which this module declares, for another module that changes it (ADR-0042 D1); answers the
-// value.
-function setComposingField<Value extends typeof COMPOSING_FIELD>(value: Value): Value {
-  COMPOSING_FIELD = value;
-  return value;
-}
 // Sets KEY_GUARD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setKeyGuard<Value extends typeof KEY_GUARD>(value: Value): Value {
   KEY_GUARD = value;
@@ -2353,13 +2343,18 @@ function setReasonSession<Value extends typeof REASON_SESSION>(value: Value): Va
   REASON_SESSION = value;
   return value;
 }
+
+// Moving the panel to another page leaves an open reason on the page the reader has seen.
+function leaveReasonOffPage(page: number) {
+  if (REASON_SESSION && REASON_SESSION.seen && REASON_SESSION.page !== page) leaveReason();
+}
+
 export {
   LAST_KEY_SAVE,
   REASON_SESSION,
+  setReasonSeen,
   WITHDRAWN_PINS,
-  isComposingNow,
   focusLine,
-  isReasonField,
   isKeyGuarded,
   actOnReason,
   fillReasonField,
@@ -2368,7 +2363,6 @@ export {
   afterComposition,
   hasUnsavedReason,
   openReadingReason,
-  findReasonField,
   restoreReasonFocus,
   holdReasonFocus,
   inlineReason,
@@ -2382,8 +2376,8 @@ export {
   bringBackReason,
   placeFailedCancelDraft,
   settleFailedCancelDraft,
-  setComposingField,
   setKeyGuard,
   setReasonSession,
+  leaveReasonOffPage,
 };
 export type { ReasonSession };

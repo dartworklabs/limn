@@ -5,15 +5,26 @@
 // the keys and the panel name the page that line is on while any of it is. gap: with the edge in the space above that
 // page (frac 0), how far under it the page's top stands. y and h: where that page's top stood under the scroller's top
 // and its height, so restoreAnchor can tell a re-fit that moved nothing.
-import { BUILD_ERR_BY, DOC, META, META_BY, SIDE_OPEN, SWITCHSEQ, rendersInBrowser, setMeta } from '../app/state.ts';
+import {
+  BUILD_ERR_BY,
+  DOC,
+  META,
+  knownMeta,
+  META_BY,
+  SIDE_OPEN,
+  SWITCHSEQ,
+  rendersInBrowser,
+  setMeta,
+} from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translate } from '../platform/i18n.ts';
 import { api } from '../platform/api.ts';
-import { announce, lineNote, sourceOk } from '../platform/notices.ts';
+import { announce, sourceOk } from '../platform/notices.ts';
 import { drawMeta } from './view-meta.ts';
-import { BUILD, pollBuild, pullSuffix } from './view-build-chip.ts';
-import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
-import { $, $$ } from '../platform/dom.ts';
+import { pullSuffix } from './view-build-chip.ts';
+import { setBuildError, SHOWN_BUILD } from './state-build.ts';
+import { NOTICE_HOST } from '../platform/tables.ts';
+import { $, findAll, findElement } from '../platform/dom.ts';
 import { BUILD_STATE } from '../app/rules-tables.ts';
 import { withDocQuery } from './state.ts';
 import { changesView, documentPins, markdownSurface, pageSurface, verdictHold } from './state-seams.ts';
@@ -23,7 +34,7 @@ import { topAnchor, restoreAnchor } from '../layout/flow.ts';
 // moves the scroll offset the column keeps to another place. keepSpot() takes it as the view opens; returnToSpot() puts
 // the column back on it when the pages show again - only if the offset left it by a pixel or more, so a visit that
 // changed nothing leaves the column exactly where it was.
-let SPOT = null as { a: NonNullable<ReturnType<typeof topAnchor>>; doc: string | null } | null;
+let SPOT: { a: NonNullable<ReturnType<typeof topAnchor>>; doc: string | null } | null = null;
 function keepSpot() {
   const anchor = topAnchor();
   SPOT = anchor ? { a: anchor, doc: DOC } : null;
@@ -57,7 +68,7 @@ async function refreshDoc(meta?: Meta) {
     seq = SWITCHSEQ;
   const snapshot =
     meta === undefined
-      ? (await api(withDocQuery('/api/meta'), { what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
+      ? (await api('GET /api/meta', { query: withDocQuery(''), what: '화면 정보 읽기', where: NOTICE_HOST.LINE })).data
       : meta;
   if (visitDoc !== DOC || seq !== SWITCHSEQ) return;
   const gen = ++REFRESH_GEN;
@@ -88,11 +99,11 @@ async function refreshDoc(meta?: Meta) {
   // (reapplyScale - which leaves the scale alone while the changes view hides the PDF area).
   if (same) {
     pageSurface().releaseVector();
-    $$('.pg').forEach((pageElement, index) => {
-      const page = META.pages[index];
+    findAll(document, '.pg', HTMLElement).forEach((pageElement, index) => {
+      const page = knownMeta().pages[index];
       pageElement.dataset.ptw = String(page.pt_w);
       pageElement.style.aspectRatio = page.pt_w + ' / ' + page.pt_h;
-      pageElement.querySelector('img').src = pageSurface().pageSource(page);
+      findElement(pageElement, 'img', HTMLImageElement).src = pageSurface().pageSource(page);
     });
     pageSurface().reapplyScale();
   } else {
@@ -111,22 +122,22 @@ async function refreshDoc(meta?: Meta) {
 }
 // On ok_errors|fail, the panel itself is opened right away: it is where a failed build is said (with the pull's line,
 // pullSuffix), and the status line's failure item (compact) and #build-err-chip (the desktop's chips, while the panel
-// is not on screen: syncBuildErrChip) keep a way to open it again as long as BUILD.error exists. say = a build this
+// is not on screen: syncBuildErrChip) keep a way to open it again as long as SHOWN_BUILD.error exists. say = a build this
 // visit watched has just failed: its title is read out as an alert too (rule 1) - the desktop's panel and chip are no
 // live region.
-function showBuildErr(build: any, say?: boolean) {
-  BUILD.error = build;
+function showBuildErr(build: BuildStatus, say?: boolean) {
+  setBuildError(build);
   if (DOC) BUILD_ERR_BY.set(DOC, build);
   const panel = $('#build-err');
   const title = buildErrTitle(build);
   if (say) announce(title, true);
-  const log = String(build.log_tail || build.log || '')
+  const log = String(build.log_tail || '')
     .split('\n')
     .slice(-20)
     .join('\n');
   const close = html`<button class="btn-sm" data-act="err-close" data-tip="이 알림을 닫습니다(다시 보기는 위 배지로)">닫기</button>`;
   const errors = (build.errors || []).map(
-    (error: LatexError) => html`<div class="dim">${error.line ? 'L' + error.line + ' · ' : ''}${error.msg}</div>`,
+    (error) => html`<div class="dim">${error.line ? 'L' + error.line + ' · ' : ''}${error.msg}</div>`,
   );
   setHtml(
     panel,
@@ -145,7 +156,7 @@ function rebuildSources(doc: string | null): string[] {
 }
 // The title of a build's failure (fail) or its LaTeX errors (ok_errors), with the pull's line: the error panel's, and
 // what showBuildErr reads out.
-function buildErrTitle(build: any): string {
+function buildErrTitle(build: BuildStatus): string {
   return (
     translate(
       build.state === BUILD_STATE.FAIL
@@ -163,47 +174,8 @@ function hideBuildErr() {
 // inside a collapsed panel - where only the status chips float, so it is the one sign of a failed build on a collapsed
 // desktop.
 function syncBuildErrChip() {
-  $('#build-err-chip').hidden = !BUILD.error || (SIDE_OPEN && !$('#build-err').hidden);
+  $('#build-err-chip').hidden = !SHOWN_BUILD.error || (SIDE_OPEN && !$('#build-err').hidden);
 }
-// docs/handbook/build-sync.md §비동기 재빌드: rebuild is async - the POST returns immediately, and the #build-chip
-// poller (startBuildPolling) shows progress, then does the in-place swap and says so once it finishes. A build started
-// by someone else is caught by the same poller. Its completion may update controls or start polling only while the
-// initiating document visit remains active. BUILD.asked marks that this tab asked, so an unchanged rebuild (no new seq)
-// still gets its answer; it is set only after any older in-flight poll settled, since that one may carry the previous
-// rebuild's unchanged mark. force (only the status line's [그래도 빌드] of an unchanged rebuild passes it) asks for
-// ?force=1: a cold build that never ends unchanged. A rebuild already running elsewhere (409) is a warning on the
-// status line; a failed request an error there, with [다시 시도].
-async function rebuild(force?: boolean) {
-  const visitDoc = DOC,
-    visit = SWITCHSEQ;
-  try {
-    const { status } = await api(withDocQuery('/api/rebuild?async=1' + (force === true ? '&force=1' : '')), {
-      method: 'POST',
-      what: 'PDF 재빌드',
-      where: NOTICE_HOST.LINE,
-      retry: () => rebuild(force),
-      expect: [409],
-    });
-    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-    if (status === 409) {
-      lineNote('이미 다른 곳에서 PDF를 재빌드하는 중입니다 — 끝난 뒤 다시 누르세요', NOTICE_KIND.WARN);
-      return;
-    }
-    $('#build-err').hidden = true;
-    // If a request already went out before this POST, its completion is awaited before asking again - that request
-    // carries a stale state (ok) and would never turn on 1-second polling. Completion is distinguished by build_seq, so
-    // this tab has nothing separate to remember.
-    if (BUILD.inflight) {
-      try {
-        await BUILD.inflight;
-      } catch (error) {}
-    }
-    if (visitDoc !== DOC || visit !== SWITCHSEQ) return;
-    BUILD.asked = true;
-    await pollBuild();
-  } catch (error) {}
-}
-
 // [더보기]'s [PDF 내려받기]: saves the PDF of the build on screen (META.pages_build) of this document as a file. The
 // server names it after the document (GET /pdf?download=1 adds Content-Disposition: attachment, docs/handbook/api.md);
 // a click on a link that carries the download attribute is the browser's own save, so the page stays where it is.
@@ -218,4 +190,5 @@ function downloadPdf() {
   link.click();
   link.remove();
 }
-export { downloadPdf, hideBuildErr, keepSpot, rebuild, refreshDoc, returnToSpot, showBuildErr, syncBuildErrChip };
+
+export { downloadPdf, hideBuildErr, keepSpot, refreshDoc, returnToSpot, showBuildErr, syncBuildErrChip };

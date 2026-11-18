@@ -39,6 +39,7 @@ import {
   PICKSEQ,
   PINS,
   REPICK,
+  setRepickCandidate,
   REVIEW_ALL,
   SWITCHSEQ,
   imeHeldIn,
@@ -64,10 +65,11 @@ import {
   hiddenName,
 } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { api } from '../platform/api.ts';
+import { api, isRefusal } from '../platform/api.ts';
 import { endTopic } from '../platform/notices.ts';
 import { TIP, hideTip, showTip, LAST_POINTER } from '../platform/tooltip.ts';
-import { drawPos, switchDoc, switchPending } from '../documents/flow-switch.ts';
+import { switchDoc, switchPending } from '../documents/flow-switch.ts';
+import { drawPos } from '../documents/view-tabs.ts';
 import { tintChangedLines, compareRedrawnSource } from '../documents/flow-updates.ts';
 import {
   OUTLINE_SELECTED,
@@ -81,11 +83,11 @@ import {
   setOutlineSelected,
 } from '../pdf/view-outline.ts';
 import { applySide, setSide } from '../layout/flow.ts';
-import { BACK } from '../layout/input.ts';
+import { BACK } from '../layout/flow-back.ts';
 import { revealBox, selectionRoom } from '../pdf/input-selection.ts';
 import { imeOpen } from '../platform/composition.ts';
-import { NOTICE_TOPIC } from '../platform/tables.ts';
-import { $, $$, focusFell, focusHold } from '../platform/dom.ts';
+import { NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
+import { $, $$, findAll, findClosest, findElement, findMaybe, focusFell, focusHold } from '../platform/dom.ts';
 import { LAYOUT_MODE, MARKDOWN_LIMIT, PIN_STATE } from '../app/rules-tables.ts';
 import { pinState, lineRange, overlapsFor } from '../app/rules-pins.ts';
 import { isMarkdownDoc, isTextDoc, docInfo, withDocQuery, isRegion, pdoc } from '../documents/state.ts';
@@ -114,29 +116,29 @@ const MARKDOWN_LIMITS = Object.freeze({
 // asks for once it is drawn (want) and the reading spot as last read at the column's width and the pane's scroll offset
 // then (spot, readSpot: kept across a reflow and a redraw while hidden, keepReadingSpot; top tells a pane moved since,
 // refreshMovedSpot).
-const MARKDOWN_VIEW = {
-  gen: 0,
-  doc: '' as string | null,
-  file: '',
-  name: '',
-  lines: [] as string[],
-  mtime: null as number | null,
-  asked: null as number | null,
-  at: 0,
-  limit: null as string | null,
-  heads: [] as { level: number; lo: number; el: HTMLElement; title: string; slug: string }[],
-  worker: null as Worker | null,
-  job: null as { id: number; resolve: (answer: any) => void; t: ReturnType<typeof setTimeout> } | null,
-  seq: 0,
-  waiting: false,
-  els: 0,
-  marked: 0,
-  bom: false,
-  tex: 0 as number | null,
-  shown: '' as string | null,
-  want: null as { line: number; off: number; top: number } | null,
-  jumpTo: null as { id: number; doc: string | null; seq: number } | null,
-  spot: null as {
+interface MarkdownViewState {
+  gen: number;
+  doc: string | null;
+  file: string;
+  name: string;
+  lines: string[];
+  mtime: number | null;
+  asked: number | null;
+  at: number;
+  limit: string | null;
+  heads: DrawnHeading[];
+  worker: Worker | null;
+  job: MarkdownParseJob | null;
+  seq: number;
+  waiting: boolean;
+  els: number;
+  marked: number;
+  bom: boolean;
+  tex: number | null;
+  shown: string | null;
+  want: { line: number; off: number; top: number } | null;
+  jumpTo: { id: number; doc: string | null; seq: number } | null;
+  spot: {
     doc: string | null;
     w: number;
     top: number;
@@ -148,13 +150,44 @@ const MARKDOWN_VIEW = {
     off: number | null;
     sel: boolean;
     again: boolean;
-  } | null,
+  } | null;
   // a heading a link from another document asked for, gone to once this document is drawn in that visit (goToDocLink),
   // and the heading a jump in flight is going to (goToHeading: an image that gets its size moves the destination, not
   // the reading spot)
-  headTo: null as { doc: string; id: string; seq: number } | null,
-  goTo: null as { el: HTMLElement; doc: string | null } | null,
+  headTo: { doc: string; id: string; seq: number } | null;
+  goTo: { el: HTMLElement; doc: string | null } | null;
+}
+const MARKDOWN_VIEW: MarkdownViewState = {
+  gen: 0,
+  doc: '',
+  file: '',
+  name: '',
+  lines: [],
+  mtime: null,
+  asked: null,
+  at: 0,
+  limit: null,
+  heads: [],
+  worker: null,
+  job: null,
+  seq: 0,
+  waiting: false,
+  els: 0,
+  marked: 0,
+  bom: false,
+  tex: 0,
+  shown: '',
+  want: null,
+  jumpTo: null,
+  spot: null,
+  headTo: null,
+  goTo: null,
 };
+// Counts one more Markdown job and answers its number (MARKDOWN_VIEW.seq), for another module that starts one
+// (ADR-0042 D1).
+function advanceMarkdownSequence() {
+  return ++MARKDOWN_VIEW.seq;
+}
 // A draw's render context (RenderContext): the source lines it numbers its blocks from (lines), the elements built so
 // far (els), the characters drawn in their boxes (marked), whether the next text drawn may be the file's first, its
 // byte-order mark kept (bom, drawText), the headings (heads), and how many formulas were drawn - a count to draw them
@@ -177,7 +210,7 @@ function newRenderContext(lines: string[]): RenderContext {
 }
 // The render context a drawn root was built with (the compare's sides, keepRenderContext); any other root is the
 // document view's, MARKDOWN_VIEW.
-const ROOT_CONTEXTS = new WeakMap() as WeakMap<Element, RenderContext>;
+const ROOT_CONTEXTS: WeakMap<Element, RenderContext> = new WeakMap();
 function keepRenderContext(root: Element, context: RenderContext) {
   ROOT_CONTEXTS.set(root, context);
 }
@@ -190,10 +223,89 @@ function isMarkdownPin(pin: Pin) {
   return !!entry && rendersInBrowser(entry.kind);
 }
 // ---------------- The parse worker
+// A markdown-it token as the parse worker sends it (md-parse.mjs plain: a Token's own fields, as plain data - its
+// prototype does not survive postMessage), its inline children alike. An attribute's value is a string, but an ordered
+// list's start, which markdown-it keeps as the number its first marker has.
+interface MarkdownToken {
+  type: string;
+  tag: string;
+  nesting: number;
+  map: [number, number] | null;
+  content: string;
+  info: string;
+  hidden: boolean;
+  level: number;
+  markup: string;
+  attrs: [string, string | number][] | null;
+  children: MarkdownToken[] | null;
+}
+// What the page asks the worker (md-parse.mjs onmessage): the source and the limits it parses within.
+interface MarkdownParseQuestion {
+  id: number;
+  text: string;
+  limits: { nesting: number; blocks: number; inlines: number };
+}
+// The worker's answer to question id (md-parse.mjs postMessage): the tokens; or a limit it hit ('nesting', 'blocks',
+// 'inlines') with what it counted and the most allowed; or 'error' with what the parser threw.
+type MarkdownParseAnswer =
+  | { id: number; ok: true; tokens: MarkdownToken[] }
+  | { id: number; ok: false; limit: string; count: number; max: number }
+  | { id: number; ok: false; limit: string; message: string };
+// What a parse ends with: the worker's answer, or the page's own end of it - the worker did not load or answer in time,
+// a NUL it is not given, or an answer of no known form (MARKDOWN_LIMIT).
+type MarkdownParse = MarkdownParseAnswer | { ok: false; limit: string };
+// A parse in flight: its question's id, what ends it, and the timer that stops it.
+interface MarkdownParseJob {
+  id: number;
+  resolve: (answer: MarkdownParse | null) => void;
+  t: ReturnType<typeof setTimeout>;
+}
+// Whether a value is a token as the worker sends it (plain), its children too. Pure.
+function isMarkdownToken(value: unknown): value is MarkdownToken {
+  if (!isRecord(value)) return false;
+  const { map, attrs, children } = value;
+  return (
+    typeof value.type === 'string' &&
+    typeof value.tag === 'string' &&
+    typeof value.nesting === 'number' &&
+    (map === null || (Array.isArray(map) && map.length === 2 && map.every((line) => typeof line === 'number'))) &&
+    typeof value.content === 'string' &&
+    typeof value.info === 'string' &&
+    typeof value.hidden === 'boolean' &&
+    typeof value.level === 'number' &&
+    typeof value.markup === 'string' &&
+    (attrs === null ||
+      (Array.isArray(attrs) &&
+        attrs.every(
+          (attribute) =>
+            Array.isArray(attribute) &&
+            attribute.length === 2 &&
+            typeof attribute[0] === 'string' &&
+            (typeof attribute[1] === 'string' || typeof attribute[1] === 'number'),
+        ))) &&
+    (children === null || (Array.isArray(children) && children.every(isMarkdownToken)))
+  );
+}
+// The worker's message as its answer (md-parse.mjs postMessage), or null for a message of no known form. Pure.
+function markdownParseAnswer(value: unknown): MarkdownParseAnswer | null {
+  if (!isRecord(value) || typeof value.id !== 'number') return null;
+  const { id, limit, tokens, count, max, message } = value;
+  if (value.ok === true)
+    return Array.isArray(tokens) && tokens.every(isMarkdownToken) ? { id, ok: true, tokens } : null;
+  if (value.ok !== false || typeof limit !== 'string') return null;
+  if (typeof count === 'number' && typeof max === 'number') return { id, ok: false, limit, count, max };
+  return typeof message === 'string' ? { id, ok: false, limit, message } : null;
+}
+// The worker's message to the job in flight: its answer, a parse error for a message to it of no known form, or null
+// for a message to another question (one the job took over from) or with no question's id.
+function jobAnswer(job: MarkdownParseJob, value: unknown): MarkdownParse | null {
+  if (!isRecord(value) || value.id !== job.id) return null;
+  return markdownParseAnswer(value) || { ok: false, limit: MARKDOWN_LIMIT.ERROR };
+}
 // Parses text in the worker within MARKDOWN_LIMITS -> {ok:true,tokens} or {ok:false,limit} (MARKDOWN_LIMIT), or null
 // when a newer parse took the worker over. The worker is started the first time and kept; one that runs past
 // MARKDOWN_LIMITS.ms, fails to load or is taken over is stopped (terminate) and a new one starts next time.
-function parseMarkdown(text: string): Promise<any> {
+function parseMarkdown(text: string): Promise<MarkdownParse | null> {
   stopMarkdownParse(null);
   return new Promise((resolve) => {
     let worker = MARKDOWN_VIEW.worker;
@@ -201,12 +313,13 @@ function parseMarkdown(text: string): Promise<any> {
       if (!worker) {
         worker = new Worker('/md-parse.mjs', { type: 'module' });
         MARKDOWN_VIEW.worker = worker;
-        worker.onmessage = (message) => {
-          const job = MARKDOWN_VIEW.job;
-          if (!job || !message.data || message.data.id !== job.id) return;
+        worker.onmessage = (message: MessageEvent<unknown>) => {
+          const job = MARKDOWN_VIEW.job,
+            answer = job && jobAnswer(job, message.data);
+          if (!job || !answer) return;
           clearTimeout(job.t);
           MARKDOWN_VIEW.job = null;
-          job.resolve(message.data);
+          job.resolve(answer);
         };
         worker.onerror = (event) => {
           event.preventDefault();
@@ -223,15 +336,16 @@ function parseMarkdown(text: string): Promise<any> {
       resolve,
       t: setTimeout(() => stopMarkdownParse({ ok: false, limit: MARKDOWN_LIMIT.TIME }), MARKDOWN_LIMITS.ms),
     };
-    worker.postMessage({
+    const question: MarkdownParseQuestion = {
       id,
       text,
       limits: { nesting: MARKDOWN_LIMITS.nesting, blocks: MARKDOWN_LIMITS.blocks, inlines: MARKDOWN_LIMITS.inlines },
-    });
+    };
+    worker.postMessage(question);
   });
 }
 // Ends the parse in flight, if any, with answer (null: taken over), and stops its worker.
-function stopMarkdownParse(answer: { ok: boolean; limit: string } | null) {
+function stopMarkdownParse(answer: { ok: false; limit: string } | null) {
   const job = MARKDOWN_VIEW.job;
   if (!job) return;
   MARKDOWN_VIEW.job = null;
@@ -247,12 +361,12 @@ const KATEX_VERSION = '__KATEX_VERSION__';
 // TEX_RENDERER: the vendored KaTeX module once the page has it (lib) and how far the one load got (state) - 'none'
 // before it is asked for, 'ready' with both the module and its stylesheet in, 'off' when either did not come. 'off' is
 // final: the math of every document then stays as its source characters (ADR-0036 D2), and nothing is asked for twice.
-const TEX_RENDERER = { state: 'none' as 'none' | 'ready' | 'off', lib: null as any };
+const TEX_RENDERER: { state: 'none' | 'ready' | 'off'; lib: KatexLibrary | null } = { state: 'none', lib: null };
 // The closing delimiter of each opening one the worker's math rules read (MD_MATH in md-parse.mjs).
-const TEX_CLOSE = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' } as Record<string, string>;
+const TEX_CLOSE: Record<string, string> = { $: '$', $$: '$$', '\\(': '\\)', '\\[': '\\]' };
 // Whether the worker's tokens hold any math at all - whether this document needs the renderer. A document without math
 // (and a PDF or text document) asks for nothing.
-function hasMath(tokens: any[]) {
+function hasMath(tokens: MarkdownToken[]) {
   for (const token of tokens) {
     if (token.type === 'math_block') return true;
     for (const child of token.children || []) if (child.type === 'math_inline') return true;
@@ -263,21 +377,31 @@ function hasMath(tokens: any[]) {
 // it, never the parse worker - that one returns tokens and touches no DOM, architecture.md 불변식 9) and its
 // stylesheet, both with the bundle's version, so a cached copy never needs revalidating. Unstyled KaTeX markup is
 // unreadable, so a stylesheet that does not arrive counts as no renderer.
-async function loadTexRenderer(): Promise<any> {
+async function loadTexRenderer(): Promise<KatexLibrary | null> {
   if (TEX_RENDERER.state !== 'none') return TEX_RENDERER.lib;
   TEX_RENDERER.state = 'off';
-  let katexModule = null as any;
+  let katexModule: unknown = null;
   try {
     katexModule = await import('/vendor/katex/katex.mjs?v=' + KATEX_VERSION);
   } catch (error) {
     return null;
   }
-  const lib = katexModule && (katexModule.default || katexModule);
-  if (!lib || typeof lib.render !== 'function') return null;
+  const lib = texLibraryOf(katexModule);
+  if (!lib) return null;
   if (!(await loadTexStyle())) return null;
   TEX_RENDERER.lib = lib;
   TEX_RENDERER.state = 'ready';
   return lib;
+}
+// Whether a value is the KaTeX library the viewer draws with (types/katex.d.ts): an object with a render function. Pure.
+function isKatexLibrary(value: unknown): value is KatexLibrary {
+  return isRecord(value) && typeof value.render === 'function';
+}
+// The KaTeX library in what the import loaded: its default export, else the module itself - whichever is there - when
+// it is the library (isKatexLibrary); null for anything else, which is no renderer. Pure.
+function texLibraryOf(loaded: unknown): KatexLibrary | null {
+  const library = isRecord(loaded) && loaded.default ? loaded.default : loaded;
+  return isKatexLibrary(library) ? library : null;
 }
 // The stylesheet, added once; true once the browser has it. A link element pointing at this origin - never an inline
 // style element and never a style attribute, which the page policy admits neither of (viewer.md §페이지 정책).
@@ -298,7 +422,7 @@ function loadTexStyle(): Promise<boolean> {
 // read: a token's own for a formula that fits one source line (the worker marks it info 'whole'), and the pieces put
 // back together for one it cut at a line end (info 'head' on the first piece, inlineTexRun). A 'tail' piece is no TeX
 // on its own and is never read alone - its head draws the whole formula and passes it over (drawInline). Pure.
-function inlineTexBody(piece: any, source?: string): string | null {
+function inlineTexBody(piece: MarkdownToken, source?: string): string | null {
   const open = String(piece.markup || ''),
     close = TEX_CLOSE[open] || '';
   const text = source === undefined ? String(piece.content || '') : source;
@@ -311,7 +435,7 @@ function inlineTexBody(piece: any, source?: string): string | null {
 // formula at a line end ('head') - every piece after it, joined by the line ends it was cut at. last is the index of
 // the formula's final piece, so the caller knows which children the one formula covers (at itself when nothing was
 // cut). Pure.
-function inlineTexRun(children: any[], at: number): { src: string; last: number } {
+function inlineTexRun(children: MarkdownToken[], at: number): { src: string; last: number } {
   const parts = [String(children[at].content || '')];
   let next = at + 1;
   while (
@@ -355,9 +479,11 @@ function drawTexBox(
   display: boolean,
   context: RenderContext,
 ): HTMLElement | null {
+  const library = TEX_RENDERER.lib;
   if (
     context.tex === null ||
     TEX_RENDERER.state !== 'ready' ||
+    !library ||
     tex === null ||
     !tex.trim() ||
     tex.length > MARKDOWN_LIMITS.tex ||
@@ -366,7 +492,7 @@ function drawTexBox(
     return null;
   const box = document.createElement(tag);
   try {
-    TEX_RENDERER.lib.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
+    library.render(tex, box, { displayMode: display, throwOnError: true, strict: false, trust: false });
   } catch (error) {
     return null;
   }
@@ -389,11 +515,11 @@ function drawTexBox(
 function fitWideFormulas() {
   const column = $('#md');
   if (!column || !MARKDOWN_VIEW.tex) return;
-  const boxes = [...column.querySelectorAll('code.md-math.md-tex')] as HTMLElement[];
+  const boxes = findAll(column, 'code.md-math.md-tex', HTMLElement);
   if (!boxes.length) return;
   for (const box of boxes) box.classList.remove('md-tex-wide');
   const wide = boxes.filter((box) => {
-    const block = (box.closest('p,li,td,th,blockquote') || column) as HTMLElement,
+    const block = box.closest('p,li,td,th,blockquote') || column,
       style = getComputedStyle(block);
     // where the block's own text goes, not the column's padding box
     const room = block.clientWidth - parseFloat(style.paddingLeft || '0') - parseFloat(style.paddingRight || '0');
@@ -414,13 +540,13 @@ function yieldToBrowser() {
 // Whether a redraw would take a text field from under the person typing in it: a field inside #doc that is composing,
 // or held by the key that ended its composition (imeHeldIn, app/state.ts §조합을 끝내는 키).
 function isFieldBusy() {
-  const active = document.activeElement as HTMLElement | null,
+  const active = document.activeElement,
     held = imeHeldIn();
   const doc = $('#doc'),
-    inDoc = (node: any) => node instanceof Node && doc.contains(node);
+    inDoc = (node: unknown) => node instanceof Node && doc.contains(node);
   return inDoc(held) || (!!active && inDoc(active) && active !== doc && COMPOSING_FIELDS.has(active));
 }
-const COMPOSING_FIELDS = new Set();
+const COMPOSING_FIELDS = new Set<EventTarget | null>();
 document.addEventListener(
   'compositionstart',
   (event) => {
@@ -471,7 +597,7 @@ async function buildMarkdownDoc() {
   }
   let answer;
   try {
-    answer = await api(withDocQuery('/api/source'), { what: '원문 읽기', silent: true, expect: [413] });
+    answer = await api('GET /api/source', { query: withDocQuery(''), what: '원문 읽기', silent: true, expect: [413] });
   } catch (error) {
     if (!stale()) {
       MARKDOWN_VIEW.asked = null;
@@ -483,8 +609,8 @@ async function buildMarkdownDoc() {
     // document never matches again), so the next light poll asks again
   }
   if (stale()) return;
-  if (answer.status === 413) {
-    MARKDOWN_VIEW.lines = [];
+  if (isRefusal(answer.data)) {
+    MARKDOWN_VIEW.lines = []; // 413: too large to send
     MARKDOWN_VIEW.heads = [];
     MARKDOWN_VIEW.mtime = MARKDOWN_VIEW.asked;
     showDocumentNode(
@@ -533,11 +659,11 @@ async function buildMarkdownDoc() {
   // A NUL (U+0000) is not parsed: markdown-it turns it into U+FFFD (CommonMark's rule) and its tokens keep no column to
   // put it back by, so the document would read another character than its source has. The line view keeps it, in its
   // box.
-  const parsed = MARKDOWN_VIEW.lines.some((line) => line.includes('\0'))
+  const parsed: MarkdownParse | null = MARKDOWN_VIEW.lines.some((line) => line.includes('\0'))
     ? { ok: false, limit: MARKDOWN_LIMIT.NUL }
     : await parseMarkdown(MARKDOWN_VIEW.lines.join('\n'));
   if (stale() || !parsed) return;
-  let root = null as HTMLElement | null,
+  let root: HTMLElement | null = null,
     limit = parsed.ok ? null : String(parsed.limit || MARKDOWN_LIMIT.ERROR);
   // The TeX renderer is fetched before the build, which is synchronous once it starts (drawTexBox): only a document
   // whose tokens hold math asks for it, and a document that does not get it draws its math as characters (ADR-0036 D1,
@@ -565,7 +691,7 @@ async function buildMarkdownDoc() {
       );
       return;
     }
-    root = await lineView(limit as string, stale);
+    root = await lineView(limit ?? MARKDOWN_LIMIT.ERROR, stale); // limit is set whenever no root was drawn
     if (!root || stale()) return;
   }
   showDocumentNode(root);
@@ -635,6 +761,8 @@ function relevelForLineView() {
     isRegion(selection) ||
     selection.doc !== DOC ||
     selection.file !== MARKDOWN_VIEW.file ||
+    typeof selection.lo !== 'number' ||
+    typeof selection.hi !== 'number' ||
     !$('#md.md-lines')
   )
     return;
@@ -644,7 +772,7 @@ function relevelForLineView() {
     )
   )
     return;
-  const range = { lo: selection.lo as number, hi: selection.hi as number };
+  const range = { lo: selection.lo, hi: selection.hi };
   selection.levels = markdownLevels(range, null, null);
   selection.raw_lo = range.lo;
   selection.raw_hi = range.hi;
@@ -745,7 +873,7 @@ function limitText(limit: string) {
 // by measuring them all.
 function lineElements() {
   const column = $('#md');
-  return column ? ([...column.querySelectorAll('[data-line],[data-lo]')] as HTMLElement[]) : [];
+  return column ? findAll(column, '[data-line],[data-lo]', HTMLElement) : [];
 }
 // The last of elements whose top is at or above y (viewport px), or null before the first. O(log n) measures.
 function lineElementAt(elements: HTMLElement[], y: number) {
@@ -840,7 +968,7 @@ function spotElement(spot: NonNullable<typeof MARKDOWN_VIEW.spot>) {
   if (!spot.line) return null;
   const column = $('#md'),
     attribute = spot.key === 'lo' ? 'data-lo' : 'data-line',
-    element = (column && column.querySelector('[' + attribute + '="' + spot.line + '"]')) as HTMLElement | null;
+    element = column ? findMaybe(column, '[' + attribute + '="' + spot.line + '"]', HTMLElement) : null;
   return element || lineLeaves(spot.line, spot.line)[0] || nearestLineElement(spot.line);
 }
 // The last line element that starts at or before line (lineElements are in document order, their first lines never
@@ -893,7 +1021,7 @@ function keepReadingSpot() {
     const drift = rect.top + into - pane.getBoundingClientRect().top;
     if (Math.abs(drift) >= 0.5) pane.scrollTop += drift;
   }
-  if (spot.sel) revealBox(document.querySelector('#md .md-sel') as HTMLElement | null, true);
+  if (spot.sel) revealBox(findMaybe(document, '#md .md-sel', HTMLElement), true);
   readSpot(true);
 }
 // Something above the reading spot changed its height while the width stood - an image that got its size or gave way to
@@ -955,7 +1083,7 @@ function isChosenSeen() {
 // Builds article#md from the worker's tokens (renderTokens, with MARKDOWN_VIEW as its render context), with a yield to
 // the browser and a check for a newer draw whenever renderTokens pauses, or null when the elements built pass
 // MARKDOWN_LIMITS.elements (stale(): a newer draw - then whatever was built is dropped too).
-async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTMLElement | null> {
+async function renderDocument(tokens: MarkdownToken[], stale: () => boolean): Promise<HTMLElement | null> {
   const root = document.createElement('article');
   root.className = 'md';
   root.id = 'md';
@@ -987,7 +1115,11 @@ async function renderDocument(tokens: any[], stale: () => boolean): Promise<HTML
 // paragraph of 120,000 inline tokens or one code block of 30,000 lines pauses inside itself. Two or more raw HTML
 // blocks in a row are one run (htmlRunElement). context is the draw's render context (RenderContext): its lines, its
 // element count, its marked characters and its headings.
-function* renderTokens(root: HTMLElement, tokens: any[], context: RenderContext): Generator<void, void, void> {
+function* renderTokens(
+  root: HTMLElement,
+  tokens: MarkdownToken[],
+  context: RenderContext,
+): Generator<void, void, void> {
   const renderer = makeRenderer(root, context),
     work = { n: 0 };
   for (let i = 0; i < tokens.length; i++) {
@@ -1009,10 +1141,22 @@ function isPauseDue(work: { n: number }) {
   return true;
 }
 const OVER_ELEMENT_LIMIT = { over: true }; // thrown by countedElement past MARKDOWN_LIMITS.elements
-// One element of the drawn document, counted against MARKDOWN_LIMITS.elements on the draw's render context.
-function countedElement(tag: string, context: RenderContext): HTMLElement {
+// One element of the drawn document, counted against MARKDOWN_LIMITS.elements on the draw's render context: the DOM
+// class of its tag (countedElement('a', context) is an HTMLAnchorElement).
+function countedElement<Tag extends keyof HTMLElementTagNameMap>(
+  tag: Tag,
+  context: RenderContext,
+): HTMLElementTagNameMap[Tag] {
   if (++context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
   return document.createElement(tag);
+}
+// The same for a tag the source names (a block token's tag, any lowercase name): an HTML element, of its tag's class
+// or HTMLUnknownElement; throws an Error for a name the document makes no HTML element of.
+function countedTagElement(tag: string, context: RenderContext): HTMLElement {
+  if (++context.els > MARKDOWN_LIMITS.elements) throw OVER_ELEMENT_LIMIT;
+  const element: Element = document.createElement(tag);
+  if (!(element instanceof HTMLElement)) throw new Error('countedTagElement: <' + tag + '> is no HTML element');
+  return element;
 }
 // ---------------- Hidden characters in the drawn document (ADR-0029 D5, docs/handbook/viewer.md §숨은 문자)
 // Every piece of the source's text the document draws - a paragraph's, a heading's, a list item's, a table cell's, a
@@ -1072,21 +1216,21 @@ function drawTextLate(parent: Node, piece: string, context: RenderContext) {
   }
   drawTextNow(parent, piece, context);
 }
-function tokenAttribute(token: any, name: string): string | null {
+function tokenAttribute(token: MarkdownToken, name: string): string | null {
   const attributes = (token && token.attrs) || [];
   for (const pair of attributes) if (pair[0] === name) return String(pair[1]);
   return null;
 }
 // The lines first..last of a block token's map, its trailing blank lines (of the render context's lines) left out (a
 // loose list item's map runs over them).
-function tokenLines(token: any, context: RenderContext): { lo: number; hi: number } | null {
+function tokenLines(token: MarkdownToken, context: RenderContext): { lo: number; hi: number } | null {
   if (!token.map) return null;
   let first = token.map[0] + 1,
     last = Math.max(first, token.map[1]);
   while (last > first && !String(context.lines[last - 1] || '').trim()) last--;
   return { lo: first, hi: last };
 }
-function mapLines(element: HTMLElement, token: any, kind: string, context: RenderContext) {
+function mapLines(element: HTMLElement, token: MarkdownToken, kind: string, context: RenderContext) {
   const lines = tokenLines(token, context);
   if (!lines) return;
   element.dataset.lo = String(lines.lo);
@@ -1108,7 +1252,7 @@ const BLOCK_KIND: Record<string, string> = {
 // the list item.
 function makeRenderer(root: HTMLElement, context: RenderContext) {
   const stack = [root];
-  function* token(markdownToken: any, work: { n: number }): Generator<void, void, void> {
+  function* token(markdownToken: MarkdownToken, work: { n: number }): Generator<void, void, void> {
     const top = stack[stack.length - 1];
     if (markdownToken.nesting === 1) {
       if (markdownToken.hidden) {
@@ -1116,7 +1260,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
         return;
       }
       const tag = /^[a-z][a-z0-9]*$/.test(markdownToken.tag || '') ? markdownToken.tag : 'div',
-        element = countedElement(tag, context),
+        element = countedTagElement(tag, context),
         kind = BLOCK_KIND[markdownToken.type];
       if (kind) mapLines(element, markdownToken, kind, context);
       if (markdownToken.type === 'ordered_list_open') {
@@ -1200,22 +1344,19 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
     if (markdownToken.type === 'html_block') top.appendChild(htmlPlaceholder(markdownToken, context));
   }
   // A run of raw HTML blocks in a row (htmlRunElement), or each block on its own when one has no lines.
-  function* run(tokens: any[], work: { n: number }): Generator<void, void, void> {
-    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context));
-    if (spans.some((span) => !span)) {
+  function* run(tokens: MarkdownToken[], work: { n: number }): Generator<void, void, void> {
+    const spans = tokens.map((htmlToken) => tokenLines(htmlToken, context)),
+      first = spans[0],
+      last = spans[spans.length - 1];
+    if (!first || !last || spans.some((span) => !span)) {
       for (const htmlToken of tokens) {
         yield* token(htmlToken, work);
         if (isPauseDue(work)) yield;
       }
       return;
     }
-    const runElement = htmlRunElement(
-        tokens.length,
-        (spans[0] as { lo: number; hi: number }).lo,
-        (spans[spans.length - 1] as { lo: number; hi: number }).hi,
-        context,
-      ),
-      body = runElement.lastChild as HTMLElement;
+    const runElement = htmlRunElement(tokens.length, first.lo, last.hi, context),
+      body = findElement(runElement, ':scope>.md-html-body', HTMLElement);
     stack[stack.length - 1].appendChild(runElement);
     for (const htmlToken of tokens) {
       const placeholder = htmlPlaceholder(htmlToken, context);
@@ -1232,7 +1373,7 @@ function makeRenderer(root: HTMLElement, context: RenderContext) {
 // (context.lines), drawn as text: YAML is never parsed, so nothing in it links, loads or is markup. It is no heading:
 // the outline, the strip and the sections skip it.
 function* drawFrontMatter(
-  token: any,
+  token: MarkdownToken,
   top: HTMLElement,
   work: { n: number },
   context: RenderContext,
@@ -1274,7 +1415,7 @@ function* drawFrontMatter(
 // smallest thing that can be chosen in it - none of its lines can be chosen alone (ADR-0036 D3). The lines are the
 // token's (indentation and quote markers left out).
 function* drawMathBlock(
-  token: any,
+  token: MarkdownToken,
   top: HTMLElement,
   work: { n: number },
   context: RenderContext,
@@ -1316,7 +1457,7 @@ function* drawMathBlock(
 }
 // A raw HTML block's placeholder: its lines (it takes a pin), their count and its first line as code, never the HTML
 // itself.
-function htmlPlaceholder(token: any, context: RenderContext): HTMLElement {
+function htmlPlaceholder(token: MarkdownToken, context: RenderContext): HTMLElement {
   const box = countedElement('div', context);
   mapLines(box, token, 'html', context);
   box.className = 'md-html';
@@ -1352,7 +1493,7 @@ function htmlRunElement(count: number, first: number, last: number, context: Ren
   run.dataset.rHi = String(last);
   run.dataset.kind = 'html';
   holdHtmlLines(run, true);
-  const button = countedElement('button', context) as HTMLButtonElement;
+  const button = countedElement('button', context);
   button.type = 'button';
   button.className = 'md-html-sum';
   button.dataset.act = 'md-html-run';
@@ -1384,12 +1525,12 @@ function holdHtmlLines(element: HTMLElement, on: boolean) {
 // Opens or closes the run of raw HTML blocks whose button is button (data-act md-html-run), then draws the marks, the
 // chosen lines and the strip again over what is shown.
 function toggleHtmlRun(button: HTMLElement) {
-  const run = button.closest('.md-html-run') as HTMLElement | null,
-    body = run && (run.querySelector('.md-html-body') as HTMLElement | null);
+  const run = findClosest(button, '.md-html-run', HTMLElement),
+    body = run && findMaybe(run, '.md-html-body', HTMLElement);
   if (!run || !body) return;
   const open = button.getAttribute('aria-expanded') !== 'true';
   holdHtmlLines(run, !open);
-  body.querySelectorAll('.md-html').forEach((placeholder) => holdHtmlLines(placeholder as HTMLElement, open));
+  findAll(body, '.md-html', HTMLElement).forEach((placeholder) => holdHtmlLines(placeholder, open));
   body.hidden = !open;
   button.setAttribute('aria-expanded', String(open));
   drawPinMarks();
@@ -1428,7 +1569,7 @@ function inlineLines(token: { map?: number[] | null; content?: string; children?
 // never a suggestion's wrong base. A table cell's inline token has no map: its span carries nothing and the row's range
 // stands for it.
 function* drawInline(
-  token: any,
+  token: MarkdownToken,
   parent: HTMLElement,
   work: { n: number },
   context: RenderContext,
@@ -1447,7 +1588,7 @@ function* drawInline(
     parent.appendChild(span);
     return span;
   };
-  let stack = [makeLineSpan(lineInfo.lo)] as HTMLElement[];
+  let stack: HTMLElement[] = [makeLineSpan(lineInfo.lo)];
   // The pieces of a drawn formula still to pass over: its head drew all of them at once (inlineTexRun), so they add
   // nothing here.
   let skip = 0;
@@ -1475,7 +1616,8 @@ function* drawInline(
         if (lineInfo.exact) {
           const next = [makeLineSpan(lineInfo.lines[i] + 1)];
           for (const open of stack.slice(1)) {
-            const copy = open.cloneNode(false) as HTMLElement;
+            const copy = open.cloneNode(false);
+            if (!(copy instanceof HTMLElement)) continue;
             ++context.els;
             next[next.length - 1].appendChild(copy);
             next.push(copy);
@@ -1672,13 +1814,17 @@ function linkAction(
 // in a box that keeps a place for it (12rem x 8rem, CSS) until its size is known - at once when an earlier draw learned
 // it (IMAGE_SIZES) - and once it loads the reading spot is put back (onImageLoad), so an image above the reading line
 // never moves the text being read. Anything else is the image's alt text, with why it is not loaded in the tip.
-function* drawImage(token: any, work: { n: number }, context: RenderContext): Generator<void, HTMLElement, void> {
+function* drawImage(
+  token: MarkdownToken,
+  work: { n: number },
+  context: RenderContext,
+): Generator<void, HTMLElement, void> {
   const raw = String(tokenAttribute(token, 'src') || ''),
     alt = String(token.content || tokenAttribute(token, 'alt') || ''),
     place = imageSource(raw, documentTreePath());
   if (place.path) {
     const box = countedElement('span', context),
-      img = countedElement('img', context) as HTMLImageElement;
+      img = countedElement('img', context);
     box.className = 'md-pic';
     box.dataset.path = place.path;
     img.alt = alt;
@@ -1713,7 +1859,7 @@ function* drawImage(token: any, work: { n: number }, context: RenderContext): Ge
 }
 // The natural size of each tree image this tab has loaded, by tree path: a redraw or a return to the document keeps
 // their places.
-const IMAGE_SIZES = new Map() as Map<string, { w: number; h: number }>;
+const IMAGE_SIZES: Map<string, { w: number; h: number }> = new Map();
 // An image has loaded: its size is kept (IMAGE_SIZES) and given to its box, and the reading spot (MARKDOWN_VIEW.spot,
 // as readSpot last read it, or read again just before the change when the pane was moved since: refreshMovedSpot) is
 // put back (putSpotBack) - only an image above it moves anything. During a jump to a heading (goToHeading) the spot is
@@ -1722,8 +1868,9 @@ const IMAGE_SIZES = new Map() as Map<string, { w: number; h: number }>;
 // new size under the same path), and then it is resized and the spot put back as for a first load. Only a size that
 // held changes nothing. The marks follow through the column's ResizeObserver (COLUMN_OBSERVER).
 function onImageLoad(event: Event) {
-  const img = event.target as HTMLImageElement,
-    box = img.parentElement;
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const box = img.parentElement;
   if (!box) return;
   void noteShownTag(img.getAttribute('src') || '');
   const width = img.naturalWidth,
@@ -1771,6 +1918,14 @@ function sizeImage(img: HTMLImageElement, width: number, height: number) {
   img.removeAttribute('height');
   img.style.removeProperty('--md-pic-r');
 }
+interface ImageCheckState {
+  max: number;
+  gap: number;
+  last: number;
+  busy: boolean;
+  asked: number;
+  at: Map<string, Map<string, number>>;
+}
 // ---------------- A tree image changed on disk (docs/handbook/viewer.md §그림)
 // The page keeps the picture it decoded for an address as long as it lives (HTML's list of available images), so
 // without a check an image rewritten on disk would show only after a reload: a redraw draws the same address again. On
@@ -1788,16 +1943,16 @@ function sizeImage(img: HTMLImageElement, width: number, height: number) {
 // is kept per document and path (IMAGE_VERSIONS), so a redraw or a return to the document draws the new picture too. No
 // route, no field: only GET /api/asset. at: for each document, tree path -> when a check last asked it, for the paths
 // the document shows now (no other bound, so no image's turn is ever forgotten while it is on the page).
-const IMAGE_CHECK = {
+const IMAGE_CHECK: ImageCheckState = {
   max: 6,
   gap: 4000,
   last: -Infinity,
   busy: false,
   asked: 0,
-  at: new Map() as Map<string, Map<string, number>>,
+  at: new Map(),
 };
-const IMAGE_TAGS = new Map() as Map<string, string>; // an address -> the ETag of the picture an image at it shows
-const IMAGE_VERSIONS = new Map() as Map<string, string>; // doc + '\n' + tree path -> the version its address carries
+const IMAGE_TAGS: Map<string, string> = new Map(); // an address -> the ETag of the picture an image at it shows
+const IMAGE_VERSIONS: Map<string, string> = new Map(); // doc + '\n' + tree path -> the version its address carries
 const IMAGE_MAP_LIMIT = 256; // the most entries either map keeps, the oldest dropped first
 // The address the tree image at path loads from now: assetUrl's, with the version a check found (IMAGE_VERSIONS).
 function imageUrl(doc: string | null, path: string) {
@@ -1847,9 +2002,9 @@ async function checkTreeImages(): Promise<number> {
   )
     return 0;
   const paneRect = $('#left').getBoundingClientRect(),
-    near = [] as { img: HTMLImageElement; d: number }[],
-    shown = new Set();
-  for (const img of [...document.querySelectorAll('#md .md-pic img')] as HTMLImageElement[]) {
+    near: { img: HTMLImageElement; d: number }[] = [],
+    shown = new Set<string>();
+  for (const img of findAll(document, '#md .md-pic img', HTMLImageElement)) {
     const path = img.parentElement && img.parentElement.dataset.path;
     if (path) shown.add(path);
     if (!img.complete || !img.naturalWidth) continue;
@@ -1879,7 +2034,7 @@ async function checkTreeImages(): Promise<number> {
   IMAGE_CHECK.last = now;
   let count = 0,
     moved = 0;
-  const seen = new Set();
+  const seen = new Set<string>();
   try {
     for (const { img } of near) {
       const box = img.parentElement,
@@ -1903,7 +2058,7 @@ async function checkTreeImages(): Promise<number> {
       const next = imageUrl(docKey, path);
       keepRecent(IMAGE_TAGS, next, tag);
       if (next === url) continue; // unknown, but already at that tag's address: taken as showing it
-      for (const box of [...document.querySelectorAll('#md .md-pic')] as HTMLElement[])
+      for (const box of findAll(document, '#md .md-pic', HTMLElement))
         if (box.dataset.path === path) {
           const image = box.querySelector('img');
           if (image && image.getAttribute('src') !== next) image.src = next;
@@ -1918,8 +2073,9 @@ async function checkTreeImages(): Promise<number> {
 // An image the server would not give (not there, not that format, outside the tree behind a link, too large): its alt
 // text, as for an image that is never loaded, saying so in the tip.
 function onImageError(event: Event) {
-  const img = event.target as HTMLImageElement,
-    box = img.parentElement;
+  const img = event.target;
+  if (!(img instanceof HTMLImageElement)) return;
+  const box = img.parentElement;
   if (!box || !box.isConnected) return;
   const fallback = document.createElement('span'),
     path = box.dataset.path || '';
@@ -1942,9 +2098,9 @@ function onImageError(event: Event) {
 // an image of the tree opens in a new tab from GET /api/asset; anything else is inert text with its target, and why, in
 // the tip.
 function drawLink(href: unknown, context: RenderContext): HTMLElement {
-  const target = linkAction(href, location.origin, documentTreePath(), DOCS);
+  const target = linkAction(href, window.location.origin, documentTreePath(), DOCS);
   if (target.open === 'web' || target.open === 'mail') {
-    const link = countedElement('a', context) as HTMLAnchorElement;
+    const link = countedElement('a', context);
     link.href = target.href;
     link.target = '_blank';
     link.rel = 'noopener noreferrer';
@@ -1975,7 +2131,7 @@ function drawLink(href: unknown, context: RenderContext): HTMLElement {
     return link;
   }
   if (target.open === 'asset') {
-    const link = countedElement('a', context) as HTMLAnchorElement,
+    const link = countedElement('a', context),
       url = assetUrl(DOC, target.href);
     link.className = 'md-asset';
     link.href = url;
@@ -2022,7 +2178,7 @@ function goToDocLink(link: HTMLElement) {
     return;
   }
   if (!switchPending(docKey)) {
-    if (!BACK) history.pushState(null, '', location.pathname + location.search + '#doc=' + docKey);
+    if (!BACK) window.history.pushState(null, '', window.location.pathname + window.location.search + '#doc=' + docKey);
     void switchDoc(docKey);
   }
   MARKDOWN_VIEW.headTo = rendersInBrowser(entry.kind)
@@ -2063,7 +2219,7 @@ function goToSlug(id: string): number {
     want = decodeURIComponent(want);
   } catch (error) {}
   want = want.toLowerCase();
-  const seen = new Map();
+  const seen = new Map<string, number>();
   let at = -1;
   MARKDOWN_VIEW.heads.forEach((heading, index) => {
     if (at >= 0) return;
@@ -2077,32 +2233,32 @@ function goToSlug(id: string): number {
 // ---------------- Picking: selection -> lines, and the ladder
 // The lines a DOM point is on: its line span's, else its nearest block's range, else null (outside the document).
 function linesAt(node: Node | null) {
-  const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+  const element = node && (node instanceof Element ? node : node.parentElement);
   if (!element) return null;
   const column = $('#md');
   if (!column || !column.contains(element)) return null;
   // The nearest carrier wins. A drawn formula that was cut at a line end sits inside the span of the line it starts in
   // and carries the lines it covers itself (drawInline): those are the point's lines, not that one line's.
-  const near = element.closest('[data-line],[data-lo]') as HTMLElement | null;
+  const near = findClosest(element, '[data-line],[data-lo]', HTMLElement);
   if (near && column.contains(near)) {
     const line = +(near.dataset.line || 0);
     if (line) return { lo: line, hi: line };
     if (near.dataset.lo !== undefined) return { lo: +(near.dataset.lo || 0), hi: +(near.dataset.hi || 0) };
   }
-  const block = element.closest('[data-lo]') as HTMLElement | null;
+  const block = findClosest(element, '[data-lo]', HTMLElement);
   return block && column.contains(block) ? { lo: +(block.dataset.lo || 0), hi: +(block.dataset.hi || 0) } : null;
 }
 // The block a point belongs to for the ladder's second rung: a table row's table, a list item's or a quote's
 // paragraph's item or quote, else its nearest block (a run of text whose lines could not be told - kind 'lines',
 // drawInline - stands for the block it is in).
 function blockAt(node: Node | null) {
-  const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
+  const element = node && (node instanceof Element ? node : node.parentElement);
   if (!element) return null;
-  let block = element.closest('#md [data-lo]') as HTMLElement | null;
+  let block = findClosest(element, '#md [data-lo]', HTMLElement);
   if (block && block.dataset.kind === 'lines' && block.parentElement)
-    block = block.parentElement.closest('#md [data-lo]') as HTMLElement | null;
+    block = findClosest(block.parentElement, '#md [data-lo]', HTMLElement);
   if (!block) return null;
-  if (block.dataset.kind === 'row') block = (block.closest('table[data-lo]') as HTMLElement | null) || block;
+  if (block.dataset.kind === 'row') block = findClosest(block, 'table[data-lo]', HTMLElement) || block;
   else if (
     block.dataset.kind === 'paragraph' &&
     block.parentElement &&
@@ -2111,7 +2267,7 @@ function blockAt(node: Node | null) {
     block = block.parentElement; // a list item's or a quote's own paragraph is that block
   // A heading or a rule is no block of its own (ADR-0025 D3's block kinds): the block it stands in, if any, is.
   while (block && !BLOCK_KINDS.includes(block.dataset.kind || ''))
-    block = block.parentElement ? (block.parentElement.closest('#md [data-lo]') as HTMLElement | null) : null;
+    block = block.parentElement ? findClosest(block.parentElement, '#md [data-lo]', HTMLElement) : null;
   return block;
 }
 // The block kinds a block rung takes (its pin kind is md:<kind>, ADR-0025 D3; front, math: ADR-0032) and their names on
@@ -2124,9 +2280,9 @@ function blocksMeeting(first: number, last: number) {
   const column = $('#md');
   if (!column) return [];
   const meets = (element: HTMLElement) => +(element.dataset.lo || 0) <= last && +(element.dataset.hi || 0) >= first;
-  return ([...column.querySelectorAll(BLOCK_SELECTOR)] as HTMLElement[]).filter((element) => {
+  return findAll(column, BLOCK_SELECTOR, HTMLElement).filter((element) => {
     if (!meets(element)) return false;
-    const up = (element.parentElement && element.parentElement.closest(BLOCK_SELECTOR)) as HTMLElement | null;
+    const up = element.parentElement && findClosest(element.parentElement, BLOCK_SELECTOR, HTMLElement);
     return !(up && column.contains(up) && meets(up));
   });
 }
@@ -2151,7 +2307,7 @@ function lineSnippet(first: number, last: number) {
 // of the same or a higher level (the file's end when none), its trailing blank lines left out. null above the first
 // heading, or when last is past it.
 function sectionAround(first: number, last: number) {
-  let heading = null as { level: number; lo: number; title: string } | null;
+  let heading: { level: number; lo: number; title: string } | null = null;
   for (const head of MARKDOWN_VIEW.heads) {
     if (head.lo <= first) heading = head;
     else break;
@@ -2182,7 +2338,7 @@ function markdownLevels(
   tapped?: boolean,
 ) {
   if (isTextDoc()) return textSurface().levels(range); // a text document's rungs come from its lines alone
-  const rungs = [] as any[];
+  const rungs: Rung[] = [];
   const add = (level: string, label: string, first: number, last: number, env: string | null) => {
     const same = rungs.find((rung) => rung.lo === first && rung.hi === last);
     if (same) {
@@ -2243,7 +2399,7 @@ function pickLines(
   const defaultLevel =
     // a tap on a text document picks its line
     tapped && !isTextDoc() && levelOf({ levels }, head ? 'section' : 'block') ? (head ? 'section' : 'block') : 'raw';
-  const selection = {
+  const selection: LinePick = {
     doc: DOC,
     file: MARKDOWN_VIEW.file,
     name: MARKDOWN_VIEW.name,
@@ -2260,9 +2416,9 @@ function pickLines(
     n_lines: MARKDOWN_VIEW.lines.length,
     quote: quoted,
     overlaps: [],
-  } as unknown as Selection;
+  };
   if (REPICK) {
-    REPICK.cand = selection;
+    setRepickCandidate(REPICK, selection);
     linePick().compare();
     return;
   }
@@ -2288,7 +2444,7 @@ function pickLines(
   $('#composer').scrollTop = 0;
   if (LAYOUT !== LAYOUT_MODE.WIDE) $('#right').scrollTop = 0;
   // the chosen lines out from under the sheet (compact), as a PDF box is
-  revealBox(document.querySelector('#md .md-sel') as HTMLElement | null);
+  revealBox(findMaybe(document, '#md .md-sel', HTMLElement));
   if (LAST_POINTER === 'mouse') $('#note').focus({ preventScroll: true });
 }
 // The ladder of an edit card on a pin of this document: its lines' rungs from the drawn document (markdownLevels), or
@@ -2320,8 +2476,10 @@ function markChosenLines(
   chosen: { file?: string; lo?: number | null; hi?: number | null; kind?: string; pdf?: string } | null,
 ) {
   $$('#md .md-sel').forEach((element) => element.classList.remove('md-sel'));
-  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen))
-    lineLeaves(chosen.lo as number, chosen.hi as number).forEach((element) => element.classList.add('md-sel'));
+  const low = chosen && chosen.lo,
+    high = chosen && chosen.hi;
+  if (chosen && isMarkdownDoc() && chosen.file === MARKDOWN_VIEW.file && !isRegion(chosen) && low && high)
+    lineLeaves(low, high).forEach((element) => element.classList.add('md-sel'));
   if (MARKDOWN_VIEW.spot && MARKDOWN_VIEW.spot.doc === DOC && isColumnShown()) MARKDOWN_VIEW.spot.sel = isChosenSeen();
 } // hidden, nothing is on screen: what was stays
 // The elements that stand for lines first..last: each line span in range, and each block in range that has no line
@@ -2330,22 +2488,22 @@ function markChosenLines(
 function lineLeaves(first: number, last: number) {
   const column = $('#md');
   if (!column) return [];
-  const lines = [...column.querySelectorAll('[data-line]')].filter((element) => {
-    const line = +((element as HTMLElement).dataset.line || 0);
+  const lines = findAll(column, '[data-line]', HTMLElement).filter((element) => {
+    const line = +(element.dataset.line || 0);
     return line >= first && line <= last;
   });
-  const blocks = [...column.querySelectorAll('[data-lo]')].filter((element) => {
-    const block = element as HTMLElement,
+  const blocks = findAll(column, '[data-lo]', HTMLElement).filter((element) => {
+    const block = element,
       start = +(block.dataset.lo || 0),
       end = +(block.dataset.hi || 0);
     return start <= last && end >= first && !block.querySelector('[data-line],[data-lo]');
   });
-  const out = new Set();
+  const out = new Set<HTMLElement>();
   for (const element of [...lines, ...blocks]) {
-    const row = element.closest('tr[data-lo]');
+    const row = findClosest(element, 'tr[data-lo]', HTMLElement);
     out.add(row && column.contains(row) ? row : element);
   }
-  return [...out] as HTMLElement[];
+  return [...out];
 }
 // ---------------- Pins on the document
 // The marks of the pins on screen (marks()' branch): each pin's lines get .md-pin (review .rv, lost .st), and the first
@@ -2360,12 +2518,15 @@ function drawPinMarks() {
   column.querySelectorAll('.md-badges').forEach((element: Element) => element.remove());
   column.querySelectorAll('.md-pin').forEach((element: Element) => element.classList.remove('md-pin', 'rv', 'st'));
   const pins = PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC))
-    .filter((pin) => !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number')
-    .sort((left, right) => (left.lo as number) - (right.lo as number) || left.id - right.id);
-  const rows = new Map() as Map<number, HTMLElement>,
+    .filter(
+      (pin): pin is Pin & { lo: number; hi: number } =>
+        !isRegion(pin) && typeof pin.lo === 'number' && typeof pin.hi === 'number',
+    )
+    .sort((left, right) => left.lo - right.lo || left.id - right.id);
+  const rows: Map<number, HTMLElement> = new Map(),
     top = column.getBoundingClientRect().top;
   for (const pin of pins) {
-    const leaves = lineLeaves(pin.lo as number, pin.hi as number);
+    const leaves = lineLeaves(pin.lo, pin.hi);
     if (!leaves.length) continue;
     const inReview = pinState(pin) === PIN_STATE.REVIEW,
       lost = !!pin.stale;
@@ -2402,7 +2563,7 @@ function drawPinMarks() {
       '#' +
       pin.id +
       ' · ' +
-      lineRange(pin.lo as number, pin.hi as number) +
+      lineRange(pin.lo, pin.hi) +
       ' · ' +
       (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : translate('(메모 없음)'));
     box.appendChild(badge);
@@ -2414,7 +2575,7 @@ function drawPinMarks() {
 // element's line span itself, a
 // sibling of the lines and in no line's text: before the whole text, every badge would be read before the first line.
 function topBlockOf(column: HTMLElement, element: Element): Element | null {
-  let child = element as Element | null;
+  let child: Element | null = element;
   const isText = column.classList.contains('tx');
   while (
     child &&
@@ -2554,7 +2715,7 @@ function markdownPositionLabel(doc: string, line: number, lineCount: number, mul
 }
 // The empty list's help (#empty) speaks of dragging on the PDF; this document gets its own words, and a PDF document
 // the page's own back (kept as served).
-let PDF_HINT_NODES = null as Node[] | null;
+let PDF_HINT_NODES: Node[] | null = null;
 function showMarkdownHint() {
   const help = $('#empty');
   if (!help) return;
@@ -2643,7 +2804,7 @@ for (const eventType of ['wheel', 'touchstart', 'pointerdown'])
   $('#left').addEventListener(eventType, stopHeadingJump, { passive: true });
 // A key scrolls the pane when nothing else has the focus or something in the pane has it - pdf/view-outline.ts's scope
 // (SCROLL_KEYS): with the focus on the page's body, Home or PageDown scrolls the pane without a key event on it.
-addEventListener('keydown', (event) => {
+window.addEventListener('keydown', (event) => {
   const active = document.activeElement;
   if (SCROLL_KEYS.has(event.key) && (!active || active === document.body || $('#left').contains(active)))
     stopHeadingJump();
@@ -2685,15 +2846,15 @@ function pickSelection(tapTarget: EventTarget | null) {
     );
     return true;
   }
-  if (tapTarget) {
-    const target = tapTarget as Element;
-    const inertLink = target.closest('#md .md-rel') as HTMLElement | null;
+  if (tapTarget instanceof Element) {
+    const target = tapTarget;
+    const inertLink = findClosest(target, '#md .md-rel', HTMLElement);
     if (inertLink && LAST_POINTER !== 'mouse') {
       showInertTip(inertLink);
       return true;
     } // a finger has no hover
     if (target.closest('a,button,[data-act],.md-badges,.md-limit')) return false;
-    const carrier = target.closest('#md [data-lo],#md [data-line]') as HTMLElement | null;
+    const carrier = findClosest(target, '#md [data-lo],#md [data-line]', HTMLElement);
     if (!carrier) return false;
     const head = MARKDOWN_VIEW.heads.find(
       (heading) => heading.el === target.closest('#md h1,#md h2,#md h3,#md h4,#md h5,#md h6'),
@@ -2751,14 +2912,14 @@ function rangeText(range: Range) {
   copy.className = 'md';
   copy.append(range.cloneContents());
   copy.querySelectorAll('.md-badges').forEach((element) => element.remove());
-  const tex = [] as string[];
+  const tex: string[] = [];
   copy.querySelectorAll('[data-tex]').forEach((element) => {
     tex.push(element.getAttribute('data-tex') || '');
     const slot = document.createElement(element.classList.contains('md-math-block') ? 'div' : 'span');
     slot.textContent = '\ufff1';
     element.replaceWith(slot);
   });
-  const kept = [] as string[];
+  const kept: string[] = [];
   copy.querySelectorAll('.cc').forEach((element) => {
     kept.push(element.textContent || '');
     element.replaceWith('\ufff0');
@@ -2780,8 +2941,8 @@ function rangeText(range: Range) {
 // itself when neither end is in one.
 function widenToFormulas(range: Range): Range {
   const formulaAt = (node: Node | null) => {
-    const element = node && (node.nodeType === 1 ? (node as Element) : node.parentElement);
-    return element ? (element.closest('#md [data-tex]') as HTMLElement | null) : null;
+    const element = node && (node instanceof Element ? node : node.parentElement);
+    return element ? element.closest('#md [data-tex]') : null;
   };
   const startFormula = formulaAt(range.startContainer),
     endFormula = formulaAt(range.endContainer);
@@ -2810,8 +2971,7 @@ function showInertTip(element: HTMLElement) {
 }
 // Whether the range takes no visible character of the line (or block) its end is in.
 function takesNothingOfEnd(range: Range) {
-  const element =
-    range.endContainer.nodeType === 1 ? (range.endContainer as Element) : range.endContainer.parentElement;
+  const element = range.endContainer instanceof Element ? range.endContainer : range.endContainer.parentElement;
   if (!element) return false;
   const host = element.closest('[data-line]') || element.closest('[data-lo]');
   if (!host) return false;
@@ -2951,7 +3111,9 @@ function showTextHint() {
 }
 
 export {
+  jobAnswer,
   MARKDOWN_VIEW,
+  advanceMarkdownSequence,
   MARKDOWN_LIMITS,
   OVER_ELEMENT_LIMIT,
   isMarkdownPin,
@@ -2990,3 +3152,4 @@ export {
   markedCharactersText,
   showTextHint,
 };
+export type { MarkdownParse, MarkdownParseJob, MarkdownParseQuestion, MarkdownToken };

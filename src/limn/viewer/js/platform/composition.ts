@@ -4,22 +4,22 @@
 // over once its element ends it, loses the focus (blur), leaves the document - a field drawn away with no
 // compositionend (a switch of documents, a rebuild) - or a new one starts elsewhere; imeOpen() reads the last two at
 // the moment it is asked.
-let COMPOSITION_ELEMENT = null as Element | null;
-addEventListener(
+let COMPOSITION_ELEMENT: Element | null = null;
+window.addEventListener(
   'compositionstart',
   (event) => {
     COMPOSITION_ELEMENT = event.target instanceof Element ? event.target : null;
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'compositionend',
   (event) => {
     if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;
   },
   true,
 );
-addEventListener(
+window.addEventListener(
   'focusout',
   (event) => {
     if (event.target === COMPOSITION_ELEMENT) COMPOSITION_ELEMENT = null;

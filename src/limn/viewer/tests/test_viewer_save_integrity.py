@@ -18,11 +18,13 @@ class SaveIntegrity(BrowserBase):
         ).record["id"]
 
     def hold_response(self, page, path):
-        """Delay the viewer-owned API adapter's first POST result after the real server handles it."""
+        """Delay the viewer-owned API adapter's first POST result to path (the URL its endpoint and options build) after the
+        real server handles it."""
         page.evaluate(
-            """path => {const realApi=api;let held=false;api=(url,options)=>{
-              const result=realApi(url,options);
-              if(!held&&url===path&&options?.method==='POST'){
+            """path => {const realApi=api;let held=false;api=(endpoint,options)=>{
+              const result=realApi(endpoint,options);
+              const url=endpointUrl(endpoint,options.id,options.query);
+              if(!held&&url===path&&endpoint.startsWith('POST ')){
                 held=true;return result.then(value=>new Promise(resolve=>{
                   window.releaseSavedResponse=()=>resolve(value);
                 }));
@@ -133,7 +135,7 @@ class SaveIntegrity(BrowserBase):
         page.locator(".e-note").fill("Submitted range and note")
         page.evaluate("()=>{EDITOR.current.lo=4;EDITOR.current.scope=null;renderEdit();}")
         page.evaluate(
-            "async id=>await api('/api/pins/'+id+'/close',{method:'POST',body:{reply:'Remote completion'}})",
+            "async id=>await api('POST /api/pins/{id}/close',{id,body:{reply:'Remote completion'}})",
             self.pid,
         )
         self.hold_response(page, "/api/pins/%d/edit" % self.pid)
@@ -184,7 +186,7 @@ class SaveIntegrity(BrowserBase):
         page = self.open(1)
         page.evaluate(
             """async id=>{const pin=PINS.find(p=>p.id===id);
-              await api('/api/pins/'+id+'/edit',{method:'POST',body:{base_rev:pin.rev,note:'Please check @bob'}});
+              await api('POST /api/pins/{id}/edit',{id,body:{base_rev:pin.rev,note:'Please check @bob'}});
               await loadPins();}""",
             self.pid,
         )
@@ -202,7 +204,7 @@ class SaveIntegrity(BrowserBase):
         page.locator("#note").fill("My appended note")
         page.evaluate("clearInterval(LIGHT_TIMER)")
         page.evaluate(
-            "async id=>await api('/api/pins/'+id+'/edit',{method:'POST',body:{note_append:'Remote work'}})",
+            "async id=>await api('POST /api/pins/{id}/edit',{id,body:{note_append:'Remote work'}})",
             self.pid,
         )
         remote_note = self.stored_note()

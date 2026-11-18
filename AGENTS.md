@@ -46,6 +46,7 @@ uv run python tools/check_fitness.py
 uv run python tools/check_types.py
 npm ci --ignore-scripts && npm run typecheck
 npm run build:check
+uv run python tools/page_elements.py --check
 npm run format:check
 npm test
 uv run python tools/strict_ratchet.py

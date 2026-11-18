@@ -27,8 +27,8 @@ class PinSaveSmoke:
     def append_as_another_writer(self, page, pid, text):
         """Write through the real API without refreshing the tested form's displayed revision."""
         result = page.evaluate(
-            """async ({id,text})=>await api('/api/pins/'+id+'/edit',{
-              method:'POST',body:{note_append:text}})""",
+            """async ({id,text})=>await api('POST /api/pins/{id}/edit',{
+              id,body:{note_append:text}})""",
             {"id": pid, "text": text},
         )
         self.assertEqual(result["status"], 200)
