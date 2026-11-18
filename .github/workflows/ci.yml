@@ -313,7 +313,7 @@ jobs:
                    vendor/pretendard/PretendardVariable.subset.0.woff2 administration/systemd/limn@.service administration/instances.sh \
                    administration/instance_update.sh administration/instance_documents.sh \
                    administration/instance_lifecycle.sh administration/instance_inspection.sh \
-                   viewer/index.html viewer/parts.txt viewer/css/tokens.css viewer/dist/viewer.js \
+                   viewer/index.html viewer/css/tokens.css viewer/dist/viewer.js \
                    viewer/brand/SHA256SUMS viewer/brand/favicon.ico viewer/brand/favicon-16.png viewer/brand/favicon-32.png viewer/brand/apple-touch-icon.png \
                    viewer/brand/limn-wordmark-light-20.svg; do
             find "$python_dir" -path "*limn/$f" | grep -q . || { echo "not packaged: $f"; exit 1; }
