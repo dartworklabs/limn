@@ -435,7 +435,7 @@ class PureRules(unittest.TestCase):
 
     def test_a_newer_limn_is_a_status_item_after_a_lost_connection_and_before_messages_on_every_band(self):
         """statusList: the server's other version is an item right after a lost connection, before the line's other
-        messages, with [새로 고침] (act reload); the desktop's line shows it too (statusShown), in its long words."""
+        messages, with [새로 고침] (act reload-viewer); the desktop's line shows it too (statusShown), in its long words."""
         got = node_json(
             ["statusProgress", "statusList", "statusShown", "statusText"],
             """const n={kind:'ok',title:'소식',desc:'',alert:false};
@@ -443,7 +443,7 @@ class PureRules(unittest.TestCase):
             console.log(JSON.stringify([l.map(i=>i.kind),l[1].act,statusShown(l,true).map(i=>i.kind),statusText(l[1],'long')[0],statusText(l[1],'short')[0]]));""",
         )
         self.assertEqual(got[0], ["offline", "outdated", "notice"])
-        self.assertEqual(got[1], "reload")
+        self.assertEqual(got[1], "reload-viewer")
         self.assertEqual(got[2], ["outdated", "notice"])
         self.assertEqual(got[3], "Limn 0.4.52(으)로 바뀌었습니다 · 새로 고치면 새 화면을 씁니다")
         self.assertEqual(got[4], "Limn 업데이트됨")
@@ -1447,7 +1447,7 @@ class ARestartedServer(ChromiumTestCase):
         page.goto(self.base + "/?lang=ko")
         until(page, "typeof LIGHT_TIMER!=='undefined'&&!!LIGHT_TIMER", 20)
         page.evaluate("clearInterval(LIGHT_TIMER)")  # this test drives the polls
-        reload_item = "!!document.querySelector('#status [data-act=reload]')"
+        reload_item = "!!document.querySelector('#status [data-act=reload-viewer]')"
 
         self.set_version("0.4.99")
         self.assertEqual(self.checked(page), old)
@@ -1468,7 +1468,8 @@ class ARestartedServer(ChromiumTestCase):
         until(page, reload_item)
         self.assertIn("Limn 0.4.99(으)로 바뀌었습니다", page.evaluate(LINE_TEXT))
 
-        page.reload()
+        with page.expect_navigation():
+            page.locator("#status [data-act=reload-viewer]").click()
         until(page, "typeof LIGHT_TIMER!=='undefined'&&!!LIGHT_TIMER", 20)
         page.evaluate("clearInterval(LIGHT_TIMER)")
         self.assertEqual(page.evaluate("document.querySelector('#more-foot .m-ver').textContent.trim()"), "v0.4.99")

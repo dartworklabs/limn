@@ -4,7 +4,7 @@
 | --- | --- |
 | **번호** | ADR-0045 |
 | **제목** | 뷰어 페이지의 요소 타입을 index.html에서 지은 선언으로 정하고, 그 참은 시험이 지킨다 |
-| **상태** | 제안 |
+| **상태** | 승인됨 |
 | **결정일** | 2026-11-17 |
 | **결정자** | Limn 소유자의 위임자가 작업 지시로 정함(대안 (c), 실행 중 검사 없음, 생성기 언어, HTML에 새 id를 두지 않음, 도우미 셋과 그 실패 방식, 타입 인자 게이트, 다시 그려지는 두 id의 처리). 생성기의 세부(SVG·MathML·`<template>`·`<noscript>`의 처리, 시험의 형태)는 지시가 이 변경에 맡겼다 |
 | **출처** | 이 변경 전에 `origin/main`의 사본에서 잰 계획(`$`·`$$`의 호출 921개와 그 null 처리, 세 대안의 시제품과 그 수), 이 변경의 브랜치에서 다시 잰 값(아래 결과) |
@@ -20,13 +20,13 @@
 
 | | | |
 | --- | --- | --- |
-| D1 | **요소의 타입은 페이지에서 짓는다.** `tools/page_elements.py`(파이썬 표준 라이브러리)가 `src/limn/viewer/index.html`을 읽어 `src/limn/viewer/types/page.d.ts`를 쓴다. `PageElements`는 페이지가 요소에 주는 id마다 그 태그의 DOM 클래스, `LiveElements`는 뷰어 마크업이 실행 중에 만드는 id(생성기의 `LIVE_ELEMENTS` 표)와 그 클래스, `PageLookup`은 `$`가 받을 타입이다. 페이지 id는 그 클래스, 실행 중 id는 그 클래스나 `null`, 그 밖의 선택자는 `Element \| null`이다. 같은 id를 두 요소에 주거나 `#id`로 그대로 쓸 수 없는 id를 주면 생성기가 거절한다. `<template>`·`<noscript>` 안은 스크립트가 보는 문서에 없으므로 빼고, `<svg>`·`<math>` 안은 SVG·MathML 요소로 적는다. 출력은 정렬되어 같은 페이지에 늘 같은 바이트이고, 지은 파일은 커밋한다. 다시 그려지는 두 정적 id도 `PageElements`에 둔다 | 제안 |
-| D2 | **`$`의 실행 코드는 그대로다.** `$`에 `PageLookup`을 다는 것은 타입 주석뿐이라 지은 `dist/viewer.js`의 바이트가 같다. 실행 중에 클래스나 존재를 검사하지 않으므로, 요소가 없을 때 페이지가 실패하는 모양(첫 사용에서의 `TypeError`)도 그대로다 | 제안 |
-| D3 | **선언의 참은 시험이 지킨다(D4).** `tsc`는 `$`의 본문을 `PageLookup`과 대조하지 않는다. 그래서 선언이 거짓이 되는 길, 곧 페이지를 바꾸고 선언을 다시 짓지 않음, 없는 id를 찾음, 실행 중 id의 태그가 선언과 다름, 정적 요소를 지우거나 다른 태그로 다시 그림을 시험 하나씩이 막는다 | 제안 |
-| D4 | **시험 의무.** (1) 커밋한 선언이 지금 페이지로 지은 것과 같다(`test_viewer_page_elements.GeneratedDeclaration`, CI의 `uv run python tools/page_elements.py --check`). (2) 모듈의 `$('#id')` 리터럴은 모두 두 표 가운데 하나에 있다. (3) `LiveElements`의 id는 모두 어떤 모듈의 마크업이 만들고, 만드는 모든 자리의 태그가 선언한 클래스에 든다. 모듈이 만드는 리터럴 id는 모두 선언에 있고, 정적 id를 다시 그리는 마크업은 `index.html`과 같은 태그를 쓴다. (4) 브라우저에서 `PageElements`의 모든 id가 부팅 뒤, LaTeX·Markdown·텍스트·그림·보기 전용 PDF 문서마다, 문서 전환과 다시 짓기 뒤, `#c-verdict-l`·`#queue-h`를 다시 그린 뒤 그 클래스의 요소다. (5) 생성기의 단위 시험이 같은 id 두 번 거절, 태그와 클래스의 대응(모르는 태그와 사용자 정의 요소 포함), SVG·MathML, 중첩된 `<template>`, 정렬, `--check`를 본다. 페이지에 정적 요소를 더하거나 실행 중 id를 더하는 변경은 이 시험을 함께 지나야 한다 | 제안 |
-| D5 | **id 하나가 아닌 질의는 찾은 것을 검사한다.** `platform/dom.ts`의 `findElement(scope, selector, Class)`는 코드가 요소가 있다고 보는 자리에서 쓰고, 그 클래스의 요소가 없으면 선택자와 클래스를 말하는 `Error`를 던진다. `findMaybe`는 없음을 견디는 자리에서 쓰고 `null`을 준다. `findAll`은 그 클래스의 요소만 문서 순서로 준다. 이름이 `find`가 아닌 것은, 지은 스크립트가 고전 스크립트라 최상위 `function find`가 브라우저의 `window.find`(페이지 찾기)를 덮기 때문이다. 정적 요소를 이 표에 넣으려고 HTML에 새 id를 더하지 않는다. id는 CSS·시험·에이전트 문서가 부르는 이름이라서다 | 제안 |
-| D6 | **DOM 질의의 타입 인자를 막는다.** `querySelector<T>()`·`querySelectorAll<T>()`·`closest<T>()`는 찾은 것의 클래스를 검사 없이 말하는 단언인데 `consistent-type-assertions`가 보지 못한다. `eslint.config.mjs`의 `no-restricted-syntax`(`UNCHECKED_QUERIES`)가 이를 거절한다. 지금 코드에는 하나도 없어 기준선 항목 없이 0을 지킨다 | 제안 |
-| D7 | **`$`는 이 변경에서 잇지 않는다.** 이으면 `npm run typecheck`가 오류를 낸다. 대부분은 정직해진 `null`(복합 선택자, 실행 중 id), 타입이 생긴 리스너 매개변수, 글자 속성에 넣는 숫자다. 그 고침이 먼저 들어가고, 잇는 변경은 그 한 줄과 기준선 낮추기뿐이며 지은 파일의 바이트가 같은 것으로 같은 프로그램임을 보인다 | 제안 |
+| D1 | **요소의 타입은 페이지에서 짓는다.** `tools/page_elements.py`(파이썬 표준 라이브러리)가 `src/limn/viewer/index.html`을 읽어 `src/limn/viewer/types/page.d.ts`를 쓴다. `PageElements`는 페이지가 요소에 주는 id마다 그 태그의 DOM 클래스, `LiveElements`는 뷰어 마크업이 실행 중에 만드는 id(생성기의 `LIVE_ELEMENTS` 표)와 그 클래스, `PageLookup`은 `$`가 받을 타입이다. 페이지 id는 그 클래스, 실행 중 id는 그 클래스나 `null`, 그 밖의 선택자는 `Element \| null`이다. 같은 id를 두 요소에 주거나 `#id`로 그대로 쓸 수 없는 id를 주면 생성기가 거절한다. `<template>`·`<noscript>` 안은 스크립트가 보는 문서에 없으므로 빼고, `<svg>`·`<math>` 안은 SVG·MathML 요소로 적는다. 출력은 정렬되어 같은 페이지에 늘 같은 바이트이고, 지은 파일은 커밋한다. 다시 그려지는 두 정적 id도 `PageElements`에 둔다 | 승인됨 |
+| D2 | **`$`의 실행 코드는 그대로다.** `$`에 `PageLookup`을 다는 것은 타입 주석뿐이라 지은 `dist/viewer.js`의 바이트가 같다. 실행 중에 클래스나 존재를 검사하지 않으므로, 요소가 없을 때 페이지가 실패하는 모양(첫 사용에서의 `TypeError`)도 그대로다 | 승인됨 |
+| D3 | **선언의 참은 시험이 지킨다(D4).** `tsc`는 `$`의 본문을 `PageLookup`과 대조하지 않는다. 그래서 선언이 거짓이 되는 길, 곧 페이지를 바꾸고 선언을 다시 짓지 않음, 없는 id를 찾음, 실행 중 id의 태그가 선언과 다름, 정적 요소를 지우거나 다른 태그로 다시 그림을 시험 하나씩이 막는다 | 승인됨 |
+| D4 | **시험 의무.** (1) 커밋한 선언이 지금 페이지로 지은 것과 같다(`test_viewer_page_elements.GeneratedDeclaration`, CI의 `uv run python tools/page_elements.py --check`). (2) 모듈의 `$('#id')` 리터럴은 모두 두 표 가운데 하나에 있다. (3) `LiveElements`의 id는 모두 어떤 모듈의 마크업이 만들고, 만드는 모든 자리의 태그가 선언한 클래스에 든다. 모듈이 만드는 리터럴 id는 모두 선언에 있고, 정적 id를 다시 그리는 마크업은 `index.html`과 같은 태그를 쓴다. (4) 브라우저에서 `PageElements`의 모든 id가 부팅 뒤, LaTeX·Markdown·텍스트·그림·보기 전용 PDF 문서마다, 문서 전환과 다시 짓기 뒤, `#c-verdict-l`·`#queue-h`를 다시 그린 뒤 그 클래스의 요소다. (5) 생성기의 단위 시험이 같은 id 두 번 거절, 태그와 클래스의 대응(모르는 태그와 사용자 정의 요소 포함), SVG·MathML, 중첩된 `<template>`, 정렬, `--check`를 본다. 페이지에 정적 요소를 더하거나 실행 중 id를 더하는 변경은 이 시험을 함께 지나야 한다 | 승인됨 |
+| D5 | **id 하나가 아닌 질의는 찾은 것을 검사한다.** `platform/dom.ts`의 `findElement(scope, selector, Class)`는 코드가 요소가 있다고 보는 자리에서 쓰고, 그 클래스의 요소가 없으면 선택자와 클래스를 말하는 `Error`를 던진다. `findMaybe`는 없음을 견디는 자리에서 쓰고 `null`을 준다. `findAll`은 그 클래스의 요소만 문서 순서로 준다. 이름이 `find`가 아닌 것은, 지은 스크립트가 고전 스크립트라 최상위 `function find`가 브라우저의 `window.find`(페이지 찾기)를 덮기 때문이다. 정적 요소를 이 표에 넣으려고 HTML에 새 id를 더하지 않는다. id는 CSS·시험·에이전트 문서가 부르는 이름이라서다 | 승인됨 |
+| D6 | **DOM 질의의 타입 인자를 막는다.** `querySelector<T>()`·`querySelectorAll<T>()`·`closest<T>()`는 찾은 것의 클래스를 검사 없이 말하는 단언인데 `consistent-type-assertions`가 보지 못한다. `eslint.config.mjs`의 `no-restricted-syntax`(`UNCHECKED_QUERIES`)가 이를 거절한다. 지금 코드에는 하나도 없어 기준선 항목 없이 0을 지킨다 | 승인됨 |
+| D7 | **`$`는 이 변경에서 잇지 않는다.** 이으면 `npm run typecheck`가 오류를 낸다. 대부분은 정직해진 `null`(복합 선택자, 실행 중 id), 타입이 생긴 리스너 매개변수, 글자 속성에 넣는 숫자다. 그 고침이 먼저 들어가고, 잇는 변경은 그 한 줄과 기준선 낮추기뿐이며 지은 파일의 바이트가 같은 것으로 같은 프로그램임을 보인다 | 승인됨 |
 
 ## 대안
 

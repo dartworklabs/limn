@@ -964,7 +964,7 @@ document.addEventListener('click', (event) => {
     case 'notice-x':
       noticeClose(Number(control.dataset.n));
       break;
-    case 'reload':
+    case 'reload-viewer':
       reloadForUpdate();
       break;
     case undefined: // control matched [data-act], so the attribute is there; nothing to do without it
