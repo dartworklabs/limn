@@ -264,8 +264,16 @@ def line_boxes(rows: Sequence[Box], page_h: float) -> list[Box]:
     comparison among the range's own boxes: a table's cells differ wildly in size, so such a comparison drops real
     cells or keeps the body. The trade-off: a float box taller than BODY_HEIGHT_SHARE of the page is dropped too, and a
     pin on it falls back to the dragged rectangle, which the spec allows for floats. A box as wide as the page but short
-    (a rule, a full-width one-line float) is ink of the range and stays, so the page width is not asked for."""
-    return [row for row in rows if row[4] < BODY_HEIGHT_SHARE * page_h]
+    (a rule, a full-width one-line float) is ink of the range and stays, so the page width is not asked for.
+
+    A box of no size is dropped at the other end, because it is ink of nothing. SyncTeX answers some lines with such
+    boxes - measured on a deployed manuscript, 4 of the 34 boxes of one paragraph line had a zero width or height, one
+    of them 35.4 pt wide and 0 pt high in the page's top margin - and a mark drawn from one is a stray sliver. The
+    topmost box of the lowest page is the mark's first piece, where the number badge, the undo chip, [View] and the
+    popover sit, so a sizeless box there put the pin's badge in the margin while the block of text the pin holds
+    carried none. They also joined the steps range_pad reads its leading from, pulling the mean box height below that
+    leading until the padding came out zero and the real lines stopped meeting."""
+    return [row for row in rows if 0 < row[4] < BODY_HEIGHT_SHARE * page_h and row[3] > 0]
 
 
 def _median(values: Sequence[float]) -> float:
