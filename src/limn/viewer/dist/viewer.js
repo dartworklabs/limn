@@ -16409,6 +16409,73 @@ function drawBox(box, startX, startY, x, y) {
     height: Math.abs(y - startY) * 100 + '%',
   });
 }
+// A box of the composing selection other than its own. The lines a selection covers may print as several blocks, and
+// each is drawn as a box of its own on the page it stands on; the selection's own box (COMPOSE.box) is the first of
+// them, so everything that is the selection's one place - the note popover's anchor, the identity a click-off compares
+// - stays that box. The boxes beside it carry .sel-part, which is how they are found again and taken off.
+function newSelectionPart(pageElement) {
+  const part = document.createElement('div');
+  part.className = 'sel pending sel-part';
+  pageElement.appendChild(part);
+  return part;
+}
+function selectionParts() {
+  return document.querySelectorAll('.sel-part');
+}
+function clearSelectionParts() {
+  selectionParts().forEach((part) => part.remove());
+}
+// Puts the composing selection on the pieces its chosen lines print as (docs/adr/0049-pin-marks-follow-the-range.md):
+// its own box on the first piece whose page is drawn, a box beside it for each piece after that, each appended to the
+// page its piece names. A piece on a page that is not drawn gets nothing.
+//
+// With no piece to draw, a box that stands on pieces goes back to the rectangle that was dragged, so a range the
+// server has no answer for never leaves the person looking at lines the pin will not carry; a box that never left the
+// drag is not touched at all, which is what a selection on a build with nothing to measure against draws.
+function snapSelectionBox(
+  box,
+  pieces,
+  dragged,
+) {
+  if (!box) return;
+  clearSelectionParts();
+  let drew = false;
+  for (const piece of pieces) {
+    const pageElement = document.getElementById('p' + piece.page);
+    if (!pageElement) continue;
+    if (!drew) boxOnPage(box, pageElement);
+    boxOnFrac(drew ? newSelectionPart(pageElement) : box, piece.frac);
+    drew = true;
+  }
+  if (drew) {
+    box.dataset.snap = '1';
+    pendingBadgeSide(box);
+    return;
+  }
+  if (!box.dataset.snap) return;
+  const pageElement = dragged && document.getElementById('p' + dragged.page);
+  if (!dragged || !pageElement) return; // the drag's page is not drawn: the box keeps its mark, to be put back later
+  delete box.dataset.snap;
+  boxOnPage(box, pageElement);
+  boxOnFrac(box, dragged.frac);
+  pendingBadgeSide(box);
+}
+// Moves a box onto the page it belongs to, and only then: a box put back where it already is would go last among that
+// page's children on every redraw, over the pin marks it stood under, and an animation running on it would be cut.
+function boxOnPage(box, pageElement) {
+  if (box.parentElement !== pageElement) pageElement.appendChild(box);
+}
+// Sizes a box over one page box [x, y, w, h], the shape a piece and a drag are both kept in. The four numbers are
+// written as they are rather than turned into two corners for drawBox and back: x + w - x is not w in binary, so the
+// round trip would leave a box put back on the drag a hair's breadth off the one the drag itself drew.
+function boxOnFrac(box, frac) {
+  Object.assign(box.style, {
+    left: frac[0] * 100 + '%',
+    top: frac[1] * 100 + '%',
+    width: frac[2] * 100 + '%',
+    height: frac[3] * 100 + '%',
+  });
+}
 function cancelDrag() {
   if (DRAG && DRAG.box) DRAG.box.remove();
   DRAG = null;
@@ -16608,9 +16675,10 @@ function selectionOpen() {
   return !!(COMPOSE.current || !$('#composer').hidden) && !REPICK && !REPLY && !EDITOR.current;
 }
 // Whether a pointerdown press is outside the open selection on the PDF area, so it can cancel it: not on a control or a
-// pin's number badge, not on the scrollbar, and not in the box, its badge, its note popover
-// (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes ignore the pointer, so the
-// page is what the press lands on).
+// pin's number badge, not on the scrollbar, and not in the box, any box drawn beside it for another piece of its range,
+// its badge, its note popover (composer/view-selection-popover.ts, which counts as the box) or a pin mark (their boxes
+// ignore the pointer, so the page is what the press lands on). Every piece counts as inside: a press on the second
+// block of a range is a press on the selection, as much as one on the block the popover hangs from.
 function pressOutsideSelection(event) {
   const target = eventElement(event);
   if (!target || !selectionOpen()) return false;
@@ -16623,7 +16691,7 @@ function pressOutsideSelection(event) {
     return false;
   const inside = [
     ...document.querySelectorAll('.mark'),
-    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i')] : []),
+    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i'), ...selectionParts()] : []),
     ...(pageSelection().popoverOpen() ? [pageSelection().popover()] : []),
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
@@ -16720,6 +16788,7 @@ function finishRect(pageElement, box, startX, startY, x, y) {
     setRepickBox(REPICK, box);
     pendingBadge(box, '새 위치');
   } else {
+    clearSelectionParts();
     if (COMPOSE.box) COMPOSE.box.remove();
     setComposeBox(box);
     pendingBadge(box, '새 핀');
@@ -17099,17 +17168,191 @@ document.addEventListener(
   },
   true,
 );
-let SNIPPET_TIMER = undefined;
+// ---------------- Where the chosen lines print (docs/adr/0049-pin-marks-follow-the-range.md)
+// What snippets have answered about where a range owner's lines print, kept beside the owner rather than on it: the
+// composer's selection is written to the tab's draft as JSON (composer/flow-draft.ts), and boxes measured against the
+// build now on screen are not a draft's to keep. One answer carries the whole ladder round the range it was asked
+// about, so every rung of it is held, each under its own lines: a rung moved to later is drawn from what is already
+// here rather than asked about again.
+//
+// An answer is held under the build its pieces were measured against as well as under its lines, because its pieces
+// are places on that build's pages. A build that finishes while the composer stands open and leaves the page count
+// alone swaps every page image under the selection without replacing the selection itself (documents/flow-rebuild.ts
+// refreshDoc takes that branch rather than building the pages again, which is the only thing that lets the composing
+// box go), so an answer measured against the build before it would be drawn over the new pages for as long as the
+// panel stays open. Held under the build it was measured against, it is simply not found again, which reads as
+// nothing having answered about these lines yet: the box keeps the shape it has and the new build is asked
+// (followRange), rather than falling back to the rectangle that was dragged while that request is out.
+//
+// The build an answer was measured against is the one the answer names (`boxes_build`), not the one this page
+// believed when it sent the request. The server measures against the build on screen as it answers, so a build that
+// finishes inside that round trip is measured against while this page still shows the one before it and its meta has
+// not caught up; held under what was believed, those pieces would be found at once and drawn over pages they are not
+// on. Held under the build the answer names, they are held under the build they are places on: they are found when
+// the pages become that build, and until then these lines read as unanswered, which keeps the box where it stands.
+// They are not asked again in the meantime - the answer in hand already says which build it is about, and that is
+// enough to know the question has been put (RANGE_ELSEWHERE, just below).
+const RANGE_BOXES = new WeakMap();
+// The ranges whose answer says outright that it was measured against another build than the one whose pages are up,
+// each noted under the build that was up when it said so - so a note stops applying the moment the pages move, with
+// nothing to clear. Kept beside the owner like the pieces, so it goes when the selection goes.
+//
+// Asking such a range again cannot answer it. The server measures against the build it has when it answers, which is
+// the build that answer already named; what is behind is this page's META, and a request does not move META. So the
+// only thing another request produces is the same answer, and one request per redraw for as long as the poll takes to
+// catch up (a build poll runs every second while a build runs, the light poll every five, and neither runs while the
+// tab is hidden). followRange therefore draws nothing and sends nothing while a note applies: the box keeps its last
+// good shape, and when the pages do become that build the answer already held for it is simply found.
+//
+// Only an answer about a build this page had not shown when it asked is noted. A range nothing has answered about is
+// not in here, nor one whose held answer the pages have moved past - whether they moved after the answer came or
+// while it was coming - because there it is the build now shown that has not answered, and asking is how its pieces
+// arrive (answeredElsewhere, takeRangeBoxes).
+const RANGE_ELSEWHERE = new WeakMap();
+// What build and lines an answer is held under. Pure.
+function rangeKey(build, first, last) {
+  return build + ' ' + first + ':' + last;
+}
+// The build whose pages are on screen: the one every box drawn on them is a place in. '' before the first meta answer
+// has come, which no page and so no box can be drawn before - META is Meta | null (ADR-0048) and this file reads it as
+// it finds it rather than through knownMeta(), which throws.
+function shownBuild() {
+  return (META && META.pages_build) || '';
+}
+// The build an owner's own rungs were measured against: the one the pick that answered them named, else the build on
+// screen - the pair composer/flow-draft.ts writes a draft's build from. Lines picked on a document drawn in the
+// browser name no build, and neither do they print on a page.
+function answeredBuild(owner, shown) {
+  const own = 'pdf_build' in owner ? owner.pdf_build : undefined;
+  return own || shown;
+}
+// The rung whose range is exactly the owner's chosen lines and that carries where they print: a pick answers this for
+// its default rung, a snippet for every rung of the ladder it builds. Once the pages on screen are another build's,
+// the pick's own answer is no answer about them: it is left out, so those lines read as unanswered and are asked about
+// again. The pick keeps its pdf_build - it is the build the saved pin's coordinates belong to (composer/flow-save.ts).
+function boxedRung(owner, shown) {
+  if (answeredBuild(owner, shown) !== shown) return undefined;
+  return (owner.levels || []).find((rung) => rung.lo === owner.lo && rung.hi === owner.hi && !!rung.boxes);
+}
+// Where the owner's chosen lines print on the build `shown`, as far as anything has said about that build - the rung's
+// own answer, else a snippet's for exactly those lines - and undefined when nothing has answered about them yet.
+//
+// The caller must tell those two apart, because they ask for opposite things: an answer of no pieces means these lines
+// have no mark, so the box belongs back on the rectangle that was dragged, while no answer yet means the box must wait
+// where it is. A piece the server could not answer well is left out rather than taking the rest of the box with it.
+// What an answer put under `boxes` is read as a list only when it is one, the way pinPieces (pdf/view-figure.ts)
+// reads a pin's: an answer from a server this page does not share a version with can hold anything there, and
+// `.filter` on it would throw inside renderComposer and take the whole composer's render with it. Not a list reads as
+// "no mark for this range", which puts the box back on the drag. What is held is screened the same way on the way in
+// (takeRangeBoxes), so the second branch has a list already.
+function rangeBoxes(owner, shown) {
+  const rung = boxedRung(owner, shown);
+  if (rung && rung.boxes) return (Array.isArray(rung.boxes) ? rung.boxes : []).filter(isPiece);
+  const held = RANGE_BOXES.get(owner),
+    answered = held && held.get(rangeKey(shown, owner.lo, owner.hi));
+  return answered && answered.filter(isPiece);
+}
+// The build a snippet's pieces were measured against: the one its answer names, else the build the request was sent
+// about. An answer names none when the server had no build with pages to measure against - it then carries no piece
+// either - and so does one from a server older than this field; for both, the build this page showed as the request
+// went out is as near as anything says, and it is what every answer was held under before the name travelled.
+function measuredBuild(answer, asked) {
+  return (typeof answer.boxes_build === 'string' && answer.boxes_build) || asked;
+}
+// Records what a snippet answered, under the build its pieces were measured against (measuredBuild): first the range
+// it was asked about, so lines with no mark are asked about once and a ladder that came without rungs cannot be asked
+// about forever, then every rung the ladder carries under that rung's own lines. One press on the ladder therefore
+// answers the rungs around it as well. `asked` is the build that was on screen when the request went out, which is
+// only what an answer naming no build is held under: a build that finished in between is the one the server measured
+// against, and holding its pieces under the build before it would put the places of the pages after on the pages
+// before. `shown` is the build whose pages are up as the answer is taken, which with `asked` says whether this is an
+// answer about a build this page has yet to show - the one kind that is not asked again (noteElsewhere).
+function takeRangeBoxes(owner, answer, asked, shown) {
+  let held = RANGE_BOXES.get(owner);
+  if (!held) RANGE_BOXES.set(owner, (held = new Map()));
+  const build = measuredBuild(answer, asked);
+  held.set(rangeKey(build, answer.lo, answer.hi), []);
+  for (const rung of answer.levels || [])
+    held.set(rangeKey(build, rung.lo, rung.hi), Array.isArray(rung.boxes) ? rung.boxes : []);
+  // Noted only when the pages have not moved since the request went out (`asked` is still what is shown). Then the
+  // build the answer names is one this page has never shown, so it is this page's META that is behind and asking
+  // again cannot help. If the pages did move while the answer was on its way, it is this page that moved on: the
+  // build it shows now is the one that has not answered, and that is asked as it always was. measuredBuild's fallback
+  // is `shown` here, so an answer that named no build is no answer about another one and is never noted.
+  if (asked === shown && measuredBuild(answer, shown) !== shown) noteElsewhere(owner, answer, shown);
+}
+// Notes every range an answer about another build covers - the range it answered and each rung of its ladder - under
+// the build whose pages are up, so none of them is asked again while they are (RANGE_ELSEWHERE). The whole ladder
+// goes in because one answer measured all of it against that one build, so moving to a rung beside the range would
+// otherwise ask the same question again and be answered the same way.
+function noteElsewhere(owner, answer, shown) {
+  let noted = RANGE_ELSEWHERE.get(owner);
+  if (!noted) RANGE_ELSEWHERE.set(owner, (noted = new Set()));
+  noted.add(rangeKey(shown, answer.lo, answer.hi));
+  for (const rung of answer.levels || []) noted.add(rangeKey(shown, rung.lo, rung.hi));
+}
+// Whether what this page holds about the owner's chosen lines is an answer about another build than the one whose
+// pages are up, which is the one case where asking again cannot help (RANGE_ELSEWHERE). Lines nothing has answered
+// about, and lines whose answer the pages have moved past, are not noted and so are asked as they always were.
+function answeredElsewhere(owner, shown) {
+  const noted = RANGE_ELSEWHERE.get(owner);
+  return !!noted && noted.has(rangeKey(shown, owner.lo, owner.hi));
+}
+// The composing selection's box follows the lines it has chosen, and moves only onto an answer. Lines nothing has
+// answered about are asked of the snippet route - which answers every rung of the ladder round them at once - and the
+// box is left as it stands until that comes: putting it back on the dragged rectangle for the length of a request
+// would show the person the span they dragged as the pin's range, which is the one thing this is here to stop. A
+// document whose marks come from its element map (a figure's) is left to renderElement, which puts the box on that
+// element, and a document drawn in the browser has no page to draw a box on.
+//
+// Lines whose answer names another build are the one kind that is not asked: the box stays where it is and nothing is
+// sent until the pages move, because a request cannot bring this page's meta forward and would be answered exactly as
+// before (RANGE_ELSEWHERE). This draw happens on every redraw of the panel, so without that the panel would send a
+// request on each of them for as long as the meta took to catch up.
+function followRange(selection, box, after) {
+  if (!box || isFigureKind(META ? META.kind : undefined) || !onLines(selection)) return;
+  const shown = shownBuild(),
+    pieces = rangeBoxes(selection, shown);
+  if (!pieces) {
+    if (!answeredElsewhere(selection, shown)) refetchSnip(selection, after);
+    return;
+  }
+  snapSelectionBox(box, pieces, draggedPlace(selection));
+}
+// Where the drag that began the selection was made - its page and its rectangle as it was sent - which a range with no
+// pieces puts the box back on; null when the answer carries neither.
+function draggedPlace(selection) {
+  return typeof selection.page === 'number' && isFrac(selection.frac)
+    ? { page: selection.page, frac: selection.frac }
+    : null;
+}
+// The wait a range's text refresh is held for, the composing selection's apart from an open edit card's. They are two
+// timers because the composer's box waits on its answer (followRange) while the panels are open together, and a
+// request the other panel's wait cancelled would leave the box on the range it last showed with nothing to say so.
+let COMPOSE_SNIPPET_TIMER,
+  EDIT_SNIPPET_TIMER;
 // Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
-// survives.
+// survives. The composing selection also asks for the ladder round those lines and for where each of its rungs prints
+// (?levels=1&boxes=1), since its box follows them (followRange). An edit card asks for neither: its box is the saved
+// pin's mark, which the pin list answers, and its ladder reads the rungs' lines alone. Marks are asked for and not
+// implied because the server runs a process per line of every rung to answer them - about half a second for a ladder
+// round a pin inside a 40-line float (docs/adr/0049-pin-marks-follow-the-range.md D4).
 function refetchSnip(owner, after) {
-  const visit = captureVisit();
-  clearTimeout(SNIPPET_TIMER);
-  SNIPPET_TIMER = setTimeout(async () => {
+  const visit = captureVisit(),
+    composing = owner === COMPOSE.current;
+  clearTimeout(composing ? COMPOSE_SNIPPET_TIMER : EDIT_SNIPPET_TIMER);
+  const wait = setTimeout(async () => {
+    const asked = shownBuild(); // the build the pages show as this goes out, which an answer naming none is held under
     try {
       const { data } = await api('GET /api/snippet', {
         query: withDocQuery(
-          '?file=' + encodeURIComponent(owner.file) + '&lo=' + owner.lo + '&hi=' + owner.hi,
+          '?file=' +
+            encodeURIComponent(owner.file) +
+            '&lo=' +
+            owner.lo +
+            '&hi=' +
+            owner.hi +
+            (composing ? '&levels=1&boxes=1' : ''),
           owner.doc,
         ),
         what: '원문 읽기',
@@ -17120,10 +17363,13 @@ function refetchSnip(owner, after) {
         data.hi === owner.hi
       ) {
         owner.snippet = data.snippet;
+        if (composing) takeRangeBoxes(owner, data, asked, shownBuild());
         after();
       }
     } catch (error) {}
   }, 250);
+  if (composing) COMPOSE_SNIPPET_TIMER = wait;
+  else EDIT_SNIPPET_TIMER = wait;
 }
 function snipText(text, open) {
   const rungs = String(text || '').split('\n');
@@ -17572,6 +17818,23 @@ function hasMark(pin) {
 // caller draws nothing for it.
 function pinPlace(pin) {
   return hasMark(pin) ? { page: pin.mark_page, frac: pin.mark } : { page: pin.page, frac: pin.frac };
+}
+// Whether a piece of a mark can be drawn: an entry with a page of the build (1-based) and a box on it. The entry itself
+// is read as it came - a row of a server's answer this page does not share a version with can be anything, and one that
+// is not an object must leave the rest of the answer drawn.
+function isPiece(piece) {
+  return !!piece && Number.isInteger(piece.page) && piece.page >= 1 && isFrac(piece.frac);
+}
+// The pieces a pin's mark is drawn as (docs/adr/0049-pin-marks-follow-the-range.md): for a LaTeX line pin the boxes the
+// server computed - where that pin's own lines print on the build on screen - in the order it answers them, page by page
+// and then down each page; else the one place pinPlace names, which is what a pin whose range could not be measured, a
+// region and a figure pin draw. A figure pin's mark comes from its element map, so it carries no boxes. Empty for a pin
+// with no usable box: the caller draws nothing for it.
+function pinPieces(pin) {
+  const boxes = (Array.isArray(pin.boxes) ? pin.boxes : []).filter(isPiece);
+  if (boxes.length) return boxes;
+  const at = pinPlace(pin);
+  return isFrac(at.frac) ? [{ page: at.page, frac: at.frac }] : [];
 }
 // Whether a figure pin's element is gone from the current build's map (`el_sync` lost) - shown like a lost line.
 function isElementLost(pin) {
@@ -23265,6 +23528,9 @@ function renderComposer() {
   const copy = selection.name + ' L' + selection.lo + '-L' + selection.hi;
   $('#c-loc').textContent = selection.name + ' ' + lineRange(selection.lo, selection.hi);
   $('#c-loc').dataset.copy = copy;
+  // The box over the lines being chosen, before renderElement: on a figure document the element's own box is what the
+  // pin will carry, and that draw is the one that stands.
+  followRange(selection, COMPOSE.box, renderComposer);
   renderElement(selection, COMPOSE.box);
   const pageTag = $('#c-page'),
     pageText = typeof selection.page === 'number' ? translateTemplate('{page}쪽', { page: selection.page }) : '',
@@ -23400,6 +23666,7 @@ function cancelSelection(clearNote) {
   setPickseq(PICKSEQ + 1);
   setComposePicking(false);
   clearPendingSave();
+  clearSelectionParts();
   if (COMPOSE.box) {
     COMPOSE.box.remove();
     setComposeBox(null);
@@ -23461,6 +23728,7 @@ function restoreSelection(snapshot, focus) {
     lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다', NOTICE_KIND.WARN);
     return true;
   }
+  clearSelectionParts();
   if (COMPOSE.box) COMPOSE.box.remove();
   setComposeBox(null);
   if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {
@@ -23608,6 +23876,7 @@ async function pick(region) {
     if (repick) {
       bannerRepick();
     } else {
+      clearSelectionParts();
       if (COMPOSE.box) {
         COMPOSE.box.remove();
         setComposeBox(null);
@@ -23633,6 +23902,7 @@ async function pick(region) {
         repick.box.remove();
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
+        clearSelectionParts();
         COMPOSE.box.remove();
         setComposeBox(null);
       }
@@ -36490,9 +36760,10 @@ $('#left').addEventListener(
   },
   { passive: true },
 );
-// Draws one mark per open or awaiting-review pin of this document on its page: where the pin's element is now for a
-// figure pin (pinPlace), else where it was pinned, then decides each badge's side (markBadgeSides) and puts a save's or
-// an append's undo chip back on its mark (drawChips). A pin without a usable box or page draws nothing.
+// Draws the marks of this document's open and awaiting-review pins, one element per piece of each pin's mark: the boxes
+// the server computed for a LaTeX line pin's range, where a figure pin's element is now, else where the pin was pinned
+// (pinPieces), then decides each badge's side (markBadgeSides) and puts a save's or an append's undo chip back on its
+// mark (drawChips). A pin without a usable box, and a piece on a page that is not on screen, draw nothing.
 /** Draw native, named pin badge buttons at the current mark coordinates, preserving mark and undo-chip geometry. */
 // A pin a page verdict line shows (isShownOnLine) draws no page-size box: the line under its page says it
 // (drawPageVerdicts, first).
@@ -36508,23 +36779,17 @@ function marks() {
   // to an open pin's overlap/editing). A figure pin is drawn where the server found its element in this build (see
   // pinPlace), and a found element is no estimate.
   PINS.concat(REVIEW_ALL.filter((pin) => pdoc(pin) === DOC)).forEach((pin) => {
-    const at = pinPlace(pin),
-      page = document.getElementById('p' + at.page);
-    if (!page || !isFrac(at.frac)) return;
     if (pinVerdicts().shownOnLine(pin)) return;
+    // The pieces come page by page and then down each page, and the pages stand in that order on screen: the first one
+    // drawn is this pin's first .mark in the document. That is the piece the number badge goes on - one badge for the
+    // pin - and the one every lookup of its mark finds: its undo chip (drawChips), [보기] (jumpPin) and its tooltip.
+    const places = pinPieces(pin).flatMap((piece) => {
+      const page = document.getElementById('p' + piece.page);
+      return page ? [{ page, frac: piece.frac }] : [];
+    });
+    if (!places.length) return;
     const est = isEstimated(pin) && !hasMark(pin),
       lost = pin.stale || isElementLost(pin);
-    const mark = document.createElement('div');
-    mark.className =
-      'mark' + (lost ? ' st' : '') + (est ? ' est' : '') + (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '');
-    mark.dataset.pin = String(pin.id);
-    mark.dataset.fx = String(at.frac[0]);
-    Object.assign(mark.style, {
-      left: at.frac[0] * 100 + '%',
-      top: at.frac[1] * 100 + '%',
-      width: at.frac[2] * 100 + '%',
-      height: at.frac[3] * 100 + '%',
-    });
     const note = String(pin.note || '')
       .replace(/\s+/g, ' ')
       .trim();
@@ -36535,11 +36800,25 @@ function marks() {
       (note ? (note.length > 60 ? note.slice(0, 60) + '…' : note) : translate('(메모 없음)')) +
       (est ? ' ' + translate('(PDF가 새로 만들어져 위치는 추정입니다)') : '') +
       (isElementLost(pin) ? ' · ' + translate('요소 잃음') : '');
-    setHtml(
-      mark,
-      html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${pin.id}" aria-label="${translateTemplate('핀 #{id} 카드로 이동', { id: pin.id })}" data-tip="${tip}">${pin.id}</button>`,
-    );
-    page.appendChild(mark);
+    places.forEach((place, index) => {
+      const mark = document.createElement('div');
+      mark.className =
+        'mark' + (lost ? ' st' : '') + (est ? ' est' : '') + (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '');
+      mark.dataset.pin = String(pin.id);
+      mark.dataset.fx = String(place.frac[0]);
+      Object.assign(mark.style, {
+        left: place.frac[0] * 100 + '%',
+        top: place.frac[1] * 100 + '%',
+        width: place.frac[2] * 100 + '%',
+        height: place.frac[3] * 100 + '%',
+      });
+      if (index === 0)
+        setHtml(
+          mark,
+          html`<button type="button" class="mark-jump" translate="no" data-act="mark-jump" data-id="${pin.id}" aria-label="${translateTemplate('핀 #{id} 카드로 이동', { id: pin.id })}" data-tip="${tip}">${pin.id}</button>`,
+        );
+      place.page.appendChild(mark);
+    });
   }); // the tip carries the note
   markBadgeSides();
   drawChips();
@@ -36658,8 +36937,9 @@ function focusCard(id) {
   );
   if (target) target.focus({ preventScroll: true });
 } // a result row (pins/view-review-pick.ts): its box, or its first link when the box is off
-// Scrolls the mark of pin id into view and flashes it (switching to the pin's document first); a pin whose mark is not
-// drawn scrolls to the page the mark would be on.
+// Scrolls the mark of pin id into view and flashes it (switching to the pin's document first) - its first piece, where
+// its badge stands, when the mark is drawn as several; a pin whose mark is not drawn scrolls to the page the mark would
+// be on.
 function jumpPin(id) {
   if (viaDoc(id, jumpPin)) return;
   const pin = PINS.find((x) => x.id === id) || REVIEW_ALL.find((x) => x.id === id && pdoc(x) === DOC);
@@ -36698,7 +36978,7 @@ function jumpPin(id) {
     arrivePage(pinPlace(pin).page); // the page's top, or a figure page's figure
   }
 }
-// Hovering a card highlights its mark, along with any overlapping counterpart marks.
+// Hovering a card highlights its mark - every piece of it - along with any overlapping counterpart marks.
 function markIdsFor(pin) {
   return [pin.id].concat((pin.rel || []).map((entry) => entry.id));
 }
@@ -36708,8 +36988,7 @@ $('#pins').addEventListener('mouseover', (event) => {
   const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
-    const mark = document.querySelector('.mark[data-pin="' + id + '"]');
-    if (mark) mark.classList.add('hi');
+    document.querySelectorAll('.mark[data-pin="' + id + '"]').forEach((mark) => mark.classList.add('hi'));
   });
 });
 $('#pins').addEventListener('mouseout', (event) => {
@@ -36718,8 +36997,7 @@ $('#pins').addEventListener('mouseout', (event) => {
   const pin = PINS.find((listed) => listed.id === Number(cardElement.dataset.id));
   if (!pin) return;
   markIdsFor(pin).forEach((id) => {
-    const mark = document.querySelector('.mark[data-pin="' + id + '"]');
-    if (mark) mark.classList.remove('hi');
+    document.querySelectorAll('.mark[data-pin="' + id + '"]').forEach((mark) => mark.classList.remove('hi'));
   });
 });
 
@@ -38329,6 +38607,10 @@ document.addEventListener('input', (event) => {
   )
     autoGrow(target);
 });
+// The open card's source text, and with withLevels the range ladder round its lines (?levels=1) - on opening and
+// after a save or a re-place, which may have moved them. Never ?boxes=1: the card draws no box of its own (a saved
+// pin's mark is what GET /api/pins answers) and the server runs a process per line of every rung to answer one
+// (docs/handbook/viewer.md §핀 마크의 조각, composer/view-levels.ts refetchSnip).
 async function editSnip(withLevels) {
   const card = EDITOR.current;
   if (!card) return;

@@ -260,7 +260,16 @@ class PinListVerdicts(unittest.TestCase):
                         js_seams_wired(PIN_SEAMS),
                         *(
                             extract_js_fn(n)
-                            for n in ("isFrac", "hasMark", "pinPlace", "isElementLost", "isEstimated", "pinState")
+                            for n in (
+                                "isFrac",
+                                "hasMark",
+                                "pinPlace",
+                                "isPiece",
+                                "pinPieces",
+                                "isElementLost",
+                                "isEstimated",
+                                "pinState",
+                            )
                         ),
                         extract_js_fn("pdoc"),
                         extract_js_fn("marks"),

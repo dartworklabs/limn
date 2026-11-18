@@ -18,10 +18,17 @@ from limn.builds.artifacts import (
     Describe,
     FailedBuild,
     FinishedBuild,
+    RangeBoxCache,
     ViewOnlyNoRebuild,
 )
-from limn.builds.contracts import DocumentBuildQueries, PinBuildQueries, RevisionBuildQueries
-from limn.builds.queries import BuildQueries
+from limn.builds.contracts import (
+    DocumentBuildQueries,
+    MarkBoxes,
+    MarkComputation,
+    PinBuildQueries,
+    RevisionBuildQueries,
+)
+from limn.builds.queries import BuildQueries, no_marks
 from limn.builds.service import BuildRequests
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc
@@ -100,6 +107,10 @@ class BuildSubsystem:
     commands: BuildCommands
     routes: RouteBundle
     startup: Callable[[Doc, bool, bool], BuildInitialization]
+    # Where a line range of one document prints on the build it has on screen, behind this run's mark cache; None for
+    # a document nothing could print a mark for (BuildQueries.boxes). The composition root hands it to the pin
+    # consumer, which declares its shape as limn.pins.needs.DocumentBoxes.
+    boxes: Callable[[Doc], MarkBoxes | None] = lambda doc: None
 
 
 def assemble_builds(
@@ -113,8 +124,14 @@ def assemble_builds(
     *,
     maps: BuildMapCache | Callable[[], BuildMapCache] | None = None,
     figure_shown: Callable[[], None] = lambda: None,
+    marks: MarkComputation = no_marks,
 ) -> BuildSubsystem:
-    """Assemble build reads, commands, routes, and startup without import-time adapters."""
+    """Assemble build reads, commands, routes, and startup without import-time adapters.
+
+    marks is the forward SyncTeX pass itself, which the pin consumer owns and the composition root injects
+    (limn.pins.location.resolve.range_boxes, the same binding POST /api/pick and GET /api/snippet use, so the three
+    paths cannot draw different boxes for the same lines). Without it no answer carries a mark. The cache the answers
+    are kept in is this run's and is made here, beside the parsed maps."""
     from limn.builds.routes import HOLD_PATH, POST_PATH, get, post, post_hold
     from limn.web.routes import PostDocRoute, RouteBundle
 
@@ -135,7 +152,8 @@ def assemble_builds(
         ),
     )
     owned_maps = maps or BuildMapCache()
-    queries = BuildQueries(lambda: owned_maps() if callable(owned_maps) else owned_maps)
+    owned_marks = RangeBoxCache()
+    queries = BuildQueries(lambda: owned_maps() if callable(owned_maps) else owned_maps, lambda: owned_marks, marks)
     return BuildSubsystem(
         queries.documents(),
         queries.pins(),
@@ -145,4 +163,5 @@ def assemble_builds(
         commands,
         routes,
         commands.initialize,
+        lambda doc: queries.boxes(doc, settings().dpi),
     )

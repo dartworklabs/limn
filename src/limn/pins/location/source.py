@@ -1,15 +1,31 @@
-"""SyncTeX and printed-text samples, with token weights cached per file version."""
+"""SyncTeX and printed-text samples, where a line range prints, and token weights cached per file version."""
 
 import contextlib
 import html
 import re
 import subprocess
 import threading
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
+from math import isfinite
 from pathlib import Path
+from typing import TypeAlias
 
-from limn.pins.location.mapping import TokenWeights, synctex_range
+from limn.pins.location.mapping import (
+    ENV_BOX_LIMIT,
+    ENV_TOK_RE,
+    FORWARD_LINES_MAX,
+    Box,
+    BuiltRange,
+    MarkPiece,
+    TokenWeights,
+    built_range,
+    line_boxes,
+    merge_boxes,
+    range_pad,
+    strip_comment,
+    synctex_range,
+)
 from limn.platform.files import ManuscriptFile
 
 # A word token worth weighting: a Hangul word of 2+ syllables, a Latin word of 4+ letters, or a decimal number.
@@ -47,6 +63,53 @@ def synctex_edit(pdf: Path, page: int, x: float, y: float) -> tuple[str, int] | 
     return None
 
 
+def synctex_view(pdf: Path, tex: str, line: int) -> list[Box]:
+    """The PDF boxes SyncTeX prints for one source line, as (page, x, y, w, h) in points from the page's top left,
+    exactly as read and in printed order; empty when the line has none, the tool is missing or it times out (10 s).
+
+    `tex` is passed to `-i` untouched: SyncTeX selects the file by that name, so the caller owns choosing it.
+    A record is the lines from one `Output:` to the next, and only `Page`, `h`, `v`, `W`, `H` are read (the
+    lowercase `x`/`y` are a different pair, and the banner and `before:`/`offset:`/`middle:`/`after:` lines are
+    ignored). `v` is the box's bottom reference and `H` its height, so its top edge is `v - H` (measured: `y` in
+    the output is not that), rounded to the tool's six printed decimals to drop subtraction noise. A record missing one of the five or holding an unreadable number is skipped.
+    Records come back out of document order, so the caller orders them; nothing is sorted or de-duplicated here.
+
+    A record whose four coordinates are not all finite is skipped as well. float() takes "inf" and "nan", and the
+    JSON a box leaves in is written with Python's defaults, so one such record puts NaN or Infinity in the body: the
+    whole answer stops being JSON and the viewer's JSON.parse throws, which loses every pin of that read and not only
+    this box. TeX dimensions are bounded, so the real tool prints no such record - and every other number on this
+    wire is guarded the same way (limn.platform.values.wire_value for a stored one)."""
+    try:
+        out = subprocess.run(
+            ["synctex", "view", "-i", "%d:0:%s" % (line, tex), "-o", str(pdf)],
+            capture_output=True,
+            text=True,
+            timeout=10,
+            check=False,
+        ).stdout
+    except (subprocess.TimeoutExpired, FileNotFoundError):
+        return []
+    records: list[dict[str, str]] = []
+    for ln in out.splitlines():
+        key, _, value = ln.partition(":")
+        if key == "Output":
+            records.append({})
+        elif records and key in ("Page", "h", "v", "W", "H"):
+            records[-1][key] = value.strip()
+    boxes: list[Box] = []
+    for rec in records:
+        if len(rec) < 5:
+            continue
+        try:
+            page, h, v, w, ht = int(rec["Page"]), float(rec["h"]), float(rec["v"]), float(rec["W"]), float(rec["H"])
+        except ValueError:
+            continue
+        if not all(isfinite(number) for number in (h, v, w, ht)):
+            continue
+        boxes.append((page, h, round(v - ht, 6), w, ht))
+    return boxes
+
+
 def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float) -> tuple[str, int, int] | None:
     """The SyncTeX candidate for a box: (file, lo, hi), or None when no sample point maps anywhere.
 
@@ -62,6 +125,220 @@ def by_synctex(pdf: Path, page: int, x0: float, y0: float, x1: float, y1: float)
             if r:
                 hits.append(r)
     return synctex_range(hits)
+
+
+# ---------------------------------------------------------------- Forward mapping: where a range prints
+#
+# SyncTeX the other way round: a pin's mark is the area its line range covers on the page, so an answer that
+# carries a mark asks here (docs/adr/0049-pin-marks-follow-the-range.md).
+
+# Reads the PDF boxes of one source line the way synctex_view does: (pdf, the name the build knows the file by, line)
+# -> that line's boxes in points. boxes_for_range takes one so a caller can answer from lines it has already read -
+# limn.pins.location.resolve.range_boxes memoizes one answer's lines this way, because the ladder's rungs nest and
+# would otherwise ask the same line once per rung.
+LineBoxes: TypeAlias = Callable[[Path, str, int], list[Box]]
+
+
+def build_copy_name(build: Path, src: Path, file: Path) -> str:
+    """The name `synctex view -i` selects the manuscript file `file` by: that file as it lies inside the build copy
+    `build` of the build root `src`, absolute.
+
+    SyncTeX knows the names the build recorded, which are the build copy's, and it really selects by the name: in a
+    two-file document (main.tex with \\input{sections/part}) the relative name sections/part.tex and its absolute form
+    each answer two boxes for line 1, while the basename part.tex and a name no file has answer nothing. A single-file
+    document answers even for a name no file has, so that leniency is an accident of having one input and not
+    something to lean on.
+
+    Both sides of the prefix test are resolved, the way limn.builds.built_source.source_key resolves them: a build
+    root registered through a symlink (a temporary folder under macOS's /var -> /private/var) otherwise fails the test
+    though the file does lie below it, and SyncTeX is then asked for a name no build recorded - the mark vanishes with
+    no signal while the source record lookup beside it still succeeds. A file that really does not lie below the build
+    root has no name in the copy at all - the copy holds that root's tree - and there the checkout path is the closest
+    name there is; losing a mark is the cost of being wrong about it, and failing the pick would be a far larger one."""
+    try:
+        return str(build / file.resolve().relative_to(src.resolve()))
+    except (ValueError, OSError, RuntimeError):
+        return str(file)
+
+
+def _page_size(pages: Sequence[tuple[float, float]], page: int) -> tuple[float, float] | None:
+    """The (width, height) in points of page `page` (1-based) of a build, or None when the page list has no usable
+    size for it: a page number beyond the pages that build left (a .synctex.gz older than the page images), or one the
+    build's own manifest sized at zero. Its boxes are then dropped rather than divided by, which is how every other
+    box path answers what it cannot place."""
+    if not 1 <= page <= len(pages):
+        return None
+    page_w, page_h = pages[page - 1]
+    return (page_w, page_h) if page_w > 0 and page_h > 0 else None
+
+
+def _only_arguments(text: str, start: int) -> bool:
+    """True when text[start:] is nothing but whitespace and balanced {...} and [...] groups: the arguments of an
+    environment's \\begin, such as {@{}lcc@{}}, {p{3cm}c}, [htbp] or [t]{0.45\\textwidth}.
+
+    A depth counter and not a pattern: a column spec nests braces to any depth (p{\\dimexpr\\linewidth-2cm}), and a
+    pattern with a fixed number of levels would pass today's specs and fail on the next. A [...] group closes at the
+    first ] outside braces; a \\-escaped character never opens or closes a group."""
+    i, n = start, len(text)
+    while i < n:
+        if text[i].isspace():
+            i += 1
+            continue
+        if text[i] not in "{[":
+            return False
+        closer = "}" if text[i] == "{" else "]"
+        depth = 0  # braces open inside the group
+        i += 1
+        while i < n:
+            ch = text[i]
+            if ch == "\\":
+                i += 2
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}" and depth:
+                depth -= 1
+            elif ch == closer and not depth:
+                break
+            elif ch == "}":
+                return False  # a stray } inside a [...] group
+            i += 1
+        else:
+            return False  # the group never closed
+        i += 1
+    return True
+
+
+def environment_delimiters(now: Sequence[str], lo: int, hi: int) -> frozenset[int]:
+    """The lines of lo..hi that are the range's own \\begin and \\end, or none when it is not one whole environment.
+
+    The range is one when its first line opens an environment as its first token and its last line closes the same
+    environment as its last token, on two different lines: a float's default rung is exactly this, \\begin on lo and
+    \\end on hi. Those two lines have no box of their own, so `synctex view` answers them through its ancestor
+    search, as it does a blank line, with whatever stands where the environment stood in the source stream. Measured
+    over 810 rows and 12 floats of a real manuscript, every box that lay outside its float came from these two lines and
+    from no other (\\centering, \\caption, \\label, \\includegraphics and the tabular and booktabs lines gave
+    none). It is read from the range itself and not from a list of float environments because a listing's binder has
+    no such list. A one-line environment is not a pair of delimiters - its one line carries the content - and a range
+    that opens one environment and closes another, or only one end, has no pair to drop.
+
+    Each of the two lines is dropped only when it is the delimiter and nothing else: \\begin{X} followed by at most its
+    own [optional] and {mandatory} arguments, \\end{X} alone. A line that also carries ink (a tabular's header row
+    after its \\begin, a last row before its \\end) has a box of its own, so asking it is right and dropping it would
+    leave the mark short of the range's ink."""
+    if lo >= hi:
+        return frozenset()
+    top = strip_comment(now[lo - 1]).strip()
+    bottom = strip_comment(now[hi - 1]).strip()
+    first = list(ENV_TOK_RE.finditer(top))
+    last = list(ENV_TOK_RE.finditer(bottom))
+    if not first or not last:
+        return frozenset()
+    opens, closes = first[0], last[-1]
+    if opens.group(1) != "begin" or opens.start() != 0 or closes.group(1) != "end":
+        return frozenset()
+    if opens.group(2).strip() != closes.group(2).strip():
+        return frozenset()
+    own: set[int] = set()
+    if _only_arguments(top, opens.end()):
+        own.add(lo)
+    if closes.start() == 0 and closes.end() == len(bottom):
+        own.add(hi)
+    return frozenset(own)
+
+
+def boxes_for_range(
+    pdf: Path,
+    tex: str,
+    built: Sequence[str] | None,
+    now: Sequence[str],
+    lo: int,
+    hi: int,
+    pages: Sequence[tuple[float, float]],
+    limit: int,
+    view: LineBoxes | None = None,
+    into_build: BuiltRange | None = None,
+) -> tuple[MarkPiece, ...]:
+    """Where lines lo..hi (1-based, inclusive) of the file as it is today (now) print on the PDF of the build that
+    read `built`: the mark's pieces as (page, frac) pairs, each frac a box in fractions of its own page. Empty when
+    there is no answer, and the mark then falls back to the rectangle that was dragged.
+
+    Every answer that carries a mark computes it here - a pick's default range and each rung of a snippet - so the
+    same lines of the same file always draw the same box (docs/adr/0049-pin-marks-follow-the-range.md). `tex` is the
+    name SyncTeX selects the file by (build_copy_name), `pages` every page of that build as (width, height) in points
+    with page 1 first, `limit` the most pieces a mark may have, `view` an already-read answer for a line (LineBoxes;
+    synctex_view itself when None), and `into_build` the reading of a range back into `built` with that file's line
+    diff already read (mapping.built_ranges of these same two line lists; mapping.built_range, which reads the diff
+    for each range asked, when None).
+
+    Each page is measured by its own size: the body-box filter against that page's height, the joining and the clip
+    against that page's box, and the fractions by that page's width and height. A document with a landscape appendix
+    or an \\includepdf page has pages of different sizes, and one size for the whole answer would put every mark on
+    such a page in the wrong place and clip it to the first page's box - and would answer a pick (which knows the
+    page dragged on) and a snippet (which knows no page) different fractions for the same lines. The padding stays
+    one leading for the whole range, measured over every page's boxes: it is a property of the text, and
+    mapping.range_pad only ever compares boxes on one page anyway. The piece count is the whole answer's, checked
+    after the pages are joined, so a range that crosses a page cannot answer twice the limit; the pieces come page by
+    page in ascending order, so the (page, y, x) order mapping.merge_boxes gives inside a page is the order of the
+    answer, and the first piece is still the topmost piece of the earliest page.
+
+    The range is one the agent receives - a pick's default level, a rung of the ladder - not SyncTeX's own narrower
+    range, and the text path has none at all. So it is read back into the lines that build read
+    (mapping.built_range) before SyncTeX is asked, and a range that no longer stands whole in those lines gets no
+    mark: half a range's boxes passed off as the range's would place the mark on text the pin does not hold. A build
+    that kept no record (made by an older Limn) leaves the numbers as they are, which is what SyncTeX's own answer
+    already stands for.
+
+    A range that is one whole environment is asked without its own \\begin and \\end lines (environment_delimiters),
+    and its pieces are limited to ENV_BOX_LIMIT: with those lines gone every float measured is one piece.
+
+    A line with no text once its comment is stripped is skipped, which is correctness and not thrift: `synctex view`
+    answers a blank line through its ancestor search, and measured on a two-column 10 pt A4 document a blank line
+    answered 17 boxes which were the printed lines of the paragraph *before* it (another answered 44, the page and
+    column bodies among them). They are ordinary text boxes, so the height filter leaves them, and the 3.12 pt between
+    them and the real paragraph is inside the adjacency threshold - the mark would have become one piece covering both
+    paragraphs. Over FORWARD_LINES_MAX lines of text the range is left unmarked rather than paid for. A build whose
+    page list holds no usable size at all is a broken manifest rather than a mark to draw, and is answered like every
+    other box path that has no answer: with none, and without running the tool."""
+    if not any(page_w > 0 and page_h > 0 for page_w, page_h in pages):
+        return ()
+    lo, hi = max(1, lo), min(hi, len(now))
+    if lo > hi:
+        return ()
+    if built is None:
+        in_build = (lo, hi)
+    else:
+        in_build = built_range(built, now, lo, hi) if into_build is None else into_build(lo, hi)
+    if in_build is None:
+        return ()
+    shift = in_build[0] - lo  # built_range answers a range of the same length, so one shift places every line of it
+    own = environment_delimiters(now, lo, hi)
+    asked = [i + shift for i in range(lo, hi + 1) if i not in own and strip_comment(now[i - 1]).strip()]
+    if not asked or len(asked) > FORWARD_LINES_MAX:
+        return ()
+    read = synctex_view if view is None else view
+    rows: list[Box] = []
+    for line in asked:
+        rows.extend(read(pdf, tex, line))
+    sizes: dict[int, tuple[float, float]] = {}
+    on_page: dict[int, list[Box]] = {}
+    for row in rows:
+        size = _page_size(pages, row[0])
+        if size is None:  # a page the build has no usable size for: its boxes cannot become fractions of anything
+            continue
+        sizes[row[0]] = size
+        on_page.setdefault(row[0], []).append(row)
+    kept = {page: line_boxes(here, sizes[page][1]) for page, here in on_page.items()}
+    pad = range_pad([row for page in sorted(kept) for row in kept[page]])
+    pieces: list[MarkPiece] = []
+    for page in sorted(kept):
+        here = kept[page]
+        page_w, page_h = sizes[page]
+        # len(here) as the per-page cap: the limit is the whole answer's, checked below, and a page never merges into
+        # more pieces than it has boxes, so this call never gives up on its own.
+        for _, x, y, w, h in merge_boxes(here, pad, page_w, page_h, len(here)):
+            pieces.append((page, (x / page_w, y / page_h, w / page_w, h / page_h)))
+    return () if len(pieces) > (min(limit, ENV_BOX_LIMIT) if own else limit) else tuple(pieces)
 
 
 # ---------------------------------------------------------------- Reverse mapping 2: rendered text

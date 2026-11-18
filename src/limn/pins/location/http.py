@@ -1,14 +1,15 @@
 """HTTP response contract for POST /api/pick."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol, TypeAlias
 
 from limn.pins.location import input as pick_input
 from limn.pins.location.figure import PickedElement, Rung
-from limn.pins.location.mapping import WEAK_SCORE
+from limn.pins.location.mapping import WEAK_SCORE, Level, MarkPiece, mark_wire
 from limn.pins.location.resolve import (
     GeneratedFile,
     NoSourceHere,
+    PageOnScreen,
     Picked,
     PickedRegion,
     PickRefusal,
@@ -43,17 +44,53 @@ def pick(app: LocationApp, doc: Doc, body: Mapping[str, Any]) -> Body:
 
 def snippet(app: LocationApp, doc: Doc, query: Query) -> Body:
     """GET /api/snippet after the common request guards; a document with an element map gets the raw rung as its
-    ladder, and ?text=1 adds the range's exact lines (range.snippet_api)."""
-    rng = accepted(pick_input.parse_snippet(query, app.document_facts(doc)))
-    return app.location_service.snippet(
-        rng, parse_flag(query, "levels"), not doc.has_element_map, parse_flag(query, "text")
-    )
+    ladder, ?text=1 adds the range's exact lines, ?levels=1 the range ladder, and ?boxes=1 beside it makes every rung
+    carry where its own lines print, the answer naming the build they were measured against (`boxes_build`,
+    range.snippet_api and service.PinLocationService.snippet).
+
+    A mark is asked for, never implied, because it is not free: the forward pass runs one `synctex view` process per
+    line of text of every rung, 13 ms each on a 35-page document, so a ladder round a pin inside a 40-line float is
+    about 520 ms. ADR-0049 D4 budgets that for a person moving up the ladder, an occasional deliberate act. The one
+    caller that reads the answer is the composing selection's box, which sends the flag (viewer/js/composer/
+    view-levels.ts); the edit card sends ?levels=1 whenever it opens and after every save and re-place, and uses the
+    rungs' lines alone - a saved pin's mark is what the pin list answers - so without the flag every card open paid
+    that half second for marks it discarded. A client that does not ask gets exactly the answer this route gave
+    before marks followed the range, and asks nothing of its author: `boxes` is absent where there is no answer, and
+    that absence is already the signal to fall back (docs/handbook/api.md §줄 핀의 상자 (`boxes`)). `boxes_build` is
+    added only for a request that asked for marks and had a build with pages to measure them against, so a client
+    that asks for the ladder alone gets byte for byte what it got before this field existed.
+
+    Only a ladder built from the document's own text asks for marks. A figure document's rung is a line of its drawing
+    script, not of a manuscript - its marks come from the element map - and a Markdown or text document has no pages at
+    all. Without ?levels=1 there is no rung to mark either, and the viewer reads this route for every excerpt window,
+    so the page facts are not even looked up there (_page_on_screen)."""
+    facts = app.document_facts(doc)
+    rng = accepted(pick_input.parse_snippet(query, facts))
+    levels = parse_flag(query, "levels")
+    source_ladder = not doc.has_element_map  # the ladder - and so the marks - come from the document's own text
+    asked = levels and source_ladder and parse_flag(query, "boxes")
+    marks = _page_on_screen(facts) if asked else None
+    return app.location_service.snippet(doc, rng, levels, source_ladder, parse_flag(query, "text"), marks)
 
 
 def overlaps(app: LocationApp, doc: Doc, query: Query) -> Body:
     """GET /api/overlaps after the common request guards."""
     rng = accepted(pick_input.parse_source_range(query, app.document_facts(doc)))
     return app.location_service.overlaps(rng)
+
+
+def _page_on_screen(facts: DocumentFacts) -> PageOnScreen | None:
+    """The build on screen and the pages one answer's marks are measured against, or None when the document has no
+    page to measure against (never built, a document the viewer draws from its source, a build slimmed to nothing).
+
+    Every page, not one: the sizes come in a single read (limn.builds.document_facts.DocumentFacts.pick_pages) that a
+    snippet makes anyway, and each piece of a mark is measured against the page it prints on - a document whose pages
+    differ in size would otherwise have its marks placed and clipped by the first page's box."""
+    found = facts.pick_pages(None)
+    if found is None:
+        return None
+    pdir, pages = found
+    return PageOnScreen(pdir.name, tuple(pages)) if pages else None
 
 
 # The sentences a pick's `warn` is made of (a UI hint in a 200 body, not an error). The viewer translates each by its
@@ -117,7 +154,8 @@ def _pick_refusal(refusal: PickRefusal, *detail: object) -> Body:
 
 
 def _picked_body(p: Picked) -> Body:
-    """The body of a traced selection, keys in the order the agent contract has always had them."""
+    """The body of a traced selection, keys in the order the agent contract has always had them - with the mark's
+    pieces added to the one rung the body names its default level (_levels_with_boxes)."""
     t = p.traced
     return {
         "file": str(p.file),
@@ -135,11 +173,28 @@ def _picked_body(p: Picked) -> Body:
         "snippet": p.snippet,
         "frac": p.frac,
         "quote": p.quote,
-        "levels": t.levels,
+        "levels": _levels_with_boxes(t.levels, t.default_level, p.boxes),
         "default_level": t.default_level,
         "overlaps": p.overlaps,
         "pdf_build": p.pdf_build,
     }
+
+
+def _levels_with_boxes(levels: list[Level], default: str, boxes: Sequence[MarkPiece]) -> list[Level]:
+    """The range ladder a pick answers: the rungs as traced, the one named `default` carrying the mark's pieces as
+    [{"page", "frac"}, ...].
+
+    Only that rung gets them. A pick runs the forward pass for its default range alone, because each call costs a
+    process (limn.pins.location.mapping.FORWARD_LINES_MAX); the other rungs' pieces come from
+    GET /api/snippet?levels=1&boxes=1, which the composer sends for each range it settles on
+    (limn.pins.location.range.snippet_api, snippet above). The rung
+    is copied rather than written into: the list belongs to the resolver's Traced, and turning a body is not permission
+    to change the value it was given. With no pieces the key is left out rather than answered empty, so a client reads
+    "no mark for this range" and not "a mark of no pieces", and there is then nothing to copy."""
+    if not boxes:
+        return levels
+    pieces = mark_wire(boxes)
+    return [{**level, "boxes": pieces} if level["level"] == default else level for level in levels]
 
 
 def pick_warning(p: Picked) -> str:

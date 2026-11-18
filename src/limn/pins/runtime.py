@@ -34,7 +34,7 @@ from limn.pins.location.service import PinLocationService
 from limn.pins.location.source import TokenCache
 from limn.pins.mentions import note_tags as pin_note_tags
 from limn.pins.model import EventType, Pin, Record, TrashedPin
-from limn.pins.needs import BuildAnswers, FollowElement, VerdictKeys
+from limn.pins.needs import BoxesFor, BuildAnswers, DocumentBoxes, FollowElement, VerdictKeys
 from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
 from limn.pins.store import PinFiles, PinReader, PinStore, Row
@@ -83,6 +83,10 @@ class PinCommands:
     # The verdict keys a document declares now (limn.pins.needs.VerdictKeys), the document owner's answer the
     # composition root wires; by default no document declares any.
     verdict_keys: VerdictKeys = lambda doc: ()
+    # Where a line range of one document prints on the build it has on screen (limn.pins.needs.DocumentBoxes), the
+    # build owner's answer the composition root wires behind its own cache; by default no document answers any, so a
+    # run assembled without it lists the pins it always listed.
+    document_boxes: DocumentBoxes = lambda doc: None
     pin_lifecycle: PinLifecycle = field(init=False)
     pin_claims: PinClaims = field(init=False)
     pin_trash: PinTrash = field(init=False)
@@ -139,6 +143,12 @@ class PinCommands:
         """Query current element positions without exposing a map to pin services."""
         doc = self.doc_by_key(key)
         return None if doc is None else self.build_view.elements(doc)
+
+    def line_boxes(self, key: str) -> BoxesFor | None:
+        """Query where a document's line ranges print without exposing a PDF or a page folder to pin services; None
+        for a document this instance no longer serves, as for one nothing could print a mark for."""
+        doc = self.doc_by_key(key)
+        return None if doc is None else self.document_boxes(doc)
 
     def refresh_pins_md(self) -> None:
         """Refresh derived markdown after publication without resynchronizing pins."""

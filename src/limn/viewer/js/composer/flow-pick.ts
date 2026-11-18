@@ -21,7 +21,7 @@ import { API_OUT, API_WAIT, api, isApiError, isRefusal } from '../platform/api.t
 import { endTopic } from '../platform/notices.ts';
 import { LAST_POINTER } from '../platform/tooltip.ts';
 import { applySide, relayout, setSide } from '../layout/flow.ts';
-import { revealBox } from '../pdf/input-selection.ts';
+import { clearSelectionParts, revealBox } from '../pdf/input-selection.ts';
 import { clearPendingSave } from './view-save.ts';
 import { savePin } from './flow-save.ts';
 import { SELECTION_POPOVER_FIELD, drawSelectionPopover, isSelectionPopoverOpen } from './view-selection-popover.ts';
@@ -102,6 +102,7 @@ async function pick(region: PickDrag) {
     if (repick) {
       bannerRepick();
     } else {
+      clearSelectionParts();
       if (COMPOSE.box) {
         COMPOSE.box.remove();
         setComposeBox(null);
@@ -127,6 +128,7 @@ async function pick(region: PickDrag) {
         repick.box.remove();
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
+        clearSelectionParts();
         COMPOSE.box.remove();
         setComposeBox(null);
       }

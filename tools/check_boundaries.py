@@ -45,6 +45,7 @@ ENTRYPOINT_IMPORTS: EntrypointImports = {
         "PinSubsystem",
         "TokenCache",
         "assemble_pins",
+        "range_boxes",
         "RevisionJobs",
         "RevisionSubsystem",
         "ScopeCache",

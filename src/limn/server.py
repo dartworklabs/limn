@@ -49,6 +49,7 @@ from limn.pins import (
     PinSubsystem,
     TokenCache,
     assemble_pins,
+    range_boxes,
 )
 from limn.platform.files import vendor_file as find_vendor_file
 from limn.platform.git import git as _git
@@ -230,6 +231,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         timestamp,
         maps=lambda: resources().figure_maps,
         figure_shown=lambda: pins.commands.refresh_pins_md(),
+        marks=range_boxes,
     )
     pins = assemble_pins(
         settings=settings,
@@ -246,6 +248,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         remote_base_for=lambda host: access.remote_base_for(host, settings().access.public_hosts, settings().port),
         verdict_keys=lambda doc: documents_subsystem.verdict_keys(doc),
         refresh_watched=lambda key: sync.service.refresh_watched(key),
+        document_boxes=builds.boxes,
     )
     collaboration = assemble_collaboration(
         state=lambda: settings().state,

@@ -570,9 +570,11 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
+                extract_js_fn("shownBuild"),
                 extract_js_fn("refetchSnip"),
                 """
-                let DOC='a',SWITCHSEQ=1,SNIPPET_TIMER=null; const COMPOSE={current:{doc:'a',file:'a.tex',lo:1,hi:1,snippet:'old'}}; const EDITOR={current:null,saving:false};
+                const META={pages_build:'b1'};
+                let DOC='a',SWITCHSEQ=1,COMPOSE_SNIPPET_TIMER=null,EDIT_SNIPPET_TIMER=null; const COMPOSE={current:{doc:'a',file:'a.tex',lo:1,hi:1,snippet:'old'}}; const EDITOR={current:null,saving:false};
                 let fire,finish,renders=0;
                 function clearTimeout(){}function setTimeout(fn){fire=fn;return 1;}
                 function withDocQuery(path){return path;}function api(){return new Promise(resolve=>{finish=resolve;});}
@@ -593,9 +595,11 @@ class VisitLocalContinuations(unittest.TestCase):
             [
                 extract_js_fn("captureVisit"),
                 extract_js_fn("currentVisit"),
+                extract_js_fn("shownBuild"),
                 extract_js_fn("refetchSnip"),
                 """
-                let DOC='a',SWITCHSEQ=1,SNIPPET_TIMER=null;
+                const META={pages_build:'b1'};
+                let DOC='a',SWITCHSEQ=1,COMPOSE_SNIPPET_TIMER=null,EDIT_SNIPPET_TIMER=null;
                 const COMPOSE={current:null};
                 const card={doc:'a',file:'a.tex',lo:2,hi:3,snippet:'old'};
                 const EDITOR={current:card,saving:false};

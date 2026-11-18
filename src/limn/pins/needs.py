@@ -1,7 +1,8 @@
 """What pin placement and pin views need from the owners of builds and of documents, declared by this slice.
 
 No module of limn.pins imports another feature. The composition root (server.py) passes the build owner's query
-bundle and the document owner's verdict lookup to assemble_pins(), and the type checker proves there that they and
+bundle, its asker for where a document's line ranges print and the document owner's verdict lookup to
+assemble_pins(), and the type checker proves there that they and
 every value they answer have the members named here. Only the members pins reads are declared, and every one is
 read-only: pins consumes these facts and never rebuilds, stores or writes back the supplier's value. No element map,
 build history, marker file or word file crosses.
@@ -231,6 +232,23 @@ class FollowedElement(Protocol):
 # Follows one pinned element on one build's map, bound by the supplier: (element id, the page it was pinned on, its
 # box then) -> where it is now. The caller never sees the map.
 FollowElement: TypeAlias = Callable[[str, int, ElementFrac], FollowedElement]
+
+# A pin's mark: the pieces its line range draws, each the page (1-based) and that piece's box as fractions of that
+# page, (x, y, w, h) from its top left. This is limn.pins.location.mapping.MarkPiece spelled out, because a
+# declaration module of this slice imports no other module of it; the supplier declares the same shape on its side.
+MarkPieces: TypeAlias = tuple[tuple[int, tuple[float, float, float, float]], ...]
+
+# Where lines lo..hi (1-based, inclusive) of one manuscript file print on the pages of the build a document has on
+# screen, bound to that document by the supplier: (the file's path on this machine, lo, hi) -> the mark's pieces,
+# empty when there is no answer. The caller never sees a PDF, a page folder or the lines that build read.
+BoxesFor: TypeAlias = Callable[[str, int, int], MarkPieces]
+
+# The supplier's asker for one document, which the composition root passes to assemble_pins() as it passes the
+# document owner's verdict lookup: None for a document whose line pins are not lines a LaTeX build printed - a figure
+# document (its marks come from its element map), a Markdown or text document (no pages), a view-only PDF (no lines) -
+# and for a build that left no page to measure a mark against. The cost of answering, and the cache that makes a
+# listing of every open pin affordable, are the supplier's (docs/adr/0049-pin-marks-follow-the-range.md).
+DocumentBoxes: TypeAlias = Callable[[Doc], BoxesFor | None]
 
 
 class BuildAnswers(Protocol):

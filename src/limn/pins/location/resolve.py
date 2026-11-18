@@ -3,12 +3,25 @@
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol, TypeAlias
+from typing import Any, NamedTuple, Protocol, TypeAlias
 
 from limn.pins.editing.values import PDF_QUOTE_MAX
 from limn.pins.element import PinElement
 from limn.pins.location import figure, source
-from limn.pins.location.mapping import Traced, carry_range, norm, snippet, trace_range, truncate_quote
+from limn.pins.location.mapping import (
+    BOX_LIMIT,
+    Box,
+    BuiltRange,
+    MarkPiece,
+    Traced,
+    built_ranges,
+    carry_range,
+    norm,
+    snippet,
+    trace_range,
+    truncate_quote,
+)
+from limn.pins.location.range import RangeBoxes
 from limn.pins.location.source import TokenCache
 from limn.pins.needs import BuildAnswers, BuildOnScreen
 from limn.platform.files import ManuscriptFile, file_in_tree, tex_lines
@@ -17,8 +30,8 @@ from limn.runtime.documents import Doc, to_source
 
 class Selection(Protocol):
     """A validated drag (limn.pins.location.input.PickRequest): the page directory it is traced in, the page (1-based), the box
-    (x0, y0, x1, y1) in points clamped to the page, the page size (width, height) in points, and the viewer's frac as
-    sent (None if absent)."""
+    (x0, y0, x1, y1) in points clamped to the page, the page size (width, height) in points, the viewer's frac as
+    sent (None if absent), and every page of that build."""
 
     @property
     def pdir(self) -> Path:
@@ -45,6 +58,12 @@ class Selection(Protocol):
         """The viewer's page-relative box, or None."""
         ...
 
+    @property
+    def pages(self) -> Sequence[tuple[float, float]]:
+        """Every page of the build dragged on, (width, height) in points, page 1 first: the mark's pieces are
+        measured against the page each one is on, which is not always the page dragged on."""
+        ...
+
 
 @dataclass(frozen=True)
 class PickContext:
@@ -63,14 +82,31 @@ class PickContext:
 
 
 @dataclass(frozen=True)
+class PageOnScreen:
+    """The pages an answer measures its marks against: the name of the page directory on screen and every page of
+    that build as (width, height) in points, page 1 first.
+
+    A snippet names no page - it is a file and a line range - so it takes the build on screen with all of its pages
+    and measures each piece of a mark against the page that piece is on. One size for the whole answer would misplace
+    every mark on a document whose pages differ in size (a landscape appendix, an \\includepdf page) and would answer
+    fractions a pick, which knows the page dragged on, does not. A document with no pages has none of this and
+    answers no marks (limn.pins.location.http.snippet)."""
+
+    build: str
+    pages: tuple[tuple[float, float], ...]
+
+
+@dataclass(frozen=True)
 class Picked:
     """A selection traced to lines of a manuscript file: the file (inside the tree), the page, the range the paths
     agreed on (limn.pins.location.mapping.Traced), the file's line count and the chosen range's text, the viewer's frac as sent, the
     region's printed text as a short quote, the stored open pins that range overlaps, and the page directory it was
     traced in. stale: the manuscript is newer than that build's PDF (by more than 2 s) and the answer is not SyncTeX's
     range read against that build's own lines and found standing whole in the file now - the one case where a rebuild
-    and a second pick would answer the same lines; building: a LaTeX build is running now. The location feature's HTTP
-    answer turns this into the pick body."""
+    and a second pick would answer the same lines; building: a LaTeX build is running now. boxes: where the chosen
+    range prints on that build's pages (range_boxes), empty when there is no answer - the pin's mark is then the
+    dragged rectangle, as it was before marks followed the range. The location feature's HTTP answer turns this into
+    the pick body."""
 
     file: Path
     page: int
@@ -83,6 +119,7 @@ class Picked:
     pdf_build: str
     stale: bool
     building: bool
+    boxes: tuple[MarkPiece, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -163,7 +200,10 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     The page directory is the build on screen at drag time (pdf_build, META.pages_build). A drag made after a rebuild
     finishes but before the viewer switches pages uses coordinates from the old layout, so it's traced back
     against that build's PDF and returned as pdf_build in the response - the viewer carries that value
-    through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation)."""
+    through unchanged when saving the pin (/api/pin) to record "which build's coordinates these are" (§Position estimation).
+
+    The last step runs SyncTeX the other way (range_boxes) and answers where the chosen range prints on that build's
+    pages, so the mark the person sees covers the lines the agent receives (docs/adr/0049-pin-marks-follow-the-range.md)."""
     pdir, page, box, (pw, ph), frac = request.pdir, request.page, request.box, request.size, request.frac
     x0, y0, x1, y1 = box
     publication = ctx.builds.publication(D, pdir.name, ctx.state)
@@ -207,7 +247,9 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     # SyncTeX numbers the lines that build read; everything below works on the file as it is now.
     synctex = (sy[1], sy[2]) if sy else None
     stands = False
-    built = publication.built_lines(found.path) if synctex is not None else None
+    # Read whichever path wins: the forward pass below needs that build's lines even when SyncTeX gave no range and
+    # the region's words placed the drag.
+    built = publication.built_lines(found.path)
     if synctex is not None and built is not None:
         carried = carry_range(built, lines, synctex[0], synctex[1])
         synctex = None if carried is None else (carried.lo, carried.hi)
@@ -216,6 +258,7 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
     traced = trace_range(tw, lines, synctex, ctx.envs)
     if traced is None:
         return NoSourceHere()
+    marks = range_boxes(D, found.path, built, lines, pdf, request.pages).pieces
 
     return Picked(
         file=found.path,
@@ -229,7 +272,75 @@ def pick(D: Doc, request: Selection, ctx: PickContext) -> Picked | figure.Picked
         pdf_build=pdir.name,
         stale=publication.stale and not (stands and traced.via == "synctex"),
         building=publication.latex_running,
+        boxes=marks(traced.lo, traced.hi),
     )
+
+
+class RangeAsker(NamedTuple):
+    """Where the ranges of one file of one build print, bound to that build's facts (range_boxes).
+
+    `built` is which lines of the build a range of the file as it is today is, or None when nothing can be measured
+    for it; `pieces` is where those lines print. The two share one reading of the line diff between the build's lines
+    and today's, so the range a caller keys a kept answer by is the range the pieces it keeps were measured from
+    (limn.builds.queries.BuildQueries.boxes)."""
+
+    built: BuiltRange
+    pieces: RangeBoxes
+
+
+def range_boxes(
+    D: Doc,
+    file: Path,
+    built: Sequence[str] | None,
+    now: Sequence[str],
+    pdf: Path,
+    pages: Sequence[tuple[float, float]],
+) -> RangeAsker:
+    """Where a range of manuscript file `file` prints on `pdf`, bound to the facts of one answer: an asker whose
+    `pieces` takes (lo, hi) and gives the mark's pieces, empty when there is none, and whose `built` gives the lines
+    of the build those are measured from (RangeAsker). `built` is the file as the build whose PDF this is read it
+    (None when that build kept no record), `now` the file as it is today - the same order as source.boxes_for_range
+    takes them, because both are lines of one file and a swap would type-check - and `pages` every page of that
+    build, so each piece can be measured against the page it is on.
+
+    Both answers that carry a mark bind it here - POST /api/pick for its default range (above) and GET /api/snippet
+    once per rung (service.PinLocationService.snippet) - so the two cannot drift: the PDF, the name the build copy
+    gives the file, the lines that build read and the page sizes are chosen once, in one place, and the computation
+    itself is shared (source.boxes_for_range). Binding also keeps the cost to one read of the build's facts per
+    answer, not one per rung. The mark's piece count is BOX_LIMIT for both; a reader that wants another cap calls the
+    computation directly (docs/adr/0049-pin-marks-follow-the-range.md).
+
+    A line is read from SyncTeX once per answer, not once per rung: the ladder's rungs nest, so a snippet's three
+    rungs ask for the drag's own line three times and for the paragraph's lines twice, and each call is a process
+    (13 ms measured on a 35-page document). The line diff of the two line lists is read once for the binding too, for
+    the same reason: it does not depend on the range, and a listing asks one range per pin of the file. Both memos
+    live in this binding, so they are gone when the answer is - a GET changes nothing that outlives it, and a cache
+    across requests is the pin listing's to add, not this route's."""
+    tex = source.build_copy_name(D.build, D.src, file)
+    into_build = None if built is None else built_ranges(built, now)
+    seen: dict[tuple[str, int], list[Box]] = {}
+
+    def view(on: Path, named: str, line: int) -> list[Box]:
+        """That line's boxes, read once per (file name, line) for this answer."""
+        key = (named, line)
+        if key not in seen:
+            seen[key] = source.synctex_view(on, named, line)
+        return seen[key]
+
+    def in_build(lo: int, hi: int) -> tuple[int, int] | None:
+        """Which lines of the build the range lo..hi of today's file is, by the rule and the diff `pieces` uses, or
+        None where `pieces` would answer nothing because the range does not stand in those lines whole. With no
+        record of the build's lines the numbers are the range's own, as source.boxes_for_range leaves them."""
+        lo, hi = max(1, lo), min(hi, len(now))
+        if lo > hi:
+            return None
+        return (lo, hi) if into_build is None else into_build(lo, hi)
+
+    def pieces(lo: int, hi: int) -> tuple[MarkPiece, ...]:
+        """The pieces of lines lo..hi, each as fractions of the page it prints on."""
+        return source.boxes_for_range(pdf, tex, built, now, lo, hi, pages, BOX_LIMIT, view, into_build=into_build)
+
+    return RangeAsker(in_build, pieces)
 
 
 def _pick_region(

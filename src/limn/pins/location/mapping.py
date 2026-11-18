@@ -209,6 +209,215 @@ def by_text(tw: TokenWeights, lines: Sequence[str], near: int | None = None) -> 
     return lo + 1, hi + 1, score_range(tw, lines, lo + 1, hi + 1)
 
 
+# ---------------------------------------------------------------- A pin's mark: boxes on the PDF
+
+# One box on the PDF: (page, x, y, w, h) in PDF points from the page's top left, as SyncTeX's forward search gives it.
+Box: TypeAlias = tuple[int, float, float, float, float]
+
+# One piece of a pin's mark: the page (1-based) and that piece's box as fractions of the page, (x, y, w, h) from its
+# top left - what limn.pins.location.source.boxes_for_range answers and mark_wire puts on the wire.
+MarkPiece: TypeAlias = tuple[int, tuple[float, float, float, float]]
+
+# Reads one range of a file as it is today back into the lines a build read: (lo, hi) -> that build's line range, or
+# None when the range no longer stands there whole (built_range). A caller bound to one file holds one of these
+# (built_ranges), because it is what a mark's answer is a function of and so what a listing keys that answer by
+# (limn.builds.artifacts.RangeBoxCache).
+BuiltRange: TypeAlias = Callable[[int, int], tuple[int, int] | None]
+
+# The most boxes a pin's mark is drawn with. A range that merges into more pieces than this is scattered over the
+# document (a float's lines and its text far apart); one mark of many bits says less than none.
+BOX_LIMIT = 8
+
+# The most pieces the mark of a range that is one whole environment (a float) may have. Measured over 12 floats of a
+# real manuscript with the range's own \\begin and \\end lines not asked (source.environment_delimiters), every float
+# needs exactly one piece; two still admits a float split across a page break (structurally possible, not observed)
+# and refuses scatter. The wider BOX_LIMIT never fired there: the two worst floats came within one piece of it while
+# still answering a mark of 6 junk pieces and 1 real one, so 8 did not protect against the defect the rule removes.
+ENV_BOX_LIMIT = 2
+
+# The most lines of a range the forward pass asks SyncTeX about; a longer range gets no mark. The cost is one process
+# per line and grows with the document: measured on a 35-page document, one call is 13 ms, a 5-line paragraph 64 ms and
+# 40 lines 513 ms. A pick sits on the drag's critical path, so a 100-line float environment would stall it for over a
+# second, and the drawn rectangle it falls back to is the answer the pin had before marks followed the range.
+FORWARD_LINES_MAX = 40
+
+# A box at least this tall, as a share of the page height, is the page or column body, not a line of text.
+# Measured: the page body box is 65% of the page height and the tallest float box is 26.3% (a 221.67 pt graphic; four
+# more figures sit at 20.6-24.0%), so 0.45 lies about 19 percentage points above the tallest float and 20 below the
+# body box - the room either side of it. Raising it toward the body box's share risks letting a body box in; lowering
+# it toward the tallest float's drops graphics. At the old 0.25 the 26.3% graphic was dropped and its pin's mark
+# covered its caption alone.
+BODY_HEIGHT_SHARE = 0.45
+# With a single line there is no blank between lines to measure; the padding is this share of the line's height.
+_LONE_LINE_PAD_SHARE = 0.175
+
+
+def line_boxes(rows: Sequence[Box], page_h: float) -> list[Box]:
+    """The boxes of rows that are lines of text, without the boxes that are the page or a column body.
+
+    SyncTeX answers a line like \\end{document} or \\begin{table} with the boxes of the page body and of each column
+    body it sits in (measured on an A4 two-column 10 pt article: 467 pt wide and 548 pt tall for the page body, and
+    229 pt wide and 548 pt tall for each column body, on a 595 x 842 pt page). A mark drawn from one would cover a
+    column or the page. Height alone tells them from text: a body text line is 8.86 pt high, 1.05% of the page height,
+    and a body box is 65%, two orders of magnitude apart, so a box at least BODY_HEIGHT_SHARE of page_h high is dropped. Width cannot
+    be the test: a column body is only 38% of the page width, so a width gate lets it through. Nor is the test a
+    comparison among the range's own boxes: a table's cells differ wildly in size, so such a comparison drops real
+    cells or keeps the body. The trade-off: a float box taller than BODY_HEIGHT_SHARE of the page is dropped too, and a
+    pin on it falls back to the dragged rectangle, which the spec allows for floats. A box as wide as the page but short
+    (a rule, a full-width one-line float) is ink of the range and stays, so the page width is not asked for."""
+    return [row for row in rows if row[4] < BODY_HEIGHT_SHARE * page_h]
+
+
+def _median(values: Sequence[float]) -> float:
+    """The middle of values (the mean of the two middle ones for an even count); values is not empty."""
+    ordered = sorted(values)
+    mid = len(ordered) // 2
+    return ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2
+
+
+def _overlaps_across(a: Box, b: Box) -> bool:
+    """True when a and b lie on one page and their horizontal spans meet - one column, not two."""
+    return a[0] == b[0] and a[1] <= b[1] + b[3] and b[1] <= a[1] + a[3]
+
+
+def _gap_below(a: Box, b: Box) -> float:
+    """The vertical blank between a and b: negative when they overlap."""
+    return max(a[2], b[2]) - min(a[2] + a[4], b[2] + b[4])
+
+
+def range_pad(rows: Sequence[Box]) -> float:
+    """How far to grow a mark's boxes on every side: half the blank between the range's lines, to 2 decimals.
+
+    A text line's box is about 8.86 pt high with about 11.96 pt between baselines in 10 pt body text, so the blank
+    between two lines is about 3.10 pt. Half of it on each side makes the boxes of neighbouring lines meet exactly, so
+    a range reads as one block with no stripes, and a mark never reaches into the line above or below it. The padding
+    is measured from the range's own leading, never assumed, because the leading follows the font size and the line
+    spacing: at line spacing 1.8 the blank is 12.66 pt and the padding 6.33 pt, in \\Large text 1.0 pt and 0.50 pt. The
+    line advance is the middle of the steps down from one box to the next in the same column (so one big skip inside a
+    long range does not move it); the blank is that advance less the mean box height. A step that is not downward means
+    the boxes restarted at the top of a column or page, which is no leading, and is left out. With no step (a single
+    line) the padding is a share of the line's height instead."""
+    ordered = sorted(rows, key=lambda r: (r[0], r[2], r[1]))
+    steps = [b[2] - a[2] for a, b in zip(ordered, ordered[1:], strict=False) if _overlaps_across(a, b) and b[2] > a[2]]
+    if steps:
+        mean_h = sum(row[4] for row in ordered) / len(ordered)
+        return round(max(0.0, (_median(steps) - mean_h) / 2), 2)
+    if not ordered:
+        return 0.0
+    return round(_median([row[4] for row in ordered]) * _LONE_LINE_PAD_SHARE, 2)
+
+
+def _touch(a: Box, b: Box, pad: float) -> bool:
+    """True when a and b are one block: the same column on one page, and the blank between them no wider than the
+    one between two lines of this range - 2 * pad (the leading) plus the taller box."""
+    return _overlaps_across(a, b) and _gap_below(a, b) <= 2 * pad + max(a[4], b[4])
+
+
+def _union(a: Box, b: Box) -> Box:
+    """The smallest box that holds both a and b (on one page)."""
+    x0, y0 = min(a[1], b[1]), min(a[2], b[2])
+    x1, y1 = max(a[1] + a[3], b[1] + b[3]), max(a[2] + a[4], b[2] + b[4])
+    return a[0], x0, y0, x1 - x0, y1 - y0
+
+
+def merge_boxes(rows: Sequence[Box], pad: float, page_w: float, page_h: float, limit: int) -> list[Box]:
+    """The mark's pieces: line boxes joined into blocks, grown by pad and cut to the page - or [] over limit boxes.
+
+    Boxes join when they lie on one page, their horizontal spans meet and the blank between them is at most the one
+    between two lines of the range (2 * pad plus the taller box). The lines of a paragraph become one block, while a
+    range that runs from one column into the next stays two pieces, one per column, and one that crosses a page stays
+    one per page. Touching is judged between the boxes as given and joins chain, so a tall block does not widen the
+    threshold for what lies below it. Padding is added after joining and clipped to 0..page_w and 0..page_h, so a
+    mark at the page's edge does not leave the page. More than limit pieces is a range scattered over the document,
+    and there the mark gives up: [] means "draw nothing", not "nothing found". Pieces are rounded to 2 decimals and
+    sorted by (page, y, x): the first is the topmost piece of the lowest page, which the viewer draws the pin's number
+    badge on. In a single-column layout that is the head of the range. In two columns it is not: a paragraph running
+    from the foot of column 1 into the head of column 2 answers the column 2 piece first, because that piece starts
+    higher on the page. Reading order would need the columns told apart, which no box here says; the order is the one
+    the viewer's pieces are pinned to, so changing it moves a badge and is a change of its own."""
+    parent = list(range(len(rows)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+
+    for i, a in enumerate(rows):
+        for j in range(i + 1, len(rows)):
+            if _touch(a, rows[j], pad):
+                parent[find(j)] = find(i)
+    groups: dict[int, Box] = {}
+    for i, row in enumerate(rows):
+        root = find(i)
+        groups[root] = _union(groups[root], row) if root in groups else row
+    blocks = list(groups.values())
+    grown: list[Box] = []
+    for page, x, y, w, h in blocks:
+        x0, y0 = max(0.0, x - pad), max(0.0, y - pad)
+        x1, y1 = min(page_w, x + w + pad), min(page_h, y + h + pad)
+        grown.append((page, round(x0, 2), round(y0, 2), round(x1 - x0, 2), round(y1 - y0, 2)))
+    if len(grown) > limit:
+        return []
+    return sorted(grown, key=lambda b: (b[0], b[2], b[1]))
+
+
+def mark_wire(pieces: Sequence[MarkPiece]) -> list[dict[str, int | list[float]]]:
+    """A mark on the wire: [{"page": <1-based>, "frac": [x, y, w, h]}, ...] in the order the pieces came.
+
+    Every answer that carries a mark sends this one shape - a pick's default rung (limn.pins.location.http) and each
+    rung of a snippet (limn.pins.location.range) - so the two agree by construction and the viewer has one shape to
+    read. An empty mark is not shaped at all: the callers leave the key out, because an absent key says "no mark for
+    this range" where [] would say "a mark of no pieces"."""
+    return [{"page": page, "frac": [x, y, w, h]} for page, (x, y, w, h) in pieces]
+
+
+def built_range(built: Sequence[str], now: Sequence[str], lo: int, hi: int) -> tuple[int, int] | None:
+    """The lines of built - a file as a build read it - that hold today's lines lo..hi (1-based, inclusive) of now, or
+    None when they are not there whole.
+
+    This is carry_range turned around: SyncTeX numbers the lines of the file the build read, so a range chosen in
+    today's file must be read back into that file before its boxes are asked for. "Whole" is carry_range's
+    (Carried.whole): every line of lo..hi pairs with a line of built and the paired lines stand next to one another.
+    A range that is only partly there - a line edited or added inside it - would get a box for some of its text and
+    pass it off as the range's, so it gets none. The same rule on both paths, a fresh pick and a stored pin's listing,
+    is what makes them draw the same box instead of flickering between two. A range of blank lines alone is no text
+    either, as in carry_range. lo and hi are cut to 1..len(now) first.
+
+    A caller with several ranges of one file takes built_ranges, which reads the line diff of the two lists once."""
+    return _in_built(_built_at(built, now), now, lo, hi)
+
+
+def built_ranges(built: Sequence[str], now: Sequence[str]) -> BuiltRange:
+    """built_range for every range of one file, with the line diff of built and now read once.
+
+    A pin listing asks for one range per pin of the file, and the diff does not depend on the range: read per range it
+    walks the whole file once per pin, and the listing of a manuscript with dozens of pins pays that for every one of
+    them. Range for range the answer is built_range's."""
+    at = _built_at(built, now)
+    return lambda lo, hi: _in_built(at, now, lo, hi)
+
+
+def _built_at(built: Sequence[str], now: Sequence[str]) -> Mapping[int, int]:
+    """For each line of now (0-based) that the line diff pairs with a line of built, that line's 0-based index in
+    built - paired_lines read the other way round."""
+    return {j: i for i, j in enumerate(paired_lines(built, now)) if j is not None}
+
+
+def _in_built(at: Mapping[int, int], now: Sequence[str], lo: int, hi: int) -> tuple[int, int] | None:
+    """built_range from the pairing it has already read (_built_at)."""
+    lo, hi = max(1, lo), min(hi, len(now))
+    if lo > hi:
+        return None
+    places = [at.get(j) for j in range(lo - 1, hi)]
+    if None in places:
+        return None
+    found = [i for i in places if i is not None]
+    if found[-1] - found[0] != hi - lo or not any(now[j].strip() for j in range(lo - 1, hi)):
+        return None
+    return found[0] + 1, found[-1] + 1
+
+
 # ---------------------------------------------------------------- Block expansion and the range ladder
 
 WITHOUT_TEXT_RE = re.compile(r"\s*(\\end\{[^{}]*\}\W*)?")  # blank, or the end of an environment
@@ -313,8 +522,20 @@ def find_level(levels: Sequence[Level], key: str) -> Level | None:
 
 
 def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequence[str]) -> dict[str, Any]:
-    """The range ladder: dragged line / paragraph (trailing comments excluded) / enclosing environments, innermost to outermost, up to 3 levels. envs are the float
-    environments (--float-envs) a selection expands to.
+    """The range ladder as an answer's fields: rung_ladder's rungs, the name of the default rung, its lines and the
+    kind - what a pick's body and GET /api/snippet?levels=1 carry.
+
+    A caller that works with the rungs themselves takes rung_ladder instead: read back out of this mapping every rung
+    is Any, and a rung's own line numbers are what the snippet asks its marks by (limn.pins.location.range)."""
+    levels, default, kind = rung_ladder(lines, raw_lo, raw_hi, envs)
+    return {"levels": levels, "default_level": default["level"], "lo": default["lo"], "hi": default["hi"], "kind": kind}
+
+
+def rung_ladder(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequence[str]) -> tuple[list[Level], Level, str]:
+    """The range ladder as values: every rung, the default rung, and the kind.
+
+    The rungs are the dragged line / the paragraph (trailing comments excluded) / the enclosing environments,
+    innermost to outermost, up to 3 levels. envs are the float environments (--float-envs) a selection expands to.
 
     Snippets are included up front so the client can switch levels without a server round trip. There is no
     section level - that would easily produce hundred-line ranges, against the "hand over only a line range" principle."""
@@ -396,7 +617,7 @@ def compute_levels(lines: Sequence[str], raw_lo: int, raw_hi: int, envs: Sequenc
     assert default is not None
     if not default["level"].startswith("env") and kind != "paragraph":
         kind = "paragraph"
-    return {"levels": levels, "default_level": default["level"], "lo": default["lo"], "hi": default["hi"], "kind": kind}
+    return levels, default, kind
 
 
 # ---------------------------------------------------------------- Choosing a selection's range

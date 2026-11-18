@@ -5,14 +5,15 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .application import PinSubsystem as PinSubsystem, assemble_pins as assemble_pins
-    from .location import TokenCache as TokenCache
+    from .location import TokenCache as TokenCache, range_boxes as range_boxes
 
-__all__ = ["PinSubsystem", "TokenCache", "assemble_pins"]
+__all__ = ["PinSubsystem", "TokenCache", "assemble_pins", "range_boxes"]
 
 _EXPORTS = {
     "PinSubsystem": ("application", "PinSubsystem"),
     "TokenCache": ("location", "TokenCache"),
     "assemble_pins": ("application", "assemble_pins"),
+    "range_boxes": ("location", "range_boxes"),
 }
 
 

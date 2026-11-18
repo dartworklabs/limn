@@ -17,7 +17,7 @@ from limn.pins.revision import RevisionPin, revision_pin as project_revision_pin
 if TYPE_CHECKING:
     from limn.pins.editing.http import EditingRequests
     from limn.pins.location.source import TokenCache
-    from limn.pins.needs import BuildAnswers, VerdictKeys
+    from limn.pins.needs import BuildAnswers, DocumentBoxes, VerdictKeys
     from limn.pins.notice import PinNotice
     from limn.pins.runtime import PinCommands
     from limn.runtime.config import RunConfig
@@ -175,12 +175,16 @@ def assemble_pins(
     remote_base_for: Callable[[str], str],
     verdict_keys: VerdictKeys,
     refresh_watched: Callable[[str], object] = lambda key: None,
+    document_boxes: DocumentBoxes = lambda doc: None,
 ) -> PinSubsystem:
     """Assemble pin reads, transactions, routes and startup using explicit deferred collaborators. refresh_watched brings the
     files of a watched document (by key) up to date - the sync capability's pull and the builds' import, wired by the
     composition root - and runs before an agent's close of one of its pins is written
     (docs/handbook/api.md §닫을 때 사유 남기기). verdict_keys answers the verdict words a document declares now - the
-    document capability's answer, wired by the composition root - which a new verdict pin is checked against."""
+    document capability's answer, wired by the composition root - which a new verdict pin is checked against.
+    document_boxes answers where a document's line ranges print on the build it has on screen - the build capability's
+    answer behind its own cache, wired the same way - which the pin listing carries as each line pin's `boxes`
+    (docs/adr/0049-pin-marks-follow-the-range.md); without it the listing answers the pins it always answered."""
     from limn.pins.location.lookup import NO_RECORDED_FOLDERS, RecordedFolders, recorded_folders, recorded_place
     from limn.pins.runtime import PinCommands
 
@@ -198,6 +202,7 @@ def assemble_pins(
         now,
         refresh_watched,
         verdict_keys,
+        document_boxes,
     )
 
     # The folders stored records were written through, as startup translated them (learn_record_folders): this run's

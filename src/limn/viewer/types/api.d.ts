@@ -77,6 +77,10 @@ interface Pin {
   frac?: number[];
   mark?: number[];
   mark_page?: number;
+  // Where a line pin's own lines print on the build on screen, the pieces a pick and a snippet answer for the same
+  // lines (ADR-0049). Computed on read like mark/mark_page; absent when there is no answer, never empty. A figure
+  // pin's mark comes from its element map instead, so the two never meet on one pin.
+  boxes?: MarkPiece[];
   kind?: string;
   scope?: string;
   via?: string;
@@ -385,9 +389,18 @@ interface RebuildAnswer {
   unchanged?: boolean;
 }
 
+// One piece of the mark a rung's lines draw: the page it is on (1-based) and its box as page fractions, [x, y, w, h]
+// from the page's top left.
+interface MarkPiece {
+  page: number;
+  frac: number[];
+}
+
 // One rung of a range ladder (POST /api/pick `levels`, GET /api/snippet?levels=1): the lines it covers and their
 // snippet, the environment for an environment rung, the element for a figure's rung, the rungs it replaced, and on a
-// traced pick how much of the drag is in its lines (score, 0-1; null when there was nothing to weigh).
+// traced pick how much of the drag is in its lines (score, 0-1; null when there was nothing to weigh). boxes is where
+// those lines print on the build being read - absent when there is no answer for them, never empty - which a pick
+// sends for its default rung alone and a snippet for every rung (docs/adr/0049-pin-marks-follow-the-range.md).
 interface Rung {
   level: string;
   lo: number;
@@ -399,6 +412,7 @@ interface Rung {
   el?: PinElement;
   merged?: string[];
   score?: number | null;
+  boxes?: MarkPiece[];
 }
 
 // An open line pin a not-yet-saved range overlaps (POST /api/pick `overlaps`), and how.
@@ -497,8 +511,11 @@ interface PickRefusal {
 }
 
 // GET /api/snippet: the lines lo..hi of a manuscript file - its path and name, how many lines the range and the file
-// have, and the numbered snippet; with ?levels=1 the range ladder and its default rung, and with ?text=1 the lines'
-// exact text for a range short enough to take a suggested edit.
+// have, and the numbered snippet; with ?levels=1 the range ladder and its default rung, every rung carrying where its
+// own lines print (Rung.boxes), and with ?text=1 the lines' exact text for a range short enough to take a suggested
+// edit. boxes_build is the build those boxes were measured against - the page directory on screen as the server
+// answered, which a build finishing inside the round trip makes a later one than this page is showing - and comes
+// only for a request that asked for marks (?levels=1&boxes=1) and had a build with pages to measure them against.
 interface SnippetAnswer {
   file: string;
   name: string;
@@ -509,6 +526,7 @@ interface SnippetAnswer {
   snippet: string;
   levels?: Rung[];
   default_level?: string;
+  boxes_build?: string;
   text?: string;
 }
 

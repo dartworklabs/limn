@@ -1,0 +1,150 @@
+"""The pure box math behind a pin's mark: the PDF boxes SyncTeX gives for a range's lines, filtered, padded, merged
+(mapping.line_boxes, range_pad, merge_boxes), and a range of today's file read back in the file a build read
+(mapping.built_range, and built_ranges for many ranges of one file).
+
+Run: uv run pytest -q src/limn/pins/location/tests/test_mapping.py
+"""
+
+from limn.pins.location.mapping import BOX_LIMIT, built_range, built_ranges, line_boxes, merge_boxes, range_pad
+
+PAGE_W, PAGE_H = 595.28, 841.89
+
+
+def test_line_boxes_drops_page_body_boxes():
+    # a page body box (full text width, most of the page height) and two text lines
+    rows = [(1, 72.0, 100.0, 467.0, 548.0), (1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 243.0, 228.6, 8.86)]
+    assert line_boxes(rows, 841.89) == rows[1:]
+
+
+def test_line_boxes_lets_height_alone_decide():
+    wide_short = (1, 72.0, 100.0, 467.0, 20.0)  # a full-width table row stays
+    narrow_tall = (1, 72.0, 100.0, 50.0, 548.0)  # a narrow but page-high box goes
+    assert line_boxes([wide_short, narrow_tall], PAGE_H) == [wide_short]
+
+
+def test_line_boxes_drops_a_column_body_box_and_keeps_a_line_of_it():
+    # measured with synctex view on a two-column A4 article: the column body is only 38% of the page width
+    column_body = (1, 310.605225, 124.802002, 228.642578, 547.945190)
+    body_line = (1, 71.999985, 414.725774, 228.642578, 8.855677)
+    assert line_boxes([column_body, body_line], 841.89) == [body_line]
+
+
+def test_line_boxes_keeps_a_float_graphic_and_still_drops_a_page_body_box():
+    """The share the filter cuts at lies between the two sizes measured on a real manuscript: the tallest float box
+    there is a 221.669 pt graphic, 26.3% of an A4 page, and the page body box the filter exists for is 65%. At the
+    quarter-page share this filter used to cut at, that graphic was dropped and its pin's mark covered the caption
+    alone - 11% of the float."""
+    graphic = (1, 56.69, 56.69, 481.89, 221.669)  # 26.33% of PAGE_H
+    page_body = (1, 72.0, 100.0, 467.0, 547.23)  # 65.0% of PAGE_H
+    assert line_boxes([graphic, page_body], PAGE_H) == [graphic]
+
+
+def test_line_boxes_of_nothing_is_nothing():
+    assert line_boxes([], PAGE_H) == []
+
+
+def test_range_pad_halves_the_blank_between_lines():
+    rows = [(1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 242.96, 228.6, 8.86)]
+    assert range_pad(rows) == 1.55
+
+
+def test_range_pad_falls_back_to_a_share_of_the_line_height():
+    assert range_pad([(1, 72.0, 231.0, 228.6, 12.75)]) == 2.23
+
+
+def test_range_pad_ignores_the_gap_between_columns():
+    # the second column's first line sits far above the first column's last: not a blank between lines
+    rows = [(1, 72.0, 665.8, 228.6, 8.86), (1, 310.6, 127.9, 228.6, 8.86), (1, 310.6, 139.86, 228.6, 8.86)]
+    assert range_pad(rows) == 1.55
+
+
+def test_range_pad_follows_loose_line_spacing():
+    # line spacing 1.8: boxes 8.86 high, 12.66 pt of blank between lines
+    rows = [(1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 252.52, 228.6, 8.86)]
+    assert range_pad(rows) == 6.33
+
+
+def test_range_pad_follows_large_text():
+    rows = [(1, 72.0, 231.0, 228.6, 21.0), (1, 72.0, 253.0, 228.6, 21.0)]
+    assert range_pad(rows) == 0.50
+
+
+def test_merge_boxes_joins_a_loosely_spaced_paragraph_into_one_piece():
+    rows = [(1, 72.0, 100.0 + 21.52 * i, 228.6, 8.86) for i in range(10)]
+    assert len(merge_boxes(rows, 6.33, PAGE_W, PAGE_H, 8)) == 1
+
+
+def test_merge_boxes_joins_one_column_and_keeps_two():
+    # first column's last line, then the second column's block
+    rows = [(1, 72.0, 665.8, 228.6, 8.86), (1, 310.6, 127.9, 228.6, 8.86), (1, 310.6, 139.8, 228.6, 8.86)]
+    out = merge_boxes(rows, 0.0, 595.28, 841.89, 8)
+    assert len(out) == 2
+
+
+def test_merge_boxes_joins_stacked_lines_into_one_box():
+    rows = [(1, 72.0, 231.0, 228.6, 8.86), (1, 72.0, 242.96, 200.0, 8.86)]
+    assert merge_boxes(rows, 0.0, PAGE_W, PAGE_H, 8) == [(1, 72.0, 231.0, 228.6, 20.82)]
+
+
+def test_merge_boxes_keeps_pages_apart():
+    rows = [(1, 72.0, 700.0, 228.6, 8.86), (2, 72.0, 100.0, 228.6, 8.86)]
+    assert [b[0] for b in merge_boxes(rows, 0.0, 595.28, 841.89, 8)] == [1, 2]
+
+
+def test_merge_boxes_clamps_padding_to_the_page():
+    out = merge_boxes([(1, 72.0, 2.0, 228.6, 8.86)], 5.0, 595.28, 841.89, 8)
+    assert out[0][2] == 0.0
+
+
+def test_merge_boxes_gives_up_over_the_limit():
+    rows = [(1, 72.0 + 30 * i, 100.0 + 30 * i, 20.0, 8.0) for i in range(9)]
+    assert merge_boxes(rows, 0.0, 595.28, 841.89, 8) == []
+
+
+def test_merge_boxes_answers_a_result_exactly_at_the_limit():
+    rows = [(1, 72.0 + 30 * i, 100.0 + 30 * i, 20.0, 8.0) for i in range(8)]
+    assert len(merge_boxes(rows, 0.0, PAGE_W, PAGE_H, 8)) == 8
+
+
+def test_merge_boxes_of_nothing_is_nothing():
+    assert merge_boxes([], 1.0, PAGE_W, PAGE_H, BOX_LIMIT) == []
+
+
+def test_built_range_maps_todays_lines_back():
+    built = ["a", "b", "c", "d"]
+    now = ["x", "a", "b", "c", "d"]  # one line added at the top
+    assert built_range(built, now, 2, 4) == (1, 3)
+
+
+def test_built_range_is_none_when_the_text_moved_away():
+    assert built_range(["a", "b"], ["q", "r"], 1, 2) is None
+
+
+def test_built_range_is_none_when_a_line_of_the_range_is_gone():
+    # a line edited inside the range: the build never saw today's text, so there is no box for the whole range
+    assert built_range(["a", "b", "c"], ["a", "B", "c"], 1, 3) is None
+
+
+def test_built_range_is_none_when_a_line_was_added_inside_the_range():
+    # the range's lines pair, but not next to one another in the build
+    assert built_range(["a", "b"], ["a", "new", "b"], 1, 3) is None
+
+
+def test_built_ranges_answers_built_range_for_every_range_of_one_file():
+    """The bound form reads the line diff once and must answer range for range what the plain one does. A pin listing
+    asks one range per pin of the file, and the diff does not depend on the range, so reading it per pin walks the
+    whole file once per pin - and what a listing keys a kept answer by is this answer
+    (limn.builds.artifacts.RangeBoxCache)."""
+    built = ["a", "b", "c", "d", "e"]
+    now = ["x", "a", "b", "C", "d", "e"]  # one line added at the top and one edited inside
+    ask = built_ranges(built, now)
+    for lo in range(0, 8):
+        for hi in range(lo, 9):
+            assert ask(lo, hi) == built_range(built, now, lo, hi), (lo, hi)
+
+
+def test_built_ranges_of_an_unedited_file_is_the_range_itself():
+    """Nothing was edited, so every range stands on its own numbers - including one cut to the file's length."""
+    lines = ["a", "b", "c"]
+    ask = built_ranges(lines, lines)
+    assert [ask(1, 3), ask(2, 2), ask(2, 9), ask(0, 1)] == [(1, 3), (2, 2), (2, 3), (1, 1)]

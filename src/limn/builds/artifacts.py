@@ -20,9 +20,10 @@ import time
 from collections.abc import Callable, Iterable, Iterator, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, NamedTuple, Protocol, TypeGuard, TypeVar
+from typing import Any, NamedTuple, Protocol, TypeAlias, TypeGuard, TypeVar
 
 from limn.builds.completion import render_progress
+from limn.builds.contracts import MarkPieces
 from limn.builds.figure_map import MAP_MAX_BYTES, FigureMap, MapRejected, parse_map
 from limn.builds.values import (
     BUILD_STATES as BUILD_STATES,
@@ -444,6 +445,79 @@ class BuildMapCache:
 
     def held(self) -> int:
         """How many parsed maps the cache holds now: at most MAP_CACHE_MAX, fewer when their copies pass max_bytes."""
+        with self._lock:
+            return len(self._entries)
+
+
+# One answered question: the document's state folder (Doc.dir, docs/<key>/), the build's name, the manuscript file's
+# path on this machine, the dpi its page sizes are read at, and the lo and hi of the range in the lines that build
+# read (contracts.BuiltRange, not the range in the file as it is today).
+MarkKey: TypeAlias = tuple[str, str, str, int, int, int]
+
+# Mark answers kept per run. GET /api/pins answers every open pin of every document at once and the viewer polls it, so
+# the cache is worth having only if a whole instance's pins fit at once: 512 is several times the open pins a
+# manuscript carries in practice (Limn's own pins.md has held dozens), and the pins of one poll never evict each
+# other. A miss is what the number is sized against, not a hit: it reads that build's source record - up to
+# RECORD_MAX_BYTES, 33 MB of JSON (limn.builds.built_source) - and runs one `synctex view` process per line of text.
+MARK_CACHE_MAX = 512
+
+
+@dataclass
+class RangeBoxCache:
+    """Where the line ranges of one run's pins print, so a listing does not run the forward SyncTeX pass again for a
+    range it has already answered.
+
+    An entry is keyed by MarkKey - the document, the build, the file, the dpi and the range **in the lines that build
+    read** - and holds only that range's pieces. Everything the answer is computed from is named by that key. The
+    build's PDF, its SyncTeX file, its page images and the lines it read are written into a page folder once and
+    published with it, and the dpi is what those images are turned into points at; the one thing left is which of
+    those lines the range is, and that is in the key. The file as it is today is not an input, though the answer is
+    asked for by today's numbers: a range is answered only when every one of its lines pairs with an equal line of
+    the build's, next to one another (contracts.BuiltRange), so the text the mark is measured from is the build's
+    text either way. So an entry can never be stale against the filesystem and a warm cache answers what a cold one
+    does.
+
+    Keying it by the file's version instead - its (mtime_ns, size), which is what this cache held first - made the
+    most ordinary event in this product a miss for every pin of the file. An agent editing the manuscript is what
+    Limn is for, and one write changes the version, so every line pin of that file re-ran one process per line of
+    text (13 ms each, measured on a 35-page document) although most of their ranges had not moved at all. Keyed by
+    the build's lines, a pin whose range the edit did not touch hits.
+
+    At most MARK_CACHE_MAX entries, the oldest dropped first (the newest always stays). The memory that holds: an
+    entry's key is two paths of at most PATH_MAX_CHARS characters, a build name and three integers, and its value at
+    most the piece limit of a mark (eight) times five numbers, so an entry is bounded by about 8 KB and the whole
+    cache by about 4 MB. A parsed map has no such bound and needs a byte budget of its own (BuildMapCache.max_bytes);
+    this one is bounded by its count.
+
+    A rebuild publishes a new page folder and so misses, which is right: the pages are redrawn and the coordinates
+    are new. An edit misses only the ranges it moved, which is also right: those ranges either stand on other lines
+    of the build now or stand on none.
+
+    Request threads share it: every read and write of the entries is under the lock, and the tuples it holds are
+    immutable, so an answer handed out stays usable while another thread evicts it. The computation runs outside the
+    lock, so two threads that miss the same key at once may both run it; each gets an equal answer - the entry is a
+    function of its key - and the later one is kept. The composition root makes one per run (builds.assemble_builds).
+    """
+
+    _entries: dict[MarkKey, MarkPieces] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def answer(self, key: MarkKey, compute: Callable[[], MarkPieces]) -> MarkPieces:
+        """The pieces of the range key names, from the cache or from compute(). A mark of no pieces is an answer like
+        any other and is kept: finding out that a range prints nowhere costs the same read and the same processes."""
+        with self._lock:
+            hit = self._entries.get(key)
+        if hit is not None:
+            return hit
+        got = compute()
+        with self._lock:
+            self._entries[key] = got
+            while len(self._entries) > MARK_CACHE_MAX:
+                del self._entries[next(iter(self._entries))]
+        return got
+
+    def held(self) -> int:
+        """How many answers the cache holds now: at most MARK_CACHE_MAX."""
         with self._lock:
             return len(self._entries)
 

@@ -317,8 +317,8 @@ class StoredDrafts(Base):
         return out
 
     def figure_answers(self) -> list[dict]:
-        """The recorded figure picks (tests/data/contract_snapshot_figure.json): an element and a region that fell
-        back."""
+        """The recorded figure picks (tests/data/contract_snapshot_figure.json): an element, a region that fell back,
+        and a float of the LaTeX document beside it."""
         snapshot = json.loads((ROOT / "tests" / "data" / "contract_snapshot_figure.json").read_text(encoding="utf-8"))
         return [json.loads(e["body"]) for e in snapshot if "picks" in e["step"] and "pins.md" not in e["step"]]
 
@@ -328,7 +328,7 @@ class StoredDrafts(Base):
         suggested edit, and read back by storedDraft: its cur is the selection, its build and note are kept. The
         offline drag of earlier releases comes back in offlinePick's form."""
         answers = self.traced_answers() + self.figure_answers()
-        self.assertEqual([a.get("kind") == "region" for a in answers], [False, False, False, False, True])
+        self.assertEqual([a.get("kind") == "region" for a in answers], [False, False, False, False, True, False])
         self.assertIn(None, [a.get("score") for a in answers])
         got = json.loads(
             run_node(

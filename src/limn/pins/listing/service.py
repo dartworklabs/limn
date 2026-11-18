@@ -8,7 +8,7 @@ from typing import Any, Protocol
 from limn.pins.listing import projection as view
 from limn.pins.location.position import EstContext
 from limn.pins.model import Pin, PinNotFound, Record
-from limn.pins.needs import FollowElement
+from limn.pins.needs import BoxesFor, FollowElement
 from limn.pins.retention import expires_ts, unexpired, without_live_shadows
 from limn.pins.store import PinReader
 
@@ -54,6 +54,10 @@ class ListingDeps(Protocol):
         """The loadable map of the build on screen of the figure document key names, or None."""
         ...
 
+    def line_boxes(self, key: str) -> BoxesFor | None:
+        """Where a line range of the document key names prints on the build it has on screen, or None."""
+        ...
+
 
 @dataclass(frozen=True)
 class PinListing:
@@ -63,8 +67,8 @@ class PinListing:
     trash_days: int
 
     def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
-        """The list with overlap, estimation, figure element positions and verdict supersession computed over the full
-        live set."""
+        """The list with overlap, estimation, figure element positions, line marks and verdict supersession computed
+        over the full live set."""
         rows = [pin.record for pin in pins]
         return view.pins_payload(
             rows,
@@ -76,6 +80,7 @@ class PinListing:
             time.time(),
             self.deps.element_follower,
             self.deps.superseded_by_id(pins),
+            self.deps.line_boxes,
         )
 
     def list_payload(self, allp: bool, doc_key: str | None = None) -> list[Json]:

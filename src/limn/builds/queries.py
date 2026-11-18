@@ -1,9 +1,9 @@
 """Interpret build storage into consumer answers at the build-owned I/O boundary."""
 
 import os
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from copy import deepcopy
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -18,6 +18,10 @@ from limn.builds.contracts import (
     ElementPosition,
     ElementSelection,
     Frac,
+    MarkBinding,
+    MarkBoxes,
+    MarkComputation,
+    MarkPieces,
     OutlineInput,
     PinBuildQueries,
     PositionHistory,
@@ -149,11 +153,33 @@ def element_follower(fmap: FigureMap | None) -> ElementFollower | None:
     return follow
 
 
+def no_marks(
+    _doc: Doc,
+    _file: Path,
+    _built: Sequence[str] | None,
+    _now: Sequence[str],
+    _pdf: Path,
+    _pages: Sequence[tuple[float, float]],
+) -> MarkBinding:
+    """The forward pass of a run whose composition root injected none (the standalone query bindings and the tests of
+    other slices): no range is read back into the build's lines, so no answer carries a mark, nothing is kept and no
+    process is run."""
+    return (lambda _lo, _hi: None, lambda _lo, _hi: ())
+
+
+def own_marks() -> Callable[[], artifacts.RangeBoxCache]:
+    """A mark cache private to one query binding, for a caller that supplies no run-wide one."""
+    cache = artifacts.RangeBoxCache()
+    return lambda: cache
+
+
 @dataclass(frozen=True)
 class BuildQueries:
     """Build-owned implementation of purpose-specific query bindings for one run."""
 
     maps: Callable[[], artifacts.BuildMapCache]
+    marks: Callable[[], artifacts.RangeBoxCache] = field(default_factory=own_marks)
+    compute_marks: MarkComputation = no_marks
 
     def published_head(self, doc: Doc) -> str:
         """Answer synchronization's publication identity; absent/unreadable markers are unknown."""
@@ -293,6 +319,65 @@ class BuildQueries:
         fmap = self.maps().get(doc, build)
         found = fmap.page(page) if isinstance(fmap, FigureMap) else None
         return found is not None and found.root().id == element
+
+    def boxes(self, doc: Doc, dpi: int) -> MarkBoxes | None:
+        """Where a line range of document doc prints on the build it has on screen, or None when nothing could print.
+
+        None for a document whose pages no LaTeX build printed from the lines its pins point at - a figure document
+        (its pins are lines of a drawing script and its marks come from its element map), a Markdown or text document
+        (drawn in the browser, no pages at all), a view-only PDF (no lines) - and for a build that left no page to
+        measure a mark against. The caller then answers the pins it always answered, without a single process.
+
+        The build facts are read once here, for the whole answer: the page folder on screen, its PDF and its page
+        sizes. What depends on the file - the lines that build read (its source record) and the file as it is today -
+        is read on the first range of that file that is asked for, because the record can be tens of megabytes of
+        JSON and a listing must read it once rather than once per pin. It is read even when the cache holds every
+        range: a kept answer is keyed by the lines of the build the range is, and the file's own lines are what say
+        which those are. That is the price of the key, and it is one read of the record per file per listing where
+        the version-keyed cache could sometimes make none - but the viewer reads this route only when the pins file or
+        the manuscript changed (viewer/js/documents/flow-polling.ts), and a changed manuscript missed every pin of
+        the file before. A build that kept no record answers no mark: the range cannot be read back into the
+        lines its numbers belong to, and half a range's boxes passed off as the range's would cover text the pin does
+        not hold. A pick falls back to the build's numbers there; a stored pin does not, and such a build is replaced
+        by the next rebuild (docs/adr/0049-pin-marks-follow-the-range.md).
+        """
+        if not doc.builds_from_source:
+            return None
+        pages = artifacts.cur_pages(doc)
+        sizes = tuple((page["pt_w"], page["pt_h"]) for page in artifacts.page_sizes(pages, dpi))
+        if not sizes:
+            return None
+        pdf = artifacts.cur_pdf(doc, pages)
+        cache, compute = self.marks(), self.compute_marks
+        askers: dict[str, MarkBinding | None] = {}
+
+        def bind(file: str) -> MarkBinding | None:
+            """The computation bound to that file's two line lists, read once for this answer; None when the build
+            kept no record of the file or the file itself cannot be read as text."""
+            key = built_source.source_key(doc.src, Path(file))
+            built = None if key is None else built_source.built_lines(pages, key)
+            if key is None or built is None:
+                return None
+            raw = built_source.read_below(doc.src, key, built_source.FILE_MAX_BYTES)
+            now = None if raw is None else built_source.text_lines(raw)
+            return None if now is None else compute(doc, Path(file), built, now, pdf, sizes)
+
+        def answer(file: str, lo: int, hi: int) -> MarkPieces:
+            """The run's answer for one range: the lines of the build that range is, then the cache's answer for
+            those lines, computed only where it has none."""
+            if file not in askers:
+                askers[file] = bind(file)
+            asker = askers[file]
+            if asker is None:
+                return ()
+            in_build, pieces = asker
+            found = in_build(lo, hi)
+            if found is None:
+                return ()
+            key = (str(doc.dir), pages.name, file, dpi, found[0], found[1])
+            return cache.answer(key, lambda: pieces(lo, hi))
+
+        return answer
 
     def elements(self, doc: Doc) -> ElementFollower | None:
         """Snapshot one current map privately, or no lookup for a non-figure/invalid build."""
