@@ -17174,18 +17174,43 @@ document.addEventListener(
 // build now on screen are not a draft's to keep. One answer carries the whole ladder round the range it was asked
 // about, so every rung of it is held, each under its own lines: a rung moved to later is drawn from what is already
 // here rather than asked about again.
+//
+// An answer is held under the build whose pages it was asked about as well as under its lines, because its pieces are
+// places on those pages. A build that finishes while the composer stands open and leaves the page count alone swaps
+// every page image under the selection without replacing the selection itself (documents/flow-rebuild.ts refreshDoc
+// takes that branch rather than building the pages again, which is the only thing that lets the composing box go), so
+// an answer measured against the build before it would be drawn over the new pages for as long as the panel stays
+// open. Held under the build it was asked about, it is simply not found again, which reads as nothing having answered
+// about these lines yet: the box keeps the shape it has and the new build is asked (followRange), rather than falling
+// back to the rectangle that was dragged while that request is out.
 const RANGE_BOXES = new WeakMap();
-// What lines an answer is held under.
-function rangeKey(first, last) {
-  return first + ':' + last;
+// What build and lines an answer is held under. Pure.
+function rangeKey(build, first, last) {
+  return build + ' ' + first + ':' + last;
+}
+// The build whose pages are on screen: the one every box drawn on them is a place in. '' before the first meta answer
+// has come, which no page and so no box can be drawn before - META is Meta | null (ADR-0048) and this file reads it as
+// it finds it rather than through knownMeta(), which throws.
+function shownBuild() {
+  return (META && META.pages_build) || '';
+}
+// The build an owner's own rungs were measured against: the one the pick that answered them named, else the build on
+// screen - the pair composer/flow-draft.ts writes a draft's build from. Lines picked on a document drawn in the
+// browser name no build, and neither do they print on a page.
+function answeredBuild(owner, shown) {
+  const own = 'pdf_build' in owner ? owner.pdf_build : undefined;
+  return own || shown;
 }
 // The rung whose range is exactly the owner's chosen lines and that carries where they print: a pick answers this for
-// its default rung, a snippet for every rung of the ladder it builds.
-function boxedRung(owner) {
+// its default rung, a snippet for every rung of the ladder it builds. Once the pages on screen are another build's,
+// the pick's own answer is no answer about them: it is left out, so those lines read as unanswered and are asked about
+// again. The pick keeps its pdf_build - it is the build the saved pin's coordinates belong to (composer/flow-save.ts).
+function boxedRung(owner, shown) {
+  if (answeredBuild(owner, shown) !== shown) return undefined;
   return (owner.levels || []).find((rung) => rung.lo === owner.lo && rung.hi === owner.hi && !!rung.boxes);
 }
-// Where the owner's chosen lines print, as far as anything has said - the rung's own answer, else a snippet's for
-// exactly those lines - and undefined when nothing has answered about them yet.
+// Where the owner's chosen lines print on the build `shown`, as far as anything has said about that build - the rung's
+// own answer, else a snippet's for exactly those lines - and undefined when nothing has answered about them yet.
 //
 // The caller must tell those two apart, because they ask for opposite things: an answer of no pieces means these lines
 // have no mark, so the box belongs back on the rectangle that was dragged, while no answer yet means the box must wait
@@ -17195,22 +17220,25 @@ function boxedRung(owner) {
 // `.filter` on it would throw inside renderComposer and take the whole composer's render with it. Not a list reads as
 // "no mark for this range", which puts the box back on the drag. What is held is screened the same way on the way in
 // (takeRangeBoxes), so the second branch has a list already.
-function rangeBoxes(owner) {
-  const rung = boxedRung(owner);
+function rangeBoxes(owner, shown) {
+  const rung = boxedRung(owner, shown);
   if (rung && rung.boxes) return (Array.isArray(rung.boxes) ? rung.boxes : []).filter(isPiece);
   const held = RANGE_BOXES.get(owner),
-    answered = held && held.get(rangeKey(owner.lo, owner.hi));
+    answered = held && held.get(rangeKey(shown, owner.lo, owner.hi));
   return answered && answered.filter(isPiece);
 }
-// Records what a snippet answered: first the range it was asked about, so lines with no mark are asked about once and
-// a ladder that came without rungs cannot be asked about forever, then every rung the ladder carries under that rung's
-// own lines. One press on the ladder therefore answers the rungs around it as well.
-function takeRangeBoxes(owner, answer) {
+// Records what a snippet answered, under the build the request was sent about: first the range it was asked about, so
+// lines with no mark are asked about once and a ladder that came without rungs cannot be asked about forever, then
+// every rung the ladder carries under that rung's own lines. One press on the ladder therefore answers the rungs
+// around it as well. The build is the one that was on screen when the request went out, not when its answer came: a
+// build that finished in between is asked about on its own, where holding the answer under it would put the pieces of
+// the pages before it on the pages after.
+function takeRangeBoxes(owner, answer, shown) {
   let held = RANGE_BOXES.get(owner);
   if (!held) RANGE_BOXES.set(owner, (held = new Map()));
-  held.set(rangeKey(answer.lo, answer.hi), []);
+  held.set(rangeKey(shown, answer.lo, answer.hi), []);
   for (const rung of answer.levels || [])
-    held.set(rangeKey(rung.lo, rung.hi), Array.isArray(rung.boxes) ? rung.boxes : []);
+    held.set(rangeKey(shown, rung.lo, rung.hi), Array.isArray(rung.boxes) ? rung.boxes : []);
 }
 // The composing selection's box follows the lines it has chosen, and moves only onto an answer. Lines nothing has
 // answered about are asked of the snippet route - which answers every rung of the ladder round them at once - and the
@@ -17220,7 +17248,7 @@ function takeRangeBoxes(owner, answer) {
 // element, and a document drawn in the browser has no page to draw a box on.
 function followRange(selection, box, after) {
   if (!box || isFigureKind(META ? META.kind : undefined) || !onLines(selection)) return;
-  const pieces = rangeBoxes(selection);
+  const pieces = rangeBoxes(selection, shownBuild());
   if (!pieces) {
     refetchSnip(selection, after);
     return;
@@ -17250,6 +17278,7 @@ function refetchSnip(owner, after) {
     composing = owner === COMPOSE.current;
   clearTimeout(composing ? COMPOSE_SNIPPET_TIMER : EDIT_SNIPPET_TIMER);
   const wait = setTimeout(async () => {
+    const asked = shownBuild(); // the build the pages show as this goes out, which the answer is held under
     try {
       const { data } = await api('GET /api/snippet', {
         query: withDocQuery(
@@ -17270,7 +17299,7 @@ function refetchSnip(owner, after) {
         data.hi === owner.hi
       ) {
         owner.snippet = data.snippet;
-        if (composing) takeRangeBoxes(owner, data);
+        if (composing) takeRangeBoxes(owner, data, asked);
         after();
       }
     } catch (error) {}

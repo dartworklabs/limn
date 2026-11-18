@@ -178,7 +178,10 @@ class SelectionPieces(unittest.TestCase):
         js = "\n".join(
             [
                 "const RANGE_BOXES = new WeakMap();",
-                *[extract_js_fn(name) for name in ("isFrac", "isPiece", "rangeKey", "boxedRung", "rangeBoxes")],
+                *[
+                    extract_js_fn(name)
+                    for name in ("isFrac", "isPiece", "rangeKey", "answeredBuild", "boxedRung", "rangeBoxes")
+                ],
                 "const owner = {lo: 4, hi: 6, levels: [{level: 'para', lo: 4, hi: 6, boxes: %s}]};"
                 % json.dumps(
                     [
@@ -190,7 +193,7 @@ class SelectionPieces(unittest.TestCase):
                         {"page": 1, "frac": SECOND},
                     ]
                 ),
-                "console.log(JSON.stringify(rangeBoxes(owner)));",
+                "console.log(JSON.stringify(rangeBoxes(owner, 'b1')));",
             ]
         )
         self.assertEqual(json.loads(run_node(js)), [{"page": 1, "frac": SECOND}])
@@ -202,12 +205,15 @@ class SelectionPieces(unittest.TestCase):
         js = "\n".join(
             [
                 "const RANGE_BOXES = new WeakMap();",
-                *[extract_js_fn(name) for name in ("isFrac", "isPiece", "rangeKey", "boxedRung", "rangeBoxes")],
+                *[
+                    extract_js_fn(name)
+                    for name in ("isFrac", "isPiece", "rangeKey", "answeredBuild", "boxedRung", "rangeBoxes")
+                ],
                 "const levels = [{level: 'raw', lo: 5, hi: 5, boxes: [{page: 1, frac: %s}]},"
                 " {level: 'para', lo: 3, hi: 8, boxes: [{page: 2, frac: %s}]}];"
                 % (json.dumps(FIRST), json.dumps(SECOND)),
-                "console.log(JSON.stringify([rangeBoxes({lo: 5, hi: 5, levels}), rangeBoxes({lo: 3, hi: 8, levels}),"
-                " rangeBoxes({lo: 2, hi: 9, levels})]));",
+                "console.log(JSON.stringify([rangeBoxes({lo: 5, hi: 5, levels}, 'b1'),"
+                " rangeBoxes({lo: 3, hi: 8, levels}, 'b1'), rangeBoxes({lo: 2, hi: 9, levels}, 'b1')]));",
             ]
         )
         self.assertEqual(
@@ -224,17 +230,25 @@ class SelectionPieces(unittest.TestCase):
                 "const RANGE_BOXES = new WeakMap();",
                 *[
                     extract_js_fn(name)
-                    for name in ("isFrac", "isPiece", "rangeKey", "boxedRung", "rangeBoxes", "takeRangeBoxes")
+                    for name in (
+                        "isFrac",
+                        "isPiece",
+                        "rangeKey",
+                        "answeredBuild",
+                        "boxedRung",
+                        "rangeBoxes",
+                        "takeRangeBoxes",
+                    )
                 ],
                 "const owner = {lo: 3, hi: 9, levels: []};",
                 "takeRangeBoxes(owner, {lo: 3, hi: 9, levels: [{lo: 3, hi: 9, boxes: [{page: 1, frac: %s}]},"
-                " {lo: 1, hi: 40, boxes: [{page: 2, frac: %s}]}, {lo: 5, hi: 5}]});"
+                " {lo: 1, hi: 40, boxes: [{page: 2, frac: %s}]}, {lo: 5, hi: 5}]}, 'b1');"
                 % (json.dumps(FIRST), json.dumps(SECOND)),
                 # the owner is the selection itself, moving from rung to rung; its answers are held under it
-                "const read = (lo, hi) => {owner.lo = lo; owner.hi = hi; return rangeBoxes(owner);};",
-                "const bare = {lo: 2, hi: 2, levels: []}; takeRangeBoxes(bare, {lo: 2, hi: 2});",
+                "const read = (lo, hi) => {owner.lo = lo; owner.hi = hi; return rangeBoxes(owner, 'b1');};",
+                "const bare = {lo: 2, hi: 2, levels: []}; takeRangeBoxes(bare, {lo: 2, hi: 2}, 'b1');",
                 "console.log(JSON.stringify([read(3, 9), read(1, 40), read(5, 5), read(4, 4),"
-                " rangeBoxes({lo: 3, hi: 9, levels: []}), rangeBoxes(bare)]));",
+                " rangeBoxes({lo: 3, hi: 9, levels: []}, 'b1'), rangeBoxes(bare, 'b1')]));",
             ]
         )
         asked, outer, without, unasked, other, ladderless = json.loads(run_node(js))
@@ -244,6 +258,54 @@ class SelectionPieces(unittest.TestCase):
         self.assertIsNone(unasked)  # lines the answer said nothing about
         self.assertIsNone(other)  # the same lines under another owner: one selection's answers are not another's
         self.assertEqual(ladderless, [])  # asked about, answered without a ladder: still answered
+
+    def test_a_new_build_leaves_both_sources_unanswered_for_the_same_lines(self):
+        """A build that finishes under an open composer replaces the page images without replacing the selection, so
+        every answer about where its lines print is a place on pages that are gone. Both sources are bound to the build
+        they were measured against: the pick's own rung, which names the build it was answered on, and what a snippet
+        answered, held under the build it was asked about. On the new build the same lines read as unanswered - not as
+        answered with no mark, which would drop the box back onto the rectangle that was dragged - so the box keeps the
+        shape it has until the new build answers. The lines themselves did not move: only the pages under them did."""
+        js = "\n".join(
+            [
+                "const RANGE_BOXES = new WeakMap();",
+                *[
+                    extract_js_fn(name)
+                    for name in (
+                        "isFrac",
+                        "isPiece",
+                        "rangeKey",
+                        "answeredBuild",
+                        "boxedRung",
+                        "rangeBoxes",
+                        "takeRangeBoxes",
+                    )
+                ],
+                # a drag answered on build b1: its default rung carries the pieces, and a snippet answered the ladder
+                "const selection = {pdf_build: 'b1', lo: 4, hi: 6,"
+                " levels: [{level: 'para', lo: 4, hi: 6, boxes: [{page: 1, frac: %s}]}]};" % json.dumps(FIRST),
+                "takeRangeBoxes(selection, {lo: 4, hi: 6, levels: [{lo: 3, hi: 9,"
+                " boxes: [{page: 2, frac: %s}]}]}, 'b1');" % json.dumps(SECOND),
+                "const onRung = rangeBoxes(selection, 'b1');",
+                "selection.lo = 3; selection.hi = 9;",
+                "const onHeld = rangeBoxes(selection, 'b1');",
+                # the same two ranges once the pages on screen are build b2's
+                "const rungAfter = rangeBoxes({...selection, lo: 4, hi: 6}, 'b2');",
+                "const heldAfter = rangeBoxes(selection, 'b2');",
+                # answered again about b2, the selection still naming the build its drag was picked on
+                "takeRangeBoxes(selection, {lo: 3, hi: 9, levels: [{lo: 3, hi: 9,"
+                " boxes: [{page: 1, frac: %s}]}]}, 'b2');" % json.dumps(FIRST),
+                "console.log(JSON.stringify([onRung, onHeld, rungAfter, heldAfter,"
+                " rangeBoxes(selection, 'b2'), selection.pdf_build]));",
+            ]
+        )
+        rung, held, rung_after, held_after, answered, build = json.loads(run_node(js))
+        self.assertEqual(rung, [{"page": 1, "frac": FIRST}])  # the build it was picked on: the pick's own answer
+        self.assertEqual(held, [{"page": 2, "frac": SECOND}])  # and what the snippet answered for the rung beside it
+        self.assertIsNone(rung_after)  # the pick's pieces are places on the pages the old build printed
+        self.assertIsNone(held_after)  # and so is everything held about that build
+        self.assertEqual(answered, [{"page": 1, "frac": FIRST}])  # the new build answers for itself
+        self.assertEqual(build, "b1")  # the build a save hands over is the pick's, which a redraw never rewrites
 
 
 # The ladder the pick answers: a dragged line, the paragraph it is in (the default) and the environment around it. The
