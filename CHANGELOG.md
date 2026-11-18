@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- **A line pin's mark no longer draws a box of no size (0.4.62).** `synctex view` answers some lines with boxes of
+  zero width or height, and the height filter only dropped boxes that were too big, so those became pieces of the
+  mark: measured on a running manuscript, 4 of the 34 boxes of one paragraph line, one of them 35.4 pt wide and 0 pt
+  high in the page's top margin. The first piece of a mark is the topmost box of its lowest page, which is where the
+  number badge, the undo chip, [View] and the popover sit, so such a box put the pin's badge in the margin while the
+  block of text the pin holds carried none - on a 40-line sample of that manuscript, 3 lines answered such a box and
+  in all 3 it was the first piece. They also joined the steps the padding is measured from, pulling the mean box
+  height below the leading until the padding came out zero and neighbouring lines stopped meeting. A box of no size
+  is ink of nothing and is dropped.
+
 ## 0.4.62 — 2026-11-18
 
 The agent contract gains two computed fields and removes or renames nothing. A LaTeX line pin, the default rung of a

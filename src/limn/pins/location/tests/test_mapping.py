@@ -39,6 +39,47 @@ def test_line_boxes_keeps_a_float_graphic_and_still_drops_a_page_body_box():
     assert line_boxes([graphic, page_body], PAGE_H) == [graphic]
 
 
+def test_line_boxes_drops_a_box_with_no_height():
+    """SyncTeX answers some lines with boxes of no size at all, and a mark drawn from one is a stray sliver.
+
+    Measured on a deployed manuscript (v0.4.62, insulation-aging, manuscript_1st_kr.tex line 240): of the 34 boxes
+    the line answered, four had a zero width or height, one of them 35.4 pt wide and 0 pt high in the page's top
+    margin. The height filter above only drops boxes that are too big, so those four became pieces of the mark - and
+    the topmost of them became the *first* piece, which is where the number badge, the undo chip, [View] and the
+    popover sit. A reader then saw the pin's badge floating in the margin while the block of text the pin holds
+    carried none. Over a 40-line sample of that manuscript three lines answered such a box, and in all three it was
+    the first piece. A box of no size is not ink of the range, so it is not a line of text either."""
+    margin = (4, 36.612904, 18.5, 35.407501, 0.0)  # measured
+    body_line = (4, 37.612904, 771.887512, 520.049805, 6.713501)  # measured, the same line's real text
+    assert line_boxes([margin, body_line], PAGE_H) == [body_line]
+
+
+def test_line_boxes_drops_a_box_with_no_width():
+    """The same, for the other side: `synctex view` answered (72.0, 72.0, 0.0, 0.0) twice for that line."""
+    void = (4, 72.0, 72.0, 0.0, 0.0)  # measured
+    sliver = (1, 72.0, 100.0, 0.0, 8.86)  # a box with height but no width is no ink either
+    body_line = (1, 72.0, 231.0, 228.6, 8.86)
+    assert line_boxes([void, sliver, body_line], PAGE_H) == [body_line]
+
+
+def test_a_sizeless_box_changes_neither_the_padding_nor_the_pieces():
+    """The whole mark of the measured line, with and without the boxes of no size.
+
+    They do not only add pieces: they join the sort `range_pad` reads its steps from, and there the zero heights
+    pulled the mean box height below the measured leading, so the padding came out 0.00 and the real lines stopped
+    meeting. With them gone the padding is the leading of that text and the page's text is one piece."""
+    sizeless = [(4, 36.612904, 18.5, 35.407501, 0.0), (4, 72.0, 72.0, 0.0, 0.0)]
+    text = [(4, 37.612904, 107.4, 251.058517, 9.424634), (4, 37.612904, 119.4, 251.058517, 9.424634)]
+    rows = line_boxes(sizeless + text, PAGE_H)
+    assert rows == text
+    pad = range_pad(rows)
+    assert pad == 1.29  # (12.0 step - 9.42 mean height) / 2
+    pieces = merge_boxes(rows, pad, PAGE_W, PAGE_H, BOX_LIMIT)
+    assert len(pieces) == 1
+    # the two lines as one block: their own corner and span, grown by the padding on every side, to 2 decimals
+    assert pieces[0] == (4, 36.32, 106.11, 253.64, 24.0)
+
+
 def test_line_boxes_of_nothing_is_nothing():
     assert line_boxes([], PAGE_H) == []
 
