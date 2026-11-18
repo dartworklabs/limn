@@ -35,8 +35,9 @@ def viewer_folder(root: Path, page: str = PAGE) -> Path:
     (root / "dist").mkdir()
     (root / "dist" / "viewer.js").write_text(SCRIPT, encoding="utf-8")
     (root / "index.html").write_text(page, encoding="utf-8")
-    (root / "css" / "a.css").write_text("b{}\n", encoding="utf-8")
-    (root / "parts.txt").write_text("css/a.css\n", encoding="utf-8")
+    for name in assemble.STYLESHEETS:
+        (root / name).touch()
+    (root / assemble.STYLESHEETS[0]).write_text("b{}\n", encoding="utf-8")
     return root
 
 
@@ -126,12 +127,12 @@ class ViewerHtml(unittest.TestCase):
             self.script(icons={"x": ICONS["x"]})
 
     def test_a_malformed_folder_raises(self):
-        """A missing manifest or built script (OSError), a template without its stylesheet marker or with the script's
+        """A missing stylesheet or built script (OSError), a template without its stylesheet marker or with the script's
         (ValueError) fails at assembly."""
         (self.dir / "dist" / "viewer.js").unlink()
         with self.assertRaises(OSError):
             self.script()
-        (self.dir / "parts.txt").unlink()
+        (self.dir / assemble.STYLESHEETS[0]).unlink()
         with self.assertRaises(OSError):
             self.html()
         for page in (PAGE.replace("__APP_CSS__", ""), PAGE.replace("</html>", "<script>__APP_JS__</script></html>")):

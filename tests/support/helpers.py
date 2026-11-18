@@ -958,7 +958,7 @@ class GatedBuild:
             self.release(step)
 
 
-# The viewer's build-free source folder (index.html, parts.txt, css/, js/).
+# The viewer's build-free source folder (index.html, css/, js/).
 VIEWER = PKG / "viewer"
 
 
@@ -969,7 +969,7 @@ def viewer_modules(directory: Path = VIEWER) -> list[str]:
 
 def viewer_css(directory: Path = VIEWER) -> str:
     """The stylesheets in cascade order as they appear in the page."""
-    return "".join((directory / name).read_text(encoding="utf-8") for name in assemble.stylesheet_parts(directory))
+    return "".join((directory / name).read_text(encoding="utf-8") for name in assemble.STYLESHEETS)
 
 
 # the smallest PDF that pdftoppm/pdftotext can read (one page, one line of text). poppler rebuilds the xref itself.

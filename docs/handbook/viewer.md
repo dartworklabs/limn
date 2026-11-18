@@ -24,7 +24,7 @@
 
 ## 뷰어 규칙을 바꿀 때
 
-뷰어는 페이지 한 장(`index.html`과 스타일시트)과 스크립트 한 파일이다. 스타일시트는 [`src/limn/viewer/parts.txt`](../../src/limn/viewer/parts.txt)에 적힌 순서대로 서버가 이어 인라인 `<style>` 하나로 넣는다. 스크립트는 `js/`의 ES 모듈이고 TypeScript(`js/<기능>/*.ts`)로 쓴다. 빌드가 모듈마다 타입을 걷어 내고(`tools/strip_types.mjs`), 번들러(Rollup)가 `js/main.ts`부터 정적 import를 따라 지은 한 파일 `dist/viewer.js`를 저장소에 둔다([ADR-0042](../adr/0042-viewer-es-modules.md), [ADR-0043](../adr/0043-viewer-typescript.md)). 페이지는 그 파일을 같은 출처에서 고전 스크립트로 불러온다(`<script src="/viewer.js?v=<내용 키>">`). CDN과 UI 프레임워크는 쓰지 않는다. `start()`가 페이지와 지은 스크립트를 읽어 인스턴스 라벨·색·영어 메시지·아이콘 표를 채우므로 import만으로 뷰어 자원이 생기지 않는다. 서버는 CSS 목록의 중복·잘못된 경로와 잘못된 조립 자리표시자를 거절한다. [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)가 목록과 실제 스타일시트가 일치하는지 검사한다.
+뷰어는 페이지 한 장(`index.html`과 스타일시트)과 스크립트 한 파일이다. 스타일시트는 [`assemble.py`](../../src/limn/viewer/assemble.py)의 `STYLESHEETS`에 적힌 순서대로 서버가 이어 인라인 `<style>` 하나로 넣는다. 스크립트는 `js/`의 ES 모듈이고 TypeScript(`js/<기능>/*.ts`)로 쓴다. 빌드가 모듈마다 타입을 걷어 내고(`tools/strip_types.mjs`), 번들러(Rollup)가 `js/main.ts`부터 정적 import를 따라 지은 한 파일 `dist/viewer.js`를 저장소에 둔다([ADR-0042](../adr/0042-viewer-es-modules.md), [ADR-0043](../adr/0043-viewer-typescript.md)). 페이지는 그 파일을 같은 출처에서 고전 스크립트로 불러온다(`<script src="/viewer.js?v=<내용 키>">`). CDN과 UI 프레임워크는 쓰지 않는다. `start()`가 페이지와 지은 스크립트를 읽어 인스턴스 라벨·색·영어 메시지·아이콘 표를 채우므로 import만으로 뷰어 자원이 생기지 않는다. 서버는 누락된 스타일시트와 잘못된 조립 자리표시자를 거절한다. [`test_viewer_files.py`](../../src/limn/viewer/tests/test_viewer_files.py)가 목록과 실제 스타일시트가 일치하는지 검사한다.
 
 > **주의**
 >
@@ -1474,7 +1474,7 @@ LaTeX 문서의 줄 핀은 쪽 위에 **조각마다 `.mark` 하나**를 그린�
 
 내가 한 일은 알리지 않는다. 서버의 `to`와 뷰어가 둘 다 거른다. 한 번 받은 묶음 안에서는 핀마다 하나만 알린다(삭제 > 담당 > 부름 > 다시 엶 > 검토 대기 > 답글).
 
-**보이기.** 늘 서비스 워커의 `registration.showNotification()`을 쓴다. 안드로이드 크롬은 페이지의 `new Notification()`을 막기 때문이다. 서비스 워커는 [`src/limn/viewer/sw.js`](../../src/limn/viewer/sw.js) 한 파일이고, 서버가 시작할 때 `service_worker()`로 읽어 `GET /sw.js`로 따로 내준다. 페이지 조각이 아니라 `parts.txt`에 없다. `fetch` 처리기가 없어 앱 데이터와 쪽 그림을 캐시하지 않는다.
+**보이기.** 늘 서비스 워커의 `registration.showNotification()`을 쓴다. 안드로이드 크롬은 페이지의 `new Notification()`을 막기 때문이다. 서비스 워커는 [`src/limn/viewer/sw.js`](../../src/limn/viewer/sw.js) 한 파일이고, 서버가 시작할 때 `service_worker()`로 읽어 `GET /sw.js`로 따로 내준다. `fetch` 처리기가 없어 앱 데이터와 쪽 그림을 캐시하지 않는다.
 
 - `tag` = `pin-<번호>`라 같은 핀의 알림은 한 칸으로 겹친다. 에이전트가 답글과 닫기를 5초 틈을 두고 하면 두 번 오지만, 화면에는 나중 것(`검토 대기`)만 남는다.
 - 제목은 `핀 #N · <문서 이름>`이다.

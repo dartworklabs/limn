@@ -1,7 +1,7 @@
 """The viewer as the server serves it: the page (index.html with its stylesheet parts), its script, the icons and the
 message table put together.
 
-viewer_html() and viewer_script() are the whole assembly. They read index.html, the stylesheets parts.txt lists and the script
+viewer_html() and viewer_script() are the whole assembly. They read index.html, the stylesheets in STYLESHEETS and the script
 from the viewer folder and fill the build-time placeholders from their arguments - nothing else (no settings, no clock, no
 process state), so the same folder and arguments give the same strings, byte for byte. The run-time placeholders
 (__LABEL__, __ACCENT__) are left for run_page(), which the composition root calls with the run's label and accent once
@@ -9,7 +9,7 @@ they are known (server.start): the template (ViewerFiles) and the served page (S
 nothing here runs at import.
 
 Placeholders filled in the page (viewer_html):
-- __APP_CSS__: the stylesheets listed in parts.txt, joined in order (load_viewer_html).
+- __APP_CSS__: the stylesheets in STYLESHEETS, joined in order (load_viewer_html).
 - __VIEWER_JS_KEY__: the content key of the script (script_key), the ?v= of the page's one <script src="/viewer.js">.
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
 - __KATEX_VERSION__: the vendored KaTeX version, the ?v= of every /vendor/katex/ URL the Markdown surface asks for.
@@ -108,10 +108,32 @@ def read_viewer() -> "ViewerFiles":
     )
 
 
-VIEWER_DIR = Path(__file__).resolve().parent  # this package's folder: index.html, parts.txt, css/, js/
+VIEWER_DIR = Path(__file__).resolve().parent  # this package's folder: index.html, css/, js/
 BRAND_DIR = VIEWER_DIR / "brand"
 CSS_MARKER = "__APP_CSS__"
-CSS_PART = re.compile(r"css/(?:[a-z0-9-]+/)*[a-z0-9-]+\.css")
+# Keep the CSS cascade in this order when inlining the page.
+STYLESHEETS = (
+    "css/tokens.css",
+    "css/frame.css",
+    "css/revisions.css",
+    "css/side-panel.css",
+    "css/components.css",
+    "css/composer.css",
+    "css/verdict-reason.css",
+    "css/verdict-panel.css",
+    "css/cards.css",
+    "css/suggest.css",
+    "css/list.css",
+    "css/offline-ui.css",
+    "css/review-pick.css",
+    "css/overlays.css",
+    "css/responsive.css",
+    "css/search.css",
+    "css/notices.css",
+    "css/md-surface.css",
+    "css/text-surface.css",
+    "css/md-compare.css",
+)
 # The built script GET /viewer.js serves (load_viewer_script): tools/build_viewer.mjs writes it, the repository keeps it.
 VIEWER_SCRIPT = "dist/viewer.js"
 # The service worker GET /sw.js serves, beside index.html. A script of its own, never a part of the page.
@@ -248,25 +270,10 @@ def load_ui_messages(path: Path) -> dict[str, Message]:
     return {k: v for k, v in d.items() if isinstance(k, str) and k and ok(v)}
 
 
-def stylesheet_parts(directory: Path) -> tuple[str, ...]:
-    """Read the nonempty CSS cascade in parts.txt. Each viewer-relative CSS path must appear once."""
-    parts: list[str] = []
-    for raw in (directory / "parts.txt").read_text(encoding="utf-8").splitlines():
-        path = raw.partition("#")[0].strip()
-        if not path:
-            continue
-        if not CSS_PART.fullmatch(path) or path in parts:
-            raise ValueError(f"invalid or repeated stylesheet in parts.txt: {path!r}")
-        parts.append(path)
-    if not parts:
-        raise ValueError("parts.txt lists no stylesheets")
-    return tuple(parts)
-
-
 def load_viewer_html(directory: Path) -> str:
     """Inline the stylesheets in cascade order. The page loads its classic script from the same origin."""
     page = (directory / "index.html").read_text(encoding="utf-8")
-    css = "".join((directory / name).read_text(encoding="utf-8") for name in stylesheet_parts(directory))
+    css = "".join((directory / name).read_text(encoding="utf-8") for name in STYLESHEETS)
     if page.count(CSS_MARKER) != 1 or "__APP_JS__" in page or any(m in css for m in (CSS_MARKER, "__APP_JS__")):
         raise ValueError("invalid viewer template marker in index.html or its stylesheets")
     return page.replace(CSS_MARKER, css)

@@ -13,6 +13,7 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from limn.viewer import assemble
 
@@ -66,12 +67,12 @@ def module_errors(directory: Path = VIEWER) -> list[str] | None:
 
 
 class ViewerFiles(unittest.TestCase):
-    """The packaged viewer files, their manifest, and how the server puts them back together."""
+    """The packaged viewer files, their stylesheets, and how the server puts them back together."""
 
     def test_stylesheet_list_covers_every_css_part_once(self):
         """An omitted stylesheet would disappear from the page."""
         self.assertEqual(assemble.VIEWER_DIR, VIEWER)
-        listed = assemble.stylesheet_parts(VIEWER)
+        listed = assemble.STYLESHEETS
         on_disk = [p.relative_to(VIEWER).as_posix() for p in (VIEWER / "css").rglob("*") if p.is_file()]
         self.assertCountEqual(listed, on_disk)
         for name in listed:
@@ -82,7 +83,7 @@ class ViewerFiles(unittest.TestCase):
         for name in viewer_modules():
             self.assertTrue((VIEWER / name).read_bytes().endswith(b"\n"), name)
 
-    def test_assembled_page_is_the_parts_joined_in_manifest_order(self):
+    def test_assembled_page_is_the_parts_joined_in_cascade_order(self):
         """load_viewer_html() is index.html with the stylesheet marker replaced by its parts joined in the listed order -
         nothing added between or around them - load_viewer_script() is the built script as the repository keeps it, and
         neither the served template nor the served script keeps a marker."""
@@ -93,22 +94,13 @@ class ViewerFiles(unittest.TestCase):
         )
         self.assertNotIn("__APP_", HTML)
 
-    def test_a_malformed_stylesheet_list_is_a_packaging_error(self):
-        """Empty, duplicate, non-CSS or escaping paths cannot describe the cascade."""
-        for text in ("# empty", "css/a.css\ncss/a.css", "js/a.ts", "__APP_JS__", "../a.css", "/a.css", "css/../a.css"):
-            with self.subTest(text=text), tempfile.TemporaryDirectory() as d:
-                (Path(d) / "parts.txt").write_text(text, encoding="utf-8")
-                with self.assertRaises(ValueError):
-                    assemble.stylesheet_parts(Path(d))
-
     def test_inline_css_preserves_cascade_order_and_file_contents(self):
-        """Conflicting rules in the fixture reach the browser in the order chosen in parts.txt."""
-        with tempfile.TemporaryDirectory() as d:
+        """Conflicting rules in the fixture reach the browser in the declared cascade order."""
+        with tempfile.TemporaryDirectory() as d, patch.object(assemble, "STYLESHEETS", ("css/z.css", "css/a.css")):
             root = Path(d)
             (root / "css").mkdir()
             (root / "css/z.css").write_text("b{color:red}\n", encoding="utf-8")
             (root / "css/a.css").write_text("b{color:blue}\n", encoding="utf-8")
-            (root / "parts.txt").write_text("# cascade\ncss/z.css # base\n\ncss/a.css\n", encoding="utf-8")
             (root / "index.html").write_text("<style>__APP_CSS__</style>", encoding="utf-8")
             self.assertEqual(assemble.load_viewer_html(root), "<style>b{color:red}\nb{color:blue}\n</style>")
 
