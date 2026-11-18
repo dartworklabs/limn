@@ -79,7 +79,7 @@ class PinListLoading(unittest.TestCase):
                 function lineNote(msg){said.push(msg);} function translateTemplate(s){return s;}
                 function drawPins(){calls.push(['draw',OPEN_ALL.map(p=>p.id)]);}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
-                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function parkReply(){} function gotoReview(){}
                 reads.push([{id:1}], [{id:2}]);
                 const old=loadPins();
                 setImmediate(async()=>{
@@ -128,7 +128,7 @@ class PinListLoading(unittest.TestCase):
                 function noteReviewChanges(prev,rows){calls.push(['review',rows.map(p=>p.id)]);}
                 function drawPins(){calls.push(['draw',OPEN_ALL.map(p=>p.id)]);}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
-                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function parkReply(){} function gotoReview(){}
                 const old=loadPins(),newest=loadPins();
                 (async()=>{
                   await newest;
@@ -166,7 +166,7 @@ class PinListLoading(unittest.TestCase):
         function notePinChanges(){} function noteReviewChanges(){}
         function drawPins(){drawn.push(open());}
         function marks(){} function drawDocTabs(){} function docTitle(){}
-        function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+        function recomputeOverlap(){} function renderOverlapBanner(){} function parkReply(){} function gotoReview(){}
         function docInfo(){return true;} function isViewer(){return false;} function restorePin(){} function openTrash(){}
         function findAnyPin(id){return OPEN_ALL.concat(REVIEW_ALL,DONE_ALL).find(p=>p.id===id)||null;}
         function setSide(){} function jumpPin(){jumps++;} function jumpToCard(){} function requestAnimationFrame(){}
@@ -265,7 +265,7 @@ class PinListLoading(unittest.TestCase):
                 function notePinChanges(){} function noteReviewChanges(){}
                 function drawPins(){drawn.push(OPEN_ALL.map(p=>p.id));}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
-                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function parkReply(){} function gotoReview(){}
                 const old=loadPins();
                 setImmediate(async()=>{
                   await pollLightOnce();
@@ -316,7 +316,7 @@ class PinListLoading(unittest.TestCase):
                 function notePinChanges(){} function noteReviewChanges(){}
                 function drawPins(){drawn.push(OPEN_ALL.map(p=>p.id));}
                 function marks(){} function drawDocTabs(){} function docTitle(){}
-                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function parkReply(){} function gotoReview(){}
                 (async()=>{
                   await pollLightOnce();
                   const first={open:OPEN_ALL.map(p=>p.id),dropped:DROPPED.map(p=>p.id),
@@ -390,7 +390,7 @@ class PinListLoading(unittest.TestCase):
                 function drawNotify(){} function prefs(){return {};}
                 function loadPeople(){} function notePinChanges(){} function noteReviewChanges(){}
                 function drawPins(){} function marks(){} function docTitle(){}
-                function recomputeOverlap(){} function renderOverlapBanner(){} function closeReply(){}
+                function recomputeOverlap(){} function renderOverlapBanner(){} function parkReply(){} function gotoReview(){}
                 function notifyHandle(){} function updateStaleBadge(){} function updateSyncBadge(){}
                 function noteOtherDocs(){} function pollBuild(){}
                 (async()=>{
@@ -466,7 +466,7 @@ class PinListLoading(unittest.TestCase):
                 let DOC='a',META={build_seq:1},SWITCHSEQ=0,NAVGEN=0,COMPOSE={current:null}; const EDITOR={current:null,saving:false};
                 let OPEN_ALL=[{id:1,doc:'a'},{id:2,doc:'b'}],PINS=[OPEN_ALL[0]];
                 let DONE_ALL=[{id:3,doc:'a'},{id:4,doc:'b'}],DONE=[DONE_ALL[0]];
-                const BUILD={timer:null,lastSeq:null,error:null,booted:false,inflight:null};
+                const BUILD={timer:null,lastSeq:null,booted:false,inflight:null}; const SHOWN_BUILD={error:null};
                 const BUILD_ERR_BY=new Map(),META_BY=new Map([['b',{build_seq:2}]]),VIEW_BY=new Map();
                 const drawn=[],nodes=new Map();
                 const document={body:{classList:{contains:()=>false}}};
@@ -632,7 +632,7 @@ class ViewerPollingVisits(unittest.TestCase):
             [
                 JS_UPDATE_STUBS + extract_js_fn("pollBuildOnce"),
                 """
-                let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:false,lastSeq:3};
+                let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:false,lastSeq:3}; const SHOWN_BUILD={};
                 const seen=[],DOC_SEQ=new Map(),document={hidden:false};
                 let resolveBuild;
                 function withDocQuery(u){return u;}
@@ -660,7 +660,7 @@ class ViewerPollingVisits(unittest.TestCase):
                 JS_UPDATE_STUBS + extract_js_fn("pollBuildOnce"),
                 """
                 let DOC='b',SWITCHSEQ=1; const BUILD={timer:null,booted:true,lastSeq:3};
-                BUILD.error=null;
+                const SHOWN_BUILD={error:null};
                 const seen=[],DOC_SEQ=new Map(),BUILD_ERR_BY=new Map(),META={pages:[1]};
                 let resolveRefresh;
                 function withDocQuery(u){return u;}

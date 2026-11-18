@@ -32,6 +32,7 @@ import {
   setZoomed,
   COMPOSE,
   EDITOR,
+  OUTLINE_MID_OPEN,
 } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { prefs, savePrefs } from '../platform/prefs.ts';
@@ -39,18 +40,19 @@ import { lineNote, noticeSeen } from '../platform/notices.ts';
 import { hideTip } from '../platform/tooltip.ts';
 import {
   SHEET_KEPT,
-  SIDE_SHOWN,
-  applyOutlineState,
   applySheet,
   applySideWidth,
   renderSizeSegment,
   setSheetKept,
+  showOutlineWidth,
+  outlineOverlay,
+  panelField,
 } from './flow-panel-size.ts';
-import { syncBackLayer } from './input.ts';
+import { syncBackLayer, sheetDialog, backLayer } from './flow-back.ts';
 import { NOTICE_DOT, NOTICE_KIND, NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
 import { $, findElement, typingNow, findAll, focusedElement } from '../platform/dom.ts';
 import { BAND_STEP, LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
-
+import { gripAria } from './view-panel-grip.ts';
 // What the frame tells the features, and what it asks them. The frame knows no feature, so these are seams: js/main.ts
 // registers them before boot() runs (no code that runs while the script loads lays out the page), and the frame calls
 // each at the point, with the arguments and in the order it called the feature code directly. A call before the
@@ -236,12 +238,6 @@ function placeBarTools() {
   if (had && focused && document.activeElement !== focused) focused.focus({ preventScroll: true });
   return had && focused && document.activeElement !== focused ? focused : null;
 }
-// Whether the outline is an overlay over the document that opens one at a time with the pin panel (OUTLINE_MID_OPEN,
-// never saved): in the mid bands and on the tablet sheet. The phone has no outline; wide keeps it beside the
-// document.
-function outlineOverlay() {
-  return LAYOUT === LAYOUT_MODE.MID || BAND === LAYOUT_BAND.TABLET_SHEET;
-}
 // A draft the panel is holding: the composer (a selection being noted), an open edit or reply, or a relocation.
 // Collapsing by a drag stops short of it, a swipe only rubber-bands, and a collapsed [핀 N] shows a dot for it.
 function draftOpen() {
@@ -288,32 +284,8 @@ function applySide() {
   $('#nav-side').hidden = !(LAYOUT === LAYOUT_MODE.WIDE && !open);
   gripAria();
   frameHost().updateReviewCount();
-  syncBackLayer();
+  syncBackLayer(closeTopLayer);
   frameHost().syncBuildErrorChip();
-}
-// The open handle's hint (the markup's, translated by translate()); empty text if the markup gave none.
-const GRIP_TIP = $('#grip').dataset.tip ?? '';
-// The handle's ARIA as a window splitter: the panel width, or 0 (named '패널 폭 · 접힘') while collapsed - a collapsed
-// wide panel's handle is the rail at the right edge, and its hint says how to bring the panel back.
-function gripAria() {
-  const grip = $('#grip'),
-    shown = SIDE_SHOWN;
-  if (!SIDE_OPEN) {
-    grip.setAttribute('aria-valuenow', '0');
-    grip.setAttribute('aria-valuemin', '0');
-    grip.setAttribute('aria-label', translate('패널 폭') + ' · ' + translate('접힘'));
-    grip.dataset.tip = translate(
-      '끌어서 핀 패널을 폅니다. 두 번 클릭(터치는 탭)하거나 Enter 를 누르면 전에 쓰던 폭으로 폅니다',
-    );
-    return;
-  }
-  grip.setAttribute('aria-label', translate('패널 폭'));
-  grip.dataset.tip = translate(GRIP_TIP);
-  if (shown) {
-    grip.setAttribute('aria-valuenow', String(shown.w));
-    grip.setAttribute('aria-valuemin', String(shown.min));
-    grip.setAttribute('aria-valuemax', String(shown.max));
-  }
 }
 // Opens or collapses the pin panel in every layout (the wide side panel, the mid side or overlay panel, the narrow
 // sheet). remember = the user did it (a toggle, Ctrl+\, a handle drag or key, a swipe): wide keeps it per device in
@@ -674,11 +646,6 @@ function fieldScrollKey(event: KeyboardEvent) {
   event.preventDefault();
 }
 document.addEventListener('keydown', fieldScrollKey, true);
-// The panel's text field that has focus (a note, an edit or a reply), or null.
-function panelField() {
-  const focused = document.activeElement;
-  return typingNow() && $('#right').contains(focused) ? focused : null;
-}
 // performance.now() of the last pointerup: a focus change that soon after is that press's.
 let TYPING_PRESS = -1e9;
 document.addEventListener(
@@ -1011,6 +978,51 @@ function restoreAnchor(anchor: ReturnType<typeof topAnchor> | { page: number; fr
   scroller.scrollTop += rect.top - scrollerTop + anchor.frac * rect.height - (('gap' in anchor && anchor.gap) || 0);
 }
 
+// Draws the outline's open/collapsed state and width for the layout (the overlay of mid and the tablet sheet keeps its
+// own, unsaved) and syncs the back layer. The wide outline follows pinPrefs.outlineClosed; until one is saved it starts
+// open with a mouse and collapsed on touch. The phone has no outline (CSS), so it draws no width.
+function applyOutlineState() {
+  const preferences = prefs(),
+    closed = outlineOverlay()
+      ? !OUTLINE_MID_OPEN
+      : typeof preferences.outlineClosed === 'boolean'
+        ? preferences.outlineClosed
+        : COARSE_POINTER_QUERY.matches;
+  document.body.classList.toggle('outline-collapsed', closed);
+  const toggle = $('#nav-toc-toggle');
+  toggle.setAttribute('aria-expanded', String(!closed));
+  toggle.setAttribute('aria-label', closed ? '목차 펼치기' : '목차 접기');
+  if (BAND !== LAYOUT_BAND.PHONE)
+    showOutlineWidth(typeof preferences.outlineWidth === 'number' ? preferences.outlineWidth : 240);
+  syncBackLayer(closeTopLayer); // the mid outline overlay is a layer the back gesture closes
+}
+// Opens or closes the outline at the same reading spot: the overlay (mid, tablet sheet) for now, collapsing the pin
+// panel as it opens; wide remembers it in pinPrefs.outlineClosed.
+function toggleOutline() {
+  const anchor = topAnchor(),
+    closed = !document.body.classList.contains('outline-collapsed');
+  if (outlineOverlay()) {
+    setOutlineMidOpen(!closed);
+    if (!closed) setSide(false);
+  } else savePrefs({ outlineClosed: closed });
+  applyOutlineState();
+  relayout();
+  restoreAnchor(anchor);
+  $('#nav-toc-toggle').focus({ preventScroll: true });
+}
+
+// The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
+// (remembered, with the slide).
+function closeTopLayer() {
+  const dialog = sheetDialog(),
+    layer = backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !!dialog);
+  if (layer === 'dialog') dialog?.close();
+  else if (layer === 'outline') toggleOutline();
+  else if (layer === 'side') {
+    setSide(false, true, true);
+    focusSideToggle();
+  }
+}
 export {
   onRelayout,
   setFrameHost,
@@ -1024,11 +1036,8 @@ export {
   draftOpen,
   finishSideSlide,
   focusSideToggle,
-  gripAria,
   headInk,
   openMore,
-  outlineOverlay,
-  panelField,
   relayout,
   setSelectMode,
   setSide,
@@ -1036,4 +1045,7 @@ export {
   toggleSide,
   topAnchor,
   restoreAnchor,
+  applyOutlineState,
+  toggleOutline,
+  closeTopLayer,
 };

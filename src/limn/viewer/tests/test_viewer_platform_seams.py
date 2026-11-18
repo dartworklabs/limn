@@ -360,7 +360,7 @@ let META={}, CHANGED=true, PINS=[], REVIEW_ALL=[], SIDE_SLIDE=null, SHEET_KEPT=f
 const COMPOSE={current:{}}, EDITOR={current:null}, REVISION_VIEW={target:null,rows:[]}, SEARCH={open:false};
 for (const name of ['topAnchor','applySideWidth','applyOutlineState','restoreAnchor','hideTip','stickTop',
   'keepFieldInView','drawPins','autoFitWidth','keepReadingSpot','renderComposer','updateSectionStrip','fitBarWords',
-  'gripAria','syncBackLayer','updateReviewCount','syncBuildErrChip','placeStatus','drawPinGuideActions',
+  'gripAria','syncBackLayer','closeTopLayer','updateReviewCount','syncBuildErrChip','placeStatus','drawPinGuideActions',
   'renderCommitList','stickSoon','drawZoom','renderSizeSegment','placeMore','showSheet','footInk','setHash',
   'endSideSlide','setSheetKept','refit']) globalThis[name]=rec(name);
 function applyLayout(){LOG.push(['applyLayout']); return CHANGED;}

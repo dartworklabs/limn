@@ -198,8 +198,8 @@ class ComposerRows(unittest.TestCase):
         self.assertEqual(got, [["disabled", True], ["drawRow"]])
 
     def test_an_excerpt_redraws_the_panel_it_belongs_to(self):
-        """excerptRedraw: the composer's own selection redraws the composer, the open edit card's the edit card through
-        its field, and a stale owner nothing."""
+        """excerptRedraw: the composer's own selection redraws the composer, the open edit card's the edit card, and a stale
+        owner nothing."""
         got = json.loads(
             run_node(
                 "\n".join(
@@ -210,7 +210,8 @@ class ComposerRows(unittest.TestCase):
                         extract_js_fn("excerptRedraw"),
                         "const COMPOSE={current:{n:1}}, EDITOR={current:{n:2}};",
                         "function renderComposer(){LOG.push(['composer']);}",
-                        "excerptRedraw(COMPOSE.current); excerptRedraw(EDITOR.current); excerptRedraw({});",
+                        "excerptRedraw(COMPOSE.current, renderComposer); excerptRedraw(EDITOR.current, renderEdit);",
+                        "excerptRedraw({}, renderComposer);",
                         "console.log(JSON.stringify(LOG));",
                     ]
                 )

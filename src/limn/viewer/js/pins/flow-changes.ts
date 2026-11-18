@@ -4,9 +4,7 @@ import { PIN_STATE, ELEMENT_SYNC } from '../app/rules-tables.ts';
 import { translateTemplate, translate, josa, josaName } from '../platform/i18n.ts';
 import { groupNote } from '../platform/notices.ts';
 import { NOTICE_KIND, NOTICE_LIFE, NOTICE_DOT, EVENT_TYPE, isRecord } from '../platform/tables.ts';
-import { gotoReview } from './flow-list.ts';
 import { who } from '../app/state-people.ts';
-import { restorePin } from './flow-actions.ts';
 import { openTrash } from './view-cards.ts';
 import { countPinMove } from '../documents/flow-updates.ts';
 import { MY_ACTIONS } from './state.ts';
@@ -85,7 +83,13 @@ function consumeMine(id: number) {
 // figure element was lost or whose lines moved. What needs a look stays until [x] or its action and dots [핀 N];
 // passing news (closed elsewhere, lines moved) goes after NOTICE_MS. An action this tab performed is swallowed
 // (markMine).
-function notePinChanges(previous: Pin[], listed: Pin[], dropped: Pin[]) {
+function notePinChanges(
+  previous: Pin[],
+  listed: Pin[],
+  dropped: Pin[],
+  gotoReview: () => void,
+  restorePin: (id: number) => Promise<boolean>,
+) {
   // previous is only the "open pins" this tab saw last time (PINS never holds done ones); listed is every open+closed
   // pin (all=1) from this GET. An id of previous that is in listed with done=true was completed; one not in listed at
   // all (neither open nor closed) was dropped. The two are told apart, so a pin a co-author deleted is never announced

@@ -8,6 +8,7 @@
 // them (mentionModel). There is no external notification. The open @-list: its field, the '@word' it was drawn for
 // (where its '@' is, q the letters after it), its people and the highlighted row.
 import { KIND_NEW, META, PEOPLE, PEOPLE_KNOWN, PINS, imeKey, imeTail, EDITOR } from '../app/state.ts';
+import { ASSIGN_NEW, setAssignNewValue, setAssignNewTouched } from './state-assignee.ts';
 import { html, lucideIcon, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { revealSegment } from './view-levels.ts';
@@ -378,17 +379,6 @@ function assigneeRowHtml(people: string[], value: string, act: string): Html {
   );
   return html`<span class="as-lab">${translate('담당')}</span><div class="seg lad as-seg" data-reveal="whole" tabindex="-1"><div class="lad-t">${agent}${others}</div></div>`;
 }
-// The composer panel's assignee: the author's pick (touched) or, until there is one, the default re-chosen every time
-// the note changes. A pick whose person left the note is dropped. Both assignee rows read the note with the hints the
-// save carries (mentionHints), so they offer exactly whom the server tags.
-const ASSIGN_NEW = { v: ASSIGNEE_AGENT, touched: false };
-// Each sets one field of ASSIGN_NEW for another module that changes it (ADR-0042 D1): the assignment, nothing more.
-function setAssignNewValue(value: typeof ASSIGN_NEW.v) {
-  ASSIGN_NEW.v = value;
-}
-function setAssignNewTouched(value: boolean) {
-  ASSIGN_NEW.touched = value;
-}
 // Draws the composer's assignee row and the preview line from the note as it is now (assignOutcome), and drops a pick
 // whose person left the note. No row without a tagged colleague - the agent has the pin - and none while the note would
 // join an existing pin (appendTarget): an append keeps that pin's assignee, so the row would choose nothing. Before the
@@ -403,8 +393,8 @@ function renderAssignNew() {
   const outcome = assignOutcome(composeAsk(SAVE_MODE.NEW)),
     assignee = outcome.assignee ?? ASSIGNEE_AGENT;
   if (PEOPLE_KNOWN) {
-    ASSIGN_NEW.v = assignee;
-    ASSIGN_NEW.touched = outcome.kept;
+    setAssignNewValue(assignee);
+    setAssignNewTouched(outcome.kept);
   }
   if (outcome.people.length && !appendTarget()) {
     const at = segmentFocusAt(box);
@@ -725,9 +715,6 @@ document.addEventListener('focusout', (event) => {
 $('#mention-pop').addEventListener('pointerdown', (event: PointerEvent) => event.preventDefault());
 
 export {
-  ASSIGN_NEW,
-  setAssignNewValue,
-  setAssignNewTouched,
   MENTION,
   assignOutcome,
   composeAsk,

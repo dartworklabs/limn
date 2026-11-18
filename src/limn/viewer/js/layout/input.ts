@@ -7,41 +7,27 @@
 // A collapsed wide panel leaves the handle as a 6px rail at the right edge: dragging it left past half the minimum
 // opens the panel at the minimum and then follows; a double-click (a tap on touch) opens it at the saved width. A tap
 // on an open handle (double-click with a mouse) cycles the presets. Keys follow gripKey() (WAI-ARIA window splitter).
-import {
-  BAND,
-  DOC,
-  LAYOUT,
-  MID_OVERLAY,
-  COARSE_POINTER_QUERY,
-  REDUCED_MOTION_QUERY,
-  OUTLINE_MID_OPEN,
-  SIDE_OPEN,
-} from '../app/state.ts';
+import { LAYOUT, MID_OVERLAY, REDUCED_MOTION_QUERY, SIDE_OPEN } from '../app/state.ts';
 import { SWALLOW_CLICK, endPress, hideTip, setSwallowClick } from '../platform/tooltip.ts';
 import {
   SHEET_CLOSE_FRACTION,
   SHEET_FRACTIONS,
   SHEET_MIN_FRACTION,
-  applyOutlineState,
   applySheet,
   applySideWidth,
   currentSideWidth,
-  cycleSheet,
-  cycleSideWidth,
   gripKey,
   keepSheet,
   outlineBounds,
-  setOutlineWidth,
-  setSheetFraction,
-  setSideWidth,
   sheetFraction,
   showOutlineWidth,
-  showSideWidth,
   sideBounds,
   snapSide,
-  toggleOutline,
 } from './flow-panel-size.ts';
+import { showSideWidth } from './view-panel-grip.ts';
+import { cycleSheet, cycleSideWidth, setOutlineWidth, setSheetFraction, setSideWidth } from './flow-panel-actions.ts';
 import {
+  applyOutlineState,
   SLIDE_MS,
   applySide,
   coachSideCollapsed,
@@ -52,10 +38,11 @@ import {
   setSide,
   toggleSide,
   frameHost,
+  closeTopLayer,
 } from './flow.ts';
-import { $, $$, eventElement, findMaybe } from '../platform/dom.ts';
-import { LAYOUT_BAND, LAYOUT_MODE } from '../app/rules-tables.ts';
-import { isRecord } from '../platform/tables.ts';
+import { $, eventElement } from '../platform/dom.ts';
+import { LAYOUT_MODE } from '../app/rules-tables.ts';
+import { watchBackLayer } from './flow-back.ts';
 const LONGPRESS_MS = 450;
 
 (function () {
@@ -629,113 +616,5 @@ function dismissOutcome(distance: number, size: number, speed: number) {
 })();
 
 // ------------------------------------------------ The back gesture closes the top layer (touch)
-// On a phone or tablet the system back gesture closes the top layer first (docs/handbook/viewer.md §모바일 레이아웃)
-// instead of leaving Limn with a draft on screen. While a sheet, the overlay panel or the outline overlay is open, one
-// CloseWatcher stands for it (Chrome on Android routes back there; modal dialogs have their own); without CloseWatcher,
-// one history entry does (popstate). Closing the layer any other way removes it again, so back never has a dead press,
-// and document switches never add entries (they replace the hash). Mouse devices have no system back, so nothing is
-// registered there.
-let BACK: { kind: string; w?: CloseWatcher } | null = null,
-  BACK_SKIP = false;
-// Which layer covers the document for a band (overlay = MID_OVERLAY): an open bottom-sheet dialog on top (dialogOpen -
-// the caller passes it only without CloseWatcher, where a modal dialog takes the back gesture itself), then the outline
-// overlay (the mid bands and the tablet sheet), then a sheet (phone, tablet) or the overlay panel (mid-overlay, a short
-// band up to 900px). The desktop has none. 'dialog'|'side'|'outline'|null.
-function backLayer(
-  band: string | null,
-  overlay: boolean,
-  sideOpen: boolean,
-  outlineOpen: boolean,
-  dialogOpen: boolean,
-) {
-  if (band === LAYOUT_BAND.WIDE) return null;
-  if (dialogOpen) return 'dialog';
-  if (band === LAYOUT_BAND.PHONE) return sideOpen ? 'side' : null;
-  if (outlineOpen) return 'outline';
-  return sideOpen && (band === LAYOUT_BAND.TABLET_SHEET || overlay) ? 'side' : null;
-}
-// The open bottom-sheet dialog the back gesture closes first, or null: the navigation sheet, [더보기], help, the Trash,
-// the status line's list.
-function sheetDialog() {
-  return findMaybe(
-    document,
-    '#nav-sheet[open],#more[open],#help[open],#trash[open],#status-list[open]',
-    HTMLDialogElement,
-  );
-}
-// Registers or removes the back layer to match the screen (called by applySide, applyOutlineState and a sheet dialog
-// opening or closing; idempotent).
-function syncBackLayer() {
-  const want =
-    COARSE_POINTER_QUERY.matches &&
-    !!backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !window.CloseWatcher && !!sheetDialog());
-  if (want && !BACK) armBack();
-  else if (!want && BACK) disarmBack();
-}
-for (const dialog of $$('#nav-sheet,#more,#help,#trash,#status-list'))
-  new MutationObserver(() => syncBackLayer()).observe(dialog, { attributes: true, attributeFilter: ['open'] });
-// Stands one CloseWatcher for the open layer, or pushes one history entry (same URL) where CloseWatcher is missing.
-function armBack() {
-  if (window.CloseWatcher) {
-    try {
-      const watcher = new window.CloseWatcher();
-      BACK = { kind: 'watcher', w: watcher };
-      watcher.onclose = () => {
-        if (BACK && BACK.w === watcher) {
-          BACK = null;
-          closeTopLayer();
-        }
-      };
-      return;
-    } catch (error) {}
-  }
-  window.history.pushState({ limnLayer: 1 }, '', window.location.href);
-  BACK = { kind: 'history' };
-}
-// Removes the layer without closing anything: destroys the watcher, or pops our entry (that popstate is skipped).
-function disarmBack() {
-  const layer = BACK;
-  BACK = null;
-  if (!layer) return;
-  if (layer.kind === 'watcher') {
-    if (layer.w) layer.w.destroy();
-    return;
-  }
-  const state: unknown = window.history.state;
-  if (isRecord(state) && state.limnLayer) {
-    BACK_SKIP = true;
-    window.history.back();
-  }
-}
-// The back gesture's action: close the open sheet dialog or the outline overlay, or collapse the sheet or overlay panel
-// (remembered, with the slide).
-function closeTopLayer() {
-  const dialog = sheetDialog(),
-    layer = backLayer(BAND, MID_OVERLAY, SIDE_OPEN, OUTLINE_MID_OPEN, !!dialog);
-  if (layer === 'dialog') dialog?.close();
-  else if (layer === 'outline') toggleOutline();
-  else if (layer === 'side') {
-    setSide(false, true, true);
-    focusSideToggle();
-  }
-}
-window.addEventListener('popstate', () => {
-  const ours = BACK_SKIP || (BACK && BACK.kind === 'history');
-  if (!ours) return;
-  if (DOC) frameHost().setHash(DOC); // the entry below may carry an older #doc= - the document on screen stays
-  if (BACK_SKIP) {
-    BACK_SKIP = false;
-    return;
-  }
-  BACK = null;
-  // A dialog over the sheet closes first.
-  const dialog = findMaybe(document, 'dialog[open]', HTMLDialogElement);
-  if (dialog) {
-    dialog.close();
-    syncBackLayer();
-    return;
-  }
-  closeTopLayer();
-});
-
-export { BACK, BACK_SKIP, syncBackLayer, LONGPRESS_MS };
+watchBackLayer(closeTopLayer, (doc) => frameHost().setHash(doc));
+export { LONGPRESS_MS };

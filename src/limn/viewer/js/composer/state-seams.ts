@@ -95,11 +95,9 @@ function composerQueue(): ComposerQueue {
   return COMPOSER_QUEUE;
 }
 
-// A pin's own fields that use the composer's text tools (pins/flow-edit.ts, pins/flow-reply.ts): the open edit card,
-// whose excerpt, place and @-tags the composer's code changes, and the reply box's outcome line.
+// A pin's own fields that use the composer's text tools (pins/flow-edit.ts, pins/flow-reply.ts): the open edit card's
+// snippet after a range change and the reply box's outcome after a mention changes.
 interface PinFields {
-  /** Draws the open edit card again. */
-  drawEdit(): void;
   /** Reads the open edit card's snippet again (with its range ladder when withLevels). */
   snipEdit(withLevels: boolean): Promise<void>;
   /** Draws the reply box's outcome line again. */

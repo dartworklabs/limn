@@ -2,7 +2,8 @@
 import { BAND, DOC, META, REDUCED_MOTION_QUERY, imeKey, isFigureKind, scrollMotion } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
-import { drawPos, refitFilteredSheet } from '../documents/flow-switch.ts';
+import { refitFilteredSheet } from '../documents/flow-switch.ts';
+import { drawPos } from '../documents/view-tabs.ts';
 import { $, eventElement, findAll } from '../platform/dom.ts';
 import { LAYOUT_BAND } from '../app/rules-tables.ts';
 import { isMarkdownDoc, docInfo } from '../documents/state.ts';
@@ -10,7 +11,6 @@ import { topAnchor } from '../layout/flow.ts';
 import { arrivalWatch, glideTo } from '../layout/flow-scroll.ts';
 import { pageChanges, pageMarkdown } from './state-seams.ts';
 import { goPage, jumpOnItsWay, OUTLINE_PICK_GAP, spotTop, readingDepth } from './view-page-jump.ts';
-
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
 // Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
 type OutlineEntry = {

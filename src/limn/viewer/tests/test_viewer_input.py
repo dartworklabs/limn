@@ -4982,7 +4982,9 @@ class BarAndSheets(ViewerBase):
         page = self.view(BAR_PHONES[0], init=NO_PNG_CHIP)
         page.evaluate("rebuild()")
         gated.wait_started("latex")
-        page.wait_for_function("BUILD.cur&&BUILD.cur.phase==='latex'&&!!document.querySelector('#status .st-bar')")
+        page.wait_for_function(
+            "SHOWN_BUILD.cur&&SHOWN_BUILD.cur.phase==='latex'&&!!document.querySelector('#status .st-bar')"
+        )
         self.assertEqual(page.evaluate(STATUS_LINE)["bar"], {"role": "progressbar", "now": None})
         gated.release("latex")
         page.wait_for_function(BAR_NOW % "0", timeout=15000)
@@ -4994,7 +4996,7 @@ class BarAndSheets(ViewerBase):
         self.assertEqual((got["text"], got["bar"]), ("쪽 그리는 중 · 1/3쪽", {"role": "progressbar", "now": "33"}))
         self.assertEqual(page.evaluate("document.querySelector('#status .st-bar i').style.width"), "33%")
         gated.release_all()
-        page.wait_for_function("BUILD.cur===null&&document.querySelector('#status').hidden", timeout=20000)
+        page.wait_for_function("SHOWN_BUILD.cur===null&&document.querySelector('#status').hidden", timeout=20000)
 
     def test_without_a_progress_field_the_render_keeps_the_seconds_and_a_bar_that_does_not_know_its_end(self):
         """An older server's build answer has no progress field: its page render reads as before this field - the phase

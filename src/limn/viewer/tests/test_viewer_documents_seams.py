@@ -701,7 +701,7 @@ class QueuedPins(unittest.TestCase):
     def test_the_status_input_counts_the_queued_and_held_pins(self):
         got = run(
             r"""
-            const OFF={n:3,held:1}; const LINE=[],BUILD={cur:null,error:null,unchanged:null};
+            const OFF={n:3,held:1}; const LINE=[],SHOWN_BUILD={cur:null,error:null,unchanged:null};
             let POLL_FAILS=0,STATUS_SYNC=null,META=null;
             function versionOutdated(){return false;} function $(){return {hidden:true};}
             function buildsFromSource(){return false;} function isViewer(){return false;}

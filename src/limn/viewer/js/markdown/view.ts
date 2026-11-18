@@ -68,7 +68,8 @@ import { translateTemplate, translate } from '../platform/i18n.ts';
 import { api, isRefusal } from '../platform/api.ts';
 import { endTopic } from '../platform/notices.ts';
 import { TIP, hideTip, showTip, LAST_POINTER } from '../platform/tooltip.ts';
-import { drawPos, switchDoc, switchPending } from '../documents/flow-switch.ts';
+import { switchDoc, switchPending } from '../documents/flow-switch.ts';
+import { drawPos } from '../documents/view-tabs.ts';
 import { tintChangedLines, compareRedrawnSource } from '../documents/flow-updates.ts';
 import {
   OUTLINE_SELECTED,
@@ -82,7 +83,7 @@ import {
   setOutlineSelected,
 } from '../pdf/view-outline.ts';
 import { applySide, setSide } from '../layout/flow.ts';
-import { BACK } from '../layout/input.ts';
+import { BACK } from '../layout/flow-back.ts';
 import { revealBox, selectionRoom } from '../pdf/input-selection.ts';
 import { imeOpen } from '../platform/composition.ts';
 import { NOTICE_TOPIC, isRecord } from '../platform/tables.ts';
