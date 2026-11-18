@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.62 — 2026-11-18
 
 The agent contract gains two computed fields and removes or renames nothing. A LaTeX line pin, the default rung of a
 pick and every rung of a snippet now say where the pin's own lines print, and a snippet asked for those boxes says
