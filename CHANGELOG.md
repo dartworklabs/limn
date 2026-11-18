@@ -13,33 +13,41 @@ record gains no field.
   that said the pin was about those words. The box is now the area those lines occupy on the PDF, computed from
   forward SyncTeX - the same source the range itself comes from - on every read and never stored, as a figure pin's
   `mark` already is. A range that crosses a column or a page break draws one piece per column or page; the number
-  badge, the undo chip, [View] and the popover sit on the first piece. Padding is measured from the range's own
-  leading, so neighbouring lines meet exactly in 10 pt body text and in `\Large` alike. A range whose lines could
-  not be measured keeps drawing the dragged rectangle.
+  badge, the undo chip, [View] and the popover sit on the first piece - the topmost piece of the lowest page, which is
+  the head of the range in a single-column layout. Padding is measured from the range's own leading, so neighbouring
+  lines meet exactly in 10 pt body text and in `\Large` alike. A range whose lines could not be measured keeps drawing
+  the dragged rectangle, and so does one of more than `FORWARD_LINES_MAX` (40) lines of text: the forward pass is one
+  process per line, so a longer range is not measured at all. That is the fallback a reader meets most - every pin in
+  a 47-line table draws the rectangle that was dragged.
 - **The composing 'New pin' box follows the range as well.** Moving up the ladder or editing the lines in the excerpt
-  moves the box to the new range; the composer asks `GET /api/snippet?levels=1` for a range nothing has answered for
-  yet and leaves the box where it stands until the answer arrives, so it never falls back to the dragged rectangle
-  while a request is in flight.
+  moves the box to the new range; the composer asks `GET /api/snippet?levels=1&boxes=1` for a range nothing has
+  answered for yet and leaves the box where it stands until the answer arrives, so it never falls back to the dragged
+  rectangle while a request is in flight.
 - **`boxes` is added to three answers, add-only.** The default rung of `POST /api/pick`, every rung of
-  `GET /api/snippet?levels=1`, and a LaTeX line pin of `GET /api/pins` and `/api/pins/{id}` carry
+  `GET /api/snippet?levels=1&boxes=1`, and a LaTeX line pin of `GET /api/pins` and `/api/pins/{id}` carry
   `[{"page": p, "frac": [x, y, w, h]}, …]`, each `frac` page-relative to its own page. The key is **absent**, never
   an empty array, when nothing could be computed - that absence is the signal to fall back. `POST /api/pin`'s stored
   field whitelist is unchanged and a `boxes` a client sends is discarded. A figure pin keeps `mark`/`mark_page`/
   `el_sync` and gains nothing, and a region pin and a document with no pages answer none. On a build that kept no
   record of the lines it read - one made by an older Limn - the pin listing and the snippet answer no boxes, while a
   pick still does: a pick holds SyncTeX's own answer for that build and that drag, so the build's numbers are known,
-  where a snippet request carries only today's file and line range.
+  where a snippet request carries only today's file and line range. A snippet answers boxes only for a request that
+  asks (`&boxes=1`): measuring them runs one `synctex view` process per line of text of every rung, about half a
+  second for a ladder round a pin inside a 40-line float, and the viewer's edit card reads this route for the lines
+  alone.
 
 ### Changed
 
-- **A range that is one whole environment is measured without its own `\begin` and `\end` lines, and may draw at
-  most two pieces.** Those two lines have no box of their own, so `synctex view` answers them through its ancestor
-  search with whatever stood where the environment stood in the source stream - on a real manuscript every box that
-  fell outside its float came from exactly those two lines, several of them on a page the float does not print on.
-  A delimiter line that also carries ink (a `tabular` header row after its `\begin`) is still asked, so no ink of the
-  range is lost. The rule is structural and so applies to every environment, `equation`, `align`, `itemize` and
-  `tabular` among them: with it comes the two-piece cap, so an environment range crossing two page breaks falls back
-  to the dragged rectangle instead of drawing three pieces.
+- **A range that is one whole environment is measured without its own `\begin` and `\end` lines, and where one of
+  them was dropped it may draw at most two pieces.** Those two lines have no box of their own, so `synctex view`
+  answers them through its ancestor search with whatever stood where the environment stood in the source stream - on
+  a real manuscript every box that fell outside its float came from exactly those two lines, several of them on a
+  page the float does not print on. A delimiter line that also carries ink (a `tabular` header row after its
+  `\begin`) is still asked, so no ink of the range is lost - and a whole-environment range whose two delimiter lines
+  both carry ink keeps the ordinary limit of eight, because nothing was dropped and the scatter has no cause there.
+  The rule is structural and so applies to every environment, `equation`, `align`, `itemize` and `tabular` among
+  them: with the two-piece cap, an environment range that did lose a delimiter line and crosses two page breaks falls
+  back to the dragged rectangle instead of drawing three pieces.
 - **The page-body box filter drops a box at 45% of the page height or taller, not 25%.** The measured page body box
   is 65% of the page height and the tallest measured float box 26.3%, so 25% dropped a real graphic and left that
   pin's mark covering its caption alone. The judgement stays a proportion of the page and never a comparison among
