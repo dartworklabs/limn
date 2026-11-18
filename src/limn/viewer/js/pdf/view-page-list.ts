@@ -248,19 +248,31 @@ function pageListKey(event: KeyboardEvent) {
 }
 $('#page-pop').addEventListener('keydown', pageListKey);
 $('#ns-pages').addEventListener('keydown', pageListKey);
-// A click outside the popover and its page count shuts it (the click still does what it does).
-document.addEventListener(
-  'click',
-  (event) => {
-    const target = eventElement(event);
-    if (
-      !$('#page-pop').hidden &&
-      !$('#page-pop').contains(target) &&
-      !(PAGE_LIST_FROM && PAGE_LIST_FROM.contains(target))
-    )
-      closePageList(false);
-  },
-  true,
-);
-window.addEventListener('resize', placePageList);
-export { closePageList, drawSheetPages, goListedPage, refreshPageLists, revealPageRow, tipCutTitles, togglePageList };
+function watchPageListPlacement() {
+  // A click outside the popover and its page count shuts it (the click still does what it does).
+  document.addEventListener(
+    'click',
+    (event) => {
+      const target = eventElement(event);
+      if (
+        !$('#page-pop').hidden &&
+        !$('#page-pop').contains(target) &&
+        !(PAGE_LIST_FROM && PAGE_LIST_FROM.contains(target))
+      )
+        closePageList(false);
+    },
+    true,
+  );
+  window.addEventListener('resize', placePageList);
+}
+
+export {
+  watchPageListPlacement,
+  closePageList,
+  drawSheetPages,
+  goListedPage,
+  refreshPageLists,
+  revealPageRow,
+  tipCutTitles,
+  togglePageList,
+};

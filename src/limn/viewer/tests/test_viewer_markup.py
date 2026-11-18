@@ -16,12 +16,10 @@ import unittest
 
 from hypothesis import given, settings, strategies as st
 
-from limn.viewer import assemble
-
 import helpers_js
-from helpers import VIEWER, extract_js_fn, js_esc, js_icons, run_node
+from helpers import VIEWER, extract_js_fn, js_esc, js_icons, run_node, viewer_modules
 
-PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
+PARTS = viewer_modules()
 MARKUP_PART = "js/platform/markup.ts"
 
 SINK_PROPS = frozenset(["innerHTML", "outerHTML"])
@@ -29,7 +27,7 @@ SINK_CALLS = frozenset(["insertAdjacentHTML", "createContextualFragment", "write
 
 
 def part_sources() -> dict[str, str]:
-    """Every JS module of the page's script, by manifest path, in run order, as the build puts it into the script: its
+    """Every JS module of the page's script, by source path: its
     import and export statements taken out (helpers_js.module_code) - they name the module's bindings, they are not
     uses of them - and its TypeScript types taken out (helpers_js.module_texts)."""
     texts = helpers_js.module_texts([VIEWER / name for name in PARTS])

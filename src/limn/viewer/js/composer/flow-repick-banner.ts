@@ -11,7 +11,7 @@ import { levelOf } from '../documents/rules.ts';
 import { lineRange } from '../app/rules-pins.ts';
 import { levelLabel, scopeLabel } from './view-levels.ts';
 import { snapBox, repickElement } from '../pdf/view-figure.ts';
-import { markChosenLines, shownChoice } from '../markdown/view.ts';
+import { markChosenLines, shownChoice } from '../markdown/view-marks.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
 function banner(markup: Html) {

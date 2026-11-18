@@ -1,7 +1,7 @@
 """The viewer as the server serves it: the page (index.html with its stylesheet parts), its script, the icons and the
 message table put together.
 
-viewer_html() and viewer_script() are the whole assembly. They read index.html, the parts parts.txt lists and the script
+viewer_html() and viewer_script() are the whole assembly. They read index.html, the stylesheets parts.txt lists and the script
 from the viewer folder and fill the build-time placeholders from their arguments - nothing else (no settings, no clock, no
 process state), so the same folder and arguments give the same strings, byte for byte. The run-time placeholders
 (__LABEL__, __ACCENT__) are left for run_page(), which the composition root calls with the run's label and accent once
@@ -9,7 +9,7 @@ they are known (server.start): the template (ViewerFiles) and the served page (S
 nothing here runs at import.
 
 Placeholders filled in the page (viewer_html):
-- __APP_CSS__: the parts listed under it in parts.txt, joined in order (load_viewer_html).
+- __APP_CSS__: the stylesheets listed in parts.txt, joined in order (load_viewer_html).
 - __VIEWER_JS_KEY__: the content key of the script (script_key), the ?v= of the page's one <script src="/viewer.js">.
 - __PDFJS_VERSION__: the vendored PDF.js version, the ?v= that busts the browser cache for /vendor/pdfjs/.
 - __KATEX_VERSION__: the vendored KaTeX version, the ?v= of every /vendor/katex/ URL the Markdown surface asks for.
@@ -110,14 +110,8 @@ def read_viewer() -> "ViewerFiles":
 
 VIEWER_DIR = Path(__file__).resolve().parent  # this package's folder: index.html, parts.txt, css/, js/
 BRAND_DIR = VIEWER_DIR / "brand"
-# The manifest's sections: the stylesheet parts (__APP_CSS__, also the marker index.html carries in its one <style>) and
-# the script's ES modules (__APP_JS__, in the order they run), which tools/build_viewer.mjs builds into VIEWER_SCRIPT.
-VIEWER_MARKERS = ("__APP_CSS__", "__APP_JS__")
-PAGE_MARKERS = ("__APP_CSS__",)
-VIEWER_MANIFEST = "parts.txt"  # the ordered list of parts, beside index.html
-VIEWER_PART_RE = re.compile(
-    r"[a-z0-9-]+(?:/[a-z0-9-]+)+\.[a-z]+"
-)  # folder/name.ext, folders nested: never leaves the viewer folder
+CSS_MARKER = "__APP_CSS__"
+CSS_PART = re.compile(r"css/(?:[a-z0-9-]+/)*[a-z0-9-]+\.css")
 # The built script GET /viewer.js serves (load_viewer_script): tools/build_viewer.mjs writes it, the repository keeps it.
 VIEWER_SCRIPT = "dist/viewer.js"
 # The service worker GET /sw.js serves, beside index.html. A script of its own, never a part of the page.
@@ -254,62 +248,37 @@ def load_ui_messages(path: Path) -> dict[str, Message]:
     return {k: v for k, v in d.items() if isinstance(k, str) and k and ok(v)}
 
 
-def viewer_manifest(directory: Path) -> dict[str, tuple[str, ...]]:
-    """The viewer's part files per marker, in page order, as listed in directory/parts.txt.
-
-    The manifest is a marker line (__APP_CSS__, __APP_JS__) followed by the paths of its parts, relative to the
-    folder; "#" starts a comment and blank lines are skipped. Every marker has a non-empty list, and a path appears
-    once. Anything else is a packaging defect and raises ValueError (a missing manifest raises OSError).
-    """
-    parts: dict[str, list[str]] = {}
-    current: list[str] | None = None
-    for raw in (directory / VIEWER_MANIFEST).read_text(encoding="utf-8").splitlines():
-        line = raw.split("#", 1)[0].strip()
-        if not line:
+def stylesheet_parts(directory: Path) -> tuple[str, ...]:
+    """Read the nonempty CSS cascade in parts.txt. Each viewer-relative CSS path must appear once."""
+    parts: list[str] = []
+    for raw in (directory / "parts.txt").read_text(encoding="utf-8").splitlines():
+        path = raw.partition("#")[0].strip()
+        if not path:
             continue
-        if line in VIEWER_MARKERS and line not in parts:
-            current = parts[line] = []
-        elif current is not None and VIEWER_PART_RE.fullmatch(line):
-            current.append(line)
-        else:
-            raise ValueError("viewer manifest %s: unexpected line %r" % (VIEWER_MANIFEST, raw))
-    names = [n for ns in parts.values() for n in ns]
-    if set(parts) != set(VIEWER_MARKERS) or not all(parts.values()) or len(names) != len(set(names)):
-        raise ValueError(
-            "viewer manifest %s must list each of %s once, with parts, and no part twice"
-            % (VIEWER_MANIFEST, ", ".join(VIEWER_MARKERS))
-        )
-    return {m: tuple(parts[m]) for m in VIEWER_MARKERS}
+        if not CSS_PART.fullmatch(path) or path in parts:
+            raise ValueError(f"invalid or repeated stylesheet in parts.txt: {path!r}")
+        parts.append(path)
+    if not parts:
+        raise ValueError("parts.txt lists no stylesheets")
+    return tuple(parts)
 
 
 def load_viewer_html(directory: Path) -> str:
-    """The viewer page with its stylesheet inlined, as one HTML string.
-
-    index.html carries one __APP_CSS__ marker, inside its one <style>. The parts listed under it in parts.txt
-    (viewer_manifest) are joined in that order, byte for byte, and put where the marker was. The script is not in the
-    page: index.html loads it from this origin (<script src="/viewer.js?v=__VIEWER_JS_KEY__">, viewer_script). A missing
-    or malformed file is a packaging defect and raises (OSError / ValueError), as does a script marker in the page.
-    """
+    """Inline the stylesheets in cascade order. The page loads its classic script from the same origin."""
     page = (directory / "index.html").read_text(encoding="utf-8")
-    manifest = viewer_manifest(directory)
-    for marker in VIEWER_MARKERS:
-        if marker not in PAGE_MARKERS and marker in page:
-            raise ValueError("viewer template marker %s must not appear in index.html" % marker)
-    for marker in PAGE_MARKERS:
-        text = "".join((directory / name).read_text(encoding="utf-8") for name in manifest[marker])
-        if page.count(marker) != 1 or any(m in text for m in VIEWER_MARKERS):
-            raise ValueError("viewer template marker %s must appear exactly once in index.html" % marker)
-        page = page.replace(marker, text)
-    return page
+    css = "".join((directory / name).read_text(encoding="utf-8") for name in stylesheet_parts(directory))
+    if page.count(CSS_MARKER) != 1 or "__APP_JS__" in page or any(m in css for m in (CSS_MARKER, "__APP_JS__")):
+        raise ValueError("invalid viewer template marker in index.html or its stylesheets")
+    return page.replace(CSS_MARKER, css)
 
 
 def load_viewer_script(directory: Path) -> str:
     """The viewer's script before its placeholders are filled: directory/dist/viewer.js, the one classic script
-    tools/build_viewer.mjs builds from the ES modules parts.txt lists under __APP_JS__ (docs/adr/0042-viewer-es-modules.md).
+    tools/build_viewer.mjs builds from js/main.ts and its imports (docs/adr/0042-viewer-es-modules.md).
     The built file is committed, so serving needs no build step and no Node. A missing file or a marker in it is a
     packaging defect and raises (OSError / ValueError)."""
     text = (directory / VIEWER_SCRIPT).read_text(encoding="utf-8")
-    if any(m in text for m in VIEWER_MARKERS):
+    if any(m in text for m in (CSS_MARKER, "__APP_JS__")):
         raise ValueError("a viewer template marker must not appear in the script")
     return text
 

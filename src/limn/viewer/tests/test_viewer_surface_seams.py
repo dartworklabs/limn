@@ -401,6 +401,9 @@ class DrawingTheLines(unittest.TestCase):
             function compareRedrawnSource(doc){LOG.push(['compare',doc]);}
             """,
             extract_js_fn("isRefusal"),
+            extract_js_fn("beginMarkdownDraw"),
+            extract_js_fn("recordMarkdownSource"),
+            extract_js_fn("clearMarkdownHeadings"),
             extract_js_fn("buildMarkdownDoc"),
             "(async()=>{await buildMarkdownDoc(); LOG.push(['--']); GONE=true; await buildMarkdownDoc();"
             "console.log(JSON.stringify(LOG));})();",
@@ -414,13 +417,17 @@ class DrawingTheLines(unittest.TestCase):
         got = run_lines(
             r"""
             let DOC='a',SWITCHSEQ=1,COLUMN_OBSERVER=null;
-            const MARKDOWN_VIEW={want:null,shown:'a',spot:null,jumpTo:null,headTo:null};
+            const MARKDOWN_VIEW={want:null,shown:'a',spot:null};
             const DOCROOT={replaceChildren(){LOG.push(['replace']);}}; function $(){return DOCROOT;}
             function isColumnShown(){return true;} function readingAnchor(){return null;}
             function fitWideFormulas(){} function restoreReadingAnchor(){} function drawOutline(){LOG.push(['outline']);}
             function relevelForLineView(){LOG.push(['relevel']);} function markChosenLines(){} function shownChoice(){}
             function updateMarkdownStrip(){LOG.push(['strip']);} function readSpot(){} function tintChangedLines(){}
             """,
+            "let PENDING_PIN_JUMP=null,PENDING_HEADING=null;",
+            extract_js_fn("finishPendingPinJump"),
+            extract_js_fn("finishPendingHeading"),
+            extract_js_fn("prepareMarkdownColumn"),
             extract_js_fn("showDocumentNode"),
             "showDocumentNode({dataset:{}}); console.log(JSON.stringify(LOG));",
         )

@@ -141,7 +141,7 @@ async function pollLightOnce() {
   ) {
     markdownSurface().reading().asked = meta.src_mtime;
     markdownSurface().build();
-    // a tree image rewritten on disk shows without a reload (markdown/view.ts)
+    // a tree image rewritten on disk shows without a reload (markdown/flow-image-refresh.ts)
   } else if (isMarkdownDoc()) void markdownSurface().checkTreeImages();
   if (applied) {
     LAST_PINS_REVISION = meta.pins_rev;

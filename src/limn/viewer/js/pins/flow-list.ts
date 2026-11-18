@@ -65,7 +65,7 @@ import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { isElementLost, hasMark, pinPieces, pinPlace } from '../pdf/view-figure.ts';
-import { jumpToPinLines, drawPinMarks } from '../markdown/view.ts';
+import { jumpToPinLines, drawPinMarks } from '../markdown/view-marks.ts';
 import { recomputeOverlap, renderOverlapBanner } from '../composer/view-overlap.ts';
 import { mentionsMe } from './view-card-parts.ts';
 import { doneCard, drawTrash, openTrash, listDropped } from './view-cards.ts';
@@ -408,22 +408,6 @@ function setListOrder(order: string | undefined) {
   drawPins();
   listScroller().scrollTop += control.getBoundingClientRect().top - y;
 }
-// The scroller's height changed (a window, the sheet dragged): the observer's margin follows it.
-if (window.ResizeObserver) {
-  const listResize = new ResizeObserver(() => {
-    const list = $('#list'),
-      width = list.getClientRects().length ? list.clientWidth : 0;
-    if (width && width !== LAZY_WIDTH) lazyAgain();
-    else if (LAZY_IO && listScroller().clientHeight !== LAZY_HEIGHT) lazyWatch();
-  });
-  listResize.observe($('#list'));
-  listResize.observe($('#right'));
-}
-document.fonts.addEventListener('loadingdone', (event) => {
-  if (!$$('#list .pin.card.lazy').length) return;
-  const listFonts = getComputedStyle($('#list')).fontFamily;
-  if (event.fontfaces.some((face) => listFonts.includes(face.family.replace(/^["']|["']$/g, '')))) lazyAgain();
-});
 // A focus on a card's control (its number, a button) goes back to the same control of the same card once the lists are
 // drawn again (a poll, someone's change, the list read after a [지우기] whose focus went to the card beside): drawn
 // anew, it would fall to the page and the next Tab start over. Text fields keep theirs above; a card gone leaves the
@@ -466,30 +450,12 @@ $('#left').addEventListener('focusin', (event: FocusEvent) => {
   if (!MARK_TAB || !(badge instanceof HTMLElement) || !badge.matches('.mark button.mark-jump')) return;
   markReveal(badge);
 });
-if (window.ResizeObserver) {
-  const coverResize = new ResizeObserver(markCoversMoved);
-  for (const selector of MARK_COVERS) {
-    const cover = $(selector);
-    if (cover) coverResize.observe(cover, { box: 'border-box' });
-  }
-}
 // The overlay panel slides in and out by its offset, its size unchanged (responsive.css mid-panel-in, side-panel.css
 // side-in): the observer hears of the panel only while it is still off the pages, so the slide's end asks again.
 $('#right').addEventListener('animationend', (event: AnimationEvent) => {
   if (event.target === event.currentTarget) markCoversMoved();
 });
 let MARK_COVER_TICK = 0;
-$('#left').addEventListener(
-  'scroll',
-  () => {
-    if (MARK_COVER_TICK) return;
-    MARK_COVER_TICK = requestAnimationFrame(() => {
-      MARK_COVER_TICK = 0;
-      markCoverSkip();
-    });
-  },
-  { passive: true },
-);
 // Draws the marks of this document's open and awaiting-review pins, one element per piece of each pin's mark: the boxes
 // the server computed for a LaTeX line pin's range, where a figure pin's element is now, else where the pin was pinned
 // (pinPieces), then decides each badge's side (markBadgeSides) and puts a save's or an append's undo chip back on its
@@ -553,18 +519,6 @@ function marks() {
   markBadgeSides();
   drawChips();
 }
-// Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
-// a drag over it still becomes a new selection - only the badge button needs to block mousedown.
-$('#doc').addEventListener(
-  'mousedown',
-  (event: MouseEvent) => {
-    if (eventElement(event)?.closest('.mark [data-act=mark-jump]')) {
-      event.stopPropagation();
-      event.preventDefault();
-    }
-  },
-  true,
-);
 // Clicking a badge -> scroll to the card + .cur highlight + a 1.2-second flash. The highlight is never left on - it
 // releases, so it does not stay on the card until the next click. compact: clicking a badge expands the panel/sheet and
 // that card, then scrolls via jumpToCard. Expands the section that holds pin id if it is collapsed (a mark click, a
@@ -730,7 +684,57 @@ $('#pins').addEventListener('mouseout', (event: MouseEvent) => {
     document.querySelectorAll('.mark[data-pin="' + id + '"]').forEach((mark) => mark.classList.remove('hi'));
   });
 });
+function watchPinPlacement() {
+  // The scroller's height changed (a window, the sheet dragged): the observer's margin follows it.
+  if (window.ResizeObserver) {
+    const listResize = new ResizeObserver(() => {
+      const list = $('#list'),
+        width = list.getClientRects().length ? list.clientWidth : 0;
+      if (width && width !== LAZY_WIDTH) lazyAgain();
+      else if (LAZY_IO && listScroller().clientHeight !== LAZY_HEIGHT) lazyWatch();
+    });
+    listResize.observe($('#list'));
+    listResize.observe($('#right'));
+  }
+  if (window.ResizeObserver) {
+    const coverResize = new ResizeObserver(markCoversMoved);
+    for (const selector of MARK_COVERS) {
+      const cover = $(selector);
+      if (cover) coverResize.observe(cover, { box: 'border-box' });
+    }
+  }
+  document.fonts.addEventListener('loadingdone', (event) => {
+    if (!$$('#list .pin.card.lazy').length) return;
+    const listFonts = getComputedStyle($('#list')).fontFamily;
+    if (event.fontfaces.some((face) => listFonts.includes(face.family.replace(/^["']|["']$/g, '')))) lazyAgain();
+  });
+  $('#left').addEventListener(
+    'scroll',
+    () => {
+      if (MARK_COVER_TICK) return;
+      MARK_COVER_TICK = requestAnimationFrame(() => {
+        MARK_COVER_TICK = 0;
+        markCoverSkip();
+      });
+    },
+    { passive: true },
+  );
+  // Clicking a badge scrolls to and flashes the card (never calls pick). The mark box itself has pointer-events:none, so
+  // a drag over it still becomes a new selection - only the badge button needs to block mousedown.
+  $('#doc').addEventListener(
+    'mousedown',
+    (event: MouseEvent) => {
+      if (eventElement(event)?.closest('.mark [data-act=mark-jump]')) {
+        event.stopPropagation();
+        event.preventDefault();
+      }
+    },
+    true,
+  );
+}
+
 export {
+  watchPinPlacement,
   PINS_APPLIED_SEQ,
   cardNeighbour,
   drawPins,

@@ -34,7 +34,7 @@ import { VECTOR_PDF } from '../pdf/state-vector.ts';
 import { pageText } from '../pdf/flow.ts';
 import { kindFor, wireScope } from '../composer/view-levels.ts';
 import { figureFields } from '../pdf/view-figure.ts';
-import { MARKDOWN_VIEW } from '../markdown/view.ts';
+import { MARKDOWN_VIEW } from '../markdown/state.ts';
 import { renderComposer } from '../composer/flow-selection.ts';
 import { offlineUiSync } from './view.ts';
 import { SELECTION_POPOVER_FIELD, isSelectionPopoverOpen } from '../composer/view-selection-popover.ts';

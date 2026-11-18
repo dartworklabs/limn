@@ -36,9 +36,7 @@ from helpers import ps, req
 from helpers_browser import VIEWPORTS, BrowserBase, settle
 from helpers_figure import BUILD1, viewer_build
 
-DRAWN = (
-    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
-)
+DRAWN = "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_JOB"
 # The renderer has answered: it is ready, or it is off for good (ADR-0036 D2).
 SETTLED = "typeof TEX_RENDERER!=='undefined'&&TEX_RENDERER.state!=='none'"
 ORIGIN = "http://viewer.test"

@@ -8,7 +8,7 @@ import { bannerNote, quietNote } from '../platform/notices.ts';
 import { viaDoc } from '../documents/flow-switch.ts';
 import { kindFor, wireScope } from '../composer/view-levels.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
-import { editCardLevels } from '../markdown/view.ts';
+import { editCardLevels } from '../markdown/view-levels.ts';
 import {
   editDocKind,
   renderEditSuggest,
@@ -134,14 +134,6 @@ placeholder="이 줄들을 바꿀 글 (비우면 이 줄들을 지웁니다)" da
   noteField.focus();
   editSnip(true);
 }
-document.addEventListener('input', (event) => {
-  const target = event.target;
-  if (
-    target instanceof HTMLElement &&
-    (target.classList.contains('e-note') || target.classList.contains('r-text') || target.id === 'note')
-  )
-    autoGrow(target);
-});
 // The open card's source text, and with withLevels the range ladder round its lines (?levels=1) - on opening and
 // after a save or a re-place, which may have moved them. Never ?boxes=1: the card draws no box of its own (a saved
 // pin's mark is what GET /api/pins answers) and the server runs a process per line of every rung to answer one
@@ -192,6 +184,14 @@ async function editSnip(withLevels: boolean) {
     }
     renderEdit();
   } catch (error) {}
+}
+function growEditedField(event: Event) {
+  const target = event.target;
+  if (
+    target instanceof HTMLElement &&
+    (target.classList.contains('e-note') || target.classList.contains('r-text') || target.id === 'note')
+  )
+    autoGrow(target);
 }
 function cancelEdit() {
   setEditorCurrent(null);
@@ -434,4 +434,5 @@ function editSuggestRefused(card: EditCard, data: PinConflict) {
     { source: 'POST /api/pins/' + card.id + '/edit edit' },
   );
 }
-export { cancelEdit, editSnip, openEdit, saveEdit };
+
+export { growEditedField, cancelEdit, editSnip, openEdit, saveEdit };

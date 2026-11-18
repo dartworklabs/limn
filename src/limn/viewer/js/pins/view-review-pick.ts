@@ -4,13 +4,12 @@ import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { ORDER, SECTION_OPEN } from '../platform/prefs.ts';
 import { canConfirmReview } from '../documents/view-meta.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownPin } from '../markdown/view.ts';
+import { isMarkdownPin, pdoc } from '../documents/state.ts';
 import { suggestBadge } from '../composer/flow-suggest.ts';
 import { docChip, fmtText, isQuestion, locText, messageBody } from './view-card-parts.ts';
 import type { Html } from '../platform/markup.ts';
 import { $, findElement, focusedElement, findClosest } from '../platform/dom.ts';
 import { verdictOf, lineRange } from '../app/rules-pins.ts';
-import { pdoc } from '../documents/state.ts';
 import { pinVerdicts } from './state-seams.ts';
 import { orderPins } from './view-list-sections.ts';
 

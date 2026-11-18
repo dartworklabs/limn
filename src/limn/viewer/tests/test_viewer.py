@@ -3179,8 +3179,7 @@ class FrontendFigure(unittest.TestCase):
 
     def test_the_composer_shows_the_element_from_the_pick_without_asking_again(self):
         """The location line has a path slot before the lines; both composer branches draw the element; a pick selects
-        its element, a rung its rung's; the element code sends no request; pdf/view-figure.ts sits between the ladder and the
-        composer parts."""
+        its element, a rung its rung's; the element code sends no request."""
         self.assertIn(
             '<div class="c-loc-main"><span id="c-path" class="hit" role="button" tabindex="0" data-act="el-show" hidden></span><span id="c-loc"',
             HTML,
@@ -3191,9 +3190,6 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn(sq("if(rung.el)owner.elSel=rung.el;"), sq(extract_js_fn("useLevel")))
         for fn in ("elementPathText", "snapBox", "renderElement"):
             self.assertNotIn("api(", extract_js_fn(fn), fn)
-        parts = (PKG / "viewer" / "parts.txt").read_text(encoding="utf-8")
-        self.assertLess(parts.index("js/composer/view-levels.ts"), parts.index("js/pdf/view-figure.ts"))
-        self.assertLess(parts.index("js/pdf/view-figure.ts"), parts.index("js/composer/flow-pick.ts"))
 
     def test_a_figure_region_is_named_by_what_the_map_found_and_a_view_only_region_keeps_its_name(self):
         """figureRegionBadge: an element without code lines reads '코드 없는 요소', a figure region without an element

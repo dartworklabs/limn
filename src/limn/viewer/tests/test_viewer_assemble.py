@@ -24,26 +24,19 @@ PAGE = (
     '<link href="/favicon.ico?v=__ICON_KEY__"><link rel="stylesheet" href="/f.css?v=__PRETENDARD_VERSION__">'
     '<script src="/viewer.js?v=__VIEWER_JS_KEY__"></script></html>'
 )
-# The script's modules: placeholders in the first, an icon token in the second. The built script (dist/viewer.js) is
-# their text joined, as tools/build_viewer.mjs writes it for modules with no import or export.
-SCRIPT_PARTS = (
-    "const V='__PDFJS_VERSION__',W='__KATEX_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\nf();\n",
-    "g({{ic:a}});\n",
-)
+# The packaged classic script has its own placeholders and icon token.
+SCRIPT = "const V='__PDFJS_VERSION__',W='__KATEX_VERSION__';const ICONS=__LUCIDE_JSON__;const I18N_EN=__UI_EN_JSON__;\nf();\ng({{ic:a}});\n"
 ICONS = {"x": '<path d="M1 1"/>', "a": '<path d="M2 2"/>'}
 
 
 def viewer_folder(root: Path, page: str = PAGE) -> Path:
-    """A minimal viewer folder under root: index.html, one CSS part, two JS modules, their manifest and the built script."""
+    """A minimal viewer folder under root: index.html, the CSS cascade and the built script."""
     (root / "css").mkdir()
-    (root / "js").mkdir()
     (root / "dist").mkdir()
-    (root / "dist" / "viewer.js").write_text("".join(SCRIPT_PARTS), encoding="utf-8")
+    (root / "dist" / "viewer.js").write_text(SCRIPT, encoding="utf-8")
     (root / "index.html").write_text(page, encoding="utf-8")
     (root / "css" / "a.css").write_text("b{}\n", encoding="utf-8")
-    (root / "js" / "one.ts").write_text(SCRIPT_PARTS[0], encoding="utf-8")
-    (root / "js" / "two.ts").write_text(SCRIPT_PARTS[1], encoding="utf-8")
-    (root / "parts.txt").write_text("__APP_CSS__\ncss/a.css\n__APP_JS__\njs/one.ts\njs/two.ts\n", encoding="utf-8")
+    (root / "parts.txt").write_text("css/a.css\n", encoding="utf-8")
     return root
 
 

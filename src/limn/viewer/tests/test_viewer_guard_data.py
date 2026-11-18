@@ -42,7 +42,7 @@ from limn.pins.location import (
 from helpers import PKG, ROOT, Base, extract_js_fn, js_const, ps, run_node
 from helpers_access import ALICE, BOB, AccessBase
 
-VIEW_TS = PKG / "viewer" / "js" / "markdown" / "view.ts"
+PARSER_TS = PKG / "viewer" / "js" / "markdown" / "flow-parse.ts"
 # Every construct the viewer's markdown-it reads (md-parse.mjs mdParser: CommonMark, GFM tables and strikethrough, raw
 # HTML, no linkify, no typographer) and the rules it adds (front matter, display and inline math), so each token type
 # and attribute the build can send is sent at least once.
@@ -154,8 +154,8 @@ KINDS = {
 
 
 def declared_token_fields() -> dict[str, str]:
-    """interface MarkdownToken's fields in markdown/view.ts, as name -> type text."""
-    body = re.search(r"^interface MarkdownToken \{\n(.*?)^\}", VIEW_TS.read_text(encoding="utf-8"), re.M | re.S)
+    """interface MarkdownToken's fields in markdown/flow-parse.ts, as name -> type text."""
+    body = re.search(r"^interface MarkdownToken \{\n(.*?)^\}", PARSER_TS.read_text(encoding="utf-8"), re.M | re.S)
     assert body, "interface MarkdownToken not found"
     return dict(re.findall(r"^  (\w+): (.+);$", body.group(1), re.M))
 

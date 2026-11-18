@@ -359,13 +359,6 @@ async function runDrawJob(job: { n: number; kind: string }) {
     else pageElement.prepend(canvas);
   }
 }
-$('#left').addEventListener(
-  'scroll',
-  () => {
-    if (VECTOR_PDF.doc) scheduleVectorDraw(120);
-  },
-  { passive: true },
-);
 // devicePixelRatio changes with browser zoom (Ctrl+wheel outside the PDF, etc.) or moving the window to a different
 // screen: the pages redraw at that scale.
 (function watchDpr() {
@@ -379,7 +372,15 @@ $('#left').addEventListener(
     { once: true },
   );
 })();
-{
+
+function watchVectorViewport() {
+  $('#left').addEventListener(
+    'scroll',
+    () => {
+      if (VECTOR_PDF.doc) scheduleVectorDraw(120);
+    },
+    { passive: true },
+  );
   const viewport = window.visualViewport;
   if (viewport)
     viewport.addEventListener('resize', () => {
@@ -388,6 +389,7 @@ $('#left').addEventListener(
 }
 
 export {
+  watchVectorViewport,
   cancelVectorDraw,
   closeVectorDocument,
   failVector,

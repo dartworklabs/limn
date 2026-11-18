@@ -169,7 +169,9 @@ class TreeReferenceRules(unittest.TestCase):
 
     def test_the_viewers_image_suffixes_are_the_servers(self):
         """The suffixes imageSource loads are the ones GET /api/asset serves - the served constant, read from the file."""
-        src = helpers_js.module_text(Path(limn.__file__).resolve().parent / "viewer" / "js" / "markdown" / "view.ts")
+        src = helpers_js.module_text(
+            Path(limn.__file__).resolve().parent / "viewer" / "js" / "markdown" / "rules-tree.ts"
+        )
         init = helpers_js.statement_init(helpers_js.module_declaration(src, "IMAGE_SUFFIXES"), "IMAGE_SUFFIXES")
         self.assertTrue(init.startswith("Object.freeze("), init)
         exts = re.findall(r"'([^']+)'", init)

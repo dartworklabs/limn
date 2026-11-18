@@ -78,7 +78,7 @@ function pageSelection(): PageSelection {
   return PAGE_SELECTION;
 }
 
-// What pdf writes into the Markdown surface's state when it draws pages (markdown/view.ts MARKDOWN_VIEW): the draw
+// What pdf writes into the Markdown surface's state when it draws pages (markdown/state.ts MARKDOWN_VIEW): the draw
 // generation, which a draw still on its way checks, and the document it shows.
 interface MarkdownDrawn {
   gen: number;

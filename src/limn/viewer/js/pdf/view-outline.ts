@@ -12,7 +12,7 @@ import { arrivalWatch, glideTo } from '../layout/flow-scroll.ts';
 import { pageChanges, pageMarkdown } from './state-seams.ts';
 import { goPage, jumpOnItsWay, OUTLINE_PICK_GAP, spotTop, readingDepth } from './view-page-jump.ts';
 // One row of the outline: a PDF outline item (loadOutline, its number and page label from mergeOutlineLabels) or a
-// Markdown heading (markdown/view.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
+// Markdown heading (markdown/view-outline.ts drawOutline). up is the index of the entry it sits under (-1 at the top).
 type OutlineEntry = {
   title: string;
   page: number;
@@ -849,7 +849,6 @@ window.addEventListener('keydown', (event) => {
   if (SCROLL_KEYS.has(event.key) && (!focused || focused === document.body || $('#left').contains(focused)))
     dropOutlinePick();
 });
-window.addEventListener('resize', dropOutlinePick);
 // Sets OUTLINE_BUILD, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setOutlineBuild<Value extends typeof OUTLINE_BUILD>(value: Value): Value {
   OUTLINE_BUILD = value;
@@ -879,6 +878,7 @@ function setOutlineSelected<Value extends typeof OUTLINE_SELECTED>(value: Value)
 }
 export type { OutlineEntry };
 export {
+  dropOutlinePick,
   OUTLINE_ACTIVE_PAGE,
   OUTLINE_ENTRIES,
   OUTLINE_SELECTED,

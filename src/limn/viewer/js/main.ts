@@ -1,4 +1,4 @@
-// ------------------------------------------------ Help
+// ------------------------------------------------ Viewer startup and page-wide input
 import {
   DOCS,
   LAYOUT,
@@ -49,7 +49,7 @@ import {
   DIGEST,
   digestSoon,
 } from './platform/notices.ts';
-import { TIP, focusGivenBack, hideTip } from './platform/tooltip.ts';
+import { watchTooltips, TIP, focusGivenBack, hideTip } from './platform/tooltip.ts';
 import {
   closeDocMenu,
   multiDoc,
@@ -85,6 +85,7 @@ import {
   loadViews,
   applyViewWidth,
   restoreView,
+  saveView,
 } from './documents/flow-switch.ts';
 import {
   notifyToggle,
@@ -103,6 +104,7 @@ import { setBuildLastSeq, startBuildPolling, rebuild } from './documents/flow-bu
 import { setBuildUnchanged, SHOWN_BUILD } from './documents/state-build.ts';
 import { reloadForUpdate, visitedBefore, checkDocsSeen, DIGEST_TAIL_MS } from './documents/flow-updates.ts';
 import {
+  watchStatusPlacement,
   drawStatus,
   statusWhy,
   toggleStatusList,
@@ -111,6 +113,7 @@ import {
   placeStatus,
 } from './documents/view-status.ts';
 import { applySideWidth, outlineOverlay } from './layout/flow-panel-size.ts';
+import { arrivalLetGo } from './layout/flow-scroll.ts';
 import { sizePreset } from './layout/flow-panel-actions.ts';
 import {
   actualSize,
@@ -125,8 +128,15 @@ import {
   widestPagePoints,
   drawZoom,
 } from './pdf/view-pages.ts';
-import { pickOutline, updateSectionStrip, OUTLINE_ACTIVE_PAGE, markOutline } from './pdf/view-outline.ts';
 import {
+  dropOutlinePick,
+  pickOutline,
+  updateSectionStrip,
+  OUTLINE_ACTIVE_PAGE,
+  markOutline,
+} from './pdf/view-outline.ts';
+import {
+  watchPageListPlacement,
   closePageList,
   goListedPage,
   togglePageList,
@@ -134,10 +144,11 @@ import {
   revealPageRow,
   tipCutTitles,
 } from './pdf/view-page-list.ts';
-import { searchClose, searchGo, searchOpen, searchFit, searchLeave, SEARCH } from './pdf/flow.ts';
+import { watchSearchDismissal, searchClose, searchGo, searchOpen, searchFit, searchLeave, SEARCH } from './pdf/flow.ts';
 import { revisionPdfActive, revisionZoom } from './revisions/input.ts';
 import { zoomKey } from './pdf/input-zoom.ts';
 import {
+  watchFrameSize,
   toggleOutline,
   applyOutlineState,
   focusSideToggle,
@@ -154,22 +165,15 @@ import {
 } from './layout/flow.ts';
 import { applyRange, dropLine, widenTo } from './composer/view-excerpt.ts';
 import { showElementBox } from './pdf/view-figure.ts';
-import {
-  goToAnchor,
-  goToDocLink,
-  toggleHtmlRun,
-  MARKDOWN_VIEW,
-  buildMarkdownDoc,
-  checkTreeImages,
-  lineLeaves,
-  markdownPositionLabel,
-  readingAnchor,
-  showLines,
-  showMarkdownHint,
-  keepReadingSpot,
-  goToHeading,
-  updateMarkdownStrip,
-} from './markdown/view.ts';
+import { watchReadingScroll } from './markdown/input-navigation.ts';
+import { goToAnchor, goToDocLink } from './markdown/flow-links.ts';
+import { toggleHtmlRun } from './markdown/view-html.ts';
+import { MARKDOWN_VIEW } from './markdown/state.ts';
+import { buildMarkdownDoc } from './markdown/view.ts';
+import { checkTreeImages } from './markdown/flow-image-refresh.ts';
+import { lineLeaves, readingAnchor, keepReadingSpot, goToHeading } from './markdown/view-reading.ts';
+import { markdownPositionLabel, showMarkdownHint, updateMarkdownStrip } from './markdown/view-outline.ts';
+import { showLines } from './markdown/view-marks.ts';
 import { stepChangeGroup } from './revisions/view-rendered-compare.ts';
 import { SUGGEST_OPEN, suggestAct } from './composer/flow-suggest.ts';
 import {
@@ -182,7 +186,7 @@ import {
 } from './composer/flow-selection.ts';
 import { recomputeOverlap, renderOverlapBanner } from './composer/view-overlap.ts';
 import { pick } from './composer/flow-pick.ts';
-import { saveDraftSoon, parkDraft } from './composer/flow-draft.ts';
+import { syncDraft, saveDraftSoon, parkDraft } from './composer/flow-draft.ts';
 import { restoreDraft, openDraftDoc } from './composer/flow-restore-draft.ts';
 import { appendToPin, savePin } from './composer/flow-save.ts';
 import { saveButtonLabel } from './composer/view-save.ts';
@@ -202,35 +206,31 @@ import {
   offlineQueueSave,
   offlineKey,
 } from './offline/flow.ts';
+// Install the queued pin controls.
+import './offline/input.ts';
 import { READING_LINE_PAGE } from './verdict/state-lines.ts';
 import { stickSoon, setVerdictLineRenderer } from './verdict/state-line-renderer.ts';
+import { watchVerdictFold } from './verdict/input-typing-fold.ts';
+import { cancelLineVerdict, undoFromLine, verdictUndo } from './verdict/flow-cancel.ts';
+import { verdictPress } from './verdict/flow-save.ts';
+import { watchVerdictFonts } from './verdict/view-line-fit.ts';
+import { sizePageLines } from './verdict/view-line-fit.ts';
+import { renderVerdictRow, figureVerdictBody, figureVerdictRoot, verdictDropped } from './verdict/flow-words.ts';
 import {
-  cancelLineVerdict,
-  undoFromLine,
-  verdictPress,
-  sizePageLines,
-  renderVerdictRow,
-  figureVerdictBody,
-  figureVerdictRoot,
-  verdictUndo,
-  verdictDropped,
   drawPageVerdicts,
   isShownOnLine,
   jumpToPageLine,
-  goToSummaryPage,
   fillPageLine,
   stickReadingLine,
   watchLineChips,
 } from './verdict/flow-line.ts';
+import { watchVerdictLayout } from './verdict/input-lines.ts';
+import { goToSummaryPage } from './verdict/input-lines.ts';
 import { isReasonField, isComposingNow } from './verdict/view-reason-field.ts';
-import {
-  actOnReason,
-  focusLine,
-  afterComposition,
-  holdReasonFocus,
-  restoreReasonFocus,
-} from './verdict/flow-reason.ts';
-import { setBuildReadingPage, pageUnderReadingLine } from './verdict/view-panel.ts';
+import { watchReasonInput } from './verdict/input-reason.ts';
+import { actOnReason, afterComposition } from './verdict/input-reason.ts';
+import { focusLine, holdReasonFocus, restoreReasonFocus } from './verdict/view-reason.ts';
+import { watchPanelNavigation, setBuildReadingPage, pageUnderReadingLine } from './verdict/view-panel.ts';
 import {
   handPopoverToComposer,
   openSelectionPopover,
@@ -240,10 +240,13 @@ import {
   placeSelectionPopover,
 } from './composer/view-selection-popover.ts';
 import { MESSAGE_OPEN } from './pins/view-card-parts.ts';
-import { ARC_OPEN, openTrash } from './pins/view-cards.ts';
+// Refresh claim ages while the page is open.
+import './pins/flow-claims.ts';
+import { tickRel, ARC_OPEN, openTrash } from './pins/view-cards.ts';
 import { REVIEW_PICK } from './pins/view-review-pick.ts';
 import { confirmTicked, setReviewPicking, goToReviewCard } from './pins/flow-review-pick.ts';
 import {
+  watchPinPlacement,
   cardNeighbour,
   drawPins,
   focusCard,
@@ -257,13 +260,13 @@ import {
   toggleSection,
   marks,
 } from './pins/flow-list.ts';
-import { MARKS, marksSet } from './pins/input-hide-marks.ts';
+import { marksKeyDown, MARKS, marksSet } from './pins/input-hide-marks.ts';
 import { closePin, confirmPin, dropPin, purgePin, trashRestore, unclaimPin } from './pins/flow-actions.ts';
 import { setAssignNewValue, setAssignNewTouched } from './composer/state-assignee.ts';
-import { mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
+import { watchMentions, mentionApply, renderAssignEdit, renderAssignNew } from './composer/input-mentions.ts';
 import { renderReplyOutcome, replyNote } from './pins/view-reply.ts';
 import { closeReply, openReply, sendReply } from './pins/flow-reply.ts';
-import { cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
+import { growEditedField, cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
 import { setPinVerdicts } from './pins/state-seams.ts';
 import { applyRepick, startRepick } from './composer/flow-repick.ts';
@@ -276,7 +279,7 @@ import { isMarkdownDoc, viewerBlocked, withDocQuery, isTextDoc, pageVerdictsOn }
 import { useLevel } from './documents/rules.ts';
 import { setHtml } from './platform/markup.ts';
 import { bootVector, openVectorDocument } from './pdf/flow-open.ts';
-import { releaseAllVectorPages } from './pdf/view-draw.ts';
+import { watchVectorViewport, releaseAllVectorPages } from './pdf/view-draw.ts';
 import {
   setChangesView,
   setDocumentNavigation,
@@ -459,6 +462,40 @@ setPinVerdicts({
   jumpToLine: jumpToPageLine,
 });
 setVerdictLineRenderer({ watchLineChips, drawPageVerdicts, fillPageLine, stickReadingLine });
+
+// A captured click dismisses notices before a tooltip can swallow it or the page list can close.
+watchTooltips();
+watchSearchDismissal();
+
+// Cancel stale page arrivals and outline jumps before fitting the frame. Place overlays after measuring the pages.
+watchStatusPlacement();
+window.addEventListener('resize', arrivalLetGo);
+window.addEventListener('resize', dropOutlinePick);
+watchPageListPlacement();
+watchVectorViewport();
+watchFrameSize();
+watchReadingScroll();
+watchVerdictFold();
+watchVerdictFonts();
+watchVerdictLayout();
+$('#left').addEventListener('scroll', placeSelectionPopover, { passive: true });
+window.addEventListener('resize', placeSelectionPopover);
+watchPinPlacement();
+
+// Verdict line controls handle a key or end a glide before the panel, mark shortcuts and mention picker respond.
+watchReasonInput();
+watchPanelNavigation();
+window.addEventListener('keydown', marksKeyDown);
+watchMentions();
+document.addEventListener('input', growEditedField);
+
+// An expired claim can redraw the cards. Refresh their relative timestamps after the claim clock.
+setInterval(tickRel, 60000);
+
+// The revisions listener first restores the manuscript, whose reading position belongs in session storage.
+window.addEventListener('pagehide', saveView);
+window.addEventListener('pagehide', syncDraft);
+
 let HELP_BACK: HTMLElement | null = null;
 // Opens help with its head on one ink line (headInk); closing it gives the focus back to what had it.
 function openHelp() {
@@ -605,14 +642,14 @@ document.addEventListener('click', (event) => {
     case 'verdict-save':
     case 'pv-save':
       verdictPress(control, event.detail === 0 ? 'kb' : undefined);
-      break; // a verdict word's button: the composer's row or a page verdict line (verdict/flow-line.ts)
+      break; // a verdict word's button: the composer's row or a page verdict line (verdict/flow-save.ts)
     case 'pv-earlier':
       gotoPinRef(Number(control.dataset.ref), event.detail === 0);
       break;
     case 'pv-cancel':
       cancelLineVerdict(control);
-      break; // a page line's [판정 취소] on the person's own open verdict (verdict/flow-line.ts)
-    // a page line's reason and its popover (verdict/flow-reason.ts)
+      break; // a page line's [판정 취소] on the person's own open verdict (verdict/flow-cancel.ts)
+    // a page line's reason and its popover (verdict/input-reason.ts)
     case 'pv-reason-open':
     case 'pv-reason-save':
     case 'pv-reason-clear':
@@ -627,7 +664,7 @@ document.addEventListener('click', (event) => {
       break; // a page's summary beside the verdict panel brings that page to it (verdict/view-panel.ts)
     case 'pv-undo':
       undoFromLine(control);
-      break; // a take-back's [되돌리기] on its line (verdict/flow-line.ts)
+      break; // a take-back's [되돌리기] on its line (verdict/flow-cancel.ts)
     case 'pop-more':
       handPopoverToComposer();
       break; // the note popover by the box hands over to the composer in the panel

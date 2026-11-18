@@ -30,12 +30,11 @@ from limn.revisions import scope
 from limn.runtime import documents
 from limn.security import access
 from limn.sync import rules as pull
-from limn.viewer import assemble
 
 import helpers_js
-from helpers import PKG, VIEWER, VIEWER_CLOSED_SETS, extract_js_fn, run_node, sq
+from helpers import PKG, VIEWER, VIEWER_CLOSED_SETS, extract_js_fn, run_node, sq, viewer_modules
 
-PARTS = assemble.viewer_manifest(VIEWER)["__APP_JS__"]
+PARTS = viewer_modules()
 CORPUS = Path(__file__).resolve().parents[4] / "tests" / "data" / "pin_records.jsonl"
 
 # Top-level functions no other code of the page names. Each needs a reason; anything else unreferenced is dead code or
@@ -50,7 +49,7 @@ CODE_IN_COMMENT = re.compile(r"[\w$\])]=[\w$.]+\(|[\w$\]]\((?:[^()]|\([^()]*\))*
 
 
 def part_sources() -> dict[str, str]:
-    """Every JS module of the page's script, by manifest path, in run order, as the build puts it into the script: its
+    """Every JS module of the page's script, by source path: its
     import and export statements taken out (helpers_js.module_code) - they name the module's bindings, they are not
     uses of them."""
     texts = helpers_js.module_texts([VIEWER / name for name in PARTS])

@@ -5,8 +5,7 @@ import { META, rendersInBrowser, showsSourceLines, DOCS, DEFAULT_DOC, DOC } from
 import { ROLE } from '../app/rules-tables.ts';
 import { bannerNote } from '../platform/notices.ts';
 import { NOTICE_KIND } from '../platform/tables.ts';
-// Whether the document on screen is drawn here (no pages), and whether a pin belongs to such a document of this
-// instance.
+// Whether the document on screen is drawn here from its source.
 function isMarkdownDoc() {
   return !!META && rendersInBrowser(META.kind);
 }
@@ -19,6 +18,18 @@ function docInfo(doc: string | null) {
 }
 function pdoc(pin: Pin) {
   return (pin && pin.doc) || DEFAULT_DOC;
+}
+// The tree path of the document on screen (its /api/docs path), or null when it lies outside the tree (the path is
+// absolute).
+function documentTreePath() {
+  const entry = docInfo(DOC),
+    path = entry ? String(entry.path || '') : '';
+  return path && !path.startsWith('/') ? path : null;
+}
+/** Does this pin belong to a document drawn from source instead of PDF pages? */
+function isMarkdownPin(pin: Pin) {
+  const entry = docInfo(pdoc(pin));
+  return !!entry && rendersInBrowser(entry.kind);
 }
 function isRegion(pin: { kind?: string; file?: string; pdf?: string } | null | undefined) {
   return !!pin && (pin.kind === 'region' || (!pin.file && !!pin.pdf));
@@ -77,6 +88,8 @@ function setStatusSync<Value extends typeof STATUS_SYNC>(value: Value): Value {
   return value;
 }
 export {
+  isMarkdownPin,
+  documentTreePath,
   isMarkdownDoc,
   isTextDoc,
   docInfo,

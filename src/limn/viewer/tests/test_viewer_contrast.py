@@ -968,7 +968,7 @@ class ContrastWalk(BrowserBase):
         for key, state in (("nt", "Markdown document"), ("dp", "Markdown source lines")):
             page.evaluate("k=>switchDoc(k)", key)
             page.wait_for_function(
-                "k=>DOC===k&&MARKDOWN_VIEW.shown===k&&!MARKDOWN_VIEW.job&&!!document.querySelector('article#md')",
+                "k=>DOC===k&&MARKDOWN_VIEW.shown===k&&!MARKDOWN_JOB&&!!document.querySelector('article#md')",
                 arg=key,
             )
             settle(page)

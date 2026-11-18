@@ -175,7 +175,6 @@ function parkDraft() {
   DRAFT.key = null;
   DRAFT.origin = null;
 }
-window.addEventListener('pagehide', syncDraft);
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) syncDraft();
 });

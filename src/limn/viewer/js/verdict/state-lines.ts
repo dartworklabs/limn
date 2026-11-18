@@ -24,4 +24,42 @@ function setReadingLinePages(readingPage: number, keyedPage: number) {
   KEYED_PAGE = keyedPage;
 }
 
-export { KEYED_PAGE, READING_LINE_PAGE, SAVING_LINES, KEY_SAVE_OUT, pageLineSlot, setReadingLinePages };
+// The press made on a line while its save was out, by line (pageLineSlot) - the last one: applied when that save is
+// done (pressPageVerdict).
+const NEXT_PRESS: Map<string, { key: string; how: string }> = new Map();
+
+// A line whose word was just taken back by pressing it again (pageLineSlot): that word waits until then (a double press
+// takes back one).
+const TAKEN_BACK_HOLD: Map<string, { key: string; until: number }> = new Map();
+
+// A page line's last failed save, by page: said on the line that was pressed (pageLineHtml) as well as on the status
+// line, until the next press on that line or another document or build. The document and build it was for come with it.
+const LINE_SAVE_ERROR: Map<number, { text: string; doc: string | null; build: string }> = new Map();
+
+const CANCEL_HOLD: Map<string, number> = new Map(); // line (pageLineSlot) -> until when its [판정 취소] waits
+
+// The lines whose take-back is out: Enter and Space on them do nothing until it answers (stopOffPageKey). What the
+// focus rests on is what the line shows meanwhile, the verdict before it: Enter there would open a reason for it, or
+// take that one back too. An answer that does not come must not leave the line deaf: past CANCEL_ANSWER_WAIT the keys
+// are back and the status line says so; the late answer is still taken (its message, its [되돌리기]), but the focus has
+// moved on by then and stays. The value says whose wait it is.
+const CANCEL_OUT: Map<string, number> = new Map();
+
+// The take-backs whose [되돌리기] the line offers too, by line (pageLineSlot): the pin and its status-line message -
+// the offer lasts as long as that message (its window, or its action).
+const LINE_UNDO_OFFERS: Map<string, { id: number; n: number }> = new Map();
+
+export {
+  CANCEL_HOLD,
+  CANCEL_OUT,
+  KEYED_PAGE,
+  KEY_SAVE_OUT,
+  LINE_SAVE_ERROR,
+  LINE_UNDO_OFFERS,
+  NEXT_PRESS,
+  READING_LINE_PAGE,
+  SAVING_LINES,
+  TAKEN_BACK_HOLD,
+  pageLineSlot,
+  setReadingLinePages,
+};

@@ -713,7 +713,7 @@ def function_body(page: str, name: str) -> str:
 
 
 # The module syntax the viewer's ES modules carry (docs/adr/0042-viewer-es-modules.md): the named imports at the top, a
-# bare import the build puts in, and the export list at the end - one statement each, possibly over several lines.
+# side-effect-only import, and the export list at the end - one statement each, possibly over several lines.
 _MODULE_SYNTAX = re.compile(r"^(?:import \{[^}]*\} from '[^']+';|import '[^']+';|export \{[^}]*\};)\n", re.M)
 
 

@@ -148,9 +148,8 @@ function handPopoverToComposer() {
   applySide();
   $('#note').focus();
 }
-$('#left').addEventListener('scroll', placeSelectionPopover, { passive: true });
-window.addEventListener('resize', placeSelectionPopover);
 new ResizeObserver(placeSelectionPopover).observe($('#doc')); // a zoom moves the box with its page
+
 export {
   SELECTION_POPOVER,
   SELECTION_POPOVER_BOX,

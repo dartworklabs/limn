@@ -316,26 +316,6 @@ document.addEventListener(
   },
   true,
 );
-document.addEventListener(
-  'click',
-  (event) => {
-    if (Date.now() < SWALLOW_CLICK) {
-      SWALLOW_CLICK = 0;
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }
-  },
-  true,
-);
-// Inside that window a touch's compatibility mousedown must not move focus either: after a quick pick opens the sheet
-// under the finger it would focus the note field and raise the virtual keyboard.
-document.addEventListener(
-  'mousedown',
-  (event) => {
-    if (Date.now() < SWALLOW_CLICK && LAST_POINTER !== 'mouse') event.preventDefault();
-  },
-  true,
-);
 document.addEventListener('contextmenu', (event) => {
   if (LAST_POINTER === 'mouse') return;
   const target = eventElement(event);
@@ -352,14 +332,6 @@ document.addEventListener(
     const element = TIP.hidden ? armedTipElement : null;
     hideTip();
     if (element && element.contains(document.activeElement) && keyInput()) armTip(element);
-  },
-  true,
-);
-// Releasing right after a long-press opens it, Chrome sends a simulated mousedown - that alone must never close it.
-document.addEventListener(
-  'mousedown',
-  () => {
-    if (Date.now() >= SWALLOW_CLICK) hideTip();
   },
   true,
 );
@@ -448,34 +420,66 @@ function tipDescribeTree(node: Node) {
   if (element.matches(TIP_SELECTOR)) tipDescribe(element);
   for (const descendant of element.querySelectorAll(TIP_SELECTOR)) tipDescribe(descendant);
 }
-// Kept in step with every drawing: an element drawn, an explanation, a name or a tab stop changed, or the words of an
-// element with an explanation (its name) rewritten.
-new MutationObserver((mutations) => {
-  for (const mutation of mutations) {
-    const target = mutation.target;
-    if (mutation.type === 'attributes') {
-      if (target instanceof Element) tipDescribe(target);
-      continue;
-    }
-    if (mutation.type === 'childList') mutation.addedNodes.forEach(tipDescribeTree);
-    const host = target instanceof Element ? target : target.parentElement;
-    const owner = host && host.closest(TIP_SELECTOR);
-    if (owner) tipDescribe(owner);
-  }
-}).observe(document.body, {
-  childList: true,
-  subtree: true,
-  characterData: true,
-  attributes: true,
-  attributeFilter: ['data-tip', 'data-tip-press', 'aria-label', 'aria-describedby', 'tabindex'],
-});
-tipDescribeTree(document.body);
 // Sets SWALLOW_CLICK, which this module declares, for another module that changes it (ADR-0042 D1); answers the value.
 function setSwallowClick<Value extends typeof SWALLOW_CLICK>(value: Value): Value {
   SWALLOW_CLICK = value;
   return value;
 }
+function watchTooltips() {
+  // Kept in step with every drawing: an element drawn, an explanation, a name or a tab stop changed, or the words of an
+  // element with an explanation (its name) rewritten.
+  new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      const target = mutation.target;
+      if (mutation.type === 'attributes') {
+        if (target instanceof Element) tipDescribe(target);
+        continue;
+      }
+      if (mutation.type === 'childList') mutation.addedNodes.forEach(tipDescribeTree);
+      const host = target instanceof Element ? target : target.parentElement;
+      const owner = host && host.closest(TIP_SELECTOR);
+      if (owner) tipDescribe(owner);
+    }
+  }).observe(document.body, {
+    childList: true,
+    subtree: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ['data-tip', 'data-tip-press', 'aria-label', 'aria-describedby', 'tabindex'],
+  });
+  tipDescribeTree(document.body);
+  document.addEventListener(
+    'click',
+    (event) => {
+      if (Date.now() < SWALLOW_CLICK) {
+        SWALLOW_CLICK = 0;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    },
+    true,
+  );
+  // Inside that window a touch's compatibility mousedown must not move focus either: after a quick pick opens the sheet
+  // under the finger it would focus the note field and raise the virtual keyboard.
+  document.addEventListener(
+    'mousedown',
+    (event) => {
+      if (Date.now() < SWALLOW_CLICK && LAST_POINTER !== 'mouse') event.preventDefault();
+    },
+    true,
+  );
+  // Releasing right after a long-press opens it, Chrome sends a simulated mousedown - that alone must never close it.
+  document.addEventListener(
+    'mousedown',
+    () => {
+      if (Date.now() >= SWALLOW_CLICK) hideTip();
+    },
+    true,
+  );
+}
+
 export {
+  watchTooltips,
   SWALLOW_CLICK,
   TIP,
   TIP_AT,

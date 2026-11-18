@@ -36,9 +36,7 @@ def note(intro, item="", cell="대상 누적", row="", pic="v1", moved=False):
     return "# 노트\n\n" + intro + "\n\n" + (TERMS + "\n" + body if moved else body + "\n" + TERMS)
 
 
-DRAWN = (
-    "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_VIEW.job"
-)
+DRAWN = "typeof MARKDOWN_VIEW!=='undefined'&&MARKDOWN_VIEW.shown===DOC&&!!document.querySelector('#md')&&!MARKDOWN_JOB"
 COMPARED = "REVISION_VIEW.format===DIFF_FORMAT.RENDERED&&!!document.querySelector('#revision-rendered .mdc-frame')&&RENDERED_COMPARE.key===revisionKey()"
 SOURCED = (
     "REVISION_VIEW.format===DIFF_FORMAT.SOURCE&&REVISION_VIEW.sourceCommit===revisionKey()&&!!REVISION_VIEW.target"

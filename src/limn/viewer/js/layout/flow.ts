@@ -476,8 +476,6 @@ function bandStale() {
   const input = bandInput();
   return !!BAND_IN && (input.w !== BAND_IN.w || input.h !== BAND_IN.h || input.coarse !== BAND_IN.coarse);
 }
-window.addEventListener('resize', scheduleRelayout);
-COARSE_POINTER_QUERY.addEventListener('change', scheduleRelayout);
 // Even a mere #left width change from expanding/collapsing the panel (compact) re-fits the page width. The layout is
 // never changed directly in the callback - it is deferred to the next frame (avoids a ResizeObserver loop warning).
 // wide reacts only to window-size changes. Never re-fit while the handle is being dragged (body.resizing) -
@@ -509,13 +507,6 @@ function onViewport() {
     $('#right').contains(focused)
   )
     requestAnimationFrame(() => focused.scrollIntoView({ block: 'center' }));
-}
-{
-  const viewport = window.visualViewport;
-  if (viewport) {
-    viewport.addEventListener('resize', onViewport);
-    viewport.addEventListener('scroll', onViewport);
-  }
 }
 document.addEventListener('focusin', (event) => {
   const target = event.target;
@@ -901,15 +892,6 @@ function headInk() {
   const hangul = hangulOf(title.textContent);
   head.style.setProperty('--ink-word', inkDrops(hangul ? inkMetrics(title, hangul).d : 0, 0).word + 'px');
 }
-// The interface font arrives after the first layout (docs/handbook/viewer.md §글꼴): font-display: swap draws a text in
-// a fallback until its slice of Pretendard has loaded, and a slice loads when a character of its range first shows.
-// What was measured from text in the meantime - the sheet bar's steps (fitBarWords) and an open sheet's ink line
-// (footInk, headInk) - is measured again each time a load finishes.
-document.fonts.addEventListener('loadingdone', () => {
-  frameHost().fitBarWords();
-  if ($('#more').open) footInk();
-  if ($('#help').open) headInk();
-});
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
@@ -1023,7 +1005,27 @@ function closeTopLayer() {
     focusSideToggle();
   }
 }
+function watchFrameSize() {
+  window.addEventListener('resize', scheduleRelayout);
+  COARSE_POINTER_QUERY.addEventListener('change', scheduleRelayout);
+  const viewport = window.visualViewport;
+  if (viewport) {
+    viewport.addEventListener('resize', onViewport);
+    viewport.addEventListener('scroll', onViewport);
+  }
+  // The interface font arrives after the first layout (docs/handbook/viewer.md §글꼴): font-display: swap draws a text in
+  // a fallback until its slice of Pretendard has loaded, and a slice loads when a character of its range first shows.
+  // What was measured from text in the meantime - the sheet bar's steps (fitBarWords) and an open sheet's ink line
+  // (footInk, headInk) - is measured again each time a load finishes.
+  document.fonts.addEventListener('loadingdone', () => {
+    frameHost().fitBarWords();
+    if ($('#more').open) footInk();
+    if ($('#help').open) headInk();
+  });
+}
+
 export {
+  watchFrameSize,
   onRelayout,
   setFrameHost,
   frameHost,

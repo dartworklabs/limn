@@ -13,7 +13,7 @@ import { openStoredDraft, rememberRestoredDraft, syncDraft, saveDraftSoon } from
 import { lineNote } from '../platform/notices.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { drawBox, newBox, pendingBadge, revealBox } from '../pdf/input-selection.ts';
-import { relevelForLineView } from '../markdown/view.ts';
+import { relevelForLineView } from '../markdown/flow-pick.ts';
 import { cancelSelection, discardSelection, renderComposer, setKind } from './flow-selection.ts';
 import { recomputeOverlap } from './view-overlap.ts';
 import { ASSIGN_NEW, setAssignNewValue, setAssignNewTouched } from './state-assignee.ts';
@@ -168,7 +168,7 @@ function hasComposerChoice(value: Record<string, unknown>) {
     absentOr(value.rel, (rel) => isListOf(rel, isPickOverlap))
   );
 }
-// Whether value is lines picked on a drawn Markdown or text document as markdown/view.ts pickLines writes them,
+// Whether value is lines picked on a drawn Markdown or text document as markdown/flow-pick.ts pickLines writes them,
 // with the rung, lines and snippet the composer chose since. Pure.
 function isLinePick(value: unknown): value is LinePick {
   if (!isRecord(value)) return false;

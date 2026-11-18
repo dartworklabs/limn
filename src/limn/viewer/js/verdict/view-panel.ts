@@ -526,9 +526,6 @@ function heldPanelPage() {
   );
   return page;
 }
-$('#left').addEventListener('scrollend', () => {
-  if (IS_BESIDE_PAGES) stickSoon();
-}); // after verdict/flow-line.ts's, which ends the guard
 // The reading page with a line as the lines are drawn (drawPageVerdicts): the held one while a glide holds the panel -
 // a list read again on the way would fill it with a page passed - else the page under the reading line
 // (readingPageWithLine).
@@ -574,38 +571,6 @@ function markStops(page: number): HTMLElement[] {
   const block = document.querySelector('#doc .pgw[data-page="' + page + '"]');
   return block ? [...block.querySelectorAll(TABBABLE)].filter(isTabStop) : [];
 }
-// Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next
-// stop is a later page's mark, whose focus would scroll the pages there.
-window.addEventListener('keydown', (event) => {
-  if (
-    event.key !== 'Tab' ||
-    event.shiftKey ||
-    event.ctrlKey ||
-    event.metaKey ||
-    event.altKey ||
-    event.defaultPrevented ||
-    !IS_BESIDE_PAGES
-  )
-    return;
-  const active = focusedElement(),
-    readingPage = readingPageWithLine(),
-    marks = readingPage ? markStops(readingPage) : [];
-  if (!active || !(active === marks[marks.length - 1] || active.classList.contains('pv-sum'))) return;
-  const first = [...ensurePanel().querySelectorAll(TABBABLE)].find(isTabStop);
-  if (first) {
-    event.preventDefault();
-    first.focus({ preventScroll: true });
-  }
-});
-// Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on
-// the pages. A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
-window.addEventListener('keydown', (event) => {
-  if (event.key !== 'Escape' || event.defaultPrevented || !IS_BESIDE_PAGES) return;
-  const active = document.activeElement;
-  if (!active || !active.closest || !active.closest('#pv-panel') || active.closest('.pv-pop')) return;
-  event.preventDefault();
-  searchToPage();
-});
 // A tall panel (.pv-tall) scrolls inside. A control the keyboard focuses there comes whole into its view, focus ring
 // and all: the reason popover's Tab loop focuses without scrolling (verdict/flow-reason.ts), which would leave its
 // first word and last control out of sight; the browser's own Tab scrolls only the control's edge to the panel's, which
@@ -636,14 +601,6 @@ function revealFocused() {
   else if (rect.bottom + margin > bottom) panel.scrollTop += rect.bottom + margin - bottom;
 }
 const RING_ROOM = 2; // px kept clear past a revealed control's focus ring
-$('#doc').addEventListener('focusin', (event: FocusEvent) => {
-  if (eventClosest(event, '#pv-panel.pv-tall', Element)) requestAnimationFrame(revealFocused);
-});
-// The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
-if (typeof ResizeObserver !== 'undefined')
-  new ResizeObserver(() => {
-    if (LAYOUT === LAYOUT_MODE.WIDE && pageVerdictsOn()) stickSoon();
-  }).observe($('#left'));
 // Sets BUILD_READING_PAGE, which this module declares, for another module that changes it (ADR-0042 D1); answers the
 // value.
 function setBuildReadingPage<Value extends typeof BUILD_READING_PAGE>(value: Value): Value {
@@ -659,7 +616,54 @@ function sayGliding() {
   });
 }
 
+function watchPanelNavigation() {
+  // The PDF area's width changes with no window resize (the outline folded or dragged): the room is read again.
+  if (typeof ResizeObserver !== 'undefined')
+    new ResizeObserver(() => {
+      if (LAYOUT === LAYOUT_MODE.WIDE && pageVerdictsOn()) stickSoon();
+    }).observe($('#left'));
+  $('#left').addEventListener('scrollend', () => {
+    if (IS_BESIDE_PAGES) stickSoon();
+  }); // after verdict/flow-line.ts's, which ends the guard
+  // Tab from the reading page's last mark, or from a summary a person went back to, goes to the panel: the DOM's next
+  // stop is a later page's mark, whose focus would scroll the pages there.
+  window.addEventListener('keydown', (event) => {
+    if (
+      event.key !== 'Tab' ||
+      event.shiftKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.defaultPrevented ||
+      !IS_BESIDE_PAGES
+    )
+      return;
+    const active = focusedElement(),
+      readingPage = readingPageWithLine(),
+      marks = readingPage ? markStops(readingPage) : [];
+    if (!active || !(active === marks[marks.length - 1] || active.classList.contains('pv-sum'))) return;
+    const first = [...ensurePanel().querySelectorAll(TABBABLE)].find(isTabStop);
+    if (first) {
+      event.preventDefault();
+      first.focus({ preventScroll: true });
+    }
+  });
+  // Esc on a control of the panel hands the focus to the PDF area: from there the page keys and Tab work as anywhere on
+  // the pages. A confirm word's Esc lets it go first, and the reason popover's Esc is its own.
+  window.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || event.defaultPrevented || !IS_BESIDE_PAGES) return;
+    const active = document.activeElement;
+    if (!active || !active.closest || !active.closest('#pv-panel') || active.closest('.pv-pop')) return;
+    event.preventDefault();
+    searchToPage();
+  });
+  $('#doc').addEventListener('focusin', (event: FocusEvent) => {
+    if (eventClosest(event, '#pv-panel.pv-tall', Element)) requestAnimationFrame(revealFocused);
+  });
+}
+
 export {
+  watchPanelNavigation,
   IS_BESIDE_PAGES,
   bringPage,
   flashPanelOn,

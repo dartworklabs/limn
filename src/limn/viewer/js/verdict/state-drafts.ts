@@ -1,7 +1,6 @@
 // ------------------------------------------------ A verdict reason's drafts, kept per pin (sessionStorage)
 import { META } from '../app/state.ts';
 import { isRecord } from '../platform/tables.ts';
-import type { ReasonSession } from './flow-reason.ts';
 type ReasonDraft = {
   text: string;
   base: string;
@@ -230,15 +229,6 @@ function putDraft(
   else delete drafts[key];
   saveAllDrafts(drafts);
 }
-// Keeps a reason session's text as its pin's draft (open, not folded), with its lost writes and the parts it came from.
-function keepDraft(session: ReasonSession, folded?: boolean) {
-  putDraft(session.doc, session.id || 'p' + session.page, session.text, session.base, session.rev, {
-    mode: session.mode,
-    folded: !!folded,
-    tried: session.tried,
-    from: session.via,
-  });
-} // not bound yet: the page's
 function dropDraft(doc: string | null, id: number | string) {
   const drafts = readAllDrafts(),
     key = reasonDraftKey(doc, id);
@@ -326,7 +316,6 @@ export {
   cutWrittenParts,
   getDraft,
   putDraft,
-  keepDraft,
   dropDraft,
   movedPart,
   ownText,

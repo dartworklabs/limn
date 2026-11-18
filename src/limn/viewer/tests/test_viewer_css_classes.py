@@ -32,7 +32,7 @@ BUILT = {
     "nk-": ("platform/notices.ts, documents/view-status.ts (a message's kind)", {"err", "info", "ok", "warn"}),
     "ev-": ("pins/view-card-parts.ts (a thread's state record)", {"assign", "close", "confirm", "reopen"}),
     "rd-": ("revisions/flow.ts, composer/flow-suggest.ts (a diff line's kind)", {"del", "file", "hunk", "meta"}),
-    "md-al-": ("markdown/view.ts (a Markdown table cell's alignment)", {"center", "left", "right"}),
+    "md-al-": ("markdown/view-blocks.ts (a Markdown table cell's alignment)", {"center", "left", "right"}),
     "mdc-chip-": ("revisions/view-rendered-compare.ts (a change chip's kind)", {"pin"}),
     "mdc-": ("revisions/view-rendered-compare.ts (a compared block's change)", {"del", "ins", "mod", "move"}),
     "ol-depth-": ("pdf/view-outline.ts (an outline entry's depth)", {"0", "1", "2", "3", "4"}),

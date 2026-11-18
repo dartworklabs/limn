@@ -4,7 +4,7 @@ import { markHiddenPlain } from '../platform/hidden-chars.ts';
 import { translateTemplate, translate, josa } from '../platform/i18n.ts';
 import { multiDoc } from '../documents/view-tabs.ts';
 import { pinPlace } from '../pdf/view-figure.ts';
-import { isMarkdownPin } from '../markdown/view.ts';
+import { isMarkdownPin, docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { quoteInner, shownQuote } from '../composer/flow-selection.ts';
 import { nameShared, personLabel, mentionAfterWord } from '../composer/input-mentions.ts';
 import type { Html } from '../platform/markup.ts';
@@ -21,7 +21,6 @@ import {
 import { pinState, lineRange } from '../app/rules-pins.ts';
 import { who, peopleName, meLogin, isMe } from '../app/state-people.ts';
 import { FAILED_AVATARS, avatar } from '../app/view-people.ts';
-import { docInfo, isRegion, pdoc, isViewer } from '../documents/state.ts';
 import { QUOTE_OPEN } from '../composer/view-text.ts';
 import { relSpan, stampSpan } from './view-time.ts';
 
