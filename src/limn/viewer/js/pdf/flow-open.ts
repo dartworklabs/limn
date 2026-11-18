@@ -13,92 +13,23 @@
 // No text-selection layer is added: dragging selects a region, and a text layer would conflict with it.
 import { DOC, META } from '../app/state.ts';
 import { translateTemplate } from '../platform/i18n.ts';
-import { loadOutline, outlineForget } from './view-outline.ts';
+import { loadOutline } from './flow-outline.ts';
+import { outlineForget } from './view-outline.ts';
 import { cancelVectorDraw, closeVectorDocument, failVector, scheduleVectorDraw } from './view-draw.ts';
 import { searchClear, searchOffer } from './flow.ts';
 import { $ } from '../platform/dom.ts';
 import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
+import {
+  VECTOR_PDF,
+  advanceVectorGeneration,
+  setVectorDocument,
+  setVectorBuild,
+  setVectorFailed,
+  setVectorOpenedAt,
+  setVectorLibrary,
+  isVectorCached,
+} from './state-vector.ts';
 const PDFJS_VERSION = '__PDFJS_VERSION__';
-const VECTOR_PIXEL_CAP = 16777216,
-  VECTOR_KEEP_MARGIN = '150% 0px',
-  VECTOR_DETAIL_MARGIN = 0.25;
-// What is drawn for one page (view-draw.ts pageDrawState): its page canvas and the size it was drawn at, its detail canvas
-// with the region of the page (fractions) it covers and the size and pixel ratio it was drawn at, and whether the page
-// must be drawn again.
-interface PageDrawState {
-  base: HTMLCanvasElement | null;
-  bw: number;
-  bh: number;
-  dt: HTMLCanvasElement | null;
-  reg: { x: number; y: number; w: number; h: number } | null;
-  dtCw: number;
-  dtK: number;
-  stale: boolean;
-}
-// The vector view's state (VECTOR_PDF): the PDF.js library once imported, the document on screen and its build, the
-// generation each open and each failure bumps (a draw of an older one is dropped), why vector drawing gave up, the observer of the pages near the view and those pages,
-// what is drawn for each page, the render running now, whether the draw queue is being worked, its timer, the draws'
-// timings, when the first page and the document were drawn, and the opened documents cached by 'document|build'.
-interface VectorPdfState {
-  lib: PdfLibrary | null;
-  doc: PdfDocument | null;
-  build: string | null;
-  gen: number;
-  failed: string | null;
-  io: IntersectionObserver | null;
-  near: Set<number>;
-  st: Map<number, PageDrawState>;
-  cur: { n: number; task: PdfRenderTask } | null;
-  pumping: boolean;
-  timer: number;
-  stats: { n: number; kind: string; ms: number; w: number; h: number }[];
-  tFirst: number | null;
-  tDoc: number | null;
-  cache: Map<string, PdfDocument>;
-}
-// The PDF.js library (types/pdfjs.d.ts), the document on screen and the opened documents cached by 'document|build'.
-const VECTOR_PDF: VectorPdfState = {
-  lib: null,
-  doc: null,
-  build: null,
-  gen: 0,
-  failed: null,
-  io: null,
-  near: new Set(),
-  st: new Map(),
-  cur: null,
-  pumping: false,
-  timer: 0,
-  stats: [],
-  tFirst: null,
-  tDoc: null,
-  cache: new Map(),
-};
-// Each sets one field of VECTOR_PDF for another module that changes it (ADR-0042 D1): the assignment, nothing more.
-function setVectorFailed(value: string | null) {
-  VECTOR_PDF.failed = value;
-}
-function advanceVectorGeneration() {
-  VECTOR_PDF.gen++;
-}
-function setVectorDocument(value: PdfDocument | null) {
-  VECTOR_PDF.doc = value;
-}
-function setVectorObserver(value: IntersectionObserver | null) {
-  VECTOR_PDF.io = value;
-}
-function setVectorTimer(value: number) {
-  VECTOR_PDF.timer = value;
-}
-function setVectorPumping(value: boolean) {
-  VECTOR_PDF.pumping = value;
-}
-function setVectorCurrent(value: typeof VECTOR_PDF.cur) {
-  VECTOR_PDF.cur = value;
-}
-function setVectorFirstDrawn(value: number | null) {
-  VECTOR_PDF.tFirst = value;
-}
 // Multiple documents: holds up to VECTOR_CACHE_MAX recently opened PDF document objects keyed by 'document|build', so
 // switching tabs back draws immediately without re-fetching. Beyond that, the least recently used is closed first
 // (worker memory). An old build of the same document is closed when a new build opens.
@@ -123,19 +54,6 @@ function cacheVectorDocument(key: string, doc: PdfDocument) {
     if (cachedDoc !== VECTOR_PDF.doc && cachedDoc !== doc) closeVectorDocument(cachedDoc);
   }
 }
-// Whether a PDF document object is one the cache still holds (and so must not be closed).
-function isVectorCached(doc: PdfDocument | null) {
-  for (const cachedDoc of VECTOR_PDF.cache.values()) if (cachedDoc === doc) return true;
-  return false;
-}
-// Drops a PDF document object from the cache without closing it.
-function forgetVectorDocument(doc: PdfDocument | null) {
-  VECTOR_PDF.cache.forEach((cachedDoc, cachedKey) => {
-    if (cachedDoc === doc) VECTOR_PDF.cache.delete(cachedKey);
-  });
-}
-// For measurement (Playwright): canvas count, render time.
-window.__pinVec = VECTOR_PDF;
 // Whether a value is the PDF.js module as the viewer uses it (types/pdfjs.d.ts PdfLibrary): a getDocument function and
 // the worker options.
 function isPdfLibrary(value: unknown): value is PdfLibrary {
@@ -163,10 +81,11 @@ async function bootVector() {
     return;
   }
   try {
-    VECTOR_PDF.lib = await importPdfLibrary();
-    VECTOR_PDF.lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
+    const library = await importPdfLibrary();
+    setVectorLibrary(library);
+    library.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.min.mjs?v=' + PDFJS_VERSION;
   } catch (error) {
-    VECTOR_PDF.lib = null;
+    setVectorLibrary(null);
     failVector('pdf.js 를 불러오지 못했습니다', error);
     return;
   }
@@ -178,12 +97,12 @@ async function openVectorDocument() {
   // A Markdown document has no PDF: the PDF work still pending for the document left (its fetch, outline, pages) is
   // stale from here, or its outline would land over the Markdown headings.
   if (isMarkdownDoc()) {
-    VECTOR_PDF.gen++;
+    advanceVectorGeneration();
     cancelVectorDraw();
     return;
   }
   if (!VECTOR_PDF.lib || !META) return;
-  const gen = ++VECTOR_PDF.gen,
+  const gen = advanceVectorGeneration(),
     build = META.pages_build || '',
     pageCount = META.pages.length,
     key = vectorCacheKey(DOC, build);
@@ -197,8 +116,8 @@ async function openVectorDocument() {
     // The old document (a different document or an old build) is never used for the new page DOM: the PNG pages show
     // while the PDF is fetched.
     const previousDoc = VECTOR_PDF.doc;
-    VECTOR_PDF.doc = null;
-    VECTOR_PDF.build = null;
+    setVectorDocument(null);
+    setVectorBuild(null);
     if (previousDoc && !isVectorCached(previousDoc)) closeVectorDocument(previousDoc);
     try {
       const response = await fetch(
@@ -228,10 +147,10 @@ async function openVectorDocument() {
   } else cacheVectorDocument(key, doc); // promoted as most recently used
   if (gen !== VECTOR_PDF.gen) return;
   const old = VECTOR_PDF.doc;
-  VECTOR_PDF.doc = doc;
-  VECTOR_PDF.build = build;
-  VECTOR_PDF.failed = null;
-  VECTOR_PDF.tDoc = performance.now();
+  setVectorDocument(doc);
+  setVectorBuild(build);
+  setVectorFailed(null);
+  setVectorOpenedAt(performance.now());
   $('#vec-chip').hidden = true;
   loadOutline(doc, gen);
   searchOffer(); // its text can be searched now
@@ -241,23 +160,4 @@ async function openVectorDocument() {
   if (old && old !== doc && !isVectorCached(old)) closeVectorDocument(old);
   scheduleVectorDraw(0);
 }
-export {
-  PDFJS_VERSION,
-  VECTOR_PDF,
-  VECTOR_DETAIL_MARGIN,
-  VECTOR_KEEP_MARGIN,
-  VECTOR_PIXEL_CAP,
-  bootVector,
-  forgetVectorDocument,
-  importPdfLibrary,
-  isPdfLibrary,
-  openVectorDocument,
-  setVectorFailed,
-  advanceVectorGeneration,
-  setVectorDocument,
-  setVectorObserver,
-  setVectorTimer,
-  setVectorPumping,
-  setVectorCurrent,
-  setVectorFirstDrawn,
-};
+export { PDFJS_VERSION, bootVector, importPdfLibrary, isPdfLibrary, openVectorDocument };

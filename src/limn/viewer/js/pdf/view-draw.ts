@@ -17,7 +17,7 @@ import {
   setVectorPumping,
   setVectorCurrent,
   setVectorFirstDrawn,
-} from './flow-open.ts';
+} from './state-vector.ts';
 import { searchOffer } from './flow.ts';
 import { $, $$ } from '../platform/dom.ts';
 // Closes one document - PDFDocumentProxy has no destroy of its own; loadingTask frees the worker-side resources too.
