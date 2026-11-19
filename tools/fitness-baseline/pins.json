@@ -104,7 +104,7 @@
   },
   "pins/location/lookup.py": {
     "role-unknown": 1,
-    "isinstance": 9
+    "isinstance": 7
   },
   "pins/location/mapping.py": {
     "role-unknown": 1,

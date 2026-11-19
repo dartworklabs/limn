@@ -15,16 +15,9 @@ from limn.pins.store import PinReader
 Json = dict[str, Any]
 
 
-class ListingDeps(Protocol):
-    """Only the run-specific facts that JSON pin views need."""
-
-    def pin_reader(self) -> PinReader:
-        """The run's pin store and lock."""
-        ...
-
-    def snapshot_pins(self) -> list[Pin]:
-        """Live pins at their saved positions and revisions."""
-        ...
+class Places(Protocol):
+    """One computation's answers about where the pins' files are (the composition root's PinPlaces): each file is
+    judged once for all of them, so one listing takes one value and drops it when it has answered."""
 
     def public(self, record: Record) -> Json:
         """One record with its current file path exposed to the API, and its suggestion's state when it has one."""
@@ -40,6 +33,22 @@ class ListingDeps(Protocol):
 
     def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
         """Which verdict pins a newer verdict pin supersedes, computed over all live pins."""
+        ...
+
+
+class ListingDeps(Protocol):
+    """Only the run-specific facts that JSON pin views need."""
+
+    def pin_reader(self) -> PinReader:
+        """The run's pin store and lock."""
+        ...
+
+    def snapshot_pins(self) -> list[Pin]:
+        """Live pins at their saved positions and revisions."""
+        ...
+
+    def places(self) -> Places:
+        """A fresh view of where the pins' files are, for one listing."""
         ...
 
     def pin_doc_key(self, record: Record) -> str:
@@ -69,28 +78,48 @@ class PinListing:
     def pins_payload(self, pins: Sequence[Pin], allp: bool) -> list[Json]:
         """The list with overlap, estimation, figure element positions, line marks and verdict supersession computed
         over the full live set."""
-        rows = [pin.record for pin in pins]
+        return self._views(pins, [pin.record for pin in pins], allp)
+
+    def _views(self, pins: Sequence[Pin], rows: Sequence[Record], allp: bool) -> list[Json]:
+        """The records of rows as GET /api/pins lists them (the open ones, every one when allp), in rows' order.
+
+        pins is the full live set: a pin's overlaps and a verdict pin's supersession are relations to every other
+        live pin, so both are computed over all of pins whatever rows asks for. rows is the part of that set to
+        answer; everything a record carries beyond those two relations - how it is shown, its estimate, its
+        element's position, where its lines print - is computed for the records of rows alone, and each of them
+        reads only that record and its own document's facts. So a record's answer does not depend on which other
+        records are in rows, and answering one pin costs one pin's work on top of the two relations. Where a file
+        is is judged once per file for the whole call (one Places value)."""
+        places = self.deps.places()
         return view.pins_payload(
             rows,
             allp,
-            self.deps.overlaps_by_id(pins),
-            self.deps.public,
+            places.overlaps_by_id(pins),
+            places.public,
             self.deps.pin_doc_key,
             self.deps._doc_est_context,
             time.time(),
             self.deps.element_follower,
-            self.deps.superseded_by_id(pins),
+            places.superseded_by_id(pins),
             self.deps.line_boxes,
         )
 
     def list_payload(self, allp: bool, doc_key: str | None = None) -> list[Json]:
-        """Read live pins, then scope the fully computed list to one document if requested."""
-        rows = self.pins_payload(self.deps.snapshot_pins(), allp)
-        return [r for r in rows if r["doc"] == doc_key] if doc_key is not None else rows
+        """Read live pins and list them, the pins of one document alone when doc_key names it. The overlaps and
+        supersessions are still those over every live pin; only the listed document's records are computed."""
+        pins = self.deps.snapshot_pins()
+        rows = [pin.record for pin in pins]
+        if doc_key is not None:
+            rows = [r for r in rows if self.deps.pin_doc_key(r) == doc_key]
+        return self._views(pins, rows, allp)
 
     def pin_payload(self, pid: int) -> Json | PinNotFound:
-        """One pin as the full list renders it, or its named miss."""
-        rec = next((r for r in self.pins_payload(self.deps.snapshot_pins(), True) if r["id"] == pid), None)
+        """One pin as the full list renders it, or its named miss: the first listed record whose shown id is pid.
+        Only records stored under that id are computed; a shown id is the stored one or, for a number the wire
+        cannot carry, null, so no other record could match."""
+        pins = self.deps.snapshot_pins()
+        rows = [pin.record for pin in pins if pin.record["id"] == pid]
+        rec = next((r for r in self._views(pins, rows, True) if r["id"] == pid), None)
         return PinNotFound(pid) if rec is None else rec
 
     def dropped_payload(self, now: float | None = None) -> list[Json]:
@@ -102,6 +131,6 @@ class PinListing:
         visible = without_live_shadows(entries, pins)
         return view.dropped_payload(
             unexpired(visible, self.trash_days, time.time() if now is None else now),
-            self.deps.public_trashed,
+            self.deps.places().public_trashed,
             lambda entry: expires_ts(entry, self.trash_days),
         )

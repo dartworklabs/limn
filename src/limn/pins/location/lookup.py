@@ -9,15 +9,25 @@ import os
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, NamedTuple, Protocol, TypeAlias
+from typing import Any, NamedTuple, Protocol, TypeAlias, final
 
 from limn.pins.location import position
 from limn.pins.location.mapping import norm, pin_rel_path
 from limn.pins.location.position import EstContext, resync
-from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, Record, ReviewPin
+from limn.pins.model import DonePin, LineSpan, OpenPin, Pin, PinCore, Record, Region, ReviewPin
 from limn.pins.needs import BuildAnswers
 from limn.pins.pages import keep_pages
-from limn.platform.files import PATH_MAX_CHARS, ManuscriptFile, file_in_tree, tree_part
+from limn.platform.files import (
+    PATH_MAX_CHARS,
+    BadPath,
+    ManuscriptFile,
+    NotAFile,
+    OutsideTree,
+    TreeBounds,
+    file_within,
+    part_within,
+    tree_bounds,
+)
 from limn.runtime.documents import Doc
 
 # One stored pin as the store reads it: a JSON object (limn.pins.store.Row).
@@ -47,7 +57,8 @@ class PinLocation(NamedTuple):
         return self.source.path
 
 
-# Where a stored pin's file is now, as the composition root binds pin_file to its root and the pin's document.
+# Where a stored pin's file is now, as the composition root binds it to one computation's Locations and the pin's
+# document (limn.pins.runtime.PinPlaces.pin_file).
 Locator: TypeAlias = Callable[[Pin], PinLocation | None]
 
 
@@ -61,12 +72,6 @@ class BuildRoot(Protocol):
         ...
 
 
-def _within(p: Path, root: Path, state: Path) -> bool:
-    """Does p, symlinks resolved, belong to the tree root (limn.platform.files.tree_part: inside root, under no dot-named part
-    such as .git and not in the state folder `state`)? False when a path cannot be resolved."""
-    return tree_part(p, root, state) is not None
-
-
 def doc_scope(D: BuildRoot | None, root: Path) -> str:
     """Document D's build root relative to the manuscript root, in POSIX form ('' for the root itself): where a moved
     record's tail is searched (issue #24), so a same-named file of another document is never picked. A LaTeX
@@ -76,10 +81,130 @@ def doc_scope(D: BuildRoot | None, root: Path) -> str:
     if D is None:
         return ""
     try:
-        rel = D.src.resolve().relative_to(root.resolve()).as_posix()
+        return _scope_below(D, root.resolve())
+    except (ValueError, OSError, RuntimeError):
+        return ""
+
+
+def _scope_below(D: BuildRoot, base: Path) -> str:
+    """doc_scope for a document that is configured, against a manuscript root already resolved (base): D's build root
+    relative to base in POSIX form, '' for base itself or when D.src does not resolve to a path under base."""
+    try:
+        rel = D.src.resolve().relative_to(base).as_posix()
     except (ValueError, OSError, RuntimeError):
         return ""
     return "" if rel == "." else rel
+
+
+def _rel_key(file_rel: object) -> str | None:
+    """A stored file_rel as Locations keys a judgment by it: the string itself, None for anything else. The rule
+    (pin_rel_path) reads a file_rel only when it is a string, so every other value judges alike and shares a key -
+    and a hand-edited record's list or object, which cannot be a dictionary key, never reaches one.
+
+    The second case is `object()` and not `_`: an irrefutable case needs assert_never (tools/check_fitness.py)."""
+    match file_rel:
+        case str() as rel:
+            return rel
+        case object():
+            return None
+
+
+@final
+class Locations:
+    """Where stored paths are under one manuscript tree, each judged once: locate_file for one computation.
+
+    A listing, a rendering of pins.md or a re-sync asks where the file of every pin is, and most pins of a
+    manuscript name the same few files. Judging a path resolves symlinks (the path, the root, the state folder)
+    and stats the file, so asking per pin costs file-system work in proportion to the pins. One Locations value
+    resolves the tree's two folders once (limn.platform.files.tree_bounds) and remembers each judgment by what the
+    rule reads: the stored `file`, the stored `file_rel`, and the build root of the pin's document, which scopes
+    the tail guess. The answer for a path is locate_file's, for every path.
+
+    The value is for one computation and is never kept past it: nothing here notices a file, a link or a folder
+    that changes afterwards, so a value shared by two requests would place a pin by what the first one saw. The
+    composition root makes a fresh one per listing, per rendering and per re-sync
+    (limn.pins.runtime.PinCommands.places). What is remembered is where a file is, never permission to read it:
+    PinLocation.source reads through limn.platform.files.ManuscriptFile, which opens no-follow descriptors and
+    judges the path against the tree again at each read, so a link put in a file's place after the judgment is
+    refused there.
+    """
+
+    def __init__(self, root: Path, state: Path) -> None:
+        """Bind the manuscript root and the state folder as the run names them. Nothing is resolved or read until
+        the first path is asked about."""
+        self._root: Path = root
+        self._state: Path = state
+        self._bounds: TreeBounds | None = None
+        self._bounded: bool = False
+        self._found: dict[tuple[str, str | None, Path | None], PinLocation | None] = {}
+        self._scopes: dict[Path, str] = {}
+
+    def _tree(self) -> TreeBounds | None:
+        """The tree's bounds, taken at the first judgment and kept for this value's life; None when the root or the
+        state folder cannot be resolved, and then nothing is located."""
+        if not self._bounded:
+            self._bounds = tree_bounds(self._root, self._state)
+            self._bounded = True
+        return self._bounds
+
+    def _scope(self, doc: BuildRoot | None, bounds: TreeBounds) -> str:
+        """doc_scope of doc against the resolved root, resolved once per build root for this value's life."""
+        if doc is None:
+            return ""
+        src = doc.src
+        if src not in self._scopes:
+            self._scopes[src] = _scope_below(doc, bounds.base)
+        return self._scopes[src]
+
+    def file(self, file: object, file_rel: object, doc: BuildRoot | None) -> PinLocation | None:
+        """Where a stored absolute path is under the manuscript root on this machine now (locate_file's answer and
+        rule), judged at the first ask for this file, file_rel and document folder and answered from memory after."""
+        if not isinstance(file, str) or not file:
+            return None
+        key = (file, _rel_key(file_rel), None if doc is None else doc.src)
+        if key not in self._found:
+            self._found[key] = self._judge(file, file_rel, doc)
+        return self._found[key]
+
+    def _judge(self, file: str, file_rel: object, doc: BuildRoot | None) -> PinLocation | None:
+        """locate_file's rule for one non-empty stored path, against this value's bounds. Reads file metadata only."""
+        bounds = self._tree()
+        if bounds is None:
+            return None
+        root = bounds.root
+        try:
+            under: str | None = Path(file).resolve().relative_to(bounds.base).as_posix()
+        except (ValueError, OSError, RuntimeError):
+            under = None
+        scope = self._scope(doc, bounds) if under is None else ""  # only a moved record needs its document folder
+        rel = pin_rel_path(
+            file,
+            file_rel,
+            under,
+            lambda t: (root / t).is_file() and part_within(root / t, bounds) is not None,
+            scope,
+        )
+        if rel is None:
+            return None
+        match file_within(str(root / rel), bounds):
+            case ManuscriptFile() as source:
+                return PinLocation(rel, source)
+            case BadPath() | OutsideTree() | NotAFile():
+                return None
+
+    def record(self, r: Record, doc: BuildRoot | None) -> PinLocation | None:
+        """pin_location's answer for r - a record, or the location fields of one (file, file_rel) - from memory."""
+        return self.file(r.get("file"), r.get("file_rel"), doc)
+
+    def pin(self, pin: Pin, doc: BuildRoot | None) -> PinLocation | None:
+        """Where a stored line pin's file is under the manuscript root on this machine now, from memory: its
+        LineSpan's file and its file_rel by the rule of file(), as record() reads them off a record. None for a pin
+        placed on a region (it has no file) or on nothing, or a file the rule cannot place inside the tree."""
+        match pin.core.place:
+            case LineSpan(file=file):
+                return self.file(file, pin.core.file_rel, doc)
+            case Region() | None:
+                return None
 
 
 def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: BuildRoot | None) -> PinLocation | None:
@@ -92,20 +217,11 @@ def locate_file(file: object, file_rel: object, root: Path, state: Path, doc: Bu
     through GET /api/pins. The result is checked once more after resolving symlinks against the tree rule
     (limn.platform.files.tree_part), so a link inside the tree cannot lead outside, and a path under a dot-named part (.git,
     .env) or in the state folder `state` is never located - a pin recorded there before that rule is outside the tree
-    (a tail through such a link or part is skipped for the next one)."""
-    if not isinstance(file, str) or not file:
-        return None
-    try:
-        under: str | None = Path(file).resolve().relative_to(root.resolve()).as_posix()
-    except (ValueError, OSError, RuntimeError):
-        under = None
-    scope = doc_scope(doc, root) if under is None else ""  # only a moved record needs its document folder
-    rel = pin_rel_path(file, file_rel, under, lambda t: (root / t).is_file() and _within(root / t, root, state), scope)
-    if rel is None:
-        return None
-    path = root / rel
-    source = file_in_tree(str(path), root, state)
-    return PinLocation(rel, source) if isinstance(source, ManuscriptFile) else None
+    (a tail through such a link or part is skipped for the next one).
+
+    This is one judgment made now. A caller with many pins asks one Locations value instead, which gives this
+    answer for every path and judges each path once."""
+    return Locations(root, state).file(file, file_rel, doc)
 
 
 def recorded_root(file: object, file_rel: object) -> Path | None:
@@ -250,16 +366,8 @@ def pin_location(r: Mapping[str, Any], root: Path, state: Path, doc: Doc | None)
     """Where the file of r - a record, or the location fields of one (file, file_rel) - is under the manuscript root
     on this machine now (locate_file, the tail guess limited to the folder of doc - the pin's own document, None when
     it is no longer configured), or None: no file (a view-only PDF pin), or a file the rule cannot place inside the
-    tree (root minus the state folder `state`). A stored pin is located by pin_file."""
+    tree (root minus the state folder `state`). A stored pin is located by Locations.pin."""
     return locate_file(r.get("file"), r.get("file_rel"), root, state, doc)
-
-
-def pin_file(pin: Pin, root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
-    """Where a stored line pin's file is under the manuscript root on this machine now: its LineSpan's file and its
-    file_rel by locate_file, as pin_location reads them off the record. None for a pin placed on a region (it has no
-    file) or a file the rule cannot place inside the tree."""
-    span = pin.core.place
-    return locate_file(span.file if isinstance(span, LineSpan) else None, pin.core.file_rel, root, state, doc)
 
 
 def stamp_location(r: Row, root: Path, state: Path, doc: Doc | None) -> PinLocation | None:
