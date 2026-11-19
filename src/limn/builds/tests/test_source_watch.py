@@ -23,8 +23,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from limn.builds import artifacts
+from limn.builds import artifacts, service
 from limn.builds.service import BuildRequests
+from limn.platform.diagnostics import BoundedDiagnostics
 from limn.runtime.documents import ApartPaths, Doc, RunPaths
 from limn.runtime.resources import RuntimeResources
 
@@ -86,6 +87,11 @@ class Manuscript(unittest.TestCase):
         self.paths = RunPaths(self.src, self.src / "main.tex", self.state)
         self.doc = Doc("ms", "Body", "tex", self.src, self.src / "main.tex", paths=self.paths)
 
+    def frozen(self):
+        """Stop time.time for a block - the clock the 2 second memo is measured with - so that a read which must hit
+        the memo hits it however long the test takes to get there."""
+        return mock.patch.object(artifacts.time, "time", return_value=time.time())
+
     def edit(self) -> float:
         """Give main.tex an mtime 50 seconds after self.old, as an edit would, and return it."""
         newer = self.old + 50
@@ -111,11 +117,12 @@ class OneMeasurementAtATime(Manuscript):
         waiting = threading.Event()
         self.doc.mcache_measuring = Contended(waiting.set)
         self.doc.mcache_measuring.acquire()  # "another measurement is running"
-        thread, box = self.in_thread(lambda: artifacts.src_mtime(self.doc, self.state))
-        self.assertTrue(waiting.wait(10))
-        self.doc.mcache[0], self.doc.mcache[1], self.doc.mcache[2] = (str(self.src), None), 123.0, time.time()
-        self.doc.mcache_measuring.release()
-        thread.join(10)
+        with self.frozen():
+            thread, box = self.in_thread(lambda: artifacts.src_mtime(self.doc, self.state))
+            self.assertTrue(waiting.wait(10))
+            self.doc.mcache[0], self.doc.mcache[1], self.doc.mcache[2] = (str(self.src), None), 123.0, time.time()
+            self.doc.mcache_measuring.release()
+            thread.join(10)
         counts, answer = box[0]
         self.assertEqual((answer, counts["scandir"], counts["entry_stat"]), (123.0, 0, 0))
 
@@ -168,10 +175,11 @@ class OneMeasurementAtATime(Manuscript):
             """A memo hit must not wait for the measurement lock."""
             raise AssertionError("a memo hit waited for the measurement lock")
 
-        first = artifacts.src_mtime(self.doc, self.state)
-        self.doc.mcache_measuring = Contended(fail)
-        self.doc.mcache_measuring.acquire()
-        self.assertEqual(artifacts.src_mtime(self.doc, self.state), first)
+        with self.frozen():
+            first = artifacts.src_mtime(self.doc, self.state)
+            self.doc.mcache_measuring = Contended(fail)
+            self.doc.mcache_measuring.acquire()
+            self.assertEqual(artifacts.src_mtime(self.doc, self.state), first)
 
 
 NEVER = float("-inf")
@@ -275,7 +283,7 @@ class SummaryReadsTheWatch(Watched):
 
     def test_a_request_measurement_is_trusted_for_two_seconds_only(self):
         """A value a request measured, with no watch behind it, answers inside the 2 seconds and not after."""
-        with at(100):
+        with at(100), self.frozen():
             self.read()
             self.assertEqual(walk_calls(self.read), 0)
             forget_memo_age(self.doc)
@@ -402,7 +410,7 @@ class WatchTurn(Watched):
             self.assertFalse(self.turn())
         newer = self.edit()
         forget_memo_age(self.doc)
-        with at(120):
+        with at(120), self.frozen():
             self.assertEqual(self.read(), newer)
             counts, second = fs_calls(self.read)
         self.assertEqual((second, counts["scandir"]), (newer, 0))
@@ -519,10 +527,40 @@ class WatchLoop(Watched):
         with at(100):
             self.read()
             self.read(other)
-        with at(101), mock.patch.object(artifacts, "watch_src_mtime", failing), redirect_stderr(errors):
-            self.requests([other, self.doc]).watch_sources_round(threading.Event())
+        with (
+            at(101),
+            mock.patch.object(artifacts, "watch_src_mtime", failing),
+            mock.patch.object(service, "diagnostics", BoundedDiagnostics()),
+            redirect_stderr(errors),
+        ):
+            requests = self.requests([other, self.doc])
+            requests.watch_sources_round(threading.Event())
+            requests.watch_sources_round(threading.Event())
         self.assertEqual(self.doc.mcache_watched, 101)
-        self.assertIn("RuntimeError: cannot measure", errors.getvalue())
+        self.assertEqual(errors.getvalue().count("RuntimeError: cannot measure"), 1)
+        self.assertIn("document ot", errors.getvalue())
+
+    def test_a_round_that_cannot_list_the_documents_does_not_end_the_watch(self):
+        """The run's document list failing once costs that round, not the watch: the next round measures."""
+        calls = []
+
+        def docs():
+            """The document list, which cannot be read the first time."""
+            calls.append(1)
+            if len(calls) == 1:
+                raise RuntimeError("no documents yet")
+            return [self.doc]
+
+        requests = BuildRequests(
+            lambda: SimpleNamespace(state=self.state), lambda: {}, docs, lambda: "T", lambda result: ""
+        )
+        errors = io.StringIO()
+        with at(100):
+            self.read()
+        with at(101), mock.patch.object(service, "diagnostics", BoundedDiagnostics()), redirect_stderr(errors):
+            requests.watch_sources(Rounds(2))
+        self.assertEqual(self.doc.mcache_watched, 101)
+        self.assertIn("RuntimeError: no documents yet", errors.getvalue())
 
     def test_the_round_ends_between_documents_when_the_run_stops(self):
         """Once the run is stopping, the documents not yet reached in the round are left unmeasured."""
@@ -556,10 +594,38 @@ class WatchLoop(Watched):
         twin = Doc("ms", "Body", "tex", self.src, self.src / "main.tex", paths=self.paths)
         with at(100):
             self.read()
+            self.read(twin)
         with at(101):
             self.requests([self.doc]).watch_sources_round(threading.Event())
-        self.assertEqual((self.doc.mcache_watched, twin.mcache_asked, twin.mcache_watched), (101, NEVER, NEVER))
+        self.assertEqual((self.doc.mcache_watched, twin.mcache_watched), (101, NEVER))
         self.assertIsNot(self.doc.mcache_measuring, twin.mcache_measuring)
+        with at(102):
+            self.requests([twin]).watch_sources_round(threading.Event())
+        self.assertEqual((self.doc.mcache_watched, twin.mcache_watched), (101, 102))
+
+    def test_a_round_changes_nothing_on_disk(self):
+        """The watch only reads: after a round that measured a plain document and one that sets files apart (whose
+        recorder file it reads), every file and folder of the manuscript and of the state folder has the bytes,
+        the inode and the mtime it had."""
+        apart = self.apart_doc()
+        self.swap_to_a_build_that_read_the_figure(apart)
+
+        def snapshot() -> dict[str, tuple[int, int, bytes]]:
+            """(inode, mtime in ns, content) of every file and folder below the fixture's top folder."""
+            seen = {}
+            for path in sorted(self.top.rglob("*")):
+                st = path.lstat()
+                seen[str(path)] = (st.st_ino, st.st_mtime_ns, path.read_bytes() if path.is_file() else b"")
+            return seen
+
+        with at(100):
+            self.read()
+            self.read(apart)
+        before = snapshot()
+        with at(101):
+            self.requests([self.doc, apart]).watch_sources_round(threading.Event())
+        self.assertEqual((self.doc.mcache_watched, apart.mcache_watched), (101, 101))
+        self.assertEqual(snapshot(), before)
 
     def test_stop_returns_while_the_watch_is_inside_a_measurement(self):
         """A measurement that does not come back does not hold the run's shutdown: stop() gives up its wait, and the

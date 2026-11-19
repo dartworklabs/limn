@@ -20,6 +20,7 @@ from limn.builds.artifacts import (
     ViewOnlyNoRebuild,
 )
 from limn.builds.figure import FigureImport
+from limn.platform.diagnostics import diagnostics
 from limn.platform.effects import changed
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc, document_authority_target
@@ -187,16 +188,31 @@ class BuildRequests:
     def watch_sources_round(self, stop: threading.Event) -> None:
         """One round of the manuscript watch: each document of the run gets its turn (limn.builds.artifacts.
         watch_src_mtime), which measures the manuscript of a document a summary asked about lately and nothing else.
-        The round ends early, between two documents, once stop is set. A turn that raises is printed and the round
-        goes on: the watch thread must never die. Only reads; holds no lock between two documents."""
-        state = self.settings().state
-        for doc in list(self.docs()):
+        The round ends early, between two documents, once stop is set. Nothing a round raises ends the watch: a turn
+        that raises costs that document its turn, the run's settings or document list failing costs the round, and
+        either is reported once per cause (a round comes every second; limn.platform.diagnostics). Only reads; holds
+        no lock between two documents."""
+        try:
+            state, docs = self.settings().state, list(self.docs())
+        except Exception as error:  # noqa: BLE001 — the watch thread must never die
+            self._report_watch_failure("the run", error)
+            return
+        for doc in docs:
             if stop.is_set():
                 return
             try:
                 build.watch_src_mtime(doc, state)
-            except Exception:  # noqa: BLE001 — the watch thread must never die
-                traceback.print_exc(file=sys.stderr)
+            except Exception as error:  # noqa: BLE001 — the watch thread must never die
+                self._report_watch_failure("document %s" % doc.key, error)
+
+    @staticmethod
+    def _report_watch_failure(what: str, error: Exception) -> None:
+        """Say on standard error, once per kind of failure, that the manuscript watch could not measure `what`. The
+        summaries then measure for themselves, as they do without a watch (limn.builds.artifacts.shown_src_mtime)."""
+        diagnostics.emit(
+            "manuscript watch:%s:%s" % (what, type(error).__name__),
+            lambda: "warning: manuscript watch failed for %s: %s: %s" % (what, type(error).__name__, error),
+        )
 
     def refresh_watched_now(self, doc: Doc, wait: float) -> bool:
         """The watch tick for doc, waited for within `wait` seconds: first doc's build lock (an import or redraw the

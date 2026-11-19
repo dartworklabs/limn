@@ -463,10 +463,10 @@ class WatchedPoll(Fixture):
         with self.at(116):
             for doc in self.docs:
                 self.assertFalse(artifacts.watch_src_mtime(doc, self.state))
-        with self.at(120):
+        with self.at(120), self.frozen():
             back, _ = fs_calls(self.poll)
         self.forget_memo_ages()
-        with self.at(500):
+        with self.at(500), self.frozen():
             unwatched, _ = fs_calls(self.poll)
         self.assertGreaterEqual(back["scandir"], 2)
         self.assertEqual(back, unwatched)
