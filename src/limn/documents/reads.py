@@ -3,7 +3,8 @@
 These responses are the viewer's view of a document's builds and pins (docs/handbook/viewer.md, api.md): the pages
 on screen and their sizes, whether the manuscript is newer than the PDF, the build in progress and the last finished
 one, and the instance settings the viewer shows. They only read - the page directories, the build state, the
-pins file's size and mtime, a build's .aux - so the light poll every few seconds never writes anything.
+pins file's size and mtime, a build's .aux - so the light poll every few seconds never writes anything. A poll asks
+for each document's build once: the selected document's summary, and of the others only their briefs.
 
 Every function takes the document, the other documents and the run settings it reads as arguments (coding rule R5):
 nothing here reads the server's run arguments or imports it. What only the composition root knows is passed in as a
@@ -40,8 +41,9 @@ class MetaSettings:
 def doc_brief(D: Doc, state_dir: Path, builds: BuildFacts) -> dict[str, Any]:
     """A summary of document D - an entry of /api/docs and (with several documents) of /api/meta's docs: kind, whether
     its pins are regions only (view_only), path, staleness against its manuscript (only for a document built from
-    source), build in progress and last result, the page directory on screen and its page count. Never writes (called
-    from polling)."""
+    source), build in progress and last result, the page directory on screen and its page count. Only the brief of the
+    summary is taken: its meta is never asked for, so nothing that only /api/meta reports - page sizes, build stamps -
+    is read (limn.documents.needs.BuildSummary). Never writes (called from polling)."""
     return builds.summary(D, state_dir, 150).brief
 
 
@@ -79,9 +81,14 @@ def meta(
     flags pin_idem (POST /api/pin takes an idempotency key) and hold_holder (POST /api/hold counts a hold per holder).
     With several
     documents, each one's summary (docs) and a signature of their manuscript mtimes (src_sig). now is the clock the
-    manuscript age is measured against."""
+    manuscript age is measured against.
 
-    facts = builds.summary(D, settings.state, settings.dpi).meta
+    D's build is read once: its entry in docs is the brief of the same summary its pages and stamps come from, so
+    one body never names two builds of D, and the poll does not read D's files twice. The other documents are asked
+    for their briefs alone (doc_brief)."""
+
+    built = builds.summary(D, settings.state, settings.dpi)
+    facts = built.meta
     sm = facts["src_mtime"]
     multi = len(docs) > 1
     out = {
@@ -121,7 +128,7 @@ def meta(
         "hold_holder": True,
     }
     if multi:  # staleness/build of other documents - the viewer shows a dot/progress marker on their tabs
-        briefs = [doc_brief(d, settings.state, builds) for d in docs]
+        briefs = [built.brief if d is D else doc_brief(d, settings.state, builds) for d in docs]
         out["docs"] = briefs
         out["src_sig"] = ",".join("%s=%.3f" % (d["key"], d["src_mtime"]) for d in briefs)
     return out

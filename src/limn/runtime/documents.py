@@ -433,10 +433,20 @@ class Doc:
         return self.kind in ("tex", "markdown", "text")
 
     def rel_path(self) -> str:
-        """Path relative to --manuscript (for display / the pins.md header). Points at the main file."""
+        """The main file's path relative to --manuscript, for display: a document's `path` in GET /api/docs and
+        GET /api/meta, its line in the pins.md header, the startup line, and the `pdf` a pick answers for a view-only
+        PDF (and for a figure document whose map names its main file). The main file's own path when it does not lie
+        under the manuscript.
+
+        Answered from the paths resolved when the document was made (registered_main, registered_manuscript), so the
+        file system is asked nothing: the light poll reports this for every document every few seconds, and resolving
+        two paths per document was most of what was left of a poll's file-system calls. A main file or a folder above
+        it replaced by a link to another place after startup therefore keeps showing the path it had at startup until
+        the server restarts - the same rule by which the revision services name the document's files. It is a display
+        value only: which file may be read is decided where it is read (limn.platform.files)."""
         try:
-            return str(self.main.resolve().relative_to(self.paths.src.resolve()))
-        except (ValueError, OSError, RuntimeError):
+            return str(self.registered_main.relative_to(self.registered_manuscript))
+        except ValueError:
             return str(self.main)
 
 

@@ -16,14 +16,16 @@ Watch = TypeVar("Watch", covariant=True)
 Tokens = TypeVar("Tokens", covariant=True)
 Maps = TypeVar("Maps", covariant=True)
 Lines = TypeVar("Lines", covariant=True)
+Pages = TypeVar("Pages", covariant=True)
 
 
 @dataclass(frozen=True)
-class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens, Maps, Lines]):
-    """Mutable resources owned by one server process, grouped by lifecycle. The feature resources (viewer ... pin_lines)
-    are typed by the composition root, which makes them; this module imports no feature. pin_lines is what the run's
-    read-only pin readers keep of the pin files' lines (limn.pins.store.PinLines): memory only, bounded there, gone
-    with the run and never shared between two runs."""
+class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens, Maps, Lines, Pages]):
+    """Mutable resources owned by one server process, grouped by lifecycle. The feature resources (viewer ...
+    page_folders) are typed by the composition root, which makes them; this module imports no feature. pin_lines is
+    what the run's read-only pin readers keep of the pin files' lines (limn.pins.store.PinLines), and page_folders
+    what its build queries keep of the page folders on screen (limn.builds.artifacts.PageFolderCache): each is memory
+    only, bounded where it is defined, gone with the run and never shared between two runs."""
 
     viewer: Viewer
     scope_cache: Scope
@@ -33,6 +35,7 @@ class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens, Maps, 
     token_cache: Tokens
     figure_maps: Maps
     pin_lines: Lines
+    page_folders: Pages
     pin_lock: threading.RLock = field(default_factory=threading.RLock)
     people_lock: threading.Lock = field(default_factory=threading.Lock)
     events_lock: threading.Lock = field(default_factory=threading.Lock)

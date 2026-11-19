@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias
 
+from limn.builds.values import Json
 from limn.runtime.documents import Doc
 
 if TYPE_CHECKING:
@@ -27,10 +28,22 @@ class BuildHeading:
 
 @dataclass(frozen=True)
 class DocumentBuild:
-    """Detached, completed build-owned fields of the brief and meta HTTP contracts."""
+    """Detached build-owned fields of the brief and meta HTTP contracts, from one read of a document's build.
+
+    brief is complete when the value is made. meta is read the first time it is asked for - the page sizes and the
+    build stamps of the build the brief names - and is the same dict at every later access, so a caller that
+    reports only the brief (GET /api/docs, the other documents of GET /api/meta) pays for nothing else."""
 
     brief: dict[str, Any]
-    meta: dict[str, Any]
+    _read: Callable[[], Json] = field(repr=False, compare=False)
+    _kept: list[Json] = field(default_factory=list, init=False, repr=False, compare=False)
+
+    @property
+    def meta(self) -> Json:
+        """The build facts of GET /api/meta for the build `brief` names, read at the first access and kept."""
+        if not self._kept:
+            self._kept.append(self._read())
+        return self._kept[0]
 
 
 @dataclass(frozen=True)

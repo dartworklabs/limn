@@ -9,11 +9,13 @@ helpers_access.py and the browser ones (the Chromium launcher, BrowserBase) in h
 fixtures only from these helpers, never from one another.
 """
 
+import collections
 import dataclasses
 import errno
 import functools
 import hashlib
 import importlib.util
+import io
 import ipaddress
 import json
 import os
@@ -22,6 +24,7 @@ import shutil
 import socket
 import struct
 import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -1162,3 +1165,81 @@ def map_bytes(m: dict) -> bytes:
     """The bytes a producer writes for map m: its JSON text with non-ASCII escaped, so a lone surrogate stays
     expressible for the tests that need one."""
     return json.dumps(m).encode("ascii")
+
+
+# ---------------------------------------------------------------- Counting file-system work
+#
+# A test that pins "this read touches the disk N times" counts the calls: a count is the same on a busy machine, where
+# a clock is not (docs/handbook/verification.md §불안정한 테스트).
+
+FS_BUILTINS = {
+    id(io.open): "open",
+    id(os.open): "open",
+    id(os.stat): "stat",
+    id(os.lstat): "lstat",
+    id(os.scandir): "scandir",
+    id(os.listdir): "listdir",
+    id(os.readlink): "readlink",
+}
+
+
+def fs_calls(call):
+    """(Counter of the file-system builtins called while call() runs on this thread, call's result). The names
+    counted: open (io.open, os.open), stat, lstat, scandir, listdir, readlink, and entry_stat (os.DirEntry.stat).
+    Counted with sys.setprofile, so a call made through pathlib, os.path or glob is counted where it reaches the
+    builtin, on every supported Python. A Python-level profiler installed before the call is put back after it.
+    Under a C-level one (cProfile before Python 3.12), which could not be put back, nothing is counted: the calling
+    test is skipped (unittest.SkipTest) and the profiler stays on."""
+    counts: collections.Counter[str] = collections.Counter()
+
+    def profiler(_frame, event, arg):
+        """Count one call of a file-system builtin; every other profile event is passed over."""
+        if event != "c_call":
+            return
+        name = FS_BUILTINS.get(id(arg))
+        if name is None and getattr(arg, "__qualname__", "") == "DirEntry.stat":
+            name = "entry_stat"
+        if name is not None:
+            counts[name] += 1
+
+    before = sys.getprofile()
+    if before is not None and not callable(before):
+        # A profiler installed from C: before Python 3.12 a running cProfile shows here as its Profile object.
+        # sys.setprofile would replace it and could not install it again, so the session would be off, silently,
+        # for the rest of the run. The test is skipped instead and the profiler left as it is.
+        raise unittest.SkipTest(
+            "file-system calls cannot be counted while a C-level profiler is active (cProfile before Python 3.12)"
+        )
+    sys.setprofile(profiler)
+    try:
+        result = call()
+    finally:
+        sys.setprofile(before)  # a profiler a tool installed as a Python function goes on after the count
+    return counts, result
+
+
+_OPENED: list[list[str]] = []
+
+
+def _note_open(event, args):
+    """The process's audit hook for opened(): while a recording is on, note the path of every file opened."""
+    if event == "open" and _OPENED and isinstance(args[0], (str, bytes, os.PathLike)):
+        _OPENED[-1].append(os.fsdecode(args[0]))
+
+
+sys.addaudithook(_note_open)
+
+
+def opened(call, under):
+    """(the paths of the files opened below folder `under` while call() runs, call's result), in order, on whichever
+    thread opened them - so a request served on a handler thread is seen. Only paths below `under` are returned: a
+    thread an earlier test left running in this worker opens files of its own, with the same names, and those are
+    not the measured call's. An audit hook cannot be removed, so one is installed for the process and records only
+    while an opened() call is running."""
+    _OPENED.append([])
+    try:
+        result = call()
+    finally:
+        paths = _OPENED.pop()
+    below = os.path.join(os.fspath(under), "")
+    return [path for path in paths if path.startswith(below)], result

@@ -41,6 +41,7 @@ from limn.administration import doc_start_line, docs_of, pick_documents
 from limn.builds import (
     BuildMapCache,
     BuildSubsystem,
+    PageFolderCache,
     assemble_builds,
 )
 from limn.collaboration import CollaborationSubsystem, assemble_collaboration
@@ -90,14 +91,22 @@ from limn.web.routes import merge_routes
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
 RunResources: TypeAlias = RuntimeResources[
-    ServedViewer, ScopeCache, RevisionJobs, PullShare, SyncWatch, TokenCache, BuildMapCache, PinLines
+    ServedViewer, ScopeCache, RevisionJobs, PullShare, SyncWatch, TokenCache, BuildMapCache, PinLines, PageFolderCache
 ]
 
 
 def new_runtime(viewer: ServedViewer) -> RunResources:
     """A process's resources, all fresh: new locks, empty caches and registries, no threads, serving viewer."""
     return RuntimeResources(
-        viewer, ScopeCache(), RevisionJobs(), PullShare(), SyncWatch(), TokenCache(), BuildMapCache(), PinLines()
+        viewer,
+        ScopeCache(),
+        RevisionJobs(),
+        PullShare(),
+        SyncWatch(),
+        TokenCache(),
+        BuildMapCache(),
+        PinLines(),
+        PageFolderCache(),
     )
 
 
@@ -231,6 +240,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         lambda: docs,
         timestamp,
         maps=lambda: resources().figure_maps,
+        pages=lambda: resources().page_folders,
         figure_shown=lambda: pins.commands.refresh_pins_md(),
         marks=range_boxes,
     )

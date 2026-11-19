@@ -18,6 +18,7 @@ from limn.builds.artifacts import (
     Describe,
     FailedBuild,
     FinishedBuild,
+    PageFolderCache,
     RangeBoxCache,
     ViewOnlyNoRebuild,
 )
@@ -123,6 +124,7 @@ def assemble_builds(
     requests: BuildRequests | None = None,
     *,
     maps: BuildMapCache | Callable[[], BuildMapCache] | None = None,
+    pages: PageFolderCache | Callable[[], PageFolderCache] | None = None,
     figure_shown: Callable[[], None] = lambda: None,
     marks: MarkComputation = no_marks,
 ) -> BuildSubsystem:
@@ -131,7 +133,9 @@ def assemble_builds(
     marks is the forward SyncTeX pass itself, which the pin consumer owns and the composition root injects
     (limn.pins.location.resolve.range_boxes, the same binding POST /api/pick and GET /api/snippet use, so the three
     paths cannot draw different boxes for the same lines). Without it no answer carries a mark. The cache the answers
-    are kept in is this run's and is made here, beside the parsed maps."""
+    are kept in is this run's and is made here, beside the parsed maps. pages is what the run keeps of the page
+    folders on screen (PageFolderCache): the composition root hands in the run's own, as it does maps; without it
+    the queries keep one of their own."""
     from limn.builds.routes import HOLD_PATH, POST_PATH, get, post, post_hold
     from limn.web.routes import PostDocRoute, RouteBundle
 
@@ -153,7 +157,13 @@ def assemble_builds(
     )
     owned_maps = maps or BuildMapCache()
     owned_marks = RangeBoxCache()
-    queries = BuildQueries(lambda: owned_maps() if callable(owned_maps) else owned_maps, lambda: owned_marks, marks)
+    owned_pages = pages or PageFolderCache()
+    queries = BuildQueries(
+        lambda: owned_maps() if callable(owned_maps) else owned_maps,
+        lambda: owned_marks,
+        marks,
+        lambda: owned_pages() if callable(owned_pages) else owned_pages,
+    )
     return BuildSubsystem(
         queries.documents(),
         queries.pins(),

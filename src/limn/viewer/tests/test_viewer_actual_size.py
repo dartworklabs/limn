@@ -146,7 +146,10 @@ class ActualSize(BrowserBase):
         self.addCleanup(ps.APP.set_docs, None)
 
     def size_figure(self, *sizes):
-        """Give the figure's build on screen page images of these pixel sizes (150 dpi: a 1100px page is 528pt)."""
+        """Give the figure's build on screen page images of these pixel sizes (150 dpi: a 1100px page is 528pt). Call
+        it before the viewer opens: a published page folder is never written again, and a run reports the pages it
+        first read of one (limn.builds.artifacts.PageFolderCache) - a poll of any document reads every document's
+        page count."""
         d = self.fig.dir / helpers_figure.BUILD1
         for old in d.glob("page-*.png"):
             old.unlink()
@@ -219,6 +222,7 @@ class ActualSize(BrowserBase):
         pressed (aria-pressed). It keeps one width whatever it reads. Ctrl/Cmd 1 is left to the browser (its first tab).
         The manuscript keeps its widest page's width (w), the figure its zoom against print size (figZoom) - so a figure
         still opens at its own setting after the manuscript was zoomed, and the other way round, across a reload."""
+        self.size_figure((1100, 700), (525, 900))
         page = self.on("ms")
         look = """() => {const b = document.querySelector('#btn-actual');
           return {text: b.textContent.trim(), pressed: b.getAttribute('aria-pressed'), name: b.getAttribute('aria-label'),
@@ -247,7 +251,6 @@ class ActualSize(BrowserBase):
         page.keyboard.press("Control+1")
         self.assertEqual(page.evaluate("PAGE_SCALE"), k)
         # The figure: [100%] keeps figZoom 1 and leaves the manuscript's w alone.
-        self.size_figure((1100, 700), (525, 900))
         page.evaluate("async()=>await switchDoc('fig')")
         page.wait_for_function("DOC==='fig'&&document.querySelector('#p2')")
         page.click("#btn-zoom-in")
