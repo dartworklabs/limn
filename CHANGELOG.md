@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.65 — 2026-11-19
 
 The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
 renamed.
