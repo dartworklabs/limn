@@ -269,7 +269,7 @@ import { closeReply, openReply, sendReply } from './pins/flow-reply.ts';
 import { growEditedField, cancelEdit, openEdit, saveEdit, editSnip } from './pins/flow-edit.ts';
 import { setComposerPins, setComposerQueue, setComposerVerdict, setPinFields } from './composer/state-seams.ts';
 import { setPinVerdicts } from './pins/state-seams.ts';
-import { applyRepick, startRepick } from './composer/flow-repick.ts';
+import { applyRepick, badgeMovePin, repickFromBadge, restartRepick, startRepick } from './composer/flow-repick.ts';
 import { downloadPdf, hideBuildErr, showBuildErr, syncBuildErrChip } from './documents/flow-rebuild.ts';
 import { NOTICE_HOST, NOTICE_KIND } from './platform/tables.ts';
 import { $, $$, eventElement, findClosest, focusedElement } from './platform/dom.ts';
@@ -420,6 +420,10 @@ setPageMarks({ draw: marks, placeBadges: markBadgeSides });
 setPageVerdicts({ holdReasonFocus, restoreReasonFocus, sizeLines: sizePageLines, pagePins: pageVerdictPins });
 setPageSelection({
   pick,
+  badgeMove: badgeMovePin,
+  repickFromBadge,
+  restartRepick,
+  cancelRepick,
   discard: discardSelection,
   openPopover: openSelectionPopover,
   popoverOpen: isSelectionPopoverOpen,

@@ -133,6 +133,9 @@ input.n{width:58px;text-align:center}
 .mark.st{border-color:var(--warning);background:color-mix(in srgb,var(--status-warning) 8%,transparent)}
 .mark.est{border-style:dashed}
 .mark.hi{border-width:3px}
+/* The pin whose badge is being dragged to a new place (pdf/input-selection.ts): its marks stand back while the hand
+   carries the probe, so the place it is leaving reads as the place it is leaving. */
+.mark.moving{opacity:.4}
 /* A figure document's page is a figure, judged by its colours: its marks are a frame only, with no tint over what they mark. */
 body.fig-doc .mark{background:none}
 /* The marks taken off for a look at the page itself (pins/input-hide-marks.ts): not drawn, not pressed, not read. */

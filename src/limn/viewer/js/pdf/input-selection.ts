@@ -33,6 +33,11 @@ import { endJumpForScroll } from '../layout/flow-scroll.ts';
 import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
 import { pageSelection } from './state-seams.ts';
 
+// The pin a badge drag is placing again: its number, the box it stands on (a region pin's, which moves whole; empty
+// for a line pin, whose drag sends a probe instead - docs/adr/0051-pin-badge-drag-reposition.md D3, D7), and which of
+// the two it is. On the drag itself, `began` marks a re-place the drag turned on, so cancelling it turns that off
+// again.
+type BadgeMove = { id: number; frac: number[]; region: boolean };
 let DRAG: {
     pg: HTMLElement;
     sx: number;
@@ -43,6 +48,8 @@ let DRAG: {
     cy: number;
     box: HTMLElement | null;
     badge?: boolean;
+    move?: BadgeMove | null;
+    began?: boolean;
   } | null = null,
   LONG_PRESS: { id: number; pg: HTMLElement; cx: number; cy: number; t: ReturnType<typeof setTimeout> } | null = null;
 const clampUnit = (value: number) => Math.min(1, Math.max(0, value));
@@ -83,21 +90,26 @@ function drawBox(box: HTMLElement, startX: number, startY: number, x: number, y:
     height: Math.abs(y - startY) * 100 + '%',
   });
 }
-// A box of the composing selection other than its own. The lines a selection covers may print as several blocks, and
-// each is drawn as a box of its own on the page it stands on; the selection's own box (COMPOSE.box) is the first of
-// them, so everything that is the selection's one place - the note popover's anchor, the identity a click-off compares
-// - stays that box. The boxes beside it carry .sel-part, which is how they are found again and taken off.
-function newSelectionPart(pageElement: HTMLElement) {
+// Which pending box a piece box beside it belongs to: the composing selection's '새 핀' or a re-place's '새 위치'. The
+// two can be open at once - a re-place drops only an unfinished selection - so each piece box names its owner and is
+// only ever taken off by it (docs/adr/0051-pin-badge-drag-reposition.md D5).
+type PendingOwner = 'compose' | 'repick';
+// A box of a pending box's range other than the pending box itself. The lines a range covers may print as several
+// blocks, and each is drawn as a box of its own on the page it stands on; the pending box is the first of them, so
+// everything that is the one place - the note popover's anchor, the identity a click-off compares - stays that box.
+// The boxes beside it carry .sel-part and their owner's name, which is how they are found again and taken off.
+function newSelectionPart(pageElement: HTMLElement, owner: PendingOwner) {
   const part = document.createElement('div');
   part.className = 'sel pending sel-part';
+  part.dataset.owner = owner;
   pageElement.appendChild(part);
   return part;
 }
-function selectionParts() {
-  return document.querySelectorAll('.sel-part');
+function selectionParts(owner: PendingOwner) {
+  return document.querySelectorAll('.sel-part[data-owner=' + owner + ']');
 }
-function clearSelectionParts() {
-  selectionParts().forEach((part) => part.remove());
+function clearSelectionParts(owner: PendingOwner) {
+  selectionParts(owner).forEach((part) => part.remove());
 }
 // Puts the composing selection on the pieces its chosen lines print as (docs/adr/0049-pin-marks-follow-the-range.md):
 // its own box on the first piece whose page is drawn, a box beside it for each piece after that, each appended to the
@@ -110,15 +122,16 @@ function snapSelectionBox(
   box: HTMLElement | null,
   pieces: MarkPiece[],
   dragged: { page: number; frac: number[] } | null,
+  owner: PendingOwner,
 ) {
   if (!box) return;
-  clearSelectionParts();
+  clearSelectionParts(owner);
   let drew = false;
   for (const piece of pieces) {
     const pageElement = document.getElementById('p' + piece.page);
     if (!pageElement) continue;
     if (!drew) boxOnPage(box, pageElement);
-    boxOnFrac(drew ? newSelectionPart(pageElement) : box, piece.frac);
+    boxOnFrac(drew ? newSelectionPart(pageElement, owner) : box, piece.frac);
     drew = true;
   }
   if (drew) {
@@ -152,6 +165,8 @@ function boxOnFrac(box: HTMLElement, frac: number[]) {
 }
 function cancelDrag() {
   if (DRAG && DRAG.box) DRAG.box.remove();
+  if (DRAG) badgeDragUndo(DRAG);
+  setMovingPin(null);
   DRAG = null;
 }
 function cancelLongPress() {
@@ -173,6 +188,106 @@ $('#doc').addEventListener('mousedown', (event: MouseEvent) => {
 let LONG_PRESS_PICKED: number | null = null,
   TAP: { id: number; x: number; y: number; t: number } | null = null,
   LAST_TAP: { t: number; x: number; y: number } | null = null;
+// ------------------------------------------------ A pin's number badge dragged to place the pin again
+// docs/adr/0051-pin-badge-drag-reposition.md. The badge is the handle (D1); the mark boxes keep pointer-events:none, so
+// a drag across one is a new selection as it always was.
+//
+// The box a badge drag of a region pin puts the pin's box at: `place` = the pin's box [x, y, w, h] on its page, moved
+// by moveX, moveY (fractions of that same page). The box keeps its size and stays on the page - a drop that would push
+// an edge past it slides the box back inside - so a drag moves the pin within its page and a drop is never off it (D4,
+// D7). The moved ends are rounded to six places (under a thousandth of a pixel on any page), so a box put back where
+// it was reads as the fractions it came with and not as their floating-point dust. Pure.
+function badgeDrop(place: number[], moveX: number, moveY: number) {
+  const width = place[2],
+    height = place[3],
+    round = (value: number) => Math.round(value * 1e6) / 1e6;
+  return [
+    round(Math.min(Math.max(0, place[0] + moveX), Math.max(0, 1 - width))),
+    round(Math.min(Math.max(0, place[1] + moveY), Math.max(0, 1 - height))),
+    width,
+    height,
+  ];
+}
+// How far a press that started at (startX, startY) has come to (x, y), as fractions of page pageElement - read on
+// fracAt's basis (the layout viewport), so a pinch zoom leaves it right. A page with no size on screen has moved
+// nothing.
+function fracMove(pageElement: HTMLElement, startX: number, startY: number, x: number, y: number) {
+  const rect = pageElement.getBoundingClientRect();
+  return [rect.width ? (x - startX) / rect.width : 0, rect.height ? (y - startY) / rect.height : 0];
+}
+// The rectangle badge drag `drag` asks the server about with the pointer at (x, y), as the two corners
+// [x0, y0, x1, y1] finishRect takes. A line pin sends the probe a tap and a long-press already send - about one text
+// line at the pointer (quickBox), clamped into the page - because the pin's own first piece is as tall as its whole
+// paragraph: moved by less than its own height it covers the old paragraph and the new one alike, and which of them
+// the server's sample grid lands in most is not something a person can aim (D3). A region pin has no line range to
+// measure, and the area it covers is itself what the pin points at, so its box moves whole (D7).
+function badgeAt(drag: { pg: HTMLElement; cx: number; cy: number; move?: BadgeMove | null }, x: number, y: number) {
+  const move = drag.move;
+  if (!move) return [0, 0, 0, 0];
+  if (!move.region) {
+    const [atX, atY] = fracAt(drag.pg, x, y);
+    return quickBox(atX, atY, false);
+  }
+  const [moveX, moveY] = fracMove(drag.pg, drag.cx, drag.cy, x, y),
+    place = badgeDrop(move.frac, moveX, moveY);
+  return [place[0], place[1], place[0] + place[2], place[1] + place[3]];
+}
+// The pin a press on badge `badge` would place again, or null when this press moves nothing. Which pins may be placed
+// again, and where each stands now, is the re-place's own judgement (composer/flow-repick.ts badgeMovePin, reached
+// through the seam since the pages may not import the composer): a figure document, a pin whose place is fixed, one
+// with no usable box, a region pin whose box has no size to move, and a finger outside the re-place mode for that very
+// pin all answer null there. The badge keeps the two gestures a finger already has on it - the long-press tooltip and,
+// in [선택] mode, starting a box - and the mouse, which had none on it, places the pin (D1).
+function badgeMove(badge: HTMLElement, mouse: boolean): BadgeMove | null {
+  const id = Number(badge.dataset.id),
+    at = Number.isInteger(id) ? pageSelection().badgeMove(id, mouse) : null;
+  return at ? { id, frac: at.frac, region: at.region } : null;
+}
+// The pin whose badge is under the hand right now, or null. Its marks stand back while the drag runs (.mark.moving,
+// components.css), so the place the pin is leaving reads as the place it is leaving: the probe the hand carries is one
+// text line, and without this the pin's own mark - as tall as its whole paragraph - is the louder of the two.
+let MOVING_PIN: number | null = null;
+function movingPin() {
+  return MOVING_PIN;
+}
+// Says which pin is being moved and shows it at once. The marks are redrawn whenever the pin list is read again, and
+// marks() asks movingPin() as it draws, so a redraw mid-drag keeps the pin standing back.
+function setMovingPin(id: number | null) {
+  MOVING_PIN = id;
+  for (const mark of document.querySelectorAll('.mark'))
+    mark.classList.toggle('moving', id !== null && mark instanceof HTMLElement && mark.dataset.pin === String(id));
+}
+// A badge drag has passed the slop and is placing its pin: with the re-place mode already on for that pin (a finger's,
+// turned on by [위치 다시 잡기]) nothing changes, and a mouse drag turns it on here. `began` marks the mode as this
+// drag's, so cancelling the drag ends it again. A pin this tab has lost meanwhile (the list was read again mid-drag)
+// has no mode to turn on and nothing to place: the drag goes on as the drawn rectangle it would have been.
+function badgeDragBegin(drag: NonNullable<typeof DRAG>) {
+  const move = drag.move;
+  if (!move) return;
+  if (REPICK && REPICK.id === move.id) {
+    pageSelection().restartRepick(move.id); // the place it was offering is not the one this drag is choosing
+    setMovingPin(move.id);
+    return;
+  }
+  pageSelection().repickFromBadge(move.id);
+  if (REPICK) {
+    drag.began = true;
+    setMovingPin(move.id);
+  } else drag.move = null;
+}
+// Whether the re-place a badge drag carries is gone from under it: Esc (the banner's own way out), the banner's [취소],
+// a cancelled selection or a document switch end the mode while the finger or button is still down. The drag then
+// drops its box and nothing else - without this the drop would fall through to the other branch and open a '새 핀'
+// composer over the pin the person was moving, which is the opposite of the cancel they asked for.
+function badgeDragGone(drag: NonNullable<typeof DRAG>) {
+  return !!drag.move && !(REPICK && REPICK.id === drag.move.id);
+}
+// Ends a re-place this drag turned on, for a gesture that ended without a drop (a second finger, a cancelled pointer).
+// A mode the person turned on themselves with [위치 다시 잡기] is left alone: they asked for it, and their next drag is
+// the new place.
+function badgeDragUndo(drag: NonNullable<typeof DRAG>) {
+  if (drag.began && drag.move && REPICK && REPICK.id === drag.move.id) pageSelection().cancelRepick();
+}
 // BADGE_HOLD = the SWALLOW_CLICK a drag from a badge armed at its release (0 for none). A pen's drag is followed by a
 // click, but a finger's is not, so the hold would outlive the gesture and swallow the next tap, on another badge: the
 // next press retires it (a click always comes before the next press) - unless another hold has taken SWALLOW_CLICK over
@@ -188,14 +303,16 @@ window.addEventListener(
 );
 // A finger in [선택] mode that lands on a pin's number badge - its 44px press area reaches over the page's text - still
 // starts a box (DRAG.badge) once it moves: on a small page the badges' areas cover much of its left edge, where no drag
-// could start otherwise. A tap stays the badge's (its click), and a mouse or a finger outside the mode leaves the badge
-// alone.
+// could start otherwise. A tap stays the badge's (its click), and so does a press that never passes TAP_SLOP, with the
+// mouse too: the badge's click is what jumps to its card. A badge drag that places the pin instead (badgeMove) draws no
+// box of its own until the slop is passed, so a press that stays a click leaves nothing behind.
 $('#doc').addEventListener('pointerdown', (event: PointerEvent) => {
   const element = eventElement(event);
   if (!element) return;
   const badge = element.closest('.mark [data-act=mark-jump]'),
     mouse = event.pointerType === 'mouse';
-  if (badge && (mouse || !SELMODE || !event.isPrimary)) return;
+  const move = badge instanceof HTMLElement && (mouse || (SELMODE && event.isPrimary)) ? badgeMove(badge, mouse) : null;
+  if (badge && !move && (mouse || !SELMODE || !event.isPrimary)) return;
   // A second finger is a pinch: the box being drawn is discarded.
   if (!event.isPrimary) {
     cancelDrag();
@@ -217,8 +334,9 @@ $('#doc').addEventListener('pointerdown', (event: PointerEvent) => {
       mouse,
       cx: event.clientX,
       cy: event.clientY,
-      box: mouse ? newBox(pageElement) : null,
+      box: mouse && !badge ? newBox(pageElement) : null,
       badge: !!badge,
+      move,
     };
     // A badge keeps the press until it moves: a tap is its click.
     if (!mouse && !badge) {
@@ -258,7 +376,20 @@ window.addEventListener('pointermove', (event) => {
   if (!DRAG.box) {
     if (Math.hypot(event.clientX - DRAG.cx, event.clientY - DRAG.cy) < TAP_SLOP) return;
     DRAG.box = newBox(DRAG.pg);
+    if (DRAG.move) badgeDragBegin(DRAG);
   }
+  // the re-place ended under the hand: the pin stays where it is
+  if (badgeDragGone(DRAG)) {
+    if (DRAG.box) DRAG.box.remove();
+    setMovingPin(null);
+    DRAG = null;
+    return;
+  }
+  if (DRAG.move) {
+    const corners = badgeAt(DRAG, event.clientX, event.clientY);
+    drawBox(DRAG.box, corners[0], corners[1], corners[2], corners[3]);
+    return;
+  } // the pin's own box, moved, or the probe at the pointer
   const [x, y] = fracAt(DRAG.pg, event.clientX, event.clientY);
   drawBox(DRAG.box, DRAG.sx, DRAG.sy, x, y);
 });
@@ -304,6 +435,7 @@ window.addEventListener('pointerup', (event) => {
   if (!DRAG || event.pointerId !== DRAG.id) return;
   const drag = DRAG;
   DRAG = null;
+  setMovingPin(null); // the hand is off the badge: the pin stands at its own strength again, moved or not
   // A tap in selection mode is a quick selection (on a badge, the badge's).
   if (!drag.box) {
     if (drag.badge) return;
@@ -311,9 +443,19 @@ window.addEventListener('pointerup', (event) => {
     setSwallowClick(Date.now() + 400);
     return;
   }
-  // A drag from a badge is a box, never the badge's click as well: the click is held off from the release, which it
-  // follows, however long the drag ran.
+  // A drag from a badge is a box or a re-place, never the badge's click as well: the click is held off from the
+  // release, which it follows, however long the drag ran.
   if (drag.badge) setSwallowClick((BADGE_HOLD = Date.now() + 400));
+  // the re-place ended under the hand (Esc): no pin moved, and no '새 핀' from its drop
+  if (badgeDragGone(drag)) {
+    drag.box.remove();
+    return;
+  }
+  if (drag.move) {
+    const corners = badgeAt(drag, event.clientX, event.clientY);
+    finishRect(drag.pg, drag.box, corners[0], corners[1], corners[2], corners[3]);
+    return;
+  } // the dropped place goes through the same pick, banner and confirm as a drawn '새 위치'
   const [x, y] = fracAt(drag.pg, event.clientX, event.clientY);
   // Too small for a box: a click.
   if (!finishRect(drag.pg, drag.box, drag.sx, drag.sy, x, y) && off && off.mouse) clickOffNow(off.box);
@@ -365,7 +507,7 @@ function pressOutsideSelection(event: PointerEvent) {
     return false;
   const inside = [
     ...document.querySelectorAll('.mark'),
-    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i'), ...selectionParts()] : []),
+    ...(COMPOSE.box ? [COMPOSE.box, ...COMPOSE.box.querySelectorAll('i'), ...selectionParts('compose')] : []),
     ...(pageSelection().popoverOpen() ? [pageSelection().popover()] : []),
   ].map((element) => element.getBoundingClientRect());
   return !hitsAny(inside, event.clientX, event.clientY, 0);
@@ -462,7 +604,7 @@ function finishRect(pageElement: HTMLElement, box: HTMLElement, startX: number, 
     setRepickBox(REPICK, box);
     pendingBadge(box, '새 위치');
   } else {
-    clearSelectionParts();
+    clearSelectionParts('compose');
     if (COMPOSE.box) COMPOSE.box.remove();
     setComposeBox(box);
     pendingBadge(box, '새 핀');
@@ -516,6 +658,7 @@ export {
   cancelLongPress,
   clearSelectionParts,
   drawBox,
+  movingPin,
   newBox,
   pendingBadge,
   pendingBadgeSide,

@@ -104,12 +104,14 @@ interface LinePick extends ComposerChoice {
 // The composer's selection: a drag on the PDF or lines of a drawn document. selection.page tells them apart.
 type ComposerSelection = PagePick | LinePick;
 
-// A pin's location being placed again (composer/flow-repick.ts REPICK): the pin, where it was, the drawn box and the new candidate.
+// A pin's location being placed again (composer/flow-repick.ts REPICK): the pin, where it was, the drawn box, the new
+// candidate, and the revision a confirm saves against when no edit card holds one (a badge drag's).
 interface Repick {
   id: number;
   from: { lo?: number; hi?: number; page: number; region: boolean };
   box: HTMLElement | null;
   cand: ComposerSelection | null;
+  base_rev: number;
 }
 
 /** A closed nonblank reply keeps its text and the recipient logins selected for tags that remain in that text. */

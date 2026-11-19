@@ -287,7 +287,7 @@ function cancelSelection(clearNote: boolean) {
   setPickseq(PICKSEQ + 1);
   setComposePicking(false);
   clearPendingSave();
-  clearSelectionParts();
+  clearSelectionParts('compose');
   if (COMPOSE.box) {
     COMPOSE.box.remove();
     setComposeBox(null);
@@ -349,7 +349,7 @@ function restoreSelection(snapshot: ReturnType<typeof selectionSnapshot>, focus?
     lineNote('메모만 되살렸습니다 — PDF가 바뀌어 자리를 다시 골라야 합니다', NOTICE_KIND.WARN);
     return true;
   }
-  clearSelectionParts();
+  clearSelectionParts('compose');
   if (COMPOSE.box) COMPOSE.box.remove();
   setComposeBox(null);
   if (snapshot.box && snapshot.page && document.contains(snapshot.page)) {

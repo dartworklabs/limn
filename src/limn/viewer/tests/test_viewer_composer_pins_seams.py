@@ -250,6 +250,7 @@ class PinListVerdicts(unittest.TestCase):
                         PIN_FEATURES,
                         r"""
             const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[];
+            const movingPin=()=>null;   // no badge is under a hand here (pdf/input-selection.ts)
             const isMarkdownDoc=()=>false;
             const $$=()=>[]; const esc=s=>String(s);
             const page1={appendChild:m=>LOG.push(['mark',m.dataset.pin])};

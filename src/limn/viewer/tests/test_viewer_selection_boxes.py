@@ -57,11 +57,16 @@ for (const id of %s) pages[id] = element('pg', id);
 const document = {
   getElementById: id => pages[id] || null,
   createElement: () => element(''),
-  querySelectorAll: sel => MADE.filter(el => !el.gone && ('.' + el.className.split(' ').join('.')).includes(sel)),
+  // The selectors this module writes are classes, optionally with the piece owner's name: '.sel-part[data-owner=x].
+  querySelectorAll: sel => { const [classes, owner] = sel.split('[data-owner='),
+    name = owner ? owner.replace(']', '') : '';
+    return MADE.filter(el => !el.gone && ('.' + el.className.split(' ').join('.')).includes(classes)
+      && (!name || el.dataset.owner === name)); },
 };
 function drawn() {
   return MADE.filter(el => !el.gone && el.parentElement && el.className.indexOf('sel') === 0)
     .map(el => ({page: el.parentElement.id, cls: el.className, snap: el.dataset.snap || '',
+      owner: el.dataset.owner || '',
       box: [el.style.left, el.style.top, el.style.width, el.style.height]}));
 }"""
 
@@ -80,7 +85,8 @@ class SelectionPieces(unittest.TestCase):
 
     def snap(self, calls, pages=("p1", "p2")):
         """The boxes on the pages after snapSelectionBox has been called once per entry of calls, each
-        {pieces, dragged}: the page each stands on, its classes and its inline box, in the order they were appended."""
+        {pieces, dragged} and an optional `owner` ('compose' unless given, the pending box a piece belongs to): the
+        page each stands on, its classes, its owner and its inline box, in the order they were appended."""
         js = "\n".join(
             [
                 SNAP_HARNESS % json.dumps(list(pages)),
@@ -97,10 +103,14 @@ class SelectionPieces(unittest.TestCase):
                         "snapSelectionBox",
                     )
                 ],
-                "const box = element('sel pending');",
-                "pages['p1'].appendChild(box);",
-                "box.style.left='10%'; box.style.top='10%'; box.style.width='30%'; box.style.height='5%';",
-                "for (const call of %s) snapSelectionBox(box, call.pieces, call.dragged);" % json.dumps(calls),
+                "const boxes = {};",
+                "for (const name of %s) { const box = boxes[name] = element('sel pending');"
+                % json.dumps(sorted({call.get("owner", "compose") for call in calls})),
+                "  pages['p1'].appendChild(box);",
+                "  box.style.left='10%'; box.style.top='10%'; box.style.width='30%'; box.style.height='5%'; }",
+                "for (const call of %s)" % json.dumps(calls),
+                "  snapSelectionBox(boxes[call.owner || 'compose'], call.pieces, call.dragged,"
+                " call.owner || 'compose');",
                 "console.log(JSON.stringify(drawn()));",
             ]
         )
@@ -156,6 +166,28 @@ class SelectionPieces(unittest.TestCase):
         )
         self.assertEqual(len(drawn), 1)
         self.assertEqual((drawn[0]["page"], drawn[0]["box"]), ("p1", DRAGGED_STYLE))
+
+    def test_a_pending_box_takes_off_only_its_own_pieces(self):
+        """The composing selection and a re-place can be open at once - a re-place drops only an unfinished selection -
+        so each piece box names its owner and a snap takes off only that owner's
+        (docs/adr/0051-pin-badge-drag-reposition.md D5). Without this the re-place's snap would take the pieces the
+        composing selection stands on off the pages and leave that box saying a range it no longer covers."""
+        drawn = self.snap(
+            [
+                {"pieces": [{"page": 1, "frac": FIRST}, {"page": 1, "frac": SECOND}], "dragged": self.dragged()},
+                {
+                    "owner": "repick",
+                    "pieces": [{"page": 2, "frac": FIRST}, {"page": 2, "frac": SECOND}],
+                    "dragged": self.dragged(),
+                },
+            ]
+        )
+        # The two pending boxes own no piece name; each stands on its range's first piece, and the piece beside it
+        # carries the owner that drew it. All four are still on the pages: neither snap took the other's off.
+        self.assertEqual(
+            [(piece["page"], piece["owner"]) for piece in drawn],
+            [("p1", ""), ("p2", ""), ("p1", "compose"), ("p2", "repick")],
+        )
 
     def test_a_narrower_range_leaves_no_box_from_the_wider_one(self):
         """Up the ladder and back down: the boxes of the wider range are gone and only the narrower range's piece

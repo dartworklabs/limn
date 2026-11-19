@@ -65,6 +65,7 @@ import { docTitle, switchDoc, viaDoc } from '../documents/flow-switch.ts';
 import { noteNewPins } from '../documents/flow-updates.ts';
 import { applySide, setSide } from '../layout/flow.ts';
 import { isElementLost, hasMark, pinPieces, pinPlace } from '../pdf/view-figure.ts';
+import { movingPin } from '../pdf/input-selection.ts';
 import { jumpToPinLines, drawPinMarks } from '../markdown/view-marks.ts';
 import { recomputeOverlap, renderOverlapBanner } from '../composer/view-overlap.ts';
 import { mentionsMe } from './view-card-parts.ts';
@@ -499,7 +500,12 @@ function marks() {
     places.forEach((place, index) => {
       const mark = document.createElement('div');
       mark.className =
-        'mark' + (lost ? ' st' : '') + (est ? ' est' : '') + (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '');
+        'mark' +
+        (lost ? ' st' : '') +
+        (est ? ' est' : '') +
+        (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '') +
+        // the pin whose badge is under the hand stands back while it is being placed again (pdf/input-selection.ts)
+        (movingPin() === pin.id ? ' moving' : '');
       mark.dataset.pin = String(pin.id);
       mark.dataset.fx = String(place.frac[0]);
       Object.assign(mark.style, {

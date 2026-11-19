@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+The agent contract does not change: no path, field or state name is added, renamed or removed, and the server is not
+touched. Both entries are the viewer alone.
+
+### Added
+
+- **Drag a pin's number badge to place the pin again.** The badge on the pages is now also the handle for its pin's
+  [위치 다시 잡기]: a press that passes 8 px starts the re-place for that pin, the place it is dropped on becomes the
+  candidate, and the existing banner compares `지금` with `새 위치` before anything is saved. A mouse drags it without
+  entering the mode; a finger may drag it inside the mode for that very pin, so the badge keeps the long-press tooltip
+  and the box a badge drag starts in [선택] mode. What the drag carries is the probe a tap already sends - one text
+  line at the pointer, clamped into the page - not the pin's own box, which after 0.4.62 is as tall as its whole
+  paragraph. A verdict, closed or awaiting-review pin cannot be dragged, and a region pin's box moves whole. The pins
+  are saved against their own revision, so a pin another writer changed in between is refused with a warning and keeps
+  its place. While the hand is on the badge that pin's marks stand back to 40% opacity, since the probe it carries is
+  one text line and the mark it is leaving is as tall as a whole paragraph.
+
+### Changed
+
+- **The '새 위치' box stands on the pieces the new range prints as.** Placing a pin again showed the rectangle that was
+  dragged while asking for a confirm, although what gets saved is the range's own area (0.4.62). Now that box follows
+  the candidate's range the way the composing '새 핀' box follows its own, one box per piece, and a range that prints
+  on another page is brought into view. This holds for the drawn-rectangle path too, not only a badge drag.
+
 ## 0.4.66 — 2026-11-19
 
 The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or

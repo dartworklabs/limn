@@ -50,10 +50,23 @@ function pageVerdicts(): PageVerdicts {
 }
 
 // The composer a selection on the pages goes to (composer/flow-pick.ts, composer/view-selection-popover.ts): the pick
-// of a dragged region, dropping it, and the note popover by the selection box.
+// of a dragged region, dropping it, the note popover by the selection box, and the re-place a drag on a pin's number
+// badge places the pin again with (composer/flow-repick.ts, docs/adr/0051-pin-badge-drag-reposition.md).
 interface PageSelection {
   /** Turns a dragged region into the composer's place. */
   pick(region: unknown): void;
+  /**
+   * Where pin `id` stands now and whether it is a region pin, for a press on its number badge, or null when that
+   * press places nothing (see composer/flow-repick.ts badgeMovePin). `mouse` tells a mouse press, which may place a
+   * pin without the re-place mode, from a finger, which may not.
+   */
+  badgeMove(id: number, mouse: boolean): { frac: number[]; region: boolean } | null;
+  /** Turns the re-place mode on for pin `id` from a drag on its badge that is already moving. */
+  repickFromBadge(id: number): void;
+  /** Drops the place a re-place of pin `id` was offering, for a second drag on that same badge. */
+  restartRepick(id: number): void;
+  /** Ends the re-place a badge drag turned on, for a gesture that ended without a drop. */
+  cancelRepick(): void;
   /** Drops the selection and closes the composer. */
   discard(): void;
   /** Opens the note popover by a selection box. */
