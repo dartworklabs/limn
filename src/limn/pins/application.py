@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from limn.pins.needs import BuildAnswers, DocumentBoxes, VerdictKeys
     from limn.pins.notice import PinNotice
     from limn.pins.runtime import PinCommands
+    from limn.pins.store import PinLines
     from limn.runtime.config import RunConfig
     from limn.runtime.documents import Doc
     from limn.runtime.resources import RuntimeResources
@@ -162,7 +163,7 @@ class PinSubsystem:
 def assemble_pins(
     *,
     settings: Callable[[], RunConfig],
-    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]],
+    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object, PinLines]],
     docs: list[Doc],
     builds: BuildAnswers,
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]],
@@ -238,9 +239,11 @@ def assemble_pins(
         return recorded_place(stored, record, config.src, config.state, folders)
 
     def render() -> None:
-        """Render current pins after acquiring this run's transaction lock."""
+        """Render current pins after acquiring this run's transaction lock. The pins are read as a writer reads them
+        (the store's own parse of the file), never from the lines the run's readers keep: what is written to pins.md
+        must come from pins.jsonl alone."""
         with resources().pin_lock:
-            commands.render_pins_md(commands.read_pins()[0])
+            commands.render_pins_md(commands.pin_store().read_pins()[0])
 
     view = PinReadView(commands.read_pins, commands.snapshot_pins, commands.pin_doc_key, locate)
     maintenance = PinMaintenance(commands.pin_store, commands.retention_days, commands.maintenance_files)

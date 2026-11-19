@@ -15,6 +15,7 @@ Run: uv run pytest -q src/limn/pins/tests/test_kept_lines.py
 
 import json
 import os
+import sys
 import tempfile
 import threading
 import unittest
@@ -22,11 +23,14 @@ from pathlib import Path
 
 from hypothesis import given, settings, strategies as st
 
+from limn.pins import record as record_module
 from limn.pins.model import TrashedPin, parse_pin
 from limn.pins.record import Broken
-from limn.pins.store import KeptLines, KeptPinReader, PinFiles, PinLines, PinReader, PinStore, line_value
+from limn.pins.store import KeptLines, KeptPinReader, PinFiles, PinLines, PinReader, PinStore, dump_jsonl, line_value
+from limn.security.access import LOCAL_ACTOR
 
-from helpers import records
+from helpers import Base, fresh_runtime, ps, records, write_records
+from helpers_authority import post_authority
 
 DEEP = "[" * 100_000 + "]" * 100_000  # more nesting than json.loads takes on any supported interpreter
 
@@ -350,3 +354,150 @@ class LineValue(unittest.TestCase):
     def test_a_line_past_the_nesting_limit_is_broken_and_not_settled(self):
         """A line json.loads cannot descend is handed to the parse as nothing (so it is Broken) and is not settled."""
         self.assertEqual(line_value(DEEP, lambda r: Broken() if r is None else r), (Broken(), False))
+
+
+def lines_run(module, call):
+    """How many lines of `module` run while call() does: a count of work that a busy machine does not change, where
+    a clock would (docs/handbook/verification.md §불안정한 테스트). Returns (count, call's result)."""
+    wanted = module.__file__
+    count = 0
+
+    def tracer(frame, event, _arg):
+        """Count line events of the wanted file; follow no other frame."""
+        nonlocal count
+        if frame.f_code.co_filename != wanted:
+            return None
+        count += event == "line"
+        return tracer
+
+    sys.settrace(tracer)
+    try:
+        result = call()
+    finally:
+        sys.settrace(None)
+    return count, result
+
+
+def reply(pid: int) -> None:
+    """Add the reply "ok" to pin pid as the local agent, through the pin service's transaction."""
+    store = ps.APP.pin_lifecycle.context().store
+    ps.APP.pin_lifecycle.reply_pin(pid, "ok", post_authority(store, dict(LOCAL_ACTOR), "reply", pid))
+
+
+class ARunParsesAStoredLineOnce(Base):
+    """Through the run's composition: every way of reading the pins checks a stored record once per run, not once
+    per request."""
+
+    def fill(self, count):
+        """Leave `count` open line pins on main.tex (ids 1..count), each with a note."""
+        rows = records(ps.APP.pin_store().read_pins()[0])
+        if not rows:
+            self.add()
+            rows = records(ps.APP.pin_store().read_pins()[0])
+        base = dict(rows[0])
+        write_records(
+            [{**base, "id": i, "lo": 4 + i % 3, "hi": 5 + i % 3, "note": "request %d" % i} for i in range(1, count + 1)]
+        )
+
+    def reads(self):
+        """Every read of the pins a request can cause, by name."""
+        app = ps.APP
+        return {
+            "the list": lambda: app.pin_listing.list_payload(True),
+            "one pin": lambda: app.pin_listing.pin_payload(7),
+            "pins.md": lambda: app.pin_markdown.current_text("http://127.0.0.1:1"),
+            "the state counts of meta": lambda: app.assembly.pins.counts.state_counts(),
+            "the open counts of docs": lambda: app.assembly.pins.counts.counts_by_document({app.docs[0].key}),
+            "the Trash": lambda: app.pin_listing.dropped_payload(),
+        }
+
+    def checked(self, call) -> int:
+        """The lines of the record check (limn.pins.record) that run during call()."""
+        return lines_run(record_module, call)[0]
+
+    def test_a_second_read_runs_no_line_of_the_record_check(self):
+        """Each read checks the stored records the first time a run makes it and runs no line of the check when it
+        is made again."""
+        for name, read in self.reads().items():
+            with self.subTest(read=name):
+                self.fill(40)
+                fresh_runtime()
+                self.assertGreater(self.checked(read), 0)
+                self.assertEqual(self.checked(read), 0)
+
+    def test_what_one_read_kept_serves_the_others(self):
+        """After the list was read once, no other read of the live pins runs a line of the record check."""
+        self.fill(40)
+        reads = self.reads()
+        reads["the list"]()
+        for name in ("one pin", "pins.md", "the state counts of meta", "the open counts of docs"):
+            with self.subTest(read=name):
+                self.assertEqual(self.checked(reads[name]), 0)
+
+    def test_a_write_costs_the_next_read_one_line(self):
+        """After a reply to one pin, the next list checks that pin's record alone: the same number of lines of the
+        check whether 40 or 80 pins are stored."""
+        costs = []
+        for count in (40, 80):
+            self.fill(count)
+            ps.APP.pin_listing.list_payload(True)
+            reply(7)
+            costs.append(self.checked(lambda: ps.APP.pin_listing.list_payload(True)))
+        self.assertGreater(costs[0], 0)
+        self.assertEqual(costs[1], costs[0])
+
+    def test_two_runs_share_nothing(self):
+        """A fresh run's first read checks every record again: what one run kept is not another's."""
+        self.fill(40)
+        first = self.checked(lambda: ps.APP.pin_listing.list_payload(True))
+        fresh_runtime()
+        self.assertEqual(self.checked(lambda: ps.APP.pin_listing.list_payload(True)), first)
+
+
+class WritersDoNotReadWhatIsKept(Base):
+    """Nothing that is written to a pin file comes from what is kept: a wrong kept value never reaches the disk."""
+
+    def poison(self):
+        """Two pins on disk, and the first one's line kept as if it parsed to the second pin - a wrong value that
+        any reader of what is kept would hand on. Returns the state folder's pin files."""
+        self.add(4, 5, note="first")
+        self.add(8, 9, note="second")
+        files = PinFiles(ps.APP.C.state)
+        texts = [t for t in files.pins_jsonl.read_text(encoding="utf-8").splitlines() if t.strip()]
+        wrong = parse_pin(json.loads(texts[1]))
+        ps.APP.RT.pin_lines.live.values(texts, lambda text: (wrong, True))
+        self.assertEqual([pin.core.note for pin in ps.APP.read_pins()[0]], ["second", "second"])
+        return files
+
+    def honest_md(self):
+        """pins.md as rendered from a fresh parse of pins.jsonl, its minute stamp line dropped."""
+        return self.unstamped(ps.APP.pin_markdown.pins_md_text(ps.APP.pin_store().read_pins()[0]))
+
+    @staticmethod
+    def unstamped(md: str) -> str:
+        """pins.md without the line that carries the minute it was rendered in."""
+        return "\n".join(t for t in md.splitlines() if not t.startswith("갱신:"))
+
+    def test_pins_md_written_after_publication_comes_from_the_file(self):
+        """The pins.md refresh that follows a publication renders the pins of pins.jsonl, not the kept ones."""
+        files = self.poison()
+        ps.APP.refresh_pins_md()
+        self.assertEqual(self.unstamped(files.pins_md.read_text(encoding="utf-8")), self.honest_md())
+        self.assertIn("first", files.pins_md.read_text(encoding="utf-8"))
+
+    def test_pins_md_rendered_at_startup_comes_from_the_file(self):
+        """The pins.md a starting run renders is of the pins of pins.jsonl, not the kept ones."""
+        files = self.poison()
+        ps.APP.assembly.pins.startup.render_markdown()
+        self.assertEqual(self.unstamped(files.pins_md.read_text(encoding="utf-8")), self.honest_md())
+        self.assertIn("first", files.pins_md.read_text(encoding="utf-8"))
+
+    def test_a_transaction_reads_the_file(self):
+        """A reply to the second pin rewrites pins.jsonl from the file's own records: the first pin's line keeps its
+        bytes although a wrong value is kept for it."""
+        files = self.poison()
+        first_line = files.pins_jsonl.read_text(encoding="utf-8").splitlines()[0]
+        reply(2)
+        after = files.pins_jsonl.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(after[0], first_line)
+        self.assertEqual(dump_jsonl([json.loads(after[0])]).strip(), first_line)

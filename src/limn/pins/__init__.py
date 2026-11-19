@@ -6,10 +6,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from .application import PinSubsystem as PinSubsystem, assemble_pins as assemble_pins
     from .location import TokenCache as TokenCache, range_boxes as range_boxes
+    from .store import PinLines as PinLines
 
-__all__ = ["PinSubsystem", "TokenCache", "assemble_pins", "range_boxes"]
+__all__ = ["PinLines", "PinSubsystem", "TokenCache", "assemble_pins", "range_boxes"]
 
 _EXPORTS = {
+    "PinLines": ("store", "PinLines"),
     "PinSubsystem": ("application", "PinSubsystem"),
     "TokenCache": ("location", "TokenCache"),
     "assemble_pins": ("application", "assemble_pins"),

@@ -37,7 +37,7 @@ from limn.pins.model import EventType, Pin, Record, TrashedPin
 from limn.pins.needs import BoxesFor, BuildAnswers, DocumentBoxes, FollowElement, VerdictKeys
 from limn.pins.notice import PinNotice
 from limn.pins.record import Broken, parse_record as record_parse_record, parse_trashed as record_parse_trashed
-from limn.pins.store import PinFiles, PinReader, PinStore, Row
+from limn.pins.store import KeptPinReader, PinFiles, PinLines, PinReader, PinStore, Row
 from limn.pins.suggestion import suggestion_of
 from limn.pins.trash.service import PinTrash
 from limn.pins.verdict import (
@@ -148,7 +148,7 @@ class PinCommands:
     """Bind pin transactions, source placement and HTTP adapters to what the run supplies."""
 
     settings: Callable[[], RunConfig]
-    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object]]
+    resources: Callable[[], RuntimeResources[object, object, object, object, object, TokenCache, object, PinLines]]
     docs: list[Doc]
     build_view: BuildAnswers
     known_people: Callable[[Sequence[Json] | None], dict[str, Json]]
@@ -188,7 +188,7 @@ class PinCommands:
         return TRASH_DAYS
 
     @property
-    def RT(self) -> RuntimeResources[object, object, object, object, object, TokenCache, object]:
+    def RT(self) -> RuntimeResources[object, object, object, object, object, TokenCache, object, PinLines]:
         """Read the run's shared transaction and cache resources."""
         return self.resources()
 
@@ -232,9 +232,11 @@ class PinCommands:
         return None if doc is None else self.document_boxes(doc)
 
     def refresh_pins_md(self) -> None:
-        """Refresh derived markdown after publication without resynchronizing pins."""
+        """Refresh derived markdown after publication without resynchronizing pins. The pins are read as a writer
+        reads them (pin_store(): every line parsed from the file), never from the lines the run's readers keep, so
+        what is written to pins.md comes from pins.jsonl alone."""
         with self.RT.pin_lock:
-            self.render_pins_md(self.read_pins()[0])
+            self.render_pins_md(self.pin_store().read_pins()[0])
 
     def watches_files(self, r: Record) -> bool:
         """Whether the document pin record r belongs to (pin_doc_key) has its files watched (Doc.watches_files: a figure
@@ -331,12 +333,16 @@ class PinCommands:
         return paths
 
     def pin_reader(self) -> PinReader:
-        """Issue saved-record reads without a sync collaborator or any save operations."""
-        return PinReader(
+        """Issue saved-record reads without a sync collaborator or any save operations: a keeping reader over the
+        run's kept lines (RT.pin_lines), so a stored line is parsed once per run while its text stays the same. Its
+        pins are shared with every other reader of the run - a caller reads them and changes nothing in them
+        (limn.pins.store.KeptPinReader); a caller that writes what it reads takes pin_store() instead."""
+        return KeptPinReader(
             PinFiles(self.C.state),
             self.RT.pin_lock,
             self.parse_record,
             self.parse_trashed,
+            self.RT.pin_lines,
         )
 
     def pin_store(self) -> PinStore:
@@ -355,11 +361,13 @@ class PinCommands:
         )
 
     def read_pins(self) -> tuple[list[Pin], list[int]]:
-        """The live pins, parsed, and pins.jsonl's broken line numbers, lock-free and not re-synced (PinStore.read_pins)."""
+        """The live pins, parsed, and pins.jsonl's broken line numbers, lock-free and not re-synced, for a caller that
+        only reads them (pin_reader(): the pins are the run's shared ones)."""
         return self.pin_reader().read_pins()
 
     def read_dropped(self) -> tuple[list[TrashedPin], list[int]]:
-        """The Trash entries, parsed, and the Trash file's broken line numbers, lock-free (PinStore.read_dropped)."""
+        """The Trash entries, parsed, and the Trash file's broken line numbers, lock-free, for a caller that only reads
+        them (pin_reader(): the entries are the run's shared ones)."""
         return self.pin_reader().read_dropped()
 
     def write_pins(self, pins: list[Pin], bad: list[int] | None = None) -> None:
