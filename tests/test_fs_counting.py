@@ -7,6 +7,8 @@ installed, must not change what a test reads.
 Run: uv run pytest -q tests/test_fs_counting.py
 """
 
+import cProfile
+import os
 import sys
 import tempfile
 import threading
@@ -78,3 +80,16 @@ class FsCalls(unittest.TestCase):
             self.assertIs(sys.getprofile(), earlier)
         finally:
             sys.setprofile(before)
+
+    def test_counting_under_cprofile_leaves_the_interpreter_usable(self):
+        """Before Python 3.12 a running cProfile shows in sys.getprofile() as its Profile object, which cannot be
+        installed through sys.setprofile: putting it back raised a TypeError at the end of every count. Such a
+        profiler is left off, and the count and the calls after it go on."""
+        profile = cProfile.Profile()
+        profile.enable()
+        try:
+            counts, _ = fs_calls(lambda: os.stat(os.curdir))
+            os.stat(os.curdir)
+        finally:
+            profile.disable()
+        self.assertEqual(counts["stat"], 1)
