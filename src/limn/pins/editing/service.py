@@ -273,7 +273,7 @@ def edit_pin(
             located(where),
             anchoring,
             None if tags is None else tags.mentions,
-            ctx.person_name(request.assignee) if assigns and request.assignee is not None else None,
+            ctx.person_name(request.assignee, pins) if assigns and request.assignee is not None else None,
         )
         pins[i] = edited
         rec = edited.record

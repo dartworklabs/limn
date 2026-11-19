@@ -85,7 +85,9 @@ class PinContext:
     known_people: Callable[[Sequence[Pin]], Mapping[str, Json]]  # @-tag candidates: people.json plus those on pins
     note_tags: NoteTagger
     role_of: Callable[[str], Role]  # a login's people.json role
-    person_name: Callable[[str], str]  # a known person's display name, else the login
+    # A known person's display name, else the login: known from people.json and the people on the given pins. A
+    # transaction passes its own pins, so a name it writes into a thread never comes from another reader's pins.
+    person_name: Callable[[str, Sequence[Pin]], str]
     locate: Callable[[Mapping[str, Any]], PinLocation | None]  # where a record's file is under the manuscript root now
     stamp: Callable[[Row], PinLocation | None]  # records that location in a pin's record (file, file_rel)
     thread_max: int  # cap on one pin's replies

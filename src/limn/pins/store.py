@@ -57,9 +57,11 @@ Parsed = TypeVar("Parsed")
 # What one line of a pin file is kept as: what it parses to, or Broken.
 Value = TypeVar("Value")
 
-# The most characters of line text one KeptLines keeps. A kept line costs its text and about seven times that in
-# parsed values (measured on synthetic pins of 800 characters), so one full KeptLines is about 35 MB; the lines of
-# a file past the limit are parsed at every read, as all lines were before anything was kept.
+# The most characters of line text one KeptLines keeps. What that costs in bytes depends on the lines: a kept line
+# holds its text (one byte a character for ASCII, two to four otherwise) and its parsed value, about seven times the
+# text for pins of 800 ASCII characters (measured) and more per character for many short lines. A run has two
+# KeptLines (PinLines), and while a read builds the next generation the old one is still held. The lines of a file
+# past the limit are parsed at every read, as all lines were before anything was kept.
 KEPT_LINE_CHARS = 4 * 1024 * 1024
 
 
@@ -127,7 +129,8 @@ class KeptLines(Generic[Value]):
         fresh(line)[0]. Afterwards what is kept is these lines.
 
         fresh(line) answers (the line's value, whether to keep it); a value it says not to keep is answered but
-        asked for again at the next read. A line that repeats in lines is asked for once. Lines are kept from the
+        asked for again at the next read. A value is never None: None is how a line that is not kept reads here, so
+        a None value would be asked for again at every read. A line that repeats in lines is asked for once. Lines are kept from the
         first on until one does not fit the limit; that line and every later one are not kept."""
         with self._lock:
             old = self._held
@@ -148,9 +151,15 @@ class KeptLines(Generic[Value]):
                 else:
                     new[text] = value
                     chars += len(text)
-        with self._lock:
-            self._held = new
+        self._swap(new)
         return out
+
+    def _swap(self, new: Mapping[str, Value]) -> Mapping[str, Value]:
+        """Publish new as what is kept and answer the generation it replaced, in one step under the lock. The one
+        place a kept value leaves: whatever the replaced generation held and new does not is no longer handed out."""
+        with self._lock:
+            replaced, self._held = self._held, new
+        return replaced
 
 
 @dataclass(frozen=True)

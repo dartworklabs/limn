@@ -6,11 +6,13 @@ that changed one - a nested dict of a record, say - would hand the changed value
 forbids that in Python; this audit is what does. It compares every kept value with a fresh parse of its own line,
 so every existing test that reads pins, by GET or inside a POST, is a check of the path it exercised."""
 
+import json
 import unittest
 
+from limn.pins.store import line_value
 from limn.security.access import LOCAL_ACTOR
 
-from helpers import Base, add_pin, fresh_runtime, kept_lines_changed, ps
+from helpers import Base, add_pin, forget_kept_lines, fresh_runtime, kept_lines_changed, ps
 from helpers_authority import post_authority
 
 
@@ -30,13 +32,14 @@ class KeptLinesAudit(Base):
 
     def test_a_reader_that_changes_a_kept_pin_is_reported(self):
         """Changing a value inside a record a reader was handed - here the author's name - is reported with the
-        line it belongs to (its first 80 characters); the run is then dropped so the tear-down's own audit sees a clean one."""
+        line it belongs to (its first 80 characters); what the run keeps is then forgotten so the tear-down's own audit
+        passes."""
         ps.APP.read_pins()[0][0].record["author"]["name"] = "someone else"
         first_line = ps.APP.C.pins_jsonl.read_text(encoding="utf-8").splitlines()[0]
         try:
             self.assertEqual(kept_lines_changed(), [first_line[:80]])
         finally:
-            fresh_runtime()
+            forget_kept_lines()
 
     def test_a_reader_that_changes_a_kept_trash_entry_is_reported(self):
         """The Trash's kept lines are audited like the live ones."""
@@ -44,7 +47,100 @@ class KeptLinesAudit(Base):
         try:
             self.assertEqual(len(kept_lines_changed()), 1)
         finally:
-            fresh_runtime()
+            forget_kept_lines()
+
+    def reply(self, pid):
+        """Add a reply to pin pid, which rewrites that pin's stored line."""
+        store = ps.APP.pin_lifecycle.context().store
+        ps.APP.pin_lifecycle.reply_pin(pid, "again", post_authority(store, dict(LOCAL_ACTOR), "reply", pid))
+
+    def test_a_change_is_reported_after_its_line_left_the_file(self):
+        """A reader changes a kept pin, a later read is answered with the changed value, and then a write replaces
+        that pin's line, so the changed value is no longer kept when the test ends: it is reported all the same,
+        compared at the moment it left what is kept."""
+        ps.APP.read_pins()[0][0].record["author"]["name"] = "someone else"
+        self.assertEqual(ps.APP.read_pins()[0][0].core.author["name"], "someone else")
+        self.reply(self.first)
+        ps.APP.read_pins()
+        fresh = ps.APP.pin_store().read_pins()[0][0]
+        try:
+            self.assertEqual(ps.APP.read_pins()[0][0].record, fresh.record)
+            self.assertEqual(len(kept_lines_changed()), 1)
+        finally:
+            forget_kept_lines()
+
+    def test_a_change_is_reported_after_the_run_was_replaced(self):
+        """A reader changes a kept pin and the test then starts a fresh run (fresh_runtime): the change the dropped
+        run held is carried to the audit of the run that replaced it."""
+        ps.APP.read_pins()[0][0].record["author"]["name"] = "someone else"
+        fresh_runtime()
+        try:
+            self.assertEqual(len(kept_lines_changed()), 1)
+        finally:
+            forget_kept_lines()
+
+    def test_a_change_is_reported_when_another_reader_dropped_the_value(self):
+        """Two readers interleave: while the first is parsing its file, a second reads a newer file with one more
+        line and publishes it; the first then publishes the older file's lines, which drops the second reader's
+        extra value. A change made to that value is reported although neither reader saw it leave."""
+        forget_kept_lines()
+        live = ps.APP.RT.pin_lines.live
+        mine = ps.APP.C.pins_jsonl.read_text(encoding="utf-8").splitlines()[0]
+        extra = json.dumps(dict(json.loads(mine), id=99))
+
+        def parse(text):
+            """One line by the run's own parse."""
+            return line_value(text, ps.APP.parse_record)
+
+        def parse_while_another_reader_publishes(text):
+            """The first reader's parse of its line, during which the second reader reads, publishes, and its extra
+            pin is changed in place."""
+            newer = live.values([mine, extra], parse)
+            newer[1].record["author"]["name"] = "someone else"
+            return parse(text)
+
+        live.values([mine], parse_while_another_reader_publishes)
+        self.assertEqual(list(live.held()), [mine])
+        try:
+            self.assertEqual(kept_lines_changed(), [extra[:80]])
+        finally:
+            forget_kept_lines()
+
+    def test_a_change_is_reported_when_another_reader_replaced_the_value_of_the_same_line(self):
+        """Two readers miss the same line at once and each parses it; the one that publishes last replaces the
+        other's value under the same text. A change made to the replaced value - still in the hands of the request
+        that got it - is reported."""
+        forget_kept_lines()
+        live = ps.APP.RT.pin_lines.live
+        mine = ps.APP.C.pins_jsonl.read_text(encoding="utf-8").splitlines()[0]
+
+        def parse(text):
+            """One line by the run's own parse."""
+            return line_value(text, ps.APP.parse_record)
+
+        def parse_while_another_reader_publishes(text):
+            """The first reader's parse of the line, during which the second reader parses and publishes the same
+            line, and the second reader's pin is changed in place."""
+            live.values([mine], parse)[0].record["author"]["name"] = "someone else"
+            return parse(text)
+
+        live.values([mine], parse_while_another_reader_publishes)
+        try:
+            self.assertEqual(kept_lines_changed(), [mine[:80]])
+        finally:
+            forget_kept_lines()
+
+    def test_a_change_is_reported_after_an_earlier_run_was_put_back(self):
+        """A test keeps its run aside, works in a fresh one where a reader changes a kept pin, and puts the first
+        run back: the change is carried to the run that was put back."""
+        first = ps.APP.RT
+        fresh_runtime()
+        ps.APP.read_pins()[0][0].record["author"]["name"] = "someone else"
+        ps.APP.RT = first
+        try:
+            self.assertEqual(len(kept_lines_changed()), 1)
+        finally:
+            forget_kept_lines()
 
     def test_changing_the_outer_record_of_a_read_is_not_a_change(self):
         """`record` is a new dict at every call: a caller that adds to or rewrites its top level changed nothing
@@ -98,6 +194,7 @@ class TheTearDownRunsTheAudit(unittest.TestCase):
             ps.APP.read_pins()[0][0].record["author"]["name"] = "someone else"
 
         result = self.outcome(body)
+        forget_kept_lines()
         self.assertEqual((len(result.failures), len(result.errors)), (1, 0))
         self.assertIn("a reader changed a pin the run keeps", result.failures[0][1])
 

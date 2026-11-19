@@ -114,7 +114,7 @@ class ServiceBase(unittest.TestCase):
             known_people=lambda rows: self.people,
             note_tags=lambda note, old, rows, hints, actor, pid: NoteTags((), []),
             role_of=lambda login: "editor",
-            person_name=lambda login: self.people.get(login, {}).get("name", login),
+            person_name=lambda login, pins: self.people.get(login, {}).get("name", login),
             locate=self.locate,
             stamp=lambda r: None,
             thread_max=3,

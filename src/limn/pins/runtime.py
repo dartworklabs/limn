@@ -408,9 +408,11 @@ class PinCommands:
         """If pins.seq is missing, fill it once from the max id across the current, archived, and dropped records (PinStore.init_seq)."""
         self.pin_store().init_seq()
 
-    def _person_name(self, login: str) -> str:
-        """A known person's display name, or the login itself for someone the viewer does not know."""
-        return (self.known_people(None).get(login) or {}).get("name") or login
+    def _person_name(self, login: str, pins: Sequence[Pin]) -> str:
+        """A known person's display name, or the login itself for someone not known: known from people.json and
+        from the people on `pins` alone. A transaction passes the pins it read from the file, because the name is
+        written into a thread; the people on the run's shared pins (known_people(None)) are not asked."""
+        return (self.known_pin_people(pins).get(login) or {}).get("name") or login
 
     def known_pin_people(self, pins: Sequence[Pin] | None = None) -> dict[str, Json]:
         """Return known people, optionally including actor facts from the supplied pins."""

@@ -28,8 +28,10 @@ from limn.pins.model import TrashedPin, parse_pin
 from limn.pins.record import Broken
 from limn.pins.store import KeptLines, KeptPinReader, PinFiles, PinLines, PinReader, PinStore, dump_jsonl, line_value
 from limn.security.access import LOCAL_ACTOR
+from limn.viewer.assemble import ServedViewer
 
-from helpers import Base, fresh_runtime, ps, records, write_records
+from helpers import Base, edit_pin, forget_kept_lines, fresh_runtime, ps, records, write_records
+from helpers_access import A_LOGIN, ALICE, CLEAR_BODY, AccessBase
 from helpers_authority import post_authority
 
 DEEP = "[" * 100_000 + "]" * 100_000  # more nesting than json.loads takes on any supported interpreter
@@ -300,7 +302,8 @@ class ReadersRacingAWriter(Readers):
     def test_readers_racing_a_writer_each_answer_the_text_they_read(self):
         """Four threads read while a fifth replaces the file atomically with the other of two versions. Every read is
         the plain parse of one of the two versions, never a mixture and never a stale third. All five leave a barrier
-        together each round, so the order is forced, not waited for."""
+        together each round, so readers and the writer overlap without a sleep or a poll; which of them runs first
+        within a round is the scheduler's, and the assertion holds for every order."""
         one = [line(i, "one") for i in range(1, 31)]
         two = [line(i, "two") for i in range(1, 31)] + [line(99, "two")]
         answers = {tuple(json.dumps(r) for r in map(json.loads, version)) for version in (one, two)}
@@ -459,13 +462,27 @@ class ARunParsesAStoredLineOnce(Base):
         self.assertEqual(self.checked(lambda: ps.APP.pin_listing.list_payload(True)), first)
 
 
+class EachRunHasItsOwnKeptLines(unittest.TestCase):
+    """The composition root's resources of a run (limn.server.new_runtime), as a starting server makes them."""
+
+    def test_two_runs_get_separate_kept_lines(self):
+        """Two runs in one process - two servers, or a restart - share no kept lines, and within a run the live
+        file and the Trash each have their own."""
+        viewer = ServedViewer("<p></p>", "", {})
+        one, two = ps.new_runtime(viewer).pin_lines, ps.new_runtime(viewer).pin_lines
+        self.assertIsInstance(one, PinLines)
+        kept = [one.live, one.dropped, two.live, two.dropped]
+        self.assertEqual(len({id(lines) for lines in kept}), 4)
+        self.assertTrue(all(type(lines) is KeptLines for lines in kept))
+
+
 class WritersDoNotReadWhatIsKept(Base):
     """Nothing that is written to a pin file comes from what is kept: a wrong kept value never reaches the disk."""
 
     def tearDown(self):
-        """Drop the run these tests gave a wrong kept value on purpose, so the base's audit of what readers changed
-        (helpers.kept_lines_changed) sees a clean one."""
-        fresh_runtime()
+        """Forget what the run keeps: these tests gave it a wrong value on purpose, which the base's audit of what
+        readers changed (helpers.kept_lines_changed) would report."""
+        forget_kept_lines()
         super().tearDown()
 
     def poison(self):
@@ -512,3 +529,113 @@ class WritersDoNotReadWhatIsKept(Base):
         after = files.pins_jsonl.read_text(encoding="utf-8").splitlines()
         self.assertEqual(after[0], first_line)
         self.assertEqual(dump_jsonl([json.loads(after[0])]).strip(), first_line)
+
+    def test_an_assignees_name_written_to_the_thread_comes_from_the_file(self):
+        """Assigning a pin writes the assignee's display name into the pin's thread. That name is looked up among
+        the people on the transaction's own pins: a name that exists only in a kept value - here a wrong author
+        planted for the first pin's line - is not written to pins.jsonl or pins.md."""
+        self.add(4, 5, note="first")
+        self.add(8, 9, note="second")
+        files = PinFiles(ps.APP.C.state)
+        texts = [t for t in files.pins_jsonl.read_text(encoding="utf-8").splitlines() if t.strip()]
+        planted = dict(json.loads(texts[0]), author={"login": "bob@example.com", "name": "ONLY IN MEMORY"})
+        ps.APP.RT.pin_lines.live.values(texts, lambda text: (parse_pin(planted), True))
+        self.assertIn("bob@example.com", ps.APP.known_people(None))
+        edited = edit_pin(2, {"assignee": "bob@example.com", "base_rev": 0}, dict(LOCAL_ACTOR))
+        self.assertEqual(edited.record["assignee"], "bob@example.com")
+        self.assertNotIn("ONLY IN MEMORY", files.pins_jsonl.read_text(encoding="utf-8"))
+        self.assertNotIn("ONLY IN MEMORY", files.pins_md.read_text(encoding="utf-8"))
+        self.assertIn("bob@example.com", edited.record["thread"][-1]["text"])
+
+
+MARK = "⟦only in memory⟧"
+
+
+def marked(value):
+    """A stored record with MARK appended to every piece of free text and every display name in it: notes, thread
+    texts, quotes, close replies and the names of the people on it. Paths, ids and logins stay as they are, so the
+    record still names the same pin."""
+    if isinstance(value, dict):
+        return {
+            key: (
+                item + MARK
+                if key in ("note", "text", "quote", "close_reply", "name") and isinstance(item, str)
+                else marked(item)
+            )
+            for key, item in value.items()
+        }
+    if isinstance(value, list):
+        return [marked(item) for item in value]
+    return value
+
+
+class NoWriteCarriesWhatIsKept(AccessBase):
+    """Every write over HTTP, made while each kept value differs from its line in every free text and name: what
+    reaches the three pin files is the files' own text and the request's, never a kept value."""
+
+    def setUp(self):
+        """Alice is the owner (purge and clear are the owner's); four pins by her, the first with a reply and the
+        fourth in the Trash."""
+        super().setUp()
+        self.set_people([{"login": A_LOGIN, "name": "Alice Kim", "role": "owner"}])
+        self.ids = [self.pin_id(ALICE, lo=4 + i, hi=5 + i) for i in range(4)]
+        self.post("/api/pins/%d/reply" % self.ids[0], {"text": "a first reply"})
+        self.post("/api/pins/%d/drop" % self.ids[3])
+
+    def tearDown(self):
+        """Forget the kept values this test marked on purpose before the base audits what readers changed."""
+        forget_kept_lines()
+        super().tearDown()
+
+    def post(self, path, body=None):
+        """POST as Alice (the owner); the answer must be a 200. Returns its body."""
+        code, answer = self.call("POST", path, {} if body is None else body, ALICE)
+        self.assertEqual(code, 200, (path, answer))
+        return answer
+
+    def mark_what_is_kept(self):
+        """Keep, for every line of the live file and of the Trash, the line's value with MARK in its texts and
+        names - what a reader that changed shared pins would have left behind."""
+        files, lines = PinFiles(ps.APP.C.state), ps.APP.RT.pin_lines
+        for path, kept, parse in (
+            (files.pins_jsonl, lines.live, parse_pin),
+            (files.dropped, lines.dropped, TrashedPin.from_record),
+        ):
+            texts = [t for t in path.read_text(encoding="utf-8").splitlines() if t.strip()] if path.exists() else []
+            kept.values(texts, lambda text, parse=parse: (parse(marked(json.loads(text))), True))
+        self.assertIn(MARK, json.dumps(ps.APP.pin_listing.list_payload(True), ensure_ascii=False))
+
+    def rev(self, pid):
+        """The stored rev of pin pid, read from the file."""
+        return next(pin.core.rev or 0 for pin in ps.APP.pin_store().read_pins()[0] if pin.core.id == pid)
+
+    def test_no_write_puts_a_kept_value_in_a_pin_file(self):
+        """Reply, edit, assign, claim, unclaim, close, reopen, drop, restore, purge, a new pin and clear, each made
+        after the kept values were marked: no pin file holds MARK afterwards."""
+        one, two, three, _four = self.ids
+        steps = [
+            ("reply", lambda: self.post("/api/pins/%d/reply" % one, {"text": "ok @alice"})),
+            (
+                "edit the note",
+                lambda: self.post("/api/pins/%d/edit" % one, {"note": "a new note", "base_rev": self.rev(one)}),
+            ),
+            ("assign", lambda: self.post("/api/pins/%d/edit" % one, {"assignee": A_LOGIN, "base_rev": self.rev(one)})),
+            ("claim", lambda: self.post("/api/pins/%d/claim" % two, {"eta_min": 5})),
+            ("unclaim", lambda: self.post("/api/pins/%d/unclaim" % two)),
+            ("close", lambda: self.post("/api/pins/%d/close" % two, {"reply": "closed"})),
+            ("reopen", lambda: self.post("/api/pins/%d/reopen" % two)),
+            ("drop", lambda: self.post("/api/pins/%d/drop" % three)),
+            ("restore", lambda: self.post("/api/pins/%d/restore" % three)),
+            ("drop again", lambda: self.post("/api/pins/%d/drop" % three)),
+            ("purge", lambda: self.post("/api/pins/%d/purge" % three)),
+            ("a new pin", lambda: self.pin_id(ALICE, lo=10, hi=11)),
+            ("clear", lambda: self.post("/api/clear", CLEAR_BODY)),
+        ]
+        files = PinFiles(ps.APP.C.state)
+        for name, step in steps:
+            with self.subTest(write=name):
+                self.mark_what_is_kept()
+                step()
+                for path in (files.pins_jsonl, files.pins_md, files.dropped):
+                    if path.exists():
+                        self.assertNotIn(MARK, path.read_text(encoding="utf-8"), path.name)
