@@ -18,11 +18,17 @@ type (limn.pins.model.Pin) and every Trash line into a TrashedPin; a line the pa
 numbered. Writing turns each pin back into its stored line (`record`, in the stored field order), so a pin read and
 written back unchanged keeps its bytes.
 
+Reading for a caller that only reads may skip the parse of a line it has parsed before (KeptPinReader over the
+run's PinLines): what a line parses to is kept under the line's own text, the file is still read at every call, and
+only a line whose text was not in the last read is parsed. A kept value is shared by every such reader, so none of
+them may change a pin it was handed or anything inside it. A writer never shares: PinStore parses every line of every
+read, and neither reads nor fills what is kept, so nothing kept can reach a pin file.
+
 This module knows no run arguments and no HTTP. What the order needs from outside comes in as fields of PinStore,
 set by the composition root (server.pin_store()): where the files are (PinFiles), the process-wide lock, the record
 parse of a live line and of a Trash line (parse, parse_trashed), the anchor re-sync of the pins against the .tex
-files (sync) and the pins.md renderer (render). It creates no lock and holds no state of its own, so a store value is
-cheap to make per call.
+files (sync), the pins.md renderer (render) and, for a keeping reader, the run's kept lines (lines). It creates no
+lock and holds no state of its own, so a store or reader value is cheap to make per call.
 """
 
 import json
@@ -30,10 +36,10 @@ import re
 import shutil
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
-from dataclasses import dataclass
+from collections.abc import Callable, Iterable, Mapping, Sequence
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, TypeAlias, TypeVar
+from typing import Any, Generic, TypeAlias, TypeVar
 
 from limn.pins.model import Pin, TrashedPin
 from limn.pins.record import Broken
@@ -48,6 +54,13 @@ Row: TypeAlias = dict[str, Any]
 T = TypeVar("T")
 # What one readable line of a pin file parses to: a live pin or a Trash copy.
 Parsed = TypeVar("Parsed")
+# What one line of a pin file is kept as: what it parses to, or Broken.
+Value = TypeVar("Value")
+
+# The most characters of line text one KeptLines keeps. A kept line costs its text and about seven times that in
+# parsed values (measured on synthetic pins of 800 characters), so one full KeptLines is about 35 MB; the lines of
+# a file past the limit are parsed at every read, as all lines were before anything was kept.
+KEPT_LINE_CHARS = 4 * 1024 * 1024
 
 
 @dataclass(frozen=True)
@@ -62,6 +75,92 @@ class PreparedPinWrite:
 def dump_jsonl(rows: Iterable[Row]) -> str:
     """rows as the stored text: one compact JSON object per line (non-ASCII kept), each ending in a newline."""
     return "".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows)
+
+
+def line_value(text: str, parse: Callable[[object], Parsed | Broken]) -> tuple[Parsed | Broken, bool]:
+    """(what one non-blank line of a pin file parses to, whether that is a function of the line's text alone).
+
+    The line is decoded as JSON and handed to parse; a line that is not JSON is handed over as None, which every
+    record parse calls Broken. Both are verdicts about the text. A line json.loads gives up on for its depth
+    (RecursionError) is handed over as None too, but that verdict depends on how deep the caller's stack already
+    is, so it is not settled: KeptLines parses such a line again at every read. Never raises for any text."""
+    try:
+        decoded: object = json.loads(text)
+    except RecursionError:
+        return parse(None), False
+    except ValueError:
+        return parse(None), True
+    return parse(decoded), True
+
+
+class KeptLines(Generic[Value]):
+    """What each line of one pin file was at the latest read, by the line's own text, so that a line read again is
+    not parsed again.
+
+    The key is the whole text of the line and nothing else - no path, no stat, no line number. A parse is a pure
+    function of that text, so a kept value is what parsing the line now would give, whatever happened to the file in
+    between: there is nothing to invalidate. What is kept is replaced as a whole by every read (values) with the
+    lines of that read, so it holds the file as last read and never more, and at most `limit` characters of line
+    text (the file's first lines; from the first line that does not fit, none is kept).
+
+    One KeptLines serves one parse for the whole run: values of two different parses must not meet in it (the live
+    pins and the Trash each have their own, PinLines). Threads share it without waiting for one another: a
+    generation is never changed after it is published, a reader takes the current one and publishes the next, and
+    the lock is held only to take or swap that reference - never across a parse. Two readers that miss the same
+    line both parse it, to equal values. The values are shared by everyone who reads through it; see KeptPinReader
+    for the rule that follows. Nothing is written anywhere (docs/handbook/architecture.md 불변식 10)."""
+
+    def __init__(self, limit: int = KEPT_LINE_CHARS) -> None:
+        """Nothing kept yet; at most `limit` characters of line text will be."""
+        self._limit: int = limit
+        self._held: Mapping[str, Value] = {}
+        self._lock: threading.Lock = threading.Lock()
+
+    def held(self) -> Mapping[str, Value]:
+        """The lines kept now, each with its value, in the order of the read that kept them. The mapping is the
+        published generation itself: it is never changed again, and the caller must not change it or its values."""
+        with self._lock:
+            return self._held
+
+    def values(self, lines: Sequence[str], fresh: Callable[[str], tuple[Value, bool]]) -> list[Value]:
+        """The value of each of lines, in order: the kept one when the line's text was in the last read, else
+        fresh(line)[0]. Afterwards what is kept is these lines.
+
+        fresh(line) answers (the line's value, whether to keep it); a value it says not to keep is answered but
+        asked for again at the next read. A line that repeats in lines is asked for once. Lines are kept from the
+        first on until one does not fit the limit; that line and every later one are not kept."""
+        with self._lock:
+            old = self._held
+        new: dict[str, Value] = {}
+        out: list[Value] = []
+        chars, full = 0, False
+        for text in lines:
+            value = old.get(text)
+            if value is None:
+                value = new.get(text)
+            settled = True
+            if value is None:
+                value, settled = fresh(text)
+            out.append(value)
+            if settled and not full and text not in new:
+                if chars + len(text) > self._limit:
+                    full = True
+                else:
+                    new[text] = value
+                    chars += len(text)
+        with self._lock:
+            self._held = new
+        return out
+
+
+@dataclass(frozen=True)
+class PinLines:
+    """One run's kept lines of its two pin files: `live` for pins.jsonl, `dropped` for the Trash. Each is answered
+    by its own parse, so the same text in both files is a pin in one and a Trash copy in the other. The run owns one
+    (limn.runtime.resources.RuntimeResources.pin_lines) and hands it to its keeping readers alone."""
+
+    live: KeptLines[Pin | Broken] = field(default_factory=KeptLines)
+    dropped: KeptLines[TrashedPin | Broken] = field(default_factory=KeptLines)
 
 
 def find_pin(rows: list[Row], pid: int) -> Row | None:
@@ -96,26 +195,39 @@ class PinReader:
     parse: Callable[[object], Pin | Broken]
     parse_trashed: Callable[[object], TrashedPin | Broken]
 
-    def read_jsonl(self, path: Path, parse: Callable[[object], Parsed | Broken]) -> tuple[list[Parsed], list[int]]:
+    def read_jsonl(
+        self,
+        path: Path,
+        parse: Callable[[object], Parsed | Broken],
+        kept: KeptLines[Parsed | Broken] | None = None,
+    ) -> tuple[list[Parsed], list[int]]:
         """(what each readable line of a JSONL file parses to, broken line numbers); a missing file is ([], []). Takes
         no lock.
 
         A line that is not JSON, or that parse calls Broken, is skipped with a warning on stderr and its number
-        returned - one bad record must not turn every request into a 500. Blank lines are ignored."""
+        returned - one bad record must not turn every request into a 500. Blank lines are ignored.
+
+        With kept, a line whose text was in the last read through it is answered with the value kept for it instead
+        of being parsed (KeptLines.values), and what is kept becomes this read's lines - none for a missing file.
+        The answer is the same either way; the lists are the caller's own, the values in them are shared. kept must
+        be the one that serves this parse."""
+
+        def fresh(line: str) -> tuple[Parsed | Broken, bool]:
+            """One line's value by this read's parse, and whether it may be kept (line_value)."""
+            return line_value(line, parse)
+
         try:
             text = path.read_text(encoding="utf-8", errors="replace")
         except FileNotFoundError:
+            if kept is not None:
+                kept.values((), fresh)
             return [], []
+        numbered = [(i, t) for i, t in enumerate(text.splitlines(), 1) if t.strip()]
+        texts = [t for _, t in numbered]
+        values = [fresh(t)[0] for t in texts] if kept is None else kept.values(texts, fresh)
         out: list[Parsed] = []
         bad = []
-        for i, t in enumerate(text.splitlines(), 1):
-            if not t.strip():
-                continue
-            try:
-                r = json.loads(t)
-            except (ValueError, RecursionError):
-                r = None
-            parsed = parse(r)
+        for (i, _), parsed in zip(numbered, values, strict=True):
             if isinstance(parsed, Broken):
                 bad.append(i)
                 continue
@@ -141,6 +253,30 @@ class PinReader:
         """Return saved pins under the transaction lock; positions and revisions always describe durable records."""
         with self.lock:
             return self.read_pins()[0]
+
+
+@dataclass(frozen=True)
+class KeptPinReader(PinReader):
+    """The reader issued to callers that only read: a PinReader whose reads of the two pin files skip the parse of
+    every line the run has read before (lines, the run's PinLines).
+
+    The pins it hands out are shared with every other caller of the run's keeping readers, in this request and in
+    later ones. A caller owns the list it gets and nothing in it: it must not change a pin, a Trash copy, or any
+    value inside one - the dicts and lists a record holds, and so the nested values of `pin.record`, whose outermost
+    dict alone is new at every call. A caller that will write what it read to a pin file reads through a PinStore
+    instead, which has no kept lines to read."""
+
+    lines: PinLines
+
+    def read_pins(self) -> tuple[list[Pin], list[int]]:
+        """The live pins and pins.jsonl's broken line numbers, as PinReader.read_pins(), each line parsed at most
+        once per run while its text stays the same. Takes no lock and never re-syncs."""
+        return self.read_jsonl(self.files.pins_jsonl, self.parse, self.lines.live)
+
+    def read_dropped(self) -> tuple[list[TrashedPin], list[int]]:
+        """The Trash entries and the Trash file's broken line numbers, as PinReader.read_dropped(), each line parsed
+        at most once per run while its text stays the same. Takes no lock."""
+        return self.read_jsonl(self.files.dropped, self.parse_trashed, self.lines.dropped)
 
 
 @dataclass(frozen=True)
