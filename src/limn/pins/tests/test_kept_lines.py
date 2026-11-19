@@ -197,6 +197,11 @@ class ALineIsParsedOnce(Readers):
         large = self.parses(self.kept.read_pins)
         self.assertEqual((small, large), (0, 0))
 
+    def test_a_line_that_repeats_is_parsed_once(self):
+        """A line that is in the file three times is parsed once at the first read."""
+        self.put(line(1), line(2), line(1), line(1))
+        self.assertEqual(self.parses(self.kept.read_pins), 2)
+
     def test_a_broken_line_is_kept_and_numbered_at_each_read(self):
         """A line the parse calls Broken is not parsed again, and its number is the place it has in the file now."""
         self.put(line(1), "{not json", '{"id": "x"}')
@@ -456,6 +461,12 @@ class ARunParsesAStoredLineOnce(Base):
 
 class WritersDoNotReadWhatIsKept(Base):
     """Nothing that is written to a pin file comes from what is kept: a wrong kept value never reaches the disk."""
+
+    def tearDown(self):
+        """Drop the run these tests gave a wrong kept value on purpose, so the base's audit of what readers changed
+        (helpers.kept_lines_changed) sees a clean one."""
+        fresh_runtime()
+        super().tearDown()
 
     def poison(self):
         """Two pins on disk, and the first one's line kept as if it parsed to the second pin - a wrong value that

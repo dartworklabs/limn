@@ -36,7 +36,7 @@ from limn.pins.editing import input as editing_input
 from limn.pins.location import http as location_http
 from limn.pins.model import parse_pin
 from limn.pins.record import Broken
-from limn.pins.store import find_pin
+from limn.pins.store import find_pin, line_value
 from limn.revisions import core as revisions
 from limn.runtime import config
 from limn.runtime.config import AccessOptions, RunConfig
@@ -630,6 +630,29 @@ def records(parsed) -> list:
     return [p.record for p in parsed]
 
 
+def kept_lines_changed(mod=None) -> list[str]:
+    """The lines of the server copy's run (default ps) whose kept value is no longer what the line parses to - the
+    first 80 characters of each, live lines then Trash lines; [] when every kept value is intact.
+
+    The pins a read-only reader hands out are shared between requests (limn.pins.store.KeptPinReader), and nothing
+    in Python stops a reader from changing a dict inside one. Base and BrowserBase call this when a test ends, so a
+    read path that does fails the test that exercised it. A value is compared by what it would be written as - the
+    type and the JSON of its stored record - not with ==, under which a record holding NaN differs from itself."""
+
+    def written(value) -> tuple[type, str]:
+        """What tells one parsed value from another: its type and, unless Broken, its stored record as JSON."""
+        return type(value), "" if isinstance(value, Broken) else json.dumps(value.record, ensure_ascii=False)
+
+    app = (mod or ps).APP
+    kept = app.RT.pin_lines
+    changed = []
+    for lines, parse in ((kept.live, app.parse_record), (kept.dropped, app.parse_trashed)):
+        for text, value in lines.held().items():
+            if written(line_value(text, parse)[0]) != written(value):
+                changed.append(text[:80])
+    return changed
+
+
 def find_record(parsed, pid: int) -> dict | None:
     """The stored record of the first parsed pin whose id is pid, or None."""
     return find_pin(records(parsed), pid)
@@ -799,8 +822,12 @@ class Base(unittest.TestCase):
         ps.APP.init_seq()
 
     def tearDown(self):
-        """Remove the temporary manuscript and state folder."""
-        self.tmp.cleanup()
+        """Check that no reader changed a pin the run keeps (kept_lines_changed), then remove the temporary
+        manuscript and state folder."""
+        try:
+            self.assertEqual(kept_lines_changed(), [], "a reader changed a pin the run keeps for every reader")
+        finally:
+            self.tmp.cleanup()
 
     def add(self, lo=4, hi=5, note="n", actor=None):
         """Add a pin on main.tex lines lo-hi (page 1) as actor (default the local agent); returns its id."""

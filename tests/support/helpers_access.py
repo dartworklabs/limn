@@ -425,8 +425,10 @@ class MovedManuscriptBase(AccessBase):
         return {r["id"]: r for r in records(ps.APP.read_pins()[0])}
 
     def rewrite(self, fn):
-        """Edit pins.jsonl directly (a state written by another version, or by hand)."""
-        rows = records(ps.APP.read_pins()[0])
+        """Edit pins.jsonl directly (a state written by another version, or by hand). The records are read as a writer
+        reads them (pin_store()): fn may change a nested value in place, and the pins a read-only reader hands out are
+        shared with every later reader."""
+        rows = records(ps.APP.pin_store().read_pins()[0])
         fn(rows)
         ps.APP.C.pins_jsonl.write_text(dump_jsonl(rows), encoding="utf-8")
 
