@@ -43,7 +43,10 @@ VENDOR: Mapping[VendorLibrary, VendorServing] = {
 class ViewerShellApp(Protocol):
     """Run-specific values needed to serve the viewer shell."""
 
-    APP_NAME: str
+    @property
+    def APP_NAME(self) -> str:
+        """The application's name as GET /api/version answers it; read, never set."""
+        ...
 
     def viewer(self) -> ServedViewer:
         """Return the page, service worker and icons (by GET path) bound to this run."""
@@ -57,8 +60,8 @@ class ViewerShellApp(Protocol):
         """Validate and locate one file of a bundled library: one leaf name ending in one of suffixes, or None."""
         ...
 
-    def hdr_text(self, value: object) -> str:
-        """Render a path safely for an HTTP refusal."""
+    def hdr_text(self, value: object, /) -> str:
+        """Render a path safely for an HTTP refusal. The value is passed by position."""
         ...
 
 

@@ -11862,14 +11862,6 @@
                     "endColumn": 12,
                     "lineCount": 1
                 }
-            },
-            {
-                "code": "reportArgumentType",
-                "range": {
-                    "startColumn": 73,
-                    "endColumn": 78,
-                    "lineCount": 1
-                }
             }
         ],
         "./src/limn/viewer/assemble.py": [
