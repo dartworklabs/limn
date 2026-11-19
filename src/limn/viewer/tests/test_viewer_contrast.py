@@ -390,6 +390,10 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     ),
     "body.lay-wide.side-snap-collapse #bar1, body.side-snap-collapse :is(#bar2, #build-err, #banner, #composer, #list, "
     "#c-actions)": (INACTIVE, "the panel fading while a drag is about to collapse it"),
+    ".mark.moving": (
+        INACTIVE,
+        "the mark of the pin whose badge is under the hand, standing back while that drag runs",
+    ),
     # a colour no drawn text takes: a container's default that each part inside sets for itself, or a field's colour while
     # it is empty
     ":is(#outline-items, #ns-outline-items) .ol-more": (
