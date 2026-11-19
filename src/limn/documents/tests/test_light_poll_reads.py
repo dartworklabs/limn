@@ -390,6 +390,56 @@ class SummaryOnce(Fixture):
         )
 
 
+class DisplayPath(Fixture):
+    """Doc.rel_path: the path a brief, the pins.md header and a view-only pick show for a document is the one
+    resolved when the document was made, at startup."""
+
+    def test_the_display_path_asks_the_file_system_nothing(self):
+        """The path is known from startup: no link is resolved to answer it."""
+        counts, path = fs_calls(self.rr.rel_path)
+        self.assertEqual(path, "rr/rr.tex")
+        self.assertEqual(sum(counts.values()), 0)
+
+    def test_the_display_path_is_the_one_resolved_at_startup(self):
+        """A folder turned into a link to another place after startup does not change which path the document
+        shows: the revision services name its files the same way (Doc.registered_main)."""
+        (self.src / "rr").rename(self.src / "elsewhere")
+        (self.src / "rr").symlink_to(self.src / "elsewhere")
+        self.assertEqual(self.rr.rel_path(), "rr/rr.tex")
+        self.assertEqual(self.brief(self.rr)["path"], "rr/rr.tex")
+
+    def test_a_main_file_outside_the_manuscript_is_answered_as_given(self):
+        """A document whose main file is not under --manuscript shows that file's own path."""
+        outside = Path(self.tmp.name).resolve() / "other" / "note.tex"
+        outside.parent.mkdir()
+        outside.write_text("x\n", encoding="utf-8")
+        doc = Doc("ot", "Other", "tex", outside.parent, outside, paths=self.paths)
+        self.assertEqual(doc.rel_path(), str(outside))
+
+    def test_a_document_registered_through_a_link_answers_the_resolved_path(self):
+        """A manuscript reached through a link at startup shows the path below the real folder, as it always has."""
+        root = Path(self.tmp.name).resolve()
+        (root / "link").symlink_to(self.src)
+        linked = root / "link"
+        paths = RunPaths(linked, linked / "main.tex", self.state)
+        doc = Doc("rr", "Reply", "tex", linked / "rr", linked / "rr" / "rr.tex", paths=paths)
+        self.assertEqual(doc.rel_path(), "rr/rr.tex")
+        legacy = Doc("main", "Body", legacy=True, paths=paths)
+        self.assertEqual(legacy.rel_path(), "main.tex")
+
+    def test_a_warm_meta_makes_no_lstat(self):
+        """A poll resolves no link: with the pages kept and the manuscript's mtime remembered, it calls lstat for
+        no document."""
+        docs = [self.ms, self.rr, self.rv]
+        for doc in docs:
+            publish(doc, B1, 2)
+        with self.frozen():
+            self.meta(self.ms, docs)
+            counts, body = fs_calls(lambda: self.meta(self.ms, docs))
+        self.assertEqual([entry["path"] for entry in body["docs"]], ["main.tex", "rr/rr.tex", "review.pdf"])
+        self.assertEqual(counts["lstat"] + counts["readlink"], 0)
+
+
 EVENTS = st.lists(
     st.one_of(
         st.tuples(st.just("publish"), st.integers(0, 4), st.one_of(st.none(), st.integers(1, 4)), st.booleans()),
