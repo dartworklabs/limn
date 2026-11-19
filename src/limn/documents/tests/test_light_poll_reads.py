@@ -31,8 +31,9 @@ from limn.builds.queries import BuildQueries
 from limn.documents import reads
 from limn.documents.reads import MetaSettings
 from limn.runtime.documents import Doc, RunPaths, apart_paths
+from limn.security.access import LOCAL_ACTOR
 
-from helpers import fs_calls, opened
+from helpers import Base, fresh_runtime, fs_calls, opened, ps
 from helpers_figure import b2_map, figure_doc, png_header, write_build
 
 B1, B2, B3 = "pages-20260101000000", "pages-20260101000001", "pages-20260101000002"
@@ -438,6 +439,44 @@ class DisplayPath(Fixture):
             counts, body = fs_calls(lambda: self.meta(self.ms, docs))
         self.assertEqual([entry["path"] for entry in body["docs"]], ["main.tex", "rr/rr.tex", "review.pdf"])
         self.assertEqual(counts["lstat"] + counts["readlink"], 0)
+
+
+class ThroughTheRun(Base):
+    """The run's composition (limn.server): its build queries read the page memory the run owns."""
+
+    def poll(self) -> dict:
+        """One light poll of the default document, as GET /api/meta?light=1 computes it."""
+        return ps.APP.document_views.meta(ps.APP.docs[0], dict(LOCAL_ACTOR), light=True)
+
+    def images_opened(self) -> list[str]:
+        """The page images one light poll opens."""
+        return sorted(name for name in names_opened(self.poll).elements() if name.endswith(".png"))
+
+    def test_each_run_has_its_own_page_memory(self):
+        """Two runs in one process keep nothing in common."""
+        viewer = ps.APP.RT.viewer
+        one, two = ps.new_runtime(viewer).page_folders, ps.new_runtime(viewer).page_folders
+        self.assertIsNot(one, two)
+        self.assertEqual((one.held(), two.held()), (0, 0))
+
+    def test_the_second_light_poll_opens_no_page_image(self):
+        """The first poll of a build reads its page images; the polls after it read none, and say the same."""
+        publish(ps.APP.docs[0], B1, 3)
+        self.assertEqual(self.images_opened(), ["page-1.png", "page-2.png", "page-3.png"])
+        first = self.poll()
+        self.assertEqual(self.images_opened(), [])
+        self.assertEqual(ps.APP.RT.page_folders.held(), 3)
+        again = self.poll()
+        self.assertEqual((again["pages"], again["pages_build"]), (first["pages"], B1))
+        self.assertEqual(len(again["pages"]), 3)
+
+    def test_a_restarted_run_reads_the_folder_again(self):
+        """What a run kept goes with the run."""
+        publish(ps.APP.docs[0], B1, 2)
+        self.poll()
+        fresh_runtime()
+        self.assertEqual(ps.APP.RT.page_folders.held(), 0)
+        self.assertEqual(self.images_opened(), ["page-1.png", "page-2.png"])
 
 
 EVENTS = st.lists(

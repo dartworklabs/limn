@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .application import BuildSubsystem as BuildSubsystem, assemble_builds as assemble_builds
-    from .artifacts import BuildMapCache as BuildMapCache
+    from .artifacts import BuildMapCache as BuildMapCache, PageFolderCache as PageFolderCache
     from .contracts import (
         ElementFact as ElementFact,
         ElementSelection as ElementSelection,
@@ -19,6 +19,7 @@ __all__ = [
     "SelectionUnavailable",
     "BuildMapCache",
     "BuildSubsystem",
+    "PageFolderCache",
     "assemble_builds",
     "document_build_queries",
     "pin_build_queries",
@@ -30,6 +31,7 @@ _EXPORTS = {
     "SelectionUnavailable": ("contracts", "SelectionUnavailable"),
     "BuildMapCache": ("artifacts", "BuildMapCache"),
     "BuildSubsystem": ("application", "BuildSubsystem"),
+    "PageFolderCache": ("artifacts", "PageFolderCache"),
     "assemble_builds": ("application", "assemble_builds"),
     "document_build_queries": ("queries", "document_build_queries"),
     "pin_build_queries": ("queries", "pin_build_queries"),

@@ -36,6 +36,7 @@ ENTRYPOINT_IMPORTS: EntrypointImports = {
         "pick_documents",
         "BuildSubsystem",
         "BuildMapCache",
+        "PageFolderCache",
         "assemble_builds",
         "CollaborationSubsystem",
         "assemble_collaboration",
