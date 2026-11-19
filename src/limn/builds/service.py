@@ -167,6 +167,37 @@ class BuildRequests:
                     except Exception:  # noqa: BLE001 — the watch thread must never die
                         traceback.print_exc(file=sys.stderr)
 
+    def watch_sources(
+        self,
+        stop: threading.Event,
+        every: float = build.SRC_WATCH_EVERY_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """The manuscript watch: until this run's stop event is set, give every document of the run a turn
+        (watch_sources_round), a round starting `every` seconds after the one before it started - or at once when
+        that round took longer - and the first one `every` seconds from now. clock times the rounds; it never goes
+        back. The summaries of a poll read what the rounds measured instead of walking the manuscripts themselves
+        (limn.builds.artifacts.shown_src_mtime)."""
+        wait = every
+        while not stop.wait(wait):
+            began = clock()
+            self.watch_sources_round(stop)
+            wait = max(0.0, every - (clock() - began))
+
+    def watch_sources_round(self, stop: threading.Event) -> None:
+        """One round of the manuscript watch: each document of the run gets its turn (limn.builds.artifacts.
+        watch_src_mtime), which measures the manuscript of a document a summary asked about lately and nothing else.
+        The round ends early, between two documents, once stop is set. A turn that raises is printed and the round
+        goes on: the watch thread must never die. Only reads; holds no lock between two documents."""
+        state = self.settings().state
+        for doc in list(self.docs()):
+            if stop.is_set():
+                return
+            try:
+                build.watch_src_mtime(doc, state)
+            except Exception:  # noqa: BLE001 — the watch thread must never die
+                traceback.print_exc(file=sys.stderr)
+
     def refresh_watched_now(self, doc: Doc, wait: float) -> bool:
         """The watch tick for doc, waited for within `wait` seconds: first doc's build lock (an import or redraw the
         watch thread already started finishes first), then, when doc's files changed, the watch's own background

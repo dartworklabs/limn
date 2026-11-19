@@ -396,6 +396,95 @@ class SummaryOnce(Fixture):
         )
 
 
+class WatchedPoll(Fixture):
+    """A poll of documents the manuscript watch keeps walks no manuscript (limn.builds.artifacts.shown_src_mtime,
+    watch_src_mtime): its file-system calls do not follow the size of the manuscripts, and its body is the one a poll
+    that measured them itself gives."""
+
+    def setUp(self):
+        """Both LaTeX documents and the PDF have a build on screen; the polls ask about all three."""
+        super().setUp()
+        publish(self.ms, B1, 2)
+        history(self.ms, B1, time.time() + 60)
+        publish(self.rr, B1, 1)
+        history(self.rr, B1, time.time() + 60)
+        publish(self.rv, B1, 1)
+        self.docs = [self.ms, self.rr, self.rv]
+
+    def at(self, seconds: float):
+        """Stop the clock a document's asked-at and watched-at are read from at `seconds` for a block."""
+        return mock.patch.object(artifacts, "watch_clock", return_value=seconds)
+
+    def poll(self) -> dict:
+        """One light poll of the body among the three documents."""
+        return self.meta(self.ms, self.docs)
+
+    def forget_memo_ages(self) -> None:
+        """Make every document's 2 second memo too old to answer: only what the watch keeps is left."""
+        for doc in self.docs:
+            doc.mcache[2] = 0.0
+
+    def watch(self, seconds: float) -> None:
+        """A poll at `seconds`, then the watch's turn for every document, then the 2 second memos forgotten."""
+        with self.at(seconds):
+            self.poll()
+            for doc in self.docs:
+                artifacts.watch_src_mtime(doc, self.state)
+        self.forget_memo_ages()
+
+    def test_a_poll_of_watched_documents_walks_no_manuscript(self):
+        """Four seconds after the watch measured the two LaTeX documents, a poll lists no folder and stats no entry."""
+        self.watch(100)
+        with self.at(104):
+            counts, _ = fs_calls(self.poll)
+        self.assertEqual(counts["scandir"] + counts["listdir"] + counts["entry_stat"], 0)
+
+    def test_the_calls_of_a_watched_poll_equal_those_of_a_memo_hit_and_ignore_the_manuscript_size(self):
+        """A watched poll makes as many file-system calls with 300 more manuscript files as without them: those of a
+        poll that hits the 2 second memo, and the one stat of the view-only PDF, whose file the watch does not
+        measure."""
+        self.watch(100)
+        with self.at(104):
+            small = sum(fs_calls(self.poll)[0].values())
+        for n in range(300):
+            (self.src / ("part%03d.tex" % n)).write_text("x\n", encoding="utf-8")
+        self.watch(200)
+        with self.at(204):
+            large = sum(fs_calls(self.poll)[0].values())
+        with self.at(900), self.frozen():  # the watch's values are long past the limit: the first poll measures
+            self.poll()
+            hit = sum(fs_calls(self.poll)[0].values())
+        self.assertEqual((small, large), (hit + 1, hit + 1))
+
+    def test_the_first_poll_after_the_watch_let_go_walks_as_a_poll_without_a_watch_does(self):
+        """Sixteen seconds after the last poll the watch lets the documents go; the poll that comes back measures
+        the manuscripts itself, with the calls of a poll no watch ever served."""
+        self.watch(100)
+        with self.at(116):
+            for doc in self.docs:
+                self.assertFalse(artifacts.watch_src_mtime(doc, self.state))
+        with self.at(120):
+            back, _ = fs_calls(self.poll)
+        self.forget_memo_ages()
+        with self.at(500):
+            unwatched, _ = fs_calls(self.poll)
+        self.assertGreaterEqual(back["scandir"], 2)
+        self.assertEqual(back, unwatched)
+
+    def test_a_watched_poll_answers_what_an_unwatched_one_does(self):
+        """The body of a poll that read the watch's values is the body of a poll that measured the manuscripts."""
+        self.watch(100)
+        with self.at(104):
+            counts, watched = fs_calls(self.poll)
+        self.assertEqual(counts["scandir"], 0)
+        self.forget_memo_ages()
+        with self.at(500):
+            measured = self.poll()
+        for body in (watched, measured):
+            del body["src_age_s"]
+        self.assertEqual(watched, measured)
+
+
 class DisplayPath(Fixture):
     """Doc.rel_path: the path a brief, the pins.md header and a view-only pick show for a document is the one
     resolved when the document was made, at startup."""

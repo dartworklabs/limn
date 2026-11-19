@@ -11,17 +11,22 @@ The order of two threads is fixed by a lock the test holds or by an event raised
 Run: uv run pytest -q src/limn/builds/tests/test_source_watch.py
 """
 
+import io
 import os
 import shutil
 import tempfile
 import threading
 import time
 import unittest
+from contextlib import redirect_stderr
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from limn.builds import artifacts
+from limn.builds.service import BuildRequests
 from limn.runtime.documents import ApartPaths, Doc, RunPaths
+from limn.runtime.resources import RuntimeResources
 
 from helpers import fs_calls
 
@@ -430,3 +435,135 @@ class WatchTurn(Watched):
         with at(101):
             counts, answer = fs_calls(lambda: self.read(doc))
         self.assertEqual((answer, sum(counts.values())), (self.figure_time, 0))
+
+
+class Rounds:
+    """A stop event that lets a watch loop run `rounds` rounds: each wait up to that count says "go on", the next one
+    "stop", and is_set is true only from then on. Every timeout the loop asked to wait for is kept."""
+
+    def __init__(self, rounds: int) -> None:
+        """No wait has been asked for yet."""
+        self.left = rounds
+        self.timeouts: list[float] = []
+        self.stopped = False
+
+    def wait(self, timeout: float | None = None) -> bool:
+        """Note the timeout; False while a round is left to run."""
+        self.timeouts.append(-1.0 if timeout is None else timeout)
+        if self.left == 0:
+            self.stopped = True
+            return True
+        self.left -= 1
+        return False
+
+    def is_set(self) -> bool:
+        """Has the loop been told to stop?"""
+        return self.stopped
+
+
+class WatchLoop(Watched):
+    """BuildRequests.watch_sources: the loop that gives every document of the run its turn, round after round."""
+
+    def requests(self, docs: list[Doc]) -> BuildRequests:
+        """The build service of a run that serves docs with this fixture's state folder."""
+        return BuildRequests(
+            lambda: SimpleNamespace(state=self.state), lambda: {}, lambda: docs, lambda: "T", lambda result: ""
+        )
+
+    def second_doc(self) -> Doc:
+        """Another LaTeX document, over a manuscript of its own."""
+        src = self.top / "other"
+        src.mkdir()
+        (src / "other.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
+        return Doc("ot", "Other", "tex", src, src / "other.tex", paths=self.paths)
+
+    def test_one_round_measures_the_documents_asked_about_and_no_other(self):
+        """Of a LaTeX document a summary asked about, one nobody asked about and a view-only PDF, a round measures
+        the first alone."""
+        (self.src / "review.pdf").write_bytes(b"%PDF-1.4\n")
+        pdf = Doc("rv", "Review", "pdf", self.src, self.src / "review.pdf", paths=self.paths)
+        unasked = self.second_doc()
+        with at(100):
+            self.read()
+            self.read(pdf)
+        with at(101):
+            self.requests([unasked, pdf, self.doc]).watch_sources(Rounds(1))
+        self.assertEqual((self.doc.mcache_watched, unasked.mcache_watched, pdf.mcache_watched), (101, NEVER, NEVER))
+
+    def test_a_document_that_raises_does_not_stop_the_round(self):
+        """A measurement that raises is reported on standard error and the documents after it are still measured."""
+        other = self.second_doc()
+        real = artifacts.watch_src_mtime
+
+        def failing(doc, state_dir):
+            """The real turn, except that the first document's raises."""
+            if doc is other:
+                raise RuntimeError("cannot measure")
+            return real(doc, state_dir)
+
+        errors = io.StringIO()
+        with at(100):
+            self.read()
+            self.read(other)
+        with at(101), mock.patch.object(artifacts, "watch_src_mtime", failing), redirect_stderr(errors):
+            self.requests([other, self.doc]).watch_sources_round(threading.Event())
+        self.assertEqual(self.doc.mcache_watched, 101)
+        self.assertIn("RuntimeError: cannot measure", errors.getvalue())
+
+    def test_the_round_ends_between_documents_when_the_run_stops(self):
+        """Once the run is stopping, the documents not yet reached in the round are left unmeasured."""
+        other = self.second_doc()
+        stop = threading.Event()
+        real = artifacts.watch_src_mtime
+
+        def stopping(doc, state_dir):
+            """The real turn; the run is told to stop while the first document is measured."""
+            stop.set()
+            return real(doc, state_dir)
+
+        with at(100):
+            self.read()
+            self.read(other)
+        with at(101), mock.patch.object(artifacts, "watch_src_mtime", stopping):
+            self.requests([self.doc, other]).watch_sources_round(stop)
+        self.assertEqual((self.doc.mcache_watched, other.mcache_watched), (101, NEVER))
+
+    def test_rounds_start_a_second_apart_and_back_to_back_when_one_takes_longer(self):
+        """The loop waits out what is left of the second since a round began: 0.8 s after a round of 0.2 s, nothing
+        after a round of 1.5 s. Its first round comes a full interval after the start."""
+        stop = Rounds(2)
+        ticks = iter([50.0, 50.2, 60.0, 61.5])
+        self.requests([]).watch_sources(stop, every=1.0, clock=lambda: next(ticks))
+        self.assertEqual([round(t, 6) for t in stop.timeouts], [1.0, 0.8, 0.0])
+
+    def test_two_runs_share_no_watch_state(self):
+        """Two documents over one manuscript, as two runs in one process have them: a round of one run measures its
+        own document and leaves the other's asked-at, watched-at and measurement lock alone."""
+        twin = Doc("ms", "Body", "tex", self.src, self.src / "main.tex", paths=self.paths)
+        with at(100):
+            self.read()
+        with at(101):
+            self.requests([self.doc]).watch_sources_round(threading.Event())
+        self.assertEqual((self.doc.mcache_watched, twin.mcache_asked, twin.mcache_watched), (101, NEVER, NEVER))
+        self.assertIsNot(self.doc.mcache_measuring, twin.mcache_measuring)
+
+    def test_stop_returns_while_the_watch_is_inside_a_measurement(self):
+        """A measurement that does not come back does not hold the run's shutdown: stop() gives up its wait, and the
+        watch ends by itself once the measurement returns."""
+        inside, release = threading.Event(), threading.Event()
+
+        def stuck(doc, state_dir):
+            """A turn that does not return until the test lets it."""
+            inside.set()
+            release.wait(10)
+            return False
+
+        runtime = RuntimeResources(*([None] * 9))
+        with mock.patch.object(artifacts, "watch_src_mtime", stuck):
+            runtime.start_thread(self.requests([self.doc]).watch_sources, runtime.stopping, 0.0)
+            self.assertTrue(inside.wait(10))
+            runtime.stop(timeout=0.05)
+            self.assertTrue(runtime.threads[0].is_alive())
+            release.set()
+            runtime.threads[0].join(10)
+        self.assertFalse(runtime.threads[0].is_alive())

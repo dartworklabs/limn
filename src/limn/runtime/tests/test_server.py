@@ -36,6 +36,7 @@ from limn.builds import artifacts as limn_build, engine as build_engine
 from limn.builds.answer import diet_log
 from limn.builds.artifacts import BuildAborted, BuildBusy, BuildOk, BuildOkWithErrors, BuildStarted
 from limn.builds.figure_map import FigureMap, MapRejected
+from limn.builds.service import BuildRequests
 from limn.pins.editing import input as editing_input
 from limn.pins.lifecycle import input as lifecycle_input
 from limn.pins.lifecycle.rules import CloseRequest
@@ -58,11 +59,14 @@ from helpers import (
     SKILL_KO,
     SKILL_MD,
     TEX,
+    ApplicationFixture,
     Base,
     add_pin,
+    blank_png,
     edit_pin,
     fits,
     jreq,
+    minimal_pdf,
     needs_tex,
     page_for,
     pick,
@@ -832,6 +836,30 @@ class ProcessRuntime(Base):
         self.assertEqual([t.is_alive() for t in rt.threads], [False, False])
         self.assertGreater(len(rounds), 0)
         rt.stop(timeout=0)
+
+    def test_prepare_starts_the_manuscript_watch_without_documents_and_stop_ends_it(self):
+        """A run started without --doc has the manuscript watch too: prepare() starts it on the run's stop event,
+        and stop() ends it with the other watches."""
+        doc = ps.APP.docs[0]
+        pages = limn_build.cur_pages(doc)  # cached pages, so that --no-build skips TeX
+        pages.mkdir(parents=True, exist_ok=True)
+        (pages / doc.pdf_name).write_bytes(minimal_pdf())
+        (pages / "page-1.png").write_bytes(blank_png(10, 10))
+        fresh = ApplicationFixture(ps.APP.C, ps.new_runtime(ps.APP.RT.viewer))
+        running, stops = threading.Event(), []
+
+        def watch(_requests, stop, *_timing):
+            """Stand in for the watch loop: note the stop event it was given and run until that is set."""
+            stops.append(stop)
+            running.set()
+            stop.wait(10)
+
+        with mock.patch.object(BuildRequests, "watch_sources", watch):
+            self.assertIsNone(fresh.prepare(None, True))
+            self.assertTrue(running.wait(10))
+            self.assertIs(stops[0], fresh.RT.stopping)
+            fresh.RT.stop(timeout=5)
+        self.assertEqual([t.is_alive() for t in fresh.RT.threads], [False] * len(fresh.RT.threads))
 
     def test_failed_watch_start_does_not_mask_error_during_cleanup(self):
         """A second watch that cannot start is not joined, while the first started watch still stops."""

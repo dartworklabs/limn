@@ -89,6 +89,11 @@ class BuildCommands:
         """Watch file-backed documents until ``stop`` is set."""
         self._requests.watch_pdf_docs(stop, every)
 
+    def watch_sources(self, stop: threading.Event) -> None:
+        """Measure the manuscripts the document summaries ask about until ``stop`` is set (BuildRequests.
+        watch_sources). It only reads."""
+        self._requests.watch_sources(stop)
+
     def refresh_now(self, doc: Doc, wait: float) -> bool:
         """Bring a watched document's pages up to date, waiting at most `wait` seconds (BuildRequests.
         refresh_watched_now): True when an import or redraw started here finished in time; False when there was
