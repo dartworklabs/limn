@@ -1921,22 +1921,6 @@
                 "code": "reportAny",
                 "range": {
                     "startColumn": 8,
-                    "endColumn": 12,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAny",
-                "range": {
-                    "startColumn": 14,
-                    "endColumn": 16,
-                    "lineCount": 1
-                }
-            },
-            {
-                "code": "reportAny",
-                "range": {
-                    "startColumn": 8,
                     "endColumn": 11,
                     "lineCount": 1
                 }

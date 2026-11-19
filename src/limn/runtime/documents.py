@@ -301,9 +301,9 @@ class Doc:
         # summary last asked for the manuscript mtime and when the manuscript watch last finished measuring it, both on
         # the clock that never goes back and both read and written under mcache_lock; and the lock one measurement of
         # this document holds while it walks the tree. Minus infinity is "never", whatever the clock reads at startup.
-        self.mcache_asked = float("-inf")
-        self.mcache_watched = float("-inf")
-        self.mcache_measuring = threading.Lock()
+        self.mcache_asked: float = float("-inf")
+        self.mcache_watched: float = float("-inf")
+        self.mcache_measuring: threading.Lock = threading.Lock()
         self.input_sets = InputSetCache()
         registered = (paths.src, paths.main) if legacy else (src, main)
         self._registered = (_resolved_once(registered[0]), _resolved_once(registered[1]))

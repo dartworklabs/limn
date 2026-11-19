@@ -170,9 +170,8 @@ class BuildDoc(BuildStateHolder, Protocol):
     """When the manuscript watch last finished a measurement that the memo kept (watch_src_mtime), on watch_clock;
     minus infinity when it has none - never measured, let go, or a page swap since. Only under mcache_lock."""
 
-    @property
-    def mcache_measuring(self) -> threading.Lock:
-        """Held by the one measurement of this document's manuscript mtime that is walking its tree (src_mtime)."""
+    mcache_measuring: threading.Lock
+    """Held by the one measurement of this document's manuscript mtime that is walking its tree (src_mtime)."""
 
 
 Doc = TypeVar("Doc", bound=BuildDoc)  # one document type through a call that hands the document back to its caller
@@ -1300,9 +1299,9 @@ def _memo_hit(D: BuildDoc, key: tuple[str, str | None]) -> float | None:
     """The value D's src_mtime memo holds under `key` when it was measured less than SRC_MEMO_S seconds ago, else
     None. Takes D.mcache_lock for the look; asks the file system nothing."""
     with D.mcache_lock:
+        val: float = D.mcache[1]
         if D.mcache[0] == key and time.time() - D.mcache[2] < SRC_MEMO_S:
-            value: float = D.mcache[1]
-            return value
+            return val
     return None
 
 
