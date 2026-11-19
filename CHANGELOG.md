@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.4.65 — 2026-11-19
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed.
+
+### Fixed
+
+- **The GET answers held in memory are bounded again (0.4.64).** 0.4.64 moved sending out of the four computation
+  slots, which until then had also limited how many answer bodies existed at once. An answer's whole body is in
+  memory from its route's return until its last byte leaves - about 3 MB for a listing of 1,000 pins, 2 MB for
+  `/viewer.js`, a PDF's file size - so the number of bodies held followed the number of connections, which nothing
+  bounds unless `--max-connections` is given: twelve clients that asked for the PDF.js worker and read nothing held
+  twelve bodies, where 0.4.63 held four. A request now takes one of 32 answer slots before its route makes the body
+  and gives it back when the body is sent. A GET that finds all 32 taken waits for one and is never refused. A read
+  queued for a computation slot holds no answer slot, so the viewer's own files still do not wait behind listings.
+  A stalled reader can hold a slot for at most the 30 s socket timeout; it takes 32 of them, not four as in 0.4.63,
+  to make other reads wait.
+
 ## 0.4.64 — 2026-11-19
 
 The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
