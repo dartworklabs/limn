@@ -17,13 +17,13 @@ from limn.pins.listing.markdown import PinMarkdown
 from limn.pins.listing.projection import pin_state, public_record as view_public_record, suggest_view
 from limn.pins.listing.service import PinListing
 from limn.pins.location.lookup import (
+    Locations,
     Locator as locate_Locator,
     PinLocation,
     est_context,
     located_file,
     overlaps_by_id as locate_overlaps_by_id,
     overlaps_for_range as locate_overlaps_for_range,
-    pin_file as locate_pin_file,
     pin_location as locate_pin_location,
     stamp_location as locate_stamp_location,
     sync_all as locate_sync_all,
@@ -60,6 +60,87 @@ from limn.web.parse import DocumentFacts
 
 THREAD_MAX = 200
 TRASH_DAYS = 30
+
+
+@dataclass(frozen=True)
+class PinPlaces:
+    """One computation's answers about where the pins' files are, all read from one Locations memo.
+
+    A listing, a rendering of pins.md, a re-sync or a maintenance pass asks about every pin, and each answer here
+    - how a record is shown, the overlaps, the supersessions, a pin's location - starts from where the pin's file
+    is now. Sharing one memo makes that one judgment per file for the whole computation instead of one per pin and
+    per answer (limn.pins.location.lookup.Locations). PinCommands.places() makes a fresh value for each computation;
+    a value is never kept past it, since nothing here sees the tree change afterwards. The answers themselves are
+    the ones PinCommands gave pin by pin. Which document a pin belongs to, the document a key names and a
+    document's estimation facts are the run's answers, bound by places().
+    """
+
+    at: Locations
+    doc_key: Callable[[Record], str]
+    doc_by_key: Callable[[object], Doc | None]
+    est_context: Callable[[str], EstContext | None]
+
+    def pin_location(self, r: Record) -> PinLocation | None:
+        """Where line pin r's file is under the manuscript root on this machine now (Locations.record, the tail guess
+        limited to the folder of the pin's own document, never in the state folder), or None."""
+        return self.at.record(r, self.doc_by_key(self.doc_key(r)))
+
+    def pin_file(self, pin: Pin) -> PinLocation | None:
+        """Where stored line pin pin's file is under the manuscript root on this machine now (Locations.pin, the
+        tail guess limited to the folder of the pin's own document, never in the state folder), or None."""
+        return self.at.pin(pin, self.doc_by_key(self.doc_key(pin.record)))
+
+    def public(self, r: Record) -> Json:
+        """A record as the API returns it (limn.pins.listing.projection.public_record), placed where pin_location() finds its file under
+        the manuscript root now: `file` the absolute path on this machine, `rel_path` relative to the root (ADR-0006).
+        A pin with a suggested edit also gets its `suggest_state` (limn.pins.listing.projection.suggest_view): only
+        then is its file read, through the checked handle the location gives. Never changes r."""
+        loc = self.pin_location(r)
+        place = None if loc is None else (str(loc.path), loc.rel)
+        if suggestion_of(r.get("suggest")) is None:
+            return view_public_record(r, place)
+        return view_public_record(r, place, suggest_view(r, None if loc is None else tex_lines(loc.source)))
+
+    def public_trashed(self, r: Record) -> Json:
+        """A Trash entry as GET /api/pins/dropped returns it: public_record placed like public(), without the computed
+        pin fields - a dropped pin's suggestion state is not answered. Never changes r."""
+        loc = self.pin_location(r)
+        return view_public_record(r, None if loc is None else (str(loc.path), loc.rel))
+
+    def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
+        """The relationship of every pair of open line pins on the same file, each counted where pin_file() places it
+        now (limn.pins.location.lookup.overlaps_by_id), never stored."""
+        return locate_overlaps_by_id(pins, self.pin_file)
+
+    def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
+        """The verdict pins of `pins` (the full live set) that a newer verdict pin about the same target supersedes,
+        {pin id: current verdict's id} (limn.pins.verdict.superseded_by, ADR-0023), never stored. Each verdict pin
+        is placed in its own document as the viewer places it, by the document's capabilities: a pin of a document
+        with an element map on its figure; a pin of any other document that takes line pins (LaTeX, Markdown) by the
+        file pin_file() finds for it now; a view-only document's whole-page pin by whether its mark is only an
+        estimate (pin_est, the document's estimation facts read at most once per call). A pin of a document this
+        instance does not serve has no target."""
+        contexts: dict[str, EstContext | None] = {}
+
+        def placement(pin: Pin) -> Placement | None:
+            """The pin's document and the facts its target reads, chosen by the document's capabilities, or None for
+            an unserved document. Only a view-only document's whole-page pin reads estimation facts."""
+            key = self.doc_key(pin.record)
+            doc = self.doc_by_key(key)
+            if doc is None:
+                return None
+            if doc.has_element_map:
+                return FigurePlacement(key)
+            if doc.takes_line_pins:
+                return LinesPlacement(key, file=located_file(pin, self.pin_file))
+            if not whole_page_target(pin.record, figure_document=False, view_only_document=doc.view_only):
+                return PagePlacement(key)
+            if key not in contexts:
+                contexts[key] = self.est_context(key)
+            ctx = contexts[key]
+            return PagePlacement(key, estimated=True if ctx is None else pin_est(pin.record, ctx))
+
+        return superseded_by(pins, placement)
 
 
 @dataclass
@@ -199,15 +280,17 @@ class PinCommands:
         """Records in r where its file is now (limn.pins.location.lookup.stamp_location, the pin's own document). Mutates r."""
         return locate_stamp_location(r, root, state, self.doc_by_key(self.pin_doc_key(r)))
 
-    def pin_file(self, pin: Pin, root: Path, state: Path) -> PinLocation | None:
-        """Where stored line pin pin's file is under the manuscript root on this machine now (limn.pins.location.lookup.pin_file, the tail
-        guess limited to the folder of the pin's own document, never in the state folder), or None."""
-        return locate_pin_file(pin, root, state, self.doc_by_key(self.pin_doc_key(pin.record)))
+    def places(self) -> PinPlaces:
+        """A fresh view of where the pins' files are, over this instance's manuscript root and state folder read now,
+        for one computation: every answer taken from the returned value judges each file once (PinPlaces). The caller
+        drops it when that computation ends - a listing, a rendering, a re-sync, a maintenance pass - so the next
+        one judges the tree as it is then."""
+        return PinPlaces(Locations(self.C.src, self.C.state), self.pin_doc_key, self.doc_by_key, self._doc_est_context)
 
     def pin_locator(self) -> locate_Locator:
-        """pin_file() bound to this instance's manuscript root and state folder, read now: where a stored pin's file is."""
-        root, state = self.C.src, self.C.state
-        return lambda pin: self.pin_file(pin, root, state)
+        """Where a stored pin's file is, bound to this instance's manuscript root and state folder read now, for one
+        computation over many pins: a fresh PinPlaces.pin_file, which judges each file once."""
+        return self.places().pin_file
 
     def record_locator(self) -> Callable[[Record], PinLocation | None]:
         """pin_location() bound to this instance's manuscript root and state folder, read now: where the file a record's
@@ -229,10 +312,11 @@ class PinCommands:
         """
         root, state = self.C.src, self.C.state
         paths = {doc.main for doc in self.docs if tree_part(doc.main, root, state) is not None}
+        places = self.places()
         for pin in self.read_pins()[0]:
             if self.doc_by_key(self.pin_doc_key(pin.record)) is None:
                 continue
-            location = self.pin_file(pin, root, state)
+            location = places.pin_file(pin)
             if location is not None:
                 paths.add(location.path)
             else:
@@ -287,21 +371,9 @@ class PinCommands:
         return self.pin_reader().snapshot()
 
     def public(self, r: Record) -> Json:
-        """A record as the API returns it (limn.pins.listing.projection.public_record), placed where pin_location() finds its file under
-        the manuscript root now: `file` the absolute path on this machine, `rel_path` relative to the root (ADR-0006).
-        A pin with a suggested edit also gets its `suggest_state` (limn.pins.listing.projection.suggest_view): only
-        then is its file read, through the checked handle the location gives. Never changes r."""
-        loc = self.pin_location(r, self.C.src, self.C.state)
-        place = None if loc is None else (str(loc.path), loc.rel)
-        if suggestion_of(r.get("suggest")) is None:
-            return view_public_record(r, place)
-        return view_public_record(r, place, suggest_view(r, None if loc is None else tex_lines(loc.source)))
-
-    def public_trashed(self, r: Record) -> Json:
-        """A Trash entry as GET /api/pins/dropped returns it: public_record placed like public(), without the computed
-        pin fields - a dropped pin's suggestion state is not answered. Never changes r."""
-        loc = self.pin_location(r, self.C.src, self.C.state)
-        return view_public_record(r, None if loc is None else (str(loc.path), loc.rel))
+        """One record as the API returns it, judged now (PinPlaces.public over a fresh view): what a change response
+        carries as its `pin`. A listing asks one PinPlaces value for all its records instead. Never changes r."""
+        return self.places().public(r)
 
     def _doc_est_context(self, key: str) -> EstContext | None:
         """What estimation reads of the builds of the document key names (limn.pins.location.lookup.est_context), or None when this
@@ -310,40 +382,14 @@ class PinCommands:
         return None if D is None else est_context(D, self.build_view)
 
     def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
-        """The relationship of every pair of open line pins on the same file, each counted where pin_location() places it
-        now (limn.pins.location.lookup.overlaps_by_id), never stored."""
-        return locate_overlaps_by_id(pins, self.pin_locator())
+        """The relationship of every pair of open line pins on the same file, judged now (PinPlaces.overlaps_by_id
+        over a fresh view), never stored."""
+        return self.places().overlaps_by_id(pins)
 
     def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
-        """The verdict pins of `pins` (the full live set) that a newer verdict pin about the same target supersedes,
-        {pin id: current verdict's id} (limn.pins.verdict.superseded_by, ADR-0023), never stored. Each verdict pin
-        is placed in its own document as the viewer places it, by the document's capabilities: a pin of a document
-        with an element map on its figure; a pin of any other document that takes line pins (LaTeX, Markdown) by the
-        file pin_locator() finds for it now; a view-only document's whole-page pin by whether its mark is only an
-        estimate (pin_est, the document's estimation facts read at most once per call). A pin of a document this
-        instance does not serve has no target."""
-        locate = self.pin_locator()
-        contexts: dict[str, EstContext | None] = {}
-
-        def placement(pin: Pin) -> Placement | None:
-            """The pin's document and the facts its target reads, chosen by the document's capabilities, or None for
-            an unserved document. Only a view-only document's whole-page pin reads estimation facts."""
-            key = self.pin_doc_key(pin.record)
-            doc = self.doc_by_key(key)
-            if doc is None:
-                return None
-            if doc.has_element_map:
-                return FigurePlacement(key)
-            if doc.takes_line_pins:
-                return LinesPlacement(key, file=located_file(pin, locate))
-            if not whole_page_target(pin.record, figure_document=False, view_only_document=doc.view_only):
-                return PagePlacement(key)
-            if key not in contexts:
-                contexts[key] = self._doc_est_context(key)
-            ctx = contexts[key]
-            return PagePlacement(key, estimated=True if ctx is None else pin_est(pin.record, ctx))
-
-        return superseded_by(pins, placement)
+        """Which verdict pins of `pins` (the full live set) a newer verdict pin supersedes, judged now
+        (PinPlaces.superseded_by_id over a fresh view), never stored."""
+        return self.places().superseded_by_id(pins)
 
     def overlaps_for_range(self, file: str, lo: int, hi: int) -> list[Json]:
         """The overlap relationships between a not-yet-saved range of file and that file's open pins at their saved positions
