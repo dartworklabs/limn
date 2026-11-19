@@ -63,6 +63,8 @@ interface PageSelection {
   badgeMove(id: number, mouse: boolean): { frac: number[]; region: boolean } | null;
   /** Turns the re-place mode on for pin `id` from a drag on its badge that is already moving. */
   repickFromBadge(id: number): void;
+  /** Drops the place a re-place of pin `id` was offering, for a second drag on that same badge. */
+  restartRepick(id: number): void;
   /** Ends the re-place a badge drag turned on, for a gesture that ended without a drop. */
   cancelRepick(): void;
   /** Drops the selection and closes the composer. */

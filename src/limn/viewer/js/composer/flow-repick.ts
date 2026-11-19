@@ -5,13 +5,16 @@ import {
   LAYOUT,
   COARSE_POINTER_QUERY,
   META,
+  PICKSEQ,
   REPICK,
   SWITCHSEQ,
   captureVisit,
   currentVisit,
   findAnyPin,
   isFigureKind,
+  setPickseq,
   setRepick,
+  setRepickCandidate,
   COMPOSE,
   EDITOR,
 } from '../app/state.ts';
@@ -30,6 +33,7 @@ import { lineRange, markMovable } from '../app/rules-pins.ts';
 import { isRegion } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 import { composerPins, pinFields } from './state-seams.ts';
+import { clearSelectionParts } from '../pdf/input-selection.ts';
 import { bannerRepick, cancelRepick } from './flow-repick-banner.ts';
 // Where pin `id` stands now and whether it is a region pin, for a press on its number badge - what the pages ask
 // through the seam before they let that press become a drag (pdf/input-selection.ts badgeMove,
@@ -51,6 +55,20 @@ function badgeMovePin(id: number, mouse: boolean) {
     frac = isFrac(at.frac) ? at.frac.slice() : [];
   if (region && !(frac.length === 4 && frac[2] > 0 && frac[3] > 0)) return null;
   return { frac, region };
+}
+// A second drag on the badge of a pin whose re-place is already open: the place that banner is offering is not the
+// one the hand is choosing now, so it goes, along with any answer still on its way (PICKSEQ), and the banner goes
+// back to asking. Without this the confirm stands through the whole drag and saves the place before it
+// (docs/adr/0050-pin-badge-drag-reposition.md D6: nothing is saved that the person has not been shown).
+//
+// The mode itself is left exactly as it is. On touch it was turned on by [위치 다시 잡기], and taking it down and up
+// again mid-drag would put the sheet back over the page and lose the revision the edit card holds.
+function restartRepick(id: number) {
+  if (!REPICK || REPICK.id !== id || !REPICK.cand) return;
+  setPickseq(PICKSEQ + 1);
+  clearSelectionParts('repick');
+  setRepickCandidate(REPICK, null);
+  bannerRepick();
 }
 // Turns the re-place mode on for pin `id` from a drag on its number badge that is already moving its box
 // (pdf/input-selection.ts badgeDragBegin). It clears an unfinished selection first, as startRepick does, but asks for
@@ -192,4 +210,4 @@ async function applyRepick() {
     await composerPins().load();
   } catch (error) {}
 }
-export { applyRepick, badgeMovePin, repickFromBadge, startRepick };
+export { applyRepick, badgeMovePin, repickFromBadge, restartRepick, startRepick };

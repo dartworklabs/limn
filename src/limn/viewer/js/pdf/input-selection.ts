@@ -265,6 +265,7 @@ function badgeDragBegin(drag: NonNullable<typeof DRAG>) {
   const move = drag.move;
   if (!move) return;
   if (REPICK && REPICK.id === move.id) {
+    pageSelection().restartRepick(move.id); // the place it was offering is not the one this drag is choosing
     setMovingPin(move.id);
     return;
   }

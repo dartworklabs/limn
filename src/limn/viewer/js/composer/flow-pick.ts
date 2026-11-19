@@ -13,6 +13,7 @@ import {
   setComposeDismissedOverlap,
   setComposeIntent,
   setComposePicking,
+  setRepickCandidate,
 } from '../app/state.ts';
 import { setBusy, renderComposer } from './flow-selection.ts';
 import { html } from '../platform/markup.ts';
@@ -48,6 +49,10 @@ async function pick(region: PickDrag) {
   // the pick runs never saves the stale COMPOSE.current - the old place - and instead goes through the
   // COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to save the place just chosen.
   if (repick) {
+    // The place it was offering is not the one being asked about now, so it goes before the question does. While
+    // '되짚는 중…' stands there is nothing to confirm, and an answer still on its way about the old place - a
+    // snippet's, which would redraw this banner from it - finds it gone and is dropped (view-levels.ts stillOwns).
+    setRepickCandidate(repick, null);
     banner(html`<span>되짚는 중…</span>`);
   } else {
     setComposeCurrent(null);

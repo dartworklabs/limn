@@ -269,6 +269,29 @@ class BadgeDragOnScreen(BrowserBase):
         )
         self.assertEqual(page.locator(".sel-part[data-owner=repick]").count(), 0)
 
+    def test_a_second_drag_on_the_same_badge_drops_the_place_it_was_offering(self):
+        """Dragging the badge again is choosing another place, so the one the banner was offering goes the moment the
+        drag passes the slop: through the whole second drag there is nothing to confirm, and the banner asks for the
+        new place. Left standing, [이 위치로 바꾸기] would save the place before this drag - a place the person has
+        moved on from (docs/adr/0050-pin-badge-drag-reposition.md D6)."""
+        page = self.view()
+        self.drag_badge(page, self.movable)
+        page.wait_for_selector("#banner [data-act=rp-apply]", timeout=8000)
+        # the answer itself is kept, not its lines: this fixture's document is one paragraph, so both drops resolve
+        # to the same range and only the answer's identity tells the places apart
+        page.evaluate("()=>{window.firstPlace = REPICK.cand;}")
+        start = self.badge(page, self.movable)
+        page.mouse.move(start[0], start[1])
+        page.mouse.down()
+        page.mouse.move(start[0], start[1] + 60, steps=6)
+        settle(page)
+        self.assertIsNone(page.evaluate("()=>REPICK.cand"))
+        self.assertEqual(page.locator("#banner [data-act=rp-apply]").count(), 0)
+        page.mouse.up()
+        page.wait_for_selector("#banner [data-act=rp-apply]", timeout=8000)
+        settle(page)
+        self.assertFalse(page.evaluate("()=>REPICK.cand === window.firstPlace"))
+
     def test_a_press_under_the_slop_is_still_the_badge_s_click(self):
         """Six pixels is a click: the card is scrolled to and highlighted as before, and no re-place begins."""
         page = self.view()

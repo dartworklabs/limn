@@ -13958,6 +13958,7 @@ function badgeDragBegin(drag) {
   const move = drag.move;
   if (!move) return;
   if (REPICK && REPICK.id === move.id) {
+    pageSelection().restartRepick(move.id); // the place it was offering is not the one this drag is choosing
     setMovingPin(move.id);
     return;
   }
@@ -28768,6 +28769,10 @@ async function pick(region) {
   // the pick runs never saves the stale COMPOSE.current - the old place - and instead goes through the
   // COMPOSE.pendingSave queue (docs/handbook/viewer.md §패널 정리) to save the place just chosen.
   if (repick) {
+    // The place it was offering is not the one being asked about now, so it goes before the question does. While
+    // '되짚는 중…' stands there is nothing to confirm, and an answer still on its way about the old place - a
+    // snippet's, which would redraw this banner from it - finds it gone and is dropped (view-levels.ts stillOwns).
+    setRepickCandidate(repick, null);
     banner(html`<span>되짚는 중…</span>`);
   } else {
     setComposeCurrent(null);
@@ -39436,6 +39441,20 @@ function badgeMovePin(id, mouse) {
   if (region && !(frac.length === 4 && frac[2] > 0 && frac[3] > 0)) return null;
   return { frac, region };
 }
+// A second drag on the badge of a pin whose re-place is already open: the place that banner is offering is not the
+// one the hand is choosing now, so it goes, along with any answer still on its way (PICKSEQ), and the banner goes
+// back to asking. Without this the confirm stands through the whole drag and saves the place before it
+// (docs/adr/0050-pin-badge-drag-reposition.md D6: nothing is saved that the person has not been shown).
+//
+// The mode itself is left exactly as it is. On touch it was turned on by [위치 다시 잡기], and taking it down and up
+// again mid-drag would put the sheet back over the page and lose the revision the edit card holds.
+function restartRepick(id) {
+  if (!REPICK || REPICK.id !== id || !REPICK.cand) return;
+  setPickseq(PICKSEQ + 1);
+  clearSelectionParts('repick');
+  setRepickCandidate(REPICK, null);
+  bannerRepick();
+}
 // Turns the re-place mode on for pin `id` from a drag on its number badge that is already moving its box
 // (pdf/input-selection.ts badgeDragBegin). It clears an unfinished selection first, as startRepick does, but asks for
 // no drag of its own: the drag under way is the new place. Touch selection mode and the sheet are left as they are -
@@ -39902,6 +39921,7 @@ setPageSelection({
   pick,
   badgeMove: badgeMovePin,
   repickFromBadge,
+  restartRepick,
   cancelRepick,
   discard: discardSelection,
   openPopover: openSelectionPopover,
