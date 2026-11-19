@@ -57,14 +57,19 @@ function badgeMovePin(id: number, mouse: boolean) {
   return { frac, region };
 }
 // A second drag on the badge of a pin whose re-place is already open: the place that banner is offering is not the
-// one the hand is choosing now, so it goes, along with any answer still on its way (PICKSEQ), and the banner goes
-// back to asking. Without this the confirm stands through the whole drag and saves the place before it
-// (docs/adr/0050-pin-badge-drag-reposition.md D6: nothing is saved that the person has not been shown).
+// one the hand is choosing now, so it goes and the banner goes back to asking. Without this the confirm stands
+// through the whole drag and saves the place before it (docs/adr/0050-pin-badge-drag-reposition.md D6: nothing is
+// saved that the person has not been shown).
+//
+// **The drag before it may still be asking.** Its answer would arrive mid-drag and put that confirm up, so the
+// question goes with the answer: raising PICKSEQ is what tells that continuation it is no longer the one being
+// waited for (flow-pick.ts pick). This runs whether or not a place is on show, because an answer on its way is
+// exactly the case where there is none yet.
 //
 // The mode itself is left exactly as it is. On touch it was turned on by [위치 다시 잡기], and taking it down and up
 // again mid-drag would put the sheet back over the page and lose the revision the edit card holds.
 function restartRepick(id: number) {
-  if (!REPICK || REPICK.id !== id || !REPICK.cand) return;
+  if (!REPICK || REPICK.id !== id) return;
   setPickseq(PICKSEQ + 1);
   clearSelectionParts('repick');
   setRepickCandidate(REPICK, null);

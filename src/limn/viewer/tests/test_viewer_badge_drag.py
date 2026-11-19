@@ -158,6 +158,54 @@ class DroppedBox(unittest.TestCase):
         self.assertEqual(self.at(None, (100.0, 200.0), (200.0, 300.0)), [0, 0, 0, 0])
 
 
+class RestartsTheQuestion(unittest.TestCase):
+    """What a second drag does to the re-place already open, read from the served restartRepick.
+
+    The browser reads the case a person sees most - a place on show, dropped as the second drag passes the slop. The
+    case read here is the other one: the drag before it is still asking, so there is no place on show yet and its
+    answer is on its way. That answer must not arrive mid-drag and put its confirm up, and what stops it is the
+    question's number going up (PICKSEQ, which flow-pick.ts pick compares before it draws).
+    """
+
+    def setUp(self):
+        if not shutil.which("node"):
+            self.skipTest("node not available")
+
+    def restart(self, repick, pickseq=5, id=1):
+        """PICKSEQ, the candidate and whether the banner went back to asking, after restartRepick(id)."""
+        js = "\n".join(
+            [
+                extract_js_fn("setPickseq"),
+                extract_js_fn("setRepickCandidate"),
+                extract_js_fn("restartRepick"),
+                "let PICKSEQ = %d, asked = 0;" % pickseq,
+                "const REPICK = %s;" % json.dumps(repick),
+                "function bannerRepick(){ asked++; }",
+                "function clearSelectionParts(){}",
+                "restartRepick(%d);" % id,
+                "console.log(JSON.stringify({seq: PICKSEQ, cand: REPICK && REPICK.cand, asked}));",
+            ]
+        )
+        return json.loads(run_node(js))
+
+    def test_a_question_still_out_is_given_up_though_no_place_is_on_show(self):
+        """The drop before this drag is still asking: nothing is on show, and the number goes up all the same, so the
+        answer that arrives mid-drag is no longer the one being waited for and draws nothing."""
+        self.assertEqual(self.restart({"id": 1, "cand": None}), {"seq": 6, "cand": None, "asked": 1})
+
+    def test_the_place_on_show_goes_and_the_banner_asks_again(self):
+        """A place the drag before it found is dropped, and the banner goes back to asking for one."""
+        self.assertEqual(self.restart({"id": 1, "cand": {"lo": 22, "hi": 33}}), {"seq": 6, "cand": None, "asked": 1})
+
+    def test_another_pin_s_re_place_is_left_alone(self):
+        """The badge under the hand is not the pin being placed again: its drag begins the mode of its own and must
+        not take this one's question or place away."""
+        self.assertEqual(
+            self.restart({"id": 2, "cand": {"lo": 22, "hi": 33}}),
+            {"seq": 5, "cand": {"lo": 22, "hi": 33}, "asked": 0},
+        )
+
+
 class BadgeDragOnScreen(BrowserBase):
     """Two open pins of the manuscript in the real viewer, with the pieces their ranges print as.
 
