@@ -530,17 +530,127 @@ def png_size(path: Path) -> tuple[int, int]:
     return w, h
 
 
-def page_list(pdir: Path, dpi: int) -> list[dict[str, Any]]:
-    """The page images of page directory pdir in name order as {name, pt_w, pt_h}: sizes in points at the dpi they
-    were rendered at. An unreadable image is left out; a missing directory has no pages."""
-    pages = []
-    for p in sorted(pdir.glob("page-*.png")):
+@dataclass(frozen=True)
+class FolderPages:
+    """What one look at a page folder found: `count`, how many page-*.png names it holds, and `sized`, the
+    (name, width, height in pixels) of every one whose size could be read, in name order. An image that cannot be
+    read is counted and not sized, so count can exceed len(sized). Nothing here can be changed after it is made."""
+
+    count: int
+    sized: tuple[tuple[str, int, int], ...]
+
+    def rows(self, dpi: int) -> list[dict[str, Any]]:
+        """The sized pages as {name, pt_w, pt_h}, in points at the dpi the images were rendered at. A new list of new
+        dicts at every call: a caller may write into what it is given (BuildQueries.page_facts does)."""
+        return [{"name": name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi} for name, w, h in self.sized]
+
+
+def read_folder_pages(pdir: Path) -> FolderPages:
+    """The page images of page directory pdir: one listing, then each image's header (png_size). A missing directory
+    has no pages. An image that cannot be read (OSError) or is shorter than a PNG header is counted and not sized."""
+    names = sorted(pdir.glob("page-*.png"))
+    sized = []
+    for p in names:
         try:
             w, h = png_size(p)
         except (OSError, struct.error):
             continue
-        pages.append({"name": p.name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi})
-    return pages
+        sized.append((p.name, w, h))
+    return FolderPages(len(names), tuple(sized))
+
+
+def count_folder_pages(pdir: Path) -> int:
+    """How many page-*.png names page directory pdir holds, 0 for a missing one. A listing: no image is opened."""
+    return sum(1 for _ in pdir.glob("page-*.png"))
+
+
+def page_list(pdir: Path, dpi: int) -> list[dict[str, Any]]:
+    """The page images of page directory pdir in name order as {name, pt_w, pt_h}: sizes in points at the dpi they
+    were rendered at. An unreadable image is left out; a missing directory has no pages."""
+    return read_folder_pages(pdir).rows(dpi)
+
+
+# Page rows kept per run, summed over the folders. A row is a page's name and two integers - about 200 bytes with
+# its tuple - so the whole cache is bounded by about 1 MB. An instance shows one build per document, and a build
+# that leaves the screen is never asked for again, so 4096 rows is every document of an instance on screen at once
+# with room for the builds that just left it; a document with more pages than that is read from the disk each time.
+PAGE_ROWS_MAX = 4096
+
+
+@dataclass
+class PageFolderCache:
+    """What the page folders on screen hold, so that the light poll (GET /api/meta?light=1, every few seconds per
+    open viewer) does not list the folder and open every page image again to report the same pages. Each of those
+    calls gives the interpreter up, and getting it back from a thread that is computing costs up to a switch
+    interval: the poll's latency behind busy readers follows the number of calls.
+
+    An entry is keyed by the document's state folder (Doc.dir, docs/<key>/) and the build's name, and holds that
+    folder's FolderPages. No stat and no clock is part of the key, because nothing is checked: a stamped page folder
+    (pages-<14 digits>[-<n>]) is written whole under a hidden name and renamed into place (engine.render_pages), its
+    name is never given to another build (engine._new_build_name), and while it is on screen nothing writes to it.
+    The same rule lets a browser keep /pages/<build>/<page> for a year (docs/handbook/api.md). So an entry is what a
+    fresh read of the folder would give and a warm cache answers what a cold one does. Sizes are kept in pixels and
+    turned into points at the dpi asked for, so the dpi is not part of the key either.
+
+    A read is kept only when all three hold, and is answered either way:
+
+    - the name is a stamped build name. The legacy folder <state>/pages is not: it is no name a rebuild cannot reuse.
+    - the read was whole: at least one page name, and every image sized. An image that could not be read may be one
+      failed read, which the next request should not inherit.
+    - pages.cur still names that build after the read. A page swap during the read may be deleting the folder being
+      read (engine.commit_pages), and half a listing must not be kept as the folder's.
+
+    Only the build queries' summaries ask it, and only about the build on screen. A build named by a request (a pick,
+    a pin's page check) may be a slimmed held folder and is read as before (page_sizes).
+
+    What the product does not do it does not see: page images deleted or replaced by hand inside a published folder
+    are answered as they were first read until the next build or restart - as a browser that holds those URLs shows
+    them.
+
+    At most max_rows rows (PAGE_ROWS_MAX unless the caller gives another budget), the folder kept first dropped
+    first; a folder with more pages than the limit is not kept. Request threads share it: every read and write of
+    the entries is under the lock, which is never held across the read of a folder or of the pointer, and what an
+    entry holds is immutable. Two threads that miss the same folder at once both read it; each gets an equal answer
+    and the later one is kept. `read` is the read a miss makes (read_folder_pages); a test gives one that acts
+    between the read and its answer. The composition root makes one per run (server.new_runtime)."""
+
+    max_rows: int = PAGE_ROWS_MAX
+    read: Callable[[Path], FolderPages] = read_folder_pages
+    _entries: dict[tuple[str, str], FolderPages] = field(default_factory=dict)
+    _lock: threading.Lock = field(default_factory=threading.Lock)
+
+    def pages(self, doc: BuildDoc, pdir: Path) -> FolderPages:
+        """The pages of pdir, the page directory doc has on screen (cur_pages(doc)): from the cache for a stamped
+        build already read whole, else read now, and kept when the three conditions of the class hold."""
+        name = pdir.name
+        if not valid_build_name(name) or name == "pages":
+            return self.read(pdir)
+        key = (str(doc.dir), name)
+        with self._lock:
+            hit = self._entries.get(key)
+        if hit is not None:
+            return hit
+        got = self.read(pdir)
+        whole = 0 < got.count == len(got.sized) <= self.max_rows
+        if whole and cur_pages(doc).name == name:
+            with self._lock:
+                self._entries[key] = got
+                while sum(len(entry.sized) for entry in self._entries.values()) > self.max_rows:
+                    del self._entries[next(iter(self._entries))]
+        return got
+
+    def count(self, doc: BuildDoc, pdir: Path) -> int:
+        """How many page-*.png names pdir, the page directory doc has on screen, holds - what a brief reports as
+        n_pages. A stamped build is answered from the cache and, on a miss, read whole once so that it is kept; the
+        legacy folder, which is never kept, is only listed."""
+        if valid_build_name(pdir.name) and pdir.name != "pages":
+            return self.pages(doc, pdir).count
+        return count_folder_pages(pdir)
+
+    def held(self) -> int:
+        """How many page rows the cache holds now, summed over its folders: at most max_rows."""
+        with self._lock:
+            return sum(len(entry.sized) for entry in self._entries.values())
 
 
 def cur_pdf(D: BuildDoc, pdir: Path | None = None) -> Path:
