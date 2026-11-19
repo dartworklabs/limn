@@ -9,8 +9,9 @@ import { isMarkdownDoc, isRegion } from '../documents/state.ts';
 import { translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
 import { levelOf } from '../documents/rules.ts';
 import { lineRange } from '../app/rules-pins.ts';
-import { levelLabel, scopeLabel } from './view-levels.ts';
+import { followRange, levelLabel, scopeLabel } from './view-levels.ts';
 import { snapBox, repickElement } from '../pdf/view-figure.ts';
+import { clearSelectionParts, revealBox } from '../pdf/input-selection.ts';
 import { markChosenLines, shownChoice } from '../markdown/view-marks.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
 import { LAYOUT_MODE } from '../app/rules-tables.ts';
@@ -30,6 +31,11 @@ function bannerRepick(err?: string) {
 // on a figure the '새 위치' box snaps to the new element, and on the Markdown surface the candidate's lines are marked
 // (shownChoice). A candidate of the other shape (a region for a line pin, lines for a region pin) is dropped and the
 // banner asks for another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
+//
+// On a LaTeX document the box then stands on the pieces the candidate's lines print as, the same way the composing
+// selection's does (followRange, docs/adr/0051-pin-badge-drag-reposition.md D5): the place being confirmed is the one
+// the pin will carry, not the rectangle that was dragged or dropped. A range that prints on another page is brought
+// into view, since a place nobody can see is not one to confirm; a box already in view is left where it is.
 function bannerCompare() {
   const repick = REPICK,
     candidate = repick && repick.cand;
@@ -60,6 +66,8 @@ function bannerCompare() {
     html`<span class="loc" data-tip="지금 위치 → 새 위치" tabindex="0">${where}</span><span class="dim">(${what})</span><span class="sp"></span>${acts}`,
   );
   snapBox(repick.box, repickElement(candidate));
+  followRange(candidate, repick.box, bannerCompare);
+  revealBox(repick.box, true);
   markChosenLines(shownChoice());
 } // the Markdown surface marks the candidate's lines as its box
 // Cancelling also invalidates an in-flight /api/pick; its continuation must not render a banner for the cleared
@@ -67,6 +75,7 @@ function bannerCompare() {
 function cancelRepick() {
   const was = !!REPICK;
   if (was) setPickseq(PICKSEQ + 1);
+  clearSelectionParts('repick');
   if (REPICK && REPICK.box) REPICK.box.remove();
   setRepick(null);
   $('#banner').hidden = true;

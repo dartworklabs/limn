@@ -11,6 +11,13 @@ function verdictOf(pin: Pin | null | undefined): string | null {
   const value = pin && pin.verdict;
   return typeof value === 'string' && /^[\p{L}\p{N}_-]{1,16}$/u.test(value) ? value : null;
 }
+// Whether a pin's place may be moved at all - the judgement the edit card makes of [위치 다시 잡기]: a verdict pin
+// keeps the place it fixed (POST /api/pins/<id>/edit answers 400 verdict_fixed) and a closed or awaiting-review pin
+// keeps where it points (an edit is 409). A number badge is only a handle for a pin that says yes here, so no drag of
+// one ends in a refusal (docs/adr/0051-pin-badge-drag-reposition.md D2). Pure.
+function markMovable(pin: Pin | null | undefined) {
+  return !!pin && !verdictOf(pin) && pinState(pin) === PIN_STATE.OPEN;
+}
 // Line-range notation: 'L159' for a single line, 'L155-L173' for multiple (the copy/pins.md format 'L159-L159' is left
 // as-is).
 function lineRange(first: number | undefined, last: number | undefined) {
@@ -43,4 +50,4 @@ function overlapsFor(selection: ComposerSelection, pins: Pin[] | null | undefine
   return out;
 }
 
-export { pinState, verdictOf, lineRange, overlapsFor };
+export { pinState, verdictOf, markMovable, lineRange, overlapsFor };
