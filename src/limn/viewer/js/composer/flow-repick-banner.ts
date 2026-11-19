@@ -33,7 +33,7 @@ function bannerRepick(err?: string) {
 // banner asks for another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
 //
 // On a LaTeX document the box then stands on the pieces the candidate's lines print as, the same way the composing
-// selection's does (followRange, docs/adr/0050-pin-badge-drag-reposition.md D5): the place being confirmed is the one
+// selection's does (followRange, docs/adr/0051-pin-badge-drag-reposition.md D5): the place being confirmed is the one
 // the pin will carry, not the rectangle that was dragged or dropped. A range that prints on another page is brought
 // into view, since a place nobody can see is not one to confirm; a box already in view is left where it is.
 function bannerCompare() {

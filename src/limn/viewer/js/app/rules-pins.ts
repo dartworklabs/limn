@@ -14,7 +14,7 @@ function verdictOf(pin: Pin | null | undefined): string | null {
 // Whether a pin's place may be moved at all - the judgement the edit card makes of [위치 다시 잡기]: a verdict pin
 // keeps the place it fixed (POST /api/pins/<id>/edit answers 400 verdict_fixed) and a closed or awaiting-review pin
 // keeps where it points (an edit is 409). A number badge is only a handle for a pin that says yes here, so no drag of
-// one ends in a refusal (docs/adr/0050-pin-badge-drag-reposition.md D2). Pure.
+// one ends in a refusal (docs/adr/0051-pin-badge-drag-reposition.md D2). Pure.
 function markMovable(pin: Pin | null | undefined) {
   return !!pin && !verdictOf(pin) && pinState(pin) === PIN_STATE.OPEN;
 }

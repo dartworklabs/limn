@@ -34,7 +34,7 @@ import { markBadgeIn, markBadgeRoom } from './view-badges.ts';
 import { pageSelection } from './state-seams.ts';
 
 // The pin a badge drag is placing again: its number, the box it stands on (a region pin's, which moves whole; empty
-// for a line pin, whose drag sends a probe instead - docs/adr/0050-pin-badge-drag-reposition.md D3, D7), and which of
+// for a line pin, whose drag sends a probe instead - docs/adr/0051-pin-badge-drag-reposition.md D3, D7), and which of
 // the two it is. On the drag itself, `began` marks a re-place the drag turned on, so cancelling it turns that off
 // again.
 type BadgeMove = { id: number; frac: number[]; region: boolean };
@@ -92,7 +92,7 @@ function drawBox(box: HTMLElement, startX: number, startY: number, x: number, y:
 }
 // Which pending box a piece box beside it belongs to: the composing selection's '새 핀' or a re-place's '새 위치'. The
 // two can be open at once - a re-place drops only an unfinished selection - so each piece box names its owner and is
-// only ever taken off by it (docs/adr/0050-pin-badge-drag-reposition.md D5).
+// only ever taken off by it (docs/adr/0051-pin-badge-drag-reposition.md D5).
 type PendingOwner = 'compose' | 'repick';
 // A box of a pending box's range other than the pending box itself. The lines a range covers may print as several
 // blocks, and each is drawn as a box of its own on the page it stands on; the pending box is the first of them, so
@@ -189,7 +189,7 @@ let LONG_PRESS_PICKED: number | null = null,
   TAP: { id: number; x: number; y: number; t: number } | null = null,
   LAST_TAP: { t: number; x: number; y: number } | null = null;
 // ------------------------------------------------ A pin's number badge dragged to place the pin again
-// docs/adr/0050-pin-badge-drag-reposition.md. The badge is the handle (D1); the mark boxes keep pointer-events:none, so
+// docs/adr/0051-pin-badge-drag-reposition.md. The badge is the handle (D1); the mark boxes keep pointer-events:none, so
 // a drag across one is a new selection as it always was.
 //
 // The box a badge drag of a region pin puts the pin's box at: `place` = the pin's box [x, y, w, h] on its page, moved

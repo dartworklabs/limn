@@ -38,7 +38,7 @@ import { clearSelectionParts } from '../pdf/input-selection.ts';
 import { bannerRepick, cancelRepick } from './flow-repick-banner.ts';
 // Where pin `id` stands now and whether it is a region pin, for a press on its number badge - what the pages ask
 // through the seam before they let that press become a drag (pdf/input-selection.ts badgeMove,
-// docs/adr/0050-pin-badge-drag-reposition.md D1). null when that press places nothing: a figure document (a figure
+// docs/adr/0051-pin-badge-drag-reposition.md D1). null when that press places nothing: a figure document (a figure
 // pin's place comes from its element map, which this does not touch), a pin this tab does not have, a pin whose place
 // is fixed (markMovable - a verdict, a closed or an awaiting-review pin, the same judgement that hides [위치 다시
 // 잡기]), a region pin whose box has no size to move, or a finger outside the re-place mode for that very pin.
@@ -59,7 +59,7 @@ function badgeMovePin(id: number, mouse: boolean) {
 }
 // A second drag on the badge of a pin whose re-place is already open: the place that banner is offering is not the
 // one the hand is choosing now, so it goes and the banner goes back to asking. Without this the confirm stands
-// through the whole drag and saves the place before it (docs/adr/0050-pin-badge-drag-reposition.md D6: nothing is
+// through the whole drag and saves the place before it (docs/adr/0051-pin-badge-drag-reposition.md D6: nothing is
 // saved that the person has not been shown).
 //
 // **The drag before it may still be asking.** Its answer would arrive mid-drag and put that confirm up, so the
@@ -85,7 +85,7 @@ function restartRepick(id: number) {
 // (pdf/input-selection.ts badgeDragBegin). It clears an unfinished selection first, as startRepick does, but asks for
 // no drag of its own: the drag under way is the new place. Touch selection mode and the sheet are left as they are -
 // the person is holding the badge, not about to start a drag - and the pin's own revision is the base the drop saves
-// against, there being no edit card to read it from (docs/adr/0050-pin-badge-drag-reposition.md D6). Does nothing for
+// against, there being no edit card to read it from (docs/adr/0051-pin-badge-drag-reposition.md D6). Does nothing for
 // a pin this tab does not have.
 function repickFromBadge(id: number) {
   const pin = findAnyPin(id);
@@ -167,7 +167,7 @@ async function applyRepick() {
   // a new loc names its element or none: a loc without el drops the pin's el
   figureFields(loc, repickElement(candidate), isRegion(candidate) || !level.el ? null : level);
   // The revision this save is against: an open edit card for that pin keeps the current one, and a re-place a badge
-  // drag began has none, so it carries the pin's own (docs/adr/0050-pin-badge-drag-reposition.md D6).
+  // drag began has none, so it carries the pin's own (docs/adr/0051-pin-badge-drag-reposition.md D6).
   const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : repick.base_rev;
   try {
     const { status, data } = await api('POST /api/pins/{id}/edit', {

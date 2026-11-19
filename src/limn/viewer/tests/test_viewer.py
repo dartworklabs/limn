@@ -3659,7 +3659,7 @@ class FrontendFigure(unittest.TestCase):
         self.assertIn(sq("snapBox(repick.box,repickElement(candidate));"), sq(extract_js_fn("bannerCompare")))
         # The '새 위치' box then stands on the pieces the candidate's range prints as, the way the composing
         # selection's does, and a range on another page is brought into view
-        # (docs/adr/0050-pin-badge-drag-reposition.md D5, D6).
+        # (docs/adr/0051-pin-badge-drag-reposition.md D5, D6).
         self.assertIn(sq("followRange(candidate,repick.box,bannerCompare);"), sq(extract_js_fn("bannerCompare")))
         self.assertIn(sq("revealBox(repick.box,true);"), sq(extract_js_fn("bannerCompare")))
         self.assertIn(sq("region:!!EDITOR.current.region"), sq(extract_js_fn("startRepick")))

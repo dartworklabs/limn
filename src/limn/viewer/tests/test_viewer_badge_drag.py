@@ -1,4 +1,4 @@
-"""A pin's number badge is the handle that places the pin again (docs/adr/0050-pin-badge-drag-reposition.md).
+"""A pin's number badge is the handle that places the pin again (docs/adr/0051-pin-badge-drag-reposition.md).
 
 A mouse drag from the badge of an open pin without a verdict turns the re-place mode on for that pin and sends the
 place it is dropped on to POST /api/pick; the '새 위치' box then stands on the pieces that range prints as, and the
@@ -321,7 +321,7 @@ class BadgeDragOnScreen(BrowserBase):
         """Dragging the badge again is choosing another place, so the one the banner was offering goes the moment the
         drag passes the slop: through the whole second drag there is nothing to confirm, and the banner asks for the
         new place. Left standing, [이 위치로 바꾸기] would save the place before this drag - a place the person has
-        moved on from (docs/adr/0050-pin-badge-drag-reposition.md D6)."""
+        moved on from (docs/adr/0051-pin-badge-drag-reposition.md D6)."""
         page = self.view()
         self.drag_badge(page, self.movable)
         page.wait_for_selector("#banner [data-act=rp-apply]", timeout=8000)

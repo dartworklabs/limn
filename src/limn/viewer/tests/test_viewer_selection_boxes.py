@@ -170,7 +170,7 @@ class SelectionPieces(unittest.TestCase):
     def test_a_pending_box_takes_off_only_its_own_pieces(self):
         """The composing selection and a re-place can be open at once - a re-place drops only an unfinished selection -
         so each piece box names its owner and a snap takes off only that owner's
-        (docs/adr/0050-pin-badge-drag-reposition.md D5). Without this the re-place's snap would take the pieces the
+        (docs/adr/0051-pin-badge-drag-reposition.md D5). Without this the re-place's snap would take the pieces the
         composing selection stands on off the pages and leave that box saying a range it no longer covers."""
         drawn = self.snap(
             [

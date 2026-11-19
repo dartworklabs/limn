@@ -1,6 +1,6 @@
 # 설계: 저장된 핀의 번호 배지를 끌어 위치를 다시 잡는다
 
-> **상태: 승인됨** (2026-11-19, Limn 소유자). 소유자 결정 가운데 2026-11-15 PR #487 PoC 로 승인받은 것은 §소유자가 이미 고른 것에 그대로 옮겼고, ADR-0049 가 마크를 조각 여러 개로 바꾼 뒤 새로 열린 둘은 2026-11-19 에 소유자가 골랐다(§소유자가 이 설계에서 고른 것). 결정은 [ADR-0050](../../adr/0050-pin-badge-drag-reposition.md), 계획은 [plans/2026-11-19-pin-badge-drag-reposition.md](../plans/2026-11-19-pin-badge-drag-reposition.md)다.
+> **상태: 승인됨** (2026-11-19, Limn 소유자). 소유자 결정 가운데 2026-11-15 PR #487 PoC 로 승인받은 것은 §소유자가 이미 고른 것에 그대로 옮겼고, ADR-0049 가 마크를 조각 여러 개로 바꾼 뒤 새로 열린 둘은 2026-11-19 에 소유자가 골랐다(§소유자가 이 설계에서 고른 것). 결정은 [ADR-0051](../../adr/0051-pin-badge-drag-reposition.md), 계획은 [plans/2026-11-19-pin-badge-drag-reposition.md](../plans/2026-11-19-pin-badge-drag-reposition.md)다.
 
 ## 의도와 왜
 
@@ -183,7 +183,7 @@ PoC 뒤에 고를 것은 §PoC 후보의 1·2·3 으로 남는다.
 
 ## 함께 고칠 문서
 
-- `docs/adr/0050-pin-badge-drag-reposition.md` 와 [`docs/adr/index.md`](../../adr/index.md).
+- `docs/adr/0051-pin-badge-drag-reposition.md` 와 [`docs/adr/index.md`](../../adr/index.md).
 - [viewer.md](../../handbook/viewer.md) — §조작 한눈에(데스크톱·휴대폰 두 표의 마크 배지·위치 다시 잡기 행), §패널 정리(위치 다시 잡기의 상자가 조각을 그린다), §핀 마크의 조각(배지가 손잡이라는 것).
 - [verification.md](../../handbook/verification.md) — 새 시험이 드는 게이트.
 - [CHANGELOG.md](../../../CHANGELOG.md) — 사용자에게 보이는 변경.

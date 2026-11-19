@@ -51,7 +51,7 @@ function pageVerdicts(): PageVerdicts {
 
 // The composer a selection on the pages goes to (composer/flow-pick.ts, composer/view-selection-popover.ts): the pick
 // of a dragged region, dropping it, the note popover by the selection box, and the re-place a drag on a pin's number
-// badge places the pin again with (composer/flow-repick.ts, docs/adr/0050-pin-badge-drag-reposition.md).
+// badge places the pin again with (composer/flow-repick.ts, docs/adr/0051-pin-badge-drag-reposition.md).
 interface PageSelection {
   /** Turns a dragged region into the composer's place. */
   pick(region: unknown): void;

@@ -17,7 +17,7 @@ type RangeOwner = ComposerSelection | EditCard;
 // Which of the three a range belongs to. The composing selection and a re-place's candidate both have a box that
 // follows the range (followRange), so both ask for the ladder and for where its rungs print; an open edit card asks
 // for neither - its box is the saved pin's mark, which the pin list answers
-// (docs/adr/0050-pin-badge-drag-reposition.md D5).
+// (docs/adr/0051-pin-badge-drag-reposition.md D5).
 type RangeRole = 'compose' | 'edit' | 'repick';
 function rangeRole(owner: RangeOwner): RangeRole {
   if (owner === COMPOSE.current) return 'compose';

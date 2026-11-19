@@ -8,7 +8,7 @@
 
 **Tech Stack:** TypeScript ES 모듈(뷰어), Python 3.10+ 표준 라이브러리(서버·테스트), pytest + Playwright, node(모듈 글을 타입 걷어 읽는 순수 함수 시험).
 
-**Spec:** [`docs/superpowers/specs/2026-11-19-pin-badge-drag-reposition-design.md`](../specs/2026-11-19-pin-badge-drag-reposition-design.md) (2026-11-19 소유자 승인). 결정 기록은 [`docs/adr/0050-pin-badge-drag-reposition.md`](../../adr/0050-pin-badge-drag-reposition.md)(제안).
+**Spec:** [`docs/superpowers/specs/2026-11-19-pin-badge-drag-reposition-design.md`](../specs/2026-11-19-pin-badge-drag-reposition-design.md) (2026-11-19 소유자 승인). 결정 기록은 [`docs/adr/0051-pin-badge-drag-reposition.md`](../../adr/0051-pin-badge-drag-reposition.md)(제안).
 
 ## Global Constraints
 
@@ -104,7 +104,7 @@ git commit -s -m "refactor(viewer): a pending box takes off only its own piece b
 
 ---
 
-### Task 2: '새 위치' 상자가 저장될 조각들로 선다 (ADR-0050 D5)
+### Task 2: '새 위치' 상자가 저장될 조각들로 선다 (ADR-0051 D5)
 
 줄 핀의 위치 다시 잡기는 지금 끈 사각형을 보이며 [이 위치로 바꾸기]를 묻는데, 저장되면 마크는 그 범위의 조각으로 선다. 작성 중인 선택이 쓰는 `followRange` 를 '새 위치' 상자에 연결한다. 배지 드래그 없이도 보이는 변경이므로 이 task 만으로 PoC 의 전후 비교 하나가 생긴다.
 
@@ -149,7 +149,7 @@ git commit -s -m "feat(viewer): a re-place's box stands on the pieces its range 
 
 ---
 
-### Task 3: 끌 수 있는 핀과 끄는 사각형의 순수 판단 (ADR-0050 D2·D3·D4·D7)
+### Task 3: 끌 수 있는 핀과 끄는 사각형의 순수 판단 (ADR-0051 D2·D3·D4·D7)
 
 **Files:**
 - Modify: `src/limn/viewer/js/app/rules-pins.ts`
@@ -201,7 +201,7 @@ git commit -s -m "feat(viewer): the pure rules of a badge drag - which pin moves
 
 ---
 
-### Task 4: 배지 드래그가 위치 다시 잡기를 시작한다 (ADR-0050 D1·D6)
+### Task 4: 배지 드래그가 위치 다시 잡기를 시작한다 (ADR-0051 D1·D6)
 
 **Files:**
 - Modify: `src/limn/viewer/types/state.d.ts`
@@ -272,7 +272,7 @@ git commit -s -m "feat(viewer): drag a pin's number badge to place it again"
 
 - [ ] **Step 1: §조작 한눈에의 두 표를 고친다** — 데스크톱 표의 **마크 배지** 행에 "끌면 그 핀의 위치를 다시 잡는다(8px 넘게 움직일 때. 판정·닫힌·검토 대기 핀은 끌리지 않는다)"를, **수정** 행에 배지 지름길을, 휴대폰·태블릿 표의 **위치 다시 잡기** 행에 "모드 안에서는 그 핀의 배지를 끌어도 된다"를 더한다. "배지 밖의 마크 상자를 끌면 평소처럼 새 위치를 고른다"는 문장은 그대로 둔다.
 
-- [ ] **Step 2: §패널 정리에 '새 위치' 상자의 절을 더한다** — **'새 핀' 상자가 범위를 그린다** 바로 뒤에, '새 위치' 상자도 같은 기구로 조각에 서고 확정할 자리가 영역 밖이면 데려온다는 것, 배지에서 시작한 위치 다시 잡기는 핀 자신의 `rev` 를 기준으로 저장한다는 것, 영역 핀은 핀의 상자를 그대로 옮긴다는 것을 현재형으로 쓴다. 각 문단에 [ADR-0050](../adr/0050-pin-badge-drag-reposition.md)의 해당 결정을 짧게 인용하되 본문만으로 규칙이 완결되게 쓴다.
+- [ ] **Step 2: §패널 정리에 '새 위치' 상자의 절을 더한다** — **'새 핀' 상자가 범위를 그린다** 바로 뒤에, '새 위치' 상자도 같은 기구로 조각에 서고 확정할 자리가 영역 밖이면 데려온다는 것, 배지에서 시작한 위치 다시 잡기는 핀 자신의 `rev` 를 기준으로 저장한다는 것, 영역 핀은 핀의 상자를 그대로 옮긴다는 것을 현재형으로 쓴다. 각 문단에 [ADR-0051](../adr/0051-pin-badge-drag-reposition.md)의 해당 결정을 짧게 인용하되 본문만으로 규칙이 완결되게 쓴다.
 
 - [ ] **Step 3: §핀 마크의 조각에 손잡이를 적는다** — 배지가 첫 조각에만 있다는 기존 문단에, 그래서 그 배지가 위치를 다시 잡는 손잡이이기도 하다는 한 문장을 더한다.
 
