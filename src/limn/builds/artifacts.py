@@ -162,6 +162,18 @@ class BuildDoc(BuildStateHolder, Protocol):
     mcache_epoch: int
     """How many times the src_mtime memo was expired (expire_src_mtime); changed only under mcache_lock."""
 
+    mcache_asked: float
+    """When a document summary last asked for the manuscript mtime (shown_src_mtime), on watch_clock; minus infinity
+    until one has. Read and written only under mcache_lock."""
+
+    mcache_watched: float
+    """When the manuscript watch last finished a measurement that the memo kept (watch_src_mtime), on watch_clock;
+    minus infinity when it has none - never measured, let go, or a page swap since. Only under mcache_lock."""
+
+    @property
+    def mcache_measuring(self) -> threading.Lock:
+        """Held by the one measurement of this document's manuscript mtime that is walking its tree (src_mtime)."""
+
 
 Doc = TypeVar("Doc", bound=BuildDoc)  # one document type through a call that hands the document back to its caller
 
@@ -993,6 +1005,8 @@ def read_head(D: BuildDoc) -> str | None:
 
 NO_INPUTS: frozenset[str] = frozenset()  # what a build with no readable recorder file read
 
+SRC_MEMO_S = 2.0  # seconds a measured manuscript mtime answers the reads that follow it (src_mtime)
+
 
 def fls_inputs(text: str, cwd: Path, roots: Iterable[Path]) -> frozenset[str]:
     """The figure-set files a latexmk recorder file (.fls) lists as read: its `INPUT <path>` lines, each resolved against
@@ -1261,15 +1275,45 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
     force=True skips the memo and measures now - if write_built_src_mtime() used the 2-second memo value
     as-is when recording the build-start mtime, then editing the manuscript within 2 seconds of the memo
     being filled and immediately rebuilding would wrongly record the pre-edit mtime as "the build start time".
-    The cache and its leaf lock belong to D; the file scan runs outside the lock."""
-    cache = D.mcache
+
+    One measurement of a document runs at a time (D.mcache_measuring). A read that misses the memo waits for the
+    measurement under way and then looks at the memo again, so of several misses only one walks the tree; a forced
+    read waits too and then always measures. Without that order a measurement that walked the tree before an edit
+    could store its answer after one that walked it later, and the memo would go back to the older manuscript.
+    The memo and its leaf lock (D.mcache_lock) belong to D; the walk runs outside the leaf lock. While the measurement
+    lock is held nothing is taken but leaf locks of D itself (the memo's, the recorder-file memo's): never a build
+    lock, a history lock or another document's."""
     key = (str(D.src), None if D.apart.empty else build)
+    if not force:
+        hit = _memo_hit(D, key)
+        if hit is not None:
+            return hit
+    with D.mcache_measuring:
+        if not force:  # whoever held the lock may just have measured what this caller came for
+            hit = _memo_hit(D, key)
+            if hit is not None:
+                return hit
+        return _measure(D, state_dir, key, build)
+
+
+def _memo_hit(D: BuildDoc, key: tuple[str, str | None]) -> float | None:
+    """The value D's src_mtime memo holds under `key` when it was measured less than SRC_MEMO_S seconds ago, else
+    None. Takes D.mcache_lock for the look; asks the file system nothing."""
+    with D.mcache_lock:
+        if D.mcache[0] == key and time.time() - D.mcache[2] < SRC_MEMO_S:
+            value: float = D.mcache[1]
+            return value
+    return None
+
+
+def _measure(D: BuildDoc, state_dir: Path, key: tuple[str, str | None], build: str | None) -> float:
+    """Measure D's manuscript mtime now, as build `build` saw the manuscript (the one on screen when None), store it in
+    the memo under `key` and return it. The caller holds D.mcache_measuring, so no other measurement of D is under
+    way. A measurement that an expiry cut across (expire_src_mtime) is returned but not stored: it was made against
+    the build that has just left the screen. A document not built from source measures its main file alone; a tree
+    that cannot be read measures as 0.0."""
     with D.mcache_lock:
         epoch = D.mcache_epoch
-        ckey, at = cache[0], cache[2]
-        val: float = cache[1]
-        if not force and ckey == key and time.time() - at < 2.0:
-            return val
     newest = 0.0
     if not D.builds_from_source:  # not built from a tree: that one file is the manuscript
         with contextlib.suppress(OSError):
@@ -1280,7 +1324,7 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
                 newest = max(newest, e.stat().st_mtime)
     with D.mcache_lock:
         if D.mcache_epoch == epoch:  # not measured across an expiry: the answer is still about the build on screen
-            cache[0], cache[1], cache[2] = key, newest, time.time()
+            D.mcache[0], D.mcache[1], D.mcache[2] = key, newest, time.time()
     return newest
 
 

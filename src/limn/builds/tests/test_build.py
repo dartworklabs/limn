@@ -114,6 +114,9 @@ class PlainDoc:
     mcache: list = field(default_factory=lambda: [None, 0.0, 0.0])
     mcache_lock: threading.Lock = field(default_factory=threading.Lock)
     mcache_epoch: int = 0
+    mcache_asked: float = float("-inf")
+    mcache_watched: float = float("-inf")
+    mcache_measuring: threading.Lock = field(default_factory=threading.Lock)
     builds_from_source: bool = True
     watches_files: bool = False
     renders_in_browser: bool = False
