@@ -40,6 +40,7 @@ from limn.builds.figure_map import (
     map_source_files,
     pick_element,
 )
+from limn.builds.values import Json
 from limn.platform.files import PATH_MAX_CHARS
 from limn.platform.values import is_num
 from limn.runtime.documents import Doc
@@ -173,13 +174,31 @@ def own_marks() -> Callable[[], artifacts.RangeBoxCache]:
     return lambda: cache
 
 
+def own_pages() -> Callable[[], artifacts.PageFolderCache]:
+    """A page folder memory private to one query binding, for a caller that supplies no run-wide one."""
+    cache = artifacts.PageFolderCache()
+    return lambda: cache
+
+
+@dataclass(frozen=True)
+class ShownBuild:
+    """What one read of a document's build found, for its brief and its meta fragment alike: the brief's fields but
+    its page count, in the contract's order; the page directory on screen; and the build state as memory held it."""
+
+    fields: Json
+    pages: Path
+    state: Json
+
+
 @dataclass(frozen=True)
 class BuildQueries:
-    """Build-owned implementation of purpose-specific query bindings for one run."""
+    """Build-owned implementation of purpose-specific query bindings for one run. pages is the run's memory of what
+    the page folders on screen hold (artifacts.PageFolderCache); the document summaries are its only readers."""
 
     maps: Callable[[], artifacts.BuildMapCache]
     marks: Callable[[], artifacts.RangeBoxCache] = field(default_factory=own_marks)
     compute_marks: MarkComputation = no_marks
+    pages: Callable[[], artifacts.PageFolderCache] = field(default_factory=own_pages)
 
     def published_head(self, doc: Doc) -> str:
         """Answer synchronization's publication identity; absent/unreadable markers are unknown."""
@@ -189,14 +208,16 @@ class BuildQueries:
         """Interpret optional stamps here so consumers never name marker files."""
         return BuildHeading(artifacts.read_head(doc), artifacts.read_built_at(doc), artifacts.cur_pages(doc).name)
 
-    def summary(self, doc: Doc, state: Path, dpi: int) -> DocumentBuild:
-        """Complete the build-owned HTTP fragments without leaking internal state/history."""
-        b = artifacts.state_snapshot(doc)
+    def _shown(self, doc: Doc, state: Path) -> ShownBuild:
+        """Read what a brief of doc holds, each fact once: the build state from memory, the page pointer (one read,
+        handed on to the staleness check and to whoever counts or sizes the pages), the manuscript's mtime and
+        whether it is newer than the build on screen. No stamp file is read - neither built_at.txt nor head.txt is
+        in a brief - and built_src_mtime.txt only when the history does not name the build on screen."""
+        b = artifacts.build_state(doc)
         pages = artifacts.cur_pages(doc)
         sm = artifacts.src_mtime(doc, state)
-        stale = doc.builds_from_source and artifacts.source_newer(doc, state) > 2
-        heading = self.heading(doc)
-        brief = {
+        stale = doc.builds_from_source and artifacts.shown_source_newer(doc, state, pages) > 2
+        fields: Json = {
             "key": doc.key,
             "name": doc.name,
             "kind": doc.kind,
@@ -210,22 +231,42 @@ class BuildQueries:
             "build_seq": b.get("seq", 0),
             "last_state": (b.get("last") or {}).get("state"),
             "pages_build": pages.name,
-            "n_pages": sum(1 for _ in pages.glob("page-*.png")) if pages.is_dir() else 0,
         }
-        meta = {
-            "pages": self.page_facts(doc, pages.name, artifacts.page_list(pages, dpi)),
-            "built_at": heading.built_at if heading.built_at is not None else "?",
-            "head": heading.head if heading.head is not None else "?",
-            "building": brief["building"],
-            "stale_build": stale,
-            "src_mtime": sm,
+        return ShownBuild(fields, pages, b)
+
+    def summary(self, doc: Doc, state: Path, dpi: int) -> DocumentBuild:
+        """Complete the build-owned HTTP fragments without leaking internal state/history: the brief and the meta
+        fragment of doc from one read of its build (_shown), so the two name the same build and no fact is read
+        twice.
+
+        The brief is read now. Its page count is asked of the run's page memory, which reads a stamped build's folder
+        whole the first time - so that it is kept - and not at all after that. The meta fragment is read when the
+        answer's meta is first asked for (_meta_fragment). A caller that reports only the brief therefore opens no
+        stamp file."""
+        shown = self._shown(doc, state)
+        brief: Json = dict(shown.fields, n_pages=self.pages().count(doc, shown.pages))
+        return DocumentBuild(brief, lambda: self._meta_fragment(doc, shown, dpi))
+
+    def _meta_fragment(self, doc: Doc, shown: ShownBuild, dpi: int) -> Json:
+        """The meta fragment of doc for the build `shown` found on screen: that folder's pages from the run's page
+        memory, sized at dpi, with what a figure map says of each; the build stamps, read at every call and never
+        kept; and the fields the fragment shares with the brief, from that same read."""
+        b, pages = shown.state, shown.pages
+        built_at, head = artifacts.read_built_at(doc), artifacts.read_head(doc)
+        meta: Json = {
+            "pages": self.page_facts(doc, pages.name, self.pages().pages(doc, pages).rows(dpi)),
+            "built_at": built_at if built_at is not None else "?",
+            "head": head if head is not None else "?",
+            "building": shown.fields["building"],
+            "stale_build": shown.fields["stale_build"],
+            "src_mtime": shown.fields["src_mtime"],
             "build_src_mtime": artifacts.read_built_src_mtime(doc),
             "pages_build": pages.name,
             "build_seq": b.get("seq", 0),
             "last_build": deepcopy(b.get("last") or {"state": None, "errors": [], "finished_at": None, "seq": 0}),
             "build": {"state": b["state"], "phase": b["phase"], "started_at": b.get("started_at")},
         }
-        return DocumentBuild(brief, meta)
+        return meta
 
     def page_facts(self, doc: Doc, build: str, pages: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """Meta's pages of build `build` with, on a figure document whose map for that build loads, what its map says of

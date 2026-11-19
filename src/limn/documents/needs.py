@@ -38,8 +38,10 @@ class PinCounts(Protocol):
 
 
 class BuildSummary(Protocol):
-    """The build-owned part of one document's /api/docs entry and /api/meta body, already complete: the reads copy
-    these keys into their responses and never look at a page directory or a build marker themselves."""
+    """The build-owned part of one document's /api/docs entry and /api/meta body, from one read of the document's
+    build: the reads copy these keys into their responses and never look at a page directory or a build marker
+    themselves. The brief is complete when the summary is answered; the supplier reads what only meta reports - page
+    sizes, build stamps - when meta is first asked for, so a read that reports the brief alone does not pay for it."""
 
     @property
     def brief(self) -> dict[str, Any]:

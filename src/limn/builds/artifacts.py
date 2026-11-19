@@ -539,7 +539,7 @@ class FolderPages:
     count: int
     sized: tuple[tuple[str, int, int], ...]
 
-    def rows(self, dpi: int) -> list[dict[str, Any]]:
+    def rows(self, dpi: int) -> list[dict[str, str | float]]:
         """The sized pages as {name, pt_w, pt_h}, in points at the dpi the images were rendered at. A new list of new
         dicts at every call: a caller may write into what it is given (BuildQueries.page_facts does)."""
         return [{"name": name, "pt_w": w * 72.0 / dpi, "pt_h": h * 72.0 / dpi} for name, w, h in self.sized]
@@ -549,7 +549,7 @@ def read_folder_pages(pdir: Path) -> FolderPages:
     """The page images of page directory pdir: one listing, then each image's header (png_size). A missing directory
     has no pages. An image that cannot be read (OSError) or is shorter than a PNG header is counted and not sized."""
     names = sorted(pdir.glob("page-*.png"))
-    sized = []
+    sized: list[tuple[str, int, int]] = []
     for p in names:
         try:
             w, h = png_size(p)
@@ -668,17 +668,21 @@ def cur_pdf(D: BuildDoc, pdir: Path | None = None) -> Path:
     return D.out / D.pdf_name
 
 
-def build_ref_mtime(D: BuildDoc, name: str) -> float | None:
-    """The manuscript src_mtime at the time that build started (looked up via build history -> built_src_mtime.txt -> PDF timestamp, in that order)."""
+def build_ref_mtime(D: BuildDoc, name: str, shown: Path | None = None) -> float | None:
+    """The manuscript src_mtime at the time that build started (looked up via build history -> built_src_mtime.txt -> PDF timestamp, in that order).
+
+    shown is the page directory on screen when the caller has already read it (cur_pages) and `name` is its name:
+    the page pointer is then not read again, neither to learn whether `name` is the build on screen nor to find its
+    PDF."""
     ent = load_builds(D)["by"].get(name)
     if ent and is_num(ent.get("src_mtime")):
         return float(ent["src_mtime"])
-    if name == cur_pages(D).name:
+    if shown is not None or name == cur_pages(D).name:
         v = read_built_src_mtime(D)
         if v is not None:
             return v
     try:
-        return cur_pdf(D, pages_dir_for(D, name)).stat().st_mtime
+        return cur_pdf(D, shown if shown is not None else pages_dir_for(D, name)).stat().st_mtime
     except OSError:
         return None
 
@@ -698,6 +702,18 @@ def source_newer(D: BuildDoc, state_dir: Path, name: str | None = None) -> float
     if ref is None:
         return 0.0
     return max(0.0, src_mtime(D, state_dir, build=name) - ref)
+
+
+def shown_source_newer(D: BuildDoc, state_dir: Path, pages: Path) -> float:
+    """source_newer(D, state_dir) for a caller that has already read which page directory D has on screen (pages,
+    from cur_pages): how many seconds the manuscript is newer than that build, else 0.0. The page pointer is not read
+    again (build_ref_mtime with shown), and the manuscript is measured under the same memo key as every other read
+    about the build on screen (src_mtime without a build), so one poll asks the 2 second memo under one key per
+    document."""
+    ref = build_ref_mtime(D, pages.name, pages)
+    if ref is None:
+        return 0.0
+    return max(0.0, src_mtime(D, state_dir) - ref)
 
 
 def migrate_pages(D: BuildDoc) -> None:
@@ -751,6 +767,14 @@ def state_snapshot(D: BuildDoc) -> dict[str, Any]:
         except OSError:
             d["built_at"] = None
     return d
+
+
+def build_state(D: BuildStateHolder) -> Json:
+    """A copy of D's build state as it is kept in memory, taken under its lock. Unlike state_snapshot it reads no
+    file and derives nothing (no progress, no elapsed time, no built_at.txt fallback): what the document summaries
+    report of a build - state, phase, seq, last, started_at - is all there."""
+    with D.bstate_lock:
+        return dict(D.bstate)
 
 
 def last_build_failed(D: BuildStateHolder) -> bool:
