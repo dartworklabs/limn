@@ -28,10 +28,10 @@ from limn.platform.effects import observing_changes, reading
 from limn.runtime.config import AccessOptions
 from limn.web import answers, csp as page_csp, parse, request_input
 from limn.web.answers import accepted
-from limn.web.app import Document, Json, Principal, Query, WebApplication
+from limn.web.app import Document, Json, Principal, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
 from limn.web.reply import Reply, etag_matches, json_reply as _json_reply
-from limn.web.routes import GetRequest, OtherPostRequest, PathPolicy, PinActionRequest, PostDocRequest
+from limn.web.routes import GetRequest, GetRoute, OtherPostRequest, PathPolicy, PinActionRequest, PostDocRequest
 
 READ_SLOTS = threading.BoundedSemaphore(4)
 MAX_BODY = 1 << 20
@@ -323,14 +323,31 @@ class Handler(BaseHTTPRequestHandler):
         self._run(dispatch)
 
     def _get(self) -> None:
-        """Read and admit a GET before taking a bounded computation slot for its document's route."""
+        """Read and admit a GET, answer it, then send the answer.
+
+        The request's document is selected first (a key looked up among the run's documents). A packaged read
+        (RouteBundle.get_packaged: the viewer's own files) is tried without a computation slot; any other route is
+        computed inside one of the READ_SLOTS, at most that many at a time in the process. The slot is given back
+        before the answer is sent: a slot bounds computation, and a client that is slow to take its bytes must not
+        hold one while others wait to compute. A refusal raised by a route is likewise sent after the slot is
+        released (_run)."""
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, accepted(request_input.query_values(u.query))
         self.app.guards.check_read(path)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        with READ_SLOTS:
-            return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
+        D = self._request_doc(accepted(parse.parse_doc_choice(q)))
+        request = GetRequest(
+            path, q, D, actor, self.principal, self.headers.get("Host") or "", self.headers.get("If-None-Match")
+        )
+        bundle = self.app.routes.bundle
+        reply = self._first_answer(bundle.get_packaged, request)
+        if reply is None:
+            with READ_SLOTS:
+                reply = self._first_answer(bundle.get, request)
+        if reply is None:
+            raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+        self._send(*reply)
 
     def _request_doc(self, choice: parse.DocChoice) -> Document:
         """The document a request names (parsed by parse.parse_doc_choice), found by the server: the first document, or
@@ -343,21 +360,12 @@ class Handler(BaseHTTPRequestHandler):
             D = answers.found_doc(app.selector.select(choice.body_key, None), app.header_text)
         return D
 
-    def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
-        """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
-        the routes have always been matched (a /pages/ name with no image falls through): registered feature routes. Sends the matching
-        route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
-        reply = self._get_registered(actor, path, q, D)
-        if reply is None:
-            raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
-        self._send(*reply)
-
-    def _get_registered(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
-        """Try the application's feature-owned GET routes in registration order."""
-        request = GetRequest(
-            path, q, D, actor, self.principal, self.headers.get("Host") or "", self.headers.get("If-None-Match")
-        )
-        for route in self.app.routes.bundle.get:
+    @staticmethod
+    def _first_answer(routes: tuple[GetRoute, ...], request: GetRequest) -> Reply | None:
+        """The answer of the first of routes that serves request, tried in registration order (a /pages/ name with
+        no image falls through to the next route), or None when none does. A route's refusal propagates as
+        HTTPError. Nothing is sent here."""
+        for route in routes:
             reply = route(request)
             if reply is not None:
                 return reply
