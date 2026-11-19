@@ -1,5 +1,5 @@
 // ------------------------------------------------ Range levels
-import { captureVisit, currentVisit, isFigureKind, COMPOSE, EDITOR, META } from '../app/state.ts';
+import { captureVisit, currentVisit, isFigureKind, COMPOSE, EDITOR, META, REPICK } from '../app/state.ts';
 import { html, setHtml } from '../platform/markup.ts';
 import type { Html } from '../platform/markup.ts';
 import { LANG, translateTemplate, translate, TIP_TEXT } from '../platform/i18n.ts';
@@ -14,6 +14,22 @@ import { isMarkdownDoc, withDocQuery } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 /** What a range ladder and its excerpt belong to: the composer's selection or an open edit card. */
 type RangeOwner = ComposerSelection | EditCard;
+// Which of the three a range belongs to. The composing selection and a re-place's candidate both have a box that
+// follows the range (followRange), so both ask for the ladder and for where its rungs print; an open edit card asks
+// for neither - its box is the saved pin's mark, which the pin list answers
+// (docs/adr/0050-pin-badge-drag-reposition.md D5).
+type RangeRole = 'compose' | 'edit' | 'repick';
+function rangeRole(owner: RangeOwner): RangeRole {
+  if (owner === COMPOSE.current) return 'compose';
+  if (REPICK && REPICK.cand === owner) return 'repick';
+  return 'edit';
+}
+// Whether the owner a range refresh went out for is still the one holding that role, so its answer may be taken.
+function stillOwns(owner: RangeOwner, role: RangeRole, visit: ReturnType<typeof captureVisit>) {
+  if (role === 'edit') return owner === EDITOR.current;
+  if (role === 'repick') return !!REPICK && REPICK.cand === owner && currentVisit(visit);
+  return owner === COMPOSE.current && currentVisit(visit);
+}
 /** A range owner on lines: its file and both end lines are there, as on every owner that is not a region. */
 type LineOwner = RangeOwner & { file: string; lo: number; hi: number };
 function onLines(owner: RangeOwner): owner is LineOwner {
@@ -343,7 +359,7 @@ function answeredElsewhere(owner: LineOwner, shown: string) {
   const noted = RANGE_ELSEWHERE.get(owner);
   return !!noted && noted.has(rangeKey(shown, owner.lo, owner.hi));
 }
-// The composing selection's box follows the lines it has chosen, and moves only onto an answer. Lines nothing has
+// A pending box follows the lines its owner has chosen, and moves only onto an answer. Lines nothing has
 // answered about are asked of the snippet route - which answers every rung of the ladder round them at once - and the
 // box is left as it stands until that comes: putting it back on the dragged rectangle for the length of a request
 // would show the person the span they dragged as the pin's range, which is the one thing this is here to stop. A
@@ -362,7 +378,7 @@ function followRange(selection: ComposerSelection, box: HTMLElement | null, afte
     if (!answeredElsewhere(selection, shown)) refetchSnip(selection, after);
     return;
   }
-  snapSelectionBox(box, pieces, draggedPlace(selection));
+  snapSelectionBox(box, pieces, draggedPlace(selection), rangeRole(selection) === 'repick' ? 'repick' : 'compose');
 }
 // Where the drag that began the selection was made - its page and its rectangle as it was sent - which a range with no
 // pieces puts the box back on; null when the answer carries neither.
@@ -371,21 +387,21 @@ function draggedPlace(selection: ComposerSelection) {
     ? { page: selection.page, frac: selection.frac }
     : null;
 }
-// The wait a range's text refresh is held for, the composing selection's apart from an open edit card's. They are two
-// timers because the composer's box waits on its answer (followRange) while the panels are open together, and a
-// request the other panel's wait cancelled would leave the box on the range it last showed with nothing to say so.
-let COMPOSE_SNIPPET_TIMER: ReturnType<typeof setTimeout> | undefined,
-  EDIT_SNIPPET_TIMER: ReturnType<typeof setTimeout> | undefined;
-// Refreshes the text of a range set in the excerpt only while its selection still owns the visit or its edit card
-// survives. The composing selection also asks for the ladder round those lines and for where each of its rungs prints
-// (?levels=1&boxes=1), since its box follows them (followRange). An edit card asks for neither: its box is the saved
-// pin's mark, which the pin list answers, and its ladder reads the rungs' lines alone. Marks are asked for and not
-// implied because the server runs a process per line of every rung to answer them - about half a second for a ladder
-// round a pin inside a 40-line float (docs/adr/0049-pin-marks-follow-the-range.md D4).
+// The wait a range's text refresh is held for, one per role. They are separate timers because a box waits on its own
+// answer (followRange) while two of these are open together, and a request another one's wait cancelled would leave
+// that box on the range it last showed with nothing to say so.
+const SNIPPET_TIMERS = new Map<RangeRole, ReturnType<typeof setTimeout>>();
+// Refreshes the text of a range set in the excerpt only while the owner still holds its role (stillOwns). An owner
+// whose box follows the range - the composing selection, a re-place's candidate - also asks for the ladder round those
+// lines and for where each of its rungs prints (?levels=1&boxes=1). An edit card asks for neither: its box is the
+// saved pin's mark, which the pin list answers, and its ladder reads the rungs' lines alone. Marks are asked for and
+// not implied because the server runs a process per line of every rung to answer them - about half a second for a
+// ladder round a pin inside a 40-line float (docs/adr/0049-pin-marks-follow-the-range.md D4).
 function refetchSnip(owner: LineOwner, after: () => void) {
   const visit = captureVisit(),
-    composing = owner === COMPOSE.current;
-  clearTimeout(composing ? COMPOSE_SNIPPET_TIMER : EDIT_SNIPPET_TIMER);
+    role = rangeRole(owner),
+    composing = role !== 'edit';
+  clearTimeout(SNIPPET_TIMERS.get(role));
   const wait = setTimeout(async () => {
     const asked = shownBuild(); // the build the pages show as this goes out, which an answer naming none is held under
     try {
@@ -402,19 +418,14 @@ function refetchSnip(owner: LineOwner, after: () => void) {
         ),
         what: '원문 읽기',
       });
-      if (
-        (owner === EDITOR.current || (owner === COMPOSE.current && currentVisit(visit))) &&
-        data.lo === owner.lo &&
-        data.hi === owner.hi
-      ) {
+      if (stillOwns(owner, role, visit) && data.lo === owner.lo && data.hi === owner.hi) {
         owner.snippet = data.snippet;
         if (composing) takeRangeBoxes(owner, data, asked, shownBuild());
         after();
       }
     } catch (error) {}
   }, 250);
-  if (composing) COMPOSE_SNIPPET_TIMER = wait;
-  else EDIT_SNIPPET_TIMER = wait;
+  SNIPPET_TIMERS.set(role, wait);
 }
 function snipText(text: string | undefined, open: boolean) {
   const rungs = String(text || '').split('\n');

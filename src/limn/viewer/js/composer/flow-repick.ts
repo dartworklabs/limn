@@ -4,10 +4,13 @@ import {
   DOC,
   LAYOUT,
   COARSE_POINTER_QUERY,
+  META,
   REPICK,
   SWITCHSEQ,
   captureVisit,
   currentVisit,
+  findAnyPin,
+  isFigureKind,
   setRepick,
   COMPOSE,
   EDITOR,
@@ -18,16 +21,57 @@ import { bannerNote, quietNote } from '../platform/notices.ts';
 import { switchDoc } from '../documents/flow-switch.ts';
 import { setSelectMode, setSide } from '../layout/flow.ts';
 import { kindFor } from './view-levels.ts';
-import { figureFields, pinPlace, repickElement } from '../pdf/view-figure.ts';
+import { figureFields, isFrac, pinPlace, repickElement } from '../pdf/view-figure.ts';
 import { cancelSelection } from './flow-selection.ts';
 import { NOTICE_HOST, NOTICE_KIND } from '../platform/tables.ts';
 import { $ } from '../platform/dom.ts';
 import { LAYOUT_MODE, PIN_STATE } from '../app/rules-tables.ts';
-import { lineRange } from '../app/rules-pins.ts';
+import { lineRange, markMovable } from '../app/rules-pins.ts';
 import { isRegion } from '../documents/state.ts';
 import { levelOf } from '../documents/rules.ts';
 import { composerPins, pinFields } from './state-seams.ts';
 import { bannerRepick, cancelRepick } from './flow-repick-banner.ts';
+// Where pin `id` stands now and whether it is a region pin, for a press on its number badge - what the pages ask
+// through the seam before they let that press become a drag (pdf/input-selection.ts badgeMove,
+// docs/adr/0050-pin-badge-drag-reposition.md D1). null when that press places nothing: a figure document (a figure
+// pin's place comes from its element map, which this does not touch), a pin this tab does not have, a pin whose place
+// is fixed (markMovable - a verdict, a closed or an awaiting-review pin, the same judgement that hides [위치 다시
+// 잡기]), a region pin whose box has no size to move, or a finger outside the re-place mode for that very pin.
+//
+// A line pin needs no box of its own: what its drag sends is the probe at the pointer (D3), and the box the person
+// sees it leave is its range's, which the pin list answers. A pin saved without a `frac` - an agent's, or one an
+// older client wrote - is dragged like any other.
+function badgeMovePin(id: number, mouse: boolean) {
+  if (isFigureKind(META ? META.kind : undefined)) return null;
+  const pin = findAnyPin(id);
+  if (!pin || !markMovable(pin)) return null;
+  if (!mouse && !(REPICK && REPICK.id === pin.id)) return null;
+  const at = pinPlace(pin),
+    region = isRegion(pin),
+    frac = isFrac(at.frac) ? at.frac.slice() : [];
+  if (region && !(frac.length === 4 && frac[2] > 0 && frac[3] > 0)) return null;
+  return { frac, region };
+}
+// Turns the re-place mode on for pin `id` from a drag on its number badge that is already moving its box
+// (pdf/input-selection.ts badgeDragBegin). It clears an unfinished selection first, as startRepick does, but asks for
+// no drag of its own: the drag under way is the new place. Touch selection mode and the sheet are left as they are -
+// the person is holding the badge, not about to start a drag - and the pin's own revision is the base the drop saves
+// against, there being no edit card to read it from (docs/adr/0050-pin-badge-drag-reposition.md D6). Does nothing for
+// a pin this tab does not have.
+function repickFromBadge(id: number) {
+  const pin = findAnyPin(id);
+  if (!pin) return;
+  if (COMPOSE.picking || (!COMPOSE.current && !$('#composer').hidden)) cancelSelection(false);
+  if (REPICK) cancelRepick();
+  setRepick({
+    id: pin.id,
+    from: { lo: pin.lo, hi: pin.hi, page: pinPlace(pin).page, region: isRegion(pin) },
+    box: null,
+    cand: null,
+    base_rev: pin.rev || 0,
+  });
+  bannerRepick();
+}
 // On touch, selection mode is turned on during a re-place, and narrow collapses the sheet to reveal the page (the
 // banner stays visible even on the collapsed sheet).
 async function startRepick() {
@@ -47,6 +91,7 @@ async function startRepick() {
     from: { lo: EDITOR.current.lo, hi: EDITOR.current.hi, page: EDITOR.current.page, region: !!EDITOR.current.region },
     box: null,
     cand: null,
+    base_rev: EDITOR.current.base_rev || 0,
   });
   bannerRepick();
   if (COARSE_POINTER_QUERY.matches) setSelectMode(true);
@@ -92,7 +137,9 @@ async function applyRepick() {
     }; // view-only: only the region is re-placed
   // a new loc names its element or none: a loc without el drops the pin's el
   figureFields(loc, repickElement(candidate), isRegion(candidate) || !level.el ? null : level);
-  const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : 0;
+  // The revision this save is against: an open edit card for that pin keeps the current one, and a re-place a badge
+  // drag began has none, so it carries the pin's own (docs/adr/0050-pin-badge-drag-reposition.md D6).
+  const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : repick.base_rev;
   try {
     const { status, data } = await api('POST /api/pins/{id}/edit', {
       id: repick.id,
@@ -145,4 +192,4 @@ async function applyRepick() {
     await composerPins().load();
   } catch (error) {}
 }
-export { applyRepick, startRepick };
+export { applyRepick, badgeMovePin, repickFromBadge, startRepick };

@@ -3656,6 +3656,11 @@ class FrontendFigure(unittest.TestCase):
             rp.index(sq("figureFields(loc,repickElement(candidate),isRegion(candidate)||!level.el?null:level);")),
         )
         self.assertIn(sq("snapBox(repick.box,repickElement(candidate));"), sq(extract_js_fn("bannerCompare")))
+        # The '새 위치' box then stands on the pieces the candidate's range prints as, the way the composing
+        # selection's does, and a range on another page is brought into view
+        # (docs/adr/0050-pin-badge-drag-reposition.md D5, D6).
+        self.assertIn(sq("followRange(candidate,repick.box,bannerCompare);"), sq(extract_js_fn("bannerCompare")))
+        self.assertIn(sq("revealBox(repick.box,true);"), sq(extract_js_fn("bannerCompare")))
         self.assertIn(sq("region:!!EDITOR.current.region"), sq(extract_js_fn("startRepick")))
         self.assertIn(sq("pinEl:pin.el||null"), sq(extract_js_fn("openEdit")))
         self.assertIn(sq("(!card.pinEl&&(card.scope||null)!==(card.orig.scope||null))"), sq(extract_js_fn("saveEdit")))
@@ -3689,6 +3694,7 @@ class FrontendFigure(unittest.TestCase):
             function banner(h){out.push(/data-act="rp-apply"/.test(h)?'apply':'banner');}
             function bannerRepick(err){out.push(['again',err]);} function scopeLabel(){return '';}
             function markChosenLines(){} function shownChoice(){return null;}   // the Markdown surface's candidate mark (markdown/view.ts)
+            function followRange(){} function revealBox(){}   // the box on its range's pieces (composer/view-levels.ts), brought into view
             const region={kind:'region',page:1,frac:[0.2,0.2,0.1,0.1],pdf:'x.pdf',quote:''};
             const line={file:'/f.py',page:1,lo:20,hi:30,default_level:'el',
               levels:[{level:'el',lo:20,hi:30,label:'달력',el:{id:'B2/c',path:['B2','B2/c']}}]};

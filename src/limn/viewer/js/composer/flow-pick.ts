@@ -102,7 +102,7 @@ async function pick(region: PickDrag) {
     if (repick) {
       bannerRepick();
     } else {
-      clearSelectionParts();
+      clearSelectionParts('compose');
       if (COMPOSE.box) {
         COMPOSE.box.remove();
         setComposeBox(null);
@@ -125,10 +125,11 @@ async function pick(region: PickDrag) {
       } catch (error) {}
       if (seq !== PICKSEQ) return;
       if (repick && repick.box) {
+        clearSelectionParts('repick');
         repick.box.remove();
         repick.box = null;
       } else if (!repick && COMPOSE.box) {
-        clearSelectionParts();
+        clearSelectionParts('compose');
         COMPOSE.box.remove();
         setComposeBox(null);
       }
