@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.4.65 — 2026-11-19
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed.
+
+### Fixed
+
+- **The GET answers held in memory are bounded again (0.4.64).** 0.4.64 moved sending out of the four computation
+  slots, which until then had also limited how many answer bodies existed at once. An answer's whole body is in
+  memory from its route's return until its last byte leaves - about 3 MB for a listing of 1,000 pins, 2 MB for
+  `/viewer.js`, a PDF's file size - so the number of bodies held followed the number of connections, which nothing
+  bounds unless `--max-connections` is given: twelve clients that asked for the PDF.js worker and read nothing held
+  twelve bodies, where 0.4.63 held four. A request now takes one of 32 answer slots before its route makes the body
+  and gives it back when the body is sent. A GET that finds all 32 taken waits for one and is never refused. A read
+  queued for a computation slot holds no answer slot, so the viewer's own files still do not wait behind listings.
+  A stalled reader can hold a slot for at most the 30 s socket timeout; it takes 32 of them, not four as in 0.4.63,
+  to make other reads wait.
+
+## 0.4.64 — 2026-11-19
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed, and every pin read of a 1,019-pin state folder is byte-identical to 0.4.63's (1,035 answers compared).
+
+### Changed
+
+- **Reading and writing pins no longer costs file-system work per pin.** A listing, one pin's answer, `pins.md` and
+  the re-sync before every write asked where each pin's file is under the manuscript root pin by pin, and again for
+  every answer that needs the place. Where a file is is now judged once per file for each listing, each rendering
+  and each re-sync: one `GET /api/pins?all=1` over 1,000 pins of a one-file manuscript went from 18,385 symlink
+  resolutions to 18. Measured on one machine, a listing of 300 pins went from 99 ms to 35 ms, one pin's answer from
+  88 ms to 16 ms, a new pin from 110 ms to 32 ms and `pins.md` from 82 ms to 24 ms. Nothing is remembered between
+  requests - a file or folder replaced by a link is judged again by the next request - and content is still read
+  through the checked no-follow handle.
+- **`GET /api/pins/<id>` and `GET /api/pins?doc=<key>` compute only the asked pins.** Overlaps (`rel`) and verdict
+  supersession (`superseded_by`) are still computed over every live pin, so the answers are the full list's.
+- **The viewer's own files no longer wait behind listings, and a slow reader holds no computation slot.** Every GET
+  ran in one of four process-wide computation slots and was sent from inside it; with four listings in flight
+  `/favicon.ico` waited up to 3.6 s, as the page's script and the bundled libraries would. The slot is now given back
+  before the answer is sent, and the page, `/viewer.js`, `/sw.js`, `/md-parse.mjs`, the icons, `/vendor/*` and
+  `/api/version` take no slot. Reads of stored data are still computed at most four at a time. Answers being sent are
+  therefore bounded by the number of connections (`--max-connections`, unlimited when omitted) and the 30 s socket
+  timeout, no longer by the four slots.
+
+### Known
+
+- **A light poll behind two to four continuously looping listings has a slower median than in 0.4.63** (measured
+  with 1,002 pins: 8 ms to about 160 ms behind two), while its worst case is shorter (5.8 s to 1.5 s behind eight). A
+  listing used to spend most of its time in file-system calls, during which other requests ran freely; it is now
+  uninterrupted computation the poll takes turns with. The viewer fetches the list only when the pins change, so
+  this shows under sustained load; making a listing cheaper is the next step.
+
 ## 0.4.63 — 2026-11-19
 
 ### Fixed
