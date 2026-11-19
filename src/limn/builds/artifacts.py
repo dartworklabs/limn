@@ -1379,13 +1379,12 @@ def watch_src_mtime(D: BuildDoc, state_dir: Path) -> bool:
     """The manuscript watch's turn for D: measure its manuscript mtime against the build on screen and keep it for
     the summaries (shown_src_mtime). True when it measured.
 
-    Nothing is measured, and the file system is not asked, for a document that is not built from source; for one no
-    summary asked about in the last SRC_WATCH_ASKED_S seconds, which is let go - what the watch kept of it is
-    forgotten, so that no summary answers a value nobody is refreshing; and for one another thread is measuring right
-    now, which fills the memo itself (the watch does not wait: the other documents are due). The watch only reads:
-    folder listings, stats, and the recorder file of the build on screen."""
-    if not D.builds_from_source:
-        return False
+    Nothing is measured, and the file system is not asked, for a document no summary asked about in the last
+    SRC_WATCH_ASKED_S seconds, which is let go - what the watch kept of it is forgotten, so that no summary answers a
+    value nobody is refreshing; and for one another thread is measuring right now, which fills the memo itself (the
+    watch does not wait: the other documents are due). A document not built from source is never asked about
+    (shown_src_mtime does not note it), so the watch has no turn for it. The watch only reads: folder listings,
+    stats, and the recorder file of the build on screen."""
     with D.mcache_lock:
         if watch_clock() - D.mcache_asked >= SRC_WATCH_ASKED_S:
             D.mcache_watched = NEVER

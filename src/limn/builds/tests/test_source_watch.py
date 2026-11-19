@@ -281,6 +281,20 @@ class SummaryReadsTheWatch(Watched):
             forget_memo_age(self.doc)
             self.assertGreaterEqual(walk_calls(self.read), 1)
 
+    def test_a_wall_clock_set_back_does_not_keep_the_watch_s_value_trusted(self):
+        """Eleven seconds after the watch measured, with the wall clock set back an hour meanwhile, a summary no
+        longer answers the watch's value: the limit is counted on a clock that never goes back."""
+        wall = time.time()
+        with mock.patch.object(artifacts.time, "monotonic", return_value=100.0):
+            self.read()
+            self.assertTrue(self.turn())
+        forget_memo_age(self.doc)
+        with (
+            mock.patch.object(artifacts.time, "monotonic", return_value=111.0),
+            mock.patch.object(artifacts.time, "time", return_value=wall - 3600),
+        ):
+            self.assertGreaterEqual(walk_calls(self.read), 1)
+
     def test_a_page_swap_forgets_what_the_watch_measured(self):
         """After a build swapped the page pointer, the value the watch measured before it is not answered."""
         self.watched_at(100)
