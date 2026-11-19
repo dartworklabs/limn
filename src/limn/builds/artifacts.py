@@ -571,9 +571,9 @@ def page_list(pdir: Path, dpi: int) -> list[dict[str, Any]]:
 
 
 # Page rows kept per run, summed over the folders. A row is a page's name and two integers - about 200 bytes with
-# its tuple - so the whole cache is bounded by about 1 MB. An instance shows one build per document, and a build
-# that leaves the screen is never asked for again, so 4096 rows is every document of an instance on screen at once
-# with room for the builds that just left it; a document with more pages than that is read from the disk each time.
+# its tuple - so the whole cache is bounded by about 1 MB. An instance shows one build per document and the cache
+# holds one build per document, so 4096 rows is the pages of every document of an instance on screen at once; the
+# documents past that are read from the disk each time, as every document was before.
 PAGE_ROWS_MAX = 4096
 
 
@@ -607,8 +607,11 @@ class PageFolderCache:
     are answered as they were first read until the next build or restart - as a browser that holds those URLs shows
     them.
 
-    At most max_rows rows (PAGE_ROWS_MAX unless the caller gives another budget), the folder kept first dropped
-    first; a folder with more pages than the limit is not kept. Request threads share it: every read and write of
+    At most max_rows rows (PAGE_ROWS_MAX unless the caller gives another budget). A document has one build on screen,
+    so keeping a document's build lets go of the build of that document kept before it: what is held is what is on
+    screen, however long the run. A folder that does not fit beside the others is not kept, and the others stay:
+    dropping an older folder to make room would, once the pages on screen pass the budget, have every document evict
+    another at every poll and none of them kept. Request threads share it: every read and write of
     the entries is under the lock, which is never held across the read of a folder or of the pointer, and what an
     entry holds is immutable. Two threads that miss the same folder at once both read it; each gets an equal answer
     and the later one is kept. `read` is the read a miss makes (read_folder_pages); a test gives one that acts
@@ -631,12 +634,13 @@ class PageFolderCache:
         if hit is not None:
             return hit
         got = self.read(pdir)
-        whole = 0 < got.count == len(got.sized) <= self.max_rows
+        whole = 0 < got.count == len(got.sized)
         if whole and cur_pages(doc).name == name:
             with self._lock:
-                self._entries[key] = got
-                while sum(len(entry.sized) for entry in self._entries.values()) > self.max_rows:
-                    del self._entries[next(iter(self._entries))]
+                for earlier in [held for held in self._entries if held[0] == key[0]]:
+                    del self._entries[earlier]
+                if sum(len(entry.sized) for entry in self._entries.values()) + len(got.sized) <= self.max_rows:
+                    self._entries[key] = got
         return got
 
     def count(self, doc: BuildDoc, pdir: Path) -> int:

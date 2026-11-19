@@ -77,9 +77,9 @@ def history(doc: Doc, name: str, src_mtime: float) -> None:
     (doc.dir / "builds.json").write_text(json.dumps({"seq": 1, "last": None, "builds": [entry]}), encoding="utf-8")
 
 
-def names_opened(call) -> Counter:
-    """How often each file name was opened while call() ran."""
-    return Counter(Path(path).name for path in opened(call)[0])
+def names_opened(call, under: Path) -> Counter:
+    """How often each file name below folder `under` was opened while call() ran."""
+    return Counter(Path(path).name for path in opened(call, under)[0])
 
 
 class Fixture(unittest.TestCase):
@@ -90,7 +90,7 @@ class Fixture(unittest.TestCase):
         """Temporary manuscript and state folders; the documents have no build yet."""
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
-        root = Path(self.tmp.name).resolve()
+        root = self.root = Path(self.tmp.name).resolve()
         self.src = root / "ms"
         (self.src / "rr").mkdir(parents=True)
         (self.src / "main.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
@@ -117,9 +117,14 @@ class Fixture(unittest.TestCase):
         """reads.meta of doc among docs, as the light poll asks it."""
         return reads.meta(doc, {}, self.settings, docs, {}, time.time(), builds or self.q)
 
+    def names_opened(self, call) -> Counter:
+        """How often each file name of this fixture's folders was opened while call() ran."""
+        return names_opened(call, self.root)
+
     def frozen(self):
-        """Stop the clock the 2 second src_mtime memo is measured with, so that a second read is a memo hit however
-        long the test takes to make it."""
+        """Stop time.time for the block - the clock the 2 second src_mtime memo is measured with - so that a second
+        read is a memo hit however long the test takes to make it. The patch is the process's clock, for this
+        thread's block only."""
         return mock.patch.object(artifacts.time, "time", return_value=time.time())
 
 
@@ -192,7 +197,7 @@ class BriefOnly(Fixture):
         history(self.ms, B1, time.time() + 60)
         for name in ("built_at.txt", "head.txt", "built_src_mtime.txt"):
             (self.ms.dir / name).write_text("1.000000", encoding="utf-8")
-        names = names_opened(lambda: self.brief(self.ms))
+        names = self.names_opened(lambda: self.brief(self.ms))
         self.assertEqual((names["built_at.txt"], names["head.txt"], names["built_src_mtime.txt"]), (0, 0, 0))
         self.assertEqual(names["pages.cur"], 1 + 1)  # the read, and the check before the folder is kept
 
@@ -202,13 +207,13 @@ class BriefOnly(Fixture):
         folder = publish(self.ms, B1, 2)
         os.utime(folder / self.ms.pdf_name, (1.0, 1.0))
         self.assertIs(self.brief(self.ms)["stale_build"], True)
-        names = names_opened(lambda: self.brief(self.ms))
+        names = self.names_opened(lambda: self.brief(self.ms))
         self.assertEqual((names["pages.cur"], names["builds.json"], names["built_src_mtime.txt"]), (1, 1, 1))
 
     def test_a_document_never_built_has_its_pointer_looked_for_once(self):
         """Before a first build there is no pointer, no history and no PDF: the brief looks for the pointer once."""
         self.assertEqual(self.brief(self.rr)["pages_build"], "pages")
-        self.assertEqual(names_opened(lambda: self.brief(self.rr))["pages.cur"], 1)
+        self.assertEqual(self.names_opened(lambda: self.brief(self.rr))["pages.cur"], 1)
 
     def test_the_page_count_is_of_names_and_the_pages_are_the_ones_sized(self):
         """n_pages counts the page images a build has; pages lists the ones whose size could be read."""
@@ -236,7 +241,7 @@ class BriefOnly(Fixture):
             counts, brief = fs_calls(lambda: self.brief(self.rr))
         self.assertEqual(brief["n_pages"], 3)
         self.assertEqual(counts["scandir"] + counts["listdir"] + counts["entry_stat"], 0)
-        self.assertEqual(names_opened(lambda: self.brief(self.rr))["page-1.png"], 0)
+        self.assertEqual(self.names_opened(lambda: self.brief(self.rr))["page-1.png"], 0)
 
 
 class SummaryOnce(Fixture):
@@ -251,7 +256,7 @@ class SummaryOnce(Fixture):
         with self.frozen():
             first = self.q.summary(self.ms, self.state, 150)
             self.assertEqual(len(first.meta["pages"]), 3)
-            names = names_opened(lambda: self.q.summary(self.ms, self.state, 150).meta)
+            names = self.names_opened(lambda: self.q.summary(self.ms, self.state, 150).meta)
             again = self.q.summary(self.ms, self.state, 150)
             self.assertEqual((again.brief, again.meta), (first.brief, first.meta))
         self.assertEqual(
@@ -269,7 +274,7 @@ class SummaryOnce(Fixture):
         built = self.q.summary(self.ms, self.state, 150)
         first = built.meta
         (self.ms.dir / "head.txt").write_text("def5678", encoding="utf-8")
-        paths, again = opened(lambda: built.meta)
+        paths, again = opened(lambda: built.meta, self.root)
         self.assertIs(again, first)
         self.assertEqual((again["head"], paths), ("abc1234", []))
 
@@ -280,7 +285,7 @@ class SummaryOnce(Fixture):
             publish(doc, B1, 3)
         with self.frozen():
             first = self.meta(self.ms, docs)
-            paths, again = opened(lambda: self.meta(self.ms, docs))
+            paths, again = opened(lambda: self.meta(self.ms, docs), self.root)
             counts, _ = fs_calls(lambda: self.meta(self.ms, docs))
         self.assertEqual(again, first)
         pointers = Counter(path for path in paths if path.endswith("pages.cur"))
@@ -450,7 +455,7 @@ class ThroughTheRun(Base):
 
     def images_opened(self) -> list[str]:
         """The page images one light poll opens."""
-        return sorted(name for name in names_opened(self.poll).elements() if name.endswith(".png"))
+        return sorted(name for name in names_opened(self.poll, ps.APP.C.state).elements() if name.endswith(".png"))
 
     def test_each_run_has_its_own_page_memory(self):
         """Two runs in one process keep nothing in common."""

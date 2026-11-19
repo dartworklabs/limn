@@ -208,8 +208,9 @@ class KeepingAFolder(Fixture):
         self.assertEqual(cache.pages(self.ms, publish(self.ms, B3, [(300, 150)] * 4)).count, 4)
         self.assertEqual(cache.pages(self.ms, self.ms.dir / B3).count, 4)
 
-    def test_the_rows_kept_stay_within_the_limit_oldest_first(self):
-        """Past the limit the folder kept first is dropped, and is read again when asked for."""
+    def test_a_new_build_of_a_document_replaces_its_older_one(self):
+        """A document shows one build: when its next build is kept, the one before it is let go, so what is kept is
+        what is on screen and a long run does not fill the budget with builds no poll asks about."""
         cache = PageFolderCache(max_rows=5)
         old = publish(self.ms, B1, [(300, 150)] * 3)
         cache.pages(self.ms, old)
@@ -221,6 +222,20 @@ class KeepingAFolder(Fixture):
         counts, _ = fs_calls(lambda: cache.pages(self.ms, old))
         self.assertGreater(counts["open"], 3)
 
+    def test_the_folders_that_fit_stay_kept_when_another_does_not(self):
+        """Past the budget the folder that does not fit is the one left out. Dropping an older folder to make room
+        would have every document evict another at every poll, and none of them kept."""
+        cache = PageFolderCache(max_rows=5)
+        body = publish(self.ms, B1, [(300, 150)] * 3)
+        reply = publish(self.rr, B1, [(300, 150)] * 3)
+        for _ in range(2):
+            self.assertEqual((cache.pages(self.ms, body).count, cache.pages(self.rr, reply).count), (3, 3))
+        self.assertEqual(cache.held(), 3)
+        kept, _ = fs_calls(lambda: cache.pages(self.ms, body))
+        left_out, _ = fs_calls(lambda: cache.pages(self.rr, reply))
+        self.assertEqual(disk_reads(kept), 0)
+        self.assertGreater(left_out["open"], 3)
+
     def test_a_folder_larger_than_the_limit_is_not_kept(self):
         """A folder that would not fit is answered from the disk every time and evicts nothing."""
         cache = PageFolderCache(max_rows=5)
@@ -228,6 +243,18 @@ class KeepingAFolder(Fixture):
         cache.pages(self.rr, small)
         self.assertEqual(cache.pages(self.ms, publish(self.ms, B1, [(300, 150)] * 6)).count, 6)
         self.assertEqual(cache.held(), 2)
+
+    def test_a_document_whose_new_build_is_not_kept_keeps_its_place_for_the_next(self):
+        """A build too large for the room left takes its document's older entry with it or not - either way the
+        budget is never passed and the other documents stay kept."""
+        cache = PageFolderCache(max_rows=5)
+        cache.pages(self.rr, publish(self.rr, B1, [(300, 150)] * 2))
+        cache.pages(self.ms, publish(self.ms, B1, [(300, 150)] * 3))
+        self.assertEqual(cache.held(), 5)
+        self.assertEqual(cache.pages(self.ms, publish(self.ms, B2, [(300, 150)] * 4)).count, 4)
+        self.assertLessEqual(cache.held(), 5)
+        counts, _ = fs_calls(lambda: cache.pages(self.rr, self.rr.dir / B1))
+        self.assertEqual(disk_reads(counts), 0)
 
     def test_the_default_limit_is_the_module_constant(self):
         """A run's cache holds at most PAGE_ROWS_MAX rows."""

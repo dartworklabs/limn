@@ -1191,6 +1191,7 @@ def fs_calls(call):
     counts: collections.Counter[str] = collections.Counter()
 
     def profiler(_frame, event, arg):
+        """Count one call of a file-system builtin; every other profile event is passed over."""
         if event != "c_call":
             return
         name = FS_BUILTINS.get(id(arg))
@@ -1199,11 +1200,12 @@ def fs_calls(call):
         if name is not None:
             counts[name] += 1
 
+    before = sys.getprofile()
     sys.setprofile(profiler)
     try:
         result = call()
     finally:
-        sys.setprofile(None)
+        sys.setprofile(before)  # a profiler a tool installed (coverage, a debugger) goes on after the count
     return counts, result
 
 
@@ -1219,13 +1221,16 @@ def _note_open(event, args):
 sys.addaudithook(_note_open)
 
 
-def opened(call):
-    """(the paths of the files opened while call() runs, call's result), in order, on whichever thread opened them -
-    so a request served on a handler thread is seen. An audit hook cannot be removed, so one is installed for the
-    process and records only while an opened() call is running."""
+def opened(call, under):
+    """(the paths of the files opened below folder `under` while call() runs, call's result), in order, on whichever
+    thread opened them - so a request served on a handler thread is seen. Only paths below `under` are returned: a
+    thread an earlier test left running in this worker opens files of its own, with the same names, and those are
+    not the measured call's. An audit hook cannot be removed, so one is installed for the process and records only
+    while an opened() call is running."""
     _OPENED.append([])
     try:
         result = call()
     finally:
         paths = _OPENED.pop()
-    return paths, result
+    below = os.path.join(os.fspath(under), "")
+    return [path for path in paths if path.startswith(below)], result
