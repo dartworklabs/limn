@@ -1,9 +1,11 @@
 # Changelog
 
-## Unreleased
+## 0.4.67 — 2026-11-19
 
-The agent contract does not change: no path, field or state name is added, renamed or removed, and the server is not
-touched. Both entries are the viewer alone.
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed. `GET /api/meta` and `GET /api/docs` are byte-identical to 0.4.66's through 23 phases of builds, rebuilds,
+holds and deleted folders (184 answers compared), with the two exceptions the last entry names. The first two entries
+are the viewer alone.
 
 ### Added
 
@@ -24,6 +26,30 @@ touched. Both entries are the viewer alone.
   dragged while asking for a confirm, although what gets saved is the range's own area (0.4.62). Now that box follows
   the candidate's range the way the composing '새 핀' box follows its own, one box per piece, and a range that prints
   on another page is brought into view. This holds for the drawn-rectangle path too, not only a badge drag.
+- **The viewer's poll no longer reads the same files again.** An open viewer asks `GET /api/meta?light=1` every 5
+  seconds, and one such request made 290 file-system calls on a three-document instance with a 29-page manuscript:
+  it built the selected document's summary twice and every other document's in full, read the page pointer two or
+  three times per summary, opened every page image of the build on screen to report sizes that cannot change, and
+  resolved two paths per document. Each of those calls gives the interpreter up, so behind other readers that are
+  computing the poll's delay follows the number of calls. A request now reads each document's build once, asks of
+  the other documents only what their `docs` entries hold, and a run reads what a published page folder holds - how
+  many pages, each one's pixel size - once and keeps it under the document and the build's name; a published folder
+  is never written again and its name is never reused, which is also why its page URLs are cached for a year. The
+  page pointer, the build stamps, the build history and the build state are still read at every request. One poll
+  now makes 22 calls. Measured on one machine against 0.4.66, taking turns: the poll behind one client looping on a
+  1,002-pin listing went from 100 ms to 6 ms, behind two from 240 ms to 28 ms, behind four from 562 ms to 123 ms.
+  Behind eight it went from 997 ms to 594 ms, of which 527 ms is the wait for one of the four computation slots,
+  which this does not change. On a manuscript of hundreds of files less is gained: a viewer's poll also walks the
+  manuscript tree for its newest file each time, and that is unchanged (two listing clients, 300 files: 352 ms to
+  217 ms). What is kept is memory only, one build per document and at most 4,096 pages (about 1 MB), and is gone with
+  the process ([ADR-0052](docs/adr/0052-page-folder-memory-and-display-path.md)). Two things can now read
+  differently:
+  - **Page images deleted or replaced by hand inside a published page folder** are reported as first read until the
+    next build or a restart. Limn itself never writes into a published folder: a new render is a new folder.
+  - **A document's displayed path is the one resolved when the server started.** The `path` of `/api/docs` and
+    `/api/meta`, the document's line in the `pins.md` header and the `pdf` a pick answers for a view-only PDF no
+    longer follow a main file, or a folder above it, that is replaced by a link to another place while the server
+    runs; restart the server to pick that up. Which file may be read is still decided where it is read.
 
 ## 0.4.66 — 2026-11-19
 
