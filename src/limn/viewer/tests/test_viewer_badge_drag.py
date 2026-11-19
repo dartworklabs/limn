@@ -303,6 +303,26 @@ class BadgeDragOnScreen(BrowserBase):
         self.assertIsNone(page.evaluate("()=>COMPOSE.current"))
         self.assertTrue(page.locator("#composer").is_hidden())
 
+    def test_the_pin_being_placed_again_stands_back_while_the_hand_carries_it(self):
+        """The probe the hand carries is one text line and the pin's own mark is as tall as its paragraph, so while
+        the badge is down that pin's marks stand back (.mark.moving) and the place it is leaving reads as the place it
+        is leaving. Only that pin's, and only while the hand is on it: on release they are at their own strength
+        again, moved or not."""
+        page = self.view()
+        start = self.badge(page, self.movable)
+        page.mouse.move(start[0], start[1])
+        page.mouse.down()
+        page.mouse.move(start[0], start[1] + 140, steps=8)
+        settle(page)
+        self.assertEqual(page.locator('.mark.moving[data-pin="%d"]' % self.movable).count(), 1)
+        self.assertEqual(page.locator(".mark.moving").count(), 1)  # the pins beside it are untouched
+        self.assertAlmostEqual(
+            float(page.evaluate('()=>getComputedStyle(document.querySelector(".mark.moving")).opacity')), 0.4, 2
+        )
+        page.mouse.up()
+        settle(page)
+        self.assertEqual(page.locator(".mark.moving").count(), 0)
+
     def test_a_pin_saved_without_a_box_of_its_own_is_dragged_like_any_other(self):
         """A line pin needs no stored box to be placed again: what its drag sends is the probe at the pointer, and the
         box it leaves is its range's, which the pin list answers. A pin an agent saved carries no `frac`, and its

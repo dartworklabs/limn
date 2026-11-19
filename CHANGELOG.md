@@ -15,7 +15,8 @@ touched. Both entries are the viewer alone.
   line at the pointer, clamped into the page - not the pin's own box, which after 0.4.62 is as tall as its whole
   paragraph. A verdict, closed or awaiting-review pin cannot be dragged, and a region pin's box moves whole. The pins
   are saved against their own revision, so a pin another writer changed in between is refused with a warning and keeps
-  its place.
+  its place. While the hand is on the badge that pin's marks stand back to 40% opacity, since the probe it carries is
+  one text line and the mark it is leaving is as tall as a whole paragraph.
 
 ### Changed
 

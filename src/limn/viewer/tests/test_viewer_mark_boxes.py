@@ -36,6 +36,7 @@ SECOND = [0.125, 0.5, 0.5, 0.0625]
 # The marks() harness: the pins' marks land in `drawn` instead of in a page, one entry per appended element.
 MARKS_HARNESS = r"""
 const DOC='d', DEFAULT_DOC='d', markBadgeSides=()=>{}, drawChips=()=>{}; let PINS=[], REVIEW_ALL=[]; const drawn=[];
+const movingPin=()=>null;   // no badge is under a hand here (pdf/input-selection.ts)
 const drawPageVerdicts=()=>{}, isShownOnLine=()=>false;   // no page verdict line on this document (verdict/flow-line.ts)
 const isMarkdownDoc=()=>false;   // and it has pages (documents/state.ts)
 const $$=()=>[]; const esc=s=>String(s);

@@ -13859,6 +13859,7 @@ function boxOnFrac(box, frac) {
 function cancelDrag() {
   if (DRAG && DRAG.box) DRAG.box.remove();
   if (DRAG) badgeDragUndo(DRAG);
+  setMovingPin(null);
   DRAG = null;
 }
 function cancelLongPress() {
@@ -13935,16 +13936,36 @@ function badgeMove(badge, mouse) {
     at = Number.isInteger(id) ? pageSelection().badgeMove(id, mouse) : null;
   return at ? { id, frac: at.frac, region: at.region } : null;
 }
+// The pin whose badge is under the hand right now, or null. Its marks stand back while the drag runs (.mark.moving,
+// components.css), so the place the pin is leaving reads as the place it is leaving: the probe the hand carries is one
+// text line, and without this the pin's own mark - as tall as its whole paragraph - is the louder of the two.
+let MOVING_PIN = null;
+function movingPin() {
+  return MOVING_PIN;
+}
+// Says which pin is being moved and shows it at once. The marks are redrawn whenever the pin list is read again, and
+// marks() asks movingPin() as it draws, so a redraw mid-drag keeps the pin standing back.
+function setMovingPin(id) {
+  MOVING_PIN = id;
+  for (const mark of document.querySelectorAll('.mark'))
+    mark.classList.toggle('moving', id !== null && mark instanceof HTMLElement && mark.dataset.pin === String(id));
+}
 // A badge drag has passed the slop and is placing its pin: with the re-place mode already on for that pin (a finger's,
 // turned on by [위치 다시 잡기]) nothing changes, and a mouse drag turns it on here. `began` marks the mode as this
 // drag's, so cancelling the drag ends it again. A pin this tab has lost meanwhile (the list was read again mid-drag)
 // has no mode to turn on and nothing to place: the drag goes on as the drawn rectangle it would have been.
 function badgeDragBegin(drag) {
   const move = drag.move;
-  if (!move || (REPICK && REPICK.id === move.id)) return;
+  if (!move) return;
+  if (REPICK && REPICK.id === move.id) {
+    setMovingPin(move.id);
+    return;
+  }
   pageSelection().repickFromBadge(move.id);
-  if (REPICK) drag.began = true;
-  else drag.move = null;
+  if (REPICK) {
+    drag.began = true;
+    setMovingPin(move.id);
+  } else drag.move = null;
 }
 // Whether the re-place a badge drag carries is gone from under it: Esc (the banner's own way out), the banner's [취소],
 // a cancelled selection or a document switch end the mode while the finger or button is still down. The drag then
@@ -14052,6 +14073,7 @@ window.addEventListener('pointermove', (event) => {
   // the re-place ended under the hand: the pin stays where it is
   if (badgeDragGone(DRAG)) {
     if (DRAG.box) DRAG.box.remove();
+    setMovingPin(null);
     DRAG = null;
     return;
   }
@@ -14105,6 +14127,7 @@ window.addEventListener('pointerup', (event) => {
   if (!DRAG || event.pointerId !== DRAG.id) return;
   const drag = DRAG;
   DRAG = null;
+  setMovingPin(null); // the hand is off the badge: the pin stands at its own strength again, moved or not
   // A tap in selection mode is a quick selection (on a badge, the badge's).
   if (!drag.box) {
     if (drag.badge) return;
@@ -26474,7 +26497,12 @@ function marks() {
     places.forEach((place, index) => {
       const mark = document.createElement('div');
       mark.className =
-        'mark' + (lost ? ' st' : '') + (est ? ' est' : '') + (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '');
+        'mark' +
+        (lost ? ' st' : '') +
+        (est ? ' est' : '') +
+        (pinState(pin) === PIN_STATE.REVIEW ? ' rv' : '') +
+        // the pin whose badge is under the hand stands back while it is being placed again (pdf/input-selection.ts)
+        (movingPin() === pin.id ? ' moving' : '');
       mark.dataset.pin = String(pin.id);
       mark.dataset.fx = String(place.frac[0]);
       Object.assign(mark.style, {
