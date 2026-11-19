@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.4.66 — 2026-11-19
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed, and every pin read of a 1,019-pin state folder is byte-identical to 0.4.65's (5,197 answers compared: the
+first reads of a fresh process, the same reads again, after writes through the API, after `pins.jsonl` was rewritten
+in place at the same size, and after it was replaced by hand).
+
+### Changed
+
+- **A read of the pins no longer parses the stored records again.** Every pin read parsed the whole of `pins.jsonl`
+  for each request - one JSON decode, one record check and one state type per line - whether or not anything had
+  been written since: about 32 ms at 1,002 pins, a third of a listing, half of one pin's answer and nearly all of
+  `/api/meta`, `/api/docs`, `/api/people` and the Trash list, which only count pins or pick the people out of them.
+  A run now keeps what each stored line parsed to, keyed by the line's own text, and parses only the lines whose text
+  was not in the last read. The file is still read at every request, so nothing depends on its timestamps, and after
+  a write the next read parses the one line that changed. Measured on one machine at 1,002 pins: `/api/meta` from
+  34 ms to 4.6 ms, `/api/docs` from 35 ms to 6.5 ms, `/api/people` from 38 ms to 9.5 ms, one pin's answer from 75 ms
+  to 41 ms, `pins.md` from 110 ms to 77 ms and a listing from 135 ms to 108 ms. Writes are unchanged: a transaction,
+  the maintenance pass and `clear` parse the file themselves and never use what is kept, so nothing kept is written
+  to a pin file. What is kept is memory only, at most 4 Mi characters of line text per pin file (about 7 MB for
+  1,000 pins), and is gone with the process ([ADR-0050](docs/adr/0050-kept-pin-lines.md)).
+
+### Fixed
+
+- **The display name an assignment writes into a pin's thread is looked up among the pins of that write.** It was
+  looked up among pins read outside the transaction. The name written is the same.
+
+### Known
+
+- **A light poll behind continuously looping listings is still slower than in 0.4.63** (median behind two: 14 ms in
+  0.4.63, about 430 ms in 0.4.65, about 350 ms now). The poll waits for the interpreter, not for the pins: with no
+  pin read at all, one computing thread in the process is enough to take it from 4 ms to about 300 ms, because one
+  light poll makes about 270 file-system calls (84 file opens, most of them reading each page image's size) and
+  gives its turn up at each. Making the poll read fewer files is the next step.
+
 ## 0.4.65 — 2026-11-19
 
 The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
