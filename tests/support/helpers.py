@@ -1187,8 +1187,9 @@ def fs_calls(call):
     """(Counter of the file-system builtins called while call() runs on this thread, call's result). The names
     counted: open (io.open, os.open), stat, lstat, scandir, listdir, readlink, and entry_stat (os.DirEntry.stat).
     Counted with sys.setprofile, so a call made through pathlib, os.path or glob is counted where it reaches the
-    builtin, on every supported Python. A Python-level profiler installed before the call is put back after it; a
-    C-level one (cProfile before Python 3.12) is not, and receives nothing from the count on."""
+    builtin, on every supported Python. A Python-level profiler installed before the call is put back after it.
+    Under a C-level one (cProfile before Python 3.12), which could not be put back, nothing is counted: the calling
+    test is skipped (unittest.SkipTest) and the profiler stays on."""
     counts: collections.Counter[str] = collections.Counter()
 
     def profiler(_frame, event, arg):
@@ -1202,14 +1203,18 @@ def fs_calls(call):
             counts[name] += 1
 
     before = sys.getprofile()
+    if before is not None and not callable(before):
+        # A profiler installed from C: before Python 3.12 a running cProfile shows here as its Profile object.
+        # sys.setprofile would replace it and could not install it again, so the session would be off, silently,
+        # for the rest of the run. The test is skipped instead and the profiler left as it is.
+        raise unittest.SkipTest(
+            "file-system calls cannot be counted while a C-level profiler is active (cProfile before Python 3.12)"
+        )
     sys.setprofile(profiler)
     try:
         result = call()
     finally:
-        # A profiler a tool installed as a Python function (a debugger, a tracer) goes on after the count. One
-        # installed from C cannot be put back this way: before Python 3.12 a running cProfile shows here as its
-        # Profile object, which is not callable, and sys.setprofile would raise on it. That one is left off.
-        sys.setprofile(before if callable(before) else None)
+        sys.setprofile(before)  # a profiler a tool installed as a Python function goes on after the count
     return counts, result
 
 

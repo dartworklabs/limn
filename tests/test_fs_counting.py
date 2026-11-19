@@ -81,15 +81,21 @@ class FsCalls(unittest.TestCase):
         finally:
             sys.setprofile(before)
 
-    def test_counting_under_cprofile_leaves_the_interpreter_usable(self):
-        """Before Python 3.12 a running cProfile shows in sys.getprofile() as its Profile object, which cannot be
-        installed through sys.setprofile: putting it back raised a TypeError at the end of every count. Such a
-        profiler is left off, and the count and the calls after it go on."""
+    def test_under_a_profiler_that_could_not_be_put_back_the_count_is_refused(self):
+        """Before Python 3.12 a running cProfile is installed from C and shows in sys.getprofile() as its Profile
+        object, which sys.setprofile cannot install again: counting would switch the session off for the rest of
+        the run. The count is refused with a skip that says so, and the profiler is left as it was. From 3.12 on
+        cProfile does not use the profile hook and the count runs beside it."""
         profile = cProfile.Profile()
         profile.enable()
         try:
-            counts, _ = fs_calls(lambda: os.stat(os.curdir))
-            os.stat(os.curdir)
+            installed = sys.getprofile()
+            if installed is None:
+                counts, _ = fs_calls(lambda: os.stat(os.curdir))
+                self.assertEqual(counts["stat"], 1)
+            else:
+                with self.assertRaises(unittest.SkipTest):
+                    fs_calls(lambda: os.stat(os.curdir))
+                self.assertIs(sys.getprofile(), installed)
         finally:
             profile.disable()
-        self.assertEqual(counts["stat"], 1)
