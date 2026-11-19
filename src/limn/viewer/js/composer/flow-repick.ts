@@ -14,6 +14,7 @@ import {
   isFigureKind,
   setPickseq,
   setRepick,
+  setRepickBox,
   setRepickCandidate,
   COMPOSE,
   EDITOR,
@@ -68,10 +69,15 @@ function badgeMovePin(id: number, mouse: boolean) {
 //
 // The mode itself is left exactly as it is. On touch it was turned on by [위치 다시 잡기], and taking it down and up
 // again mid-drag would put the sheet back over the page and lose the revision the edit card holds.
+// The box goes with the place. It is what the page showed as '새 위치', and a drag that is cancelled - a second
+// finger, a cancelled pointer - takes only its own box away, so a box left here would stand on the pages as the
+// place of a question nobody is asking any more, under a banner asking for another one.
 function restartRepick(id: number) {
   if (!REPICK || REPICK.id !== id) return;
   setPickseq(PICKSEQ + 1);
   clearSelectionParts('repick');
+  if (REPICK.box) REPICK.box.remove();
+  setRepickBox(REPICK, null);
   setRepickCandidate(REPICK, null);
   bannerRepick();
 }

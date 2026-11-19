@@ -340,6 +340,34 @@ class BadgeDragOnScreen(BrowserBase):
         settle(page)
         self.assertFalse(page.evaluate("()=>REPICK.cand === window.firstPlace"))
 
+    def test_a_second_drag_cancelled_leaves_no_box_of_the_place_it_gave_up(self):
+        """A drag that is cancelled - a second finger, a cancelled pointer - takes only its own box away. The place
+        the drag before it had found was given up as this one passed the slop, so its box must have gone with it:
+        left standing it is the place of a question nobody is asking, under a banner asking for another one.
+
+        The events are dispatched here rather than driven through page.mouse, which has no way to cancel a pointer.
+        """
+        page = self.view()
+        self.drag_badge(page, self.movable)
+        page.wait_for_selector("#banner [data-act=rp-apply]", timeout=8000)
+        # the place on show: the box on its first piece and one beside it for the second
+        self.assertEqual(page.locator("#doc .sel").count(), 2)
+        start = self.badge(page, self.movable)
+        page.evaluate(
+            """([x, y]) => {const target = document.elementFromPoint(x, y);
+                 const make = (type, at) => new PointerEvent(type, {bubbles: true, pointerId: 1, isPrimary: true,
+                   pointerType: 'mouse', button: 0, buttons: 1, clientX: at[0], clientY: at[1]});
+                 target.dispatchEvent(make('pointerdown', [x, y]));
+                 window.dispatchEvent(make('pointermove', [x, y + 90]));
+                 window.dispatchEvent(make('pointercancel', [x, y + 90]));}""",
+            list(start),
+        )
+        settle(page)
+        self.assertIsNone(page.evaluate("()=>REPICK.cand"))
+        self.assertIsNone(page.evaluate("()=>REPICK.box"))
+        self.assertEqual(page.locator("#doc .sel").count(), 0)
+        self.assertEqual(page.locator(".mark.moving").count(), 0)
+
     def test_a_press_under_the_slop_is_still_the_badge_s_click(self):
         """Six pixels is a click: the card is scrolled to and highlighted as before, and no re-place begins."""
         page = self.view()
