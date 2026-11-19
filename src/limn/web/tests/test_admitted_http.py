@@ -360,17 +360,34 @@ def free_slots():
     return taken
 
 
+def free_answers():
+    """How many answer slots are free now - GET answers that may still be made and held: take every free one without
+    waiting, then give them back."""
+    taken = 0
+    while web_handler.ANSWER_SLOTS.acquire(blocking=False):
+        taken += 1
+    for _ in range(taken):
+        web_handler.ANSWER_SLOTS.release()
+    return taken
+
+
+# The answers the process holds at most (limn.web.handler.ANSWER_SLOTS), as the Handbook states it.
+ANSWERS = 32
+
 # A held handler waits this long at most; a client gives up sooner, so a read that waits for a held handler fails
 # on the client's deadline and is never let through by the hold running out. Both are test supervision.
 HOLD_SECONDS = 30
 CLIENT_SECONDS = 10
 
 
-@pytest.mark.parametrize("held,status", [("/api/pins", 200), ("/api/pins/424242", 404)])
-def test_an_answer_being_sent_holds_no_computation_slot(http_app, monkeypatch, held, status):
-    """Four readers whose computed answers - a listing, or a route's refusal - are still being sent leave every slot
-    free: a fifth read is computed and answered while they have taken none of their bytes, so a slow client cannot
-    stall the others."""
+@pytest.mark.parametrize(
+    "held,status,holding", [("/api/pins", 200, 4), ("/api/version", 200, 4), ("/api/pins/424242", 404, 0)]
+)
+def test_an_answer_being_sent_holds_no_computation_slot(http_app, monkeypatch, held, status, holding):
+    """Four readers whose answers - a listing, one of the viewer's own files, or a route's refusal - are still being
+    sent leave every computation slot free: a fifth read is computed and answered while they have taken none of
+    their bytes, so a slow client cannot stall the others. Each answer being sent holds one answer slot until its
+    last byte has left; a refusal, sent after its route gave everything back, holds none."""
     sending = threading.Barrier(5)
     release = threading.Event()
 
@@ -388,7 +405,7 @@ def test_an_answer_being_sent_holds_no_computation_slot(http_app, monkeypatch, h
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
     listener = composition.listen(http_app.web)
     assert not isinstance(listener, StartupRefused)
-    assert free_slots() == 4
+    assert (free_slots(), free_answers()) == (4, ANSWERS)
     address = listener.server_address[:2]
     with running_listener(listener) as run, ExitStack() as clients:
         slow = []
@@ -398,7 +415,7 @@ def test_an_answer_being_sent_holds_no_computation_slot(http_app, monkeypatch, h
             slow.append(client)
         try:
             sending.wait(timeout=CLIENT_SECONDS)
-            assert free_slots() == 4
+            assert (free_slots(), free_answers()) == (4, ANSWERS - holding)
             with socket.create_connection(address, timeout=CLIENT_SECONDS) as other:
                 try:
                     answer = response(other, req("GET", "/api/meta", headers={**ALICE, "Connection": "close"}))
@@ -410,28 +427,88 @@ def test_an_answer_being_sent_holds_no_computation_slot(http_app, monkeypatch, h
             release.set()
         for client in slow:
             assert response(client, b"")[0] == status
+        assert (free_slots(), free_answers()) == (4, ANSWERS)
+    assert not run.errors
+
+
+def test_the_answers_held_at_once_are_bounded(http_app, monkeypatch):
+    """However many readers stall, the process holds at most ANSWERS answers: with that many being sent no answer
+    slot is left, the computation slots are all free, and a further read is answered once one of them has gone."""
+    sending = threading.Barrier(ANSWERS + 1)
+    release = threading.Event()
+
+    class HeldSendHandler(composition.Handler):
+        """Hold the version answer at the send boundary; computation and admission are untouched."""
+
+        def _send(self, code, body, ctype, *rest, **named):
+            """Let the controller see every held answer waiting to be sent before any byte leaves."""
+            if self.path == "/api/version":
+                sending.wait(timeout=HOLD_SECONDS)
+                release.wait(timeout=HOLD_SECONDS)
+            return super()._send(code, body, ctype, *rest, **named)
+
+    monkeypatch.setattr(composition, "Handler", HeldSendHandler)
+    http_app.environment.C = replace(http_app.environment.C, max_connections=None)
+    listener = composition.listen(http_app.web)
+    assert not isinstance(listener, StartupRefused)
+    assert free_answers() == ANSWERS
+    address = listener.server_address[:2]
+    with running_listener(listener) as run, ExitStack() as clients:
+        slow = []
+        for _ in range(ANSWERS):
+            client = clients.enter_context(socket.create_connection(address, timeout=HOLD_SECONDS))
+            client.sendall(req("GET", "/api/version", headers={**ALICE, "Connection": "close"}))
+            slow.append(client)
+        waiting = clients.enter_context(socket.create_connection(address, timeout=HOLD_SECONDS))
+        try:
+            sending.wait(timeout=CLIENT_SECONDS)
+            assert (free_slots(), free_answers()) == (4, 0)
+            waiting.sendall(req("GET", "/api/meta", headers={**ALICE, "Connection": "close"}))
+        finally:
+            release.set()
+        for client in slow:
+            assert response(client, b"")[0] == 200
+        assert response(waiting, b"")[0] == 200
+        assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
 
 
 def test_the_viewers_own_files_answer_while_every_slot_computes(http_app, monkeypatch):
-    """With all four slots held by computations, the page, its script, its workers, its icon, a bundled library file
-    and the version still answer at once - they are read from what the run holds and take no slot - and the slots
-    come back when the computations end."""
+    """With all four slots held by computations and four more reads queued for a slot, the page, its script, its
+    workers, its icon, a bundled library file and the version still answer at once - they are read from what the
+    run holds and take no computation slot. Only the four computing reads hold an answer slot: a read queued for
+    computation holds none. Both kinds of slot come back when the computations end."""
     computing = threading.Barrier(5)
     release = threading.Event()
+    arrived = threading.Semaphore(0)
+    entered = []
     overlaps = PinLocationService.overlaps
 
     def held_overlaps(self, *args, **kwargs):
-        """Hold the owned location adapter inside its computation until the controller has asked for the files."""
-        computing.wait(timeout=HOLD_SECONDS)
+        """Hold the owned location adapter inside its computation until the controller has asked for the files. The
+        first four calls meet the controller at the barrier; later ones, let in after the release, pass through."""
+        entered.append(1)
+        if len(entered) <= 4:
+            computing.wait(timeout=HOLD_SECONDS)
         release.wait(timeout=HOLD_SECONDS)
         return overlaps(self, *args, **kwargs)
 
+    class SeenHandler(composition.Handler):
+        """Tell the controller when a heavy read has passed every check and is about to ask for its slots."""
+
+        def _request_doc(self, choice):
+            """Select the document as always, then report the heavy read's arrival."""
+            found = super()._request_doc(choice)
+            if self.path.startswith("/api/overlaps"):
+                arrived.release()
+            return found
+
+    monkeypatch.setattr(composition, "Handler", SeenHandler)
     monkeypatch.setattr(PinLocationService, "overlaps", held_overlaps)
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
     listener = composition.listen(http_app.web)
     assert not isinstance(listener, StartupRefused)
-    assert free_slots() == 4
+    assert (free_slots(), free_answers()) == (4, ANSWERS)
     address = listener.server_address[:2]
     heavy = "/api/overlaps?file=%s&lo=1&hi=2" % http_app.environment.C.main
     own_files = (
@@ -452,6 +529,12 @@ def test_the_viewers_own_files_answer_while_every_slot_computes(http_app, monkey
             busy.append(client)
         try:
             computing.wait(timeout=CLIENT_SECONDS)
+            for _ in range(4):
+                client = clients.enter_context(socket.create_connection(address, timeout=HOLD_SECONDS))
+                client.sendall(req("GET", heavy, headers={**ALICE, "Connection": "close"}))
+                busy.append(client)
+            for _ in range(8):
+                assert arrived.acquire(timeout=CLIENT_SECONDS), "a heavy read never reached its route"
             assert free_slots() == 0
             for path in own_files:
                 with socket.create_connection(address, timeout=CLIENT_SECONDS) as page:
@@ -461,17 +544,18 @@ def test_the_viewers_own_files_answer_while_every_slot_computes(http_app, monkey
                         pytest.fail("GET %s waited behind four computations" % path)
                     assert (path, status) == (path, 200)
                     assert body
+            assert (len(entered), free_slots(), free_answers()) == (4, 0, ANSWERS - 4)
         finally:
             release.set()
         for client in busy:
             assert response(client, b"")[0] == 200
-        assert free_slots() == 4
+        assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
 
 
 def test_a_route_that_refuses_or_fails_gives_its_slot_back(http_app, monkeypatch):
-    """A computed read that ends in a refusal, in no route at all or in an unexpected error leaves all four slots
-    free: no failure leaks computation capacity."""
+    """A read that ends in a refusal, in no route at all or in an unexpected error leaves every computation slot and
+    every answer slot free: no failure leaks capacity."""
 
     def fail_lookup(self, *args, **kwargs):
         """Fail the owned location adapter inside its computation."""
@@ -481,14 +565,14 @@ def test_a_route_that_refuses_or_fails_gives_its_slot_back(http_app, monkeypatch
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
     listener = composition.listen(http_app.web)
     assert not isinstance(listener, StartupRefused)
-    assert free_slots() == 4
+    assert (free_slots(), free_answers()) == (4, ANSWERS)
     address = listener.server_address[:2]
     failing = "/api/overlaps?file=%s&lo=1&hi=2" % http_app.environment.C.main
     with running_listener(listener) as run:
-        for path, status in (("/api/pins/424242", 404), (failing, 500)) * 5:
+        for path, status in (("/api/pins/424242", 404), (failing, 500), ("/vendor/pdfjs/nosuch.mjs", 404)) * 5:
             with socket.create_connection(address, timeout=CLIENT_SECONDS) as client:
                 assert response(client, req("GET", path, headers={**ALICE, "Connection": "close"}))[0] == status
-        assert free_slots() == 4
+        assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
     nothing = RouteRegistry(RouteBundle(get=(lambda request: None,), get_packaged=(lambda request: None,)))
     listener = composition.listen(replace(http_app.web, routes=nothing))
@@ -499,7 +583,7 @@ def test_a_route_that_refuses_or_fails_gives_its_slot_back(http_app, monkeypatch
                 raw = req("GET", "/api/version", headers={**ALICE, "Connection": "close"})
                 status, _, body = response(client, raw)
                 assert (status, body["reason"]) == (404, "not_found")
-        assert free_slots() == 4
+        assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
 
 
