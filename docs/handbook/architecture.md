@@ -26,7 +26,7 @@ Limn은 하나의 `dartwork-limn` 배포 안에서 기능 소유권으로 나눈
 | 소유권 | 경로 | 함께 바뀌는 것 |
 | --- | --- | --- |
 | 핀 | `pins/` | 모델·레코드·스레드 규칙, `store.py`의 트랜잭션과 읽기 전용 발급이 쓰는 줄 기억(`KeptLines`·`PinLines`), `context.py`의 실행 협력자, `revision.py`의 비교용 핀 사실. `application.py`와 `runtime.py`가 조회 계약·실행 협력자·경로를 조립한다. `needs.py`는 주입받는 빌드 조회와 그 답에서 읽는 멤버를 Protocol로, 문서 조회의 판정 낱말 조회를 타입으로 선언하고, `notice.py`는 핀이 내보내는 알림 값 `PinNotice`를 소유한다. 만들기·편집은 `editing/`, 처리 중 표시는 `claims/`, 전이는 `lifecycle/`, 삭제·복원은 `trash/`, 조회·Markdown은 `listing/`, 원문·PDF 위치 계산은 `location/` |
-| 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문과 화면 빌드의 쪽 기억 `PageFolderCache`(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
+| 빌드 | `builds/` | 결과 값(`values.py`), 산출물·이력·원고 지문과 화면 빌드의 쪽 기억 `PageFolderCache`(`artifacts.py`), 요청 시점의 파일·쪽 사실(`document_facts.py`), 컴파일·재빌드·PDF 감시·원고 감시·그림 지도 파싱(`figure_map.py`)·PDF/지도 가져오기(`figure.py`)와 응답 |
 | 협업 | `collaboration/` | 사람 후보·실제 변경 기록 연결, `events.jsonl`, 멘션 알림·폴링. 핀의 태그·차례 규칙은 핀 소유권에 남고 조립 지점이 주입하는 값·동작으로 받는다. 받는 알림의 필드는 `contracts.py`의 `Notice` Protocol로 선언한다 |
 | 문서 조회 | `documents/` | 문서 탭·meta·목차 응답과 파싱, 문서 옆 판정 낱말 파일의 읽기·파싱과 응답 필드(`verdicts.py`). 브라우저가 그리는 문서의 원문 읽기(`source.py`, `GET /api/source`)와 그 문서가 보이는 원고 트리의 그림 읽기(`assets.py`, `GET /api/asset`: 경로 규칙·형식 시그니처·바이트와 화소 한도·응답 정책, 보낸 그림의 내용 태그를 파일 정체로 기억하는 실행별 표 `AssetTags`). `needs.py`는 주입받는 핀 수 조회·빌드 사실 조회와 그 답에서 읽는 멤버를 Protocol로 선언한다. 실행별 문서 자원은 `runtime/documents.py`가 소유한다 |
 | 비교 | `revisions/` | Git 이력·원고 diff·격리 비교 PDF·작업 캐시와 응답. `scope.py`가 diff 파싱·핀 범위 귀속·범위 패치와 사본 쓰기 계획을, `macros.py`가 latexdiff에 글 명령으로 넘길 원고 정의 명령의 판정을 소유한다. `needs.py`는 주입받는 핀 조회와 그 답에서 읽는 필드를 Protocol로 선언한다 |
@@ -63,7 +63,7 @@ runtime/ · security/ · platform/ · web/   기능 구현을 import하지 않�
 - 빌드 실패 문구는 `builds/answer.py`, 비교·핀 범위 실패 문구는 `revisions/answer.py`가 소유한다. 공통 HTTP 오류 모듈은 이 기능들을 import하지 않는다.
 - 기능 서비스는 실행별 협력자·설정·문서를 인자로 받는다. 서버의 현재 문서·잠금·시계를 전역으로 읽지 않는다. `PinContext`는 저장·시계·알림·감사 협력자를 묶고 `PinStore.transact()`가 쓰기 순서를 집행한다.
 - 예상된 거절은 결과 값으로 전달하고 기능의 HTTP 입구가 상태 코드로 바꾼다. 신원·권한 실패와 요청 크기 초과는 `HTTPError`로 처리기에서 즉시 거부한다.
-- `RuntimeResources`는 실행별 잠금·캐시·감시 스레드를 소유한다. 그림 지도의 파싱(`figure_maps`), 핀 줄의 파싱(`pin_lines`), 화면 빌드의 쪽(`page_folders`)이 그 캐시이고 모두 메모리에만 있다. 기능 자원의 구체 타입은 조립 지점에서 연결하므로 실행 경계가 기능을 import하지 않는다. 서버 두 벌의 상태는 서로 공유하지 않는다. 시작 도중 실패하면 그 실행에서 시작한 감시만 정리한다. 소켓 닫기가 실패해도 감시 스레드를 정리하고 최초 오류를 보존한다.
+- `RuntimeResources`는 실행별 잠금·캐시·감시 스레드를 소유한다. 그림 지도의 파싱(`figure_maps`), 핀 줄의 파싱(`pin_lines`), 화면 빌드의 쪽(`page_folders`)이 그 캐시이고 모두 메모리에만 있다. 기능 자원의 구체 타입은 조립 지점에서 연결하므로 실행 경계가 기능을 import하지 않는다. 서버 두 벌의 상태는 서로 공유하지 않는다. 감시 스레드는 넷까지다. 핀 유지와 원고 감시는 실행마다 늘 있고, 파일 문서 감시는 `--doc`가 있을 때, 원격 감시는 `--git-pull`일 때 있다. 모두 기동이 시작하고 실행의 종료 이벤트로 멈춘다. `Doc`은 원고 수정 시각의 기억이 놓이는 자리(기억 칸과 그 잠금, 세대, 요약이 물은 시각, 감시가 잰 시각, 측정 잠금)를 주고, 그 규칙은 빌드가 소유한다([build-sync.md](build-sync.md) §원고 변화 감지). 시작 도중 실패하면 그 실행에서 시작한 감시만 정리한다. 소켓 닫기가 실패해도 감시 스레드를 정리하고 최초 오류를 보존한다.
 
 선택형 TCP 입장 상한은 HTTP 전송인 `web/connection_policy.py`·`web/connections.py`가 소유한다. `runtime/args.py`·`config.py`는 양의 수치 또는 생략(`None`)만 전달하고, `server.listen()`이 기존 `Server`·`Server6` 또는 bounded listener를 고른다. 생략 경로의 admission과 thread 시작 실패 동작은 그대로다. 인증이나 기능별 quota와 분리하는 이유는 연결이 신원 판단 전에 생기고 프록시의 연결 하나에 여러 사람의 요청이 실리기 때문이다. 출처: [ADR-0016 D1–D3](../adr/0016-optional-connection-admission.md#d1-생략하면-기존-동작인-명시적-선택).
 
@@ -204,3 +204,5 @@ GET과 향후 HEAD의 읽기 범위는 HTTP 경계에서 정하고 요청에 걸
 원고 읽기는 빈 파일과 읽기 실패를 구별한다. 읽기에 실패한 유지·POST 트랜잭션은 원본 묶음을 저장하지 않으며, GET은 재동기화하지 않고 항상 저장된 레코드를 돌려준다. 실패를 빈 anchor나 0인 동기화 시각으로 바꾸지 않는다.
 
 재동기화 저장·파생 Markdown·휴지통의 실행 주체는 요청이 아니라 `pins/maintenance.py`다. 시작과 완료 후 60초 주기에 더해 2초마다 열린 문서의 핀 대상 파일·main 파일과 핀 집합 변경용 `pins.jsonl`의 mtime_ns·size·inode만 검사한다. 변화 없으면 본문을 읽지 않는다. 변화가 있으면 단일 실행, 변경 없으면 무쓰기, 준비 후 교체·실패 원복을 지킨다. 위치·rev는 저장 뒤 함께 노출하며 HTTP와 디스크 위치 모두 검사 간격 + 실행 시간만큼 늦을 수 있다. 뷰어는 이미 `pins_rev` 변경 때만 목록을 다시 읽는다. 출처: [ADR-0028](../adr/0028-saved-pin-positions.md) 결정 1–4. 로그는 별도 제한을 두며 메모리 캐시·bounded Git 읽기만 예외다. 세부 한도와 독자 등록의 비용은 [api.md](api.md) §GET의 영속 무효과, [build-sync.md](build-sync.md) §요청과 독립된 핀 유지에 있다. [ADR-0027](../adr/0027-get-write-guard.md)의 승인된 B를 구현한 경계다.
+
+원고 수정 시각을 재는 주체도 요청이 아니라 원고 감시다(`builds/service.py`의 `watch_sources`). 문서 요약을 답하는 GET은 문서마다 "물은 시각" 숫자 하나를 메모리에 적을 뿐이다. 스레드를 시작하지 않고 파일을 쓰지 않는다. 그 숫자를 보고 일하는 감시는 기동이 시작한 스레드이고 읽기만 한다(`stat`, 폴더 읽기, 화면 빌드의 `.fls`). 불변식 10이 막는 것은 GET이 상태 폴더와 원고 트리를 바꾸거나 그런 작업을 예약하는 일이므로, GET이 읽기를 앞당겨 달라고 알리는 것은 그 안에 있다. 요청이 훑으면 폴링의 지연이 원고의 크기와 뷰어의 수를 따르기 때문에 요청 밖에 둔다. 감시의 값은 답의 근거가 아니다. 감시가 멈추거나 밀리면 요청이 직접 잰다([build-sync.md](build-sync.md) §원고 변화 감지). 출처: [ADR-0053](../adr/0053-manuscript-watch.md) D2·D6·D7.
