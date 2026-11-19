@@ -340,6 +340,12 @@ def test_incomplete_unadmitted_gets_do_not_block_admitted_meta(http_app, monkeyp
     assert not run.errors
 
 
+# A held handler waits this long at most; a client gives up sooner, so a read that waits for a held handler fails
+# on the client's deadline and is never let through by the hold running out. Both are test supervision.
+HOLD_SECONDS = 30
+CLIENT_SECONDS = 10
+
+
 def answered(client, raw):
     """One response's status and body bytes of any content type, read to its declared length."""
     client.sendall(raw)
@@ -374,10 +380,29 @@ def free_answers():
 # The answers the process holds at most (limn.web.handler.ANSWER_SLOTS), as the Handbook states it.
 ANSWERS = 32
 
-# A held handler waits this long at most; a client gives up sooner, so a read that waits for a held handler fails
-# on the client's deadline and is never let through by the hold running out. Both are test supervision.
-HOLD_SECONDS = 30
-CLIENT_SECONDS = 10
+
+def finished(client):
+    """Wait until the server has closed a `Connection: close` socket whose response was read. The server closes the
+    socket only after the request's handler has returned, so from then on every slot the request held is back -
+    where the response's last byte alone can reach the client a moment before the handler releases its answer slot.
+    The deadline is test supervision."""
+    client.settimeout(CLIENT_SECONDS)
+    try:
+        rest = client.recv(4096)
+    except ConnectionResetError:
+        rest = b""
+    assert rest == b"", "Bytes after a complete response: %r" % rest
+
+
+def at_rest():
+    """The free computation and answer slots once no handler holds any: wait, within the supervision deadline, for
+    handlers that earlier tests of this process left finishing, then return (free_slots(), free_answers())."""
+    deadline = time.monotonic() + CLIENT_SECONDS
+    free = (free_slots(), free_answers())
+    while free != (4, ANSWERS) and time.monotonic() < deadline:
+        time.sleep(0.01)
+        free = (free_slots(), free_answers())
+    return free
 
 
 @pytest.mark.parametrize(
@@ -405,7 +430,7 @@ def test_an_answer_being_sent_holds_no_computation_slot(http_app, monkeypatch, h
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
     listener = composition.listen(http_app.web)
     assert not isinstance(listener, StartupRefused)
-    assert (free_slots(), free_answers()) == (4, ANSWERS)
+    assert at_rest() == (4, ANSWERS)
     address = listener.server_address[:2]
     with running_listener(listener) as run, ExitStack() as clients:
         slow = []
@@ -423,10 +448,12 @@ def test_an_answer_being_sent_holds_no_computation_slot(http_app, monkeypatch, h
                     pytest.fail("Answers still being sent kept a computed read waiting for a slot")
                 assert answer[0] == 200
                 assert "n_open" in answer[2]
+                finished(other)
         finally:
             release.set()
         for client in slow:
             assert response(client, b"")[0] == status
+            finished(client)
         assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
 
@@ -451,7 +478,7 @@ def test_the_answers_held_at_once_are_bounded(http_app, monkeypatch):
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
     listener = composition.listen(http_app.web)
     assert not isinstance(listener, StartupRefused)
-    assert free_answers() == ANSWERS
+    assert at_rest() == (4, ANSWERS)
     address = listener.server_address[:2]
     with running_listener(listener) as run, ExitStack() as clients:
         slow = []
@@ -466,9 +493,9 @@ def test_the_answers_held_at_once_are_bounded(http_app, monkeypatch):
             waiting.sendall(req("GET", "/api/meta", headers={**ALICE, "Connection": "close"}))
         finally:
             release.set()
-        for client in slow:
+        for client in [*slow, waiting]:
             assert response(client, b"")[0] == 200
-        assert response(waiting, b"")[0] == 200
+            finished(client)
         assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
 
@@ -508,7 +535,7 @@ def test_the_viewers_own_files_answer_while_every_slot_computes(http_app, monkey
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
     listener = composition.listen(http_app.web)
     assert not isinstance(listener, StartupRefused)
-    assert (free_slots(), free_answers()) == (4, ANSWERS)
+    assert at_rest() == (4, ANSWERS)
     address = listener.server_address[:2]
     heavy = "/api/overlaps?file=%s&lo=1&hi=2" % http_app.environment.C.main
     own_files = (
@@ -544,11 +571,13 @@ def test_the_viewers_own_files_answer_while_every_slot_computes(http_app, monkey
                         pytest.fail("GET %s waited behind four computations" % path)
                     assert (path, status) == (path, 200)
                     assert body
+                    finished(page)
             assert (len(entered), free_slots(), free_answers()) == (4, 0, ANSWERS - 4)
         finally:
             release.set()
         for client in busy:
             assert response(client, b"")[0] == 200
+            finished(client)
         assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
 
@@ -565,13 +594,14 @@ def test_a_route_that_refuses_or_fails_gives_its_slot_back(http_app, monkeypatch
     http_app.environment.C = replace(http_app.environment.C, max_connections=None)
     listener = composition.listen(http_app.web)
     assert not isinstance(listener, StartupRefused)
-    assert (free_slots(), free_answers()) == (4, ANSWERS)
+    assert at_rest() == (4, ANSWERS)
     address = listener.server_address[:2]
     failing = "/api/overlaps?file=%s&lo=1&hi=2" % http_app.environment.C.main
     with running_listener(listener) as run:
         for path, status in (("/api/pins/424242", 404), (failing, 500), ("/vendor/pdfjs/nosuch.mjs", 404)) * 5:
             with socket.create_connection(address, timeout=CLIENT_SECONDS) as client:
                 assert response(client, req("GET", path, headers={**ALICE, "Connection": "close"}))[0] == status
+                finished(client)
         assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
     nothing = RouteRegistry(RouteBundle(get=(lambda request: None,), get_packaged=(lambda request: None,)))
@@ -583,6 +613,7 @@ def test_a_route_that_refuses_or_fails_gives_its_slot_back(http_app, monkeypatch
                 raw = req("GET", "/api/version", headers={**ALICE, "Connection": "close"})
                 status, _, body = response(client, raw)
                 assert (status, body["reason"]) == (404, "not_found")
+                finished(client)
         assert (free_slots(), free_answers()) == (4, ANSWERS)
     assert not run.errors
 
