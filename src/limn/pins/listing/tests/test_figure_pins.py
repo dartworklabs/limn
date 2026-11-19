@@ -86,9 +86,11 @@ class FigureBase(Base):
 
     def rewrite(self, pid, change):
         """Hand-edit the stored record of pin pid (the way an older or foreign writer left it): change(record) runs on
-        the stored record, and pins.jsonl is written again. Nothing is validated beyond what the store keeps."""
+        the stored record, and pins.jsonl is written again. Nothing is validated beyond what the store keeps. The
+        record is read as a writer reads it (pin_store()): change() may rewrite a nested value in place, and the pins a
+        read-only reader hands out are shared with every later reader."""
         with ps.APP.RT.pin_lock:
-            rows = records(ps.APP.read_pins()[0])
+            rows = records(ps.APP.pin_store().read_pins()[0])
             change(next(r for r in rows if r["id"] == pid))
             write_records(rows)
 

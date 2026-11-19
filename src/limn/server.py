@@ -46,6 +46,7 @@ from limn.builds import (
 from limn.collaboration import CollaborationSubsystem, assemble_collaboration
 from limn.documents import DocumentsSubsystem, MetaSettings, assemble_documents
 from limn.pins import (
+    PinLines,
     PinSubsystem,
     TokenCache,
     assemble_pins,
@@ -89,14 +90,14 @@ from limn.web.routes import merge_routes
 DEFAULT_ENVS = "figure,table,algorithm,equation,align,itemize,enumerate,minipage"
 
 RunResources: TypeAlias = RuntimeResources[
-    ServedViewer, ScopeCache, RevisionJobs, PullShare, SyncWatch, TokenCache, BuildMapCache
+    ServedViewer, ScopeCache, RevisionJobs, PullShare, SyncWatch, TokenCache, BuildMapCache, PinLines
 ]
 
 
 def new_runtime(viewer: ServedViewer) -> RunResources:
     """A process's resources, all fresh: new locks, empty caches and registries, no threads, serving viewer."""
     return RuntimeResources(
-        viewer, ScopeCache(), RevisionJobs(), PullShare(), SyncWatch(), TokenCache(), BuildMapCache()
+        viewer, ScopeCache(), RevisionJobs(), PullShare(), SyncWatch(), TokenCache(), BuildMapCache(), PinLines()
     )
 
 
