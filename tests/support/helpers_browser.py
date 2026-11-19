@@ -35,7 +35,7 @@ from limn.builds.artifacts import cur_pages
 from limn.pins.location import mapping
 from limn.platform.files import file_in_tree, tex_lines
 
-from helpers import ApplicationFixture, blank_png, ps, run_config, serve_viewer, split_resp
+from helpers import ApplicationFixture, blank_png, kept_lines_changed, ps, run_config, serve_viewer, split_resp
 from helpers_access import ALICE, reset_access, talk_to
 from helpers_browser_font import use_test_font, wait_test_font
 from helpers_csp import report_only, watching
@@ -741,9 +741,13 @@ class BrowserBase(ChromiumTestCase):
         self.main = C.main
 
     def tearDown(self):
-        """Put the access settings back and remove the temporary folders."""
-        reset_access()
-        self.tmp.cleanup()
+        """Check that no reader changed a pin the run keeps (helpers.kept_lines_changed), then put the access settings
+        back and remove the temporary folders."""
+        try:
+            self.assertEqual(kept_lines_changed(), [], "a reader changed a pin the run keeps for every reader")
+        finally:
+            reset_access()
+            self.tmp.cleanup()
 
     def talk(self, raw):
         """Send one raw request to the handler (from loopback) -> (status, headers, body)."""

@@ -5034,7 +5034,7 @@ function verdictOf(pin) {
 // Whether a pin's place may be moved at all - the judgement the edit card makes of [위치 다시 잡기]: a verdict pin
 // keeps the place it fixed (POST /api/pins/<id>/edit answers 400 verdict_fixed) and a closed or awaiting-review pin
 // keeps where it points (an edit is 409). A number badge is only a handle for a pin that says yes here, so no drag of
-// one ends in a refusal (docs/adr/0050-pin-badge-drag-reposition.md D2). Pure.
+// one ends in a refusal (docs/adr/0051-pin-badge-drag-reposition.md D2). Pure.
 function markMovable(pin) {
   return !!pin && !verdictOf(pin) && pinState(pin) === PIN_STATE.OPEN;
 }
@@ -9421,7 +9421,7 @@ function pageVerdicts() {
 
 // The composer a selection on the pages goes to (composer/flow-pick.ts, composer/view-selection-popover.ts): the pick
 // of a dragged region, dropping it, the note popover by the selection box, and the re-place a drag on a pin's number
-// badge places the pin again with (composer/flow-repick.ts, docs/adr/0050-pin-badge-drag-reposition.md).
+// badge places the pin again with (composer/flow-repick.ts, docs/adr/0051-pin-badge-drag-reposition.md).
 let PAGE_SELECTION = null;
 // Registers the composer a selection goes to; js/main.ts calls it once.
 function setPageSelection(selection) {
@@ -13741,7 +13741,7 @@ function markHitSides() {
 // basis (the layout viewport), so they stay correct even during a pinch zoom.
 
 // The pin a badge drag is placing again: its number, the box it stands on (a region pin's, which moves whole; empty
-// for a line pin, whose drag sends a probe instead - docs/adr/0050-pin-badge-drag-reposition.md D3, D7), and which of
+// for a line pin, whose drag sends a probe instead - docs/adr/0051-pin-badge-drag-reposition.md D3, D7), and which of
 // the two it is. On the drag itself, `began` marks a re-place the drag turned on, so cancelling it turns that off
 // again.
 let DRAG = null,
@@ -13786,7 +13786,7 @@ function drawBox(box, startX, startY, x, y) {
 }
 // Which pending box a piece box beside it belongs to: the composing selection's '새 핀' or a re-place's '새 위치'. The
 // two can be open at once - a re-place drops only an unfinished selection - so each piece box names its owner and is
-// only ever taken off by it (docs/adr/0050-pin-badge-drag-reposition.md D5).
+// only ever taken off by it (docs/adr/0051-pin-badge-drag-reposition.md D5).
 // A box of a pending box's range other than the pending box itself. The lines a range covers may print as several
 // blocks, and each is drawn as a box of its own on the page it stands on; the pending box is the first of them, so
 // everything that is the one place - the note popover's anchor, the identity a click-off compares - stays that box.
@@ -13882,7 +13882,7 @@ let LONG_PRESS_PICKED = null,
   TAP = null,
   LAST_TAP = null;
 // ------------------------------------------------ A pin's number badge dragged to place the pin again
-// docs/adr/0050-pin-badge-drag-reposition.md. The badge is the handle (D1); the mark boxes keep pointer-events:none, so
+// docs/adr/0051-pin-badge-drag-reposition.md. The badge is the handle (D1); the mark boxes keep pointer-events:none, so
 // a drag across one is a new selection as it always was.
 //
 // The box a badge drag of a region pin puts the pin's box at: `place` = the pin's box [x, y, w, h] on its page, moved
@@ -20490,7 +20490,7 @@ function offlineNow() {
 // Which of the three a range belongs to. The composing selection and a re-place's candidate both have a box that
 // follows the range (followRange), so both ask for the ladder and for where its rungs print; an open edit card asks
 // for neither - its box is the saved pin's mark, which the pin list answers
-// (docs/adr/0050-pin-badge-drag-reposition.md D5).
+// (docs/adr/0051-pin-badge-drag-reposition.md D5).
 function rangeRole(owner) {
   if (owner === COMPOSE.current) return 'compose';
   if (REPICK && REPICK.cand === owner) return 'repick';
@@ -23119,7 +23119,7 @@ function bannerRepick(err) {
 // banner asks for another drag: /edit never changes a pin's shape, so no request it would refuse is offered.
 //
 // On a LaTeX document the box then stands on the pieces the candidate's lines print as, the same way the composing
-// selection's does (followRange, docs/adr/0050-pin-badge-drag-reposition.md D5): the place being confirmed is the one
+// selection's does (followRange, docs/adr/0051-pin-badge-drag-reposition.md D5): the place being confirmed is the one
 // the pin will carry, not the rectangle that was dragged or dropped. A range that prints on another page is brought
 // into view, since a place nobody can see is not one to confirm; a box already in view is left where it is.
 function bannerCompare() {
@@ -39422,7 +39422,7 @@ function editSuggestRefused(card, data) {
 // Shows the re-place banner with markup (Html) as its content.
 // Where pin `id` stands now and whether it is a region pin, for a press on its number badge - what the pages ask
 // through the seam before they let that press become a drag (pdf/input-selection.ts badgeMove,
-// docs/adr/0050-pin-badge-drag-reposition.md D1). null when that press places nothing: a figure document (a figure
+// docs/adr/0051-pin-badge-drag-reposition.md D1). null when that press places nothing: a figure document (a figure
 // pin's place comes from its element map, which this does not touch), a pin this tab does not have, a pin whose place
 // is fixed (markMovable - a verdict, a closed or an awaiting-review pin, the same judgement that hides [위치 다시
 // 잡기]), a region pin whose box has no size to move, or a finger outside the re-place mode for that very pin.
@@ -39443,7 +39443,7 @@ function badgeMovePin(id, mouse) {
 }
 // A second drag on the badge of a pin whose re-place is already open: the place that banner is offering is not the
 // one the hand is choosing now, so it goes and the banner goes back to asking. Without this the confirm stands
-// through the whole drag and saves the place before it (docs/adr/0050-pin-badge-drag-reposition.md D6: nothing is
+// through the whole drag and saves the place before it (docs/adr/0051-pin-badge-drag-reposition.md D6: nothing is
 // saved that the person has not been shown).
 //
 // **The drag before it may still be asking.** Its answer would arrive mid-drag and put that confirm up, so the
@@ -39469,7 +39469,7 @@ function restartRepick(id) {
 // (pdf/input-selection.ts badgeDragBegin). It clears an unfinished selection first, as startRepick does, but asks for
 // no drag of its own: the drag under way is the new place. Touch selection mode and the sheet are left as they are -
 // the person is holding the badge, not about to start a drag - and the pin's own revision is the base the drop saves
-// against, there being no edit card to read it from (docs/adr/0050-pin-badge-drag-reposition.md D6). Does nothing for
+// against, there being no edit card to read it from (docs/adr/0051-pin-badge-drag-reposition.md D6). Does nothing for
 // a pin this tab does not have.
 function repickFromBadge(id) {
   const pin = findAnyPin(id);
@@ -39551,7 +39551,7 @@ async function applyRepick() {
   // a new loc names its element or none: a loc without el drops the pin's el
   figureFields(loc, repickElement(candidate), isRegion(candidate) || !level.el ? null : level);
   // The revision this save is against: an open edit card for that pin keeps the current one, and a re-place a badge
-  // drag began has none, so it carries the pin's own (docs/adr/0050-pin-badge-drag-reposition.md D6).
+  // drag began has none, so it carries the pin's own (docs/adr/0051-pin-badge-drag-reposition.md D6).
   const base = EDITOR.current && EDITOR.current.id === repick.id ? EDITOR.current.base_rev : repick.base_rev;
   try {
     const { status, data } = await api('POST /api/pins/{id}/edit', {

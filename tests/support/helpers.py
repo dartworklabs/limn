@@ -28,6 +28,7 @@ import time
 import unittest
 import zlib
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import pytest
@@ -36,7 +37,7 @@ from limn.pins.editing import input as editing_input
 from limn.pins.location import http as location_http
 from limn.pins.model import parse_pin
 from limn.pins.record import Broken
-from limn.pins.store import find_pin
+from limn.pins.store import KeptLines, PinLines, find_pin, line_value
 from limn.revisions import core as revisions
 from limn.runtime import config
 from limn.runtime.config import AccessOptions, RunConfig
@@ -630,6 +631,73 @@ def records(parsed) -> list:
     return [p.record for p in parsed]
 
 
+def _written(value) -> tuple[type, str]:
+    """What tells one parsed value of a pin file from another: its type and, unless Broken, its stored record as
+    JSON. Not ==, under which a record holding NaN differs from itself."""
+    return type(value), "" if isinstance(value, Broken) else json.dumps(value.record, ensure_ascii=False)
+
+
+class AuditedLines(KeptLines):
+    """The kept lines every test run uses (audited_runtime): KeptLines that hold on to every value they stop
+    handing out, so that it can still be compared with its line when the test ends (kept_lines_changed).
+
+    A reader that changes a kept pin hands the changed value to every later reader, until a write replaces that
+    line and the next read drops the value. Comparing only what is still kept when a test ends would miss exactly
+    that case. `dropped` gets each (line, value) at the swap that replaced it - the one step, under the lock, where
+    a value leaves - so it is exact when readers interleave: a value published by one reader and replaced by
+    another is caught although neither saw it leave. `carried` is what the audit of an earlier run of the same test
+    reported (ApplicationFixture hands it on when a test replaces or puts back its run). Nothing is parsed here, so
+    a read costs what it costs in a server."""
+
+    def __init__(self) -> None:
+        """Nothing kept, nothing dropped, nothing carried."""
+        super().__init__()
+        self.dropped: list[tuple[str, object]] = []
+        self.carried: list[str] = []
+
+    def _swap(self, new):
+        """KeptLines._swap, remembering every value of the replaced generation that new does not hold."""
+        replaced = super()._swap(new)
+        self.dropped.extend([(text, value) for text, value in replaced.items() if new.get(text) is not value])
+        return replaced
+
+
+def audited_runtime(runtime):
+    """runtime with audited kept lines (AuditedLines) in place of plain ones; a runtime whose kept lines are audited
+    already is returned as it is. ApplicationFixture passes every runtime through this, so the pin reads of every
+    test are audited whichever way the test made its run."""
+    if isinstance(runtime.pin_lines.live, AuditedLines):
+        return runtime
+    return dataclasses.replace(runtime, pin_lines=PinLines(AuditedLines(), AuditedLines()))
+
+
+def kept_lines_changed(mod=None) -> list[str]:
+    """The lines of the server copy's run (default ps) whose kept value stopped being what the line parses to - the
+    first 80 characters of each: those an earlier run of this test reported (AuditedLines.carried), then for the
+    live lines and for the Trash lines the values the run no longer hands out (AuditedLines.dropped) and the ones
+    it still keeps; [] when no kept value was ever changed.
+
+    The pins a read-only reader hands out are shared between requests (limn.pins.store.KeptPinReader), and nothing
+    in Python stops a reader from changing a dict inside one. Base and BrowserBase call this when a test ends, so a
+    read path that does fails the test that exercised it."""
+    app = (mod or ps).APP
+    kept = app.RT.pin_lines
+    changed = []
+    for lines, parse in ((kept.live, app.parse_record), (kept.dropped, app.parse_trashed)):
+        changed.extend(getattr(lines, "carried", ()))
+        for text, value in [*getattr(lines, "dropped", ()), *lines.held().items()]:
+            if _written(line_value(text, parse)[0]) != _written(value):
+                changed.append(text[:80])
+    return changed
+
+
+def forget_kept_lines(mod=None) -> None:
+    """Give the server copy's run (default ps) empty kept lines, without carrying over what the old ones would have
+    been reported for: for a test that changed or planted a kept value on purpose and has made its assertions."""
+    environment = (mod or ps).APP.assembly.environment
+    environment.RT = audited_runtime(dataclasses.replace(environment.RT, pin_lines=PinLines()))
+
+
 def find_record(parsed, pid: int) -> dict | None:
     """The stored record of the first parsed pin whose id is pid, or None."""
     return find_pin(records(parsed), pid)
@@ -690,8 +758,9 @@ class ApplicationFixture:
     """Adapt legacy test helpers to an assembly without widening the production HTTP collaborators."""
 
     def __init__(self, settings, runtime, module=ps):
-        """Create an isolated assembly; callbacks read its current test settings and resources."""
-        self.assembly = module.assemble_application(settings, runtime)
+        """Create an isolated assembly; callbacks read its current test settings and resources. The run's kept pin
+        lines are audited ones (audited_runtime)."""
+        self.assembly = module.assemble_application(settings, audited_runtime(runtime))
 
     def __getattr__(self, name):
         """Resolve test operations at their actual capability owner."""
@@ -722,7 +791,14 @@ class ApplicationFixture:
         """Keep replacements in tests at the resource or service the callbacks actually use."""
         if name == "assembly":
             object.__setattr__(self, name, value)
-        elif name in ("C", "RT"):
+        elif name == "RT":
+            # The run a test puts in place - a fresh one or one it had set aside - takes over what the audit of the
+            # run it replaces would have reported, so no change is lost with the run it happened in.
+            incoming = audited_runtime(value)
+            if incoming.pin_lines is not self.RT.pin_lines:
+                incoming.pin_lines.live.carried.extend(kept_lines_changed(SimpleNamespace(APP=self)))
+            self.assembly.environment.RT = incoming
+        elif name == "C":
             setattr(self.assembly.environment, name, value)
         elif name == "docs":
             self.assembly.environment.docs[:] = value
@@ -799,8 +875,12 @@ class Base(unittest.TestCase):
         ps.APP.init_seq()
 
     def tearDown(self):
-        """Remove the temporary manuscript and state folder."""
-        self.tmp.cleanup()
+        """Check that no reader changed a pin the run keeps (kept_lines_changed), then remove the temporary
+        manuscript and state folder."""
+        try:
+            self.assertEqual(kept_lines_changed(), [], "a reader changed a pin the run keeps for every reader")
+        finally:
+            self.tmp.cleanup()
 
     def add(self, lo=4, hi=5, note="n", actor=None):
         """Add a pin on main.tex lines lo-hi (page 1) as actor (default the local agent); returns its id."""

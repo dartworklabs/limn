@@ -32,6 +32,23 @@ from limn.security.guidance import shell_path
 Json = dict[str, Any]
 
 
+class Places(Protocol):
+    """One computation's answers about where the pins' files are (the composition root's PinPlaces): each file is
+    judged once for all of them, so one rendering takes one value and drops it when the text is made."""
+
+    def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
+        """The overlap relationships for the full live set."""
+        ...
+
+    def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
+        """Which verdict pins a newer verdict pin supersedes, computed over all live pins."""
+        ...
+
+    def pin_location(self, r: Record) -> PinLocation | None:
+        """Where this pin's source file lives under the manuscript root now."""
+        ...
+
+
 class MarkdownDeps(Protocol):
     """The run-specific facts and lookups needed to render pins.md."""
 
@@ -46,16 +63,8 @@ class MarkdownDeps(Protocol):
         """The live pins at their saved positions and revisions."""
         ...
 
-    def overlaps_by_id(self, pins: Sequence[Pin]) -> dict[int, list[Json]]:
-        """The overlap relationships for the full live set."""
-        ...
-
-    def superseded_by_id(self, pins: Sequence[Pin]) -> dict[int, int]:
-        """Which verdict pins a newer verdict pin supersedes, computed over all live pins."""
-        ...
-
-    def pin_location(self, r: Record, root: Path, state: Path) -> PinLocation | None:
-        """Where this pin's source file lives under the manuscript root now."""
+    def places(self) -> Places:
+        """A fresh view of where the pins' files are, for one rendering."""
         ...
 
     def pin_doc_key(self, r: Record) -> str:
@@ -97,14 +106,16 @@ class PinMarkdown:
 
         An open pin with a suggested edit is measured against its lines now (suggest_view), so its marker and its
         `## 제안 문안` block say whether the text may go in. An open verdict pin that a newer verdict pin supersedes
-        (deps.superseded_by_id over every live pin, closed ones included) is given that pin's number, so its row says so.
+        (the supersessions over every live pin, closed ones included) is given that pin's number, so its row says so.
+        Where a pin's file is is judged once per file for the whole rendering (one Places value).
 
         Reads files (people.json, the build stamps, whether the token file exists, the source file of each open
         one-line pin that carries a quote and of each open pin that carries a suggestion - each file read at most
         once per call - and each figure document's current map) but writes nothing."""
         rows = [pin.record for pin in pins]
-        rel = self.deps.overlaps_by_id(pins)
-        superseded = self.deps.superseded_by_id(pins)
+        places = self.deps.places()
+        rel = places.overlaps_by_id(pins)
+        superseded = places.superseded_by_id(pins)
         by_id = {r["id"]: r for r in rows}
         sources: dict[Path, list[str]] = {}
         maps: dict[str, FollowElement | None] = {}
@@ -113,7 +124,7 @@ class PinMarkdown:
             r = pin.record
             if state_of(r) is DonePin:
                 continue
-            location, line_len = self._location_and_line_len(pin, sources)
+            location, line_len = self._location_and_line_len(pin, sources, places)
             doc_key = self.deps.pin_doc_key(r)
             el_sync, impl_scope = self._element_facts(r, doc_key, maps)
             facts[r["id"]] = PinFacts(
@@ -127,7 +138,7 @@ class PinMarkdown:
                 round=tuple(thread_round(pin.core.thread)),
                 el_sync=el_sync,
                 impl_scope=impl_scope,
-                suggest_state=self._suggest_state(pin, sources),
+                suggest_state=self._suggest_state(pin, sources, places),
                 superseded_by=superseded.get(r["id"]),
             )
         docs = tuple(
@@ -181,26 +192,30 @@ class PinMarkdown:
             return sync, None
         return sync, doc_scope(doc, self.deps.C.src)
 
-    def _suggest_state(self, pin: Pin, sources: dict[Path, list[str]]) -> SuggestState | None:
+    def _suggest_state(self, pin: Pin, sources: dict[Path, list[str]], places: Places) -> SuggestState | None:
         """An open pin's suggested edit measured against its lines now (limn.pins.listing.projection.suggest_view),
-        reading its file through the checked handle at most once per render (sources) and never outside the tree;
+        reading its file - where places finds it - through the checked handle at most once per render (sources) and
+        never outside the tree;
         None for a pin without one, and for one awaiting review - pins.md does not list its suggestion."""
         r = pin.record
         if state_of(r) is not OpenPin or suggestion_of(r.get("suggest")) is None:
             return None
-        loc = self.deps.pin_location(r, self.deps.C.src, self.deps.C.state)
+        loc = places.pin_location(r)
         if loc is None:
             return suggest_view(r, None)
         if loc.path not in sources:
             sources[loc.path] = tex_lines(loc.source)
         return suggest_view(r, sources[loc.path])
 
-    def _location_and_line_len(self, pin: Pin, sources: dict[Path, list[str]]) -> tuple[str, int | None]:
-        """The pin's current display path and quoted line length, reading each source path at most once."""
+    def _location_and_line_len(
+        self, pin: Pin, sources: dict[Path, list[str]], places: Places
+    ) -> tuple[str, int | None]:
+        """The pin's current display path, where places finds its file, and quoted line length, reading each source
+        path at most once."""
         r = pin.record
         if is_region_pin(r):
             return "", None
-        loc = self.deps.pin_location(r, self.deps.C.src, self.deps.C.state)
+        loc = places.pin_location(r)
         location = loc.rel if loc is not None else (Path(str(r.get("file", ""))).name or str(r.get("name") or ""))
         lo, hi = r.get("lo"), r.get("hi")
         if not (

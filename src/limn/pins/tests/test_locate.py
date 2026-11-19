@@ -299,8 +299,11 @@ class Anchor(Base):
         self.assertEqual((p["lo"], p["hi"], p["sync"]), (10, 13, "moved +3"))
 
     def test_old_anchor_without_offsets(self):
+        """An anchor stored without offsets (an older writer's) still follows its lines. The records are hand-edited
+        from a writer's read (pin_store()): the edit changes a nested value in place, and a read-only reader's pins
+        are shared with every later reader."""
         pid = self.add(8, 9)
-        rows = records(ps.APP.snapshot_pins())
+        rows = records(ps.APP.pin_store().read_pins()[0])
         for r in rows:
             r["anchor"].pop("head_off")
             r["anchor"].pop("tail_off")

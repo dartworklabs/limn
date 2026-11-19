@@ -54,8 +54,11 @@ class ViewerShell:
 
 
 def assemble_viewer(settings: Callable[[], RunConfig], viewer: Callable[[], ServedViewer]) -> ViewerSubsystem:
-    """Bind viewer shell and asset reads to one run."""
+    """Bind viewer shell and asset reads to one run. Every path the shell answers comes from the run's assembled
+    viewer in memory or from one file directly in a bundled library's folder (ViewerShell.vendor_file: the package's
+    folders, or --pdfjs-dir for PDF.js), never from the state folder, the manuscript or a build, so the route is
+    registered as a packaged read (limn.web.routes.RouteBundle.get_packaged) and takes no GET computation slot."""
     from limn.viewer.routes import get
 
     shell = ViewerShell(settings, viewer)
-    return ViewerSubsystem(RouteBundle(get=(lambda request: get(request, shell),)))
+    return ViewerSubsystem(RouteBundle(get_packaged=(lambda request: get(request, shell),)))

@@ -79,9 +79,19 @@ class PathPolicy(NamedTuple):
 @dataclass(frozen=True)
 class RouteBundle:
     """One capability's ordered reads, uniquely keyed mutation routes and the paths whose every response carries
-    fixed policy headers (policies, keyed by path)."""
+    fixed policy headers (policies, keyed by path).
+
+    A capability registers a read in one of two groups. get_packaged holds the reads answered from what the run
+    holds in memory or from one file of a bundled library's folder (the viewer page and script, the icons, the
+    bundled libraries - the package's own folders, or the operator's --pdfjs-dir for PDF.js): they open nothing of
+    the state folder, the manuscript or a build, and their cost does not grow with what is stored. The handler tries
+    them first and outside the GET computation slots, so a page's own files never wait behind a listing. get holds
+    every other read; each runs inside a slot. A read goes in get_packaged only when all of that holds for every path
+    it answers - anything that reads stored data belongs in get. The access checks come before both groups.
+    """
 
     get: tuple[GetRoute, ...] = ()
+    get_packaged: tuple[GetRoute, ...] = ()
     post_documents: tuple[PostDocRoute, ...] = ()
     pin_actions: Mapping[str, PinAction] = field(default_factory=dict)
     other_posts: Mapping[str, OtherPost] = field(default_factory=dict)
@@ -103,7 +113,8 @@ def _merge_keyed(kind: str, groups: tuple[Mapping[str, Route], ...]) -> dict[str
 
 
 def merge_routes(*bundles: RouteBundle) -> RouteBundle:
-    """Combine capability bundles without changing ordered fallthrough dispatch."""
+    """Combine capability bundles without changing ordered fallthrough dispatch: the packaged reads in the bundles'
+    order, then, separately, the computed reads in the bundles' order."""
     posts: list[PostDocRoute] = []
     paths: set[str] = set()
     for bundle in bundles:
@@ -114,6 +125,7 @@ def merge_routes(*bundles: RouteBundle) -> RouteBundle:
             posts.append(route)
     return RouteBundle(
         get=tuple(route for bundle in bundles for route in bundle.get),
+        get_packaged=tuple(route for bundle in bundles for route in bundle.get_packaged),
         post_documents=tuple(posts),
         pin_actions=_merge_keyed("pin action", tuple(bundle.pin_actions for bundle in bundles)),
         other_posts=_merge_keyed("POST", tuple(bundle.other_posts for bundle in bundles)),

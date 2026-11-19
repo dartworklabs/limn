@@ -17,7 +17,7 @@ import socket
 import threading
 import traceback
 from collections.abc import Callable
-from contextlib import nullcontext
+from contextlib import ExitStack, nullcontext
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from socketserver import TCPServer
 from typing import Any, ClassVar
@@ -28,12 +28,21 @@ from limn.platform.effects import observing_changes, reading
 from limn.runtime.config import AccessOptions
 from limn.web import answers, csp as page_csp, parse, request_input
 from limn.web.answers import accepted
-from limn.web.app import Document, Json, Principal, Query, WebApplication
+from limn.web.app import Document, Json, Principal, WebApplication
 from limn.web.errors import HTTPError, InputRejected, error_page_html, page_lang
 from limn.web.reply import Reply, etag_matches, json_reply as _json_reply
-from limn.web.routes import GetRequest, OtherPostRequest, PathPolicy, PinActionRequest, PostDocRequest
+from limn.web.routes import GetRequest, GetRoute, OtherPostRequest, PathPolicy, PinActionRequest, PostDocRequest
 
 READ_SLOTS = threading.BoundedSemaphore(4)
+# The most GET answers held in memory at once in the process: bodies made (or being computed) and not yet sent.
+# An answer's whole body is in memory from the route's return until the last byte leaves (a listing of 1,000 pins is
+# about 3 MB, /viewer.js about 2 MB, a PDF its file size), and a client may take its bytes as slowly as the socket
+# timeout allows. Sending happens outside READ_SLOTS, so without this bound the number of bodies held would follow
+# the number of connections, which nothing bounds by default (--max-connections is optional). 32 is eight times the
+# computation slots: far above what the viewer's own traffic holds at once (a browser keeps at most six connections
+# to one origin, and a send on a healthy connection lasts milliseconds), and it caps the bodies held at 32 however
+# many readers stall. A GET that finds all 32 taken waits for one - it is never refused.
+ANSWER_SLOTS = threading.BoundedSemaphore(32)
 MAX_BODY = 1 << 20
 INTERNAL_ERROR = "서버 내부 오류"  # the 500 sentence; the contract of its two forms is internal_error_body's
 
@@ -323,14 +332,43 @@ class Handler(BaseHTTPRequestHandler):
         self._run(dispatch)
 
     def _get(self) -> None:
-        """Read and admit a GET before taking a bounded computation slot for its document's route."""
+        """Read and admit a GET, answer it, then send the answer.
+
+        The request's document is selected first (a key looked up among the run's documents). Two bounds then apply,
+        both taken only by a request that passed every check:
+
+        - READ_SLOTS bounds computation. A packaged read (RouteBundle.get_packaged: the viewer's own files) is tried
+          without one; any other route is computed inside one, at most that many at a time in the process. The slot
+          is given back before the answer is sent: a client that is slow to take its bytes must not hold one while
+          others wait to compute.
+        - ANSWER_SLOTS bounds the answers held in memory. A request takes one before a route makes its body and
+          keeps it until the body is sent, so at most that many bodies exist at once however many readers stall. A
+          computed read takes it after its READ_SLOTS slot, so requests queued for computation hold no answer slot
+          and cannot keep the viewer's own files waiting.
+
+        A refusal raised by a route is sent after both are released (_run); its body is a short JSON object."""
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, accepted(request_input.query_values(u.query))
         self.app.guards.check_read(path)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
-        with READ_SLOTS:
-            return self._get_doc(actor, path, q, self._request_doc(accepted(parse.parse_doc_choice(q))))
+        D = self._request_doc(accepted(parse.parse_doc_choice(q)))
+        request = GetRequest(
+            path, q, D, actor, self.principal, self.headers.get("Host") or "", self.headers.get("If-None-Match")
+        )
+        bundle = self.app.routes.bundle
+        with ANSWER_SLOTS:
+            reply = self._first_answer(bundle.get_packaged, request)
+            if reply is not None:
+                self._send(*reply)
+                return
+        with ExitStack() as held:
+            with READ_SLOTS:
+                held.enter_context(ANSWER_SLOTS)
+                reply = self._first_answer(bundle.get, request)
+            if reply is None:
+                raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
+            self._send(*reply)
 
     def _request_doc(self, choice: parse.DocChoice) -> Document:
         """The document a request names (parsed by parse.parse_doc_choice), found by the server: the first document, or
@@ -343,21 +381,12 @@ class Handler(BaseHTTPRequestHandler):
             D = answers.found_doc(app.selector.select(choice.body_key, None), app.header_text)
         return D
 
-    def _get_doc(self, actor: Json, path: str, q: Query, D: Document) -> None:
-        """GET routes that act on the request's document D (?doc=, found in _get), tried group by group in the order
-        the routes have always been matched (a /pages/ name with no image falls through): registered feature routes. Sends the matching
-        route answers, or 404 not_found when none matches; refusals propagate to _run as HTTPError."""
-        reply = self._get_registered(actor, path, q, D)
-        if reply is None:
-            raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
-        self._send(*reply)
-
-    def _get_registered(self, actor: Json, path: str, q: Query, D: Document) -> Reply | None:
-        """Try the application's feature-owned GET routes in registration order."""
-        request = GetRequest(
-            path, q, D, actor, self.principal, self.headers.get("Host") or "", self.headers.get("If-None-Match")
-        )
-        for route in self.app.routes.bundle.get:
+    @staticmethod
+    def _first_answer(routes: tuple[GetRoute, ...], request: GetRequest) -> Reply | None:
+        """The answer of the first of routes that serves request, tried in registration order (a /pages/ name with
+        no image falls through to the next route), or None when none does. A route's refusal propagates as
+        HTTPError. Nothing is sent here."""
+        for route in routes:
             reply = route(request)
             if reply is not None:
                 return reply

@@ -10,6 +10,8 @@ dot-named part such as .git or .env, and not in the state folder when --state-di
 file_in_tree applies it to a path a request or SyncTeX names: the request
 parsers (limn.web.parse) turn its refusals into 400 answers, the selection resolver (server.pick) into its own
 message. A close's recorded changes (limn.web.parse) and a stored pin path (limn.pins.location.lookup) are judged by tree_part too.
+tree_bounds resolves the tree's two folders once for a caller that judges many paths in one computation; part_within
+and file_within are then tree_part and file_in_tree against those bounds - one rule, never a second copy of it.
 
 tex_lines is how every line number is counted when a manuscript file is read; ManuscriptFile.read_bounded reads a
 small producer file (a document's verdict words) without ever holding more than its limit, and ManuscriptFile.identity
@@ -100,6 +102,61 @@ class NotAFile:
 TreePathRefusal: TypeAlias = BadPath | OutsideTree | NotAFile
 
 
+@dataclass(frozen=True, init=False)
+class TreeBounds:
+    """The limits of one manuscript tree with their symlinks resolved once; only tree_bounds creates instances.
+
+    Judging a path against the tree (part_within, file_within) resolves the root and the state folder, and both
+    answers are the same for every path judged in one pass over many pins. A caller that judges many paths takes
+    the bounds once and passes them on, so each further judgment resolves only the path itself. The bounds describe
+    the tree at the moment they were taken: a caller keeps them for one computation (one listing, one rendering,
+    one re-sync) and never across requests, or a root or state folder replaced by a link would go unseen. They are
+    no permission to read: a file is still read through ManuscriptFile, which walks to it with no-follow
+    descriptors and judges it against the tree again at that moment.
+    """
+
+    root: Path  # the root as the run names it; a judged file is shown as root / <its part>
+    base: Path  # root with symlinks resolved
+    held: Path  # the state folder with symlinks resolved
+
+    def __init__(self) -> None:
+        """Reject direct construction; use tree_bounds, which resolves both folders itself."""
+        raise TypeError("use tree_bounds to obtain a tree's bounds")
+
+
+def tree_bounds(root: Path, state: Path) -> TreeBounds | None:
+    """The bounds of the manuscript tree `root` whose state folder is `state`, both resolved now, or None when
+    either cannot be resolved - then no path belongs to the tree (tree_part answers None for every path). Reads
+    file metadata only."""
+    try:
+        base, held = root.resolve(), state.resolve()
+    except (ValueError, OSError, RuntimeError):
+        return None
+    bounds = object.__new__(TreeBounds)
+    object.__setattr__(bounds, "root", root)
+    object.__setattr__(bounds, "base", base)
+    object.__setattr__(bounds, "held", held)
+    return bounds
+
+
+def part_within(p: Path, bounds: TreeBounds) -> Path | None:
+    """p relative to the tree of bounds, p's symlinks resolved now, when p belongs to that tree; else None.
+
+    This is tree_part's rule with the root and the state folder already resolved (bounds): outside the root, under
+    a dot-named part below it, or in the state folder is None, and so is a path that cannot be resolved. Reads file
+    metadata only; p need not exist."""
+    try:
+        real = p.resolve()
+        rel = real.relative_to(bounds.base)
+    except (ValueError, OSError, RuntimeError):
+        return None
+    if any(part.startswith(".") for part in rel.parts):
+        return None
+    if bounds.held.is_relative_to(bounds.base) and real.is_relative_to(bounds.held):
+        return None
+    return rel
+
+
 def tree_part(p: Path, root: Path, state: Path) -> Path | None:
     """p relative to the manuscript tree `root`, both with symlinks resolved, when p belongs to the tree; else None.
 
@@ -110,38 +167,43 @@ def tree_part(p: Path, root: Path, state: Path) -> Path | None:
     must not quote them. Only parts below root are judged, after resolving, so a normal name that is a link into .git
     or the state folder is refused, a root that itself lies under ~/.local is fine, and a state folder above or beside
     root takes nothing away (a state folder that is root itself takes everything). None too when a path cannot be
-    resolved. Reads file metadata only; p need not exist."""
-    try:
-        base = root.resolve()
-        real = p.resolve()
-        rel = real.relative_to(base)
-        held = state.resolve()
-    except (ValueError, OSError, RuntimeError):
-        return None
-    if any(part.startswith(".") for part in rel.parts):
-        return None
-    if held.is_relative_to(base) and real.is_relative_to(held):
-        return None
-    return rel
+    resolved. Reads file metadata only; p need not exist.
+
+    The root and the state folder are resolved on every call. A caller that judges many paths against one tree in
+    one computation takes tree_bounds once and asks part_within, the same rule."""
+    bounds = tree_bounds(root, state)
+    return None if bounds is None else part_within(p, bounds)
 
 
 def file_in_tree(p: object, root: Path, state: Path) -> ManuscriptFile | TreePathRefusal:
     """The real file inside the tree `root` that p names (absolute, or relative to root) as root / <relative path>, or
     why not. Anything outside the tree (tree_part: outside root, under a dot-named part or in the state folder `state`)
     is refused - its first line would otherwise leak into pins.md. Resolving symlinks and checking the file read file
-    metadata only, never contents."""
+    metadata only, never contents. The root and the state folder are resolved on every call; file_within is the same
+    judgment for a caller that holds the tree's bounds."""
+    return file_within(p, tree_bounds(root, state))
+
+
+def file_within(p: object, bounds: TreeBounds | None) -> ManuscriptFile | TreePathRefusal:
+    """file_in_tree against bounds already taken (tree_bounds): the real file inside that tree that p names (absolute,
+    or relative to the root) as root / <relative path>, or why not. None for bounds - a tree whose root or state
+    folder could not be resolved - refuses every usable path as OutsideTree. p's own symlinks are resolved now, on
+    every call; only the two folders of bounds are as they were when the bounds were taken. Reads file metadata
+    only, never contents."""
     if not isinstance(p, str) or not p or "\x00" in p or len(p) > PATH_MAX_CHARS:
         return BadPath()
+    if bounds is None:
+        return OutsideTree()
     q = Path(p)
     if not q.is_absolute():
-        q = root / q
-    rel = tree_part(q, root, state)
+        q = bounds.root / q
+    rel = part_within(q, bounds)
     if rel is None:
         return OutsideTree()
-    out = root / rel
+    out = bounds.root / rel
     try:
-        resolved, base, held = out.resolve(), root.resolve(), state.resolve()
-        if tree_part(resolved, base, held) is None:
+        resolved = out.resolve()
+        if part_within(resolved, bounds) is None:
             return OutsideTree()
         if not resolved.is_file():
             return NotAFile()
@@ -150,8 +212,8 @@ def file_in_tree(p: object, root: Path, state: Path) -> ManuscriptFile | TreePat
     checked = object.__new__(ManuscriptFile)
     object.__setattr__(checked, "path", out)
     object.__setattr__(checked, "_resolved", resolved)
-    object.__setattr__(checked, "root", base)
-    object.__setattr__(checked, "state", held)
+    object.__setattr__(checked, "root", bounds.base)
+    object.__setattr__(checked, "state", bounds.held)
     return checked
 
 

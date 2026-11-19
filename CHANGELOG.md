@@ -25,6 +25,92 @@ touched. Both entries are the viewer alone.
   the candidate's range the way the composing '새 핀' box follows its own, one box per piece, and a range that prints
   on another page is brought into view. This holds for the drawn-rectangle path too, not only a badge drag.
 
+## 0.4.66 — 2026-11-19
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed, and every pin read of a 1,019-pin state folder is byte-identical to 0.4.65's (5,197 answers compared: the
+first reads of a fresh process, the same reads again, after writes through the API, after `pins.jsonl` was rewritten
+in place at the same size, and after it was replaced by hand).
+
+### Changed
+
+- **A read of the pins no longer parses the stored records again.** Every pin read parsed the whole of `pins.jsonl`
+  for each request - one JSON decode, one record check and one state type per line - whether or not anything had
+  been written since: about 32 ms at 1,002 pins, a third of a listing, half of one pin's answer and nearly all of
+  `/api/meta`, `/api/docs`, `/api/people` and the Trash list, which only count pins or pick the people out of them.
+  A run now keeps what each stored line parsed to, keyed by the line's own text, and parses only the lines whose text
+  was not in the last read. The file is still read at every request, so nothing depends on its timestamps, and after
+  a write the next read parses the one line that changed. Measured on one machine at 1,002 pins: `/api/meta` from
+  34 ms to 4.6 ms, `/api/docs` from 35 ms to 6.5 ms, `/api/people` from 38 ms to 9.5 ms, one pin's answer from 75 ms
+  to 41 ms, `pins.md` from 110 ms to 77 ms and a listing from 135 ms to 108 ms. Writes are unchanged: a transaction,
+  the maintenance pass and `clear` parse the file themselves and never use what is kept, so nothing kept is written
+  to a pin file. What is kept is memory only, at most 4 Mi characters of line text per pin file (about 7 MB for
+  1,000 pins), and is gone with the process ([ADR-0050](docs/adr/0050-kept-pin-lines.md)).
+
+### Fixed
+
+- **The display name an assignment writes into a pin's thread is looked up among the pins of that write.** It was
+  looked up among pins read outside the transaction. The name written is the same.
+
+### Known
+
+- **A light poll behind continuously looping listings is still slower than in 0.4.63** (median behind two: 14 ms in
+  0.4.63, about 430 ms in 0.4.65, about 350 ms now). The poll waits for the interpreter, not for the pins: with no
+  pin read at all, one computing thread in the process is enough to take it from 4 ms to about 300 ms, because one
+  light poll makes about 270 file-system calls (84 file opens, most of them reading each page image's size) and
+  gives its turn up at each. Making the poll read fewer files is the next step.
+
+## 0.4.65 — 2026-11-19
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed.
+
+### Fixed
+
+- **The GET answers held in memory are bounded again (0.4.64).** 0.4.64 moved sending out of the four computation
+  slots, which until then had also limited how many answer bodies existed at once. An answer's whole body is in
+  memory from its route's return until its last byte leaves - about 3 MB for a listing of 1,000 pins, 2 MB for
+  `/viewer.js`, a PDF's file size - so the number of bodies held followed the number of connections, which nothing
+  bounds unless `--max-connections` is given: twelve clients that asked for the PDF.js worker and read nothing held
+  twelve bodies, where 0.4.63 held four. A request now takes one of 32 answer slots before its route makes the body
+  and gives it back when the body is sent. A GET that finds all 32 taken waits for one and is never refused. A read
+  queued for a computation slot holds no answer slot, so the viewer's own files still do not wait behind listings.
+  A stalled reader can hold a slot for at most the 30 s socket timeout; it takes 32 of them, not four as in 0.4.63,
+  to make other reads wait.
+
+## 0.4.64 — 2026-11-19
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed, and every pin read of a 1,019-pin state folder is byte-identical to 0.4.63's (1,035 answers compared).
+
+### Changed
+
+- **Reading and writing pins no longer costs file-system work per pin.** A listing, one pin's answer, `pins.md` and
+  the re-sync before every write asked where each pin's file is under the manuscript root pin by pin, and again for
+  every answer that needs the place. Where a file is is now judged once per file for each listing, each rendering
+  and each re-sync: one `GET /api/pins?all=1` over 1,000 pins of a one-file manuscript went from 18,385 symlink
+  resolutions to 18. Measured on one machine, a listing of 300 pins went from 99 ms to 35 ms, one pin's answer from
+  88 ms to 16 ms, a new pin from 110 ms to 32 ms and `pins.md` from 82 ms to 24 ms. Nothing is remembered between
+  requests - a file or folder replaced by a link is judged again by the next request - and content is still read
+  through the checked no-follow handle.
+- **`GET /api/pins/<id>` and `GET /api/pins?doc=<key>` compute only the asked pins.** Overlaps (`rel`) and verdict
+  supersession (`superseded_by`) are still computed over every live pin, so the answers are the full list's.
+- **The viewer's own files no longer wait behind listings, and a slow reader holds no computation slot.** Every GET
+  ran in one of four process-wide computation slots and was sent from inside it; with four listings in flight
+  `/favicon.ico` waited up to 3.6 s, as the page's script and the bundled libraries would. The slot is now given back
+  before the answer is sent, and the page, `/viewer.js`, `/sw.js`, `/md-parse.mjs`, the icons, `/vendor/*` and
+  `/api/version` take no slot. Reads of stored data are still computed at most four at a time. Answers being sent are
+  therefore bounded by the number of connections (`--max-connections`, unlimited when omitted) and the 30 s socket
+  timeout, no longer by the four slots.
+
+### Known
+
+- **A light poll behind two to four continuously looping listings has a slower median than in 0.4.63** (measured
+  with 1,002 pins: 8 ms to about 160 ms behind two), while its worst case is shorter (5.8 s to 1.5 s behind eight). A
+  listing used to spend most of its time in file-system calls, during which other requests ran freely; it is now
+  uninterrupted computation the poll takes turns with. The viewer fetches the list only when the pins change, so
+  this shows under sustained load; making a listing cheaper is the next step.
+
 ## 0.4.63 — 2026-11-19
 
 ### Fixed

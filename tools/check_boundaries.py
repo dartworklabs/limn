@@ -42,6 +42,7 @@ ENTRYPOINT_IMPORTS: EntrypointImports = {
         "DocumentsSubsystem",
         "MetaSettings",
         "assemble_documents",
+        "PinLines",
         "PinSubsystem",
         "TokenCache",
         "assemble_pins",
