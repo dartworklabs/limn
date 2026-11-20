@@ -196,45 +196,54 @@ class RevisionZoom(BrowserBase):
             self.assertEqual(page.evaluate(look, selector)["w"], 28)
 
     def test_phone_pinch_anchor_and_touch_controls(self):
-        """Two-finger pinch anchors the page and phone controls retain full hit areas."""
+        """Consecutive pinches preserve the touched point and redraw on release or cancellation; touch controls stay usable."""
         page = self.comparison(viewport={"width": 384, "height": 832}, has_touch=True, is_mobile=True)
         for selector in ("#revision-zoom-in", "#revision-zoom-out", "#revision-fit"):
             bounds = page.locator(selector).bounding_box()
             self.assertGreaterEqual(bounds["width"], 44)
             self.assertGreaterEqual(bounds["height"], 44)
             self.assertLessEqual(bounds["x"] + bounds["width"], 384)
-        box = page.locator("#revision-pdf").bounding_box()
-        y = box["y"] + 100
-        fraction = page.locator(".revision-page").first.evaluate(
-            "(el,p)=>{const r=el.getBoundingClientRect();return [(p.x-r.left)/r.width,(p.y-r.top)/r.height]}",
-            {"x": 150, "y": y},
-        )
-        page.locator("#revision-pdf").dispatch_event(
-            "touchstart",
-            {
-                "touches": [
-                    {"identifier": 1, "clientX": 100, "clientY": y},
-                    {"identifier": 2, "clientX": 200, "clientY": y},
-                ]
-            },
-        )
-        page.locator("#revision-pdf").dispatch_event(
-            "touchmove",
-            {
-                "touches": [
-                    {"identifier": 1, "clientX": 50, "clientY": y},
-                    {"identifier": 2, "clientX": 250, "clientY": y},
-                ]
-            },
-        )
-        self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "200%")
-        after = page.locator(".revision-page").first.evaluate(
-            "(el,p)=>{const r=el.getBoundingClientRect();return [(p.x-r.left)/r.width,(p.y-r.top)/r.height]}",
-            {"x": 150, "y": y},
-        )
-        for old, new in zip(fraction, after, strict=True):
-            self.assertAlmostEqual(old, new, places=2)
-        page.locator("#revision-pdf").dispatch_event("touchend", {"touches": []})
+        sheet = page.locator(".revision-page").first
+        before = sheet.bounding_box()
+        x = round(before["x"] + before["width"] / 3)
+        y = round(before["y"] + 100)
+        zoom = page.locator("#revision-zoom-value")
+        self.assertEqual(zoom.inner_text(), "100%")
+        # Browser hit testing binds each finger to the element under it for the entire gesture.
+        cdp = page.context.new_cdp_session(page)
+        backing_width = sheet.locator("canvas").evaluate("c => c.width")
+        for end, spreads, factor in (
+            ("touchEnd", (30, 36, 45, 60), 2),
+            ("touchCancel", (60, 48, 39, 30), 1),
+            ("touchEnd", (30, 39, 45), 1.5),
+        ):
+            for step, spread in enumerate(spreads):
+                contacts = [{"id": 1, "x": x - spread, "y": y}, {"id": 2, "x": x + spread, "y": y}]
+                cdp.send(
+                    "Input.dispatchTouchEvent",
+                    {"type": "touchStart" if step == 0 else "touchMove", "touchPoints": contacts},
+                )
+                if end == "touchEnd" and step == 1:
+                    # Briefly rest a third finger, then lift only that finger while the original pair stays down.
+                    third = {"id": 3, "x": x, "y": y + 25}
+                    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [*contacts, third]})
+                    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": [third]})
+            cdp.send("Input.dispatchTouchEvent", {"type": end, "touchPoints": []})
+            self.assertEqual(zoom.inner_text(), f"{factor:.0%}")
+            after = sheet.bounding_box()
+            self.assertAlmostEqual(after["width"], before["width"] * factor, delta=1)
+            for axis, size, point in (("x", "width", x), ("y", "height", y)):
+                fraction = (point - before[axis]) / before[size]
+                self.assertAlmostEqual(after[axis] + after[size] * fraction, point, delta=2)
+            # The rendered bitmap regains its resolution and remains available to native canvas image actions.
+            sheet.locator("canvas").wait_for()
+            page.wait_for_function(
+                """([x, y, width]) => {
+                  const canvas = document.elementFromPoint(x, y);
+                  return canvas instanceof HTMLCanvasElement && Math.abs(canvas.width - width) <= 2;
+                }""",
+                arg=[x, y, backing_width * factor],
+            )
         page.click("#revision-fit")
         self.assertEqual(page.locator("#revision-zoom-value").inner_text(), "100%")
 

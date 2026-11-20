@@ -9,7 +9,7 @@
 // new Notification()); tag is the pin number, so the same pin collapses into one slot. If the tab is visible and
 // focused, the status line says it instead. This only works in a secure context (an https tailnet address, or
 // http://127.0.0.1/localhost) - the browser blocks plain http on other hosts.
-import { DOC, DROPPED, META, OPEN_CARDS, SWITCHSEQ, findAnyPin } from '../app/state.ts';
+import { DOC, DROPPED, MENTION_ONLY, META, OPEN_CARDS, SWITCHSEQ, findAnyPin, setMentionOnly } from '../app/state.ts';
 import { translateTemplate, translate } from '../platform/i18n.ts';
 import { prefs, savePrefs, setSectionOpen } from '../platform/prefs.ts';
 import { api } from '../platform/api.ts';
@@ -20,6 +20,7 @@ import { syncHiddenNotifyTimer } from '../documents/flow-polling.ts';
 import { setSide } from '../layout/flow.ts';
 import { openTrash } from './view-cards.ts';
 import { drawPins, gotoReview, jumpPin, jumpToCard, loadPinsNow } from './flow-list.ts';
+import { mentionsMe } from './view-card-parts.ts';
 import { restorePin } from './flow-actions.ts';
 import { EVENT_TYPE, NOTICE_DOT, NOTICE_KIND, isRecord } from '../platform/tables.ts';
 import { $, findMaybe } from '../platform/dom.ts';
@@ -409,11 +410,14 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
   }
   if (pinState(found) === PIN_STATE.DONE) {
     setSectionOpen('done', true);
+  } else if (MENTION_ONLY && !mentionsMe(found)) {
+    setMentionOnly(false);
   }
   OPEN_CARDS.add(pin);
-  setSide(true);
   drawPins();
   if (pinState(found) !== PIN_STATE.DONE) jumpPin(pin);
+  // A jump to the manuscript collapses the phone sheet. The notification's destination is the card.
+  setSide(true);
   requestAnimationFrame(() => {
     if (DOC === visitDoc && visit === SWITCHSEQ) jumpToCard(pin);
   });

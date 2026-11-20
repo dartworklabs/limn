@@ -6934,7 +6934,8 @@ FIRST_FONT = """(fams) => {const c = document.createElement('canvas').getContext
   return fams.find(f => {c.font = '16px "' + f + '", monospace'; return c.measureText(s).width !== m;}) || null;}"""
 # Every drawn text in the elements the selectors match that a box clips: each element with text of its own whose box, or an
 # ancestor's up to the matched element, has overflow other than visible. The walk stops at a scroll box, which clips what is
-# scrolled away rather than what is drawn, and a line-clamped text is left out (forcing it visible draws its hidden lines).
+# scrolled away rather than what is drawn. Screen-reader-only text has no ink on screen, and forcing a line-clamped
+# text visible draws its hidden lines, so neither is measured.
 # Per text: its words, its box and where its clips meet (left, top, right, bottom). Text i's element is marked
 # data-clip-text=i and each clipping box data-clips with the indices of the texts it clips (FORCE_VISIBLE).
 CLIPPED_TEXT = """(sels) => {const R = e => e.getBoundingClientRect(), px = v => parseFloat(v) || 0, out = [];
@@ -6942,7 +6943,7 @@ CLIPPED_TEXT = """(sels) => {const R = e => e.getBoundingClientRect(), px = v =>
   document.querySelectorAll('[data-clips],[data-clip-text]').forEach(e => {e.removeAttribute('data-clips'); e.removeAttribute('data-clip-text');});
   for (const root of sels.flatMap(s => [...document.querySelectorAll(s)]).filter(drawn)) {
     for (const e of [root, ...root.querySelectorAll('*')]) {
-      if (!drawn(e) || getComputedStyle(e).webkitLineClamp !== 'none'
+      if (!drawn(e) || e.closest('.sr-only') || getComputedStyle(e).webkitLineClamp !== 'none'
         || ![...e.childNodes].some(n => n.nodeType === 3 && n.nodeValue.trim())) continue;
       const clips = []; let l = -1e9, t = -1e9, r = 1e9, b = 1e9;
       for (let a = e; a; a = a === root ? null : a.parentElement) {const c = getComputedStyle(a);
@@ -7008,9 +7009,10 @@ class HangulInkInClippingBoxes(ViewerBase):
             return self.forward(MetaPatched(route, {"stale_build": True, "src_age_s": 120}))
         return super().route(route)
 
-    def cut_ink(self, device, sels, lang="ko", opener=None):
+    def cut_ink(self, device, sels, lang="ko", opener=None, status_host=None):
         """{text: pixels its clips cut} for every clipped text (CLIPPED_TEXT) in the elements sels match, on device in lang
-        after opener (JS) when given. Each text's columns inside its clip, from 8px over its box and clip to 8px under them,
+        after opener (JS) when given. With status_host, also measure that row once its visible status text is there.
+        Each text's columns inside its clip, from 8px over its box and clip to 8px under them,
         are shot as drawn and with its clips forced visible (FORCE_VISIBLE), and the rows over and under the clip compared
         (PIXEL_DIFF; one device row more on each side of the clip is left out, for the shot's rounding). Fails when
         forcing the clips moves the text, which would make the shots differ for another reason. Skips without a
@@ -7026,6 +7028,9 @@ class HangulInkInClippingBoxes(ViewerBase):
         page.wait_for_function(status_up)  # the stale PDF's message is on a compact band's status line
         if opener:
             page.evaluate("async()=>{%s}" % opener)
+        if status_host:
+            page.locator(f"{status_host} #status .st-tx").wait_for(state="visible", timeout=15000)
+            sels = [*sels, status_host]
         settle(page)
         dpr, vh = device.get("device_scale_factor", 1), device["viewport"]["height"]
         cut = {}
@@ -7059,15 +7064,15 @@ class HangulInkInClippingBoxes(ViewerBase):
         loses ink to a box that clips it ('본문' lost 150-200 device pixels of its top and foot)."""
         stale = "원고가 PDF보다 새롭습니다"
         note = "lineNote('핀 #2 에 답글이 달렸습니다',NOTICE_KIND.INFO,null,{life:NOTICE_LIFE.STICKY})"
-        for device, lang, sels, words, opener in (
-            (phone(411, 908), "ko", ["#bar1", "#status-dock"], {"본문", "핀", "검토", stale}, None),
-            (phone(411, 908), "en", ["#bar1", "#status-dock"], {"본문"}, None),
-            (phone(820, 1180, 2), "ko", ["#bar1", "#doc-nav", "#status-dock"], {"핀", "검토", "선택", stale}, None),
-            (phone(908, 411), "ko", ["#bar1", "#doc-nav"], {"원고 수정됨"}, None),
-            (MOUSE_WIDE, "ko", ["#bar1", "#doc-nav", "#status-wide"], {"논문", "핀 #2 에 답글이 달렸습니다"}, note),
+        for device, lang, sels, status_host, words, opener in (
+            (phone(411, 908), "ko", ["#bar1"], "#status-dock", {"본문", "핀", "검토", stale}, None),
+            (phone(411, 908), "en", ["#bar1"], "#status-dock", {"본문"}, None),
+            (phone(820, 1180, 2), "ko", ["#bar1", "#doc-nav"], "#status-dock", {"핀", "검토", "선택", stale}, None),
+            (phone(908, 411), "ko", ["#bar1"], "#doc-nav", {"원고 수정됨"}, None),
+            (MOUSE_WIDE, "ko", ["#bar1", "#doc-nav"], "#status-wide", {"논문", "핀 #2 에 답글이 달렸습니다"}, note),
         ):
             with self.subTest(w=device["viewport"]["width"], lang=lang):
-                self.assert_whole(self.cut_ink(device, sels, lang, opener), words)
+                self.assert_whole(self.cut_ink(device, sels, lang, opener, status_host=status_host), words)
 
     def test_the_select_bar_and_the_sheet_heads_keep_their_ink(self):
         """411x908: the select mode's bar and the heads of [더보기] (the instance's name, which ellipsizes), the navigation
