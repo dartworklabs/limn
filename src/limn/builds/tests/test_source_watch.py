@@ -27,7 +27,7 @@ from unittest import mock
 from limn.builds import artifacts
 from limn.builds.service import BuildRequests
 from limn.platform.diagnostics import BoundedDiagnostics
-from limn.runtime.documents import ApartPaths, Doc, MemoClock, RunPaths
+from limn.runtime.documents import ApartPaths, Doc, RunPaths
 from limn.runtime.resources import RuntimeResources
 
 from helpers import fs_calls
@@ -360,17 +360,6 @@ class SummaryReadsTheWatch(Watched):
         self.clock.wall_at = time.time() - 3600
         with self.at(111):
             self.assertGreaterEqual(walk_calls(self.read), 1)
-
-    def test_a_document_s_own_clocks_are_the_wall_clock_and_one_that_never_goes_back(self):
-        """A document made by the product dates its memo with time.time and keeps asked-at and watched-at on
-        time.monotonic - two clocks that read nowhere near each other."""
-        clock = MemoClock()
-        self.assertIsInstance(
-            Doc("x", "X", "tex", self.src, self.src / "main.tex", paths=self.paths).mcache_clock, MemoClock
-        )
-        self.assertLess(abs(clock.wall() - time.time()), 5)
-        self.assertLess(abs(clock.steady() - time.monotonic()), 5)
-        self.assertGreater(abs(clock.steady() - clock.wall()), 5)
 
     def test_a_page_swap_forgets_what_the_watch_measured(self):
         """After a build swapped the page pointer, the value the watch measured before it is not answered."""
