@@ -14843,51 +14843,47 @@ async function paintRevisionPdf() {
   box.addEventListener('gestureend', () => {
     gesture = null;
   });
+  /** Contacts on other controls do not participate in the comparison gesture. */
+  const pdfTouches = (event) =>
+    Array.from(event.touches).filter((finger) => finger.target instanceof Node && box.contains(finger.target));
   /** Distance and midpoint of the two touches in viewport coordinates. */
-  const points = (touches) => {
-    const first = touches[0],
-      second = touches[1];
-    return {
-      distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) || 1,
-      x: (first.clientX + second.clientX) / 2,
-      y: (first.clientY + second.clientY) / 2,
-    };
-  };
-  box.addEventListener(
-    'touchstart',
-    (event) => {
-      if (!revisionPdfActive() || event.touches.length !== 2) {
-        touch = null;
-        return;
-      }
+  const points = ([first, second]) => ({
+    distance: Math.hypot(first.clientX - second.clientX, first.clientY - second.clientY) || 1,
+    x: (first.clientX + second.clientX) / 2,
+    y: (first.clientY + second.clientY) / 2,
+  });
+  /** A finger landing or lifting can leave a new pair. Its current spread starts at the current zoom. */
+  const syncTouches = (event) => {
+    if (!revisionPdfActive()) return;
+    const fingers = pdfTouches(event);
+    if (fingers.length === 2) {
       if (event.cancelable) event.preventDefault();
-      const pinch = points(event.touches);
+      const pinch = points(fingers);
       REVISION_ZOOM.holdPaint = true;
       touch = { distance: pinch.distance, ratio: REVISION_ZOOM.ratio, anchor: revisionAnchor(pinch.x, pinch.y) };
-    },
-    { passive: false },
-  );
+    } else {
+      touch = null;
+      if (!fingers.length && REVISION_ZOOM.holdPaint) {
+        REVISION_ZOOM.holdPaint = false;
+        redrawRevisionPages();
+      }
+    }
+  };
+  box.addEventListener('touchstart', syncTouches, { passive: false });
+  box.addEventListener('touchend', syncTouches, { passive: false });
+  box.addEventListener('touchcancel', syncTouches, { passive: false });
   box.addEventListener(
     'touchmove',
     (event) => {
-      if (!touch || event.touches.length !== 2 || !revisionPdfActive()) return;
+      if (!touch || !revisionPdfActive()) return;
+      const fingers = pdfTouches(event);
+      if (fingers.length !== 2) return;
       if (event.cancelable) event.preventDefault();
-      const pinch = points(event.touches);
+      const pinch = points(fingers);
       revisionZoomTo((touch.ratio * pinch.distance) / touch.distance, pinch.x, pinch.y, touch.anchor);
     },
     { passive: false },
   );
-  /** Keep a remaining finger's target for another pinch. Repaint when the last contact on the PDF ends or cancels. */
-  const finishTouch = (event) => {
-    touch = null;
-    if (!REVISION_ZOOM.holdPaint) return;
-    if (Array.from(event.touches).some((finger) => finger.target instanceof Node && box.contains(finger.target)))
-      return;
-    REVISION_ZOOM.holdPaint = false;
-    redrawRevisionPages();
-  };
-  box.addEventListener('touchend', finishTouch);
-  box.addEventListener('touchcancel', finishTouch);
   box.addEventListener(
     'scroll',
     () => {
@@ -27448,6 +27444,8 @@ async function openPinFromLink(doc, pin, restore) {
   }
   if (pinState(found) === PIN_STATE.DONE) {
     setSectionOpen('done', true);
+  } else if (MENTION_ONLY && !mentionsMe(found)) {
+    setMentionOnly(false);
   }
   OPEN_CARDS.add(pin);
   drawPins();

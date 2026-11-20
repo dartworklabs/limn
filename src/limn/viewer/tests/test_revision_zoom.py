@@ -223,6 +223,11 @@ class RevisionZoom(BrowserBase):
                     "Input.dispatchTouchEvent",
                     {"type": "touchStart" if step == 0 else "touchMove", "touchPoints": contacts},
                 )
+                if end == "touchEnd" and step == 1:
+                    # Briefly rest a third finger, then lift only that finger while the original pair stays down.
+                    third = {"id": 3, "x": x, "y": y + 25}
+                    cdp.send("Input.dispatchTouchEvent", {"type": "touchStart", "touchPoints": [*contacts, third]})
+                    cdp.send("Input.dispatchTouchEvent", {"type": "touchEnd", "touchPoints": [third]})
             cdp.send("Input.dispatchTouchEvent", {"type": end, "touchPoints": []})
             self.assertEqual(zoom.inner_text(), f"{factor:.0%}")
             after = sheet.bounding_box()

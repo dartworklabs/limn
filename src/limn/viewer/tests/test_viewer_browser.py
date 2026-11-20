@@ -600,7 +600,23 @@ class ColdDeepLink(BrowserBase):
 
     def test_notification_in_an_open_phone_tab_shows_the_linked_note(self):
         """The worker brings a background tab forward and asks it to open a pin from a different document."""
+        ps.APP.people_directory.record(A)
+        add_pin(
+            {
+                "file": str(ps.APP.C.src / "main.tex"),
+                "lo": 2,
+                "hi": 2,
+                "page": 1,
+                "note": "@Alice Kim?",
+                "kind_req": "question",
+                "mentions": [ALICE["Tailscale-User-Login"]],
+            },
+            B,
+        )
         page = self.cold("#doc=ms", "phone")
+        page.click("#btn-side")
+        page.click("#mention-filter")
+        self.assertEqual(page.locator("#mention-filter").get_attribute("aria-pressed"), "true")
         page.evaluate(
             """id => navigator.serviceWorker.dispatchEvent(new MessageEvent('message', {
                 data: {type: 'open-pin', doc: 'hl', pin: id},
