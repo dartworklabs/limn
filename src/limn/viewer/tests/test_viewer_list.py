@@ -153,7 +153,7 @@ class PinListLoading(unittest.TestCase):
     PINS_HARNESS = """
         let DOC='main',SWITCHSEQ=0,DEFAULT_DOC='main',OPEN_ALL=[],REVIEW_ALL=[],DONE_ALL=[],PINS=[],DONE=[],DROPPED=[];
         let REPLY=null,COMPOSE={current:null},PINS_LOAD_SEQ=0,PINS_APPLIED_SEQ=0; const CONFIRMING=new Set(),CONFIRMING_PIN=new Map(); const EDITOR={current:null,saving:false};
-        const SECTION_SEEN={open:null,review:null,done:null},SECTION_OPEN={done:false},OPEN_CARDS=new Set(),drawn=[],pending=[];
+        const MENTION_ONLY=false,SECTION_SEEN={open:null,review:null,done:null},SECTION_OPEN={done:false},OPEN_CARDS=new Set(),drawn=[],pending=[];
         let jumps=0;
         function api(endpoint,o){const url=endpointUrl(endpoint,o.id,o.query);
           if(url==='/api/pins?all=1')return new Promise((resolve,reject)=>pending.push({resolve,reject}));

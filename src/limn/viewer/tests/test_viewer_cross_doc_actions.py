@@ -27,7 +27,7 @@ class CrossDocumentActionLifetime(unittest.TestCase):
                 let LAYOUT='wide',scrolls=0,links=0,banners=0,cardJumps=0,restores=0,trashOpens=0; function scrollMotion(){return 'smooth';}
                 const VIEW_BY=new Map(),META_BY=new Map([
                   ['other',{pages:[],pages_build:'same'}],['third',{pages:[],pages_build:'same'}]]);
-                const OPEN_CARDS=new Set(),SECTION_OPEN={done:false};
+                const MENTION_ONLY=false,OPEN_CARDS=new Set(),SECTION_OPEN={done:false};
                 const document={body:{classList:{contains(){return false;}}},
                   querySelector(){return null;},getElementById(){return {scrollIntoView(){scrolls++;}}}};
                 function $(s){return {hidden:true};}
