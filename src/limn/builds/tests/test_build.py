@@ -57,7 +57,7 @@ from limn.builds.figure_map import FigureMap, MapRejected
 from limn.builds.queries import BuildQueries, document_build_queries
 from limn.documents import reads as limn_meta
 from limn.platform import files
-from limn.runtime.documents import NO_APART, ApartPaths, Doc, InputSetCache, RunPaths
+from limn.runtime.documents import NO_APART, ApartPaths, Doc, InputSetCache, MemoClock, RunPaths
 from limn.web.errors import HTTPError
 
 from helpers import MINI_PDF, Base, GatedBuild, blank_png, figure_map, map_bytes, needs_tex, ps, req
@@ -114,6 +114,7 @@ class PlainDoc:
     mcache: list = field(default_factory=lambda: [None, 0.0, 0.0])
     mcache_lock: threading.Lock = field(default_factory=threading.Lock)
     mcache_epoch: int = 0
+    mcache_clock: MemoClock = field(default_factory=MemoClock)
     mcache_asked: float = float("-inf")
     mcache_watched: float = float("-inf")
     mcache_measuring: threading.Lock = field(default_factory=threading.Lock)

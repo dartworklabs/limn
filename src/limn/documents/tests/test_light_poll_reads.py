@@ -12,6 +12,7 @@ These tests count file-system calls and opened files instead of timing them
 Run: uv run pytest -q src/limn/documents/tests/test_light_poll_reads.py
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -396,6 +397,28 @@ class SummaryOnce(Fixture):
         )
 
 
+class HeldClock:
+    """A document's pair of clocks (limn.runtime.documents.MemoClock) that a test can hold: each runs as the real
+    clock does until the test sets a value for it. on_steady, when set, is called at every look at the steady
+    clock, before the value is read."""
+
+    def __init__(self) -> None:
+        """Both clocks run; nothing is called."""
+        self.wall_at: float | None = None
+        self.steady_at: float | None = None
+        self.on_steady = None
+
+    def wall(self) -> float:
+        """The wall clock: the held value, else time.time()."""
+        return time.time() if self.wall_at is None else self.wall_at
+
+    def steady(self) -> float:
+        """The clock that never goes back: the held value, else time.monotonic()."""
+        if self.on_steady is not None:
+            self.on_steady()
+        return time.monotonic() if self.steady_at is None else self.steady_at
+
+
 class WatchedPoll(Fixture):
     """A poll of documents the manuscript watch keeps walks no manuscript (limn.builds.artifacts.shown_src_mtime,
     watch_src_mtime): its file-system calls do not follow the size of the manuscripts, and its body is the one a poll
@@ -410,10 +433,27 @@ class WatchedPoll(Fixture):
         history(self.rr, B1, time.time() + 60)
         publish(self.rv, B1, 1)
         self.docs = [self.ms, self.rr, self.rv]
+        self.clock = HeldClock()
+        for doc in self.docs:
+            doc.mcache_clock = self.clock
 
+    @contextlib.contextmanager
     def at(self, seconds: float):
-        """Stop the clock a document's asked-at and watched-at are read from at `seconds` for a block."""
-        return mock.patch.object(artifacts, "watch_clock", return_value=seconds)
+        """Hold the clock the documents' asked-at and watched-at are read from at `seconds` for a block."""
+        before, self.clock.steady_at = self.clock.steady_at, seconds
+        try:
+            yield
+        finally:
+            self.clock.steady_at = before
+
+    @contextlib.contextmanager
+    def frozen(self):
+        """Hold the wall clock the documents' 2 second memos are dated with, for a block."""
+        before, self.clock.wall_at = self.clock.wall_at, time.time()
+        try:
+            yield
+        finally:
+            self.clock.wall_at = before
 
     def poll(self) -> dict:
         """One light poll of the body among the three documents."""
@@ -480,26 +520,18 @@ class WatchedPoll(Fixture):
         baseline = self.ms.main.stat().st_mtime
         history(self.ms, B1, baseline)
         self.watch(100)
-        reads = []
+        looks = []
 
-        def clock() -> float:
-            """The watch's clock, stopped at 101; the summary's second look at it finds the manuscript edited and
-            the watch's new measurement stored."""
-            if reads is not None:
-                reads.append(1)
-                if len(reads) == 2:
-                    landed()
-            return 101.0
+        def look() -> None:
+            """Count the summary's looks at the clock; from the second one on, the memo holds the newer mtime the
+            watch would have stored after an edit. The cell is written directly: a look can come from inside the
+            memo's lock, where no function of the product may be called."""
+            looks.append(1)
+            if len(looks) == 2:
+                self.ms.mcache[1] = baseline + 50
 
-        def landed() -> None:
-            """An edit 50 seconds after the baseline, and the watch's turn that measures it."""
-            nonlocal reads
-            reads = None  # the watch's own looks at the clock are not the summary's
-            newer = baseline + 50
-            os.utime(self.ms.main, (newer, newer))
-            artifacts.watch_src_mtime(self.ms, self.state)
-
-        with mock.patch.object(artifacts, "watch_clock", clock):
+        with self.at(101):
+            self.clock.on_steady = look
             brief = self.q.summary(self.ms, self.state, 150).brief
         self.assertEqual(brief["stale_build"], brief["src_mtime"] - baseline > 2)
 

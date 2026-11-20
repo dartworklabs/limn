@@ -53,7 +53,7 @@ from limn.builds.values import (
 )
 from limn.platform.files import PATH_MAX_CHARS, atomic_write
 from limn.platform.values import is_finite_num, is_int, is_num
-from limn.runtime.documents import NO_APART, ApartPaths, InputSetCache
+from limn.runtime.documents import NO_APART, ApartPaths, InputSetCache, MemoClock
 
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 # Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
@@ -162,12 +162,15 @@ class BuildDoc(BuildStateHolder, Protocol):
     mcache_epoch: int
     """How many times the src_mtime memo was expired (expire_src_mtime); changed only under mcache_lock."""
 
+    mcache_clock: MemoClock
+    """The clocks the memo is read against: wall() dates a measurement, steady() the asking and the watching."""
+
     mcache_asked: float
-    """When a document summary last asked for the manuscript mtime (shown_src_mtime), on watch_clock; minus infinity
+    """When a document summary last asked for the manuscript mtime (shown_src_mtime), on the steady clock; minus infinity
     until one has. Read and written only under mcache_lock."""
 
     mcache_watched: float
-    """When the manuscript watch last finished a measurement that the memo kept (watch_src_mtime), on watch_clock;
+    """When the manuscript watch last finished a measurement that the memo kept (watch_src_mtime), on the steady clock;
     minus infinity when it has none - never measured, let go, or a page swap since. Only under mcache_lock."""
 
     mcache_measuring: threading.Lock
@@ -1014,12 +1017,6 @@ SRC_WATCH_TRUST_S = 10.0  # a summary answers the watch's value this long after 
 NEVER = float("-inf")  # asked-at and watched-at of a document nobody asked about, or the watch does not keep
 
 
-def watch_clock() -> float:
-    """The clock a document's asked-at and watched-at are read from: one that never goes back, so that a wall clock
-    set back cannot make a kept value look fresh for longer."""
-    return time.monotonic()
-
-
 def fls_inputs(text: str, cwd: Path, roots: Iterable[Path]) -> frozenset[str]:
     """The figure-set files a latexmk recorder file (.fls) lists as read: its `INPUT <path>` lines, each resolved against
     cwd - the folder pdflatex ran in - when relative, and kept when it lies strictly below one of roots (the build copy
@@ -1313,13 +1310,13 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
 def _memo_hit(D: BuildDoc, key: tuple[str, str | None], watch_now: float | None = None) -> float | None:
     """The value D's src_mtime memo holds under `key` when it may still be answered, else None: it was measured less
     than SRC_MEMO_S seconds ago, or - for a caller that takes the manuscript watch's word and passes watch_now, the
-    reading of watch_clock - the watch finished a measurement of D less than SRC_WATCH_TRUST_S seconds before
+    reading of D's steady clock - the watch finished a measurement of D less than SRC_WATCH_TRUST_S seconds before
     watch_now and no page swap has come since. Takes D.mcache_lock for the look; asks the file system nothing."""
     with D.mcache_lock:
         val: float = D.mcache[1]
         if D.mcache[0] != key:
             return None
-        if time.time() - D.mcache[2] < SRC_MEMO_S:
+        if D.mcache_clock.wall() - D.mcache[2] < SRC_MEMO_S:
             return val
         if watch_now is not None and watch_now - D.mcache_watched < SRC_WATCH_TRUST_S:
             return val
@@ -1348,9 +1345,9 @@ def _measure(
                 newest = max(newest, e.stat().st_mtime)
     with D.mcache_lock:
         if D.mcache_epoch == epoch:  # not measured across an expiry: the answer is still about the build on screen
-            D.mcache[0], D.mcache[1], D.mcache[2] = key, newest, time.time()
+            D.mcache[0], D.mcache[1], D.mcache[2] = key, newest, D.mcache_clock.wall()
             if by_watch:
-                D.mcache_watched = watch_clock()
+                D.mcache_watched = D.mcache_clock.steady()
     return newest
 
 
@@ -1369,7 +1366,7 @@ def shown_src_mtime(D: BuildDoc, state_dir: Path) -> float:
     do not take a value that may be seconds old."""
     if not D.builds_from_source:
         return src_mtime(D, state_dir)
-    now = watch_clock()
+    now = D.mcache_clock.steady()
     with D.mcache_lock:
         D.mcache_asked = now
     hit = _memo_hit(D, (str(D.src), None), now)
@@ -1387,7 +1384,7 @@ def watch_src_mtime(D: BuildDoc, state_dir: Path) -> bool:
     (shown_src_mtime does not note it), so the watch has no turn for it. The watch only reads: folder listings,
     stats, and the recorder file of the build on screen."""
     with D.mcache_lock:
-        if watch_clock() - D.mcache_asked >= SRC_WATCH_ASKED_S:
+        if D.mcache_clock.steady() - D.mcache_asked >= SRC_WATCH_ASKED_S:
             D.mcache_watched = NEVER
             return False
     if not D.mcache_measuring.acquire(blocking=False):

@@ -20,7 +20,7 @@ from limn.builds.artifacts import (
     ViewOnlyNoRebuild,
 )
 from limn.builds.figure import FigureImport
-from limn.platform.diagnostics import diagnostics
+from limn.platform.diagnostics import BoundedDiagnostics, diagnostics
 from limn.platform.effects import changed
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc, document_authority_target
@@ -51,6 +51,9 @@ class BuildRequests:
         self.describe = describe
         self.figure_shown = figure_shown
         self.figure_looks = figure.MapLooks()  # this run's memo of each figure document's map parse (figure.MapLooks)
+        self.diagnostics: BoundedDiagnostics = (
+            diagnostics  # where the manuscript watch reports a failure, once per cause
+        )
 
     @property
     def authority_scope(self) -> AuthorityScope:
@@ -205,11 +208,10 @@ class BuildRequests:
             except Exception as error:  # noqa: BLE001 — the watch thread must never die
                 self._report_watch_failure("document %s" % doc.key, error)
 
-    @staticmethod
-    def _report_watch_failure(what: str, error: Exception) -> None:
+    def _report_watch_failure(self, what: str, error: Exception) -> None:
         """Say on standard error, once per kind of failure, that the manuscript watch could not measure `what`. The
         summaries then measure for themselves, as they do without a watch (limn.builds.artifacts.shown_src_mtime)."""
-        diagnostics.emit(
+        self.diagnostics.emit(
             "manuscript watch:%s:%s" % (what, type(error).__name__),
             lambda: "warning: manuscript watch failed for %s: %s: %s" % (what, type(error).__name__, error),
         )

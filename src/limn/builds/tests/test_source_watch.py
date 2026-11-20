@@ -11,6 +11,7 @@ The order of two threads is fixed by a lock the test holds or by an event raised
 Run: uv run pytest -q src/limn/builds/tests/test_source_watch.py
 """
 
+import contextlib
 import io
 import os
 import shutil
@@ -23,10 +24,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from limn.builds import artifacts, service
+from limn.builds import artifacts
 from limn.builds.service import BuildRequests
 from limn.platform.diagnostics import BoundedDiagnostics
-from limn.runtime.documents import ApartPaths, Doc, RunPaths
+from limn.runtime.documents import ApartPaths, Doc, MemoClock, RunPaths
 from limn.runtime.resources import RuntimeResources
 
 from helpers import fs_calls
@@ -67,6 +68,40 @@ class Contended:
         self.release()
 
 
+class HeldClock:
+    """A document's pair of clocks (limn.runtime.documents.MemoClock) that a test can hold: each one runs as the real
+    clock does until the test sets a value for it, and then reads that value."""
+
+    def __init__(self) -> None:
+        """Both clocks run."""
+        self.wall_at: float | None = None
+        self.steady_at: float | None = None
+
+    def wall(self) -> float:
+        """The wall clock: the held value, else time.time()."""
+        return time.time() if self.wall_at is None else self.wall_at
+
+    def steady(self) -> float:
+        """The clock that never goes back: the held value, else time.monotonic()."""
+        return time.monotonic() if self.steady_at is None else self.steady_at
+
+
+class Hooked(Doc):
+    """A LaTeX document that runs `hook` at the point where a measurement of its manuscript has noted the memo's
+    generation and is about to walk the tree (it asks whether the document is built from source there) - so a test
+    can make something happen in the middle of a measurement, or make the measurement fail, without replacing any
+    function of the product."""
+
+    hook = None
+
+    @property
+    def builds_from_source(self) -> bool:
+        """True, after the hook, when one is set, has run."""
+        if self.hook is not None:
+            self.hook()
+        return True
+
+
 class Manuscript(unittest.TestCase):
     """A LaTeX document over a small manuscript (main.tex, sec/a.tex) whose files are all `old` seconds old."""
 
@@ -85,12 +120,32 @@ class Manuscript(unittest.TestCase):
         for path in (self.src / "main.tex", self.src / "sec" / "a.tex"):
             os.utime(path, (self.old, self.old))
         self.paths = RunPaths(self.src, self.src / "main.tex", self.state)
-        self.doc = Doc("ms", "Body", "tex", self.src, self.src / "main.tex", paths=self.paths)
+        self.clock = HeldClock()
+        self.doc = self.clocked(Hooked("ms", "Body", "tex", self.src, self.src / "main.tex", paths=self.paths))
 
+    def clocked(self, doc):
+        """doc, reading its memo against this fixture's clock."""
+        doc.mcache_clock = self.clock
+        return doc
+
+    @contextlib.contextmanager
+    def at(self, seconds: float):
+        """Hold the clock asked-at and watched-at are read from at `seconds` for a block."""
+        before, self.clock.steady_at = self.clock.steady_at, seconds
+        try:
+            yield
+        finally:
+            self.clock.steady_at = before
+
+    @contextlib.contextmanager
     def frozen(self):
-        """Stop time.time for a block - the clock the 2 second memo is measured with - so that a read which must hit
-        the memo hits it however long the test takes to get there."""
-        return mock.patch.object(artifacts.time, "time", return_value=time.time())
+        """Hold the wall clock for a block - the clock the 2 second memo is dated with - so that a read which must
+        hit the memo hits it however long the test takes to get there."""
+        before, self.clock.wall_at = self.clock.wall_at, time.time()
+        try:
+            yield
+        finally:
+            self.clock.wall_at = before
 
     def edit(self) -> float:
         """Give main.tex an mtime 50 seconds after self.old, as an edit would, and return it."""
@@ -186,11 +241,6 @@ NEVER = float("-inf")
 B1, B2 = "pages-20260101000000", "pages-20260101000001"
 
 
-def at(seconds: float):
-    """Stop the clock asked-at and watched-at are read from (artifacts.watch_clock) at `seconds` for a block."""
-    return mock.patch.object(artifacts, "watch_clock", return_value=seconds)
-
-
 def walk_calls(call) -> int:
     """How many folder listings and entry stats call() made on this thread: what a walk of the manuscript costs."""
     counts, _ = fs_calls(call)
@@ -215,7 +265,7 @@ class Watched(Manuscript):
 
     def watched_at(self, seconds: float, doc: Doc | None = None) -> None:
         """A summary asks at `seconds` and the watch then measures, so the watch keeps the document from then on."""
-        with at(seconds):
+        with self.at(seconds):
             self.read(doc)
             self.assertTrue(self.turn(doc))
         forget_memo_age(doc or self.doc)
@@ -227,7 +277,7 @@ class Watched(Manuscript):
         (self.src / "figs" / "a.pdf").write_bytes(b"%PDF-1.4\n")
         self.figure_time = self.old + 30
         os.utime(self.src / "figs" / "a.pdf", (self.figure_time, self.figure_time))
-        doc = Doc(
+        doc = Hooked(
             "ap",
             "Apart",
             "tex",
@@ -238,7 +288,7 @@ class Watched(Manuscript):
         )
         (doc.dir / B1).mkdir(parents=True)
         (doc.dir / "pages.cur").write_text(B1, encoding="utf-8")
-        return doc
+        return self.clocked(doc)
 
     def swap_to_a_build_that_read_the_figure(self, doc: Doc) -> None:
         """Put build B2 on screen, whose recorder file lists figs/a.pdf, as a build that swaps the page pointer does."""
@@ -256,19 +306,19 @@ class SummaryReadsTheWatch(Watched):
         """Five seconds after the watch measured, with the 2 second memo long expired, a summary asks the file system
         nothing and answers the manuscript's mtime."""
         self.watched_at(100)
-        with at(105):
+        with self.at(105):
             counts, answer = fs_calls(self.read)
         self.assertEqual((answer, sum(counts.values())), (self.old, 0))
 
     def test_the_calls_of_a_watched_read_do_not_grow_with_the_manuscript(self):
         """What a watched read costs is the same for 2 manuscript files and for 300."""
         self.watched_at(100)
-        with at(101):
+        with self.at(101):
             small = sum(fs_calls(self.read)[0].values())
         for n in range(300):
             (self.src / "sec" / ("p%03d.tex" % n)).write_text("x\n", encoding="utf-8")
         self.watched_at(102)
-        with at(103):
+        with self.at(103):
             large = sum(fs_calls(self.read)[0].values())
         self.assertEqual((small, large), (0, 0))
 
@@ -276,38 +326,57 @@ class SummaryReadsTheWatch(Watched):
         """Ten seconds after the watch finished measuring, its value is no longer answered: the summary walks the tree.
         A moment before that it does not."""
         self.watched_at(100)
-        with at(109.9):
+        with self.at(109.9):
             self.assertEqual(walk_calls(self.read), 0)
-        with at(110):
+        with self.at(110):
             self.assertGreaterEqual(walk_calls(self.read), 1)
 
     def test_a_request_measurement_is_trusted_for_two_seconds_only(self):
         """A value a request measured, with no watch behind it, answers inside the 2 seconds and not after."""
-        with at(100), self.frozen():
+        with self.at(100), self.frozen():
             self.read()
             self.assertEqual(walk_calls(self.read), 0)
             forget_memo_age(self.doc)
             self.assertGreaterEqual(walk_calls(self.read), 1)
 
+    def test_a_request_measurement_expires_two_seconds_on_the_wall_clock(self):
+        """The 2 second memo is dated with the wall clock: 1.9 s later a read still hits it, 2 s later it walks,
+        whatever the other clock reads."""
+        wall = time.time()
+        self.clock.wall_at = wall
+        with self.at(100):
+            self.read()
+            self.clock.wall_at = wall + 1.9
+            self.assertEqual(walk_calls(self.read), 0)
+        with self.at(100000):
+            self.assertEqual(walk_calls(self.read), 0)
+            self.clock.wall_at = wall + 2.0
+            self.assertGreaterEqual(walk_calls(self.read), 1)
+
     def test_a_wall_clock_set_back_does_not_keep_the_watch_s_value_trusted(self):
         """Eleven seconds after the watch measured, with the wall clock set back an hour meanwhile, a summary no
-        longer answers the watch's value: the limit is counted on a clock that never goes back."""
-        wall = time.time()
-        with mock.patch.object(artifacts.time, "monotonic", return_value=100.0):
-            self.read()
-            self.assertTrue(self.turn())
-        forget_memo_age(self.doc)
-        with (
-            mock.patch.object(artifacts.time, "monotonic", return_value=111.0),
-            mock.patch.object(artifacts.time, "time", return_value=wall - 3600),
-        ):
+        longer answers the watch's value: the limit is counted on the clock that never goes back."""
+        self.watched_at(100)
+        self.clock.wall_at = time.time() - 3600
+        with self.at(111):
             self.assertGreaterEqual(walk_calls(self.read), 1)
+
+    def test_a_document_s_own_clocks_are_the_wall_clock_and_one_that_never_goes_back(self):
+        """A document made by the product dates its memo with time.time and keeps asked-at and watched-at on
+        time.monotonic - two clocks that read nowhere near each other."""
+        clock = MemoClock()
+        self.assertIsInstance(
+            Doc("x", "X", "tex", self.src, self.src / "main.tex", paths=self.paths).mcache_clock, MemoClock
+        )
+        self.assertLess(abs(clock.wall() - time.time()), 5)
+        self.assertLess(abs(clock.steady() - time.monotonic()), 5)
+        self.assertGreater(abs(clock.steady() - clock.wall()), 5)
 
     def test_a_page_swap_forgets_what_the_watch_measured(self):
         """After a build swapped the page pointer, the value the watch measured before it is not answered."""
         self.watched_at(100)
         artifacts.expire_src_mtime(self.doc)
-        with at(100.5):
+        with self.at(100.5):
             self.assertGreaterEqual(walk_calls(self.read), 1)
 
     def test_the_swap_of_a_document_that_sets_files_apart_is_answered_against_the_new_build(self):
@@ -315,10 +384,10 @@ class SummaryReadsTheWatch(Watched):
         screen. The next summary answers the figure's mtime, not what the watch kept."""
         doc = self.apart_doc()
         self.watched_at(100, doc)
-        with at(100.2):
+        with self.at(100.2):
             self.assertEqual(self.read(doc), self.old)
         self.swap_to_a_build_that_read_the_figure(doc)
-        with at(100.4):
+        with self.at(100.4):
             self.assertEqual(self.read(doc), self.figure_time)
 
     def test_a_forced_measurement_ignores_what_the_watch_keeps(self):
@@ -326,7 +395,7 @@ class SummaryReadsTheWatch(Watched):
         answers that newer measurement, the latest the memo was given."""
         self.watched_at(100)
         newer = self.edit()
-        with at(101):
+        with self.at(101):
             self.assertEqual(artifacts.src_mtime(self.doc, self.state, force=True), newer)
             forget_memo_age(self.doc)
             self.assertEqual(self.read(), newer)
@@ -338,7 +407,7 @@ class SummaryReadsTheWatch(Watched):
         (self.doc.dir / "pages.cur").write_text(B1, encoding="utf-8")
         (self.doc.dir / "built_src_mtime.txt").write_text("%f" % self.old, encoding="utf-8")
         self.watched_at(100)
-        with at(105):
+        with self.at(105):
             self.assertGreaterEqual(walk_calls(lambda: artifacts.source_newer(self.doc, self.state, B1)), 1)
 
     def test_a_named_measurement_in_the_memo_is_not_answered_as_the_build_on_screen(self):
@@ -348,7 +417,7 @@ class SummaryReadsTheWatch(Watched):
         self.watched_at(100, doc)
         self.swap_to_a_build_that_read_the_figure(doc)
         self.watched_at(101, doc)
-        with at(102):
+        with self.at(102):
             self.assertEqual(artifacts.src_mtime(doc, self.state, force=True, build=B1), self.old)
             forget_memo_age(doc)
             self.assertEqual(self.read(doc), self.figure_time)
@@ -357,8 +426,8 @@ class SummaryReadsTheWatch(Watched):
         """A view-only PDF's mtime is one stat of its file, as before; no summary marks it asked and the watch has
         no turn for it."""
         (self.src / "review.pdf").write_bytes(b"%PDF-1.4\n")
-        pdf = Doc("rv", "Review", "pdf", self.src, self.src / "review.pdf", paths=self.paths)
-        with at(100):
+        pdf = self.clocked(Doc("rv", "Review", "pdf", self.src, self.src / "review.pdf", paths=self.paths))
+        with self.at(100):
             counts, answer = fs_calls(lambda: self.read(pdf))
             self.assertEqual(
                 (answer, counts["stat"], walk_calls(lambda: self.turn(pdf))), (pdf.main.stat().st_mtime, 1, 0)
@@ -369,11 +438,11 @@ class SummaryReadsTheWatch(Watched):
     def test_a_document_whose_tree_is_gone_is_measured_as_nothing_and_the_watch_goes_on(self):
         """A build root that vanished measures as 0.0 for a summary and for the watch alike; neither raises."""
         shutil.rmtree(self.src)
-        with at(100):
+        with self.at(100):
             self.assertEqual(self.read(), 0.0)
             self.assertTrue(self.turn())
         forget_memo_age(self.doc)
-        with at(101):
+        with self.at(101):
             self.assertEqual(self.read(), 0.0)
 
 
@@ -383,34 +452,34 @@ class WatchTurn(Watched):
     def test_a_document_nobody_asked_about_is_not_measured_however_small_the_clock(self):
         """Right after boot the clock reads less than the 15 seconds; a document no summary asked about is still not
         measured, and the watch asks the file system nothing for it."""
-        with at(0.5):
+        with self.at(0.5):
             counts, measured = fs_calls(self.turn)
         self.assertEqual((measured, sum(counts.values())), (False, 0))
 
     def test_a_document_is_let_go_fifteen_seconds_after_it_was_last_asked_about(self):
         """The watch measures a document until 15 seconds have passed since a summary asked; then it asks the file
         system nothing for it and drops what it kept."""
-        with at(100):
+        with self.at(100):
             self.read()
-        with at(114.9):
+        with self.at(114.9):
             self.assertTrue(self.turn())
         self.assertEqual(self.doc.mcache_watched, 114.9)
-        with at(115):
+        with self.at(115):
             counts, measured = fs_calls(self.turn)
         self.assertEqual((measured, sum(counts.values()), self.doc.mcache_watched), (False, 0, NEVER))
 
     def test_two_reads_after_the_watch_let_go_do_not_answer_what_it_last_measured(self):
         """The watch let a document go, the manuscript was edited, and two summaries ask one after the other. Neither
         answers the value the watch measured before the edit; the second takes the first one's measurement."""
-        with at(100):
+        with self.at(100):
             self.read()
-        with at(114):
+        with self.at(114):
             self.assertTrue(self.turn())
-        with at(115.5):
+        with self.at(115.5):
             self.assertFalse(self.turn())
         newer = self.edit()
         forget_memo_age(self.doc)
-        with at(120), self.frozen():
+        with self.at(120), self.frozen():
             self.assertEqual(self.read(), newer)
             counts, second = fs_calls(self.read)
         self.assertEqual((second, counts["scandir"]), (newer, 0))
@@ -418,18 +487,11 @@ class WatchTurn(Watched):
     def test_a_watch_measurement_that_spans_a_page_swap_is_dropped_and_leaves_no_stamp(self):
         """A build swapped the page pointer while the watch was measuring: the watch's value is not stored and the
         document is not marked as kept by the watch."""
-        real = artifacts.build_inputs
-
-        def swapped(D, name=None):
-            """The real lookup, with a page swap landing right after it."""
-            got = real(D, name)
-            artifacts.expire_src_mtime(D)
-            return got
-
-        with at(100):
+        with self.at(100):
             self.read()
         forget_memo_age(self.doc)
-        with at(101), mock.patch.object(artifacts, "build_inputs", swapped):
+        self.doc.hook = lambda: artifacts.expire_src_mtime(self.doc)  # a page swap lands inside the measurement
+        with self.at(101):
             self.assertTrue(self.turn())
         self.assertEqual((self.doc.mcache_watched, self.doc.mcache[2]), (NEVER, 0.0))
 
@@ -440,11 +502,11 @@ class WatchTurn(Watched):
             """The watch must not wait for the measurement lock."""
             raise AssertionError("the watch waited for the measurement lock")
 
-        with at(100):
+        with self.at(100):
             self.read()
         self.doc.mcache_measuring = Contended(fail)
         self.doc.mcache_measuring.acquire()
-        with at(101):
+        with self.at(101):
             counts, measured = fs_calls(self.turn)
         self.assertEqual((measured, sum(counts.values())), (False, 0))
 
@@ -454,7 +516,7 @@ class WatchTurn(Watched):
         doc = self.apart_doc()
         self.swap_to_a_build_that_read_the_figure(doc)
         self.watched_at(100, doc)
-        with at(101):
+        with self.at(101):
             counts, answer = fs_calls(lambda: self.read(doc))
         self.assertEqual((answer, sum(counts.values())), (self.figure_time, 0))
 
@@ -487,53 +549,49 @@ class WatchLoop(Watched):
     """BuildRequests.watch_sources: the loop that gives every document of the run its turn, round after round."""
 
     def requests(self, docs: list[Doc]) -> BuildRequests:
-        """The build service of a run that serves docs with this fixture's state folder."""
-        return BuildRequests(
+        """The build service of a run that serves docs with this fixture's state folder, reporting the watch's
+        failures to a record of its own (the process-wide one remembers the causes other tests reported)."""
+        requests = BuildRequests(
             lambda: SimpleNamespace(state=self.state), lambda: {}, lambda: docs, lambda: "T", lambda result: ""
         )
+        requests.diagnostics = BoundedDiagnostics()
+        return requests
 
     def second_doc(self) -> Doc:
         """Another LaTeX document, over a manuscript of its own."""
         src = self.top / "other"
         src.mkdir()
         (src / "other.tex").write_text("\\documentclass{article}\n", encoding="utf-8")
-        return Doc("ot", "Other", "tex", src, src / "other.tex", paths=self.paths)
+        return self.clocked(Hooked("ot", "Other", "tex", src, src / "other.tex", paths=self.paths))
 
     def test_one_round_measures_the_documents_asked_about_and_no_other(self):
         """Of a LaTeX document a summary asked about, one nobody asked about and a view-only PDF, a round measures
         the first alone."""
         (self.src / "review.pdf").write_bytes(b"%PDF-1.4\n")
-        pdf = Doc("rv", "Review", "pdf", self.src, self.src / "review.pdf", paths=self.paths)
+        pdf = self.clocked(Doc("rv", "Review", "pdf", self.src, self.src / "review.pdf", paths=self.paths))
         unasked = self.second_doc()
-        with at(100):
+        with self.at(100):
             self.read()
             self.read(pdf)
-        with at(101):
+        with self.at(101):
             self.requests([unasked, pdf, self.doc]).watch_sources(Rounds(1))
         self.assertEqual((self.doc.mcache_watched, unasked.mcache_watched, pdf.mcache_watched), (101, NEVER, NEVER))
 
     def test_a_document_that_raises_does_not_stop_the_round(self):
         """A measurement that raises is reported on standard error and the documents after it are still measured."""
         other = self.second_doc()
-        real = artifacts.watch_src_mtime
 
-        def failing(doc, state_dir):
-            """The real turn, except that the first document's raises."""
-            if doc is other:
-                raise RuntimeError("cannot measure")
-            return real(doc, state_dir)
+        def failing() -> None:
+            """The first document's measurement cannot be made."""
+            raise RuntimeError("cannot measure")
 
         errors = io.StringIO()
-        with at(100):
+        with self.at(100):
             self.read()
             self.read(other)
-        with (
-            at(101),
-            mock.patch.object(artifacts, "watch_src_mtime", failing),
-            mock.patch.object(service, "diagnostics", BoundedDiagnostics()),
-            redirect_stderr(errors),
-        ):
-            requests = self.requests([other, self.doc])
+        other.hook = failing
+        requests = self.requests([other, self.doc])
+        with self.at(101), redirect_stderr(errors):
             requests.watch_sources_round(threading.Event())
             requests.watch_sources_round(threading.Event())
         self.assertEqual(self.doc.mcache_watched, 101)
@@ -554,10 +612,11 @@ class WatchLoop(Watched):
         requests = BuildRequests(
             lambda: SimpleNamespace(state=self.state), lambda: {}, docs, lambda: "T", lambda result: ""
         )
+        requests.diagnostics = BoundedDiagnostics()
         errors = io.StringIO()
-        with at(100):
+        with self.at(100):
             self.read()
-        with at(101), mock.patch.object(service, "diagnostics", BoundedDiagnostics()), redirect_stderr(errors):
+        with self.at(101), redirect_stderr(errors):
             requests.watch_sources(Rounds(2))
         self.assertEqual(self.doc.mcache_watched, 101)
         self.assertIn("RuntimeError: no documents yet", errors.getvalue())
@@ -566,17 +625,11 @@ class WatchLoop(Watched):
         """Once the run is stopping, the documents not yet reached in the round are left unmeasured."""
         other = self.second_doc()
         stop = threading.Event()
-        real = artifacts.watch_src_mtime
-
-        def stopping(doc, state_dir):
-            """The real turn; the run is told to stop while the first document is measured."""
-            stop.set()
-            return real(doc, state_dir)
-
-        with at(100):
+        with self.at(100):
             self.read()
             self.read(other)
-        with at(101), mock.patch.object(artifacts, "watch_src_mtime", stopping):
+        self.doc.hook = stop.set  # the run is told to stop while the first document is measured
+        with self.at(101):
             self.requests([self.doc, other]).watch_sources_round(stop)
         self.assertEqual((self.doc.mcache_watched, other.mcache_watched), (101, NEVER))
 
@@ -591,15 +644,15 @@ class WatchLoop(Watched):
     def test_two_runs_share_no_watch_state(self):
         """Two documents over one manuscript, as two runs in one process have them: a round of one run measures its
         own document and leaves the other's asked-at, watched-at and measurement lock alone."""
-        twin = Doc("ms", "Body", "tex", self.src, self.src / "main.tex", paths=self.paths)
-        with at(100):
+        twin = self.clocked(Doc("ms", "Body", "tex", self.src, self.src / "main.tex", paths=self.paths))
+        with self.at(100):
             self.read()
             self.read(twin)
-        with at(101):
+        with self.at(101):
             self.requests([self.doc]).watch_sources_round(threading.Event())
         self.assertEqual((self.doc.mcache_watched, twin.mcache_watched), (101, NEVER))
         self.assertIsNot(self.doc.mcache_measuring, twin.mcache_measuring)
-        with at(102):
+        with self.at(102):
             self.requests([twin]).watch_sources_round(threading.Event())
         self.assertEqual((self.doc.mcache_watched, twin.mcache_watched), (101, 102))
 
@@ -618,11 +671,11 @@ class WatchLoop(Watched):
                 seen[str(path)] = (st.st_ino, st.st_mtime_ns, path.read_bytes() if path.is_file() else b"")
             return seen
 
-        with at(100):
+        with self.at(100):
             self.read()
             self.read(apart)
         before = snapshot()
-        with at(101):
+        with self.at(101):
             self.requests([self.doc, apart]).watch_sources_round(threading.Event())
         self.assertEqual((self.doc.mcache_watched, apart.mcache_watched), (101, 101))
         self.assertEqual(snapshot(), before)
@@ -632,14 +685,15 @@ class WatchLoop(Watched):
         watch ends by itself once the measurement returns."""
         inside, release = threading.Event(), threading.Event()
 
-        def stuck(doc, state_dir):
-            """A turn that does not return until the test lets it."""
+        def stuck() -> None:
+            """A measurement that does not go on until the test lets it."""
             inside.set()
             release.wait(10)
-            return False
 
         runtime = RuntimeResources(*([None] * 9))
-        with mock.patch.object(artifacts, "watch_src_mtime", stuck):
+        with self.at(100):
+            self.read()
+            self.doc.hook = stuck
             runtime.start_thread(self.requests([self.doc]).watch_sources, runtime.stopping, 0.0)
             self.assertTrue(inside.wait(10))
             runtime.stop(timeout=0.05)
