@@ -472,22 +472,34 @@ class WatchedPoll(Fixture):
         self.assertEqual(back, unwatched)
 
     def test_one_summary_reports_one_measurement_when_the_watch_stores_in_the_middle_of_it(self):
-        """The manuscript is edited and the watch stores the new mtime while a summary is between its mtime and its
-        staleness. The summary's src_mtime and stale_build still come from one measurement: stale_build is true
-        exactly when the src_mtime it reports is more than 2 seconds newer than the build's baseline."""
+        """The manuscript is edited and the watch stores the new mtime while a summary is under way. The summary's
+        src_mtime and stale_build still come from one measurement: stale_build is true exactly when the src_mtime it
+        reports is more than 2 seconds newer than the build's baseline. Were the manuscript's mtime read a second
+        time for the staleness, that read would see the watch's newer value - here the edit lands right before any
+        second read of the summary."""
         baseline = self.ms.main.stat().st_mtime
         history(self.ms, B1, baseline)
         self.watch(100)
-        real = artifacts.build_ref_mtime
+        reads = []
 
-        def edited(doc, name, shown=None):
-            """The real baseline lookup, with an edit and a watch turn landing right before it."""
+        def clock() -> float:
+            """The watch's clock, stopped at 101; the summary's second look at it finds the manuscript edited and
+            the watch's new measurement stored."""
+            if reads is not None:
+                reads.append(1)
+                if len(reads) == 2:
+                    landed()
+            return 101.0
+
+        def landed() -> None:
+            """An edit 50 seconds after the baseline, and the watch's turn that measures it."""
+            nonlocal reads
+            reads = None  # the watch's own looks at the clock are not the summary's
             newer = baseline + 50
             os.utime(self.ms.main, (newer, newer))
             artifacts.watch_src_mtime(self.ms, self.state)
-            return real(doc, name, shown)
 
-        with self.at(101), mock.patch.object(artifacts, "build_ref_mtime", edited):
+        with mock.patch.object(artifacts, "watch_clock", clock):
             brief = self.q.summary(self.ms, self.state, 150).brief
         self.assertEqual(brief["stale_build"], brief["src_mtime"] - baseline > 2)
 
