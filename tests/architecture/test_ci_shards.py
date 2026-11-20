@@ -1,7 +1,7 @@
 """The browser suite split across CI jobs (`--shard i/n`, tests/support/helpers_shards.py) runs every test once.
 
 CI runs the browser suite once, on Python 3.12, on separate runners (.github/workflows/browser.yml): the Chromium
-classes in parts and the Firefox and WebKit classes in one job, reported under the one check name branch protection
+classes in parts and the Firefox and WebKit classes in separate jobs, reported under the one check name branch protection
 requires (.github/workflows/ci.yml). A part that dropped a test, or a test that ran in no job, would pass the gate
 without running; these tests hold that, for any number of parts:
 
@@ -9,9 +9,9 @@ without running; these tests hold that, for any number of parts:
    collections with parameters and scopes the timing file does not know, and for the real browser suite.
 2. The option runs that part: it splits what -m selected, runs subtests with their test, agrees across xdist workers,
    and starts the heaviest class first.
-3. The engine markers follow a class's BROWSER_ENGINE, so the parts' selection and the engines job's add up to
-   `-m browser` with no test in both.
-4. The workflows run every part and the engines job, once, on Python 3.12 and fail the required name when one did not
+3. The engine markers follow a class's BROWSER_ENGINE, so the parts and the two engine jobs together select
+   `-m browser` with each test in exactly one job.
+4. The workflows run every part and each engine job once on Python 3.12 and fail the required name when one did not
    pass.
 
 Run: uv run pytest -q tests/architecture/test_ci_shards.py
@@ -61,6 +61,18 @@ def marker_expression(job: str) -> str:
     """The `-m` expression of the one pytest command in a job of browser.yml."""
     (expression,) = re.findall(r'pytest [^\n]*-m "([^"]+)"', job)
     return expression
+
+
+def ci_engines(job: str) -> list[str]:
+    """Read the browser engine matrix, requiring one job for Firefox and one for WebKit."""
+    matrix = re.search(r"\n      matrix:\n((?:        .*\n)+)", job)
+    assert matrix is not None, job
+    rows = [line.strip() for line in matrix[1].splitlines() if not line.strip().startswith("#")]
+    assert len(rows) == 1, rows
+    (values,) = re.findall(r"^engine: \[([\w, ]+)\]$", rows[0])
+    engines = [value.strip() for value in values.split(",")]
+    assert Counter(engines) == {"firefox": 1, "webkit": 1}, engines
+    return engines
 
 
 def browser_jobs() -> dict[str, str]:
@@ -172,16 +184,22 @@ def test_the_browser_suite_splits_into_whole_parts_for_any_n_and_the_ci_parts_ar
     assert got == expected
 
 
-def test_the_parts_and_the_engines_job_run_every_browser_test_once():
-    """What the parts select and what the engines job selects add up to the browser suite, with no test in both, and
-    each holds tests: a Firefox or WebKit test in the parts would fail where those engines are not installed, and a
-    test in neither would not run."""
+def test_the_parts_and_the_engine_jobs_run_every_browser_test_once():
+    """Expand the workflow's actual engine matrix and pytest selections: each job collects only its engine's tests,
+    and the Chromium parts and both engine jobs account for every browser test exactly once."""
     found = browser_jobs()
     parts = Counter(collected("-m", marker_expression(found["part"])))
-    engines = Counter(collected("-m", marker_expression(found["engines"])))
-    assert parts and engines
-    assert not parts & engines, sorted(parts & engines)[:5]
-    assert parts + engines == Counter(collected("-m", "browser"))
+    engine_job = found["engines"]
+    expression = marker_expression(engine_job)
+    partition = parts.copy()
+    assert parts
+    for engine in ci_engines(engine_job):
+        selection = expression.replace("${{ matrix.engine }}", engine)
+        assert selection == f"browser and {engine}", (engine, selection)
+        tests = Counter(collected("-m", selection))
+        assert tests, (engine, selection)
+        partition.update(tests)
+    assert partition == Counter(collected("-m", "browser"))
 
 
 def test_a_class_carries_the_marker_of_the_engine_it_selects(pytester):
@@ -363,8 +381,9 @@ def test_a_recording_is_the_seconds_of_each_scope_without_counting_subtests_agai
 
 
 def test_ci_runs_every_part_once_on_3_12_and_fails_the_required_name_unless_all_passed():
-    """browser.yml runs its Chromium selection with `--shard i/n` for i in 1..n and its Firefox and WebKit selection in
-    one job, both on the caller's Python; ci.yml calls it once, on 3.12, and reports `test (3.12, browser, browser, 2)`
+    """browser.yml runs its Chromium selection with `--shard i/n` for i in 1..n and each engine selection in
+    its own job with its engine installed, all on the caller's Python. ci.yml calls it once, on 3.12, and reports
+    `test (3.12, browser, browser, 2)`
     - the one browser result it has - from those jobs, failing on anything but success (a failed, cancelled or skipped
     job) and running even then (`if: always()`)."""
     browser = browser_jobs()
@@ -373,7 +392,13 @@ def test_ci_runs_every_part_once_on_3_12_and_fails_the_required_name_unless_all_
     assert re.search(r'pytest .*-m "[^"]+" --shard \$\{\{ matrix\.shard \}\}/\$\{\{ strategy\.job-total \}\}', part), (
         part
     )
-    assert "--shard" not in engines and "matrix" not in engines, engines
+    assert "--shard" not in engines, engines
+    assert "fail-fast: false" in engines, engines
+    assert re.findall(r"^        run: uv run playwright install[^\n]*$", browser["engines"], re.MULTILINE) == [
+        "        run: uv run playwright install --with-deps ${{ matrix.engine }}"
+    ]
+    for job in browser.values():
+        assert not re.search(r"^    if:|^\s+continue-on-error:", job, re.MULTILINE), job
     matrix = re.search(r"\n      matrix:\n((?:        .*\n)+)", browser["part"]).group(1)
     keys = [line.split(":")[0].strip() for line in matrix.splitlines() if not line.strip().startswith("#")]
     assert keys == ["shard"], matrix  # so strategy.job-total is the number of parts

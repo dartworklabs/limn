@@ -9,17 +9,17 @@ name: Browser tests
 # Chromium classes whatever that file says: a class it does not know weighs its tests at the measured mean and still
 # runs in exactly one part. Each part runs the heaviest classes first, so the slowest class does not start last.
 #
-# The few classes whose BROWSER_ENGINE is Firefox or WebKit carry that engine's marker (helpers_shards.py) and run in
-# one job of their own (`engines` below), so only that job installs those engines and their system libraries; on every
-# part that install took most of a minute. The two selections add up to `-m browser`, each test in exactly one
+# Classes whose BROWSER_ENGINE is Firefox or WebKit carry that engine's marker (helpers_shards.py). Each engine has
+# its own runner and installs its own browser and system packages, so the two engines run in parallel. The three
+# selections add up to `-m browser`, each test in exactly one
 # (tests/architecture/test_ci_shards.py).
 #
 # Each job keeps the unsplit job's two workers on the same four-CPU runner, so a test's time is what it was there; more
 # workers would race the same CPUs in tests that measure layout. The count of parts is the shard list below. The limits
 # follow ci.yml's rule. Twice a part's usual length, its time to set up plus a share of the suite's (see the shard
 # list), is under the rule's 15 minutes; but a test that hangs near the end of a part prints its stack 600 seconds later
-# (faulthandler_timeout), so a part's limit is 20 minutes. The engines job takes about 3 minutes, so the rule's 15 leave
-# those 600 seconds after it. The steps that install from the Ubuntu archive keep their own shorter limit.
+# (faulthandler_timeout), so a part's limit is 20 minutes. Each engine job has 15 minutes. The steps that install
+# from the Ubuntu archive keep their own shorter limit.
 on:
   workflow_call:
     inputs:
@@ -40,10 +40,9 @@ jobs:
       fail-fast: false
       matrix:
         # The parts. --shard takes their count from the matrix size (strategy.job-total), so this list is the one place
-        # to change it. The Chromium classes are about 74 minutes of one worker's time in CI
-        # (tests/data/shard_seconds.json), about 37 with two workers: ten parts spend about 4 each, after under a
-        # minute to set up. The slowest class (about 3.5 minutes, on one worker) is the floor of a part and close to
-        # that share; more parts would save little past it and would queue behind the account's limit of runners.
+        # to change it. The Chromium classes are balanced using the measured times in tests/data/shard_seconds.json.
+        # Each part runs with two workers. The slowest class remains on one worker, so increasing the number of parts
+        # can only reduce elapsed time down to that class's time plus setup and consumes more runners.
         shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     env:
       # Browser layout tests must run here, not skip.
@@ -55,8 +54,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          # Full history and tags, as in ci.yml's test job: tests load earlier releases with git show.
-          fetch-depth: 0
+          # Browser tests that exercise Git create their own manuscript repositories.
+          fetch-depth: 1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.23"
@@ -64,6 +63,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          cache: npm
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       # A test that reads a viewer module's code reads it without its TypeScript types (helpers_js.module_texts).
@@ -134,9 +134,13 @@ jobs:
           retention-days: 30
 
   engines:
-    name: firefox and webkit
+    name: ${{ matrix.engine }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [firefox, webkit]
     env:
       LIMN_TEST_REQUIRE_BROWSER: "1"
       LIMN_TEST_REQUIRE_NODE: "1"
@@ -144,7 +148,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
+          fetch-depth: 1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.23"
@@ -152,6 +156,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          cache: npm
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       # A test that reads a viewer module's code reads it without its TypeScript types (helpers_js.module_texts).
@@ -162,8 +167,9 @@ jobs:
           printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt >/dev/null
           printf '%s\n' 'Acquire::Retries "3";' 'Acquire::https::Timeout "30";' 'Acquire::http::Timeout "30";' \
             | sudo tee /etc/apt/apt.conf.d/80-ci-timeouts >/dev/null
-      - name: Install Firefox and WebKit
+      # Playwright installs its common fonts and this engine's system packages along with the browser.
+      - name: Install ${{ matrix.engine }} and its system packages
         timeout-minutes: 10
-        run: uv run playwright install --with-deps firefox webkit
-      - name: Firefox and WebKit tests
-        run: uv run pytest -q -rs -n 2 -m "browser and (firefox or webkit)" -o faulthandler_timeout=600
+        run: uv run playwright install --with-deps ${{ matrix.engine }}
+      - name: ${{ matrix.engine }} tests
+        run: uv run pytest -q -rs -n 2 -m "browser and ${{ matrix.engine }}" -o faulthandler_timeout=600

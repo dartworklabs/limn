@@ -59,6 +59,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          cache: npm
       - name: Install viewer dev tools
         run: npm ci --ignore-scripts
       # The viewer's script is built from its ES modules and committed (docs/adr/0042-viewer-es-modules.md): build it
@@ -131,6 +132,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          cache: npm
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: Install viewer dev tools
@@ -139,7 +141,7 @@ jobs:
         run: uv run pytest -q -rs -n ${{ matrix.suite.workers }} -m "${{ matrix.suite.markers }}" -o faulthandler_timeout=600
 
   # The browser suite, in jobs on their own runners (browser.yml: the Chromium classes in parts, the Firefox and WebKit
-  # classes in one job), on Python 3.12 only. It tests the viewer's JS in a browser; running it on a second Python
+  # classes in separate engine jobs), on Python 3.12 only. It tests the viewer's JS in a browser; running it on a second Python
   # version doubled its cost for little signal. Python 3.10 stays covered by the core suite above on 3.10, by the lint
   # job's Ruff and basedpyright (both target 3.10) and by the instances job's check of the 3.10 floor. A server path
   # that only a browser test reaches no longer runs on 3.10.
@@ -150,7 +152,7 @@ jobs:
       python: "3.12"
 
   # Branch protection requires the name the unsplit 3.12 browser job had (its matrix values: Python, suite, markers,
-  # workers). It passes only when every job of the suite passed: a failed, cancelled or skipped part fails it.
+  # workers). It passes only when every job of the suite passed: a failed, cancelled or skipped job fails it.
   # `always()` runs it in those cases too - a job skipped by its condition reports success, which a required check takes
   # as a pass.
   browser-result-3-12:
@@ -173,6 +175,8 @@ jobs:
     # python3 older than requires-python (issue #12). The Linux jobs cover bash 5 and the browser tests.
     runs-on: macos-latest
     timeout-minutes: 20
+    env:
+      LIMN_TEST_REQUIRE_NODE: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -182,8 +186,14 @@ jobs:
         with:
           version: "0.12.23"
           python-version: "3.12"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "22"
+          cache: npm
       - name: Install dev dependencies
         run: uv sync --group dev --locked
+      - name: Install viewer dev tools
+        run: npm ci --ignore-scripts
       - name: Put /bin/bash 3.2 first on PATH
         run: |
           mkdir -p "$RUNNER_TEMP/bash32"
@@ -220,6 +230,7 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: "22"
+          cache: npm
       - name: Install dev dependencies
         run: uv sync --group dev --locked
       - name: Install viewer dev tools

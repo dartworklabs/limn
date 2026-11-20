@@ -3,8 +3,9 @@ the tests of each browser class with the engine it runs on.
 
 CI runs the browser suite as several jobs, on one Python version (.github/workflows/browser.yml): its Chromium classes
 in parts, each `pytest -m "browser and not firefox and not webkit" --shard i/n`, and the Firefox and WebKit classes in
-a job of their own, `-m "browser and (firefox or webkit)"`, which alone installs those engines; together they run the
-suite (docs/handbook/verification.md §검증 시간과 병렬 실행). The engine markers come from a class's
+one job per engine, with `-m "browser and firefox"` and `-m "browser and webkit"` respectively. Each engine job installs
+its own browser; together these jobs run the suite (docs/handbook/verification.md §검증 시간과 병렬 실행). The engine
+markers come from a class's
 BROWSER_ENGINE (tests/support/helpers_browser.py): a test of a class that selects Firefox or WebKit carries `firefox`
 or `webkit`. The unit of the split is the scope that
 pytest-xdist's `--dist loadscope` keeps on one worker (scope_of), so a class's browser and server stay together
