@@ -411,9 +411,10 @@ async function openPinFromLink(doc: string | null | undefined, pin: number, rest
     setSectionOpen('done', true);
   }
   OPEN_CARDS.add(pin);
-  setSide(true);
   drawPins();
   if (pinState(found) !== PIN_STATE.DONE) jumpPin(pin);
+  // A jump to the manuscript collapses the phone sheet. The notification's destination is the card.
+  setSide(true);
   requestAnimationFrame(() => {
     if (DOC === visitDoc && visit === SWITCHSEQ) jumpToCard(pin);
   });

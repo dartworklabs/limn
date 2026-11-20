@@ -551,7 +551,7 @@ class ColdDeepLink(BrowserBase):
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.route("**/*", self.route)
-        page.goto("http://viewer.test/?lang=ko" + hash_)
+        page.goto("https://viewer.test/?lang=ko" + hash_)
         page.wait_for_function("typeof OPEN_ALL!=='undefined'&&OPEN_ALL.length>=20&&META", timeout=20000)
         self.addCleanup(lambda: self.assertEqual(errors, []))
         return page
@@ -567,6 +567,7 @@ class ColdDeepLink(BrowserBase):
         line.locator("[data-act=%s]" % act).click()
 
     def assert_card_shown(self, page, pid, device):
+        """The expanded pin's note is readable inside the pin list on every layout."""
         page.wait_for_function(
             "DOC==='hl'&&OPEN_CARDS.has(%d)&&!!document.querySelector('.pin[data-id=\"%d\"]')" % (pid, pid),
             timeout=8000,
@@ -578,6 +579,17 @@ class ColdDeepLink(BrowserBase):
                 % pid,
                 timeout=5000,
             )
+        page.wait_for_function(
+            """id => {
+                const note = document.querySelector(`.pin.card.open[data-id="${id}"] .note`);
+                if (!note || !note.textContent.trim()) return false;
+                const r = note.getBoundingClientRect(), list = document.querySelector('#list').getBoundingClientRect();
+                return r.height > 0 && r.top >= Math.max(0, list.top) - 1 &&
+                    r.bottom <= Math.min(innerHeight, list.bottom) + 1;
+            }""",
+            arg=pid,
+            timeout=5000,
+        )
 
     def test_cold_link_opens_the_pin_in_another_document(self):
         for device in ("desktop", "phone"):
@@ -585,6 +597,17 @@ class ColdDeepLink(BrowserBase):
                 page = self.cold("#doc=hl&pin=%d" % self.target, device)
                 self.assert_card_shown(page, self.target, device)
                 self.assertEqual(page.evaluate("location.hash"), "#doc=hl")  # the one-shot pin= is consumed
+
+    def test_notification_in_an_open_phone_tab_shows_the_linked_note(self):
+        """The worker brings a background tab forward and asks it to open a pin from a different document."""
+        page = self.cold("#doc=ms", "phone")
+        page.evaluate(
+            """id => navigator.serviceWorker.dispatchEvent(new MessageEvent('message', {
+                data: {type: 'open-pin', doc: 'hl', pin: id},
+            }))""",
+            self.target,
+        )
+        self.assert_card_shown(page, self.target, "phone")
 
     def test_cold_restore_link_restores_and_opens(self):
         page = self.cold("#doc=hl&pin=%d&act=restore" % self.gone, "desktop")
@@ -1175,6 +1198,7 @@ class TrashOfAnotherDocument(ColdDeepLink):
 
     # the parent's tests run in ColdDeepLink already
     test_cold_link_opens_the_pin_in_another_document = None
+    test_notification_in_an_open_phone_tab_shows_the_linked_note = None
     test_cold_restore_link_restores_and_opens = None
     test_service_worker_carries_the_restore_action_into_a_new_window = None
     test_draft_and_build_baseline_survive_document_round_trip = None

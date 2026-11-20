@@ -30,6 +30,7 @@ interface RevisionZoomState {
   busy: number;
   frame: number;
   repaint: boolean;
+  holdPaint: boolean;
   pages: RevisionPage[];
   anchor: RevisionAnchor | null;
   resetInput: () => void;
@@ -42,6 +43,7 @@ const REVISION_ZOOM: RevisionZoomState = {
   busy: 0,
   frame: 0,
   repaint: false,
+  holdPaint: false,
   pages: [],
   anchor: null,
   resetInput: () => {},
@@ -157,9 +159,15 @@ function resizeRevisionPdf() {
   layoutRevisionPdf(anchor);
 }
 
-// Resize all page boxes before restoring the anchor; redraw at the new width. The widest page takes the zoomed width
-// and every other page its own share of it, so pages keep their sizes on paper relative to each other, as the
-// manuscript's do.
+/** Release stale bitmaps and render visible pages at their current size. */
+function redrawRevisionPages() {
+  ++REVISION_ZOOM.gen;
+  REVISION_ZOOM.pages.forEach(dropRevisionPage);
+  scheduleRevisionPaint();
+}
+
+/** Resize pages in proportion to their paper widths and restore the anchor. During a pinch the existing bitmaps
+ * scale with the pages so the browser can keep delivering events to the canvases the fingers landed on. */
 function layoutRevisionPdf(anchor: RevisionAnchor | null) {
   if (!revisionPdfActive()) return;
   const box = $('#revision-pdf'),
@@ -167,8 +175,6 @@ function layoutRevisionPdf(anchor: RevisionAnchor | null) {
   if (fit <= 0) return;
   REVISION_ZOOM.fit = fit;
   REVISION_ZOOM.height = box.clientHeight;
-  ++REVISION_ZOOM.gen;
-  REVISION_ZOOM.pages.forEach(dropRevisionPage);
   const width = fit * REVISION_ZOOM.ratio,
     group = box.firstElementChild,
     widest = Math.max(...REVISION_ZOOM.pages.map((item) => item.base.width));
@@ -181,7 +187,7 @@ function layoutRevisionPdf(anchor: RevisionAnchor | null) {
   restoreRevisionAnchor(anchor);
   REVISION_ZOOM.anchor = revisionAnchor();
   drawRevisionZoom();
-  scheduleRevisionPaint();
+  if (!REVISION_ZOOM.holdPaint) redrawRevisionPages();
 }
 
 /** Zoom around a pointer, a touch midpoint or the viewport center. */
@@ -240,7 +246,7 @@ function scheduleRevisionPaint() {
 
 /** Render near pages serially with a pixel cap; canceled work never reports errors. */
 async function paintRevisionPdf() {
-  if (!revisionPdfActive()) return;
+  if (REVISION_ZOOM.holdPaint || !revisionPdfActive()) return;
   if (REVISION_ZOOM.busy === REVISION_ZOOM.gen) {
     REVISION_ZOOM.repaint = true;
     return;
@@ -264,7 +270,7 @@ async function paintRevisionPdf() {
         Math.abs(right.el.getBoundingClientRect().top - boxRect.top),
     );
     for (const item of near) {
-      if (generation !== REVISION_ZOOM.gen || !revisionPdfActive()) return;
+      if (REVISION_ZOOM.holdPaint || generation !== REVISION_ZOOM.gen || !revisionPdfActive()) return;
       if (item.canvas || item.el.dataset.state === 'error') continue;
       const pageRect = item.el.getBoundingClientRect();
       if (pageRect.bottom < boxRect.top - margin || pageRect.top > boxRect.bottom + margin) continue;
@@ -336,6 +342,7 @@ async function paintRevisionPdf() {
     point = null;
     gesture = null;
     touch = null;
+    REVISION_ZOOM.holdPaint = false;
   };
   box.addEventListener(
     'wheel',
@@ -388,6 +395,7 @@ async function paintRevisionPdf() {
       }
       if (event.cancelable) event.preventDefault();
       const pinch = points(event.touches);
+      REVISION_ZOOM.holdPaint = true;
       touch = { distance: pinch.distance, ratio: REVISION_ZOOM.ratio, anchor: revisionAnchor(pinch.x, pinch.y) };
     },
     { passive: false },
@@ -402,12 +410,17 @@ async function paintRevisionPdf() {
     },
     { passive: false },
   );
-  box.addEventListener('touchend', (event: TouchEvent) => {
-    if (event.touches.length !== 2) touch = null;
-  });
-  box.addEventListener('touchcancel', () => {
+  /** Keep a remaining finger's target for another pinch. Repaint when the last contact on the PDF ends or cancels. */
+  const finishTouch = (event: TouchEvent) => {
     touch = null;
-  });
+    if (!REVISION_ZOOM.holdPaint) return;
+    if (Array.from(event.touches).some((finger) => finger.target instanceof Node && box.contains(finger.target)))
+      return;
+    REVISION_ZOOM.holdPaint = false;
+    redrawRevisionPages();
+  };
+  box.addEventListener('touchend', finishTouch);
+  box.addEventListener('touchcancel', finishTouch);
   box.addEventListener(
     'scroll',
     () => {
