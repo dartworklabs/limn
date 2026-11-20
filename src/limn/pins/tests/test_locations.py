@@ -522,19 +522,27 @@ class TheNextRequestJudgesAgain(Base):
 
     def test_a_listing_after_the_file_became_a_link_out_does_not_place_it(self):
         """A pin's file replaced by a link out of the manuscript between two listings is placed by the first and
-        not by the second: its answer carries no rel_path, and pins.md quotes nothing of the outside file."""
+        not by the second: its answer carries no rel_path, and pins.md omits the stored quote."""
+        quote = "First paragraph"
+        lines = self.main.read_text(encoding="utf-8").splitlines(keepends=True)
+        lines[3] = quote + " " + "x" * 650 + "\n"
+        self.main.write_text("".join(lines), encoding="utf-8")
         pid = self.add(4, 4, note="quoted")
         rows = [dict(r) for r in records(ps.APP.snapshot_pins())]
-        rows[0]["quote"] = "First paragraph"
+        rows[0]["quote"] = quote
         write_records(rows)
+        base = "http://127.0.0.1:1"
         self.assertEqual(ps.APP.pin_listing.pin_payload(pid)["rel_path"], "main.tex")
+        self.assertIn(f"«{quote}» quoted", ps.APP.pin_markdown.current_text(base))
         outside = Path(self.tmp.name).resolve() / "outside.tex"
-        outside.write_text("x\n" * 3 + "S" * 77 + "\n", encoding="utf-8")
+        outside.write_text("x\n" * 3 + "S" * 650 + "\n", encoding="utf-8")
         self.main.unlink()
         os.symlink(outside, self.main)
         self.assertNotIn("rel_path", ps.APP.pin_listing.pin_payload(pid))
         self.assertNotIn("rel_path", ps.APP.pin_listing.list_payload(True)[0])
-        self.assertNotIn("77", ps.APP.pin_markdown.current_text("http://127.0.0.1:1"))
+        rendered = ps.APP.pin_markdown.current_text(base)
+        self.assertNotIn(f"«{quote}»", rendered)
+        self.assertIn("| quoted |", rendered)
 
 
 class EveryCallSiteJudgesAgain(Base):

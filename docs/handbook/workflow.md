@@ -92,12 +92,40 @@
 버전의 정본은 [`src/limn/__init__.py`](../../src/limn/__init__.py)의 `__version__`이다. `pyproject.toml`은 hatch로 이 값을 읽는다.
 
 1. `__version__`을 올리고 [CHANGELOG.md](../../CHANGELOG.md)에 날짜와 변경 요약을 적는다. 에이전트 계약이 바뀌지 않았다면 그 사실도 적는다. 같은 커밋에서 [README.md](../../README.md)·[README.ko.md](../../README.ko.md)·[SKILL.md](../../skill/SKILL.md)·[SKILL.ko.md](../../skill/SKILL.ko.md)의 설치 명령 태그(`dartworklabs/limn@vX.Y.Z`)도 새 버전으로 올린다. 사람과 에이전트가 이 명령으로 설치하므로, 남은 태그는 옛 릴리스를 계속 설치시킨다. [`test_install_tag.py`](../../tests/architecture/test_install_tag.py)가 `__version__`과 다른 설치 태그를 거부한다.
-2. `main`에 머지한 뒤 `vX.Y.Z` 태그를 단다. 태그가 가리키는 머지 커밋은 `main` 푸시의 CI가 이미 검사했으므로 태그 푸시에서는 CI가 돌지 않는다([verification.md](verification.md) §합격의 뜻).
-3. 태그를 단 뒤 같은 태그로 GitHub Release를 만든다. 제목은 `vX.Y.Z — <이 판을 한 줄로 요약한 영어>`이고, 본문은 CHANGELOG의 그 판 절 그대로다. README의 최신 릴리스 배지와 Releases 페이지의 Latest가 이것을 읽으므로, 빠뜨리면 공개 페이지가 옛 판을 최신으로 보인다.
+2. 태그 푸시에서는 CI가 돌지 않으므로, 릴리스할 머지 커밋의 `main` 푸시 CI가 끝나고 성공했는지 확인한 뒤 **검사한 SHA에** 태그를 단다. 해당 실행이 없거나 진행 중이거나 실패했으면 멈춘다. 조회 오류도 마찬가지다. 아래 함수는 태그를 달 때와 Release를 게시할 때 같은 셸에서 쓴다. [검증 절차](verification.md)
 
    ```bash
-   awk -v h="## X.Y.Z " 'index($0,h)==1{f=1;next} /^## /{f=0} f' CHANGELOG.md > /tmp/limn-notes.md
-   test -s /tmp/limn-notes.md && gh release create vX.Y.Z --verify-tag --title "vX.Y.Z — <한 줄 요약>" --notes-file /tmp/limn-notes.md
+   main_ci_passed() {
+     local result
+     result=$(gh run list --repo dartworklabs/limn --workflow ci.yml --branch main \
+       --event push --commit "$1" --limit 1 --json headSha,status,conclusion \
+       --jq '.[0] | [.headSha, .status, .conclusion] | join(" ")') || return 1
+     test "$result" = "$1 completed success"
+   }
+
+   tag=vX.Y.Z
+   release_sha=$(git rev-parse --verify '<머지 커밋 SHA>^{commit}') &&
+     main_ci_passed "$release_sha" &&
+     git tag -a "$tag" "$release_sha" -m "$tag" &&
+     git push origin "refs/tags/$tag"
+   ```
+
+3. GitHub Release를 게시하기 직전에 원격 태그가 가리키는 커밋을 확인하고 그 SHA의 CI 결과를 다시 조회한다. 제목은 `vX.Y.Z — <이 판을 한 줄로 요약한 영어>`이고, 본문은 CHANGELOG의 그 판 절 그대로다. README의 최신 릴리스 배지와 Releases 페이지의 Latest가 이것을 읽으므로, 빠뜨리면 공개 페이지가 옛 판을 최신으로 보인다.
+
+   ```bash
+   (
+     set -e -o pipefail
+     git fetch origin "refs/tags/$tag:refs/tags/$tag"
+     tag_sha=$(git rev-parse --verify "refs/tags/$tag^{commit}")
+     test "$tag_sha" = "$release_sha"
+     notes=$(mktemp)
+     trap 'rm -f "$notes"' EXIT
+     git show "$tag_sha:CHANGELOG.md" |
+       awk -v h="## ${tag#v} " 'index($0,h)==1{f=1;next} /^## /{f=0} f' > "$notes"
+     test -s "$notes"
+     main_ci_passed "$tag_sha"
+     gh release create "$tag" --repo dartworklabs/limn --verify-tag --title "$tag — <한 줄 요약>" --notes-file "$notes"
+   )
    ```
 
    머리줄이 맞지 않으면 awk는 오류 없이 빈 파일을 만든다. `test -s`가 빈 본문의 Release를 막는다. 더 새 판이 이미 있는데 옛 판의 Release를 낼 때는 `--latest=false`를 붙인다. 그래야 Latest가 옛 판으로 옮겨 가지 않는다.
