@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.4.68 — 2026-11-20
+
+The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
+renamed. `GET /api/meta` and `GET /api/docs` are byte-identical to 0.4.67's through 32 phases of builds, rebuilds,
+holds, deleted folders and edits of the manuscript made while the servers ran (256 answers compared, each edit
+captured 3 seconds after it). What changes is when an edit shows, which the entry below states.
+
+### Changed
+
+- **The viewer's poll no longer walks the manuscripts.** After 0.4.67 most of what a poll still did was measuring
+  the newest file of every LaTeX document of the instance: the value was kept for 2 seconds, a viewer polls every 5,
+  so each poll listed every folder and stat'ed every source file of every document. On an instance of 12 documents
+  and 882 source files that was 2,960 file-system calls per poll, each of which gives the interpreter up to
+  whichever thread is computing. A manuscript watch now does the measuring: one thread per run that, once a second,
+  measures the documents a summary asked about in the last 15 seconds, exactly as a request did. A summary
+  (`/api/meta`, `/api/docs`) answers that value while the watch finished measuring the document less than 10 seconds
+  ago, and otherwise does what it always did - so a stopped watch shows as slower polls, never as a missed edit. A
+  document nobody looks at is not measured, and the first poll after 15 quiet seconds measures as before. One poll
+  now makes 24 calls on a 300-file manuscript (983 before) and 87 on the 12-document one. Measured against 0.4.67,
+  taking turns, behind two clients looping on a 1,002-pin listing: 169 ms to 49 ms on the 300-file manuscript and
+  624 ms to 83 ms on the 12-document one on macOS; 194 ms to 76 ms and 698 ms to 197 ms on Linux. What is left on an
+  instance of many documents is what a poll reads per document (the page pointer, the build history), which this
+  does not change. One measurement of a document runs at a time, so two polls that miss together walk once
+  ([ADR-0053](docs/adr/0053-manuscript-watch.md)). What reads differently:
+  - **An edit of the manuscript shows up to about a second later.** `src_mtime`, `stale_build`, `src_age_s` and
+    `src_sig`, and so the "manuscript modified" badge, follow the watch's last measurement. When the watch falls
+    behind under load the value is as old as its round, and a value whose measurement finished more than 10 seconds
+    ago is never answered. A rebuild's baseline and its answer's `src_mtime` are measured on the spot, as before, and
+    a pick's `stale` keeps its 2 second rule.
+
 ## 0.4.67 — 2026-11-19
 
 The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or
