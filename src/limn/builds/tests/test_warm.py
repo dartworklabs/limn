@@ -23,7 +23,7 @@ from unittest import mock
 from limn.builds import artifacts as build, engine as build_engine, run as build_run, warm
 from limn.builds.answer import build_failure_log, finished_build_body, rebuild_answer
 from limn.builds.artifacts import BuildFailed, BuildOk, BuildUnchanged
-from limn.runtime.documents import NO_APART, ApartPaths, InputSetCache
+from limn.runtime.documents import NO_APART, ApartPaths, InputSetCache, MemoClock
 
 from helpers import Base, needs_tex, req, split_resp
 
@@ -43,6 +43,10 @@ class WarmDoc:
     mcache: list = field(default_factory=lambda: [None, 0.0, 0.0])
     mcache_lock: threading.Lock = field(default_factory=threading.Lock)
     mcache_epoch: int = 0
+    mcache_clock: MemoClock = field(default_factory=MemoClock)
+    mcache_asked: float = float("-inf")
+    mcache_watched: float = float("-inf")
+    mcache_measuring: threading.Lock = field(default_factory=threading.Lock)
     builds_from_source: bool = True
     watches_files: bool = False
     apart: ApartPaths = NO_APART

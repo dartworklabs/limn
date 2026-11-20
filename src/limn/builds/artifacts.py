@@ -53,7 +53,7 @@ from limn.builds.values import (
 )
 from limn.platform.files import PATH_MAX_CHARS, atomic_write
 from limn.platform.values import is_finite_num, is_int, is_num
-from limn.runtime.documents import NO_APART, ApartPaths, InputSetCache
+from limn.runtime.documents import NO_APART, ApartPaths, InputSetCache, MemoClock
 
 PAGES_DIR_RE = re.compile(r"pages(-\d{14}(-\d+)?)?")
 # Directories excluded from the build copy (rsync). The manuscript fingerprint and src_mtime use the same
@@ -161,6 +161,20 @@ class BuildDoc(BuildStateHolder, Protocol):
 
     mcache_epoch: int
     """How many times the src_mtime memo was expired (expire_src_mtime); changed only under mcache_lock."""
+
+    mcache_clock: MemoClock
+    """The clocks the memo is read against: wall() dates a measurement, steady() the asking and the watching."""
+
+    mcache_asked: float
+    """When a document summary last asked for the manuscript mtime (shown_src_mtime), on the steady clock; minus infinity
+    until one has. Read and written only under mcache_lock."""
+
+    mcache_watched: float
+    """When the manuscript watch last finished a measurement that the memo kept (watch_src_mtime), on the steady clock;
+    minus infinity when it has none - never measured, let go, or a page swap since. Only under mcache_lock."""
+
+    mcache_measuring: threading.Lock
+    """Held by the one measurement of this document's manuscript mtime that is walking its tree (src_mtime)."""
 
 
 Doc = TypeVar("Doc", bound=BuildDoc)  # one document type through a call that hands the document back to its caller
@@ -708,16 +722,17 @@ def source_newer(D: BuildDoc, state_dir: Path, name: str | None = None) -> float
     return max(0.0, src_mtime(D, state_dir, build=name) - ref)
 
 
-def shown_source_newer(D: BuildDoc, state_dir: Path, pages: Path) -> float:
-    """source_newer(D, state_dir) for a caller that has already read which page directory D has on screen (pages,
-    from cur_pages): how many seconds the manuscript is newer than that build, else 0.0. The page pointer is not read
-    again (build_ref_mtime with shown), and the manuscript is measured under the same memo key as every other read
-    about the build on screen (src_mtime without a build), so one poll asks the 2 second memo under one key per
-    document."""
+def shown_source_newer(D: BuildDoc, pages: Path, mtime: float) -> float:
+    """source_newer for a summary, which has already read which page directory D has on screen (pages, from cur_pages)
+    and D's manuscript mtime (mtime, from shown_src_mtime): how many seconds that mtime is newer than that build,
+    else 0.0. The page pointer is not read again (build_ref_mtime with shown) and neither is the manuscript's mtime:
+    the staleness a summary reports is judged on the very value it reports as src_mtime. Read a second time, the
+    mtime could be another measurement - the manuscript watch stores one every second - and one answer would say
+    "not modified since" beside a stale build, or the reverse."""
     ref = build_ref_mtime(D, pages.name, pages)
     if ref is None:
         return 0.0
-    return max(0.0, src_mtime(D, state_dir) - ref)
+    return max(0.0, mtime - ref)
 
 
 def migrate_pages(D: BuildDoc) -> None:
@@ -993,6 +1008,14 @@ def read_head(D: BuildDoc) -> str | None:
 
 NO_INPUTS: frozenset[str] = frozenset()  # what a build with no readable recorder file read
 
+SRC_MEMO_S = 2.0  # seconds a measured manuscript mtime answers the reads that follow it (src_mtime)
+# The manuscript watch (watch_src_mtime, limn.builds.service.BuildRequests.watch_sources). The reasons for the three
+# values are in docs/handbook/build-sync.md §원고 변화 감지.
+SRC_WATCH_EVERY_S = 1.0  # between the starts of two rounds: how much later than before an edit shows, as a rule
+SRC_WATCH_ASKED_S = 15.0  # a document no summary asked about for this long is let go: three polls of one viewer
+SRC_WATCH_TRUST_S = 10.0  # a summary answers the watch's value this long after the watch finished it: two polls
+NEVER = float("-inf")  # asked-at and watched-at of a document nobody asked about, or the watch does not keep
+
 
 def fls_inputs(text: str, cwd: Path, roots: Iterable[Path]) -> frozenset[str]:
     """The figure-set files a latexmk recorder file (.fls) lists as read: its `INPUT <path>` lines, each resolved against
@@ -1235,10 +1258,12 @@ def expire_src_mtime(D: BuildDoc) -> None:
     """Drop D's 2 second src_mtime memo, so the next read measures now, and make any measurement still in flight drop its
     answer instead of storing it (it was measured against the old build): the epoch counts expiries. A build that puts
     new pages on screen calls this right after it swaps the page pointer, because which recorder file the manuscript is
-    measured against has just changed."""
+    measured against has just changed. What the manuscript watch measured is forgotten with it (D.mcache_watched), so
+    the first summary after the swap does not answer a value from before it (shown_src_mtime)."""
     with D.mcache_lock:
         D.mcache_epoch += 1
         D.mcache[2] = 0.0
+        D.mcache_watched = NEVER
 
 
 def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | None = None) -> float:
@@ -1261,15 +1286,55 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
     force=True skips the memo and measures now - if write_built_src_mtime() used the 2-second memo value
     as-is when recording the build-start mtime, then editing the manuscript within 2 seconds of the memo
     being filled and immediately rebuilding would wrongly record the pre-edit mtime as "the build start time".
-    The cache and its leaf lock belong to D; the file scan runs outside the lock."""
-    cache = D.mcache
+
+    One measurement of a document runs at a time (D.mcache_measuring). A read that misses the memo waits for the
+    measurement under way and then looks at the memo again, so of several misses only one walks the tree; a forced
+    read waits too and then always measures. Without that order a measurement that walked the tree before an edit
+    could store its answer after one that walked it later, and the memo would go back to the older manuscript.
+    The memo and its leaf lock (D.mcache_lock) belong to D; the walk runs outside the leaf lock. While the measurement
+    lock is held nothing is taken but leaf locks of D itself (the memo's, the recorder-file memo's): never a build
+    lock, a history lock or another document's."""
     key = (str(D.src), None if D.apart.empty else build)
+    if not force:
+        hit = _memo_hit(D, key)
+        if hit is not None:
+            return hit
+    with D.mcache_measuring:
+        if not force:  # whoever held the lock may just have measured what this caller came for
+            hit = _memo_hit(D, key)
+            if hit is not None:
+                return hit
+        return _measure(D, state_dir, key, build)
+
+
+def _memo_hit(D: BuildDoc, key: tuple[str, str | None], watch_now: float | None = None) -> float | None:
+    """The value D's src_mtime memo holds under `key` when it may still be answered, else None: it was measured less
+    than SRC_MEMO_S seconds ago, or - for a caller that takes the manuscript watch's word and passes watch_now, the
+    reading of D's steady clock - the watch finished a measurement of D less than SRC_WATCH_TRUST_S seconds before
+    watch_now and no page swap has come since. Takes D.mcache_lock for the look; asks the file system nothing."""
+    with D.mcache_lock:
+        val: float = D.mcache[1]
+        if D.mcache[0] != key:
+            return None
+        if D.mcache_clock.wall() - D.mcache[2] < SRC_MEMO_S:
+            return val
+        if watch_now is not None and watch_now - D.mcache_watched < SRC_WATCH_TRUST_S:
+            return val
+    return None
+
+
+def _measure(
+    D: BuildDoc, state_dir: Path, key: tuple[str, str | None], build: str | None, by_watch: bool = False
+) -> float:
+    """Measure D's manuscript mtime now, as build `build` saw the manuscript (the one on screen when None), store it in
+    the memo under `key` and return it. The caller holds D.mcache_measuring, so no other measurement of D is under
+    way. A measurement that an expiry cut across (expire_src_mtime) is returned but not stored: it was made against
+    the build that has just left the screen. A document not built from source measures its main file alone; a tree
+    that cannot be read measures as 0.0. by_watch marks a measurement of the manuscript watch: when it is stored,
+    D.mcache_watched is set to now in the same step, so a value is never marked as the watch's without being in the
+    memo."""
     with D.mcache_lock:
         epoch = D.mcache_epoch
-        ckey, at = cache[0], cache[2]
-        val: float = cache[1]
-        if not force and ckey == key and time.time() - at < 2.0:
-            return val
     newest = 0.0
     if not D.builds_from_source:  # not built from a tree: that one file is the manuscript
         with contextlib.suppress(OSError):
@@ -1280,8 +1345,55 @@ def src_mtime(D: BuildDoc, state_dir: Path, force: bool = False, build: str | No
                 newest = max(newest, e.stat().st_mtime)
     with D.mcache_lock:
         if D.mcache_epoch == epoch:  # not measured across an expiry: the answer is still about the build on screen
-            cache[0], cache[1], cache[2] = key, newest, time.time()
+            D.mcache[0], D.mcache[1], D.mcache[2] = key, newest, D.mcache_clock.wall()
+            if by_watch:
+                D.mcache_watched = D.mcache_clock.steady()
     return newest
+
+
+def shown_src_mtime(D: BuildDoc, state_dir: Path) -> float:
+    """D's manuscript mtime for a document summary - what a poll reports - measured against the build on screen.
+
+    For a document built from source this notes that a summary asked (D.mcache_asked), which is what makes the
+    manuscript watch measure D (watch_src_mtime). While the watch keeps D - it finished a measurement less than
+    SRC_WATCH_TRUST_S seconds ago, no page swap since, and the memo still holds a value for the build on screen - the
+    memo's value is the answer and the file system is not asked: it is the latest measurement stored, the watch's or a
+    later one. Otherwise, and for every other document, this is src_mtime(D, state_dir): the 2 second memo, else a
+    measurement by the caller. So the watch makes the answer cheap and never is what makes it right: without it, or
+    behind a watch that has fallen more than the limit behind, a summary measures as it always did.
+
+    A build's baseline and a pick's staleness do not come through here (src_mtime with force, source_newer): they
+    do not take a value that may be seconds old."""
+    if not D.builds_from_source:
+        return src_mtime(D, state_dir)
+    now = D.mcache_clock.steady()
+    with D.mcache_lock:
+        D.mcache_asked = now
+    hit = _memo_hit(D, (str(D.src), None), now)
+    return src_mtime(D, state_dir) if hit is None else hit
+
+
+def watch_src_mtime(D: BuildDoc, state_dir: Path) -> bool:
+    """The manuscript watch's turn for D: measure its manuscript mtime against the build on screen and keep it for
+    the summaries (shown_src_mtime). True when it measured.
+
+    Nothing is measured, and the file system is not asked, for a document no summary asked about in the last
+    SRC_WATCH_ASKED_S seconds, which is let go - what the watch kept of it is forgotten, so that no summary answers a
+    value nobody is refreshing; and for one another thread is measuring right now, which fills the memo itself (the
+    watch does not wait: the other documents are due). A document not built from source is never asked about
+    (shown_src_mtime does not note it), so the watch has no turn for it. The watch only reads: folder listings,
+    stats, and the recorder file of the build on screen."""
+    with D.mcache_lock:
+        if D.mcache_clock.steady() - D.mcache_asked >= SRC_WATCH_ASKED_S:
+            D.mcache_watched = NEVER
+            return False
+    if not D.mcache_measuring.acquire(blocking=False):
+        return False
+    try:
+        _measure(D, state_dir, (str(D.src), None), None, by_watch=True)
+    finally:
+        D.mcache_measuring.release()
+    return True
 
 
 def read_built_src_mtime(D: BuildDoc) -> float | None:

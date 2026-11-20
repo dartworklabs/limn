@@ -12,6 +12,7 @@ These tests count file-system calls and opened files instead of timing them
 Run: uv run pytest -q src/limn/documents/tests/test_light_poll_reads.py
 """
 
+import contextlib
 import json
 import os
 import shutil
@@ -228,7 +229,7 @@ class BriefOnly(Fixture):
         """A view-only PDF whose file is newer than its pages is re-rendered by the watch, not reported stale."""
         publish(self.rv, B1, 1)
         (self.rv.dir / "built_src_mtime.txt").write_text("1.000000", encoding="utf-8")
-        self.assertGreater(artifacts.shown_source_newer(self.rv, self.state, self.rv.dir / B1), 2)
+        self.assertGreater(artifacts.shown_source_newer(self.rv, self.rv.dir / B1, self.rv.main.stat().st_mtime), 2)
         self.assertIs(self.brief(self.rv)["stale_build"], False)
         self.assertIs(self.q.summary(self.rv, self.state, 150).meta["stale_build"], False)
 
@@ -394,6 +395,158 @@ class SummaryOnce(Fixture):
         self.assertEqual(
             (body["head"], body["built_at"], body["build_src_mtime"]), ("def5678", "2027-01-01T00:00:00+09:00", 2.5)
         )
+
+
+class HeldClock:
+    """A document's pair of clocks (limn.runtime.documents.MemoClock) that a test can hold: each runs as the real
+    clock does until the test sets a value for it. on_steady, when set, is called at every look at the steady
+    clock, before the value is read."""
+
+    def __init__(self) -> None:
+        """Both clocks run; nothing is called."""
+        self.wall_at: float | None = None
+        self.steady_at: float | None = None
+        self.on_steady = None
+
+    def wall(self) -> float:
+        """The wall clock: the held value, else time.time()."""
+        return time.time() if self.wall_at is None else self.wall_at
+
+    def steady(self) -> float:
+        """The clock that never goes back: the held value, else time.monotonic()."""
+        if self.on_steady is not None:
+            self.on_steady()
+        return time.monotonic() if self.steady_at is None else self.steady_at
+
+
+class WatchedPoll(Fixture):
+    """A poll of documents the manuscript watch keeps walks no manuscript (limn.builds.artifacts.shown_src_mtime,
+    watch_src_mtime): its file-system calls do not follow the size of the manuscripts, and its body is the one a poll
+    that measured them itself gives."""
+
+    def setUp(self):
+        """Both LaTeX documents and the PDF have a build on screen; the polls ask about all three."""
+        super().setUp()
+        publish(self.ms, B1, 2)
+        history(self.ms, B1, time.time() + 60)
+        publish(self.rr, B1, 1)
+        history(self.rr, B1, time.time() + 60)
+        publish(self.rv, B1, 1)
+        self.docs = [self.ms, self.rr, self.rv]
+        self.clock = HeldClock()
+        for doc in self.docs:
+            doc.mcache_clock = self.clock
+
+    @contextlib.contextmanager
+    def at(self, seconds: float):
+        """Hold the clock the documents' asked-at and watched-at are read from at `seconds` for a block."""
+        before, self.clock.steady_at = self.clock.steady_at, seconds
+        try:
+            yield
+        finally:
+            self.clock.steady_at = before
+
+    @contextlib.contextmanager
+    def frozen(self):
+        """Hold the wall clock the documents' 2 second memos are dated with, for a block."""
+        before, self.clock.wall_at = self.clock.wall_at, time.time()
+        try:
+            yield
+        finally:
+            self.clock.wall_at = before
+
+    def poll(self) -> dict:
+        """One light poll of the body among the three documents."""
+        return self.meta(self.ms, self.docs)
+
+    def forget_memo_ages(self) -> None:
+        """Make every document's 2 second memo too old to answer: only what the watch keeps is left."""
+        for doc in self.docs:
+            doc.mcache[2] = 0.0
+
+    def watch(self, seconds: float) -> None:
+        """A poll at `seconds`, then the watch's turn for every document, then the 2 second memos forgotten."""
+        with self.at(seconds):
+            self.poll()
+            for doc in self.docs:
+                artifacts.watch_src_mtime(doc, self.state)
+        self.forget_memo_ages()
+
+    def test_a_poll_of_watched_documents_walks_no_manuscript(self):
+        """Four seconds after the watch measured the two LaTeX documents, a poll lists no folder and stats no entry."""
+        self.watch(100)
+        with self.at(104):
+            counts, _ = fs_calls(self.poll)
+        self.assertEqual(counts["scandir"] + counts["listdir"] + counts["entry_stat"], 0)
+
+    def test_the_calls_of_a_watched_poll_equal_those_of_a_memo_hit_and_ignore_the_manuscript_size(self):
+        """A watched poll makes as many file-system calls with 300 more manuscript files as without them: those of a
+        poll that hits the 2 second memo, and the one stat of the view-only PDF, whose file the watch does not
+        measure."""
+        self.watch(100)
+        with self.at(104):
+            small = sum(fs_calls(self.poll)[0].values())
+        for n in range(300):
+            (self.src / ("part%03d.tex" % n)).write_text("x\n", encoding="utf-8")
+        self.watch(200)
+        with self.at(204):
+            large = sum(fs_calls(self.poll)[0].values())
+        with self.at(900), self.frozen():  # the watch's values are long past the limit: the first poll measures
+            self.poll()
+            hit = sum(fs_calls(self.poll)[0].values())
+        self.assertEqual((small, large), (hit + 1, hit + 1))
+
+    def test_the_first_poll_after_the_watch_let_go_walks_as_a_poll_without_a_watch_does(self):
+        """Sixteen seconds after the last poll the watch lets the documents go; the poll that comes back measures
+        the manuscripts itself, with the calls of a poll no watch ever served."""
+        self.watch(100)
+        with self.at(116):
+            for doc in self.docs:
+                self.assertFalse(artifacts.watch_src_mtime(doc, self.state))
+        with self.at(120), self.frozen():
+            back, _ = fs_calls(self.poll)
+        self.forget_memo_ages()
+        with self.at(500), self.frozen():
+            unwatched, _ = fs_calls(self.poll)
+        self.assertGreaterEqual(back["scandir"], 2)
+        self.assertEqual(back, unwatched)
+
+    def test_one_summary_reports_one_measurement_when_the_watch_stores_in_the_middle_of_it(self):
+        """The manuscript is edited and the watch stores the new mtime while a summary is under way. The summary's
+        src_mtime and stale_build still come from one measurement: stale_build is true exactly when the src_mtime it
+        reports is more than 2 seconds newer than the build's baseline. Were the manuscript's mtime read a second
+        time for the staleness, that read would see the watch's newer value - here the edit lands right before any
+        second read of the summary."""
+        baseline = self.ms.main.stat().st_mtime
+        history(self.ms, B1, baseline)
+        self.watch(100)
+        looks = []
+
+        def look() -> None:
+            """Count the summary's looks at the clock; from the second one on, the memo holds the newer mtime the
+            watch would have stored after an edit. The cell is written directly: a look can come from inside the
+            memo's lock, where no function of the product may be called."""
+            looks.append(1)
+            if len(looks) == 2:
+                self.ms.mcache[1] = baseline + 50
+
+        with self.at(101):
+            self.clock.on_steady = look
+            brief = self.q.summary(self.ms, self.state, 150).brief
+        self.assertEqual(brief["stale_build"], brief["src_mtime"] - baseline > 2)
+
+    def test_a_watched_poll_answers_what_an_unwatched_one_does(self):
+        """The body of a poll that read the watch's values is the body of a poll that measured the manuscripts."""
+        self.watch(100)
+        with self.at(104):
+            counts, watched = fs_calls(self.poll)
+        self.assertEqual(counts["scandir"], 0)
+        self.forget_memo_ages()
+        with self.at(500):
+            measured = self.poll()
+        for body in (watched, measured):
+            del body["src_age_s"]
+        self.assertEqual(watched, measured)
 
 
 class DisplayPath(Fixture):

@@ -20,6 +20,7 @@ from limn.builds.artifacts import (
     ViewOnlyNoRebuild,
 )
 from limn.builds.figure import FigureImport
+from limn.platform.diagnostics import BoundedDiagnostics, diagnostics
 from limn.platform.effects import changed
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc, document_authority_target
@@ -50,6 +51,9 @@ class BuildRequests:
         self.describe = describe
         self.figure_shown = figure_shown
         self.figure_looks = figure.MapLooks()  # this run's memo of each figure document's map parse (figure.MapLooks)
+        self.diagnostics: BoundedDiagnostics = (
+            diagnostics  # where the manuscript watch reports a failure, once per cause
+        )
 
     @property
     def authority_scope(self) -> AuthorityScope:
@@ -166,6 +170,51 @@ class BuildRequests:
                         self.refresh_watched(doc)
                     except Exception:  # noqa: BLE001 — the watch thread must never die
                         traceback.print_exc(file=sys.stderr)
+
+    def watch_sources(
+        self,
+        stop: threading.Event,
+        every: float = build.SRC_WATCH_EVERY_S,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        """The manuscript watch: until this run's stop event is set, give every document of the run a turn
+        (watch_sources_round), a round starting `every` seconds after the one before it started - or at once when
+        that round took longer - and the first one `every` seconds from now. clock times the rounds; it never goes
+        back. The summaries of a poll read what the rounds measured instead of walking the manuscripts themselves
+        (limn.builds.artifacts.shown_src_mtime)."""
+        wait = every
+        while not stop.wait(wait):
+            began = clock()
+            self.watch_sources_round(stop)
+            wait = max(0.0, every - (clock() - began))
+
+    def watch_sources_round(self, stop: threading.Event) -> None:
+        """One round of the manuscript watch: each document of the run gets its turn (limn.builds.artifacts.
+        watch_src_mtime), which measures the manuscript of a document a summary asked about lately and nothing else.
+        The round ends early, between two documents, once stop is set. Nothing a round raises ends the watch: a turn
+        that raises costs that document its turn, the run's settings or document list failing costs the round, and
+        either is reported once per cause (a round comes every second; limn.platform.diagnostics). Only reads; holds
+        no lock between two documents."""
+        try:
+            state, docs = self.settings().state, list(self.docs())
+        except Exception as error:  # noqa: BLE001 — the watch thread must never die
+            self._report_watch_failure("the run", error)
+            return
+        for doc in docs:
+            if stop.is_set():
+                return
+            try:
+                build.watch_src_mtime(doc, state)
+            except Exception as error:  # noqa: BLE001 — the watch thread must never die
+                self._report_watch_failure("document %s" % doc.key, error)
+
+    def _report_watch_failure(self, what: str, error: Exception) -> None:
+        """Say on standard error, once per kind of failure, that the manuscript watch could not measure `what`. The
+        summaries then measure for themselves, as they do without a watch (limn.builds.artifacts.shown_src_mtime)."""
+        self.diagnostics.emit(
+            "manuscript watch:%s:%s" % (what, type(error).__name__),
+            lambda: "warning: manuscript watch failed for %s: %s: %s" % (what, type(error).__name__, error),
+        )
 
     def refresh_watched_now(self, doc: Doc, wait: float) -> bool:
         """The watch tick for doc, waited for within `wait` seconds: first doc's build lock (an import or redraw the

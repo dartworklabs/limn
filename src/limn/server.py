@@ -343,9 +343,11 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
 
 
 def prepare(app: ServerAssembly, documents: list[Doc] | None, no_build: bool) -> StartupRefused | None:
-    """Initialize pin files, builds and watches before rendering markdown and tightening state permissions. The pin
-    records' folders written through another path to the manuscript are translated right after the pin sequence,
-    before the first thread starts and long before the server listens (limn.pins.location.lookup.recorded_folders)."""
+    """Initialize pin files, builds and watches before rendering markdown and tightening state permissions. The
+    watches are the file-document watch (with --doc), the manuscript watch, the remote watch (with --git-pull) and the
+    pin upkeep. The pin records' folders written through another path to the manuscript are translated right after
+    the pin sequence, before the first thread starts and long before the server listens
+    (limn.pins.location.lookup.recorded_folders)."""
     environment = app.environment
     environment.docs[:] = documents or [Doc(DEFAULT_DOC_KEY, "본문", legacy=True, paths=environment.C.paths)]
     app.pins.startup.initialize_sequence()
@@ -358,6 +360,8 @@ def prepare(app: ServerAssembly, documents: list[Doc] | None, no_build: bool) ->
             print(doc_start_line(doc.key, doc.kind, doc.rel_path(), result.started))
     if documents:
         environment.RT.start_thread(app.builds.commands.watch, environment.RT.stopping)
+    # The manuscript watch runs for every run, with or without --doc: a poll of any run asks for manuscript mtimes.
+    environment.RT.start_thread(app.builds.commands.watch_sources, environment.RT.stopping)
     if environment.C.git_pull:
         environment.RT.start_thread(app.sync.service.watch, environment.RT.stopping)
     app.pins.startup.maintain()

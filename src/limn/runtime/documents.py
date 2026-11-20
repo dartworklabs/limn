@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import re
 import threading
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -125,6 +126,22 @@ NO_APART = ApartPaths()
 INPUT_CACHE_MAX = (
     32  # parsed recorder files one document keeps: its current and previous builds, with room for a few more
 )
+
+
+class MemoClock:
+    """The two clocks a document's manuscript-mtime memo is read against (limn.builds.artifacts owns the rules): the
+    wall clock, which dates a measurement for the 2 second memo, and a clock that never goes back, on which the times
+    a summary asked and the manuscript watch measured are kept - a wall clock set back must not make a kept value look
+    fresh for longer. Each document has its own (Doc.mcache_clock); a test gives a document a clock it controls instead
+    of patching the time module."""
+
+    def wall(self) -> float:
+        """Seconds since the epoch, as time.time() gives them now."""
+        return time.time()
+
+    def steady(self) -> float:
+        """Seconds on a clock that never goes back (time.monotonic())."""
+        return time.monotonic()
 
 
 @dataclass
@@ -297,6 +314,15 @@ class Doc:
         self.mcache = list(mcache) if mcache is not None else [None, 0.0, 0.0]
         self.mcache_lock = threading.Lock()
         self.mcache_epoch = 0
+        # What limn.builds.artifacts keeps beside the memo (it owns the rules; this is only where they live): when a
+        # summary last asked for the manuscript mtime and when the manuscript watch last finished measuring it, both on
+        # the clock that never goes back and both read and written under mcache_lock; and the lock one measurement of
+        # this document holds while it walks the tree. Minus infinity is "never", whatever the clock reads at startup.
+        # mcache_clock is the pair of clocks all of that is read against.
+        self.mcache_clock: MemoClock = MemoClock()
+        self.mcache_asked: float = float("-inf")
+        self.mcache_watched: float = float("-inf")
+        self.mcache_measuring: threading.Lock = threading.Lock()
         self.input_sets = InputSetCache()
         registered = (paths.src, paths.main) if legacy else (src, main)
         self._registered = (_resolved_once(registered[0]), _resolved_once(registered[1]))
