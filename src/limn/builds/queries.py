@@ -212,12 +212,12 @@ class BuildQueries:
         """Read what a brief of doc holds, each fact once: the build state from memory, the page pointer (one read,
         handed on to the staleness check and to whoever counts or sizes the pages), the manuscript's mtime as the
         manuscript watch keeps it (artifacts.shown_src_mtime: measured here only when the watch does not keep this
-        document) and whether it is newer than the build on screen. No stamp file is read - neither built_at.txt nor head.txt is
+        document) and whether that same value is newer than the build on screen. No stamp file is read - neither built_at.txt nor head.txt is
         in a brief - and built_src_mtime.txt only when the history does not name the build on screen."""
         b = artifacts.build_state(doc)
         pages = artifacts.cur_pages(doc)
         sm = artifacts.shown_src_mtime(doc, state)
-        stale = doc.builds_from_source and artifacts.shown_source_newer(doc, state, pages) > 2
+        stale = doc.builds_from_source and artifacts.shown_source_newer(doc, pages, sm) > 2
         fields: Json = {
             "key": doc.key,
             "name": doc.name,

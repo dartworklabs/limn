@@ -228,7 +228,7 @@ class BriefOnly(Fixture):
         """A view-only PDF whose file is newer than its pages is re-rendered by the watch, not reported stale."""
         publish(self.rv, B1, 1)
         (self.rv.dir / "built_src_mtime.txt").write_text("1.000000", encoding="utf-8")
-        self.assertGreater(artifacts.shown_source_newer(self.rv, self.state, self.rv.dir / B1), 2)
+        self.assertGreater(artifacts.shown_source_newer(self.rv, self.rv.dir / B1, self.rv.main.stat().st_mtime), 2)
         self.assertIs(self.brief(self.rv)["stale_build"], False)
         self.assertIs(self.q.summary(self.rv, self.state, 150).meta["stale_build"], False)
 
@@ -470,6 +470,26 @@ class WatchedPoll(Fixture):
             unwatched, _ = fs_calls(self.poll)
         self.assertGreaterEqual(back["scandir"], 2)
         self.assertEqual(back, unwatched)
+
+    def test_one_summary_reports_one_measurement_when_the_watch_stores_in_the_middle_of_it(self):
+        """The manuscript is edited and the watch stores the new mtime while a summary is between its mtime and its
+        staleness. The summary's src_mtime and stale_build still come from one measurement: stale_build is true
+        exactly when the src_mtime it reports is more than 2 seconds newer than the build's baseline."""
+        baseline = self.ms.main.stat().st_mtime
+        history(self.ms, B1, baseline)
+        self.watch(100)
+        real = artifacts.build_ref_mtime
+
+        def edited(doc, name, shown=None):
+            """The real baseline lookup, with an edit and a watch turn landing right before it."""
+            newer = baseline + 50
+            os.utime(self.ms.main, (newer, newer))
+            artifacts.watch_src_mtime(self.ms, self.state)
+            return real(doc, name, shown)
+
+        with self.at(101), mock.patch.object(artifacts, "build_ref_mtime", edited):
+            brief = self.q.summary(self.ms, self.state, 150).brief
+        self.assertEqual(brief["stale_build"], brief["src_mtime"] - baseline > 2)
 
     def test_a_watched_poll_answers_what_an_unwatched_one_does(self):
         """The body of a poll that read the watch's values is the body of a poll that measured the manuscripts."""

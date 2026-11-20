@@ -719,16 +719,17 @@ def source_newer(D: BuildDoc, state_dir: Path, name: str | None = None) -> float
     return max(0.0, src_mtime(D, state_dir, build=name) - ref)
 
 
-def shown_source_newer(D: BuildDoc, state_dir: Path, pages: Path) -> float:
-    """source_newer(D, state_dir) for a caller that has already read which page directory D has on screen (pages,
-    from cur_pages): how many seconds the manuscript is newer than that build, else 0.0. The page pointer is not read
-    again (build_ref_mtime with shown), and the manuscript is read as every other fact a summary reports about the
-    build on screen is (shown_src_mtime), so one poll reads one value per document and walks no tree the manuscript
-    watch keeps."""
+def shown_source_newer(D: BuildDoc, pages: Path, mtime: float) -> float:
+    """source_newer for a summary, which has already read which page directory D has on screen (pages, from cur_pages)
+    and D's manuscript mtime (mtime, from shown_src_mtime): how many seconds that mtime is newer than that build,
+    else 0.0. The page pointer is not read again (build_ref_mtime with shown) and neither is the manuscript's mtime:
+    the staleness a summary reports is judged on the very value it reports as src_mtime. Read a second time, the
+    mtime could be another measurement - the manuscript watch stores one every second - and one answer would say
+    "not modified since" beside a stale build, or the reverse."""
     ref = build_ref_mtime(D, pages.name, pages)
     if ref is None:
         return 0.0
-    return max(0.0, shown_src_mtime(D, state_dir) - ref)
+    return max(0.0, mtime - ref)
 
 
 def migrate_pages(D: BuildDoc) -> None:
