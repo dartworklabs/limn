@@ -21,6 +21,6 @@
     "rollup": "4.67.3",
     "typescript": "6.0.3",
     "typescript-7": "npm:typescript@7.0.2",
-    "typescript-eslint": "8.72.1"
+    "typescript-eslint": "8.73.0"
   }
 }
