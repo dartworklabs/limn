@@ -202,11 +202,14 @@ Expected: PASS
 - Consumes: Task 1의 `write_access`, Task 3의 순수 편집·`people_transaction`
 - Produces: `TargetMember` — frozen dataclass `(login: str, role: str)`
 - Produces: `apply_managed(state, targets: Sequence[TargetMember], by: Json, managed: bool, now: float, audit) -> ManagedResult` — 한 잠금 안에서 `people.json`을 목표 상태로 맞추고 **그 뒤** `access.json`을 쓴다
-- Produces: `ManagedResult` — frozen dataclass `(added, removed, changed: tuple[str, ...], managed: bool)`
+- Produces: `ManagedResult` — frozen dataclass `(added, removed, changed, kept, newly_admitted: tuple[str, ...], managed: bool)`
+  - **`newly_admitted` 는 "이 누름이 넓혔는가"에 대한 정직한 답이다** — 전환 뒤 들어오는 집합에서 전환 전 들어오던 집합을 뺀 것이고, 트랜잭션이 읽은 rows 로 계산한다. `kept` 는 보존한 owner·agent 줄의 로그인이다. 이 둘이 없으면 보존된 줄이 새로 들어오게 되는 것을 결과가 **무동작으로 보고한다**(안티목표 1).
 - Produces: `LocksOutOwner`, `RoleNotSettable`, `DuplicateTarget` — 거절을 올리는 값
 - Produces: **`people_transaction`의 사후 조건** — 읽은 rows 에 owner 가 있었으면 step 뒤에도 하나는 있어야 하고, 없으면 올린다. Task 3 의 마지막-owner 보호는 *편집 함수마다* 걸려 있어서, 이 Task 처럼 **목표 상태를 통째로 적는 step** 은 `set_member_role`·`remove_member` 를 거치지 않으면 그 보호를 지나친다(Task 3 리뷰어 지적). 겹치는 방어이고 값이 싸다
-- Produces: `current_admitted(allow: frozenset[str], members_only: bool, rows) -> tuple[str, ...]` (순수) — 전환 화면의 "지금 들어오는 사람"
-- Produces: 단건 변경의 서비스 세 개 — `add_one(state, login, role, name, audit)`, `set_one_role(state, login, role, audit)`, `remove_one(state, login, audit)`. 각각 `people_transaction`을 한 번 쓰고 `LastOwner`를 그대로 올린다. **행위자(`by`)를 받지 않는다** — 감사 줄의 `by` 는 감사 싱크가 들고 있다(`AuditSink`는 `(action, details)`만 받고, CLI 는 OS 계정, HTTP 는 주체를 싱크 쪽에서 묶는다). 쓰지 않는 매개변수를 두면 HTTP 쪽에서 행위자를 두 곳에 적는 길이 생긴다. `apply_managed`는 `by`를 계속 받는다 — `write_access`가 내력으로 적기 때문이다. **Task 5의 HTTP 싱크는 이 셋과 `apply_managed`만 부른다** — `administration/member_state.py`를 부르지 않는다(경계 검사가 `security/` → 기능 모듈 import 를 거부한다)
+- Produces: `transition_view(allow: frozenset[str], members_only: bool, rows) -> TransitionView` (순수) — 전환 화면이 필요한 것 전부. `admitted_today: tuple[str, ...]`, `settable: tuple[Json, ...]`(체크할 수 있는 `viewer`/`editor` 줄), `fixed: tuple[Json, ...]`(owner·agent 줄과 각각이 **오늘 들어오는지**). `current_admitted` 는 이 안의 한 조각으로 남긴다.
+  - `current_admitted` 만 돌려주면 화면이 그 목록을 그대로 targets 로 되보내는데, owner·agent 로그인이 섞여 있어 `RoleNotSettable` 로 거절된다 — 버튼이 영구히 안 눌린다. 고를 수 있는 줄과 고정된 줄을 **나눠서** 준다.
+  - `fixed` 가운데 오늘 들어오지 않는 줄은 화면의 "**새로 들어오게 되는 사람**" 칸(spec §C)에 선다. 그 칸이 비어 있는 채로 넓어지는 일이 없어야 한다.
+- Produces: 단건 변경의 서비스 세 개 — `add_one(state, login, role, name, audit)`, `set_one_role(state, login, role, audit)`, `remove_one(state, login, audit)`. 각각 `people_transaction`을 한 번 쓰고 `LastOwner`를 그대로 올린다. **`administration/member_state.py` 의 세 함수는 이 셋을 부르는 얇은 `CliError` 번역기가 된다** — 같은 트랜잭션 닫힘을 두 벌 두지 않는다. `administration`(기능)이 `security`(경계)를 import 하는 것은 허용되고 `member_state` 는 이미 `security.people_store` 를 import 한다. **역할 검증은 두 문 모두 파일 검사보다 먼저** 한다(지금 CLI 는 먼저 하고 서비스는 나중에 해서 이미 갈렸다). **행위자(`by`)를 받지 않는다** — 감사 줄의 `by` 는 감사 싱크가 들고 있다(`AuditSink`는 `(action, details)`만 받고, CLI 는 OS 계정, HTTP 는 주체를 싱크 쪽에서 묶는다). 쓰지 않는 매개변수를 두면 HTTP 쪽에서 행위자를 두 곳에 적는 길이 생긴다. `apply_managed`는 `by`를 계속 받는다 — `write_access`가 내력으로 적기 때문이다. **Task 5의 HTTP 싱크는 이 셋과 `apply_managed`만 부른다** — `administration/member_state.py`를 부르지 않는다(경계 검사가 `security/` → 기능 모듈 import 를 거부한다)
 
 - [ ] **Step 1: 실패하는 시험을 쓴다** (`test_access_managed.py`, 클래스 `Transition`, `TransitionRefusals`, `TransitionRaces`)
 
@@ -252,7 +255,8 @@ Expected: PASS
 - Test: `src/limn/security/tests/test_access_paths.py`, `test_authority.py`, `src/limn/web/tests/test_errors.py`, `src/limn/security/tests/test_access_http.py` (새)
 
 **Interfaces:**
-- Consumes: Task 4의 `apply_managed`·`current_admitted`·`add_one`·`set_one_role`·`remove_one`, Task 1의 `read_access`. **`administration/member_state.py`는 부르지 않는다** — `administration`은 기능 capability이고 그 `__all__`에 멤버 쓰기 함수가 없어, `security/`가 그 모듈에 닿으면 `tools/check_boundaries.py`가 거부한다
+- Consumes: Task 4의 `apply_managed`·`transition_view`·`add_one`·`set_one_role`·`remove_one`, Task 1의 `read_access`. **`apply_managed`는 `allow`·`members_only`를 키워드로 요구한다** — `newly_admitted`를 그것 없이 계산할 수 없다. 실행 설정에서 넘긴다.
+- Produces: **`unmanaged_admits_everyone: bool`** 를 GET 응답에 넣는다. 관리를 **끄는** 것은 넓히는 동작이고, `--allow`도 `--members-only`도 없는 인스턴스에서는 끄면 **테일넷의 모두**가 들어온다. 그건 목록으로 셀 수 없어 `newly_admitted`가 비므로, 화면이 "끄면 테일넷의 모두가 들어옵니다"를 말할 수 있어야 한다(spec §C가 끄는 경우도 같은 모양으로 보이라고 요구한다). Task 5는 실행 설정을 이미 들고 있으니 여기서 계산한다 — Task 4를 고치지 않는다. **`administration/member_state.py`는 부르지 않는다** — `administration`은 기능 capability이고 그 `__all__`에 멤버 쓰기 함수가 없어, `security/`가 그 모듈에 닿으면 `tools/check_boundaries.py`가 거부한다
 - Produces: `access.check_read(path: str, p: Principal) -> None` — **매개변수가 하나 늘었다**; `OWNER_READS = frozenset({"/api/access"})`
 - Produces: `access.MEMBER_OPERATIONS: dict[str, str]` — `/api/access/managed`→`access-managed`, `/api/members/add`→`member-add`, `/api/members/role`→`member-role`, `/api/members/remove`→`member-remove`. 네 경로 모두 `OWNER_POSTS`에 든다
 - Produces: `security/http.py`의 `access_view(...) -> dict[str, Any]`와 네 POST 동작; `security/routes.py`의 `RouteBundle`
