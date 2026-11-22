@@ -290,17 +290,20 @@ class Failures(ServerCase):
         self.assert_none(read_directory(100.0, self.cache, 1.0, sources=self.sources(path)), "tailscaled_bad_response")
 
     def test_a_body_that_stalls_mid_read_is_cut_within_twice_the_timeout(self):
-        """Headers and a few bytes, then silence: the per-read timeout ends it, inside the documented 2x bound."""
+        """Headers and a few bytes, then silence. The server records that it had written the status, the headers and
+        the first chunk before it stalled: the client then holds everything getresponse() needs, so the wait that is
+        cut can only be a body read, whatever the timing. The read-timeout ends it inside the documented 2x bound."""
         gate = threading.Event()
+        head_and_first_chunk_written = threading.Event()
         self.addCleanup(gate.set)
 
         def stall(head):
-            """200 announcing 100 bytes; the status, headers and 3 bytes go out, then the body waits (lazily, so the
-            stall happens while the client is already reading it)."""
+            """200 announcing 100 bytes: status, headers and 3 bytes go out, then the body waits."""
 
             def pieces():
-                """Three bytes, then silence until the test ends."""
+                """Three bytes; the generator resumes only once they have been sent, then silence until the test ends."""
                 yield b"abc"
+                head_and_first_chunk_written.set()
                 gate.wait(5)
 
             return ("200 OK", (100, pieces()))
@@ -308,7 +311,9 @@ class Failures(ServerCase):
         path, _ = self.unix_api("s", stall)
         started = time.monotonic()
         got = read_directory(100.0, self.cache, 0.3, sources=self.sources(path))
-        self.assertLess(time.monotonic() - started, 0.3 * 2 + 0.3)
+        elapsed = time.monotonic() - started
+        self.assertTrue(head_and_first_chunk_written.is_set(), "the stall began before the head was written")
+        self.assertLess(elapsed, 0.3 * 2)
         self.assert_none(got, "tailscaled_timeout")
 
     def test_body_over_the_limit_stops_reading(self):
