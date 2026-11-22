@@ -219,7 +219,7 @@ def _stamp(now: float) -> str:
 
 def apply_managed(
     state: Path,
-    targets: Sequence[TargetMember],
+    targets: Sequence[TargetMember] | None,
     by: Row,
     managed: bool,
     now: float,
@@ -235,6 +235,9 @@ def apply_managed(
     refused rather than ignored. Each change is audited (member_added / member_removed /
     member_role). Idempotent: the same targets again change nothing.
 
+    `targets=None` means "leave the viewer and editor rows as they are": the list is taken from the rows read under
+    the lock, never from a read made before it, so a member added by another process meanwhile is kept.
+
     Raises DuplicateTarget, RoleNotSettable and ValueError before any file is opened (_judge), then, on the rows read
     under the lock and before anything is written, RoleNotSettable and LocksOutOwner (_judge_against); ValueError for an
     unusable people.json. A refusal changes nothing. OSError when a file cannot be written: after people.json was
@@ -245,12 +248,17 @@ def apply_managed(
     `allow` and `members_only` are the run's arguments: with the rows and the flag before and after they say who gets
     in, so the result can name the people this press newly lets in (`newly_admitted`) - for instance an owner row
     kept under --allow, whom today's admission refuses."""
-    wanted = _judge(targets)
+    judged = None if targets is None else _judge(targets)
     requester = _requester(by)
     state = Path(state)
 
     def step(rows: list[Row]) -> tuple[ManagedResult, list[MemberChange]]:
         """Edits rows to the target -> the result, and the audit changes."""
+        wanted = (
+            judged
+            if judged is not None
+            else {row_login(x): role_value(x.get("role")) for x in rows if not _is_fixed(x)}
+        )
         _judge_against(rows, wanted, requester, managed)
         flag_before = read_access(state / ACCESS_FILE).managed
         before = (

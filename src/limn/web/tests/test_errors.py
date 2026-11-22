@@ -255,6 +255,7 @@ class EnglishTable(unittest.TestCase):
             "role_not_settable",
             "last_owner",
             "not_managed",
+            "not_a_member",
             "bad_login",
             "already_member",
             "bad_access_request",

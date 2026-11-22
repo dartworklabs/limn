@@ -225,6 +225,7 @@
  "reason:loopback_agent_off": "This instance does not accept header-less local requests (AGENT_LOOPBACK=0). Agents on this machine send the token from their token file: Authorization: Bearer $(cat <token file>).",
  "reason:missing_main": "That commit doesn't have the current main manuscript file. Check the source diff.",
  "reason:no_history": "This document has no Git history to show.",
+ "reason:not_a_member": "That person is not a member of this viewer. Add them first.",
  "reason:not_managed": "Access management is off. Turn it on first; until then the member list does not decide who gets in.",
  "reason:role_not_settable": "Only the viewer and editor roles can be given here. Owners and agents are made with the command line.",
  "reason:too_many_files": "This document has too many history files to show its Git changes.",

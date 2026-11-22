@@ -252,8 +252,8 @@ def member_add(wiring: AccessWiring, authority: Mapping[str, object], body: Mapp
 
 
 def member_role(wiring: AccessWiring, authority: Mapping[str, object], body: Mapping[str, object]) -> Json:
-    """POST /api/members/role {login, role}: changes a member's role -> {ok, member}, or {ok: false} for a login that
-    is not a member. 409 last_owner when it would demote the only owner."""
+    """POST /api/members/role {login, role}: changes a member's role -> {ok, member}. 409 not_a_member for a login
+    that is not a member (the requested state is unreachable), last_owner when it would demote the only owner."""
     _authorize(wiring, authority, "member-role")
     _require_managed(wiring)
     login = _login_of(body)
@@ -266,12 +266,14 @@ def member_role(wiring: AccessWiring, authority: Mapping[str, object], body: Map
         raise _people_unreadable() from None
     except OSError as e:
         raise _write_failed(wiring, e) from None
-    return {"ok": False} if entry is None else {"ok": True, "member": _member(entry)}
+    if entry is None:
+        raise HTTPError(409, "멤버가 아닙니다: %s — 먼저 들이세요." % login, reason="not_a_member")
+    return {"ok": True, "member": _member(entry)}
 
 
 def member_remove(wiring: AccessWiring, authority: Mapping[str, object], body: Mapping[str, object]) -> Json:
-    """POST /api/members/remove {login}: removes a member -> {ok, member}, or {ok: false} for a login that is not a
-    member. 409 last_owner when it would remove the only owner."""
+    """POST /api/members/remove {login}: removes a member -> {ok, member}; member is null when the login was
+    not a member (the end state already holds, so it is a 200). 409 last_owner when it would remove the only owner."""
     _authorize(wiring, authority, "member-remove")
     _require_managed(wiring)
     login = _login_of(body)
@@ -283,7 +285,7 @@ def member_remove(wiring: AccessWiring, authority: Mapping[str, object], body: M
         raise _people_unreadable() from None
     except OSError as e:
         raise _write_failed(wiring, e) from None
-    return {"ok": False} if entry is None else {"ok": True, "member": _member(entry)}
+    return {"ok": True, "member": None if entry is None else _member(entry)}
 
 
 def _is_list(value: object) -> TypeGuard[list[object]]:
@@ -296,16 +298,13 @@ def _is_object(value: object) -> TypeGuard[dict[str, object]]:
     return type(value) is dict
 
 
-def _targets(wiring: AccessWiring, body: Mapping[str, object], managed: bool) -> list[TargetMember]:
-    """The checked lines of the transition screen, parsed. Without `members`, turning the flag off keeps the
-    viewer/editor rows as they are (the screen shows no list then); turning it on needs the list, since it is what
-    the owner approved."""
+def _targets(body: Mapping[str, object], managed: bool) -> list[TargetMember] | None:
+    """The checked lines of the transition screen, parsed. Without `members`, turning the flag off passes None: leave
+    the viewer/editor rows as they are, decided inside the transaction from the rows it reads (nothing is read here, so
+    no member added meanwhile is lost). Turning it on needs the list, since it is what the owner approved."""
     members = body.get("members")
     if members is None and not managed:
-        rows = wiring.rows()
-        if rows is None:
-            raise _people_unreadable()
-        return _current_targets(wiring, rows)
+        return None
     if not _is_list(members):
         raise _bad_request("members")
     targets: list[TargetMember] = []
@@ -318,13 +317,6 @@ def _targets(wiring: AccessWiring, body: Mapping[str, object], managed: bool) ->
             raise _bad_login()
         targets.append(TargetMember(login, role))
     return targets
-
-
-def _current_targets(wiring: AccessWiring, rows: list[Json]) -> list[TargetMember]:
-    """The viewer and editor rows as targets: the list that leaves people.json's ordinary members as they are."""
-    config = wiring.settings()
-    view = transition_view(config.allow, config.access.members_only, rows)
-    return [TargetMember(_row_login(x), role_value(x.get("role"))) for x in view.settable]
 
 
 def set_managed(wiring: AccessWiring, authority: Mapping[str, object], body: Mapping[str, object]) -> Json:
@@ -342,7 +334,7 @@ def set_managed(wiring: AccessWiring, authority: Mapping[str, object], body: Map
     managed = body.get("managed")
     if type(managed) is not bool:
         raise _bad_request("managed")
-    targets = _targets(wiring, body, managed)
+    targets = _targets(body, managed)
     config = wiring.settings()
     try:
         result = apply_managed(

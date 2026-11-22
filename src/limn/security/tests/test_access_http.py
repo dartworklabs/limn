@@ -7,7 +7,9 @@ Run: uv run pytest -q src/limn/security/tests/test_access_http.py
 """
 
 import json
+from unittest import mock
 
+from limn.security import access_service
 from limn.security.access_store import write_access
 
 from helpers import ps, set_config
@@ -105,7 +107,7 @@ class AccessHttp(AccessBase):
         self.assertEqual((code, d["ok"]), (200, True))
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 403)
         code, d = self.call("POST", "/api/members/remove", {"login": "bob@example.com"}, ALICE)
-        self.assertEqual((code, d), (200, {"ok": False}))
+        self.assertEqual((code, d), (200, {"ok": True, "member": None}))
 
     def test_member_add_of_a_member_or_a_bad_login_is_refused(self):
         """409 already_member for a login people.json holds, 400 bad_login for one no person could have."""
@@ -228,3 +230,38 @@ class AccessHttp(AccessBase):
         self.assertEqual([x["action"] for x in lines], ["member_added", "member_role", "member_removed"])
         for line in lines:
             self.assertEqual((line["via"], line["by"]["login"]), ("http", "alice@example.com"))
+
+    def test_role_on_a_non_member_is_409(self):
+        """The requested state is unreachable: not_a_member, and nothing is written."""
+        self.manage()
+        code, d = self.call("POST", "/api/members/role", {"login": "nobody@example.com", "role": "viewer"}, ALICE)
+        self.assertEqual((code, d["reason"]), (409, "not_a_member"), d)
+        self.assertEqual(self.people_file(), [OWNER_ROW, BOB_ROW])
+
+    def test_remove_of_a_non_member_is_200(self):
+        """The end state already holds, so it is a success that says it removed no one."""
+        self.manage()
+        code, d = self.call("POST", "/api/members/remove", {"login": "nobody@example.com"}, ALICE)
+        self.assertEqual((code, d), (200, {"ok": True, "member": None}))
+        self.assertEqual(self.people_file(), [OWNER_ROW, BOB_ROW])
+
+    def test_turning_off_without_members_keeps_a_row_added_during_the_request(self):
+        """Omitted members means "leave the viewer/editor rows as they are", decided from the rows the transaction reads
+        under its lock. A member another process adds after the request began but before the transaction opens the file
+        stays; a list computed from an earlier read would have removed them."""
+        self.manage()
+        carol = {"login": "carol@example.com", "name": "Carol", "role": "viewer"}
+        real = access_service.people_transaction
+
+        def transaction_after_an_add(state, step, audit, then=None):
+            """The real transaction, preceded by `limn member add carol` landing from another process."""
+            self.set_people([OWNER_ROW, BOB_ROW, carol])
+            return real(state, step, audit, then)
+
+        with mock.patch.object(access_service, "people_transaction", transaction_after_an_add):
+            code, d = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=False), ALICE)
+        self.assertEqual((code, d["removed"], d["added"], d["managed"]), (200, [], [], False), d)
+        self.assertEqual(
+            [x["login"] for x in self.people_file()], ["alice@example.com", "bob@example.com", "carol@example.com"]
+        )
+        self.assertFalse(self.get_access()["managed"])

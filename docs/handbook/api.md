@@ -48,7 +48,7 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 | --- | --- | --- |
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
 | 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`access_unreadable`(`access.json` 을 못 씀)·`people_unreadable`(관리 모드에서 `people.json` 을 못 씀)·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
-| 멤버 관리(소유자 전용) | `400`·`409` | `bad_login`·`bad_access_request`(본문 모양)·`role_not_settable`(화면은 `viewer`·`editor` 만 줌)·`not_managed`(관리 모드가 아닌 인스턴스의 멤버 변경)·`already_member`·`last_owner`(마지막 `owner` 를 빼거나 내림)·`locks_out_owner`(전환 목록에 요청한 소유자가 없음). |
+| 멤버 관리(소유자 전용) | `400`·`409` | `bad_login`·`bad_access_request`(본문 모양)·`role_not_settable`(화면은 `viewer`·`editor` 만 줌)·`not_managed`(관리 모드가 아닌 인스턴스의 멤버 변경)·`already_member`·`not_a_member`(멤버가 아닌 사람의 역할을 바꿈)·`last_owner`(마지막 `owner` 를 빼거나 내림)·`locks_out_owner`(전환 목록에 요청한 소유자가 없음). |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드, `POST /api/hold` 의 빌드가 없음), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄. 판정 핀의 편집이면 `verdict_fixed`)·`view_only_no_rebuild`·`not_rendered_in_browser`(쪽으로 보이는 문서에 원문을 물음) |
 | 원문 | `413`·`422` | `source_too_large`(본문에 `bytes`·`limit`)·`source_not_utf8`·`source_unreadable` — `GET /api/source`. `GET /api/revision-source` 는 같은 이름과 `not_a_file` 을 거절이 아니라 `200` 답의 한 쪽 `reason` 으로 준다(§변경 보기와 비교 PDF) |
@@ -141,7 +141,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 모두 `editor` 다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스의 이력에 따라 달라지기 때문이다(재시작하면 바뀐다). 같은 원리로 `tokens.json` 을 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
 - 판정 핀은 `editor`·`owner` 인 사람만 만든다(§판정 핀 (`verdict`)). 역할만이 아니라 사람인지도 본다. 그래서 `role` 이 `agent` 인 사람과 토큰·헤더 없는 루프백 에이전트는 `403 verdict_human` 이고, `local` 방식의 루프백 소유자는 사람이라 만든다. 판단은 `Principal.authors_verdicts` 다.
-- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 나머지 소유자 동작(멤버, 토큰, 설정)은 CLI와 파일 수준이다(`limn member`, `limn token`).
+- 소유자만 부를 수 있는 HTTP 경로는 둘이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 멤버 변경은 관리 모드인 인스턴스에서 소유자가 HTTP로도 할 수 있다(`POST /api/access/managed`, `/api/members/add`·`role`·`remove`, 읽기는 `GET /api/access`). 토큰과 설정은 CLI와 파일 수준이다(`limn token`).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
