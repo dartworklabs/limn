@@ -576,7 +576,8 @@ def admit(
     first visit). While people.json cannot be used, it lists no one (is_member): --members-only then admits only
     --allow's logins. Tokens and the local owner are always admitted. A headerless request through the proxy (a tagged
     device) never gets here unless --tailnet-agent is on (identify refuses it), and even then it is refused when a
-    list is configured, as in v0.1. A refusal raises HTTPError 403 (not_member / not_allowed / headerless) with its
+    list is configured, as in v0.1: --allow or --members-only was given, or access.json is managed or unusable (when
+    it cannot be told whether a list exists, one is assumed). A refusal raises HTTPError 403 (not_member / not_allowed / headerless) with its
     browser page."""
     login = p.actor.get("login")
     if p.via == "header":
@@ -599,7 +600,7 @@ def admit(
                 page=("not-allowed", {"login": login}),
                 reason="not_allowed",
             )
-    elif p.via == "loopback-agent" and (settings.allow or settings.members_only):
+    elif p.via == "loopback-agent" and (settings.allow or settings.members_only or managed() != "not-managed"):
         hname, _ = split_host(host or "")
         if hname.endswith(".ts.net") or (headers is not None and came_through_proxy(headers)):
             raise HTTPError(

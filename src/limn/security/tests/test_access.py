@@ -43,6 +43,7 @@ from helpers_access import (
     ALICE,
     BOB,
     CAROL,
+    TS_HOST,
     AccessBase,
     configure,
     get,
@@ -743,6 +744,11 @@ class UnmanagedUnchanged(AdmissionFlagBase):
         self.assertEqual(self.status(BOB)[0], 200)
         self.assertEqual(self.status(CAROL), (403, "not_member"))
 
+    def test_headerless_tailnet_request_is_admitted_as_the_agent_when_no_list_exists(self):
+        """--tailnet-agent with no --allow, no --members-only and no access.json: a tagged device is the agent."""
+        set_config(tailnet_agent=True)
+        self.assertEqual(self.status(headers={"Host": TS_HOST})[0], 200)
+
     def test_flag_off_judges_like_no_file(self):
         """access.json present but managed:false is the same as none."""
         self.set_flag(False)
@@ -817,6 +823,17 @@ class ManagedAdmission(AdmissionFlagBase):
         self.assertIn("people.json", d["error"])
         _, tok = token_create(ps.APP.C.state, "ci")
         self.assertEqual(self.status(token=tok)[0], 200)
+
+    def test_headerless_tailnet_request_is_refused_when_managed(self):
+        """A managed instance has a list (people.json), though neither --allow nor --members-only was given."""
+        set_config(tailnet_agent=True)
+        self.assertEqual(self.status(headers={"Host": TS_HOST}), (403, "headerless"))
+
+    def test_headerless_tailnet_request_is_refused_when_access_is_unusable(self):
+        """If we cannot tell whether a list exists, assume one does."""
+        set_config(tailnet_agent=True)
+        ps.APP.C.access_file.write_text("not json", encoding="utf-8")
+        self.assertEqual(self.status(headers={"Host": TS_HOST}), (403, "headerless"))
 
     def test_change_applies_without_restart(self):
         self.assertEqual(self.status(CAROL), (403, "not_member"))
