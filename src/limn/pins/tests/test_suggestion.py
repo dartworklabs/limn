@@ -22,7 +22,7 @@ from limn.pins.suggestion import (
     without_cr,
 )
 from limn.runtime.documents import DOC_KEY_RE
-from limn.security.people import is_actor
+from limn.security.people_store import is_actor
 
 LINES = ["\\section{Intro}", "First line.", "Second line.", "Third line."]
 LINE_PIN = {"id": 7, "file": "/ms/main.tex", "lo": 2, "hi": 3, "note": "", "rev": 0}

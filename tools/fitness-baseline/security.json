@@ -10,8 +10,7 @@
   "security/guidance.py": {
     "role-unknown": 1
   },
-  "security/people.py": {
-    "role-unknown": 1,
+  "security/people_store.py": {
     "isinstance": 11
   }
 }

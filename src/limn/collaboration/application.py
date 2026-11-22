@@ -11,7 +11,7 @@ from limn.collaboration.contracts import Notice
 from limn.collaboration.directory import PeopleDirectory
 from limn.collaboration.notices import Notices
 from limn.runtime.documents import Doc
-from limn.security import access, people
+from limn.security import access, people_store as people
 from limn.web.routes import RouteBundle
 
 Json = dict[str, Any]

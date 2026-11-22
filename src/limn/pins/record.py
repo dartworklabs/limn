@@ -18,7 +18,7 @@ when a stored field is added or its shape changes - together with the records li
 limn.pins.lifecycle.rules write.
 
 Pure. Two shapes it checks are owned by modules that are not: a document key (limn.runtime.documents.DOC_KEY_RE) and a
-recorded actor (limn.security.people.is_actor). The composition root passes both in (server.parse_record).
+recorded actor (limn.security.people_store.is_actor). The composition root passes both in (server.parse_record).
 """
 
 from collections.abc import Callable

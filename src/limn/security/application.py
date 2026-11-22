@@ -9,7 +9,7 @@ from typing import Any
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc, document_authority_target
 from limn.runtime.resources import RuntimeResources
-from limn.security import access, people
+from limn.security import access, people_store as people
 from limn.security.access import AuthorityScope
 from limn.security.access_store import AccessFile, read_access
 from limn.security.audit import AuditAction, append_audit, audit_entry

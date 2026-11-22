@@ -59,7 +59,7 @@ def _parse(text: str) -> object:
 
 
 def read_access(path: Path) -> AccessFile:
-    """The access flag at path. Same split as limn.security.people.load_people: a file that does not exist is the
+    """The access flag at path. Same split as limn.security.people_store.load_people: a file that does not exist is the
     ordinary "not managed" (nothing was ever switched on); a file that exists but cannot be used - it cannot be read,
     is not UTF-8 JSON, is not an object, has a `version` other than 1, or a `managed` that is not a boolean - is
     "unusable" with a reason naming the file. Never raises for a bad file."""

@@ -11146,7 +11146,7 @@
                 }
             }
         ],
-        "./src/limn/security/people.py": [
+        "./src/limn/security/people_store.py": [
             {
                 "code": "reportExplicitAny",
                 "range": {

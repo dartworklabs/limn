@@ -1,4 +1,4 @@
-"""limn.security.people - people.json's record check, stored text and write, and the @-tag candidates, with no server.
+"""limn.security.people_store - people.json's record check, stored text and write, and the @-tag candidates, with no server.
 
 This file pins the module's own contracts and its import boundary; PeopleOnTheServer at the end records people
 through server.py (only people, throttled, atomic) and checks the HTTP side (a visit records the person, GET
@@ -19,9 +19,9 @@ from pathlib import Path
 from unittest import mock
 
 from limn.pins.application import people_facts
-from limn.security import people
+from limn.security import people_store as people
 from limn.security.access import LOCAL_ACTOR
-from limn.security.people import (
+from limn.security.people_store import (
     PeopleBook,
     PeopleUnreadable,
     UnreadableWarning,

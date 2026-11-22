@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from limn.platform.effects import require_writer
-from limn.security import access, people
+from limn.security import access, people_store as people
 from limn.security.access import is_agent_actor
 
 

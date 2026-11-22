@@ -40,7 +40,7 @@ from typing import Any, Generic, Literal, NamedTuple, TypeAlias, TypeGuard, Type
 from urllib.parse import urlparse
 
 from limn.security.guidance import UNAUTHENTICATED, loopback_refused_text
-from limn.security.people import PeopleUnreadable
+from limn.security.people_store import PeopleUnreadable
 from limn.security.values import (
     AGENT_LOGIN_PREFIX as AGENT_LOGIN_PREFIX,
     CONFIRM_BY_HUMAN,
@@ -892,7 +892,7 @@ def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, Role]:
 
 
 def people_roles_of(read: list[Json] | PeopleUnreadable) -> PeopleRoles:
-    """What a role lookup holds for one read of people.json (limn.security.people.load_people): roles_of its rows, or the
+    """What a role lookup holds for one read of people.json (limn.security.people_store.load_people): roles_of its rows, or the
     PeopleUnreadable itself - never an empty mapping, which would make everyone the DEFAULT_ROLE (an escalation)."""
     return read if isinstance(read, PeopleUnreadable) else roles_of(read)
 

@@ -149,7 +149,7 @@ interface Me {
 }
 
 // One person recorded on a real change or added as a member, or who wrote on a pin (GET /api/people). The server
-// always fills name, with the login when the person has none (limn.security.people known_people).
+// always fills name, with the login when the person has none (limn.security.people_store known_people).
 interface PersonSeen {
   login: string;
   name: string;

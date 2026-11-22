@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
 from limn.platform.effects import require_writer
-from limn.security import access, people
+from limn.security import access, people_store as people
 from limn.security.access_store import AccessFile, UnusableWarning
 
 Viewer = TypeVar("Viewer", covariant=True)

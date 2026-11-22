@@ -31,7 +31,7 @@ from limn.documents.verdicts import verdicts_path
 from limn.pins.listing import markdown as listing_markdown
 from limn.pins.location import source as pick_source
 from limn.runtime.documents import Doc
-from limn.security import people as limn_people
+from limn.security import people_store as limn_people
 
 from helpers import ps
 from helpers_access import ALICE, BOB, AccessBase

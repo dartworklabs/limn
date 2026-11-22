@@ -2,7 +2,7 @@
 
 A record passes the check (fits_record) or is Broken; one that passes is parsed into its state type (parse_record) or,
 for a Trash line, its TrashedPin (parse_trashed) - Parse below. The parse as the store gets it (server.parse_record,
-with limn.runtime.documents.DOC_KEY_RE and limn.security.people.is_actor) is driven
+with limn.runtime.documents.DOC_KEY_RE and limn.security.people_store.is_actor) is driven
 end to end in test_server.py and test_service.py (CloseChanges), and on malformed threads in ThreadShape at the end
 of this file; the purity of the module is in test_pins_lifecycle.py (Purity). Above it the document key and actor
 rules are stand-ins, so each test also sees that the check asks them - and only them - for those two shapes.

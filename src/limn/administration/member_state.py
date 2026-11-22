@@ -1,6 +1,6 @@
 """Read and change people.json for the `limn member` command.
 
-The edits and the one write transaction live in limn.security.people, which the server's membership routes use
+The edits and the one write transaction live in limn.security.people_store, which the server's membership routes use
 too; this module is the CLI's thin face over them. Request-time role interpretation stays in limn.security.access.
 """
 
@@ -8,7 +8,7 @@ from pathlib import Path
 
 from limn.administration.targets import AuditSink, CliError
 from limn.security.access import ROLES, Json, is_role
-from limn.security.people import (
+from limn.security.people_store import (
     PEOPLE_FILE,
     LastOwner,
     PeopleUnreadable,
@@ -22,7 +22,7 @@ from limn.security.people import (
 
 def load_people_file(state: Path) -> list[Json]:
     """people.json for the CLI: its valid entries, [] if absent, ValueError with the reason if it exists but cannot be
-    used - the same judgement the server makes (limn.security.people.load_people), so `limn member` never overwrites a file the
+    used - the same judgement the server makes (limn.security.people_store.load_people), so `limn member` never overwrites a file the
     server would not read either."""
     rows = load_people(Path(state) / PEOPLE_FILE)
     if isinstance(rows, PeopleUnreadable):

@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from limn.security.people import (
+from limn.security.people_store import (
     LastOwner,
     MemberChange,
     add_member,
