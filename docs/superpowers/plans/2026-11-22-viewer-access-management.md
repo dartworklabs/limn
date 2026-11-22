@@ -201,7 +201,8 @@ Expected: PASS
 **Interfaces:**
 - Consumes: Task 1의 `write_access`, Task 3의 순수 편집·`people_transaction`
 - Produces: `TargetMember` — frozen dataclass `(login: str, role: str)`
-- Produces: `apply_managed(state, targets: Sequence[TargetMember], by: Json, managed: bool, now: float, audit) -> ManagedResult` — 한 잠금 안에서 `people.json`을 목표 상태로 맞추고 **그 뒤** `access.json`을 쓴다
+- Produces: `apply_managed(state, targets: Sequence[TargetMember] | None, by: Json, managed: bool, now: float, audit) -> ManagedResult` — 한 잠금 안에서 `people.json`을 목표 상태로 맞추고 **그 뒤** `access.json`을 쓴다
+  - **`targets=None` 은 "지금의 `viewer`/`editor` 줄을 그대로 둔다"는 뜻이고, 그 목록은 트랜잭션이 읽은 rows 에서 `step` 안에서 만든다.** HTTP 가 잠금 밖에서 rows 를 읽어 목록을 만들어 넘기면, 그 사이에 `limn member add` 가 끼어든 멤버가 조용히 지워진다(잃어버린 갱신). 관리를 **끄는** 누름이 목록을 보내지 않는 경우가 이 길이다.
 - Produces: `ManagedResult` — frozen dataclass `(added, removed, changed, kept, newly_admitted: tuple[str, ...], managed: bool)`
   - **`newly_admitted` 는 "이 누름이 넓혔는가"에 대한 정직한 답이다** — 전환 뒤 들어오는 집합에서 전환 전 들어오던 집합을 뺀 것이고, 트랜잭션이 읽은 rows 로 계산한다. `kept` 는 보존한 owner·agent 줄의 로그인이다. 이 둘이 없으면 보존된 줄이 새로 들어오게 되는 것을 결과가 **무동작으로 보고한다**(안티목표 1).
 - Produces: `LocksOutOwner`, `RoleNotSettable`, `DuplicateTarget` — 거절을 올리는 값
@@ -261,13 +262,16 @@ Expected: PASS
 - Produces: `access.MEMBER_OPERATIONS: dict[str, str]` — `/api/access/managed`→`access-managed`, `/api/members/add`→`member-add`, `/api/members/role`→`member-role`, `/api/members/remove`→`member-remove`. 네 경로 모두 `OWNER_POSTS`에 든다
 - Produces: `security/http.py`의 `access_view(...) -> dict[str, Any]`와 네 POST 동작; `security/routes.py`의 `RouteBundle`
 - Produces: `access_view`는 후보 목록을 **주입된 콜러블**로 받는다 — `directory: Callable[[frozenset[str]], TailnetDirectoryView]`, `TailnetDirectoryView`는 `(users: tuple[Json, ...], partial: bool, reason: str | None)`. 이 Task에서 조립은 **"목록 없음 + `reason='directory not wired yet'`"을 돌려주는 대역**을 꽂는다. Task 6이 그 자리에 실제 읽기를 넣는다 — 그래서 Task 5의 시험은 `tailnet.users == []`와 `partial is True`를 기대한다
-- Produces: 새 `reason` 코드 — `access_unreadable`(Task 2), `locks_out_owner`, `role_not_settable`, `last_owner`, `not_managed`
+- Produces: 새 `reason` 코드 — `access_unreadable`·`people_unreadable`(Task 2), `locks_out_owner`, `role_not_settable`, `last_owner`, `not_managed`, 그리고 입력 판정에 필요한 `bad_login`·`already_member`·`bad_access_request`·`not_a_member`. 코드마다 `ui_en.json` 영어 문장과 `api.md` 행을 같은 커밋에 둔다
+- **멤버가 아닌 로그인에 대한 답은 둘로 갈린다.** `remove` 는 `200` 이다 — 원한 끝 상태(멤버 아님)가 이미 참이고, 이 설계 전체가 목표 상태를 적는 방식이라 멱등이 맞다. `role` 은 `409 not_a_member` 다 — 요청한 상태에 **닿을 수 없기** 때문이다. `200 {"ok": false}` 로 뭉치지 않는다: 그건 집의 거절 모양(`error`+`reason`+4xx)이 아니고, 화면이 "그 사람은 이제 멤버가 아닙니다"를 스스로 발명해야 한다
 
 - [ ] **Step 1: 실패하는 시험을 쓴다**
 
 ```python
 # test_access_paths.py — RoleMatrix 에 더한다
-def test_access_read_is_owner_only(self)          # owner 200; editor/viewer/agent/token/local-owner 403 "owner_only"
+def test_access_read_is_owner_only(self)
+    # owner 200; --auth local 의 소유자도 200 (그 주제의 역할이 owner 다);
+    # editor/viewer/agent/token 403 "owner_only". 역할만 보고 via 는 보지 않는다.
 def test_member_posts_are_owner_only(self)        # 네 경로 × 여섯 주체
 def test_unregistered_member_path_is_404(self)    # /api/members/promote -> 404 "not_found"
 # test_authority.py
