@@ -188,8 +188,15 @@ Expected: PASS
 ### Task 4: 전환 — 목표 상태를 한 잠금 안에서 적는다
 
 **Files:**
+- Rename: `src/limn/security/people.py` → `src/limn/security/people_store.py` (먼저, §Step 0)
 - Create: `src/limn/security/access_service.py`
 - Test: `src/limn/security/tests/test_access_managed.py` (새)
+
+- [ ] **Step 0: `security/people.py`를 `people_store.py`로 옮긴다** — 이것 없이는 이 Task 가 성립하지 않는다. `_service` 로 끝나는 새 모듈은 적합 역할 `service` 를 받고, `service` 가 import 할 수 있는 역할은 `decision·model·protocol·platform·service·persistence·parse·runtime` 이다([`check_fitness.py:128`](../../../tools/check_fitness.py)). `people.py` 는 basename 이 역할 낱말을 담지 않아 **역할이 없어서**(`role-unknown`) `service` 가 그것을 import 하면 `role-imports` 위반이 되고, 새 파일의 위반 수는 0이어야 한다. `_store` 접미사는 역할 `persistence`(io 허용, `isinstance` 금지)를 준다.
+  - 그 파일은 실제로 상태 파일을 읽고 쓰므로 `persistence` 가 **제 역할**이다. 옮기면 `role-unknown` 위반 하나가 사라진다(기준선이 내려가는 방향).
+  - 운영 import 자리는 여덟이다 — `administration/member_state.py`·`members.py`, `pins/mentions.py`·`record.py`·`runtime.py`, `security/access.py`, 그리고 이 Task 의 새 모듈. 전부 역할이 없거나 `persistence`·`service` 라서 `persistence` 를 import 할 수 있다. 시험까지 21개 파일.
+  - 기준선은 `uv run python tools/check_fitness.py --update --rename security/people.py=security/people_store.py` 로 옮긴다. `--update` 는 기준선을 **올리지 못하므로**, 옮긴 뒤 수가 늘면 그 자리에서 멈추고 보고한다.
+  - **`http` 역할은 `persistence` 를 import 하지 못한다**(`check_fitness.py:122`). Task 5 의 `security/http.py`·`routes.py` 는 `http` 역할이므로 반드시 이 Task 의 `access_service`(`service`)를 거친다 — 계획이 이미 그렇게 적은 층을 적합 역할이 강제한다.
 
 **Interfaces:**
 - Consumes: Task 1의 `write_access`, Task 3의 순수 편집·`people_transaction`
@@ -199,7 +206,7 @@ Expected: PASS
 - Produces: `LocksOutOwner`, `RoleNotSettable`, `DuplicateTarget` — 거절을 올리는 값
 - Produces: **`people_transaction`의 사후 조건** — 읽은 rows 에 owner 가 있었으면 step 뒤에도 하나는 있어야 하고, 없으면 올린다. Task 3 의 마지막-owner 보호는 *편집 함수마다* 걸려 있어서, 이 Task 처럼 **목표 상태를 통째로 적는 step** 은 `set_member_role`·`remove_member` 를 거치지 않으면 그 보호를 지나친다(Task 3 리뷰어 지적). 겹치는 방어이고 값이 싸다
 - Produces: `current_admitted(allow: frozenset[str], members_only: bool, rows) -> tuple[str, ...]` (순수) — 전환 화면의 "지금 들어오는 사람"
-- Produces: 단건 변경의 서비스 세 개 — `add_one(state, login, role, name, by, audit)`, `set_one_role(state, login, role, by, audit)`, `remove_one(state, login, by, audit)`. 각각 `people_transaction`을 한 번 쓰고 `LastOwner`를 그대로 올린다. **Task 5의 HTTP 싱크는 이 셋과 `apply_managed`만 부른다** — `administration/member_state.py`를 부르지 않는다(경계 검사가 `security/` → 기능 모듈 import 를 거부한다)
+- Produces: 단건 변경의 서비스 세 개 — `add_one(state, login, role, name, audit)`, `set_one_role(state, login, role, audit)`, `remove_one(state, login, audit)`. 각각 `people_transaction`을 한 번 쓰고 `LastOwner`를 그대로 올린다. **행위자(`by`)를 받지 않는다** — 감사 줄의 `by` 는 감사 싱크가 들고 있다(`AuditSink`는 `(action, details)`만 받고, CLI 는 OS 계정, HTTP 는 주체를 싱크 쪽에서 묶는다). 쓰지 않는 매개변수를 두면 HTTP 쪽에서 행위자를 두 곳에 적는 길이 생긴다. `apply_managed`는 `by`를 계속 받는다 — `write_access`가 내력으로 적기 때문이다. **Task 5의 HTTP 싱크는 이 셋과 `apply_managed`만 부른다** — `administration/member_state.py`를 부르지 않는다(경계 검사가 `security/` → 기능 모듈 import 를 거부한다)
 
 - [ ] **Step 1: 실패하는 시험을 쓴다** (`test_access_managed.py`, 클래스 `Transition`, `TransitionRefusals`, `TransitionRaces`)
 
@@ -215,6 +222,9 @@ def test_turning_management_off_writes_managed_false(self)
 # TransitionRefusals
 def test_target_without_the_requesting_owner_refuses(self)   # LocksOutOwner, 파일 둘 다 안 바뀐다
 def test_owner_or_agent_role_in_targets_refuses(self)        # RoleNotSettable
+def test_target_naming_a_current_owner_or_agent_refuses(self)
+    # 지금 역할이 owner/agent 인 로그인을 본문이 (editor 로라도) 담으면 RoleNotSettable, 그 로그인을 적는다.
+    # 조용히 무시하면 화면이 보인 것과 파일에 적히는 것이 갈린다 — 중복을 거절하는 것과 같은 이유다.
 def test_duplicate_login_in_targets_refuses(self)            # DuplicateTarget (Review Focus 2)
 # TransitionRaces
 def test_cli_member_add_during_transition_serializes(self)   # 다른 프로세스의 limn member 와 번갈아, 뒤엣것이 목표 상태 (Review Focus 3)
@@ -397,7 +407,7 @@ Expected: PASS
 **Files:** `docs/adr/0054-access-managed-from-the-viewer.md`(새), `docs/adr/index.md`, `docs/handbook/{api,architecture,operations,viewer,instances,verification,index}.md`, `SECURITY.md`, `README.md`, `README.ko.md`, `skill/SKILL.md`, `skill/SKILL.ko.md`, `CHANGELOG.md`
 
 - [ ] **Step 1: ADR-0054를 쓴다** (`제안`). 머리표에 **ADR-0002 §2 권한 층의 "소유자 전용 작업은 당분간 CLI 수준" 조항을 `부분 대체`**. 결정: D1 `access.json`의 플래그가 입장의 정본을 가른다, D2 전환은 소유자가 보고 누르며 기본값은 무동작, D3 멤버십 = 입장(두 축을 만들지 않는다), D4 관리 중인 인스턴스에서 빈 명단은 "아무도"다, D5 못 쓰는 `access.json`은 fail closed, D6 읽기도 역할로 가른다(`OWNER_READS`), D7 권한 값은 HTTP 문에서만 발급되고 CLI 문은 OS 파일 권한으로 지킨다(비대칭과 그 이유), D8 마지막 owner 보호는 두 문을 묶는다, D9 최초 owner는 CLI만 만든다, D10 테일넷 목록은 LocalAPI의 부분 목록이고 실패는 정상이다. 대안: 자동 흡수, `--allow` 목록만 파일로, 줄에 `admit` 필드, Admin API 자격증명, 서브프로세스. 수치는 spec §실측에서 옮긴다. **ADR-0002·0003·0007 본문은 건드리지 않는다.**
-- [ ] **Step 2: Handbook을 고친다**(현재형, 날짜·전후 수치 없이). `api.md` §인증의 입장 표에 관리 모드 행, 새 경로 다섯과 응답 필드, 새 `reason` 코드, `access.json` 형식, 소유자 전용 읽기와 검사 순서. `architecture.md` §불변식 1에 관리 모드와 fail closed, §멈춤 신호에 걸려 설계 판단을 받았다는 사실. **§불변식 1의 "신원·입장·역할 판단 … 코드는 `security/access.py` 한 곳에 있다"를 실재에 맞춘다** — 닫힌 보안 값(`Role`·`ManagedAccess`·`AuthorityScope`)과 그 값으로 한 번 바꾸는 파서(`valid_login`·`is_role`·`role_value`)는 `security/values.py`에 있고, 판단(`identify`·`admit`·`check_role`·Host·Origin)은 `access.py`에 남는다. Task 3이 `people.py`↔`access.py` 순환을 끊으려고 옮겼고 `access`가 그대로 재수출하므로 호출 쪽은 바뀌지 않았다. `index.md` §파일 지도의 `security/**` 행도 같이 고친다. `operations.md` §실행 인자에 "관리 모드에서 `--allow`·`--members-only`는 무시된다", 기동 `auth` 로그 줄, **소유자 교체 순서**(새 소유자를 먼저 더한다). §상태 파일 배치는 **두 자리를 모두** 고친다 — 상태 폴더 나무 그림(`people.json`·`tokens.json` 줄 옆에 `access.json`을 권한 0600과 함께)과 그 아래 "접근 제어의 상태" 문단(`people.json`·`tokens.json`만 말하고 있다). 복구 절차는 "쓸 수 없는 `people.json`" 절과 같은 자리에 둔다. `viewer.md` §역할에 따른 화면에 소유자 전용 패널, 새 절로 패널 규칙. `instances.md`에 전환 안내와 `limn member add --role owner` 부트스트랩. `verification.md`에 새 검사. `index.md` §파일 지도에 새 모듈 행. 규칙 문단마다 ADR-0054의 조항을 인용하고, **인용을 지워도 본문만으로 규칙이 완결되게** 쓴다.
+- [ ] **Step 2: Handbook을 고친다**(현재형, 날짜·전후 수치 없이). `api.md` §인증의 입장 표에 관리 모드 행, 새 경로 다섯과 응답 필드, 새 `reason` 코드, `access.json` 형식, 소유자 전용 읽기와 검사 순서. `architecture.md` §불변식 1에 관리 모드와 fail closed, §멈춤 신호에 걸려 설계 판단을 받았다는 사실. **`security/people.py` → `security/people_store.py` 이름 변경을 반영한다** — `api.md` 안의 그 경로 참조와 `index.md` §파일 지도의 `security/**` 행. **§불변식 1의 "신원·입장·역할 판단 … 코드는 `security/access.py` 한 곳에 있다"를 실재에 맞춘다** — 닫힌 보안 값(`Role`·`ManagedAccess`·`AuthorityScope`)과 그 값으로 한 번 바꾸는 파서(`valid_login`·`is_role`·`role_value`)는 `security/values.py`에 있고, 판단(`identify`·`admit`·`check_role`·Host·Origin)은 `access.py`에 남는다. Task 3이 `people.py`↔`access.py` 순환을 끊으려고 옮겼고 `access`가 그대로 재수출하므로 호출 쪽은 바뀌지 않았다. `index.md` §파일 지도의 `security/**` 행도 같이 고친다. `operations.md` §실행 인자에 "관리 모드에서 `--allow`·`--members-only`는 무시된다", 기동 `auth` 로그 줄, **소유자 교체 순서**(새 소유자를 먼저 더한다). §상태 파일 배치는 **두 자리를 모두** 고친다 — 상태 폴더 나무 그림(`people.json`·`tokens.json` 줄 옆에 `access.json`을 권한 0600과 함께)과 그 아래 "접근 제어의 상태" 문단(`people.json`·`tokens.json`만 말하고 있다). 복구 절차는 "쓸 수 없는 `people.json`" 절과 같은 자리에 둔다. `viewer.md` §역할에 따른 화면에 소유자 전용 패널, 새 절로 패널 규칙. `instances.md`에 전환 안내와 `limn member add --role owner` 부트스트랩. `verification.md`에 새 검사. `index.md` §파일 지도에 새 모듈 행. 규칙 문단마다 ADR-0054의 조항을 인용하고, **인용을 지워도 본문만으로 규칙이 완결되게** 쓴다.
 - [ ] **Step 3: `SECURITY.md`를 고친다** — 관리 모드가 무엇을 막고 무엇을 안 막는지, 못 쓰는 `access.json`의 fail closed, 테일넷 목록 읽기가 **읽기 전용이고 소유자에게만 보인다**는 것, 목록이 부분적이라는 것.
 - [ ] **Step 4: README 쌍과 SKILL 쌍을 고친다** — `README.md:92`·`README.ko.md:89`의 보안 문단과 `skill/SKILL.md:239`·`skill/SKILL.ko.md:239`의 인증 행. 네 파일을 같은 내용으로 맞춘다.
 - [ ] **Step 5: `CHANGELOG.md`에 적는다** — **Added**(관리 모드, 패널, 새 경로)와 **Changed**(`limn member remove`·`role`이 마지막 owner를 거부한다). "에이전트 계약은 더하기만 했다"는 문장과, 되돌릴 때 전환 뒤 더한 사람이 못 들어온다는 것을 적는다.
