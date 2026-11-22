@@ -22,10 +22,12 @@ from limn.security.access_service import (
     RoleNotSettable,
     TargetMember,
     add_one,
+    add_settable,
     apply_managed,
     current_admitted,
     remove_one,
     set_one_role,
+    set_settable_role,
     transition_view,
 )
 from limn.security.access_store import read_access
@@ -530,3 +532,35 @@ class TransitionAdmission(AccessBase):
         result = self.press([target("alice@example.com")])
         self.assertEqual(result.newly_admitted, ("bob@example.com",))
         self.assertEqual(self.status(BOB)[0], 200)
+
+
+class SettableBackstop(StateBase):
+    """The screens' write services refuse a role a screen may not give; the command line's services take all four."""
+
+    def test_add_settable_refuses_owner_agent_and_unknown_before_any_file(self):
+        """add_settable raises RoleNotSettable for owner, agent and a made-up role, and creates no file."""
+        for role in ("owner", "agent", "root"):
+            with self.subTest(role=role), self.assertRaises(RoleNotSettable):
+                add_settable(self.state, "bob@example.com", role, None, self.audit)
+        self.assertFalse((self.state / "people.json").exists())
+
+    def test_set_settable_role_refuses_owner_and_agent(self):
+        """set_settable_role cannot raise a member to owner or agent; the row and the audit are untouched."""
+        self.seed(row("bob@example.com", "viewer"))
+        for role in ("owner", "agent"):
+            with self.subTest(role=role), self.assertRaises(RoleNotSettable):
+                set_settable_role(self.state, "bob@example.com", role, self.audit)
+        self.assertEqual(self.roles(), {"bob@example.com": "viewer"})
+        self.assertEqual(self.audited, [])
+
+    def test_the_command_line_services_still_make_owners(self):
+        """add_one and set_one_role take owner: the first owner is made with the command line."""
+        add_one(self.state, "alice@example.com", "owner", None, self.audit)
+        add_one(self.state, "bob@example.com", "viewer", None, self.audit)
+        set_one_role(self.state, "bob@example.com", "owner", self.audit)
+        self.assertEqual(self.roles(), {"alice@example.com": "owner", "bob@example.com": "owner"})
+
+    def test_add_settable_and_set_settable_role_give_viewer_and_editor(self):
+        """The allowed roles pass through to the same writes."""
+        add_settable(self.state, "bob@example.com", "viewer", None, self.audit)
+        self.assertEqual(set_settable_role(self.state, "bob@example.com", "editor", self.audit)["role"], "editor")

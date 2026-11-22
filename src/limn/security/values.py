@@ -55,6 +55,16 @@ def is_role(v: object) -> TypeGuard[Role]:
     return type(v) is str and v in ROLES
 
 
+# The roles the viewer's screens may give a person: owner and agent are made elsewhere (the first owner with the command
+# line, agents with tokens), so a screen can never raise anyone's privilege.
+SETTABLE_ROLES: tuple[Role, ...] = ("viewer", "editor")
+
+
+def is_settable_role(v: object) -> TypeGuard[Role]:
+    """Is v a role a screen may give: viewer or editor (SETTABLE_ROLES)?"""
+    return type(v) is str and v in SETTABLE_ROLES
+
+
 def role_value(v: object) -> Role:
     """A people.json role field -> the role. Missing = editor (every v0.1 person); an unknown value = viewer (fail closed)."""
     if v is None:

@@ -18,7 +18,7 @@ from limn.platform import files, git as gitrun
 from limn.platform.diagnostics import BoundedDiagnostics
 from limn.platform.effects import reading
 from limn.security import access
-from limn.security.access import READ_PATHS
+from limn.security.access import OWNER_READS, READ_PATHS
 from limn.web.app import RouteRegistry
 from limn.web.routes import RouteBundle
 
@@ -99,7 +99,7 @@ class TestReadContract(Base):
             {"Tailscale-User-Login": "refused@example.com"},
         )
         set_config(ps, allow=frozenset({A_LOGIN, B_LOGIN, C_LOGIN}))
-        paths = sorted(READ_PATHS | FAMILIES) + [
+        paths = sorted(READ_PATHS | OWNER_READS | FAMILIES) + [
             "/api/pins/999",
             "/api/meta?light=1",
             "/api/meta?after=bad",
@@ -170,6 +170,7 @@ class TestReadContract(Base):
         """Every route's 500 path is read-only too, and repeated identical failures print one traceback."""
         self.dirty()
         member_add(self.state, B_LOGIN, "viewer")
+        member_add(self.state, A_LOGIN, "owner")  # the one identity an owner-only read reaches its route for
         _, token = token_create(self.state, "reader")
         set_config(ps, allow=frozenset({A_LOGIN, B_LOGIN}))
         original = ps.Handler.app
@@ -192,11 +193,11 @@ class TestReadContract(Base):
                 {"Authorization": "Bearer " + token},
                 {"Tailscale-User-Login": "refused@example.com"},
             ):
-                for path in sorted(READ_PATHS | FAMILIES):
-                    self.assertEqual(
-                        self.response("GET", path, headers=headers)[0],
-                        403 if headers.get("Tailscale-User-Login") == "refused@example.com" else 500,
+                for path in sorted(READ_PATHS | OWNER_READS | FAMILIES):
+                    refused = headers.get("Tailscale-User-Login") == "refused@example.com" or (
+                        path in OWNER_READS and headers is not ALICE
                     )
+                    self.assertEqual(self.response("GET", path, headers=headers)[0], 403 if refused else 500)
                     self.assertEqual((tree(self.state), tree(self.src)), before)
         self.assertEqual(stderr.getvalue().count("Traceback"), 1)
 
@@ -505,7 +506,7 @@ class TestComparisonReads(ScopedRepo):
 
 
 def test_read_route_family_inventory():
-    """An added allowed resource family requires a test representative; exact paths come directly from READ_PATHS."""
+    """An added allowed resource family requires a test representative; exact paths come directly from READ_PATHS and OWNER_READS."""
     source = ast.parse(inspect.getsource(access.check_read))
     prefixes = {
         arg.value

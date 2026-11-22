@@ -202,6 +202,11 @@ class LastOwner(Exception):
         self.login = login
 
 
+class PeopleUnusable(ValueError):
+    """people.json exists but cannot be used (people_transaction refuses to rewrite it). A ValueError, so the CLI's
+    handling is unchanged; the HTTP route catches this one and nothing broader. The text names the file and why."""
+
+
 class AlreadyMember(ValueError):
     """Raised by add_member when the login already has a row. A ValueError, so every caller that handles one keeps
     working; a caller that can tell people apart (the HTTP route) catches this one. `login` is the existing member."""
@@ -307,7 +312,7 @@ def people_transaction(
     with store_lock(state, "people"):
         rows = load_people(state / PEOPLE_FILE)
         if type(rows) is PeopleUnreadable:
-            raise ValueError(rows.reason)
+            raise PeopleUnusable(rows.reason)
         owners = [row_login(x) for x in rows if _is_owner(x)]
         out, changes = step(rows)
         if owners and not any(_is_owner(x) for x in rows):

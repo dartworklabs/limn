@@ -14,18 +14,18 @@ from typing import NamedTuple, TypeGuard
 
 from limn.runtime.config import RunConfig
 from limn.security.access_service import (
-    SETTABLE_ROLES,
     AlreadyMember,
     DuplicateTarget,
     LastOwner,
     LocksOutOwner,
+    PeopleUnusable,
     RoleNotSettable,
     TargetMember,
     TransitionView,
-    add_one,
+    add_settable,
     apply_managed,
     remove_one,
-    set_one_role,
+    set_settable_role,
     transition_view,
 )
 from limn.security.values import ManagedAccess, role_value, valid_login
@@ -222,9 +222,10 @@ def _login_of(body: Mapping[str, object]) -> str:
 
 
 def _role_of(body: Mapping[str, object], login: str) -> str:
-    """The body's role when it is one the screen may give, or 400 role_not_settable."""
+    """The body's role as text, or 400 role_not_settable when it is none. Which roles a screen may give is the
+    service's rule (add_settable, set_settable_role)."""
     role = body.get("role")
-    if type(role) is not str or role not in SETTABLE_ROLES:
+    if type(role) is not str:
         raise _role_not_settable(login)
     return role
 
@@ -239,12 +240,14 @@ def member_add(wiring: AccessWiring, authority: Mapping[str, object], body: Mapp
     if name is not None and type(name) is not str:
         raise _bad_request("name")
     try:
-        entry = add_one(wiring.settings().state, login, role, name, _audit_for(wiring, authority))
+        entry = add_settable(wiring.settings().state, login, role, name, _audit_for(wiring, authority))
+    except RoleNotSettable as e:
+        raise _role_not_settable(e.role) from None
     except AlreadyMember as e:
         raise HTTPError(
             409, "이미 멤버입니다: %s — 역할은 바꾸기로 고치세요." % e.login, reason="already_member"
         ) from None
-    except ValueError:
+    except PeopleUnusable:
         raise _people_unreadable() from None
     except OSError as e:
         raise _write_failed(wiring, e) from None
@@ -259,10 +262,12 @@ def member_role(wiring: AccessWiring, authority: Mapping[str, object], body: Map
     login = _login_of(body)
     role = _role_of(body, login)
     try:
-        entry = set_one_role(wiring.settings().state, login, role, _audit_for(wiring, authority))
+        entry = set_settable_role(wiring.settings().state, login, role, _audit_for(wiring, authority))
+    except RoleNotSettable as e:
+        raise _role_not_settable(e.role) from None
     except LastOwner as e:
         raise _last_owner(e) from None
-    except ValueError:
+    except PeopleUnusable:
         raise _people_unreadable() from None
     except OSError as e:
         raise _write_failed(wiring, e) from None
@@ -281,7 +286,7 @@ def member_remove(wiring: AccessWiring, authority: Mapping[str, object], body: M
         entry = remove_one(wiring.settings().state, login, _audit_for(wiring, authority))
     except LastOwner as e:
         raise _last_owner(e) from None
-    except ValueError:
+    except PeopleUnusable:
         raise _people_unreadable() from None
     except OSError as e:
         raise _write_failed(wiring, e) from None
@@ -359,7 +364,7 @@ def set_managed(wiring: AccessWiring, authority: Mapping[str, object], body: Map
         ) from None
     except LastOwner as e:
         raise _last_owner(e) from None
-    except ValueError:
+    except PeopleUnusable:
         raise _people_unreadable() from None
     except OSError as e:
         raise _write_failed(wiring, e) from None

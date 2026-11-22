@@ -212,13 +212,45 @@ class AccessHttp(AccessBase):
         self.assertNotIn(str(ps.APP.C.state), json.dumps(d))
         self.assertFalse(ps.APP.C.access_file.exists())
 
-    def test_unusable_people_file_refuses_without_a_path(self):
-        """A people.json that cannot be used is people_unreadable, and the answer names no state-folder path."""
+    def local_owner(self):
+        """Run as --auth local: the owner whose role does not come from people.json, so the only principal that reaches
+        the routes while either file is unusable (every header identity is refused or a viewer then)."""
+        set_config(auth="local", agent_loopback=False, local_user="dana@example.com")
+
+    def test_unusable_people_file_is_people_unreadable_without_a_path(self):
+        """With people.json unusable, the local owner's read and every write answer 403 people_unreadable, and no body
+        names a state-folder path. (A header identity never gets here: it is a viewer, refused as such first.)"""
         self.manage()
         ps.APP.C.people_file.write_text("{not json", encoding="utf-8")
-        code, d = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=False, members=[]), ALICE)
-        self.assertNotEqual(code, 200)
-        self.assertNotIn(str(ps.APP.C.state), json.dumps(d))
+        self.local_owner()
+        answers = [self.call("GET", "/api/access")]
+        for path, body in (
+            ("/api/members/add", {"login": "carol@example.com", "role": "viewer"}),
+            ("/api/members/role", {"login": "bob@example.com", "role": "viewer"}),
+            ("/api/members/remove", {"login": "bob@example.com"}),
+            ("/api/access/managed", dict(CONFIRM, managed=False)),
+        ):
+            answers.append(self.call("POST", path, body))
+        for code, d in answers:
+            self.assertEqual((code, d["reason"]), (403, "people_unreadable"), d)
+            self.assertNotIn(str(ps.APP.C.state), json.dumps(d))
+
+    def test_unusable_access_file_is_access_unreadable_without_a_path(self):
+        """With access.json unusable, the local owner's read and the member writes answer 403 access_unreadable (a header
+        identity is refused at admission with the same reason)."""
+        ps.APP.C.access_file.write_text("{not json", encoding="utf-8")
+        self.assertEqual(self.call("GET", "/api/access", headers=ALICE)[1]["reason"], "access_unreadable")
+        self.local_owner()
+        answers = [self.call("GET", "/api/access")]
+        for path, body in (
+            ("/api/members/add", {"login": "carol@example.com", "role": "viewer"}),
+            ("/api/members/role", {"login": "bob@example.com", "role": "viewer"}),
+            ("/api/members/remove", {"login": "bob@example.com"}),
+        ):
+            answers.append(self.call("POST", path, body))
+        for code, d in answers:
+            self.assertEqual((code, d["reason"]), (403, "access_unreadable"), d)
+            self.assertNotIn(str(ps.APP.C.state), json.dumps(d))
 
     def test_audit_lines_say_via_http(self):
         """Each change is a line of audit.jsonl by the owner, through "http"."""

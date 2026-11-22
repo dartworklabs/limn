@@ -28,6 +28,7 @@ from limn.security.people_store import (
     LastOwner as LastOwner,
     MemberChange,
     PeopleAudit,
+    PeopleUnusable as PeopleUnusable,
     Row,
     add_member,
     people_transaction,
@@ -35,10 +36,14 @@ from limn.security.people_store import (
     row_login,
     set_member_role,
 )
-from limn.security.values import ROLES, is_role, role_value, valid_login
-
-# The roles the transition screen can give: owner and agent are made elsewhere (the first owner with the CLI).
-SETTABLE_ROLES = ("viewer", "editor")
+from limn.security.values import (
+    ROLES,
+    SETTABLE_ROLES as SETTABLE_ROLES,
+    is_role,
+    is_settable_role,
+    role_value,
+    valid_login,
+)
 
 
 @dataclass(frozen=True)
@@ -174,7 +179,7 @@ def _judge(targets: Sequence[TargetMember]) -> dict[str, str]:
     for t in targets:
         if t.login in wanted:
             raise DuplicateTarget(t.login)
-        if t.role not in SETTABLE_ROLES:
+        if not is_settable_role(t.role):
             raise RoleNotSettable(t.login, t.role)
         if not valid_login(t.login):
             raise ValueError("invalid login %r" % t.login)
@@ -236,7 +241,8 @@ def apply_managed(
     member_role). Idempotent: the same targets again change nothing.
 
     `targets=None` means "leave the viewer and editor rows as they are": the list is taken from the rows read under
-    the lock, never from a read made before it, so a member added by another process meanwhile is kept.
+    the lock, never from a read made before it, so a member added by another process meanwhile is kept. A stored role outside the four is read as viewer
+    (role_value), so that row is kept as a viewer, not rewritten.
 
     Raises DuplicateTarget, RoleNotSettable and ValueError before any file is opened (_judge), then, on the rows read
     under the lock and before anything is written, RoleNotSettable and LocksOutOwner (_judge_against); ValueError for an
@@ -342,3 +348,20 @@ def remove_one(state: Path, login: str, audit: PeopleAudit) -> Row | None:
         return hit, [] if change is None else [change]
 
     return people_transaction(Path(state), step, audit)
+
+
+def add_settable(state: Path, login: str, role: str, name: str | None, audit: PeopleAudit) -> Row:
+    """add_one for a screen: the role must be one a screen may give (viewer or editor), so no request can write an owner
+    or agent row. RoleNotSettable otherwise, before any file is opened; the command line uses add_one, which takes all
+    four roles (the first owner is made with it)."""
+    if not is_settable_role(role):
+        raise RoleNotSettable(login, role)
+    return add_one(state, login, role, name, audit)
+
+
+def set_settable_role(state: Path, login: str, role: str, audit: PeopleAudit) -> Row | None:
+    """set_one_role for a screen: the role must be viewer or editor (RoleNotSettable otherwise, before any file is
+    opened), so no request can raise anyone to owner or agent."""
+    if not is_settable_role(role):
+        raise RoleNotSettable(login, role)
+    return set_one_role(state, login, role, audit)

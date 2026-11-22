@@ -463,3 +463,23 @@ class MemberScope(AccessBase):
         access.require_authority(authority, scope, "member-add", None)
         with self.assertRaises(HTTPError):
             access.require_authority(authority, guards.authority_scope("member-remove"), "member-remove", None)
+
+    def test_every_member_sink_checks_its_authority_first(self):
+        """Each sink refuses an authority minted for a pin operation with invalid_authority before it looks at the
+        instance or the body, and writes nothing. Without the check an unmanaged instance would answer not_managed (or
+        confirm_required) instead."""
+        from limn.web.routes import OtherPostRequest
+
+        guards = ps.APP.web.guards
+        pin_authority = post_authority(guards.authority_scope("close"), ACTOR, "close", 1)
+        principal = access.Principal(dict(ACTOR), "owner", "header")
+        sinks = ps.APP.web.routes.bundle.other_posts
+        for path in access.MEMBER_OPERATIONS:
+            with self.subTest(path=path):
+                with self.assertRaises(HTTPError) as error:
+                    sinks[path](
+                        OtherPostRequest(pin_authority, {"login": "bob@example.com", "role": "viewer"}, principal)
+                    )
+                self.assertEqual((error.exception.code, error.exception.body["reason"]), (403, "invalid_authority"))
+        self.assertFalse(ps.APP.C.people_file.exists())
+        self.assertFalse(ps.APP.C.access_file.exists())
