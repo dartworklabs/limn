@@ -24,6 +24,8 @@ from limn.runtime.paths import ACCESS_FILE
 from limn.security.access_store import read_access, write_access
 from limn.security.people_store import (
     PEOPLE_FILE,
+    AlreadyMember as AlreadyMember,
+    LastOwner as LastOwner,
     MemberChange,
     PeopleAudit,
     Row,

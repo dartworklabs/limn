@@ -350,7 +350,7 @@ class Handler(BaseHTTPRequestHandler):
         actor = self._guard()
         u = urlparse(self.path)
         path, q = u.path, accepted(request_input.query_values(u.query))
-        self.app.guards.check_read(path)
+        self.app.guards.check_read(path, self.principal)
         # A document-scoped path takes ?doc=<key> (the first document if absent) and is handled for that document (§Multiple documents).
         D = self._request_doc(accepted(parse.parse_doc_choice(q)))
         request = GetRequest(

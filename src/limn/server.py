@@ -67,13 +67,15 @@ from limn.runtime.config import AccessOptions, RunConfig
 from limn.runtime.documents import DEFAULT_DOC_KEY, Doc
 from limn.runtime.resources import RuntimeResources
 from limn.runtime.startup import APP_NAME as APP_NAME, StartupRefused, app_version as app_version
-from limn.security import access
+from limn.security import access, routes as access_routes
 from limn.security.access import (
     DEFAULT_ROLE as DEFAULT_ROLE,
     file_present,
     hdr_text as hdr_text,
 )
 from limn.security.application import SecurityApplication
+from limn.security.audit import audit_action
+from limn.security.http import AccessFacts, AccessWiring, TailnetDirectoryView
 from limn.sync import PullShare, SyncContext, SyncSubsystem, SyncWatch, assemble_sync
 from limn.viewer import (
     ServedViewer,
@@ -317,8 +319,44 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         overlay=builds.revisions.overlay,
     )
     viewer = assemble_viewer(settings, lambda: resources().viewer)
+
+    def people_scope() -> access.AuthorityScope:
+        """The people store: its process lock owns it, and the state folder names it."""
+        return access.AuthorityScope(resources().people_lock, str(settings().state.resolve()))
+
+    def access_facts() -> AccessFacts:
+        """The access flag with its stamp."""
+        read = security.access_file()
+        return AccessFacts(read.managed, read.at, read.by)
+
+    def tailnet_directory(_members: frozenset[str]) -> TailnetDirectoryView:
+        """A stand-in until the tailnet read is wired: no users, said to be partial, and why."""
+        return TailnetDirectoryView((), True, "directory not wired yet")
+
+    def authorize_member_change(authority: object, operation: str) -> None:
+        """Refuse anything but an authority minted at the HTTP boundary for this member operation on this instance."""
+        if type(authority) is not access.PostAuthority:
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        access.require_authority(authority, people_scope(), operation, None)
+
+    access_wiring = AccessWiring(
+        settings,
+        authorize_member_change,
+        lambda text: print(text, file=sys.stderr),
+        access_facts,
+        security.member_rows,
+        tailnet_directory,
+        lambda action, by, details: security.http_audit(audit_action(action), dict(by), dict(details)),
+        time.time,
+    )
     routes = merge_routes(
-        viewer.routes, builds.routes, revisions.routes, documents_subsystem.routes, collaboration.routes, pins.routes
+        viewer.routes,
+        builds.routes,
+        revisions.routes,
+        documents_subsystem.routes,
+        collaboration.routes,
+        pins.routes,
+        access_routes.routes(access_wiring),
     )
 
     def authority_scope(operation: str) -> access.AuthorityScope:
@@ -327,6 +365,8 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             return builds.commands.authority_scope
         if operation == "revision-build":
             return revisions.requests.authority_scope
+        if operation in access.MEMBER_OPERATIONS.values():
+            return people_scope()  # not the pin store the fall-through below would authorize a member change against
         return pins.commands.pin_context().authority_scope
 
     web = WebApplication(

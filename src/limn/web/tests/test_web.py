@@ -39,6 +39,7 @@ from limn.pins.trash.rules import NotInTrash
 from limn.revisions import answer as revision_answer
 from limn.revisions.core import DocumentBusy
 from limn.runtime.documents import DocNotFound
+from limn.security.access import MEMBER_OPERATIONS
 from limn.viewer.assemble import ServedViewer
 from limn.viewer.mark import ICON_ROUTES
 from limn.web import answers
@@ -274,6 +275,7 @@ PIN_ACTIONS = ("close", "reopen", "drop", "restore", "purge", "edit", "claim", "
 GET_ROUTES = (
     "/",
     "/api/people",
+    "/api/access",
     "/favicon.ico",
     "/favicon-16.png",
     "/favicon-32.png",
@@ -314,6 +316,7 @@ POST_ROUTES = (
     "/api/hold",
     "/api/revision-build",
     "/api/clear",
+    *MEMBER_OPERATIONS,
     *("/api/pins/1/" + act for act in PIN_ACTIONS),
     "/api/no-such-path",
 )
@@ -376,7 +379,7 @@ class GuardOrder(AccessBase):
         self.assertEqual(post_paths, {"/api/rebuild", "/api/revision-build", "/api/pick", "/api/pin"})
         self.assertTrue(post_paths <= set(POST_ROUTES))
         self.assertEqual(sorted(ps.APP.pin_actions), sorted(PIN_ACTIONS))
-        self.assertEqual(set(ps.APP.other_posts), {"/api/clear"})
+        self.assertEqual(set(ps.APP.other_posts), {"/api/clear", *MEMBER_OPERATIONS})
 
     def test_every_route_checks_host_identity_admission_and_role_first(self):
         """An admitted request reads C (origin check on), host_ok, [origin_ok], identify, admit and, for a POST,

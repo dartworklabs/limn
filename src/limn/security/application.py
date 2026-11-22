@@ -67,9 +67,9 @@ class RequestGuards:
             self.trash_days,
         )
 
-    def check_read(self, path: str) -> None:
-        """Reject a read path absent from the declared access table."""
-        access.check_read(path)
+    def check_read(self, path: str, principal: access.Principal) -> None:
+        """Reject a read path absent from the declared access table, or an owner-only one for another role."""
+        access.check_read(path, principal)
 
 
 @dataclass(frozen=True)
@@ -91,9 +91,9 @@ class SecurityApplication:
             self.settings().people_file, lambda: access.people_roles_of(self.load_people()), {}
         )
 
-    def managed_access(self) -> ManagedAccess:
-        """Whether access.json hands admission to people.json now: re-read when the file changes. A file that cannot
-        be used is "unusable" and warns once per breakage."""
+    def access_file(self) -> AccessFile:
+        """What access.json says now: re-read when the file changes. A file that cannot be used is "unusable" and
+        warns once per breakage."""
         resources, path = self.resources(), self.settings().access_file
 
         def load() -> AccessFile:
@@ -102,7 +102,16 @@ class SecurityApplication:
             resources.access_warning.note(read)
             return read
 
-        return resources.access_cache.get(path, load, AccessFile("not-managed", None, None, None)).managed
+        return resources.access_cache.get(path, load, AccessFile("not-managed", None, None, None))
+
+    def managed_access(self) -> ManagedAccess:
+        """Whether access.json hands admission to people.json now."""
+        return self.access_file().managed
+
+    def member_rows(self) -> list[people.Row] | None:
+        """The rows of people.json now, or None while the file cannot be used."""
+        rows = self.load_people()
+        return None if type(rows) is people.PeopleUnreadable else rows
 
     def role_of(self, login: str) -> access.Role:
         """Return the current role of one person, including unreadable-file policy."""

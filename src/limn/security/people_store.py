@@ -202,6 +202,18 @@ class LastOwner(Exception):
         self.login = login
 
 
+class AlreadyMember(ValueError):
+    """Raised by add_member when the login already has a row. A ValueError, so every caller that handles one keeps
+    working; a caller that can tell people apart (the HTTP route) catches this one. `login` is the existing member."""
+
+    login: str
+
+    def __init__(self, login: str) -> None:
+        """Remember the login, and say what the CLI says."""
+        super().__init__("%s is already a member - change the role with `limn member role`" % login)
+        self.login = login
+
+
 def row_login(row: Mapping[str, object]) -> str:
     """The login of a people.json row (valid_people guarantees a non-empty string)."""
     return str(row["login"])
@@ -231,7 +243,7 @@ def add_member(rows: list[Row], login: str, role: str, name: str | None) -> tupl
         raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
     shown = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
     if any(x["login"] == login for x in rows):
-        raise ValueError("%s is already a member - change the role with `limn member role`" % login)
+        raise AlreadyMember(login)
     entry: Row = {"login": login, "name": shown, "role": role}
     rows.append(entry)
     return entry, MemberChange("member_added", {"login": login, "role": role})

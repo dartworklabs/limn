@@ -85,7 +85,20 @@ TAILNET_HEADERLESS = (
     "신원 헤더 없는 원격 요청입니다(테일넷의 태그 장치 등) — 에이전트는 `Authorization: Bearer <토큰>` 을 "
     "보내세요(`limn token create <인스턴스>`)."
 )
-OWNER_POSTS = ("/api/clear",)  # bulk-destructive: only the owner (a person), and only with a confirmation
+# The owner's member operations over HTTP (docs/superpowers/specs/2026-11-22-viewer-access-management-design.md §D):
+# path -> the operation name the authority is bound to. Registering a path here is what grants it - the route table
+# alone grants nothing - and each path is an owner-only POST.
+MEMBER_OPERATIONS = {
+    "/api/access/managed": "access-managed",
+    "/api/members/add": "member-add",
+    "/api/members/role": "member-role",
+    "/api/members/remove": "member-remove",
+}
+# bulk-destructive or access-changing: only the owner (a person); /api/clear also needs a confirmation
+OWNER_POSTS = ("/api/clear", *MEMBER_OPERATIONS)
+OWNER_READS = frozenset({"/api/access"})  # reads only the owner may make: the member list and who could be let in
+MEMBER_OWNER_ONLY = "멤버와 접근 설정은 소유자(owner)만 바꿉니다 — 소유자에게 부탁하세요."
+ACCESS_READ_OWNER_ONLY = "멤버와 접근 설정은 소유자(owner)만 봅니다 — 소유자에게 부탁하세요."
 OWNER_POST_RE = re.compile(r"/api/pins/\d+/purge")  # permanent delete from the Trash (v0.2.2): only the owner
 LOOPBACK = ("127.0.0.1", "localhost", "::1")
 DEFAULT_PORT = {"http": 80, "https": 443}
@@ -636,8 +649,8 @@ def check_role(p: Principal, path: str, trash_days: int) -> None:
     run computations (/api/pick, /api/revision-build); an agent may use declared actions except confirm; editor and owner may
     do everything a person could in v0.1, except the bulk-destructive OWNER_POSTS (/api/clear, v0.2.1) and the permanent
     delete from the Trash (OWNER_POST_RE, v0.2.2), which only the owner may call; that refusal quotes trash_days, how
-    long the Trash keeps a pin. Other owner-only operations - members, tokens, settings - are CLI/file level. A refusal
-    raises HTTPError 403 (viewer_only / confirm_by_human / owner_only)."""
+    long the Trash keeps a pin. The member operations (MEMBER_OPERATIONS) are owner-only too. Tokens and the other
+    settings are CLI/file level. A refusal raises HTTPError 403 (viewer_only / confirm_by_human / owner_only)."""
     if p.role == "viewer" and path not in VIEWER_POSTS:
         raise HTTPError(
             403, "보기 권한(viewer)만 있는 계정입니다 — 핀·답글·닫기 같은 변경은 할 수 없습니다.", reason="viewer_only"
@@ -647,7 +660,9 @@ def check_role(p: Principal, path: str, trash_days: int) -> None:
     if path in OWNER_POSTS and p.role != "owner":
         raise HTTPError(
             403,
-            "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.",
+            MEMBER_OWNER_ONLY
+            if path in MEMBER_OPERATIONS
+            else "모든 핀을 지우는 일은 소유자(owner)만 합니다 — 에이전트·편집자는 핀을 하나씩 닫으세요.",
             reason="owner_only",
         )
     if OWNER_POST_RE.fullmatch(path) and p.role != "owner":
@@ -712,14 +727,23 @@ def post_operation(path: str) -> tuple[str, int | None]:
         return DOCUMENT_OPERATIONS[path], None
     if path == "/api/clear":
         return "clear", None
+    if path in MEMBER_OPERATIONS:
+        return MEMBER_OPERATIONS[path], None
     match = re.fullmatch(r"/api/pins/([0-9]{1,20})/([a-z]+)", path)
     if match and match[2] in PIN_OPERATIONS:
         return match[2], int(match[1])
     raise HTTPError(404, "없는 경로입니다: %s" % path, reason="not_found")
 
 
-def check_read(path: str) -> None:
-    """Admitted principals may read declared paths; new registrations start denied."""
+def check_read(path: str, p: Principal) -> None:
+    """Admitted principals may read declared paths; new registrations start denied. The paths of OWNER_READS are read
+    only by the owner role: any other role or door (an editor, a viewer, a token, the headerless loopback agent) is a
+    403 owner_only. The rule is the role alone, as for every other owner-only operation, so the --auth local owner
+    (role owner, via local-owner) reads them like a header-vouched owner."""
+    if path in OWNER_READS:
+        if p.role != "owner":
+            raise HTTPError(403, ACCESS_READ_OWNER_ONLY, reason="owner_only")
+        return
     if path in READ_PATHS or re.fullmatch(r"/api/pins/[0-9]{1,20}", path):
         return
     if path.startswith(("/pages/", "/vendor/pdfjs/", "/vendor/markdown-it/", "/vendor/katex/", "/vendor/pretendard/")):

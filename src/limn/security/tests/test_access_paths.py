@@ -237,6 +237,66 @@ class RoleMatrix(AccessBase):
                     code, d = self.call("GET", path.format(id=pid), **self.as_role(role))
                     self.assertEqual(code, 200, d)
 
+    MEMBER_POSTS = ("/api/access/managed", "/api/members/add", "/api/members/role", "/api/members/remove")
+
+    def local_owner(self):
+        """Switch the run to --auth local, whose loopback request is the owner; the login is a real-looking user name."""
+        set_config(auth="local", agent_loopback=False, local_user="alice")
+        return {}
+
+    def principals(self):
+        """(name, call keywords, is the owner role) for every way a request can arrive; the local owner is switched on
+        last because it changes the run's provider."""
+        return (
+            ("owner", dict(headers=ALICE), True),
+            ("editor", dict(headers=BOB), False),
+            ("viewer", dict(headers=CAROL), False),
+            ("agent token", dict(token=self.token), False),
+            ("loopback agent", {}, False),
+        )
+
+    def test_access_read_is_owner_only(self):
+        """GET /api/access: 200 for the owner and the --auth local owner, 403 owner_only for every other role and door."""
+        for name, kw, is_owner in self.principals():
+            with self.subTest(who=name):
+                code, d = self.call("GET", "/api/access", **kw)
+                if is_owner:
+                    self.assertEqual(code, 200, d)
+                else:
+                    self.assertEqual((code, d["reason"]), (403, "owner_only"), d)
+        self.local_owner()
+        code, d = self.call("GET", "/api/access")
+        self.assertEqual(code, 200, d)
+
+    def test_member_posts_are_owner_only(self):
+        """The four member paths x six principals: a non-owner is refused before the sink (viewer_only for a viewer,
+        owner_only for the rest) and nothing is written; an owner reaches the sink (not 403, not 404)."""
+        before = self.people_file()
+        for path in self.MEMBER_POSTS:
+            for name, kw, is_owner in self.principals():
+                with self.subTest(path=path, who=name):
+                    code, d = self.call("POST", path, {}, **kw)
+                    if is_owner:
+                        self.assertNotIn(code, (403, 404), d)
+                    else:
+                        want = "viewer_only" if name == "viewer" else "owner_only"
+                        self.assertEqual((code, d["reason"]), (403, want), d)
+        self.assertEqual(self.people_file(), before)
+        self.local_owner()
+        for path in self.MEMBER_POSTS:
+            with self.subTest(path=path, who="local owner"):
+                code, d = self.call("POST", path, {})
+                self.assertNotIn(code, (403, 404), d)
+
+    def test_unregistered_member_path_is_404(self):
+        """A sibling nobody registered stays 404 not_found for the owner: registration, not dispatch, grants a path."""
+        for path in ("/api/members/promote", "/api/members", "/api/access/other"):
+            with self.subTest(path=path):
+                code, d = self.call("POST", path, {}, headers=ALICE)
+                self.assertEqual((code, d["reason"]), (404, "not_found"), d)
+        code, d = self.call("GET", "/api/members/add", headers=ALICE)
+        self.assertEqual((code, d["reason"]), (404, "not_found"), d)
+
 
 class VendorReads(AccessBase):
     """The bundled files are read like every other path (docs/handbook/api.md §인증): a Pretendard slice and its

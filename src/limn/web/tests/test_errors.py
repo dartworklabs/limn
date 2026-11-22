@@ -247,6 +247,25 @@ class EnglishTable(unittest.TestCase):
         for c in codes:
             self.assertFalse(HANGUL.search(UI_EN["reason:" + c]), c)
 
+    def test_every_served_reason_has_an_english_sentence(self):
+        """The reasons the member routes serve have an English sentence, are emitted by the server and are listed in the
+        reason table of api.md (the HTTP contract)."""
+        served = {
+            "locks_out_owner",
+            "role_not_settable",
+            "last_owner",
+            "not_managed",
+            "bad_login",
+            "already_member",
+            "bad_access_request",
+        }
+        self.assertLessEqual(served, emitted_reasons())
+        api = (Path(__file__).resolve().parents[4] / "docs/handbook/api.md").read_text(encoding="utf-8")
+        for code in sorted(served):
+            with self.subTest(code=code):
+                self.assertTrue(UI_EN.get("reason:" + code), code)
+                self.assertIn("`%s`" % code, api)
+
     def test_no_english_message_for_a_reason_the_server_never_emits(self):
         """A reason:<code> key the server no longer emits is stale."""
         keys = {k[len("reason:") :] for k in UI_EN if k.startswith("reason:")}
