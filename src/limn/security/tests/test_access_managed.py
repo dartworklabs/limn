@@ -26,12 +26,13 @@ from limn.security.access_service import (
     current_admitted,
     remove_one,
     set_one_role,
+    transition_view,
 )
 from limn.security.access_store import read_access
 from limn.security.people_store import LastOwner
 from limn.security.values import role_value
 
-from helpers import ps
+from helpers import ps, set_config
 from helpers_access import ALICE, BOB, CAROL, AccessBase
 
 ROOT = Path(__file__).resolve().parents[4]
@@ -89,9 +90,11 @@ class StateBase(unittest.TestCase):
             p.read_bytes() if p.exists() else None for p in (self.state / "people.json", self.state / "access.json")
         )
 
-    def apply(self, targets, managed=True, by=OWNER):
-        """apply_managed on this state as the owner presses it."""
-        return apply_managed(self.state, targets, by, managed, NOW, self.audit)
+    def apply(self, targets, managed=True, by=OWNER, allow=frozenset(), members_only=False):
+        """apply_managed on this state as the owner presses it, on an instance run with these arguments."""
+        return apply_managed(
+            self.state, targets, by, managed, NOW, self.audit, allow=frozenset(allow), members_only=members_only
+        )
 
 
 class CurrentAdmitted(unittest.TestCase):
@@ -114,17 +117,59 @@ class CurrentAdmitted(unittest.TestCase):
         self.assertEqual(got, ())
 
 
+class TransitionScreen(unittest.TestCase):
+    """transition_view: what the screen shows, split so that nothing unsendable is offered as a target."""
+
+    ROWS = [
+        row("o@example.com", "owner"),
+        row("ci@example.com", "agent"),
+        row("a@example.com"),
+        row("v@example.com", "viewer"),
+    ]
+
+    def test_settable_rows_are_only_viewers_and_editors(self):
+        view = transition_view(frozenset(), True, self.ROWS)
+        self.assertEqual([r["login"] for r in view.settable], ["a@example.com", "v@example.com"])
+
+    def test_fixed_rows_say_whether_they_are_admitted_today(self):
+        view = transition_view(frozenset({"o@example.com"}), False, self.ROWS)
+        self.assertEqual(
+            [(f.row["login"], f.admitted_today) for f in view.fixed],
+            [("o@example.com", True), ("ci@example.com", False)],
+        )
+
+    def test_on_an_open_instance_every_fixed_row_is_admitted_today(self):
+        view = transition_view(frozenset(), False, self.ROWS)
+        self.assertTrue(all(f.admitted_today for f in view.fixed))
+
+    def test_sending_the_settable_rows_back_is_never_refused_for_their_names(self):
+        """The button is pressable: the view's own settable logins are valid targets."""
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        state = Path(tmp.name) / "state"
+        state.mkdir()
+        (state / "people.json").write_text(json.dumps({"version": 1, "people": self.ROWS}), encoding="utf-8")
+        view = transition_view(frozenset(), True, self.ROWS)
+        targets = [target(r["login"], role_value(r.get("role"))) for r in view.settable]
+        result = apply_managed(
+            state, targets, LOCAL_ACTOR, True, NOW, lambda a, d: None, allow=frozenset(), members_only=True
+        )
+        self.assertEqual((result.added, result.removed, result.changed), ((), (), ()))
+
+
 class Transition(StateBase):
     """apply_managed: people.json is made to match the target list, then the flag is written."""
 
     def test_default_target_is_a_no_op(self):
+        """The screen's own settable rows, sent back as they are, change nothing and widen nothing."""
         rows = [row("owner@example.com", "owner"), row("a@example.com"), row("b@example.com", "viewer")]
         rows.append(row("ci@example.com", "agent"))
         self.seed(*rows)
-        admitted = current_admitted(frozenset(), True, rows)
-        self.assertEqual(len(admitted), 4)  # the owner and the agent are admitted today as well
-        result = self.apply([t for t in shown(rows) if t.login in admitted])
-        self.assertEqual(result, ManagedResult((), (), (), True))
+        view = transition_view(frozenset(), True, rows)
+        self.assertEqual(len(view.admitted_today), 4)  # the owner and the agent are admitted today as well
+        targets = [target(r["login"], role_value(r.get("role"))) for r in view.settable]
+        result = self.apply(targets, members_only=True)
+        self.assertEqual(result, ManagedResult((), (), (), ("ci@example.com", "owner@example.com"), (), True))
         self.assertEqual(self.audited, [])
         self.assertEqual(self.roles()["a@example.com"], None)  # a row with no role field keeps it
 
@@ -165,6 +210,34 @@ class Transition(StateBase):
             self.roles(), {"owner@example.com": "owner", "second@example.com": "owner", "ci@example.com": "agent"}
         )
 
+    def test_a_kept_owner_row_that_admission_refuses_today_is_reported_as_newly_admitted(self):
+        """--allow alone: people.json grants no entry today. A managed flag lets the kept owner row in, so the press
+        is not a no-op even though no row was added, removed or changed."""
+        self.seed(row("bob@example.com", "owner"))
+        allow = frozenset({"alice@example.com"})
+        view = transition_view(allow, False, [row("bob@example.com", "owner")])
+        self.assertEqual([(f.row["login"], f.admitted_today) for f in view.fixed], [("bob@example.com", False)])
+        self.assertEqual(view.admitted_today, ("alice@example.com",))
+        result = self.apply([target("alice@example.com")], by=LOCAL_ACTOR, allow=allow)
+        self.assertEqual(result.kept, ("bob@example.com",))
+        self.assertEqual(result.newly_admitted, ("bob@example.com",))
+
+    def test_an_admitted_owner_row_is_not_newly_admitted(self):
+        self.seed(row("bob@example.com", "owner"))
+        result = self.apply([], by=LOCAL_ACTOR, allow=frozenset({"bob@example.com"}))
+        self.assertEqual((result.kept, result.newly_admitted), (("bob@example.com",), ()))
+
+    def test_a_press_that_only_narrows_has_no_newly_admitted(self):
+        self.seed(row("b@example.com", "viewer"), row("c@example.com"))
+        result = self.apply([target("b@example.com", "viewer")], by=LOCAL_ACTOR, members_only=True)
+        self.assertEqual(result.newly_admitted, ())
+
+    def test_turning_off_under_allow_names_who_it_lets_in(self):
+        """managed -> off hands admission back to --allow, which may list people people.json does not."""
+        self.apply([], by=LOCAL_ACTOR)
+        result = self.apply([], managed=False, by=LOCAL_ACTOR, allow=frozenset({"z@example.com"}))
+        self.assertEqual(result.newly_admitted, ("z@example.com",))
+
     def test_people_is_written_before_access(self):
         """If the flag cannot be written the member changes stay and the instance is still not managed."""
         self.seed(row("owner@example.com", "owner"))
@@ -185,7 +258,7 @@ class Transition(StateBase):
         people_after_first = (self.state / "people.json").read_bytes()
         second = self.apply(targets)
         self.assertEqual((first.added, first.removed), (("carol@example.com", "d@example.com"), ("b@example.com",)))
-        self.assertEqual(second, ManagedResult((), (), (), True))
+        self.assertEqual((second.added, second.removed, second.changed, second.newly_admitted), ((), (), (), ()))
         self.assertEqual((self.state / "people.json").read_bytes(), people_after_first)
         self.assertEqual(read_access(self.state / "access.json").managed, "managed")
         self.assertEqual(len(self.audited), 3)  # the second press audits nothing
@@ -281,10 +354,20 @@ class TransitionRefusals(StateBase):
         ):
             self.assertNotIn(str(self.tmp), str(self.refused(error, targets, by=by)))
 
-    def test_turning_management_off_may_leave_the_requester_out(self):
-        """Only a managed instance can lock someone out; turning it off hands admission back to --allow."""
-        self.apply([], managed=False, by={"login": "b@example.com", "name": "B"})
+    def test_turning_management_off_with_the_current_list_is_allowed(self):
+        """Turning management off is the normal press; the requester keeps their line."""
+        self.apply([target("b@example.com")], managed=False, by={"login": "b@example.com", "name": "B"})
         self.assertEqual(read_access(self.state / "access.json").managed, "not-managed")
+
+    def test_turning_management_off_cannot_remove_the_requesters_own_row(self):
+        """Unmanaged under --members-only people.json still governs entry, so a removal of the requester's row can
+        refuse them next request. The guard is on the removal, not on the flag."""
+        self.refused(LocksOutOwner, [], managed=False, by={"login": "b@example.com", "name": "B"})
+
+    def test_a_requester_without_a_login_refuses_and_writes_nothing(self):
+        for by in ({}, {"name": "x"}, {"login": None}, {"login": ""}):
+            self.refused(ValueError, [target("c@example.com")], by=by)
+        self.assertFalse((self.state / "access.json").exists())
 
 
 class SingleEdits(StateBase):
@@ -313,6 +396,14 @@ class SingleEdits(StateBase):
     def test_set_one_role_of_a_stranger_is_none_and_creates_nothing(self):
         self.assertIsNone(set_one_role(self.state, "a@example.com", "editor", self.audit))
         self.assertFalse((self.state / "people.json").exists())
+
+    def test_set_one_role_judges_the_role_before_the_file(self):
+        """A malformed role is never answered "not a member", with or without a people.json."""
+        with self.assertRaisesRegex(ValueError, "role must be one of"):
+            set_one_role(self.state, "a@example.com", "boss", self.audit)
+        self.seed(row("a@example.com"))
+        with self.assertRaisesRegex(ValueError, "role must be one of"):
+            set_one_role(self.state, "nobody@example.com", "boss", self.audit)
 
     def test_set_one_role_cannot_demote_the_last_owner(self):
         self.seed(row("o@example.com", "owner"))
@@ -363,7 +454,9 @@ class TransitionRaces(StateBase):
             if not children:
                 children.append(run_member_add(self.state, "late@example.com"))
 
-        apply_managed(self.state, [target("carol@example.com")], OWNER, True, NOW, audit)
+        apply_managed(
+            self.state, [target("carol@example.com")], OWNER, True, NOW, audit, allow=frozenset(), members_only=False
+        )
         out, err = children[0].communicate(timeout=120)
         self.assertEqual(children[0].returncode, 0, err)
         self.assertEqual(
@@ -393,7 +486,16 @@ class TransitionAdmission(AccessBase):
 
     def press(self, targets, managed=True):
         """The owner at the machine presses the button on the running instance's state."""
-        return apply_managed(ps.APP.C.state, targets, LOCAL_ACTOR, managed, NOW, lambda action, details: None)
+        return apply_managed(
+            ps.APP.C.state,
+            targets,
+            LOCAL_ACTOR,
+            managed,
+            NOW,
+            lambda action, details: None,
+            allow=ps.APP.C.allow,
+            members_only=ps.APP.C.access.members_only,
+        )
 
     def test_absent_to_managed_admits_exactly_the_checked_people(self):
         self.assertEqual(self.status(CAROL)[0], 200)  # open instance: no flag, no list
@@ -416,3 +518,15 @@ class TransitionAdmission(AccessBase):
         self.assertEqual(self.status(CAROL), (403, "not_member"))
         self.press([target("alice@example.com")], managed=False)
         self.assertEqual(self.status(CAROL)[0], 200)
+
+    def test_an_owner_row_kept_under_allow_is_let_in_and_the_result_says_so(self):
+        """The widening path: --allow alone refuses bob today, a kept owner row lets him in after the press."""
+        set_config(allow=frozenset({"alice@example.com"}))
+        self.assertTrue(ps.APP.C.people_file.parent.exists())
+        ps.APP.C.people_file.write_text(
+            json.dumps({"version": 1, "people": [row("bob@example.com", "owner")]}), encoding="utf-8"
+        )
+        self.assertEqual(self.status(BOB), (403, "not_allowed"))
+        result = self.press([target("alice@example.com")])
+        self.assertEqual(result.newly_admitted, ("bob@example.com",))
+        self.assertEqual(self.status(BOB)[0], 200)
