@@ -202,6 +202,11 @@ class LastOwner(Exception):
         self.login = login
 
 
+def row_login(row: Mapping[str, object]) -> str:
+    """The login of a people.json row (valid_people guarantees a non-empty string)."""
+    return str(row["login"])
+
+
 def _is_owner(row: Row) -> bool:
     """Does the people.json row hold the owner role (a missing role is the default role, an unknown one a viewer)?"""
     return role_value(row.get("role")) == "owner"
@@ -264,25 +269,42 @@ def remove_member(rows: list[Row], login: str) -> tuple[Row | None, MemberChange
 
 
 def people_transaction(
-    state: Path, step: Callable[[list[Row]], tuple[T, Sequence[MemberChange]]], audit: PeopleAudit
+    state: Path,
+    step: Callable[[list[Row]], tuple[T, Sequence[MemberChange]]],
+    audit: PeopleAudit,
+    then: Callable[[], object] | None = None,
 ) -> T:
     """The one write of people.json for a membership change: takes the people lock once, reads the file, runs
-    step(rows), writes the result in people_text's format (atomic, mode 0600) and records each change step returned
-    to audit while the lock is still held, so audit lines follow the order of the changes. Returns step's result.
+    step(rows), writes the result in people_text's format (atomic, mode 0600), records each change step returned to
+    audit and finally runs `then`, all while the lock is still held, so audit lines follow the order of the changes
+    and `then` (a second file that must follow people.json, such as the access flag) is serialised with it. Returns
+    step's result.
+
+    `then` runs under the lock, after the write and after the audit lines. If it raises, the member changes stand
+    and are audited, and the error propagates: for the access flag that leaves the instance unmanaged, the
+    deliberately safe failure (nobody gained entry), and the owner can press again since the operation writes a
+    target state.
 
     step edits rows in place and returns (result, changes); it runs under the lock and must not take it again
     (store_lock does not nest). ValueError for an unusable people.json, and anything step raises (ValueError,
-    LastOwner), propagates before anything is written or audited."""
+    LastOwner), propagates before anything is written or audited. So does LastOwner when the file held an owner and
+    step left none: the per-edit guards (remove_member, set_member_role) do not see a step that rewrites rows
+    wholesale. An error from `then` propagates after the write and the audit lines, which are not undone."""
     state = Path(state)
     state.mkdir(parents=True, exist_ok=True)
     with store_lock(state, "people"):
         rows = load_people(state / PEOPLE_FILE)
         if type(rows) is PeopleUnreadable:
             raise ValueError(rows.reason)
+        owners = [row_login(x) for x in rows if _is_owner(x)]
         out, changes = step(rows)
+        if owners and not any(_is_owner(x) for x in rows):
+            raise LastOwner(owners[0])
         atomic_write(state / PEOPLE_FILE, people_text(rows), mode=0o600)
         for change in changes:
             audit(change.action, change.details)
+        if then is not None:
+            then()
     return out
 
 

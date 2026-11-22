@@ -187,6 +187,99 @@ class Transaction(unittest.TestCase):
         self.assertEqual(path.read_text(encoding="utf-8"), before)
         self.assertEqual(self.audited, [])
 
+    def test_a_step_that_leaves_no_owner_raises_and_writes_nothing(self):
+        """The per-edit guard does not see a step that rewrites the rows wholesale; the transaction checks the result."""
+        self.state.mkdir()
+        path = self.state / "people.json"
+        before = json.dumps({"version": 1, "people": rows_of(("a@example.com", "owner"), ("b@example.com", "editor"))})
+        path.write_text(before, encoding="utf-8")
+
+        def step(rows):
+            rows[:] = [x for x in rows if x["login"] != "a@example.com"]
+            return None, []
+
+        with self.assertRaises(LastOwner) as caught:
+            people_transaction(self.state, step, self.audit)
+        self.assertEqual(caught.exception.login, "a@example.com")
+        self.assertEqual(path.read_text(encoding="utf-8"), before)
+        self.assertEqual(self.audited, [])
+
+    def test_a_step_that_demotes_the_only_owner_by_hand_raises(self):
+        self.state.mkdir()
+        (self.state / "people.json").write_text(
+            json.dumps({"version": 1, "people": rows_of(("a@example.com", "owner"))}), encoding="utf-8"
+        )
+
+        def step(rows):
+            rows[0]["role"] = "viewer"
+            return None, []
+
+        with self.assertRaises(LastOwner):
+            people_transaction(self.state, step, self.audit)
+
+    def test_a_file_without_an_owner_is_not_held_to_have_one(self):
+        """Today's instances have no owner row; a step on them is not refused for that."""
+        people_transaction(
+            self.state, lambda rows: add_member(rows, "a@example.com", "editor", None)[:1] + ([],), self.audit
+        )
+        self.assertTrue((self.state / "people.json").exists())
+
+    def test_then_runs_after_the_write_and_the_audit_lines_still_under_the_lock(self):
+        seen = []
+
+        def then():
+            seen.append(
+                (
+                    (self.state / "people.json").exists(),
+                    list(self.audited),
+                    self.lock_is_held(),
+                )
+            )
+
+        people_transaction(
+            self.state,
+            lambda rows: (None, [add_member(rows, "a@example.com", "owner", None)[1]]),
+            self.audit,
+            then=then,
+        )
+        self.assertEqual(seen, [(True, [("member_added", {"login": "a@example.com", "role": "owner"})], True)])
+
+    def test_then_is_not_run_when_the_step_raises(self):
+        ran = []
+        with self.assertRaises(ValueError):
+            people_transaction(
+                self.state,
+                lambda rows: add_member(rows, "has space", "editor", None),
+                self.audit,
+                then=lambda: ran.append(1),
+            )
+        self.assertEqual(ran, [])
+
+    def test_a_failing_then_keeps_the_write_and_its_audit_lines(self):
+        def then():
+            raise OSError("disk full")
+
+        with self.assertRaises(OSError):
+            people_transaction(
+                self.state,
+                lambda rows: (None, [add_member(rows, "a@example.com", "owner", None)[1]]),
+                self.audit,
+                then=then,
+            )
+        self.assertEqual(
+            json.loads((self.state / "people.json").read_text(encoding="utf-8"))["people"][0]["login"], "a@example.com"
+        )
+        self.assertEqual(len(self.audited), 1)
+
+    def lock_is_held(self):
+        """Is the people lock held by some other descriptor right now (a non-blocking flock is refused)?"""
+        with open(self.state / ".people.lock", "a+b") as fh:
+            try:
+                fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            return False
+
     def test_transaction_holds_the_lock_while_the_step_runs(self):
         """store_lock does not nest: a second acquisition in the same process would block forever. So the step must
         find the lock already held - a non-blocking flock from another descriptor is refused - and never take it."""
