@@ -295,8 +295,15 @@ class Failures(ServerCase):
         self.addCleanup(gate.set)
 
         def stall(head):
-            """200 announcing 100 bytes, sending 3, then waiting."""
-            return ("200 OK", (100, (x for x in (b"abc", gate.wait(5) and b""))))
+            """200 announcing 100 bytes; the status, headers and 3 bytes go out, then the body waits (lazily, so the
+            stall happens while the client is already reading it)."""
+
+            def pieces():
+                """Three bytes, then silence until the test ends."""
+                yield b"abc"
+                gate.wait(5)
+
+            return ("200 OK", (100, pieces()))
 
         path, _ = self.unix_api("s", stall)
         started = time.monotonic()
