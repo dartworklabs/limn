@@ -48,7 +48,7 @@ spec이 함축하지만 어느 Task의 시험도 짚지 않을 수 있는 입력
 - Produces: `limn.security.access_store.AccessFile` — frozen dataclass `(managed: ManagedAccess, at: str | None, by: str | None, reason: str | None)`
 - Produces: `read_access(path: Path) -> AccessFile` — 없는 파일은 `("not-managed", None, None, None)`; 읽히고 `{"version": 1, "managed": bool}` 모양이면 그 플래그; 그 밖(읽기 실패·UTF-8 JSON 아님·`version`이 1 아님·`managed`가 `bool` 아님)은 `("unusable", None, None, reason)`
 - Produces: `access_text(managed: bool, at: str, by: str) -> str` — `{"version":1,"managed":…,"managed_at":…,"managed_by":…}`, 한 칸 들여쓰기, 줄바꿈으로 끝
-- Produces: `write_access(state: Path, managed: bool, at: str, by: str) -> None` — `atomic_write(..., mode=0o600)`. **잠금을 잡지 않는다**(부르는 쪽이 people 잠금을 들고 있다)
+- Produces: `write_access(path: Path, managed: bool, at: str, by: str) -> None` — `atomic_write(..., mode=0o600)`. **잠금을 잡지 않는다**(부르는 쪽이 `store_lock(state, "people")`을 들고 있다). **첫 인자는 `read_access`와 같이 파일 경로다** — 상태 디렉터리가 아니다. 둘 다 `Path`라서 타입 검사가 뒤바뀜을 못 잡고, 호출자가 손에 든 값은 `RunConfig.access_file`(파일)이다
 - Produces: `limn.runtime.paths.ACCESS_FILE = "access.json"`, `RunConfig.access_file` property, `RuntimeResources.access_cache` (`FileCache[AccessFile]`)
 
 - [ ] **Step 1: 실패하는 시험을 쓴다** (`test_access_store.py`, 클래스 `ReadAccess`, `WriteAccess`)
@@ -93,6 +93,7 @@ Expected: PASS — 세 명령 전부
 - Consumes: Task 1의 `ManagedAccess`, `read_access`, `access_cache`
 - Produces: `access.admit(p, host, headers, settings, roles, managed: Callable[[], ManagedAccess]) -> None` — **기본값 없는 여섯째 매개변수**
 - Produces: `SecurityApplication.managed_access() -> ManagedAccess` (캐시에서 투영), `RequestGuards.managed: Callable[[], ManagedAccess]`
+- Produces: **못 쓰는 `access.json`의 stderr 경고 한 번** — spec §A가 요구한다. `people.UnreadableWarning`(`people.py:82`)과 같은 모양으로 프로세스가 하나를 소유하고(`RuntimeResources`에 `access_warning`을 `people_warning` 옆에), 한 번 깨짐에 한 줄만 찍고 정상 읽기가 다시 무장한다. Task 1의 `access_store.py` docstring이 "the server's warning shows it"이라고 약속해 둔 자리가 이것이다
 
 - [ ] **Step 1: 실패하는 시험을 쓴다** (`test_access.py`, 클래스 `ManagedAdmission`, `UnmanagedUnchanged`)
 
@@ -395,7 +396,7 @@ Expected: PASS
 **Files:** `docs/adr/0054-access-managed-from-the-viewer.md`(새), `docs/adr/index.md`, `docs/handbook/{api,architecture,operations,viewer,instances,verification,index}.md`, `SECURITY.md`, `README.md`, `README.ko.md`, `skill/SKILL.md`, `skill/SKILL.ko.md`, `CHANGELOG.md`
 
 - [ ] **Step 1: ADR-0054를 쓴다** (`제안`). 머리표에 **ADR-0002 §2 권한 층의 "소유자 전용 작업은 당분간 CLI 수준" 조항을 `부분 대체`**. 결정: D1 `access.json`의 플래그가 입장의 정본을 가른다, D2 전환은 소유자가 보고 누르며 기본값은 무동작, D3 멤버십 = 입장(두 축을 만들지 않는다), D4 관리 중인 인스턴스에서 빈 명단은 "아무도"다, D5 못 쓰는 `access.json`은 fail closed, D6 읽기도 역할로 가른다(`OWNER_READS`), D7 권한 값은 HTTP 문에서만 발급되고 CLI 문은 OS 파일 권한으로 지킨다(비대칭과 그 이유), D8 마지막 owner 보호는 두 문을 묶는다, D9 최초 owner는 CLI만 만든다, D10 테일넷 목록은 LocalAPI의 부분 목록이고 실패는 정상이다. 대안: 자동 흡수, `--allow` 목록만 파일로, 줄에 `admit` 필드, Admin API 자격증명, 서브프로세스. 수치는 spec §실측에서 옮긴다. **ADR-0002·0003·0007 본문은 건드리지 않는다.**
-- [ ] **Step 2: Handbook을 고친다**(현재형, 날짜·전후 수치 없이). `api.md` §인증의 입장 표에 관리 모드 행, 새 경로 다섯과 응답 필드, 새 `reason` 코드, `access.json` 형식, 소유자 전용 읽기와 검사 순서. `architecture.md` §불변식 1에 관리 모드와 fail closed, §멈춤 신호에 걸려 설계 판단을 받았다는 사실. `operations.md` §실행 인자에 "관리 모드에서 `--allow`·`--members-only`는 무시된다", §상태 파일 배치에 `access.json`과 복구, 기동 `auth` 로그 줄, **소유자 교체 순서**(새 소유자를 먼저 더한다). `viewer.md` §역할에 따른 화면에 소유자 전용 패널, 새 절로 패널 규칙. `instances.md`에 전환 안내와 `limn member add --role owner` 부트스트랩. `verification.md`에 새 검사. `index.md` §파일 지도에 새 모듈 행. 규칙 문단마다 ADR-0054의 조항을 인용하고, **인용을 지워도 본문만으로 규칙이 완결되게** 쓴다.
+- [ ] **Step 2: Handbook을 고친다**(현재형, 날짜·전후 수치 없이). `api.md` §인증의 입장 표에 관리 모드 행, 새 경로 다섯과 응답 필드, 새 `reason` 코드, `access.json` 형식, 소유자 전용 읽기와 검사 순서. `architecture.md` §불변식 1에 관리 모드와 fail closed, §멈춤 신호에 걸려 설계 판단을 받았다는 사실. `operations.md` §실행 인자에 "관리 모드에서 `--allow`·`--members-only`는 무시된다", 기동 `auth` 로그 줄, **소유자 교체 순서**(새 소유자를 먼저 더한다). §상태 파일 배치는 **두 자리를 모두** 고친다 — 상태 폴더 나무 그림(`people.json`·`tokens.json` 줄 옆에 `access.json`을 권한 0600과 함께)과 그 아래 "접근 제어의 상태" 문단(`people.json`·`tokens.json`만 말하고 있다). 복구 절차는 "쓸 수 없는 `people.json`" 절과 같은 자리에 둔다. `viewer.md` §역할에 따른 화면에 소유자 전용 패널, 새 절로 패널 규칙. `instances.md`에 전환 안내와 `limn member add --role owner` 부트스트랩. `verification.md`에 새 검사. `index.md` §파일 지도에 새 모듈 행. 규칙 문단마다 ADR-0054의 조항을 인용하고, **인용을 지워도 본문만으로 규칙이 완결되게** 쓴다.
 - [ ] **Step 3: `SECURITY.md`를 고친다** — 관리 모드가 무엇을 막고 무엇을 안 막는지, 못 쓰는 `access.json`의 fail closed, 테일넷 목록 읽기가 **읽기 전용이고 소유자에게만 보인다**는 것, 목록이 부분적이라는 것.
 - [ ] **Step 4: README 쌍과 SKILL 쌍을 고친다** — `README.md:92`·`README.ko.md:89`의 보안 문단과 `skill/SKILL.md:239`·`skill/SKILL.ko.md:239`의 인증 행. 네 파일을 같은 내용으로 맞춘다.
 - [ ] **Step 5: `CHANGELOG.md`에 적는다** — **Added**(관리 모드, 패널, 새 경로)와 **Changed**(`limn member remove`·`role`이 마지막 owner를 거부한다). "에이전트 계약은 더하기만 했다"는 문장과, 되돌릴 때 전환 뒤 더한 사람이 못 들어온다는 것을 적는다.
