@@ -35,6 +35,7 @@ from limn.runtime import startup
 from limn.runtime.startup import StartupRefused
 from limn.security import access
 from limn.security.access import LOCAL_ACTOR, load_tokens
+from limn.security.access_store import access_text
 from limn.web.answers import CONFIRM_BY_HUMAN
 
 from helpers import extract_js_fn, ps, run_node, set_config
@@ -705,6 +706,124 @@ class Admission(AccessBase):
         self.assertIn("허용되지 않은 계정", d["error"])
         self.assertEqual(self.call("GET", "/api/pins")[0], 200)
         self.assertEqual(self.call("GET", "/api/pins", headers={"Host": "box.tail1234.ts.net"})[0], 403)
+
+
+class AdmissionFlagBase(AccessBase):
+    """A handler-level base that can switch the instance access flag (<state>/access.json) the way the owner would."""
+
+    def set_flag(self, managed):
+        """Write access.json with this flag, as the viewer's switch stores it."""
+        ps.APP.C.access_file.write_text(
+            access_text(managed, "2026-11-22T00:00:00", "alice@example.com"), encoding="utf-8"
+        )
+
+    def status(self, headers=None, path="/api/pins", **kw):
+        """The status and error reason of a GET."""
+        code, d = self.call("GET", path, headers=headers, **kw)
+        return code, (d.get("reason") if isinstance(d, dict) else None)
+
+
+class UnmanagedUnchanged(AdmissionFlagBase):
+    """With no access.json, admission judges exactly as before the flag existed. These pin today's answers in each
+    configuration, so a later change to the managed branch cannot alter an unmanaged instance."""
+
+    def test_no_list_admits_everyone(self):
+        self.assertEqual(self.status(ALICE)[0], 200)
+        self.assertEqual(self.status(CAROL)[0], 200)
+
+    def test_allow_only_refuses_outsider(self):
+        set_config(allow=frozenset({"alice@example.com"}))
+        self.assertEqual(self.status(ALICE)[0], 200)
+        self.assertEqual(self.status(BOB), (403, "not_allowed"))
+
+    def test_members_only_admits_member_or_allow(self):
+        set_config(members_only=True, allow=frozenset({"alice@example.com"}))
+        self.set_people([{"login": "bob@example.com", "name": "Bob"}])
+        self.assertEqual(self.status(ALICE)[0], 200)
+        self.assertEqual(self.status(BOB)[0], 200)
+        self.assertEqual(self.status(CAROL), (403, "not_member"))
+
+    def test_flag_off_judges_like_no_file(self):
+        """access.json present but managed:false is the same as none."""
+        self.set_flag(False)
+        set_config(allow=frozenset({"alice@example.com"}))
+        self.assertEqual(self.status(ALICE)[0], 200)
+        self.assertEqual(self.status(BOB), (403, "not_allowed"))
+
+
+class ManagedAdmission(AdmissionFlagBase):
+    """While access.json says managed, people.json alone decides who a header-identified person is."""
+
+    def setUp(self):
+        super().setUp()
+        self.set_flag(True)
+        self.set_people([{"login": "bob@example.com", "name": "Bob"}])
+
+    def test_member_is_admitted(self):
+        self.assertEqual(self.status(BOB)[0], 200)
+
+    def test_non_member_is_refused(self):
+        code, d = self.call("GET", "/api/pins", headers=CAROL)
+        self.assertEqual((code, d["reason"]), (403, "not_member"))
+        self.assertIn("limn member add", d["error"])
+
+    def test_allow_is_ignored(self):
+        set_config(allow=frozenset({"alice@example.com"}))
+        self.assertEqual(self.status(ALICE), (403, "not_member"))
+        self.assertEqual(self.status(BOB)[0], 200)
+
+    def test_members_only_is_ignored(self):
+        set_config(members_only=True, allow=frozenset({"alice@example.com"}))
+        self.assertEqual(self.status(ALICE), (403, "not_member"))
+        self.assertEqual(self.status(BOB)[0], 200)
+
+    def test_empty_people_admits_nobody(self):
+        ps.APP.C.people_file.unlink()
+        self.assertEqual(self.status(ALICE), (403, "not_member"))
+        self.assertEqual(self.status(CAROL), (403, "not_member"))
+
+    def test_token_and_local_owner_still_admitted(self):
+        _, tok = token_create(ps.APP.C.state, "ci")
+        self.assertEqual(self.status(token=tok)[0], 200)
+        set_config(auth="local", agent_loopback=False, local_user="alice")
+        self.assertEqual(self.status()[0], 200)
+
+    def test_unusable_access_refuses_header_people(self):
+        ps.APP.C.access_file.write_text("not json", encoding="utf-8")
+        self.assertEqual(self.status(BOB), (403, "access_unreadable"))
+        _, tok = token_create(ps.APP.C.state, "ci")
+        self.assertEqual(self.status(token=tok)[0], 200)
+
+    def test_unusable_access_warns_once_per_breakage(self):
+        ps.APP.C.access_file.write_text("not json", encoding="utf-8")
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.status(BOB)
+            self.status(BOB)
+        self.assertEqual(err.getvalue().count("access.json"), 1)
+        self.assertIn(str(ps.APP.C.access_file), err.getvalue())
+        self.set_flag(True)  # a good read re-arms the warning
+        self.assertEqual(self.status(BOB)[0], 200)
+        ps.APP.C.access_file.write_text("still not json", encoding="utf-8")
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            self.status(BOB)
+        self.assertEqual(err.getvalue().count("access.json"), 1)
+
+    def test_unusable_people_with_managed_refuses(self):
+        """The closed state: nobody is a member while people.json cannot be used, and the refusal names that file
+        instead of reading as an ordinary "you are not a member"."""
+        ps.APP.C.people_file.write_text("not json", encoding="utf-8")
+        code, d = self.call("GET", "/api/pins", headers=BOB)
+        self.assertEqual((code, d["reason"]), (403, "people_unreadable"))
+        self.assertIn("people.json", d["error"])
+        _, tok = token_create(ps.APP.C.state, "ci")
+        self.assertEqual(self.status(token=tok)[0], 200)
+
+    def test_change_applies_without_restart(self):
+        self.assertEqual(self.status(CAROL), (403, "not_member"))
+        self.set_people([{"login": "carol@example.com", "name": "Carol"}])
+        self.assertEqual(self.status(CAROL)[0], 200)
+        ps.APP.C.access_file.unlink()  # switched off again: today's judgement
+        self.assertEqual(self.status(ALICE)[0], 200)
 
 
 # ---------------------------------------------------------------- Host/Origin with --public-host

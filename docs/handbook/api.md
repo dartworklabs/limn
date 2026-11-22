@@ -47,7 +47,7 @@ HTTP 전송 입장을 통과한 API 오류 응답은 `{"error": "<한국어 메�
 | 묶음 | 상태 | 코드 |
 | --- | --- | --- |
 | 요청 경계 | `400`·`403`·`413`·`415` | `transfer_encoding`·`bad_content_length`·`body_truncated`·`body_too_large`·`bad_content_type`·`bad_json`·`bad_query`·`duplicate_header`·`bad_host`·`bad_origin`·`invalid_authority` |
-| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
+| 인증·입장·역할 | `401`·`403` | `unauthenticated`·`loopback_agent_off`(루프백 에이전트를 끈 인스턴스에 헤더 없는 로컬 요청)·`headerless`·`bad_bearer`·`bad_token`·`not_member`·`access_unreadable`(`access.json` 을 못 씀)·`people_unreadable`(관리 모드에서 `people.json` 을 못 씀)·`not_allowed`·`viewer_only`·`owner_only`·`confirm_by_human`·`verdict_human`(에이전트가 판정 핀을 만듦) |
 | 경로 | `404` | `not_found`(없는 경로·vendor 파일), `pdf_build_gone`(`?build=` 나 `/pages/<빌드>/` 의 빌드가 없음, pick 의 옛 빌드, `POST /api/hold` 의 빌드가 없음), `pdf_missing`(`?build=` 없이 지금 빌드의 PDF 가 없음) |
 | 문서 | `400`·`404` | `bad_doc`·`doc_mismatch`·`unknown_doc`·`no_source_lines`(보기 전용 문서나 영역 핀에 줄을 보냄. 판정 핀의 편집이면 `verdict_fixed`)·`view_only_no_rebuild`·`not_rendered_in_browser`(쪽으로 보이는 문서에 원문을 물음) |
 | 원문 | `413`·`422` | `source_too_large`(본문에 `bytes`·`limit`)·`source_not_utf8`·`source_unreadable` — `GET /api/source`. `GET /api/revision-source` 는 같은 이름과 `not_a_file` 을 거절이 아니라 `200` 답의 한 쪽 `reason` 으로 준다(§변경 보기와 비교 PDF) |

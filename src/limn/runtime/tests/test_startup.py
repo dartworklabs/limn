@@ -257,7 +257,7 @@ class AccessLog(unittest.TestCase):
     def test_default_line_and_deprecation_warning(self):
         """The v0.1-equivalent start: the provider line and the loopback-agent warning."""
         self.assertEqual(
-            startup.access_log_lines(options(), 0, False),
+            startup.access_log_lines(options(), 0, False, "not-managed", frozenset()),
             [
                 "auth        tailscale · tokens 0 · loopback agent on (deprecated) · tailnet agent off · members-only off",
                 "warning     " + LOOPBACK_AGENT_DEPRECATION,
@@ -280,7 +280,7 @@ class AccessLog(unittest.TestCase):
             "--members-only",
         )
         self.assertEqual(
-            startup.access_log_lines(got, 2, True),
+            startup.access_log_lines(got, 2, True, "not-managed", frozenset()),
             [
                 "auth        trusted-proxy · proxies 10.0.0.0/8 · user header X-Forwarded-User · tokens 2 · token file "
                 "/x/t.token (present) · loopback agent off · members-only on · public hosts a.example.com:8443",
@@ -289,18 +289,31 @@ class AccessLog(unittest.TestCase):
             ],
         )
 
+    def test_managed_line_says_the_arguments_are_ignored(self):
+        """A managed instance says so, and warns that --allow and --members-only no longer decide; unmanaged adds nothing."""
+        lines = startup.access_log_lines(options("--members-only"), 0, False, "managed", frozenset({"a@example.com"}))
+        self.assertIn("members-only on · access managed (people.json decides)", lines[0])
+        self.assertEqual(
+            lines[1],
+            "warning     access.json is managed: --allow and --members-only ignored (people.json decides who is admitted)",
+        )
+        self.assertEqual(len(startup.access_log_lines(options(), 0, False, "managed", frozenset())), 2)  # no warning
+        self.assertIn("access.json unusable", startup.access_log_lines(options(), 0, False, "unusable", frozenset())[0])
+
     def test_insecure_and_tailnet_warnings(self):
         """The loud insecure warning, the local owner, and the tailnet-agent warning."""
         lines = startup.access_log_lines(
             options("--auth", "local", "--local-user", "bob", "--bind", "0.0.0.0", "--i-know-this-is-insecure"),
             0,
             False,
+            "not-managed",
+            frozenset(),
         )
         self.assertEqual(lines[0], "auth        local · owner bob · tokens 0 · loopback agent off · members-only off")
         self.assertTrue(
             lines[2].startswith("warning     !!! --i-know-this-is-insecure: --auth local on 0.0.0.0 is NOT")
         )
-        lines = startup.access_log_lines(options("--tailnet-agent"), 0, False)
+        lines = startup.access_log_lines(options("--tailnet-agent"), 0, False, "not-managed", frozenset())
         self.assertIn("tailnet agent on (deprecated)", lines[0])
         self.assertTrue(lines[-1].startswith("warning     --tailnet-agent: a headerless request"))
 

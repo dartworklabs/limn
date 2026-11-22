@@ -353,7 +353,12 @@ class Admit(RefusalCase):
     def admit(self, p, host=None, hdrs=None, lookups=None, **options):
         """admit() with these settings; hdrs None passes no header block."""
         return access.admit(
-            p, host, None if hdrs is None else headers(hdrs), settings(**options), (lookups or Lookups()).roles
+            p,
+            host,
+            None if hdrs is None else headers(hdrs),
+            settings(**options),
+            (lookups or Lookups()).roles,
+            lambda: "not-managed",
         )
 
     def test_members_only_refuses_a_non_member_and_reads_roles_only_then(self):
@@ -617,11 +622,13 @@ class UnreadableRoles(RefusalCase):
             None,
             settings(members_only=True),
             broken,
+            lambda: "not-managed",
             code=403,
             reason="not_member",
             page="not-member",
         )
-        access.admit(person, None, None, settings(members_only=True, allow=frozenset({"alice@example.com"})), broken)
+        allowed = settings(members_only=True, allow=frozenset({"alice@example.com"}))
+        access.admit(person, None, None, allowed, broken, lambda: "not-managed")
 
     def test_the_cli_refuses_to_rewrite_what_the_server_cannot_read(self):
         """load_people_file (the CLI's read before `limn member` rewrites) raises ValueError with the same reason

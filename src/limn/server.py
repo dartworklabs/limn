@@ -376,7 +376,11 @@ def report(app: ServerAssembly, documents: list[Doc] | None) -> None:
     pdfjs = config.pdfjs_dir or default_pdfjs_dir()
     pdfjs_found = all(find_vendor_file(pdfjs, name, (".mjs",)) for name in ("pdf.min.mjs", "pdf.worker.min.mjs"))
     access_lines = startup.access_log_lines(
-        config.access, len(app.security.current_tokens()), file_present(config.access.agent_token_file)
+        config.access,
+        len(app.security.current_tokens()),
+        file_present(config.access.agent_token_file),
+        app.security.managed_access(),
+        config.allow,
     )
     for line in startup.summary_lines(config, bool(documents), access_lines, pdfjs_found):
         print(line)

@@ -11,7 +11,9 @@ from limn.runtime.documents import Doc, document_authority_target
 from limn.runtime.resources import RuntimeResources
 from limn.security import access, people
 from limn.security.access import AuthorityScope
+from limn.security.access_store import AccessFile, read_access
 from limn.security.audit import AuditAction, append_audit, audit_entry
+from limn.security.values import ManagedAccess
 from limn.web.errors import HTTPError
 
 
@@ -22,6 +24,7 @@ class RequestGuards:
     settings: Callable[[], RunConfig]
     lookups: Callable[[], access.AccessLookups]
     roles: Callable[[], access.PeopleRoles]
+    managed: Callable[[], ManagedAccess]
     documents: Callable[[], Sequence[Doc]]
     authority_scope: Callable[[str], AuthorityScope]
     trash_days: int
@@ -45,7 +48,7 @@ class RequestGuards:
 
     def admit(self, principal: access.Principal, host: str | None, headers: Message | None = None) -> None:
         """Apply membership and provider admission rules."""
-        access.admit(principal, host, headers, self.config.access_settings, self.roles)
+        access.admit(principal, host, headers, self.config.access_settings, self.roles, self.managed)
 
     def check_role(self, principal: access.Principal, path: str) -> None:
         """Apply the role rule for a mutation path."""
@@ -88,6 +91,19 @@ class SecurityApplication:
             self.settings().people_file, lambda: access.people_roles_of(self.load_people()), {}
         )
 
+    def managed_access(self) -> ManagedAccess:
+        """Whether access.json hands admission to people.json now: re-read when the file changes. A file that cannot
+        be used is "unusable" and warns once per breakage."""
+        resources, path = self.resources(), self.settings().access_file
+
+        def load() -> AccessFile:
+            """Read the file and let the process's warning see the result."""
+            read = read_access(path)
+            resources.access_warning.note(read)
+            return read
+
+        return resources.access_cache.get(path, load, AccessFile("not-managed", None, None, None)).managed
+
     def role_of(self, login: str) -> access.Role:
         """Return the current role of one person, including unreadable-file policy."""
         return access.person_role(self.people_roles(), login)
@@ -107,4 +123,12 @@ class SecurityApplication:
         trash_days: int,
     ) -> RequestGuards:
         """Assemble guards from current security facts and effect-owner bindings."""
-        return RequestGuards(self.settings, self.access_lookups, self.people_roles, docs, authority_scope, trash_days)
+        return RequestGuards(
+            self.settings,
+            self.access_lookups,
+            self.people_roles,
+            self.managed_access,
+            docs,
+            authority_scope,
+            trash_days,
+        )

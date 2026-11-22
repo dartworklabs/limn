@@ -8,6 +8,8 @@ viewer. This module holds only the file: its read (read_access), its stored text
 from __future__ import annotations
 
 import json
+import sys
+import threading
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -79,6 +81,33 @@ def read_access(path: Path) -> AccessFile:
         _text_or_none(doc.get("managed_by")),
         None,
     )
+
+
+class UnusableWarning:
+    """The stderr warning about an unusable access.json, printed once per breakage: the first read that finds the file
+    unusable warns, later ones stay quiet, and a good read re-arms it so a new breakage warns again. The running
+    server owns one for the process (RuntimeResources.access_warning), like people.UnreadableWarning. Thread-safe."""
+
+    def __init__(self) -> None:
+        """The file is not known to be broken yet."""
+        self._lock: threading.Lock = threading.Lock()
+        self._broken: bool = False
+
+    def note(self, read: AccessFile) -> None:
+        """Record what a read gave: warn for an unusable file unless this breakage was warned about already; forget
+        the breakage after a good read."""
+        with self._lock:
+            if read.managed != "unusable":
+                self._broken = False
+                return
+            if self._broken:
+                return
+            self._broken = True
+        print(
+            "warning: %s - every person a header identifies is refused (access_unreadable) until it is fixed or "
+            "removed" % read.reason,
+            file=sys.stderr,
+        )
 
 
 def access_text(managed: bool, at: str, by: str) -> str:

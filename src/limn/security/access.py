@@ -41,7 +41,7 @@ from urllib.parse import urlparse
 
 from limn.security.guidance import UNAUTHENTICATED, loopback_refused_text
 from limn.security.people import PeopleUnreadable
-from limn.security.values import CONFIRM_BY_HUMAN, LOCAL_LOGIN, AuthorityScope as AuthorityScope
+from limn.security.values import CONFIRM_BY_HUMAN, LOCAL_LOGIN, AuthorityScope as AuthorityScope, ManagedAccess
 from limn.web.errors import HTTPError
 
 Json: TypeAlias = dict[str, Any]
@@ -564,8 +564,13 @@ def admit(
     headers: Message | None,
     settings: AccessSettings,
     roles: Callable[[], PeopleRoles],
+    managed: Callable[[], ManagedAccess],
 ) -> None:
-    """May this principal use the instance at all? Only people vouched for by a header are filtered: --members-only
+    """May this principal use the instance at all? Only people vouched for by a header are filtered. While access.json
+    says managed (managed(), read only for such a person), people.json alone decides: a login it lists is admitted, any
+    other is refused not_member, and --allow and --members-only are ignored - so an empty or absent people.json admits no
+    one, and an unusable one refuses everyone (people_unreadable). An unusable access.json refuses them all
+    (access_unreadable). Otherwise, as before the flag existed, --members-only
     admits logins in people.json (roles(), read only then) or --allow; otherwise --allow (if set) admits only its
     logins. Without either, everyone the provider identifies is admitted (and recorded in people.json as an editor on
     first visit). While people.json cannot be used, it lists no one (is_member): --members-only then admits only
@@ -575,14 +580,18 @@ def admit(
     browser page."""
     login = p.actor.get("login")
     if p.via == "header":
-        if settings.members_only:
+        state = managed()
+        if state == "unusable":
+            raise HTTPError(
+                403,
+                "access.json 을 읽을 수 없어 입장을 확인할 수 없습니다 — 소유자가 파일을 고치거나 지워야 합니다.",
+                reason="access_unreadable",
+            )
+        if state == "managed":
+            admit_listed(roles(), login)
+        elif settings.members_only:
             if login not in settings.allow and not is_member(roles(), login):
-                raise HTTPError(
-                    403,
-                    "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
-                    page=("not-member", {"login": login}),
-                    reason="not_member",
-                )
+                raise not_member_refusal(login)
         elif settings.allow and login not in settings.allow:
             raise HTTPError(
                 403,
@@ -599,6 +608,32 @@ def admit(
                 page=("no-identity", {}),
                 reason="headerless",
             )
+
+
+def admit_listed(listed: PeopleRoles, login: object) -> None:
+    """The managed-instance rule: admit a person people.json lists. A refusal is 403 not_member, as under --members-only
+    (same text, same page), or people_unreadable while people.json cannot be used, which names that file so the person
+    is not told they were left off a list nobody can read."""
+    if is_member(listed, login):
+        return
+    if type(listed) is PeopleUnreadable:
+        raise HTTPError(
+            403,
+            "people.json 을 읽을 수 없어 멤버를 확인할 수 없습니다 — 소유자가 파일을 고쳐야 합니다.",
+            reason="people_unreadable",
+        )
+    raise not_member_refusal(login)
+
+
+def not_member_refusal(login: object) -> HTTPError:
+    """The 403 not_member refusal, with its not-member page: the one answer to a person the instance's member list does
+    not hold, under --members-only and on a managed instance alike."""
+    return HTTPError(
+        403,
+        "이 뷰어의 멤버가 아닙니다: %s — 소유자가 `limn member add` 로 추가해야 합니다." % login,
+        page=("not-member", {"login": login}),
+        reason="not_member",
+    )
 
 
 def check_role(p: Principal, path: str, trash_days: int) -> None:
