@@ -283,6 +283,10 @@ def test_tailnet_block_is_empty_until_wired(self)         # users == [], partial
 def test_member_add_applies_without_restart(self)         # POST 뒤 다음 요청의 admit 이 달라진다
 def test_member_post_on_unmanaged_instance_is_409(self)   # "not_managed"
 def test_role_owner_or_agent_is_400(self)                 # "role_not_settable"
+# 그 판정은 `security/values.py` 에 산다 — `Role`·`ROLES`·`is_role` 옆에 `SETTABLE_ROLES` 와 술어를 두고
+# `access_service` 의 `add_one`·`set_one_role`·`_judge` 가 모두 그것을 쓴다. `http.py` 는 거절을 번역만 한다.
+# 얇은 층 한 줄을 지우면 HTTP 로 owner 를 만들 수 있게 되는 상태로 두지 않고, 역할 리터럴과의 비교를
+# 그 닫힌 값이 사는 자리에 모은다(§제약: 역할 비교는 access.py/values.py 안에만).
 def test_remove_last_owner_is_409(self)                   # "last_owner"
 def test_transition_without_confirm_is_400(self)
 def test_transition_locking_out_requester_is_409(self)    # "locks_out_owner"
