@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
 from limn.platform.effects import require_writer
+from limn.platform.tailnet import DirectoryCache
 from limn.security import access, people_store as people
 from limn.security.access_store import AccessFile, UnusableWarning
 
@@ -47,6 +48,7 @@ class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens, Maps, 
     tokens_cache: access.FileCache[list[dict[str, Any]]] = field(default_factory=access.FileCache)
     roles_cache: access.FileCache[access.PeopleRoles] = field(default_factory=access.FileCache)
     access_cache: access.FileCache[AccessFile] = field(default_factory=access.FileCache)
+    tailnet_cache: DirectoryCache = field(default_factory=DirectoryCache)
     access_warning: UnusableWarning = field(default_factory=UnusableWarning)
     loopback_warning: access.WarnOnce = field(
         default_factory=lambda: access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)

@@ -98,6 +98,17 @@ class AccessHttp(AccessBase):
             },
         )
 
+    def test_tailnet_block_drops_logins_no_person_holds(self):
+        """The transport passes every login on; the screen's rows keep only logins that could be members."""
+        read = TailnetDirectory(
+            tuple(TailnetUser(x, x, None) for x in ("has space@example.com", "local", "agent:x", "ok@example.com")),
+            True,
+            None,
+        )
+        with mock.patch.object(ps, "read_tailnet_directory", return_value=read):
+            tailnet = self.get_access()["tailnet"]
+        self.assertEqual([x["login"] for x in tailnet["users"]], ["ok@example.com"])
+
     def test_tailnet_block_says_why_there_is_no_list(self):
         """A directory that could not be read is an empty, partial block with the reason code."""
         with mock.patch.object(ps, "read_tailnet_directory", return_value=unavailable("tailscaled_not_found")):

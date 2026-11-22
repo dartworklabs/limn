@@ -76,7 +76,7 @@ from limn.security.access import (
 )
 from limn.security.application import SecurityApplication
 from limn.security.audit import audit_action
-from limn.security.http import AccessFacts, AccessWiring, TailnetDirectoryView
+from limn.security.http import AccessFacts, AccessWiring, TailnetDirectoryView, tailnet_rows
 from limn.sync import PullShare, SyncContext, SyncSubsystem, SyncWatch, assemble_sync
 from limn.viewer import (
     ServedViewer,
@@ -332,16 +332,9 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
 
     def tailnet_directory(members: frozenset[str]) -> TailnetDirectoryView:
         """The tailnet people who are not members yet, as the screen's rows; partial, and why when there are none."""
-        read = read_tailnet_directory(time.time())
-        rows: list[dict[str, object]] = []
-        for person in read.users:
-            if person.login in members:
-                continue
-            row: dict[str, object] = {"login": person.login, "name": person.name}
-            if person.pic is not None:
-                row["pic"] = person.pic
-            rows.append(row)
-        return TailnetDirectoryView(tuple(rows), read.partial, read.reason)
+        read = read_tailnet_directory(time.time(), resources().tailnet_cache)
+        rows = tailnet_rows(read.users, members)
+        return TailnetDirectoryView(rows, read.partial, read.reason)
 
     def authorize_member_change(authority: object, operation: str) -> None:
         """Refuse anything but an authority minted at the HTTP boundary for this member operation on this instance."""

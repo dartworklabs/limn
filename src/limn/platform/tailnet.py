@@ -28,10 +28,8 @@ import re
 import socket
 import time
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TypeGuard, final
-
-from limn.security.values import valid_login
 
 STATUS_PATH = "/localapi/v0/status"
 LOCAL_HOST = "local-tailscaled.sock"
@@ -104,10 +102,10 @@ def _text(value: object) -> str:
     return value if type(value) is str else ""
 
 
-def project_users(status: Json, exclude: frozenset[str]) -> tuple[TailnetUser, ...]:
-    """The status document's User map as candidates: login, display name and picture only, those whose login could be
-    a member and who are not in exclude, ordered by name without regard to case. Pure. A document of another shape
-    yields ()."""
+def project_users(status: Json) -> tuple[TailnetUser, ...]:
+    """The status document's User map as candidates: login, display name and picture (https only) of each entry that
+    has a login, ordered by name without regard to case. Pure, and it knows nothing of who may be admitted: the caller
+    decides which logins are people. A document of another shape yields ()."""
     table = status.get("User")
     if not _is_object(table):
         return ()
@@ -116,7 +114,7 @@ def project_users(status: Json, exclude: frozenset[str]) -> tuple[TailnetUser, .
         if not _is_object(entry):
             continue
         login = entry.get("LoginName")
-        if not valid_login(login) or type(login) is not str or login in exclude:
+        if type(login) is not str or not login:
             continue
         pic = _text(entry.get("ProfilePicURL"))
         found.append(
@@ -261,27 +259,31 @@ def _read(sources: Sources, timeout: float) -> TailnetDirectory:
         return unavailable("tailscaled_bad_response")
     if status.get("BackendState") != "Running":
         return unavailable("tailscaled_not_running")
-    return listed(project_users(status, frozenset()))
+    return listed(project_users(status))
 
 
 _loads: Callable[..., object] = json.loads
-_cache: dict[Sources, tuple[float, TailnetDirectory]] = {}
 
 
-def clear_cache() -> None:
-    """Forget the remembered answers (tests start from none)."""
-    _cache.clear()
+@dataclass
+class DirectoryCache:
+    """The last answer and when it was read. One per run (RuntimeResources owns it), so two server copies, and tests
+    running side by side, never see each other's answer. Never written to disk."""
+
+    held: tuple[Sources, float, TailnetDirectory] | None = field(default=None)
 
 
 def read_directory(
-    now: float, timeout: float = TIMEOUT_SECONDS, *, sources: Sources = SYSTEM_SOURCES
+    now: float, cache: DirectoryCache, timeout: float = TIMEOUT_SECONDS, *, sources: Sources = SYSTEM_SOURCES
 ) -> TailnetDirectory:
     """The tailnet people the local tailscaled shows, or why there are none. Never raises. The answer, a failure
-    included, is kept CACHE_SECONDS after the `now` it was read at; there is no thread to refresh it. The list is not
-    narrowed to non-members here: the caller leaves its own members out of the users."""
-    held = _cache.get(sources)
-    if held is not None and 0 <= now - held[0] < CACHE_SECONDS:
-        return held[1]
+    included, is kept in `cache` CACHE_SECONDS after the `now` it was read at; there is no thread to refresh it.
+    `timeout` is the budget of one read, not a wall-clock ceiling: a body that stalls mid-read is cut by the per-read
+    timeout set before the answer began, so a read can take up to about twice `timeout`; a body that trickles in is
+    cut at the deadline. Nobody is left out here: the caller drops logins that are not people or are members already."""
+    held = cache.held
+    if held is not None and held[0] == sources and 0 <= now - held[1] < CACHE_SECONDS:
+        return held[2]
     got = _read(sources, timeout)
-    _cache[sources] = (now, got)
+    cache.held = (sources, now, got)
     return got

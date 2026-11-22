@@ -8,10 +8,11 @@ a path of the state folder. The writes are limn.security.access_service's; each 
 whether the authority it was handed is the people store's, for this very operation.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from typing import NamedTuple, TypeGuard
 
+from limn.platform.tailnet import TailnetUser
 from limn.runtime.config import RunConfig
 from limn.security.access_service import (
     AlreadyMember,
@@ -42,6 +43,21 @@ class TailnetDirectoryView(NamedTuple):
     users: tuple[Json, ...]
     partial: bool
     reason: str | None
+
+
+def tailnet_rows(users: Iterable[TailnetUser], members: frozenset[str]) -> tuple[Json, ...]:
+    """The tailnet's people as the screen's {login, name, pic?} rows: only logins a person could hold (valid_login),
+    and not those who are members already. The transport reports every login it saw; what counts as a person is
+    decided here."""
+    rows: list[Json] = []
+    for person in users:
+        if not valid_login(person.login) or person.login in members:
+            continue
+        row: Json = {"login": person.login, "name": person.name}
+        if person.pic is not None:
+            row["pic"] = person.pic
+        rows.append(row)
+    return tuple(rows)
 
 
 class AccessFacts(NamedTuple):
