@@ -86,15 +86,15 @@ class WriteAccess(StateCase):
     """write_access and access_text: round trip, file mode and stored text."""
 
     def test_write_then_read_round_trips(self):
-        write_access(self.state, True, "2026-11-22 09:00:00", "alice@example.com")
+        write_access(self.path, True, "2026-11-22 09:00:00", "alice@example.com")
         got = read_access(self.path)
         self.assertEqual((got.managed, got.at, got.by), ("managed", "2026-11-22 09:00:00", "alice@example.com"))
-        write_access(self.state, False, "2026-11-23 10:00:00", "bob@example.com")
+        write_access(self.path, False, "2026-11-23 10:00:00", "bob@example.com")
         got = read_access(self.path)
         self.assertEqual((got.managed, got.at, got.by), ("not-managed", "2026-11-23 10:00:00", "bob@example.com"))
 
     def test_mode_is_0600(self):
-        write_access(self.state, True, "2026-11-22 09:00:00", "alice@example.com")
+        write_access(self.path, True, "2026-11-22 09:00:00", "alice@example.com")
         self.assertEqual(stat.S_IMODE(self.path.stat().st_mode), 0o600)
 
     def test_text_ends_with_newline(self):

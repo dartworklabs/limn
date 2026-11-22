@@ -13,7 +13,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from limn.platform.files import atomic_write
-from limn.runtime.paths import ACCESS_FILE
 from limn.security.values import ManagedAccess
 
 
@@ -89,7 +88,8 @@ def access_text(managed: bool, at: str, by: str) -> str:
     return json.dumps(doc, ensure_ascii=False, indent=1) + "\n"
 
 
-def write_access(state: Path, managed: bool, at: str, by: str) -> None:
-    """Writes access.json in the state folder atomically with mode 0600. Takes no lock: the caller holds the people
-    lock, which is what serialises the flag with people.json. Raises OSError when the write fails."""
-    atomic_write(state / ACCESS_FILE, access_text(managed, at, by), mode=0o600)
+def write_access(path: Path, managed: bool, at: str, by: str) -> None:
+    """Writes the access file at path (RunConfig.access_file) atomically with mode 0600. Takes no lock: the caller
+    holds store_lock(state, "people"), the cross-process lock that serialises the flag against people.json.
+    Raises OSError when the write fails."""
+    atomic_write(path, access_text(managed, at, by), mode=0o600)
