@@ -137,6 +137,7 @@ class ServerCase(unittest.TestCase):
 
     def setUp(self):
         """A short folder (unix socket paths are length-limited), a clean cache, and the list of servers to stop."""
+        # Deliberately /tmp: a unix socket path is limited to 104 bytes on macOS, and the default temp folder is longer.
         self.dir = tempfile.mkdtemp(prefix="tn", dir="/tmp")
         self.apis = []
         self.cache = DirectoryCache()
@@ -283,6 +284,26 @@ class Failures(ServerCase):
                 read_directory(100.0, self.cache, 1.0, sources=self.sources(path)), "tailscaled_bad_response"
             )
 
+    def test_deeply_nested_json_is_a_bad_answer(self):
+        """About 200 KB of '[' is inside the body limit but past the parser's depth: RecursionError must not escape."""
+        path, _ = self.unix_api("s", lambda head: ("200 OK", b"[" * 200_000))
+        self.assert_none(read_directory(100.0, self.cache, 1.0, sources=self.sources(path)), "tailscaled_bad_response")
+
+    def test_a_body_that_stalls_mid_read_is_cut_within_twice_the_timeout(self):
+        """Headers and a few bytes, then silence: the per-read timeout ends it, inside the documented 2x bound."""
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+
+        def stall(head):
+            """200 announcing 100 bytes, sending 3, then waiting."""
+            return ("200 OK", (100, (x for x in (b"abc", gate.wait(5) and b""))))
+
+        path, _ = self.unix_api("s", stall)
+        started = time.monotonic()
+        got = read_directory(100.0, self.cache, 0.3, sources=self.sources(path))
+        self.assertLess(time.monotonic() - started, 0.3 * 2 + 0.3)
+        self.assert_none(got, "tailscaled_timeout")
+
     def test_body_over_the_limit_stops_reading(self):
         """A body longer than the limit is refused without reading the rest of it."""
 
@@ -389,6 +410,36 @@ class MacTransport(ServerCase):
         self.cache = DirectoryCache()
         got = read_directory(100.0, self.cache, 1.0, sources=self.sources(mac_dir=mac))
         self.assertEqual((got.users, got.reason), ((), "tailscaled_unreachable"))
+
+    def test_a_non_ascii_digit_link_is_not_a_port(self):
+        """'²' passes str.isdigit but not int(): it is a bad port, an unreachable answer, not an exception."""
+        mac = os.path.join(self.dir, "mac")
+        os.makedirs(mac)
+        os.symlink("\u00b2", os.path.join(mac, "ipnport"))
+        got = read_directory(100.0, self.cache, 1.0, sources=self.sources(mac_dir=mac))
+        self.assertEqual((got.users, got.reason), ((), "tailscaled_unreachable"))
+
+    def test_an_unreadable_token_file_is_unreachable(self):
+        """A token file the service user may not read (mode 0640 root:admin on the real machine) is a failure."""
+        mac, api = self.mac_api(ok(status([])))
+        port = os.readlink(os.path.join(mac, "ipnport"))
+        token = os.path.join(mac, "sameuserproof-" + port)
+        os.chmod(token, 0)
+        try:
+            got = read_directory(100.0, self.cache, 1.0, sources=self.sources(mac_dir=mac))
+        finally:
+            os.chmod(token, 0o600)
+        self.assertEqual((got.users, got.reason), ((), "tailscaled_unreachable"))
+        self.assertEqual(api.heads, [])
+
+    def test_a_token_that_fails_the_pattern_is_never_sent(self):
+        """A token with spaces or too short is refused before any request, so it cannot reach a header."""
+        for token in ("short", "has space in it 123456", "x" * 65, ""):
+            mac, api = self.mac_api(ok(status([])), token=token)
+            got = read_directory(100.0, DirectoryCache(), 1.0, sources=self.sources(mac_dir=mac))
+            self.assertEqual((got.users, got.reason), ((), "tailscaled_unreachable"), token)
+            self.assertEqual(api.heads, [])
+            shutil.rmtree(mac)
 
     def test_the_unix_socket_is_preferred_when_it_exists(self):
         """Linux paths come first; the macOS files are looked at only when none of them answered."""

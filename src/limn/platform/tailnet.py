@@ -211,7 +211,7 @@ def _mac_connection(mac_dir: str, timeout: float) -> tuple[http.client.HTTPConne
         port_text = os.path.basename(os.readlink(os.path.join(mac_dir, "ipnport")))
     except OSError:
         raise _Skip(False) from None
-    if not port_text.isdigit() or not 0 < int(port_text) < 65536:
+    if not (port_text.isascii() and port_text.isdigit()) or not 0 < int(port_text) < 65536:
         raise _Skip(True)
     try:
         with open(os.path.join(mac_dir, "sameuserproof-" + port_text), encoding="ascii") as f:
@@ -251,7 +251,7 @@ def _read(sources: Sources, timeout: float) -> TailnetDirectory:
         status = _loads(body.decode("utf-8"))
     except _Refused as refused:
         return unavailable(refused.reason)
-    except ValueError:
+    except (ValueError, RecursionError):  # not JSON, or nested past the parser's depth
         return unavailable("tailscaled_bad_response")
     except (OSError, http.client.HTTPException):  # unreachable by construction; the read must never raise
         return unavailable("tailscaled_unreachable")
