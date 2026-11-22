@@ -12,7 +12,7 @@
 
 소유자가 공저자 한 명을 인스턴스에 들이려면 지금은 **ssh로 들어가 env 파일을 고치고 유닛을 재시작**해야 한다. 화면에서 바꿀 방법이 하나도 없다.
 
-2026-11-22 TMHP 논문 답변서 작업에서 실제로 막혔다. 인스턴스 `mac-18352`(ml-main, `--auth tailscale`)는 `EXTRA_ARGS=--allow <소유자 로그인>` 하나로 떠 있었고, 공저자는 **테일넷 안에 멀쩡히 있는데도** 403을 받았다. 원인은 `admit()`의 분기다 — [`src/limn/security/access.py:561`](../../../src/limn/security/access.py):
+2026-11-22 TMHP 논문 답변서 작업에서 실제로 막혔다. 인스턴스 `mac-18352`(리눅스 호스트, `--auth tailscale`)는 `EXTRA_ARGS=--allow <소유자 로그인>` 하나로 떠 있었고, 공저자는 **테일넷 안에 멀쩡히 있는데도** 403을 받았다. 원인은 `admit()`의 분기다 — [`src/limn/security/access.py:561`](../../../src/limn/security/access.py):
 
 ```python
 if p.via == "header":
@@ -30,7 +30,7 @@ if p.via == "header":
 | 잰 것 | 값 | 어떻게 |
 | --- | --- | --- |
 | 이 맥이 보는 테일넷 사용자 | **2명** (peer 18) | `tailscale status --json`의 `User` 맵 길이 |
-| ml-main이 보는 테일넷 사용자 | **6명** (peer 27) | 같은 명령, ssh |
+| 그 리눅스 호스트가 보는 테일넷 사용자 | **6명** (peer 27) | 같은 명령, ssh |
 | 두 기기가 같은 테일넷인가 | **같다** | `CurrentTailnet.Name` 해시 양쪽 `d17c810c…` |
 | `User` 맵의 필드 | `DisplayName` `ID` `LoginName` `ProfilePicURL` **넷뿐** | 같은 출력 |
 | LocalAPI와 CLI의 스키마 | **같다** (CLI가 들여쓰기만 입힌다) | 최상위 키·`Self`·`User`·`Peer` 필드 전부 일치 |
@@ -103,7 +103,7 @@ if p.via == "header":
 ### 충돌·미확인
 
 - **`mac-18352`의 `people.json`을 읽지 않았다.** 돌고 있는 인스턴스를 건드리지 말라는 지시 때문이다. 그래서 그 인스턴스에서 "전환하면 새로 들어오게 되는 사람"이 몇 명인지 모른다. **전환 화면이 그 수를 그 자리에서 세어 보이는 것이 이 미확인에 대한 답이다** — 설계가 수를 미리 알 필요가 없게 만든다.
-- 리눅스 LocalAPI 소켓이 **operator 설정과 무관하게 읽힌다**는 것은 실측했으나(ml-main), 쓰기(`PermitWrite`)가 막히는지는 변이를 피하려고 확인하지 않았다. 이 설계는 **읽기만** 하므로 영향이 없다.
+- 리눅스 LocalAPI 소켓이 **operator 설정과 무관하게 읽힌다**는 것은 실측했으나(그 호스트에서), 쓰기(`PermitWrite`)가 막히는지는 변이를 피하려고 확인하지 않았다. 이 설계는 **읽기만** 하므로 영향이 없다.
 - 맥 App Store 샌드박스판은 전송 경로가 또 다르다(`lsof`로 `IPNExtension` 추적). 이 맥은 standalone(`macsys`)판이라 해당이 없다. 샌드박스판은 **지원하지 않고 "목록 없음"으로 떨어진다**(§내가 정한 것 6).
 
 ## 접근 (검토한 것과 고른 것)
