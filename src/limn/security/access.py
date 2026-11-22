@@ -41,7 +41,21 @@ from urllib.parse import urlparse
 
 from limn.security.guidance import UNAUTHENTICATED, loopback_refused_text
 from limn.security.people import PeopleUnreadable
-from limn.security.values import CONFIRM_BY_HUMAN, LOCAL_LOGIN, AuthorityScope as AuthorityScope, ManagedAccess
+from limn.security.values import (
+    AGENT_LOGIN_PREFIX as AGENT_LOGIN_PREFIX,
+    CONFIRM_BY_HUMAN,
+    DEFAULT_ROLE as DEFAULT_ROLE,
+    LOCAL_LOGIN,
+    LOGIN_MAX as LOGIN_MAX,
+    NAME_MAX as NAME_MAX,
+    ROLES as ROLES,
+    AuthorityScope as AuthorityScope,
+    ManagedAccess,
+    Role as Role,
+    is_role as is_role,
+    role_value as role_value,
+    valid_login as valid_login,
+)
 from limn.web.errors import HTTPError
 
 Json: TypeAlias = dict[str, Any]
@@ -50,24 +64,18 @@ HostEntry: TypeAlias = tuple[str, int | None]  # one --public-host: (lowercase n
 T = TypeVar("T")
 
 LOCAL_ACTOR = {"login": LOCAL_LOGIN, "name": "로컬/에이전트"}
-AGENT_LOGIN_PREFIX = "agent:"  # API-token principals are {"login": "agent:<token name>", "name": "<token name>"}
 
 # The security values are closed types: a comparison with a value outside them is a type error (basedpyright's
 # reportUnnecessaryComparison and reportUnnecessaryContains flag a non-overlapping ==, != or in). Text from outside -
 # people.json, the command line - becomes one of them only through is_role / is_auth_provider (role_value,
 # access_options, member_add); the tuples are the runtime side of the same sets.
 AuthProvider: TypeAlias = Literal["tailscale", "local", "trusted-proxy"]  # the identity provider of an instance
-Role: TypeAlias = Literal["owner", "editor", "viewer", "agent"]  # what a principal may change (check_role)
 Via: TypeAlias = Literal["header", "token", "loopback-agent", "local-owner"]  # how identify() knew the principal
 AUTH_PROVIDERS: tuple[AuthProvider, ...] = get_args(AuthProvider)
-ROLES: tuple[Role, ...] = get_args(Role)
-DEFAULT_ROLE: Role = "editor"  # a person without a role field - every v0.1 person
 # people.json as a role lookup reads it: {login: role} of everyone listed, or why the file cannot be used (fail closed)
 PeopleRoles: TypeAlias = Mapping[str, Role] | PeopleUnreadable
 VIEWER_POSTS = ("/api/pick", "/api/revision-build")  # computations a viewer may still run (no state change)
 HEADER_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9-]{0,63}")
-LOGIN_MAX = 200
-NAME_MAX = 100
 LOOPBACK_AGENT_DEPRECATION = (
     "a request from loopback without an identity header or token is treated as the agent - "
     "this is deprecated and will be removed; give agents a token (limn token create <instance>) "
@@ -407,20 +415,6 @@ def is_loopback_bind(addr: str) -> bool:
     if addr == "localhost":
         return True
     return ipaddress.ip_address(addr).is_loopback
-
-
-def valid_login(login: object) -> bool:
-    """A person's login: non-empty, printable, no whitespace anywhere (a tailnet login is an e-mail address or
-    user@github; --local-user and LOCAL_USER already required this), not the agent's 'local' or 'agent:...'. The same rule
-    for identity headers, --local-user and `limn member add` (v0.2.1: 'bad login' used to be accepted by the CLI)."""
-    return (
-        isinstance(login, str)
-        and 0 < len(login) <= LOGIN_MAX
-        and login.isprintable()
-        and not any(c.isspace() for c in login)
-        and login != LOCAL_ACTOR["login"]
-        and not login.startswith(AGENT_LOGIN_PREFIX)
-    )
 
 
 def local_owner_actor(local_user: str | None) -> Json:
@@ -887,21 +881,9 @@ def bearer_of(headers: Message) -> str | None:
 # ---------------------------------------------------------------- people.json roles and members
 
 
-def is_role(v: object) -> TypeGuard[Role]:
-    """Is v one of the four role names (ROLES)?"""
-    return isinstance(v, str) and v in ROLES
-
-
 def is_auth_provider(v: object) -> TypeGuard[AuthProvider]:
     """Is v one of the identity provider names (AUTH_PROVIDERS)?"""
     return isinstance(v, str) and v in AUTH_PROVIDERS
-
-
-def role_value(v: object) -> Role:
-    """A people.json role field -> the role. Missing = editor (every v0.1 person); an unknown value = viewer (fail closed)."""
-    if v is None:
-        return DEFAULT_ROLE
-    return v if is_role(v) else "viewer"
 
 
 def roles_of(rows: Sequence[Mapping[str, Any]]) -> dict[str, Role]:

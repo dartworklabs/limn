@@ -128,13 +128,16 @@ class ModuleBoundary(unittest.TestCase):
 
     def test_the_people_format_member_state_imports_brings_no_server_store_or_notices(self):
         """member_state.py takes people.json's entry check and text from limn.security.people; that module imports only the standard
-        library and limn.platform.files (which member_state.py imports itself) - never the server, the pin store, notices or HTTP."""
+        library, limn.platform.files and the leaf limn.security.values - never the server, the pin store, notices or HTTP."""
         self.assertIn("limn.security.people", self.imported(ACCESS_PY))
         self.assertEqual(
-            {n for n in self.imported(PEOPLE_PY) if n.startswith("limn")}, {"limn.platform.files", "limn.runtime.paths"}
+            {n for n in self.imported(PEOPLE_PY) if n.startswith("limn")},
+            {"limn.platform.files", "limn.runtime.paths", "limn.security.values"},
         )
         self.assertNotIn("limn.platform.files", self.imported(ACCESS_PY))
-        self.assertIn("limn.platform.files", self.imported(Path(member_state.__file__)))
+        # member_state.py is the CLI's thin face: the lock and the atomic write live in limn.security.people alone.
+        self.assertNotIn("limn.platform.files", self.imported(Path(member_state.__file__)))
+        self.assertIn("limn.security.people", self.imported(Path(member_state.__file__)))
         self.assertEqual(
             {n for n in self.imported(Path(files.__file__)) if n.startswith("limn")}, {"limn.platform.effects"}
         )

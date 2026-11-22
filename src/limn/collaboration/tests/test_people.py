@@ -47,11 +47,14 @@ class ModuleBoundary(unittest.TestCase):
     """people.py sits below the server: the state dir, lock, memo, clock and agent rule come in as arguments."""
 
     def test_imports_only_the_standard_library_and_limn_files(self):
-        """No server, HTTP, subprocess or clock import; of limn only limn.platform.files."""
+        """No server, HTTP, subprocess or clock import; of limn only limn.platform.files, the paths and the leaf limn.security.values."""
         tree = ast.parse(PEOPLE_PY.read_text(encoding="utf-8"))
         modules = {a.name for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
         modules |= {n.module or "" for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-        self.assertEqual({m for m in modules if m.startswith("limn")}, {"limn.platform.files", "limn.runtime.paths"})
+        self.assertEqual(
+            {m for m in modules if m.startswith("limn")},
+            {"limn.platform.files", "limn.runtime.paths", "limn.security.values"},
+        )
         self.assertFalse({"http", "http.server", "urllib", "subprocess", "time"} & modules)
 
     def test_reads_no_server_global(self):

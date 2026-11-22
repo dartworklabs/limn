@@ -19,19 +19,24 @@ from __future__ import annotations
 import json
 import sys
 import threading
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, TypeVar, final
 
 from limn.platform.files import atomic_write, store_lock
 from limn.runtime.paths import PEOPLE_FILE as PEOPLE_FILE
+from limn.security.values import LOGIN_MAX, NAME_MAX, ROLES, is_role, role_value, valid_login
 
 # One people.json entry, pin record or actor dict as read from JSON.
 Row: TypeAlias = dict[str, Any]
 # (people.json path, login) -> (name, pic, epoch last written): the running server's memo of what it last wrote.
 SeenMemo: TypeAlias = dict[tuple[str, str], tuple[str, Any, float]]
+
+# Where a membership change is recorded: (action, details). The CLI's and the server's audit sinks both fit.
+PeopleAudit: TypeAlias = Callable[[str, Row], object]
+T = TypeVar("T")
 
 # Coalesce identical profile updates across real changing POSTs, never across visits.
 PEOPLE_TOUCH_S = 600
@@ -54,6 +59,7 @@ def valid_people(d: object) -> list[Row]:
     ]
 
 
+@final
 @dataclass(frozen=True)
 class PeopleUnreadable:
     """people.json exists but cannot be used: it cannot be read, is not UTF-8 JSON (truncated, empty, invalid), or is
@@ -174,6 +180,110 @@ def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: 
             return False
         book.seen[key] = (name, pic, now)
     return True
+
+
+@dataclass(frozen=True)
+class MemberChange:
+    """One membership change as its audit line records it: the action name and its details."""
+
+    action: str
+    details: Row
+
+
+class LastOwner(Exception):
+    """Raised by remove_member and set_member_role when the edit would leave the instance without an owner. Raised,
+    never returned, so a caller that forgets to look cannot lose the protection. `login` is the owner it protects."""
+
+    login: str
+
+    def __init__(self, login: str) -> None:
+        """Remember the last owner's login."""
+        super().__init__(login)
+        self.login = login
+
+
+def _is_owner(row: Row) -> bool:
+    """Does the people.json row hold the owner role (a missing role is the default role, an unknown one a viewer)?"""
+    return role_value(row.get("role")) == "owner"
+
+
+def _guard_last_owner(rows: list[Row], hit: Row, login: str) -> None:
+    """Raises LastOwner for login when hit, its entry, is the only owner in rows."""
+    if _is_owner(hit) and sum(1 for x in rows if _is_owner(x)) == 1:
+        raise LastOwner(login)
+
+
+def add_member(rows: list[Row], login: str, role: str, name: str | None) -> tuple[Row, MemberChange]:
+    """Appends login to rows with role (name defaults to the part of the login before @) -> the new entry and its
+    `member_added` {login, role} change. Edits rows in place and takes no lock - people_transaction holds it. Raises
+    ValueError for an invalid login or role, or a login already in rows."""
+    if not valid_login(login):
+        raise ValueError(
+            "invalid login %r (non-empty, no spaces, at most %d characters, not 'local' or 'agent:...')"
+            % (login, LOGIN_MAX)
+        )
+    if not is_role(role):
+        raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
+    shown = " ".join((name or login.split("@")[0]).split())[:NAME_MAX] or login
+    if any(x["login"] == login for x in rows):
+        raise ValueError("%s is already a member - change the role with `limn member role`" % login)
+    entry: Row = {"login": login, "name": shown, "role": role}
+    rows.append(entry)
+    return entry, MemberChange("member_added", {"login": login, "role": role})
+
+
+def set_member_role(rows: list[Row], login: str, role: str) -> tuple[Row | None, MemberChange | None]:
+    """Sets login's role in rows -> the entry, or None if login is not in rows. The change is `member_role` {login,
+    role, previous_role}, or None when the effective role stays the same (the field is still written). Edits rows in
+    place and takes no lock. Raises ValueError for an unknown role and LastOwner when the entry is the only owner and
+    role is not owner."""
+    if not is_role(role):
+        raise ValueError("role must be one of %s: %r" % (", ".join(ROLES), role))
+    hit = next((x for x in rows if x["login"] == login), None)
+    if hit is None:
+        return None, None
+    before = role_value(hit.get("role"))
+    if role != "owner":
+        _guard_last_owner(rows, hit, login)
+    hit["role"] = role
+    if before == role:
+        return hit, None
+    return hit, MemberChange("member_role", {"login": login, "role": role, "previous_role": before})
+
+
+def remove_member(rows: list[Row], login: str) -> tuple[Row | None, MemberChange | None]:
+    """Removes login from rows -> the removed entry and its `member_removed` {login, previous_role} change, or
+    (None, None) if login is not in rows. Edits rows in place and takes no lock. Raises LastOwner when the entry is
+    the only owner."""
+    hit = next((x for x in rows if x["login"] == login), None)
+    if hit is None:
+        return None, None
+    _guard_last_owner(rows, hit, login)
+    rows.remove(hit)
+    return hit, MemberChange("member_removed", {"login": login, "previous_role": role_value(hit.get("role"))})
+
+
+def people_transaction(
+    state: Path, step: Callable[[list[Row]], tuple[T, Sequence[MemberChange]]], audit: PeopleAudit
+) -> T:
+    """The one write of people.json for a membership change: takes the people lock once, reads the file, runs
+    step(rows), writes the result in people_text's format (atomic, mode 0600) and records each change step returned
+    to audit while the lock is still held, so audit lines follow the order of the changes. Returns step's result.
+
+    step edits rows in place and returns (result, changes); it runs under the lock and must not take it again
+    (store_lock does not nest). ValueError for an unusable people.json, and anything step raises (ValueError,
+    LastOwner), propagates before anything is written or audited."""
+    state = Path(state)
+    state.mkdir(parents=True, exist_ok=True)
+    with store_lock(state, "people"):
+        rows = load_people(state / PEOPLE_FILE)
+        if type(rows) is PeopleUnreadable:
+            raise ValueError(rows.reason)
+        out, changes = step(rows)
+        atomic_write(state / PEOPLE_FILE, people_text(rows), mode=0o600)
+        for change in changes:
+            audit(change.action, change.details)
+    return out
 
 
 def known_people(people: Iterable[Row], actors: Iterable[Row], is_agent: Callable[[Row], bool]) -> dict[str, Row]:
