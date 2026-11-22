@@ -89,11 +89,13 @@ def _bad_request(what: str) -> HTTPError:
     return HTTPError(400, "요청 본문의 %s 이(가) 올바르지 않습니다." % what, reason="bad_access_request")
 
 
-def _role_not_settable(login: object) -> HTTPError:
-    """400 for a role the screen cannot give: owner and agent are made with the command line."""
+def _role_not_settable(login: object, role: object) -> HTTPError:
+    """400 for a role the screen cannot give: owner and agent are made with the command line. The message names the
+    login and the role that was refused."""
     return HTTPError(
         400,
-        "화면에서는 viewer 와 editor 역할만 줄 수 있습니다(%s) — 소유자·에이전트는 `limn member` 로 만듭니다." % login,
+        "화면에서는 viewer 와 editor 역할만 줄 수 있습니다(%s 에게 %s) — 소유자·에이전트는 `limn member` 로 만듭니다."
+        % (login, role),
         reason="role_not_settable",
     )
 
@@ -226,7 +228,7 @@ def _role_of(body: Mapping[str, object], login: str) -> str:
     service's rule (add_settable, set_settable_role)."""
     role = body.get("role")
     if type(role) is not str:
-        raise _role_not_settable(login)
+        raise _role_not_settable(login, role)
     return role
 
 
@@ -242,7 +244,7 @@ def member_add(wiring: AccessWiring, authority: Mapping[str, object], body: Mapp
     try:
         entry = add_settable(wiring.settings().state, login, role, name, _audit_for(wiring, authority))
     except RoleNotSettable as e:
-        raise _role_not_settable(e.role) from None
+        raise _role_not_settable(e.login, e.role) from None
     except AlreadyMember as e:
         raise HTTPError(
             409, "이미 멤버입니다: %s — 역할은 바꾸기로 고치세요." % e.login, reason="already_member"
@@ -264,7 +266,7 @@ def member_role(wiring: AccessWiring, authority: Mapping[str, object], body: Map
     try:
         entry = set_settable_role(wiring.settings().state, login, role, _audit_for(wiring, authority))
     except RoleNotSettable as e:
-        raise _role_not_settable(e.role) from None
+        raise _role_not_settable(e.login, e.role) from None
     except LastOwner as e:
         raise _last_owner(e) from None
     except PeopleUnusable:
@@ -355,7 +357,7 @@ def set_managed(wiring: AccessWiring, authority: Mapping[str, object], body: Map
     except DuplicateTarget:
         raise _bad_request("members") from None
     except RoleNotSettable as e:
-        raise _role_not_settable(e.login) from None
+        raise _role_not_settable(e.login, e.role) from None
     except LocksOutOwner as e:
         raise HTTPError(
             409,

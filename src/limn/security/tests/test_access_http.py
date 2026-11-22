@@ -9,6 +9,7 @@ Run: uv run pytest -q src/limn/security/tests/test_access_http.py
 import json
 from unittest import mock
 
+from limn.platform.tailnet import TailnetDirectory, TailnetUser, unavailable
 from limn.security import access_service
 from limn.security.access_store import write_access
 
@@ -72,12 +73,36 @@ class AccessHttp(AccessBase):
         self.assertEqual([x["login"] for x in d["transition"]["fixed"]], ["alice@example.com"])
         self.assertTrue(d["transition"]["fixed"][0]["admitted_today"])
 
-    def test_tailnet_block_is_empty_until_wired(self):
-        """The directory is a stand-in until the tailnet read lands: no users, partial, and a reason."""
-        tailnet = self.get_access()["tailnet"]
-        self.assertEqual(tailnet["users"], [])
-        self.assertIs(tailnet["partial"], True)
-        self.assertTrue(tailnet["reason"])
+    def test_tailnet_block_lists_the_directory_without_the_members(self):
+        """The wired directory's people appear as {login, name, pic?} rows, the members among them are left out, and
+        the block says the list is partial and carries no reason."""
+        read = TailnetDirectory(
+            (
+                TailnetUser("bob@example.com", "Bob", None),
+                TailnetUser("dana@example.com", "Dana", "https://pics.example.com/dana.png"),
+                TailnetUser("erin@example.com", "Erin", None),
+            ),
+            True,
+            None,
+        )
+        with mock.patch.object(ps, "read_tailnet_directory", return_value=read):
+            tailnet = self.get_access()["tailnet"]
+        self.assertEqual(
+            tailnet,
+            {
+                "users": [
+                    {"login": "dana@example.com", "name": "Dana", "pic": "https://pics.example.com/dana.png"},
+                    {"login": "erin@example.com", "name": "Erin"},
+                ],
+                "partial": True,
+            },
+        )
+
+    def test_tailnet_block_says_why_there_is_no_list(self):
+        """A directory that could not be read is an empty, partial block with the reason code."""
+        with mock.patch.object(ps, "read_tailnet_directory", return_value=unavailable("tailscaled_not_found")):
+            tailnet = self.get_access()["tailnet"]
+        self.assertEqual(tailnet, {"users": [], "partial": True, "reason": "tailscaled_not_found"})
 
     def test_get_writes_nothing(self):
         """Reading the panel creates no file in the state folder."""
@@ -143,6 +168,8 @@ class AccessHttp(AccessBase):
                 with self.subTest(path=path, role=role):
                     code, d = self.call("POST", path, body, ALICE)
                     self.assertEqual((code, d["reason"]), (400, "role_not_settable"), d)
+                    self.assertIn(body["login"], d["error"])
+                    self.assertIn(str(role), d["error"])
         self.assertEqual(self.people_file(), [OWNER_ROW, BOB_ROW])
 
     def test_remove_last_owner_is_409(self):
@@ -179,6 +206,15 @@ class AccessHttp(AccessBase):
             with self.subTest(body=body):
                 code, d = self.call("POST", "/api/access/managed", body, ALICE)
                 self.assertEqual((code, d["reason"]), (400, "bad_access_request"), d)
+        self.assertFalse(ps.APP.C.access_file.exists())
+
+    def test_transition_role_owner_names_the_login_and_the_role(self):
+        """The transition refuses a row that gives a screen-unsettable role, naming both who and which role."""
+        body = dict(CONFIRM, managed=True, members=[{"login": "carol@example.com", "role": "owner"}])
+        code, d = self.call("POST", "/api/access/managed", body, ALICE)
+        self.assertEqual((code, d["reason"]), (400, "role_not_settable"), d)
+        self.assertIn("carol@example.com", d["error"])
+        self.assertIn("owner", d["error"])
         self.assertFalse(ps.APP.C.access_file.exists())
 
     def test_transition_applies_and_reports(self):

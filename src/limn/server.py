@@ -55,6 +55,7 @@ from limn.pins import (
 )
 from limn.platform.files import vendor_file as find_vendor_file
 from limn.platform.git import git as _git
+from limn.platform.tailnet import read_directory as read_tailnet_directory
 from limn.revisions import (
     RevisionJobs,
     RevisionSubsystem,
@@ -329,9 +330,18 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         read = security.access_file()
         return AccessFacts(read.managed, read.at, read.by)
 
-    def tailnet_directory(_members: frozenset[str]) -> TailnetDirectoryView:
-        """A stand-in until the tailnet read is wired: no users, said to be partial, and why."""
-        return TailnetDirectoryView((), True, "directory not wired yet")
+    def tailnet_directory(members: frozenset[str]) -> TailnetDirectoryView:
+        """The tailnet people who are not members yet, as the screen's rows; partial, and why when there are none."""
+        read = read_tailnet_directory(time.time())
+        rows: list[dict[str, object]] = []
+        for person in read.users:
+            if person.login in members:
+                continue
+            row: dict[str, object] = {"login": person.login, "name": person.name}
+            if person.pic is not None:
+                row["pic"] = person.pic
+            rows.append(row)
+        return TailnetDirectoryView(tuple(rows), read.partial, read.reason)
 
     def authorize_member_change(authority: object, operation: str) -> None:
         """Refuse anything but an authority minted at the HTTP boundary for this member operation on this instance."""
