@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 PEOPLE_FILE = "people.json"
+ACCESS_FILE = "access.json"
 EVENTS_FILE = "events.jsonl"
 AUDIT_FILE = "audit.jsonl"
 

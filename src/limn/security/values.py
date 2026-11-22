@@ -1,6 +1,10 @@
 """Immutable resource identity shared by authorization and document selection."""
 
 from dataclasses import dataclass
+from typing import Literal, TypeAlias
+
+# What access.json says: the flag is on, off (or absent), or the file exists but cannot be used (fail closed).
+ManagedAccess: TypeAlias = Literal["managed", "not-managed", "unusable"]
 
 
 @dataclass(frozen=True)

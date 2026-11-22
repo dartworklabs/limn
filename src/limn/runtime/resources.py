@@ -7,6 +7,7 @@ from typing import Any, Generic, TypeVar
 
 from limn.platform.effects import require_writer
 from limn.security import access, people
+from limn.security.access_store import AccessFile
 
 Viewer = TypeVar("Viewer", covariant=True)
 Scope = TypeVar("Scope", covariant=True)
@@ -45,6 +46,7 @@ class RuntimeResources(Generic[Viewer, Scope, Jobs, Share, Watch, Tokens, Maps, 
     trash_checked: list[float] = field(default_factory=lambda: [0.0])
     tokens_cache: access.FileCache[list[dict[str, Any]]] = field(default_factory=access.FileCache)
     roles_cache: access.FileCache[access.PeopleRoles] = field(default_factory=access.FileCache)
+    access_cache: access.FileCache[AccessFile] = field(default_factory=access.FileCache)
     loopback_warning: access.WarnOnce = field(
         default_factory=lambda: access.WarnOnce(access.LOOPBACK_AGENT_DEPRECATION)
     )
