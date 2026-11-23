@@ -273,6 +273,16 @@ def mask(md: str) -> str:
     return TIME_LINE.sub("갱신: <갱신>  ·", md)
 
 
+def without_requester(md: str) -> str:
+    """pins.md without its one requester line (docs/adr/0056-pins-md-requester-line.md), to compare it with a release
+    that has none; fails unless the text has exactly one line starting with '요청자: '."""
+    lines = md.split("\n")
+    kept = [ln for ln in lines if not ln.startswith("요청자: ")]
+    if len(lines) - len(kept) != 1:
+        raise AssertionError("expected exactly one requester line, got %d" % (len(lines) - len(kept)))
+    return "\n".join(kept)
+
+
 # ---------------------------------------------------------------- a git repository with pin-scoped commits (v0.3)
 
 # The manuscript ScopedRepo commits first (three paragraphs, a pin each), and the version its fix commit writes.

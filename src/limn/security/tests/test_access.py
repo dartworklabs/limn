@@ -55,6 +55,7 @@ from helpers_access import (
     reset_access,
     token_create,
     token_revoke,
+    without_requester,
 )
 from helpers_authority import post_authority
 
@@ -1171,7 +1172,7 @@ class Migration(AccessBase):
         """A v0.1 state renders the v0.1 pins.md byte for byte, apart from the added lines and the one v0.3 close line."""
         code, md = get(ps, "/pins.md")
         self.assertEqual(code, 200)
-        lines = md.split("\n")
+        lines = without_requester(md).split("\n")  # ADR-0056: one more additive line
         self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
         lines.remove(md_render.TOKEN_GUIDANCE)
         lines.remove(md_render.claim_guidance("http://127.0.0.1:18999"))  # v0.2.1: one more additive line
@@ -1209,7 +1210,7 @@ class Migration(AccessBase):
         c_old, md_old = get(v01, "/pins.md", headers)
         c_new, md_new = get(ps, "/pins.md", headers)
         self.assertEqual(c_new, c_old)
-        lines = md_new.split("\n")
+        lines = without_requester(md_new).split("\n")  # ADR-0056: one more additive line
         self.assertEqual(lines.count(md_render.TOKEN_GUIDANCE), 1)
         lines.remove(md_render.TOKEN_GUIDANCE)
         claim = [ln for ln in lines if ln.startswith("처리를 시작하는 핀은 먼저 잡는다")]

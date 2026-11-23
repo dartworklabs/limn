@@ -18,11 +18,13 @@ import shutil
 import unittest
 from pathlib import Path
 
+from hypothesis import given, settings, strategies as st
+
 from limn.builds import figure_map as figmap
 from limn.pins.claims import input as claims_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing import render, render as md_render
-from limn.pins.listing.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
+from limn.pins.listing.render import DocHeading, PinFacts, PinsMdInput, Requester, pins_md_text, requester_of
 from limn.pins.location import mapping
 from limn.pins.model import ThreadEntry
 from limn.security.access import LOCAL_ACTOR
@@ -172,6 +174,83 @@ class TokenLine(unittest.TestCase):
         md = pins_md_text(page([], token_file="~/t.token", base="http://127.0.0.1:18999"))
         self.assertNotIn("원격:", md)
         self.assertIn("$(cat ~/t.token)", md)
+
+
+ALICE_ID = Requester("Alice Kim", "alice@example.com", "editor", "tailnet-header")
+TOKEN_ID = Requester("reviewer", "agent:reviewer", "agent", "token")
+ALICE_LINE = (
+    "요청자: Alice Kim(`alice@example.com`) · 역할 editor · 신원 출처 테일넷 헤더(이 기기에 로그인한 테일넷 계정) "
+    "— 이 요청으로 쓰면 이 사람으로 기록된다 · 내가 일하는 사용자가 아니면 쓰지 말고 사용자에게 토큰을 요청한다"
+    "(`limn token create <인스턴스>`)"
+)
+TOKEN_LINE = "요청자: reviewer(`agent:reviewer`) · 역할 agent · 신원 출처 토큰 — 이 요청으로 쓰면 에이전트로 기록된다"
+
+
+def requester_lines(md: str) -> list[str]:
+    """The lines of a pins.md text that start with '요청자: ' (the requester line, docs/handbook/api.md §pins.md 요청자 줄)."""
+    return [ln for ln in md.splitlines() if ln.startswith("요청자: ")]
+
+
+class RequesterLine(unittest.TestCase):
+    """The requester line after '갱신:': who the request is for GET /pins.md, a fixed no-requester line on disk."""
+
+    def test_tailnet_header_line(self):
+        """A tailnet person sees name, login, role, source and the warning to stop and ask for a token."""
+        self.assertEqual(requester_lines(pins_md_text(page([], requester=ALICE_ID))), [ALICE_LINE])
+
+    def test_each_source_label_and_tail(self):
+        """Each source has its label; the three person sources carry the warning, the two agent sources do not."""
+        for source in render.REQUESTER_SOURCES:
+            who = Requester("n", "l", "editor", source)
+            (line,) = requester_lines(pins_md_text(page([], requester=who)))
+            self.assertIn(" · 신원 출처 " + render.REQUESTER_SOURCES[source] + " — ", line)
+            tail = render.REQUESTER_PERSON_TAIL if who.is_person() else render.REQUESTER_AGENT_TAIL
+            self.assertTrue(line.endswith(tail), (source, line))
+
+    def test_token_line_names_the_agent_login(self):
+        """A token request is named agent:<name> and told it writes as the agent."""
+        self.assertEqual(requester_lines(pins_md_text(page([], requester=TOKEN_ID))), [TOKEN_LINE])
+
+    def test_no_requester_is_the_disk_line(self):
+        """The file on disk has no requester: the fixed line that says how to check, and no role or login."""
+        md = pins_md_text(page([]))
+        self.assertEqual(requester_lines(md), [render.REQUESTER_DISK % "http://127.0.0.1:18999"])
+        self.assertNotIn("역할 ", md)
+
+    def test_line_follows_the_updated_line_once(self):
+        """One requester line, right after '갱신:' and before the blank line, with one document or several."""
+        other = DocHeading("si", "부록", "si.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
+        for docs in ((MAIN,), (MAIN, other)):
+            for who in (None, ALICE_ID):
+                lines = pins_md_text(page([line_pin(1)], docs=docs, requester=who)).splitlines()
+                at = [i for i, ln in enumerate(lines) if ln.startswith("요청자: ")]
+                self.assertEqual(len(at), 1, (docs, who))
+                self.assertTrue(lines[at[0] - 1].startswith("갱신: "))
+                self.assertEqual(lines[at[0] + 1], "")
+
+    def test_hostile_name_and_login_stay_on_one_line(self):
+        """A name with '|' and line breaks, and a login with a backtick, keep the header one line and the code span whole."""
+        who = Requester("A|B\nC D", "a`b", "editor", "tailnet-header")
+        (line,) = requester_lines(pins_md_text(page([], requester=who)))
+        self.assertTrue(line.startswith("요청자: A\\|B C D(``a`b``) · 역할 editor"), line)
+
+    def test_requester_of_names_an_actor_without_a_name_by_its_login(self):
+        """requester_of takes the principal's actor: its name, else its login; a missing login is empty, never an error."""
+        self.assertEqual(
+            requester_of({"login": "alice@example.com", "name": "Alice Kim"}, "editor", "tailnet-header"), ALICE_ID
+        )
+        for actor in ({"login": "alice@example.com", "name": ""}, {"login": "alice@example.com"}):
+            self.assertEqual(requester_of(actor, "editor", "tailnet-header").name, "alice@example.com")
+        self.assertEqual(requester_of({}, "agent", "token"), Requester("", "", "agent", "token"))
+
+    @settings(max_examples=200, deadline=None)
+    @given(name=st.text(), login=st.text(), source=st.sampled_from(sorted(render.REQUESTER_SOURCES)))
+    def test_any_name_and_login_render_one_line(self, name, login, source):
+        """Whatever text a name or login holds, the requester line is one line of the output, starting the same way."""
+        line = render.requester_line(Requester(name, login, "editor", source), "http://127.0.0.1:18999")
+        self.assertEqual(len(line.splitlines()), 1)
+        self.assertTrue(line.startswith("요청자: "))
+        self.assertIn(" · 신원 출처 " + render.REQUESTER_SOURCES[source], line)
 
 
 class OpenRows(unittest.TestCase):

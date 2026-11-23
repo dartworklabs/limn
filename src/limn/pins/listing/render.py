@@ -26,6 +26,7 @@ from limn.pins.thread import claim_holds
 from limn.pins.verdict import verdict_of, whole_page_target
 from limn.platform.values import is_int, is_num
 from limn.security.guidance import token_file_curl
+from limn.security.values import PERSON_SOURCES, IdentitySource, Role
 
 # How much of a line pin's quote pins.md shows: a search hint, not the text. A pin keeps up to 160 characters for the
 # viewer (limn.pins.editing.values.PDF_QUOTE_MAX); pins.md quotes 60 of them, as it always has.
@@ -93,6 +94,30 @@ class PinFacts:
 
 
 @dataclass(frozen=True)
+class Requester:
+    """Who the request reading pins.md is recorded as (GET /pins.md's requester line): the display name, the login pins
+    record, the role and where the identity came from (limn.security.access.identity_source). The renderer's own input,
+    filled at the edge from the request's principal by requester_of(); it grants nothing."""
+
+    name: str
+    login: str
+    role: Role
+    source: IdentitySource
+
+    def is_person(self) -> bool:
+        """Would a write through this request be recorded as a person (a tailnet or proxy header, the local owner)? True
+        also for a person whose people.json role is agent; False for a token and the headerless loopback agent."""
+        return self.source in PERSON_SOURCES
+
+
+def requester_of(actor: Mapping[str, object], role: Role, source: IdentitySource) -> Requester:
+    """The Requester of a request whose principal records actor ({login, name, ...}) with role, its identity having come
+    from source. An actor without a name is named by its login; a missing login is empty. Total over any mapping."""
+    login = str(actor.get("login") or "")
+    return Requester(str(actor.get("name") or "") or login, login, role, source)
+
+
+@dataclass(frozen=True)
 class PinsMdInput:
     """Everything one rendering of pins.md reads.
 
@@ -102,7 +127,9 @@ class PinsMdInput:
     port. manuscript, label, repo: the run's --manuscript, paper label and repository URL (None or "" = none).
     docs: the configured documents in order, never empty. people: @-tag candidates by login ({name, ...}).
     now: the epoch seconds claims are measured against. updated: the refresh time as the header shows it.
-    token_file: the shell path of this machine's agent token file when it exists, else None."""
+    token_file: the shell path of this machine's agent token file when it exists, else None. requester: who the
+    request reading this text is (GET /pins.md); None for the file written to disk, which has no requester and says
+    so (requester_line)."""
 
     rows: Sequence[Record]
     facts: Mapping[int, PinFacts]
@@ -116,6 +143,7 @@ class PinsMdInput:
     now: float
     updated: str
     token_file: str | None
+    requester: Requester | None = None
 
 
 def ceil5(minutes: float) -> int:
@@ -329,6 +357,58 @@ REPLY_GUIDANCE = (
     '토큰 없이 사람 신원을 달고 가는 에이전트(테일넷 주소로 닫을 때 `"review":true` 를 넣는 경우, `--auth local` 의 '
     '헤더 없는 curl)는 답글 본문에 `"reopen":false` 를 넣는다 · 토큰을 쓰는 에이전트의 답글은 상태를 바꾸지 않는다'
 )
+
+
+# The requester line, right after '갱신:' (docs/handbook/api.md §pins.md 요청자 줄): who GET /pins.md's request is
+# recorded as, so an agent on a machine signed in as someone else stops before it writes. Agents match its start.
+REQUESTER_SOURCES: dict[IdentitySource, str] = {
+    "tailnet-header": "테일넷 헤더(이 기기에 로그인한 테일넷 계정)",
+    "proxy-header": "프록시 헤더(인증 프록시가 보낸 사용자)",
+    "local-owner": "로컬 소유자(--auth local 의 루프백 요청)",
+    "token": "토큰",
+    "loopback-agent": "헤더 없는 루프백(폐지 예정)",
+}
+REQUESTER_PERSON_TAIL = (
+    " — 이 요청으로 쓰면 이 사람으로 기록된다 · 내가 일하는 사용자가 아니면 쓰지 말고 "
+    "사용자에게 토큰을 요청한다(`limn token create <인스턴스>`)"
+)
+REQUESTER_AGENT_TAIL = " — 이 요청으로 쓰면 에이전트로 기록된다"
+# The same line in the file on disk, which every reader on the machine shares: it names no one. %s = the loopback base.
+REQUESTER_DISK = (
+    "요청자: 없음(디스크 사본) — 쓰는 요청의 신원은 요청마다 정해진다 · "
+    "확인하려면 쓸 때와 같은 인증으로 `curl -s %s/pins.md` 를 읽어 이 줄을 본다"
+)
+
+
+def one_line(text: str) -> str:
+    """text with every line break Python's str.splitlines() knows (\\n, \\r, \\u2028, \\x1c, ...) turned into one space,
+    so a value from an identity header can never start a new line of pins.md."""
+    return " ".join(text.splitlines())
+
+
+def inline_code(text: str) -> str:
+    """text as one Markdown code span that shows it verbatim: fenced by one backtick more than its longest backtick run,
+    with a space inside the fence when text starts or ends with a backtick (CommonMark strips one such space)."""
+    longest = max((m.end() - m.start() for m in re.finditer("`+", text)), default=0)
+    fence = "`" * (longest + 1)
+    pad = " " if text.startswith("`") or text.endswith("`") else ""
+    return fence + pad + text + pad + fence
+
+
+def requester_line(requester: Requester | None, loopback_base: str) -> str:
+    """pins.md's requester line. None (the file on disk) gives REQUESTER_DISK, naming no one and pointing at
+    loopback_base's GET /pins.md; a requester gives its name, login (in a code span), role and identity source, then
+    REQUESTER_PERSON_TAIL for a person's identity - stop unless that person is the user you work for - or
+    REQUESTER_AGENT_TAIL. The name and login are made one line first, so the line is always one line of the text."""
+    if requester is None:
+        return REQUESTER_DISK % loopback_base
+    return "요청자: %s(%s) · 역할 %s · 신원 출처 %s%s" % (
+        md_cell(one_line(requester.name)),
+        inline_code(one_line(requester.login)),
+        requester.role,
+        REQUESTER_SOURCES[requester.source],
+        REQUESTER_PERSON_TAIL if requester.is_person() else REQUESTER_AGENT_TAIL,
+    )
 
 
 # The guidance clause pins.md adds while figure pins are open: a pin with an el, or a region pin on a figure document
@@ -776,6 +856,7 @@ def pins_md_text(page: PinsMdInput) -> str:
             n_done,
         )
     )
+    out.append(requester_line(page.requester, loopback_base))
     out.append("")
     guidance = (
         "처리한 핀은 닫는다 — 닫을 때 `changes` 에 이 핀 때문에 바꾼 줄 범위를, `ref` 에 `PR #번호 (커밋 해시)` 를 적는다: "

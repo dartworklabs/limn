@@ -48,8 +48,10 @@ from limn.security.values import (
     LOCAL_LOGIN,
     LOGIN_MAX as LOGIN_MAX,
     NAME_MAX as NAME_MAX,
+    PERSON_SOURCES as PERSON_SOURCES,
     ROLES as ROLES,
     AuthorityScope as AuthorityScope,
+    IdentitySource as IdentitySource,
     ManagedAccess,
     Role as Role,
     is_role as is_role,
@@ -516,48 +518,20 @@ class Principal(NamedTuple):
         return self.role != "viewer"
 
 
-# Where a request's identity came from, as pins.md names it (docs/handbook/api.md §pins.md 요청자 줄): Via, with a
-# header told apart by the identity provider. A closed type like Via, so a comparison with a value outside it fails the
-# type check.
-IdentitySource: TypeAlias = Literal["tailnet-header", "proxy-header", "local-owner", "token", "loopback-agent"]
-# The sources that carry a person's identity: a write through them is recorded as that person, not as an agent.
-PERSON_SOURCES: frozenset[IdentitySource] = frozenset({"tailnet-header", "proxy-header", "local-owner"})
-
-
-class RequestIdentity(NamedTuple):
-    """Who one request is recorded as, for telling its reader (GET /pins.md's requester line): the display name (the
-    login when there is none), the login pins record, the role, and where the identity came from. A value only - it
-    grants nothing; identify(), admit() and check_role() decide what the request may do."""
-
-    name: str
-    login: str
-    role: Role
-    source: IdentitySource
-
-    def is_person(self) -> bool:
-        """Would a write through this request be recorded as a person (a tailnet or proxy header, the local owner)?
-        True also for a person whose people.json role is agent: the record still carries their login. False for a
-        token and for the headerless loopback agent."""
-        return self.source in PERSON_SOURCES
-
-
-def request_identity(p: Principal, auth: AuthProvider) -> RequestIdentity:
-    """The identity principal p is recorded as, named for its reader. auth is the instance's identity provider: it tells
-    a Tailscale header (tailscale) from a proxy's user header (trusted-proxy), which identify() both reports as via
-    "header". Pure and total: every Via has a source, and an actor without a name is named by its login."""
-    login = str(p.actor.get("login") or "")
-    name = str(p.actor.get("name") or "") or login
-    source: IdentitySource
+def identity_source(p: Principal, auth: AuthProvider) -> IdentitySource:
+    """Where principal p's identity came from, as pins.md names it (docs/handbook/api.md §pins.md 요청자 줄). auth is the
+    instance's identity provider: identify() reports a Tailscale header and a trusted proxy's user header both as via
+    "header", and only the provider tells them apart. Pure and total: every Via has a source. A source in PERSON_SOURCES
+    means a write through this principal is recorded as a person."""
     match p.via:
         case "header":
-            source = "proxy-header" if auth == "trusted-proxy" else "tailnet-header"
+            return "proxy-header" if auth == "trusted-proxy" else "tailnet-header"
         case "local-owner":
-            source = "local-owner"
+            return "local-owner"
         case "token":
-            source = "token"
+            return "token"
         case "loopback-agent":
-            source = "loopback-agent"
-    return RequestIdentity(name, login, p.role, source)
+            return "loopback-agent"
 
 
 def identify(headers: Message, peer: str, settings: AccessSettings, lookups: AccessLookups) -> Principal:

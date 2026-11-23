@@ -36,7 +36,16 @@ from limn.pins.store import dump_jsonl
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import ROOT, add_pin, edit_stored, ps, records, req, set_config, split_resp
-from helpers_access import MOVED_X as X, AccessBase, MovedManuscriptBase, ScopedRepo, configure, mask, talk_to
+from helpers_access import (
+    MOVED_X as X,
+    AccessBase,
+    MovedManuscriptBase,
+    ScopedRepo,
+    configure,
+    mask,
+    talk_to,
+    without_requester,
+)
 
 MS_MAIN = (
     "\\documentclass{article}\n\\begin{document}\n\\input{response/main}\n"
@@ -551,7 +560,7 @@ class RollbackToV030(MovedManuscriptBase):
         for pid in old:
             for k in ("file", "lo", "hi", "note", "rev", "state"):
                 self.assertEqual(old[pid].get(k), new[pid].get(k), (pid, k))
-        self.assertEqual(mask(self.old("/pins.md")[1]), mask(self.pins_md()))
+        self.assertEqual(mask(self.old("/pins.md")[1]), mask(without_requester(self.pins_md())))  # ADR-0056
 
     def test_a_record_the_branch_rewrote_after_the_move_is_in_tree_for_v030(self):
         """After an edit on the branch, 0.3.0 sees the legacy pin under the new root and can edit its range."""
