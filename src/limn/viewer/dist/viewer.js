@@ -23052,8 +23052,8 @@ function drawSelectionPopover() {
   placeSelectionPopover();
 }
 // Puts the popover in the free area by the pieces of its selection in view - its box and the boxes beside it for the
-// range's other pieces (shownSpan, popPlace); hidden while every piece is scrolled out of it. An @-list open on its
-// field goes with it, and closes while it is hidden.
+// range's other pieces (shownSpan, popPlace); hidden while no piece is in the area, scrolled out of it either way -
+// up, down or, zoomed in, to the side. An @-list open on its field goes with it, and closes while it is hidden.
 function placeSelectionPopover() {
   if (SELECTION_POPOVER.hidden || !SELECTION_POPOVER_BOX) return;
   if (!wantsSelectionPopover()) {
@@ -23062,20 +23062,22 @@ function placeSelectionPopover() {
   }
   const area = popoverFreeArea(),
     box = SELECTION_POPOVER_BOX.getBoundingClientRect(),
-    parts = Array.from(selectionParts('compose'), (part) => part.getBoundingClientRect());
+    parts = Array.from(selectionParts('compose'), (part) => part.getBoundingClientRect()),
+    span = shownSpan([box, ...parts], area);
   const place = popPlace(
-    shownSpan([box, ...parts], area) || box,
+    span || box,
     area,
     SELECTION_POPOVER.offsetWidth,
     SELECTION_POPOVER.offsetHeight,
     SELECTION_POPOVER_GAP,
   );
+  const shown = span !== null;
   SELECTION_POPOVER.style.left = place.left + 'px';
   SELECTION_POPOVER.style.top = place.top + 'px';
   SELECTION_POPOVER.dataset.side = place.side;
-  SELECTION_POPOVER.style.visibility = place.shown ? '' : 'hidden';
+  SELECTION_POPOVER.style.visibility = shown ? '' : 'hidden';
   if (MENTION.ta === SELECTION_POPOVER_FIELD) {
-    if (place.shown) mentionPlace();
+    if (shown) mentionPlace();
     else mentionClose();
   }
 }
