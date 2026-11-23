@@ -10,6 +10,7 @@ import { showSheet } from '../layout/flow.ts';
 import {
   ACCESS,
   CHECKED,
+  TOUCHED,
   TRANSITION_OPEN,
   PICKED_ROLE,
   TYPED_ROLE,
@@ -72,14 +73,8 @@ async function loadAccess() {
   if (!isOwner()) return false;
   const dialogOpen = $('#access').open;
   const what = translate('접근 정보 읽기');
-  let knownBefore = new Set<string>();
   try {
     const answer = await api('GET /api/access', { what, where: NOTICE_HOST.LINE, silent: dialogOpen });
-    // What the screen offers in the instant before this answer replaces it - not when the request went out.
-    // Two reads can be in flight (an open, a close and another open), and the one that started first can land
-    // first: measured here, the second one sees what the first brought in, so a row the owner has since
-    // unchecked is not handed back to them as new.
-    knownBefore = transitionLogins(ACCESS);
     setAccess(answer.data);
   } catch (error) {
     if (dialogOpen) {
@@ -95,23 +90,17 @@ async function loadAccess() {
   if (!TRANSITION_OPEN) {
     // The transition's checks start as the state the owner would keep: whoever gets in today.
     CHECKED.clear();
+    TOUCHED.clear();
     if (transition) for (const login of transition.admitted_today) CHECKED.add(login);
   } else if (transition) {
-    // The answer came back while the owner was already choosing on the transition screen - the read this
-    // dialog sends on every open can land that late. Their checks are their own and are left alone; only a
-    // login the screen did not have before arrives, and it arrives at the default the no-op rule gives it.
-    for (const login of transition.admitted_today) if (!knownBefore.has(login)) CHECKED.add(login);
+    // The answer came back while the owner was already choosing - the read this dialog sends on every open
+    // can land that late, and two of them can be in flight at once. A row they have decided by hand is never
+    // touched; any other login today's admission lets in arrives at the default the no-op rule gives it, so a
+    // member another door added while they were reading is kept rather than silently dropped.
+    for (const login of transition.admitted_today) if (!TOUCHED.has(login)) CHECKED.add(login);
   }
   redraw();
   return true;
-}
-
-/** The logins a transition screen already showed: whoever gets in today and every row it listed. Pure. */
-function transitionLogins(view: AccessView | null) {
-  const transition = view ? view.transition : undefined;
-  if (!transition) return new Set<string>();
-  const rows = [...transition.settable, ...transition.fixed].map((member) => member.login);
-  return new Set<string>([...transition.admitted_today, ...rows]);
 }
 /** Opens the access dialog, on the list. */
 function openAccess() {
@@ -120,6 +109,7 @@ function openAccess() {
   setOffOpen(false);
   setNote('');
   setResult(null);
+  TOUCHED.clear(); // a fresh open starts a fresh set of choices, even if the read below fails
   redraw();
   showSheet($('#access'));
   // Always read again on open, not only after a failed read. This screen is one of two doors onto the same
@@ -310,6 +300,7 @@ document.addEventListener('change', (event) => {
   if (!(target instanceof HTMLInputElement)) return;
   const login = target.dataset.accCheck;
   if (login === undefined) return;
+  TOUCHED.add(login); // the owner has decided this row: a read that lands later leaves it alone
   if (target.checked) CHECKED.add(login);
   else CHECKED.delete(login);
   redraw();

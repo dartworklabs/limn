@@ -21,6 +21,10 @@ function setOffOpen(open: boolean) {
 }
 /** The logins of the transition's settable rows the owner has checked - who keeps getting in after the switch. */
 const CHECKED = new Set<string>();
+/** The logins the owner has checked or unchecked by hand on the transition screen since it was last set up. A read
+ * that lands while they are choosing fills in rows the screen did not offer before, and this is what keeps it from
+ * touching a row they have already decided: their answer is theirs until the screen is set up again. */
+const TOUCHED = new Set<string>();
 /** The role picked for a tailnet candidate that is not a member yet, by login ('viewer' unless the owner changed it). */
 const PICKED_ROLE = new Map<string, string>();
 /** The role picked for a tailnet candidate who is not a member yet. */
@@ -64,6 +68,7 @@ export {
   PICKED_ROLE,
   RESULT,
   STALE,
+  TOUCHED,
   TRANSITION_OPEN,
   TYPED_LOGIN,
   TYPED_ROLE,
