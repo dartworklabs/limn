@@ -5705,19 +5705,16 @@ async function loadAccess() {
   const view = ACCESS;
   if (!view) return false;
   setStale(false);
+  // The transition's checks are rebuilt from the answer: whoever gets in today is checked, which is the state
+  // the owner would keep and makes the default press a no-op. A row the owner has decided by hand is not
+  // rebuilt - their answer stands as they left it, whether the read lands while they are choosing, after they
+  // closed and opened the dialog again, or alongside a second read. TOUCHED is cleared only when the choices
+  // have been used (a switch that went through), so nothing the owner did goes away without them seeing it.
+  const decided = [...CHECKED].filter((login) => TOUCHED.has(login));
+  CHECKED.clear();
   const transition = view.transition;
-  if (!TRANSITION_OPEN) {
-    // The transition's checks start as the state the owner would keep: whoever gets in today.
-    CHECKED.clear();
-    TOUCHED.clear();
-    if (transition) for (const login of transition.admitted_today) CHECKED.add(login);
-  } else if (transition) {
-    // The answer came back while the owner was already choosing - the read this dialog sends on every open
-    // can land that late, and two of them can be in flight at once. A row they have decided by hand is never
-    // touched; any other login today's admission lets in arrives at the default the no-op rule gives it, so a
-    // member another door added while they were reading is kept rather than silently dropped.
-    for (const login of transition.admitted_today) if (!TOUCHED.has(login)) CHECKED.add(login);
-  }
+  if (transition) for (const login of transition.admitted_today) if (!TOUCHED.has(login)) CHECKED.add(login);
+  for (const login of decided) CHECKED.add(login);
   redraw();
   return true;
 }
@@ -5728,7 +5725,6 @@ function openAccess() {
   setOffOpen(false);
   setNote('');
   setResult(null);
-  TOUCHED.clear(); // a fresh open starts a fresh set of choices, even if the read below fails
   redraw();
   showSheet($('#access'));
   // Always read again on open, not only after a failed read. This screen is one of two doors onto the same
@@ -5808,6 +5804,7 @@ async function applyManaged() {
       refused(what, answer.data);
       return;
     }
+    TOUCHED.clear(); // the choices were used; the next screen starts from what the server now holds
     setResult({ done: answer.data, previewed }); // what the screen says next is the server's count, not the preview's
   } catch (error) {
     failed(what, error);
@@ -5839,6 +5836,7 @@ async function applyOff() {
       refused(what, answer.data);
       return;
     }
+    TOUCHED.clear(); // the choices were used; the next screen starts from what the server now holds
     setResult({ done: answer.data, previewed });
   } catch (error) {
     failed(what, error);

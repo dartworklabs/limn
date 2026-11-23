@@ -570,6 +570,24 @@ class AccessRefusals(AccessScreenBase):
         self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % NEW_EDITOR["login"]))
         self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % VIEWER["login"]))
 
+    def test_closing_and_reopening_keeps_what_the_owner_unchecked(self):
+        """Escape is not a decision. The owner unchecks a row, closes the dialog without pressing and opens it
+        again: the read that every open sends brings the rows up to date, and their uncheck is still theirs.
+        Rebuilding every check from admitted_today on each open would put that row back without a word."""
+        ps.APP.C.access_file.unlink()
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        page.uncheck('input[data-acc-check="%s"]' % EDITOR["login"])
+        page.keyboard.press("Escape")
+        self.write_people([OWNER, EDITOR, VIEWER, NEW_EDITOR])  # so the reopen's read is visible when it lands
+        page.click("#btn-more")
+        page.click("#m-access")
+        page.click('[data-act="access-manage"]')
+        page.wait_for_selector('input[data-acc-check="%s"]' % NEW_EDITOR["login"])
+        self.assertFalse(page.is_checked('input[data-acc-check="%s"]' % EDITOR["login"]))
+        self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % VIEWER["login"]))
+        self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % NEW_EDITOR["login"]))
+
     def test_two_reads_in_flight_do_not_hand_back_a_row_the_owner_unchecked(self):
         """An open, a close and another open leave two reads in flight. The first brings in a member another door
         added and the owner unchecks them; the second must not offer that row again as one the screen has not
