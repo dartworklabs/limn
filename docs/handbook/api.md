@@ -237,7 +237,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 ### 접근 관리 (소유자 전용)
 
-소유자는 이 경로 다섯으로 이 인스턴스에 들어올 사람을 보고 바꾼다. 다섯 모두 `owner` 역할만 부를 수 있다. 읽기 하나는 `OWNER_READS` 에 들어 있어 다른 역할·토큰·루프백 에이전트에게 `403 owner_only` 이고(§역할), POST 넷은 작업 표 `MEMBER_OPERATIONS` 에 등재돼 있어 작업 이름을 얻고(등재가 없으면 어떤 경로든 `404 not_found` 다) `OWNER_POSTS` 에 들어 있어 역할이 모자라면 `403 owner_only` 다. 멤버를 바꾸는 POST 셋과 전환은 모두 관리 모드를 요구한다 — 관리 모드가 아닌 인스턴스에서 멤버 POST는 `409 not_managed` 이고, 전환(`/api/access/managed`)만 그 상태에서 받는다.
+소유자는 이 경로 다섯으로 이 인스턴스에 들어올 사람을 보고 바꾼다. 다섯 모두 `owner` 역할만 부를 수 있다. 읽기 하나는 `OWNER_READS` 에 들어 있어 다른 역할·토큰·루프백 에이전트에게 `403 owner_only` 이고(§역할), POST 넷은 작업 표 `MEMBER_OPERATIONS` 에 등재돼 있어 작업 이름을 얻고(등재가 없으면 어떤 경로든 `404 not_found` 다) `OWNER_POSTS` 에 들어 있어 역할이 모자라면 `403 owner_only` 다. 멤버를 바꾸는 POST **셋**(`/api/members/add`·`/role`·`/remove`)은 관리 모드를 요구하고, 관리 모드가 아닌 인스턴스에서는 `409 not_managed` 다. **전환(`/api/access/managed`)은 그 요구를 받지 않는다** — 관리 모드를 켜는 동작이 그 상태를 요구하면 아무도 켤 수 없기 때문이다. 관리 모드가 아닌 인스턴스에서 받는 소유자 전용 쓰기는 이 하나다.
 
 | 메서드 | 경로 | 설명 |
 | --- | --- | --- |

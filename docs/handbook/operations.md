@@ -110,7 +110,7 @@ uv run pytest -q -rs
 - `editor`: 전체 지우기를 빼고 전부 한다. 역할이 적히지 않은 사람의 기본값이다.
 - `owner`: 전부 한다.
 
-소유자 전용 변경 HTTP 엔드포인트는 여섯이다. `POST /api/clear`(확인 본문 필요), 휴지통의 영구 삭제 `POST /api/pins/{id}/purge`, 그리고 멤버 관리 넷 — 전환 `POST /api/access/managed`(확인 본문 필요)와 `POST /api/members/add`·`/role`·`/remove`다. 멤버 관리 넷은 관리 모드인 인스턴스에서만 받고, 아니면 `409 not_managed`다. 읽기 가운데 소유자만 보는 경로도 하나 생겼다 — `GET /api/access`(멤버 목록과 들일 수 있는 사람). 토큰과 그 밖의 설정은 그대로 CLI와 파일 수준이다(`limn token`). 화면은 `viewer`·`editor` 역할만 줄 수 있고 `owner`·`agent`는 `limn member`로만 만든다. 명령과 역할 표는 [instances.md](instances.md) §접근: 토큰과 멤버, HTTP 쪽 계약은 [api.md](api.md) §인증에 있다. 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D6·D9.
+소유자 전용 변경 HTTP 엔드포인트는 여섯이다. `POST /api/clear`(확인 본문 필요), 휴지통의 영구 삭제 `POST /api/pins/{id}/purge`, 그리고 멤버 관리 넷 — 전환 `POST /api/access/managed`(확인 본문 필요)와 `POST /api/members/add`·`/role`·`/remove`다. 그 가운데 멤버를 바꾸는 **셋**(`/api/members/add`·`/role`·`/remove`)은 관리 모드인 인스턴스에서만 받고, 아니면 `409 not_managed`다. **전환은 그 상태를 요구하지 않는다** — 관리 모드를 켜는 동작이라 관리 모드가 아닌 인스턴스에서 받는 쓰기는 이 하나다. 읽기 가운데 소유자만 보는 경로도 하나 생겼다 — `GET /api/access`(멤버 목록과 들일 수 있는 사람). 토큰과 그 밖의 설정은 그대로 CLI와 파일 수준이다(`limn token`). 화면은 `viewer`·`editor` 역할만 줄 수 있고 `owner`·`agent`는 `limn member`로만 만든다. 명령과 역할 표는 [instances.md](instances.md) §접근: 토큰과 멤버, HTTP 쪽 계약은 [api.md](api.md) §인증에 있다. 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D6·D9.
 
 **테일넷 후보 목록의 한도 세 값.** `GET /api/access`가 보여 줄 후보를 모을 때 서버는 이 기기의 `tailscaled`를 로컬 API로 한 번 읽는다([api.md](api.md) §테일넷 후보 목록). 그 읽기에 걸린 값은 셋이고, 각각 까닭이 있다.
 

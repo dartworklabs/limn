@@ -84,8 +84,10 @@ What the server does defend against:
   empty, invalid JSON, wrong shape, no read permission), every person identified by a header is a `viewer`,
   `--members-only` admits no one from it (only `--allow` logins, which do not depend on the file), and the server never
   rewrites it — it used to read such a file as empty and replace it with the one visitor, erasing every role including
-  the owner's. One warning goes to stderr; once the file is fixed (content or permissions) the roles apply again on the
-  next request, without a restart. Tokens and the `--auth local` owner do not read the file and are unaffected. Keeping
+  the owner's. On a **managed** instance the file is the admission list itself, so an unusable one is stricter still:
+  every person identified by a header is refused outright (`403 people_unreadable`), and `--allow` is no way in, since
+  it is ignored while managed. One warning goes to stderr; once the file is fixed (content or permissions) the roles
+  apply again on the next request, without a restart. Tokens and the `--auth local` owner do not read the file and are unaffected. Keeping
   the roles of an earlier good read was rejected: the result would depend on the process's history, and an unreadable
   `tokens.json` likewise accepts no token.
 - Managed access, and what it does not promise. An instance can be switched so that `people.json` alone decides who
@@ -100,8 +102,9 @@ What the server does defend against:
   a tailnet access rule (someone refused here can still reach the port), and it does not touch the instance's
   configuration file, so an `--allow` left there stays there, ignored. The reads and writes are the owner's alone:
   `GET /api/access` is refused to every other role, token and the headerless loopback agent (`403 owner_only`), and so
-  are `POST /api/access/managed` and `POST /api/members/add` / `/role` / `/remove`, which also refuse any instance that
-  is not managed (`409 not_managed`). A screen can give only the `viewer` and `editor` roles (`400
+  are `POST /api/access/managed` and `POST /api/members/add` / `/role` / `/remove`. The three member writes refuse an
+  instance that is not managed (`409 not_managed`); the switch is the one write received in that state, since an action
+  that turns managed mode on cannot require it. A screen can give only the `viewer` and `editor` roles (`400
   role_not_settable`): the first `owner` is made with `limn member add <instance> <login> --role owner` and nothing
   else, so no one who can reach the tailnet can raise their own privilege. The last `owner` cannot be removed or
   demoted through either door — the viewer and `limn member` refuse alike (`409 last_owner`) — so replacing an owner
