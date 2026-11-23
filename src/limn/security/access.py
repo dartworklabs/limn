@@ -516,6 +516,50 @@ class Principal(NamedTuple):
         return self.role != "viewer"
 
 
+# Where a request's identity came from, as pins.md names it (docs/handbook/api.md §pins.md 요청자 줄): Via, with a
+# header told apart by the identity provider. A closed type like Via, so a comparison with a value outside it fails the
+# type check.
+IdentitySource: TypeAlias = Literal["tailnet-header", "proxy-header", "local-owner", "token", "loopback-agent"]
+# The sources that carry a person's identity: a write through them is recorded as that person, not as an agent.
+PERSON_SOURCES: frozenset[IdentitySource] = frozenset({"tailnet-header", "proxy-header", "local-owner"})
+
+
+class RequestIdentity(NamedTuple):
+    """Who one request is recorded as, for telling its reader (GET /pins.md's requester line): the display name (the
+    login when there is none), the login pins record, the role, and where the identity came from. A value only - it
+    grants nothing; identify(), admit() and check_role() decide what the request may do."""
+
+    name: str
+    login: str
+    role: Role
+    source: IdentitySource
+
+    def is_person(self) -> bool:
+        """Would a write through this request be recorded as a person (a tailnet or proxy header, the local owner)?
+        True also for a person whose people.json role is agent: the record still carries their login. False for a
+        token and for the headerless loopback agent."""
+        return self.source in PERSON_SOURCES
+
+
+def request_identity(p: Principal, auth: AuthProvider) -> RequestIdentity:
+    """The identity principal p is recorded as, named for its reader. auth is the instance's identity provider: it tells
+    a Tailscale header (tailscale) from a proxy's user header (trusted-proxy), which identify() both reports as via
+    "header". Pure and total: every Via has a source, and an actor without a name is named by its login."""
+    login = str(p.actor.get("login") or "")
+    name = str(p.actor.get("name") or "") or login
+    source: IdentitySource
+    match p.via:
+        case "header":
+            source = "proxy-header" if auth == "trusted-proxy" else "tailnet-header"
+        case "local-owner":
+            source = "local-owner"
+        case "token":
+            source = "token"
+        case "loopback-agent":
+            source = "loopback-agent"
+    return RequestIdentity(name, login, p.role, source)
+
+
 def identify(headers: Message, peer: str, settings: AccessSettings, lookups: AccessLookups) -> Principal:
     """Who is this request? A valid `Authorization: Bearer` token wins under every provider; an invalid or revoked
     one is a 401 and never falls back to another identity. Otherwise the provider decides (settings.auth):
