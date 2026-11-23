@@ -8,6 +8,7 @@ from limn.pins.listing.markdown import PinMarkdown
 from limn.pins.listing.service import PinListing
 from limn.pins.model import PinNotFound
 from limn.web.errors import HTTPError
+from limn.web.routes import GetRequest
 
 
 class ListingApp(Protocol):
@@ -33,9 +34,10 @@ def dropped(app: ListingApp) -> dict[str, object]:
     return {"dropped": app.pin_listing.dropped_payload()}
 
 
-def markdown(app: ListingApp, base: str) -> str:
-    """Render the current pins.md with the request's remote base."""
-    return app.pin_markdown.current_text(base)
+def markdown(app: ListingApp, request: GetRequest, base: str) -> str:
+    """Render the current pins.md with the request's remote base, naming the request's own principal on the requester
+    line."""
+    return app.pin_markdown.current_text(base, request.principal)
 
 
 def pin_answer(result: dict[str, Any] | PinNotFound) -> dict[str, object]:

@@ -260,6 +260,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         audit=lambda action, by, details: security.http_audit(action, by, details),
         now=timestamp,
         remote_base_for=lambda host: access.remote_base_for(host, settings().access.public_hosts, settings().port),
+        identity_source=lambda principal: access.identity_source(principal, settings().access.auth),
         verdict_keys=lambda doc: documents_subsystem.verdict_keys(doc),
         refresh_watched=lambda key: sync.service.refresh_watched(key),
         document_boxes=builds.boxes,

@@ -3,13 +3,22 @@
 ## Unreleased
 
 The agent contract is added to and nothing is removed or renamed: five HTTP paths, one state file and ten `reason`
-codes are new, no existing path, field, state name or error text changes, and `pins.md` is untouched. An agent that
-never calls the new paths behaves exactly as before. Rolling back to an older release leaves the new state file
+codes are new, no existing path, field, state name or error text changes, and `pins.md` gains one header line and
+words two guidance clauses differently (below). An agent that never calls the new paths behaves exactly as before. Rolling back to an older release leaves the new state file
 unread, so an instance switched to managed access runs on `--allow` / `--members-only` again and anyone added after
 the switch cannot get in — the closed side.
 
 ### Added
 
+- **`pins.md` says who the request reading it is recorded as.** Right after `갱신:`, `GET /pins.md` gains one line,
+  ``요청자: <name>(`<login>`) · 역할 <role> · 신원 출처 <source>``. The source is the tailnet header, a trusted proxy's
+  header, the `--auth local` owner, a token or the headerless loopback. For the first three — a person's identity —
+  the line goes on to say that a write through this request is recorded as that person and that an agent should not
+  write but ask for a token unless that person is the user it works for. A tailnet identity is the account the machine
+  is signed in with, not whoever is at it, so on a shared machine an agent without a token used to be recorded as the
+  machine's account holder with nothing in `pins.md` to say so. The file on disk names nobody: the same place holds
+  `요청자: 없음(디스크 사본) — …` and says how to check with `curl`, and no request's identity can reach that file
+  ([ADR-0056](docs/adr/0056-pins-md-requester-line.md)).
 - **An owner admits co-authors from the viewer instead of editing a config file over ssh.** [⋯] → `접근 관리` opens a
   panel, shown only to the owner, that lists the instance's members with their role and when they were last seen,
   lists the people this server's tailnet shows who are not members yet, and takes a login typed in by hand. Each
@@ -46,6 +55,11 @@ the switch cannot get in — the closed side.
 
 ### Changed
 
+- **Writing as a person is for the user the agent works for.** Two `pins.md` clauses told an agent without a token to
+  close through the tailnet with `"review":true` and reply with `"reopen":false` as the machine's person, without asking
+  who that is. Both now point at the `요청자:` line and say to do so only when that person is the user the agent works
+  for, and otherwise to ask for a token. The lines start as before, `skill/SKILL.md` and `SKILL.ko.md` say the same, and
+  the server's rules for `review` and `reopen` are unchanged.
 - **`limn member remove` and `limn member role` now refuse the last owner.** Removing the only `owner` of an instance
   used to succeed and left nobody who could clear the pins or manage members; demoting them did the same. Both
   commands now stop with one `limn: …` line and change nothing, and the viewer's panel refuses the same edit with

@@ -183,6 +183,45 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - **이 기기를 부른 요청에만 해당한다.** `tailscale serve` 도 루프백에서 붙으므로 TCP 피어만으로는 구별되지 않는다. `Host` 만으로도 구별되지 않는다. `tailscale serve` 는 TLS 이름으로 경로를 고르고 클라이언트가 보낸 `Host` 를 그대로 넘기므로, 태그 장치가 `Host: localhost` 를 보낼 수 있다. 대신 `tailscale serve` 는 `X-Forwarded-For`·`X-Forwarded-Host`·`X-Forwarded-Proto` 를 늘 스스로 채운다(클라이언트가 보낸 값은 덮어쓴다). 그래서 이런 전달 헤더(`X-Forwarded-Port`·`X-Real-IP`·`Forwarded`·`Via` 포함)가 하나라도 있거나 `Host` 가 루프백 이름이 아니면(`*.ts.net`, `--public-host`) 프록시를 거친 요청으로 보고, 신원 헤더가 없으면 에이전트로 받지 않는다(`came_through_proxy`). 로컬 에이전트의 curl 은 둘 다 보내지 않는다. `--auth local` 에서도 프록시를 거친 요청은 소유자가 아니라 `403` 이다. 헤더를 더하지 않는 원시 TCP 전달(`tailscale serve --tcp`, `ssh -L`/`-R`, 단순 포트 포워딩)은 로컬 요청과 구별되지 않는다. 그런 설정에서는 토큰을 쓰고 `AGENT_LOOPBACK=0` 을 둔다. 프록시를 거친 헤더 없는 요청은 `403` 이고 메시지가 토큰을 쓰라고 알려 준다. 에이전트로 받으면 태그 장치나 공용 CI 노드가 핀을 닫을 수 있기 때문이다.
 - `--tailnet-agent`(인스턴스 설정 `TAILNET_AGENT=1`)는 이런 요청을 일부러 에이전트로 받는다. 헤더 없는 루프백 에이전트가 켜져 있어야 하고(`--no-agent-loopback`, `local`, `trusted-proxy`, 루프백이 아닌 `--bind` 와 함께 주면 기동을 거부한다), 기동 로그에 폐지 예정 경고가 남는다. 허용 목록(`--allow`, `--members-only`)은 여전히 이런 요청을 막는다.
 
+### pins.md 요청자 줄
+
+`pins.md` 머리말의 `갱신:` 줄 바로 다음 줄은 요청자 줄이다. 줄은 늘 한 번 나온다. 문서가 여럿이어도 같은 자리다. `GET /pins.md` 에서는 그 요청이 누구로 기록되는지 적는다. 토큰 없이 테일넷 주소로 오는 요청은 그 기기에 로그인한 테일넷 계정의 사람으로 기록되고, Limn은 기기 앞의 사람을 구별할 수 없다. 공용 기기에서 다른 사람의 에이전트가 그 이름으로 쓰지 않도록, 쓰기 전에 읽는 첫 응답에서 신원을 알리려는 것이다.
+
+```text
+요청자: <이름>(`<로그인>`) · 역할 <역할> · 신원 출처 <출처 이름표><꼬리>
+```
+
+- `<이름>` 은 요청자의 표시 이름이고, 없으면 로그인이다. `<로그인>` 은 핀에 기록되는 값이다(토큰이면 `agent:<토큰 이름>`). 이름은 겹칠 수 있어서 함께 적는다. 둘 다 한 줄로 만들어(줄바꿈은 공백) 넣고, 로그인은 코드 스팬으로 감싼다. 이름의 역슬래시·백틱·대괄호는 역슬래시로 이스케이프한다. 표시 이름이 로그인의 코드 스팬을 열거나 닫지 못하고, `[이름](…)` 링크로 로그인을 삼키지 못하게 하려는 것이다.
+- `<역할>` 은 §역할의 `owner`·`editor`·`viewer`·`agent` 그대로다. `people.json` 을 쓸 수 없는 동안 헤더로 온 사람은 `viewer` 다.
+
+| `identify()` 의 경로 | 신원 방식 | 출처 이름표 | 사람 신원 |
+| --- | --- | --- | --- |
+| 헤더 | `tailscale` | `테일넷 헤더(이 기기에 로그인한 테일넷 계정)` | 예 |
+| 헤더 | `trusted-proxy` | `프록시 헤더(인증 프록시가 보낸 사용자)` | 예 |
+| 루프백 소유자 | `local` | `로컬 소유자(--auth local 의 루프백 요청)` | 예 |
+| 토큰 | 모두 | `토큰` | 아니요 |
+| 헤더 없는 루프백 에이전트 | `tailscale` | `헤더 없는 루프백(폐지 예정)` | 아니요 |
+
+`--tailnet-agent` 로 받은 헤더 없는 테일넷 요청도 서버가 헤더 없는 루프백 에이전트로 받으므로 마지막 행이다. `people.json` 역할이 `agent` 인 사람도 그 사람의 로그인으로 기록되므로 사람 신원이다.
+
+꼬리는 둘이다.
+
+```text
+사람 신원:  — 이 요청으로 쓰면 이 사람으로 기록된다 · 내가 일하는 사용자가 아니면 쓰지 말고 사용자에게 토큰을 요청한다(`limn token create <인스턴스>`)
+에이전트:   — 이 요청으로 쓰면 에이전트로 기록된다
+```
+
+디스크의 `<state_dir>/pins.md` 에는 요청자가 없다. 같은 자리에 다음 고정 줄이 온다. `<port>` 는 디스크 사본의 루프백 base 포트다.
+
+```text
+요청자: 없음(디스크 사본) — 쓰는 요청의 신원은 요청마다 정해진다 · 확인하려면 쓸 때와 같은 인증으로 `curl -s http://127.0.0.1:<port>/pins.md` 를 읽어 이 줄을 본다
+```
+
+- **요청자 값은 그 요청의 응답에만 나간다.** 디스크 사본은 그 기기의 모든 에이전트가 읽는 공용 파일이라, 디스크를 쓰는 렌더 경로는 요청자를 받지 않는다. 마지막으로 쓴 사람이 누구든 디스크 사본의 바이트는 같다. `GET /pins.md` 응답은 다른 응답처럼 `Cache-Control: no-store` 이고 서버는 렌더 결과를 요청 사이에 기억하지 않는다. `pins.md` 에 캐시나 ETag를 붙인다면 요청자별로 갈라야 한다.
+- 이 줄은 안내다. 신원 판정·입장·역할 검사를 바꾸지 않고, 권한을 만들지 않는다.
+
+토큰 없이 사람 신원으로 쓰는 일은 그 사람이 내가 일하는 사용자일 때만이다. 닫기 안내 문단(§닫기 안내 줄)과 답글 안내 줄(`REPLY_GUIDANCE`, §답글이 핀을 다시 여는 규칙 (0.2.2))이 이 줄을 가리켜 그렇게 말하고, SKILL도 같은 말을 한다. 출처: [ADR-0056](../adr/0056-pins-md-requester-line.md) D1–D3.
+
 ### pins.md 안내 줄
 
 `<state_dir>/pins.md` 의 안내 문단 바로 뒤에 다음 두 줄이 늘 붙는다(§pins.md 형식). 앞 줄은 claim 안내이고, `<base>` 는 close 예시와 같은 base URL이다. 뒷줄은 인증 안내다. 에이전트가 표를 읽는 순간 핀을 잡는 법과 인증 방법을 알게 하려는 것이다. 그 뒤에 답글 안내 한 줄(`REPLY_GUIDANCE`)이 이어진다(§답글이 핀을 다시 여는 규칙 (0.2.2)).
@@ -200,7 +239,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 경로는 홈 폴더 아래의 평범한 경로면 `~/…` 로, 아니면 셸 따옴표를 친 절대 경로로 쓴다(`shell_path`).
 
-실행 정본은 [`src/limn/security/access.py`](../../src/limn/security/access.py) 의 `identify`, `came_through_proxy`, `admit`, `check_read`, `check_role`, `OWNER_POSTS`, `OWNER_READS`, `MEMBER_OPERATIONS`, `bearer_of`, `token_lookup`, 닫힌 보안 값과 그 파서를 담은 [`src/limn/security/values.py`](../../src/limn/security/values.py), 접근 플래그 파일을 읽고 쓰는 [`src/limn/security/access_store.py`](../../src/limn/security/access_store.py), 멤버 변경과 전환의 연산 [`src/limn/security/access_service.py`](../../src/limn/security/access_service.py), 그 경로들의 요청·응답을 짓는 [`src/limn/security/http.py`](../../src/limn/security/http.py) 와 [`src/limn/security/routes.py`](../../src/limn/security/routes.py), 테일넷 후보 목록의 전송 [`src/limn/platform/tailnet.py`](../../src/limn/platform/tailnet.py), `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/listing/render.py`](../../src/limn/pins/listing/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 토큰 파일 문구를 만드는 [`src/limn/security/guidance.py`](../../src/limn/security/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `security/access.py`에 넘긴다. 토큰 파일이 있는지와 홈 폴더는 `security/access.py`의 `file_present`·`home_or_none`으로 읽어 값으로 넘긴다.
+실행 정본은 [`src/limn/security/access.py`](../../src/limn/security/access.py) 의 `identify`, `identity_source`, `came_through_proxy`, `admit`, `check_read`, `check_role`, `OWNER_POSTS`, `OWNER_READS`, `MEMBER_OPERATIONS`, `bearer_of`, `token_lookup`, 닫힌 보안 값과 그 파서를 담은 [`src/limn/security/values.py`](../../src/limn/security/values.py), 접근 플래그 파일을 읽고 쓰는 [`src/limn/security/access_store.py`](../../src/limn/security/access_store.py), 멤버 변경과 전환의 연산 [`src/limn/security/access_service.py`](../../src/limn/security/access_service.py), 그 경로들의 요청·응답을 짓는 [`src/limn/security/http.py`](../../src/limn/security/http.py) 와 [`src/limn/security/routes.py`](../../src/limn/security/routes.py), 테일넷 후보 목록의 전송 [`src/limn/platform/tailnet.py`](../../src/limn/platform/tailnet.py), `pins.md` 의 안내 줄을 만드는 [`src/limn/pins/listing/render.py`](../../src/limn/pins/listing/render.py) 의 `claim_guidance`, `TOKEN_GUIDANCE`, `token_guidance_line`, 요청자 줄을 만드는 `Requester`, `requester_of`, `requester_line`, `REQUESTER_SOURCES`(신원 출처의 닫힌 값 `IdentitySource`·`PERSON_SOURCES` 는 `values.py`, 요청의 신원을 그 줄에 넘기는 곳은 [`src/limn/pins/listing/markdown.py`](../../src/limn/pins/listing/markdown.py) 의 `PinMarkdown.current_text`), 토큰 파일 문구를 만드는 [`src/limn/security/guidance.py`](../../src/limn/security/guidance.py) 의 `UNAUTHENTICATED`, `shell_path`, `token_file_curl`, `loopback_refused_text` 다. 실행 설정과 `tokens.json`·`people.json` 캐시는 `server.py`의 `access_settings`·`access_lookups`가 `security/access.py`에 넘긴다. 토큰 파일이 있는지와 홈 폴더는 `security/access.py`의 `file_present`·`home_or_none`으로 읽어 값으로 넘긴다.
 
 ## 문서 매개변수 (`doc=`)
 
@@ -758,7 +797,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 | 질문 핀 | 누구나 | — | 답으로 남는다. 상태 그대로 |
 
 - **사람**은 에이전트가 아닌 신원이다. 토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람은 에이전트라 규칙으로는 다시 열지 않는다.
-- **토큰 없이 사람 신원으로 보내는 에이전트**(사람으로 로그인한 머신에서 테일넷 주소로 보내며 닫을 때 `"review": true` 를 넣는 에이전트, `--auth local` 인스턴스에 헤더 없는 `curl`)는 서버에게 사람이다. 그런 에이전트는 답글마다 `"reopen": false` 를 넣는다. `pins.md` 안내 줄(`REPLY_GUIDANCE`, 토큰 안내 줄 다음 줄)과 SKILL이 같은 말을 한다.
+- **토큰 없이 사람 신원으로 보내는 에이전트**(사람으로 로그인한 머신에서 테일넷 주소로 보내며 닫을 때 `"review": true` 를 넣는 에이전트, `--auth local` 인스턴스에 헤더 없는 `curl`)는 서버에게 사람이다. 그런 에이전트는 `pins.md` 요청자 줄의 사람이 내가 일하는 사용자일 때만 답글을 달고, 답글마다 `"reopen": false` 를 넣는다. 아니면 쓰지 말고 토큰을 요청한다(§pins.md 요청자 줄). `pins.md` 안내 줄(`REPLY_GUIDANCE`, 토큰 안내 줄 다음 줄)과 SKILL이 같은 말을 한다.
 - **사람을 @태그한다**는 풀린 `mentions` 가 글쓴이 자신과 `agent` 역할인 계정을 빼고 하나라도 있다는 뜻이다. `@Codex 고쳐 주세요`처럼 에이전트 역할 계정을 부른 답글은 사람을 부른 것이 아니다.
 - 본문의 선택 `reopen` 이 `true`/`false` 면 규칙보다 앞선다. 불리언이 아니면 `400` 이다. 열린 핀은 `reopen: true` 여도 바뀌지 않는다. 뷰어의 [상태 유지]가 `false` 를 보낸다.
 - 응답은 `{ok, pin, msg, state, reopened}` 다(`state`·`reopened` 는 0.2.2+). `reopened` 가 참이면 `msg` 는 `ev:"reopen"` 기록이다.
@@ -773,9 +812,9 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 
 | 전환 | 조건 | 결과 |
 | --- | --- | --- |
-| 닫기 | 에이전트: 토큰, 헤더 없는 루프백 요청(로컬 curl), `agent` 역할인 사람 | `done:true` + `review:true` = **검토 대기**. 헤더 없는 태그 장치는 `403` 이다(§인증) |
+| 닫기 | 에이전트: 토큰, 헤더 없는 루프백 요청(로컬 curl), `agent` 역할인 사람 | `done:true` + `review:true` = **검토 대기**. 헤더 없는 태그 장치는 거절된다(`403`. 헤더 없는 루프백 에이전트를 끈 인스턴스는 `401`, 허용 목록도 관리 모드도 없이 `--tailnet-agent` 를 켠 인스턴스는 헤더 없는 루프백 에이전트로 받는다 — §인증) |
 | 닫기 | 사람(`editor`·`owner` 역할, `local` 방식의 소유자) | `done:true` = 완료(그 사람이 검토자다) |
-| 닫기 | 본문 `"review": true`·`false` | 그 값을 따른다. 토큰 없이 테일넷 주소로 닫는 원격 에이전트는 그 기기 사람의 신원을 달고 가므로 `true` 를 보낸다. 같은 에이전트는 답글에 `"reopen": false` 를 넣는다(사람 신원의 답글은 닫힌 핀을 다시 연다, §답글이 핀을 다시 여는 규칙 (0.2.2)) |
+| 닫기 | 본문 `"review": true`·`false` | 그 값을 따른다. 토큰 없이 테일넷 주소로 닫는 원격 에이전트는 그 기기 사람의 신원을 달고 가므로, 그 사람이 내가 일하는 사용자일 때만 닫고 `true` 를 보낸다(아니면 닫지 말고 토큰을 요청한다, §pins.md 요청자 줄). 같은 에이전트는 답글에 `"reopen": false` 를 넣는다(사람 신원의 답글은 닫힌 핀을 다시 연다, §답글이 핀을 다시 여는 규칙 (0.2.2)) |
 | `POST /confirm` | 검토 대기 | `review` 를 지우고 `confirmed_by`·`confirmed_at` 을 남긴다(스레드 `ev:confirm`) |
 | `POST /confirm` | 에이전트 역할의 요청(토큰, 헤더 없는 루프백 요청, `agent` 역할인 사람) | `403`, 메시지는 `확인은 사람이 합니다 — …` |
 | `POST /confirm` | `viewer` 역할 | `403`(§인증의 역할 검사) |
@@ -916,13 +955,13 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 curl -s -H "Authorization: Bearer $LIMN_TOKEN" https://<기기>.<tailnet>.ts.net:<port>/pins.md
 ```
 
-원격 에이전트도 토큰을 붙인다(§인증). 토큰을 붙이면 어디서 붙든 에이전트로 기록되고, 닫기가 검토 대기로 간다. 토큰 없이 테일넷 주소로 오면 `tailscale serve` 가 그 기기의 테일넷 사용자 신원을 붙인다. 사람 계정으로 로그인한 기기라면 그 사람의 신원이 붙고, 이때는 닫을 때 본문에 `"review": true` 를 넣어야 한다(§검토 대기). **태그 장치**(서버, CI 러너)에는 신원이 없어서, 토큰 없는 요청은 `403` 이다(§인증). 그러니 원격 에이전트는 토큰을 쓰는 것이 기본이다.
+원격 에이전트도 토큰을 붙인다(§인증). 토큰을 붙이면 어디서 붙든 에이전트로 기록되고, 닫기가 검토 대기로 간다. 토큰 없이 테일넷 주소로 오면 `tailscale serve` 가 그 기기의 테일넷 사용자 신원을 붙인다. 사람 계정으로 로그인한 기기라면 그 사람의 신원이 붙는다. 그 신원은 그 기기에 로그인한 테일넷 계정이지 기기 앞의 사람이 아니다. 그래서 그 사람이 내가 일하는 사용자일 때만 그 신원으로 쓰고, 닫을 때 본문에 `"review": true` 를 넣는다(§검토 대기). 누구로 기록되는지는 응답 머리말의 요청자 줄이 알려 준다(§pins.md 요청자 줄). 그 사람이 내가 일하는 사용자가 아니면 쓰지 말고 토큰을 요청한다. **태그 장치**(서버, CI 러너)에는 신원이 없어서, 토큰 없는 요청은 거절된다(`403`. 헤더 없는 루프백 에이전트를 끈 인스턴스는 `401` 이고, 허용 목록도 관리 모드도 없이 `--tailnet-agent` 를 켠 인스턴스만 헤더 없는 루프백 에이전트로 받는다 — §인증, §헤더 없는 루프백 에이전트). 그러니 원격 에이전트는 토큰을 쓰는 것이 기본이다.
 
 - `GET /api/pins` 와 같은 sync 경로(`snapshot_pins()`)를 탄 뒤 렌더한다. 그래서 줄 번호가 최신이다.
-- 바뀌는 것은 close 예시의 base URL뿐이다. 다른 안내 줄과 `## 제안 문안` 절의 정본 안내도 같은 base URL을 쓴다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 `http://127.0.0.1:<port>` 다.
+- 바뀌는 것은 base URL과 요청자 줄이다. 요청자 줄은 그 요청의 신원을 적는다(§pins.md 요청자 줄). base URL은 close 예시와 다른 안내 줄과 `## 제안 문안` 절의 정본 안내도 같은 base URL을 쓴다. `Host` 가 `*.ts.net` 이면 포트까지 `Host` 그대로 쓴 `https://<Host>` 다. `--public-host` 로 준 이름이면 `https://<이름>` 이고, 설정한 포트가 443이 아니면 `:<포트>` 가 붙는다. 루프백이면 `http://127.0.0.1:<port>` 다.
 - 원격일 때는 안내 문단에 `원격: curl -s <base>/pins.md` 한 줄이 더 붙는다. 루프백에는 없다. 루프백 쪽은 이미 그 파일을 직접 읽고 있기 때문이다.
 - 원격일 때는 인증 안내 줄에 토큰 파일 구절(§pins.md 안내 줄)이 붙지 않는다. 그 파일은 서버 머신에만 있다.
-- 디스크의 `<state_dir>/pins.md` 는 이 요청과 무관하게 항상 루프백 base로 쓴다. 다른 세션이 그 파일을 직접 읽어도 안내가 바뀌지 않는다.
+- 디스크의 `<state_dir>/pins.md` 는 이 요청과 무관하게 항상 루프백 base로 쓰고, 요청자 줄 자리에는 요청자 없음 줄을 둔다. 다른 세션이 그 파일을 직접 읽어도 안내가 바뀌지 않고, 어느 요청의 신원도 그 파일에 들어가지 않는다.
 - Host·Origin 검사는 다른 `GET` 과 같다([operations.md](operations.md) §Host·Origin 검사). 낯선 Host는 `403` 이다.
 
 ## 처리 중 표시 (claim)
@@ -1406,8 +1445,9 @@ Markdown 문서는 뷰어가 원문을 그리는 문서다. `--doc` 경로가 `.
 1. `원고: <경로>` 바로 다음 줄은 `논문: <이름표> · 저장소: <git origin URL 또는 (없음)>` 이다([operations.md](operations.md) §여러 논문 인스턴스를 동시에 띄울 때). 여러 인스턴스를 동시에 열었을 때 다른 논문의 핀을 처리하지 않게 하려는 줄이다.
 2. `저장소` 값이 있으면 안내 문단에 `처리 전 자기 체크아웃의 git remote get-url origin 이 위 저장소와 같은지 확인. 다르면 다른 논문의 핀이니 멈춘다` 가 덧붙는다.
 3. 그다음 `head.txt`·`built_at.txt` 가 둘 다 있으면 두 줄이 온다. `기준: <head 짧은 해시> · 빌드 <built_at>` 과 `다른 체크아웃에서 처리하면 먼저 git rev-parse --short HEAD 가 같은지 확인` 이다. git 저장소가 아니거나 아직 빌드하지 않아 파일이 없으면 이 두 줄만 생략한다.
-4. 안내 문단은 닫기 안내로 시작한다(§닫기 안내 줄).
-5. 안내 문단 바로 뒤에 `처리를 시작하는 핀은 먼저 잡는다 — … <base>/api/pins/N/claim … · 포기하면 <base>/api/pins/N/unclaim` 과 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — …` 이 늘 붙는다. 전문은 §인증의 pins.md 안내 줄에 있다.
+4. `갱신:` 줄 바로 다음 줄은 요청자 줄이다. `GET /pins.md` 에서는 그 요청이 누구로 기록되는지(``요청자: <이름>(`<로그인>`) · 역할 … · 신원 출처 …``), 디스크 사본에서는 `요청자: 없음(디스크 사본) — …` 이다(§pins.md 요청자 줄).
+5. 안내 문단은 닫기 안내로 시작한다(§닫기 안내 줄).
+6. 안내 문단 바로 뒤에 `처리를 시작하는 핀은 먼저 잡는다 — … <base>/api/pins/N/claim … · 포기하면 <base>/api/pins/N/unclaim` 과 `에이전트 인증: 모든 요청에 Authorization: Bearer <토큰> 헤더를 붙인다(…) · 헤더 없는 로컬 요청을 에이전트로 받는 방식은 폐지 예정이다 · 테일넷 주소(원격)로 오는 신원 헤더 없는 요청(태그 장치 등)은 403 이다 — …` 이 늘 붙는다. 전문은 §인증의 pins.md 안내 줄에 있다.
 
 ### 닫기 안내 줄
 

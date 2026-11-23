@@ -13,6 +13,7 @@ from limn.pins.store import line_value
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import Base, add_pin, forget_kept_lines, fresh_runtime, kept_lines_changed, ps
+from helpers_access import LOOPBACK_AGENT
 from helpers_authority import post_authority
 
 
@@ -157,7 +158,7 @@ class KeptLinesAudit(Base):
         app.pin_listing.list_payload(True)
         app.pin_listing.list_payload(False, app.docs[0].key)
         app.pin_listing.pin_payload(self.first)
-        app.pin_markdown.current_text("http://127.0.0.1:1")
+        app.pin_markdown.current_text("http://127.0.0.1:1", LOOPBACK_AGENT)
         app.assembly.pins.counts.state_counts()
         app.assembly.pins.counts.counts_by_document({app.docs[0].key})
         app.pin_listing.dropped_payload()
