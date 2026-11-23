@@ -24,6 +24,22 @@ OWNER = {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"}
 EDITOR = {"login": "bob@example.com", "name": "Bob Park", "role": "editor"}
 VIEWER = {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}
 SECOND_OWNER = {"login": "frank@example.com", "name": "Frank Oh", "role": "owner"}
+NEW_EDITOR = {"login": "gina@example.com", "name": "Gina Yoo", "role": "editor"}
+# Holds the answer to GET /api/access until the test lets it go, so a read that lands late is a fact of the test
+# rather than a matter of timing. Installed with evaluate (not a <script>), which the page's CSP allows.
+HOLD_ACCESS_READ = """
+window.__heldAccess = [];
+const realFetch = window.fetch;
+window.fetch = function (input, init) {
+  const url = typeof input === 'string' ? input : input && input.url ? String(input.url) : '';
+  if (window.__holdAccess && url.includes('/api/access')) {
+    return new Promise((resolve, reject) => {
+      window.__heldAccess.push(() => realFetch(input, init).then(resolve, reject));
+    });
+  }
+  return realFetch(input, init);
+};
+"""
 AGENT = {"login": "dave@example.com", "name": "Dave Choi", "role": "agent"}
 CANDIDATES = TailnetDirectory(
     (TailnetUser("erin@example.com", "Erin Han", None), TailnetUser("gina@example.com", "Gina Yoo", None)), True, None
@@ -532,6 +548,26 @@ class AccessRefusals(AccessScreenBase):
         page.wait_for_selector(self.row(SECOND_OWNER["login"]))
         self.assertEqual(self.count(page, self.row(VIEWER["login"])), 0)
         self.assertEqual(self.count(page, "#access-body .acc-err"), 0)
+
+    def test_a_late_read_leaves_the_owners_choices_alone(self):
+        """The read every open sends can land after the owner has gone on to the transition screen and changed a
+        check. Their choices are their own: the late answer does not reset them, and a row the screen did not have
+        before arrives at the default the no-op rule gives it (checked, because today's admission lets it in)."""
+        ps.APP.C.access_file.unlink()  # the transition screen exists only while the instance is unmanaged
+        page = self.open_screen()
+        page.evaluate(HOLD_ACCESS_READ)
+        page.keyboard.press("Escape")
+        self.write_people([OWNER, EDITOR, VIEWER, NEW_EDITOR])  # another door adds a member while this one is shut
+        page.evaluate("window.__holdAccess = true")
+        page.click("#btn-more")
+        page.click("#m-access")
+        page.click('[data-act="access-manage"]')
+        page.uncheck('input[data-acc-check="%s"]' % EDITOR["login"])
+        page.evaluate("window.__holdAccess = false; window.__heldAccess.splice(0).forEach((go) => go())")
+        page.wait_for_selector('input[data-acc-check="%s"]' % NEW_EDITOR["login"])
+        self.assertFalse(page.is_checked('input[data-acc-check="%s"]' % EDITOR["login"]))
+        self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % NEW_EDITOR["login"]))
+        self.assertTrue(page.is_checked('input[data-acc-check="%s"]' % VIEWER["login"]))
 
     def test_a_write_whose_read_back_fails_does_not_draw_the_old_lists(self):
         """The remove went through and the read after it fails: the old rows (and the removed member among them) are not

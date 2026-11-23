@@ -5688,6 +5688,9 @@ async function loadAccess() {
   if (!isOwner()) return false;
   const dialogOpen = $('#access').open;
   const what = translate('접근 정보 읽기');
+  // What the screen offered before this answer replaces it, so a late answer can tell a row the owner has
+  // already looked at from one that arrived while they were reading.
+  const knownBefore = transitionLogins(ACCESS);
   try {
     const answer = await api('GET /api/access', { what, where: NOTICE_HOST.LINE, silent: dialogOpen });
     setAccess(answer.data);
@@ -5701,12 +5704,27 @@ async function loadAccess() {
   const view = ACCESS;
   if (!view) return false;
   setStale(false);
-  // The transition's checks start as the state the owner would keep: whoever gets in today.
-  CHECKED.clear();
   const transition = view.transition;
-  if (transition) for (const login of transition.admitted_today) CHECKED.add(login);
+  if (!TRANSITION_OPEN) {
+    // The transition's checks start as the state the owner would keep: whoever gets in today.
+    CHECKED.clear();
+    if (transition) for (const login of transition.admitted_today) CHECKED.add(login);
+  } else if (transition) {
+    // The answer came back while the owner was already choosing on the transition screen - the read this
+    // dialog sends on every open can land that late. Their checks are their own and are left alone; only a
+    // login the screen did not have before arrives, and it arrives at the default the no-op rule gives it.
+    for (const login of transition.admitted_today) if (!knownBefore.has(login)) CHECKED.add(login);
+  }
   redraw();
   return true;
+}
+
+/** The logins a transition screen already showed: whoever gets in today and every row it listed. Pure. */
+function transitionLogins(view) {
+  const transition = view ? view.transition : undefined;
+  if (!transition) return new Set();
+  const rows = [...transition.settable, ...transition.fixed].map((member) => member.login);
+  return new Set([...transition.admitted_today, ...rows]);
 }
 /** Opens the access dialog, on the list. */
 function openAccess() {
