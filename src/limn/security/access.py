@@ -870,14 +870,17 @@ def _valid_tokens(d: object) -> list[Json]:
 
 
 def load_tokens(state: Path, strict: bool = False) -> list[Json]:
-    """The token entries of <state>/tokens.json ([] if absent). An unreadable file warns on stderr and accepts no token.
+    """The token entries of <state>/tokens.json ([] if absent). An unreadable file - it cannot be read, is not UTF-8
+    JSON, or is nested past the parser's depth - warns on stderr and accepts no token.
     strict=True (the CLI, before rewriting the file) raises ValueError on an unreadable or malformed file instead."""
     p = Path(state) / "tokens.json"
     try:
         d = json.loads(p.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
-    except (OSError, ValueError) as e:
+    # UnicodeDecodeError and JSONDecodeError are ValueErrors; a document nested past the parser's depth raises
+    # RecursionError, which is neither (limn.security.access_store and people_store read their files the same way).
+    except (OSError, ValueError, RecursionError) as e:
         if strict:
             raise ValueError("cannot read %s: %s" % (p, e)) from e
         print("warning: cannot read %s (%s) - no agent token is accepted until it is fixed" % (p, e), file=sys.stderr)

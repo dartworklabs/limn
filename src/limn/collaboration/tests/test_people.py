@@ -264,7 +264,9 @@ class ManagedRecording(unittest.TestCase):
         before = self.book.path.read_bytes()
         self.assertFalse(record(self.book, {"login": "bob@example.com", "name": "Bob"}, 0.0, None, "editor", "managed"))
         self.assertEqual(self.book.path.read_bytes(), before)
-        self.assertEqual(self.book.seen, {})
+        # The outcome is memoised like a write, so the same request's next POST does not retake the lock to decide
+        # nothing again (see test_the_no_row_outcome_is_memoised_so_a_second_post_takes_no_lock).
+        self.assertEqual(self.book.seen, {(str(self.book.path), "bob@example.com"): ("Bob", None, 0.0)})
 
     def test_an_existing_row_is_still_updated_while_managed(self):
         """A member's visit keeps being recorded: the name, the picture and last_seen are written, the role is not."""
@@ -287,6 +289,28 @@ class ManagedRecording(unittest.TestCase):
         """Today's behaviour, unchanged: without the flag the first changing POST of a person writes their row."""
         self.assertTrue(record(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
         self.assertEqual([x["login"] for x in self.rows()], ["a@example.com"])
+
+    def test_the_no_row_outcome_is_memoised_so_a_second_post_takes_no_lock(self):
+        """Under --auth local with the flag on, the local owner's every changing POST reaches this path - they hold
+        owner authority without a row, so no row is created. It used to return from inside the cross-process lock
+        without memoising, so each POST took the people flock and wrote nothing. The outcome is memoised like a
+        write: the next POST of the same login inside PEOPLE_TOUCH_S never opens the transaction (the flag is read
+        under the lock, so an unread flag is an unopened transaction), and past that life the path is tried again."""
+        flags = []
+
+        def managed():
+            """Say the flag is on, and count the reads that happen under the lock."""
+            flags.append(1)
+            return "managed"
+
+        actor = {"login": "dana@example.com", "name": "Dana"}
+        self.assertFalse(record_person(self.book, actor, 0.0, "owner", "editor", managed))
+        self.assertEqual(self.book.seen, {(str(self.book.path), "dana@example.com"): ("Dana", None, 0.0)})
+        self.assertFalse(record_person(self.book, actor, 1.0, "owner", "editor", managed))
+        self.assertEqual(len(flags), 1)
+        self.assertFalse(record_person(self.book, actor, people.PEOPLE_TOUCH_S, "owner", "editor", managed))
+        self.assertEqual(len(flags), 2)
+        self.assertFalse(self.book.path.exists())
 
     def test_the_flag_is_read_inside_the_lock(self):
         """The flag decides against the file the write is about to replace: it is read under the people lock, after

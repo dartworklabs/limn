@@ -744,6 +744,17 @@ class Caches(unittest.TestCase):
         with self.assertRaises(ValueError):
             access.load_tokens(self.dir, strict=True)
 
+    def test_a_deeply_nested_token_file_accepts_no_token(self):
+        """200,000 nested brackets are past the parser's depth: the RecursionError must not escape the read every
+        bearer request makes (it would answer 500 internal instead of the warning and 401 bad_token). The CLI's
+        strict read refuses it as it refuses any file it cannot read."""
+        (self.dir / "tokens.json").write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+        with mock.patch("sys.stderr", io.StringIO()) as err:
+            self.assertEqual(access.load_tokens(self.dir), [])
+        self.assertIn("no agent token is accepted", err.getvalue())
+        with self.assertRaises(ValueError):
+            access.load_tokens(self.dir, strict=True)
+
     def test_the_warning_prints_once_across_threads(self):
         """Many concurrent first calls print one line."""
         warn = access.WarnOnce("the loopback agent is deprecated")

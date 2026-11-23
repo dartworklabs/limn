@@ -4,10 +4,10 @@ target state (docs/superpowers/specs/2026-11-22-viewer-access-management-design.
 The transition (apply_managed) is the action the whole design's safety rests on: it must never widen who can get in
 without the owner having seen it, and never lock the owner out. So it takes a target list - the people the owner
 checked on the screen - and writes exactly that, under the one people lock: people.json first, access.json last. If the
-second write fails the instance keeps the new member list and is still not managed (FlagNotWritten). That half is safe
-to leave but is not nothing: under --members-only an unmanaged instance already admits by people.json, so a row this
-press wrote admits that person at once. The failure says which of the two writes stands, and the operation writes a
-target state, so pressing again finishes it.
+second write fails the instance keeps the new member list and the flag stays as it was (FlagNotWritten). That half is
+safe to leave but is not nothing: wherever people.json already decides entry - under --members-only, or on an instance
+the flag already governed - a row this press wrote admits that person at once. The failure says which of the two writes
+stands, and the operation writes a target state, so pressing again finishes it.
 
 Every refusal is judged before any file is opened, so a refusal changes nothing. The refusals are raised as values that
 carry the login or the role, never a path: the HTTP layer composes the text for the viewer.
@@ -431,10 +431,12 @@ def apply_managed(
     OSError when people.json cannot be written: nothing was written or audited. FlagNotWritten when people.json was
     written and access.json was not: the member changes stand and are audited, the flag stays as it was, and no
     `access_managed` line is written. That is the safe half-done state, not a no-op - under --members-only an
-    unmanaged instance already admits by people.json, so a row this press wrote for a target admits them at once,
-    while under --allow alone or a managed flag that was already on the rows change who gets in only after the flag
-    follows. The caller must say so rather than report a bare failure. Pressing again finishes it, since the
-    operation writes a target state.
+    unmanaged instance already admits by people.json, so a row this press wrote for a target admits them at once, and
+    on an instance the flag already governed every row this press wrote, changed or removed decides entry at once
+    whatever became of the flag write (a press that was turning management off leaves the instance managed by the list
+    it has just written). The rows wait for the flag only where the flag is what hands admission to them: an
+    unmanaged instance run under --allow alone. The caller must say so rather than report a bare failure. Pressing
+    again finishes it, since the operation writes a target state.
 
     `allow` and `members_only` are the run's arguments: with the member logins and the flag before and after they say
     who gets in, so the result can name the people this press newly lets in (`newly_admitted`) - for instance an owner

@@ -5,9 +5,9 @@ that map is filtered by the tailnet's access rules, so it is neither every user 
 were removed; it carries no role or account state either. Every result says so (`partial` is always True).
 
 tailscaled is optional. Anything that stops the read - no socket, nobody listening, a timeout, a refusal, a body that
-is not JSON or is too long, a node that is not running - is an empty list and a reason, never an exception. The read
-is HTTP over the standard library, not the `tailscale` CLI: on macOS, with a stripped environment, that binary exits 0
-and prints English prose to stdout, which no exit-code check catches.
+is not JSON, is too long or stops short of its own Content-Length, a node that is not running - is an empty list and a
+reason, never an exception. The read is HTTP over the standard library, not the `tailscale` CLI: on macOS, with a
+stripped environment, that binary exits 0 and prints English prose to stdout, which no exit-code check catches.
 
 Two transports, tried in this order:
 - Linux: a unix socket (mode 0666, no operator setting needed to read). The path depends on the distribution, so the
@@ -88,7 +88,7 @@ def listed(users: tuple[TailnetUser, ...]) -> TailnetDirectory:
 
 def unavailable(reason: str) -> TailnetDirectory:
     """No list, and why. The reasons are codes: tailscaled_not_found, _unreachable, _timeout, _refused, _bad_response,
-    _too_large, _not_running."""
+    _too_large, _truncated, _not_running."""
     return TailnetDirectory((), True, reason)
 
 
@@ -169,18 +169,38 @@ def _remaining(deadline: float) -> float:
     return left
 
 
+def _declared_length(response: http.client.HTTPResponse) -> int | None:
+    """How many body bytes the answer says it has (Content-Length), or None when it does not say one in digits.
+    A chunked answer says none; http.client raises IncompleteRead for a chunked body that stops early."""
+    said = response.getheader("Content-Length")
+    if said is None:
+        return None
+    text = said.strip()
+    return int(text) if text.isascii() and text.isdigit() else None
+
+
 def _get(connection: http.client.HTTPConnection, headers: dict[str, str], deadline: float, max_body: int) -> bytes:
     """GET the status over connection within the deadline; the body, at most max_body bytes.
-    _Refused for a refusal, a bad answer, an oversized body or the deadline; _Skip when nothing answered."""
+    _Refused for a refusal, a bad answer, an oversized body, a body short of its own Content-Length or the deadline;
+    _Skip when nothing answered.
+
+    The deadline bounds inactivity, not total wall time. The socket timeout it sets is per read, so a status line and
+    headers that trickle in - each line inside that timeout - can be in hand after the budget is spent, and a body
+    read begun inside the budget can run to the timeout again. So the budget is checked once the answer is in hand:
+    an overrun is this refusal rather than an answer read on borrowed time. A wall-clock bound would need a thread or
+    a signal, which this read does not take (ADR-0054 D10): tailscaled is the identity source and is trusted further
+    than this already."""
     try:
         connection.request("GET", STATUS_PATH, headers=headers)
         if connection.sock is not None:
             connection.sock.settimeout(_remaining(deadline))
         response = connection.getresponse()
+        _remaining(deadline)  # the headers are in hand; nothing read after the budget is inside it
         if response.status in (401, 403):
             raise _Refused("tailscaled_refused")
         if response.status != 200:
             raise _Refused("tailscaled_bad_response")
+        want = _declared_length(response)
         body = bytearray()
         while True:
             # getresponse() closes connection.sock for an answer that says Connection: close, so a read after it cannot
@@ -189,6 +209,10 @@ def _get(connection: http.client.HTTPConnection, headers: dict[str, str], deadli
             _remaining(deadline)
             piece = response.read1(min(_READ_CHUNK, max_body + 1 - len(body)))
             if not piece:
+                # read1 reports the end of the stream as b"" even when fewer bytes arrived than the answer declared,
+                # so a connection that closes mid-body would otherwise be read as a whole status document.
+                if want is not None and len(body) < want:
+                    raise _Refused("tailscaled_truncated")
                 return bytes(body)
             body += piece
             if len(body) > max_body:
@@ -278,9 +302,11 @@ def read_directory(
 ) -> TailnetDirectory:
     """The tailnet people the local tailscaled shows, or why there are none. Never raises. The answer, a failure
     included, is kept in `cache` CACHE_SECONDS after the `now` it was read at; there is no thread to refresh it.
-    `timeout` is the budget of one read, not a wall-clock ceiling: a body that stalls mid-read is cut by the per-read
-    timeout set before the answer began, so a read can take up to about twice `timeout`; a body that trickles in is
-    cut at the deadline. Nobody is left out here: the caller drops logins that are not people or are members already."""
+    `timeout` bounds inactivity, not total wall time: it is the budget the read checks whenever it has the connection,
+    the answer or a piece of the body in hand, and also the per-read socket timeout, so a read that stalls can take up
+    to about twice `timeout` and one that trickles in is cut at the first check past the budget. A wall-clock ceiling
+    would need a thread or a signal, and this read takes neither. Nobody is left out here: the caller drops logins
+    that are not people or are members already."""
     held = cache.held
     if held is not None and held[0] == sources and 0 <= now - held[1] < CACHE_SECONDS:
         return held[2]

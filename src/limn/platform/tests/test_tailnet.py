@@ -113,7 +113,11 @@ class FakeApi:
 
     @staticmethod
     def send(conn, answer):
-        """Write an answer: (status line, body bytes), or (status line, an iterator of body pieces with a length)."""
+        """Write an answer: a callable that writes the whole thing over conn itself (for an answer whose head has to
+        arrive in pieces), (status line, body bytes), or (status line, an iterator of body pieces with a length)."""
+        if callable(answer):
+            answer(conn)
+            return
         line, body = answer
         if type(body) is bytes:
             conn.sendall(
@@ -315,6 +319,52 @@ class Failures(ServerCase):
         self.assertTrue(head_and_first_chunk_written.is_set(), "the stall began before the head was written")
         self.assertLess(elapsed, 0.3 * 2)
         self.assert_none(got, "tailscaled_timeout")
+
+    def test_a_head_that_trickles_past_the_budget_is_a_timeout(self):
+        """A status line and headers written one line at a time, each gap inside the socket's inactivity timeout, are
+        in hand only after the budget is spent. The answer they carry - a refusal here - must not become the read's
+        answer: the budget is checked once the response is parsed, so the overrun itself is what is reported."""
+
+        def trickle(head):
+            """403 whose head takes four 0.1s steps, on a 0.25s budget."""
+            lines = (b"HTTP/1.1 403 Forbidden\r\n", b"Content-Length: 6\r\n", b"Connection: close\r\n", b"\r\n")
+
+            def write(conn):
+                """Each line after a gap shorter than the budget, then the body."""
+                for line in lines:
+                    time.sleep(0.1)
+                    conn.sendall(line)
+                conn.sendall(b"denied")
+
+            return write
+
+        path, _ = self.unix_api("s", trickle)
+        started = time.monotonic()
+        got = read_directory(100.0, self.cache, 0.25, sources=self.sources(path))
+        self.assertLess(time.monotonic() - started, 0.25 * 4)
+        self.assert_none(got, "tailscaled_timeout")
+
+    def test_a_body_short_of_its_content_length_is_not_a_directory(self):
+        """A 200 that declares more body than it writes and then closes. read1 reports the close as the end of the
+        stream, so without the length check a truncated document that happens to parse would be read as a whole
+        status - a partial User map served as if it were the daemon's answer."""
+        whole = json.dumps(status([user("alice@example.com")])).encode()
+
+        def cut(head):
+            """200 announcing ten bytes more than it writes; the handler's return closes the connection."""
+            return ("200 OK", (len(whole) + 10, iter([whole])))
+
+        path, _ = self.unix_api("s", cut)
+        got = read_directory(100.0, self.cache, 1.0, sources=self.sources(path))
+        self.assert_none(got, "tailscaled_truncated")
+
+    def test_a_body_that_matches_its_content_length_is_read(self):
+        """The length check refuses only a short body: an answer whose declared length is exactly what arrives is
+        still a list (the ordinary path, and the one the refusal above must not swallow)."""
+        path, _ = self.unix_api("s", ok(status([user("bob@example.com")])))
+        got = read_directory(100.0, self.cache, 1.0, sources=self.sources(path))
+        self.assertEqual([x.login for x in got.users], ["bob@example.com"])
+        self.assertIsNone(got.reason)
 
     def test_body_over_the_limit_stops_reading(self):
         """A body longer than the limit is refused without reading the rest of it."""

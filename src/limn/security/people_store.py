@@ -166,7 +166,11 @@ def record_person(
     reads as default_role. Nothing is lost by not creating it: such a login cannot be admitted while managed, so the
     only row this would create is that race's. An unusable flag creates none either - it fails closed everywhere
     else - and under --auth local the local owner then gets no row, which is safer than listing a login a header
-    could later use.
+    could later use. That outcome is memoised like a write, so the next changing POST of the same login inside
+    PEOPLE_TOUCH_S takes no cross-process lock: under --auth local with the flag on this path is every POST the local
+    owner makes. The memo can go stale - the flag may be switched off, or the name change - and the cost is bounded
+    and cosmetic: admission for such a login does not depend on the row, so at worst a last_seen update, or the
+    creation of the row once management is off, waits PEOPLE_TOUCH_S.
 
     A file that exists but cannot be used (PeopleUnreadable) is never rewritten - that would replace every role in it
     with this one visitor: nothing is written or memoised, book.warning warns once, and the result is False."""
@@ -187,6 +191,7 @@ def record_person(
                 cur = next((x for x in rows if x["login"] == login), None)
                 if cur is None:
                     if managed() != "not-managed":  # a row would be a membership; see the docstring
+                        book.seen[key] = (name, pic, now)  # memoised: nothing to write for PEOPLE_TOUCH_S
                         return False
                     cur = {"login": login, "first_seen": stamp}
                     if role and role != default_role:
@@ -320,9 +325,11 @@ def people_transaction(
     step's result.
 
     `then` runs under the lock, after the write and after the audit lines. If it raises, the member changes stand
-    and are audited, and the error propagates: for the access flag that leaves the instance unmanaged, the
-    deliberately safe failure (nobody gained entry), and the owner can press again since the operation writes a
-    target state.
+    and are audited, and the error propagates: for the access flag that leaves the rows on disk with the flag as it
+    was, which is half done rather than nothing. Who that admits depends on the run: under --members-only, and on an
+    instance the flag already governed, people.json decides entry now, so a row this write created admits that person
+    at once. The caller is the one that can say which of the two writes stands (its failure value, not a bare error),
+    and the owner can press again since the operation writes a target state.
 
     step edits rows in place and returns (result, changes); it runs under the lock and must not take it again
     (store_lock does not nest). ValueError for an unusable people.json, and anything step raises (ValueError,
