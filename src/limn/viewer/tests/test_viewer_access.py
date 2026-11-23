@@ -425,6 +425,17 @@ class AccessOff(AccessScreenBase):
         self.assertIn("이 실행에는 목록이 없어", body)
         self.assertIn("3명 유지 · 그 밖의 모두도 들어옴", body)
 
+    def test_an_allow_list_of_only_unusable_logins_is_not_called_empty(self):
+        """--allow is not validated at startup, so a run can hold entries no person could hold. Nobody gets in once the
+        flag is off, but the list is not empty, and the screen must not say it is."""
+        set_config(allow=frozenset({"has space"}))
+        page = self.open_off()
+        right = page.locator("#access-body .acc-col").nth(1)
+        self.assertIn("아무도 들어오지 못합니다", right.inner_text())
+        self.assertNotIn("비어 있습니다", right.inner_text())
+        self.assertIn("로그인이 없습니다", right.inner_text())
+        self.assertEqual(right.locator(".acc-check").count(), 0)
+
     def test_the_owners_own_loss_is_said_before_the_press(self):
         """--allow names the editor only: once the flag is off the owner's row grants her nothing. The screen says so
         and does not offer the press, which the server would refuse (409 locks_out_owner)."""

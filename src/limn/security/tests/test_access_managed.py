@@ -244,20 +244,34 @@ class Transition(StateBase):
         self.assertEqual(self.roles()["a@example.com"], None)  # a row with no role field keeps it
 
     def test_the_default_press_keeps_a_co_author_only_allow_names(self):
-        """The regression the design calls a no-op: the screen's own rows, sent back unchanged, keep every login that
-        gets in today - including the --allow co-author with no line - so the press removes nobody's access."""
+        """The regression the design calls a no-op: the screen checks the settable rows whose login gets in today, and
+        pressing it with just those checked keeps every login that gets in today - including the --allow co-author with
+        no line - and lets nobody new in. b holds a row the --allow list does not name, so the screen leaves b
+        unchecked and the press drops that row, which was never admitting b."""
+        rows = [row("owner@example.com", "owner"), row("b@example.com", "viewer")]
+        self.seed(*rows)
+        allow = frozenset({"carol@example.com", "owner@example.com"})
+        view = transition_view(allow, False, rows)
+        today = set(view.admitted_today)
+        targets = [target(r["login"], role_value(r.get("role"))) for r in view.settable if r["login"] in today]
+        result = self.apply(targets, allow=allow)
+        self.assertEqual(result.newly_admitted, ())
+        self.assertEqual(
+            (result.added, result.removed, result.changed), (("carol@example.com",), ("b@example.com",), ())
+        )
+        self.assertEqual(self.roles()["carol@example.com"], "editor")
+        for login in view.admitted_today:
+            self.assertIn(login, self.roles(), login)
+
+    def test_sending_every_settable_row_widens_admission_to_a_row_the_allow_list_leaves_out(self):
+        """Checking every row, including one --allow does not name, is not the default press: it admits that person."""
         rows = [row("owner@example.com", "owner"), row("b@example.com", "viewer")]
         self.seed(*rows)
         allow = frozenset({"carol@example.com", "owner@example.com"})
         view = transition_view(allow, False, rows)
         targets = [target(r["login"], role_value(r.get("role"))) for r in view.settable]
         result = self.apply(targets, allow=allow)
-        self.assertEqual(result.added, ("carol@example.com",))
-        self.assertEqual((result.removed, result.changed), ((), ()))
-        self.assertEqual(self.roles()["carol@example.com"], "editor")
-        self.assertEqual(result.newly_admitted, ("b@example.com",))  # b holds a row the --allow list does not name
-        for login in view.admitted_today:
-            self.assertIn(login, self.roles(), login)
+        self.assertEqual(result.newly_admitted, ("b@example.com",))
 
     def test_a_press_that_sends_no_list_keeps_that_co_author_too(self):
         """targets=None means "leave the viewer and editor rows as they are". Turning management on that way must mean

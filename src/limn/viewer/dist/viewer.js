@@ -5431,12 +5431,12 @@ function offLine(member) {
   </div>`;
 }
 /** What the right column holds when it cannot be a list of people: everyone a header identifies, or - with a list
- * that names nobody - no one at all. The server says which (after_everyone), so the empty list is never read as
+ * that names nobody who could get in (empty, or only logins no person could hold) - no one at all. The server says which (after_everyone), so the empty list is never read as
  * "nobody" by mistake. */
 function offAfterRows(view, preview) {
   if (preview.after_everyone) return html`<p class="acc-every">${translate('신원 헤더가 확인한 테일넷의 모두')}</p>`;
   if (!preview.admitted_after.length)
-    return html`<p class="acc-every">${translate('아무도 들어오지 못합니다 — 목록이 비어 있습니다')}</p>`;
+    return html`<p class="acc-every">${translate('아무도 들어오지 못합니다 — 목록에 들어올 수 있는 로그인이 없습니다')}</p>`;
   return loginRows(preview.admitted_after, view.members).map(offLine);
 }
 /** The named differences the press would make: who starts getting in, and who stops. Nothing is named while "after"
