@@ -18,7 +18,7 @@ def get(
     path = request.path
     if path == "/pins.md":
         base = remote_base_for(request.host_raw)
-        return Reply(200, http.markdown(app, base).encode("utf-8"), "text/markdown; charset=utf-8")
+        return Reply(200, http.markdown(app, request, base).encode("utf-8"), "text/markdown; charset=utf-8")
     if path == "/api/pins":
         return json_reply(http.pins(app, request.query, request.doc.key))
     if path == "/api/pins/dropped":

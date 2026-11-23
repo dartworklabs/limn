@@ -43,7 +43,7 @@ from helpers import (
     set_config,
     write_records,
 )
-from helpers_access import ALICE_ACTOR, BOB_ACTOR, TS_HOST, AccessBase, token_create
+from helpers_access import ALICE, ALICE_ACTOR, BOB, BOB_ACTOR, TS_HOST, AccessBase, member_add, token_create
 from helpers_authority import post_authority
 
 RENDER_PY = Path(render.__file__)
@@ -1568,6 +1568,92 @@ class PinsMdInstructions(AccessBase):
         self.assertIn("테일넷 주소", md_render.TOKEN_GUIDANCE)
         self.assertIn("403", md_render.TOKEN_GUIDANCE)
         self.assertEqual(md.splitlines().count(md_render.TOKEN_GUIDANCE), 1)
+
+
+class PinsMdRequester(AccessBase):
+    """GET /pins.md names the request's own identity on the requester line; the file on disk never names anyone."""
+
+    def requester(self, **call):
+        """The requester line of GET /pins.md made with call's headers, token or peer; fails unless it is a 200 with one."""
+        code, md = self.call("GET", "/pins.md", **call)
+        self.assertEqual(code, 200, md)
+        (line,) = requester_lines(md)
+        return line
+
+    def test_tailnet_header_request(self):
+        """A request with Tailscale headers sees that person, editor, from the tailnet header, and the warning."""
+        self.assertEqual(self.requester(headers=ALICE), ALICE_LINE)
+
+    def test_token_request(self):
+        """A token request sees agent:<token name>, the agent role and the token source."""
+        _, tok = token_create(ps.APP.C.state, "reviewer")
+        self.assertEqual(self.requester(token=tok), TOKEN_LINE)
+
+    def test_headerless_loopback_request(self):
+        """A headerless loopback request sees the local agent from the headerless loopback, without the warning."""
+        self.assertEqual(
+            self.requester(),
+            "요청자: 로컬/에이전트(`local`) · 역할 agent · 신원 출처 헤더 없는 루프백(폐지 예정)"
+            + render.REQUESTER_AGENT_TAIL,
+        )
+
+    def test_local_owner_request(self):
+        """Under --auth local the loopback owner is a person: the local owner source and the warning."""
+        set_config(auth="local", agent_loopback=False, local_user="alice")
+        self.assertEqual(
+            self.requester(),
+            "요청자: alice(`alice`) · 역할 owner · 신원 출처 로컬 소유자(--auth local 의 루프백 요청)"
+            + render.REQUESTER_PERSON_TAIL,
+        )
+
+    def test_proxy_header_request(self):
+        """Under --auth trusted-proxy the proxy's user header names the person: the proxy header source and the warning."""
+        set_config(auth="trusted-proxy", agent_loopback=False)
+        h = {"X-Forwarded-User": "carol@example.com", "X-Forwarded-Preferred-Username": "Carol Lee"}
+        self.assertEqual(
+            self.requester(headers=h),
+            "요청자: Carol Lee(`carol@example.com`) · 역할 editor · 신원 출처 프록시 헤더(인증 프록시가 보낸 사용자)"
+            + render.REQUESTER_PERSON_TAIL,
+        )
+
+    def test_viewer_role_is_shown(self):
+        """A person whose people.json role is viewer sees 역할 viewer."""
+        member_add(ps.APP.C.state, "alice@example.com", "viewer", "Alice Kim")
+        self.assertIn(" · 역할 viewer · ", self.requester(headers=ALICE))
+
+    def test_each_request_sees_only_itself(self):
+        """Requests in a row with different identities each see their own login, never another's."""
+        logins = {"alice": "alice@example.com", "bob": "bob@example.com", "local": "`local`"}
+        for who, call in (("alice", {"headers": ALICE}), ("bob", {"headers": BOB}), ("local", {})):
+            line = self.requester(**call)
+            for other, login in logins.items():
+                (self.assertIn if other == who else self.assertNotIn)(login, line, (who, other))
+
+    def test_disk_copy_never_holds_the_requester(self):
+        """After a person writes, the file on disk keeps the no-requester line and no trace of their login."""
+        self.pin_id(ALICE)
+        disk = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        self.assertEqual(requester_lines(disk), [render.REQUESTER_DISK % "http://127.0.0.1:18999"])
+        self.assertNotIn("alice@example.com", disk)
+        self.assertEqual(self.requester(headers=ALICE), ALICE_LINE)
+
+    def test_tailnet_agent_request_is_the_loopback_agent(self):
+        """--tailnet-agent takes a headerless request through tailscale serve as the loopback agent: that is its line."""
+        set_config(tailnet_agent=True)
+        line = self.requester(headers={"Host": TS_HOST, "X-Forwarded-For": "100.64.0.9"})
+        self.assertTrue(
+            line.startswith("요청자: 로컬/에이전트(`local`) · 역할 agent · 신원 출처 헤더 없는 루프백"), line
+        )
+
+    def test_unreadable_people_shows_viewer(self):
+        """While people.json cannot be used a header person is a viewer, and the line says so."""
+        ps.APP.C.people_file.write_text("{", encoding="utf-8")
+        self.assertIn(" · 역할 viewer · ", self.requester(headers=ALICE))
+
+    def test_pins_md_is_not_stored(self):
+        """The answer names its requester, so no cache keeps it: Cache-Control is no-store."""
+        self.requester(headers=ALICE)
+        self.assertEqual(self.last_headers.get("cache-control"), "no-store")
 
 
 if __name__ == "__main__":

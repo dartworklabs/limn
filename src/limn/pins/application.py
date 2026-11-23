@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from limn.runtime.config import RunConfig
     from limn.runtime.documents import Doc
     from limn.runtime.resources import RuntimeResources
-    from limn.security.access import Role
+    from limn.security.access import IdentitySource, Principal, Role
     from limn.security.audit import AuditAction
     from limn.web.routes import PinAction, RouteBundle
 
@@ -176,6 +176,7 @@ def assemble_pins(
     audit: Callable[[AuditAction, Json, Json], bool],
     now: Callable[[], str],
     remote_base_for: Callable[[str], str],
+    identity_source: Callable[[Principal], IdentitySource],
     verdict_keys: VerdictKeys,
     refresh_watched: Callable[[str], object] = lambda key: None,
     document_boxes: DocumentBoxes = lambda doc: None,
@@ -187,7 +188,9 @@ def assemble_pins(
     document capability's answer, wired by the composition root - which a new verdict pin is checked against.
     document_boxes answers where a document's line ranges print on the build it has on screen - the build capability's
     answer behind its own cache, wired the same way - which the pin listing carries as each line pin's `boxes`
-    (docs/adr/0049-pin-marks-follow-the-range.md); without it the listing answers the pins it always answered."""
+    (docs/adr/0049-pin-marks-follow-the-range.md); without it the listing answers the pins it always answered.
+    identity_source names where a request's identity came from (limn.security.access.identity_source bound to the
+    instance's identity provider, wired by the composition root), for GET /pins.md's requester line."""
     from limn.pins.location.lookup import NO_RECORDED_FOLDERS, RecordedFolders, recorded_folders, recorded_place
     from limn.pins.runtime import PinCommands
 
@@ -203,6 +206,7 @@ def assemble_pins(
         role_of,
         audit,
         now,
+        identity_source,
         refresh_watched,
         verdict_keys,
         document_boxes,

@@ -1,5 +1,6 @@
 """Assemble the run-specific facts that the pure pins.md renderer consumes."""
 
+import dataclasses
 import time
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
@@ -15,6 +16,7 @@ from limn.pins.listing.render import (
     PinsMdInput,
     pins_md_text as render_pins_md_text,
     rel_badge,
+    requester_of,
 )
 from limn.pins.location.lookup import PinLocation, doc_scope
 from limn.pins.mentions import addressed_to, fyi_mentions_to, thread_round
@@ -26,7 +28,7 @@ from limn.platform.files import tex_lines
 from limn.platform.values import is_int
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import Doc, doc_by_key
-from limn.security.access import file_present, home_or_none
+from limn.security.access import IdentitySource, Principal, file_present, home_or_none
 from limn.security.guidance import shell_path
 
 Json = dict[str, Any]
@@ -79,15 +81,23 @@ class MarkdownDeps(Protocol):
 @dataclass
 class PinMarkdown:
     """One run's pins.md input assembly and rendering. builds is the run's injected build query bundle, which answers
-    each document's heading stamps; it is required, since this module makes none."""
+    each document's heading stamps; it is required, since this module makes none. identity_source names where a
+    principal's identity came from (limn.security.access.identity_source bound to the instance's identity provider), for
+    GET /pins.md's requester line."""
 
     deps: MarkdownDeps
     known_people: Callable[[Sequence[Pin] | None], dict[str, Json]]
     builds: BuildAnswers
+    identity_source: Callable[[Principal], IdentitySource]
 
-    def current_text(self, base: str) -> str:
-        """GET /pins.md after its shared guards and remote base calculation."""
-        return self.pins_md_text(self.deps.snapshot_pins(), base=base)
+    def current_text(self, base: str, principal: Principal) -> str:
+        """GET /pins.md after its shared guards: the current pins rendered with the request's base, the requester line
+        naming principal - its actor, role and identity source. Only this path takes a principal; pins_md_text, which
+        the store renders to disk with, has none, so no request's identity can reach the file every reader on the
+        machine shares."""
+        page = self.pins_md_input(self.deps.snapshot_pins(), base=base)
+        requester = requester_of(principal.actor, principal.role, self.identity_source(principal))
+        return render_pins_md_text(dataclasses.replace(page, requester=requester))
 
     def pins_md_text(self, pins: Sequence[Pin], base: str | None = None) -> str:
         """pins.md's text for pins: limn.pins.listing.render.pins_md_text over pins_md_input(pins, base). The store renders with

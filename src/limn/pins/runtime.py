@@ -53,7 +53,7 @@ from limn.runtime import documents
 from limn.runtime.config import RunConfig
 from limn.runtime.documents import DOC_KEY_RE, Doc
 from limn.runtime.resources import RuntimeResources
-from limn.security.access import Role
+from limn.security.access import IdentitySource, Principal, Role
 from limn.security.audit import AuditAction
 from limn.security.people_store import is_actor as _is_actor
 from limn.web.parse import DocumentFacts
@@ -160,6 +160,10 @@ class PinCommands:
     role_of: Callable[[str], Role]
     http_audit: Callable[[AuditAction, Json, Json], bool]
     now_str: Callable[[], str]
+    # Where a principal's identity came from (limn.security.access.identity_source bound to the instance's identity
+    # provider), the composition root's answer for GET /pins.md's requester line; no default, so no run names a
+    # requester by a guess.
+    identity_source: Callable[[Principal], IdentitySource]
     # The composition root's effect that brings a watched document's files up to date (pull, then import) by its key,
     # run before a close awaiting review is written; by default nothing.
     refresh_watched: Callable[[str], object] = lambda key: None
@@ -208,7 +212,7 @@ class PinCommands:
             self.public,
         )
         self.pin_listing = PinListing(self, TRASH_DAYS)
-        self.pin_markdown = PinMarkdown(self, self.known_pin_people, self.build_view)
+        self.pin_markdown = PinMarkdown(self, self.known_pin_people, self.build_view, self.identity_source)
         self.location_service = PinLocationService(
             lambda: PickContext(
                 self.C.src,
