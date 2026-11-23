@@ -66,7 +66,7 @@ The examples below send `-H "Authorization: Bearer $LIMN_TOKEN"`; on the server 
 ### What you may do
 
 - Claim one pin, right before you edit it, with an `eta_min` estimate (step 4).
-- Reply to a pin (`/reply`). An agent's reply never changes the pin's state; send `"reopen": true` only when the user asks.
+- Reply to a pin (`/reply`). By default an agent's reply does not change the pin's state; send `"reopen": true` only when the user asks.
 - Close a pin with `reply`, `ref` and `changes` (step 6). If `pins.md`'s `요청자:` line shows a person's identity (`테일넷 헤더`, `프록시 헤더` or `로컬 소유자`), close only when that person is the user you work for, and then send `"review": true`; otherwise ask for a token.
 - Rebuild a LaTeX document's PDF after editing (§Rules).
 
@@ -255,7 +255,7 @@ Send each JSON key, query parameter and singleton security header once. Duplicat
 | `POST /api/pins/{id}/claim` | Mark in progress. Body `{"eta_min": 1..240, "ttl_min": 1..120}` (both optional; values above the cap are clamped): estimate and lock |
 | `POST /api/pins/{id}/unclaim` | Release the claim |
 | `POST /api/pins/{id}/close` | Close. Body `{"reply", "ref", "changes", "review"}`; closed by an agent → awaiting review. `changes` (v0.3; optional for the server, always send it) = `[{file, lo, hi}]`, the lines changed for this pin, numbered as in the commit `ref` names |
-| `POST /api/pins/{id}/reply` | Reply `{"text"}` (≤1000 chars). An agent's reply keeps the state; a person's reply on a closed pin may reopen it by rule. The response adds `reopened` and `state`. Optional `"reopen": true/false` overrides the rule |
+| `POST /api/pins/{id}/reply` | Reply `{"text"}` (≤1000 chars). By default an agent's reply keeps the state; a person's reply on a closed pin may reopen it by rule. The response adds `reopened` and `state`. Optional `"reopen": true/false` overrides the rule |
 | `GET /api/pins/{id}` | One pin with its whole thread (`pins.md` carries at most 3 thread entries), and a suggested edit's `suggest` with its `suggest_state` |
 | `POST /api/pins/{id}/confirm` | Awaiting review → done (**humans only**; 403 without an identity header) |
 | `POST /api/pins/{id}/reopen` | Reopen (clears the old `reply`, `ref` and `changes`). Optional `{"reason"}` stays in the thread |

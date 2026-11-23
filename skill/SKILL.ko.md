@@ -66,7 +66,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 ### 해도 되는 것
 
 - 고치기 직전에 그 핀만, `eta_min` 견적을 넣어 claim 한다(4단계).
-- 핀에 답글을 단다(`/reply`). 에이전트의 답글은 핀 상태를 바꾸지 않는다. 본문의 `"reopen": true` 는 사용자가 시킬 때만 쓴다.
+- 핀에 답글을 단다(`/reply`). 에이전트의 답글은 기본으로 핀 상태를 바꾸지 않는다. 본문의 `"reopen": true` 는 사용자가 시킬 때만 쓴다.
 - `reply`·`ref`·`changes` 를 남겨 닫는다(6단계). `pins.md` 의 `요청자:` 줄이 사람 신원(`테일넷 헤더`·`프록시 헤더`·`로컬 소유자`)이면 그 사람이 내가 일하는 사용자일 때만 닫고, 그때 `"review": true` 를 넣는다. 아니면 토큰을 요청한다.
 - 고친 뒤 LaTeX 문서의 PDF를 재빌드한다(§규칙).
 
@@ -255,7 +255,7 @@ JSON 키·쿼리 매개변수·단일값 보안 헤더는 각각 한 번만 보�
 | `POST /api/pins/{id}/claim` | 처리 중 표시. 본문 `{"eta_min": 1..240, "ttl_min": 1..120}`(둘 다 선택, 상한을 넘으면 깎는다) — 견적과 잠금 |
 | `POST /api/pins/{id}/unclaim` | 처리 중 표시를 푼다 |
 | `POST /api/pins/{id}/close` | 닫는다. 본문 `{"reply", "ref", "changes", "review"}` — 에이전트가 닫으면 검토 대기. `changes`(v0.3, 서버에는 선택이지만 늘 보낸다) = `[{file, lo, hi}]`, 이 핀 때문에 바꾼 줄 — `ref` 가 가리키는 커밋 기준 번호 |
-| `POST /api/pins/{id}/reply` | 답글 `{"text"}`(≤1000자). 에이전트의 답글은 상태를 바꾸지 않는다. 사람이 닫힌 핀에 단 답글은 규칙에 따라 다시 연다. 응답에 `reopened`·`state`. 선택 `"reopen": true/false` 가 규칙보다 앞선다 |
+| `POST /api/pins/{id}/reply` | 답글 `{"text"}`(≤1000자). 에이전트의 답글은 기본으로 상태를 바꾸지 않는다. 사람이 닫힌 핀에 단 답글은 규칙에 따라 다시 연다. 응답에 `reopened`·`state`. 선택 `"reopen": true/false` 가 규칙보다 앞선다 |
 | `GET /api/pins/{id}` | 핀 한 건(스레드 전부) — pins.md 가 스레드를 3건까지만 실을 때. 제안 수정의 `suggest` 와 `suggest_state` 도 여기서 읽는다 |
 | `POST /api/pins/{id}/confirm` | 검토 대기 → 완료(**사람만** — 신원 헤더 없으면 403) |
 | `POST /api/pins/{id}/reopen` | 다시 연다(옛 `reply`·`ref`·`changes` 삭제). 선택 `{"reason"}` 은 스레드에 남는다 |
