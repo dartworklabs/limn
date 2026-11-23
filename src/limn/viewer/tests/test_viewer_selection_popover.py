@@ -108,6 +108,59 @@ class PopoverLogic(unittest.TestCase):
         self.assertFalse(self.place([100, -200, 300, -10], [0, 50, 1000, 800])["shown"])
         self.assertFalse(self.place([100, 810, 300, 900], [0, 0, 1000, 800])["shown"])
 
+    def span(self, pieces, area):
+        """shownSpan for pieces and an area given as [left, top, right, bottom]; None when no piece is in the area."""
+        js = "\n".join(
+            [
+                extract_js_fn("shownSpan"),
+                "const R=a=>({left:a[0],top:a[1],right:a[2],bottom:a[3]});",
+                "console.log(JSON.stringify(shownSpan(%s.map(R),R(%s))));" % (json.dumps(pieces), json.dumps(area)),
+            ]
+        )
+        return json.loads(run_node(js))
+
+    def test_it_stands_by_every_piece_in_view_and_none_out_of_it(self):
+        """Issue #541: the range's first piece is above the area (the page before), two more are in it, one partly. The
+        popover's anchor is the rectangle round the two in view, so it goes under them rather than hiding with the
+        first piece; a piece of no size and one beside the area count for nothing."""
+        area = [0, 80, 1000, 900]
+        pieces = [[100, -300, 700, -200], [100, 150, 700, 400], [120, 420, 690, 950], [500, 500, 500, 600]]
+        self.assertEqual(self.span(pieces, area), {"left": 100, "top": 150, "right": 700, "bottom": 950})
+        self.assertEqual(self.span([[1100, 200, 1300, 300]], area), None)
+        self.assertEqual(self.span(pieces[:1], area), None)
+        got = self.place(pieces[1], area, h=138)
+        self.assertEqual((got["top"], got["side"], got["shown"]), (408, "below", True))
+
+    def test_the_span_holds_exactly_the_pieces_in_view_over_generated_selections(self):
+        """For seeded random selections of one to five pieces round an area: the anchor is null exactly when no piece of
+        some size shares the area; otherwise it holds every such piece, and each of its edges is an edge of one of
+        them, so it is the smallest rectangle round them and reaches no piece outside the area."""
+        js = "\n".join(
+            [
+                extract_js_fn("shownSpan"),
+                r"""
+            let seed = 541; const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+            const n = v => Math.round(v), bad = [];
+            for (let i = 0; i < 4000; i++) {
+              const area = {left: n(rnd()*200), top: n(rnd()*200), right: n(600+rnd()*600), bottom: n(500+rnd()*500)};
+              const pieces = Array.from({length: 1 + Math.floor(rnd()*5)}, () => {
+                const left = n(-300+rnd()*1600), top = n(-600+rnd()*2000);
+                return {left, top, right: left + n(rnd()*500), bottom: top + n(rnd()*300)};});
+              const inView = pieces.filter(p => p.right > p.left && p.bottom > p.top && p.right > area.left
+                && p.left < area.right && p.bottom > area.top && p.top < area.bottom);
+              const got = shownSpan(pieces, area);
+              if (!inView.length) { if (got !== null) bad.push(['not null', seed, got]); continue; }
+              if (!got) { bad.push(['null', seed]); continue; }
+              for (const p of inView) if (p.left < got.left || p.top < got.top || p.right > got.right || p.bottom > got.bottom)
+                bad.push(['outside', seed, p, got]);
+              for (const edge of ['left', 'top', 'right', 'bottom'])
+                if (!inView.some(p => p[edge] === got[edge])) bad.push(['edge ' + edge, seed, got]);
+            }
+            console.log(JSON.stringify(bad.slice(0, 3)));""",
+            ]
+        )
+        self.assertEqual(json.loads(run_node(js)), [])
+
     def test_a_list_too_tall_for_every_spot_is_cut_to_the_roomiest(self):
         """A 400px window, the field at 180-240 and [자세히 →][저장] at 248-272, a 226px list: no spot holds it, and
         mentionTop's last resort (170) would cover the field and the whole row. The list goes above the field instead,
