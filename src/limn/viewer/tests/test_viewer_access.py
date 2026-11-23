@@ -519,6 +519,20 @@ class AccessRefusals(AccessScreenBase):
             self.count(page, self.row(EDITOR["login"])), 1
         )  # nothing was removed, nothing drawn as removed
 
+    def test_reopening_the_dialog_reads_the_store_again(self):
+        """The other door: `limn member` (or another tab) changes people.json while this page sits open. Reopening the
+        dialog has to show what the store holds now - a member added meanwhile, and no row for one taken away - without
+        a page reload. Nothing failed here, so a reopen that only read again on STALE would draw the boot's lists."""
+        page = self.open_screen()
+        self.assertEqual(self.count(page, self.row(VIEWER["login"])), 1)
+        self.write_people([OWNER, EDITOR, SECOND_OWNER])  # carol gone, frank arrived, as `limn member` would leave it
+        page.keyboard.press("Escape")
+        page.click("#btn-more")
+        page.click("#m-access")
+        page.wait_for_selector(self.row(SECOND_OWNER["login"]))
+        self.assertEqual(self.count(page, self.row(VIEWER["login"])), 0)
+        self.assertEqual(self.count(page, "#access-body .acc-err"), 0)
+
     def test_a_write_whose_read_back_fails_does_not_draw_the_old_lists(self):
         """The remove went through and the read after it fails: the old rows (and the removed member among them) are not
         drawn, the owner is told the change was made, and a reopen reads again."""

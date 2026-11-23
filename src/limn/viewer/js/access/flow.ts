@@ -101,7 +101,11 @@ function openAccess() {
   setResult(null);
   redraw();
   showSheet($('#access'));
-  if (STALE) void loadAccess(); // the last read failed after a write: read again now that the owner is looking
+  // Always read again on open, not only after a failed read. This screen is one of two doors onto the same
+  // files - `limn member` and another tab write them too - so what was read when the page booted may name
+  // members who have gone, miss members who have arrived, or call the instance unmanaged after someone else
+  // switched it on. The dialog opens at once on what is in hand and redraws when the answer lands.
+  void loadAccess();
 }
 /** Says why a write was refused, inside the screen itself: a banner over the panel would stand behind the modal dialog,
  * and under a phone's sheet, where the owner cannot read it. */
