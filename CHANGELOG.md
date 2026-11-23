@@ -1,5 +1,58 @@
 # Changelog
 
+## Unreleased
+
+The agent contract is added to and nothing is removed or renamed: five HTTP paths, one state file and ten `reason`
+codes are new, no existing path, field, state name or error text changes, and `pins.md` is untouched. An agent that
+never calls the new paths behaves exactly as before. Rolling back to an older release leaves the new state file
+unread, so an instance switched to managed access runs on `--allow` / `--members-only` again and anyone added after
+the switch cannot get in — the closed side.
+
+### Added
+
+- **An owner admits co-authors from the viewer instead of editing a config file over ssh.** [⋯] → `접근 관리` opens a
+  panel, shown only to the owner, that lists the instance's members with their role and when they were last seen,
+  lists the people this server's tailnet shows who are not members yet, and takes a login typed in by hand. Each
+  change applies from the next request, with no restart, and is recorded in `audit.jsonl` under the actions that
+  already existed (`member_added`, `member_role`, `member_removed`). The screen may give only the `viewer` and
+  `editor` roles: the first `owner` is still made with `limn member add <instance> <login> --role owner` and nothing
+  else, so nobody who can reach the tailnet can raise their own privilege. `limn member` keeps working and edits the
+  same file under the same lock ([ADR-0054](docs/adr/0054-access-managed-from-the-viewer.md)).
+- **Managed access, and the one press that turns it on.** A new state file `<state>/access.json` (mode `0600`) holds
+  one flag. While it says `managed`, `people.json` alone decides who is admitted — a login with a row gets in, every
+  other header-identified person is refused, and `--allow` and `--members-only` are ignored, which the startup `auth`
+  line says. In that mode an empty or absent `people.json` admits **nobody**, not everybody, and nobody is recorded as
+  an editor on a first change, so a member exists only because the owner said so. Without the file nothing changes:
+  admission is what it was, so an upgrade alone never widens who gets in. The switch is a press on the panel, which
+  first shows who gets in today beside who would get in after, counts the people it would **newly** admit, and
+  defaults to admitting exactly who gets in today — the default press is a no-op. Turning it off is the same path and
+  shows the same comparison. An `access.json` that exists but cannot be used (unreadable, not UTF-8 JSON, not an
+  object, a `version` other than 1, a `managed` that is not a boolean) refuses every header-identified person
+  (`403 access_unreadable`) and warns once on stderr; tokens and the `--auth local` owner are unaffected, so the owner
+  can repair or delete it.
+- **Five HTTP paths, all owner-only.** `GET /api/access` is the first read Limn refuses by role — every other role,
+  every token and the headerless loopback agent get `403 owner_only`. `POST /api/access/managed` is the switch (it
+  needs a confirmation body, like `/api/clear`), and `POST /api/members/add`, `/api/members/role` and
+  `/api/members/remove` change one member each; the three refuse an instance that is not managed with
+  `409 not_managed`. Ten `reason` codes are new: `access_unreadable`, `people_unreadable`, `role_not_settable`,
+  `not_managed`, `last_owner`, `locks_out_owner`, `already_member`, `not_a_member`, `bad_access_request` and
+  `bad_login`; every existing code and error text is unchanged. The
+  tailnet candidate list is read from the machine's own `tailscaled` over its local API with the standard library
+  alone — no dependency, no stored credential, no request that leaves the machine. It is partial by construction (the
+  daemon reports the owners of the peers in this node's network map, which the tailnet's access rules filter, so a
+  user with no device or hidden by those rules never appears) and every answer says so. A daemon that is missing,
+  silent, slow or unhappy is an empty list with a reason, never an error: `tailscaled` is not an installation or
+  runtime requirement.
+
+### Changed
+
+- **`limn member remove` and `limn member role` now refuse the last owner.** Removing the only `owner` of an instance
+  used to succeed and left nobody who could clear the pins or manage members; demoting them did the same. Both
+  commands now stop with one `limn: …` line and change nothing, and the viewer's panel refuses the same edit with
+  `409 last_owner` — the rule lives in the operation both doors share. **So replacing an owner now has an order**:
+  add the new owner with `limn member add <instance> <login> --role owner` first, then remove the old one. Editing
+  `people.json` by hand is still not blocked; the file is the owner's.
+
 ## 0.4.68 — 2026-11-20
 
 The agent contract is unchanged: no HTTP path, field or state name and nothing in `pins.md` is added, removed or

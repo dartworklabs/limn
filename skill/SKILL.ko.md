@@ -236,7 +236,7 @@ Limn(림, "또렷이 그리다")은 원고 PDF를 브라우저에 띄운다. 사
 | 외부 노출 | `tailscale serve` 만. `tailscale funnel` 금지(공인 인터넷 노출) |
 | 노출 보고 전 | 테일넷 안 `curl` 이 `200`, `tailscale serve status` 가 tailnet only |
 | Host·Origin 검사 | 낯선 `Host`·교차 출처 `Origin` 은 `403`. `--no-origin-check` 는 탈출구 전용 |
-| 인증 | 테일넷이 경계(`--auth tailscale`, 기본값). 에이전트는 `limn token create`. 좁히려면 `--members-only`·`--allow <login>,…` 와 `limn member` 역할 |
+| 인증 | 테일넷이 경계(`--auth tailscale`, 기본값). 에이전트는 `limn token create`. 좁히려면 `--members-only`·`--allow <login>,…` 와 `limn member` 역할. 소유자가 인스턴스를 관리 모드로 전환하면 `people.json` 만으로 입장이 정해지고 소유자가 뷰어에서 멤버를 관리한다(`GET /api/access` 와 멤버 POST 는 소유자 전용이고, `--allow`·`--members-only` 는 무시된다) |
 | 종료 | `tailscale serve --https=<port> off` |
 
 ## 자주 쓰는 API

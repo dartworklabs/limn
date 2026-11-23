@@ -10,7 +10,8 @@
 Since v0.2 Limn decides **who a request is** with an identity provider chosen per instance (`--auth`), and
 **what they may change** with roles in `people.json`. `tailscale` (the default, identical to v0.1) trusts the
 `Tailscale-User-*` headers that `tailscale serve` adds, and only from a loopback TCP peer; everyone on the
-tailnet who reaches the port is a collaborator unless `--allow` or `--members-only` narrows it. `local` treats
+tailnet who reaches the port is a collaborator unless `--allow` or `--members-only` narrows it, or the owner has
+switched the instance to managed access, where `people.json` alone decides (below). `local` treats
 every loopback request as the owner — for a single user on their own machine, never exposed. `trusted-proxy`
 trusts configured identity headers only from `--trusted-proxies` addresses (oauth2-proxy, Cloudflare Access, …)
 and refuses everything else with `401`. Agents authenticate with **API tokens** (`limn token create`, sent as
@@ -74,7 +75,7 @@ What the server does defend against:
   the tree through `/api/snippet`: keep files you would not show your readers out of `--manuscript`.
 - The state folder is never manuscript. Keep `--state-dir` outside `--manuscript` (the default and `limn add` do). If
   it points inside, under any name, the routes above refuse every file in it the same way — `people.json`,
-  `tokens.json` (hashes), `audit.jsonl`, `events.jsonl` and the pin files — also through a link, the build copy leaves
+  `access.json`, `tokens.json` (hashes), `audit.jsonl`, `events.jsonl` and the pin files — also through a link, the build copy leaves
   it out, and the server prints one warning at startup; keep such a folder out of git and file sync. A state folder
   that would hold a served document's main file (the manuscript folder itself, say) refuses to start.
 - Roles, identity providers and how a principal was identified are closed types in the code, so a mistyped comparison
@@ -87,6 +88,44 @@ What the server does defend against:
   next request, without a restart. Tokens and the `--auth local` owner do not read the file and are unaffected. Keeping
   the roles of an earlier good read was rejected: the result would depend on the process's history, and an unreadable
   `tokens.json` likewise accepts no token.
+- Managed access, and what it does not promise. An instance can be switched so that `people.json` alone decides who
+  is admitted: while `<state>/access.json` says `managed`, a login with a row gets in, every other header-identified
+  person is refused, and `--allow` and `--members-only` are ignored (the startup `auth` line says so). An empty or
+  absent `people.json` then admits **no one** — in managed mode an empty list is "nobody", not "everyone" — and no one
+  is recorded as an editor on a first change, so a member exists only because the owner said so. The switch is one
+  press by the owner, never automatic: an upgrade alone changes nothing, and the screen counts who would be newly
+  admitted before anything is written (its default is a no-op). What it does not promise: it does not authenticate
+  anyone — the identity provider still does that, so on a `tailscale` instance a member list is only as good as the
+  tailnet's own identities and the loopback trust above. It does not bound what a member may do (roles do), it is not
+  a tailnet access rule (someone refused here can still reach the port), and it does not touch the instance's
+  configuration file, so an `--allow` left there stays there, ignored. The reads and writes are the owner's alone:
+  `GET /api/access` is refused to every other role, token and the headerless loopback agent (`403 owner_only`), and so
+  are `POST /api/access/managed` and `POST /api/members/add` / `/role` / `/remove`, which also refuse any instance that
+  is not managed (`409 not_managed`). A screen can give only the `viewer` and `editor` roles (`400
+  role_not_settable`): the first `owner` is made with `limn member add <instance> <login> --role owner` and nothing
+  else, so no one who can reach the tailnet can raise their own privilege. The last `owner` cannot be removed or
+  demoted through either door — the viewer and `limn member` refuse alike (`409 last_owner`) — so replacing an owner
+  means adding the new one first. Every change is recorded in `audit.jsonl`. The design is
+  [ADR-0054](docs/adr/0054-access-managed-from-the-viewer.md) (Korean).
+- An unusable `access.json` fails closed. If the file exists but cannot be read, is not UTF-8 JSON, is not an object,
+  carries a `version` other than 1 or a `managed` that is not a boolean, every person identified by a header is
+  refused (`403 access_unreadable`) and one warning goes to stderr. Reading it as "not managed" would quietly fall
+  back to the `--allow` judgement and let in someone the member list does not hold, so the flag is a three-valued fact
+  (managed, not managed, unusable), not a boolean. Tokens and the `--auth local` owner do not read the file, so the
+  owner can still repair it — fix its content or permissions, or delete it to return to `--allow` / `--members-only` —
+  and the roles apply again on the next request, without a restart. Rolling back to a release that does not know the
+  file does the same thing: it runs on `--allow`, so anyone added after the switch cannot get in. `access.json` is
+  written with mode `0600` under the same lock as `people.json`, which is written first.
+- The tailnet candidate list is a read, owner-only and partial. `GET /api/access` asks the machine's own `tailscaled`
+  over its local API for the users it can see, and nothing else: a read, never a write, no credential stored, no
+  request that leaves the machine. It is **partial by construction** — the daemon reports the owners of the peers in
+  this node's network map, which the tailnet's own access rules filter, so users with no device, users hidden by those
+  rules and users yet to accept an invitation never appear, and no tailnet role or account state comes with them. The
+  answer always says `partial`, the screen repeats it, and a login can always be typed in by hand. The read has a
+  timeout and a bounded body, keeps its answer for a few seconds, starts no thread, and turns every failure — no
+  socket, nobody listening, a timeout, a refusal, a body that is not JSON or is too long, a node that is not running —
+  into an empty list with a reason, never an exception. `tailscaled` is optional and is not an installation or runtime
+  requirement; the macOS App Store build uses another mechanism and is reported as no list.
 - Clickjacking: every response carries `X-Frame-Options: DENY` and a `Content-Security-Policy` with
   `frame-ancestors 'none'`. Page images and PDFs are `Cache-Control: private`, never kept by a shared cache.
 - Scripts and styles injected into Limn's pages: the viewer (`GET /`) and the refusal page a browser sees enforce
@@ -118,7 +157,8 @@ What the server does defend against:
 - `people.json` (logins and roles) is written with mode `0600`, like `tokens.json`; an older file that others can
   write is tightened to `0600` at startup.
 - Bulk deletion: `POST /api/clear` (archive and empty every pin) is refused to everyone but the `owner` role and
-  needs an explicit confirmation body; it keeps a backup and records who did it (since v0.2.1).
+  needs an explicit confirmation body; it keeps a backup and records who did it (since v0.2.1). The switch to managed
+  access (`POST /api/access/managed`) needs a confirmation body the same way.
 
 Agents on the machine that serves an instance keep its token in a **token file**,
 `~/.config/limn/<instance>.token`, written once by `limn token create <instance> --save`: mode `0600` (folder `0700`),
