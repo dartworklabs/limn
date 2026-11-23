@@ -10,12 +10,14 @@ import { showSheet } from '../layout/flow.ts';
 import {
   ACCESS,
   CHECKED,
+  STALE,
   PICKED_ROLE,
   TYPED_ROLE,
   pickedRole,
   setAccess,
   setNote,
   setResult,
+  setStale,
   setTransitionOpen,
   setTypedLogin,
   setTypedRole,
@@ -24,7 +26,7 @@ import { drawAccess } from './view.ts';
 import { newlyAdmitted } from './rules.ts';
 import './input.ts'; // Tab stays inside the open dialog
 
-/** The text a confirmation of POST /api/access/managed must carry (security/access.py CONFIRM_MANAGED). */
+/** The text a confirmation of POST /api/access/managed must carry (security/http.py CONFIRM_MANAGED). */
 const CONFIRM_MANAGED = 'manage access from the viewer';
 /** The control the owner is on, by what it does and to whom: a draw makes its elements anew, so the focus is found
  * again by this. */
@@ -52,23 +54,42 @@ function redraw() {
   } else if (again instanceof HTMLElement) again.focus();
   else $('#access').focus({ preventScroll: true });
 }
+/** Says why a request failed inside the open dialog, where the owner can read it: a banner on the status line would stand
+ * under the modal dialog (and under a phone's sheet). A refusal carries the server's words; an unreached server and any
+ * other failure say so. */
+function failed(what: string, error: unknown) {
+  const body = error instanceof Error && 'data' in error ? error.data : null;
+  const status = error instanceof Error && 'status' in error ? error.status : null;
+  const why = errText(body) || (status ? 'HTTP ' + String(status) : translate('서버에 닿지 않습니다'));
+  setNote(what + ' — ' + why);
+  redraw();
+}
 /** Reads GET /api/access and draws the screen; the entry stays away until it answers, and for anyone but an owner
- * nothing is read. */
+ * nothing is read. While the dialog is open a failed read is told inside it (and the screen is marked stale); before
+ * that it is the status line's. Answers whether the read went through. */
 async function loadAccess() {
-  if (!isOwner()) return;
+  if (!isOwner()) return false;
+  const dialogOpen = $('#access').open;
+  const what = translate('접근 정보 읽기');
   try {
-    const answer = await api('GET /api/access', { what: '접근 정보 읽기', where: NOTICE_HOST.LINE });
+    const answer = await api('GET /api/access', { what, where: NOTICE_HOST.LINE, silent: dialogOpen });
     setAccess(answer.data);
   } catch (error) {
-    return;
+    if (dialogOpen) {
+      setStale(true);
+      failed(what, error);
+    }
+    return false;
   }
   const view = ACCESS;
-  if (!view) return;
+  if (!view) return false;
+  setStale(false);
   // The transition's checks start as the state the owner would keep: whoever gets in today.
   CHECKED.clear();
   const transition = view.transition;
   if (transition) for (const login of transition.admitted_today) CHECKED.add(login);
   redraw();
+  return true;
 }
 /** Opens the access dialog, on the list. */
 function openAccess() {
@@ -78,11 +99,19 @@ function openAccess() {
   setResult(null);
   redraw();
   showSheet($('#access'));
+  if (STALE) void loadAccess(); // the last read failed after a write: read again now that the owner is looking
 }
 /** Says why a write was refused, inside the screen itself: a banner over the panel would stand behind the modal dialog,
  * and under a phone's sheet, where the owner cannot read it. */
 function refused(what: string, body: unknown) {
   setNote(what + ' — ' + (errText(body) || translate('바꾸지 못했습니다')));
+  redraw();
+}
+/** A write went through and the read after it did not: the lists on show are the old ones, so they are taken off the
+ * screen and the owner is told the change was made. */
+function afterWriteUnread(what: string) {
+  setStale(true);
+  setNote(what + ' — ' + translate('바뀌었지만 목록을 다시 읽지 못했습니다'));
   redraw();
 }
 /** Sends one member change and reads the screen again, so the rows show what the store now holds. */
@@ -95,16 +124,17 @@ async function sendMember(
   setNote('');
   setResult(null);
   try {
-    const answer = await api(endpoint, { body, what, where: NOTICE_HOST.LINE, expect: [400, 409] as const });
+    const answer = await api(endpoint, { body, what, silent: true, expect: [400, 409] as const });
     if (isRefusal(answer.data)) {
       refused(what, answer.data);
       return;
     }
   } catch (error) {
+    failed(what, error);
     return;
   }
   if (done) done(); // what a change that went through leaves behind (the typed login) is cleared
-  await loadAccess();
+  if (!(await loadAccess())) afterWriteUnread(what);
 }
 /** [들이기] under the list: the login typed in and the role beside it. */
 function addTyped() {
@@ -135,7 +165,7 @@ async function applyManaged() {
     const answer = await api('POST /api/access/managed', {
       body: { managed: true, members, confirm: CONFIRM_MANAGED },
       what,
-      where: NOTICE_HOST.LINE,
+      silent: true,
       expect: [400, 409] as const,
     });
     if (isRefusal(answer.data)) {
@@ -144,10 +174,11 @@ async function applyManaged() {
     }
     setResult({ done: answer.data, previewed }); // what the screen says next is the server's count, not the preview's
   } catch (error) {
+    failed(what, error);
     return;
   }
   setTransitionOpen(false);
-  await loadAccess();
+  if (!(await loadAccess())) afterWriteUnread(what);
 }
 /** Every action of the access screen, by its data-act; answers whether it was one of them. */
 function accessAction(act: string | undefined, control: HTMLElement) {
@@ -175,12 +206,12 @@ function accessAction(act: string | undefined, control: HTMLElement) {
       void sendMember('POST /api/members/remove', { login }, translate('멤버 빼기'));
       return true;
     case 'access-admit': {
-      // the name the tailnet gave, so the member row reads it; the role is the one its own chooser holds
-      const row = control.closest('.acc-row'),
-        shown = row ? findMaybe(row, '.acc-name', HTMLElement) : null;
+      // the name the tailnet gave (none when it gave none), so the member row reads it; the role is the one its own
+      // chooser holds
+      const user = ACCESS && ACCESS.tailnet.users.find((one) => one.login === login);
       void sendMember(
         'POST /api/members/add',
-        { login, role: pickedRole(login), name: shown ? shown.textContent : '' },
+        { login, role: pickedRole(login), ...(user && user.name ? { name: user.name } : {}) },
         translate('멤버 들이기'),
       );
       return true;

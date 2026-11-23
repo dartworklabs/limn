@@ -358,7 +358,6 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     "body.lay-narrow #bar1 #btn-pos .ic": (ICON, "the phone tool bar's location icon"),
     "body.lay-wide #bar1 #btn-more": (ICON, "the desktop tool bar's [더보기], an icon button"),
     # text: held to 4.5:1 on the surfaces
-    ".acc-res-l": (TEXT, "a label of the access screen's outcome block, which only a switch that went through draws"),
     ".md-wait, .md-note": (
         TEXT,
         "the Markdown surface's line while its source is read, and its notice past the byte or line limit",
@@ -1023,9 +1022,14 @@ class ContrastWalk(BrowserBase):
                 page.wait_for_selector("#access-body .acc-cols")
                 settle(page)
                 self.look(page, "access transition", "#access")
+                page.click('[data-act="access-manage-apply"]')  # the switch goes through: its outcome block
+                page.wait_for_selector("#access-body .acc-result")
+                settle(page)
+                self.look(page, "access result", "#access")
                 page.context.close()
         finally:
             path.write_text(before, encoding="utf-8")
+            ps.APP.C.access_file.unlink(missing_ok=True)
 
     def scene_queue(self):
         """The pins kept while cut off (js/offline/view.ts): their marks on the page, one waiting and one held, and their

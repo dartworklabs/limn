@@ -10,6 +10,7 @@ Run: uv run pytest -q src/limn/viewer/tests/test_viewer_access.py
 
 import json
 from unittest import mock
+from urllib.parse import urlparse
 
 from limn.platform.tailnet import TailnetDirectory, TailnetUser, unavailable
 from limn.security.access_store import write_access
@@ -125,6 +126,7 @@ class AccessMembers(AccessScreenBase):
     """The members section: who has a role control and [빼기], and who has neither."""
 
     ROWS = (OWNER, EDITOR, VIEWER, SECOND_OWNER, AGENT)
+    MANAGED = True
 
     def test_self_row_has_no_remove_control(self):
         """The owner's own row names the role as a word and draws no role control and no [빼기] - there is no element."""
@@ -300,15 +302,89 @@ class AccessUnmanaged(AccessScreenBase):
         page.wait_for_selector("#access-body .acc-band")
         self.assertEqual(self.count(page, "#access-body .acc-cols"), 0)
 
-    def test_a_refusal_is_drawn_inside_the_dialog(self):
-        """The server refuses a change while the instance is unmanaged (409); the reason is in the dialog, where a modal
-        leaves it readable, and not on the pin panel behind it."""
+    def test_the_unmanaged_screen_offers_nothing_the_server_would_refuse(self):
+        """While --allow decides, the members are there to read and no control of a row, no candidate, no login field is
+        drawn: [data-act] exists only in the band, and the one action is [화면 관리로 전환]."""
         page = self.open_screen()
-        page.click(self.row("erin@example.com") + ' [data-act="access-admit"]')
+        self.assertEqual(self.count(page, "#access-body .acc-row [data-act], #access-body .acc-row button"), 0)
+        self.assertEqual(self.count(page, "#access-body .acc-roles, #acc-login, .acc-add, .acc-sec + .acc-sec"), 0)
+        self.assertEqual(self.count(page, self.row("erin@example.com")), 0)  # no candidate row
+        self.assertEqual(self.count(page, self.row(EDITOR["login"])), 1)  # the member is listed
+        self.assertIn("편집", page.inner_text(self.row(EDITOR["login"])))
+        self.assertEqual(
+            page.evaluate("[...document.querySelectorAll('#access-body [data-act]')].map(e => e.dataset.act)"),
+            ["access-manage"],
+        )
+
+
+class AccessRefusals(AccessScreenBase):
+    """What goes wrong after a press is told inside the dialog, and the screen never shows a world the server left."""
+
+    MANAGED = True
+    fail = None  # the (method, path) the next request to answers with a 500, or None
+    fail_reads = False
+
+    def route(self, route):
+        """BrowserBase's routing, except that FAIL's request gets a 500 and, once fail_reads, so does GET /api/access."""
+        request = route.request
+        path = urlparse(request.url).path
+        if (request.method, path) == self.fail:
+            return route.fulfill(status=500, content_type="application/json", body='{"error": "boom"}')
+        if self.fail_reads and (request.method, path) == ("GET", "/api/access"):
+            return route.abort()
+        return super().route(route)
+
+    def test_a_refusal_is_drawn_inside_the_dialog(self):
+        """The server refuses to add a login that is already a member (409 already_member); the reason is in the dialog,
+        where a modal leaves it readable, and not on the pin panel behind it."""
+        page = self.open_screen()
+        page.fill("#acc-login", EDITOR["login"])
+        page.click('#access-body .acc-add [data-act="access-add"]')
         page.wait_for_selector("#access-body .acc-err")
         self.assertIn("멤버 들이기", page.inner_text("#access-body .acc-err"))
+        self.assertIn(EDITOR["login"], page.inner_text("#access-body .acc-err"))
         self.assertEqual(self.count(page, "#access #access-body .acc-err[role=alert]"), 1)
-        self.assertEqual(self.count(page, self.row("erin@example.com") + ' [data-act="access-remove"]'), 0)
+
+    def test_a_server_error_is_drawn_inside_the_dialog_too(self):
+        """A 500 is no refusal; it still lands in the dialog (the status line stands under the modal), not as a banner."""
+        self.fail = ("POST", "/api/members/remove")
+        page = self.open_screen()
+        page.click(self.row(EDITOR["login"]) + ' [data-act="access-remove"]')
+        page.wait_for_selector("#access-body .acc-err")
+        self.assertIn("멤버 빼기", page.inner_text("#access-body .acc-err"))
+        self.assertEqual(
+            self.count(page, self.row(EDITOR["login"])), 1
+        )  # nothing was removed, nothing drawn as removed
+
+    def test_a_write_whose_read_back_fails_does_not_draw_the_old_lists(self):
+        """The remove went through and the read after it fails: the old rows (and the removed member among them) are not
+        drawn, the owner is told the change was made, and a reopen reads again."""
+        page = self.open_screen()
+        self.fail_reads = True
+        page.click(self.row(EDITOR["login"]) + ' [data-act="access-remove"]')
+        page.wait_for_selector("#access-body .acc-err")
+        self.assertIn("바뀌었지만", page.inner_text("#access-body .acc-err"))
+        self.assertEqual(self.count(page, "#access-body .acc-row, #access-body .acc-sec"), 0)
+        stored = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertNotIn(EDITOR["login"], [x["login"] for x in stored])
+        self.fail_reads = False
+        page.keyboard.press("Escape")
+        page.click("#btn-more")
+        page.click("#m-access")
+        page.wait_for_selector("#access-body .acc-sec")
+        self.assertEqual(self.count(page, self.row(EDITOR["login"])), 0)
+        self.assertEqual(self.count(page, "#access-body .acc-err"), 0)
+
+    def test_a_switch_whose_read_back_fails_does_not_offer_the_switch_again(self):
+        """The switch went through; the read after it fails: no transition columns, no band, the server's result shown."""
+        ps.APP.C.access_file.unlink()  # this one starts on an instance that still runs on --allow
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        self.fail_reads = True
+        page.click('[data-act="access-manage-apply"]')
+        page.wait_for_selector("#access-body .acc-result")
+        self.assertEqual(self.count(page, '#access-body [data-act^="access-manage"], #access-body .acc-cols'), 0)
+        self.assertIn("바뀌었지만", page.inner_text("#access-body .acc-err"))
 
     def test_the_focus_stays_in_the_dialog_after_a_draw(self):
         """A press that redraws the screen (a role picked on a candidate) leaves the focus on the same control."""
@@ -386,7 +462,7 @@ class AccessLayout(AccessScreenBase):
                 clipped.push((el.className || el.tagName) + ' ' + el.scrollWidth + '>' + el.clientWidth);
         }
         const rows = [...dialog.querySelectorAll('.acc-row, .acc-check')].map((e) => e.getBoundingClientRect().height);
-        const marks = [...dialog.querySelectorAll('button, input')].map((e) => e.getBoundingClientRect().height);
+        const marks = [...dialog.querySelectorAll('button, input')].map((e) => [e.className || e.type, Math.round(e.getBoundingClientRect().height * 10) / 10, e.getBoundingClientRect().width]);
         return {
             overflowX: dialog.scrollWidth - dialog.clientWidth,
             pageOverflowX: document.documentElement.scrollWidth - window.innerWidth,
@@ -415,6 +491,11 @@ class AccessLayout(AccessScreenBase):
         self.assertTrue(got["rows"], where)
         for height in got["rows"]:
             self.assertGreaterEqual(round(height, 1), floor, where)
+        # a thumb presses every button and field at --hit; the checkboxes are pressed through their 56px row
+        pressed = [m for m in got["marks"] if m[0] != "checkbox"]
+        self.assertTrue(pressed, where)
+        for kind, height, _ in pressed:
+            self.assertGreaterEqual(height, 44 if got["coarse"] else 24, "%s: a %s is %s tall" % (where, kind, height))
         if not got["coarse"]:
             self.assertEqual({round(h) for h in got["rows"]} & {ROW_MOUSE}, {ROW_MOUSE}, where)
         return got

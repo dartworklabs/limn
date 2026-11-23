@@ -38,11 +38,17 @@ let RESULT: { done: ManagedChanged; previewed: string[] } | null = null;
 function setResult(result: { done: ManagedChanged; previewed: string[] } | null) {
   RESULT = result;
 }
+/** Whether the screen on show is older than the server: a write went through and the read that should have followed it
+ * failed. While it is, the lists are not drawn - only what the server said and why they are missing. */
+let STALE = false;
+function setStale(stale: boolean) {
+  STALE = stale;
+}
 /** Why the last change was refused, drawn at the top of the screen; '' when the last one went through. A banner would
  * stand behind the modal dialog (and under a phone's sheet), where the owner cannot read it. */
 let NOTE = '';
 function setNote(text: string) {
   NOTE = text;
 }
-export { ACCESS, CHECKED, NOTE, PICKED_ROLE, RESULT, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole };
-export { setAccess, setNote, setResult, setTransitionOpen, setTypedLogin, setTypedRole };
+export { ACCESS, CHECKED, NOTE, PICKED_ROLE, RESULT, STALE, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole };
+export { setAccess, setNote, setResult, setStale, setTransitionOpen, setTypedLogin, setTypedRole };

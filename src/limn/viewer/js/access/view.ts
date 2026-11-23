@@ -9,7 +9,7 @@ import { translate, translateTemplate } from '../platform/i18n.ts';
 import { $, findMaybe } from '../platform/dom.ts';
 import { META } from '../app/state.ts';
 import { ROLE } from '../app/rules-tables.ts';
-import { ACCESS, CHECKED, NOTE, RESULT, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole } from './state.ts';
+import { ACCESS, CHECKED, NOTE, RESULT, STALE, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole } from './state.ts';
 import { admittedRows, keptCount, newlyAdmitted, sameLogins, seenText } from './rules.ts';
 
 /** The two roles a screen may give (access_service.SETTABLE_ROLES); every other role is drawn, never offered. */
@@ -89,8 +89,8 @@ function roleControl(login: string, role: string, act: string) {
 }
 /** One member row. A row this screen may change draws a role control and [빼기]; any other (the reader's own row, an
  * owner's, an agent's) draws the role as a word and no control. */
-function memberRow(member: AccessMember) {
-  const changeable = rowChangeable(member, myLogin());
+function memberRow(member: AccessMember, editable: boolean) {
+  const changeable = editable && rowChangeable(member, myLogin());
   return html`<div class="acc-row" data-login="${member.login}">
     ${personCell(member.name, member.login)}
     ${
@@ -287,9 +287,28 @@ function resultBlock() {
 
 // ---------------------------------------------------------------- the two sections
 
-/** The dialog's body: the band or the status line, the members and the tailnet's people who could be let in - or, when
- * the owner pressed [화면 관리로 전환], the transition. */
+/** The tailnet section and the field for a login: only a managed instance may let anyone in. */
+function tailnetSection(view: AccessView) {
+  return html`<section class="acc-sec">
+    <h3 class="acc-h">${translate('테일넷에서 들이기')}</h3>
+    ${tailnetNote(view)}
+    <div class="acc-rows">
+      ${
+        view.tailnet.users.length
+          ? view.tailnet.users.map(candidateRow)
+          : html`<p class="acc-note">${translate('들일 사람이 없습니다')}</p>`
+      }
+    </div>
+    ${addRow()}
+  </section>`;
+}
+/** The dialog's body: the band or the status line, the members and - on a managed instance - the tailnet's people who
+ * could be let in; or, when the owner pressed [화면 관리로 전환], the transition. An instance still running on --allow
+ * draws its members to read and nothing that changes them, since every such press would be refused (409 not_managed):
+ * the band's switch is its one action. After a write whose read-back failed, no list is drawn at all: it would be the
+ * world before the write. */
 function screenBody(view: AccessView): Html {
+  if (STALE) return html`${noteLine()}${resultBlock()}`;
   if (!view.managed && TRANSITION_OPEN && view.transition) return transitionColumns(view.transition);
   return html`${noteLine()}${resultBlock()}${view.managed ? html`<p class="acc-status">${statusLine(view)}</p>` : unmanagedBand(view)}
     <section class="acc-sec">
@@ -297,20 +316,9 @@ function screenBody(view: AccessView): Html {
         ${translate('이 인스턴스의 멤버')}
         <span class="badge badge-secondary" translate="no">${view.members.length}</span>
       </h3>
-      <div class="acc-rows">${view.members.map(memberRow)}</div>
+      <div class="acc-rows">${view.members.map((member) => memberRow(member, view.managed))}</div>
     </section>
-    <section class="acc-sec">
-      <h3 class="acc-h">${translate('테일넷에서 들이기')}</h3>
-      ${tailnetNote(view)}
-      <div class="acc-rows">
-        ${
-          view.tailnet.users.length
-            ? view.tailnet.users.map(candidateRow)
-            : html`<p class="acc-note">${translate('들일 사람이 없습니다')}</p>`
-        }
-      </div>
-      ${addRow()}
-    </section>`;
+    ${view.managed ? tailnetSection(view) : null}`;
 }
 
 /** Draws the entry in [더보기] and, the first time, the dialog's frame - once the first answer is in, for an owner only. */

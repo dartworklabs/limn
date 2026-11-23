@@ -5081,6 +5081,12 @@ let RESULT = null;
 function setResult(result) {
   RESULT = result;
 }
+/** Whether the screen on show is older than the server: a write went through and the read that should have followed it
+ * failed. While it is, the lists are not drawn - only what the server said and why they are missing. */
+let STALE = false;
+function setStale(stale) {
+  STALE = stale;
+}
 /** Why the last change was refused, drawn at the top of the screen; '' when the last one went through. A banner would
  * stand behind the modal dialog (and under a phone's sheet), where the owner cannot read it. */
 let NOTE = '';
@@ -5211,8 +5217,8 @@ function roleControl(login, role, act) {
 }
 /** One member row. A row this screen may change draws a role control and [빼기]; any other (the reader's own row, an
  * owner's, an agent's) draws the role as a word and no control. */
-function memberRow(member) {
-  const changeable = rowChangeable(member, myLogin());
+function memberRow(member, editable) {
+  const changeable = editable && rowChangeable(member, myLogin());
   return html`<div class="acc-row" data-login="${member.login}">
     ${personCell(member.name, member.login)}
     ${
@@ -5409,9 +5415,28 @@ function resultBlock() {
 
 // ---------------------------------------------------------------- the two sections
 
-/** The dialog's body: the band or the status line, the members and the tailnet's people who could be let in - or, when
- * the owner pressed [화면 관리로 전환], the transition. */
+/** The tailnet section and the field for a login: only a managed instance may let anyone in. */
+function tailnetSection(view) {
+  return html`<section class="acc-sec">
+    <h3 class="acc-h">${translate('테일넷에서 들이기')}</h3>
+    ${tailnetNote(view)}
+    <div class="acc-rows">
+      ${
+        view.tailnet.users.length
+          ? view.tailnet.users.map(candidateRow)
+          : html`<p class="acc-note">${translate('들일 사람이 없습니다')}</p>`
+      }
+    </div>
+    ${addRow()}
+  </section>`;
+}
+/** The dialog's body: the band or the status line, the members and - on a managed instance - the tailnet's people who
+ * could be let in; or, when the owner pressed [화면 관리로 전환], the transition. An instance still running on --allow
+ * draws its members to read and nothing that changes them, since every such press would be refused (409 not_managed):
+ * the band's switch is its one action. After a write whose read-back failed, no list is drawn at all: it would be the
+ * world before the write. */
 function screenBody(view) {
+  if (STALE) return html`${noteLine()}${resultBlock()}`;
   if (!view.managed && TRANSITION_OPEN && view.transition) return transitionColumns(view.transition);
   return html`${noteLine()}${resultBlock()}${view.managed ? html`<p class="acc-status">${statusLine(view)}</p>` : unmanagedBand(view)}
     <section class="acc-sec">
@@ -5419,20 +5444,9 @@ function screenBody(view) {
         ${translate('이 인스턴스의 멤버')}
         <span class="badge badge-secondary" translate="no">${view.members.length}</span>
       </h3>
-      <div class="acc-rows">${view.members.map(memberRow)}</div>
+      <div class="acc-rows">${view.members.map((member) => memberRow(member, view.managed))}</div>
     </section>
-    <section class="acc-sec">
-      <h3 class="acc-h">${translate('테일넷에서 들이기')}</h3>
-      ${tailnetNote(view)}
-      <div class="acc-rows">
-        ${
-          view.tailnet.users.length
-            ? view.tailnet.users.map(candidateRow)
-            : html`<p class="acc-note">${translate('들일 사람이 없습니다')}</p>`
-        }
-      </div>
-      ${addRow()}
-    </section>`;
+    ${view.managed ? tailnetSection(view) : null}`;
 }
 
 /** Draws the entry in [더보기] and, the first time, the dialog's frame - once the first answer is in, for an owner only. */
@@ -5480,7 +5494,7 @@ $('#access').addEventListener('keydown', (event) => {
 // Only an owner has this screen: /api/access is owner-only, and nothing of it (the entry in [더보기], the dialog's
 // contents) is drawn for anyone else - not hidden, not there (docs/handbook/viewer.md §접근 관리).
 
-/** The text a confirmation of POST /api/access/managed must carry (security/access.py CONFIRM_MANAGED). */
+/** The text a confirmation of POST /api/access/managed must carry (security/http.py CONFIRM_MANAGED). */
 const CONFIRM_MANAGED = 'manage access from the viewer';
 /** The control the owner is on, by what it does and to whom: a draw makes its elements anew, so the focus is found
  * again by this. */
@@ -5508,23 +5522,42 @@ function redraw() {
   } else if (again instanceof HTMLElement) again.focus();
   else $('#access').focus({ preventScroll: true });
 }
+/** Says why a request failed inside the open dialog, where the owner can read it: a banner on the status line would stand
+ * under the modal dialog (and under a phone's sheet). A refusal carries the server's words; an unreached server and any
+ * other failure say so. */
+function failed(what, error) {
+  const body = error instanceof Error && 'data' in error ? error.data : null;
+  const status = error instanceof Error && 'status' in error ? error.status : null;
+  const why = errText(body) || (status ? 'HTTP ' + String(status) : translate('서버에 닿지 않습니다'));
+  setNote(what + ' — ' + why);
+  redraw();
+}
 /** Reads GET /api/access and draws the screen; the entry stays away until it answers, and for anyone but an owner
- * nothing is read. */
+ * nothing is read. While the dialog is open a failed read is told inside it (and the screen is marked stale); before
+ * that it is the status line's. Answers whether the read went through. */
 async function loadAccess() {
-  if (!isOwner()) return;
+  if (!isOwner()) return false;
+  const dialogOpen = $('#access').open;
+  const what = translate('접근 정보 읽기');
   try {
-    const answer = await api('GET /api/access', { what: '접근 정보 읽기', where: NOTICE_HOST.LINE });
+    const answer = await api('GET /api/access', { what, where: NOTICE_HOST.LINE, silent: dialogOpen });
     setAccess(answer.data);
   } catch (error) {
-    return;
+    if (dialogOpen) {
+      setStale(true);
+      failed(what, error);
+    }
+    return false;
   }
   const view = ACCESS;
-  if (!view) return;
+  if (!view) return false;
+  setStale(false);
   // The transition's checks start as the state the owner would keep: whoever gets in today.
   CHECKED.clear();
   const transition = view.transition;
   if (transition) for (const login of transition.admitted_today) CHECKED.add(login);
   redraw();
+  return true;
 }
 /** Opens the access dialog, on the list. */
 function openAccess() {
@@ -5534,11 +5567,19 @@ function openAccess() {
   setResult(null);
   redraw();
   showSheet($('#access'));
+  if (STALE) void loadAccess(); // the last read failed after a write: read again now that the owner is looking
 }
 /** Says why a write was refused, inside the screen itself: a banner over the panel would stand behind the modal dialog,
  * and under a phone's sheet, where the owner cannot read it. */
 function refused(what, body) {
   setNote(what + ' — ' + (errText(body) || translate('바꾸지 못했습니다')));
+  redraw();
+}
+/** A write went through and the read after it did not: the lists on show are the old ones, so they are taken off the
+ * screen and the owner is told the change was made. */
+function afterWriteUnread(what) {
+  setStale(true);
+  setNote(what + ' — ' + translate('바뀌었지만 목록을 다시 읽지 못했습니다'));
   redraw();
 }
 /** Sends one member change and reads the screen again, so the rows show what the store now holds. */
@@ -5551,16 +5592,17 @@ async function sendMember(
   setNote('');
   setResult(null);
   try {
-    const answer = await api(endpoint, { body, what, where: NOTICE_HOST.LINE, expect: [400, 409] });
+    const answer = await api(endpoint, { body, what, silent: true, expect: [400, 409] });
     if (isRefusal(answer.data)) {
       refused(what, answer.data);
       return;
     }
   } catch (error) {
+    failed(what, error);
     return;
   }
   if (done) done(); // what a change that went through leaves behind (the typed login) is cleared
-  await loadAccess();
+  if (!(await loadAccess())) afterWriteUnread(what);
 }
 /** [들이기] under the list: the login typed in and the role beside it. */
 function addTyped() {
@@ -5591,7 +5633,7 @@ async function applyManaged() {
     const answer = await api('POST /api/access/managed', {
       body: { managed: true, members, confirm: CONFIRM_MANAGED },
       what,
-      where: NOTICE_HOST.LINE,
+      silent: true,
       expect: [400, 409],
     });
     if (isRefusal(answer.data)) {
@@ -5600,10 +5642,11 @@ async function applyManaged() {
     }
     setResult({ done: answer.data, previewed }); // what the screen says next is the server's count, not the preview's
   } catch (error) {
+    failed(what, error);
     return;
   }
   setTransitionOpen(false);
-  await loadAccess();
+  if (!(await loadAccess())) afterWriteUnread(what);
 }
 /** Every action of the access screen, by its data-act; answers whether it was one of them. */
 function accessAction(act, control) {
@@ -5631,12 +5674,12 @@ function accessAction(act, control) {
       void sendMember('POST /api/members/remove', { login }, translate('멤버 빼기'));
       return true;
     case 'access-admit': {
-      // the name the tailnet gave, so the member row reads it; the role is the one its own chooser holds
-      const row = control.closest('.acc-row'),
-        shown = row ? findMaybe(row, '.acc-name', HTMLElement) : null;
+      // the name the tailnet gave (none when it gave none), so the member row reads it; the role is the one its own
+      // chooser holds
+      const user = ACCESS && ACCESS.tailnet.users.find((one) => one.login === login);
       void sendMember(
         'POST /api/members/add',
-        { login, role: pickedRole(login), name: shown ? shown.textContent : '' },
+        { login, role: pickedRole(login), ...(user && user.name ? { name: user.name } : {}) },
         translate('멤버 들이기'),
       );
       return true;

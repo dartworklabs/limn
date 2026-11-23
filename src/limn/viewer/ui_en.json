@@ -1826,5 +1826,6 @@
  "그대로 둔 소유자·에이전트": "Owner and agent rows kept",
  "서버가 새로 들어오게 한 사람": "Newly let in, as the server counted",
  "새로 들어오게 한 사람은 없습니다": "The server let no one in newly",
- "미리 본 결과와 다릅니다 — 서버가 말한 결과가 맞습니다": "Differs from the preview — the server's result is the one that holds"
+ "미리 본 결과와 다릅니다 — 서버가 말한 결과가 맞습니다": "Differs from the preview — the server's result is the one that holds",
+ "바뀌었지만 목록을 다시 읽지 못했습니다": "The change was made, but the list could not be read again - close this and open it again"
 }

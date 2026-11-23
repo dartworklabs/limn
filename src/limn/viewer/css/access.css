@@ -198,6 +198,12 @@ body.compact #access .ns-head .row {
   flex: 0 0 auto;
   padding: 0 var(--space-2);
 }
+/* On touch each word of the role control is pressed with a thumb: it is --hit tall, as every other control here. */
+@media (pointer: coarse) {
+  .acc-roles button {
+    height: var(--hit);
+  }
+}
 @media (pointer: coarse) {
   .acc-row {
     min-height: var(--row-h-touch);
