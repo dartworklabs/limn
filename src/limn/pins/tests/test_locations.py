@@ -29,6 +29,7 @@ from limn.platform.files import PATH_MAX_CHARS
 from limn.security.access import LOCAL_ACTOR
 
 from helpers import Base, ps, records, write_records
+from helpers_access import LOOPBACK_AGENT
 from helpers_authority import post_authority
 
 
@@ -399,9 +400,13 @@ class WorkDoesNotGrowWithThePins(Base):
         """GET /pins.md, and the rendering every write does, runs the tree rule the same number of lines for 40 pins
         as for 80."""
         self.fill(40)
-        small, first = self.judging_lines(lambda: ps.APP.pin_markdown.current_text("http://127.0.0.1:1"))
+        small, first = self.judging_lines(
+            lambda: ps.APP.pin_markdown.current_text("http://127.0.0.1:1", LOOPBACK_AGENT)
+        )
         self.fill(80)
-        large, second = self.judging_lines(lambda: ps.APP.pin_markdown.current_text("http://127.0.0.1:1"))
+        large, second = self.judging_lines(
+            lambda: ps.APP.pin_markdown.current_text("http://127.0.0.1:1", LOOPBACK_AGENT)
+        )
         self.assertIn("request 40", first)
         self.assertIn("request 80", second)
         self.assertGreater(small, 0)
@@ -533,14 +538,14 @@ class TheNextRequestJudgesAgain(Base):
         write_records(rows)
         base = "http://127.0.0.1:1"
         self.assertEqual(ps.APP.pin_listing.pin_payload(pid)["rel_path"], "main.tex")
-        self.assertIn(f"«{quote}» quoted", ps.APP.pin_markdown.current_text(base))
+        self.assertIn(f"«{quote}» quoted", ps.APP.pin_markdown.current_text(base, LOOPBACK_AGENT))
         outside = Path(self.tmp.name).resolve() / "outside.tex"
         outside.write_text("x\n" * 3 + "S" * 650 + "\n", encoding="utf-8")
         self.main.unlink()
         os.symlink(outside, self.main)
         self.assertNotIn("rel_path", ps.APP.pin_listing.pin_payload(pid))
         self.assertNotIn("rel_path", ps.APP.pin_listing.list_payload(True)[0])
-        rendered = ps.APP.pin_markdown.current_text(base)
+        rendered = ps.APP.pin_markdown.current_text(base, LOOPBACK_AGENT)
         self.assertNotIn(f"«{quote}»", rendered)
         self.assertIn("| quoted |", rendered)
 

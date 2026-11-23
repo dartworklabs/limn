@@ -71,6 +71,8 @@ def actor(h):
 
 # The same identities as stored actors, for tests that call the server copy's functions directly.
 ALICE_ACTOR = actor(ALICE)
+# The headerless loopback agent as identify() decides it, for a test that renders GET /pins.md's text directly.
+LOOPBACK_AGENT = access.Principal(dict(access.LOCAL_ACTOR), "agent", "loopback-agent")
 BOB_ACTOR = actor(BOB)
 # The body POST /api/clear requires.
 CLEAR_BODY = {"confirm": "clear all pins"}
