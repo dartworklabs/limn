@@ -1818,5 +1818,13 @@
  "바꾸지 못했습니다": "could not be changed",
  "멤버 빼기": "Removing a member",
  "역할 바꾸기": "Changing a role",
- "멤버 들이기": "Letting a member in"
+ "멤버 들이기": "Letting a member in",
+ "화면 관리로 전환했습니다": "Switched to managing from the viewer",
+ "추가됨": "Added",
+ "빠짐": "Removed",
+ "역할이 바뀜": "Role changed",
+ "그대로 둔 소유자·에이전트": "Owner and agent rows kept",
+ "서버가 새로 들어오게 한 사람": "Newly let in, as the server counted",
+ "새로 들어오게 한 사람은 없습니다": "The server let no one in newly",
+ "미리 본 결과와 다릅니다 — 서버가 말한 결과가 맞습니다": "Differs from the preview — the server's result is the one that holds"
 }

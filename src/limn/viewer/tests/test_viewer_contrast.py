@@ -358,6 +358,7 @@ NOT_WALKED: dict[str, tuple[float | None, str]] = {
     "body.lay-narrow #bar1 #btn-pos .ic": (ICON, "the phone tool bar's location icon"),
     "body.lay-wide #bar1 #btn-more": (ICON, "the desktop tool bar's [더보기], an icon button"),
     # text: held to 4.5:1 on the surfaces
+    ".acc-res-l": (TEXT, "a label of the access screen's outcome block, which only a switch that went through draws"),
     ".md-wait, .md-note": (
         TEXT,
         "the Markdown surface's line while its source is read, and its notice past the byte or line limit",

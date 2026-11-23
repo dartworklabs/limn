@@ -32,4 +32,9 @@ function admittedRows(transition: AccessTransition): AccessMember[] {
   return [...transition.settable, ...transition.fixed].filter((member) => today.has(member.login));
 }
 
-export { admittedAfter, admittedRows, checkedOf, keptCount, newlyAdmitted, seenText };
+/** Whether two lists name the same logins, in any order. Pure. */
+function sameLogins(first: readonly string[], second: readonly string[]) {
+  return first.length === second.length && [...first].sort().join('\n') === [...second].sort().join('\n');
+}
+
+export { sameLogins, admittedAfter, admittedRows, checkedOf, keptCount, newlyAdmitted, seenText };

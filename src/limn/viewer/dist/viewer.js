@@ -5074,6 +5074,13 @@ let TYPED_ROLE = ROLE.VIEWER;
 function setTypedRole(role) {
   TYPED_ROLE = role;
 }
+/** What the server said the last switch to managed admission did (POST /api/access/managed), with the logins the
+ * preview had counted as newly let in; null until a switch went through, and again once the owner changes anything or
+ * reopens the screen. */
+let RESULT = null;
+function setResult(result) {
+  RESULT = result;
+}
 /** Why the last change was refused, drawn at the top of the screen; '' when the last one went through. A banner would
  * stand behind the modal dialog (and under a phone's sheet), where the owner cannot read it. */
 let NOTE = '';
@@ -5113,6 +5120,11 @@ function keptCount(transition, checked) {
 function admittedRows(transition) {
   const today = new Set(transition.admitted_today);
   return [...transition.settable, ...transition.fixed].filter((member) => today.has(member.login));
+}
+
+/** Whether two lists name the same logins, in any order. Pure. */
+function sameLogins(first, second) {
+  return first.length === second.length && [...first].sort().join('\n') === [...second].sort().join('\n');
 }
 
 // ------------------------------------------------ Access management: drawing the owner's screen
@@ -5358,13 +5370,50 @@ function transitionColumns(transition) {
   </div>`;
 }
 
+// ---------------------------------------------------------------- what the switch did
+
+/** One line of the outcome: what the server counted and, when there are any, whose logins. */
+function resultLine(label, logins) {
+  return html`<li>
+    <span class="acc-res-l">${translate(label)}</span>
+    <b class="acc-res-n" translate="no">${logins.length}</b>
+    ${logins.length ? html`<span class="acc-res-w" translate="no">${logins.join(', ')}</span>` : null}
+  </li>`;
+}
+/** The outcome of the switch, from the server's own answer (POST /api/access/managed): who was added, removed, given
+ * another role, which owner and agent rows were kept, and - by login - who was newly let in. Not the preview's count:
+ * if the two differ the screen says so. */
+function resultBlock() {
+  if (!RESULT) return null;
+  const { done, previewed } = RESULT;
+  return html`<div class="acc-result" role="status">
+    <h3 class="acc-h">${translate('화면 관리로 전환했습니다')}</h3>
+    <ul class="acc-res">
+      ${resultLine('추가됨', done.added)} ${resultLine('빠짐', done.removed)} ${resultLine('역할이 바뀜', done.changed)}
+      ${resultLine('그대로 둔 소유자·에이전트', done.kept)}
+    </ul>
+    ${
+      done.newly_admitted.length
+        ? html`<p class="acc-new">
+            ${translate('서버가 새로 들어오게 한 사람')}: <b translate="no">${done.newly_admitted.join(', ')}</b>
+          </p>`
+        : html`<p class="acc-new">${translate('새로 들어오게 한 사람은 없습니다')}</p>`
+    }
+    ${
+      sameLogins(previewed, done.newly_admitted)
+        ? null
+        : html`<p class="acc-new">${translate('미리 본 결과와 다릅니다 — 서버가 말한 결과가 맞습니다')}</p>`
+    }
+  </div>`;
+}
+
 // ---------------------------------------------------------------- the two sections
 
 /** The dialog's body: the band or the status line, the members and the tailnet's people who could be let in - or, when
  * the owner pressed [화면 관리로 전환], the transition. */
 function screenBody(view) {
   if (!view.managed && TRANSITION_OPEN && view.transition) return transitionColumns(view.transition);
-  return html`${noteLine()}${view.managed ? html`<p class="acc-status">${statusLine(view)}</p>` : unmanagedBand(view)}
+  return html`${noteLine()}${resultBlock()}${view.managed ? html`<p class="acc-status">${statusLine(view)}</p>` : unmanagedBand(view)}
     <section class="acc-sec">
       <h3 class="acc-h">
         ${translate('이 인스턴스의 멤버')}
@@ -5482,6 +5531,7 @@ function openAccess() {
   if (!ACCESS) return;
   setTransitionOpen(false);
   setNote('');
+  setResult(null);
   redraw();
   showSheet($('#access'));
 }
@@ -5499,6 +5549,7 @@ async function sendMember(
   done,
 ) {
   setNote('');
+  setResult(null);
   try {
     const answer = await api(endpoint, { body, what, where: NOTICE_HOST.LINE, expect: [400, 409] });
     if (isRefusal(answer.data)) {
@@ -5533,7 +5584,9 @@ async function applyManaged() {
     .filter((member) => CHECKED.has(member.login))
     .map((member) => ({ login: member.login, role: member.role }));
   const what = translate('화면 관리로 전환');
+  const previewed = newlyAdmitted(transition, CHECKED).map((member) => member.login);
   setNote('');
+  setResult(null);
   try {
     const answer = await api('POST /api/access/managed', {
       body: { managed: true, members, confirm: CONFIRM_MANAGED },
@@ -5545,6 +5598,7 @@ async function applyManaged() {
       refused(what, answer.data);
       return;
     }
+    setResult({ done: answer.data, previewed }); // what the screen says next is the server's count, not the preview's
   } catch (error) {
     return;
   }

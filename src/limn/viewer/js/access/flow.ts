@@ -15,11 +15,13 @@ import {
   pickedRole,
   setAccess,
   setNote,
+  setResult,
   setTransitionOpen,
   setTypedLogin,
   setTypedRole,
 } from './state.ts';
 import { drawAccess } from './view.ts';
+import { newlyAdmitted } from './rules.ts';
 import './input.ts'; // Tab stays inside the open dialog
 
 /** The text a confirmation of POST /api/access/managed must carry (security/access.py CONFIRM_MANAGED). */
@@ -73,6 +75,7 @@ function openAccess() {
   if (!ACCESS) return;
   setTransitionOpen(false);
   setNote('');
+  setResult(null);
   redraw();
   showSheet($('#access'));
 }
@@ -90,6 +93,7 @@ async function sendMember(
   done?: () => void,
 ) {
   setNote('');
+  setResult(null);
   try {
     const answer = await api(endpoint, { body, what, where: NOTICE_HOST.LINE, expect: [400, 409] as const });
     if (isRefusal(answer.data)) {
@@ -124,7 +128,9 @@ async function applyManaged() {
     .filter((member) => CHECKED.has(member.login))
     .map((member) => ({ login: member.login, role: member.role }));
   const what = translate('화면 관리로 전환');
+  const previewed = newlyAdmitted(transition, CHECKED).map((member) => member.login);
   setNote('');
+  setResult(null);
   try {
     const answer = await api('POST /api/access/managed', {
       body: { managed: true, members, confirm: CONFIRM_MANAGED },
@@ -136,6 +142,7 @@ async function applyManaged() {
       refused(what, answer.data);
       return;
     }
+    setResult({ done: answer.data, previewed }); // what the screen says next is the server's count, not the preview's
   } catch (error) {
     return;
   }

@@ -31,11 +31,18 @@ let TYPED_ROLE: string = ROLE.VIEWER;
 function setTypedRole(role: string) {
   TYPED_ROLE = role;
 }
+/** What the server said the last switch to managed admission did (POST /api/access/managed), with the logins the
+ * preview had counted as newly let in; null until a switch went through, and again once the owner changes anything or
+ * reopens the screen. */
+let RESULT: { done: ManagedChanged; previewed: string[] } | null = null;
+function setResult(result: { done: ManagedChanged; previewed: string[] } | null) {
+  RESULT = result;
+}
 /** Why the last change was refused, drawn at the top of the screen; '' when the last one went through. A banner would
  * stand behind the modal dialog (and under a phone's sheet), where the owner cannot read it. */
 let NOTE = '';
 function setNote(text: string) {
   NOTE = text;
 }
-export { ACCESS, CHECKED, NOTE, PICKED_ROLE, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole };
-export { setAccess, setNote, setTransitionOpen, setTypedLogin, setTypedRole };
+export { ACCESS, CHECKED, NOTE, PICKED_ROLE, RESULT, TRANSITION_OPEN, TYPED_LOGIN, TYPED_ROLE, pickedRole };
+export { setAccess, setNote, setResult, setTransitionOpen, setTypedLogin, setTypedRole };

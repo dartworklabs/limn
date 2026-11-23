@@ -124,8 +124,8 @@ body.compact #access .ns-head .row {
 
 /* ---------------------------------------------------------------- one row per person */
 /* Four columns the rows share (subgrid), so every role control, date and action starts on one line down the list: who
-   | role | last seen | action. A row is --row-h-sm with a mouse; on touch its own controls answer 44px, and the row is
-   as tall. */
+   | role | last seen | action. A row is two lines (a name over a login), so --row-h with a mouse and --row-h-touch on touch,
+   as the changes view's commit list is. */
 .acc-rows {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto auto;
@@ -138,10 +138,10 @@ body.compact #access .ns-head .row {
   display: grid;
   grid-template-columns: subgrid;
   align-items: center;
-  min-height: var(--row-h-sm);
+  min-height: var(--row-h);
 }
 /* The rule between rows is a line drawn over the row's top edge, so it takes no height from the row: a row is exactly
-   --row-h-sm. */
+   --row-h. */
 .acc-row::before {
   content: '';
   position: absolute;
@@ -158,7 +158,7 @@ body.compact #access .ns-head .row {
   min-width: 0;
 }
 .acc-name {
-  line-height: 1.2; /* name over login fit a one-line row's 32px */
+  line-height: round(1.55em, 1px);
   font-size: var(--text-base);
   font-weight: 600;
   color: var(--foreground);
@@ -167,7 +167,7 @@ body.compact #access .ns-head .row {
   white-space: nowrap;
 }
 .acc-login {
-  line-height: 1.2;
+  line-height: round(1.55em, 1px);
   font-size: var(--text-xs);
   color: var(--subtle-foreground);
   overflow: hidden;
@@ -200,7 +200,7 @@ body.compact #access .ns-head .row {
 }
 @media (pointer: coarse) {
   .acc-row {
-    min-height: var(--hit);
+    min-height: var(--row-h-touch);
   }
 }
 /* A narrow column (a phone's sheet) puts a row on two lines: who and the date, then the role
@@ -302,7 +302,7 @@ body.compact .acc-cols {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  min-height: var(--row-h-sm);
+  min-height: var(--row-h);
   padding: 0 var(--space-2);
   min-width: 0;
 }
@@ -351,7 +351,7 @@ body.compact .acc-cols {
 }
 @media (pointer: coarse) {
   .acc-check {
-    min-height: var(--hit);
+    min-height: var(--row-h-touch);
   }
 }
 
@@ -360,4 +360,41 @@ body.compact .acc-cols {
   margin: 0;
   font-size: var(--text-sm);
   line-height: round(1.55em, 1px);
+}
+
+/* ---------------------------------------------------------------- what the switch did */
+.acc-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: 1px solid var(--border-seam);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+.acc-res {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--text-sm);
+}
+.acc-res li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+.acc-res-l {
+  color: var(--muted-foreground);
+}
+.acc-res-n {
+  font-variant-numeric: tabular-nums;
+}
+.acc-res-w {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--foreground);
 }

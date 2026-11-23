@@ -14,7 +14,7 @@ from unittest import mock
 from limn.platform.tailnet import TailnetDirectory, TailnetUser, unavailable
 from limn.security.access_store import write_access
 
-from helpers import ps
+from helpers import ps, set_config
 from helpers_access import ALICE, BOB, CAROL
 from helpers_browser import BrowserBase, settle
 
@@ -38,7 +38,7 @@ DEVICES = {
     "fold inner 673x841": {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True},
     "fold inner 841x673": {"viewport": {"width": 841, "height": 673}, "is_mobile": True, "has_touch": True},
 }
-ROW_MOUSE, ROW_TOUCH = 32, 44  # a row's height (tokens --row-h-sm, --hit)
+ROW_MOUSE, ROW_TOUCH = 48, 56  # a two-line row's height (tokens --row-h, --row-h-touch)
 
 
 class AccessScreenBase(BrowserBase):
@@ -272,6 +272,25 @@ class AccessUnmanaged(AccessScreenBase):
         self.assertEqual(page.inner_text("#access-body .acc-status"), "화면에서 관리 중 · 멤버 2명")
         logins = [x["login"] for x in json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]]
         self.assertEqual(sorted(logins), sorted([EDITOR["login"], OWNER["login"]]))
+
+    def test_the_result_after_the_press_is_the_servers_count_by_login(self):
+        """With --allow naming two people, ticking a third lets her in newly: after the press the screen reads the server's
+        added / removed / kept / newly_admitted (by login), not the preview's count."""
+        set_config(allow=frozenset({OWNER["login"], EDITOR["login"]}))
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        page.check('input[data-acc-check="carol@example.com"]')
+        self.assertEqual(page.inner_text(".acc-sum").replace("\n", " "), "2명 유지 · 1명 새로 들어옴")
+        page.click('[data-act="access-manage-apply"]')
+        page.wait_for_selector("#access-body .acc-result")
+        result = page.inner_text("#access-body .acc-result")
+        self.assertIn("화면 관리로 전환했습니다", result)
+        self.assertIn("서버가 새로 들어오게 한 사람: carol@example.com", result.replace("\n", " "))
+        self.assertIn("alice@example.com", page.inner_text("#access-body .acc-res li:nth-child(4)"))  # kept
+        self.assertEqual(self.count(page, "#access-body .acc-result .acc-new"), 1)  # it matched the preview
+        page.click(self.row("carol@example.com") + ' [data-act="access-role"][data-role="editor"]')
+        page.wait_for_selector(self.row("carol@example.com") + ' [data-role="editor"][aria-checked="true"]')
+        self.assertEqual(self.count(page, "#access-body .acc-result"), 0)  # the next change clears it
 
     def test_cancel_returns_to_the_lists(self):
         """[취소] leaves the transition and draws the lists again, with the band."""
