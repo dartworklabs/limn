@@ -96,7 +96,8 @@ function drawBox(box: HTMLElement, startX: number, startY: number, x: number, y:
 type PendingOwner = 'compose' | 'repick';
 // A box of a pending box's range other than the pending box itself. The lines a range covers may print as several
 // blocks, and each is drawn as a box of its own on the page it stands on; the pending box is the first of them, so
-// everything that is the one place - the note popover's anchor, the identity a click-off compares - stays that box.
+// everything that is the one place - the identity a click-off compares, the box the note popover belongs to - stays
+// that box. The popover stands by every piece in view, the pending box and these (placeSelectionPopover).
 // The boxes beside it carry .sel-part and their owner's name, which is how they are found again and taken off.
 function newSelectionPart(pageElement: HTMLElement, owner: PendingOwner) {
   const part = document.createElement('div');
@@ -105,6 +106,8 @@ function newSelectionPart(pageElement: HTMLElement, owner: PendingOwner) {
   pageElement.appendChild(part);
   return part;
 }
+/** The boxes drawn beside the owner's pending box for its range's other pieces, in document order (page by page, and
+ * on a page in the order they were drawn); empty when the range prints as one piece. */
 function selectionParts(owner: PendingOwner) {
   return document.querySelectorAll('.sel-part[data-owner=' + owner + ']');
 }
@@ -663,6 +666,7 @@ export {
   pendingBadge,
   pendingBadgeSide,
   revealBox,
+  selectionParts,
   selectionRoom,
   snapSelectionBox,
 };
