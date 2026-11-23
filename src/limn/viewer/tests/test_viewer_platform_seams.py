@@ -550,6 +550,11 @@ const CASES=[
   ['GET /api/revision-build',{query:withDocQuery('?commit='+COMMIT+'&pin='+ID,DOCKEY)},
     withDocQuery('/api/revision-build?commit='+COMMIT+'&pin='+ID,DOCKEY),'GET'],
   ['POST /api/revision-build',{body:{commit:COMMIT,pin:ID}},'/api/revision-build','POST'],
+  ['GET /api/access',{},'/api/access','GET'],
+  ['POST /api/members/add',{body:{login:'a@example.com',role:'viewer'}},'/api/members/add','POST'],
+  ['POST /api/members/role',{body:{login:'a@example.com',role:'editor'}},'/api/members/role','POST'],
+  ['POST /api/members/remove',{body:{login:'a@example.com'}},'/api/members/remove','POST'],
+  ['POST /api/access/managed',{body:{managed:true,members:[],confirm:'c'}},'/api/access/managed','POST'],
 ];
 const SENT=[];
 globalThis.fetch=(url,init)=>{SENT.push([url,init.method,init.body===undefined?null:init.body,init.headers]);

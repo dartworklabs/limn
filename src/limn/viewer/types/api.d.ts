@@ -725,6 +725,79 @@ interface RevisionBuildStatus {
   merge_base?: string;
 }
 
+// ---------------------------------------------------------------- access management (owner only)
+// One row of people.json as GET /api/access shows it: the login, the name to read, the role and, when recorded, when
+// the person was last seen.
+interface AccessMember {
+  login: string;
+  name: string;
+  role: string;
+  last_seen?: string;
+}
+
+// A transition row the owner cannot change: an owner's or an agent's. It also says whether --allow lets that login in
+// today, so the screen can show what the switch keeps.
+interface AccessFixedMember {
+  login: string;
+  name: string;
+  role: string;
+  last_seen?: string;
+  admitted_today: boolean;
+}
+
+// The transition screen GET /api/access carries while the instance is not managed: who gets in today, the rows the
+// owner may check (viewer/editor) and the rows that stay whatever is checked.
+interface AccessTransition {
+  admitted_today: string[];
+  settable: AccessMember[];
+  fixed: AccessFixedMember[];
+}
+
+// One person of the tailnet this server can see who is not a member yet.
+interface TailnetUser {
+  login: string;
+  name?: string;
+  pic?: string;
+}
+
+// The tailnet directory the local daemon answered with: the people who could be let in, whether the list may be
+// incomplete and, when it could not be read, why (tailscaled_not_found and the like).
+interface AccessTailnet {
+  users: TailnetUser[];
+  partial: boolean;
+  reason?: string;
+}
+
+// GET /api/access: whether the viewer manages admission, who is a member, what the run's arguments say, the transition
+// screen while it is unmanaged, and who could be let in.
+interface AccessView {
+  managed: boolean;
+  managed_at?: string;
+  managed_by?: string;
+  unmanaged_admits_everyone: boolean;
+  args: { allow: string[]; members_only: boolean };
+  members: AccessMember[];
+  transition?: AccessTransition;
+  tailnet: AccessTailnet;
+}
+
+// POST /api/members/add, /role and /remove: the row as it now stands; null for a remove of a login that was no member.
+interface MemberChanged {
+  ok: boolean;
+  member: AccessMember | null;
+}
+
+// POST /api/access/managed: the flag as it now stands and what the one transaction did to the member rows.
+interface ManagedChanged {
+  ok: boolean;
+  managed: boolean;
+  added: string[];
+  removed: string[];
+  changed: string[];
+  kept: string[];
+  newly_admitted: string[];
+}
+
 // The answer each endpoint the viewer calls gives, by its method and path ({id}: a pin's number). api() takes the key,
 // builds the request from it and answers this type; the query does not change it, so a field only some queries bring
 // is optional. src/limn/viewer/tests/test_viewer_types.py holds each type to the real handler.
@@ -758,6 +831,11 @@ interface ApiAnswers {
   'GET /api/revision-source': RevisionSources;
   'GET /api/revision-build': RevisionBuildStatus;
   'POST /api/revision-build': RevisionBuildStatus;
+  'GET /api/access': AccessView;
+  'POST /api/members/add': MemberChanged;
+  'POST /api/members/role': MemberChanged;
+  'POST /api/members/remove': MemberChanged;
+  'POST /api/access/managed': ManagedChanged;
 }
 
 // The refusals a caller may hand api() in options.expect, by endpoint and status, with the body each answers: api()
@@ -769,6 +847,10 @@ interface ApiRefusals {
   'POST /api/pin': { 409: SaveConflict };
   'POST /api/pins/{id}/edit': { 409: PinConflict };
   'POST /api/pins/{id}/confirm': { 409: PinConflict };
+  'POST /api/members/add': { 400: ErrorBody; 409: ErrorBody };
+  'POST /api/members/role': { 400: ErrorBody; 409: ErrorBody };
+  'POST /api/members/remove': { 400: ErrorBody; 409: ErrorBody };
+  'POST /api/access/managed': { 400: ErrorBody; 409: ErrorBody };
 }
 
 // An endpoint the viewer calls (ApiAnswers).

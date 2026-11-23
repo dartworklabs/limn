@@ -1,0 +1,415 @@
+"""The owner's access screen in Chromium, against the real handler and stores (helpers_browser.BrowserBase).
+
+docs/superpowers/plans/2026-11-22-viewer-access-management.md Task 8; the rules are docs/handbook/viewer.md §접근 관리.
+The screen is drawn for an owner only, and what a row may not use is not drawn at all: a hidden button would stay in
+the document (the same rule as ViewerTrashControls in test_viewer_browser.py). The tailnet's people come from a stubbed
+directory (ps.read_tailnet_directory), the real handler answers everything else.
+
+Run: uv run pytest -q src/limn/viewer/tests/test_viewer_access.py
+"""
+
+import json
+from unittest import mock
+
+from limn.platform.tailnet import TailnetDirectory, TailnetUser, unavailable
+from limn.security.access_store import write_access
+
+from helpers import ps
+from helpers_access import ALICE, BOB, CAROL
+from helpers_browser import BrowserBase, settle
+
+OWNER = {"login": "alice@example.com", "name": "Alice Kim", "role": "owner"}
+EDITOR = {"login": "bob@example.com", "name": "Bob Park", "role": "editor"}
+VIEWER = {"login": "carol@example.com", "name": "Carol Lee", "role": "viewer"}
+SECOND_OWNER = {"login": "frank@example.com", "name": "Frank Oh", "role": "owner"}
+AGENT = {"login": "dave@example.com", "name": "Dave Choi", "role": "agent"}
+CANDIDATES = TailnetDirectory(
+    (TailnetUser("erin@example.com", "Erin Han", None), TailnetUser("gina@example.com", "Gina Yoo", None)), True, None
+)
+# The device classes a screen change is shown on (docs/handbook/workflow.md §화면 변경은 PoC를 먼저 보인다): a mouse on
+# the desktop, touch everywhere else.
+DEVICES = {
+    "desktop 1440x900": {"viewport": {"width": 1440, "height": 900}},
+    "phone 390x844": {"viewport": {"width": 390, "height": 844}, "is_mobile": True, "has_touch": True},
+    "phone 320x720": {"viewport": {"width": 320, "height": 720}, "is_mobile": True, "has_touch": True},
+    "tablet 768x1024": {"viewport": {"width": 768, "height": 1024}, "is_mobile": True, "has_touch": True},
+    "tablet 1024x768": {"viewport": {"width": 1024, "height": 768}, "is_mobile": True, "has_touch": True},
+    "fold outer 344x882": {"viewport": {"width": 344, "height": 882}, "is_mobile": True, "has_touch": True},
+    "fold inner 673x841": {"viewport": {"width": 673, "height": 841}, "is_mobile": True, "has_touch": True},
+    "fold inner 841x673": {"viewport": {"width": 841, "height": 673}, "is_mobile": True, "has_touch": True},
+}
+ROW_MOUSE, ROW_TOUCH = 32, 44  # a row's height (tokens --row-h-sm, --hit)
+
+
+class AccessScreenBase(BrowserBase):
+    """A run whose people.json holds ROWS and whose tailnet shows TAILNET; the viewer is WHO (the owner by default)."""
+
+    WHO = ALICE
+    ROWS = (OWNER, EDITOR, VIEWER)
+    TAILNET = CANDIDATES
+    MANAGED = False
+
+    def setUp(self):
+        """people.json, the access flag and the stubbed tailnet directory, all undone with the test."""
+        super().setUp()
+        self.write_people(self.ROWS)
+        if self.MANAGED:
+            write_access(ps.APP.C.access_file, True, "2026-11-23 10:00:00", OWNER["login"])
+        patch = mock.patch.object(ps, "read_tailnet_directory", side_effect=lambda *_: self.TAILNET)
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def write_people(self, rows):
+        """people.json with exactly these rows."""
+        ps.APP.C.people_file.write_text(json.dumps({"version": 1, "people": list(rows)}), encoding="utf-8")
+
+    def open_screen(self, **device):
+        """The viewer opened for the owner, [⋯] -> [접근 관리] pressed, and the dialog open with its body drawn."""
+        page = self.open(0, **device)
+        page.wait_for_selector("#m-access-host #m-access", state="attached")
+        page.click("#btn-more")
+        page.click("#m-access")
+        page.wait_for_selector("#access[open] #access-body .acc-sec")
+        settle(page)
+        return page
+
+    def count(self, page, selector):
+        """How many elements of the document match selector, drawn or not."""
+        return page.evaluate("s => document.querySelectorAll(s).length", selector)
+
+    def row(self, login):
+        """The selector of the member or candidate row of login."""
+        return '#access-body .acc-row[data-login="%s"]' % login
+
+
+class AccessAbsentForNonOwners(AccessScreenBase):
+    """Anyone who does not own the instance has no entry, no dialog contents and no request for the screen."""
+
+    def test_entry_point_absent_for_non_owner(self):
+        """An editor and a viewer get no [접근 관리]: nothing is in the document to unhide, and /api/access is not asked."""
+        for who in (BOB, CAROL):
+            with self.subTest(who=who["Tailscale-User-Login"]):
+                self.WHO = who
+                asked = []
+                page = self.open(0)
+                page.on("request", lambda request, seen=asked: seen.append(request.url))
+                page.reload()
+                page.wait_for_function("typeof META!=='undefined' && META && META.me")
+                settle(page)
+                self.assertEqual(self.count(page, "#m-access, #m-access-n"), 0)
+                self.assertEqual(page.evaluate("document.getElementById('m-access-host').childElementCount"), 0)
+                self.assertFalse(page.evaluate("document.body.classList.contains('role-owner')"))
+                self.assertEqual([url for url in asked if "/api/access" in url], [])
+
+    def test_panel_controls_absent_for_non_owner(self):
+        """The dialog is an empty shell for a non-owner: no heading, no row, no role control, no button, no field."""
+        for who in (BOB, CAROL):
+            with self.subTest(who=who["Tailscale-User-Login"]):
+                self.WHO = who
+                page = self.open(0)
+                self.assertEqual(page.evaluate("document.getElementById('access').childElementCount"), 0)
+                self.assertEqual(self.count(page, "#access *"), 0)
+                self.assertEqual(self.count(page, '[data-act^="access"]'), 0)
+                self.assertEqual(self.count(page, "#access-body, #acc-login, .acc-row, .acc-roles"), 0)
+
+    def test_the_owner_has_the_entry_and_the_class(self):
+        """The owner gets the entry (with the member count) and body.role-owner, as a viewer gets body.role-viewer."""
+        page = self.open(0)
+        page.wait_for_selector("#m-access", state="attached")
+        self.assertTrue(page.evaluate("document.body.classList.contains('role-owner')"))
+        self.assertFalse(page.evaluate("document.body.classList.contains('role-viewer')"))
+        self.assertEqual(page.text_content("#m-access-n"), "3")
+
+
+class AccessMembers(AccessScreenBase):
+    """The members section: who has a role control and [빼기], and who has neither."""
+
+    ROWS = (OWNER, EDITOR, VIEWER, SECOND_OWNER, AGENT)
+
+    def test_self_row_has_no_remove_control(self):
+        """The owner's own row names the role as a word and draws no role control and no [빼기] - there is no element."""
+        page = self.open_screen()
+        own = self.row(OWNER["login"])
+        self.assertEqual(self.count(page, own), 1)
+        self.assertEqual(self.count(page, own + " .acc-roles, " + own + " button, " + own + " [data-act]"), 0)
+        self.assertIn("소유자", page.inner_text(own))
+
+    def test_last_owner_row_has_no_role_or_remove_control(self):
+        """Every owner row and every agent row draws no control; a viewer and an editor row draw both."""
+        page = self.open_screen()
+        for member in (OWNER, SECOND_OWNER, AGENT):
+            with self.subTest(member=member["login"]):
+                row = self.row(member["login"])
+                self.assertEqual(self.count(page, row + " button, " + row + " [role=radio], " + row + " [data-act]"), 0)
+        for member in (EDITOR, VIEWER):
+            with self.subTest(member=member["login"]):
+                row = self.row(member["login"])
+                self.assertEqual(self.count(page, row + ' [data-act="access-role"]'), 2)
+                self.assertEqual(self.count(page, row + ' [data-act="access-remove"]'), 1)
+
+    def test_the_sole_owner_has_no_controls_either(self):
+        """With one owner and nobody else of that role, the only owner row is the reader's own, and it has none."""
+        self.write_people((OWNER, EDITOR))
+        page = self.open_screen()
+        self.assertEqual(self.count(page, self.row(OWNER["login"]) + " button"), 0)
+        self.assertEqual(self.count(page, self.row(EDITOR["login"]) + " button"), 3)
+
+    def test_a_role_press_changes_the_member_on_a_managed_instance(self):
+        """[편집] on a viewer's row asks the server, and the row is drawn again with that role chosen."""
+        write_access(ps.APP.C.access_file, True, "2026-11-23 10:00:00", OWNER["login"])
+        page = self.open_screen()
+        row = self.row(VIEWER["login"])
+        page.click(row + ' [data-act="access-role"][data-role="editor"]')
+        page.wait_for_selector(row + ' [data-role="editor"][aria-checked="true"]')
+        stored = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertEqual({x["login"]: x["role"] for x in stored}[VIEWER["login"]], "editor")
+
+    def test_remove_takes_the_row_away(self):
+        """[빼기] removes the member from people.json and the row from the screen."""
+        write_access(ps.APP.C.access_file, True, "2026-11-23 10:00:00", OWNER["login"])
+        page = self.open_screen()
+        page.click(self.row(EDITOR["login"]) + ' [data-act="access-remove"]')
+        page.wait_for_selector(self.row(EDITOR["login"]), state="detached")
+        stored = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertNotIn(EDITOR["login"], [x["login"] for x in stored])
+
+
+class AccessTailnet(AccessScreenBase):
+    """The tailnet section: who could be let in, and that the list is only part of the people."""
+
+    MANAGED = True
+
+    def test_tailnet_section_says_the_list_is_partial(self):
+        """The section carries a line saying the list holds only people this server can see, above the candidates."""
+        page = self.open_screen()
+        section = page.locator("#access-body .acc-sec").nth(1)
+        self.assertIn("테일넷에서 들이기", section.inner_text())
+        self.assertIn("이 서버가 볼 수 있는 사람만", section.locator(".acc-note").first.inner_text())
+        self.assertEqual(self.count(page, self.row("erin@example.com")), 1)
+        self.assertEqual(self.count(page, self.row("gina@example.com")), 1)
+
+    def test_login_input_is_shown_when_the_list_is_empty(self):
+        """With nobody to list (and with a daemon that could not be read), the login field is there, with the reason."""
+        for directory, words in (
+            (TailnetDirectory((), True, None), "들일 사람이 없습니다"),
+            (unavailable("tailscaled_not_found"), "읽지 못했습니다"),
+        ):
+            with self.subTest(reason=directory.reason):
+                self.TAILNET = directory
+                page = self.open_screen()
+                self.assertEqual(self.count(page, "#acc-login"), 1)
+                self.assertEqual(self.count(page, '#access-body .acc-sec:nth-of-type(2) [data-act="access-admit"]'), 0)
+                self.assertIn(words, page.inner_text("#access-body"))
+                self.assertIn(
+                    "이 서버가 볼 수 있는" if not directory.reason else "tailscaled_not_found",
+                    page.inner_text("#access-body"),
+                )
+
+    def test_admitting_a_candidate_makes_a_member_with_the_chosen_role(self):
+        """A candidate's own role chooser decides the role [들이기] sends; the screen then shows a member row."""
+        page = self.open_screen()
+        row = self.row("erin@example.com")
+        page.click(row + ' [data-act="access-pick"][data-role="editor"]')
+        page.click(row + ' [data-act="access-admit"]')
+        page.wait_for_selector(row + ' [data-act="access-remove"]')
+        stored = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertEqual(
+            {x["login"]: (x["role"], x["name"]) for x in stored}["erin@example.com"], ("editor", "Erin Han")
+        )
+
+    def test_a_typed_login_is_admitted_and_survives_a_role_press(self):
+        """A role pressed beside the typed login does not erase it; [들이기] sends it, and the field is emptied."""
+        page = self.open_screen()
+        page.fill("#acc-login", "hana@example.com")
+        page.click('#access-body .acc-add [data-act="access-typed-role"][data-role="editor"]')
+        self.assertEqual(page.input_value("#acc-login"), "hana@example.com")
+        page.click('#access-body .acc-add [data-act="access-add"]')
+        page.wait_for_selector(self.row("hana@example.com"))
+        stored = json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]
+        self.assertEqual({x["login"]: x["role"] for x in stored}["hana@example.com"], "editor")
+        self.assertEqual(page.input_value("#acc-login"), "")
+
+
+class AccessUnmanaged(AccessScreenBase):
+    """An instance that still runs on --allow: the band, the transition's two columns, and the refusals."""
+
+    def test_the_band_offers_the_switch_and_a_managed_instance_says_its_mode(self):
+        """Unmanaged: the band with [화면 관리로 전환]. Managed: no band, and the status line says so with the count."""
+        page = self.open_screen()
+        self.assertEqual(self.count(page, '#access-body .acc-band [data-act="access-manage"]'), 1)
+        self.assertEqual(self.count(page, "#access-body .acc-status"), 0)
+        write_access(ps.APP.C.access_file, True, "2026-11-23 10:00:00", OWNER["login"])
+        page = self.open_screen()
+        self.assertEqual(self.count(page, "#access-body .acc-band, #access-body [data-act=access-manage]"), 0)
+        self.assertEqual(page.inner_text("#access-body .acc-status"), "화면에서 관리 중 · 멤버 3명")
+
+    def test_the_transition_shows_both_columns_and_the_summary(self):
+        """Two columns, the boxes only in the right one, the owner locked, and a summary that follows the boxes."""
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        page.wait_for_selector("#access-body .acc-cols")
+        left = page.locator("#access-body .acc-col").nth(0)
+        right = page.locator("#access-body .acc-col").nth(1)
+        self.assertIn("지금 들어오는 사람", left.inner_text())
+        self.assertIn("전환 뒤 들어오는 사람", right.inner_text())
+        self.assertEqual(left.locator("input").count(), 0)
+        self.assertEqual(right.locator("input[type=checkbox]").count(), 2)  # the editor and the viewer
+        owner_line = right.locator(".acc-fixed")
+        self.assertEqual(owner_line.count(), 1)
+        self.assertEqual(owner_line.locator("input, button").count(), 0)  # locked: nothing to check
+        self.assertIn("고정", owner_line.inner_text())
+        self.assertEqual(page.inner_text(".acc-sum").replace("\n", " "), "3명 유지 · 0명 새로 들어옴")
+        page.uncheck('input[data-acc-check="carol@example.com"]')
+        self.assertEqual(page.inner_text(".acc-sum").replace("\n", " "), "2명 유지 · 0명 새로 들어옴")
+
+    def test_applying_the_transition_manages_the_instance_with_the_checked_people(self):
+        """[화면 관리로 전환] sends the checked rows; the screen then reads as a managed instance and the flag is on."""
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        page.uncheck('input[data-acc-check="carol@example.com"]')
+        page.click('[data-act="access-manage-apply"]')
+        page.wait_for_selector("#access-body .acc-status")
+        self.assertEqual(page.inner_text("#access-body .acc-status"), "화면에서 관리 중 · 멤버 2명")
+        logins = [x["login"] for x in json.loads(ps.APP.C.people_file.read_text(encoding="utf-8"))["people"]]
+        self.assertEqual(sorted(logins), sorted([EDITOR["login"], OWNER["login"]]))
+
+    def test_cancel_returns_to_the_lists(self):
+        """[취소] leaves the transition and draws the lists again, with the band."""
+        page = self.open_screen()
+        page.click('[data-act="access-manage"]')
+        page.click('[data-act="access-manage-cancel"]')
+        page.wait_for_selector("#access-body .acc-band")
+        self.assertEqual(self.count(page, "#access-body .acc-cols"), 0)
+
+    def test_a_refusal_is_drawn_inside_the_dialog(self):
+        """The server refuses a change while the instance is unmanaged (409); the reason is in the dialog, where a modal
+        leaves it readable, and not on the pin panel behind it."""
+        page = self.open_screen()
+        page.click(self.row("erin@example.com") + ' [data-act="access-admit"]')
+        page.wait_for_selector("#access-body .acc-err")
+        self.assertIn("멤버 들이기", page.inner_text("#access-body .acc-err"))
+        self.assertEqual(self.count(page, "#access #access-body .acc-err[role=alert]"), 1)
+        self.assertEqual(self.count(page, self.row("erin@example.com") + ' [data-act="access-remove"]'), 0)
+
+    def test_the_focus_stays_in_the_dialog_after_a_draw(self):
+        """A press that redraws the screen (a role picked on a candidate) leaves the focus on the same control."""
+        page = self.open_screen()
+        control = self.row("erin@example.com") + ' [data-act="access-pick"][data-role="editor"]'
+        page.focus(control)
+        page.keyboard.press("Enter")
+        page.wait_for_selector(control + '[aria-checked="true"]')
+        self.assertTrue(page.evaluate("s => document.activeElement === document.querySelector(s)", control))
+
+
+class AccessDialog(AccessScreenBase):
+    """The dialog's own behaviour: Escape, a click outside, Tab."""
+
+    def test_escape_and_backdrop_close_the_panel(self):
+        """Esc closes it on the desktop; a click on the backdrop closes it on the desktop and on a phone's sheet."""
+        for name in ("desktop 1440x900", "phone 390x844"):
+            with self.subTest(device=name):
+                page = self.open_screen(**DEVICES[name])
+                page.keyboard.press("Escape")
+                page.wait_for_function("!document.getElementById('access').open")
+                page = self.open_screen(**DEVICES[name])
+                page.mouse.click(4, 4)  # outside the card (desktop) and above the sheet (phone)
+                page.wait_for_function("!document.getElementById('access').open")
+
+    def test_tab_stays_inside_the_panel(self):
+        """Tab and Shift+Tab, past the last control and the first, never leave the dialog."""
+        page = self.open_screen()
+        for key in ["Tab"] * 40 + ["Shift+Tab"] * 40:
+            page.keyboard.press(key)
+            self.assertTrue(
+                page.evaluate("!!document.activeElement && !!document.activeElement.closest('#access')"), key
+            )
+
+    def test_the_dialog_is_a_labelled_modal(self):
+        """The dialog is named by its heading and takes the focus when it opens."""
+        page = self.open_screen()
+        self.assertEqual(page.get_attribute("#access", "aria-labelledby"), "access-h")
+        self.assertEqual(page.inner_text("#access-h"), "접근 관리")
+        self.assertTrue(page.evaluate("document.activeElement === document.getElementById('access')"))
+
+    def test_english_has_no_korean_left(self):
+        """In English every word of the screen is the English table's, the transition's too."""
+        for managed in (False, True):
+            with self.subTest(managed=managed):
+                if managed:
+                    write_access(ps.APP.C.access_file, True, "2026-11-23 10:00:00", OWNER["login"])
+                page = self.open(0, lang="en")
+                page.wait_for_selector("#m-access", state="attached")
+                page.click("#btn-more")
+                page.click("#m-access")
+                page.wait_for_selector("#access[open] #access-body .acc-sec")
+                text = page.inner_text("#access") + page.get_attribute("#m-access", "data-tip")
+                self.assertEqual([c for c in text if "가" <= c <= "힣"], [])
+                if not managed:
+                    page.click('[data-act="access-manage"]')
+                    page.wait_for_selector("#access-body .acc-cols")
+                    self.assertEqual([c for c in page.inner_text("#access") if "가" <= c <= "힣"], [])
+
+
+class AccessLayout(AccessScreenBase):
+    """The screen at the device classes: nothing overflows or is clipped, and a row is as tall as the pointer needs."""
+
+    ROWS = (OWNER, EDITOR, VIEWER, AGENT)
+
+    MEASURE = """() => {
+        const dialog = document.getElementById('access'), box = dialog.getBoundingClientRect();
+        const outside = [], clipped = [];
+        for (const el of dialog.querySelectorAll('*')) {
+            const r = el.getBoundingClientRect();
+            if (!r.width && !r.height) continue;
+            if (r.left < box.left - 0.5 || r.right > box.right + 0.5)
+                outside.push((el.className || el.tagName) + ' ' + Math.round(r.left) + '..' + Math.round(r.right));
+            if (el.matches('button, label, .acc-seen, .acc-role-fixed, .acc-h, .acc-note') && el.scrollWidth > el.clientWidth + 1)
+                clipped.push((el.className || el.tagName) + ' ' + el.scrollWidth + '>' + el.clientWidth);
+        }
+        const rows = [...dialog.querySelectorAll('.acc-row, .acc-check')].map((e) => e.getBoundingClientRect().height);
+        const marks = [...dialog.querySelectorAll('button, input')].map((e) => e.getBoundingClientRect().height);
+        return {
+            overflowX: dialog.scrollWidth - dialog.clientWidth,
+            pageOverflowX: document.documentElement.scrollWidth - window.innerWidth,
+            inView: box.left >= -0.5 && box.right <= window.innerWidth + 0.5 && box.top >= -0.5 && box.bottom <= window.innerHeight + 0.5,
+            outside, clipped, rows, marks,
+            coarse: matchMedia('(pointer: coarse)').matches,
+        };
+    }"""
+
+    def write_flag(self, managed):
+        """The instance managed from the viewer, or not (the flag file there, or not)."""
+        if managed:
+            write_access(ps.APP.C.access_file, True, "2026-11-23 10:00:00", OWNER["login"])
+        elif ps.APP.C.access_file.exists():
+            ps.APP.C.access_file.unlink()
+
+    def check(self, page, where):
+        """The measurements of the open dialog, held to the rules; where names the device and state for a failure."""
+        got = page.evaluate(self.MEASURE)
+        self.assertLessEqual(got["overflowX"], 0, where)
+        self.assertLessEqual(got["pageOverflowX"], 0, where)
+        self.assertTrue(got["inView"], where)
+        self.assertEqual(got["outside"], [], where)
+        self.assertEqual(got["clipped"], [], where)
+        floor = ROW_TOUCH if got["coarse"] else ROW_MOUSE
+        self.assertTrue(got["rows"], where)
+        for height in got["rows"]:
+            self.assertGreaterEqual(round(height, 1), floor, where)
+        if not got["coarse"]:
+            self.assertEqual({round(h) for h in got["rows"]} & {ROW_MOUSE}, {ROW_MOUSE}, where)
+        return got
+
+    def test_layout_at_four_device_classes(self):
+        """The lists, the transition, and a managed instance fit and clip nothing on every device class, in both languages."""
+        for name, device in DEVICES.items():
+            for managed in (False, True):
+                with self.subTest(device=name, managed=managed):
+                    self.write_flag(managed)
+                    page = self.open_screen(**device)
+                    self.check(page, "%s managed=%s" % (name, managed))
+                    if not managed:
+                        page.click('[data-act="access-manage"]')
+                        page.wait_for_selector("#access-body .acc-cols")
+                        self.check(page, "%s transition" % name)
+                    page.close()

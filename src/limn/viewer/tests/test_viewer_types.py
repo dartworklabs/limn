@@ -25,6 +25,7 @@ from limn.pins import model
 from limn.pins.location import mapping, range as ranges
 from limn.platform import files
 from limn.platform.git import run_git
+from limn.platform.tailnet import TailnetDirectory, TailnetUser, unavailable
 from limn.revisions import core as revisions_core, execution as revision_execution
 from limn.runtime.documents import Doc
 from limn.sync import rules as sync_rules
@@ -651,11 +652,64 @@ class DeclaredEndpointAnswers(AccessBase):
             join_revision_workers(self)
             self.answer("RevisionBuildStatus", "GET", "/api/revision-build?doc=ms&%s&pin=%d" % (commit, self.pin))
 
+    def access_flows(self):
+        """The owner's access screen: the read of an unmanaged and of a managed instance (with and without a tailnet
+        list), the four writes, and the refusals the viewer expects of them."""
+        alice = {"login": ALICE["Tailscale-User-Login"], "name": "Alice Kim", "role": "owner"}
+        bob = {
+            "login": BOB["Tailscale-User-Login"],
+            "name": "Bob Park",
+            "role": "editor",
+            "last_seen": "2026-11-22 18:02:00",
+        }
+        self.set_people([alice, bob])
+        listed = TailnetDirectory(
+            (TailnetUser("erin@example.com", "Erin Han", "https://pics.example.com/erin.png"),), True, None
+        )
+        with mock.patch.object(ps, "read_tailnet_directory", return_value=listed):
+            self.answer("AccessView", "GET", "/api/access", headers=ALICE)  # not managed: the transition is there
+            self.answer(
+                "ErrorBody", "POST", "/api/members/add", {"login": "erin@example.com", "role": "viewer"}, 409, ALICE
+            )
+            confirm = "manage access from the viewer"
+            both = [{"login": bob["login"], "role": "editor"}]  # the owner row is fixed, never sent
+            self.answer("ErrorBody", "POST", "/api/access/managed", {"managed": True, "members": both}, 400, ALICE)
+            self.answer(
+                "ManagedChanged",
+                "POST",
+                "/api/access/managed",
+                {"managed": True, "members": both, "confirm": confirm},
+                200,
+                ALICE,
+            )
+            self.answer("AccessView", "GET", "/api/access", headers=ALICE)  # managed: the flag's stamp, no transition
+            self.answer(
+                "MemberChanged", "POST", "/api/members/add", {"login": "erin@example.com", "role": "viewer"}, 200, ALICE
+            )
+            self.answer(
+                "MemberChanged",
+                "POST",
+                "/api/members/role",
+                {"login": "erin@example.com", "role": "editor"},
+                200,
+                ALICE,
+            )
+            self.answer(
+                "ErrorBody", "POST", "/api/members/role", {"login": "erin@example.com", "role": "owner"}, 400, ALICE
+            )
+            self.answer("MemberChanged", "POST", "/api/members/remove", {"login": "erin@example.com"}, 200, ALICE)
+            self.answer(
+                "MemberChanged", "POST", "/api/members/remove", {"login": "erin@example.com"}, 200, ALICE
+            )  # no member
+        with mock.patch.object(ps, "read_tailnet_directory", return_value=unavailable("tailscaled_not_found")):
+            self.answer("AccessView", "GET", "/api/access", headers=ALICE)
+
     def run_flows(self):
         """Every flow above, in order."""
         self.pin_flows()
         self.document_flows()
         self.revision_flows()
+        self.access_flows()
 
     def test_every_answered_field_is_declared_with_its_type(self):
         """No answer of the flows has an undeclared field or a value of another JSON type than declared."""

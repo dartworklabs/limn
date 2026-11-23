@@ -1,0 +1,363 @@
+/* Access management (js/access/): the owner's screen for who may come in. It stands in a dialog of its own (#access,
+   the Trash's shape - a centred card for a mouse, a bottom sheet in compact).
+   Only tokens (css/tokens.css): no colour, radius, font size, spacing or control height written out. No box here
+   carries a one-sided accent line: a band is a uniform border over a tint, a list's rows are separated by a rule and a
+   section by its top rule, and nothing with a radius has a border on one side only. */
+
+/* ---------------------------------------------------------------- the entry and the dialog */
+/* The place in [더보기]'s list where the owner's entry is drawn; empty for everyone else, it has no box of its own. */
+.m-host {
+  display: contents;
+}
+
+#access-h {
+  text-box: trim-both cap alphabetic;
+}
+#access-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding-top: var(--space-2);
+}
+#access .ns-head > .row > button {
+  background: transparent;
+  border-color: transparent;
+}
+@media (hover: hover) {
+  #access .ns-head > .row > button:where(:not(:disabled,[aria-disabled="true"])):hover {
+    background: var(--accent);
+  }
+}
+body:not(.compact) #access .ns-grab {
+  display: none;
+}
+body:not(.compact) #access .ns-head > .row > button {
+  margin-right: calc(-1 * (var(--space-2) + 1px));
+}
+/* In compact it rises from the bottom edge like the Trash, its head sticky at its top. */
+body.compact #access {
+  margin: auto auto 0;
+  width: 100%;
+  max-width: 640px;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: 0 var(--space-4) calc(var(--space-3) + env(safe-area-inset-bottom));
+}
+body.compact #access .ns-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--popover);
+}
+body.compact #access .ns-head .row {
+  flex-wrap: nowrap;
+  min-height: var(--hit);
+}
+
+/* ---------------------------------------------------------------- the band, headings and notes */
+/* An unmanaged instance says so: a tinted box with a uniform border, the reason under the line and the switch at its
+   end. */
+.acc-band {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-3);
+  border: 1px solid var(--border-seam);
+  border-radius: var(--radius);
+  background: var(--muted);
+}
+.acc-band-ic {
+  flex: none;
+  display: flex;
+  color: var(--warning);
+}
+.acc-band-ic .ic {
+  width: 16px;
+  height: 16px;
+}
+.acc-band-t {
+  flex: 1 1 180px;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: round(1.55em, 1px);
+  color: var(--foreground);
+}
+.acc-band-s {
+  display: block;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+.acc-band-b {
+  flex: none;
+}
+.acc-sec {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.acc-sec + .acc-sec {
+  border-top: 1px solid var(--border);
+  padding-top: var(--space-3);
+}
+.acc-h {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--foreground);
+}
+.acc-note {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: round(1.55em, 1px);
+  color: var(--muted-foreground);
+}
+.acc-status {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: round(1.55em, 1px);
+  color: var(--foreground);
+}
+
+/* ---------------------------------------------------------------- one row per person */
+/* Four columns the rows share (subgrid), so every role control, date and action starts on one line down the list: who
+   | role | last seen | action. A row is --row-h-sm with a mouse; on touch its own controls answer 44px, and the row is
+   as tall. */
+.acc-rows {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+  column-gap: var(--space-3);
+  align-content: start;
+}
+.acc-row {
+  position: relative;
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: subgrid;
+  align-items: center;
+  min-height: var(--row-h-sm);
+}
+/* The rule between rows is a line drawn over the row's top edge, so it takes no height from the row: a row is exactly
+   --row-h-sm. */
+.acc-row::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--border);
+}
+.acc-rows > .acc-row:first-child::before {
+  content: none;
+}
+.acc-who {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.acc-name {
+  line-height: 1.2; /* name over login fit a one-line row's 32px */
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acc-login {
+  line-height: 1.2;
+  font-size: var(--text-xs);
+  color: var(--subtle-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acc-seen {
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.acc-role-fixed {
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.acc-act {
+  justify-self: end;
+}
+/* The role control is the viewer's segmented control at a row's height: a 32px track, not the 36px a panel's row has. */
+.acc-roles {
+  flex: none;
+  margin: 0;
+  padding: 2px;
+}
+.acc-roles button {
+  flex: 0 0 auto;
+  padding: 0 var(--space-2);
+}
+@media (pointer: coarse) {
+  .acc-row {
+    min-height: var(--hit);
+  }
+}
+/* A narrow column (a phone's sheet) puts a row on two lines: who and the date, then the role
+   and the action. */
+body.compact .acc-rows {
+  display: flex;
+  flex-direction: column;
+}
+body.compact .acc-rows > .acc-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
+  align-items: center;
+  padding: var(--space-2) 0;
+}
+body.compact .acc-rows > .acc-row > .acc-who {
+  grid-area: 1 / 1;
+}
+body.compact .acc-rows > .acc-row > .acc-seen {
+  grid-area: 1 / 2;
+  justify-self: end;
+}
+body.compact .acc-rows > .acc-row > :is(.acc-roles, .acc-role-fixed) {
+  grid-area: 2 / 1;
+  justify-self: start;
+}
+body.compact .acc-rows > .acc-row > .acc-act {
+  grid-area: 2 / 2;
+  justify-self: end;
+}
+
+/* ---------------------------------------------------------------- the add row */
+.acc-add {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+.acc-add-l {
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.acc-add input {
+  flex: 1 1 160px;
+  min-width: 0;
+  height: var(--control-h-md);
+  padding: 0 var(--space-2);
+  font-size: var(--text-sm);
+}
+@media (pointer: coarse) {
+  .acc-add input {
+    height: var(--ctl-touch);
+    font-size: var(--text-lg);
+  }
+}
+
+/* ---------------------------------------------------------------- the transition view */
+.acc-tr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.acc-cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: var(--space-3);
+  align-items: start;
+}
+body.compact .acc-cols {
+  grid-template-columns: minmax(0, 1fr);
+}
+.acc-col {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+.acc-col-h {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--muted-foreground);
+}
+.acc-col-rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space-1);
+}
+.acc-col-pick .acc-col-rows {
+  background: var(--muted);
+}
+.acc-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--row-h-sm);
+  padding: 0 var(--space-2);
+  min-width: 0;
+}
+.acc-check + .acc-check {
+  border-top: 1px solid var(--border);
+}
+.acc-check .acc-who {
+  flex: 1 1 auto;
+}
+.acc-check .acc-seen {
+  margin-left: auto;
+  padding-left: var(--space-2);
+}
+.acc-fix-ic {
+  flex: none;
+  display: flex;
+  color: var(--muted-foreground);
+}
+.acc-fix-ic .ic {
+  width: var(--check);
+  height: var(--check);
+}
+/* A line with no box of its own keeps the room the box takes, so both columns' names start on one line. */
+.acc-plain {
+  padding-left: calc(var(--space-2) + var(--check) + var(--space-2));
+}
+.acc-new {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: round(1.55em, 1px);
+  color: var(--foreground);
+}
+.acc-sum {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  font-variant-numeric: tabular-nums;
+}
+.acc-tr-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border);
+}
+@media (pointer: coarse) {
+  .acc-check {
+    min-height: var(--hit);
+  }
+}
+
+/* Why the last change was refused: inside the screen, where a modal dialog or a phone's sheet cannot cover it. */
+.acc-err {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: round(1.55em, 1px);
+}

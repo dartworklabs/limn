@@ -46,4 +46,9 @@ function isMe(person: Person | null | undefined) {
   return !!(person && me && me.login && me.login !== LOCAL_LOGIN && person.login === me.login);
 }
 
-export { who, isAgent, peopleName, meLogin, isHuman, isMe };
+// Whether the signed-in person owns this instance (the meta's role): the only identity the access screen is drawn for.
+// The server decides what an owner may do; this only keeps the owner's controls out of everyone else's page.
+function isOwner() {
+  return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.OWNER);
+}
+export { who, isAgent, peopleName, meLogin, isHuman, isMe, isOwner };

@@ -498,6 +498,7 @@ sheetPull($('#nav-sheet'), true);
 sheetPull($('#more'), true);
 sheetPull($('#help'), false);
 sheetPull($('#trash'), false);
+sheetPull($('#access'), false);
 
 // ------------------------------------------------ The overlay panel's swipe (701-900px, touch)
 // The overlay panel is dismissed by a rightward swipe (docs/handbook/viewer.md §펼친 화면 레이아웃). swipeAxis() waits

@@ -35,6 +35,7 @@ import {
   setEditRequestKind,
 } from './app/state.ts';
 import { switchLang, i18nStart, translate } from './platform/i18n.ts';
+import { accessAction, loadAccess } from './access/flow.ts';
 import { setTheme, applyTheme, savePrefs, prefs } from './platform/prefs.ts';
 import { copyText, setRequestFallback, api } from './platform/api.ts';
 import {
@@ -560,6 +561,7 @@ document.addEventListener('click', (event) => {
   if (control.closest('#status-list')) $('#status-list').close(); // a row's action folds the status list
   // a destination in the navigation sheet: go there, the sheet closes
   if (control.dataset.close && control.closest('#nav-sheet')) $('#nav-sheet').close();
+  if (accessAction(control.dataset.act, control)) return; // the owner's access screen (access/flow.ts)
   switch (control.dataset.act) {
     case 'side':
       toggleSide();
@@ -1200,7 +1202,14 @@ document.addEventListener('keydown', (event) => {
     return;
   }
   if (event.key === 'Escape') {
-    if ($('#help').open || $('#more').open || $('#nav-sheet').open || $('#trash').open || $('#status-list').open)
+    if (
+      $('#help').open ||
+      $('#more').open ||
+      $('#nav-sheet').open ||
+      $('#trash').open ||
+      $('#status-list').open ||
+      $('#access').open
+    )
       return;
     if (!$('#page-pop').hidden) {
       event.preventDefault();
@@ -1309,6 +1318,7 @@ async function boot() {
   // A device that was here before hears what came since, gathered into one message (docs/handbook/viewer.md §새 소식).
   if (visitedBefore()) digestBegin(translate('지난 방문 뒤'));
   drawMeta();
+  void loadAccess(); // the owner's access screen (access/flow.ts); nothing is drawn for anyone else
   applySideWidth();
   applyOutlineState();
   const hadWidth = applyViewWidth(view);

@@ -382,7 +382,7 @@ class PinListLoading(unittest.TestCase):
                 function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
                 function saveButtonLabel(){return html`save`;} async function loadDocs(){}
                 function initialDoc(){return 'main';} function multiDoc(){return false;}
-                function loadViews(){} function drawMeta(){} function applySideWidth(){}
+                function loadViews(){} function drawMeta(){} function loadAccess(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}
                 function buildDoc(){} function autoFitWidth(){} function bootVector(){}
                 function restoreView(){} function drawDocTabs(){} function restoreDraft(){} function updateSectionStrip(){}
@@ -436,7 +436,7 @@ class PinListLoading(unittest.TestCase):
                 function applyTheme(){} function applyLayout(){} function initDiffWrap(){}
                 function saveButtonLabel(){return html`save`;} async function loadDocs(){}
                 function initialDoc(){return 'main';} function multiDoc(){return false;}
-                function loadViews(){} function drawMeta(){} function applySideWidth(){}
+                function loadViews(){} function drawMeta(){} function loadAccess(){} function applySideWidth(){}
                 function applyOutlineState(){} function applyViewWidth(){return false;}
                 function buildDoc(){} function autoFitWidth(){} function bootVector(){}
                 function restoreView(){} function drawDocTabs(){} function restoreDraft(){} function updateSectionStrip(){}

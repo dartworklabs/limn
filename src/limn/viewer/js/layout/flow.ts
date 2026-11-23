@@ -895,7 +895,7 @@ function headInk() {
 // Clicking outside a dialog (the backdrop) closes it - only for a click whose target is the dialog itself and that
 // falls outside its box rectangle. The same for [더보기], help, the navigation sheet and the status line's list (and
 // the Trash, in pins/view-cards.ts).
-for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list'])
+for (const dialogSelector of ['#more', '#help', '#nav-sheet', '#status-list', '#access'])
   findElement(document, dialogSelector, HTMLDialogElement).addEventListener('click', (event: MouseEvent) => {
     const dialog = event.currentTarget;
     if (!(dialog instanceof HTMLDialogElement) || event.target !== dialog) return;

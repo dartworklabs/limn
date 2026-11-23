@@ -1,7 +1,6 @@
 import {
   DROPPED,
   LAYOUT,
-  META,
   COARSE_POINTER_QUERY,
   OPEN_CARDS,
   REPLY,
@@ -48,9 +47,9 @@ import {
 import type { Html } from '../platform/markup.ts';
 import { NOTICE_PLACE, UI_LANG } from '../platform/tables.ts';
 import { $, TABBABLE, isTabStop, findAll, findMaybe, focusedElement } from '../platform/dom.ts';
-import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, ROLE, STAMP_FORM } from '../app/rules-tables.ts';
+import { CARD_DOT, ELEMENT_SYNC, LAYOUT_MODE, PIN_STATE, RANGE_REL, STAMP_FORM } from '../app/rules-tables.ts';
 import { pinState, verdictOf, lineRange } from '../app/rules-pins.ts';
-import { who, isMe } from '../app/state-people.ts';
+import { who, isMe, isOwner } from '../app/state-people.ts';
 import { avatar } from '../app/view-people.ts';
 import { pinVerdicts } from './state-seams.ts';
 import { PURGING } from './state.ts';
@@ -397,9 +396,6 @@ function trashDaysLeft(at: string | undefined, now: number | null, expirySeconds
   if (!match) return null;
   const droppedAt = new Date(+match[1], +match[2] - 1, +match[3], +match[4], +match[5]).getTime();
   return Math.max(0, Math.ceil(TRASH_DAYS - ((now == null ? Date.now() : now) - droppedAt) / 86400000));
-}
-function isOwner() {
-  return !!(typeof META !== 'undefined' && META && META.me && META.me.role === ROLE.OWNER);
 }
 // A Trash row: #N, location, when and by whom it was deleted and the days left, the note as one expandable line (user
 // text), and [되살리기] (not for a viewer) and [영구 삭제] (the owner only) after the two lines.

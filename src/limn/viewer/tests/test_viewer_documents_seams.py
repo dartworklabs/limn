@@ -467,7 +467,7 @@ class Meta(unittest.TestCase):
             function $(sel){return ELS[sel]||(ELS[sel]=any());}
             const document={body:{classList:{toggle(c,on){LOG.push(['body',c,on]);}}}};
             function buildsFromSource(){return false;} function isFigureKind(){return false;} function isMarkdownDoc(){return true;}
-            function isTextDoc(){return false;} function isViewer(){return false;} function html(){return '';} function setHtml(){}
+            function isTextDoc(){return false;} function isViewer(){return false;} function isOwner(){return false;} function html(){return '';} function setHtml(){}
             function avatar(){return '';} function who(){return '';} function isAgent(){return false;} function commitShown(){return '';}
             function updateStaleBadge(){} function updateSyncBadge(){} function moreInfo(){return '';}
             """,

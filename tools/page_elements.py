@@ -119,7 +119,12 @@ TAG_CLASSES: Mapping[str, str] = {
 # DOM class every module that makes one gives it (test_viewer_page_elements.LiveMarkup finds each in a module's
 # markup). An id index.html gives an element belongs to PageElements even when a module draws it anew.
 LIVE_ELEMENTS: Mapping[str, str] = {
+    "acc-login": "HTMLInputElement",  # the access dialog's field for a login the tailnet list does not show (access/view.ts)
+    "access-body": "HTMLDivElement",  # the owner's access dialog, drawn for an owner only (access/view.ts)
+    "access-h": "HTMLHeadingElement",  # the access dialog's heading (access/view.ts)
     "c-verdict-why": "HTMLSpanElement",  # the composer's verdict row, while a verdict cannot be saved (verdict/flow-line.ts)
+    "m-access": "HTMLButtonElement",  # the owner's [접근 관리] entry in [더보기] (access/view.ts)
+    "m-access-n": "HTMLSpanElement",  # how many members it counts (access/view.ts)
     "md": "HTMLElement",  # a Markdown or text document, its line view (article) or its notice (div) (markdown/, text/)
     "pv-panel": "HTMLDivElement",  # the verdict panel beside the pages (verdict/view-panel.ts)
     "pv-panel-at": "HTMLDivElement",  # where the verdict panel stands (verdict/view-panel.ts)

@@ -133,6 +133,7 @@ STYLESHEETS = (
     "css/md-surface.css",
     "css/text-surface.css",
     "css/md-compare.css",
+    "css/access.css",
 )
 # The built script GET /viewer.js serves (load_viewer_script): tools/build_viewer.mjs writes it, the repository keeps it.
 VIEWER_SCRIPT = "dist/viewer.js"
