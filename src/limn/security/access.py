@@ -618,6 +618,17 @@ def admit(
             )
 
 
+def admitted_without_people(p: Principal) -> bool:
+    """Does the instance admit this principal whatever people.json holds? admit() filters only the people a header
+    vouches for, so a token principal and the machine's own user under --auth local (via "local-owner") are always let
+    in: dropping or omitting their people.json row cannot shut them out. The reserved login `local` is not what decides
+    it - with --local-user the local owner's login looks like anyone else's - so a rule on the login (valid_login)
+    cannot stand in for this one. The loopback agent is not counted: admit() does refuse it on a tailnet host once a
+    list is configured. The owner's access routes ask this about the principal that pressed
+    (limn.security.access_service.apply_managed)."""
+    return p.via in ("token", "local-owner")
+
+
 def admit_listed(listed: PeopleRoles, login: object) -> None:
     """The managed-instance rule: admit a person people.json lists. A refusal is 403 not_member, as under --members-only
     (same text, same page), or people_unreadable while people.json cannot be used, which names that file so the person

@@ -272,6 +272,7 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
         warning=lambda: resources().people_warning,
         participants=pins.participants,
         roles=lambda: security.people_roles(),
+        managed=lambda: security.managed_access(),
         events_path=lambda: settings().events_file,
         events_lock=lambda: resources().events_lock,
         cache=lambda: resources().events_cache,
@@ -342,9 +343,17 @@ def assemble_application(config: RunConfig, runtime: RunResources) -> ServerAsse
             raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
         access.require_authority(authority, people_scope(), operation, None)
 
+    def admitted_without_people(authority: object) -> bool:
+        """Does admission let the principal that pressed in whatever people.json says? Decided here, where the
+        principal is known and the auth mode need not be guessed (access.admitted_without_people)."""
+        if type(authority) is not access.PostAuthority:
+            raise HTTPError(403, "요청 권한이 올바르지 않습니다.", reason="invalid_authority")
+        return access.admitted_without_people(authority.principal)
+
     access_wiring = AccessWiring(
         settings,
         authorize_member_change,
+        admitted_without_people,
         lambda text: print(text, file=sys.stderr),
         access_facts,
         security.member_rows,

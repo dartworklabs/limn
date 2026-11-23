@@ -250,14 +250,122 @@ class AccessHttp(AccessBase):
         self.assertTrue(self.get_access()["managed"])
         self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 200)
 
-    def test_transition_locking_out_requester_is_409(self):
-        """The --auth local owner has no people.json row, so a list without their login would shut them out."""
+    def test_the_local_owner_can_switch_a_fresh_instance_on(self):
+        """--auth local --local-user dana@example.com: dana is the owner with no people.json row, and admission lets
+        the machine's own user in whatever the file says. A list without dana shuts nobody out, so the switch goes
+        through - this is the only way a fresh local instance can be switched on at all."""
         set_config(auth="local", agent_loopback=False, local_user="dana@example.com")
         body = dict(CONFIRM, managed=True, members=[{"login": "bob@example.com", "role": "editor"}])
         code, d = self.call("POST", "/api/access/managed", body)
+        self.assertEqual(code, 200, d)
+        self.assertEqual((d["managed"], d["added"], d["removed"]), (True, [], []))
+        self.assertTrue(self.get_access()["managed"])
+        self.assertNotIn("dana@example.com", [x["login"] for x in self.people_file()])
+
+    def test_the_local_owner_can_switch_on_an_instance_with_no_people_file(self):
+        """The same press on an instance where nobody has a row yet, which is what `limn serve` leaves behind: no
+        owner row exists to carry the requester, and the switch must still work."""
+        ps.APP.C.people_file.unlink()
+        set_config(auth="local", agent_loopback=False, local_user="alice@example.com")
+        code, d = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=True, members=[]))
+        self.assertEqual(code, 200, d)
+        self.assertTrue(self.get_access()["managed"])
+
+    def test_transition_locking_out_requester_is_409(self):
+        """A header-vouched owner is kept by their owner row, so the one way their own press can shut them out is a
+        file that no longer holds it: `limn member remove` landed between the role check and the transaction. The
+        answer is 409 locks_out_owner, naming no path."""
+        real = access_service.people_transaction
+
+        def transaction_after_the_owner_row_went(state, step, audit, then=None):
+            """The real transaction, preceded by the owner row disappearing from another process."""
+            self.set_people([BOB_ROW])
+            return real(state, step, audit, then)
+
+        body = dict(CONFIRM, managed=True, members=[{"login": "bob@example.com", "role": "editor"}])
+        with mock.patch.object(access_service, "people_transaction", transaction_after_the_owner_row_went):
+            code, d = self.call("POST", "/api/access/managed", body, ALICE)
         self.assertEqual((code, d["reason"]), (409, "locks_out_owner"), d)
+        self.assertIn("alice@example.com", d["error"])
         self.assertNotIn(str(ps.APP.C.state), json.dumps(d))
         self.assertFalse(ps.APP.C.access_file.exists())
+
+    def test_turning_management_off_under_allow_cannot_shut_the_owner_out(self):
+        """--allow names bob only: once the flag is off, alice's owner row grants her nothing, so her own press would
+        refuse her next request. Holding a row is not being admitted."""
+        self.manage()
+        set_config(allow=frozenset({"bob@example.com"}))
+        code, d = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=False), ALICE)
+        self.assertEqual((code, d["reason"]), (409, "locks_out_owner"), d)
+        self.assertTrue(self.get_access()["managed"])
+
+    def test_a_failed_flag_write_says_the_member_list_stands(self):
+        """The half-done press: people.json was written, access.json was not. The answer is its own 500, not the
+        generic one, and says the member list stands, the flag did not change, and pressing again is safe."""
+        self.manage()
+        body = dict(CONFIRM, managed=True, members=[{"login": "carol@example.com", "role": "viewer"}])
+        with mock.patch.object(access_service, "write_access", side_effect=OSError("disk full")):
+            code, d = self.call("POST", "/api/access/managed", body, ALICE)
+        self.assertEqual((code, d["reason"]), (500, "flag_not_written"), d)
+        self.assertNotIn(str(ps.APP.C.state), json.dumps(d))
+        self.assertIn("carol@example.com", [x["login"] for x in self.people_file()])
+        # the rows the press wrote are audited; the flag it could not write is not
+        self.assertEqual([x["action"] for x in self.audit_lines()], ["member_removed", "member_added"])
+
+    def test_a_switch_records_its_own_audit_line(self):
+        """Every access change is recorded: the flag the owner wrote, by whom, through "http" - including a press
+        that changes no row and so writes no member_* line."""
+        code, _ = self.call("POST", "/api/access/managed", dict(CONFIRM, managed=True, members=[BOB_ROW]), ALICE)
+        self.assertEqual(code, 200)
+        (line,) = self.audit_lines()
+        self.assertEqual(line["action"], "access_managed")
+        self.assertEqual(line["details"], {"managed": True, "by": "alice@example.com"})
+        self.assertEqual((line["via"], line["by"]["login"]), ("http", "alice@example.com"))
+        self.call("POST", "/api/access/managed", dict(CONFIRM, managed=False), ALICE)
+        self.assertEqual([x["action"] for x in self.audit_lines()], ["access_managed", "access_managed"])
+        self.assertFalse(self.audit_lines()[1]["details"]["managed"])
+
+    def test_a_member_change_refuses_when_the_flag_goes_off_mid_request(self):
+        """The early check is not the one that decides: between it and the write another request can switch
+        management off, and then the write must not land - the API promises 409 not_managed in that state, and under
+        --members-only the new row would admit its person at once. The flag read inside the people transaction is
+        what answers."""
+        set_config(members_only=True)
+        real = access_service.people_transaction
+
+        def transaction_after_the_switch(state, step, audit, then=None):
+            """The real transaction, preceded by another request switching management off."""
+            write_access(ps.APP.C.access_file, False, "2026-01-01 00:00:01", "alice@example.com")
+            return real(state, step, audit, then)
+
+        for path, body in (
+            ("/api/members/add", {"login": "carol@example.com", "role": "viewer"}),
+            ("/api/members/role", {"login": "bob@example.com", "role": "viewer"}),
+            ("/api/members/remove", {"login": "bob@example.com"}),
+        ):
+            with self.subTest(path=path):
+                self.set_people([OWNER_ROW, BOB_ROW])
+                self.manage()
+                with mock.patch.object(access_service, "people_transaction", transaction_after_the_switch):
+                    code, d = self.call("POST", path, body, ALICE)
+                self.assertEqual((code, d["reason"]), (409, "not_managed"), d)
+                self.assertEqual(self.people_file(), [OWNER_ROW, BOB_ROW])
+                self.assertEqual(self.audit_lines(), [])
+
+    def test_a_member_change_refuses_when_the_flag_breaks_mid_request(self):
+        """The same race with access.json left unusable: 403 access_unreadable, the refusal that state documents."""
+        real = access_service.people_transaction
+
+        def transaction_after_the_breakage(state, step, audit, then=None):
+            """The real transaction, preceded by access.json becoming unusable."""
+            ps.APP.C.access_file.write_text("{not json", encoding="utf-8")
+            return real(state, step, audit, then)
+
+        self.manage()
+        with mock.patch.object(access_service, "people_transaction", transaction_after_the_breakage):
+            code, d = self.call("POST", "/api/members/remove", {"login": "bob@example.com"}, ALICE)
+        self.assertEqual((code, d["reason"]), (403, "access_unreadable"), d)
+        self.assertEqual(self.people_file(), [OWNER_ROW, BOB_ROW])
 
     def local_owner(self):
         """Run as --auth local: the owner whose role does not come from people.json, so the only principal that reaches
@@ -309,6 +417,29 @@ class AccessHttp(AccessBase):
         self.assertEqual([x["action"] for x in lines], ["member_added", "member_role", "member_removed"])
         for line in lines:
             self.assertEqual((line["via"], line["by"]["login"]), ("http", "alice@example.com"))
+
+    def test_a_removed_member_is_not_recorded_back_by_their_own_request(self):
+        """The revocation race: Bob's changing POST passed admission, the owner removed him while it ran, and the
+        request ends in the recording the handler does (web.handler._record). On a managed instance removal is the
+        only way to revoke, so a row recreated here would readmit him - and with no role field, which reads as
+        editor, with more power than the viewer row he had."""
+        self.set_people([OWNER_ROW, {"login": "bob@example.com", "name": "Bob", "role": "viewer"}])
+        self.manage()
+        self.assertEqual(self.call("GET", "/api/pins", headers=BOB)[0], 200)
+        code, _ = self.call("POST", "/api/members/remove", {"login": "bob@example.com"}, ALICE)
+        self.assertEqual(code, 200)
+        self.assertFalse(ps.APP.web.recorder.record({"login": "bob@example.com", "name": "Bob"}))
+        self.assertEqual([x["login"] for x in self.people_file()], ["alice@example.com"])
+        code, d = self.call("GET", "/api/pins", headers=BOB)
+        self.assertEqual((code, d["reason"]), (403, "not_member"), d)
+
+    def test_a_members_visit_is_still_recorded_on_a_managed_instance(self):
+        """Only the creation stops: a member's row keeps its last_seen, so the panel still shows who has been in."""
+        self.manage()
+        self.assertTrue(ps.APP.web.recorder.record({"login": "bob@example.com", "name": "Bob"}))
+        (row,) = [x for x in self.people_file() if x["login"] == "bob@example.com"]
+        self.assertEqual(row["role"], "editor")
+        self.assertIn("last_seen", row)
 
     def test_role_on_a_non_member_is_409(self):
         """The requested state is unreachable: not_a_member, and nothing is written."""

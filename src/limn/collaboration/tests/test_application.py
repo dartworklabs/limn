@@ -35,6 +35,7 @@ class PeopleViewTests(unittest.TestCase):
                 warning=lambda: people.UnreadableWarning(),
                 participants=lambda refresh: pin_view.actors(refresh=refresh),
                 roles=lambda: {},
+                managed=lambda: "not-managed",
                 clock=lambda: 0.0,
             )
 

@@ -214,6 +214,7 @@
  "reason:done": "The pin is already closed.",
  "reason:file_not_found": "There is no such file in the manuscript.",
  "reason:file_outside_manuscript": "The file is outside the manuscript folder.",
+ "reason:flag_not_written": "The member list was saved but access.json could not be written, so access management did not change. Check the server log and press again with the same list.",
  "reason:frac_outside_page": "The region is outside the page.",
  "reason:full": "The thread is full. Continue in a new pin.",
  "reason:generated_file": "This spot is in a generated file. For references, edit the .bib file or the \\cite in the text.",

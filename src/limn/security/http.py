@@ -17,15 +17,17 @@ from limn.runtime.config import RunConfig
 from limn.security.access_service import (
     AlreadyMember,
     DuplicateTarget,
+    FlagNotWritten,
     LastOwner,
     LocksOutOwner,
+    NotManagedNow,
     PeopleUnusable,
     RoleNotSettable,
     TargetMember,
     TransitionView,
     add_settable,
     apply_managed,
-    remove_one,
+    remove_settable,
     set_settable_role,
     transition_view,
 )
@@ -77,11 +79,14 @@ class AccessWiring:
     `authorize(authority, operation)` is access.require_authority bound to the people store's scope, with no target: it
     raises invalid_authority unless the authority was minted for exactly this operation on this instance. It is
     injected because the authority's type and its check belong to limn.security.access, which no HTTP module imports;
-    the sink still calls it first and cannot be reached without it. `warn` takes the text of a failure that stays in
-    the server's log."""
+    the sink still calls it first and cannot be reached without it. `admitted_without_people(authority)` is injected
+    for the same reason: it answers access.admitted_without_people for the principal the authority carries - whether
+    admission lets this requester in whatever people.json says - which the transition needs and the service must not
+    guess from a login. `warn` takes the text of a failure that stays in the server's log."""
 
     settings: Callable[[], RunConfig]
     authorize: Callable[[object, str], object]
+    admitted_without_people: Callable[[object], bool]
     warn: Callable[[str], object]
     facts: Callable[[], AccessFacts]
     rows: Callable[[], list[Json] | None]
@@ -149,6 +154,19 @@ def _write_failed(wiring: AccessWiring, e: OSError) -> HTTPError:
     return HTTPError(500, "파일을 쓰지 못했습니다 — 서버 로그를 확인한 뒤 다시 눌러 보세요.", reason="internal")
 
 
+def _flag_not_written(wiring: AccessWiring, e: FlagNotWritten) -> HTTPError:
+    """500 for the half-done transition: the member list was written, access.json was not. Its own reason, because
+    what stands differs from a press that wrote nothing - the member rows are in effect for whatever admission the
+    unchanged flag runs - and the owner is told exactly that, and that pressing again is safe."""
+    wiring.warn("warning: the member list was written but the access flag was not: %s" % e.error)
+    return HTTPError(
+        500,
+        "멤버 목록은 저장되었지만 access.json 을 쓰지 못했습니다 — 접근 관리 설정은 바뀌지 않았습니다. "
+        "서버 로그를 확인한 뒤 같은 내용으로 다시 누르면 됩니다.",
+        reason="flag_not_written",
+    )
+
+
 # ---------------------------------------------------------------- reads
 
 
@@ -214,15 +232,22 @@ def _authorize(wiring: AccessWiring, authority: Mapping[str, object], operation:
     wiring.authorize(authority, operation)
 
 
+def _unmanaged(flag: ManagedAccess) -> HTTPError:
+    """The refusal of a member change for a flag that is not on: 403 access_unreadable for a file that cannot be used,
+    409 not_managed while the flag is off. The same answer wherever the flag was read."""
+    if flag == "unusable":
+        return _access_unreadable()
+    return HTTPError(409, "접근 관리를 먼저 켜세요 — 지금은 멤버 목록이 입장을 정하지 않습니다.", reason="not_managed")
+
+
 def _require_managed(wiring: AccessWiring) -> None:
-    """A member change needs the flag on: 409 not_managed while it is off, 403 access_unreadable while it is unusable."""
-    state = wiring.facts().managed
-    if state == "unusable":
-        raise _access_unreadable()
-    if state != "managed":
-        raise HTTPError(
-            409, "접근 관리를 먼저 켜세요 — 지금은 멤버 목록이 입장을 정하지 않습니다.", reason="not_managed"
-        )
+    """A member change needs the flag on. This is the early check, for the better message: it reads the flag before
+    the body, so a request on an unmanaged instance is answered without touching the member list. It does not decide
+    - between it and the write the flag can change - which is why the write's own transaction reads the flag again
+    under the people lock (access_service.NotManagedNow) and that read is the one that governs."""
+    flag = wiring.facts().managed
+    if flag != "managed":
+        raise _unmanaged(flag)
 
 
 def _audit_for(wiring: AccessWiring, authority: Mapping[str, object]) -> Callable[[str, Json], object]:
@@ -259,6 +284,8 @@ def member_add(wiring: AccessWiring, authority: Mapping[str, object], body: Mapp
         raise _bad_request("name")
     try:
         entry = add_settable(wiring.settings().state, login, role, name, _audit_for(wiring, authority))
+    except NotManagedNow as e:
+        raise _unmanaged(e.flag) from None
     except RoleNotSettable as e:
         raise _role_not_settable(e.login, e.role) from None
     except AlreadyMember as e:
@@ -281,6 +308,8 @@ def member_role(wiring: AccessWiring, authority: Mapping[str, object], body: Map
     role = _role_of(body, login)
     try:
         entry = set_settable_role(wiring.settings().state, login, role, _audit_for(wiring, authority))
+    except NotManagedNow as e:
+        raise _unmanaged(e.flag) from None
     except RoleNotSettable as e:
         raise _role_not_settable(e.login, e.role) from None
     except LastOwner as e:
@@ -301,7 +330,9 @@ def member_remove(wiring: AccessWiring, authority: Mapping[str, object], body: M
     _require_managed(wiring)
     login = _login_of(body)
     try:
-        entry = remove_one(wiring.settings().state, login, _audit_for(wiring, authority))
+        entry = remove_settable(wiring.settings().state, login, _audit_for(wiring, authority))
+    except NotManagedNow as e:
+        raise _unmanaged(e.flag) from None
     except LastOwner as e:
         raise _last_owner(e) from None
     except PeopleUnusable:
@@ -346,7 +377,8 @@ def set_managed(wiring: AccessWiring, authority: Mapping[str, object], body: Map
     """POST /api/access/managed {managed, members?, confirm}: makes the viewer/editor rows the checked list and sets the
     flag, under one lock (access_service.apply_managed) -> {ok, managed, added, removed, changed, kept,
     newly_admitted}. 400 confirm_required, bad_access_request, bad_login, role_not_settable; 409 locks_out_owner when
-    the requester would be shut out, last_owner; 403 people_unreadable."""
+    the requester would be shut out, last_owner; 403 people_unreadable; 500 flag_not_written when the member list was
+    written and the flag was not, which says so rather than reporting a bare failure."""
     _authorize(wiring, authority, "access-managed")
     if body.get("confirm") != CONFIRM_MANAGED:
         raise HTTPError(
@@ -369,6 +401,7 @@ def set_managed(wiring: AccessWiring, authority: Mapping[str, object], body: Map
             _audit_for(wiring, authority),
             allow=config.allow,
             members_only=config.access.members_only,
+            admitted_without_people=wiring.admitted_without_people(authority),
         )
     except DuplicateTarget:
         raise _bad_request("members") from None
@@ -384,6 +417,8 @@ def set_managed(wiring: AccessWiring, authority: Mapping[str, object], body: Map
         raise _last_owner(e) from None
     except PeopleUnusable:
         raise _people_unreadable() from None
+    except FlagNotWritten as e:
+        raise _flag_not_written(wiring, e) from None
     except OSError as e:
         raise _write_failed(wiring, e) from None
     return {

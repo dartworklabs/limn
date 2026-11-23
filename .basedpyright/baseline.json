@@ -11254,8 +11254,8 @@
             {
                 "code": "reportExplicitAny",
                 "range": {
-                    "startColumn": 56,
-                    "endColumn": 59,
+                    "startColumn": 24,
+                    "endColumn": 27,
                     "lineCount": 1
                 }
             },

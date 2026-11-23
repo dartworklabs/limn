@@ -14,11 +14,14 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+from limn.security import access_service
 from limn.security.access import LOCAL_ACTOR
 from limn.security.access_service import (
     DuplicateTarget,
+    FlagNotWritten,
     LocksOutOwner,
     ManagedResult,
+    NotManagedNow,
     RoleNotSettable,
     TargetMember,
     add_one,
@@ -26,11 +29,12 @@ from limn.security.access_service import (
     apply_managed,
     current_admitted,
     remove_one,
+    remove_settable,
     set_one_role,
     set_settable_role,
     transition_view,
 )
-from limn.security.access_store import read_access
+from limn.security.access_store import read_access, write_access
 from limn.security.people_store import LastOwner
 from limn.security.values import role_value
 
@@ -47,6 +51,11 @@ NOW = 1_800_000_000.0
 def row(login, role=None):
     """One people.json row; a role of None leaves the field out (the default role)."""
     return dict({"login": login, "name": login.split("@")[0]}, **({} if role is None else {"role": role}))
+
+
+def flag_line(managed=True, by=OWNER["login"]):
+    """The audit line a press records for the flag itself, beside the member_* lines of the rows it changed."""
+    return ("access_managed", {"managed": managed, "by": by})
 
 
 def target(login, role="editor"):
@@ -92,10 +101,21 @@ class StateBase(unittest.TestCase):
             p.read_bytes() if p.exists() else None for p in (self.state / "people.json", self.state / "access.json")
         )
 
-    def apply(self, targets, managed=True, by=OWNER, allow=frozenset(), members_only=False):
-        """apply_managed on this state as the owner presses it, on an instance run with these arguments."""
+    def apply(self, targets, managed=True, by=OWNER, allow=frozenset(), members_only=False, admitted=None):
+        """apply_managed on this state as the owner presses it, on an instance run with these arguments. `admitted`
+        is what the HTTP boundary decides and passes in: whether admission lets this requester in whatever
+        people.json says. Unless a test says otherwise that is true for exactly LOCAL_ACTOR, the machine's own user
+        under --auth local."""
         return apply_managed(
-            self.state, targets, by, managed, NOW, self.audit, allow=frozenset(allow), members_only=members_only
+            self.state,
+            targets,
+            by,
+            managed,
+            NOW,
+            self.audit,
+            allow=frozenset(allow),
+            members_only=members_only,
+            admitted_without_people=(by is LOCAL_ACTOR) if admitted is None else admitted,
         )
 
 
@@ -154,7 +174,15 @@ class TransitionScreen(unittest.TestCase):
         view = transition_view(frozenset(), True, self.ROWS)
         targets = [target(r["login"], role_value(r.get("role"))) for r in view.settable]
         result = apply_managed(
-            state, targets, LOCAL_ACTOR, True, NOW, lambda a, d: None, allow=frozenset(), members_only=True
+            state,
+            targets,
+            LOCAL_ACTOR,
+            True,
+            NOW,
+            lambda a, d: None,
+            allow=frozenset(),
+            members_only=True,
+            admitted_without_people=True,
         )
         self.assertEqual((result.added, result.removed, result.changed), ((), (), ()))
 
@@ -172,7 +200,7 @@ class Transition(StateBase):
         targets = [target(r["login"], role_value(r.get("role"))) for r in view.settable]
         result = self.apply(targets, members_only=True)
         self.assertEqual(result, ManagedResult((), (), (), ("ci@example.com", "owner@example.com"), (), True))
-        self.assertEqual(self.audited, [])
+        self.assertEqual(self.audited, [flag_line()])  # no row changed, and the flag itself is still recorded
         self.assertEqual(self.roles()["a@example.com"], None)  # a row with no role field keeps it
 
     def test_allow_login_without_row_gets_an_editor_row(self):
@@ -180,14 +208,18 @@ class Transition(StateBase):
         result = self.apply([target("carol@example.com")])
         self.assertEqual(result.added, ("carol@example.com",))
         self.assertEqual(self.roles()["carol@example.com"], "editor")
-        self.assertEqual(self.audited, [("member_added", {"login": "carol@example.com", "role": "editor"})])
+        self.assertEqual(
+            self.audited, [("member_added", {"login": "carol@example.com", "role": "editor"}), flag_line()]
+        )
 
     def test_unchecked_row_is_removed(self):
         self.seed(row("owner@example.com", "owner"), row("b@example.com", "viewer"))
         result = self.apply([])
         self.assertEqual(result.removed, ("b@example.com",))
         self.assertNotIn("b@example.com", self.roles())
-        self.assertEqual(self.audited, [("member_removed", {"login": "b@example.com", "previous_role": "viewer"})])
+        self.assertEqual(
+            self.audited, [("member_removed", {"login": "b@example.com", "previous_role": "viewer"}), flag_line()]
+        )
 
     def test_a_changed_role_is_written_and_audited(self):
         self.seed(row("owner@example.com", "owner"), row("b@example.com", "viewer"))
@@ -196,7 +228,7 @@ class Transition(StateBase):
         self.assertEqual(self.roles()["b@example.com"], "editor")
         self.assertEqual(
             self.audited,
-            [("member_role", {"login": "b@example.com", "role": "editor", "previous_role": "viewer"})],
+            [("member_role", {"login": "b@example.com", "role": "editor", "previous_role": "viewer"}), flag_line()],
         )
 
     def test_owner_and_agent_rows_are_preserved_when_absent_from_targets(self):
@@ -241,17 +273,51 @@ class Transition(StateBase):
         self.assertEqual(result.newly_admitted, ("z@example.com",))
 
     def test_people_is_written_before_access(self):
-        """If the flag cannot be written the member changes stay and the instance is still not managed."""
+        """If the flag cannot be written the member changes stay and the instance is still not managed. The failure is
+        FlagNotWritten, not a bare OSError: what stands differs from a press that wrote nothing, so the caller can say
+        which half landed. The flag's own audit line follows its write, so it is not recorded."""
         self.seed(row("owner@example.com", "owner"))
         targets = [target("carol@example.com")]
         with (
             mock.patch("limn.security.access_service.write_access", side_effect=OSError("disk full")),
-            self.assertRaises(OSError),
+            self.assertRaises(FlagNotWritten) as caught,
         ):
             self.apply(targets)
+        self.assertIsInstance(caught.exception.error, OSError)
         self.assertEqual(self.roles()["carol@example.com"], "editor")
         self.assertEqual(read_access(self.state / "access.json").managed, "not-managed")
         self.assertEqual(self.audited, [("member_added", {"login": "carol@example.com", "role": "editor"})])
+
+    def test_a_failed_flag_write_under_members_only_leaves_the_rows_admitting(self):
+        """The case the old docstring called "nobody gained entry": under --members-only an unmanaged instance admits
+        by people.json, so the row this press wrote admits carol at once although the flag never changed. The failure
+        is the one that says the member list stands."""
+        self.seed(row("owner@example.com", "owner"))
+        with (
+            mock.patch("limn.security.access_service.write_access", side_effect=OSError("disk full")),
+            self.assertRaises(FlagNotWritten),
+        ):
+            self.apply([target("carol@example.com")], members_only=True)
+        self.assertIn("carol@example.com", self.roles())
+        self.assertEqual(read_access(self.state / "access.json").managed, "not-managed")
+        stored = [row("owner@example.com", "owner"), row("carol@example.com")]
+        self.assertIn("carol@example.com", current_admitted(frozenset(), True, stored))  # in, with the flag still off
+        self.assertEqual([a for a, _ in self.audited], ["member_added"])
+
+    def test_a_flag_only_press_records_one_audit_line(self):
+        """A press that changes no row still changes access: the line names the value written and who pressed."""
+        self.seed(row("owner@example.com", "owner"))
+        self.apply(None, managed=True)
+        self.assertEqual(self.audited, [flag_line()])
+        self.audited.clear()
+        self.apply(None, managed=False)
+        self.assertEqual(self.audited, [flag_line(False)])
+
+    def test_the_flag_line_follows_the_row_lines(self):
+        """The order of audit.jsonl is the order of the changes: the rows, then the flag that governs them."""
+        self.seed(row("owner@example.com", "owner"), row("b@example.com", "viewer"))
+        self.apply([target("carol@example.com")])
+        self.assertEqual([a for a, _ in self.audited], ["member_removed", "member_added", "access_managed"])
 
     def test_applying_twice_is_idempotent(self):
         self.seed(row("owner@example.com", "owner"), row("b@example.com", "viewer"))
@@ -263,7 +329,7 @@ class Transition(StateBase):
         self.assertEqual((second.added, second.removed, second.changed, second.newly_admitted), ((), (), (), ()))
         self.assertEqual((self.state / "people.json").read_bytes(), people_after_first)
         self.assertEqual(read_access(self.state / "access.json").managed, "managed")
-        self.assertEqual(len(self.audited), 3)  # the second press audits nothing
+        self.assertEqual(len(self.audited), 5)  # two rows and the flag, then the flag alone
 
     def test_first_transition_on_an_empty_state_creates_both_files(self):
         """absent people.json, absent access.json: the owner at the machine presses the button."""
@@ -303,10 +369,11 @@ class TransitionRefusals(StateBase):
         self.seed(row("owner@example.com", "owner"), row("b@example.com", "viewer"))
         self.before = self.files()
 
-    def refused(self, error, targets, managed=True, by=OWNER):
-        """Assert apply refuses with error and leaves both files and the audit log as they were; returns the error."""
+    def refused(self, error, targets, managed=True, by=OWNER, **run):
+        """Assert apply refuses with error and leaves both files and the audit log as they were; returns the error.
+        `run` carries the instance's arguments (allow, members_only, admitted) through to apply."""
         with self.assertRaises(error) as caught:
-            self.apply(targets, managed, by)
+            self.apply(targets, managed, by, **run)
         self.assertEqual(self.files(), self.before)
         self.assertEqual(self.audited, [])
         return caught.exception
@@ -361,10 +428,48 @@ class TransitionRefusals(StateBase):
         self.apply([target("b@example.com")], managed=False, by={"login": "b@example.com", "name": "B"})
         self.assertEqual(read_access(self.state / "access.json").managed, "not-managed")
 
-    def test_turning_management_off_cannot_remove_the_requesters_own_row(self):
+    def test_turning_management_off_under_members_only_cannot_remove_the_requesters_own_row(self):
         """Unmanaged under --members-only people.json still governs entry, so a removal of the requester's row can
-        refuse them next request. The guard is on the removal, not on the flag."""
-        self.refused(LocksOutOwner, [], managed=False, by={"login": "b@example.com", "name": "B"})
+        refuse them next request. The guard is on the state the press produces, not on the flag."""
+        with self.assertRaises(LocksOutOwner):
+            self.apply([], managed=False, by={"login": "b@example.com", "name": "B"}, members_only=True)
+        self.assertEqual(self.files(), self.before)
+        self.assertEqual(self.audited, [])
+
+    def test_turning_management_off_on_an_open_instance_may_drop_the_requesters_row(self):
+        """With neither --allow nor --members-only an unmanaged instance admits everyone a header identifies, so
+        dropping the requester's row cannot shut them out: refusing here refused a press that is safe."""
+        self.apply([], managed=False, by={"login": "b@example.com", "name": "B"})
+        self.assertEqual(read_access(self.state / "access.json").managed, "not-managed")
+        self.assertNotIn("b@example.com", self.roles())
+
+    def test_turning_management_off_refuses_an_owner_the_allow_list_leaves_out(self):
+        """The owner row that stops helping: with --allow alone, people.json grants no entry once the flag is off, so
+        an owner the list does not name is shut out by their own press. Holding a row is not being admitted."""
+        self.seed(row("b@example.com", "owner"))
+        self.before = self.files()
+        err = self.refused(
+            LocksOutOwner, [], managed=False, by={"login": "b@example.com", "name": "B"}, allow={"alice@example.com"}
+        )
+        self.assertEqual(err.login, "b@example.com")
+
+    def test_turning_management_off_keeps_an_owner_the_allow_list_names(self):
+        """The same press with the requester in --allow is the ordinary one and goes through."""
+        self.seed(row("b@example.com", "owner"))
+        self.apply([], managed=False, by={"login": "b@example.com", "name": "B"}, allow={"b@example.com"})
+        self.assertEqual(read_access(self.state / "access.json").managed, "not-managed")
+
+    def test_a_requester_admission_lets_in_regardless_needs_no_row_or_line(self):
+        """The machine's own user under --auth local has a login like anyone else's (--local-user
+        alice@example.com), and admission lets them in whatever people.json says. Whether that holds is the HTTP
+        boundary's to decide and pass in; valid_login() cannot stand for it."""
+        self.apply([target("b@example.com")], by={"login": "alice@example.com", "name": "A"}, admitted=True)
+        self.assertEqual(read_access(self.state / "access.json").managed, "managed")
+        self.assertNotIn("alice@example.com", self.roles())
+
+    def test_the_same_requester_without_that_exemption_is_refused(self):
+        """A header-vouched owner with the same login is judged by the state the press makes, and refused."""
+        self.refused(LocksOutOwner, [target("b@example.com")], by={"login": "alice@example.com", "name": "A"})
 
     def test_a_requester_without_a_login_refuses_and_writes_nothing(self):
         for by in ({}, {"name": "x"}, {"login": None}, {"login": ""}):
@@ -457,7 +562,15 @@ class TransitionRaces(StateBase):
                 children.append(run_member_add(self.state, "late@example.com"))
 
         apply_managed(
-            self.state, [target("carol@example.com")], OWNER, True, NOW, audit, allow=frozenset(), members_only=False
+            self.state,
+            [target("carol@example.com")],
+            OWNER,
+            True,
+            NOW,
+            audit,
+            allow=frozenset(),
+            members_only=False,
+            admitted_without_people=False,
         )
         out, err = children[0].communicate(timeout=120)
         self.assertEqual(children[0].returncode, 0, err)
@@ -497,6 +610,7 @@ class TransitionAdmission(AccessBase):
             lambda action, details: None,
             allow=ps.APP.C.allow,
             members_only=ps.APP.C.access.members_only,
+            admitted_without_people=True,  # the machine's own user, whom admission never filters
         )
 
     def test_absent_to_managed_admits_exactly_the_checked_people(self):
@@ -537,6 +651,10 @@ class TransitionAdmission(AccessBase):
 class SettableBackstop(StateBase):
     """The screens' write services refuse a role a screen may not give; the command line's services take all four."""
 
+    def manage(self):
+        """Switch the flag on, as a transition leaves it: a screen's member change needs it."""
+        write_access(self.state / "access.json", True, "2026-01-01 00:00:00", OWNER["login"])
+
     def test_add_settable_refuses_owner_agent_and_unknown_before_any_file(self):
         """add_settable raises RoleNotSettable for owner, agent and a made-up role, and creates no file."""
         for role in ("owner", "agent", "root"):
@@ -562,5 +680,103 @@ class SettableBackstop(StateBase):
 
     def test_add_settable_and_set_settable_role_give_viewer_and_editor(self):
         """The allowed roles pass through to the same writes."""
+        self.state.mkdir(parents=True)
+        self.manage()
         add_settable(self.state, "bob@example.com", "viewer", None, self.audit)
         self.assertEqual(set_settable_role(self.state, "bob@example.com", "editor", self.audit)["role"], "editor")
+        self.assertEqual(remove_settable(self.state, "bob@example.com", self.audit)["login"], "bob@example.com")
+
+
+class ManagedUnderTheLock(StateBase):
+    """A screen's member change asks whether the flag is on from inside the write transaction, under the people lock.
+    A check made before the lock can be stale when the row lands - and under --members-only a row written then admits
+    its person at once - so the one that decides is the one the transaction makes."""
+
+    def setUp(self):
+        super().setUp()
+        self.reset()
+
+    def reset(self):
+        """A state folder of its own for the next case: an owner, bob, the flag on and nothing audited yet."""
+        self.state = Path(tempfile.mkdtemp(dir=self.tmp)) / "state"
+        self.audited = []
+        self.seed(row("owner@example.com", "owner"), row("bob@example.com", "viewer"))
+        write_access(self.state / "access.json", True, "2026-01-01 00:00:00", OWNER["login"])
+        self.before = self.files()
+
+    def unmanage(self, body=None):
+        """What another request does between the early check and the write: switch the flag off, or break the file."""
+        if body is None:
+            write_access(self.state / "access.json", False, "2026-01-01 00:00:01", OWNER["login"])
+        else:
+            (self.state / "access.json").write_text(body, encoding="utf-8")
+
+    def changes(self):
+        """The three member changes a screen makes, as (name, call) pairs."""
+        return (
+            ("add", lambda: add_settable(self.state, "carol@example.com", "viewer", None, self.audit)),
+            ("role", lambda: set_settable_role(self.state, "bob@example.com", "editor", self.audit)),
+            ("remove", lambda: remove_settable(self.state, "bob@example.com", self.audit)),
+        )
+
+    def race(self, change, body=None):
+        """Run change with the flag switched between the transaction opening and the step running, and assert it
+        wrote nothing. The switch happens inside the transaction, where only the flag read under the lock can see
+        it."""
+        real = access_service.people_transaction
+
+        def switched(state, step, audit, then=None):
+            """The real transaction, preceded by the other request's switch."""
+            self.unmanage(body)
+            return real(state, step, audit, then)
+
+        with (
+            mock.patch.object(access_service, "people_transaction", switched),
+            self.assertRaises(NotManagedNow) as got,
+        ):
+            change()
+        self.assertEqual(self.audited, [])
+        self.assertEqual(self.files()[0], self.before[0])  # people.json untouched
+        return got.exception
+
+    def test_a_flag_switched_off_mid_request_refuses_every_member_change(self):
+        for name, change in self.changes():
+            with self.subTest(change=name):
+                self.reset()
+                self.assertEqual(self.race(change).flag, "not-managed")
+
+    def test_a_flag_that_became_unusable_mid_request_refuses_every_member_change(self):
+        for name, change in self.changes():
+            with self.subTest(change=name):
+                self.reset()
+                self.assertEqual(self.race(change, "{not json").flag, "unusable")
+
+    def test_the_same_changes_go_through_while_the_flag_stays_on(self):
+        """The check refuses the race, not the ordinary request."""
+        for name, change in self.changes():
+            with self.subTest(change=name):
+                self.reset()
+                change()
+                self.assertEqual(len(self.audited), 1)
+
+    def test_a_member_change_on_an_unmanaged_instance_writes_nothing(self):
+        """The plain case the sink also catches early; here it is the transaction's own read that refuses."""
+        self.unmanage()
+        for name, change in self.changes():
+            with self.subTest(change=name), self.assertRaises(NotManagedNow):
+                change()
+        self.assertEqual(self.audited, [])
+        self.assertEqual(self.files()[0], self.before[0])
+
+    def test_a_change_without_a_people_file_still_reports_the_flag(self):
+        """With no people.json nothing is written either way, and the answer says the flag is off rather than
+        "not a member"."""
+        (self.state / "people.json").unlink()
+        self.unmanage()
+        for change in (
+            lambda: set_settable_role(self.state, "bob@example.com", "viewer", self.audit),
+            lambda: remove_settable(self.state, "bob@example.com", self.audit),
+        ):
+            with self.assertRaises(NotManagedNow):
+                change()
+        self.assertFalse((self.state / "people.json").exists())

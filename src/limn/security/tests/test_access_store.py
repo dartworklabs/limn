@@ -72,6 +72,11 @@ class ReadAccess(StateCase):
             with self.subTest(body=body):
                 self.assert_unusable(body)
 
+    def test_deeply_nested_json_is_unusable(self):
+        """200,000 nested brackets are past the parser's depth: the RecursionError must not escape the read, which
+        every header request makes (it would answer 500 internal instead of 403 access_unreadable)."""
+        self.assert_unusable("[" * 200_000 + "]" * 200_000)
+
     @unittest.skipIf(os.geteuid() == 0, "root ignores file modes")
     def test_unreadable_file_is_unusable(self):
         self.put('{"version":1,"managed":true}')

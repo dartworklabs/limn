@@ -43,6 +43,12 @@ def agent(a):
     return a.get("login", "local") == "local" or str(a.get("login")).startswith("agent:")
 
 
+def record(book, actor, now, role=None, default_role="editor", managed="not-managed"):
+    """record_person on an instance whose access flag reads `managed`; the default is the unmanaged instance these
+    tests run on, where a first visit still records a row."""
+    return record_person(book, actor, now, role, default_role, lambda: managed)
+
+
 class ModuleBoundary(unittest.TestCase):
     """people.py sits below the server: the state dir, lock, memo, clock and agent rule come in as arguments."""
 
@@ -117,6 +123,16 @@ class Records(unittest.TestCase):
             p.mkdir()
             self.assertIsInstance(load_people(p), PeopleUnreadable)
 
+    def test_a_deeply_nested_file_is_unreadable_not_an_exception(self):
+        """200,000 nested brackets are past the parser's depth: the RecursionError must not escape the read every
+        request makes (it would answer 500 internal instead of 403 people_unreadable)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "people.json"
+            p.write_text("[" * 200_000 + "]" * 200_000, encoding="utf-8")
+            got = load_people(p)
+            self.assertIsInstance(got, PeopleUnreadable)
+            self.assertIn(str(p), got.reason)
+
 
 class Known(unittest.TestCase):
     """known_people(): the @-tag candidates from people.json rows and the pins."""
@@ -181,15 +197,15 @@ class Write(unittest.TestCase):
 
     def test_a_first_visit_writes_a_private_entry_without_a_role(self):
         """first_seen/last_seen are the local time of now; no role field for the default role; mode 0600."""
-        self.assertTrue(record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
+        self.assertTrue(record(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
         (entry,) = self.rows()
         self.assertEqual(set(entry), {"login", "name", "first_seen", "last_seen"})
         self.assertEqual(stat.S_IMODE(os.stat(self.book.path).st_mode), 0o600)
 
     def test_a_given_role_is_kept_only_when_it_is_not_the_default(self):
         """The local owner is recorded as owner; 'editor' is not written."""
-        record_person(self.book, {"login": "o@example.com", "name": "O"}, 0.0, "owner", "editor")
-        record_person(self.book, {"login": "e@example.com", "name": "E"}, 0.0, "editor", "editor")
+        record(self.book, {"login": "o@example.com", "name": "O"}, 0.0, "owner", "editor")
+        record(self.book, {"login": "e@example.com", "name": "E"}, 0.0, "editor", "editor")
         self.assertEqual(
             {x["login"]: x.get("role") for x in self.rows()}, {"o@example.com": "owner", "e@example.com": None}
         )
@@ -197,14 +213,12 @@ class Write(unittest.TestCase):
     def test_an_unchanged_person_is_not_rewritten_within_the_touch_interval(self):
         """Same name and pic within PEOPLE_TOUCH_S: no write; a name change or a stale last_seen: a write."""
         actor = {"login": "a@example.com", "name": "A"}
-        record_person(self.book, actor, 100.0, None, "editor")
-        self.assertFalse(record_person(self.book, actor, 100.0 + people.PEOPLE_TOUCH_S - 1, None, "editor"))
-        self.assertTrue(
-            record_person(self.book, {"login": "a@example.com", "name": "A2", "pic": "p"}, 101.0, None, "editor")
-        )
+        record(self.book, actor, 100.0, None, "editor")
+        self.assertFalse(record(self.book, actor, 100.0 + people.PEOPLE_TOUCH_S - 1, None, "editor"))
+        self.assertTrue(record(self.book, {"login": "a@example.com", "name": "A2", "pic": "p"}, 101.0, None, "editor"))
         self.assertEqual((self.rows()[0]["name"], self.rows()[0]["pic"]), ("A2", "p"))
         self.assertTrue(
-            record_person(
+            record(
                 self.book,
                 {"login": "a@example.com", "name": "A2", "pic": "p"},
                 101.0 + people.PEOPLE_TOUCH_S,
@@ -218,14 +232,83 @@ class Write(unittest.TestCase):
         self.book.path.write_text(
             people_text([{"login": "a@example.com", "name": "A", "role": "viewer"}]), encoding="utf-8"
         )
-        record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, "owner", "editor")
+        record(self.book, {"login": "a@example.com", "name": "A"}, 0.0, "owner", "editor")
         self.assertEqual(self.rows()[0]["role"], "viewer")
 
     def test_a_failed_write_returns_false_and_is_not_memoised(self):
         """people.json that cannot be replaced (a directory) is a warning and False; the next call tries again."""
         self.book.path.mkdir()
-        self.assertFalse(record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
+        self.assertFalse(record(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
         self.assertEqual(self.book.seen, {})
+
+
+class ManagedRecording(unittest.TestCase):
+    """While access.json hands admission to people.json, the recorder updates rows and creates none: a row it created
+    would be a membership, and the request that creates it may be one the owner has just revoked."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.book = PeopleBook(Path(self.tmp.name), threading.Lock(), {}, UnreadableWarning())
+
+    def rows(self):
+        """people.json as stored now."""
+        return load_people(self.book.path)
+
+    def test_a_person_with_no_row_is_not_recorded_while_managed(self):
+        """The race the flag closes: the owner removes a member, whose request is still running and ends in a record.
+        Recreating the row would readmit them - with no role field, which reads as editor."""
+        self.book.path.write_text(
+            people_text([{"login": "o@example.com", "name": "O", "role": "owner"}]), encoding="utf-8"
+        )
+        before = self.book.path.read_bytes()
+        self.assertFalse(record(self.book, {"login": "bob@example.com", "name": "Bob"}, 0.0, None, "editor", "managed"))
+        self.assertEqual(self.book.path.read_bytes(), before)
+        self.assertEqual(self.book.seen, {})
+
+    def test_an_existing_row_is_still_updated_while_managed(self):
+        """A member's visit keeps being recorded: the name, the picture and last_seen are written, the role is not."""
+        self.book.path.write_text(
+            people_text([{"login": "a@example.com", "name": "old", "role": "viewer"}]), encoding="utf-8"
+        )
+        self.assertTrue(
+            record(self.book, {"login": "a@example.com", "name": "A", "pic": "p"}, 0.0, None, "editor", "managed")
+        )
+        (entry,) = self.rows()
+        self.assertEqual((entry["name"], entry["pic"], entry["role"]), ("A", "p", "viewer"))
+        self.assertIn("last_seen", entry)
+
+    def test_an_unusable_access_file_creates_no_row_either(self):
+        """An unusable flag fails closed everywhere else; it must not be the one state that grows the member list."""
+        self.assertFalse(record(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor", "unusable"))
+        self.assertFalse(self.book.path.exists())
+
+    def test_an_unmanaged_instance_still_records_a_first_visit(self):
+        """Today's behaviour, unchanged: without the flag the first changing POST of a person writes their row."""
+        self.assertTrue(record(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor"))
+        self.assertEqual([x["login"] for x in self.rows()], ["a@example.com"])
+
+    def test_the_flag_is_read_inside_the_lock(self):
+        """The flag decides against the file the write is about to replace: it is read under the people lock, after
+        the rows, not when the request began."""
+        order = []
+        real = people.load_people
+
+        def watched(path):
+            """Note the read of the rows, then read them."""
+            order.append("rows")
+            return real(path)
+
+        def managed():
+            """Note the read of the flag, and say the flag is on."""
+            order.append("flag")
+            self.assertTrue((self.book.state / ".people.lock").exists())
+            return "managed"
+
+        with mock.patch.object(people, "load_people", watched):
+            record_person(self.book, {"login": "a@example.com", "name": "A"}, 0.0, None, "editor", managed)
+        self.assertEqual(order, ["rows", "flag"])
+        self.assertFalse(self.book.path.exists())
 
 
 class Unreadable(unittest.TestCase):
@@ -245,13 +328,13 @@ class Unreadable(unittest.TestCase):
         broken = self.book.path.read_bytes()
         with mock.patch("sys.stderr", io.StringIO()) as err:
             for now in (0.0, 1.0, 2.0 + people.PEOPLE_TOUCH_S):
-                self.assertFalse(record_person(self.book, {"login": "a@example.com", "name": "A"}, now, None, "editor"))
+                self.assertFalse(record(self.book, {"login": "a@example.com", "name": "A"}, now, None, "editor"))
         self.assertEqual(self.book.path.read_bytes(), broken)
         self.assertEqual(err.getvalue().count("warning:"), 1, err.getvalue())
         self.assertIn(str(self.book.path), err.getvalue())
         self.assertEqual(self.book.seen, {})
         self.book.path.write_bytes(self.good)
-        self.assertTrue(record_person(self.book, {"login": "a@example.com", "name": "A"}, 3.0, None, "editor"))
+        self.assertTrue(record(self.book, {"login": "a@example.com", "name": "A"}, 3.0, None, "editor"))
         rows = load_people(self.book.path)
         self.assertEqual(
             [(x["login"], x.get("role")) for x in rows], [("a@example.com", None), ("o@example.com", "owner")]

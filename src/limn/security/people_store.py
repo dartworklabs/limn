@@ -7,7 +7,8 @@ then os.replace'd (atomic) - readers only ever see the old file or the new one.
 What lives here: the record check of a people.json entry (valid_people, is_actor), its stored text (people_text), its
 read (load_people: the rows, or PeopleUnreadable for a file that exists but cannot be used - fail closed, never "no
 one"), the warning about such a file (UnreadableWarning), the running server's write (record_person, through a
-PeopleBook; never over an unusable file), the @-tag candidates made from people.json rows and the pins
+PeopleBook; never over an unusable file, and never creating a row while the instance's access flag says the file
+decides who is admitted), the @-tag candidates made from people.json rows and the pins
 (known_people, pure) and their order and roles as GET /api/people lists them (candidates, pure).
 
 The module knows no run arguments, no HTTP and no server. The collaboration directory binds the file path, process
@@ -27,7 +28,7 @@ from typing import Any, TypeAlias, TypeVar, final
 
 from limn.platform.files import atomic_write, store_lock
 from limn.runtime.paths import PEOPLE_FILE as PEOPLE_FILE
-from limn.security.values import LOGIN_MAX, NAME_MAX, ROLES, is_role, role_value, valid_login
+from limn.security.values import LOGIN_MAX, NAME_MAX, ROLES, ManagedAccess, is_role, role_value, valid_login
 
 # One people.json entry, pin record or actor dict as read from JSON.
 Row: TypeAlias = dict[str, Any]
@@ -72,13 +73,16 @@ class PeopleUnreadable:
 
 def load_people(path: Path) -> list[Row] | PeopleUnreadable:
     """The valid entries of the people.json at path (valid_people); [] when the file does not exist (nobody recorded
-    yet); PeopleUnreadable when it exists but cannot be used. An entry that is not a person is dropped as before; only
-    a file that is not a people file as a whole is unreadable."""
+    yet); PeopleUnreadable when it exists but cannot be used - it cannot be read, is not UTF-8 JSON, is nested past
+    the parser's depth, or is not a people file. An entry that is not a person is dropped as before; only a file that
+    is not a people file as a whole is unreadable."""
     try:
         d = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
         return []
-    except (OSError, ValueError) as e:  # UnicodeDecodeError and JSONDecodeError are ValueErrors
+    # UnicodeDecodeError and JSONDecodeError are ValueErrors; a document nested past the parser's depth raises
+    # RecursionError, which is neither (limn.platform.tailnet reads a status body the same way).
+    except (OSError, ValueError, RecursionError) as e:
         return PeopleUnreadable("cannot read %s: %s" % (path, e))
     if not isinstance(d, dict) or not isinstance(d.get("people"), list):
         return PeopleUnreadable("%s is not a Limn people file" % path)
@@ -138,7 +142,14 @@ class PeopleBook:
         return self.state / PEOPLE_FILE
 
 
-def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: str | None, default_role: str) -> bool:
+def record_person(
+    book: PeopleBook,
+    actor: Mapping[str, Any],
+    now: float,
+    role: str | None,
+    default_role: str,
+    managed: Callable[[], ManagedAccess],
+) -> bool:
     """Records a person into people.json (only written for a new person, a name/picture change, or when last_seen is
     stale past PEOPLE_TOUCH_S). The caller has already left out local/agent actors and actors without a login. The
     request continues even if the write fails (only a warning). Returns True if it wrote.
@@ -147,6 +158,15 @@ def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: 
     default_role) unless `role` is given and differs from it (the local owner is recorded as owner). The file is
     re-read under the thread lock and the cross-process lock (.people.lock), since `limn member` may have just
     changed it. first_seen/last_seen are the local wall-clock strings of `now`.
+
+    `managed` is what the instance's access flag says, read under the lock next to the rows this write replaces, and
+    the composition root passes it in - this module never reads access.json. While it is anything but "not-managed"
+    an existing row is updated and no row is created: on a managed instance a row *is* the membership, so creating
+    one would readmit someone the owner has just removed (whose request was still running), with no role field, which
+    reads as default_role. Nothing is lost by not creating it: such a login cannot be admitted while managed, so the
+    only row this would create is that race's. An unusable flag creates none either - it fails closed everywhere
+    else - and under --auth local the local owner then gets no row, which is safer than listing a login a header
+    could later use.
 
     A file that exists but cannot be used (PeopleUnreadable) is never rewritten - that would replace every role in it
     with this one visitor: nothing is written or memoised, book.warning warns once, and the result is False."""
@@ -166,6 +186,8 @@ def record_person(book: PeopleBook, actor: Mapping[str, Any], now: float, role: 
                 stamp = datetime.fromtimestamp(now).astimezone().strftime("%Y-%m-%d %H:%M:%S")
                 cur = next((x for x in rows if x["login"] == login), None)
                 if cur is None:
+                    if managed() != "not-managed":  # a row would be a membership; see the docstring
+                        return False
                     cur = {"login": login, "first_seen": stamp}
                     if role and role != default_role:
                         cur["role"] = role

@@ -4,8 +4,10 @@ target state (docs/superpowers/specs/2026-11-22-viewer-access-management-design.
 The transition (apply_managed) is the action the whole design's safety rests on: it must never widen who can get in
 without the owner having seen it, and never lock the owner out. So it takes a target list - the people the owner
 checked on the screen - and writes exactly that, under the one people lock: people.json first, access.json last. If the
-second write fails the instance keeps the new member list but is still not managed, which runs today's --allow
-judgement, so nobody gained entry; the operation writes a target state, so pressing again finishes it.
+second write fails the instance keeps the new member list and is still not managed (FlagNotWritten). That half is safe
+to leave but is not nothing: under --members-only an unmanaged instance already admits by people.json, so a row this
+press wrote admits that person at once. The failure says which of the two writes stands, and the operation writes a
+target state, so pressing again finishes it.
 
 Every refusal is judged before any file is opened, so a refusal changes nothing. The refusals are raised as values that
 carry the login or the role, never a path: the HTTP layer composes the text for the viewer.
@@ -39,11 +41,16 @@ from limn.security.people_store import (
 from limn.security.values import (
     ROLES,
     SETTABLE_ROLES as SETTABLE_ROLES,
+    ManagedAccess,
     is_role,
     is_settable_role,
     role_value,
     valid_login,
 )
+
+# The audit action one press of the switch records for the flag itself, next to the member_* lines of the rows it
+# changed: a flag-only press changes no row and would otherwise leave no record of an access change.
+FLAG_AUDIT_ACTION = "access_managed"
 
 
 @dataclass(frozen=True)
@@ -93,6 +100,34 @@ class RoleNotSettable(Exception):
         super().__init__(login, role)
         self.login = login
         self.role = role
+
+
+class NotManagedNow(Exception):
+    """A member change read the access flag under the people lock, about to write, and the flag was not on: the member
+    list does not decide who is admitted in that state, so the change the API promises `409 not_managed` for must not
+    land. `flag` is what access.json said then - "not-managed" or "unusable"."""
+
+    flag: ManagedAccess
+
+    def __init__(self, flag: ManagedAccess) -> None:
+        """Remember what the flag said."""
+        super().__init__(flag)
+        self.flag = flag
+
+
+class FlagNotWritten(Exception):
+    """people.json was written (and its changes audited) but access.json was not, so the member list stands and the
+    flag did not change. Told apart from a people.json that could not be written at all, because here the member
+    changes are already in effect for whatever admission the unchanged flag runs - under --members-only a row written
+    for a target admits them at once. `error` is the write's own OSError, whose text names a path and so stays in the
+    server's log."""
+
+    error: OSError
+
+    def __init__(self, error: OSError) -> None:
+        """Remember the failed write."""
+        super().__init__(str(error))
+        self.error = error
 
 
 class DuplicateTarget(Exception):
@@ -154,17 +189,25 @@ def transition_view(allow: Collection[str], members_only: bool, rows: Sequence[R
     )
 
 
-def _admitted(managed: bool, allow: Collection[str], members_only: bool, rows: Sequence[Row]) -> frozenset[str] | None:
-    """The logins admission lets in with the flag as `managed`, these rows and these run arguments (access.admit); None
-    when everyone a header identifies gets in (an open instance), which cannot be listed."""
-    members = {row_login(x) for x in rows}
+def _admitted(
+    managed: bool, allow: Collection[str], members_only: bool, members: Collection[str]
+) -> frozenset[str] | None:
+    """The logins admission lets in with the flag as `managed`, these people.json logins and these run arguments
+    (access.admit); None when everyone a header identifies gets in (an open instance), which cannot be listed. Two
+    things read it, so both follow the same rule: the result's `newly_admitted`, by comparing the state before the
+    press with the state after, and _judge_against, by asking whether the state after lets the requester in."""
     if managed:
         return frozenset(members)
     if members_only:
-        return frozenset(members | set(allow))
+        return frozenset(members) | frozenset(allow)
     if allow:
         return frozenset(allow)
     return None
+
+
+def _member_logins(rows: Sequence[Row]) -> set[str]:
+    """The logins of these people.json rows."""
+    return {row_login(x) for x in rows}
 
 
 def _is_fixed(row: Row) -> bool:
@@ -196,24 +239,40 @@ def _requester(by: Mapping[str, object]) -> str:
     return login
 
 
-def _judge_against(rows: Sequence[Row], wanted: dict[str, str], requester: str, managed: bool) -> None:
+def _judge_against(
+    rows: Sequence[Row],
+    wanted: dict[str, str],
+    requester: str,
+    managed: bool,
+    *,
+    admitted_without_people: bool,
+    allow: Collection[str],
+    members_only: bool,
+) -> None:
     """The refusals that need the member list, judged on the rows read under the lock and before anything is written.
+
     RoleNotSettable for a target that names a current owner or agent: the screen does not send those rows, so a request
-    that does disagrees with the file, and the owner's approval binds to what they were shown. LocksOutOwner when the
-    requester would lose their way in by this press:
-    - they hold a viewer/editor row the targets leave out, so it would be removed. This holds for the flag off too:
-      under --members-only an unmanaged instance still admits by people.json, so removing the row can refuse them
-      unless --allow lists them. Turning management off with the current list does not trigger it.
-    - the result is managed and they have neither a line in the targets nor an owner/agent row (which is kept).
-    The machine's own user (login `local`, not a valid login) is exempt: under --auth local the loopback owner is
-    admitted whatever people.json says."""
-    fixed = {row_login(x) for x in rows if _is_fixed(x)}
+    that does disagrees with the file, and the owner's approval binds to what they were shown.
+
+    LocksOutOwner when the state this press produces would refuse the requester at once. That state's people.json
+    logins are the owner and agent rows (kept whatever is sent) plus the targets, and _admitted - the same reasoning
+    admission itself follows - says who it lets in with the flag the press writes and the run's arguments. An instance
+    that admits everyone a header identifies (no flag, no --allow, no --members-only) can never shut them out, so it is
+    never refused; otherwise the requester must be among those logins. Holding a row is not the same as being admitted:
+    with --allow alone an owner row grants no entry once the flag is off, which is how turning management off used to
+    lock out the only owner.
+
+    `admitted_without_people` is exempt from that judgement: admission lets such a requester in whatever people.json
+    holds (a token principal, and the machine's own user under --auth local, whose --local-user login looks like
+    anyone else's). The HTTP boundary knows the principal and decides it there; valid_login() cannot stand for it."""
+    fixed = _member_logins([x for x in rows if _is_fixed(x)])
     for login, role in wanted.items():
         if login in fixed:
             raise RoleNotSettable(login, role)
-    if not valid_login(requester) or requester in wanted or requester in fixed:
+    if admitted_without_people:
         return
-    if managed or any(row_login(x) == requester for x in rows):
+    after = _admitted(managed, allow, members_only, fixed | set(wanted))
+    if after is not None and requester not in after:
         raise LocksOutOwner(requester)
 
 
@@ -232,6 +291,7 @@ def apply_managed(
     *,
     allow: Collection[str],
     members_only: bool,
+    admitted_without_people: bool,
 ) -> ManagedResult:
     """Makes people.json's viewer and editor rows match targets, then writes the access flag `managed`, under one hold
     of the people lock. Rows of someone not in targets are removed; a target without a row gets one; a row whose role
@@ -246,14 +306,20 @@ def apply_managed(
 
     Raises DuplicateTarget, RoleNotSettable and ValueError before any file is opened (_judge), then, on the rows read
     under the lock and before anything is written, RoleNotSettable and LocksOutOwner (_judge_against); ValueError for an
-    unusable people.json. A refusal changes nothing. OSError when a file cannot be written: after people.json was
-    written the member changes stand and are audited and the flag stays as it was, so the instance is still unmanaged -
-    the deliberately safe failure, nobody gained entry - and the owner can press again, since the operation writes a
-    target state.
+    unusable people.json. A refusal changes nothing.
 
-    `allow` and `members_only` are the run's arguments: with the rows and the flag before and after they say who gets
-    in, so the result can name the people this press newly lets in (`newly_admitted`) - for instance an owner row
-    kept under --allow, whom today's admission refuses."""
+    OSError when people.json cannot be written: nothing was written or audited. FlagNotWritten when people.json was
+    written and access.json was not: the member changes stand and are audited, the flag stays as it was, and no
+    `access_managed` line is written. That is the safe half-done state, not a no-op - under --members-only an
+    unmanaged instance already admits by people.json, so a row this press wrote for a target admits them at once,
+    while under --allow alone or a managed flag that was already on the rows change who gets in only after the flag
+    follows. The caller must say so rather than report a bare failure. Pressing again finishes it, since the
+    operation writes a target state.
+
+    `allow` and `members_only` are the run's arguments: with the member logins and the flag before and after they say
+    who gets in, so the result can name the people this press newly lets in (`newly_admitted`) - for instance an owner
+    row kept under --allow, whom today's admission refuses. `admitted_without_people` is the HTTP boundary's answer to
+    "does admission let this requester in whatever people.json says" (_judge_against)."""
     judged = None if targets is None else _judge(targets)
     requester = _requester(by)
     state = Path(state)
@@ -265,12 +331,20 @@ def apply_managed(
             if judged is not None
             else {row_login(x): role_value(x.get("role")) for x in rows if not _is_fixed(x)}
         )
-        _judge_against(rows, wanted, requester, managed)
+        _judge_against(
+            rows,
+            wanted,
+            requester,
+            managed,
+            admitted_without_people=admitted_without_people,
+            allow=allow,
+            members_only=members_only,
+        )
         flag_before = read_access(state / ACCESS_FILE).managed
         before = (
             frozenset[str]()
             if flag_before == "unusable"
-            else _admitted(flag_before == "managed", allow, members_only, rows)
+            else _admitted(flag_before == "managed", allow, members_only, _member_logins(rows))
         )
         added: list[str] = []
         removed: list[str] = []
@@ -294,14 +368,19 @@ def apply_managed(
                 if edit is not None:
                     changed.append(login)
                     changes.append(edit)
-        after = _admitted(managed, allow, members_only, rows)
+        after = _admitted(managed, allow, members_only, _member_logins(rows))
         newly = () if after is None or before is None else tuple(sorted(x for x in after - before if valid_login(x)))
         kept = tuple(sorted(row_login(x) for x in rows if _is_fixed(x)))
         return ManagedResult(tuple(added), tuple(removed), tuple(changed), kept, newly, managed), changes
 
     def write_flag() -> None:
-        """The flag, last: the member list it governs is already on disk."""
-        write_access(state / ACCESS_FILE, managed, _stamp(now), requester)
+        """The flag, last: the member list it governs is already on disk. Its own audit line follows the write, so a
+        failure (FlagNotWritten, which the member changes have already been audited before) records nothing."""
+        try:
+            write_access(state / ACCESS_FILE, managed, _stamp(now), requester)
+        except OSError as e:
+            raise FlagNotWritten(e) from e
+        audit(FLAG_AUDIT_ACTION, {"managed": managed, "by": requester})
 
     return people_transaction(state, step, audit, then=write_flag)
 
@@ -350,18 +429,63 @@ def remove_one(state: Path, login: str, audit: PeopleAudit) -> Row | None:
     return people_transaction(Path(state), step, audit)
 
 
+def _require_managed(state: Path) -> None:
+    """Raises NotManagedNow unless access.json says the flag is on. Called from inside a people_transaction step, so
+    the flag is read under the people lock, against the file the write is about to replace: a check made before the
+    lock can be stale by the time the row lands, and under --members-only such a row admits its person at once. Takes
+    no lock of its own (store_lock does not nest; this read needs none)."""
+    flag = read_access(Path(state) / ACCESS_FILE).managed
+    if flag != "managed":
+        raise NotManagedNow(flag)
+
+
 def add_settable(state: Path, login: str, role: str, name: str | None, audit: PeopleAudit) -> Row:
     """add_one for a screen: the role must be one a screen may give (viewer or editor), so no request can write an owner
-    or agent row. RoleNotSettable otherwise, before any file is opened; the command line uses add_one, which takes all
-    four roles (the first owner is made with it)."""
+    or agent row, and the access flag must be on under the lock that writes (NotManagedNow). RoleNotSettable otherwise,
+    before any file is opened; the command line uses add_one, which takes all four roles (the first owner is made with
+    it) and needs no flag."""
     if not is_settable_role(role):
         raise RoleNotSettable(login, role)
-    return add_one(state, login, role, name, audit)
+
+    def step(rows: list[Row]) -> tuple[Row, list[MemberChange]]:
+        """Checks the flag, then appends the entry -> (entry, its change)."""
+        _require_managed(state)
+        entry, change = add_member(rows, login, role, name)
+        return entry, [change]
+
+    return people_transaction(Path(state), step, audit)
 
 
 def set_settable_role(state: Path, login: str, role: str, audit: PeopleAudit) -> Row | None:
     """set_one_role for a screen: the role must be viewer or editor (RoleNotSettable otherwise, before any file is
-    opened), so no request can raise anyone to owner or agent."""
+    opened), so no request can raise anyone to owner or agent, and the access flag must be on under the lock that
+    writes (NotManagedNow)."""
     if not is_settable_role(role):
         raise RoleNotSettable(login, role)
-    return set_one_role(state, login, role, audit)
+    if not (Path(state) / PEOPLE_FILE).exists():
+        _require_managed(state)
+        return None  # not a member, and no file is created; nothing is written, so nothing needs the lock
+
+    def step(rows: list[Row]) -> tuple[Row | None, list[MemberChange]]:
+        """Checks the flag, then sets the role -> (entry or None, its change if any)."""
+        _require_managed(state)
+        hit, change = set_member_role(rows, login, role)
+        return hit, [] if change is None else [change]
+
+    return people_transaction(Path(state), step, audit)
+
+
+def remove_settable(state: Path, login: str, audit: PeopleAudit) -> Row | None:
+    """remove_one for a screen: the access flag must be on under the lock that writes (NotManagedNow), since while it
+    is off the member list does not decide who is admitted. The command line uses remove_one, which needs no flag."""
+    if not (Path(state) / PEOPLE_FILE).exists():
+        _require_managed(state)
+        return None  # not a member, and no file is created
+
+    def step(rows: list[Row]) -> tuple[Row | None, list[MemberChange]]:
+        """Checks the flag, then drops the entry -> (entry or None, its change if any)."""
+        _require_managed(state)
+        hit, change = remove_member(rows, login)
+        return hit, [] if change is None else [change]
+
+    return people_transaction(Path(state), step, audit)
