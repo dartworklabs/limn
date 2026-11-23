@@ -6,7 +6,7 @@
 >
 > 소유자가 2026-11-22에 고른 것 셋 — ① 테일넷 목록은 **LocalAPI만**(자격증명 없음, 부분 목록임을 화면에 명시), ② 허용 목록의 정본 전환은 **소유자가 누르는 일회 전환**(자동 흡수하지 않는다), ③ 마지막 `owner` 보호는 **화면과 CLI 두 문 모두**를 묶는다. 그 밖에 이 문서가 §내가 정한 것으로 박은 결정은 구현자가 추측하지 않도록 답을 적어 둔 것이고, 소유자가 읽고 뒤집을 수 있다.
 >
-> 되돌리기 어려운 결정이라 **ADR-0054**를 함께 쓴다(ADR-0002 §2 권한 층의 "소유자 전용 작업은 당분간 CLI 수준" 조항을 **부분 대체**). ADR-0002·0003·0007 본문은 동결이라 건드리지 않는다([workflow.md](../../handbook/workflow.md) §결정 기록).
+> 되돌리기 어려운 결정이라 **ADR-0055**를 함께 쓴다(ADR-0002 §2 권한 층의 "소유자 전용 작업은 당분간 CLI 수준" 조항을 **부분 대체**). ADR-0002·0003·0007 본문은 동결이라 건드리지 않는다([workflow.md](../../handbook/workflow.md) §결정 기록).
 >
 > **승인 뒤에 고친 문장 셋.** 앞의 둘은 설명 문장이고, 셋째는 **결정 조항 하나**다 — 소유자가 2026-11-23에 고치기로 정했다.
 >
@@ -98,7 +98,7 @@ if p.via == "header":
 
 ## 현재 권위와 상태
 
-- **`security/access.py`** — 정본. `AccessSettings`(기동 고정) / `AccessLookups`(요청마다 파일 다시 읽음)의 구분이 이 설계의 축이다. `admit()`는 `p.via == "header"`인 사람만 걸러내고, 토큰과 로컬 소유자는 늘 들어온다. `check_read(path)`는 **역할을 보지 않는다**. `check_role(p, path, trash_days)`가 POST만 역할로 가른다. 소유자 전용 경로는 `OWNER_POSTS = ("/api/clear",)`와 `OWNER_POST_RE`(`purge`) 둘뿐이고, docstring이 **"Other owner-only operations - members, tokens, settings - are CLI/file level."** 이라고 적는다([`access.py:609`](../../../src/limn/security/access.py)). 이 문장을 바꾸는 것이 ADR-0054의 핵심이다.
+- **`security/access.py`** — 정본. `AccessSettings`(기동 고정) / `AccessLookups`(요청마다 파일 다시 읽음)의 구분이 이 설계의 축이다. `admit()`는 `p.via == "header"`인 사람만 걸러내고, 토큰과 로컬 소유자는 늘 들어온다. `check_read(path)`는 **역할을 보지 않는다**. `check_role(p, path, trash_days)`가 POST만 역할로 가른다. 소유자 전용 경로는 `OWNER_POSTS = ("/api/clear",)`와 `OWNER_POST_RE`(`purge`) 둘뿐이고, docstring이 **"Other owner-only operations - members, tokens, settings - are CLI/file level."** 이라고 적는다([`access.py:609`](../../../src/limn/security/access.py)). 이 문장을 바꾸는 것이 ADR-0055의 핵심이다.
 - **`security/people.py` · `administration/member_state.py`** — `people.json`의 두 writer. 서버의 `record_person()`과 CLI의 `_people_update()`가 **같은 `store_lock(state, "people")`** 과 같은 `people_text()` 형식을 쓴다. `people_text()`는 문서를 `{"version":1,"people":rows}`로 **다시 짓는다** — 이것이 §내가 정한 것 2의 근거다.
 - **`load_people()`** — 없는 파일은 `[]`, **있는데 못 쓰는 파일은 `PeopleUnreadable`** 로 갈라 fail closed 한다. 새 파일도 이 갈라치기를 따른다.
 - **`web/handler.py`** — 검사 순서가 계약이다(`api.md` §검사 순서): 본문 → Host/Origin → `identify` → `admit` → (POST) `check_role` → 본문 형식 → 권한 발급. `check_read`는 GET 경로에서 불린다.
@@ -246,7 +246,7 @@ if p.via == "header":
   - **잠금 없는 순수 편집** — rows를 받아 제자리에서 고치고 `(결과, 감사 줄들)`을 돌려주는 연산. 전환과 단건 변경이 같은 것을 쓴다.
   - **잠금을 한 번 잡는 트랜잭션** — 읽고, 위 연산을 돌리고, `atomic_write`하고, 같은 잠금 안에서 감사 줄을 적는다. 기존 `_people_update`가 하는 일과 같은 모양이다.
 - **쓰는 순서는 `people.json` 먼저, `access.json` 마지막이다.** 뒤가 실패하면 "멤버는 바뀌었지만 아직 관리 안 함"이 남는데, 그 상태는 **오늘의 `--allow` 판정이 그대로 도는 상태**라 들어오는 사람이 늘지 않는다(제거는 효력이 없고 추가도 효력이 없다). 반대 순서면 "관리 중인데 멤버 목록이 어긋난 상태"가 되어 잠금이나 넓힘이 된다. 실패하면 응답이 무엇이 바뀌었고 무엇이 안 바뀌었는지 말하고, 소유자가 다시 누르면 된다(연산은 목표 상태를 적으므로 멱등이다).
-- **`require_authority`는 HTTP 싱크에서 부른다 — 공유 연산 안이 아니다.** `PostAuthority`는 `_AUTHORITY_KEY`가 `access.py` 사설이라 **HTTP 경계에서만** 발급된다(`_authorize_post`는 `RequestGuards.authorize_post`에서만 불린다). 공유 연산 안에서 검사하면 CLI가 만족시킬 수 없어 §내가 정한 것 7("CLI는 그대로 남는다")과 부딪힌다. `/api/clear`와 같은 모양이다 — HTTP 문은 권한 값으로, CLI 문은 OS 파일 권한으로 지킨다(오늘과 같다). ADR-0054에 이 비대칭을 적는다.
+- **`require_authority`는 HTTP 싱크에서 부른다 — 공유 연산 안이 아니다.** `PostAuthority`는 `_AUTHORITY_KEY`가 `access.py` 사설이라 **HTTP 경계에서만** 발급된다(`_authorize_post`는 `RequestGuards.authorize_post`에서만 불린다). 공유 연산 안에서 검사하면 CLI가 만족시킬 수 없어 §내가 정한 것 7("CLI는 그대로 남는다")과 부딪힌다. `/api/clear`와 같은 모양이다 — HTTP 문은 권한 값으로, CLI 문은 OS 파일 권한으로 지킨다(오늘과 같다). ADR-0055에 이 비대칭을 적는다.
 - **`authority_scope()`에 분기를 더해야 한다.** 지금 [`server.py:324`](../../../src/limn/server.py)는 `rebuild`·`hold`·`revision-build`만 가르고 **나머지는 핀 저장소 범위로 떨어진다** — 분기를 더하지 않으면 멤버 작업이 조용히 핀 저장소를 상대로 권한을 받는다. people 저장소 범위를 새로 만든다(소유자는 프로세스의 people 잠금, 이름 공간은 상태 디렉터리).
 - **적합 검사의 제약** — [`tools/check_fitness.py`](../../../tools/check_fitness.py)의 기준선은 **내려가기만** 한다. `security/people.py`의 `isinstance` 기준선은 11이므로 **새 코드에 `isinstance`를 쓰지 않는다.** 새 모듈을 만들 때는 basename이 역할 낱말을 담아야 하고(`*_store.py` → `persistence`, io 허용·`isinstance` 금지) 그 역할의 규칙을 처음부터 지켜야 한다 — 새 파일의 위반 수는 0이어야 한다. `tools/strict_ratchet.py`도 같은 방향이다.
 - **`#access`의 배경 클릭은 두 패턴 중 하나를 고른다.** `#trash`는 [`layout/flow.ts`](../../../src/limn/viewer/js/layout/flow.ts)의 공용 배경 클릭 목록에 **없고** 자기 처리기를 따로 갖는다(`pins/view-cards.ts:551`). 뒤로가기 레이어(`flow-back.ts:32`·`:84`)에는 들어 있다. 새 패널은 공용 목록에 넣는 쪽을 고르고, 뒤로가기 셀렉터 두 곳에도 더한다.

@@ -116,7 +116,7 @@ What the server does defend against:
   While the access flag is on the recorder creates no row at all, so on a managed instance `limn member add` is the only
   way an `owner` row appears. The last `owner` cannot be removed or demoted through either door — the viewer and `limn
   member` refuse alike (`409 last_owner`) — so replacing an owner means adding the new one first. Every change is
-  recorded in `audit.jsonl`. The design is [ADR-0054](docs/adr/0054-access-managed-from-the-viewer.md) (Korean).
+  recorded in `audit.jsonl`. The design is [ADR-0055](docs/adr/0055-access-managed-from-the-viewer.md) (Korean).
 - An unusable `access.json` fails closed. If the file exists but cannot be read, is not UTF-8 JSON, is not an object,
   carries a `version` other than 1 or a `managed` that is not a boolean, every person identified by a header is refused
   (`403 access_unreadable`) and one warning goes to stderr. Reading it as "not managed" would quietly fall back to the

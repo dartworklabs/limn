@@ -17,7 +17,7 @@ the switch cannot get in — the closed side.
   already existed (`member_added`, `member_role`, `member_removed`). The screen may give only the `viewer` and
   `editor` roles: the first `owner` is still made with `limn member add <instance> <login> --role owner` and nothing
   else, so nobody who can reach the tailnet can raise their own privilege. `limn member` keeps working and edits the
-  same file under the same lock ([ADR-0054](docs/adr/0054-access-managed-from-the-viewer.md)).
+  same file under the same lock ([ADR-0055](docs/adr/0055-access-managed-from-the-viewer.md)).
 - **Managed access, and the one press that turns it on.** A new state file `<state>/access.json` (mode `0600`) holds
   one flag. While it says `managed`, `people.json` alone decides who is admitted — a login with a row gets in, every
   other header-identified person is refused, and `--allow` and `--members-only` are ignored, which the startup `auth`

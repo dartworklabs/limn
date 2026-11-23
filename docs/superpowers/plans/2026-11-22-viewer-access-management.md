@@ -397,7 +397,11 @@ def test_tailnet_section_says_the_list_is_partial(self)
 def test_login_input_is_shown_when_the_list_is_empty(self)
 def test_escape_and_backdrop_close_the_panel(self)
 def test_tab_stays_inside_the_panel(self)
-def test_layout_at_four_device_classes(self)      # 넘침·잘림 없음, 줄 높이 마우스 32px·터치 44px
+def test_layout_at_four_device_classes(self)
+    # 넘침·잘림 없음. 줄 높이는 **줄 수가 정한다** — 이름 위·로그인 아래의 멤버·후보·전환 줄은
+    # **두 줄 행**이므로 `--row-h` 48px(마우스)·`--row-h-touch` 56px(터치)다.
+    # `--row-h-sm` 32px 는 "마우스가 고르는 한 줄 메뉴 행"이라 이 줄에 맞지 않는다(`tokens.css:64-65`).
+    # (이 줄은 컬트롤러가 처음에 32px 로 잘못 썼다 — 2026-11-23 정정)
 ```
 
 - [ ] **Step 2: 실패를 본다**
@@ -414,12 +418,12 @@ Expected: PASS
 
 - [ ] **Step 5: 커밋** — `feat(viewer): an owner manages instance access from the viewer`
 
-### Task 9: ADR-0054, Handbook, README·SKILL, CHANGELOG
+### Task 9: ADR-0055, Handbook, README·SKILL, CHANGELOG
 
-**Files:** `docs/adr/0054-access-managed-from-the-viewer.md`(새), `docs/adr/index.md`, `docs/handbook/{api,architecture,operations,viewer,instances,verification,index}.md`, `SECURITY.md`, `README.md`, `README.ko.md`, `skill/SKILL.md`, `skill/SKILL.ko.md`, `CHANGELOG.md`
+**Files:** `docs/adr/0055-access-managed-from-the-viewer.md`(새), `docs/adr/index.md`, `docs/handbook/{api,architecture,operations,viewer,instances,verification,index}.md`, `SECURITY.md`, `README.md`, `README.ko.md`, `skill/SKILL.md`, `skill/SKILL.ko.md`, `CHANGELOG.md`
 
-- [ ] **Step 1: ADR-0054를 쓴다** (`제안`). 머리표에 **ADR-0002 §2 권한 층의 "소유자 전용 작업은 당분간 CLI 수준" 조항을 `부분 대체`**. 결정: D1 `access.json`의 플래그가 입장의 정본을 가른다, D2 전환은 소유자가 보고 누르며 기본값은 무동작, D3 멤버십 = 입장(두 축을 만들지 않는다), D4 관리 중인 인스턴스에서 빈 명단은 "아무도"다, D5 못 쓰는 `access.json`은 fail closed, D6 읽기도 역할로 가른다(`OWNER_READS`), D7 권한 값은 HTTP 문에서만 발급되고 CLI 문은 OS 파일 권한으로 지킨다(비대칭과 그 이유), D8 마지막 owner 보호는 두 문을 묶는다, D9 최초 owner는 CLI만 만든다, D10 테일넷 목록은 LocalAPI의 부분 목록이고 실패는 정상이다. 대안: 자동 흡수, `--allow` 목록만 파일로, 줄에 `admit` 필드, Admin API 자격증명, 서브프로세스. 수치는 spec §실측에서 옮긴다. **ADR-0002·0003·0007 본문은 건드리지 않는다.**
-- [ ] **Step 2: Handbook을 고친다**(현재형, 날짜·전후 수치 없이). `api.md` §인증의 입장 표에 관리 모드 행, 새 경로 다섯과 응답 필드, 새 `reason` 코드, `access.json` 형식, 소유자 전용 읽기와 검사 순서. `architecture.md` §불변식 1에 관리 모드와 fail closed, §멈춤 신호에 걸려 설계 판단을 받았다는 사실. **`security/people.py` → `security/people_store.py` 이름 변경을 반영한다** — `api.md` 안의 그 경로 참조와 `index.md` §파일 지도의 `security/**` 행. **§불변식 1의 "신원·입장·역할 판단 … 코드는 `security/access.py` 한 곳에 있다"를 실재에 맞춘다** — 닫힌 보안 값(`Role`·`ManagedAccess`·`AuthorityScope`)과 그 값으로 한 번 바꾸는 파서(`valid_login`·`is_role`·`role_value`)는 `security/values.py`에 있고, 판단(`identify`·`admit`·`check_role`·Host·Origin)은 `access.py`에 남는다. Task 3이 `people.py`↔`access.py` 순환을 끊으려고 옮겼고 `access`가 그대로 재수출하므로 호출 쪽은 바뀌지 않았다. `index.md` §파일 지도의 `security/**` 행도 같이 고친다. `operations.md` §실행 인자에 "관리 모드에서 `--allow`·`--members-only`는 무시된다", 기동 `auth` 로그 줄, **소유자 교체 순서**(새 소유자를 먼저 더한다). §상태 파일 배치는 **두 자리를 모두** 고친다 — 상태 폴더 나무 그림(`people.json`·`tokens.json` 줄 옆에 `access.json`을 권한 0600과 함께)과 그 아래 "접근 제어의 상태" 문단(`people.json`·`tokens.json`만 말하고 있다). 복구 절차는 "쓸 수 없는 `people.json`" 절과 같은 자리에 둔다. `viewer.md` §역할에 따른 화면에 소유자 전용 패널, 새 절로 패널 규칙. `instances.md`에 전환 안내와 `limn member add --role owner` 부트스트랩. `verification.md`에 새 검사. `index.md` §파일 지도에 새 모듈 행. 규칙 문단마다 ADR-0054의 조항을 인용하고, **인용을 지워도 본문만으로 규칙이 완결되게** 쓴다.
+- [ ] **Step 1: ADR-0055를 쓴다** (`제안`). 머리표에 **ADR-0002 §2 권한 층의 "소유자 전용 작업은 당분간 CLI 수준" 조항을 `부분 대체`**. 결정: D1 `access.json`의 플래그가 입장의 정본을 가른다, D2 전환은 소유자가 보고 누르며 기본값은 무동작, D3 멤버십 = 입장(두 축을 만들지 않는다), D4 관리 중인 인스턴스에서 빈 명단은 "아무도"다, D5 못 쓰는 `access.json`은 fail closed, D6 읽기도 역할로 가른다(`OWNER_READS`), D7 권한 값은 HTTP 문에서만 발급되고 CLI 문은 OS 파일 권한으로 지킨다(비대칭과 그 이유), D8 마지막 owner 보호는 두 문을 묶는다, D9 최초 owner는 CLI만 만든다, D10 테일넷 목록은 LocalAPI의 부분 목록이고 실패는 정상이다. 대안: 자동 흡수, `--allow` 목록만 파일로, 줄에 `admit` 필드, Admin API 자격증명, 서브프로세스. 수치는 spec §실측에서 옮긴다. **ADR-0002·0003·0007 본문은 건드리지 않는다.**
+- [ ] **Step 2: Handbook을 고친다**(현재형, 날짜·전후 수치 없이). `api.md` §인증의 입장 표에 관리 모드 행, 새 경로 다섯과 응답 필드, 새 `reason` 코드, `access.json` 형식, 소유자 전용 읽기와 검사 순서. `architecture.md` §불변식 1에 관리 모드와 fail closed, §멈춤 신호에 걸려 설계 판단을 받았다는 사실. **`security/people.py` → `security/people_store.py` 이름 변경을 반영한다** — `api.md` 안의 그 경로 참조와 `index.md` §파일 지도의 `security/**` 행. **§불변식 1의 "신원·입장·역할 판단 … 코드는 `security/access.py` 한 곳에 있다"를 실재에 맞춘다** — 닫힌 보안 값(`Role`·`ManagedAccess`·`AuthorityScope`)과 그 값으로 한 번 바꾸는 파서(`valid_login`·`is_role`·`role_value`)는 `security/values.py`에 있고, 판단(`identify`·`admit`·`check_role`·Host·Origin)은 `access.py`에 남는다. Task 3이 `people.py`↔`access.py` 순환을 끊으려고 옮겼고 `access`가 그대로 재수출하므로 호출 쪽은 바뀌지 않았다. `index.md` §파일 지도의 `security/**` 행도 같이 고친다. `operations.md` §실행 인자에 "관리 모드에서 `--allow`·`--members-only`는 무시된다", 기동 `auth` 로그 줄, **소유자 교체 순서**(새 소유자를 먼저 더한다). §상태 파일 배치는 **두 자리를 모두** 고친다 — 상태 폴더 나무 그림(`people.json`·`tokens.json` 줄 옆에 `access.json`을 권한 0600과 함께)과 그 아래 "접근 제어의 상태" 문단(`people.json`·`tokens.json`만 말하고 있다). 복구 절차는 "쓸 수 없는 `people.json`" 절과 같은 자리에 둔다. `viewer.md` §역할에 따른 화면에 소유자 전용 패널, 새 절로 패널 규칙. `instances.md`에 전환 안내와 `limn member add --role owner` 부트스트랩. `verification.md`에 새 검사. `index.md` §파일 지도에 새 모듈 행. 규칙 문단마다 ADR-0055의 조항을 인용하고, **인용을 지워도 본문만으로 규칙이 완결되게** 쓴다.
 - [ ] **Step 3: `SECURITY.md`를 고친다** — 관리 모드가 무엇을 막고 무엇을 안 막는지, 못 쓰는 `access.json`의 fail closed, 테일넷 목록 읽기가 **읽기 전용이고 소유자에게만 보인다**는 것, 목록이 부분적이라는 것.
 - [ ] **Step 4: README 쌍과 SKILL 쌍을 고친다** — `README.md:92`·`README.ko.md:89`의 보안 문단과 `skill/SKILL.md:239`·`skill/SKILL.ko.md:239`의 인증 행. 네 파일을 같은 내용으로 맞춘다.
 - [ ] **Step 5: `CHANGELOG.md`에 적는다** — **Added**(관리 모드, 패널, 새 경로)와 **Changed**(`limn member remove`·`role`이 마지막 owner를 거부한다). "에이전트 계약은 더하기만 했다"는 문장과, 되돌릴 때 전환 뒤 더한 사람이 못 들어온다는 것을 적는다.
@@ -428,7 +432,7 @@ Expected: PASS
 Run: `uv run pytest -q tests/architecture/ && uv run python tools/check_boundaries.py`
 Expected: PASS
 
-- [ ] **Step 7: 커밋** — `docs: viewer-managed instance access in the Handbook and ADR-0054 (proposed)`
+- [ ] **Step 7: 커밋** — `docs: viewer-managed instance access in the Handbook and ADR-0055 (proposed)`
 
 ### Task 10: 작동 확인, 게이트, 독립 리뷰, PR 초안
 
@@ -443,4 +447,4 @@ codex exec ${off:+"$off"} "…" < /dev/null
 ```
 
 Critical·Important는 고치고, 남기는 것은 이유와 함께 PR에 적는다. 저장소에 없는 SHA를 근거로 든 지적은 SHA 실재부터 확인한다.
-- [ ] **Step 5: PR 초안** — 본문에 무엇과 왜, 전환 전 판정이 바뀌지 않음을 보인 시험, 새 경로·필드·`reason` 코드 목록, 어느 기기군에서 어떤 PoC를 보이고 소유자가 무엇을 골랐는지, 작동 확인 ①~④, 게이트, 독립 리뷰, 남는 것(부분 목록·맥 샌드박스판 미지원). PR 템플릿 체크 셋. **초안으로 두고 머지는 소유자 승인을 받는다.** ADR-0054를 `승인됨`으로 올리는 것과 릴리스 여부도 소유자에게 묻는다.
+- [ ] **Step 5: PR 초안** — 본문에 무엇과 왜, 전환 전 판정이 바뀌지 않음을 보인 시험, 새 경로·필드·`reason` 코드 목록, 어느 기기군에서 어떤 PoC를 보이고 소유자가 무엇을 골랐는지, 작동 확인 ①~④, 게이트, 독립 리뷰, 남는 것(부분 목록·맥 샌드박스판 미지원). PR 템플릿 체크 셋. **초안으로 두고 머지는 소유자 승인을 받는다.** ADR-0055를 `승인됨`으로 올리는 것과 릴리스 여부도 소유자에게 묻는다.

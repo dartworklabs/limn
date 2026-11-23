@@ -371,7 +371,7 @@ limn member remove paper2 <로그인>
 
 테일넷 후보 목록은 그 기기의 `tailscaled`가 보이는 사람만 담는 **부분 목록**이다. 장치가 없는 사용자, 테일넷 접근 규칙으로 가려진 사용자, 초대 대기 중인 사용자는 보이지 않고, 데몬이 없거나 답하지 않으면 목록 없이 까닭만 보인다. 그때도 로그인을 직접 적어 들일 수 있다. `tailscaled`는 Limn의 설치·실행 조건이 아니다.
 
-출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D2·D8·D9·D10. 화면 규칙은 [viewer.md](viewer.md) §접근 관리, HTTP 계약은 [api.md](api.md) §접근 관리 (소유자 전용)에 있다.
+출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D2·D8·D9·D10. 화면 규칙은 [viewer.md](viewer.md) §접근 관리, HTTP 계약은 [api.md](api.md) §접근 관리 (소유자 전용)에 있다.
 
 ### 서버 머신의 에이전트: 토큰 파일
 

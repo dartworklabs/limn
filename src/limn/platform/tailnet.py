@@ -188,7 +188,7 @@ def _get(connection: http.client.HTTPConnection, headers: dict[str, str], deadli
     headers that trickle in - each line inside that timeout - can be in hand after the budget is spent, and a body
     read begun inside the budget can run to the timeout again. So the budget is checked once the answer is in hand:
     an overrun is this refusal rather than an answer read on borrowed time. A wall-clock bound would need a thread or
-    a signal, which this read does not take (ADR-0054 D10): tailscaled is the identity source and is trusted further
+    a signal, which this read does not take (ADR-0055 D10): tailscaled is the identity source and is trusted further
     than this already."""
     try:
         connection.request("GET", STATUS_PATH, headers=headers)

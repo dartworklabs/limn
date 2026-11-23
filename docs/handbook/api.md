@@ -133,7 +133,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - **있는데 쓸 수 없으면 닫힌다(fail closed).** 읽을 수 없거나(권한), UTF-8 JSON이 아니거나, 객체가 아니거나, `version` 이 1이 아니거나, `managed` 가 불린이 아니면, 헤더로 신원이 정해진 사람은 전원 `403 access_unreadable` 이고 stderr에 경고가 한 번 간다. "관리하지 않음"으로 보면 그 순간 `--allow` 판정으로 조용히 내려앉아 명단 밖 사람이 들어오기 때문이다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않아 영향이 없고, 그 길로 소유자가 파일을 고치거나 지울 수 있다. 고치면 재시작 없이 다음 요청부터 적용된다.
 - **되돌리기.** 이 파일을 모르는 이전 버전으로 내려가면 그 서버는 파일을 읽지 않고 `--allow`·`--members-only` 로 돌아간다. **닫히는 쪽인 것은 `--allow` 가 있을 때뿐이다.** `--allow` 가 있으면 다시 그 목록으로 가리므로 전환 뒤에 더한 사람은 못 들어온다. `--members-only` 면 `people.json` 이 다시 입장을 정하므로 전환 뒤에 더한 사람도 그 줄로 계속 들어온다. 둘 다 없으면 신원 방식이 확인한 모든 사람에게 **다시 열린다** — 닫히는 것의 반대다. 어느 쪽이든 상태 파일을 고쳐 쓰지 않으므로 그 밖에 남는 것은 없다.
 
-출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D1·D4·D5. 운영 절차는 [operations.md](operations.md) §상태 파일 배치다.
+출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D1·D4·D5. 운영 절차는 [operations.md](operations.md) §상태 파일 배치다.
 
 ### 역할
 
@@ -151,7 +151,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - **`people.json` 을 쓸 수 없으면 닫힌다(fail closed).** 파일은 있는데 읽을 수 없거나(권한), UTF-8 JSON이 아니거나(잘림, 빈 파일, 깨진 JSON), `{"people": [...]}` 모양이 아니면, 그동안 헤더로 들어온 사람은 명단에 있든 없든 모두 `viewer` 이고 `--members-only` 는 `people.json` 으로는 아무도 들이지 않는다. 서버는 그 파일을 다시 쓰지 않고(§사람 목록) stderr에 경고를 한 번 남긴다. 파일이 없을 때(아무도 적히지 않은 새 인스턴스)는 모두 `editor` 다. 전에 읽은 역할을 계속 쓰지 않는 것은 답이 프로세스의 이력에 따라 달라지기 때문이다(재시작하면 바뀐다). 같은 원리로 `tokens.json` 을 못 읽으면 토큰을 하나도 받지 않는다. 토큰과 `local` 방식의 소유자는 이 파일을 읽지 않으므로 그대로다. 파일을 고치면(내용이든 권한이든) 재시작 없이 다음 요청부터 원래 역할이 돌아온다.
 - 역할은 `limn member role` 로 바꾸고, 재시작 없이 다음 요청부터 적용된다. 서버가 사람 항목을 다시 쓸 때도 `role` 은 그대로 둔다.
 - 판정 핀은 `editor`·`owner` 인 사람만 만든다(§판정 핀 (`verdict`)). 역할만이 아니라 사람인지도 본다. 그래서 `role` 이 `agent` 인 사람과 토큰·헤더 없는 루프백 에이전트는 `403 verdict_human` 이고, `local` 방식의 루프백 소유자는 사람이라 만든다. 판단은 `Principal.authors_verdicts` 다.
-- 소유자만 부를 수 있는 변경 HTTP 경로는 여섯이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 멤버 변경은 관리 모드인 인스턴스에서 소유자가 HTTP로도 할 수 있다(`POST /api/access/managed`, `/api/members/add`·`role`·`remove`, 읽기는 `GET /api/access` — §접근 관리 (소유자 전용)). 그 넷은 `MEMBER_OPERATIONS` 로 등재돼 있고 등재가 곧 허용이다. 화면이 줄 수 있는 역할은 `viewer`·`editor` 뿐이고 마지막 `owner` 는 어느 문으로도 빠지지 않는다. 토큰과 그 밖의 설정은 그대로 CLI와 파일 수준이다(`limn token`). 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D6–D9([ADR-0002](../adr/0002-access-control.md) 의 "소유자 전용 작업은 당분간 CLI 수준" 을 멤버 관리에 대해서만 부분 대체한다).
+- 소유자만 부를 수 있는 변경 HTTP 경로는 여섯이다. `POST /api/clear`(0.2.1+, `OWNER_POSTS`)는 모든 핀을 한꺼번에 지우는 유일한 경로라서 확인 본문도 요구한다. `POST /api/pins/{id}/purge`(0.2.2+, `OWNER_POST_RE`)는 휴지통의 핀 하나를 영구 삭제한다(§엔드포인트). 멤버 변경은 관리 모드인 인스턴스에서 소유자가 HTTP로도 할 수 있다(`POST /api/access/managed`, `/api/members/add`·`role`·`remove`, 읽기는 `GET /api/access` — §접근 관리 (소유자 전용)). 그 넷은 `MEMBER_OPERATIONS` 로 등재돼 있고 등재가 곧 허용이다. 화면이 줄 수 있는 역할은 `viewer`·`editor` 뿐이고 마지막 `owner` 는 어느 문으로도 빠지지 않는다. 토큰과 그 밖의 설정은 그대로 CLI와 파일 수준이다(`limn token`). 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D6–D9([ADR-0002](../adr/0002-access-control.md) 의 "소유자 전용 작업은 당분간 CLI 수준" 을 멤버 관리에 대해서만 부분 대체한다).
 
 `/api/meta` 와 `/api/people` 의 `me`, 그리고 `/api/people` 의 각 항목에 `role` 필드가 덧붙는다. `people.json` 에 없는 사람(예: 옛 핀의 작성자)은 `editor` 로 나온다. `people.json` 을 쓸 수 없는 동안은 모두 `viewer` 로 나온다.
 
@@ -171,7 +171,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 
 역할 검사가 본문 형식보다 앞이다. 그래서 `viewer` 가 틀린 본문으로 핀을 만들려 해도 `400` 이 아니라 `403` 을 받는다.
 
-5번은 POST의 역할 검사이고, **GET도 역할로 거절될 수 있다.** 등록된 읽기 경로 가운데 `OWNER_READS` 에 든 경로(`GET /api/access`)는 `owner` 역할만 읽고 다른 역할·토큰·루프백 에이전트는 `403 owner_only` 다. 들어온 사람이면 등록된 읽기 경로를 모두 읽는다는 규칙에 생긴 첫 예외다. 그 판단도 다른 역할 비교와 같은 자리(`security/access.py` 의 `check_read`)에 있고 그 경로의 응답이 만들어지기 전에 끝난다. 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D6.
+5번은 POST의 역할 검사이고, **GET도 역할로 거절될 수 있다.** 등록된 읽기 경로 가운데 `OWNER_READS` 에 든 경로(`GET /api/access`)는 `owner` 역할만 읽고 다른 역할·토큰·루프백 에이전트는 `403 owner_only` 다. 들어온 사람이면 등록된 읽기 경로를 모두 읽는다는 규칙에 생긴 첫 예외다. 그 판단도 다른 역할 비교와 같은 자리(`security/access.py` 의 `check_read`)에 있고 그 경로의 응답이 만들어지기 전에 끝난다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D6.
 
 ### 헤더 없는 루프백 에이전트
 
@@ -247,10 +247,10 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 | `POST` | `/api/members/role` | `{login, role}` → `{ok, member}`. 멤버가 아니면 `409 not_a_member`, 마지막 `owner` 를 내리면 `409 last_owner` 다 |
 | `POST` | `/api/members/remove` | `{login}` → `{ok, member}`. `member` 는 빠진 줄이고, 멤버가 아니었으면 `null` 에 `200` 이다(원하는 끝 상태가 이미 참이다). 마지막 `owner` 면 `409 last_owner` |
 
-- **역할은 `viewer`·`editor` 만 준다.** `owner` 와 `agent` 는 HTTP 문으로 줄 수 없다(`400 role_not_settable`). 헤더로 들어온 사람에게 `owner` 줄을 만드는 길은 `limn member add <인스턴스> <로그인> --role owner` 하나이고, CLI는 네 역할을 그대로 받는다. 화면이 소유자를 만들 수 있으면 테일넷에 닿는 누구나 자기 권한을 올린다. `--auth local` 인스턴스에서는 루프백 소유자의 첫 실제 변경이 자기 줄을 `role: owner` 로 기록하지만(§사람 목록), 그 주체는 이미 소유자 권한을 가진 그 기기의 사용자라 아무의 권한도 올리지 않고 헤더로 온 요청은 그 길에 닿지 못한다. 관리 모드에서는 기록기가 줄을 아예 만들지 않으므로 그 길도 없다. 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D9.
-- **마지막 `owner` 는 어느 문으로도 빼거나 내릴 수 없다.** HTTP는 `409 last_owner`, `limn member remove`·`limn member role` 은 한 줄 오류다. 소유자를 교체할 때는 새 소유자를 먼저 더한다([operations.md](operations.md) §상태 파일 배치). 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D8.
+- **역할은 `viewer`·`editor` 만 준다.** `owner` 와 `agent` 는 HTTP 문으로 줄 수 없다(`400 role_not_settable`). 헤더로 들어온 사람에게 `owner` 줄을 만드는 길은 `limn member add <인스턴스> <로그인> --role owner` 하나이고, CLI는 네 역할을 그대로 받는다. 화면이 소유자를 만들 수 있으면 테일넷에 닿는 누구나 자기 권한을 올린다. `--auth local` 인스턴스에서는 루프백 소유자의 첫 실제 변경이 자기 줄을 `role: owner` 로 기록하지만(§사람 목록), 그 주체는 이미 소유자 권한을 가진 그 기기의 사용자라 아무의 권한도 올리지 않고 헤더로 온 요청은 그 길에 닿지 못한다. 관리 모드에서는 기록기가 줄을 아예 만들지 않으므로 그 길도 없다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D9.
+- **마지막 `owner` 는 어느 문으로도 빼거나 내릴 수 없다.** HTTP는 `409 last_owner`, `limn member remove`·`limn member role` 은 한 줄 오류다. 소유자를 교체할 때는 새 소유자를 먼저 더한다([operations.md](operations.md) §상태 파일 배치). 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D8.
 - 멤버 줄의 변경은 `audit.jsonl` 에 기존 행동 이름(`member_added`·`member_role`·`member_removed`)으로 남고, 전환은 그 전환이 한 줄 변경마다 한 줄씩 남긴다. **플래그 자체는 행동 이름이 따로 있다 — `access_managed`**, `details` 는 `{"managed": <쓴 값>, "by": "<소유자 로그인>"}` 이고 `via` 는 `http` 다. 성공한 누름마다 한 줄이고, 플래그를 쓴 **뒤에** 적으므로 같은 누름의 `member_*` 줄 다음에 오며, 플래그 쓰기가 실패하면(`500 flag_not_written`) 적히지 않는다. 줄을 하나도 바꾸지 않는 누름도 이 한 줄은 남는다(§감사 기록 (`audit.jsonl`)).
-- 멤버 쓰기는 `people.json` 의 잠금(`.people.lock`) 아래에서만 일어나고 `limn member` 와 같은 연산을 쓴다. 발급된 작업 권한의 검사는 HTTP 경계에서만 하고(CLI는 OS 파일 권한으로 지킨다), 작업마다 people 저장소를 효과 범위로 받는다. 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D7.
+- 멤버 쓰기는 `people.json` 의 잠금(`.people.lock`) 아래에서만 일어나고 `limn member` 와 같은 연산을 쓴다. 발급된 작업 권한의 검사는 HTTP 경계에서만 하고(CLI는 OS 파일 권한으로 지킨다), 작업마다 people 저장소를 효과 범위로 받는다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D7.
 
 #### 테일넷 후보 목록
 
@@ -261,7 +261,7 @@ curl -s -H "Authorization: Bearer $(cat ~/.config/limn/<인스턴스>.token)" ht
 - **1초 예산은 멈춤의 상한이고 벽시계의 상한이 아니다.** 소켓 시간초과는 한 번의 읽기에 걸리므로, 한 줄씩 끊어서 오는 머리글은 각 간격이 그 안이면 예산을 넘겨 도착할 수 있다. 그래서 답을 손에 쥔 순간에도 예산을 보고, 넘겼으면 그 답이 무엇이든 `tailscaled_timeout` 이다. 벽시계 상한에는 스레드나 시그널이 필요해 두지 않는다.
 - 투영은 로그인·표시 이름·사진(`https:` 만)만 꺼내고, 이미 멤버인 사람과 사람이 가질 수 없는 로그인은 뺀다. `--auth local`·`trusted-proxy` 인스턴스에서도 같은 목록을 보인다(그 기기가 테일넷에 있으면 보이고, 없으면 "목록 없음"이다).
 
-출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D10.
+출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D10.
 
 ### 화면·PDF·정적 파일
 
@@ -807,7 +807,7 @@ curl -s -X POST <base>/api/pins/12/reply -H 'Content-Type: application/json' -d 
 - 선택 필드 `role` 은 `owner`·`editor`·`viewer`·`agent` 중 하나이고, 없으면 `editor` 다. `limn member` 로 정하며, 서버가 항목을 다시 써도 그대로 둔다(§인증). 처음 온 사람은 `role` 없이 적힌다. `local` 방식의 소유자만 `owner` 로 적힌다.
 - 같은 이름·사진이면 실제 변경 때도 시각 기록을 10분에 한 번으로 묶는다. `first_seen`·`last_seen`은 방문 시각이 아니라 기록된 실제 변경 시각이다. 이름·사진도 읽기만으로 갱신되지 않는다.
 - 파일이 있는데 쓸 수 없으면(§역할) 사람을 기록하지 않고 파일도 건드리지 않는다. `limn member` 도 같은 판단으로 그런 파일을 거부한다. 그동안 @태그 후보는 핀에 나온 사람뿐이다.
-- 관리 모드인 인스턴스에서는 이 파일이 **입장 명단**이기도 하다(§입장). 그래서 그런 인스턴스에서는 기록기가 줄을 아예 만들지 않는다 — 명단 밖 사람은 들어오지 못해 첫 변경을 할 수 없고, 들어온 사람의 요청으로도(그사이 소유자가 그 줄을 빼 버린, 아직 끝나지 않은 요청까지) 줄이 새로 생기지 않으며, 쓸 수 없는 `access.json` 과 `--auth local` 의 루프백 소유자도 마찬가지다. 있는 줄의 이름·사진·`last_seen` 은 그대로 갱신된다. 줄은 소유자가 `limn member add` 나 `POST /api/members/add`·`/api/access/managed` 로 명시해서만 생긴다. "줄을 만들지 않았다"는 결과도 위의 10분 묶음에 들어가므로(그러지 않으면 `--auth local` 소유자의 모든 변경이 아무것도 쓰지 않고 사람 잠금을 잡는다), 관리 모드를 끈 직후에는 그 사람의 줄이 바로 다음 변경이 아니라 묶음이 풀린 뒤의 변경에서 생길 수 있다. 멤버가 곧 입장이라 "기록은 남기고 입장만 끈다"는 필드는 두지 않는다 — 빠진 사람의 기록은 `audit.jsonl` 의 `member_removed` 줄과 핀에 남은 작성자로 남는다. 출처: [ADR-0054](../adr/0054-access-managed-from-the-viewer.md) D3·D4.
+- 관리 모드인 인스턴스에서는 이 파일이 **입장 명단**이기도 하다(§입장). 그래서 그런 인스턴스에서는 기록기가 줄을 아예 만들지 않는다 — 명단 밖 사람은 들어오지 못해 첫 변경을 할 수 없고, 들어온 사람의 요청으로도(그사이 소유자가 그 줄을 빼 버린, 아직 끝나지 않은 요청까지) 줄이 새로 생기지 않으며, 쓸 수 없는 `access.json` 과 `--auth local` 의 루프백 소유자도 마찬가지다. 있는 줄의 이름·사진·`last_seen` 은 그대로 갱신된다. 줄은 소유자가 `limn member add` 나 `POST /api/members/add`·`/api/access/managed` 로 명시해서만 생긴다. "줄을 만들지 않았다"는 결과도 위의 10분 묶음에 들어가므로(그러지 않으면 `--auth local` 소유자의 모든 변경이 아무것도 쓰지 않고 사람 잠금을 잡는다), 관리 모드를 끈 직후에는 그 사람의 줄이 바로 다음 변경이 아니라 묶음이 풀린 뒤의 변경에서 생길 수 있다. 멤버가 곧 입장이라 "기록은 남기고 입장만 끈다"는 필드는 두지 않는다 — 빠진 사람의 기록은 `audit.jsonl` 의 `member_removed` 줄과 핀에 남은 작성자로 남는다. 출처: [ADR-0055](../adr/0055-access-managed-from-the-viewer.md) D3·D4.
 - `GET /api/people` 은 이 파일과 핀의 작성자·행위자·스레드 글쓴이를 합쳐 준다.
 
 저장된 기록도 핀 참여 이력도 없는 새 독자는 열기만 해서는 `/api/people`·`limn member list`·멘션 후보에 나타나지 않는다. 그 사람의 이름이나 전체 login을 `@`로 적어도 알림 대상으로 풀리지 않는다. 편집자는 첫 실제 변경 뒤 등록되고, 변경할 수 없는 `viewer`는 소유자가 `limn member add`로 명시 등록해야 한다. 기존 사람 행과 역할은 유지한다.
