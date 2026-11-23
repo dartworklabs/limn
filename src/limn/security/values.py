@@ -36,6 +36,14 @@ ROLES: tuple[Role, ...] = get_args(Role)
 DEFAULT_ROLE: Role = "editor"  # a person without a role field - every v0.1 person
 
 
+# Where a request's identity came from, as pins.md names it (docs/handbook/api.md §pins.md 요청자 줄): how identify()
+# knew the principal (access.Via), with a header told apart by the identity provider (access.identity_source). A closed
+# type, so a comparison with a value outside it fails the type check.
+IdentitySource: TypeAlias = Literal["tailnet-header", "proxy-header", "local-owner", "token", "loopback-agent"]
+# The sources that carry a person's identity: a write through them is recorded as that person, not as an agent.
+PERSON_SOURCES: frozenset[IdentitySource] = frozenset({"tailnet-header", "proxy-header", "local-owner"})
+
+
 def valid_login(login: object) -> bool:
     """A person's login: non-empty, printable, no whitespace anywhere (a tailnet login is an e-mail address or
     user@github; --local-user and LOCAL_USER already required this), not the agent's 'local' or 'agent:...'. The same rule

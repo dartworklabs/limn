@@ -18,11 +18,13 @@ import shutil
 import unittest
 from pathlib import Path
 
+from hypothesis import given, settings, strategies as st
+
 from limn.builds import figure_map as figmap
 from limn.pins.claims import input as claims_input
 from limn.pins.lifecycle.rules import CloseRequest
 from limn.pins.listing import render, render as md_render
-from limn.pins.listing.render import DocHeading, PinFacts, PinsMdInput, pins_md_text
+from limn.pins.listing.render import DocHeading, PinFacts, PinsMdInput, Requester, pins_md_text, requester_of
 from limn.pins.location import mapping
 from limn.pins.model import ThreadEntry
 from limn.security.access import LOCAL_ACTOR
@@ -41,7 +43,7 @@ from helpers import (
     set_config,
     write_records,
 )
-from helpers_access import ALICE_ACTOR, BOB_ACTOR, TS_HOST, AccessBase, token_create
+from helpers_access import ALICE, ALICE_ACTOR, BOB, BOB_ACTOR, TS_HOST, AccessBase, member_add, token_create
 from helpers_authority import post_authority
 
 RENDER_PY = Path(render.__file__)
@@ -172,6 +174,112 @@ class TokenLine(unittest.TestCase):
         md = pins_md_text(page([], token_file="~/t.token", base="http://127.0.0.1:18999"))
         self.assertNotIn("원격:", md)
         self.assertIn("$(cat ~/t.token)", md)
+
+
+ALICE_ID = Requester("Alice Kim", "alice@example.com", "editor", "tailnet-header")
+TOKEN_ID = Requester("reviewer", "agent:reviewer", "agent", "token")
+ALICE_LINE = (
+    "요청자: Alice Kim(`alice@example.com`) · 역할 editor · 신원 출처 테일넷 헤더(이 기기에 로그인한 테일넷 계정) "
+    "— 이 요청으로 쓰면 이 사람으로 기록된다 · 내가 일하는 사용자가 아니면 쓰지 말고 사용자에게 토큰을 요청한다"
+    "(`limn token create <인스턴스>`)"
+)
+TOKEN_LINE = "요청자: reviewer(`agent:reviewer`) · 역할 agent · 신원 출처 토큰 — 이 요청으로 쓰면 에이전트로 기록된다"
+
+
+def requester_lines(md: str) -> list[str]:
+    """The lines of a pins.md text that start with '요청자: ' (the requester line, docs/handbook/api.md §pins.md 요청자 줄)."""
+    return [ln for ln in md.splitlines() if ln.startswith("요청자: ")]
+
+
+class RequesterLine(unittest.TestCase):
+    """The requester line after '갱신:': who the request is for GET /pins.md, a fixed no-requester line on disk."""
+
+    def test_tailnet_header_line(self):
+        """A tailnet person sees name, login, role, source and the warning to stop and ask for a token."""
+        self.assertEqual(requester_lines(pins_md_text(page([], requester=ALICE_ID))), [ALICE_LINE])
+
+    def test_each_source_label_and_tail(self):
+        """Each source has its label; the three person sources carry the warning, the two agent sources do not."""
+        for source in render.REQUESTER_SOURCES:
+            who = Requester("n", "l", "editor", source)
+            (line,) = requester_lines(pins_md_text(page([], requester=who)))
+            self.assertIn(" · 신원 출처 " + render.REQUESTER_SOURCES[source] + " — ", line)
+            tail = render.REQUESTER_PERSON_TAIL if who.is_person() else render.REQUESTER_AGENT_TAIL
+            self.assertTrue(line.endswith(tail), (source, line))
+
+    def test_token_line_names_the_agent_login(self):
+        """A token request is named agent:<name> and told it writes as the agent."""
+        self.assertEqual(requester_lines(pins_md_text(page([], requester=TOKEN_ID))), [TOKEN_LINE])
+
+    def test_no_requester_is_the_disk_line(self):
+        """The file on disk has no requester: the fixed line that says how to check, and no role or login."""
+        md = pins_md_text(page([]))
+        self.assertEqual(requester_lines(md), [render.REQUESTER_DISK % "http://127.0.0.1:18999"])
+        self.assertNotIn("역할 ", md)
+
+    def test_line_follows_the_updated_line_once(self):
+        """One requester line, right after '갱신:' and before the blank line, with one document or several."""
+        other = DocHeading("si", "부록", "si.tex", view_only=False, builds_from_source=True, head=None, built_at=None)
+        for docs in ((MAIN,), (MAIN, other)):
+            for who in (None, ALICE_ID):
+                lines = pins_md_text(page([line_pin(1)], docs=docs, requester=who)).splitlines()
+                at = [i for i, ln in enumerate(lines) if ln.startswith("요청자: ")]
+                self.assertEqual(len(at), 1, (docs, who))
+                self.assertTrue(lines[at[0] - 1].startswith("갱신: "))
+                self.assertEqual(lines[at[0] + 1], "")
+
+    def test_hostile_name_and_login_stay_on_one_line(self):
+        """A name with '|' and line breaks, and a login with a backtick, keep the header one line and the code span whole."""
+        who = Requester("A|B\nC D", "a`b", "editor", "tailnet-header")
+        (line,) = requester_lines(pins_md_text(page([], requester=who)))
+        self.assertTrue(line.startswith("요청자: A\\|B C D(``a`b``) · 역할 editor"), line)
+
+    def test_markdown_sees_exactly_the_login_as_code(self):
+        """Parsed as Markdown (the vendored markdown-it), the line's first code span is the login, whatever backticks,
+        backslashes or brackets the display name or the login carry: a name can neither open nor close the login's span
+        nor turn it into a link's address (`[Mina](`login`)`)."""
+        bundle = Path(render.__file__).resolve().parents[2] / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs"
+        cases = [
+            ("Mina `", "mina@example.com"),
+            ("a\\`b", "mina@example.com"),
+            ("``x", "mina@example.com"),
+            ("back\\", "mina@example.com"),
+            ("Alice Kim", "a`b"),
+            ("`", "``c``"),
+            ("[Mina]", "mina@example.com"),
+            ("![x]", "mina@example.com"),
+            ("[a](b) [c]", "mina@example.com"),
+        ]
+        lines = [render.requester_line(Requester(n, lg, "editor", "tailnet-header"), "") for n, lg in cases]
+        out = run_node(
+            "const {pathToFileURL}=require('node:url');"
+            "(async()=>{const MarkdownIt=(await import(pathToFileURL(%s).href)).default;"
+            % json.dumps(str(bundle))
+            + "const md=MarkdownIt({html:false});"
+            + "console.log(JSON.stringify(%s.map(l=>md.parseInline(l,{})[0].children" % json.dumps(lines)
+            + ".filter(t=>t.type==='code_inline').map(t=>t.content))));})();"
+        )
+        if out is None:
+            self.skipTest("node not available")
+        self.assertEqual(json.loads(out), [[lg, "limn token create <인스턴스>"] for _, lg in cases])
+
+    def test_requester_of_names_an_actor_without_a_name_by_its_login(self):
+        """requester_of takes the principal's actor: its name, else its login; a missing login is empty, never an error."""
+        self.assertEqual(
+            requester_of({"login": "alice@example.com", "name": "Alice Kim"}, "editor", "tailnet-header"), ALICE_ID
+        )
+        for actor in ({"login": "alice@example.com", "name": ""}, {"login": "alice@example.com"}):
+            self.assertEqual(requester_of(actor, "editor", "tailnet-header").name, "alice@example.com")
+        self.assertEqual(requester_of({}, "agent", "token"), Requester("", "", "agent", "token"))
+
+    @settings(max_examples=200, deadline=None)
+    @given(name=st.text(), login=st.text(), source=st.sampled_from(sorted(render.REQUESTER_SOURCES)))
+    def test_any_name_and_login_render_one_line(self, name, login, source):
+        """Whatever text a name or login holds, the requester line is one line of the output, starting the same way."""
+        line = render.requester_line(Requester(name, login, "editor", source), "http://127.0.0.1:18999")
+        self.assertEqual(len(line.splitlines()), 1)
+        self.assertTrue(line.startswith("요청자: "))
+        self.assertIn(" · 신원 출처 " + render.REQUESTER_SOURCES[source], line)
 
 
 class OpenRows(unittest.TestCase):
@@ -1480,6 +1588,32 @@ class PinsMdInstructions(AccessBase):
         self.assertEqual(lines[i + 1], md_render.claim_guidance("http://127.0.0.1:18999"))
         self.assertEqual(lines[i + 2], md_render.TOKEN_GUIDANCE)
 
+    def test_close_guidance_writes_as_a_person_only_for_the_user(self):
+        """The close guidance sends a person's identity to the requester line: close as that person only for the user
+        you work for, else ask for a token. The line still starts as agents match it."""
+        self.add()
+        lines = ps.APP.C.pins_md.read_text(encoding="utf-8").splitlines()
+        (line,) = [ln for ln in lines if ln.startswith("처리한 핀은 닫는다 — ")]
+        self.assertIn(
+            "머리말 '요청자:' 줄의 신원 출처가 사람 신원(테일넷 헤더·프록시 헤더·로컬 소유자)이면 그 사람이 내가 일하는 "
+            '사용자일 때만 닫고 본문에 `"review":true` 를 넣는다(아니면 닫지 말고 토큰을 요청한다)',
+            line,
+        )
+        self.assertNotIn("테일넷 주소로 닫는 에이전트는", line)
+
+    def test_reply_guidance_replies_as_a_person_only_for_the_user(self):
+        """The reply guidance follows the token line and replies as a person only for the user you work for."""
+        self.add()
+        lines = ps.APP.C.pins_md.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(lines[lines.index(md_render.TOKEN_GUIDANCE) + 1], md_render.REPLY_GUIDANCE)
+        self.assertTrue(md_render.REPLY_GUIDANCE.startswith("답글(0.2.2): "))
+        self.assertIn(
+            "('요청자:' 줄의 신원 출처가 테일넷 헤더·프록시 헤더·로컬 소유자)는 그 사람이 내가 일하는 사용자일 때만 "
+            '답글을 달고 본문에 `"reopen":false` 를 넣는다',
+            md_render.REPLY_GUIDANCE,
+        )
+        self.assertNotIn("테일넷 주소로 닫을 때", md_render.REPLY_GUIDANCE)
+
     def test_remote_agents_are_told_to_use_a_token(self):
         self.add()
         _, tok = token_create(ps.APP.C.state, "ci")
@@ -1489,6 +1623,92 @@ class PinsMdInstructions(AccessBase):
         self.assertIn("테일넷 주소", md_render.TOKEN_GUIDANCE)
         self.assertIn("403", md_render.TOKEN_GUIDANCE)
         self.assertEqual(md.splitlines().count(md_render.TOKEN_GUIDANCE), 1)
+
+
+class PinsMdRequester(AccessBase):
+    """GET /pins.md names the request's own identity on the requester line; the file on disk never names anyone."""
+
+    def requester(self, **call):
+        """The requester line of GET /pins.md made with call's headers, token or peer; fails unless it is a 200 with one."""
+        code, md = self.call("GET", "/pins.md", **call)
+        self.assertEqual(code, 200, md)
+        (line,) = requester_lines(md)
+        return line
+
+    def test_tailnet_header_request(self):
+        """A request with Tailscale headers sees that person, editor, from the tailnet header, and the warning."""
+        self.assertEqual(self.requester(headers=ALICE), ALICE_LINE)
+
+    def test_token_request(self):
+        """A token request sees agent:<token name>, the agent role and the token source."""
+        _, tok = token_create(ps.APP.C.state, "reviewer")
+        self.assertEqual(self.requester(token=tok), TOKEN_LINE)
+
+    def test_headerless_loopback_request(self):
+        """A headerless loopback request sees the local agent from the headerless loopback, without the warning."""
+        self.assertEqual(
+            self.requester(),
+            "요청자: 로컬/에이전트(`local`) · 역할 agent · 신원 출처 헤더 없는 루프백(폐지 예정)"
+            + render.REQUESTER_AGENT_TAIL,
+        )
+
+    def test_local_owner_request(self):
+        """Under --auth local the loopback owner is a person: the local owner source and the warning."""
+        set_config(auth="local", agent_loopback=False, local_user="alice")
+        self.assertEqual(
+            self.requester(),
+            "요청자: alice(`alice`) · 역할 owner · 신원 출처 로컬 소유자(--auth local 의 루프백 요청)"
+            + render.REQUESTER_PERSON_TAIL,
+        )
+
+    def test_proxy_header_request(self):
+        """Under --auth trusted-proxy the proxy's user header names the person: the proxy header source and the warning."""
+        set_config(auth="trusted-proxy", agent_loopback=False)
+        h = {"X-Forwarded-User": "carol@example.com", "X-Forwarded-Preferred-Username": "Carol Lee"}
+        self.assertEqual(
+            self.requester(headers=h),
+            "요청자: Carol Lee(`carol@example.com`) · 역할 editor · 신원 출처 프록시 헤더(인증 프록시가 보낸 사용자)"
+            + render.REQUESTER_PERSON_TAIL,
+        )
+
+    def test_viewer_role_is_shown(self):
+        """A person whose people.json role is viewer sees 역할 viewer."""
+        member_add(ps.APP.C.state, "alice@example.com", "viewer", "Alice Kim")
+        self.assertIn(" · 역할 viewer · ", self.requester(headers=ALICE))
+
+    def test_each_request_sees_only_itself(self):
+        """Requests in a row with different identities each see their own login, never another's."""
+        logins = {"alice": "alice@example.com", "bob": "bob@example.com", "local": "`local`"}
+        for who, call in (("alice", {"headers": ALICE}), ("bob", {"headers": BOB}), ("local", {})):
+            line = self.requester(**call)
+            for other, login in logins.items():
+                (self.assertIn if other == who else self.assertNotIn)(login, line, (who, other))
+
+    def test_disk_copy_never_holds_the_requester(self):
+        """After a person writes, the file on disk keeps the no-requester line and no trace of their login."""
+        self.pin_id(ALICE)
+        disk = ps.APP.C.pins_md.read_text(encoding="utf-8")
+        self.assertEqual(requester_lines(disk), [render.REQUESTER_DISK % "http://127.0.0.1:18999"])
+        self.assertNotIn("alice@example.com", disk)
+        self.assertEqual(self.requester(headers=ALICE), ALICE_LINE)
+
+    def test_tailnet_agent_request_is_the_loopback_agent(self):
+        """--tailnet-agent takes a headerless request through tailscale serve as the loopback agent: that is its line."""
+        set_config(tailnet_agent=True)
+        line = self.requester(headers={"Host": TS_HOST, "X-Forwarded-For": "100.64.0.9"})
+        self.assertTrue(
+            line.startswith("요청자: 로컬/에이전트(`local`) · 역할 agent · 신원 출처 헤더 없는 루프백"), line
+        )
+
+    def test_unreadable_people_shows_viewer(self):
+        """While people.json cannot be used a header person is a viewer, and the line says so."""
+        ps.APP.C.people_file.write_text("{", encoding="utf-8")
+        self.assertIn(" · 역할 viewer · ", self.requester(headers=ALICE))
+
+    def test_pins_md_is_not_stored(self):
+        """The answer names its requester, so no cache keeps it: Cache-Control is no-store."""
+        self.requester(headers=ALICE)
+        self.assertEqual(self.last_headers.get("cache-control"), "no-store")
 
 
 if __name__ == "__main__":

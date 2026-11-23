@@ -31,7 +31,7 @@ from limn.security.access import LOCAL_ACTOR
 from limn.viewer.assemble import ServedViewer
 
 from helpers import Base, edit_pin, forget_kept_lines, fresh_runtime, ps, records, write_records
-from helpers_access import A_LOGIN, ALICE, CLEAR_BODY, AccessBase
+from helpers_access import A_LOGIN, ALICE, CLEAR_BODY, LOOPBACK_AGENT, AccessBase
 from helpers_authority import post_authority
 
 DEEP = "[" * 100_000 + "]" * 100_000  # more nesting than json.loads takes on any supported interpreter
@@ -413,7 +413,7 @@ class ARunParsesAStoredLineOnce(Base):
         return {
             "the list": lambda: app.pin_listing.list_payload(True),
             "one pin": lambda: app.pin_listing.pin_payload(7),
-            "pins.md": lambda: app.pin_markdown.current_text("http://127.0.0.1:1"),
+            "pins.md": lambda: app.pin_markdown.current_text("http://127.0.0.1:1", LOOPBACK_AGENT),
             "the state counts of meta": lambda: app.assembly.pins.counts.state_counts(),
             "the open counts of docs": lambda: app.assembly.pins.counts.counts_by_document({app.docs[0].key}),
             "the Trash": lambda: app.pin_listing.dropped_payload(),

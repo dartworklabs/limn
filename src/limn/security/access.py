@@ -48,8 +48,10 @@ from limn.security.values import (
     LOCAL_LOGIN,
     LOGIN_MAX as LOGIN_MAX,
     NAME_MAX as NAME_MAX,
+    PERSON_SOURCES as PERSON_SOURCES,
     ROLES as ROLES,
     AuthorityScope as AuthorityScope,
+    IdentitySource as IdentitySource,
     ManagedAccess,
     Role as Role,
     is_role as is_role,
@@ -514,6 +516,22 @@ class Principal(NamedTuple):
         role value and anyone while people.json cannot be used) does not, because the text can carry state paths and
         implementation details (docs/handbook/api.md §오류 응답)."""
         return self.role != "viewer"
+
+
+def identity_source(p: Principal, auth: AuthProvider) -> IdentitySource:
+    """Where principal p's identity came from, as pins.md names it (docs/handbook/api.md §pins.md 요청자 줄). auth is the
+    instance's identity provider: identify() reports a Tailscale header and a trusted proxy's user header both as via
+    "header", and only the provider tells them apart. Pure and total: every Via has a source. A source in PERSON_SOURCES
+    means a write through this principal is recorded as a person."""
+    match p.via:
+        case "header":
+            return "proxy-header" if auth == "trusted-proxy" else "tailnet-header"
+        case "local-owner":
+            return "local-owner"
+        case "token":
+            return "token"
+        case "loopback-agent":
+            return "loopback-agent"
 
 
 def identify(headers: Message, peer: str, settings: AccessSettings, lookups: AccessLookups) -> Principal:
