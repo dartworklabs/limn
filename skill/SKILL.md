@@ -52,13 +52,15 @@ Do not use it when:
 Send an API token with every request. Where the token comes from depends on where you run:
 
 - **On the machine that serves the instance**, read it from the instance's token file at each request: `curl -H "Authorization: Bearer $(cat ~/.config/limn/<instance>.token)" ...`. The user writes that file once with `limn token create <instance> --save` (mode `0600`). Never print the file, echo the token, or copy it into a repository. When `pins.md`'s authentication line names a token file, use that path. If the file is missing, ask the user to run the command.
-- **From another machine**, use the token the user created with `limn token create <instance>` (it is shown only then) and gave you: keep it in `LIMN_TOKEN` and send `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). **Through the tailnet address a token is required** unless your machine is signed in to the tailnet as a person: a request that reaches `https://…ts.net` without a token or a person's identity (a tagged device, a CI runner) gets `403` since v0.2.1 (unless the instance runs with `--tailnet-agent` and has no allow list, which takes such a request as the headerless loopback agent). If you get `401` or `403`, ask the user for a token.
+- **From another machine**, use the token the user created with `limn token create <instance>` (it is shown only then) and gave you: keep it in `LIMN_TOKEN` and send `curl -H "Authorization: Bearer $LIMN_TOKEN" ...`, never in a repository. A token makes you the agent (`agent:<name>`), wherever you connect from. Without one, a headerless request to `127.0.0.1` is still treated as the agent on most instances, but that is deprecated and may be off (`401`). **Through the tailnet address a token is required** unless your machine is signed in to the tailnet as a person: a request that reaches `https://…ts.net` without a token or a person's identity (a tagged device, a CI runner) is refused since v0.2.1 — `403`, or `401` when the instance has the loopback agent off. Only an instance that runs `--tailnet-agent` with no allow list and no managed access takes such a request, as the headerless loopback agent. If you get `401` or `403`, ask the user for a token.
 
 **Wherever you run, check who you are recorded as before your first write — a claim included.** Read the `요청자:` (requester) line in the header of `GET <base>/pins.md`, fetched with the same authentication you will write with; on the server machine too, because the disk copy `<state_dir>/pins.md` has no requester (`요청자: 없음(디스크 사본)`). The line gives your name, login, role and identity source — `테일넷 헤더` (tailnet header), `프록시 헤더` (proxy header), `로컬 소유자` (local owner: a headerless request to an `--auth local` instance), `토큰` (token) or `헤더 없는 루프백` (headerless loopback). A tailnet identity belongs to the account the machine is signed in with, not to whoever is at it. If the source is a person's identity (the first three) and that person is not the user you work for — for example a shared machine signed in to the tailnet as someone else — do not write anything, claims included; ask the user for a token. Details: [api.md](../docs/handbook/api.md) §인증, §pins.md 요청자 줄.
 
+The examples below send `-H "Authorization: Bearer $LIMN_TOKEN"`; on the server machine send the token file's header from the first bullet instead. Use the same header for the requester check and for every write.
+
 ### What you read
 
-- `pins.md`: `curl -s <base>/pins.md` remotely, or `Read` `<state_dir>/pins.md` on the server machine.
+- `pins.md`: `curl -s -H "Authorization: Bearer $LIMN_TOKEN" <base>/pins.md` remotely, or `Read` `<state_dir>/pins.md` on the server machine.
 - `GET <base>/api/pins`: open pins as JSON, with saved line numbers and each pin's saved `rev`. `file` is the absolute path valid on the server machine now; `rel_path` (v0.3.2) is the path relative to the manuscript folder, as in the `pins.md` location column — use `rel_path` to open it in your own checkout. `GET <base>/api/pins/{id}` returns one pin with its whole thread.
 
 ### What you may do
@@ -79,7 +81,7 @@ Send an API token with every request. Where the token comes from depends on wher
 
 ### Processing pins
 
-1. **Read.** Remotely: `curl -s <base>/pins.md`. On the server machine: `Read` `<state_dir>/pins.md`. Before the first claim, check the `요청자:` line once with your write authentication (§Authentication).
+1. **Read.** Remotely: `curl -s -H "Authorization: Bearer $LIMN_TOKEN" <base>/pins.md`. On the server machine: `Read` `<state_dir>/pins.md`. Before the first claim, check the `요청자:` line once with your write authentication (§Authentication).
    - The table is `| # | 쪽 | 위치 | 범위 | 메모 |` (# · page · location · range · note). `위치` (location) is a path relative to `--manuscript` plus `L<lo>-L<hi>`.
    - **Several documents**: pins are grouped in subsections `## <document name> · \`<key>\` · \`<path>\`` (manuscript, response letter, cover letter, …). Pin numbers are unique across documents.
    - **View-only document subsections** (`— 보기 전용 PDF(줄 번호 없음)`, "view-only PDF (no line numbers)") have no lines. The location cell reads `쪽 N, 영역 …` (page N, region …), and the `«…»` before the note is the text inside that region. Work out what the pin points at from the page, the region text and the note, then find the place to edit in the LaTeX document. If you cannot find it, do not close the pin; report it.
@@ -99,7 +101,7 @@ Send an API token with every request. Where the token comes from depends on wher
 4. **Claim just in time.** Always claim only that pin, right before you edit it. Never claim several pins at once: pins you have not touched yet get locked and others cannot take them (observed 2026-09-23: 23 pins claimed in one go). Put your estimate in minutes in `eta_min`; the viewer shows it as `처리 중 · 약 15분 · 20:40쯤` (in progress · about 15 min · around 20:40).
 
    ```bash
-   curl -s -X POST <base>/api/pins/<id>/claim -H 'Content-Type: application/json' -d '{"eta_min": 10}'
+   curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" <base>/api/pins/<id>/claim -H 'Content-Type: application/json' -d '{"eta_min": 10}'
    ```
 
    | Edit | `eta_min` |
@@ -121,16 +123,16 @@ Send an API token with every request. Where the token comes from depends on wher
    - **Always send `changes`**: `[{"file": "<path as in the location column>", "lo": <first line>, "hi": <last line>}, …]` — the lines you changed **for this pin**, numbered as in the commit `ref` names (after a squash merge: the merged `main`). Up to 50 ranges; a file outside the manuscript folder, a non-integer line or `lo > hi` is a `400` and nothing changes. This is what lets the viewer show each pin only its own hunks when one commit fixes several pins; without it the server can only infer them from the pin's own range, and a fix placed next to the pinned lines is then shown as the whole commit.
    - **Question pin**: do not edit the manuscript (only if the question implies an edit). Post the answer as a reply, then close.
    - **Without a token**, a close is recorded as whoever the `요청자:` line of `GET <base>/pins.md` names. When that is a person's identity — the tailnet address (`https://…ts.net`) from a machine signed in as a person, a trusted proxy's user, or a headerless request to an `--auth local` instance (its owner) — the close can be marked done at once (unless that person's role is `agent`): close only when that person is the user you work for, and choose awaiting review explicitly with `"review": true` in the body; otherwise do not close, and ask for a token. With a token, or as the headerless loopback agent (`로컬/에이전트`), a close goes to awaiting review without it (sending it anyway is harmless).
-   - The same applies to replies: if you are an agent sending as a person (no token — the tailnet address from a machine signed in as a person, a trusted proxy's user, or a headerless `curl` to an `--auth local` instance), reply only when the `요청자:` line names the user you work for. Such a reply to a pin awaiting review or done can reopen it by rule, so keep the state explicitly with `"reopen": false` in every reply. With a token your replies never change the state.
+   - The same applies to replies: if you are an agent sending as a person (no token — the tailnet address from a machine signed in as a person, a trusted proxy's user, or a headerless `curl` to an `--auth local` instance), reply only when the `요청자:` line names the user you work for. Such a reply to a pin awaiting review or done can reopen it by rule, so keep the state explicitly with `"reopen": false` in every reply. With a token your replies do not change the state unless you send `"reopen": true`.
    - **Agents never confirm.** `POST /api/pins/{id}/confirm` returns 403 without a human identity (tailnet header).
 
    ```bash
-   curl -s -X POST <base>/api/pins/3/close \
+   curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" <base>/api/pins/3/close \
      -H 'Content-Type: application/json' \
      -d '{"reply": "Retitled the section to …", "ref": "PR #227 (abc1234)", "changes": [{"file": "main.tex", "lo": 12, "hi": 14}], "review": true}'
-   curl -s -X POST <base>/api/pins/4/reply \
+   curl -s -X POST -H "Authorization: Bearer $LIMN_TOKEN" <base>/api/pins/4/reply \
      -H 'Content-Type: application/json' \
-     -d '{"text": "The interval is the 95% confidence interval; if it contains 0 the effect is not significant."}'
+     -d '{"text": "The interval is the 95% confidence interval; if it contains 0 the effect is not significant.", "reopen": false}'
    ```
 
 7. **Verify.** If you processed several pins, read the pin table again as in step 1. Confirm that the number of open pins is 0 (or all are claimed) and report to the user.
