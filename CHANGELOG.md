@@ -1,12 +1,16 @@
 # Changelog
 
-## Unreleased
+## 0.4.69 — 2026-11-23
 
-The agent contract is added to and nothing is removed or renamed: five HTTP paths, one state file and ten `reason`
-codes are new, no existing path, field, state name or error text changes, and `pins.md` is untouched. An agent that
-never calls the new paths behaves exactly as before. Rolling back to an older release leaves the new state file
-unread, so an instance switched to managed access runs on `--allow` / `--members-only` again and anyone added after
-the switch cannot get in — the closed side.
+The agent contract is added to and nothing is removed or renamed: five HTTP paths, one state file and eleven `reason`
+codes are new, no existing path, field, state name or error text changes, and `pins.md` is untouched. **The upgrade
+alone changes nothing an agent sees.** Switching an instance to managed access changes one thing an agent can already
+meet: a headerless tailnet request under `--tailnet-agent`, which an instance with neither `--allow` nor
+`--members-only` used to admit, is then refused `403 headerless`, because a managed — or unusable — `access.json`
+counts as a list being configured. Rolling back to an older release leaves the new state file unread, so admission is
+`--allow` / `--members-only` again, and **that is not always the closed side**: under `--members-only` the rows the
+switch wrote still admit everyone they name, and with neither flag the instance admits everyone a header identifies
+again.
 
 ### Added
 
@@ -14,10 +18,12 @@ the switch cannot get in — the closed side.
   panel, shown only to the owner, that lists the instance's members with their role and when they were last seen,
   lists the people this server's tailnet shows who are not members yet, and takes a login typed in by hand. Each
   change applies from the next request, with no restart, and is recorded in `audit.jsonl` under the actions that
-  already existed (`member_added`, `member_role`, `member_removed`). The screen may give only the `viewer` and
-  `editor` roles: the first `owner` is still made with `limn member add <instance> <login> --role owner` and nothing
-  else, so nobody who can reach the tailnet can raise their own privilege. `limn member` keeps working and edits the
-  same file under the same lock ([ADR-0055](docs/adr/0055-access-managed-from-the-viewer.md)).
+  already existed (`member_added`, `member_role`, `member_removed`); the switch itself writes one new action,
+  `access_managed`, on every successful press, including a press that changes no row. The screen may give only the
+  `viewer` and `editor` roles, so nobody who can reach the tailnet can raise their own privilege: an `owner` is made
+  from the command line alone (`limn member add <instance> <login> --role owner`, or `limn member role` on a login
+  that already has a row). `limn member` keeps working and edits the same file under the same lock
+  ([ADR-0055](docs/adr/0055-access-managed-from-the-viewer.md)).
 - **Managed access, and the one press that turns it on.** A new state file `<state>/access.json` (mode `0600`) holds
   one flag. While it says `managed`, `people.json` alone decides who is admitted — a login with a row gets in, every
   other header-identified person is refused, and `--allow` and `--members-only` are ignored, which the startup `auth`
@@ -25,8 +31,12 @@ the switch cannot get in — the closed side.
   an editor on a first change, so a member exists only because the owner said so. Without the file nothing changes:
   admission is what it was, so an upgrade alone never widens who gets in. The switch is a press on the panel, which
   first shows who gets in today beside who would get in after, counts the people it would **newly** admit, and
-  defaults to admitting exactly who gets in today — the default press is a no-op. Turning it off is the same path and
-  shows the same comparison. An `access.json` that exists but cannot be used (unreadable, not UTF-8 JSON, not an
+  defaults to admitting exactly who gets in today. On an instance with `--allow` or `--members-only` that default
+  press is a no-op. An instance with neither has no such default: managed access cannot say "everyone a header
+  identifies", which is what that instance admits today, so the screen says so in the comparison and the press
+  narrows admission to the rows. On an `--allow` instance the switch also keeps the `owner` and `agent` rows the body
+  does not name, so an owner outside the allowlist is admitted after — the count names them. Turning it off is the
+  same path and shows the same comparison. An `access.json` that exists but cannot be used (unreadable, not UTF-8 JSON, not an
   object, a `version` other than 1, a `managed` that is not a boolean) refuses every header-identified person
   (`403 access_unreadable`) and warns once on stderr; tokens and the `--auth local` owner are unaffected, so the owner
   can repair or delete it.
@@ -34,9 +44,12 @@ the switch cannot get in — the closed side.
   every token and the headerless loopback agent get `403 owner_only`. `POST /api/access/managed` is the switch (it
   needs a confirmation body, like `/api/clear`), and `POST /api/members/add`, `/api/members/role` and
   `/api/members/remove` change one member each; the three refuse an instance that is not managed with
-  `409 not_managed`. Ten `reason` codes are new: `access_unreadable`, `people_unreadable`, `role_not_settable`,
-  `not_managed`, `last_owner`, `locks_out_owner`, `already_member`, `not_a_member`, `bad_access_request` and
-  `bad_login`; every existing code and error text is unchanged. The
+  `409 not_managed`. Eleven `reason` codes are new: `access_unreadable`, `people_unreadable`, `role_not_settable`,
+  `not_managed`, `last_owner`, `locks_out_owner`, `already_member`, `not_a_member`, `bad_access_request`, `bad_login`
+  and `flag_not_written` — the last is the `500` for a switch that wrote `people.json` and could not write
+  `access.json`, so the member rows stand while the flag does not; pressing the same list again is safe, and the code
+  is separate from `500 internal` because that half is not a no-op. Every existing code and error text is unchanged.
+  The
   tailnet candidate list is read from the machine's own `tailscaled` over its local API with the standard library
   alone — no dependency, no stored credential, no request that leaves the machine. It is partial by construction (the
   daemon reports the owners of the peers in this node's network map, which the tailnet's access rules filter, so a
@@ -52,6 +65,28 @@ the switch cannot get in — the closed side.
   `409 last_owner` — the rule lives in the operation both doors share. **So replacing an owner now has an order**:
   add the new owner with `limn member add <instance> <login> --role owner` first, then remove the old one. Editing
   `people.json` by hand is still not blocked; the file is the owner's.
+
+### Fixed
+
+- **The memo popover follows every piece in view, not the range's first piece.** When a selected line range began on
+  an earlier page — a paragraph that crosses a page break, a table float placed before the body that refers to it —
+  the first piece sat above the viewport, the popover anchored to it and hid itself, so a person looking straight at
+  the selection they had just dragged saw no popover at all (#541). A 20-page sweep hid it on 7 pages; the same sweep
+  on this release hid it on none. Anchoring to the pieces in view also keeps the popover out of the middle of the
+  selection whenever one side has room — it covered 22,179px² on the reproduction's first page — though with room on
+  neither side it still falls back inside the area. The badge, the undo chip,
+  `[보기]` and the notification still read the first piece
+  ([ADR-0054](docs/adr/0054-selection-popover-follows-pieces-in-view.md), which partly supersedes ADR-0049).
+- **A pinch in the comparison view follows the fingers, and opening a notification reveals its pin.** Comparison
+  pages now keep their canvases while the gesture runs, the page geometry follows the fingers, and the viewer repaints
+  at the final size once the last touch in the comparison area lifts or is cancelled; lifting a third finger resumes
+  the gesture with the remaining pair, and the canvas stays available to the browser's own image actions. Opening a
+  notification reveals its pin card after navigating to the manuscript, and clears the mentions-only filter when that
+  filter would hide the target. Navigating from a card to a manuscript mark is unchanged.
+- **A `tokens.json` nested past the JSON parser's depth is an unusable file, not a crash.** `load_tokens` was the
+  last policy loader in `security/` that caught `OSError` and `ValueError` only. Such a file raises `RecursionError`,
+  which is neither, so it escaped the loader and every bearer request answered `500 internal` instead of the
+  documented warning and `401 bad_token`. It now reads as unusable, like `access.json` and `people.json`.
 
 ## 0.4.68 — 2026-11-20
 
