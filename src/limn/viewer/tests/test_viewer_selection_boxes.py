@@ -803,21 +803,123 @@ class SelectionBoxesOnScreen(BrowserBase):
         page.mouse.click(away[0], away[1])
         page.wait_for_function("COMPOSE.current===null", timeout=8000)
 
-    def test_the_popover_anchors_to_the_first_piece(self):
-        """With several pieces the note popover stands under the first - the topmost block of the lowest page, where the
-        person was reading - not under the piece on the next page."""
+    def test_the_popover_stands_by_the_first_piece_when_it_alone_is_in_view(self):
+        """With the range's second piece on the next page, below the view, the note popover stands under the first -
+        the one piece in view, where the person was reading - not down by the piece on the next page."""
         page = self.view()
         self.drag(page)
         self.rung(page, "env")
         place = page.evaluate(
             """() => {const pop = document.querySelector('#sel-pop'), pieces = document.querySelectorAll('.sel');
                  const rect = e => {const b = e.getBoundingClientRect(); return {left: b.left, top: b.top, bottom: b.bottom};};
-                 return {shown: !pop.hidden, pop: rect(pop), first: rect(pieces[0]), second: rect(pieces[1])};}"""
+                 return {shown: !pop.hidden, pop: rect(pop), first: rect(pieces[0]), second: rect(pieces[1]),
+                   areaBottom: popoverFreeArea().bottom};}"""
         )
+        self.assertGreaterEqual(place["second"]["top"], place["areaBottom"])  # the second piece is out of the view
         self.assertTrue(place["shown"])
         self.assertAlmostEqual(place["pop"]["left"], place["first"]["left"], delta=1)
         self.assertGreaterEqual(place["pop"]["top"], place["first"]["bottom"])
         self.assertLess(place["pop"]["top"], place["second"]["top"])
+
+    def test_the_popover_hides_with_every_piece_scrolled_to_the_side_and_comes_back(self):
+        """Zoomed in, the PDF scrolled sideways until the selection lies wholly left of the free area: no piece is in
+        view, so the popover hides as it does when the selection is scrolled away up or down; scrolled back, it shows
+        under the selection again."""
+        page = self.view()
+        self.drag(page)
+        page.evaluate("zoomTo(PAGE_SCALE*4)")
+        settle(page)
+        shown = "(()=>{const p=document.querySelector('#sel-pop');return !p.hidden&&getComputedStyle(p).visibility!=='hidden';})()"
+        page.evaluate(
+            "()=>{const L=document.querySelector('#left'),b=COMPOSE.box.getBoundingClientRect(),a=popoverFreeArea();"
+            "L.scrollTop+=b.top-a.top-40;L.scrollLeft+=b.left-a.left-40;}"
+        )
+        settle(page)
+        self.assertTrue(page.evaluate(shown), "no popover by the selection in view")
+        page.evaluate(
+            "()=>{const L=document.querySelector('#left'),b=COMPOSE.box.getBoundingClientRect(),a=popoverFreeArea();"
+            "L.scrollLeft+=b.right-a.left+200;}"
+        )
+        settle(page)
+        side = page.evaluate("[COMPOSE.box.getBoundingClientRect().right, popoverFreeArea().left]")
+        self.assertLess(side[0], side[1])  # the selection is wholly left of the area
+        self.assertFalse(page.evaluate(shown), "the popover shows with the selection scrolled out to the side")
+        page.evaluate(
+            "()=>{const L=document.querySelector('#left'),b=COMPOSE.box.getBoundingClientRect(),a=popoverFreeArea();"
+            "L.scrollLeft+=b.left-a.left-40;}"
+        )
+        settle(page)
+        self.assertTrue(page.evaluate(shown), "the popover did not come back with the selection")
+
+    def test_the_popover_stays_by_the_piece_in_view_when_the_first_is_scrolled_away(self):
+        """Issue #541: a drag at the top of page 2 whose paragraph began at the foot of page 1. The range's first piece
+        - the selection's own box - is above the view while the piece the drag was made over is on screen, and the note
+        popover shows inside the free area, 8px under that piece. Only with every piece scrolled away does it hide."""
+        self.PICK["levels"][1]["boxes"] = [
+            {"page": 1, "frac": [0.125, 0.875, 0.5, 0.0625]},
+            {"page": 2, "frac": [0.125, 0.0625, 0.5, 0.125]},
+        ]
+        page = self.view()
+        page.evaluate(
+            "()=>{const L=document.querySelector('#left');"
+            "L.scrollTop+=document.getElementById('p2').getBoundingClientRect().top-popoverFreeArea().top-8;}"
+        )
+        settle(page)
+        b = page.locator("#p2").bounding_box()
+        x, y = b["x"] + b["width"] * 0.2, b["y"] + b["height"] * 0.08
+        page.mouse.move(x, y)
+        page.mouse.down()
+        page.mouse.move(x + b["width"] * 0.3, y + b["height"] * 0.05, steps=6)
+        page.mouse.up()
+        page.wait_for_function("COMPOSE.current&&!COMPOSE.picking", timeout=8000)
+        settle(page)
+        where = """() => {const rect = e => {const b = e.getBoundingClientRect();
+                 return {left: b.left, top: b.top, right: b.right, bottom: b.bottom};};
+                 const pop = document.querySelector('#sel-pop'), a = popoverFreeArea();
+                 return {shown: !pop.hidden && getComputedStyle(pop).visibility !== 'hidden', pop: rect(pop),
+                   own: rect(COMPOSE.box), ownPage: COMPOSE.box.parentElement.id,
+                   part: rect(document.querySelector('.sel-part')),
+                   area: {left: a.left, top: a.top, right: a.right, bottom: a.bottom}};}"""
+        got = page.evaluate(where)
+        self.assertEqual(got["ownPage"], "p1")
+        self.assertLess(got["own"]["bottom"], got["area"]["top"])  # the first piece is out of the view
+        self.assertTrue(got["shown"], "the popover hid while the piece dragged over is on screen")
+        pop, part, area = got["pop"], got["part"], got["area"]
+        self.assertGreaterEqual(pop["top"], area["top"])
+        self.assertLessEqual(pop["bottom"], area["bottom"])
+        self.assertAlmostEqual(pop["top"], part["bottom"] + 8, delta=1)
+        self.assertAlmostEqual(pop["left"], part["left"], delta=1)
+        page.evaluate("document.querySelector('#left').scrollTop=document.querySelector('#left').scrollHeight")
+        settle(page)
+        self.assertFalse(page.evaluate(where)["shown"], "the popover shows with every piece scrolled away")
+
+    def test_the_popover_goes_under_every_piece_in_view_and_covers_none(self):
+        """Two pieces of the range on screen, a heading line and the paragraph under it: the note popover stands 8px
+        under the lower one, with the first's left edge, so it covers neither - under the first alone it would lie over
+        the paragraph the person just chose (issue #541)."""
+        self.PICK["levels"][1]["boxes"] = [
+            {"page": 1, "frac": [0.125, 0.125, 0.5, 0.03125]},
+            {"page": 1, "frac": [0.125, 0.1875, 0.5, 0.25]},
+        ]
+        page = self.view()
+        self.drag(page)
+        got = page.evaluate(
+            """() => {const rect = e => {const b = e.getBoundingClientRect();
+                 return {left: b.left, top: b.top, right: b.right, bottom: b.bottom};};
+                 const pop = document.querySelector('#sel-pop');
+                 return {shown: !pop.hidden && getComputedStyle(pop).visibility !== 'hidden', pop: rect(pop),
+                   pieces: [...document.querySelectorAll('.sel')].map(rect)};}"""
+        )
+        self.assertTrue(got["shown"])
+        first, second = got["pieces"]
+        self.assertLess(first["bottom"], second["top"])
+        self.assertAlmostEqual(got["pop"]["top"], second["bottom"] + 8, delta=1)
+        self.assertAlmostEqual(got["pop"]["left"], first["left"], delta=1)
+        for piece in (first, second):
+            self.assertFalse(
+                got["pop"]["top"] < piece["bottom"] and piece["top"] < got["pop"]["bottom"],
+                "the popover covers a piece",
+            )
 
     def test_cancelling_the_selection_takes_every_piece_off(self):
         """Esc on a selection of several pieces leaves no box on the pages."""

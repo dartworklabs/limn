@@ -13789,7 +13789,8 @@ function drawBox(box, startX, startY, x, y) {
 // only ever taken off by it (docs/adr/0051-pin-badge-drag-reposition.md D5).
 // A box of a pending box's range other than the pending box itself. The lines a range covers may print as several
 // blocks, and each is drawn as a box of its own on the page it stands on; the pending box is the first of them, so
-// everything that is the one place - the note popover's anchor, the identity a click-off compares - stays that box.
+// everything that is the one place - the identity a click-off compares, the box the note popover belongs to - stays
+// that box. The popover stands by every piece in view, the pending box and these (placeSelectionPopover).
 // The boxes beside it carry .sel-part and their owner's name, which is how they are found again and taken off.
 function newSelectionPart(pageElement, owner) {
   const part = document.createElement('div');
@@ -13798,6 +13799,8 @@ function newSelectionPart(pageElement, owner) {
   pageElement.appendChild(part);
   return part;
 }
+/** The boxes drawn beside the owner's pending box for its range's other pieces, in document order (page by page, and
+ * on a page in the order they were drawn); empty when the range prints as one piece. */
 function selectionParts(owner) {
   return document.querySelectorAll('.sel-part[data-owner=' + owner + ']');
 }
@@ -22932,8 +22935,8 @@ function clearPendingSave() {
 }
 
 // ---------------------- The note popover by the selection box (docs/handbook/viewer.md §패널 정리 '선택 상자 곁 메모')
-// With a mouse on the desktop and mid layouts, a drag that ends opens a small popover under the dashed box: the
-// location, a note field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the
+// With a mouse on the desktop and mid layouts, a drag that ends opens a small popover under the dashed box - under
+// every piece of it in view when the chosen range prints as several (shownSpan): the location, a note field, [자세히 →] and [저장], so the note can be written where the eye already is. The field is the
 // composer's note - one value, edited from either place - and [저장] and Ctrl/⌘+Enter take savePin(), the composer's
 // own path, so the saved chip with its undo and every rule of §알림 자리 hold unchanged. '@' in the field offers the
 // composer's @-list by the field; a pick's tag is kept on the composer's note (composer/input-mentions.ts mentionModel).
@@ -22944,8 +22947,39 @@ const SELECTION_POPOVER = $('#sel-pop'),
   SELECTION_POPOVER_FIELD = findElement(SELECTION_POPOVER, 'textarea', HTMLTextAreaElement),
   SELECTION_POPOVER_GAP = 8;
 SELECTION_POPOVER_FIELD._mirrorOf = $('#note'); // its @-tags are the note's, which saves them
-// The box the popover belongs to; null while it is closed.
+// The box the popover belongs to; null while it is closed. It is the selection's pending box, which stands on the first
+// piece of the chosen range; the range's other pieces are boxes beside it (pdf/input-selection.ts selectionParts).
 let SELECTION_POPOVER_BOX = null;
+/**
+ * The part of a selection the popover stands by: the smallest rectangle holding every one of the selection's pieces
+ * that lies in the free area, or null when none does (the selection is scrolled away). A piece lies in the area when it
+ * shares some of it; a piece with no size shares none. The first piece of a range is the top of its first page, so a
+ * range that began on the page before (a paragraph across the page break, a float placed earlier) has it above the
+ * view while the person reads the rest: standing by the pieces in view keeps the popover by what is on screen, and
+ * under all of them rather than inside the selection. Pure.
+ */
+function shownSpan(pieces, area) {
+  let span = null;
+  for (const piece of pieces) {
+    const inArea =
+      piece.right > piece.left &&
+      piece.bottom > piece.top &&
+      piece.right > area.left &&
+      piece.left < area.right &&
+      piece.bottom > area.top &&
+      piece.top < area.bottom;
+    if (!inArea) continue;
+    span = span
+      ? {
+          left: Math.min(span.left, piece.left),
+          top: Math.min(span.top, piece.top),
+          right: Math.max(span.right, piece.right),
+          bottom: Math.max(span.bottom, piece.bottom),
+        }
+      : { left: piece.left, top: piece.top, right: piece.right, bottom: piece.bottom };
+  }
+  return span;
+}
 // Where a popover of width x height goes for a box in the free area (rectangles {left, top, right, bottom}), gap px
 // from the box and from the area's edges: below the box with its left edge, above it when below has no room, at the
 // area's foot when neither side has room; moved left to stay inside the area's right edge, never past its left. Not
@@ -23017,27 +23051,33 @@ function drawSelectionPopover() {
   SELECTION_POPOVER.hidden = false;
   placeSelectionPopover();
 }
-// Puts the popover by its box in the free area (popPlace); hidden while the box is scrolled out of it. An @-list open
-// on its field goes with it, and closes while it is hidden.
+// Puts the popover in the free area by the pieces of its selection in view - its box and the boxes beside it for the
+// range's other pieces (shownSpan, popPlace); hidden while no piece is in the area, scrolled out of it either way -
+// up, down or, zoomed in, to the side. An @-list open on its field goes with it, and closes while it is hidden.
 function placeSelectionPopover() {
   if (SELECTION_POPOVER.hidden || !SELECTION_POPOVER_BOX) return;
   if (!wantsSelectionPopover()) {
     closeSelectionPopover();
     return;
   }
+  const area = popoverFreeArea(),
+    box = SELECTION_POPOVER_BOX.getBoundingClientRect(),
+    parts = Array.from(selectionParts('compose'), (part) => part.getBoundingClientRect()),
+    span = shownSpan([box, ...parts], area);
   const place = popPlace(
-    SELECTION_POPOVER_BOX.getBoundingClientRect(),
-    popoverFreeArea(),
+    span || box,
+    area,
     SELECTION_POPOVER.offsetWidth,
     SELECTION_POPOVER.offsetHeight,
     SELECTION_POPOVER_GAP,
   );
+  const shown = span !== null;
   SELECTION_POPOVER.style.left = place.left + 'px';
   SELECTION_POPOVER.style.top = place.top + 'px';
   SELECTION_POPOVER.dataset.side = place.side;
-  SELECTION_POPOVER.style.visibility = place.shown ? '' : 'hidden';
+  SELECTION_POPOVER.style.visibility = shown ? '' : 'hidden';
   if (MENTION.ta === SELECTION_POPOVER_FIELD) {
-    if (place.shown) mentionPlace();
+    if (shown) mentionPlace();
     else mentionClose();
   }
 }
