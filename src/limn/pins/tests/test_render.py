@@ -235,8 +235,9 @@ class RequesterLine(unittest.TestCase):
         self.assertTrue(line.startswith("요청자: A\\|B C D(``a`b``) · 역할 editor"), line)
 
     def test_markdown_sees_exactly_the_login_as_code(self):
-        """Parsed as Markdown (the vendored markdown-it), the line holds one code span and it is the login, whatever
-        backticks or backslashes the display name or the login carry: a name cannot open or close the login's span."""
+        """Parsed as Markdown (the vendored markdown-it), the line's first code span is the login, whatever backticks,
+        backslashes or brackets the display name or the login carry: a name can neither open nor close the login's span
+        nor turn it into a link's address (`[Mina](`login`)`)."""
         bundle = Path(render.__file__).resolve().parents[2] / "vendor" / "markdown-it" / "markdown-it.esm.min.mjs"
         cases = [
             ("Mina `", "mina@example.com"),
@@ -245,6 +246,9 @@ class RequesterLine(unittest.TestCase):
             ("back\\", "mina@example.com"),
             ("Alice Kim", "a`b"),
             ("`", "``c``"),
+            ("[Mina]", "mina@example.com"),
+            ("![x]", "mina@example.com"),
+            ("[a](b) [c]", "mina@example.com"),
         ]
         lines = [render.requester_line(Requester(n, lg, "editor", "tailnet-header"), "") for n, lg in cases]
         out = run_node(
